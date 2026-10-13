@@ -189,6 +189,18 @@ out="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "full + attribution on: output as before (nothing)" || bad "full on: rc=$rc out=${out:0:200}"
 c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f2" "$T/syn/f2" | ctx)"
 [[ "$c" == *"Attribution is off"* && "$c" != *"Silent mode"* ]] && ok "full + attribution off: only the attribution line" || bad "full off: [$c]"
+# The profile does not set `attribution`: off in Silent mode, on in Full mode; a value written in the profile wins.
+printf '{"schema":2,"name":"silent","mode":"silent","workflow":{"folder":"%s"}}\n' "$T/wf" >"$T/sp/silent/profile.json"
+echo '{"schema":2,"name":"fullon","mode":"full"}' >"$T/sp/fullon/profile.json"
+c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
+[[ "$c" == *"This project works in Silent mode"* && "$c" == *"Attribution is off for this project"* ]] \
+    && ok "silent, attribution not set: the attribution line is mixed in" || bad "silent, attribution not set: [$c]"
+out="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/f1" "$T/syn/f1")"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "full, attribution not set: nothing is mixed in" || bad "full, attribution not set: rc=$rc out=${out:0:200}"
+printf '{"schema":2,"name":"silent","mode":"silent","attribution":"on","workflow":{"folder":"%s"}}\n' "$T/wf" >"$T/sp/silent/profile.json"
+c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
+[[ "$c" == *"This project works in Silent mode"* && "$c" != *"Attribution is off"* ]] \
+    && ok "silent with an explicit attribution on: the mode lines without the attribution line" || bad "silent, explicit on: [$c]"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \

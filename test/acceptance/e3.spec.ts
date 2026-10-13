@@ -47,7 +47,12 @@ const WAVE_TIMEOUT_MS = 90 * 60_000
 const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
 const WORKFLOW_FILES = [/(^|\/)\.scratch(\/|$)/, /(^|\/)HANDOFF(\.md)?$/i, /(^|\/)docs\/adr\//, /(^|\/)adr\/\d{4}-/, /(^|\/)CONTEXT\.md$/, /(^|\/)lessons\//]
-const ATTRIBUTION = [/Co-Authored-By: Claude/i, /Generated with \[Claude Code\]/i]
+/**
+ * The Claude attribution lines, as bin/silent-check knows them: the trailer in either letter case
+ * ("Co-Authored-By", and the "Co-authored-by" GitHub writes on a squash merge) and the PR line with or
+ * without its link.
+ */
+const ATTRIBUTION = [/Co-Authored-By:[ \t]*Claude[^\n]*/gi, /Generated with \[?Claude Code[^\n]*/gi]
 
 // ── The search for this run's own values ────────────────────────────────────
 
@@ -69,6 +74,41 @@ const plantedTrace = (workflowFolder: string): string => `Merge ${EPIC}/01 (${TI
 function tracesIn(text: string, values: readonly string[]): string[] {
   const lower = text.toLowerCase()
   return values.filter((value) => value !== '' && lower.includes(value.toLowerCase()))
+}
+
+/** The Claude attribution lines `text` carries, each from its first word to the end of its line. */
+function attributionIn(text: string): string[] {
+  return ATTRIBUTION.flatMap((pattern) => text.match(pattern) ?? []).map((line) => line.trim())
+}
+
+/**
+ * The lines of `text` with the address Claude signs commits with. ATTRIBUTION repeats the patterns of
+ * bin/silent-check, so it misses what silent-check misses — a trailer without the word "Claude"
+ * (`Co-authored-by: Opus 5.5 <noreply@anthropic.com>`). This sign does not depend on those patterns.
+ */
+function anthropicAddressIn(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => /noreply@anthropic\.com/i.test(line))
+    .map((line) => line.trim())
+}
+
+/**
+ * What is wrong with one text the repository or GitHub shows to people: what silent-check says of it,
+ * the values of this run, and the Claude attribution lines. The lines count whatever the Profile and
+ * silent-check say: a Silent Project is connected with attribution off, and a Profile that came out
+ * with `on` must fail the run rather than switch this search off.
+ */
+function textProblems(what: string, text: string, values: readonly string[], check: Run): string[] {
+  const problems: string[] = []
+  if (check.status !== 0) problems.push(`silent-check, ${what}: exit ${check.status} ${check.stdout.trim()} ${check.stderr.trim()}`)
+  const found = tracesIn(text, values)
+  if (found.length > 0) problems.push(`${what}: ${found.join(', ')}`)
+  const attributed = attributionIn(text)
+  for (const line of attributed) problems.push(`${what}: Claude attribution "${line}"`)
+  // A line the patterns above already reported is not reported twice.
+  for (const line of anthropicAddressIn(text)) if (!attributed.some((found) => line.includes(found))) problems.push(`${what}: a line with noreply@anthropic.com "${line}"`)
+  return problems
 }
 
 // ── Processes ───────────────────────────────────────────────────────────────
@@ -301,6 +341,51 @@ test('silent: control — the search for this run’s values finds a planted tra
   expect(tracesIn(`see ${folder.toUpperCase()}/x.md`, values)).toEqual([folder])
 })
 
+test('silent: control — a text with a Claude attribution line is a problem, whatever silent-check said of it (no app)', () => {
+  const values = runValues('/tmp/sandbox/home/.claude/harness-home/projects/silent-app/workflow')
+  // silent-check passed the text: what a Profile with attribution on would make it answer.
+  const passed = { status: 0, stdout: 'silent-check: clean (Silent mode)\n', stderr: '' }
+  // The commit trailer of the run of 2026-10-12, its other letter case, and the PR line with and without the link.
+  const lines = [
+    'Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>',
+    'Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>',
+    '🤖 Generated with [Claude Code](https://claude.com/claude-code)',
+    'Generated with Claude Code',
+  ]
+  for (const line of lines) {
+    const found = line.replace('🤖 ', '')
+    expect(attributionIn(`Add greet(name)\n\n${line}\n`), line).toEqual([found])
+    expect(textProblems('a commit message on refs/heads/main', `Add greet(name)\n\n${line}`, values, passed), line).toEqual([`a commit message on refs/heads/main: Claude attribution "${found}"`])
+  }
+  // Both lines in one PR body: one problem each.
+  expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${lines[2]}\n\n${lines[0]}`, values, passed)).toEqual([
+    `PR body (add-greet): Claude attribution "${lines[0]}"`,
+    'PR body (add-greet): Claude attribution "Generated with [Claude Code](https://claude.com/claude-code)"',
+  ])
+  // The address alone is a problem: a trailer silent-check and the patterns above do not know, in either letter case.
+  for (const line of ['Co-authored-by: Opus 5.5 <noreply@anthropic.com>', 'Signed-off-by: Assistant <NoReply@Anthropic.com>']) {
+    expect(attributionIn(`Add greet(name)\n\n${line}`), line).toEqual([])
+    expect(anthropicAddressIn(`Add greet(name)\n\n  ${line}  \n`), line).toEqual([line])
+    expect(textProblems('a commit message on refs/heads/main', `Add greet(name)\n\n${line}`, values, passed), line).toEqual([`a commit message on refs/heads/main: a line with noreply@anthropic.com "${line}"`])
+    expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${line}`, values, passed), line).toEqual([`PR body (add-greet): a line with noreply@anthropic.com "${line}"`])
+  }
+  // One text with a line the patterns know and another that carries only the address: both are named, each once.
+  expect(textProblems('PR body (add-greet)', `Adds greet(name).\n\n${lines[2]}\n\nCo-authored-by: Opus 5.5 <noreply@anthropic.com>\n${lines[0]}`, values, passed)).toEqual([
+    `PR body (add-greet): Claude attribution "${lines[0]}"`,
+    'PR body (add-greet): Claude attribution "Generated with [Claude Code](https://claude.com/claude-code)"',
+    'PR body (add-greet): a line with noreply@anthropic.com "Co-authored-by: Opus 5.5 <noreply@anthropic.com>"',
+  ])
+  // A clean text, another person as a co-author and the words in a sentence are not attribution.
+  for (const clean of ['Add greet(name) with a node:test test', 'Add greet(name)\n\nCo-authored-by: Ann Lee <ann@example.com>', 'Describe how a Claude Code session starts']) {
+    expect(attributionIn(clean), clean).toEqual([])
+    expect(anthropicAddressIn(clean), clean).toEqual([])
+    expect(textProblems('PR title (add-greet)', clean, values, passed), clean).toEqual([])
+  }
+  // The other two searches still report through the same function.
+  const refused = { status: 1, stdout: 'stdin:1: ticket number "Ticket 05"\n', stderr: '' }
+  expect(textProblems('PR title (x)', `Ticket 05 of ${EPIC}`, values, refused)).toEqual(['silent-check, PR title (x): exit 1 stdin:1: ticket number "Ticket 05" ', `PR title (x): ${EPIC}`])
+})
+
 test('sandbox: control — a row that does not turn ok fails with what the row says (no app)', async () => {
   const stuck = { getAttribute: () => Promise.resolve('fail'), innerText: () => Promise.resolve('Failed  Harness plugin\nerror at install\nRetry') }
   await expect(expectRowStatus(stuck, 'Install the Harness', 'ok', 50)).rejects.toThrow('Install the Harness: the row is "fail", not "ok", after 0 s. The row says: "Failed Harness plugin error at install Retry"')
@@ -492,6 +577,7 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     const profile = (field: string): Run => inSandbox(box, join(bin, 'profile'), ['-C', repo, '--field', field])
     expect(profile('mode').stdout.trim()).toBe('silent')
     expect(profile('workflow.finish').stdout.trim(), 'an account with write access: the finish is a PR with green CI').toBe('pr-green-ci')
+    expect(profile('attribution').stdout.trim(), 'a Silent Project is connected with attribution off').toBe('off')
     workflowFolder = profile('_resolved.workflow_folder').stdout.trim()
     expect(workflowFolder).not.toBe('')
     const ticketsRoot = ok(join(bin, 'ticket'), ['root'], { cwd: repo, env: box.env })
@@ -507,6 +593,8 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
     const plantedCheck = inSandbox(box, join(bin, 'silent-check'), ['-C', repo, '--file', '-'], { input: planted })
     expect(plantedCheck.status, `silent-check on a planted trace: ${plantedCheck.stdout}${plantedCheck.stderr}`).toBe(1)
     expect(tracesIn(planted, values)).toEqual(expect.arrayContaining([EPIC, TICKET_SLUG, `${EPIC}/01`, workflowFolder, '.scratch', 'worfy-harness']))
+    const plantedLine = inSandbox(box, join(bin, 'silent-check'), ['-C', repo, '--file', '-'], { input: 'Add greet(name)\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>\n' })
+    expect(plantedLine.status, `silent-check on a planted attribution line: ${plantedLine.stdout}${plantedLine.stderr}`).toBe(1)
 
     // One Wave, unattended: Autopilot runs the Wave without a person ("Run wave" would hand it to an
     // attended Orchestrator, whose permission prompts nobody answers here).
@@ -570,16 +658,9 @@ test('silent: a Silent Project connects, one Wave runs, and no workflow trace re
   }
 
   const silentCheck = (text: string): Run => inSandbox(box, join(bin, 'silent-check'), ['-C', repo, '--file', '-'], { input: text })
-  const attribution = inSandbox(box, join(bin, 'profile'), ['-C', repo, '--field', 'attribution'])
-  const attributionOff = attribution.status === 0 && attribution.stdout.trim() === 'off'
+  // Attribution lines are searched for in every text, not only when the Profile says off (textProblems).
   const problems: string[] = []
-  for (const { what, text } of texts) {
-    const check = silentCheck(text)
-    if (check.status !== 0) problems.push(`silent-check, ${what}: exit ${check.status} ${check.stdout.trim()} ${check.stderr.trim()}`)
-    const found = tracesIn(text, values)
-    if (found.length > 0) problems.push(`${what}: ${found.join(', ')}`)
-    if (attributionOff) for (const line of ATTRIBUTION) if (line.test(text)) problems.push(`${what}: Claude attribution with attribution off`)
-  }
+  for (const { what, text } of texts) problems.push(...textProblems(what, text, values, silentCheck(text)))
 
   // Files: tracked and untracked in the checkout (the Sessions' worktrees aside: their branches are
   // checked above), and every file of every branch in origin.

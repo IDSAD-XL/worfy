@@ -236,7 +236,19 @@ if (schema === 2 && !MODES.includes(profile.mode))
     )
 // Before modes existed the whole Harness worked as Full mode.
 if (schema === 1) profile.mode = "full"
-if (profile.attribution === undefined) profile.attribution = "on"
+// `attribution` not set (absent or null): the default follows the mode — `off` in Silent mode, whose repository
+// and PRs show no trace of the workflow, `on` in Full mode. `"on"` or `"off"` written in the profile wins in
+// both modes. Any other value is a broken profile, as with `mode`: printed as written it would read as "not
+// off" to bin/silent-check and the guard, and a Silent project would carry the lines its default forbids.
+// bin/silent-check, the guard, the session hook and skills read the resolved value from here; worfy's copy of
+// the default (the "Add project" draft and the move of schema 1 profiles) is held to it by a contract test.
+const ATTRIBUTIONS = ["on", "off"]
+if (profile.attribution === undefined || profile.attribution === null) profile.attribution = profile.mode === "silent" ? "off" : "on"
+else if (!ATTRIBUTIONS.includes(profile.attribution))
+    die(
+        1,
+        `${pjPath}: "attribution" is "on" or "off", got ${JSON.stringify(profile.attribution)} — broken profile (a guessed value would decide whether commits and PRs carry the Claude attribution lines)`
+    )
 // The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
 // `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
 if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }

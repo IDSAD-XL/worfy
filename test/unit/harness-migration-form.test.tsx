@@ -169,6 +169,32 @@ describe('MigrationFormView', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
+  it('a Profile proposed as Silent shows attribution off; the value the owner picks stays when the mode changes', () => {
+    const base = plan()
+    const proposed = base.profiles.map((profile) => ({
+      ...profile,
+      fields: { ...profile.fields, mode: 'silent' as const, attribution: 'off' as const },
+      files: profile.files.map((file) => ({ ...file, after: file.after.replace('"mode": "full"', '"mode": "silent"').replace('"attribution": "on"', '"attribution": "off"') })),
+    }))
+    const { onMove } = renderForm({ plan: { ...base, profiles: proposed } })
+    const added = (): string[] =>
+      screen
+        .getAllByTestId('profile-diff')
+        .flatMap((diff) => Array.from(diff.querySelectorAll<HTMLElement>('[data-diff="added"]')))
+        .map((line) => line.textContent ?? '')
+    expect(screen.getByTestId('profile-mode').getAttribute('data-value')).toBe('silent')
+    expect(screen.getByTestId('profile-attribution').getAttribute('data-value')).toBe('off')
+    expect(added()).toEqual(expect.arrayContaining(['+   "mode": "silent",', '+   "attribution": "off",']))
+    // The owner's own choice is explicit: neither mode rewrites it.
+    pick('profile-attribution', 'on')
+    pick('profile-mode', 'full')
+    pick('profile-mode', 'silent')
+    expect(screen.getByTestId('profile-attribution').getAttribute('data-value')).toBe('on')
+    expect(added()).toEqual(expect.arrayContaining(['+   "mode": "silent",', '+   "attribution": "on",']))
+    fireEvent.click(moveButton())
+    expect(onMove.mock.calls[0]?.[0].profiles).toEqual({ worfy: { mode: 'silent', languageDocs: 'ru', attribution: 'on' } })
+  })
+
   it('a Profile field: Esc on its open list closes the list, not the form; the next Esc closes the form', () => {
     const { onClose } = renderForm()
     const field = screen.getByTestId('profile-mode')

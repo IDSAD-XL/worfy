@@ -248,6 +248,30 @@ jq --arg r "$T/r" '.repos += [{key: "home", match: ($r + "/home"), profile: "hom
 newp home '{"schema":2,"name":"home","mode":"silent","workflow":{"folder":"~/wf"},"tickets":{"root":".scratch/"}}'
 newp relwf '{"schema":2,"name":"relwf","mode":"silent","workflow":{"folder":"wf"}}'
 newp ms '{"schema":2,"name":"ms","mode":"silent","workflow":{"folder":null}}'
+# The default of `attribution` follows the mode: profiles that spell the value against that default.
+for n in silenton fulloff; do git -C "$T/r" init -q -b main "$n"; done
+jq --arg r "$T/r" '.repos += [{key: "silenton", match: ($r + "/silenton"), profile: "silenton"}, {key: "fulloff", match: ($r + "/fulloff"), profile: "fulloff"}]' \
+    "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+newp silenton '{"schema":2,"name":"silenton","mode":"silent","attribution":"on"}'
+newp fulloff '{"schema":2,"name":"fulloff","mode":"full","attribution":"off"}'
+# `attribution` with a value that is neither "on" nor "off", one profile per value and mode: null reads as
+# "not set", anything else is a broken profile. And schema 1 profiles: one that names a mode (schema 1 has
+# none: it is read as Full), one with a broken value.
+ATTR_BAD=(empty:'""' upper:'"OFF"' zero:0 false:false word:'"yes"')
+attr_names=(silentnull fullnull legacysilent legacybad)
+for v in "${ATTR_BAD[@]}"; do attr_names+=("silent${v%%:*}" "full${v%%:*}"); done
+for n in "${attr_names[@]}"; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+newp silentnull '{"schema":2,"name":"silentnull","mode":"silent","attribution":null}'
+newp fullnull '{"schema":2,"name":"fullnull","mode":"full","attribution":null}'
+for v in "${ATTR_BAD[@]}"; do
+    newp "silent${v%%:*}" "{\"schema\":2,\"name\":\"silent${v%%:*}\",\"mode\":\"silent\",\"attribution\":${v#*:}}"
+    newp "full${v%%:*}" "{\"schema\":2,\"name\":\"full${v%%:*}\",\"mode\":\"full\",\"attribution\":${v#*:}}"
+done
+oldp legacysilent '{"schema":1,"name":"legacysilent","mode":"silent"}'
+oldp legacybad '{"schema":1,"name":"legacybad","attribution":"OFF"}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -280,9 +304,41 @@ fails_with "schema 2: with mode other -> 1 with the reason" 1 '"other"' "$P2" -C
 fails_with "unknown schema 3 -> 1 with the reason" 1 'schema' "$P2" -C "$T/r/schema3" --name
 fails_with "profile in neither place -> 3 naming both" 3 "$HH/projects/nofile/profile.json" "$P2" -C "$T/r/nofile" --name
 eq "schema 1: --field mode -> full" full "$P2" -C "$T/r/legacy" --field mode
-eq "--field attribution absent -> on (schema 2)" on "$P2" -C "$T/r/bare" --field attribution
+# `attribution` absent: the default follows the mode — `off` in Silent mode, `on` in Full mode (schema 1 is
+# always Full). A value written in the file wins in both modes. --json carries the same resolved value.
+attr_json=(bash -c 'set -o pipefail; "$@" --json | jq -r .attribution' _ "$P2" -C)
+eq "--field attribution absent, Full mode -> on (schema 2)" on "$P2" -C "$T/r/bare" --field attribution
 eq "--field attribution absent -> on (schema 1)" on "$P2" -C "$T/r/legacy" --field attribution
+eq "--field attribution absent, Silent mode -> off" off "$P2" -C "$T/r/home" --field attribution
 eq "--field attribution from the file" off "$P2" -C "$T/r/demo" --field attribution
+eq "--field attribution: an explicit on in Silent mode wins" on "$P2" -C "$T/r/silenton" --field attribution
+eq "--field attribution: an explicit off in Full mode wins" off "$P2" -C "$T/r/fulloff" --field attribution
+eq "--json attribution absent, Full mode -> on" on "${attr_json[@]}" "$T/r/bare"
+eq "--json attribution absent (schema 1) -> on" on "${attr_json[@]}" "$T/r/legacy"
+eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
+eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
+eq "--json attribution: an explicit off in Full mode wins" off "${attr_json[@]}" "$T/r/fulloff"
+# Schema 1 has no mode: a "mode" written there does not turn the default to off.
+eq "--field attribution absent, schema 1 that names mode silent -> on" on "$P2" -C "$T/r/legacysilent" --field attribution
+eq "schema 1 that names mode silent: --field mode -> full" full "$P2" -C "$T/r/legacysilent" --field mode
+# null is "not set": the default of the mode.
+eq "--field attribution null, Silent mode -> off" off "$P2" -C "$T/r/silentnull" --field attribution
+eq "--field attribution null, Full mode -> on" on "$P2" -C "$T/r/fullnull" --field attribution
+eq "--json attribution null, Silent mode -> off" off "${attr_json[@]}" "$T/r/silentnull"
+eq "--json attribution null, Full mode -> on" on "${attr_json[@]}" "$T/r/fullnull"
+# Any other value is a broken profile, exit 1 with the value named, in every way of asking — as with "mode".
+for v in "${ATTR_BAD[@]}"; do
+    for m in silent full; do
+        fails_with "attribution ${v#*:}, $m -> 1 with the reason (--field)" 1 "\"attribution\" is \"on\" or \"off\", got ${v#*:} — broken profile" "$P2" -C "$T/r/$m${v%%:*}" --field attribution
+        fails_with "attribution ${v#*:}, $m -> 1 (--json)" 1 '"attribution"' "$P2" -C "$T/r/$m${v%%:*}" --json
+        fails_with "attribution ${v#*:}, $m -> 1 (--name)" 1 '"attribution"' "$P2" -C "$T/r/$m${v%%:*}" --name
+        check "attribution ${v#*:}, $m: nothing on stdout" 1 "" bash -c '[ -n "$("$@" 2>/dev/null)" ]' _ "$P2" -C "$T/r/$m${v%%:*}" --field attribution
+    done
+done
+fails_with "schema 1: attribution \"OFF\" -> 1 with the reason" 1 'got "OFF"' "$P2" -C "$T/r/legacybad" --field attribution
+# The summary agents read prints the resolved profile: a Silent project without the field shows off there.
+check "summary of a Silent profile without attribution names off" 0 '"attribution": "off"' "$P2" -C "$T/r/home"
+check "summary of a Full profile without attribution names on" 0 '"attribution": "on"' "$P2" -C "$T/r/bare"
 check "--field language.docs absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field language.docs
 check "--field language.docs absent (schema 1, string language) -> 4" 4 "" "$P2" -C "$T/r/legacy" --field language.docs
 eq "--field language.docs from the file" ru "$P2" -C "$T/r/demo" --field language.docs
