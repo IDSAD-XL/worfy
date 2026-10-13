@@ -136,7 +136,7 @@ describe('fs.rmSync in src/ and in scripts/', () => {
   it('is used in no script but inside a copy of the module, and in the one line of install-stable.mjs that removes off Windows', () => {
     // (By the text of the line, not by its number.)
     expect(scanned('scripts', /\.(mjs|cjs|js|ts)$/).map((use) => use.replace(/:\d+: /, ': '))).toEqual([
-      "scripts/install-stable.mjs: const remove = (path) => (platform === 'win32' ? removeTree(path) : rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))",
+      "scripts/install-stable.mjs: if (platform !== 'win32') return rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })",
     ])
   })
 

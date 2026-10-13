@@ -31,12 +31,16 @@ interface InstallStable {
   builtApp: (platform: string, dist: string, names: string[], exists: (path: string) => boolean) => string
   swapIn: (paths: { staging: string; target: string; aside: string }, files: Files) => string | null
   onDisk: (path: string) => string
-  installStable: (argv: string[], options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void }) => string
+  installStable: (
+    argv: string[],
+    options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void; removeFolder?: (path: string) => void },
+  ) => string
   stamp: (ms: number) => string
+  REMOVE_ROUNDS: number
 }
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp } = (await import(
+const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, REMOVE_ROUNDS } = (await import(
   pathToFileURL(SCRIPT).href
 )) as InstallStable
 
@@ -764,6 +768,47 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
         expect(moves).toEqual([move])
         expect(readdirSync(apps)).toEqual([])
       }
+    }, 60_000)
+
+    // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
+    // whole tree; main had five tries for every entry. The script runs the walk again.
+    it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the walk is not called', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const apps = join(dir, 'apps')
+      const aside = leftoverName(NAME, 'replaced', process.pid)
+      expect(installStable([target], inProcess())).toContain(`install-stable: installed ${target} (commit `)
+      /** One more install over the copy that is there; the removal of the copy moved aside fails `refusals` times with `code`. */
+      const again = (refusals: number, code: string): { out: string; asked: number } => {
+        let asked = 0
+        const removeFolder = (path: string): void => {
+          if (basename(path) !== aside) return removeTestTree(path)
+          asked += 1
+          if (refusals-- > 0) throw Object.assign(new Error(`${code}: the copy moved aside is held`), { code })
+          removeTestTree(path)
+        }
+        return { out: installStable([target], { ...inProcess(), removeFolder }), asked }
+      }
+      if (!WINDOWS) {
+        expect(again(99, 'EBUSY')).toMatchObject({ asked: 0 })
+        expect(readdirSync(apps).sort()).toEqual([`${NAME}`, 'worfy-stable.json'].sort())
+        return
+      }
+      // Busy three times: the fourth run of the walk removes it, and nothing is said.
+      const passed = again(3, 'EBUSY')
+      expect(passed.asked).toBe(4)
+      expect(passed.out).not.toContain('could not be removed')
+      expect(readdirSync(apps).sort()).toEqual([NAME, 'worfy-stable.json'].sort())
+      // Busy for good: five runs of the walk, then the copy stays aside for the next install.
+      const held = again(99, 'EPERM')
+      expect(held.asked).toBe(REMOVE_ROUNDS)
+      expect(REMOVE_ROUNDS).toBe(5)
+      expect(held.out).toContain(`the earlier copy could not be removed and is left at ${join(apps, aside)} (EPERM: the copy moved aside is held); the next run removes it`)
+      expect(readdirSync(apps).sort()).toEqual([NAME, aside, 'worfy-stable.json'].sort())
+      removeTestTree(join(apps, aside))
+      // An error that is not "busy": the walk is not run again.
+      const broken = again(99, 'EIO')
+      expect(broken.asked).toBe(1)
+      expect(broken.out).toContain('(EIO: the copy moved aside is held)')
     }, 60_000)
 
     it('when the file that names the build cannot be written, says so; the new copy is in, and no earlier copy stays aside', () => {

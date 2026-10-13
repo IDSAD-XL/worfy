@@ -42,6 +42,8 @@ const MAX_PID = 4_194_304
 /** How often and how long a step of the file system is tried again on Windows when a file is busy. */
 const RETRIES = 5
 const RETRY_MS = 100
+/** How many times a removal that busy entries stopped is run on Windows, each with its own five waits. */
+export const REMOVE_ROUNDS = 5
 
 const rulesOf = (platform) => (platform === 'win32' ? win32 : posix)
 
@@ -416,12 +418,27 @@ function plainFile(path) {
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
-  /** Removes a copy, or what is left of one. */
-  const remove = (path) => (platform === 'win32' ? removeTree(path) : rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }))
+  /**
+   * Removes a copy, or what is left of one. On Windows the walk has five waits for a whole tree:
+   * the application needs that bound, a wait blocks its main process. This script is a command in
+   * a terminal and has the time, so a removal that busy entries stopped is run again, each run
+   * with its own waits: six files that are busy for one try each all go, as they did when every
+   * entry had five tries of its own.
+   */
+  const remove = (path) => {
+    if (platform !== 'win32') return rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+    for (let round = 1; ; round++) {
+      try {
+        return removeFolder(path)
+      } catch (error) {
+        if (round >= REMOVE_ROUNDS || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(error?.code)) throw error
+      }
+    }
+  }
   const why = (error) => (error instanceof Error ? error.message : String(error))
   const parent = rules.dirname(rules.resolve(target))
   mkdirSync(parent, { recursive: true })
