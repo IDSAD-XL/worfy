@@ -1,7 +1,7 @@
 # 09 — Composer: effort — ползунок, Model и Permission mode — Select
 
 Type: task
-Status: claimed — 2026-10-13
+Status: done — 2026-10-13, [PR #291](https://github.com/IDSAD-XL/worfy/pull/291)
 Blocked by: 08
 Source: решение владельца 2026-10-09: 4 (effort — ползунок, как в приложении Claude Code, с уровнями выбранной модели; Model и Permission mode — стилизованные списки на общем Select; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»)
 
@@ -90,7 +90,7 @@ Session; смена режима разрешений по сочетанию к
   `session-controls.spec.ts` — снимки `composer-pickers` и `effort-slider` (поповер открыт) в светлой
   и тёмной теме.
 - [x] grep: `<select` в `src/renderer` нет; `selectOption` в `test/e2e` нет.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
 
 ## Тесты
@@ -269,3 +269,13 @@ HEAD после rebase — `4f8a6002`; доработка — коммитом �
 - **Не проверено:** `GATE_SCOPE=all` gate full — шаг Orchestrator-а; вид в окне приложения руками.
   Числа замеров сняты на этом Mac; на Windows шрифты другие, поэтому e2e сравнивает высоту с блоком
   427 px в том же окне, а не с числом.
+
+### Gate оркестратора (2026-10-13)
+
+- Wave 2 Epic-а под Autopilot. В след Ticket-а Orchestrator добавил долг Select из «Итог» Ticket-а 08 (слово Session-оркестратора на Mac от 2026-10-13) и перевод последнего native `<select>` — поле «Terminal shell» в `src/renderer/shell/ProjectSettings.tsx` (его добавил `worfy-windows` 10 после Ticket-а 08; **решено без владельца, подтвердить** — альтернатива: сузить пункт «в `src/renderer` нет `<select`» до composer-а).
+- Гейт — два круга. Круг 1 — `REJECTED` на `a6d4e57` ([комментарий в PR #291](https://github.com/IDSAD-XL/worfy/pull/291#issuecomment-6153870054)): на модели по умолчанию в окне 1280×800 строка composer-а выросла с 71 до 101 px и Send ушла на третью строку (снимки implementer-а были сняты на Sonnet); показанный и отправленный уровень effort расходились, если отметку сдвинули до ответа со списком моделей. Круг 2, только диф доработки `4f8a600..64e24bd`, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/291#issuecomment-6154654086)): высота строки равна базе в замерах verifier-а (1280×800 — 71, 1440×900 — 71, 900×600 — 101, 800×520 — 130); 11 его мутантов красные.
+- Мерж: база main `7c85bfb` (с Ticket-ами 03 и 04), head `1a3c3b5`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; предупреждение gate: `src/renderer/session/session.css` — 1105 строк при пороге 1000; CI зелёный, CLEAN; влит `3837075`.
+- Решено без владельца, подтвердить: при пустом списке моделей (запрос моделей упал) ползунок effort предлагает все уровни и при сохранённой модели — так написано в «Что делаем»; main уровень не проверяет, отказ SDK показывает «not applied».
+- На решение владельца (долги круга 2): цена требования «высота строки composer-а не меняется» — обрезка значений в кнопках. В окне 1440×900 с боковой панелью Model показывает «Defaul…», Permissions — «Bypass permi…» (на базе — «Default (recomm…» и режим целиком); в 900×600 и 800×520 с боковой панелью от значения Permissions видно 5 px. Полное значение — в `title`, в доступном имени кнопки и в списке. Вариант: скрывать подпись «Model» и «Permissions», когда значение не помещается.
+- Замечено (Noted): «not applied» после смены Session показывается под новой Session — так было и до Ticket-а; число 427 px, от которого считается ширина строки, — ширина native-списков на этом Mac.
+- не проверено: поле «Terminal shell» в собранном приложении (есть только на Windows); мышь и тач на ползунке, VoiceOver.
