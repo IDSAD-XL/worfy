@@ -20,7 +20,7 @@ let cards: string
 const stores: CardStore[] = []
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-cards-links-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-cards-links-')))
   cards = join(dir, 'data', PROJECT, 'cards')
   mkdirSync(join(dir, 'data', PROJECT), { recursive: true })
 })

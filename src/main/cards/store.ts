@@ -128,6 +128,8 @@ const keyOf = (projectId: string, cardId: string): string => `${projectId}\n${ca
 
 export class CardStore {
   private readonly revisions = new Map<string, number>()
+  /** The Cards of each Project that info() was asked about: the ones somebody may be showing. */
+  private readonly asked = new Map<string, Set<string>>()
   private readonly watchers = new Map<string, CardsWatch>()
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private readonly listeners = new Set<(info: CardInfo) => void>()
@@ -183,6 +185,8 @@ export class CardStore {
     const dir = this.cardDir(projectId, cardId)
     const cards = this.cardsDir(projectId)
     const url = cardUrl(projectId, cardId)
+    const asked = this.asked.get(projectId) ?? new Set<string>()
+    this.asked.set(projectId, asked.add(cardId))
     this.watchProject(projectId)
     // The Cards folder is the only place these paths may go: also when it lies on a share itself.
     const away = (path: string): Promise<boolean> => leadsToRemote(path, [cards], { paths: this.paths, links: this.options.links })
@@ -232,6 +236,13 @@ export class CardStore {
         enter: (path) => ofCard(path) && names(path).length <= CARD_LINK_DEPTH,
         wanted: ofCard,
         onChange: (path) => {
+          // The Cards folder itself: it went, it is watched again, or Windows lost events and says
+          // so by a report with no name. Any Card may have changed unseen, and nothing else reads
+          // a Card again, so every Card that was asked about is.
+          if (path === dir) {
+            for (const cardId of this.asked.get(projectId) ?? []) this.schedule(projectId, cardId)
+            return
+          }
           const [cardId] = names(path)
           if (cardId !== undefined && CARD_ID_PATTERN.test(cardId)) this.schedule(projectId, cardId)
         },
@@ -294,6 +305,7 @@ export class CardStore {
     for (const [projectId, watcher] of [...this.watchers]) {
       if (listed.has(projectId)) continue
       this.watchers.delete(projectId)
+      this.asked.delete(projectId)
       Promise.resolve(watcher.close()).catch((error: unknown) => console.error(`[cards] could not stop watching the Cards of ${projectId}`, error))
     }
   }

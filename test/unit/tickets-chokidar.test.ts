@@ -15,7 +15,7 @@ let root: string
 const watchers: FSWatcher[] = []
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-tickets-chokidar-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-tickets-chokidar-')))
   root = join(dir, '.scratch')
 })
 
@@ -71,14 +71,23 @@ describe('chokidar with the filter of a Tickets root', () => {
     expect(watchedPaths(watcher)).not.toContain(join(root, 'late.md'))
   })
 
-  // Not on Windows: chokidar there does not see a root made after the start within 5 s, with this
-  // filter or with the one before it (seen on the PC, worfy-windows ticket 20); Windows no longer
-  // watches a Tickets root with chokidar. Written on the PC, so not run by its author.
-  it.skipIf(process.platform === 'win32')('still follows a root made after the start, whose parent holds files of its own', async () => {
+  // For a root that is not there chokidar says `ready` first and only then starts to watch the
+  // folder above, which it does not list: a root made before that watch exists is never reported,
+  // with this filter or without one (measured on Windows: lost 5 of 5 times when made in the tick
+  // of `ready`, reported 5 of 5 times when made once the folder above is watched; the review of
+  // PR #274 saw the same loss on macOS and in the Linux CI job). So the root is made after that,
+  // and the folder above is written to while waiting, which makes chokidar look for the root
+  // again. The time limit is above the one of `until`, so its message is the one shown.
+  it('still follows a root made after the start, whose parent holds files of its own', async () => {
     writeFileSync(join(dir, 'README.md'), 'code')
-    const { events } = await started()
+    const { watcher, events } = await started()
+    await until('the watch of the folder above', () => dir in watcher.getWatched())
     mkdirSync(join(root, 'demo', 'issues'), { recursive: true })
     writeFileSync(join(root, 'demo', 'issues', '01-a.md'), '# 01\n')
-    await until('the first Ticket', () => events.includes(`add ${join(root, 'demo', 'issues', '01-a.md')}`))
-  })
+    await until('the first Ticket', () => {
+      if (events.includes(`add ${join(root, 'demo', 'issues', '01-a.md')}`)) return true
+      writeFileSync(join(dir, 'README.md'), `code ${events.length}`)
+      return false
+    })
+  }, 15_000)
 })

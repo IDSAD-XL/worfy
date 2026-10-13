@@ -66,7 +66,7 @@ const WORKFLOW: CanvasWorkflow = {
 }
 
 beforeEach(async () => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-canvas-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-canvas-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'repo')
   mkdirSync(repo)

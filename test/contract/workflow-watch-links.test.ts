@@ -27,7 +27,7 @@ let scratch: string
 const closers: (() => Promise<void> | void)[] = []
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-watch-links-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-watch-links-')))
   repo = join(dir, 'repo')
   scratch = join(repo, '.scratch')
   mkdirSync(repo)

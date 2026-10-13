@@ -80,8 +80,64 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     await watching(disk, [DATA])
     disk.put(`${CARDS}\\c1\\index.html`, FILE)
     await watching(disk, [`${CARDS} (recursive)`])
-    disk.put(`${CARDS}\\c1\\index.html`, FILE)
+    // The Card was written before the watch of its folder began: no event names it. The Cards
+    // folder is reported when it is watched, and the Card that was asked about is read again.
     await changed(seen, 'c1')
+    expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', exists: true, revision: 1 })])
+    disk.put(`${CARDS}\\c1\\index.html`, FILE)
+    await vi.waitFor(() => expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: 2 }), { timeout: 2000, interval: 5 })
+  })
+
+  it('a report of the Cards folder with no name — Windows lost events — reads every Card that was asked about again, and no other', async () => {
+    const disk = windowsDisk({ ...TWO_CARDS, [`${CARDS}\\c3\\index.html`]: FILE })
+    const { store, seen } = makeStore(disk)
+    await store.info(PROJECT, 'c1')
+    await store.info(PROJECT, 'c2')
+    await watching(disk, [`${CARDS} (recursive)`])
+    // Both Cards change, and the events of it are lost.
+    disk.putQuietly(`${CARDS}\\c1\\index.html`, FILE)
+    disk.putQuietly(`${CARDS}\\c2\\index.html`, FILE)
+    disk.nameless(CARDS)
+    await changed(seen, 'c1')
+    await changed(seen, 'c2')
+    expect(seen.map((info) => [info.cardId, info.revision]).sort()).toEqual([
+      ['c1', 1],
+      ['c2', 1],
+    ])
+  })
+
+  it('a Cards folder that is removed while watched: the Cards that were asked about are reported as gone', async () => {
+    const disk = windowsDisk(TWO_CARDS)
+    const { store, seen } = makeStore(disk)
+    await store.info(PROJECT, 'c1')
+    await watching(disk, [`${CARDS} (recursive)`])
+    disk.remove(CARDS)
+    await changed(seen, 'c1')
+    expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', exists: false, revision: 1 })])
+    await watching(disk, [DATA])
+  })
+
+  it('a Project that left the list is forgotten with the Cards that were asked about', async () => {
+    const disk = windowsDisk(TWO_CARDS)
+    let listed: string[] = [PROJECT]
+    let left = (): void => undefined
+    const store = new CardStore({ dataDirOf: () => DATA, projectIds: () => listed, subscribeProjects: (listener) => ((left = listener), () => undefined), delayMs: 0, paths: win32, links: disk.links, fs: cardFs(disk), watchFs: disk.fs })
+    stores.push(store)
+    const seen: CardInfo[] = []
+    store.onChange((info) => seen.push(info))
+    await store.info(PROJECT, 'c1')
+    await watching(disk, [`${CARDS} (recursive)`])
+    listed = []
+    left()
+    await watching(disk, [])
+    // Listed again, and another Card is asked about: the first one is nobody's any more.
+    listed = [PROJECT]
+    await store.info(PROJECT, 'c2')
+    await watching(disk, [`${CARDS} (recursive)`])
+    disk.nameless(CARDS)
+    await changed(seen, 'c2')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(seen.map((info) => info.cardId)).toEqual(['c2'])
   })
 
   it('a Cards folder that is a link to a share is not watched, and no Card is there: nothing is asked through it', async () => {

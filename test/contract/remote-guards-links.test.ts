@@ -44,7 +44,7 @@ function trash(): TrashStore {
 const cardNode = (id: string): LayoutNode => ({ id, kind: 'card', x: 0, y: 0, w: 360, h: 280, data: {} }) as unknown as LayoutNode
 
 beforeEach(() => {
-  dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-guards-links-')))
+  dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-guards-links-')))
   dataDir = join(dir, 'data')
   mkdirSync(join(dataDir, 'cards'), { recursive: true })
   nodes = []

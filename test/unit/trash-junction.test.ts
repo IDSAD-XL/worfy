@@ -3,7 +3,7 @@
 // empties the folder behind it; the files of a Card are written by agents, so a Card may hold one.
 // The store is driven directly, over real folders: test/contract/trash.test.ts goes through the IPC
 // wrapper, which on Windows refuses its macOS file URL.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -130,5 +130,103 @@ describe('the trash and a link inside a Card', () => {
 
     expect(trash.restore(PROJECT, entry.label)).toMatchObject({ title: 'Again' })
     expect(readFileSync(join(cardDir('again'), 'index.html'), 'utf8')).toBe('<title>Again</title>')
+  })
+})
+
+// worfy-windows ticket 20, review of PR #274: the Card folder itself is a link (a junction on
+// Windows). The trash moves the link and never what it leads to: purge deletes what is in the
+// trash, so a folder moved there from behind a link would be the user's own files, deleted.
+describe('the trash and a Card folder that is itself a link', () => {
+  const FILES = { 'index.html': '<title>Linked</title>', 'a.txt': 'first', 'b.txt': 'second' }
+  const isLink = (path: string): boolean => lstatSync(path).isSymbolicLink()
+  const gone = (path: string): boolean => {
+    try {
+      lstatSync(path)
+      return false
+    } catch {
+      return true
+    }
+  }
+
+  /** A Card whose folder is a link to `target`; the link is removed as a link after the test, wherever it lies then. */
+  function cardThatIsLink(cardId: string, target: string): void {
+    mkdirSync(join(dataDir, 'cards'), { recursive: true })
+    symlinkSync(target, cardDir(cardId), WINDOWS ? 'junction' : 'dir')
+    links.push(cardDir(cardId))
+    nodes.push({ id: cardId, kind: 'card', x: 0, y: 0, w: 360, h: 280, data: {} } as unknown as LayoutNode)
+  }
+  const inTrash = (label: string): string => {
+    const place = join(trashDir(), label, 'card')
+    links.push(place)
+    return place
+  }
+
+  it('put moves the link, restore puts it back, and purge deletes it from the trash: the three files behind it stay where they are', () => {
+    const outside = join(scratch, 'outside')
+    mkdirSync(outside)
+    for (const [name, text] of Object.entries(FILES)) writeFileSync(join(outside, name), text)
+    const untouched = (): void => {
+      expect(readdirSync(outside).sort()).toEqual(Object.keys(FILES).sort())
+      for (const [name, text] of Object.entries(FILES)) expect(readFileSync(join(outside, name), 'utf8')).toBe(text)
+    }
+    cardThatIsLink('linked', outside)
+    const target = readlinkSync(cardDir('linked'))
+    const trash = store()
+
+    const first = trash.put(PROJECT, 'linked')
+    expect(first).toMatchObject({ hasFiles: true, title: 'Linked' })
+    expect(gone(cardDir('linked'))).toBe(true)
+    expect(isLink(inTrash(first.label))).toBe(true)
+    expect(readlinkSync(inTrash(first.label))).toBe(target)
+    untouched()
+
+    trash.restore(PROJECT, first.label)
+    expect(readdirSync(trashDir())).toEqual([])
+    expect(isLink(cardDir('linked'))).toBe(true)
+    expect(readlinkSync(cardDir('linked'))).toBe(target)
+    untouched()
+
+    const second = trash.put(PROJECT, 'linked')
+    expect(isLink(inTrash(second.label))).toBe(true)
+    now += TRASH_KEEP_MS + 1000
+    expect(trash.purge(PROJECT)).toEqual([second.label])
+    expect(readdirSync(trashDir())).toEqual([])
+    expect(gone(cardDir('linked'))).toBe(true)
+    untouched()
+  })
+
+  it('a link that leads nowhere is moved all the same, and put back', () => {
+    cardThatIsLink('nowhere', join(scratch, 'no-such-folder'))
+    const target = readlinkSync(cardDir('nowhere'))
+    const trash = store()
+    const entry = trash.put(PROJECT, 'nowhere')
+    expect(entry).toMatchObject({ hasFiles: true, title: null })
+    expect(gone(cardDir('nowhere'))).toBe(true)
+    expect(isLink(inTrash(entry.label))).toBe(true)
+
+    trash.restore(PROJECT, entry.label)
+    expect(readdirSync(trashDir())).toEqual([])
+    expect(isLink(cardDir('nowhere'))).toBe(true)
+    expect(readlinkSync(cardDir('nowhere'))).toBe(target)
+  })
+
+  it('restore refuses while a link that leads nowhere lies at the place of the data file of the Card; the entry stays, and nothing is put back', () => {
+    mkdirSync(cardDir('data'), { recursive: true })
+    writeFileSync(join(cardDir('data'), 'index.html'), '<title>Data</title>')
+    const dataFile = join(dataDir, 'card-data', 'data.json')
+    mkdirSync(join(dataDir, 'card-data'))
+    writeFileSync(dataFile, '{"n":1}')
+    nodes.push({ id: 'data', kind: 'card', x: 0, y: 0, w: 360, h: 280, data: {} } as unknown as LayoutNode)
+    const trash = store()
+    const entry = trash.put(PROJECT, 'data')
+    expect(gone(dataFile)).toBe(true)
+
+    symlinkSync(join(scratch, 'no-such-file'), dataFile, WINDOWS ? 'junction' : 'file')
+    links.push(dataFile)
+    expect(() => trash.restore(PROJECT, entry.label)).toThrow('A Card with id data exists again; delete it before restoring')
+    expect(readdirSync(trashDir())).toEqual([entry.label])
+    expect(gone(cardDir('data'))).toBe(true)
+    expect(isLink(dataFile)).toBe(true)
+    expect(nodes).toEqual([])
   })
 })
