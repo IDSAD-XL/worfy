@@ -1,7 +1,7 @@
 # 08 — Settings → «Terminal AI»: переключатели функций, модель Next command, состояние по Limits
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #309](https://github.com/IDSAD-XL/worfy/pull/309)
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 2 (всё выключается в Settings → «Terminal AI»; окно Settings делает Epic worfy-ui), пункт 1(b) (переключатель модели Next command — Sonnet или Haiku), пункт 7 (Epic идёт параллельно с worfy-ui) ([spec.md](../spec.md)); [worfy-ui 02](../../worfy-ui/issues/02-окно-settings.md) (окно Settings, разделы по файлам) и [worfy-ui 08](../../worfy-ui/issues/08-общий-select.md) (общий Select); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 4; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`
 
@@ -44,8 +44,8 @@ Source: решения владельца 2026-10-09: пункт 2 (всё вы�
 
 - [x] Unit (jsdom) `test/unit/terminal-ai-settings.test.tsx` (новый): переключатели показывают значения из `terminalAi.state`; клик зовёт `terminalAi.setSettings` с одним изменённым полем; «Terminal AI» выключен — подчинённые неактивны; статус `paused` — строка «Paused by Limits until …» с временем сброса.
 - [x] e2e `test/e2e/terminal-ai-settings.spec.ts` (новый), fake: «Suggestion» выключен — после команды с уникальной меткой набран её префикс, серого текста нет; включён снова — есть. «Terminal AI» выключен — серого текста нет и из истории. Если Ticket 06 к claim влит: «Terminal AI» выключен — строка `# …` + Enter не даёт запроса (журнал fake пуст). — Ticket 06 к claim не влит: проверка строки `# …` остаётся приёмке (Ticket 09).
-- [x] (вручную) `WORFY_AGENT=fake pnpm dev`: раздел «Terminal AI» в светлой и тёмной теме — `../evidence/08-settings-light.png`, `../evidence/08-settings-dark.png`. Как проверить: окно Settings worfy. — Снимки сняты Playwright-ом на собранном приложении с временным `HOME` (e2e этого Ticket-а), не в `pnpm dev`; см. «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0. — lint, typecheck, test — exit 0 (свой прогон); gate full — не проверено: его запускает Orchestrator.
+- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: раздел «Terminal AI» в светлой и тёмной теме — `../evidence/08-settings-light.png`, `../evidence/08-settings-dark.png`. Как проверить: окно Settings worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным `HOME` (e2e этого Ticket-а).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -191,3 +191,10 @@ Playwright, `dialog.screenshot()` на собранном приложении �
   перерисовывается по событию (unit test); e2e ждать сброса окна не может.
 - `GATE_SCOPE=all` gate full — не запускал: его запускает Orchestrator.
 - Windows: раздел без веток по платформе, но на Windows-ПК не запускался.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave Epic-а под Autopilot (Ticket-ы 04, 05, 06, 08); 08 шёл с первого шага, общих файлов с остальными нет. Гейт — один круг: `VERIFIED` на `057d40d` ([комментарий в PR #309](https://github.com/IDSAD-XL/worfy/pull/309#issuecomment-6161243563)). Verifier сам: gate fast — код 0, не из кэша; unit раздела и окна Settings — 157 passed; e2e `terminal-ai-settings`, `settings`, `settings-health` под замком — 9 passed; 12 unit-мутантов — все красные; e2e-мутант «переключатель двигается, main не вызван» — красный; строка паузы исчезает сама: таймер на `until` в `src/main/terminal-ai/assist.ts:346-367` шлёт `terminalAi.changed`; снимки в обеих темах (обычный вид, «Terminal AI» выключен, пауза по Limits, фокус).
+- Мерж: база main `5a1f520`, head `3ad4633`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `975de42`.
+- Ручной пункт «Готово, когда» возвращён в `[ ]` (Noted, [low]): `WORFY_AGENT=fake pnpm dev` не запускался, сняты только снимки Playwright-ом на собранном приложении с временным `HOME` — вид в живом окне и ⌘, смотрит владелец.
+- Вне Ticket-а: при выключенном «Terminal AI» раздел выше окна Settings, строка Fix видна после прокрутки (`src/renderer/settings/settings.css:15` — высота 520 px, `:41` — тело прокручивается); у неактивного `SettingSwitch` признак — только прозрачность (`settings.css:145`), в этом разделе его возмещает текст строки.

@@ -1,7 +1,7 @@
 # 05 — Next command: после команды Sonnet предлагает следующую серым текстом на пустой строке
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #312](https://github.com/IDSAD-XL/worfy/pull/312)
 Branch: worfy-terminal-ai/05
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(b) (после конца команды Sonnet с `effort: 'low'` предлагает следующую; переключатель в Settings даёт выбрать Haiku), пункт 2 (автоматическая функция — в фоне и только после паузы, выключается сама по Limits), пункт 3 (контекст: строка, папка, ~20 команд, ветка, код выхода; без вывода; redaction) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 3–6
@@ -46,7 +46,7 @@ Source: решения владельца 2026-10-09: пункт 1(b) (посл�
 - [x] Тот же contract: Enter на пустой строке с серым текстом — команда не запущена (вывода ответа fake нет); ввод `x` — серый текст скрыт; ввод до ответа — запрос отменён, ответ не показан.
 - [x] Тот же contract: модель Next command в Settings — Haiku — в журнале `haiku`; Next command выключен — запросов нет; Limits со статусом `allowed_warning` — запросов нет; команда с пробелом в начале — запроса нет.
 - [x] e2e `test/e2e/terminal-ai-next-command.spec.ts` (новый), fake с ответом: после `echo` с уникальной меткой на пустой строке виден серый ответ; → вставляет его в строку; запуска нет, пока test не нажал Enter.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -152,3 +152,13 @@ e2e): `Expected length: 1, Received length: 2`, вторая запись — `{
   спрашивает; если запускает — спросит, как после любой команды. Совместно не проверялось: 06 идёт параллельно.
 - Долги Ticket-а 03 не чинил: `config` позже первого prompt-а — на этом prompt-е `next` не спрашивается; клавиши
   привязаны независимо от Settings; программа в Terminal-е наследует соединение shell-а.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave Epic-а под Autopilot; 05 и 06 розданы после мержа 04 (общие файлы с ним) и шли параллельно. Решение Orchestrator-а: «спросить Next command» решает скрипт zsh (`ask next` с пустой строкой на первом prompt-е после команды) — widget Ticket-а 03 не принимает `show` без своего `ask` (`10-assist.zsh:199-203`); `shell-link.ts` в этой Wave правил только Ticket 06.
+- Гейт — один круг: `VERIFIED` на `5686d0b` ([комментарий в PR #312](https://github.com/IDSAD-XL/worfy/pull/312#issuecomment-6163154648)). Verifier сам: gate fast — код 0, не из кэша; свой contract-файл дважды — 22 из 22; contract-test-ы Ticket-ов 03 и 04 без правок — 91 из 91; e2e четырёх spec-ов Terminal AI под замком — 6 passed; семь своих test-ов на настоящем zsh (команда с TAB, секрет в команде, команда идёт, Enter и Ctrl+C во время паузы, пауза 800 ms); 10 мутантов — 8 красные, один эквивалентный; снимки в обеих темах.
+- Правка вне «Где в коде» с разрешения Orchestrator-а: `test/e2e/terminal-ai-suggest.spec.ts:57` — журнал fake фильтруется по `suggest` (без правки test Ticket-а 04 краснел: после принятой команды Ticket 05 спрашивает `next`); строки 58–59 не тронуты.
+- Мерж: база main `8ddf434`, head `e12d291`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `1f479d9`.
+- Долги (Noted, [low]): ветку «команда начиналась с TAB» (`src/main/terminal/zsh/rc.d/30-next-command.zsh:32`) не держит ни один test — поведение верное; Ticket («Что делаем», пункт 1) говорит «отменять при первом нажатии», код отменяет при первом изменении строки (`10-assist.zsh:253`) — Ctrl+L во время паузы запрос не отменяет, строка остаётся пустой.
+- На решение владельца (UX, правило Ticket-а 03): Suggestion из истории главнее ответа Next command — если первая набранная буква совпала с командой из истории, серым показывается история, остаток предложенной команды теряется (`10-assist.zsh:255-262`).
+- Каждая команда в zsh-Terminal-е, после которой 800 ms ничего не набирают, тратит один запрос к Sonnet (Next command включён по умолчанию).
