@@ -209,7 +209,7 @@ test('the open done stack folds by Collapse in the place of Expand, and by Esc o
     // ⌘Z does not fold it: the stack is not a step of the history.
     await toggle.click()
     await open()
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await window.waitForTimeout(300)
     await open()
     console.log(`done stack toggle: folded ${foldedShots.light} ${foldedShots.dark}; open ${openShots.light} ${openShots.dark}`)

@@ -836,11 +836,10 @@ describe('workflow watcher', () => {
     expect(early).toEqual([])
   })
 
-  // Counts reads after fs.watch events: FSEvents on macOS coalesces a save, inotify on the Linux CI
-
-  // runner reports more events. worfy runs on macOS only; the Mac runs this in every gate.
-
-  it.skipIf(process.platform !== 'darwin')('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
+  // Counts reads after fs.watch events. Not on Linux: FSEvents on macOS coalesces a save, inotify on
+  // the CI runner reports more events. worfy runs on macOS and Windows; the Mac and the Windows PC
+  // run this in every gate.
+  it.skipIf(process.platform === 'linux')('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const real = epicStatusRunner(home)

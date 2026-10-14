@@ -226,12 +226,12 @@ test('with ⌘ held a Note stays where it was let go, with no guide', async () =
     const { window } = launched
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'n1'), nodeElement(window, 'n2')] })
     const at = await startDrag(window, header(window, 'n2'))
-    await window.keyboard.down('Meta')
+    await window.keyboard.down('ControlOrMeta')
     // Left edge 3 from n1's, top 21 further: both would snap without ⌘.
     await window.mouse.move(at.x + 3, at.y + 21, { steps: 12 })
     await expect(guides(window)).toHaveCount(0)
     await window.mouse.up()
-    await window.keyboard.up('Meta')
+    await window.keyboard.up('ControlOrMeta')
     await expect.poll(() => byId(window, 'n2')).toMatchObject({ x: 1003, y: 621 })
   } finally {
     await launched.close()

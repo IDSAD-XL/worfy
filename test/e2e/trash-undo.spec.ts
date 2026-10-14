@@ -99,12 +99,12 @@ test('a move is undone with ⌘Z and done again with ⇧⌘Z', async () => {
     const moved = await nodeIn(window, 'n1')
     expect(moved?.y).toBeGreaterThan(150)
 
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(async () => (await nodeIn(window, 'n1'))?.x).toBe(120)
     expect((await nodeIn(window, 'n1'))?.y).toBe(100)
     await expect.poll(async () => (await box(header)).x).toBeCloseTo(start.x, 0)
 
-    await window.keyboard.press('Meta+Shift+z')
+    await window.keyboard.press('ControlOrMeta+Shift+z')
     await expect.poll(async () => (await nodeIn(window, 'n1'))?.x).toBe(moved?.x)
     expect((await nodeIn(window, 'n1'))?.y).toBe(moved?.y)
   } finally {
@@ -151,7 +151,7 @@ test('a deleted Card comes back from the Trash with its files and data; a Card d
     await window.keyboard.press('Delete')
     await expect(card).toHaveCount(0)
     expect(existsSync(cardDir('c1'))).toBe(false)
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect(card.getByTestId('card-title')).toHaveText('Counter card')
     expect(readFileSync(join(cardDir('c1'), 'index.html'), 'utf8')).toBe(CARD_HTML)
     expect(JSON.parse(readFileSync(dataFile('c1'), 'utf8'))).toEqual({ count: 3 })
@@ -210,7 +210,7 @@ test('in a text field Backspace and ⌘Z edit the text: the selection is not del
     await window.keyboard.type('ab')
     await window.keyboard.press('Backspace')
     await expect(tag).toHaveValue('a')
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     expect(await nodeIn(window, 'c1')).toBeDefined()
     expect(await nodeIn(window, 'n1')).toMatchObject({ x: moved?.x, y: moved?.y })
     expect(trashEntries()).toEqual([])
@@ -233,7 +233,7 @@ test('in a text field Backspace and ⌘Z edit the text: the selection is not del
     await expect(text).toHaveValue('ove me')
     expect(await nodeIn(window, 'n1')).toBeDefined()
     expect(trashEntries()).toEqual([])
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     expect(await nodeIn(window, 'n1')).toMatchObject({ x: moved?.x, y: moved?.y })
     expect(await nodeIn(window, 'c1')).toBeDefined()
     await expect(note).toBeVisible()
@@ -306,7 +306,7 @@ test.describe('⌘Z with two windows', () => {
       const byB = await drag(b, 'n1', 0, 160)
       await drawnAt(a, 'n1', seenInA, byB)
 
-      await a.keyboard.press('Meta+z')
+      await a.keyboard.press('ControlOrMeta+z')
       const notice = a.getByTestId('undo-skipped')
       await expect(notice).toBeVisible()
       await expect(notice).toHaveAttribute('role', 'status')
@@ -321,7 +321,7 @@ test.describe('⌘Z with two windows', () => {
       await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
 
       // B's own step is not out of date: A changed n1 before it.
-      await b.keyboard.press('Meta+z')
+      await b.keyboard.press('ControlOrMeta+z')
       await expect.poll(async () => await nodeIn(b, 'n1')).toMatchObject({ x: byA.x, y: byA.y })
       await expect(b.getByTestId('undo-skipped')).toHaveCount(0)
       // The notice goes away by itself.
@@ -340,7 +340,7 @@ test.describe('⌘Z with two windows', () => {
       const byB = await drag(b, 'n1', 0, 160)
       await drawnAt(a, 'n1', seenInA, byB)
 
-      await a.keyboard.press('Meta+z')
+      await a.keyboard.press('ControlOrMeta+z')
       await expect.poll(async () => await nodeIn(a, 'n2')).toMatchObject({ x: start?.x, y: start?.y })
       expect(await nodeIn(a, 'n1')).toMatchObject({ x: byB.x, y: byB.y })
       await expect(a.getByTestId('undo-skipped')).toHaveCount(0)

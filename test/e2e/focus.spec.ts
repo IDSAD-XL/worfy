@@ -80,7 +80,7 @@ const viewportTransform = (window: Page) => window.locator('.react-flow__viewpor
 
 /** Selects the Nodes on the Canvas: a click on the first, ⌘-clicks on the rest. */
 async function select(window: Page, ids: string[]): Promise<void> {
-  for (const [index, id] of ids.entries()) await canvasHeader(window, id).click(index === 0 ? {} : { modifiers: ['Meta'] })
+  for (const [index, id] of ids.entries()) await canvasHeader(window, id).click(index === 0 ? {} : { modifiers: ['ControlOrMeta'] })
   await expect(window.locator('.react-flow__node.selected')).toHaveCount(ids.length)
 }
 
@@ -145,7 +145,7 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
 
     // Pan and zoom are off: the keys and the wheel do not reach the Canvas underneath.
     await window.mouse.move(c.x + c.width / 2, c.y + c.height / 2)
-    await window.keyboard.press('Meta+Equal')
+    await window.keyboard.press('ControlOrMeta+Equal')
     await window.mouse.wheel(0, 300)
 
     // Columns: one row, equal widths.
@@ -196,7 +196,7 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     await expect(window.locator('.react-flow__node.selected')).toHaveCount(3)
 
     // ⌘↩ opens it again for the same selection; Exit focus leaves too.
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     await expect(focus.getByTestId('focus-tile')).toHaveCount(3)
     await focus.getByRole('button', { name: /^Exit focus/ }).click()
     await expect(focus).toHaveCount(0)
@@ -222,12 +222,12 @@ test('a Node inside a tile works as on the Canvas: typing in a note reaches main
 
     // ⌘↩ typed in a text field stays with the field: focus mode does not open.
     await window.locator('.react-flow__node[data-id="n4"]').getByRole('textbox', { name: 'Note text' }).focus()
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     await nextFrame(window)
     await expect(focus).toHaveCount(0)
 
     await select(window, ['n4'])
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     const textbox = focus.getByTestId('focus-tile').getByRole('textbox', { name: 'Note text' })
     await expect(textbox).toHaveValue('four')
     await textbox.fill('four, edited in focus')
@@ -257,7 +257,7 @@ test('keys pressed in focus mode stay in the layer: the selected Nodes on the Ca
     const activeNodeId = () => window.evaluate(() => (globalThis as unknown as { document: { activeElement: { closest(s: string): { getAttribute(a: string): string | null } | null } | null } }).document.activeElement?.closest('.react-flow__node')?.getAttribute('data-id') ?? null)
     expect(await activeNodeId()).toBe('n2')
 
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     const focus = window.getByTestId('focus-mode')
     await expect(focus.getByTestId('focus-tile')).toHaveCount(2)
     await expect(focus).toBeFocused()
@@ -352,7 +352,7 @@ test('a Terminal in focus mode gets the size of its tile, and after leaving focu
 
     await window.locator('.react-flow__node[data-id="term"] .w-terminal__header').click()
     await expect(window.locator('.react-flow__node.selected')).toHaveCount(1)
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     const focus = window.getByTestId('focus-mode')
     const inTile = focus.getByTestId('focus-tile').getByTestId('terminal-node')
     await expect(inTile).toHaveAttribute('data-state', 'running')
@@ -374,7 +374,7 @@ test('a Terminal in focus mode gets the size of its tile, and after leaving focu
     // The Canvas Node resized while focus mode is open (by main, as a tool would): the Canvas copy
     // under the layer fits itself, but the pty keeps the size of the tile until focus mode ends.
     await window.locator('.react-flow__node[data-id="term"] .w-terminal__header').click()
-    await window.keyboard.press('Meta+Enter')
+    await window.keyboard.press('ControlOrMeta+Enter')
     await expect(inTile).toHaveAttribute('data-state', 'running')
     const canvasWidth = async () => (await onCanvas.boundingBox())?.width ?? 0
     const widthBefore = await canvasWidth()

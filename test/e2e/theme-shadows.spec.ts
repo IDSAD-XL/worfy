@@ -146,9 +146,9 @@ test('the folded done stack draws its second card and a selected Node and Ticket
   await expect(ticket).toBeVisible()
   await expect(note).toBeVisible()
 
-  // Select the Ticket, then add the note to the selection (Cmd-click, React Flow's default on macOS).
+  // Select the Ticket, then add the note to the selection (Cmd-click on macOS, Ctrl-click elsewhere: React Flow's default).
   await ticket.click()
-  await note.click({ position: { x: 6, y: 6 }, modifiers: ['Meta'] })
+  await note.click({ position: { x: 6, y: 6 }, modifiers: ['ControlOrMeta'] })
   await expect(window.locator('.react-flow__node.selected > .w-ticket[data-ticket="3"]')).toHaveCount(1)
   await expect(window.locator('.react-flow__node.selected > .w-node-surface[data-node-id="n1"]')).toHaveCount(1)
 

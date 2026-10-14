@@ -129,9 +129,9 @@ async function nextLayout(launched: { window: Page }, revision: number): Promise
 async function undoRedo(launched: { window: Page }, before: readonly StateNode[], tidied: readonly StateNode[]): Promise<void> {
   const { window } = launched
   await window.locator('.react-flow__pane').click({ position: { x: 150, y: 600 } })
-  await window.keyboard.press('Meta+z')
+  await window.keyboard.press('ControlOrMeta+z')
   await expect.poll(async () => placesOf((await state(window)).nodes)).toEqual(placesOf(before))
-  await window.keyboard.press('Meta+Shift+z')
+  await window.keyboard.press('ControlOrMeta+Shift+z')
   await expect.poll(async () => placesOf((await state(window)).nodes)).toEqual(placesOf(tidied))
 }
 
@@ -144,7 +144,7 @@ test('Tidy up from ⌘K packs the scattered Nodes without overlaps; one ⌘Z put
     const before = await state(window)
     await snapshotThemes(window, '07-before')
 
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     const input = window.getByTestId('palette-input')
     await input.fill('Tidy up')
     const first = window.getByTestId('palette-option').first()
@@ -160,7 +160,7 @@ test('Tidy up from ⌘K packs the scattered Nodes without overlaps; one ⌘Z put
 
     // A second Tidy up right away sends nothing: the Layout keeps its revision.
     const { revision } = await state(window)
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('Tidy up')
     await expect(first).toHaveAttribute('data-command', 'tidy-up')
     await input.press('Enter')
@@ -215,7 +215,7 @@ test('200 Nodes are laid out within 2 s from the command to the last place on th
     const { window } = launched
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [window.getByTestId('rf__node-n0')], timeout: 20_000 })
     const before = await state(window)
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     const input = window.getByTestId('palette-input')
     await input.fill('Tidy up')
     await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'tidy-up')

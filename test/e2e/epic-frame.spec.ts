@@ -1009,9 +1009,9 @@ test('an Auction-sized Project is interactive within 3 s and pans and zooms smoo
     while (Date.now() < until) {
       if (step % 40 < 20) await window.mouse.wheel(step % 80 < 40 ? 24 : -24, step % 80 < 40 ? 16 : -16)
       else {
-        await window.keyboard.down('Meta')
+        await window.keyboard.down('ControlOrMeta')
         await window.mouse.wheel(0, step % 80 < 60 ? 12 : -12)
-        await window.keyboard.up('Meta')
+        await window.keyboard.up('ControlOrMeta')
       }
       step += 1
     }

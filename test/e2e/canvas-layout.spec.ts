@@ -298,11 +298,11 @@ test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel 
     const middle = await center(pane)
     await window.mouse.move(middle.x, middle.y)
 
-    await window.keyboard.press('Meta+Equal')
+    await window.keyboard.press('ControlOrMeta+Equal')
     await expect.poll(zoom).toBeGreaterThan(1)
-    for (let n = 0; n < 20; n++) await window.keyboard.press('Meta+Equal')
+    for (let n = 0; n < 20; n++) await window.keyboard.press('ControlOrMeta+Equal')
     await expect.poll(zoom).toBeCloseTo(2.5)
-    for (let n = 0; n < 40; n++) await window.keyboard.press('Meta+Minus')
+    for (let n = 0; n < 40; n++) await window.keyboard.press('ControlOrMeta+Minus')
     await expect.poll(zoom).toBeCloseTo(0.2)
 
     // The wheel alone pans and keeps the zoom.
@@ -312,9 +312,9 @@ test('zoom: ⌘= and ⌘− step within 0.2–2.5, ⌘ + wheel zooms, the wheel 
     expect(await zoom()).toBeCloseTo(0.2)
 
     // ⌘ + wheel zooms.
-    await window.keyboard.down('Meta')
+    await window.keyboard.down('ControlOrMeta')
     await window.mouse.wheel(0, -300)
-    await window.keyboard.up('Meta')
+    await window.keyboard.up('ControlOrMeta')
     await expect.poll(zoom).toBeGreaterThan(0.21)
   } finally {
     await launched.close()

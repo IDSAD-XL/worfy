@@ -61,8 +61,10 @@ async function zshrc(content: string): Promise<void> {
   await writeFile(join(home, '.zshrc'), content)
 }
 
-// Cases marked onMac run a real /bin/zsh: macOS has it, the Linux CI runner does not. The Mac runs
-// them in every gate.
+// Cases marked onMac run a real /bin/zsh: macOS has it, the Linux CI runner does not. Windows has
+// no login shell at all: there captureAgentEnv reads the registry and never calls
+// captureLoginShellEnv ('captureAgentEnv on win32' below, and the two blocks that run on Windows
+// only). The Mac runs them in every gate.
 const onMac = it.skipIf(process.platform !== 'darwin')
 
 describe('captureLoginShellEnv', () => {

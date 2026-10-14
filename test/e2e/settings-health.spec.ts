@@ -157,7 +157,7 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     expect(existsSync(mark())).toBe(false)
 
     // The First run dialog, from the palette as before: the same rows, checked afresh.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     const input = window.getByTestId('palette-input')
     await input.fill('First-run checks')
     await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'first-run')

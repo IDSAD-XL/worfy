@@ -172,7 +172,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
 
     // ⌘K → "07" → Enter: Ticket 07 first (above "Release notes for build 07"), and the Canvas centers on it.
     expect(await offCenter(window, ticket(7))).toBeGreaterThan(50)
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await expect(palette).toBeVisible()
 
     // The search field is as tall as a result row (28 px, --row-height) however many rows there are.
@@ -215,7 +215,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     // "Ship ticket" is inactive for a Ticket with an open blocker, with the button's reason; Enter does nothing.
     const button = (num: number) => ticket(num).getByTestId('action-ship-ticket')
     await expect(button(8)).toHaveAttribute('title', 'blocked by 09')
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill(`ship ${EPIC}/08`)
     await expect(options.first()).toHaveAttribute('data-command', `ship-ticket:${EPIC}/08`)
     await expect(options.first()).toHaveAttribute('aria-disabled', 'true')
@@ -237,7 +237,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(palette).toHaveCount(0)
 
     // "New session" from the palette: a Session Node, which answers through the fake agent.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('new session')
     await expect(options.first()).toHaveAttribute('data-command', 'new:session')
     await input.press('Enter')
@@ -266,7 +266,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(sessionNodes).toHaveCount(1)
 
     // "New terminal" comes from the Canvas menu's items (createLabel, ADR-0014): a Terminal Node in the middle of the Canvas.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('new terminal')
     await expect(options.first()).toHaveAttribute('data-command', 'new:terminal')
     await input.press('Enter')
@@ -277,7 +277,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect.poll(() => clearInView(window, window.getByTestId('terminal-node'), sessionNode)).toBe(true)
 
     // Show only the Nodes tagged `plan`, then all again.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('only tag plan')
     await expect(options.first()).toHaveAttribute('data-command', 'tag:plan')
     await input.press('Enter')
@@ -290,14 +290,14 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     expect(filterCss).toContain(await rule(sessionNodeId ?? ''))
     expect(filterCss).not.toContain(await rule('n1'))
     await expect(flowNode(window, 'c1')).toBeHidden()
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('show all nodes')
     await input.press('Enter')
     await expect(window.getByTestId('tag-filter')).toHaveCount(0)
     await expect(window.getByTestId('tag-filter-style')).toHaveCount(0)
 
     // Go to the Card: it runs once it is on screen.
-    await window.keyboard.press('Meta+k')
+    await window.keyboard.press('ControlOrMeta+k')
     await input.fill('c1')
     await expect(options.first()).toHaveAttribute('data-command', 'node:c1')
     await input.press('Enter')
@@ -307,7 +307,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     const find = window.getByTestId('canvas-find')
     // Typing into the Session Node selected it; an empty spot clears the selection, so the whole Canvas is searched.
     await window.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } })
-    await window.keyboard.press('Meta+f')
+    await window.keyboard.press('ControlOrMeta+f')
     await expect(find).toBeVisible()
     await expect(window.getByTestId('find-scope')).toHaveCount(0)
     await window.getByTestId('find-input').fill('fake agent')
@@ -329,13 +329,13 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await window.getByTestId('find-input').press('Shift+Enter')
     await expect(find).toHaveAttribute('data-current-node', first.node ?? '')
     // ⌘F again with the same (empty) selection keeps the place among the matches.
-    await window.keyboard.press('Meta+f')
+    await window.keyboard.press('ControlOrMeta+f')
     await expect(window.getByTestId('find-count')).toHaveText('1 of 2')
 
     // ⌘F with the bar still open takes the selection anew: with the Card selected, only the Card
     // is searched, and the step through the matches starts again.
     await flowNode(window, 'c1').locator('[data-testid="card-title"]').click()
-    await window.keyboard.press('Meta+f')
+    await window.keyboard.press('ControlOrMeta+f')
     await expect(window.getByTestId('find-scope')).toBeVisible()
     await expect(window.getByTestId('find-input')).toHaveValue('fake agent')
     await expect(window.getByTestId('find-count')).toHaveText('1 match')
@@ -343,7 +343,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
     await expect(find).toHaveCount(0)
 
     // Opened again with the Card selected: the same scope.
-    await window.keyboard.press('Meta+f')
+    await window.keyboard.press('ControlOrMeta+f')
     await window.getByTestId('find-input').fill('fake agent')
     await expect(window.getByTestId('find-scope')).toBeVisible()
     await expect(window.getByTestId('find-count')).toHaveText('1 match')

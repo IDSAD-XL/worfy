@@ -151,7 +151,7 @@ test('two neighbouring Notes dragged together move by the same distance, uncorre
     const header = (id: string) => window.locator(`[data-testid="note-node"][data-node-id="${id}"] .w-note__header`)
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [header('a'), header('b')] })
     await header('a').click()
-    await header('b').click({ modifiers: ['Meta'] })
+    await header('b').click({ modifiers: ['ControlOrMeta'] })
     await drag(window, header('a'), { dx: 100, dy: 0 })
 
     await expect.poll(async () => (await byId(window, ALPHA, 'a')).x).toBeGreaterThan(550)
@@ -168,7 +168,7 @@ test('two neighbouring Notes dragged together move by the same distance, uncorre
     expect(a.x - 500).toBeLessThanOrEqual(104)
 
     await window.locator('.react-flow__pane').click({ position: { x: 300, y: 700 } })
-    await window.keyboard.press('Meta+z')
+    await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(async () => [await byId(window, ALPHA, 'a'), await byId(window, ALPHA, 'b')].map(({ x, y }) => [x, y])).toEqual([
       [500, 300],
       [740, 300],
