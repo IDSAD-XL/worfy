@@ -1,7 +1,7 @@
 # 06 — Command request: строка `# …` + Enter и панель Cmd+I вставляют команду, не запуская её
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #314](https://github.com/IDSAD-XL/worfy/pull/314)
 Branch: worfy-terminal-ai/06
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(c) (строка, которая начинается с `# `, и Enter, или Cmd/Ctrl+I — маленькая панель над Terminal-ом; Sonnet возвращает команду, она вставляется в строку и никогда не запускается сама), пункт 2 (функция по требованию доступна до `rejected`), пункт 3 (контекст, redaction), пункт 4 (сначала zsh) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 6 — ничего не запускается само; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`, [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6
@@ -84,7 +84,7 @@ PowerShell, позже.
 - [x] Unit (jsdom) `test/unit/terminal-ai-request.test.tsx` (новый): `available` — ⌘I в Terminal открывает панель, Ctrl+I — нет (уходит в xterm); не `available` — ⌘I уходит в xterm, панели нет; Esc закрывает; `busy` — «Terminal is busy».
 - [x] e2e `test/e2e/terminal-ai-request.spec.ts` (новый), fake с ответом: `Meta+I` в Terminal Node — панель, текст, Enter — в строке xterm ответ fake, панель закрыта; вывода команды нет, пока test не нажал Enter.
 - [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: панель Cmd+I над Terminal-ом в светлой и тёмной теме — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным HOME.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0. — `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 своим прогоном; gate full — за orchestrator-ом.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -191,3 +191,13 @@ Playwright на собранном приложении с временным HO
 Ручной пункт (`WORFY_AGENT=fake pnpm dev`) — не проверено: `pnpm dev` с настоящим HOME по brief-у
 не запускался; снимки сделаны Playwright-ом, не в `pnpm dev`. `GATE_SCOPE=all` gate full — за
 orchestrator-ом.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave Epic-а под Autopilot; 06 роздан после мержа 04 и шёл параллельно с 05. Решения Orchestrator-а: проверка ⌘I — голый `metaKey` без Ctrl, Alt и Shift, не `isPrimary`/`isMac()` из `src/renderer/platform.ts` (`isPrimary` на Windows — Ctrl, а Ctrl+I в терминале — Tab; ветка `isMac()` сделала бы PR платформенным, ADR-0056, пункт 2) — расходится с текстом Ticket-а, **решено без владельца, подтвердить**; `src/main/terminal-ai/shell-link.ts` в этой Wave правил только этот Ticket; записи ⌘I в `src/shared/shortcuts.ts` нет — файла на main нет (Ticket 11 `worfy-ui` не влит).
+- Гейт — один круг: `VERIFIED` на `75a2fcc` ([комментарий в PR #314](https://github.com/IDSAD-XL/worfy/pull/314#issuecomment-6163535632)). Verifier сам: gate fast из кэша, поэтому `pnpm lint`, `pnpm typecheck`, `pnpm test` отдельно — код 0; свой contract-файл дважды — 26 из 26; unit панели — код 0; contract-test-ы Ticket-ов 03 и 04 без правок — код 0; e2e `terminal-ai-request`, `terminal`, `focus` под замком — 14 passed; 11 мутантов — все красные; на настоящем zsh запрос не отменяют изменение размера pty, конец фоновой задачи, `zle -R` от main, часы в prompt-е, чужой async-обработчик, а ← отменяет; повторный `source` оставляет одну обёртку; выбрасывается только `insert` сразу за пустым `status` закрытого запроса; веток по платформе нет; снимки в обеих темах (панель, отказ по Limits, «Terminal is busy»).
+- Мерж: база main `1f479d9` (с Ticket-ом 05 — скрипты 05 и 06 впервые вместе), head `17d6a0b`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `fcaa18e`.
+- На решение владельца (Consider, [low]):
+  - панель ⌘I не отправляет модели текущую строку shell-а (`src/main/ipc/terminal-ai-request.ts:120` передаёт пустую строку), хотя Ticket (пункт 5) и spec её требуют: main видит строку только в `ask`; исправить можно расширением протокола Ticket-а 03 или чтением буфера xterm в renderer;
+  - при выключенном Command request строка `# слова` + Enter — обычный `accept-line` (`40-command-request.zsh:32-34`): zsh может написать «command not found: #», слова попадают в историю; Ticket ждал серое «Terminal AI is off»; так сохраняются обычные строки-комментарии;
+  - открытая панель закрывает первую строку Terminal-а (`TerminalNode.css:113`): в «Terminal is busy» не видно, какая команда идёт.
