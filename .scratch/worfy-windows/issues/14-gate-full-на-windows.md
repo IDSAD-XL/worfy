@@ -288,3 +288,55 @@ Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` и
 **Не сделано и не проверено в срезе 1:** macOS и Linux — значения проверены только вызовом `pathToFileURL(…, { windows: false })` на ПК. `test/unit/renderer-entry.test.ts:74,81` по-прежнему собирает `file://${indexHtml}` руками из настоящего пути: на Windows это проходит, потому что разбор URL сам приводит `file://C:\…` к `file:///C:/…`; путь с `#`, `?` или `%` его сломает на любой системе — не тронуто.
 
 **Что использовано вместо текста Ticket-а** (расхождения подтверждены Session на Mac, текст она правит своим docs PR): проверка клавиш — `grep -rnE "Meta\+|'Meta'" test/e2e | grep -v ControlOrMeta` ничего не печатает; `Meta` стоит в 66 местах 17 файлов, меняются все; job `windows` в `ci.yml` пишется рядом с существующим `windows-tests.yml`, который остаётся как есть.
+
+### Срез 2 — клавиши `ControlOrMeta` в e2e и пять test-ов только для macOS
+
+Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1, Playwright 1.63.0. Ветка `worfy-windows/14-keys-and-mac-tests` от main `88769ca`, три commit-а: клавиши, пять test-ов, ещё один spec с `Meta`, который пришёл с main. Пока срез шёл, main ушёл вперёд три раза (срез 1, worfy-ui Ticket-ы 06 и 10); незапушенная ветка каждый раз переносилась на него без конфликтов, поэтому у прогонов ниже разные head — код среза в них один. Меняются только файлы в `test/`. **На macOS и Linux с ПК ничего не запускалось.** Правку сделал subagent этой Session; diff прочитан вторым subagent-ом (замечаний нет) и проверен ею: полный прогон, e2e на ветке и на main, сравнение по именам.
+
+- **Клавиши (пункт 4).** `Meta` → `ControlOrMeta` в 69 местах 18 файлов `test/e2e/` (`focus-sidebar.spec.ts`, который пришёл с worfy-ui Ticket-ом 10, уже писал `ControlOrMeta`): `canvas-layout` 5, `done-stack` 1, `edges` 2, `epic-frame-undo` 4, `epic-frame` 2, `focus` 8, `no-overlap` 2, `palette-find` 11, `palette-groups` 1, `pin-tags` 4, `settings-health` 1, `settings` 7, `snapping` 2, `terminal` 1, `theme-shadows` 1, `tidy-up` 5, `trash-undo` 8, `wheel-over-nodes` 4. Тип `('Meta' | 'Shift')[]` в `wheel-over-nodes.spec.ts` стал `('ControlOrMeta' | 'Shift')[]`. Playwright на macOS читает `ControlOrMeta` как Meta, так что на Mac клавиши те же. Проверка: `grep -rnE "Meta\+|'Meta'" test/e2e | grep -v ControlOrMeta` ничего не печатает. В Ticket-е стоит 55 мест в 13 файлах — main с тех пор вырос; `settings-health.spec.ts` пришёл с worfy-ui Ticket-ом 06 уже во время работы над срезом.
+- **e2e на ПК: 18 изменённых spec-ов, ветка `17eec0a` и main `39f33a6`.** `pnpm build` — exit 0 на обеих; затем `pnpm exec playwright test <18 файлов> --grep-invert @packaged` — exit 1 на обеих.
+
+  | | Test-ов | Прошли | Упали |
+  |---|---|---|---|
+  | main `39f33a6` | 72 | 15 | 57 |
+  | ветка `17eec0a` | 72 | 26 | 46 |
+
+  **11 test-ов перестали падать, ни один не начал:** `trash-undo` 4 (`:85`, `:115`, `:298`, `:334`), `focus` 3 (`:87`, `:203`, `:233`), `settings` 2 (`:45`, `:109`), `canvas-layout` 1 (`:291`), `pin-tags` 1 (`:450`). `settings.spec.ts` и `trash-undo.spec.ts` на ветке проходят целиком. Ещё один test дошёл дальше и упал на другой проверке: `pin-tags.spec.ts:179`.
+
+  После переноса на main `88769ca` (worfy-ui Ticket 10 изменил `focus.spec.ts` и добавил `focus-sidebar.spec.ts`) эти два spec-а запущены ещё раз, на итоговом head `bac8781` и на main `88769ca`: `focus.spec.ts` — на main 0 из 4, на ветке 3 из 4 (те же три test-а; четвёртый — Terminal, строка `:340`); `focus-sidebar.spec.ts` — 5 из 7 на обеих, два падения те же (`:188`, `:549`: список Epic-ов в боковой панели пуст, fixture подменяет `epic-status` скриптом с `#!/bin/sh` — это срез 3). Остальные 16 spec-ов на итоговом head не повторялись: ни main, ни третий commit их не меняли.
+
+  **46 падений ветки падают и на main, по первой ошибке групп пять; ни одна не про клавиши:**
+
+  | Первая ошибка | Сколько и где | Причина |
+  |---|---|---|
+  | «the window is 1600 px wide»: получено 1586 (так же 1400 → 1386, 1280 → 1266), `helpers.ts:313` | 19: `snapping` 6, `no-overlap` 4, `tidy-up` 3, `done-stack` 2, `canvas-layout` 1, `edges` 1, `palette-find` 1, `palette-groups` 1 | helper `canvasReady` задаёт внешний размер окна и ждёт такую же ширину страницы; рамка окна Windows занимает 14 px |
+  | команды POSIX в Terminal, который на Windows — PowerShell | 14: `terminal` 7, `wheel-over-nodes` 6, `focus` 1 (`:312`) | spec набирает `seq 1 200`, `stty size`, `head -c`, `echo "tp=$TERM_PROGRAM"`; это пункт 5 Ticket-а |
+  | `toBeVisible()` на рамке Epic-а или её частях | 10: `epic-frame` 7, `epic-frame-undo` 1, `snapping` 1 (`:321`), `theme-shadows` 1 | Epic-ов на Canvas нет. Причина не подтверждена запуском; вероятная — подмена `epic-status` в fixture, скрипт с `#!/bin/sh` (срез 3) |
+  | `toBe`: ожидалось 1, получено 0 | 2: `settings-health` `:126`, `:190` | не разбиралось; spec новый, клавиша в нём одна |
+  | `toBeCloseTo`: ожидалось 205, получено 197,8 | 1: `pin-tags` `:179` | не разбиралось; на main этот test падает на другой проверке (`toBeLessThan`) |
+
+- **Пять test-ов только для macOS (пункт 2).**
+
+  | Test | Решение | Почему |
+  |---|---|---|
+  | `test/unit/tail.test.ts`, «rereads from the start when the file was replaced by a new one» | идёт на macOS и Windows, пропуск только на Linux | NTFS отдаёт новому файлу ту же запись, но поднимает её номер последовательности, и `ino` меняется: 5 замен из 5 дали другой `ino` (`fs.statSync(…, { bigint: true })`) |
+  | `test/contract/workflow-reader.test.ts`, «waits for 300 ms of quiet: saves closer together than that give exactly one read» | идёт на macOS и Windows, пропуск только на Linux | сохранения с шагом 60 ms дают одно чтение и на Windows |
+  | `test/unit/agent-env.test.ts`, 4 случая с настоящим `/bin/zsh` | пропуск на Windows остаётся | на Windows нет login shell: `captureAgentEnv` там читает реестр и `captureLoginShellEnv` не вызывает; это проверяют блок «captureAgentEnv on win32» и два блока только для Windows в том же файле |
+  | `test/contract/terminal.test.ts`, «open starts $SHELL -l in the Project root …» | пропуск на Windows остаётся | на Windows нет `$SHELL` и login shell, Terminal запускает PowerShell; то же для него проверяет «open starts Windows PowerShell …» в `terminal-windows.test.ts` |
+  | `test/contract/make-icons.test.ts`, запуск `scripts/make-icons.mjs` (8 test-ов) | пропуск на Windows остаётся | скрипт рисует через `sips` и пакует через `iconutil` — программы macOS; его результаты (`icons.json`, `icon.ico`) лежат в репозитории и проверяются на всех системах |
+
+  Комментария «worfy runs on macOS only» в этих файлах больше нет. Оба test-а, которые теперь идут на Windows, прошли в трёх отдельных запусках из трёх и в двух полных прогонах.
+
+- **`pnpm test` на ПК.** Полный прогон шёл на `263c150` — те же два commit-а на main `6030ef3`; до итогового head ветку отделяют два переноса на main (worfy-ui Ticket-ы 06 и 10, документы) и третий commit в один e2e-файл, который `pnpm test` не запускает. На итоговом head полный прогон не повторялся.
+
+  | `pnpm test` на ПК | Test-ов | Прошли | Упали | Пропущены |
+  |---|---|---|---|---|
+  | срез 1 на `3d7d5e7` (эталон: тот же код, что main `6030ef3`) | 4793 | 4307 | 443 | 43 |
+  | ветка на `263c150` | 4793 | 4314 | 438 | 41 |
+
+  - **Из пропущенных в прошедшие — 2 test-а**, те самые из `tail.test.ts` и `workflow-reader.test.ts`.
+  - **По именам на ветке падают и не падают в эталоне 2 test-а**, оба в файлах, которые срез не трогал: `contract/harness-evals.test.ts`, «reviewer-simplification builds its fixture…», и `contract/projects-connect.test.ts`, «Full: the form gets what the Session proposed…». Оба файла, запущенные отдельно на ветке: эти два test-а проходят, число упавших в каждом файле то же, что в эталоне (39 и 6).
+  - **Перестали падать 7 test-ов**, все в файлах, которые срез не трогал (`e3-sandbox` 3, `startup-failure` 2, `canvas` 1, `shell-discovery` 1): шум между прогонами. `startup-failure.test.ts` в семи сохранённых прогонах даёт от 8 до 12 упавших из 35.
+- `pnpm lint`, `pnpm typecheck` на итоговом head — exit 0. `git ls-files --eol` для 23 изменённых файлов — `i/lf`.
+
+**Не сделано и не проверено в срезе 2:** e2e на Mac гонит Session на Mac. Причины трёх групп e2e-падений из таблицы выше (рамки Epic-ов, `settings-health`, `pin-tags:179`) прочитаны по первой ошибке и запуском не подтверждены. `test/contract/terminal.test.ts` в двух запусках из четырёх на ПК закончился раньше времени: 4 test-а прошли, 40 остались без результата, файл при этом считался прошедшим; в двух других и в полных прогонах — 44 прошли, 3 пропущены. Причина не найдена; срез поменял в этом файле только комментарий. Проверка `grep` держится, только пока новый spec не напишет `Meta`: за время среза main дважды принёс новые e2e-файлы, один из них с `Meta+k`. Test-а, который ловил бы это в CI, срез не добавляет.
