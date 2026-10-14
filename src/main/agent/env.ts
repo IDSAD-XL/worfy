@@ -3,7 +3,8 @@
 //
 // An app started from Finder gets a bare PATH from launchd (/usr/bin:/bin:/usr/sbin:/sbin), so
 // neither Claude Code nor the user's hooks would find node, pnpm or gh. worfy therefore takes the
-// environment of the user's interactive login shell (`$SHELL -ilc`), once, with a timeout. The
+// environment of the user's interactive login shell (`$SHELL -ilc`), once per app run, with a
+// timeout; it is taken again only when the Harness scripts or First run ask (`recaptureAgentEnv`). The
 // shell starts from a minimal environment, so variables of whoever started worfy (for example a
 // parent Claude Code session when worfy runs from a terminal) never reach the child Claude Code.
 // From the shell's environment only ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are removed: with
@@ -513,12 +514,44 @@ export function captureAgentEnv(options: AgentEnvOptions = {}): Promise<Captured
 }
 
 let captured: Promise<CapturedEnv> | null = null
+let recapturing: Promise<CapturedEnv> | null = null
 
-/** The agent environment, captured once per app run on first use. */
+function logged(result: CapturedEnv): CapturedEnv {
+  if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
+  return result
+}
+
+/**
+ * The agent environment, captured on first use and held for the app run; `recaptureAgentEnv`
+ * replaces it.
+ */
 export function agentEnv(): Promise<CapturedEnv> {
-  captured ??= captureAgentEnv().then((result) => {
-    if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
-    return result
-  })
+  captured ??= captureAgentEnv().then(logged)
   return captured
+}
+
+/**
+ * Captures the environment again, for a user who changed it while worfy runs: node added by an rc
+ * file (nvm, fnm, volta, asdf, mise), a shell that failed the capture fixed (worfy-harness ticket
+ * 37). The Harness scripts' retry after a failure that points at the environment and First run's
+ * "Check again" call it. Callers that come while a capture runs share it: one shell run at a time.
+ *
+ * The new environment is what `agentEnv()` answers from then on — the Harness scripts and the
+ * Sessions and Terminal Nodes started after it; a running Session keeps the environment it was
+ * started with. A capture that fell back does not replace one that did not: a shell that fails
+ * now (an rc file over the timeout) does not take node away from the next Session. Never rejects.
+ */
+export function recaptureAgentEnv(): Promise<CapturedEnv> {
+  recapturing ??= (async () => {
+    try {
+      const fresh = logged(await captureAgentEnv())
+      const held = captured ? await captured : null
+      const kept = fresh.from === 'fallback' && held !== null && held.from !== 'fallback' ? held : fresh
+      captured = Promise.resolve(kept)
+      return kept
+    } finally {
+      recapturing = null
+    }
+  })()
+  return recapturing
 }

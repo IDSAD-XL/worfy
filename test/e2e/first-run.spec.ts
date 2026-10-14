@@ -307,7 +307,9 @@ test.describe('first-run screen', () => {
       await launched.close()
     }
 
-    // The same tools but node, in a new folder; sandbox() writes .profile again.
+    // The same tools but node, in a new folder; sandbox() writes .profile again. Its PATH is that
+    // folder, /usr/bin and /bin: the premise is that neither system folder has a node.
+    expect(['/usr/bin/node', '/bin/node'].filter((path) => existsSync(path))).toEqual([])
     bin = join(scratch, 'bin-without-node')
     mkdirSync(bin)
     sandbox({ tools: ['claude', 'gh', 'jq', 'git', 'npm', 'qmd'] })
@@ -316,9 +318,9 @@ test.describe('first-run screen', () => {
       const dialog = await screen(launched.window)
       const scripts = row(dialog, 'harness-scripts')
       await expect(scripts).toHaveAttribute('data-status', 'fail')
-      await expect(scripts).toContainText('exit code 127')
-      await expect(scripts).toContainText('node')
-      await expect(scripts).toContainText('worfy cannot run the Harness scripts, so it reads no Epics')
+      // The detail itself names node — the script's stderr, not only the fixed hint below it.
+      await expect(scripts).toContainText(/profile --help: exit code 127: env: node: No such file or directory/)
+      await expect(scripts).toContainText('worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell')
       await keep(launched.window, 'first-run-harness-scripts-no-node')
     } finally {
       await launched.close()

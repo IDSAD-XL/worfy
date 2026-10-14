@@ -20,21 +20,22 @@
 // - Harness scripts: `profile --help`, run as the Epics read runs the Harness scripts — the same
 //   runner (harnessScriptRunner) and the environment of src/main/harness/script-env.ts, not the
 //   screen's `env` (worfy-harness ticket 37). `--help` reads no registry. A script that cannot run
-//   (exit code 127: no node on the login shell's PATH) fails with the exit code and the last line
-//   of stderr: worfy then reads no Epics. Without a Harness the row says when it is checked.
+//   fails with the exit code and what stderr says, and a hint for the cause (no node on the login
+//   shell's PATH, a timeout, a crash, a script worfy cannot start): worfy then reads no Epics.
+//   Without a Harness, with an old one that has no `profile`, and on Windows, where worfy cannot run
+//   the scripts yet (worfy-windows ticket 05), the row warns.
 // - Old Harness in ~/.claude: the files of the Q19 list (src/main/harness/migrate/plan.ts, ticket 14);
 //   a warning with the move form.
 // - qmd, its models, the collections of the connected Projects (src/main/harness/qmd.ts, ticket 17).
 //   qmd is optional for worfy itself (search falls back to grep), so these only warn.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AccountInfoLike } from '../agent/session'
 import { DEPENDENCY_MARKETPLACE_SOURCE } from '../harness/install'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
-import { harnessScriptRunner } from '../workflow/profile'
+import { environmentExit, harnessScriptRunner, HARNESS_SCRIPT_TIMEOUT_MS, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import type { HarnessStatus } from '../../shared/ipc/harness'
@@ -71,6 +72,10 @@ export interface CheckDeps {
   homes: QmdHomes
   /** The connected Projects with their Profiles. */
   projects: () => Promise<readonly ProjectProfile[]>
+  /** The platform the checks are for; process.platform by default. */
+  platform?: NodeJS.Platform
+  /** How long `profile --help` of the Harness scripts row may take; 15 s, as for the Epics read, by default. */
+  harnessScriptTimeoutMs?: number
   /** How long a tool or the sign-in may take; 15 s and 60 s by default. */
   toolTimeoutMs?: number
   accountTimeoutMs?: number
@@ -328,26 +333,40 @@ function harnessDependencies(status: HarnessStatus): Row {
   return row('ok', dependencies.map((each) => (each.version === null ? each.id : `${each.id} ${each.version}`)).join(', '))
 }
 
+/** The hint of the Harness scripts row for each way `profile --help` fails. */
+export const HARNESS_SCRIPT_HINTS = {
+  node: 'worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell',
+  timeout: 'worfy reads no Epics while the Harness scripts take this long: a busy machine or a slow disk; Check again',
+  crash: 'worfy reads no Epics while the Harness scripts fail: install the Harness plugin again, or report what the script says',
+  start: 'worfy cannot start the Harness scripts, so it reads no Epics: their files must be readable and executable; install the Harness plugin again',
+} as const
+
 /**
  * Whether worfy can run the Harness scripts: `profile --help` of the Harness the Epics read finds
- * (src/main/harness/locate.ts), with that read's runner and environment. In a temporary folder:
- * `--help` reads neither the folder nor the registry.
+ * (src/main/harness/locate.ts), with that read's runner and environment. `--help` reads neither
+ * its folder nor the registry; it runs in the Harness's own bin folder, which exists when the
+ * script does.
  */
 async function harnessScripts(deps: CheckDeps): Promise<Row> {
   const { claudeHome } = deps.homes
   const location = locateHarness(harnessHomes(claudeHome))
   const later = (detail: string): Row => row('warn', detail, 'worfy runs the Harness scripts to read the Epics of a Project')
   if (location.kind === 'none') return later('checked when the Harness plugin is installed')
-  const hint = 'worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell'
+  // A script without an extension cannot be started on Windows (libuv tries .com and .exe only).
+  if ((deps.platform ?? process.platform) === 'win32') return later('worfy cannot run the Harness scripts on Windows yet (worfy-windows ticket 05)')
+  const script = join(location.binDir, 'profile')
+  // An old Harness without the script: the Epics are read without a Profile, as the reader does.
+  if (!existsSync(script)) return later(`no profile script in ${location.binDir}`)
+  const timeoutMs = deps.harnessScriptTimeoutMs ?? HARNESS_SCRIPT_TIMEOUT_MS
   try {
-    const run = await harnessScriptRunner(claudeHome, await deps.scriptEnv(), 'profile')(tmpdir(), ['--help'])
+    const run = await harnessScriptRunner(claudeHome, await deps.scriptEnv(), 'profile', timeoutMs)(location.binDir, ['--help'])
     if (run.code === 0) return row('ok', 'profile --help answered')
-    const last = lastLine(run.stderr)
-    return row('fail', run.code === null ? 'profile --help timed out' : `profile --help: exit code ${run.code}${last ? `: ${last}` : ''}`, hint)
+    if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
+    const detail = scriptFailureDetail(run.stderr)
+    return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : HARNESS_SCRIPT_HINTS.crash)
   } catch (error) {
-    // An old Harness without the script: the Epics are read without a Profile, as the reader does.
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return later(`no profile script in ${location.binDir}`)
-    return row('fail', `profile could not be started: ${error instanceof Error ? error.message : String(error)}`, hint)
+    // The file is there, so this is not a missing script: worfy cannot start it (EACCES, a bad interpreter line).
+    return row('fail', `profile could not be started: ${error instanceof Error ? error.message : String(error)}`, HARNESS_SCRIPT_HINTS.start)
   }
 }
 

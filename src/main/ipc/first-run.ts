@@ -17,7 +17,7 @@ import { BrowserWindow, dialog } from 'electron'
 import { firstRunChecks, firstRunClose, firstRunRun, firstRunStartup, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import { queryFactoryFromEnv } from '../agent/app-registry'
-import { agentEnv } from '../agent/env'
+import { agentEnv, recaptureAgentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
@@ -182,7 +182,12 @@ export default [
     const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
     return { show: fresh, report }
   }),
-  defineHandler(firstRunChecks, async () => remember(await appActions().report())),
+  // "Check again": the login shell is captured again first, so node added by an rc file since the
+  // start shows here, and the Epics read and new Sessions get it too (worfy-harness ticket 37).
+  defineHandler(firstRunChecks, async () => {
+    await recaptureAgentEnv()
+    return remember(await appActions().report())
+  }),
   defineHandler(firstRunRun, async ({ action, projectName }, { event }) => {
     asking = BrowserWindow.fromWebContents(event.sender)
     try {

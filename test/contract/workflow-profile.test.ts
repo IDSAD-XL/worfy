@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, readResolvedProfile, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
-import { failedLayout, fullLayout, LayoutCache, readProjectLayout, type ProjectLayout } from '../../src/main/workflow/folder'
+import { failedLayout, fullLayout, LayoutCache, layoutFailure, readProjectLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { readWorkflow } from '../../src/main/workflow/reader'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
@@ -80,7 +80,7 @@ describe('readMcpAllowlist with a stand-in runner', () => {
     ['a list with something other than names', { code: 0, stdout: '["qmd", 7, ""]\n', stderr: '' }, /not a list of server names/],
     ['a bare word', { code: 0, stdout: 'qmd\n', stderr: '' }, /mcp\.allowed is not JSON/],
     ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
-    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /did not answer within 15 s/],
     ['a script that cannot be started', Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), /could not be run: spawn EACCES/],
   ])('%s: the default list plugin_worfy_qmd and worfy-canvas, the reason in the log', async (_case, answer, reason) => {
     const list = await readMcpAllowlist({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), log })
@@ -282,7 +282,7 @@ describe('readGithubAccount', () => {
     ['a field that is null', { code: 0, stdout: 'null\n', stderr: '' }, /github\.account is null/],
     ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
     ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
-    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /did not answer within 15 s/],
     ['an empty value', { code: 0, stdout: '\n', stderr: '' }, /github\.account is empty/],
     ['an object', { code: 0, stdout: '{\n  "account": "x"\n}\n', stderr: '' }, /not a GitHub login/],
     ['an option instead of a login', { code: 0, stdout: '--hostname\n', stderr: '' }, /not a GitHub login: "--hostname"/],
@@ -467,27 +467,44 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
   })
 
   // A failed call: the mode is unknown, nothing is guessed (worfy-harness ticket 37, «вызов не удался»).
-  it.each<[string, ProfileRun | Error, RegExp]>([
-    ['exit code 127: the script finds no node', { code: 127, stdout: '', stderr: 'env: node: No such file or directory\n' }, /failed with exit code 127: env: node: No such file or directory/],
-    ['exit code 1: a broken registry', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
-    ['exit code 4 on --json', { code: 4, stdout: '', stderr: '' }, /exit code 4/],
-    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
-    ['a script that cannot be started', Object.assign(new Error('spawn profile EACCES'), { code: 'EACCES' }), /could not be run: spawn profile EACCES/],
-    ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/],
-    ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/],
-    ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/],
-    ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/],
-  ])('a failed call — %s: the layout is marked failed with the reason, and `ticket root` is not run', async (_case, answer, reason) => {
+  // The last column: whether the failure points at the scripts' environment, so the watcher takes
+  // the login shell again before it asks once more.
+  const CRASH = '/h/bin/profile.js:12\n    throw new TypeError(\'boom\')\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11)\n    at Object.<anonymous> (/h/bin/profile.js:20:1) {\n  code: \'ERR_BOOM\'\n}\n\nNode.js v24.19.0\n'
+  it.each<[string, ProfileRun | Error, RegExp, boolean]>([
+    ['exit code 127: the script finds no node', { code: 127, stdout: '', stderr: 'env: node: No such file or directory\n' }, /failed with exit code 127: env: node: No such file or directory$/, true],
+    ['exit code 126: node cannot be run', { code: 126, stdout: '', stderr: 'env: node: Permission denied\n' }, /failed with exit code 126: env: node: Permission denied$/, true],
+    ['exit code 1: a broken registry', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken$/, false],
+    ['exit code 1: a crash of the script — its Error line, not the stack nor the node version', { code: 1, stdout: '', stderr: CRASH }, /failed with exit code 1: TypeError: boom$/, false],
+    ['exit code 4 on --json', { code: 4, stdout: '', stderr: '' }, /exit code 4/, false],
+    ['a timeout, with its limit', { code: null, stdout: '', stderr: '' }, /^the profile script did not answer within 15 s$/, false],
+    ['a script that cannot be started', Object.assign(new Error('spawn profile EACCES'), { code: 'EACCES' }), /could not be run: spawn profile EACCES/, true],
+    ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/, false],
+    ['JSON null', { code: 0, stdout: 'null\n', stderr: '' }, /printed no object: "null"/, false],
+    ['a JSON list', { code: 0, stdout: '[]\n', stderr: '' }, /printed no object: "\[\]"/, false],
+    ['a JSON string', { code: 0, stdout: '"text"\n', stderr: '' }, /printed no object/, false],
+    ['_resolved: null', { code: 0, stdout: JSON.stringify({ _resolved: null }), stderr: '' }, /expected _resolved fields: _resolved/, false],
+    ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/, false],
+    ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/, false],
+    ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/, false],
+  ])('a failed call — %s: the layout is marked failed with the reason, and `ticket root` is not run', async (_case, answer, reason, environment) => {
     const runTicket = stubRun({ code: 0, stdout: '/elsewhere\n', stderr: '' })
     const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), runTicket, log })
-    expect(layout).toEqual(failedLayout('/repo', layout.reason ?? ''))
+    expect(layout).toEqual(failedLayout('/repo', layout.reason ?? '', environment))
     expect(layout.failed).toBe(true)
+    expect(layout.environmentFailure).toBe(environment)
     expect(layout.reason).toMatch(reason)
+    expect(layout.reason).not.toMatch(/Node\.js v|\n/)
     expect(runTicket.calls).toEqual([])
     expect(logged).toHaveLength(1)
     expect(logged[0]).toMatch(/^\[workflow\] \/repo: the workflow is not read, because /)
     const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
-    expect(resolved).toEqual({ ok: false, miss: 'failed', reason: expect.stringMatching(reason) })
+    expect(resolved).toEqual({ ok: false, miss: 'failed', reason: expect.stringMatching(reason), environment })
+  })
+
+  it('the window shows the first lines of a long reason, not all of it', () => {
+    const long = failedLayout('/repo', ['one', 'two', 'three', 'four', 'five'].join('\n'))
+    expect(layoutFailure(long)).toBe('worfy could not ask the Harness where the workflow of this Project lives: one\ntwo\nthree\n…')
+    expect(layoutFailure(failedLayout('/repo', 'one line'))).toBe('worfy could not ask the Harness where the workflow of this Project lives: one line')
   })
 
   it('the cache reads a Project once per interval and again after it', async () => {

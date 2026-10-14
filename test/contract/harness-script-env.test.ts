@@ -12,11 +12,11 @@
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../../src/main/harness/script-env'
+import { harnessScriptEnv, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../../src/main/harness/script-env'
 import { harnessWorkspaceOf } from '../../src/main/projects/store'
 import { LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { epicStatusRunner, readCheckout, readWorkflow } from '../../src/main/workflow/reader'
@@ -48,7 +48,7 @@ function listing(dir: string): Record<string, string> {
   return out
 }
 
-const SAVED = ['PATH', 'HOME', 'WORFY_CLAUDE_HOME', 'WORFY_HARNESS_HOME'] as const
+const SAVED = ['PATH', 'HOME', 'SHELL', 'WORFY_CLAUDE_HOME', 'WORFY_HARNESS_HOME'] as const
 
 let scratch: string
 let saved: Record<string, string | undefined>
@@ -64,6 +64,9 @@ let folder: string
 let workspace: string
 /** The environment with node, as the login shell would give it. */
 let withNode: HarnessScriptEnv
+/** The folder whose only entry is node. */
+let nodeBin: string
+let home: string
 const source: HarnessScriptEnvSource = () => Promise.resolve(withNode)
 
 // The scripts are bash and POSIX paths; Windows gets them with worfy-windows ticket 05.
@@ -74,8 +77,8 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     if (!node) throw new Error('node is not on the PATH of the test run: the test cannot build the environment with node')
     scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-script-env-')))
     tools = join(scratch, 'tools')
-    const nodeBin = join(scratch, 'node-bin')
-    const home = join(scratch, 'home')
+    nodeBin = join(scratch, 'node-bin')
+    home = join(scratch, 'home')
     claudeHome = join(scratch, 'claude-home')
     harnessHome = join(claudeHome, 'worfy-harness')
     repo = join(scratch, 'silent-app')
@@ -216,4 +219,41 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     await harnessWorkspaceOf(source)(workspace)
     expect({ repo: listing(repo), folder: listing(folder), harness: listing(harnessHome) }).toEqual(before)
   })
+
+  // Last in this file: it adds a Ticket to the Workflow folder, and it leaves the app's source
+  // holding the environment it captured.
+  it("the app's own source: node added to the login shell's .profile after the start shows the Epics without a restart, and a Ticket written after that shows too", async () => {
+    const until = async (done: () => boolean, what: string, ms = 20_000): Promise<void> => {
+      const end = Date.now() + ms
+      while (!done()) {
+        if (Date.now() > end) throw new Error(`not within ${ms} ms: ${what}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+    const profile = join(home, '.profile')
+    // The login shell of the app (`$SHELL -ilc`, src/main/agent/env.ts) reads this file; the PATH it
+    // sets is the whole PATH, so nothing of /etc/profile adds a node.
+    writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
+    process.env.SHELL = '/bin/sh'
+    const second = join(folder, '.scratch', 'demo', 'issues', '02-second.md')
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome, env: harnessScriptEnv, layoutRetryMs: 100, onChange: () => undefined })
+    try {
+      expect(watcher.current.epics).toEqual([])
+      expect(watcher.current.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: .*node/)
+      expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
+
+      // The user adds node in an rc file, as nvm, fnm, volta, asdf and mise do, and worfy keeps running.
+      writeFileSync(profile, `PATH='${nodeBin}:${tools}'; export PATH\n`)
+      await until(() => watcher.current.epics.length > 0, 'the Epic after node was added')
+      expectSilentEpic(watcher.current)
+      expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).not.toBeNull()
+
+      // The watch started with the answer: a Ticket written now is read without a retry.
+      writeFileSync(second, '# 02 — Second\n\nType: task\nStatus: open\nBlocked by: —\n')
+      await until(() => watcher.current.tickets.some((ticket) => ticket.num === 2), 'the Ticket written after the recovery', 10_000)
+    } finally {
+      await watcher.close()
+      rmSync(second, { force: true })
+    }
+  }, 60_000)
 })

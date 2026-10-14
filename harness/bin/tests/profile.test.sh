@@ -173,6 +173,10 @@ rm "$T/profiles/demo/profile.json"
 check "profile dir missing file -> 3" 3 "" "$PROFILE" -C "$T/repo"
 echo '{broken' >"$T/profiles/demo/profile.json"
 check "broken profile.json -> 1" 1 "" "$PROFILE" -C "$T/repo"
+# A registry the resolver cannot read: exit 1, and stderr keeps the resolver's own line, which names it.
+check "unreadable registry -> 1, stderr names the registry" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_CONFIG="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: gate-resolve: registry $0 cannot be read"* ]]' \
+    "$T/no-registry.json" "$PROFILE" "$T/repo"
 
 # common directory (workspace): the parent of all repositories of one profile, not a repo itself
 mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/notes" "$T/ws/c" "$T/profiles/multi" "$T/profiles/multi2" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z"

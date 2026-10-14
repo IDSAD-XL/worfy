@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { askAccount, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
+import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
@@ -323,8 +323,65 @@ describe('first-run checks', () => {
       const scripts = checkOf(report, 'harness-scripts')
       expect(scripts.status).toBe('fail')
       expect(scripts.detail).toMatch(/^profile --help: exit code 127: .*node.*No such file or directory/)
+      expect(scripts.hint).toBe(HARNESS_SCRIPT_HINTS.node)
       expect(scripts.hint).toBe('worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell')
       expect(scripts.actions).toEqual([])
+    })
+
+    /** The old Harness in <claude home>/bin: its epic-status and, when given, a `profile` with this text. */
+    const oldHarness = (profile?: string, mode = 0o755): string => {
+      const dir = join(claudeHome, 'bin')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'epic-status'), '#!/bin/sh\nexit 0\n')
+      chmodSync(join(dir, 'epic-status'), 0o755)
+      if (profile !== undefined) {
+        writeFileSync(join(dir, 'profile'), profile)
+        chmodSync(join(dir, 'profile'), mode)
+      }
+      return dir
+    }
+
+    it('an old Harness without a profile script: a warning naming its folder, nothing run', async () => {
+      tools(...ALL_TOOLS)
+      const dir = oldHarness()
+      let asked = 0
+      const report = await runChecks(deps(loginEnv(), { scriptEnv: () => ((asked += 1), Promise.resolve(loginEnv())) }))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'warn', detail: `no profile script in ${dir}`, hint: 'worfy runs the Harness scripts to read the Epics of a Project' })
+      expect(asked).toBe(0)
+    })
+
+    it('a timeout: failed with its limit, and the hint says the machine is slow, not that node is missing', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness('#!/bin/sh\nexec /bin/sleep 5\n')
+      const report = await runChecks(deps(loginEnv(), { harnessScriptTimeoutMs: 300 }))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help did not answer within 0.3 s', hint: HARNESS_SCRIPT_HINTS.timeout })
+    })
+
+    it("a crash of the script: its Error line, not node's version line; the hint is not about node", async () => {
+      tools(...ALL_TOOLS)
+      oldHarness("#!/bin/sh\n/bin/cat >&2 <<'EOF'\n/h/bin/profile.js:12\n    throw new TypeError('boom')\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11) {\n  code: 'ERR_BOOM'\n}\n\nNode.js v24.19.0\nEOF\nexit 1\n")
+      const report = await runChecks(deps(loginEnv()))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 1: TypeError: boom', hint: HARNESS_SCRIPT_HINTS.crash })
+    })
+
+    it.each([
+      ['not executable', '#!/bin/sh\nexit 0\n', 0o644],
+      ['its interpreter line names no file', '#!/nonexistent/interpreter\n', 0o755],
+    ] as const)('a script that is there but cannot be started (%s): failed, not "no profile script"', async (_case, text, mode) => {
+      tools(...ALL_TOOLS)
+      oldHarness(text, mode)
+      const scripts = checkOf(await runChecks(deps(loginEnv())), 'harness-scripts')
+      expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
+      expect(scripts.detail).toMatch(/^profile could not be started: /)
+    })
+
+    it('on Windows: a warning that worfy cannot run the Harness scripts there yet, nothing run', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness('#!/bin/sh\nexit 0\n')
+      let asked = 0
+      const report = await runChecks(deps(loginEnv(), { platform: 'win32', scriptEnv: () => ((asked += 1), Promise.resolve(loginEnv())) }))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'warn', detail: 'worfy cannot run the Harness scripts on Windows yet (worfy-windows ticket 05)' })
+      expect(asked).toBe(0)
     })
   })
 

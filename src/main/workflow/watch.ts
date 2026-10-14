@@ -11,9 +11,11 @@
 //   the status lives in the Workflow folder only (ADR-0042), so refs are not watched.
 // Where the workflow lives is read once, when the watch starts. When that read fails (the `profile`
 // call, src/main/workflow/folder.ts: no node, a broken registry, a timeout), nothing is watched:
-// the model carries the reason, and the layout is asked again every `layoutRetryMs` until it
-// answers; then the watch starts and the Project is read, without a restart (worfy-harness
-// ticket 37).
+// the model carries the reason, and the layout is asked again after 10 s, 30 s, 60 s and then every
+// 5 minutes (`layoutRetryMs`) until it answers; then the watch starts and the Project is read,
+// without a restart (worfy-harness ticket 37). When the failure points at the environment (no
+// node), each retry first takes the login shell environment again (src/main/harness/script-env.ts),
+// so node added by an rc file is found; otherwise only when the held one is the capture's fallback.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 //
 // On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
@@ -26,7 +28,7 @@ import * as nativePath from 'node:path'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
-import type { HarnessScriptEnvSource } from '../harness/script-env'
+import type { HarnessScriptEnvRequest, HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
@@ -41,6 +43,9 @@ import {
   type CheckoutModel,
   type EpicStatusRunner,
 } from './reader'
+
+/** The waits before each retry of a failed layout: 10 s, 30 s, 60 s, then every 5 minutes. */
+export const LAYOUT_RETRY_MS: readonly number[] = Object.freeze([10_000, 30_000, 60_000, 300_000])
 
 export interface WatchOptions {
   root: string
@@ -65,8 +70,11 @@ export interface WatchOptions {
   run?: EpicStatusRunner
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default. */
   layout?: (root: string) => Promise<ProjectLayout>
-  /** How long after a failed read of the layout it is asked again (default 10 s). */
-  layoutRetryMs?: number
+  /**
+   * How long after a failed read of the layout it is asked again: one wait, or one per retry with
+   * the last repeated (LAYOUT_RETRY_MS by default).
+   */
+  layoutRetryMs?: number | readonly number[]
   /**
    * How the Tickets root is watched: 'links-read-first' (link-safe-watch.ts) on Windows, 'chokidar'
    * elsewhere. Tests name one to run it on any system.
@@ -213,6 +221,11 @@ export class WorkflowWatcher {
   /** Set when the failed layout is to be asked again before the next read. */
   private layoutStale = false
   private retry: NodeJS.Timeout | null = null
+  /** Retries of the failed layout so far, for the wait before the next one. */
+  private retries = 0
+  /** Resolves when `close` is called: a watch waiting for chokidar's `ready` stops waiting. */
+  private readonly closing: Promise<void>
+  private markClosed: () => void = () => undefined
   private dirtyCheckout = false
   private dirtyBranches = false
   private running: Promise<void> | null = null
@@ -222,6 +235,9 @@ export class WorkflowWatcher {
 
   private constructor(private readonly options: WatchOptions & { root: string; run: EpicStatusRunner }) {
     this.debounce = new Debounce(options.debounceMs ?? 300, options.maxWaitMs ?? 1000, () => this.request())
+    this.closing = new Promise((done) => {
+      this.markClosed = done
+    })
   }
 
   /**
@@ -266,6 +282,7 @@ export class WorkflowWatcher {
 
   async close(): Promise<void> {
     this.closed = true
+    this.markClosed()
     this.debounce.cancel()
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
@@ -281,21 +298,25 @@ export class WorkflowWatcher {
     await Promise.all(this.watchers.splice(0).map((w) => w.close()))
   }
 
-  private readLayout(): Promise<ProjectLayout> {
+  /** Reads the layout; after a failure, `fresh` says when the environment is to be captured again. */
+  private readLayout(request?: HarnessScriptEnvRequest): Promise<ProjectLayout> {
     const { options } = this
-    return (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env() })))(options.root)
+    return (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env(request) })))(options.root)
   }
 
-  /** Asks the failed layout again after `layoutRetryMs`, with a read; one timer at a time. */
+  /** Asks the failed layout again after the next wait of `layoutRetryMs`, with a read; one timer at a time. */
   private retryLayout(): void {
     if (this.retry || this.closed) return
+    const waits = this.options.layoutRetryMs ?? LAYOUT_RETRY_MS
+    const wait = typeof waits === 'number' ? waits : (waits[Math.min(this.retries, waits.length - 1)] ?? LAYOUT_RETRY_MS[0]!)
+    this.retries += 1
     this.retry = setTimeout(() => {
       this.retry = null
       if (this.closed) return
       this.layoutStale = true
       this.dirtyCheckout = true
       this.request()
-    }, this.options.layoutRetryMs ?? 10_000)
+    }, wait)
     this.retry.unref?.()
   }
 
@@ -333,7 +354,8 @@ export class WorkflowWatcher {
     }
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
-    if (common) {
+    // A close while git answered has closed what was watched; nothing more is added.
+    if (common && !this.closed) {
       const worktrees = join(common, 'worktrees')
       // Only the HEAD file of each linked worktree matters; index and logs change on every git call.
       const ignored = (path: string) => {
@@ -344,7 +366,9 @@ export class WorkflowWatcher {
       }
       add(watch([join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees], { ignoreInitial: true, ignored }), 'branches')
     }
-    await Promise.all(ready)
+    // chokidar's close removes the 'ready' listener, so a watch closed before it was ready never
+    // gets the event: close() would then wait for this read for good.
+    await Promise.race([Promise.all(ready), this.closing])
   }
 
   private schedule(what: 'checkout' | 'branches'): void {
@@ -376,12 +400,20 @@ export class WorkflowWatcher {
     const { root, run } = this.options
     if (this.layoutStale) {
       this.layoutStale = false
+      const previous = this.layout!
       // readProjectLayout never throws; an injected layout that does stays failed until the next retry.
-      const layout = await this.readLayout().catch((error: unknown) => ({ ...this.layout!, reason: error instanceof Error ? error.message : String(error) }))
+      const layout = await this.readLayout({ fresh: previous.environmentFailure === true ? 'always' : 'if-fallback' }).catch((error: unknown) => ({
+        ...previous,
+        reason: error instanceof Error ? error.message : String(error),
+      }))
+      // Closed while the layout was asked: no watch and no read after the close.
+      if (this.closed) return
       this.layout = layout
-      if (!layout.failed && !this.closed) {
+      if (!layout.failed) {
+        this.retries = 0
         // Watched before the read below, so a change made while it runs is read again.
         await this.watch().catch((error: unknown) => console.error('[workflow] the watch did not start', error))
+        if (this.closed) return
         this.dirtyBranches = true
       }
     }

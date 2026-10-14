@@ -20,6 +20,7 @@ import { ProjectStore } from '../../src/main/projects/store'
 import { LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { harnessScriptRunner } from '../../src/main/workflow/profile'
 import { epicStatusRunner, readWorkflow } from '../../src/main/workflow/reader'
+import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import { removeTestTree } from '../remove'
 
@@ -115,6 +116,24 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     expect(env[LEAK]).toBeUndefined()
   })
 
+  it.each([
+    ['no request', undefined, 'login-shell', 0],
+    ['always', 'always', 'login-shell', 1],
+    ['if-fallback, the held capture is good', 'if-fallback', 'login-shell', 0],
+    ['if-fallback, the held capture fell back', 'if-fallback', 'fallback', 1],
+  ] as const)('harnessScriptEnv takes the login shell again only when asked to: %s', async (_case, fresh, from, expected) => {
+    const AGAIN = { PATH: '/captured/again/bin' }
+    let recaptures = 0
+    vi.doMock('../../src/main/agent/env', () => ({
+      agentEnv: () => Promise.resolve({ env: LOGIN, from, error: null }),
+      recaptureAgentEnv: () => ((recaptures += 1), Promise.resolve({ env: AGAIN, from: 'login-shell', error: null })),
+    }))
+    const { harnessScriptEnv } = await import('../../src/main/harness/script-env')
+    const env = await harnessScriptEnv(fresh === undefined ? undefined : { fresh })
+    expect(recaptures).toBe(expected)
+    expect(env).toBe(expected === 1 ? AGAIN : LOGIN)
+  })
+
   it('the workflow hub of the window (src/main/ipc/workflow.ts)', async () => {
     mockElectron()
     mockSource()
@@ -203,10 +222,19 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     expect(seen.env).toBe(LOGIN)
   })
 
-  it('the First run row «Harness scripts» gets that source, not the environment of the screen (src/main/ipc/first-run.ts)', async () => {
+  it('the First run row «Harness scripts» gets that source, not the environment of the screen; "Check again" captures the login shell again first (src/main/ipc/first-run.ts)', async () => {
     mockElectron()
     mockSource()
-    vi.doMock('../../src/main/agent/env', () => ({ agentEnv: () => Promise.resolve({ env: { PATH: '/screen/bin' }, from: 'login-shell', error: null }) }))
+    let held: Record<string, string> = { PATH: '/screen/bin' }
+    let recaptures = 0
+    vi.doMock('../../src/main/agent/env', () => ({
+      agentEnv: () => Promise.resolve({ env: held, from: 'login-shell', error: null }),
+      recaptureAgentEnv: () => {
+        recaptures += 1
+        held = { PATH: '/captured/again/bin' }
+        return Promise.resolve({ env: held, from: 'login-shell', error: null })
+      },
+    }))
     const seen: { deps?: { env: unknown; scriptEnv: unknown } } = {}
     vi.doMock('../../src/main/first-run/checks', async (original) => ({
       ...(await original<object>()),
@@ -221,7 +249,8 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     const checks = handlers.find((handler) => handler.channel === firstRunChecks)
     if (checks === undefined) throw new Error('no handler of firstRun.checks')
     await checks.handle(undefined, {})
-    expect(seen.deps?.env).toEqual({ PATH: '/screen/bin' })
+    expect(recaptures).toBe(1)
+    expect(seen.deps?.env).toEqual({ PATH: '/captured/again/bin' })
     expect(seen.deps?.scriptEnv).toBe(SOURCE)
   })
 
@@ -341,6 +370,48 @@ describe.skipIf(process.platform === 'win32')('what each run of a script gets', 
     await harnessScriptRunner(claudeHome, await exported(), 'profile')(scratch, ['--help'])
     expect(lines(calls)).toEqual([`epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`, `profile MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`])
   })
+})
+
+describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh environment after a failure', () => {
+  it('after exit code 127 the retry takes the login shell again; after another failure only when the held one fell back', async () => {
+    const claudeHome = join(scratch, 'claude-home')
+    const calls = join(scratch, 'calls.txt')
+    const harnessHome = pluginHarness(claudeHome)
+    const exit = join(scratch, 'profile-exit')
+    writeFileSync(exit, '127\n')
+    // profile fails with the exit code in the file, as a profile without node or with a broken registry does.
+    script(
+      join(harnessHome, 'plugin', 'bin', 'profile'),
+      `${RECORD}\ncode=$(cat '${exit}')\nif [ "$code" != 0 ]; then echo 'env: node: No such file or directory' >&2; exit "$code"; fi\nprintf '%s' '{"_resolved":{"mode":"silent","workflow_folder":"${join(scratch, 'workflow')}","repos":[]}}'\n`,
+    )
+    const requests: (string | null)[] = []
+    const source: HarnessScriptEnvSource = (request) => {
+      requests.push(request?.fresh ?? null)
+      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls })
+    }
+    const until = async (done: () => boolean): Promise<void> => {
+      // Generous: the whole suite runs in parallel, and each retry starts a shell script.
+      for (let i = 0; i < 750 && !done(); i++) await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(done()).toBe(true)
+    }
+    const watcher = await WorkflowWatcher.start({ root: scratch, claudeHome, env: source, layoutRetryMs: 30, onChange: () => undefined })
+    try {
+      expect(watcher.current.error?.message).toMatch(/exit code 127/)
+      await until(() => requests.length >= 3)
+      writeFileSync(exit, '1\n')
+      await until(() => requests.includes('if-fallback'))
+      writeFileSync(exit, '0\n')
+      await until(() => watcher.current.error === null)
+    } finally {
+      await watcher.close()
+    }
+    const first = requests.indexOf('if-fallback')
+    // The start asks plainly; every retry after a 127 asks for a fresh capture; after exit code 1 none does.
+    expect(requests[0]).toBeNull()
+    expect(requests.slice(1, 3)).toEqual(['always', 'always'])
+    expect(requests.slice(first).filter((each) => each === 'always')).toEqual([])
+    expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo'])
+  }, 60_000)
 })
 
 describe.skipIf(process.platform === 'win32')('an empty SHELL', () => {

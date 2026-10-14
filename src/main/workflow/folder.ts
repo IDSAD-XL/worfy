@@ -21,7 +21,7 @@
 import { isAbsolute, join, resolve } from 'node:path'
 import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { claudeHome } from '../storage/paths'
-import { harnessScriptRunner, readResolvedProfile, type ProfileEnv, type ProfileRunner, type ResolvedRepo } from './profile'
+import { harnessScriptRunner, readResolvedProfile, scriptFailureDetail, type ProfileEnv, type ProfileRunner, type ResolvedRepo } from './profile'
 
 export type ProjectRepo = ResolvedRepo
 
@@ -46,6 +46,12 @@ export interface ProjectLayout {
    * workflow readers show `reason` and read no Tickets.
    */
   failed: boolean
+  /**
+   * On a failed layout, true when the failure points at the environment the script ran with (no
+   * node: exit code 127 or 126, or a script that could not be started); the watcher then takes the
+   * login shell environment again before it asks once more (src/main/workflow/watch.ts).
+   */
+  environmentFailure?: boolean
 }
 
 /** Full mode as worfy read every Project before Silent mode existed. */
@@ -55,12 +61,19 @@ export function fullLayout(root: string, reason: string | null = null): ProjectL
 }
 
 /** The layout of a Project whose `profile` call failed: `reason` says why (see the top of the file). */
-export function failedLayout(root: string, reason: string): ProjectLayout {
-  return { ...fullLayout(root, reason), failed: true }
+export function failedLayout(root: string, reason: string, environmentFailure = false): ProjectLayout {
+  return { ...fullLayout(root, reason), failed: true, environmentFailure }
 }
 
+/** The most of a reason the window shows: its first lines, never a whole stack trace. */
+const REASON_LINES = 3
+
 /** What a workflow reader shows for a failed layout: the reason, in the words of the window. */
-export const layoutFailure = (layout: ProjectLayout): string => `worfy could not ask the Harness where the workflow of this Project lives: ${layout.reason ?? 'no reason given'}`
+export const layoutFailure = (layout: ProjectLayout): string => {
+  const lines = (layout.reason ?? 'no reason given').split(/\r?\n/)
+  const reason = lines.length > REASON_LINES ? `${lines.slice(0, REASON_LINES).join('\n')}\n…` : lines.join('\n')
+  return `worfy could not ask the Harness where the workflow of this Project lives: ${reason}`
+}
 
 export interface ReadLayoutOptions {
   /** The Project root. */
@@ -95,7 +108,8 @@ async function ticketsRootOf(root: string, run: ProfileRunner): Promise<{ path: 
   try {
     const result = await run(root, ['root'])
     const path = result.stdout.trim().split('\n').at(-1)?.trim() ?? ''
-    if (result.code !== 0) return { reason: `ticket root failed with exit code ${result.code ?? 'timeout'}${result.stderr.trim() ? `: ${result.stderr.trim()}` : ''}` }
+    const detail = scriptFailureDetail(result.stderr)
+    if (result.code !== 0) return { reason: `ticket root failed with exit code ${result.code ?? 'timeout'}${detail ? `: ${detail}` : ''}` }
     if (!isAbsolute(path) || path.includes('\0')) return { reason: `ticket root printed no absolute path: ${JSON.stringify(path.slice(0, 200))}` }
     return { path }
   } catch (error) {
@@ -111,7 +125,7 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
   const read = await readResolvedProfile({ root, claudeHome: options.claudeHome, env, run: options.run, log: () => undefined })
   if (!read.ok && read.miss === 'failed') {
     log(`[workflow] ${root}: the workflow is not read, because ${read.reason}`)
-    return failedLayout(root, read.reason)
+    return failedLayout(root, read.reason, read.environment)
   }
   if (!read.ok) {
     log(`[workflow] ${root}: Full mode, the workflow files in the Project root, because ${read.reason}`)

@@ -143,7 +143,9 @@ try {
         env: { ...process.env, CLAUDE_GATE_CONFIG: CFG },
     }).trim()
 } catch (e) {
-    die(1, `resolver ${RESOLVE} failed (exit ${e.status}) — project not determined`)
+    // The resolver's own last line says what to fix ("registry <path> cannot be read: …").
+    const said = String(e.stderr ?? "").trim().split("\n").pop()
+    die(1, `resolver ${RESOLVE} failed (exit ${e.status}) — project not determined${said ? `: ${said}` : ""}`)
 }
 let cfg
 try {
