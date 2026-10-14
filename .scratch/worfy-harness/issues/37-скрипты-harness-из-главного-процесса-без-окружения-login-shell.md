@@ -441,9 +441,9 @@ worfy для этого менять не нужно: exit code, отличны�
 - [x] Слово владельца о смене решения из Ticket-а 23 записано в «Итог».
       Записано: «Итог», «Слово владельца». Ticket 23, «Итог», пункт (2) уже называет окружение
       login shell (docs PR #313).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0; gate full (полная проверка перед
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0; gate full (полная проверка перед
       merge) на Mac зелёный.
-      Не отмечено: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0 (срез 2, ниже); gate full — результат пришлёт оркестратор, строка в «Итог», «Коротко».
+      `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0 (срез 2, ниже); gate full — зелёный, строка в «Итог», «Коротко».
 
 ## Тесты
 
@@ -606,7 +606,7 @@ worfy для этого менять не нужно: exit code, отличны�
   экран Mac был заблокирован, 84 e2e упали с «window not shown» — это не результат. Прогон на merge
   `0153f2e8` остановлен в 17:22 по просьбе владельца, до конца ничего не дошло.
 
-gate full на merge с main d422c0d — <результат пришлёт оркестратор>
+gate full на merge `dcce7e8` с main `d422c0d` (2026-10-15, 00:52–01:04, `GATE_SCOPE=all`) — exit 0, «[gate] зелено (full): lint, typecheck, test, test:e2e, test:package». PR #311 влит squash-коммитом `6c98027`.
 
 ### Слово владельца
 
