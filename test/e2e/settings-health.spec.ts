@@ -286,3 +286,64 @@ test('"Move…" in Health opens the move form above Settings; the keyboard stays
     await launched.close()
   }
 })
+
+interface PageBox {
+  getBoundingClientRect(): { x: number; y: number; width: number; height: number }
+}
+const scrollTopOf = (locator: Locator): Promise<number> => locator.evaluate((element) => (element as unknown as { scrollTop: number }).scrollTop)
+
+test('a click on text of the move form scrolled down leaves the form where it is; the focus returns to the control that had it', async () => {
+  // A plan longer than the form shows at once: the old Harness check's file, and a row for each of these.
+  mkdirSync(join(claudeHome, 'bin'))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), '#!/bin/sh\n')
+  mkdirSync(join(claudeHome, 'hooks'))
+  for (let index = 0; index < 60; index += 1) writeFileSync(join(claudeHome, 'hooks', `old-hook-${String(index).padStart(2, '0')}.sh`), '#!/bin/sh\n')
+  const launched = await launch()
+  try {
+    const { window } = launched
+    const { health } = await openHealth(launched)
+    await checksOf(health)
+    await health.locator('[data-check="legacy-harness"]').getByRole('button', { name: 'Move…' }).click()
+    const form = window.getByTestId('migration-form')
+    await expect(form.getByTestId('migration-actions')).toBeVisible({ timeout: 30_000 })
+
+    // The focus is on a control at the top of the plan, and the wheel takes that control out of sight.
+    const body = form.getByTestId('migration-body')
+    const control = body.getByRole('button').first()
+    await control.focus()
+    await expect(control).toBeFocused()
+    expect(await scrollTopOf(body)).toBe(0)
+    const view = (await body.boundingBox())!
+    await window.mouse.move(view.x + view.width / 2, view.y + view.height / 2)
+    await window.mouse.wheel(0, 700)
+    // Where the wheel left the form: the same on two reads in a row.
+    let scrolled = -1
+    await expect
+      .poll(async () => {
+        const last = scrolled
+        scrolled = await scrollTopOf(body)
+        return scrolled === last
+      })
+      .toBe(true)
+    expect(scrolled).toBeGreaterThanOrEqual(300)
+    await expect(control).toBeFocused()
+
+    // A press on the text of a row in the middle of what the form shows now.
+    const labels = await body.getByText(/old-hook-\d\d\.sh$/).evaluateAll((elements) =>
+      elements.map((each) => {
+        const { x, y, width, height } = (each as unknown as PageBox).getBoundingClientRect()
+        return { x, y, width, height }
+      }),
+    )
+    const label = labels.find((each) => each.y > view.y + view.height / 3 && each.y + each.height < view.y + (view.height * 2) / 3)
+    expect(label, 'a row in the middle of the form').toBeDefined()
+    await window.mouse.click(label!.x + 8, label!.y + label!.height / 2)
+
+    // The keyboard is still the form's, on the control that had it — and the form has not moved to show that control.
+    await expect(control).toBeFocused()
+    expect(await focusIsIn(form)).toBe(true)
+    expect(await scrollTopOf(body), 'scrollTop of the form after the click on text').toBe(scrolled)
+  } finally {
+    await launched.close()
+  }
+})

@@ -241,10 +241,10 @@ function KeyboardInForm({ children }: { children: ReactNode }) {
     const holds = (node: Element | null): node is HTMLElement => node instanceof HTMLElement && node !== element && element.contains(node) && !node.matches(':disabled')
 
     /** Puts the focus into the form: on the control that had it, else on the first one. */
-    const enter = (): void => {
+    const enter = (options?: FocusOptions): void => {
       const control = holds(held) ? held : focusablesOf(element)[0]
       if (control !== undefined) {
-        control.focus()
+        control.focus(options)
         return
       }
       // Every control is off (main is moving): the layer itself holds the focus, so the keys still come here.
@@ -256,12 +256,13 @@ function KeyboardInForm({ children }: { children: ReactNode }) {
     /**
      * Brings the focus back when the form lost it to nothing: to the page (a press on text, or the
      * control that had it is gone), to the layer itself, or to a control of the form that is off.
-     * The focus on anything else is not this form's to take.
+     * The focus on anything else is not this form's to take. The form stays where it is scrolled to:
+     * a press on text far down a long plan must not jump back to the control that has the focus.
      */
     const keep = (): void => {
       if (moving) return
       const active = document.activeElement
-      if (active === null || active === document.body || (element.contains(active) && !holds(active))) enter()
+      if (active === null || active === document.body || (element.contains(active) && !holds(active))) enter({ preventScroll: true })
     }
 
     // Capture: before a handler of the control itself can redraw the form in the middle of the move.
