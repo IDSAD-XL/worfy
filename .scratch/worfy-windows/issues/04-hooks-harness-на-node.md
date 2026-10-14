@@ -99,14 +99,16 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
    в PATH Claude Code hook не запустит и покажет ошибку без блокировки. Session-ы, которые запускает
    worfy, получают PATH из login shell (`src/main/agent/env.ts`) — это проверяет пункт «Готово,
    когда» про Session на Mac.
-6. **`hooks.json`.** Каждая команда — явный `node` и путь к скрипту, как велит ADR-0055 (пункт 2) и
-   как Ticket 03 сделал для Gate: `node "${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs"`. Это четыре новых
+6. **`hooks.json`.** Каждая команда — явный `node` и путь к скрипту, как велит ADR-0055 (пункт 2):
+   `node "${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs"`. Ticket 03 для Gate сделал иначе: hook Gate зовёт
+   файл запуска `gate.sh`, который без node отвечает сам (решение владельца 2026-10-14). Это четыре новых
    hooks, `gh-token-env`, `bin/worktree-lock` (`:45`, `:98`, `:127`) и `guard.mjs` (`:139`). События, matcher-ы и
    timeout-ы не меняются.
 7. **Hook E3 на bash** — `gh-token-env.sh` — переводится так же, вместе со своим test-ом.
    `worktree-create.sh` не портируется (решение владельца 2026-10-13; не зарегистрирован в
    `hooks.json`, evidence Ticket-а 01, раздел 18); проверка «нет `.sh` в `harness/hooks`» ниже не
-   считает его и `gate.sh` — файл из двух строк, который Ticket 03 оставляет до Ticket-а 46.
+   считает его и `gate.sh` — файл запуска Gate: находит node и без node сам отвечает «проверить
+   не удалось» (Ticket 03, PR #298; остаётся по решению владельца 2026-10-14, Ticket 46 закрыт).
 8. **Ссылки на имена** — список в «Что происходит». После правки
    `git grep -nE '(inject-rules|session-start|session-end|stop)\.sh' -- harness src` пуст.
 
@@ -118,8 +120,8 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/hooks/tests/session-hooks.test.sh` — код 0 на Mac и в Git Bash на Windows-ПК. `rules-hooks.test.sh` проверяет новые команды `hooks.json`: у каждой — `node` и путь к скрипту plugin.
 - [ ] `bash harness/hooks/tests/gate-notverified.test.sh` и `bash harness/hooks/tests/gate-unregistered.test.sh` (гоняют Stop hook) — код 0 на Mac и в Git Bash на Windows-ПК.
 - [ ] `bash harness/bin/tests/harness-home.test.sh` — код 0 на Mac.
-- [ ] `git ls-files harness/hooks | grep -v /tests/ | grep '\.sh$' | grep -v -e '/worktree-create\.sh$' -e '/gate\.sh$'` пуст: в `harness/hooks` нет скриптов на bash вне test-ов, кроме двух — незарегистрированного `worktree-create.sh` (не переносится, решение владельца 2026-10-13) и `gate.sh`, файла из двух строк, который запускает `gate.mjs` (Ticket 03 оставляет его до Ticket-а 46, решение владельца 2026-10-13).
-- [ ] Mac, упакованная сборка этой ветки (`pnpm package`), открытая через `open` — с окружением, как из Finder. Её Session получает копию Harness этой сборки (ADR-0049, E3 Ticket 12). В транскрипте Session есть `additionalContext` hook-а `SessionStart` с текстом `rules/orchestrator.md` и `rules/common.md`. После красного Gate в worktree (временная ошибка lint) Stop возвращает 2, и модель получает текст «The quality gate is red» (через раздел Mac checks PR, Q33).
+- [ ] `git ls-files harness/hooks | grep -v /tests/ | grep '\.sh$' | grep -v -e '/worktree-create\.sh$' -e '/gate\.sh$'` пуст: в `harness/hooks` нет скриптов на bash вне test-ов, кроме двух — незарегистрированного `worktree-create.sh` (не переносится, решение владельца 2026-10-13) и `gate.sh`, файла запуска, который находит node и запускает `gate.mjs` (Ticket 03; остаётся точкой входа hook-а по решению владельца 2026-10-14).
+- [ ] Mac, упакованная сборка этой ветки (`pnpm package`), открытая настоящим двойным щелчком в Finder. Запуск через `open` из терминала окружения Finder не даёт: `open` отдаёт приложению окружение терминала (прогон приёмки E3 2026-10-14; Ticket [37 Epic-а `worfy-harness`](../../worfy-harness/issues/37-скрипты-harness-из-главного-процесса-без-окружения-login-shell.md), «Риски»). Её Session получает копию Harness этой сборки (ADR-0049, E3 Ticket 12). В транскрипте Session есть `additionalContext` hook-а `SessionStart` с текстом `rules/orchestrator.md` и `rules/common.md`. После красного Gate в worktree (временная ошибка lint) Stop возвращает 2, и модель получает текст «The quality gate is red» (через раздел Mac checks PR, Q33).
 - [ ] То же на Windows-ПК в Session Claude Code с plugin `worfy`: правила внедряются, Stop при красном Gate держит ход, `/hooks` показывает команды с `node`. Вывод — в Итог.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` на Mac — exit 0 (`pnpm test` гоняет test-ы Harness через `test/contract/harness-scripts.test.ts`). gate full на Mac зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac): `test/e2e/packaged.spec.ts` сверяет копию Harness в сборке с `harness`.
 

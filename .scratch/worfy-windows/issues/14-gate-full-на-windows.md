@@ -74,7 +74,11 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   `execFile` не запустит, а `.cmd` — только с `shell: true` (исправление CVE-2024-27980 в Node).
   Подменённый `claude` E3 Ticket 13 (установщик Harness) подставляется тем же способом, что `gh`.
 - Stub-ы скриптов Harness (`#!/bin/sh` и `cat`, например `test/e2e/card-api.spec.ts:60`) переводит
-  на Node Ticket 05: worfy зовёт эти скрипты через `node`.
+  на Node Ticket 05: worfy зовёт эти скрипты через `node`. Среди них — два e2e с такой подменой
+  `epic-status`: `test/e2e/focus-sidebar.spec.ts:188` и `:552` (stub — `:76-77`; на main `1c1beadd`,
+  до PR #308 второй стоял на `:549`). На ПК в обоих список Epic-ов в боковой панели пуст (ответ
+  Windows-ПК в PR #297, «Итог» Ticket-а 10 Epic-а `worfy-ui`); причина прочитана по fixture,
+  запуском не подтверждена.
 - CI (`.github/workflows/ci.yml`): job `check` на ubuntu идёт на PR и push (`:24-26`); `full-macos`
   — только на `workflow_dispatch` (`:60-62`). Job-а Windows нет. Каждый ручной запуск гоняет
   `full-macos`, минута macOS — $0.062, Windows — $0.010.
@@ -291,7 +295,7 @@ Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` и
 
 ### Срез 2 — клавиши `ControlOrMeta` в e2e и пять test-ов только для macOS
 
-Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1, Playwright 1.63.0. Ветка `worfy-windows/14-keys-and-mac-tests` от main `88769ca`, три commit-а: клавиши, пять test-ов, ещё один spec с `Meta`, который пришёл с main. Пока срез шёл, main ушёл вперёд три раза (срез 1, worfy-ui Ticket-ы 06 и 10); незапушенная ветка каждый раз переносилась на него без конфликтов, поэтому у прогонов ниже разные head — код среза в них один. Меняются только файлы в `test/`. **На macOS и Linux с ПК ничего не запускалось.** Правку сделал subagent этой Session; diff прочитан вторым subagent-ом (замечаний нет) и проверен ею: полный прогон, e2e на ветке и на main, сравнение по именам.
+Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1, Playwright 1.63.0. Ветка `worfy-windows/14-keys-and-mac-tests` от main `88769ca`, четыре commit-а: клавиши, пять test-ов, ещё один spec с `Meta`, который пришёл с main, и этот раздел «Итог». Итоговый head PR #304 — `ea2fd18`; код в нём тот же, что в `bac8781`. Пока срез шёл, main ушёл вперёд три раза (срез 1, worfy-ui Ticket-ы 06 и 10); незапушенная ветка каждый раз переносилась на него без конфликтов, поэтому у прогонов ниже разные head — код среза в них один. Меняются только файлы в `test/`. **На macOS и Linux с ПК ничего не запускалось.** Правку сделал subagent этой Session; diff прочитан вторым subagent-ом (замечаний нет) и проверен ею: полный прогон, e2e на ветке и на main, сравнение по именам.
 
 - **Клавиши (пункт 4).** `Meta` → `ControlOrMeta` в 69 местах 18 файлов `test/e2e/` (`focus-sidebar.spec.ts`, который пришёл с worfy-ui Ticket-ом 10, уже писал `ControlOrMeta`): `canvas-layout` 5, `done-stack` 1, `edges` 2, `epic-frame-undo` 4, `epic-frame` 2, `focus` 8, `no-overlap` 2, `palette-find` 11, `palette-groups` 1, `pin-tags` 4, `settings-health` 1, `settings` 7, `snapping` 2, `terminal` 1, `theme-shadows` 1, `tidy-up` 5, `trash-undo` 8, `wheel-over-nodes` 4. Тип `('Meta' | 'Shift')[]` в `wheel-over-nodes.spec.ts` стал `('ControlOrMeta' | 'Shift')[]`. Playwright на macOS читает `ControlOrMeta` как Meta, так что на Mac клавиши те же. Проверка: `grep -rnE "Meta\+|'Meta'" test/e2e | grep -v ControlOrMeta` ничего не печатает. В Ticket-е стоит 55 мест в 13 файлах — main с тех пор вырос; `settings-health.spec.ts` пришёл с worfy-ui Ticket-ом 06 уже во время работы над срезом.
 - **e2e на ПК: 18 изменённых spec-ов, ветка `17eec0a` и main `39f33a6`.** `pnpm build` — exit 0 на обеих; затем `pnpm exec playwright test <18 файлов> --grep-invert @packaged` — exit 1 на обеих.
@@ -303,7 +307,7 @@ Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` и
 
   **11 test-ов перестали падать, ни один не начал:** `trash-undo` 4 (`:85`, `:115`, `:298`, `:334`), `focus` 3 (`:87`, `:203`, `:233`), `settings` 2 (`:45`, `:109`), `canvas-layout` 1 (`:291`), `pin-tags` 1 (`:450`). `settings.spec.ts` и `trash-undo.spec.ts` на ветке проходят целиком. Ещё один test дошёл дальше и упал на другой проверке: `pin-tags.spec.ts:179`.
 
-  После переноса на main `88769ca` (worfy-ui Ticket 10 изменил `focus.spec.ts` и добавил `focus-sidebar.spec.ts`) эти два spec-а запущены ещё раз, на итоговом head `bac8781` и на main `88769ca`: `focus.spec.ts` — на main 0 из 4, на ветке 3 из 4 (те же три test-а; четвёртый — Terminal, строка `:340`); `focus-sidebar.spec.ts` — 5 из 7 на обеих, два падения те же (`:188`, `:549`: список Epic-ов в боковой панели пуст, fixture подменяет `epic-status` скриптом с `#!/bin/sh` — это срез 3). Остальные 16 spec-ов на итоговом head не повторялись: ни main, ни третий commit их не меняли.
+  После переноса на main `88769ca` (worfy-ui Ticket 10 изменил `focus.spec.ts` и добавил `focus-sidebar.spec.ts`) эти два spec-а запущены ещё раз, на head `bac8781` (код итогового head `ea2fd18`) и на main `88769ca`: `focus.spec.ts` — на main 0 из 4, на ветке 3 из 4 (те же три test-а; четвёртый — Terminal, строка `:340`); `focus-sidebar.spec.ts` — 5 из 7 на обеих, два падения те же (`:188`, `:549`: список Epic-ов в боковой панели пуст; вероятная причина — fixture подменяет `epic-status` скриптом с `#!/bin/sh`, запуском не подтверждена). Остальные 17 изменённых spec-ов на итоговом коде не повторялись: ни main, ни третий commit их не меняли.
 
   **46 падений ветки падают и на main, по первой ошибке групп пять; ни одна не про клавиши:**
 
