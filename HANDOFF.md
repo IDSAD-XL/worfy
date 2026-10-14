@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-13 (UTC), main @ ba8a58c
+# Передача контекста — снимок на 2026-10-14 (UTC), main @ ce120bc
 
 ## Сейчас в работе
 
@@ -8,7 +8,7 @@
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01, 02, 08–12, 18–28, 35, 44 (PR #172–#293; ответы — #192); на ПК в работе 03 (Gate на Node). Владелец, 2026-10-13: 03–07 не ждут закрытия E3; `gate.sh` пока остаётся в 2 строки (Ticket 46); очередь ПК — в «Дальше».
 - `worfy-terminal-ai` (Terminal AI в Terminal-ах на подписке; [spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058) 01, 02 влиты (PR #204, #205); следом 03. 08 ждёт `worfy-ui` 02 и 08 (окно Settings, Select), 09 — шаги владельца (`blocked`).
-- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–05 и 07–09; `blocked` с открытыми PR — 06 (#292) и 10 (#297); 11 и 13 — после 10; 12 — приёмка.
+- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–09; 10 — `blocked`, PR #297 открыт (гейт и gate на Mac пройдены); 11 и 13 — после 10; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
 
 ## Ждёт владельца
@@ -26,7 +26,7 @@
 - `worfy-windows` 12 (влит, PR #237): SmartScreen у скачанного установщика не проверен — его диалог закрывает человек: [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md).
 - `worfy-windows` 35 (влит, PR #287): пробный том на ПК отключает владелец, шаги — в «Итог» Ticket-а; test на настоящих папках (Ticket 45, пункт 1) ждёт его слова в чате Windows Session.
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
-- `worfy-ui`: 06 — узкий круг решает владелец; 10 — gate full на Mac и на Windows-ПК, потом мерж; Windows-ПК: gate full для 03; решения и долги — «Итог» 03–05, 09, 10.
+- `worfy-ui`: 10 — gate full на Windows-ПК, потом rebase, gate на Mac и мерж; Windows-ПК: gate full для 03; вручную — раздел Health (06); решения и долги — «Итог» 03–06, 09, 10.
 
 ## Риски и долги
 

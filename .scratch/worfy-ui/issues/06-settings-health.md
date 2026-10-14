@@ -1,7 +1,7 @@
 # 06 — Settings → Health: проверки First run в окне Settings
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #292](https://github.com/IDSAD-XL/worfy/pull/292)
 Blocked by: 02
 Source: решение владельца 2026-10-09: 2 (раздел Health окна Settings — проверки First run; First run при первом запуске остаётся) ([spec.md](../spec.md), «Решения владельца», пункт 2; «Пересечения», worfy-windows 13 и 15); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (каналы `firstRun.*` — `local`)
 
@@ -60,7 +60,7 @@ Source: решение владельца 2026-10-09: 2 (раздел Health о�
   что диалог First run (по именам строк); если отметки `first-run.json` не было, после закрытия
   Settings её в папке данных по-прежнему нет. Снимки `settings-health` в светлой и тёмной теме.
 - [x] e2e `test/e2e/first-run.spec.ts` зелёный без правок: диалог First run не изменился.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально —
   exit 0.
   Первая половина сделана: `pnpm lint && pnpm typecheck && pnpm test` — exit 0, gate fast — см. «Итог».
   не проверено: gate full — шаг Orchestrator-а перед мержем. Ветка уже на main с Ticket-ом 03
@@ -241,3 +241,21 @@ tabindex) отвергнут Orchestrator-ом: поведение окна не
   (поведение формы на базе, `MigrationForm.tsx` — вне следа).
 - `docs/design/F-SPEC.md`, раздел «First run», про Settings → Health не говорит; файл — в следе
   Ticket-а 12.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave 2 Epic-а под Autopilot. Гейт — два круга и узкий круг.
+  - Круг 1 — `REJECTED` на `8e6dc7b` ([комментарий в PR #292](https://github.com/IDSAD-XL/worfy/pull/292#issuecomment-6154235663)): форма «Move…» над окном Settings теряла клавиатуру после клика мышью по своему тексту — Tab уходил под форму, Esc закрывал и форму, и Settings.
+  - Круг 2, только диф доработки `8e6dc7b..bf1a47a`, — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/292#issuecomment-6155055420)): три пункта первого круга исправлены, но доработка внесла дефект — клик по тексту формы прокручивал её к началу (`focus()` без `preventScroll`). Второй `REJECTED` вывел Ticket из Wave: `blocked`, PR открыт.
+  - **Владелец решил 2026-10-14: узкий круг исправления разрешён** (решение передано Session-оркестратором на Mac; владельцу были предложены три варианта — разрешить; не разрешать и отложить; закрыть PR и поставить Ticket заново). Объём — одна правка и один test, ничего больше.
+  - Узкий круг, только диф `02246f6..93b8f8f`, — `NARROW: VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/292#issuecomment-6158320335)): замер verifier-а на сборке — прокрутка на 700 px, клик по тексту строки, `scrollTop` 700 → 700, фокус на том же элементе; мутант «`preventScroll` убран» красный. Правку делал новый implementer: прежний после перезапуска Session был недоступен.
+- С разрешения Orchestrator-а вне исходного следа: `src/renderer/harness/MigrationForm.tsx` — необязательный prop `layer` (слой формы выше окна Settings). `test/e2e/settings.spec.ts` этот Ticket не правил: test порядка Tab переписал Ticket 03, и Ticket 06 был переставлен на main после него.
+- Мерж: база main `6030ef3`, head `6ffd41b`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; консоль macOS у `alexey`; CI зелёный, CLEAN; влит `ce120bc`.
+- Решено без владельца, подтвердить (Consider круга 1): подтверждённый вход в GitHub из Health открывает Terminal и закрывает Settings; при открытом под окном диалоге First run закрывается только Settings.
+- Долги (Noted):
+  - [low] после возврата фокуса на элемент вне видимой части формы (элемент с фокусом выключили или убрали на прокрученной форме) рамки фокуса не видно до следующего Tab;
+  - [low] текст результата действия живёт в экземпляре, где нажали (`FirstRunChecks.tsx`): действие, кончившееся после смены раздела или закрытия Settings, свой текст нигде не показывает;
+  - [low] когда все элементы формы выключены, фокус получает подложка без роли и имени;
+  - в панели Settings столбец «найденное» обрезан в 5 строках из 13, полный текст только в `title`;
+  - обработчик Tab окна Settings (`src/renderer/settings/SettingsDialog.tsx:78-91`) заберёт Tab у любого диалога, открытого разделом, — обойдено только для этой формы.
+- не проверено: вид раздела в запущенном приложении и настоящее действие из Health с системным диалогом macOS — пункты владельца выше; настоящий перенос («Move») из формы.
