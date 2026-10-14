@@ -240,6 +240,11 @@ ask up too», мутант убит. Суммы шести исходных фа
 - `gate.sh fast` — exit 0, `[gate] зелено (fast)`.
 - `pnpm test:e2e test/e2e/terminal-ai-history.spec.ts test/e2e/terminal.spec.ts test/e2e/focus.spec.ts`
   под `/tmp/worfy-e2e.lock` — exit 0, 13 passed.
+- PR #306, Linux CI (`ubuntu-latest`, zsh из `apt`): в нём есть `zsh/net/socket` и `zsh/system` —
+  contract-файл widget-а идёт там целиком, ни один test не выключен. Первый run был красным на одном
+  test-е, «a zsh started in the Terminal has no widget and no socket»: `/etc/zsh/zshrc` Debian на каждом
+  prompt-е включает режим keypad (`ESC =`), и test не узнавал конец prompt-а вложенного zsh. Исправлен
+  шаблон в test-е, скрипты shell-а не менялись; второй run (38502926758) зелёный.
 - `GATE_SCOPE=all` gate full — не запускал: его запускает Orchestrator.
 
 ### Снимки
