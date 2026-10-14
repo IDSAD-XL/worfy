@@ -58,6 +58,8 @@ function sandbox(options: { tools?: string[]; ghAccount?: string } = {}): void {
     FIRST_RUN_TOOLS_DIR: TOOLS,
     FIRST_RUN_TOOLS_STATE: state,
     FAKE_CLAUDE_VERSION: bundledClaude(),
+    // The stand-in node runs the Harness scripts with the node running this test (ticket 37).
+    FAKE_NODE_REAL: process.execPath,
     FAKE_GH_ACCOUNT: options.ghAccount ?? 'alice',
     FAKE_NPM_BIN: bin,
     FAKE_NPM_PREFIX: join(scratch, 'npm-prefix'),
@@ -75,9 +77,13 @@ function withProject(): void {
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: root }], activeId: PROJECT }))
 }
 
-const launch = (): Promise<LaunchedApp> =>
+/** What launchd gives an app started from Finder: no node on it (worfy-harness ticket 37). */
+const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+
+const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
   launchApp({
     env: {
+      ...extra,
       WORFY_FIRST_RUN_AUTO: '1',
       WORFY_DATA_DIR: dataDir,
       WORFY_CLAUDE_HOME: claudeHome,
@@ -110,7 +116,7 @@ async function answerDialogWith(launched: LaunchedApp, button: number): Promise<
 const shownDialogs = (launched: LaunchedApp): Promise<ShownDialog[]> =>
   launched.app.evaluate(() => ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? []) as ShownDialog[])
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The screen, once its checks are in. */
 async function screen(window: Page): Promise<Locator> {
@@ -147,6 +153,9 @@ test.describe('first-run screen', () => {
       await expect(row(dialog, 'harness-dependencies')).toContainText('Plugin dependencies')
       await expect(row(dialog, 'harness-dependencies')).toContainText('checked when the Harness plugin is installed')
       await expect(row(dialog, 'harness-dependencies').getByRole('button')).toHaveCount(0)
+      // No Harness yet: its scripts are checked once it is installed.
+      await expect(row(dialog, 'harness-scripts')).toHaveAttribute('data-status', 'warn')
+      await expect(row(dialog, 'harness-scripts')).toContainText('checked when the Harness plugin is installed')
       await expect(row(dialog, 'qmd-models')).toHaveAttribute('data-status', 'warn')
       // The line under the title is one line next to the summary chip, and nothing of it is cut (F-SPEC "First run").
       const subtitle = dialog.getByTestId('first-run-subtitle')
@@ -169,6 +178,8 @@ test.describe('first-run screen', () => {
       await expect(row(dialog, 'harness-dependencies')).toHaveAttribute('data-status', 'ok')
       await expect(row(dialog, 'harness-dependencies')).toContainText('OK')
       await expect(row(dialog, 'harness-dependencies')).toContainText(`${DEP} 1.0.0`)
+      await expect(row(dialog, 'harness-scripts')).toHaveAttribute('data-status', 'ok')
+      await expect(row(dialog, 'harness-scripts')).toContainText('profile --help answered')
       let shown = await shownDialogs(launched)
       expect(shown).toHaveLength(1)
       expect(shown[0]).toMatchObject({ buttons: ['Confirm', 'Cancel'], message: `Install the worfy Harness ${bundledHarness()}?` })
@@ -270,6 +281,45 @@ test.describe('first-run screen', () => {
         `claude plugin install ${DEP} --scope user`,
       ])
       await keep(launched.window, 'first-run-dependency-installed')
+    } finally {
+      await launched.close()
+    }
+  })
+
+  // worfy-harness ticket 37: the row runs the Harness's own `profile --help` the way the Epics read
+  // runs the Harness scripts. The app gets the PATH of Finder, which has no node; node, when there
+  // is one, is only on the PATH of the login shell.
+  test('Harness scripts: the app PATH has no node and the login shell has — OK; the login shell has none either — Failed with exit code 127', async () => {
+    const pluginDir = join(claudeHome, 'worfy-harness', 'plugin')
+    cpSync(join(repoRoot, 'out', 'harness'), pluginDir, { recursive: true })
+    writeFileSync(join(state, 'marketplace'), `${pluginDir}\n`)
+    writeFileSync(join(state, 'plugin-version'), `${bundledHarness()}\n`)
+    sandbox()
+    let launched = await launch({ PATH: SYSTEM_PATH })
+    try {
+      const scripts = row(await screen(launched.window), 'harness-scripts')
+      await expect(scripts).toHaveAttribute('data-status', 'ok')
+      await expect(scripts).toContainText('Harness scripts')
+      await expect(scripts).toContainText('profile --help answered')
+      expect(calls()).toContain(`node ${join(pluginDir, 'bin', 'profile')} --help`)
+      expect(await launched.app.evaluate(() => process.env.PATH)).toBe(SYSTEM_PATH)
+    } finally {
+      await launched.close()
+    }
+
+    // The same tools but node, in a new folder; sandbox() writes .profile again.
+    bin = join(scratch, 'bin-without-node')
+    mkdirSync(bin)
+    sandbox({ tools: ['claude', 'gh', 'jq', 'git', 'npm', 'qmd'] })
+    launched = await launch({ PATH: SYSTEM_PATH })
+    try {
+      const dialog = await screen(launched.window)
+      const scripts = row(dialog, 'harness-scripts')
+      await expect(scripts).toHaveAttribute('data-status', 'fail')
+      await expect(scripts).toContainText('exit code 127')
+      await expect(scripts).toContainText('node')
+      await expect(scripts).toContainText('worfy cannot run the Harness scripts, so it reads no Epics')
+      await keep(launched.window, 'first-run-harness-scripts-no-node')
     } finally {
       await launched.close()
     }

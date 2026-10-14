@@ -21,6 +21,7 @@ export const checkIdSchema = z.enum([
   'gh-auth',
   'harness',
   'harness-dependencies',
+  'harness-scripts',
   'legacy-harness',
   'qmd',
   'qmd-models',

@@ -562,7 +562,7 @@ describe('workflow reader in Silent mode', () => {
     expect(calls(log).filter((call) => call !== '.')).toEqual([])
   })
 
-  it('a Full Project and a Harness without the new fields read as before the Ticket: exit 4, no _resolved.mode, a failing script', async () => {
+  it('a Full Project and a Harness without the new fields read as before the Ticket: Full mode, no _resolved.mode, exit code 3', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
@@ -572,14 +572,31 @@ describe('workflow reader in Silent mode', () => {
 
     for (const [label, profile, ticketsRoot] of [
       ['Full mode', { code: 0, json: { mode: 'full', _resolved: { mode: 'full', workflow_folder: repo, workspace: null, repos: [{ name: 'project', path: repo, gate_key: 'p' }] } } }, join(repo, '.scratch')],
-      ['exit code 4', { code: 4, json: '' }, null],
       ['no _resolved.mode', { code: 0, json: { name: 'old', _resolved: { name: 'old', dir: '/x', repo_root: repo } } }, null],
-      ['a failing script', { code: 1, json: 'registry is broken' }, null],
       ['exit code 3', { code: 3, json: '' }, null],
     ] as const) {
       stubHarness(home, profile, ticketsRoot)
       const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
       expect(model, label).toEqual(before)
+    }
+    warn.mockRestore()
+  })
+
+  it('a failed profile call (worfy-harness ticket 37) — exit code 4, a failing script: no Tickets, the reason in the model, epic-status not run', async () => {
+    const repo = makeRepo(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    for (const [label, profile, reason] of [
+      ['exit code 4', { code: 4, json: '' }, /answered --json with exit code 4/],
+      ['a failing script', { code: 1, json: 'registry is broken' }, /failed with exit code 1/],
+    ] as const) {
+      stubHarness(home, profile, null)
+      writeFileSync(log, '')
+      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+      expect(model, label).toMatchObject({ root: repo, epics: [], tickets: [], branchErrors: [], error: { code: 'failed' } })
+      expect(model.error?.message, label).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: /)
+      expect(model.error?.message, label).toMatch(reason)
+      expect(calls(log), label).toEqual([])
     }
     warn.mockRestore()
   })

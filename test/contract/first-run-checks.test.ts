@@ -3,6 +3,7 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
+import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -78,6 +79,7 @@ const installer = (env: Record<string, string>): HarnessInstaller =>
 function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): CheckDeps {
   return {
     env,
+    scriptEnv: () => Promise.resolve(env),
     bundledClaudeCodeVersion: BUNDLED,
     accountInfo: () => Promise.resolve({ email: 'alice@example.com', subscriptionType: 'max', tokenSource: 'claude.ai' }),
     harness: () => installer(env).status(),
@@ -127,6 +129,7 @@ describe('first-run checks', () => {
       ['GitHub', 'gh-auth'],
       ['Harness', 'harness'],
       ['Harness', 'harness-dependencies'],
+      ['Harness', 'harness-scripts'],
       ['Harness', 'legacy-harness'],
       ['qmd', 'qmd'],
       ['qmd', 'qmd-models'],
@@ -274,7 +277,55 @@ describe('first-run checks', () => {
     report = await runChecks(deps(env))
     expect(checkOf(report, 'harness-dependencies')).toMatchObject({ status: 'ok', detail: `${DEP} 1.0.0`, hint: '', actions: [] })
     expect(checkOf(report, 'harness').status).toBe('ok')
-    expect(report.checks.filter((check) => check.group === 'Harness').map((check) => check.id)).toEqual(['harness', 'harness-dependencies', 'legacy-harness'])
+    expect(report.checks.filter((check) => check.group === 'Harness').map((check) => check.id)).toEqual(['harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness'])
+  })
+
+  // worfy-harness ticket 37: the row runs `profile --help` the way the Epics read runs the Harness
+  // scripts — its runner and the scripts' environment (`scriptEnv`), not the screen's (`env`).
+  describe.skipIf(process.platform === 'win32')('the Harness scripts row', () => {
+    /** The Harness of this repository as the installed plugin: its real `profile`. */
+    const installPlugin = (): void => {
+      mkdirSync(harnessHome, { recursive: true })
+      symlinkSync(join(REPO, 'harness'), join(harnessHome, 'plugin'))
+    }
+    /** A folder whose only entry is the real node, found on this process's PATH. */
+    const realNode = (): string => {
+      const found = execFileSync('/bin/sh', ['-c', 'command -v node'], { encoding: 'utf8' }).trim()
+      const dir = join(root, 'node-bin')
+      mkdirSync(dir)
+      symlinkSync(found, join(dir, 'node'))
+      return dir
+    }
+
+    it('without a Harness: not red, checked once it is installed, nothing run', async () => {
+      tools(...ALL_TOOLS)
+      let asked = 0
+      const report = await runChecks(deps(loginEnv(), { scriptEnv: () => ((asked += 1), Promise.resolve(loginEnv())) }))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ group: 'Harness', title: 'Harness scripts', status: 'warn', detail: 'checked when the Harness plugin is installed', command: null, actions: [] })
+      expect(asked).toBe(0)
+    })
+
+    it("the screen's PATH has no node, the scripts' environment has: ok", async () => {
+      tools('claude', 'gh', 'jq', 'git', 'npm')
+      installPlugin()
+      const scripts = { PATH: `${realNode()}:/usr/bin:/bin`, HOME: home }
+      const report = await runChecks(deps(loginEnv(), { scriptEnv: () => Promise.resolve(scripts) }))
+      expect(checkOf(report, 'node').status).toBe('fail')
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'ok', detail: 'profile --help answered', hint: '', actions: [] })
+    })
+
+    it("the scripts' environment has no node: failed with exit code 127, the last line of stderr and what it means", async () => {
+      tools(...ALL_TOOLS)
+      installPlugin()
+      const empty = join(root, 'empty-bin')
+      mkdirSync(empty)
+      const report = await runChecks(deps(loginEnv(), { scriptEnv: () => Promise.resolve({ PATH: empty, HOME: home }) }))
+      const scripts = checkOf(report, 'harness-scripts')
+      expect(scripts.status).toBe('fail')
+      expect(scripts.detail).toMatch(/^profile --help: exit code 127: .*node.*No such file or directory/)
+      expect(scripts.hint).toBe('worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell')
+      expect(scripts.actions).toEqual([])
+    })
   })
 
   it('the plugin dependencies in a run that may not install: failed without a button', async () => {

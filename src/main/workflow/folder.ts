@@ -9,9 +9,13 @@
 // repositories; `ticket root`, run in the root, gives the Tickets root — the same answer
 // `epic-status` itself reads its Tickets from.
 //
-// Every way of not getting an answer — exit code 3 or 4, no script, a failed run, a Harness from
-// before Silent mode — is Full mode with the Project root as the Workflow folder, one repository
-// and `<root>/.scratch`, as worfy read every Project before; the reason is logged once per Project.
+// Two ways of not getting an answer (worfy-harness ticket 37). A folder with no Profile — exit
+// code 3, no script, a Harness from before Silent mode — is Full mode with the Project root as the
+// Workflow folder, one repository and `<root>/.scratch`, as worfy read every Project before. A
+// call that failed — any other exit code (127 when the script finds no node), a timeout, output
+// of the wrong shape — leaves the mode unknown: the layout is marked `failed`, and the workflow
+// readers show its reason in place of the Tickets instead of guessing where they live
+// (src/main/workflow/reader.ts, watch.ts). Either reason is logged once per Project.
 //
 // Nothing here writes: both scripts run with the Project as cwd and only read.
 import { isAbsolute, join, resolve } from 'node:path'
@@ -34,15 +38,29 @@ export interface ProjectLayout {
   repos: readonly ProjectRepo[]
   /** The folder above the repositories, when the root is one; else null. */
   workspace: string | null
-  /** Why this is the Full-mode fallback; null when the Harness answered. */
+  /** Why this is the Full-mode fallback or a failed read; null when the Harness answered. */
   reason: string | null
+  /**
+   * True when the `profile` call failed: where the workflow lives is unknown. The other fields are
+   * then the Full-mode values, which the documents and the checks keep using as before; the
+   * workflow readers show `reason` and read no Tickets.
+   */
+  failed: boolean
 }
 
 /** Full mode as worfy read every Project before Silent mode existed. */
 export function fullLayout(root: string, reason: string | null = null): ProjectLayout {
   const resolved = resolve(root)
-  return { root: resolved, mode: 'full', workflowFolder: resolved, ticketsRoot: join(resolved, '.scratch'), repos: [], workspace: null, reason }
+  return { root: resolved, mode: 'full', workflowFolder: resolved, ticketsRoot: join(resolved, '.scratch'), repos: [], workspace: null, reason, failed: false }
 }
+
+/** The layout of a Project whose `profile` call failed: `reason` says why (see the top of the file). */
+export function failedLayout(root: string, reason: string): ProjectLayout {
+  return { ...fullLayout(root, reason), failed: true }
+}
+
+/** What a workflow reader shows for a failed layout: the reason, in the words of the window. */
+export const layoutFailure = (layout: ProjectLayout): string => `worfy could not ask the Harness where the workflow of this Project lives: ${layout.reason ?? 'no reason given'}`
 
 export interface ReadLayoutOptions {
   /** The Project root. */
@@ -91,6 +109,10 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
   const { env } = options
   const log = options.log ?? ((message: string) => logOnce(root, message))
   const read = await readResolvedProfile({ root, claudeHome: options.claudeHome, env, run: options.run, log: () => undefined })
+  if (!read.ok && read.miss === 'failed') {
+    log(`[workflow] ${root}: the workflow is not read, because ${read.reason}`)
+    return failedLayout(root, read.reason)
+  }
   if (!read.ok) {
     log(`[workflow] ${root}: Full mode, the workflow files in the Project root, because ${read.reason}`)
     return fullLayout(root, read.reason)
@@ -101,7 +123,7 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
   const tickets = await ticketsRootOf(root, options.runTicket ?? harnessScriptRunner(options.claudeHome, env, 'ticket'))
   if ('reason' in tickets) log(`[workflow] ${root}: the Tickets are read from ${join(workflowFolder, '.scratch')}, because ${tickets.reason}`)
   const ticketsRoot = 'path' in tickets ? tickets.path : join(workflowFolder, '.scratch')
-  return { root, mode, workflowFolder, ticketsRoot, repos, workspace, reason: null }
+  return { root, mode, workflowFolder, ticketsRoot, repos, workspace, reason: null, failed: false }
 }
 
 export interface LayoutCacheOptions {

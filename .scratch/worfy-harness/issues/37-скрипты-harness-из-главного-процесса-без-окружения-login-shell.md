@@ -391,34 +391,43 @@ worfy для этого менять не нужно: exit code, отличны�
 
 ## Готово, когда
 
-- [ ] e2e, собранное приложение, новый случай. PATH приложения — `/usr/bin:/bin:/usr/sbin:/sbin`.
+- [x] e2e, собранное приложение, новый случай. PATH приложения — `/usr/bin:/bin:/usr/sbin:/sbin`.
       node — только в PATH login shell (`SHELL=/bin/sh`, временный `HOME`, `.profile`). Harness —
       настоящие скрипты из `out/harness`, установленные как plugin. Project — Silent, Epic лежит в
       Workflow folder до запуска приложения. В боковой панели есть строка Epic-а, на Canvas — его
       рамка. **На нынешнем main красный: «No epics in .scratch/».**
-- [ ] Тот же e2e, node нет и в login shell: боковая панель показывает причину со словом node,
+      Доказано: `test/e2e/finder-path.spec.ts:98` — зелёный на сборке ветки среза 2 (2026-10-14, 12 passed вместе с First run, Silent Project и Health); красный на main до среза 1 — в PR #305.
+- [x] Тот же e2e, node нет и в login shell: боковая панель показывает причину со словом node,
       панели «No epics yet» нет. На нынешнем main — «No epics in .scratch/» и панель.
-- [ ] Contract test: `process.env.PATH` без node, окружение, отданное чтению, с node. Настоящие
+      Доказано: `test/e2e/finder-path.spec.ts:122` — на сборке main `4d70e689` красный (текста причины нет, `element(s) not found`), на сборке ветки зелёный; в окне: «worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: env: node: No such file or directory».
+- [x] Contract test: `process.env.PATH` без node, окружение, отданное чтению, с node. Настоящие
       `epic-status`, `ticket`, `profile`. Модель несёт Epic и Ticket Silent Project-а; раскладка —
       `silent`, корень Ticket-ов — в Workflow folder. То же для `harnessWorkspaceOf`. На нынешнем
       main красный.
-- [ ] `harness/bin/tests`: без node в PATH и без `--root` команды `epic-status --json`,
+      Доказано: `test/contract/harness-script-env.test.ts`, 8 из 8 (срез 1, PR #305).
+- [x] `harness/bin/tests`: без node в PATH и без `--root` команды `epic-status --json`,
       `epic-status` и `epic-status --json --ref main` выходят с exit code, отличным от 0, и
       называют node в stderr. С `--root <папка>` без node — exit code 0, как раньше. На нынешнем
       main — exit code 0 и пустой ответ.
-- [ ] Раскладка: таблица случаев `test/contract/workflow-profile.test.ts:447-468` разделена на
+      Доказано: `harness/bin/tests/tickets-root.test.sh`, раздел 8 — на `origin/main` три случая красные (exit code 0, ответ из `<репозиторий>/.scratch`), на ветке 26 passed, 0 failed.
+- [x] Раскладка: таблица случаев `test/contract/workflow-profile.test.ts:447-468` разделена на
       «Profile-а нет» (Full, как раньше) и «вызов не удался» (модель с причиной либо
       предупреждение — по выбранному варианту); случай exit code 127 добавлен. Test на модель: при
       неудачном вызове `profile` окно получает причину.
-- [ ] После устранения причины Epic-и появляются без перезапуска приложения; как — в «Итог».
-- [ ] First run: новая строка. Contract test — три состояния. e2e — при PATH приложения без node и
+      Доказано: `test/contract/workflow-profile.test.ts` — «no Profile — …» (3 случая) и «a failed call — …» (9 случаев, среди них 127), «readWorkflow: the script finds no interpreter (exit code 127)…»; на исходниках main 17 красных, на ветке 65 из 65.
+- [x] После устранения причины Epic-и появляются без перезапуска приложения; как — в «Итог».
+      Доказано: «the watcher shows the reason, asks the layout again and reads the Epics once it answers, without a restart» в `test/contract/workflow-profile.test.ts`. Как — в «Итог», срез 2.
+- [x] First run: новая строка. Contract test — три состояния. e2e — при PATH приложения без node и
       login shell с node строка зелёная; при login shell без node — красная, с exit code 127.
+      Доказано: `test/contract/first-run-checks.test.ts`, describe «the Harness scripts row» (3 состояния); e2e `test/e2e/first-run.spec.ts:292` — зелёная строка при PATH приложения без node, красная с «exit code 127» без node в login shell; на сборке main красный (13 строк вместо 14).
 - [ ] `test/acceptance/e3.spec.ts` запускает приложение с системным PATH.
-- [ ] Мутанты (нарочно испорченный код, на котором test обязан стать красным), каждый красный:
+      Не отмечено: в срезе 2 spec запускает приложение с `PATH: FINDER_PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) и ждёт строку «Harness scripts» в состоянии OK; проверены только компилятор и eslint, приёмка не запускалась (бриф запрещает).
+- [x] Мутанты (нарочно испорченный код, на котором test обязан стать красным), каждый красный:
       «`runEpicStatus` снова берёт `process.env`»; «`readProjectLayout` снова берёт
       `process.env`»; «`harnessWorkspaceOf` снова берёт `process.env`»; «`epic-status` без node
       снова отвечает `<репозиторий>/.scratch`»; «неудачный вызов `profile` снова даёт Full без
       причины»; «строка First run берёт окружение экрана, а не общее».
+      Доказано: первые три — срез 1 (PR #305); остальные три — таблица в «Итог», срез 2 (M1, M2, M3).
 - [ ] (вручную, владелец) Второй пользователь macOS, сборка с этим Ticket-ом. Silent Project
       подключён, Epic положен в Workflow folder и закоммичен. После этого worfy закрыт (Cmd+Q) и
       открыт настоящим двойным кликом в Finder. `ps eww <pid>` показывает PATH
@@ -427,9 +436,12 @@ worfy для этого менять не нужно: exit code, отличны�
       Silent Project-а, не появился до повторного открытия Project-а, хотя node в PATH был. Это
       отдельная находка — Ticket 41 этого Epic-а, она вне скоупа. `open` из терминала контролем
       не считается. Ответ — в «Итог» Ticket-а 26, пункт 5.
+      Не отмечено: проверка владельца, после merge.
 - [ ] Слово владельца о смене решения из Ticket-а 23 записано в «Итог».
+      Не отмечено: это запись оркестратора.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0; gate full (полная проверка перед
       merge) на Mac зелёный.
+      Не отмечено: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0 (срез 2, ниже); gate full — дело оркестратора перед merge.
 
 ## Тесты
 
@@ -559,4 +571,98 @@ worfy для этого менять не нужно: exit code, отличны�
 
 ## Итог
 
-—
+### Срез 2 (2026-10-14, ветка `worfy-harness/37-failure-visible`)
+
+Срез 1 (пункт 1 «Что делаем»: окружение login shell для скриптов Harness) — PR #305, main `4d70e689`.
+Срез 2 делает неудачу видимой: пункты 2–5 и низкие находки review среза 1.
+
+**Что изменилось.**
+
+- `harness/bin/epic-status`: без node в PATH и без `--root` — exit code 3, в stderr названы node и
+  PATH. Раньше брался `<репозиторий>/.scratch`, и Silent Project получал пустой список. С `--root`
+  node по-прежнему не нужен.
+- `readResolvedProfile` различает два ответа. «Profile-а нет» (exit code 3, скрипта нет, Harness
+  старше Silent mode, нет `_resolved.mode`) — Full, как раньше. «Вызов не удался» (exit code 127 и
+  любой другой код кроме 0 и 3, exit code 4, timeout, ошибка запуска, ответ не того вида) —
+  раскладка с `failed: true` и причиной (`failedLayout`).
+- При `failed` `readWorkflow` и watcher отдают пустую модель с ошибкой `code: 'failed'` и текстом
+  «worfy could not ask the Harness where the workflow of this Project lives: <причина>».
+  `epic-status` не запускается. Текст причины строится из ответа `profile`, а не из
+  `epic-status`.
+- First run: строка «Harness scripts» в группе «Harness», после «Plugin dependencies»; проверок
+  14 вместо 13. Она запускает `profile --help` тем же runner-ом и с тем же источником окружения,
+  что и чтение Epic-ов. Состояния: Harness не установлен — warn; ответ 0 — OK; другой код — Failed
+  с кодом и последней строкой stderr; скрипта нет — warn.
+- `test/acceptance/e3.spec.ts` запускает приложение с PATH Finder-а и ждёт новую строку в OK.
+- Пустой `SHELL` считается неустановленным. Источник окружения скриптов теперь действительно
+  никогда не отклоняется.
+- Комментарии, которые срез 1 сделал неверными: `src/main/harness/script-env.ts`,
+  `src/main/agent/env.ts`, `scripts/e3-sandbox.sh`.
+
+**Как раскладка читается снова после неудачи.** Без перезапуска приложения.
+
+- Watcher (боковая панель и Canvas): пока раскладка `failed`, папки не отслеживаются. Раз в 10 s
+  (`layoutRetryMs`, один unref-таймер) раскладка спрашивается заново. Когда `profile` ответил,
+  watcher начинает отслеживать папки и читает Epic-и. `close()` гасит таймер и ждёт текущее
+  чтение.
+- `readWorkflow` (Ship ticket, Run wave, Autopilot, canvas tools) спрашивает раскладку при каждом
+  вызове.
+- Общий кэш раскладок (документы и проверки) держит неудачу до 30 s, как любой ответ. Пока
+  раскладка `failed`, документы и проверки видят поля Full — так было и до Ticket-а.
+
+**Red first.** Каждый новый test был красным на исходниках main `4d70e689`:
+
+- `harness/bin/tests/tickets-root.test.sh`, раздел 8: 3 FAIL (exit code 0, ответ из `.scratch`).
+- `test/contract/workflow-profile.test.ts`: 17 красных. Модель на main показывала Epic `demo`,
+  найденный угадыванием.
+- `test/contract/first-run-checks.test.ts`: 5 красных («no check harness-scripts»).
+- `test/contract/harness-script-wiring.test.ts`: 5 красных из 16. Остальные 11 закрепляют
+  поведение среза 1; их охраняют мутанты M4–M16 и M19.
+- e2e на сборке main: случай «нет node и в login shell» красный (текста причины нет); строка First
+  run красная (13 строк вместо 14).
+
+**Мутанты.** Каждый ставился в моём worktree, файл возвращался из копии. Все 21 красные.
+
+| # | Порча | Чем пойман |
+|---|---|---|
+| M1 | `epic-status` без node снова берёт `<репозиторий>/.scratch` | shell test, 3 FAIL |
+| M2 | неудачный вызов `profile` снова даёт Full | `workflow-profile`, 10 красных |
+| M3 | строка First run берёт окружение экрана | `first-run-checks`, 2 красных |
+| M4 | hub окна получает `process.env` | wiring |
+| M5 | чтение Ship ticket получает `process.env` | wiring |
+| M6 | Autopilot подмешивает `process.env` | wiring |
+| M7 | canvas tools получают `process.env` | wiring |
+| M8 | Project store получает `process.env` | wiring |
+| M9 | кэш раскладок подмешивает `process.env` | wiring |
+| M10 | сам `harnessScriptEnv` подмешивает `process.env` | wiring |
+| M11 | wiring First run отдаёт окружение экрана | wiring |
+| M12 | повторный запуск `epic-status` берёт `process.env` | wiring |
+| M13 | `epic-status` подмешивает `process.env` | wiring, 3 красных |
+| M14 | `readProjectLayout` подмешивает `process.env` | wiring, 2 красных |
+| M15 | runner спрашивает окружение один раз | wiring |
+| M16 | кэш раскладок спрашивает окружение один раз | wiring |
+| M17 | `env` раскладки необязателен | typecheck, TS2322 |
+| M18 | у Project store окружение по умолчанию | typecheck, TS2578 (`@ts-expect-error` в wiring test) |
+| M19 | `HARNESS_HOME` пользователя побеждает найденный worfy | wiring |
+| M20 | пустой `SHELL` проходит дальше | wiring, 2 красных |
+| M21 | watcher не спрашивает раскладку снова | `workflow-profile`, test восстановления |
+
+**Цифры.**
+
+- `pnpm lint` — exit code 0; `pnpm typecheck` — exit code 0.
+- `pnpm test` — exit code 0: 234 файла, 4940 passed, 66 skipped, 135 s.
+- Shell tests — exit code 0: tickets-root 26, silent-mode 42, harness-home 87, preflight 14.
+- e2e на сборке ветки, под общим lock: `finder-path`, `first-run`, `silent-project`,
+  `settings-health` целиком — 12 passed, exit code 0, 40 s. В «Health» сводка первого запуска
+  теперь «1 failed · 3 warnings»: новая строка — warn, пока Harness не установлен.
+- Снимок окна без node: в боковой панели «worfy could not ask the Harness where the workflow of
+  this Project lives: the profile script failed with exit code 127: env: node: No such file or
+  directory», панели «No epics yet» и рамок нет.
+
+**Что не проверено.**
+
+- Windows: ни скрипты, ни тесты не запускались. Новые тесты со stub-скриптами пропускаются на
+  Windows (`skipIf`).
+- `test/acceptance/e3.spec.ts` — только компилятор и eslint; приёмка не запускалась.
+- Ручная проверка владельца двойным кликом в Finder и gate full — после merge и перед ним
+  соответственно, не моя часть.

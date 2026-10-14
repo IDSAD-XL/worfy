@@ -21,6 +21,7 @@ import { agentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
+import { harnessScriptEnv } from '../harness/script-env'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
@@ -96,6 +97,7 @@ async function checks(): Promise<FirstRunReport> {
   const env = await loginEnv()
   return runChecks({
     env,
+    scriptEnv: harnessScriptEnv,
     bundledClaudeCodeVersion: bundledClaudeCodeVersion(),
     accountInfo: () => accountInfo(env),
     harness: () => appInstaller().status(),

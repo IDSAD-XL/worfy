@@ -13,7 +13,9 @@ import { launchApp, repoRoot } from './helpers'
 // the build carries (out/harness), installed as the plugin in a temporary Claude home: its
 // `profile` and `ticket` are `#!/usr/bin/env node`, and `epic-status` asks `ticket root` only when
 // it finds node. The Project is Silent: its Epic lies in the Workflow folder, outside the
-// repository, before the app starts. Its Epic must be in the sidebar and on the Canvas.
+// repository, before the app starts. Its Epic must be in the sidebar and on the Canvas. When the
+// login shell has no node either, the sidebar says why, with the word node, instead of an empty
+// list and the "No epics yet" panel (slice 2 of the ticket).
 
 const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const PROJECT = 'silent-app-00000037'
@@ -41,7 +43,18 @@ function commit(path: string, message: string): void {
   git(path, 'commit', '-q', '-m', message)
 }
 
-test('started with the PATH of Finder, a Silent Project shows its Epic: the Harness scripts get the login shell environment', async () => {
+interface Fixture {
+  home: string
+  claudeHome: string
+  harnessHome: string
+  dataDir: string
+}
+
+/**
+ * The Silent Project, the Harness and the login shell. `node`: whether the login shell's PATH has
+ * a folder with node; without it the login shell has the PATH of Finder too.
+ */
+function fixture(options: { node: boolean }): Fixture {
   const home = join(scratch, 'home')
   const claudeHome = join(home, '.claude')
   const harnessHome = join(claudeHome, 'worfy-harness')
@@ -54,7 +67,7 @@ test('started with the PATH of Finder, a Silent Project shows its Epic: the Harn
 
   // node only where the login shell looks: $HOME/.profile, read by `/bin/sh -ilc`.
   symlinkSync(process.execPath, join(shellBin, 'node'))
-  writeFileSync(join(home, '.profile'), `PATH='${shellBin}:${SYSTEM_PATH}'; export PATH\n`)
+  writeFileSync(join(home, '.profile'), `PATH='${options.node ? `${shellBin}:` : ''}${SYSTEM_PATH}'; export PATH\n`)
 
   // The Harness plugin as First run installs it: the scripts of this build.
   cpSync(join(repoRoot, 'out', 'harness'), join(harnessHome, 'plugin'), { recursive: true })
@@ -74,10 +87,16 @@ test('started with the PATH of Finder, a Silent Project shows its Epic: the Harn
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'silent-app', path: repo }], activeId: PROJECT }))
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 0.8 } }))
+  return { home, claudeHome, harnessHome, dataDir }
+}
 
-  const launched = await launchApp({
-    env: { PATH: SYSTEM_PATH, HOME: home, SHELL: '/bin/sh', WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: harnessHome },
+const launch = (at: Fixture): ReturnType<typeof launchApp> =>
+  launchApp({
+    env: { PATH: SYSTEM_PATH, HOME: at.home, SHELL: '/bin/sh', WORFY_DATA_DIR: at.dataDir, WORFY_CLAUDE_HOME: at.claudeHome, WORFY_HARNESS_HOME: at.harnessHome },
   })
+
+test('started with the PATH of Finder, a Silent Project shows its Epic: the Harness scripts get the login shell environment', async () => {
+  const launched = await launch(fixture({ node: true }))
   try {
     const { window } = launched
     // The premise: the main process itself has the PATH of Finder, and node is not on it.
@@ -95,6 +114,26 @@ test('started with the PATH of Finder, a Silent Project shows its Epic: the Harn
     await expect(window.locator('[data-testid="ticket-node"][data-ticket="1"]')).toHaveAttribute('data-state', 'open')
     // The documents ask the app's layout cache where the workflow lives: it runs `profile` too.
     await expect(window.getByTestId('handoff-body')).toContainText('State kept in the Workflow folder.')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('started with the PATH of Finder and no node in the login shell either, the sidebar says why, with the word node, and no "No epics yet" panel', async () => {
+  const launched = await launch(fixture({ node: false }))
+  try {
+    const { window } = launched
+    expect(await launched.app.evaluate(() => process.env.PATH)).toBe(SYSTEM_PATH)
+    expect(() => execFileSync('/bin/sh', ['-c', 'command -v node'], { env: { PATH: SYSTEM_PATH }, stdio: 'ignore' })).toThrow()
+
+    // `profile` exits 127: where the workflow lives is unknown, and the window says so.
+    const reason = window.getByText(/^worfy could not ask the Harness where the workflow of this Project lives: .*exit code 127: .*node/)
+    await expect(reason).toBeVisible({ timeout: 20_000 })
+    await expect(window.getByText('No epics in .scratch/')).toHaveCount(0)
+    await expect(window.getByTestId('sidebar-epic')).toHaveCount(0)
+    await expect(window.getByTestId('first-epic')).toHaveCount(0)
+    await expect(window.locator('[data-testid="epic-frame"]')).toHaveCount(0)
+    await window.screenshot({ path: test.info().outputPath('37-finder-path-no-node.png') })
   } finally {
     await launched.close()
   }

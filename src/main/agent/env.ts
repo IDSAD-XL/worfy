@@ -1,4 +1,5 @@
-// The environment of the Claude Code process (ADR-0007).
+// The environment of the Claude Code process (ADR-0007), and of the Harness scripts the main
+// process starts (src/main/harness/script-env.ts, worfy-harness ticket 37).
 //
 // An app started from Finder gets a bare PATH from launchd (/usr/bin:/bin:/usr/sbin:/sbin), so
 // neither Claude Code nor the user's hooks would find node, pnpm or gh. worfy therefore takes the
@@ -70,7 +71,7 @@ export function withoutApiKeys(env: Readonly<Env>): Env {
 }
 
 export interface CaptureOptions {
-  /** The shell to run; defaults to $SHELL of `source`, then /bin/zsh. */
+  /** The shell to run; defaults to $SHELL of `source`, then /bin/zsh. An empty value counts as unset. */
   shell?: string
   /** worfy's own environment: only SHELL_BASE_KEYS are taken from it. */
   source?: SourceEnv
@@ -91,12 +92,13 @@ export interface CapturedEnv {
 /**
  * Runs `$SHELL -ilc` from the minimal environment and returns its environment without the API
  * keys. When the shell fails, hangs past the timeout or prints no markers, the result is the
- * minimal environment itself (still without API keys): Claude Code starts, but tools outside the
- * system PATH are not found, and `error` says why.
+ * minimal environment itself (still without API keys): Claude Code and the Harness scripts start,
+ * but tools outside the system PATH — node among them — are not found, and `error` says why.
+ * Never rejects: an empty SHELL is read as unset, as a login would.
  */
 export async function captureLoginShellEnv(options: CaptureOptions = {}): Promise<CapturedEnv> {
   const source = options.source ?? process.env
-  const shell = options.shell ?? source.SHELL ?? '/bin/zsh'
+  const shell = [options.shell, source.SHELL].find((each) => each !== undefined && each !== '') ?? '/bin/zsh'
   const base = shellBaseEnv(source)
   // Each marker has a NUL on both sides: an rc file may print text without a trailing newline or NUL.
   const script = `printf '\\0%s\\0' ${ENV_START_MARKER}; env -0; printf '\\0%s\\0' ${ENV_END_MARKER}`

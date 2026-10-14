@@ -8,7 +8,13 @@
 //
 // HARNESS_HOME is not set here. Each runner looks for the Harness on every run and adds it for
 // the plugin with `scriptEnv` (src/main/harness/locate.ts), so a machine that switches to the
-// plugin is read without a restart.
+// plugin is read without a restart. The Harness home worfy found wins over a HARNESS_HOME the user
+// exports in the login shell.
+//
+// A variable set only on worfy's own process — CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR, a test's
+// stub settings — does not reach the scripts any more. A sandbox for them is made with HOME: the
+// login shell reads its rc files there and exports what they set (scripts/e3-sandbox.sh writes
+// `.zshenv` and `.profile`), and WORFY_HARNESS_HOME names the Harness home.
 //
 // Every reader that starts a Harness script takes this as a required parameter with no default:
 // a forgotten environment is then a compile error, not a Project that shows no Epics.
@@ -21,8 +27,10 @@ export type HarnessScriptEnv = Readonly<Record<string, string | undefined>>
 export type HarnessScriptEnvSource = () => Promise<HarnessScriptEnv>
 
 /**
- * The app's source: the login shell environment of this app run. It never rejects: when the shell
- * fails or takes longer than its timeout, the answer is the minimal environment with the system
- * PATH (src/main/agent/env.ts), and a script that needs node then fails as it does from Finder.
+ * The app's source: the login shell environment of this app run, the object agentEnv() holds, with
+ * nothing of worfy's own process merged in. It never rejects: when the shell fails, takes longer
+ * than its timeout, or SHELL is empty, the answer is the minimal environment with the system PATH
+ * (src/main/agent/env.ts), and a script that needs node then fails as it does from Finder — the
+ * window shows why (src/main/workflow/folder.ts, the First run row «Harness scripts»).
  */
 export const harnessScriptEnv: HarnessScriptEnvSource = async () => (await agentEnv()).env

@@ -9,7 +9,11 @@
 // - in Full mode, the git refs of Ticket branches (`refs/heads/**`, `packed-refs`) and the worktree
 //   list (`worktrees/<name>/HEAD`): only branches whose head moved are read again. In Silent mode
 //   the status lives in the Workflow folder only (ADR-0042), so refs are not watched.
-// Where the workflow lives is read once, when the watch starts.
+// Where the workflow lives is read once, when the watch starts. When that read fails (the `profile`
+// call, src/main/workflow/folder.ts: no node, a broken registry, a timeout), nothing is watched:
+// the model carries the reason, and the layout is asked again every `layoutRetryMs` until it
+// answers; then the watch starts and the Project is read, without a restart (worfy-harness
+// ticket 37).
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 //
 // On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
@@ -29,6 +33,7 @@ import { readProjectLayout, type ProjectLayout } from './folder'
 import {
   applyBranches,
   epicStatusRunner,
+  failedCheckout,
   readBranches,
   readCheckout,
   ticketWorktrees,
@@ -60,6 +65,8 @@ export interface WatchOptions {
   run?: EpicStatusRunner
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default. */
   layout?: (root: string) => Promise<ProjectLayout>
+  /** How long after a failed read of the layout it is asked again (default 10 s). */
+  layoutRetryMs?: number
   /**
    * How the Tickets root is watched: 'links-read-first' (link-safe-watch.ts) on Windows, 'chokidar'
    * elsewhere. Tests name one to run it on any system.
@@ -203,6 +210,9 @@ export class WorkflowWatcher {
   private tickets: LinkSafeWatch | null = null
   private readonly debounce: Debounce
   private layout: ProjectLayout | null = null
+  /** Set when the failed layout is to be asked again before the next read. */
+  private layoutStale = false
+  private retry: NodeJS.Timeout | null = null
   private dirtyCheckout = false
   private dirtyBranches = false
   private running: Promise<void> | null = null
@@ -224,8 +234,9 @@ export class WorkflowWatcher {
     const run = options.run ?? epicStatusRunner(options.claudeHome, options.env)
     const watcher = new WorkflowWatcher({ ...options, root, run })
     try {
-      watcher.layout = await (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env() })))(root)
-      await watcher.watch()
+      watcher.layout = await watcher.readLayout()
+      // A failed layout names no Tickets root to watch: the reads ask it again (readOnce).
+      if (!watcher.layout.failed) await watcher.watch()
       watcher.dirtyCheckout = true
       watcher.dirtyBranches = true
       watcher.request()
@@ -256,9 +267,36 @@ export class WorkflowWatcher {
   async close(): Promise<void> {
     this.closed = true
     this.debounce.cancel()
-    this.tickets?.close()
-    await Promise.all(this.watchers.map((w) => w.close()))
+    if (this.retry) clearTimeout(this.retry)
+    this.retry = null
+    await this.unwatch()
     if (this.running) await this.running
+    // A read that got the layout again may have started the watch while it ran.
+    await this.unwatch()
+  }
+
+  private async unwatch(): Promise<void> {
+    this.tickets?.close()
+    this.tickets = null
+    await Promise.all(this.watchers.splice(0).map((w) => w.close()))
+  }
+
+  private readLayout(): Promise<ProjectLayout> {
+    const { options } = this
+    return (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env() })))(options.root)
+  }
+
+  /** Asks the failed layout again after `layoutRetryMs`, with a read; one timer at a time. */
+  private retryLayout(): void {
+    if (this.retry || this.closed) return
+    this.retry = setTimeout(() => {
+      this.retry = null
+      if (this.closed) return
+      this.layoutStale = true
+      this.dirtyCheckout = true
+      this.request()
+    }, this.options.layoutRetryMs ?? 10_000)
+    this.retry.unref?.()
   }
 
   private async watch(): Promise<void> {
@@ -336,6 +374,17 @@ export class WorkflowWatcher {
 
   private async readOnce(): Promise<void> {
     const { root, run } = this.options
+    if (this.layoutStale) {
+      this.layoutStale = false
+      // readProjectLayout never throws; an injected layout that does stays failed until the next retry.
+      const layout = await this.readLayout().catch((error: unknown) => ({ ...this.layout!, reason: error instanceof Error ? error.message : String(error) }))
+      this.layout = layout
+      if (!layout.failed && !this.closed) {
+        // Watched before the read below, so a change made while it runs is read again.
+        await this.watch().catch((error: unknown) => console.error('[workflow] the watch did not start', error))
+        this.dirtyBranches = true
+      }
+    }
     const layout = this.layout!
     const checkoutChanged = this.dirtyCheckout || !this.checkout
     const branchesChanged = this.dirtyBranches
@@ -344,7 +393,10 @@ export class WorkflowWatcher {
 
     try {
       let checkout = this.checkout
-      if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+      if (layout.failed) {
+        checkout = this.checkout = failedCheckout(root, layout)
+        this.retryLayout()
+      } else if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
         this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)

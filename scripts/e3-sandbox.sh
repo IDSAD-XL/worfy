@@ -39,8 +39,8 @@
 #                   (a qmd next to node) comes with it. A zsh login shell of the sandbox still gets
 #                   more: /etc/zprofile runs path_helper after .zshenv, which puts /usr/local/bin and
 #                   the folders of /etc/paths.d (Homebrew, where it is listed there) in front. The
-#                   app reads the environment of its checks from that shell, so it finds the tools of
-#                   those folders too. init, env, run and check-gh bring the links up to date, and
+#                   app reads the environment of its checks, its Sessions and the Harness scripts it
+#                   runs (the Epics read) from that shell, so it finds the tools of those folders too. init, env, run and check-gh bring the links up to date, and
 #                   exit 1 when they cannot write them; reset-harness keeps the links, as they are
 #                   not what an install leaves
 #   data/           WORFY_DATA_DIR of the app
@@ -98,8 +98,9 @@ machine_tool() {
 # The PATH this script gives out: what npm installs in the sandbox, the links to the tools above, the
 # system folders. No folder of the machine is on it: such a folder holds other tools too (a qmd next
 # to node), and the app would take them for installed. That holds for env, run and the line written
-# into .zshenv and .profile. The zsh login shell the app reads the environment of its checks from
-# gets /usr/local/bin and the folders of /etc/paths.d in front of it, from /etc/zprofile.
+# into .zshenv and .profile. The zsh login shell the app reads the environment of its checks, its
+# Sessions and the Harness scripts it runs from gets /usr/local/bin and the folders of /etc/paths.d
+# in front of it, from /etc/zprofile.
 # A link that leads nowhere is not a tool: the warning is about what can be run.
 tool_path() {
   local tool
@@ -168,8 +169,9 @@ EOF
 }
 
 # The variables a login shell of the sandbox must export besides HOME: worfy starts Claude Code with
-# the environment of `$SHELL -ilc` from a minimal start (src/main/agent/env.ts), so a variable of the
-# app's own process alone would not reach the agent.
+# the environment of `$SHELL -ilc` from a minimal start (src/main/agent/env.ts), and the Harness
+# scripts it runs itself with the same one, so a variable of the app's own process alone would reach
+# neither the agent nor the scripts.
 shell_exports() {
   sandbox_env | while IFS='=' read -r key value; do
     case "$key" in

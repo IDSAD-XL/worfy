@@ -44,7 +44,7 @@ const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой pr
 const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
 const WAVE_TIMEOUT_MS = 90 * 60_000
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
 const WORKFLOW_FILES = [/(^|\/)\.scratch(\/|$)/, /(^|\/)HANDOFF(\.md)?$/i, /(^|\/)docs\/adr\//, /(^|\/)adr\/\d{4}-/, /(^|\/)CONTEXT\.md$/, /(^|\/)lessons\//]
 /**
@@ -217,13 +217,19 @@ interface Launched {
   close: () => Promise<void>
 }
 
+/** What launchd gives an app started from Finder (worfy-harness ticket 37): no node, no gh, no claude on it. */
+const FINDER_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
+
 /**
  * Starts the packaged app in the sandbox environment with a data folder of its own: the real agent,
  * the real gh and claude, the first-run screen opening by itself. Only the link server is kept on
- * loopback without Bonjour, so no macOS network prompt stops the run.
+ * loopback without Bonjour, so no macOS network prompt stops the run. The app gets the PATH of
+ * Finder, as on the user's Mac: it finds the tools through the sandbox's login shell, whose
+ * `.zshenv` and `.profile` set the sandbox PATH (scripts/e3-sandbox.sh). This test's own commands
+ * keep the sandbox environment.
  */
 async function launch(box: Sandbox, app: string, dataDir: string): Promise<Launched> {
-  const env: Env = { ...box.env, WORFY_DATA_DIR: dataDir, WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_BONJOUR: '0' }
+  const env: Env = { ...box.env, PATH: FINDER_PATH, WORFY_DATA_DIR: dataDir, WORFY_LINK_HOST: '127.0.0.1', WORFY_LINK_BONJOUR: '0' }
   const electron = await _electron.launch({ executablePath: join(app, 'Contents', 'MacOS', 'worfy'), args: NO_WINDOW_RESTORE, env, cwd: box.env.HOME })
   const child = electron.process()
   try {
@@ -486,6 +492,8 @@ test('sandbox: the packaged app installs its Harness and qmd into an empty Claud
     expect(plugin.entry).toMatchObject({ id: 'worfy@worfy-harness', enabled: true, version })
     // The same Install puts in the plugin's dependency (mattpocock-skills): its own row says so.
     await expectRowStatus(checkRow(screen, 'harness-dependencies'), 'Install the plugin dependencies', 'ok', 60_000)
+    // The installed Harness's scripts run as the Epics read runs them: node from the login shell.
+    await expectRowStatus(checkRow(screen, 'harness-scripts'), 'Run the Harness scripts', 'ok', 60_000)
 
     // qmd with consent: npm installs it under npm_config_prefix of the sandbox.
     await checkRow(screen, 'qmd').getByRole('button', { name: 'Install…' }).click()

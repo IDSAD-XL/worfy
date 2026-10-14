@@ -11,7 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
 import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, readResolvedProfile, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
-import { fullLayout, LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
+import { failedLayout, fullLayout, LayoutCache, readProjectLayout, type ProjectLayout } from '../../src/main/workflow/folder'
+import { readWorkflow } from '../../src/main/workflow/reader'
+import { WorkflowWatcher } from '../../src/main/workflow/watch'
+import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { removeTestTree } from '../remove'
@@ -426,6 +429,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
       ],
       workspace: '/work/atakama',
       reason: null,
+      failed: false,
     })
     expect(run.calls).toEqual([['/work/atakama', ['-C', '/work/atakama', '--json']]])
     expect(runTicket.calls).toEqual([['/work/atakama', ['root']]])
@@ -444,27 +448,46 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(logged.join('\n')).toMatch(/ticket root failed with exit code 1: usage/)
   })
 
+  // No Profile: the folder is read as before Silent mode (worfy-harness ticket 37, «Profile-а нет»).
   it.each<[string, ProfileRun | Error, RegExp]>([
     ['exit code 3', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3/],
-    ['exit code 4', { code: 4, stdout: '', stderr: '' }, /exit code 4/],
     ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
-    ['a failing script', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
-    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
-    ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/],
     ['a Harness before Silent mode: no _resolved.mode', { code: 0, stdout: JSON.stringify({ name: 'demo', _resolved: { name: 'demo', repo_root: '/repo' } }), stderr: '' }, /no _resolved\.mode/],
-    ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/],
-    ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/],
-    ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/],
-  ])('%s: Full mode, the Project root, one repository, <root>/.scratch — and `ticket root` is not run', async (_case, answer, reason) => {
+  ])('no Profile — %s: Full mode, the Project root, one repository, <root>/.scratch — and `ticket root` is not run', async (_case, answer, reason) => {
     const runTicket = stubRun({ code: 0, stdout: '/elsewhere\n', stderr: '' })
     const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), runTicket, log })
     expect({ ...layout, reason: null }).toEqual(fullLayout('/repo'))
+    expect(layout.failed).toBe(false)
     expect(layout.reason).toMatch(reason)
     expect(runTicket.calls).toEqual([])
     expect(logged).toHaveLength(1)
     expect(logged[0]).toMatch(/^\[workflow\] \/repo: Full mode/)
     const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
-    expect(resolved).toMatchObject({ ok: false, reason: expect.stringMatching(reason) })
+    expect(resolved).toEqual({ ok: false, miss: 'none', reason: expect.stringMatching(reason) })
+  })
+
+  // A failed call: the mode is unknown, nothing is guessed (worfy-harness ticket 37, «вызов не удался»).
+  it.each<[string, ProfileRun | Error, RegExp]>([
+    ['exit code 127: the script finds no node', { code: 127, stdout: '', stderr: 'env: node: No such file or directory\n' }, /failed with exit code 127: env: node: No such file or directory/],
+    ['exit code 1: a broken registry', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
+    ['exit code 4 on --json', { code: 4, stdout: '', stderr: '' }, /exit code 4/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /timed out/],
+    ['a script that cannot be started', Object.assign(new Error('spawn profile EACCES'), { code: 'EACCES' }), /could not be run: spawn profile EACCES/],
+    ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/],
+    ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/],
+    ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/],
+    ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/],
+  ])('a failed call — %s: the layout is marked failed with the reason, and `ticket root` is not run', async (_case, answer, reason) => {
+    const runTicket = stubRun({ code: 0, stdout: '/elsewhere\n', stderr: '' })
+    const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer), runTicket, log })
+    expect(layout).toEqual(failedLayout('/repo', layout.reason ?? ''))
+    expect(layout.failed).toBe(true)
+    expect(layout.reason).toMatch(reason)
+    expect(runTicket.calls).toEqual([])
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toMatch(/^\[workflow\] \/repo: the workflow is not read, because /)
+    const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
+    expect(resolved).toEqual({ ok: false, miss: 'failed', reason: expect.stringMatching(reason) })
   })
 
   it('the cache reads a Project once per interval and again after it', async () => {
@@ -498,9 +521,75 @@ describe('readProjectLayout with the real scripts', () => {
     const before = { home: snapshot(home), root: snapshot(root), folder: snapshot(folder) }
 
     const layout = await readProjectLayout({ root, claudeHome: home, env: loginEnv(), log })
-    expect(layout).toEqual({ root, mode: 'silent', workflowFolder: folder, ticketsRoot: join(folder, '.scratch'), repos: [{ name: 'project', path: root }], workspace: null, reason: null })
+    expect(layout).toEqual({ root, mode: 'silent', workflowFolder: folder, ticketsRoot: join(folder, '.scratch'), repos: [{ name: 'project', path: root }], workspace: null, reason: null, failed: false })
     expect(readFileSync(calls, 'utf8').trim()).toBe(`${realpathSync(root)} -C ${root} --json`)
     expect(readFileSync(ticketCalls, 'utf8').trim()).toBe(`${realpathSync(root)} root`)
     expect({ home: snapshot(home), root: snapshot(root), folder: snapshot(folder) }).toEqual(before)
+  })
+})
+
+// worfy-harness ticket 37: a failed `profile` call reaches the window as the model's error, through
+// the same path as a failed `epic-status`, and goes away without a restart once the cause is gone.
+describe('a failed profile call in the workflow model', () => {
+  const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
+
+  it.skipIf(process.platform === 'win32')('readWorkflow: the script finds no interpreter (exit code 127) — an empty model with the reason, and epic-status is not run', async () => {
+    const root = projectRoot()
+    const { home } = stubHome(0, JSON.stringify({ _resolved: { mode: 'full', workflow_folder: root, repos: [] } }))
+    const runs: string[] = []
+    const run = (cwd: string): Promise<string> => (runs.push(cwd), Promise.resolve(EPIC_JSON))
+    // The system PATH only: the stub's interpreter, like node from Finder, is not on it.
+    const env = (): Promise<Record<string, string>> => Promise.resolve({ PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: scratch })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { model } = await readWorkflow({ root, claudeHome: home, env }, run)
+    warn.mockRestore()
+    expect(model).toMatchObject({ root, epics: [], tickets: [], branchErrors: [] })
+    expect(model.error?.code).toBe('failed')
+    expect(model.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: .*worfy-profile-node/)
+    expect(runs).toEqual([])
+  })
+
+  it('the watcher shows the reason, asks the layout again and reads the Epics once it answers, without a restart', async () => {
+    const root = projectRoot()
+    let answers = 0
+    let cured = false
+    const layout = (at: string): Promise<ProjectLayout> => {
+      answers += 1
+      return Promise.resolve(cured ? { ...fullLayout(at), mode: 'silent', ticketsRoot: join(at, '.scratch') } : failedLayout(at, 'the profile script failed with exit code 127: env: node: No such file or directory'))
+    }
+    const runs: string[] = []
+    const run = (cwd: string): Promise<string> => (runs.push(cwd), Promise.resolve(EPIC_JSON))
+    const changes: WorkflowDelta[] = []
+    const watcher = await WorkflowWatcher.start({ root, claudeHome: '/h', env: () => Promise.resolve({}), run, layout, layoutRetryMs: 50, ticketsWatch: 'chokidar', onChange: (delta) => changes.push(delta) })
+    try {
+      expect(watcher.current.error?.message).toMatch(/where the workflow of this Project lives: .*exit code 127: env: node/)
+      expect(watcher.current.epics).toEqual([])
+      expect(runs).toEqual([])
+      // Still failing: asked again, the same reason, nothing sent.
+      await vi.waitFor(() => expect(answers).toBeGreaterThanOrEqual(3), { timeout: 5000 })
+      expect(changes).toEqual([])
+      cured = true
+      await vi.waitFor(() => expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo']), { timeout: 5000 })
+      expect(watcher.current.error).toBeNull()
+      expect(runs.length).toBeGreaterThan(0)
+      expect(changes.at(-1)).toMatchObject({ error: null })
+      // Answered: no more retries.
+      const settled = answers
+      await new Promise((done) => setTimeout(done, 200))
+      expect(answers).toBe(settled)
+    } finally {
+      await watcher.close()
+    }
+  })
+
+  it('close stops the retries of a failed layout', async () => {
+    const root = projectRoot()
+    let answers = 0
+    const layout = (at: string): Promise<ProjectLayout> => ((answers += 1), Promise.resolve(failedLayout(at, 'timed out')))
+    const watcher = await WorkflowWatcher.start({ root, claudeHome: '/h', env: () => Promise.resolve({}), run: () => Promise.resolve(EPIC_JSON), layout, layoutRetryMs: 30, ticketsWatch: 'chokidar', onChange: () => undefined })
+    await watcher.close()
+    const closedAt = answers
+    await new Promise((done) => setTimeout(done, 150))
+    expect(answers).toBe(closedAt)
   })
 })

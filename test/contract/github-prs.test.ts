@@ -777,6 +777,7 @@ async function severalRepos() {
     ],
     workspace,
     reason: null,
+    failed: false,
   }
   const modelsAsked: string[] = []
   const scope: ChecksScope = {

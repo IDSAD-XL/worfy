@@ -113,8 +113,15 @@ export interface ReadProfileOptions {
 
 export type ReadMcpAllowlistOptions = ReadProfileOptions
 
+/**
+ * Why `profile` gave no answer. `none`: the folder has no Profile — exit code 3, or no script
+ * (worfy-harness ticket 37). `failed`: the call itself failed — any other exit code (127: no node;
+ * 1: a broken registry or profile.json), a timeout, a script that could not be started.
+ */
+export type ProfileMiss = 'none' | 'failed'
+
 /** One field of the Profile: its printed value, or why there is none. */
-type FieldRead = { ok: true; stdout: string } | { ok: false; reason: string }
+type FieldRead = { ok: true; stdout: string } | { ok: false; reason: string; miss: ProfileMiss }
 
 /** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
 function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
@@ -124,7 +131,8 @@ function readField(options: ReadProfileOptions, field: string): Promise<FieldRea
 /** Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. */
 async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
-  const none = (reason: string): FieldRead => ({ ok: false, reason })
+  const none = (reason: string): FieldRead => ({ ok: false, reason, miss: 'none' })
+  const failed = (reason: string): FieldRead => ({ ok: false, reason, miss: 'failed' })
 
   let result: ProfileRun
   try {
@@ -133,14 +141,14 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
     if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
-    return none(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
+    return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   const detail = result.stderr.trim()
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return none(absent)
-  if (result.code === null) return none('the profile script timed out')
-  if (result.code !== 0) return none(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
+  if (result.code === 4) return failed(absent)
+  if (result.code === null) return failed('the profile script timed out')
+  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
   return { ok: true, stdout: result.stdout.trim() }
 }
 
@@ -246,25 +254,28 @@ const resolvedSchema = z.object({
 
 /**
  * `_resolved.mode`, `workflow_folder`, `workspace` and `repos` of `bin/profile -C <root> --json`, or
- * why there are none: exit code 3, 4, a missing script, a failed run, output that is not JSON, or a
- * Harness from before Silent mode that has no such fields. Nothing is logged here; the caller
- * falls back to Full mode (src/main/workflow/folder.ts) and logs the reason once.
+ * why there are none, of two kinds (worfy-harness ticket 37). `none` — the folder has no Profile:
+ * exit code 3, a missing script, or a Harness from before Silent mode that has no such fields; the
+ * caller reads it in Full mode, as worfy read every Project before. `failed` — the call failed and
+ * the mode is unknown: any other exit code (4 included), a timeout, a script that could not be
+ * started, output that is not JSON or lacks the fields; the caller shows the reason instead of
+ * guessing (src/main/workflow/folder.ts). Nothing is logged here.
  */
-export async function readResolvedProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: ResolvedProfile } | { ok: false; reason: string }> {
+export async function readResolvedProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: ResolvedProfile } | { ok: false; reason: string; miss: ProfileMiss }> {
   const read = await runProfile(options, ['--json'], 'the profile script answered --json with exit code 4')
   if (!read.ok) return read
   let json: unknown
   try {
     json = JSON.parse(read.stdout)
   } catch {
-    return { ok: false, reason: `profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}` }
+    return { ok: false, reason: `profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}`, miss: 'failed' }
   }
   const resolved = (json as { _resolved?: { mode?: unknown } } | null)?._resolved
-  if (resolved?.mode === undefined) return { ok: false, reason: 'the Harness gives no _resolved.mode: it is older than Silent mode' }
+  if (resolved?.mode === undefined) return { ok: false, reason: 'the Harness gives no _resolved.mode: it is older than Silent mode', miss: 'none' }
   const parsed = resolvedSchema.safeParse(json)
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
-    return { ok: false, reason: `profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.')}: ${issue.message}` : ''}` }
+    return { ok: false, reason: `profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.')}: ${issue.message}` : ''}`, miss: 'failed' }
   }
   const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
   return { ok: true, profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })) } }
