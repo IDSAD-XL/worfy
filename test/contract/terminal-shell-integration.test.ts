@@ -8,7 +8,7 @@
 // a Terminal: on macOS that is where HISTFILE is set from ZDOTDIR.
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { existsSync, rmSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -434,9 +434,10 @@ describe("worfy's folder", () => {
     const first = await open('first')
     await first.prompt()
     const dir = integration.path ?? ''
-    expect((await readdir(dir)).sort()).toEqual(['.zlogin', '.zprofile', '.zshenv', '.zshrc', 'integration.zsh'])
+    expect((await readdir(dir)).sort()).toEqual(['.zlogin', '.zprofile', '.zshenv', '.zshrc', 'integration.zsh', 'rc.d'])
+    expect(await readdir(join(dir, 'rc.d'))).toEqual(['10-assist.zsh'])
 
-    for (const name of await readdir(dir)) rmSync(join(dir, name))
+    for (const name of await readdir(dir)) removeTestTree(join(dir, name))
     const second = await open('second')
     await second.prompt()
     await second.run(PRINT_FILES)

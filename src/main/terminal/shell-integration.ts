@@ -75,17 +75,40 @@ export function newNonce(): string {
   return randomBytes(16).toString('hex')
 }
 
+/** A shell's way to main for Terminal AI: the socket to connect to and the shell's own token for it. */
+export interface AssistAdmission {
+  socket: string
+  token: string
+}
+
+/**
+ * Who lets the shells with the integration reach main for Terminal AI
+ * (src/main/terminal-ai/shell-link.ts). `key` is the Terminal's key in the registry, `dir` worfy's
+ * folder, where the socket goes; the token is given back when the shell is gone.
+ */
+export interface AssistDoor {
+  admit(key: string, dir: string): Promise<AssistAdmission>
+  revoke(token: string): void
+}
+
 /**
  * The environment of a zsh with the integration: ZDOTDIR is worfy's folder; the user's own ZDOTDIR,
  * when their environment has one, and the nonce go in WORFY_USER_ZDOTDIR and WORFY_SHELL_NONCE,
  * which the script takes out of the environment before anything else runs. Without
  * WORFY_USER_ZDOTDIR the script reads the user's files from HOME and leaves ZDOTDIR unset while
- * they run, as zsh without worfy would.
+ * they run, as zsh without worfy would. With an admission the socket of Terminal AI and the
+ * shell's token go the same way, in WORFY_ASSIST_SOCKET and WORFY_ASSIST_TOKEN.
  */
-export function integrationEnv(env: Readonly<Env>, dir: string, nonce: string): Env {
+export function integrationEnv(env: Readonly<Env>, dir: string, nonce: string, assist: AssistAdmission | null = null): Env {
   const out: Env = { ...env, ZDOTDIR: dir, WORFY_SHELL_NONCE: nonce }
   delete out.WORFY_USER_ZDOTDIR
+  delete out.WORFY_ASSIST_SOCKET
+  delete out.WORFY_ASSIST_TOKEN
   if (env.ZDOTDIR !== undefined && env.ZDOTDIR !== '') out.WORFY_USER_ZDOTDIR = env.ZDOTDIR
+  if (assist !== null) {
+    out.WORFY_ASSIST_SOCKET = assist.socket
+    out.WORFY_ASSIST_TOKEN = assist.token
+  }
   return out
 }
 

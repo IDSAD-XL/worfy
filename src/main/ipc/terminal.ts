@@ -16,6 +16,10 @@
 // ticket 01): its folder is made on the first zsh Terminal and removed when worfy exits. The
 // modules of Terminal AI get the registry from terminalNodeRegistry(): the state of each shell and
 // its events (prompt shown, command started, command finished).
+//
+// Those shells also reach main over the socket of Terminal AI (worfy-terminal-ai ticket 03): the
+// link is made with the registry and closed when worfy exits; terminalShellLink() gives it to the
+// modules that push a message to a shell.
 import { app } from 'electron'
 import { agentEnv } from '../agent/env'
 import { clientOf, type Client } from '../clients'
@@ -24,6 +28,7 @@ import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
 import { TerminalRegistry, terminalShellOptions, WINDOWS_CLOSE_BOUND_MS, type ShellOption, type TerminalSink } from '../terminal/pty'
 import { ShellIntegration } from '../terminal/shell-integration'
+import { ShellLink } from '../terminal-ai/shell-link'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import {
   TERMINAL_NODE_KIND,
@@ -201,22 +206,48 @@ export function wireRegistry(registry: TerminalRegistry, wiring: RegistryWiring)
 }
 
 let appRegistry: TerminalRegistry | null = null
+let appShellLink: ShellLink | null = null
+
+/** The assist service of Terminal AI, loaded when a shell first needs it: nothing of it starts with a Terminal. */
+const assistService = async () => (await import('../terminal-ai/assist')).appAssist()
 
 /** The app's registry, made on first use, wired to the Layout, the Projects and quitting. */
 function sharedRegistry(): TerminalRegistry {
   if (appRegistry !== null) return appRegistry
   const integration = new ShellIntegration()
+  // The socket of Terminal AI goes into the same folder; its server starts with the first zsh Terminal.
+  const link: ShellLink = new ShellLink({
+    settings: async () => {
+      const assist = await assistService()
+      return { current: () => assist.state().settings, subscribe: (listener) => assist.subscribe(() => listener()) }
+    },
+    context: { shellState: (terminal) => registry.shellState(terminal), assist: assistService },
+  })
   // Synchronous, so it runs however worfy exits; the shells have ended by then, unless the wait of the quit was cut.
-  process.once('exit', () => integration.disposeSync())
-  const registry = new TerminalRegistry({ env: async () => (await agentEnv()).env, integration })
+  process.once('exit', () => {
+    link.closeSync()
+    integration.disposeSync()
+  })
+  const registry: TerminalRegistry = new TerminalRegistry({ env: async () => (await agentEnv()).env, integration, assist: link })
   wireRegistry(registry, { layout: layoutStore(), projects: projectStore(), app })
   appRegistry = registry
+  appShellLink = link
   return registry
 }
 
 /** The registry of the Terminal Nodes' shells, for the modules of Terminal AI: shellState() and onShellEvent(). */
 export function terminalNodeRegistry(): TerminalRegistry {
   return sharedRegistry()
+}
+
+/**
+ * The link to the zsh of the Terminal Nodes, for the modules of Terminal AI that start in main
+ * rather than with an `ask` of the shell (Fix): push(terminalKey(…), message).
+ */
+export function terminalShellLink(): ShellLink {
+  sharedRegistry()
+  if (appShellLink === null) throw new Error('the link to the shells was not made')
+  return appShellLink
 }
 
 export default terminalHandlers({
