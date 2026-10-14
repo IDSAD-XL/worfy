@@ -72,7 +72,7 @@ describe('buildVersion', () => {
     expect(() => buildVersion(dir)).toThrow(/is not a git checkout/)
   })
 
-  it('is the version of this repository: package.json 0.2.0', () => {
-    expect(buildVersion(join(import.meta.dirname, '..', '..'))).toMatch(/^0\.2\.0\+[0-9a-f]{7,}(\.dirty)?$/)
+  it('is the version of this repository: package.json 0.3.0', () => {
+    expect(buildVersion(join(import.meta.dirname, '..', '..'))).toMatch(/^0\.3\.0\+[0-9a-f]{7,}(\.dirty)?$/)
   })
 })
