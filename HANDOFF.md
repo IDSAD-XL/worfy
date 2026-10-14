@@ -1,10 +1,10 @@
-# Передача контекста — снимок на 2026-10-14 (UTC), main @ 2a19638
+# Передача контекста — снимок на 2026-10-14 (UTC), main @ d422c0d
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness владельца — plugin worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32, 35, `epic-status` — 28/45; 37: срез 1 влит (PR #305), срез 2 — PR #311; 26 (приёмка E3) ждёт 37; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36, 38–45.
+- `worfy-harness` (E3: Harness владельца — plugin worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32, 35, 37, `epic-status` — 29/46; 26 (приёмка E3) ждёт двойного клика владельца на пакете с #311; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36, 38–46.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
-- Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
+- Stable copy и plugin `worfy` — собрана из main после #311. Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298), `epic-status` — 22/50; 46 закрыт — `gate.sh` остаётся (решение владельца 2026-10-14); на ПК — 14. Владелец, 2026-10-13: 03–07 не ждут закрытия E3; очередь ПК — в «Дальше».
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 (приёмка) — владелец.
@@ -13,7 +13,7 @@
 
 ## Ждёт владельца
 
-- Приёмка E3 («Итог» `worfy-harness` 26): пункты 1–4 приняты. Пункт 5: Epic-и Silent Project-а из Finder — PR #305; пакет `/Users/Shared/worfy-item5/` из `4d70e68` ждёт двойного клика. Ошибка в окне без `gate/config.json` принята. Harness на Mac — `pnpm install:stable` после прогона Autopilot.
+- Приёмка E3 («Итог» `worfy-harness` 26): пункты 1–4 приняты. Пункт 5: 37 закрыт (PR #305, #311); пакет `/Users/Shared/worfy-item5/` пересобрать с #311, затем двойной клик. Ошибка в окне без `gate/config.json` принята. Harness на Mac — `pnpm install:stable` после прогона Autopilot.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
