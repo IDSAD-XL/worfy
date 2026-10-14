@@ -17,6 +17,7 @@
 import { spawn as spawnNodePty } from 'node-pty'
 import { z } from 'zod'
 import type { GithubAccount, GithubAccountsStep, WorkflowFinish } from '../../shared/ipc/projects'
+import { programStart, type ProgramStart } from '../program'
 import type { GitRunner } from '../projects/store'
 import { TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { accountAuth, type GhRunner } from './prs'
@@ -200,9 +201,20 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * How "Sign in with gh" starts `gh auth login`: `/bin/sh` execs the app's gh (`gh` from the login
  * shell's PATH, or WORFY_GH) with exactly those two arguments, so the pseudo-terminal's process is
  * gh itself and its exit is the end of the sign-in. Nothing is typed into it by worfy.
+ *
+ * Windows has no `/bin/sh`: there the pseudo-terminal starts the program itself with those two
+ * arguments. Two things do not work there yet:
+ *   - node-pty does not search for a program as a shell does: it takes a full path, or a file
+ *     name with its extension that is on the Path of worfy's own process. `gh` without WORFY_GH
+ *     is neither, and is not found;
+ *   - a WORFY_GH that is a `.mjs` script goes through programStart (src/main/program.ts) with
+ *     what it adds to the environment, but worfy's own executable is a program of the GUI
+ *     subsystem and gets no terminal: the script runs, prints nowhere and reads nothing.
  */
-export function signInCommand(gh: string): { file: string; args: string[] } {
-  return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh] }
+export function signInCommand(gh: string | undefined, platform: NodeJS.Platform = process.platform): ProgramStart {
+  if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh ?? 'gh'], env: {} }
+  const start = programStart(gh, 'gh')
+  return { ...start, args: [...start.args, 'auth', 'login'] }
 }
 
 /** The app's gh: its executable and the environment it runs in. */
@@ -217,10 +229,15 @@ export interface GhProgram {
  * redraw, the size, SIGHUP then SIGKILL on close), but its process is `gh auth login` of the app's
  * gh instead of the user's shell.
  */
-export function signInRegistry(gh: GhProgram, spawn: SpawnPty = (file, args, options) => spawnNodePty(file, args, options)): TerminalRegistry {
-  const command = signInCommand(gh.command ?? 'gh')
+export function signInRegistry(
+  gh: GhProgram,
+  spawn: SpawnPty = (file, args, options) => spawnNodePty(file, args, options),
+  platform: NodeJS.Platform = process.platform,
+): TerminalRegistry {
+  const command = signInCommand(gh.command, platform)
   return new TerminalRegistry({
     env: async () => Object.fromEntries(Object.entries(await gh.env()).filter((entry): entry is [string, string] => entry[1] !== undefined)),
-    spawn: (_shell, _args, options) => spawn(command.file, command.args, options),
+    spawn: (_shell, _args, options) => spawn(command.file, command.args, { ...options, env: { ...options.env, ...command.env } }),
+    platform,
   })
 }

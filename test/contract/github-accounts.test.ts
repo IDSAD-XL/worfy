@@ -229,8 +229,19 @@ describe('what worfy never does with gh', () => {
 })
 
 describe('"Sign in with gh"', () => {
-  it('runs the app\'s gh with exactly auth login: /bin/sh execs it, so the process is gh itself', () => {
-    expect(signInCommand('/opt/stub/gh')).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', '/opt/stub/gh'] })
+  it.each(['darwin', 'linux'] as const)('on %s runs the app\'s gh with exactly auth login: /bin/sh execs it, so the process is gh itself', (platform) => {
+    expect(signInCommand('/opt/stub/gh', platform)).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', '/opt/stub/gh'], env: {} })
+    expect(signInCommand(undefined, platform)).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', 'gh'], env: {} })
+  })
+
+  it('on Windows, which has no /bin/sh, the process is the program itself with auth login', () => {
+    expect(signInCommand('C:\\Tools\\gh.exe', 'win32')).toEqual({ file: 'C:\\Tools\\gh.exe', args: ['auth', 'login'], env: {} })
+    expect(signInCommand(undefined, 'win32')).toEqual({ file: 'gh', args: ['auth', 'login'], env: {} })
+  })
+
+  it('on Windows a .mjs stand-in runs under worfy\'s own Node, with auth login after the script', () => {
+    const script = 'C:\\repo\\test\\fixtures\\gh\\gh-stub.mjs'
+    expect(signInCommand(script, 'win32')).toEqual({ file: process.execPath, args: [script, 'auth', 'login'], env: { ELECTRON_RUN_AS_NODE: '1' } })
   })
 
   it('gh auth login in a real pseudo-terminal: worfy types nothing, the user\'s Enter signs in, the exit ends it and the new account is there', async () => {
