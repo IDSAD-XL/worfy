@@ -203,8 +203,9 @@ Epic-а из spec.md в Workflow folder». На нынешнем main `enrichSna
   новый текст отказа для папки вне git.
 - Решено без владельца, подтверждено владельцем 2026-10-12: (1) дерево вне репозитория узнаётся по любому
   `…/worktrees/<project>/<NN>`, а не только под `HARNESS_HOME`: путь Harness home renderer не знает, а его
-  можно перенести; (2) окружение `profile` и `ticket` для чтения режима — то же, что у `epic-status`
-  (окружение процесса worfy); (3) `checks.get` отказывает всему вызову при чужой ветке — renderer
+  можно перенести; (2) окружение `profile` и `ticket` для чтения режима — то же, что у `epic-status`:
+  с Ticket-а 37 (PR #305) это окружение login shell из `agentEnv()` (`src/main/harness/script-env.ts`),
+  а не окружение процесса worfy; (3) `checks.get` отказывает всему вызову при чужой ветке — renderer
   отправляет только ветки, которые main примет; (4) список репозиториев renderer спрашивает один раз за
   жизнь окна.
 - Долг Ticket-а 22 (`src/main/workflow/reader.ts:321` читает `done` с невлитой ветки как закрытый) не
