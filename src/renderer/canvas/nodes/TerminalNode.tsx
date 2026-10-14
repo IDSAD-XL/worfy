@@ -10,6 +10,8 @@ import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import { unscaleMouse } from './terminal-mouse'
 import { addView, isLastView, type ShellView } from './terminal-views'
+import TerminalAiRequest from './TerminalAiRequest'
+import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
@@ -35,6 +37,10 @@ import { addView, isLastView, type ShellView } from './terminal-views'
 //
 // The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
 // for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
+//
+// ⌘I in a Terminal whose zsh is connected to Terminal AI opens the Command request panel over the
+// screen (TerminalAiRequest.tsx); xterm.js does not get the key then. Ctrl+I, and ⌘I in any other
+// Terminal, go to the shell as before.
 
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
@@ -61,6 +67,47 @@ function themeOf(element: Element): ITheme {
   return { background, foreground, cursor: foreground, cursorAccent: background, selectionBackground: 'rgba(152, 152, 157, 0.4)' }
 }
 
+/** The Command request panel of a Terminal main has not answered about yet: not there. */
+const REQUEST_UNAVAILABLE: TerminalAiRequestState = { available: false, busy: false }
+
+/**
+ * True for the key that opens the Command request panel: ⌘ (metaKey, as the other shortcuts of the
+ * renderer) and I, without Ctrl, Alt and Shift, in a Terminal where the panel is available. Ctrl+I
+ * is never it: in a terminal that is Tab. The physical key I, so another keyboard layout opens it too.
+ */
+function opensRequestPanel(event: KeyboardEvent, available: boolean): boolean {
+  if (!available || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
+  return event.code === 'KeyI' || event.key === 'i'
+}
+
+/**
+ * The state of the Command request panel of a Terminal, kept up to date from main. When the panel
+ * stops being available (the zsh left, Command request turned off), `setOpen(false)` closes it.
+ */
+function useRequestState(projectId: string | undefined, nodeId: string, setOpen: (open: boolean) => void): TerminalAiRequestState {
+  const [answered, setAnswered] = useState<{ key: string; state: TerminalAiRequestState } | null>(null)
+  const key = `${projectId ?? ''} ${nodeId}`
+  useEffect(() => {
+    if (projectId === undefined) return
+    let active = true
+    const keyed = `${projectId} ${nodeId}`
+    const off = subscribe('terminalAi.request.changed', (payload) => {
+      if (!active || payload.projectId !== projectId || payload.nodeId !== nodeId) return
+      setAnswered({ key: keyed, state: { available: payload.available, busy: payload.busy } })
+      if (!payload.available) setOpen(false)
+    })
+    void invoke('terminalAi.request.state', { projectId, nodeId }).then((result) => {
+      if (active && result.ok) setAnswered({ key: keyed, state: result.value })
+    })
+    return () => {
+      active = false
+      off()
+    }
+  }, [projectId, nodeId, setOpen])
+  // An answer about the Terminal this Node showed before is not about this one.
+  return answered?.key === key ? answered.state : REQUEST_UNAVAILABLE
+}
+
 /** The size that fills the Node, or undefined while the Node has no layout (hidden with display:none). */
 function fittedSize(element: HTMLElement, fit: FitAddon): { cols: number; rows: number } | undefined {
   if (element.clientWidth === 0 || element.clientHeight === 0) return undefined
@@ -78,6 +125,14 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
   // Bumped by Restart (a new run of the effect opens a new shell) and by a shell started on another
   // screen or in another view (a new run attaches to it).
   const [run, setRun] = useState({ count: 0, restart: false })
+  const [requestOpen, setRequestOpen] = useState(false)
+  const request = useRequestState(projectId, id, setRequestOpen)
+  // Read by the key handler of xterm.js, which is set up once per shell view.
+  const requestAvailable = useRef(request.available)
+  useEffect(() => {
+    requestAvailable.current = request.available
+  }, [request.available])
+  const xterm = useRef<Terminal | null>(null)
 
   useEffect(() => {
     const element = host.current
@@ -92,7 +147,15 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
+    // ⌘I opens the Command request panel instead of reaching the shell: keydown, keypress and keyup alike.
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (!opensRequestPanel(event, requestAvailable.current)) return true
+      event.preventDefault()
+      if (event.type === 'keydown') setRequestOpen(true)
+      return false
+    })
     terminal.open(element)
+    xterm.current = terminal
     const initial = fittedSize(element, fit)
     if (initial !== undefined) terminal.resize(initial.cols, initial.rows)
 
@@ -212,9 +275,15 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       // After `attached = false`: this view sends nothing more; the view before it takes the size.
       removeView()
       scheme.removeEventListener('change', onScheme)
+      if (xterm.current === terminal) xterm.current = null
       terminal.dispose()
     }
   }, [projectId, id, run])
+
+  const closeRequest = () => {
+    setRequestOpen(false)
+    xterm.current?.focus()
+  }
 
   const close = async () => {
     await ops.apply({ op: 'remove', id })
@@ -267,6 +336,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
           The terminal could not start: {status.message}
         </div>
       ) : null}
+      {requestOpen && request.available && projectId !== undefined ? <TerminalAiRequest projectId={projectId} nodeId={id} busy={request.busy} onClose={closeRequest} /> : null}
       <div ref={host} className="w-terminal__screen nodrag nowheel nopan nokey" data-testid="terminal-screen" />
     </div>
   )
