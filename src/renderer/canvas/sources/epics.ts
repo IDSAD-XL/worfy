@@ -162,6 +162,17 @@ export function focusEpic(projectId: string, epic: string): void {
   useEpicsUi.setState(({ focus }) => ({ focus: { projectId, epic, seq: (focus?.seq ?? 0) + 1 } }))
 }
 
+/**
+ * Calls `listener` at every request of focusEpic from now on, a repeated one too. Returns the
+ * function that unsubscribes. Focus mode leaves on such a request: the Canvas it covers is asked
+ * to show something (overlays/FocusEntry.tsx).
+ */
+export function onEpicFocusRequest(listener: () => void): () => void {
+  return useEpicsUi.subscribe((state, previous) => {
+    if (state.focus !== previous.focus) listener()
+  })
+}
+
 // ── Nodes of other sources on the plane ─────────────────────────────────────
 
 /**

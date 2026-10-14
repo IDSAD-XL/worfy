@@ -10,6 +10,12 @@
 // (src/main/settings/interface-scale.ts) instead of the zoom of one window. Their accelerators carry
 // Alt: Cmd/Ctrl+= and Cmd/Ctrl+- zoom the Canvas (src/renderer/canvas/Canvas.tsx), and Cmd/Ctrl+0
 // does nothing.
+//
+// View ▸ Toggle Sidebar (Cmd/Ctrl+B) hides and shows the sidebar of the window it is chosen for.
+// The key is the item's accelerator, not a key handler of the page, so it works wherever the focus
+// is: on the Canvas, in the Session view, in focus mode, in a text field. Which of the two saved
+// answers changes — the normal view's or focus mode's — only that window knows, so the item sends
+// it `menu.command` and the renderer does the rest (src/renderer/shell/sidebar-visibility.ts).
 import { app, BrowserWindow, Menu, type BaseWindow, type MenuItem, type MenuItemConstructorOptions } from 'electron'
 import { menuCommand, type MenuCommand } from '../shared/ipc/menu'
 import { emit } from './ipc/index'
@@ -25,6 +31,8 @@ export const SETTINGS_MENU_ITEM_ID = 'app.settings'
 export const SCALE_BIGGER_MENU_ITEM_ID = 'view.scale.bigger'
 export const SCALE_SMALLER_MENU_ITEM_ID = 'view.scale.smaller'
 export const SCALE_ACTUAL_MENU_ITEM_ID = 'view.scale.actual'
+/** The id of View ▸ Toggle Sidebar (Cmd/Ctrl+B), for tests that click it. */
+export const SIDEBAR_MENU_ITEM_ID = 'view.sidebar'
 
 /**
  * Tells one window's renderer to carry out `command`: the window the item was clicked for, else the
@@ -103,6 +111,7 @@ export function menuTemplate(onMinimap: (item: MenuItem) => void, platform: Node
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
+        { id: SIDEBAR_MENU_ITEM_ID, label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: (_item, window) => sendMenuCommand('toggleSidebar', window) },
         { id: MINIMAP_MENU_ITEM_ID, label: 'Show Minimap', type: 'checkbox', checked: viewState().minimap, click: onMinimap },
       ],
     },

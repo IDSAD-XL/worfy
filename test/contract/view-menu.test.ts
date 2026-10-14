@@ -4,6 +4,8 @@
 // File elsewhere, and tells one window to open the Settings window. View ▸ Bigger / Smaller / Actual
 // size (worfy-ui ticket 3) change the interface scale of the app settings, over a temporary
 // WORFY_DATA_DIR; src/main/settings/interface-scale.ts gives that scale to every window as its zoom.
+// View ▸ Toggle Sidebar (worfy-ui ticket 10) carries Cmd/Ctrl+B and tells one window to hide or show
+// its sidebar; what is saved, the window decides.
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -245,6 +247,7 @@ describe('View ▸ Bigger / Smaller / Actual size', () => {
       'separator',
       'togglefullscreen',
       'separator',
+      'Toggle Sidebar',
       'checkbox',
     ])
     // Cmd/Ctrl+= and Cmd/Ctrl+- stay the zoom of the Canvas, and Cmd/Ctrl+0 is nobody's: no item takes them.
@@ -520,10 +523,80 @@ describe('Settings…', () => {
   })
 })
 
+describe('View ▸ Toggle Sidebar', () => {
+  async function templateFor(platform: NodeJS.Platform) {
+    vi.resetModules()
+    const menu = await import('../../src/main/menu')
+    const template = menu.menuTemplate(() => undefined, platform) as TemplateItem[]
+    const view = template.find((item) => item.label === 'View')
+    const sidebar = view?.submenu?.find((item) => item.id === menu.SIDEBAR_MENU_ITEM_ID)
+    if (!sidebar) throw new Error('View ▸ Toggle Sidebar is missing')
+    return { menu, template, view, sidebar }
+  }
+
+  it.each(['darwin', 'win32', 'linux'] as const)('on %s sits in View with CmdOrCtrl+B, next to Show Minimap, and no other item has that key', async (platform) => {
+    const { menu, template, view, sidebar } = await templateFor(platform)
+    // test/e2e/focus-sidebar.spec.ts clicks the item by this id.
+    expect(menu.SIDEBAR_MENU_ITEM_ID).toBe('view.sidebar')
+    expect(sidebar).toMatchObject({ label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B' })
+    // A plain item: what it switches is kept by the window, apart for the normal view and focus mode.
+    expect(sidebar.type).toBeUndefined()
+    expect(sidebar.role).toBeUndefined()
+    expect(view?.submenu?.slice(-3).map((item) => item.type ?? item.label)).toEqual(['separator', 'Toggle Sidebar', 'checkbox'])
+    expect(items(template).filter((item) => item.accelerator === 'CmdOrCtrl+B')).toEqual([sidebar])
+    expect(items(template).filter((item) => item.label === 'Toggle Sidebar')).toHaveLength(1)
+  })
+
+  it('a click with a window tells that window `toggleSidebar`, not the focused one and not every window', async () => {
+    const { sidebar } = await templateFor('darwin')
+    const other = new electron.FakeBrowserWindow('other')
+    electron.FakeBrowserWindow.all = [electron.window, other]
+    electron.FakeBrowserWindow.focused = electron.window
+    sidebar.click?.({ checked: false }, other)
+    expect(electron.sent).toEqual([{ to: 'other', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'toggleSidebar' }])
+  })
+
+  it('a click without a window tells the focused one; with no window in focus, nobody', async () => {
+    const { sidebar } = await templateFor('win32')
+    electron.FakeBrowserWindow.focused = electron.window
+    sidebar.click?.({ checked: false }, undefined)
+    expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'toggleSidebar' }])
+    electron.sent.length = 0
+    electron.FakeBrowserWindow.focused = null
+    sidebar.click?.({ checked: false }, undefined)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('a destroyed window gets no command', async () => {
+    const { sidebar } = await templateFor('darwin')
+    const gone = new electron.FakeBrowserWindow('gone')
+    gone.destroyed = true
+    electron.FakeBrowserWindow.focused = electron.window
+    sidebar.click?.({ checked: false }, gone)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('a click writes nothing to the app settings: the window does, for the view it shows', async () => {
+    const { sidebar } = await templateFor('darwin')
+    const { appSettingsStore } = await import('../../src/main/settings/store')
+    const before = appSettingsStore().get()
+    sidebar.click?.({ checked: false }, electron.window)
+    expect(appSettingsStore().get()).toEqual(before)
+  })
+
+  it('the installed menu carries it too', async () => {
+    const { template } = await load()
+    expect(items(template).filter((item) => item.label === 'Toggle Sidebar')).toHaveLength(1)
+  })
+})
+
 describe('menu contract', () => {
   it('menu.command carries one of the known commands, nothing else', () => {
     expect(menuCommand.access).toBe('local')
     expect(menuCommand.payload.parse('settings')).toBe('settings')
+    expect(menuCommand.payload.parse('toggleSidebar')).toBe('toggleSidebar')
+    expect(menuCommand.payload.options).toEqual(['settings', 'toggleSidebar'])
+    expect(menuCommand.payload.safeParse('togglesidebar').success).toBe(false)
     expect(menuCommand.payload.safeParse('quit').success).toBe(false)
     expect(menuCommand.payload.safeParse({ command: 'settings' }).success).toBe(false)
   })

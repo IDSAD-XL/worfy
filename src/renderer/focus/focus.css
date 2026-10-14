@@ -1,8 +1,12 @@
 /* Focus mode (FocusMode.tsx) and its entry button (canvas/overlays/FocusEntry.tsx). Values come
    from tokens.css (design F, docs/design/F-SPEC.md). */
 
+/* The layer covers the main area of the window (.w-shell__main, shell.css), toolbar included, and
+   leaves the sidebar alone. The main area is a stacking context of its own, so this z-index puts
+   the layer over everything in it and under what is drawn on <body>: the palette, the dialogs and
+   menus of the sidebar, the Settings window. */
 .w-focus {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 1000;
   display: flex;
@@ -17,33 +21,83 @@
   outline: none;
 }
 
-/* The bar sits where the toolbar is and keeps clear of the traffic lights: 80 px of the window at
-   any interface scale, as the toolbar does (shell.css). */
+/* The bar sits where the toolbar is, with the toolbar's paddings (shell.css). Its width is asked
+   about below (@container): next to the sidebar it can be narrow. */
 .w-focus__bar {
+  container-type: inline-size;
   flex: none;
   height: var(--toolbar-height);
   box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 0 var(--space-3) 0 calc(80px / var(--interface-scale, 1));
+  padding: 0 var(--space-3) 0 var(--space-2);
   border-bottom: 1px solid var(--toolbar-border);
   background: var(--toolbar);
   -webkit-app-region: drag;
 }
-/* Outside macOS there are no traffic lights to keep clear of (worfy-windows ticket 11). */
-html[data-platform='windows'] .w-focus__bar,
-html[data-platform='linux'] .w-focus__bar {
-  padding-left: var(--space-3);
+/* Without the sidebar the traffic lights sit over the bar: it keeps clear of them by 80 px of the
+   window at any interface scale, as the toolbar does. */
+.w-focus__bar[data-sidebar='hidden'] {
+  padding-left: calc(80px / var(--interface-scale, 1));
 }
+/* Outside macOS there are no traffic lights to keep clear of (worfy-windows ticket 11). */
+html[data-platform='windows'] .w-focus__bar[data-sidebar='hidden'],
+html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
+  padding-left: var(--space-2);
+}
+/* The button that hides and shows the sidebar, as in the toolbar (.w-toolbar__icon-button). */
+.w-focus__icon-button {
+  width: var(--row-height);
+  height: var(--row-height);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 0;
+}
+.w-focus__icon-button:hover {
+  background: var(--surface-raised);
+}
+/* What gives way in a narrow bar, in this order: the title is cut with an ellipsis, as in the
+   toolbar; then the presets, which scroll sideways inside their own box. The button that brings
+   the sidebar back and "Exit focus" always stay whole and inside the window. */
 .w-focus__title {
+  flex: 0 1000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-13);
   font-weight: 600;
 }
+/* 3 px of padding all round, taken back by the margins: room for the focus ring of a preset, which
+   the scrolling box would cut off. */
 .w-focus__presets {
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   gap: var(--space-1);
-  margin-left: auto;
+  padding: 3px;
+  margin: -3px -3px -3px auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.w-focus__presets > button,
+.w-focus__exit {
+  flex: none;
+}
+/* A bar too narrow for all of it — next to the sidebar in the smallest window at the largest
+   interface scale it is 293 px wide — drops what is not a control: the title and the key hint. */
+@container (max-width: 420px) {
+  .w-focus__title,
+  .w-focus__exit kbd {
+    display: none;
+  }
 }
 .w-focus__bar button {
   -webkit-app-region: no-drag;
