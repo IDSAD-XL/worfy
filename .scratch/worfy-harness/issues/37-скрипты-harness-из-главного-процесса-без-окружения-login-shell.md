@@ -414,12 +414,12 @@ worfy для этого менять не нужно: exit code, отличны�
       «Profile-а нет» (Full, как раньше) и «вызов не удался» (модель с причиной либо
       предупреждение — по выбранному варианту); случай exit code 127 добавлен. Test на модель: при
       неудачном вызове `profile` окно получает причину.
-      Доказано: `test/contract/workflow-profile.test.ts` — «no Profile — …» (3 случая) и «a failed call — …» (9 случаев, среди них 127), «readWorkflow: the script finds no interpreter (exit code 127)…»; на исходниках main 17 красных, на ветке 65 из 65.
+      Доказано: `test/contract/workflow-profile.test.ts` — «no Profile — …» (3 случая) и «a failed call — …» (18 случаев после раунда 2 ревью, среди них 127, 126, сигнал и ошибки запуска), «readWorkflow: the script finds no interpreter (exit code 127)…»; на исходниках main 17 красных; после раунда 2 ревью в файле 85 test-ов, все зелёные.
 - [x] После устранения причины Epic-и появляются без перезапуска приложения; как — в «Итог».
       Доказано (ревью PR #311, раунд 1): `test/contract/harness-script-env.test.ts`, «the app's own source: node added to the login shell's .profile after the start shows the Epics without a restart, and a Ticket written after that shows too» — настоящий источник окружения приложения, настоящие скрипты, `SHELL=/bin/sh`, `.profile` в песочнице без node, затем с node; на исходниках head `57e9422a` красный («not within 20000 ms: the Epic after node was added»). Как — в «Итог», «Ревью, раунд 1».
 - [x] First run: новая строка. Contract test — три состояния. e2e — при PATH приложения без node и
       login shell с node строка зелёная; при login shell без node — красная, с exit code 127.
-      Доказано: `test/contract/first-run-checks.test.ts`, describe «the Harness scripts row» (3 состояния); e2e `test/e2e/first-run.spec.ts:292` — зелёная строка при PATH приложения без node, красная с «exit code 127» без node в login shell; на сборке main красный (13 строк вместо 14).
+      Доказано: `test/contract/first-run-checks.test.ts`, describe «the Harness scripts row» (после раунда 2 ревью — 12 test-ов: Harness не установлен, OK, нет node с 127 и с 126, нет скрипта, timeout и его предел 15 s, сигнал, падение скрипта, скрипт не запускается, Windows); e2e `test/e2e/first-run.spec.ts:292` — зелёная строка при PATH приложения без node, красная с «exit code 127» без node в login shell; на сборке main красный (13 строк вместо 14).
 - [ ] `test/acceptance/e3.spec.ts` запускает приложение с системным PATH.
       Не отмечено: в срезе 2 spec запускает приложение с `PATH: FINDER_PATH` (`/usr/bin:/bin:/usr/sbin:/sbin`) и ждёт строку «Harness scripts» в состоянии OK; проверены только компилятор и eslint, приёмка не запускалась (бриф запрещает).
 - [x] Мутанты (нарочно испорченный код, на котором test обязан стать красным), каждый красный:
@@ -592,7 +592,8 @@ worfy для этого менять не нужно: exit code, отличны�
 - First run: строка «Harness scripts» в группе «Harness», после «Plugin dependencies»; проверок
   14 вместо 13. Она запускает `profile --help` тем же runner-ом и с тем же источником окружения,
   что и чтение Epic-ов. Состояния: Harness не установлен — warn; ответ 0 — OK; другой код — Failed
-  с кодом и последней строкой stderr; скрипта нет — warn.
+  с кодом и тем, что сказал stderr (строка Error упавшего node-скрипта, иначе первые строки); скрипта
+  нет — warn. Остальные состояния добавили раунды ревью (ниже).
 - `test/acceptance/e3.spec.ts` запускает приложение с PATH Finder-а и ждёт новую строку в OK.
 - Пустой `SHELL` считается неустановленным. Источник окружения скриптов теперь действительно
   никогда не отклоняется.
@@ -697,8 +698,9 @@ again» в First run брали окружение `agentEnv()`, снятое о
   Watcher при повторе после такой неудачи просит `always`, после любой другой — `if-fallback`.
 - Расписание повторов: 10 s, 30 s, 60 s, затем каждые 5 минут (`LAYOUT_RETRY_MS`,
   `src/main/workflow/watch.ts`). Раньше — каждые 10 s весь запуск. После ответа счётчик
-  сбрасывается. Худший случай после того, как пользователь поставил node: до 5 минут; «Check
-  again» в First run снимает окружение сразу, и следующий повтор watcher-а его уже берёт.
+  сбрасывается. Худший случай после того, как пользователь поставил node: до 5 минут. «Check
+  again» в раунде 1 только снимал окружение заново, а боковая панель ждала свой таймер; с раунда 2
+  он же сразу спрашивает раскладку у каждого watcher-а с неудачей (ниже, «Ревью PR #311, раунд 2»).
 - «Check again» в First run (`firstRun.checks`, `src/main/ipc/first-run.ts`) сначала снимает
   окружение заново. Тот же канал зовёт экран при открытии без готового отчёта, так что открытие
   First run тоже снимает shell заново: один лишний запуск shell, около секунды.
@@ -815,7 +817,115 @@ node. Окно показывает причину с exit code 127. Затем 
 
 - Windows: ветка строки First run проверена с `platform: 'win32'` на macOS; на Windows не
   запускалась.
-- `dash` как `/bin/sh` (Linux CI) для test-а восстановления: локально `/bin/sh` — bash macOS;
-  ответ даст CI.
+- `dash` как `/bin/sh` (Linux CI) для test-а восстановления: локально `/bin/sh` — bash macOS.
+  CI ответил: зелёный (run 38530317651).
 - Худший срок восстановления по умолчанию (до 5 минут) не измерялся в приложении: расписание
   проверено fake timers, восстановление — с `layoutRetryMs: 100`.
+
+### Ревью PR #311, раунд 2 (2026-10-14)
+
+Ревью (глубина `medium`, head `6699e7e9`) нашло одну проблему уровня medium и ряд low. Всё ниже —
+в том же PR, один push; раунд 3 — последний.
+
+**R2-REST-1 / RC1 — «Check again» не доходил до боковой панели.** Обработчик снимал login shell
+заново и строил отчёт, а watcher с неудачной раскладкой ждал свой таймер — до 5 минут. Что
+сделано:
+
+- `WorkflowWatcher.retryFailedLayout()` (`src/main/workflow/watch.ts`): раскладка с неудачей
+  спрашивается сразу. Таймер повтора снимается, отступ начинается заново (следующая неудача ждёт
+  10 s). Запрос окружения — простой, без `fresh`: shell только что снят, свой запуск shell это
+  чтение не делает. Здоровый watcher и закрытый watcher не трогаются (метод возвращает false).
+- `WorkflowHub.retryFailedLayouts()`: то же для каждого Project-а hub-а; Project, чей первый
+  read упал, пропускается; метод не отклоняется.
+- `recaptureForCheckAgain(hub)` (`src/main/harness/script-env.ts`): снять shell, затем спросить
+  hub. Обработчик `firstRun.checks` (`src/main/ipc/first-run.ts`) зовёт его с `workflowHub`,
+  импортированным напрямую, — не зависит от порядка регистрации IPC-обработчиков. Отчёт не ждёт
+  чтения Epic-ов.
+- Гонки: «Check again», пришедший, пока идёт чтение раскладки. Чтение в очереди спрашивает
+  раскладку, только если она ещё failed: второй `watch()` не начинается. После восстановления
+  таймер, поставленный упавшим чтением, снимается, и checkout читается заново, даже если упавшее
+  чтение сняло пометку.
+- То же даёт выход RC5 (node падает на снятом PATH, exit code 1): «Check again» после исправления
+  читает раскладку сразу.
+
+**Низкие находки.**
+
+- R2-REST-2: `scriptFailureDetail` под test-ами — 3 строки через « — », 400 символов, фильтры
+  `at …`, `Node.js vNN` и строки из `^`, stderr без строки Error. Строка из нескольких `^` теперь
+  тоже отбрасывается.
+- R2-REST-3: `harness/bin/profile` берёт из stderr resolver-а строку Error, иначе последнюю
+  строку, которая не `Node.js v…` и не `at …` — то же правило, что у `scriptFailureDetail`.
+- R2-REST-4: runner отличает свой kill по пределу времени (`error.killed`) от сигнала. Сигнал —
+  «was ended by the signal SIGSEGV» и подсказка о падении, в раскладке, в строке First run и в
+  причине `ticket root` («failed with the signal …», вместо «exit code timeout» — «a timeout»).
+- RC2 / R2-REST-5: ошибка запуска, кроме ENOENT (EACCES, вывод больше предела), не считается
+  неудачей окружения: новый shell не чинит права файла. Окружение — только exit code 127 и 126.
+- RC6: test-ы гонки `close()` проверяют, что после закрытия ничего не отслеживается и
+  `epic-status` не запускается, и для `links-read-first` (Windows).
+- R2-REST-6: test-ы на предел строки 15 s, подсказку 126 в строке, `_resolved: []`.
+- RC3, RC4, R2-REST-7, R2-REST-8: тексты — doc comment `recaptureAgentEnv`, комментарий
+  обработчика, имя test-а, замечание про libuv смягчено, этот файл, текст PR.
+
+**Red first** — на исходниках head `6699e7e9` (исходники возвращены из копии):
+
+- 17 красных в 6 файлах vitest: `workflow-watch-retry` 6 (новые «Check again»), `workflow-profile`
+  7 (сигнал в runner-е, в раскладке, в `ticket root`; ошибки запуска; строка из `^`; timeout
+  `ticket root`), `first-run-checks` 1 (сигнал), `agent-env-recapture` 1, `harness-script-env` 1
+  (`TypeError: recaptureForCheckAgain is not a function`), `harness-script-wiring` 1 (порядок
+  «recapture → failed layouts asked → checks»).
+- `profile.test.sh`: 3 FAIL из 155.
+- Test-ы `scriptFailureDetail` про 3 строки и 400 символов, предел 15 s, подсказка 126,
+  `_resolved: []` и гонки `close()` зелёные и на head: они закрепляют поведение head, их охраняют
+  мутанты ниже.
+
+**Мутанты раунда 2.** Каждый ставился в этом worktree, файл возвращался из копии. Все 37 красные;
+H2 сначала выжил, под него усилен test.
+
+| # | Порча | Первый красный test |
+|---|---|---|
+| C1 | `retryFailedLayout` ничего не делает | `harness-script-env`, «"Check again" with node added…» |
+| C2 | он просит `always` | `harness-script-env`, тот же (2 запуска shell) |
+| C3 | таймер не снимается | `workflow-watch-retry`, «retryFailedLayout: asked now…» |
+| C4 | отступ не сбрасывается | `workflow-watch-retry`, тот же |
+| C5 | здоровый тоже спрашивается | `workflow-watch-retry`, «does nothing for a healthy layout…» |
+| C6 | закрытый тоже спрашивается | `workflow-watch-retry`, тот же |
+| C7 | чтение в очереди спрашивает здоровую раскладку | `workflow-watch-retry`, гонка «recovers» |
+| C8 | таймер после восстановления остаётся | `workflow-watch-retry`, гонка «fails again» |
+| C9 | checkout после восстановления не читается | `workflow-watch-retry`, гонка «recovers» |
+| C10 | hub не ловит упавший старт | `workflow-watch-retry`, «still starting…» |
+| C11 | `recaptureForCheckAgain` не зовёт hub | `agent-env-recapture` |
+| C12 | hub раньше снятия shell | `agent-env-recapture` |
+| C13 | обработчик не зовёт `workflowHub` | `harness-script-wiring` |
+| C14 | запрос «Check again» теряется | `harness-script-env` |
+| S1 | сигнал снова как timeout в runner-е | `first-run-checks`, «ended by a signal» |
+| S2 | без проверки `killed` | `first-run-checks`, «a timeout» |
+| S3 | раскладка: сигнал как timeout | `workflow-profile`, «a failed call — a signal» |
+| S4 | строка: сигнал как timeout | `first-run-checks`, «ended by a signal» |
+| S5 | строка: сигнал с подсказкой timeout | `first-run-checks`, тот же |
+| S6 | `ticket root`: сигнал как timeout | `workflow-profile`, «`ticket root` failing (a signal)» |
+| E1 | ошибка запуска снова «окружение» | `workflow-profile`, «a script that cannot be started» |
+| D1–D6 | 4 строки; 401 символ; без фильтра `at`; без фильтра `Node.js`; другой разделитель; без фильтра `^` | `workflow-profile`, describe `scriptFailureDetail` |
+| P9 | `_resolved: []` как Harness до Silent mode | `workflow-profile`, «_resolved: []» |
+| X3 | предел строки по умолчанию 10 s | `first-run-checks`, «the time limit is 15 s…» |
+| X6 | подсказка node только для 127 | `first-run-checks`, «exit code 126» |
+| N11 | нет проверки `closed` после `watch()` | `workflow-watch-retry`, гонка `close()` (chokidar, 4 microtasks) |
+| N25 | нет второго `unwatch` в `close()` | `workflow-watch-retry`, гонка `close()` (links-read-first, 4 microtasks) |
+| H1 | `profile`: последняя строка без выбора Error | `profile.test.sh`, «error properties» |
+| H2 | `profile`: первая строка вместо последней | `profile.test.sh`, «message, stack and version lines» |
+| H3 | `profile`: без фильтра `Node.js` | `profile.test.sh`, тот же |
+| H4 | `profile`: без фильтра `at` | `profile.test.sh`, тот же |
+| H5 | `profile`: прежняя последняя сырая строка | `profile.test.sh`, «resolver crash» |
+
+**Цифры раунда 2.**
+
+- `pnpm lint` — exit code 0; `pnpm typecheck` — exit code 0.
+- `pnpm test` — exit code 0: 236 файлов, 5003 passed, 66 skipped, 121 s.
+- `profile.test.sh` в песочнице — 155 passed, exit code 0.
+- e2e не запускались: `test/e2e/` в этом push-е не менялись.
+
+**Что не проверено в раунде 2.**
+
+- «Check again» в собранном приложении (e2e) — только contract test-ы с настоящими скриптами.
+- Windows: `links-read-first` проверен на macOS; на Windows не запускался.
+- Сигнал от настоящего node (SIGSEGV, SIGKILL при нехватке памяти) — проверен скриптом, который
+  шлёт сигнал сам себе.

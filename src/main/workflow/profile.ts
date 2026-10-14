@@ -39,8 +39,13 @@ export const DEFAULT_MCP_SERVERS: readonly string[] = Object.freeze(['plugin_wor
 
 /** What one run of `bin/profile` ended with. */
 export interface ProfileRun {
-  /** The exit code; null when the process was killed (timeout). */
+  /** The exit code; null when the process ended without one: killed at its time limit, or by `signal`. */
   code: number | null
+  /**
+   * The signal that ended the script when the runner did not send it for its time limit (SIGSEGV,
+   * SIGABRT, a SIGKILL from memory pressure); absent or null for a timeout and for an exit code.
+   */
+  signal?: string | null
   stdout: string
   stderr: string
 }
@@ -74,7 +79,7 @@ export function scriptFailureDetail(stderr: string): string {
   const lines = stderr
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && line !== '^')
+    .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && !/^\^+$/.test(line))
   const thrown = lines.find((line) => /^(?:[A-Z][A-Za-z]*)?Error\b.*:/.test(line))
   const text = thrown ?? lines.slice(0, DETAIL_LINES).join(' — ')
   return text.length > DETAIL_CHARS ? `${text.slice(0, DETAIL_CHARS)}…` : text
@@ -111,7 +116,9 @@ export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: '
         const code = (error as NodeJS.ErrnoException).code
         // A number is the script's exit code; a string is a failure to start it (ENOENT, EACCES…).
         if (typeof code === 'number') return resolvePromise({ code, stdout, stderr })
-        if (error.killed || error.signal) return resolvePromise({ code: null, stdout, stderr })
+        // `killed`: the runner's own kill at `timeout`. A signal without it came from elsewhere: a crash.
+        if (error.killed) return resolvePromise({ code: null, stdout, stderr })
+        if (error.signal) return resolvePromise({ code: null, signal: error.signal, stdout, stderr })
         reject(error)
       })
     })
@@ -146,13 +153,15 @@ export type ReadMcpAllowlistOptions = ReadProfileOptions
 /**
  * Why `profile` gave no answer. `none`: the folder has no Profile — exit code 3, or no script
  * (worfy-harness ticket 37). `failed`: the call itself failed — any other exit code (127: no node;
- * 1: a broken registry or profile.json), a timeout, a script that could not be started.
+ * 1: a broken registry or profile.json), a timeout, a signal, a script that could not be started.
  */
 export type ProfileMiss = 'none' | 'failed'
 
 /**
  * No answer: why, of which kind, and — for a failed call — whether it points at the environment
- * the script ran with (`environmentExit`, or a script that could not be started).
+ * the script ran with (`environmentExit`: exit code 127 or 126 only). A script that could not be
+ * started (EACCES: no execute bit; output over the size cap) is a file problem, not one a new
+ * login shell can fix.
  */
 export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
 
@@ -177,12 +186,13 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
     if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
-    return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`, true)
+    return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   const detail = scriptFailureDetail(result.stderr)
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
   if (result.code === 4) return failed(absent)
+  if (result.code === null && result.signal) return failed(`the profile script was ended by the signal ${result.signal}${detail ? `: ${detail}` : ''}`)
   if (result.code === null) return failed(`the profile script did not answer within ${HARNESS_SCRIPT_TIMEOUT_MS / 1000} s`)
   if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code))
   return { ok: true, stdout: result.stdout.trim() }

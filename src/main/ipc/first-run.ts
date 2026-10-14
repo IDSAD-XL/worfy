@@ -17,15 +17,16 @@ import { BrowserWindow, dialog } from 'electron'
 import { firstRunChecks, firstRunClose, firstRunRun, firstRunStartup, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import { queryFactoryFromEnv } from '../agent/app-registry'
-import { agentEnv, recaptureAgentEnv } from '../agent/env'
+import { agentEnv } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
-import { harnessScriptEnv } from '../harness/script-env'
+import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
 import { appInstaller } from './harness'
+import { workflowHub } from './workflow'
 import { planOptions } from './harness-migration'
 import { defineHandler, type HandlerModule } from './index'
 
@@ -182,10 +183,14 @@ export default [
     const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
     return { show: fresh, report }
   }),
-  // "Check again": the login shell is captured again first, so node added by an rc file since the
-  // start shows here, and the Epics read and new Sessions get it too (worfy-harness ticket 37).
+  // "Check again", and Settings → Health each time it shows: the login shell is captured again
+  // first, so node added by an rc file since the start shows in these checks. Every Project of the
+  // sidebar whose layout failed then asks it again at once with that environment, not at its retry
+  // timer; the Harness scripts started after this and new Sessions get it too (worfy-harness
+  // ticket 37). The hub is imported, not looked up, so this does not depend on the order in which
+  // the IPC handlers are registered.
   defineHandler(firstRunChecks, async () => {
-    await recaptureAgentEnv()
+    await recaptureForCheckAgain(workflowHub)
     return remember(await appActions().report())
   }),
   defineHandler(firstRunRun, async ({ action, projectName }, { event }) => {

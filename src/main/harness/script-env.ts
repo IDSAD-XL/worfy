@@ -53,3 +53,20 @@ export const harnessScriptEnv: HarnessScriptEnvSource = async (request = {}) => 
   if (request.fresh === 'if-fallback' && held.from === 'fallback') return (await recaptureAgentEnv()).env
   return held.env
 }
+
+/** What `recaptureForCheckAgain` refreshes: the app's WorkflowHub (src/main/workflow/watch.ts). */
+export interface FailedLayouts {
+  retryFailedLayouts(): Promise<number>
+}
+
+/**
+ * First run's "Check again" (src/main/ipc/first-run.ts), before its checks: the login shell is
+ * captured again, then every Project of the sidebar whose layout failed asks it again at once with
+ * that environment, instead of at its retry timer (up to 5 minutes later). Those asks are plain
+ * requests: the shell has just run, so they start none of their own. The asks are not awaited —
+ * the checks do not wait for the Epics to be read.
+ */
+export async function recaptureForCheckAgain(hub: FailedLayouts): Promise<void> {
+  await recaptureAgentEnv()
+  void hub.retryFailedLayouts()
+}

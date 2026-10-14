@@ -10,7 +10,19 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
-import { DEFAULT_MCP_SERVERS, GITHUB_ACCOUNT_FIELD, MCP_ALLOWED_FIELD, profileRunner, readGithubAccount, readMcpAllowlist, readResolvedProfile, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
+import {
+  DEFAULT_MCP_SERVERS,
+  GITHUB_ACCOUNT_FIELD,
+  harnessScriptRunner,
+  MCP_ALLOWED_FIELD,
+  profileRunner,
+  readGithubAccount,
+  readMcpAllowlist,
+  readResolvedProfile,
+  scriptFailureDetail,
+  type ProfileRun,
+  type ProfileRunner,
+} from '../../src/main/workflow/profile'
 import { failedLayout, fullLayout, LayoutCache, layoutFailure, readProjectLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { readWorkflow } from '../../src/main/workflow/reader'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
@@ -212,6 +224,28 @@ describe('readMcpAllowlist with the real runner', () => {
     const root = projectRoot()
     await expect(profileRunner(home, loginEnv())(root, ['--field', 'x'])).resolves.toMatchObject({ code: 4, stderr: 'absent' })
     await expect(profileRunner(join(scratch, 'nowhere'), loginEnv())(root, [])).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  // worfy-harness ticket 37, review round 2: a crash by a signal was read as a timeout.
+  it('the runner tells its own kill at the time limit from a signal it did not send', async () => {
+    const home = join(scratch, 'signal-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const script = (text: string): void => {
+      writeFileSync(join(home, 'bin', 'profile'), text)
+      chmodSync(join(home, 'bin', 'profile'), 0o755)
+    }
+    const root = projectRoot()
+    // The first start of a new script can take a few hundred ms on macOS: only the slow script gets a short limit.
+    const run = (limitMs = 10_000): Promise<ProfileRun> => harnessScriptRunner(home, loginEnv(), 'profile', limitMs)(root, [])
+    script('#!/bin/sh\nexec /bin/sleep 5\n')
+    const slow = await run(300)
+    expect(slow).toMatchObject({ code: null })
+    expect(slow.signal ?? null).toBeNull()
+    script('#!/bin/sh\necho crashed >&2\nkill -SEGV $$\n')
+    expect(await run()).toMatchObject({ code: null, signal: 'SIGSEGV', stderr: 'crashed\n' })
+    // The runner's own signal at the limit is SIGTERM: the same signal sent by something else is still a signal.
+    script('#!/bin/sh\nkill -TERM $$\n')
+    expect(await run()).toMatchObject({ code: null, signal: 'SIGTERM' })
   })
 
   it("runs the script with the environment it is given, not worfy's own: from Finder the system PATH has no node", async () => {
@@ -442,10 +476,14 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(layout).toMatchObject({ mode: 'full', workflowFolder: '/repo', ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
   })
 
-  it('`ticket root` failing: the Tickets root is .scratch of the Workflow folder, and the reason is logged', async () => {
-    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun({ code: 1, stdout: '', stderr: 'usage' }), log })
+  it.each<[string, ProfileRun, RegExp]>([
+    ['exit code 1', { code: 1, stdout: '', stderr: 'usage' }, /ticket root failed with exit code 1: usage/],
+    ['a timeout', { code: null, stdout: '', stderr: '' }, /ticket root failed with a timeout/],
+    ['a signal', { code: null, signal: 'SIGSEGV', stdout: '', stderr: '' }, /ticket root failed with the signal SIGSEGV/],
+  ])('`ticket root` failing (%s): the Tickets root is .scratch of the Workflow folder, and the reason is logged', async (_case, answer, reason) => {
+    const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun(answer), log })
     expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: '/work/atakama/.scratch', reason: null })
-    expect(logged.join('\n')).toMatch(/ticket root failed with exit code 1: usage/)
+    expect(logged.join('\n')).toMatch(reason)
   })
 
   // No Profile: the folder is read as before Silent mode (worfy-harness ticket 37, «Profile-а нет»).
@@ -477,12 +515,18 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     ['exit code 1: a crash of the script — its Error line, not the stack nor the node version', { code: 1, stdout: '', stderr: CRASH }, /failed with exit code 1: TypeError: boom$/, false],
     ['exit code 4 on --json', { code: 4, stdout: '', stderr: '' }, /exit code 4/, false],
     ['a timeout, with its limit', { code: null, stdout: '', stderr: '' }, /^the profile script did not answer within 15 s$/, false],
-    ['a script that cannot be started', Object.assign(new Error('spawn profile EACCES'), { code: 'EACCES' }), /could not be run: spawn profile EACCES/, true],
+    // A signal the runner did not send: a crash, not a slow machine, and no time limit is named.
+    ['a signal', { code: null, signal: 'SIGSEGV', stdout: '', stderr: 'Segmentation fault\n' }, /^the profile script was ended by the signal SIGSEGV: Segmentation fault$/, false],
+    // A file problem (no execute bit, output over the size cap): a new login shell cannot fix it.
+    ['a script that cannot be started', Object.assign(new Error('spawn profile EACCES'), { code: 'EACCES' }), /could not be run: spawn profile EACCES/, false],
+    ['output over the size cap', Object.assign(new Error('stdout maxBuffer length exceeded'), { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }), /could not be run: stdout maxBuffer length exceeded/, false],
     ['output that is not JSON', { code: 0, stdout: 'name: demo\n', stderr: '' }, /not JSON/, false],
     ['JSON null', { code: 0, stdout: 'null\n', stderr: '' }, /printed no object: "null"/, false],
     ['a JSON list', { code: 0, stdout: '[]\n', stderr: '' }, /printed no object: "\[\]"/, false],
     ['a JSON string', { code: 0, stdout: '"text"\n', stderr: '' }, /printed no object/, false],
     ['_resolved: null', { code: 0, stdout: JSON.stringify({ _resolved: null }), stderr: '' }, /expected _resolved fields: _resolved/, false],
+    // A list has no `mode` either, but it is not a Harness from before Silent mode: that one has no `_resolved` or an object.
+    ['_resolved: []', { code: 0, stdout: JSON.stringify({ _resolved: [] }), stderr: '' }, /expected _resolved fields: _resolved/, false],
     ['_resolved without workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', repos: [] } }), stderr: '' }, /workflow_folder/, false],
     ['a relative workflow_folder', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'silent', workflow_folder: 'wf', repos: [] } }), stderr: '' }, /workflow_folder/, false],
     ['an unknown mode', { code: 0, stdout: JSON.stringify({ _resolved: { mode: 'quiet', workflow_folder: '/wf', repos: [] } }), stderr: '' }, /mode/, false],
@@ -608,5 +652,34 @@ describe('a failed profile call in the workflow model', () => {
     const closedAt = answers
     await new Promise((done) => setTimeout(done, 150))
     expect(answers).toBe(closedAt)
+  })
+})
+
+// What a failed Harness script's stderr gives the window (worfy-harness ticket 37): its Error line
+// when it crashed, else its first lines; never the stack, nor node's version line, nor a whole log.
+describe('scriptFailureDetail', () => {
+  it('stderr without an Error line: its first three lines, joined with " — "', () => {
+    expect(scriptFailureDetail('one\ntwo\nthree\nfour\nfive\n')).toBe('one — two — three')
+    expect(scriptFailureDetail('one\r\ntwo\r\n')).toBe('one — two')
+  })
+
+  it('stack lines, the caret line, blank lines and the `Node.js vNN` line are left out before the lines are counted', () => {
+    const stderr = 'warning: registry is old\n    at load (/h/bin/profile.js:3:1)\n    at main (/h/bin/profile.js:9:2)\n\n  ^^^\nNode.js v24.19.0\nsecond line\nthird line\nfourth line\n'
+    expect(scriptFailureDetail(stderr)).toBe('warning: registry is old — second line — third line')
+    expect(scriptFailureDetail('Node.js v24.19.0\n    at x (y.js:1:1)\n')).toBe('')
+    // Only a line that starts with "at " and a space is a stack line; text that starts with "at" is kept.
+    expect(scriptFailureDetail('atlas: not found\n')).toBe('atlas: not found')
+  })
+
+  it('an Error line wins over the lines before it', () => {
+    expect(scriptFailureDetail('/h/bin/profile.js:12\n    throw new TypeError("boom")\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11)\n\nNode.js v24.19.0\n')).toBe('TypeError: boom')
+  })
+
+  it('at most 400 characters, then "…"', () => {
+    expect(scriptFailureDetail('x'.repeat(400))).toBe('x'.repeat(400))
+    expect(scriptFailureDetail('x'.repeat(401))).toBe(`${'x'.repeat(400)}…`)
+    // The cap holds for the joined lines too, and for an Error line.
+    expect(scriptFailureDetail(`${'a'.repeat(300)}\n${'b'.repeat(300)}\n`)).toBe(`${'a'.repeat(300)} — ${'b'.repeat(97)}…`)
+    expect(scriptFailureDetail(`Error: ${'e'.repeat(500)}\n`)).toBe(`Error: ${'e'.repeat(393)}…`)
   })
 })

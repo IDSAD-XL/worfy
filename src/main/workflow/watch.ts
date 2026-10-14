@@ -16,6 +16,8 @@
 // without a restart (worfy-harness ticket 37). When the failure points at the environment (no
 // node), each retry first takes the login shell environment again (src/main/harness/script-env.ts),
 // so node added by an rc file is found; otherwise only when the held one is the capture's fallback.
+// First run's "Check again" captures the login shell again itself and then asks every failed layout
+// at once (`WorkflowHub.retryFailedLayouts`), with the environment it just took: no second shell.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 //
 // On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
@@ -68,8 +70,11 @@ export interface WatchOptions {
   onChange: (delta: WorkflowDelta) => void
   /** Replaces the real script, for tests. */
   run?: EpicStatusRunner
-  /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default. */
-  layout?: (root: string) => Promise<ProjectLayout>
+  /**
+   * Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) by default, with
+   * `env(request)`. Tests that replace it get the request too.
+   */
+  layout?: (root: string, request?: HarnessScriptEnvRequest) => Promise<ProjectLayout>
   /**
    * How long after a failed read of the layout it is asked again: one wait, or one per retry with
    * the last repeated (LAYOUT_RETRY_MS by default).
@@ -220,6 +225,11 @@ export class WorkflowWatcher {
   private layout: ProjectLayout | null = null
   /** Set when the failed layout is to be asked again before the next read. */
   private layoutStale = false
+  /**
+   * How that ask takes the environment, when it is not the retry timer's choice: a plain request
+   * after "Check again", which has just captured the login shell (`retryFailedLayout`).
+   */
+  private layoutRequest: HarnessScriptEnvRequest | null = null
   private retry: NodeJS.Timeout | null = null
   /** Retries of the failed layout so far, for the wait before the next one. */
   private retries = 0
@@ -298,10 +308,29 @@ export class WorkflowWatcher {
     await Promise.all(this.watchers.splice(0).map((w) => w.close()))
   }
 
+  /**
+   * Asks the failed layout again now, not at the retry timer: the caller has just captured the login
+   * shell again (First run's "Check again", `WorkflowHub.retryFailedLayouts`), so this ask takes the
+   * environment held now and starts no shell of its own. The pending timer is dropped and the
+   * back-off starts over: a failure after this waits 10 s again. Returns false, and does nothing,
+   * when the layout has not failed or the watcher is closed.
+   */
+  retryFailedLayout(): boolean {
+    if (this.closed || !this.layout?.failed) return false
+    if (this.retry) clearTimeout(this.retry)
+    this.retry = null
+    this.retries = 0
+    this.layoutStale = true
+    this.layoutRequest = {}
+    this.request()
+    return true
+  }
+
   /** Reads the layout; after a failure, `fresh` says when the environment is to be captured again. */
   private readLayout(request?: HarnessScriptEnvRequest): Promise<ProjectLayout> {
     const { options } = this
-    return (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env(request) })))(options.root)
+    if (options.layout) return options.layout(options.root, request)
+    return (async () => readProjectLayout({ root: options.root, claudeHome: options.claudeHome, env: await options.env(request) }))()
   }
 
   /** Asks the failed layout again after the next wait of `layoutRetryMs`, with a read; one timer at a time. */
@@ -398,11 +427,16 @@ export class WorkflowWatcher {
 
   private async readOnce(): Promise<void> {
     const { root, run } = this.options
-    if (this.layoutStale) {
-      this.layoutStale = false
-      const previous = this.layout!
+    const request = this.layoutRequest
+    const stale = this.layoutStale
+    this.layoutRequest = null
+    this.layoutStale = false
+    // Only a failed layout is asked again: a read that "Check again" queued behind the read that
+    // recovered must not start the watch a second time.
+    if (stale && this.layout?.failed) {
+      const previous = this.layout
       // readProjectLayout never throws; an injected layout that does stays failed until the next retry.
-      const layout = await this.readLayout({ fresh: previous.environmentFailure === true ? 'always' : 'if-fallback' }).catch((error: unknown) => ({
+      const layout = await this.readLayout(request ?? { fresh: previous.environmentFailure === true ? 'always' : 'if-fallback' }).catch((error: unknown) => ({
         ...previous,
         reason: error instanceof Error ? error.message : String(error),
       }))
@@ -411,9 +445,15 @@ export class WorkflowWatcher {
       this.layout = layout
       if (!layout.failed) {
         this.retries = 0
+        // A timer the read before this one set when it failed (a "Check again" came during it).
+        if (this.retry) clearTimeout(this.retry)
+        this.retry = null
         // Watched before the read below, so a change made while it runs is read again.
         await this.watch().catch((error: unknown) => console.error('[workflow] the watch did not start', error))
         if (this.closed) return
+        // The checkout held is the failed layout's: read it whatever cleared the mark meanwhile (a
+        // failed read in flight when "Check again" queued this one).
+        this.dirtyCheckout = true
         this.dirtyBranches = true
       }
     }
@@ -495,6 +535,18 @@ export class WorkflowHub {
       (watcher) => watcher.current,
       () => null,
     )
+  }
+
+  /**
+   * Makes every watched Project whose layout failed ask it again now (`retryFailedLayout`), after
+   * First run's "Check again" captured the login shell again (src/main/harness/script-env.ts,
+   * `recaptureForCheckAgain`). A healthy Project is not touched, a closed one is not started again,
+   * and a Project whose first read failed is not watched at all. Resolves with how many were asked,
+   * once each has been asked, not when their reads end; never rejects.
+   */
+  async retryFailedLayouts(): Promise<number> {
+    const watchers = await Promise.all([...this.projects.values()].map((project) => project.watcher.catch(() => null)))
+    return watchers.filter((watcher) => watcher !== null && watcher.retryFailedLayout()).length
   }
 
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */

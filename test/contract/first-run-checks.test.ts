@@ -7,13 +7,27 @@ import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
 import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
 import { removeTestTree } from '../remove'
+
+// The real runner of the Harness scripts, with the time limit each call asked for recorded: the
+// limit of the Harness scripts row is otherwise seen only after a 15 s wait.
+const runnerLimits = vi.hoisted(() => [] as (number | undefined)[])
+vi.mock('../../src/main/workflow/profile', async (original) => {
+  const real = await original<typeof import('../../src/main/workflow/profile')>()
+  return {
+    ...real,
+    harnessScriptRunner: (...args: Parameters<typeof real.harnessScriptRunner>) => {
+      runnerLimits.push(args[3])
+      return real.harnessScriptRunner(...args)
+    },
+  }
+})
 
 const REPO = join(import.meta.dirname, '..', '..')
 const TOOLS = join(REPO, 'test', 'fixtures', 'first-run-tools')
@@ -314,7 +328,7 @@ describe('first-run checks', () => {
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'ok', detail: 'profile --help answered', hint: '', actions: [] })
     })
 
-    it("the scripts' environment has no node: failed with exit code 127, the last line of stderr and what it means", async () => {
+    it("the scripts' environment has no node: failed with exit code 127, what stderr says and what it means", async () => {
       tools(...ALL_TOOLS)
       installPlugin()
       const empty = join(root, 'empty-bin')
@@ -355,6 +369,30 @@ describe('first-run checks', () => {
       oldHarness('#!/bin/sh\nexec /bin/sleep 5\n')
       const report = await runChecks(deps(loginEnv(), { harnessScriptTimeoutMs: 300 }))
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help did not answer within 0.3 s', hint: HARNESS_SCRIPT_HINTS.timeout })
+    })
+
+    it('node that cannot be run (exit code 126): the hint is about node on the PATH, as for 127', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness('#!/bin/sh\necho "env: node: Permission denied" >&2\nexit 126\n')
+      const report = await runChecks(deps(loginEnv()))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 126: env: node: Permission denied', hint: HARNESS_SCRIPT_HINTS.node })
+    })
+
+    it('the time limit is 15 s, the Epics read\'s, unless the checks are given another', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness('#!/bin/sh\nexit 0\n')
+      runnerLimits.length = 0
+      expect(checkOf(await runChecks(deps(loginEnv())), 'harness-scripts').status).toBe('ok')
+      expect(checkOf(await runChecks(deps(loginEnv(), { harnessScriptTimeoutMs: 300 })), 'harness-scripts').status).toBe('ok')
+      expect(runnerLimits).toEqual([15_000, 300])
+    })
+
+    // A crash by a signal was read as a timeout before review round 2 of PR #311.
+    it('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness('#!/bin/sh\necho "Segmentation fault" >&2\nkill -SEGV $$\n')
+      const report = await runChecks(deps(loginEnv()))
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGSEGV: Segmentation fault', hint: HARNESS_SCRIPT_HINTS.crash })
     })
 
     it("a crash of the script: its Error line, not node's version line; the hint is not about node", async () => {

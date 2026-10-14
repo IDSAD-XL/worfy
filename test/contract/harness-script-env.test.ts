@@ -12,11 +12,12 @@
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { harnessScriptEnv, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../../src/main/harness/script-env'
+import { recaptureAgentEnv } from '../../src/main/agent/env'
+import { harnessScriptEnv, recaptureForCheckAgain, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../../src/main/harness/script-env'
 import { harnessWorkspaceOf } from '../../src/main/projects/store'
 import { LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { epicStatusRunner, readCheckout, readWorkflow } from '../../src/main/workflow/reader'
@@ -220,8 +221,8 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     expect({ repo: listing(repo), folder: listing(folder), harness: listing(harnessHome) }).toEqual(before)
   })
 
-  // Last in this file: it adds a Ticket to the Workflow folder, and it leaves the app's source
-  // holding the environment it captured.
+  // Next to last in this file: it adds a Ticket to the Workflow folder, and it leaves the app's
+  // source holding the environment it captured.
   it("the app's own source: node added to the login shell's .profile after the start shows the Epics without a restart, and a Ticket written after that shows too", async () => {
     const until = async (done: () => boolean, what: string, ms = 20_000): Promise<void> => {
       const end = Date.now() + ms
@@ -254,6 +255,48 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     } finally {
       await watcher.close()
       rmSync(second, { force: true })
+    }
+  }, 60_000)
+
+  // After the test above: it starts from a login shell without node, and leaves one with node.
+  // Review round 2 of PR #311: "Check again" turned its own row green while the sidebar kept the
+  // failure until the watcher's own timer, up to 5 minutes later.
+  it('"Check again" with node added since the start: the sidebar\'s failed Project shows its Epic within seconds, with one more login shell start', async () => {
+    const profile = join(home, '.profile')
+    const counter = join(scratch, 'shell-runs')
+    const shell = join(scratch, 'login-shell')
+    // /bin/sh as the login shell, with each start counted.
+    writeFileSync(shell, `#!/bin/sh\necho run >> '${counter}'\nexec /bin/sh "$@"\n`)
+    chmodSync(shell, 0o755)
+    const shellRuns = (): number => (existsSync(counter) ? readFileSync(counter, 'utf8').split('\n').filter((line) => line !== '').length : 0)
+    process.env.SHELL = shell
+    writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
+    // The app's source holds what it captured last: take the shell without node now, as at a start from Finder.
+    await recaptureAgentEnv()
+    expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
+    // A retry step far longer than the test: only "Check again" can bring the Epic in time.
+    const hub = new WorkflowHub({ claudeHome, env: harnessScriptEnv, layoutRetryMs: 60_000 })
+    try {
+      const first = await hub.open(repo, { id: 1, send: () => undefined })
+      expect(first.epics).toEqual([])
+      expect(first.error?.message).toMatch(/exit code 127: .*node/)
+      const before = shellRuns()
+
+      // The user adds node, as nvm does, and presses "Check again" (src/main/ipc/first-run.ts).
+      writeFileSync(profile, `PATH='${nodeBin}:${tools}'; export PATH\n`)
+      const pressed = Date.now()
+      await recaptureForCheckAgain(hub)
+      let current = await hub.model(repo)
+      while (!current?.epics.length) {
+        if (Date.now() - pressed > 5_000) throw new Error(`no Epic 5 s after "Check again": ${current?.error?.message ?? 'no model'}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        current = await hub.model(repo)
+      }
+      expectSilentEpic(current)
+      // The recapture of "Check again" itself; the layout it asked again started no shell of its own.
+      expect(shellRuns()).toBe(before + 1)
+    } finally {
+      await hub.closeAll()
     }
   }, 60_000)
 })

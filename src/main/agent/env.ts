@@ -533,8 +533,17 @@ export function agentEnv(): Promise<CapturedEnv> {
 /**
  * Captures the environment again, for a user who changed it while worfy runs: node added by an rc
  * file (nvm, fnm, volta, asdf, mise), a shell that failed the capture fixed (worfy-harness ticket
- * 37). The Harness scripts' retry after a failure that points at the environment and First run's
- * "Check again" call it. Callers that come while a capture runs share it: one shell run at a time.
+ * 37). Who calls it (src/main/harness/script-env.ts): a watcher's retry of a failed layout that
+ * asks `fresh` — always after exit code 127 or 126, otherwise only while the held environment is
+ * the fallback — and First run's handler of its checks (src/main/ipc/first-run.ts), which runs on
+ * "Check again", when First run opens without a report, and each time Settings → Health shows.
+ *
+ * Callers that come while a recapture runs share it, and get that run's answer: a recapture asked
+ * right after an rc file was saved may join one that started before the save, and gets the
+ * environment from before it; the next one sees the change. "One shell run at a time" holds once
+ * the first capture has ended: a recapture that is the app run's first call may run next to the
+ * capture `agentEnv()` starts. Both are harmless — the worst is one extra shell run, or one retry
+ * that still finds no node.
  *
  * The new environment is what `agentEnv()` answers from then on — the Harness scripts and the
  * Sessions and Terminal Nodes started after it; a running Session keeps the environment it was

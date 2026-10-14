@@ -222,23 +222,29 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     expect(seen.env).toBe(LOGIN)
   })
 
-  it('the First run row «Harness scripts» gets that source, not the environment of the screen; "Check again" captures the login shell again first (src/main/ipc/first-run.ts)', async () => {
+  it('the First run row «Harness scripts» gets that source, not the environment of the screen; "Check again" captures the login shell again first, then asks the failed layouts of the sidebar (src/main/ipc/first-run.ts)', async () => {
     mockElectron()
-    mockSource()
+    // The stand-in source, with the module's own recaptureForCheckAgain.
+    vi.doMock('../../src/main/harness/script-env', async (original) => ({ ...(await original<object>()), harnessScriptEnv: SOURCE }))
+    const order: string[] = []
     let held: Record<string, string> = { PATH: '/screen/bin' }
     let recaptures = 0
     vi.doMock('../../src/main/agent/env', () => ({
       agentEnv: () => Promise.resolve({ env: held, from: 'login-shell', error: null }),
       recaptureAgentEnv: () => {
         recaptures += 1
+        order.push('recapture')
         held = { PATH: '/captured/again/bin' }
         return Promise.resolve({ env: held, from: 'login-shell', error: null })
       },
     }))
+    // The app's hub, as the handler imports it: not looked up through another handler.
+    vi.doMock('../../src/main/ipc/workflow', () => ({ workflowHub: { retryFailedLayouts: () => (order.push('failed layouts asked'), Promise.resolve(1)) } }))
     const seen: { deps?: { env: unknown; scriptEnv: unknown } } = {}
     vi.doMock('../../src/main/first-run/checks', async (original) => ({
       ...(await original<object>()),
       runChecks: (deps: { env: unknown; scriptEnv: unknown }) => {
+        order.push('checks')
         seen.deps = deps
         return Promise.resolve({ checks: [], checkedAt: new Date(0).toISOString() })
       },
@@ -250,6 +256,7 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     if (checks === undefined) throw new Error('no handler of firstRun.checks')
     await checks.handle(undefined, {})
     expect(recaptures).toBe(1)
+    expect(order).toEqual(['recapture', 'failed layouts asked', 'checks'])
     expect(seen.deps?.env).toEqual({ PATH: '/captured/again/bin' })
     expect(seen.deps?.scriptEnv).toBe(SOURCE)
   })

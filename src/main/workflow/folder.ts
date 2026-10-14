@@ -109,7 +109,8 @@ async function ticketsRootOf(root: string, run: ProfileRunner): Promise<{ path: 
     const result = await run(root, ['root'])
     const path = result.stdout.trim().split('\n').at(-1)?.trim() ?? ''
     const detail = scriptFailureDetail(result.stderr)
-    if (result.code !== 0) return { reason: `ticket root failed with exit code ${result.code ?? 'timeout'}${detail ? `: ${detail}` : ''}` }
+    const ending = result.code !== null ? `exit code ${result.code}` : result.signal ? `the signal ${result.signal}` : 'a timeout'
+    if (result.code !== 0) return { reason: `ticket root failed with ${ending}${detail ? `: ${detail}` : ''}` }
     if (!isAbsolute(path) || path.includes('\0')) return { reason: `ticket root printed no absolute path: ${JSON.stringify(path.slice(0, 200))}` }
     return { path }
   } catch (error) {

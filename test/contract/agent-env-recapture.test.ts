@@ -82,4 +82,35 @@ describe.skipIf(process.platform === 'win32')('recaptureAgentEnv', () => {
     expect(fresh).toMatchObject({ from: 'login-shell', env: { PATH: '/first/bin:/usr/bin:/bin' } })
     expect(await agentEnv()).toBe(fresh)
   })
+
+  it("the scripts' source: a plain request starts no shell; only `fresh` does", async () => {
+    const { harnessScriptEnv } = await import('../../src/main/harness/script-env')
+    expect((await harnessScriptEnv()).PATH).toBe('/first/bin:/usr/bin:/bin')
+    expect(shellRuns()).toBe(1)
+    writeFileSync(path, '/nvm/bin:/usr/bin:/bin\n')
+    expect((await harnessScriptEnv({})).PATH).toBe('/first/bin:/usr/bin:/bin')
+    // `if-fallback` with a good capture held: no shell either.
+    expect((await harnessScriptEnv({ fresh: 'if-fallback' })).PATH).toBe('/first/bin:/usr/bin:/bin')
+    expect(shellRuns()).toBe(1)
+    expect((await harnessScriptEnv({ fresh: 'always' })).PATH).toBe('/nvm/bin:/usr/bin:/bin')
+    expect(shellRuns()).toBe(2)
+  })
+
+  it('"Check again" (recaptureForCheckAgain): one shell run, then the failed layouts are asked, and they read the new environment without a shell of their own', async () => {
+    const { recaptureForCheckAgain, harnessScriptEnv } = await import('../../src/main/harness/script-env')
+    await harnessScriptEnv()
+    writeFileSync(path, '/nvm/bin:/usr/bin:/bin\n')
+    const seen: { runs: number; path: string | undefined }[] = []
+    const hub = {
+      retryFailedLayouts: async (): Promise<number> => {
+        // What a failed watcher's plain ask gets (WorkflowWatcher.retryFailedLayout).
+        seen.push({ runs: shellRuns(), path: (await harnessScriptEnv({})).PATH })
+        return 1
+      },
+    }
+    await recaptureForCheckAgain(hub)
+    for (let i = 0; i < 50 && seen.length === 0; i++) await new Promise((done) => setTimeout(done, 10))
+    expect(seen).toEqual([{ runs: 2, path: '/nvm/bin:/usr/bin:/bin' }])
+    expect(shellRuns()).toBe(2)
+  })
 })

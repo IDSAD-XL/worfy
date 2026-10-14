@@ -352,7 +352,8 @@ async function harnessScripts(deps: CheckDeps): Promise<Row> {
   const location = locateHarness(harnessHomes(claudeHome))
   const later = (detail: string): Row => row('warn', detail, 'worfy runs the Harness scripts to read the Epics of a Project')
   if (location.kind === 'none') return later('checked when the Harness plugin is installed')
-  // A script without an extension cannot be started on Windows (libuv tries .com and .exe only).
+  // Windows cannot start a `#!/usr/bin/env node` script by itself: it has no `#!` lines, and the
+  // scripts have no extension it could run them by. Not tried here; worfy-windows ticket 05 decides how.
   if ((deps.platform ?? process.platform) === 'win32') return later('worfy cannot run the Harness scripts on Windows yet (worfy-windows ticket 05)')
   const script = join(location.binDir, 'profile')
   // An old Harness without the script: the Epics are read without a Profile, as the reader does.
@@ -361,8 +362,10 @@ async function harnessScripts(deps: CheckDeps): Promise<Row> {
   try {
     const run = await harnessScriptRunner(claudeHome, await deps.scriptEnv(), 'profile', timeoutMs)(location.binDir, ['--help'])
     if (run.code === 0) return row('ok', 'profile --help answered')
-    if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
     const detail = scriptFailureDetail(run.stderr)
+    // A signal the runner did not send for the time limit: the script crashed, it was not slow.
+    if (run.code === null && run.signal) return row('fail', `profile --help was ended by the signal ${run.signal}${detail ? `: ${detail}` : ''}`, HARNESS_SCRIPT_HINTS.crash)
+    if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
     return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : HARNESS_SCRIPT_HINTS.crash)
   } catch (error) {
     // The file is there, so this is not a missing script: worfy cannot start it (EACCES, a bad interpreter line).
