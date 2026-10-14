@@ -1,7 +1,7 @@
 # 03 — ZLE widget и socket до main: Suggestion из истории, → / Option+→ / Esc, вставка в строку
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #306](https://github.com/IDSAD-XL/worfy/pull/306)
 Blocked by: 01, 02
 Source: решения владельца 2026-10-09: пункт 1(a) (Suggestion — серый текст, сразу из истории команд, локально и без модели; → принимает целиком, Option/Alt+→ — по слову, Esc скрывает), пункт 4 (ZLE widget как zsh-autosuggestions: `POSTDISPLAY`, асинхронно через `zle -F`, socket `zmodload zsh/net/socket; zsocket` до main, socket 0600 и nonce в окружении; shell рисует и принимает серый текст сам — его видит каждое окно), пункт 3 (строка с пробелом в начале — без модели) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), Considered Options — почему не ghost text поверх xterm; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — один shell на нескольких экранах
 
@@ -82,7 +82,7 @@ Source: решения владельца 2026-10-09: пункт 1(a) (Suggestio
 - [x] Тот же contract: `env` внутри shell-а — без `WORFY_ASSIST_TOKEN` и `WORFY_ASSIST_SOCKET`; вложенный `zsh -i` — без widget-а; определённая заранее `_zsh_autosuggest_start` — свой Suggestion не включается; `config` без Suggestion — серого текста нет.
 - [x] e2e `test/e2e/terminal-ai-history.spec.ts` (новый): в Terminal Node выполнена команда с уникальной меткой, затем набран её префикс — в буфере xterm остаток команды серым; → и Enter выполняют её; Alt+ArrowRight (Playwright) принимает одно слово. Тот же Terminal во втором окне (helper `openSecondWindow`, `test/e2e/helpers.ts:228`) показывает тот же серый текст.
 - [ ] (вручную) `WORFY_AGENT=fake pnpm dev`, zsh владельца: Suggestion из истории — без заметной задержки; →, Option+→ и Esc работают; время скрытия по Esc — в «Итог». Снимки серого текста — `../evidence/03-suggestion-light.png` и `../evidence/03-suggestion-dark.png`: текст читается в обеих темах. Как проверить: окно worfy.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -261,3 +261,19 @@ xterm по умолчанию `#555753`, на фоне Terminal-а это при
 - (вручную) `WORFY_AGENT=fake pnpm dev` с zsh владельца — не проверено: запуск с настоящим `HOME`
   владельца агенту запрещён; задержку Suggestion-а на глаз и клавиши в настоящем окне смотрит владелец.
 - zsh старше 5.9 (без `memo=` в `region_highlight`): запасная ветка есть, test-а на старом zsh нет.
+
+### Gate оркестратора (2026-10-14)
+
+- Wave из одного Ticket-а под Autopilot. Гейт — один круг: `VERIFIED` на `e13e540` ([комментарий в PR #306](https://github.com/IDSAD-XL/worfy/pull/306#issuecomment-6160222758)). Verifier сам: gate fast — код 0, не из кэша; `test/contract/terminal-ai-zle.test.ts` дважды — 36 из 36, нестабильных test-ов нет; e2e `test/e2e/terminal-ai-history.spec.ts` под замком — код 0; 21 свой мутант, 19 красные, два выживших — в долгах ниже; клавиши на настоящем zsh с временным `HOME` (свои widget-ы на →, Alt+→ и Esc, `bindkey -v`, свои `zle-line-init`) — работают, ошибок zsh нет; снимки в обеих темах, с включённым и выключенным Suggestion.
+- Мерж: база main `b885e17`, head `e13e540`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; консоль macOS у `alexey`; CI зелёный, CLEAN; влит `ba7e4e5`.
+- **На решение владельца (Consider, [med], согласовано с verifier-ом):** серый Suggestion рисуется цветом 8 (`src/main/terminal/zsh/rc.d/10-assist.zsh:80`, `fg=8` — так задано в «Что делаем», пункт 4), у xterm это `#555753`: контраст 2,30:1 в светлой теме и 2,71:1 в тёмной при требовании `docs/design/F-SPEC.md:40` ≥ 4,5:1 для текста. На снимках текст читается, но тускло. Правится вне Ticket-а: `brightBlack` в `themeOf`, `src/renderer/canvas/nodes/TerminalNode.tsx:56-62` — это меняет цвет 8 для всего вывода Terminal-а, не только Suggestion.
+- Долги (Noted, все [low]):
+  - клавиши привязаны независимо от Settings: при выключенном Terminal AI одинокий Esc всё равно привязан («Esc, пауза, b» печатает `b`), → и Alt+→ остаются обёртками (`10-assist.zsh:360-379`) — к пункту 3 «Решено без владельца»; вариант: привязывать Esc, только пока серый текст на экране;
+  - к пункту 7 «Решено без владельца»: при настройках, задержанных на 2,5 с, выключенный Suggestion показан, и → его принимает (`10-assist.zsh:106`); в собранном приложении verifier серого текста не увидел; вариант: передавать начальный список функций в окружении рядом с токеном;
+  - к пункту 9 «Решено без владельца»: программа, запущенная в Terminal-е, не только пишет в соединение shell-а, но и читает то, что main шлёт shell-у, — verifier из дочернего `/bin/sh` прочитал `insert`; токен и строки других Terminal-ов ей недоступны (`10-assist.zsh:395`). Важно для Fix (Ticket 07);
+  - две ветки без test-а: отзыв токена при ошибке запуска shell-а (`src/main/terminal/pty.ts:781`) и ранний `unset` (`10-assist.zsh:37`) — мутанты выжили;
+  - `insert` не несёт id запроса: ушедший до прихода `cancel` заменит строку, которую пользователь уже изменил (`src/main/terminal-ai/protocol.ts:34`) — вопрос к Ticket-ам 06 и 07;
+  - у кого → привязана прямо к своему widget-у, тот принимает Suggestion только по Alt+→.
+- Нарушение запрета implementer-ом, один раз: он запустил `test/e2e/palette-find.spec.ts`, а этот test открывает Terminal Node с настоящим `HOME` и zsh владельца (`launchApp` без `HOME` и `SHELL`, строка 161): zsh прочитал настоящий `~/.zshrc`, в Terminal ничего не набиралось. Этот test идёт так и в gate full; после этого Ticket-а в нём активны widget и socket. Долг вне Ticket-а: дать ему временный `HOME` и `SHELL=/bin/sh`, как в `test/e2e/terminal.spec.ts:40`.
+- Для Ticket-ов 04–07: в Debian и Ubuntu `/etc/zsh/zshrc` включает режим keypad, и prompt в Linux CI оканчивается на `ESC =` — шаблон prompt-а в contract-test-ах брать как в `test/contract/terminal-ai-zle.test.ts:861`.
+- не проверено: настоящий plugin zsh-autosuggestions (в test-е его заменяет пустая функция); время скрытия по Esc verifier сам не мерил (405–408 мс — из прогонов implementer-а).
