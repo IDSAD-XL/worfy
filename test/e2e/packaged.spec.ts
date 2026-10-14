@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { GH_STUB, launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
@@ -84,7 +84,7 @@ async function secondStart(first: LaunchedApp, command: string, args: string[]):
     WORFY_DATA_DIR: first.dataDir,
     WORFY_CLAUDE_HOME: first.claudeHome,
     WORFY_AGENT: 'fake',
-    WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+    WORFY_GH: GH_STUB,
   })
   const child = spawn(command, [...args, ...NO_WINDOW_RESTORE], { cwd: repoRoot, env, stdio: 'ignore' })
   return exitWithin(child, 20_000)
@@ -669,7 +669,7 @@ test.describe('dev run of the unpacked build', () => {
       WORFY_DATA_DIR: join(root, 'data'),
       WORFY_CLAUDE_HOME: root,
       WORFY_AGENT: 'fake',
-      WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+      WORFY_GH: GH_STUB,
       ELECTRON_RENDERER_URL: 'not a url',
       // The native error window is modal and would hold the process until someone dismisses it.
       WORFY_STARTUP_DIALOG: 'off',
