@@ -75,6 +75,33 @@
 .w-terminal__close {
   padding: 0;
 }
+/* "Fix" after a failed command: the colour of a failure, outlined, beside the title. */
+.w-terminal__fix {
+  height: 18px;
+  border: 1px solid color-mix(in srgb, var(--blocked-ring) 60%, var(--terminal-bg));
+  color: var(--blocked-ring);
+  font-size: var(--text-11);
+  font-weight: 600;
+}
+.w-terminal__fix:hover,
+.w-terminal__fix:focus-visible {
+  background: color-mix(in srgb, var(--blocked-ring) 18%, var(--terminal-bg));
+  color: var(--blocked-ring);
+}
+.w-terminal__fix:disabled {
+  border-color: var(--terminal-line);
+  background: transparent;
+  color: var(--terminal-muted);
+}
+/* Why the last Fix put nothing into the line; it goes after a few seconds. */
+.w-terminal__fix-note {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-11);
+  color: var(--terminal-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .w-terminal__error {
   flex: none;

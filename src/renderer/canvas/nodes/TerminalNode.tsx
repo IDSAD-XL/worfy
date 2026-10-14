@@ -11,6 +11,8 @@ import { useLayoutOps } from '../useLayout'
 import { unscaleMouse } from './terminal-mouse'
 import { addView, isLastView, type ShellView } from './terminal-views'
 import TerminalAiRequest from './TerminalAiRequest'
+import { failureReason } from '../../../shared/ipc/channels'
+import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
@@ -41,6 +43,11 @@ import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-req
 // ⌘I in a Terminal whose zsh is connected to Terminal AI opens the Command request panel over the
 // screen (TerminalAiRequest.tsx); xterm.js does not get the key then. Ctrl+I, and ⌘I in any other
 // Terminal, go to the shell as before.
+//
+// After a command that failed, "Fix" in the header asks Claude for the corrected command
+// (src/main/ipc/terminal-ai-fix.ts): main says when the button is there, the answer lands in the
+// line of the shell and never runs, and the focus goes back to the terminal so Enter runs it. A
+// refusal shows its reason beside the title for a few seconds.
 
 // The same value as TERMINAL_NODE_KIND, by which main recognises a Terminal Node; written out
 // here because the Node registry needs a literal export.
@@ -108,6 +115,62 @@ function useRequestState(projectId: string | undefined, nodeId: string, setOpen:
   return answered?.key === key ? answered.state : REQUEST_UNAVAILABLE
 }
 
+/** How long the reason of a refused Fix stays in the header. */
+const FIX_NOTE_MS = 4000
+
+/**
+ * The "Fix" button of a Terminal: whether main says it is there, the Fix in flight, and the reason
+ * of the last refusal while it is shown. `fixed` runs when the answer is in the line.
+ */
+function useFix(projectId: string | undefined, nodeId: string, fixed: () => void) {
+  const [answered, setAnswered] = useState<{ key: string; state: TerminalAiFixState } | null>(null)
+  const [running, setRunning] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const key = `${projectId ?? ''} ${nodeId}`
+  useEffect(() => {
+    if (projectId === undefined) return
+    let active = true
+    const keyed = `${projectId} ${nodeId}`
+    const off = subscribe('terminalAi.fix.changed', (payload) => {
+      if (!active || payload.projectId !== projectId || payload.nodeId !== nodeId) return
+      setAnswered({ key: keyed, state: { available: payload.available } })
+    })
+    void invoke('terminalAi.fix.state', { projectId, nodeId }).then((result) => {
+      if (active && result.ok) setAnswered({ key: keyed, state: result.value })
+    })
+    return () => {
+      active = false
+      off()
+    }
+  }, [projectId, nodeId])
+  useEffect(() => {
+    if (note === null) return
+    const timer = setTimeout(() => setNote(null), FIX_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [note])
+  // Read by run(), which outlives the render that made it.
+  const fixedRef = useRef(fixed)
+  useEffect(() => {
+    fixedRef.current = fixed
+  }, [fixed])
+
+  const run = async () => {
+    if (projectId === undefined || running) return
+    setRunning(true)
+    setNote(null)
+    const result = await invoke('terminalAi.fix.run', { projectId, nodeId })
+    setRunning(false)
+    if (result.ok && result.value.ok) {
+      // main takes the button away too; until its event comes this screen does not offer it again.
+      setAnswered({ key, state: { available: false } })
+      fixedRef.current()
+    } else setNote(result.ok ? (result.value.ok ? null : result.value.message) : failureReason('terminalAi.fix.run', result.error))
+  }
+  // An answer about the Terminal this Node showed before is not about this one.
+  const available = answered?.key === key && answered.state.available
+  return { available, running, note, run }
+}
+
 /** The size that fills the Node, or undefined while the Node has no layout (hidden with display:none). */
 function fittedSize(element: HTMLElement, fit: FitAddon): { cols: number; rows: number } | undefined {
   if (element.clientWidth === 0 || element.clientHeight === 0) return undefined
@@ -133,6 +196,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     requestAvailable.current = request.available
   }, [request.available])
   const xterm = useRef<Terminal | null>(null)
+  // The corrected command is in the line: the focus goes to the terminal, where Enter runs it.
+  const fix = useFix(projectId, id, () => xterm.current?.focus())
 
   useEffect(() => {
     const element = host.current
@@ -314,6 +379,24 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         </svg>
         <span className="w-terminal__title">Terminal</span>
         {shell !== '' ? <span className="w-terminal__shell">{shell}</span> : null}
+        {fix.available || fix.running ? (
+          <button
+            type="button"
+            className="w-terminal__button w-terminal__fix nodrag"
+            title="Ask Claude to correct the failed command; it goes into the line and does not run"
+            disabled={fix.running}
+            // The focus stays in the terminal: Enter there runs the corrected command.
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => void fix.run()}
+          >
+            {fix.running ? 'Fixing…' : 'Fix'}
+          </button>
+        ) : null}
+        {fix.note !== null ? (
+          <span className="w-terminal__fix-note" role="status">
+            {fix.note}
+          </span>
+        ) : null}
         <span className="w-terminal__spacer" />
         {status.state === 'exited' ? (
           <>
