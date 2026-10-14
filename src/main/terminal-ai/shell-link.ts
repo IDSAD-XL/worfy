@@ -8,6 +8,8 @@
 //     there and does not change this one. Its default export is a ShellFeature.
 //   - The settings of Terminal AI go to every shell as `config`: when it connects, and when they
 //     change.
+//   - onConnection(listener) hears a shell connect and disconnect: the Command request panel is
+//     there only while the shell of its Terminal is connected.
 //
 // A Terminal here is the key of its shell in the registry of Terminal Nodes (terminalKey of
 // src/main/ipc/terminal.ts). Nothing in this file runs a command or types into a Terminal: what a
@@ -86,6 +88,9 @@ export function configFeatures(settings: TerminalAiSettings): string[] {
   return [...history, ...TERMINAL_AI_FEATURES.filter((feature) => featureEnabled(settings, feature))]
 }
 
+/** Hears the shell of `terminal` connect (true) or disconnect (false). */
+export type ConnectionListener = (terminal: string, connected: boolean) => void
+
 export interface ShellLinkOptions {
   /** Asked when the first shell connects. */
   settings: () => Promise<SettingsSource>
@@ -104,15 +109,41 @@ export class ShellLink {
   private config: string | null = null
   /** The open ask of each Terminal. */
   private readonly open = new Map<string, { id: number; abort: AbortController }>()
+  private readonly connectionListeners = new Set<ConnectionListener>()
   private closed = false
 
   constructor(private readonly options: ShellLinkOptions) {
     this.socket = new AssistSocket({
-      connected: (terminal) => void this.greet(terminal),
+      connected: (terminal) => {
+        void this.greet(terminal)
+        this.announce(terminal, true)
+      },
       message: (terminal, message) => this.receive(terminal, message),
-      disconnected: (terminal) => this.abort(terminal),
+      disconnected: (terminal) => {
+        this.abort(terminal)
+        this.announce(terminal, false)
+      },
       ...(options.helloTimeoutMs === undefined ? {} : { helloTimeoutMs: options.helloTimeoutMs }),
     })
+  }
+
+  /**
+   * Calls `listener` when the shell of a Terminal connects (after its hello) and when it
+   * disconnects; answers the unsubscribe. connected() already answers the new value then.
+   */
+  onConnection(listener: ConnectionListener): () => void {
+    this.connectionListeners.add(listener)
+    return () => this.connectionListeners.delete(listener)
+  }
+
+  private announce(terminal: string, connected: boolean): void {
+    for (const listener of [...this.connectionListeners]) {
+      try {
+        listener(terminal, connected)
+      } catch (error) {
+        console.warn(`[terminal-ai] a listener of the connections of the shells failed: ${errorName(error)}`)
+      }
+    }
   }
 
   /** For a new zsh of `terminal` with the integration: the socket to connect to and the shell's own token. */

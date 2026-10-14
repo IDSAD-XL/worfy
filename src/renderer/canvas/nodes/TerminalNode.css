@@ -97,3 +97,72 @@
 .w-terminal__screen .xterm-viewport {
   background-color: var(--terminal-bg) !important;
 }
+
+/* The Command request panel (TerminalAiRequest.tsx): a popover over the top of the screen, under
+   the header. It hangs from an anchor of no height between the two, so the screen keeps its size
+   and the shell gets no resize; .w-terminal itself stays unpositioned, or its overflow would cut
+   the resize handles of the Node, which sit on its corners. */
+.w-terminal-request {
+  position: relative;
+  flex: none;
+  height: 0;
+  z-index: 2;
+}
+.w-terminal-request__panel {
+  position: absolute;
+  top: 6px;
+  left: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  box-sizing: border-box;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-popover);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  color: var(--text);
+  cursor: default;
+}
+.w-terminal-request__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.w-terminal-request__key {
+  flex: none;
+  padding: 0 5px;
+  border-radius: var(--radius-chip);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+  line-height: 18px;
+}
+.w-terminal-request__field {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-13);
+}
+.w-terminal-request__field::placeholder {
+  color: var(--text-muted);
+}
+.w-terminal-request__field:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-terminal-request__note {
+  margin-top: 4px;
+  font-size: var(--text-11);
+  line-height: 14px;
+  color: var(--text-muted);
+}
+.w-terminal-request__note--refused {
+  color: var(--blocked-text);
+}
