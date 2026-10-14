@@ -1,7 +1,7 @@
 # 08 — Settings → «Terminal AI»: переключатели функций, модель Next command, состояние по Limits
 
 Type: task
-Status: open
+Status: claimed — 2026-10-14
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 2 (всё выключается в Settings → «Terminal AI»; окно Settings делает Epic worfy-ui), пункт 1(b) (переключатель модели Next command — Sonnet или Haiku), пункт 7 (Epic идёт параллельно с worfy-ui) ([spec.md](../spec.md)); [worfy-ui 02](../../worfy-ui/issues/02-окно-settings.md) (окно Settings, разделы по файлам) и [worfy-ui 08](../../worfy-ui/issues/08-общий-select.md) (общий Select); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 4; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`
 
