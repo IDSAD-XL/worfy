@@ -6,10 +6,9 @@ import { appUrlMatcher, defineHandler, emit, handlerModules, registerIpc, type H
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
 import { invokeChannel, IPC_CHANNEL_PREFIX, LINKED_MACHINE_ACCESS, type IpcResult } from '../../src/shared/ipc/channels'
 import { linkPing } from '../../src/shared/ipc/link'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { echoCalls } from './ipc-sample/main/sample'
 import { sampleEcho, sampleFail, sampleLeak, sampleTicked } from './ipc-sample/shared/sample'
-
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
@@ -39,7 +38,7 @@ const sampleModules = import.meta.glob<unknown>('./ipc-sample/main/*.ts', { impo
 async function withSample() {
   echoCalls.length = 0
   const fake = fakeIpcMain()
-  const names = await registerIpc(fake.ipc, { modules: sampleModules, isTrustedSender: appUrlMatcher({ indexHtml: '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html' }) })
+  const names = await registerIpc(fake.ipc, { modules: sampleModules, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   return { ...fake, names }
 }
 
@@ -135,19 +134,23 @@ describe('IPC handler registration', () => {
 
 describe('app URL matcher', () => {
   it('accepts only the bundled index.html in a packaged run', () => {
-    const trusted = appUrlMatcher({ indexHtml: '/app/out/renderer/index.html' })
-    expect(trusted('file:///app/out/renderer/index.html')).toBe(true)
-    expect(trusted('file:///app/out/renderer/index.html?x=1#y')).toBe(true)
-    expect(trusted('file:///app/out/renderer/other.html')).toBe(false)
+    const trusted = appUrlMatcher({ indexHtml: INDEX_HTML })
+    // The URL is written out here once. test/app-url.ts builds it with pathToFileURL, as the matcher
+    // does; on Windows the drive of the working directory stands before the path.
+    expect(APP_URL).toMatch(/^file:\/\/\/([A-Za-z]:\/)?Applications\/worfy\.app\/Contents\/Resources\/app\/out\/renderer\/index\.html$/)
+    expect(trusted(APP_URL)).toBe(true)
+    expect(trusted(`${APP_URL}?x=1#y`)).toBe(true)
+    // Another file of the same folder: only the file name differs from the trusted URL.
+    expect(trusted(new URL('other.html', APP_URL).href)).toBe(false)
     expect(trusted('http://localhost:5173/')).toBe(false)
     expect(trusted('not a url')).toBe(false)
   })
 
   it('accepts only the dev server origin when one is set', () => {
-    const trusted = appUrlMatcher({ indexHtml: '/app/out/renderer/index.html', devServerUrl: 'http://localhost:5173' })
+    const trusted = appUrlMatcher({ indexHtml: INDEX_HTML, devServerUrl: 'http://localhost:5173' })
     expect(trusted('http://localhost:5173/index.html')).toBe(true)
     expect(trusted('http://localhost:5174/')).toBe(false)
-    expect(trusted('file:///app/out/renderer/index.html')).toBe(false)
+    expect(trusted(APP_URL)).toBe(false)
   })
 })
 

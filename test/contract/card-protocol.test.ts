@@ -27,9 +27,8 @@ import { CardStore, titleOf } from '../../src/main/cards/store'
 import { machineLabel } from '../../src/shared/cards/bridge'
 import { CARD_FILE_CHUNK_BYTES, CARD_FILE_LIMIT_BYTES, cardsFile } from '../../src/shared/ipc/cards'
 import { projectId, projectIdHash } from '../../src/main/projects/store'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
-
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
 const electron = vi.hoisted(() => {
   const sent: { channel: string; payload: unknown }[] = []
@@ -701,7 +700,7 @@ describe('cards IPC domain', () => {
   async function call(input: unknown): Promise<IpcResult<unknown>> {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}cards.get`)
     if (!listener) throw new Error('cards.get is not registered')
-    const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+    const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
     return (await listener(event, input)) as IpcResult<unknown>
   }
 
@@ -715,7 +714,7 @@ describe('cards IPC domain', () => {
   it('answers cards.file through the IPC handler: the file as it is, and "missing" outside the Card', async () => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}cards.file`)
     if (!listener) throw new Error('cards.file is not registered')
-    const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+    const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
     const page = (await listener(event, { projectLabel: LABEL, cardId: 'c1', path: '/index.html' })) as IpcResult<{ status: string; base64?: string }>
     expect(page.ok && page.value.status).toBe('file')
     if (page.ok) expect(Buffer.from(page.value.base64 ?? '', 'base64').toString('utf8')).not.toContain('data-worfy-runtime')

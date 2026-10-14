@@ -11,12 +11,12 @@ import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { APP_URL, INDEX_HTML } from '../app-url'
 
 // Pull requests and CI from `gh` (ticket 17), against test/fixtures/gh/gh: a stub that records
 // its arguments and answers from a prs.json. Nothing here reaches GitHub.
 
 const GH_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh')
-const INDEX_HTML = '/app/out/renderer/index.html'
 
 const temps: string[] = []
 afterEach(async () => {
@@ -376,7 +376,7 @@ async function ipcOver(run: GhRunner, home: string, worktrees: (root: string) =>
   await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   return async (input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
 }
 
@@ -455,7 +455,7 @@ describe('checks.get', () => {
       worktrees: async (root) => [{ path: root, branch: 'main', head: 'abc' } as { path: string; branch: string }],
     }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => leaky }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
-    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: '/r', branches: [] })) as IpcResult<ChecksSnapshot>
+    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { root: '/r', branches: [] })) as IpcResult<ChecksSnapshot>
     expect(result).toEqual({
       ok: true,
       value: { root: '/r', worktrees: [{ path: '/r', branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } },
@@ -668,7 +668,7 @@ describe("gh with the Project's GitHub account", () => {
     const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
     const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
-    const call = (input: unknown) => handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)
+    const call = (input: unknown) => handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)
     const good = (await call({ root: world.root, branches: ['demo/02'] })) as IpcResult<ChecksSnapshot>
     expect(good.ok && good.value.pulls.map((each) => each.number)).toEqual([1])
     expect(JSON.stringify(good)).not.toContain(TOKEN)
@@ -694,7 +694,7 @@ describe("gh with the Project's GitHub account", () => {
     const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
     const module = checksHandlers({ gate: new GateReader({ home }), prs: world.tracker(), worktrees: async (root) => [{ path: root, branch: 'demo/01' }] }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
-    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
+    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
     expect(result.ok).toBe(true)
     const gh = result.ok ? result.value.gh : null
     expect(gh?.available).toBe(false)
@@ -722,7 +722,7 @@ describe("gh with the Project's GitHub account", () => {
       const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
       const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
       await registerIpc(ipc, { modules: { './checks.ts': async () => app }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
-      const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
+      const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { root: world.root, branches: [] })) as IpcResult<ChecksSnapshot>
       expect(result.ok && result.value.gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
       expect(JSON.stringify(result)).not.toContain(TOKEN)
     } finally {
@@ -808,7 +808,7 @@ async function severalRepos() {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
   await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener) }, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async (channel: string, input: unknown): Promise<IpcResult<unknown>> =>
-    (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   return { workspace, api, web, elsewhere, tickets, worktreeX, ghCwds, modelsAsked, call }
 }
 

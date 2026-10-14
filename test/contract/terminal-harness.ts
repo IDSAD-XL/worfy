@@ -14,8 +14,8 @@ import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { terminalHandlers } from '../../src/main/ipc/terminal'
 import { spawnShellPty, TerminalRegistry, terminalShellOptions, type SpawnPty } from '../../src/main/terminal/pty'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL } from '../app-url'
 
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 export const PROJECT = 'demo-00000001'
 export const NODE = 'node-1'
 

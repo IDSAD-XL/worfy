@@ -13,9 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { DocsState } from '../../src/shared/ipc/docs'
 import type { LayoutState } from '../../src/shared/layout/types'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT_ID = 'repo-00000001'
 
 const electron = vi.hoisted(() => ({ listeners: new Map<string, (() => void)[]>() }))
@@ -72,7 +72,7 @@ function makeSender(id: number): FakeSender {
 async function call(channel: string, input?: unknown, from: FakeSender = sender): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: from } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender: from } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 

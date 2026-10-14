@@ -16,12 +16,12 @@ import { agentHandlers, type AttachDeps } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import type { AgentEvent, AgentEventEnvelope } from '../../src/shared/agent/events'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL } from '../app-url'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/nowhere', on: vi.fn() } }))
 
 const testDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const scripts = join(testDir, 'fixtures', 'agent-scripts')
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(24, 1)])
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown

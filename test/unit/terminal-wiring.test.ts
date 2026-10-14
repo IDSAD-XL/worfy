@@ -6,8 +6,8 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { TERMINAL_NODE_KIND } from '../../src/shared/ipc/terminal'
+import { APP_URL } from '../app-url'
 
-const APP_URL = 'file:///Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-00000001'
 const OTHER = 'other-00000002'
 

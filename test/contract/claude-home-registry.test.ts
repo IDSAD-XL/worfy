@@ -27,6 +27,7 @@ import { ClaudeHomeSubscriptions, claudeHomeHandlers, type Subscriber } from '..
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
+import { APP_URL, INDEX_HTML } from '../app-url'
 
 // The Claude home of ticket 09 (test/fixtures/claude-home/README.md). Tests never touch it: each
 // one works on a copy in a temporary directory.
@@ -796,7 +797,6 @@ describe('read-only access to the Claude home', () => {
 
 // --- IPC ---------------------------------------------------------------------------------------
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
 function fakeSender(id: number) {
@@ -825,7 +825,7 @@ async function ipcOver(registry: ClaudeHomeRegistry) {
   const call = async (channel: string, input: unknown, sender?: Subscriber): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
-    const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender } as unknown as IpcMainInvokeEvent
+    const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
     return (await listener(event, input)) as IpcResult<unknown>
   }
   return { handlers, call, subscriptions }

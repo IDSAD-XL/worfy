@@ -6,9 +6,8 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
-
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
 /** How long a test waits for the start: on a loaded machine it takes longer than the 1 s vi.waitFor waits by default. */
 const START_WAIT = { timeout: 10_000 }
@@ -133,7 +132,7 @@ beforeAll(async () => {
 
 describe('IPC wiring in src/main/index.ts', () => {
   it('answers a call from the window the app loads', async () => {
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
   })
 
   it('rejects a call from any other frame', async () => {
@@ -158,20 +157,20 @@ describe('app.version in src/main/index.ts', () => {
 
   it('answers the version of the Harness copy bundled with the build', async () => {
     bundleHarness({ name: 'worfy', version: '0.2.0+abc1234' })
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '0.2.0+abc1234' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '0.2.0+abc1234' } })
   })
 
   it('falls back to app.getVersion() when the build has no Harness copy', async () => {
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
   })
 
   it('falls back to app.getVersion() when the copy has no version or an unreadable plugin.json', async () => {
     bundleHarness({ name: 'worfy' })
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
     bundleHarness({ name: 'worfy', version: '' })
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
     writeFileSync(pluginJson, '{ not json')
-    expect(await call(`file://${INDEX_HTML}`)).toEqual({ ok: true, value: { version: '1.2.3' } })
+    expect(await call(APP_URL)).toEqual({ ok: true, value: { version: '1.2.3' } })
   })
 })
 
@@ -188,7 +187,7 @@ describe('web policy wiring in src/main/index.ts', () => {
     expect(startup.policies).toHaveLength(1)
     expect(startup.policyBeforeWindow).toBe(true)
     const isAppUrl = startup.policies[0]
-    expect(isAppUrl?.(`file://${INDEX_HTML}`)).toBe(true)
+    expect(isAppUrl?.(APP_URL)).toBe(true)
     expect(isAppUrl?.('worfy-card://c1.0a1b2c3d/index.html')).toBe(false)
     expect(isAppUrl?.('https://example.com/')).toBe(false)
   })

@@ -15,10 +15,10 @@ import type { LayoutStore } from '../../src/main/layout/store'
 import type { CanvasContext, CanvasDeps, CanvasWorkflow, ToolResult } from '../../src/main/mcp/canvas-server'
 import type { QueryRequest } from '../../src/main/agent/session'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
 import { canLink, countFsCalls, SHARE, through } from './counted-fs'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
 const OTHER = 'other-11223344'
 
@@ -108,7 +108,7 @@ afterEach(async () => {
 async function rendererApply(op: LayoutOpInput, projectId: string = PROJECT): Promise<IpcResult<unknown>> {
   const listener = handlers.get(`${IPC_CHANNEL_PREFIX}layout.apply`)
   if (!listener) throw new Error('no layout.apply handler')
-  const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
   return (await listener(event, { projectId, op })) as IpcResult<unknown>
 }
 

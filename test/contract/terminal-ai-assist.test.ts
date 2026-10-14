@@ -24,6 +24,7 @@ import type { TerminalAiState } from '../../src/shared/ipc/terminal-ai'
 import type { TerminalAiInput } from '../../src/shared/terminal-ai/context'
 import { REDACTED } from '../../src/shared/terminal-ai/redact'
 import type { TerminalAiFeature } from '../../src/shared/terminal-ai/settings'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
@@ -37,7 +38,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
 })
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0)
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
 // ---- the fake SDK ----------------------------------------------------------------------------------
 
@@ -812,7 +812,7 @@ async function registered(service: Pick<AssistService, 'state' | 'setSettings' |
   return async (channel, value, window = new FakeWindow()) => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)
     if (!listener) throw new Error(`${channel} is not registered`)
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` }, sender: window } as unknown as IpcMainInvokeEvent, value)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: APP_URL }, sender: window } as unknown as IpcMainInvokeEvent, value)) as IpcResult<unknown>
   }
 }
 

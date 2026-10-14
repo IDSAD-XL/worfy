@@ -30,6 +30,7 @@ import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotChanged, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE } from '../../src/shared/projects/action-templates'
+import { APP_URL, INDEX_HTML } from '../app-url'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -39,7 +40,6 @@ vi.mock('electron', () => ({
 }))
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-000000a4'
 const EPIC = 'demo'
 
@@ -854,7 +854,7 @@ async function ipcOver(modules: Record<string, () => Promise<unknown>>): Promise
   return async (channel, input) => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)
     if (!listener) throw new Error(`${channel} is not registered`)
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` }, sender: { id: 1, once: () => undefined } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: APP_URL }, sender: { id: 1, once: () => undefined } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
 }
 

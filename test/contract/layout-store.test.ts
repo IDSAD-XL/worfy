@@ -11,9 +11,9 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { layoutSchema, type Layout, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 import type { LayoutChange, LayoutStore } from '../../src/main/layout/store'
 import { freePlace, freeShift } from '../../src/shared/layout/free-place'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT = 'demo-0a1b2c3d'
 
 const electron = vi.hoisted(() => {
@@ -71,7 +71,7 @@ async function start(trash = false): Promise<void> {
 async function call(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 

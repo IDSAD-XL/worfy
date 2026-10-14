@@ -13,6 +13,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { LimitsState } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
 // node:fs as it is, except that watch is a spy: one test puts in a folder watch that reports nothing,
@@ -22,7 +23,6 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...actual, watch: vi.fn(actual.watch) }
 })
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const FIXTURES = join(__dirname, '..', 'fixtures', 'sdk-messages')
 const NOW = Date.UTC(2026, 9, 5, 5, 0)
 
@@ -288,7 +288,7 @@ describe('limits channels', () => {
     const listener = handlers.get(`${IPC_CHANNEL_PREFIX}limits.open`)
     if (!listener) throw new Error('limits.open is not registered')
     return async (input, window = fakeWindow()) =>
-      (await listener({ senderFrame: { url: `file://${INDEX_HTML}` }, sender: window } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+      (await listener({ senderFrame: { url: APP_URL }, sender: window } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
 
   it('answers limits.open with the known Limits and refuses an input', async () => {

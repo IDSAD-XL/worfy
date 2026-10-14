@@ -16,11 +16,11 @@ import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { buildSubagentTree, flattenSubagents, type SubagentFile, type SubagentSignal } from '../../src/shared/transcript/subagents'
+import { APP_URL, INDEX_HTML } from '../app-url'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const AGENTS = '/Users/test/projects/agents'
 const DEMO = '/Users/test/projects/demo'
 const S5 = '55555555-5555-4555-8555-555555555555'
@@ -95,7 +95,7 @@ async function ipcOver(registry: ClaudeHomeRegistry, reader = readerWith()) {
   return async (channel: string, input: unknown): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)
-    return (await listener({ senderFrame: { url: `file://${INDEX_HTML}` } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+    return (await listener({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
 }
 

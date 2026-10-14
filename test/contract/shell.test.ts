@@ -9,9 +9,9 @@ import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
 
-const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 const PROJECT_ID = 'repo-00000001'
 
 const electron = vi.hoisted(() => ({
@@ -39,7 +39,7 @@ function git(cwd: string, ...args: string[]): string {
 async function call(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: `file://${INDEX_HTML}` }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 
