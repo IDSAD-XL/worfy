@@ -392,10 +392,12 @@ export interface MigrationFormProps {
   onClose: () => void
   /** Called once a move is done (the toolbar reads its offer again). */
   onMoved: () => void
+  /** The z-index of the form's backdrop, for a caller drawn above the default 100 (the Settings window). */
+  layer?: number
 }
 
 /** The form over the app: reads the plan from main and moves through it. */
-export default function MigrationForm({ onClose, onMoved }: MigrationFormProps) {
+export default function MigrationForm({ onClose, onMoved, layer }: MigrationFormProps) {
   const [plan, setPlan] = useState<MigrationPlan>()
   const [failure, setFailure] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -428,7 +430,7 @@ export default function MigrationForm({ onClose, onMoved }: MigrationFormProps) 
 
   return createPortal(
     <div
-      style={styles.backdrop}
+      style={layer === undefined ? styles.backdrop : { ...styles.backdrop, zIndex: layer }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && !busy) onClose()
       }}
