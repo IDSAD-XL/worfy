@@ -1,7 +1,7 @@
 # 07 — Fix: кнопка после команды с ошибкой, Sonnet вставляет исправленную команду, не запуская её
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #316](https://github.com/IDSAD-XL/worfy/pull/316)
 Branch: worfy-terminal-ai/07
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(d) (кнопка «Fix» после команды с кодом выхода не 0; Sonnet получает команду и ~50 последних строк вывода, возвращает исправленную; она вставляется и не запускается), пункт 2 (функция по требованию доступна до `rejected`), пункт 3 (хвост вывода — только для Fix; redaction до отправки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 5–6; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`, [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6
@@ -60,7 +60,7 @@ ssh или вложенного shell-а (там нет скриптов worfy).
 - [x] e2e `test/e2e/terminal-ai-fix.spec.ts` (новый), fake с ответом: команда с ошибкой в Terminal Node — кнопка «Fix»; нажатие — в строке xterm ответ fake; вывода исправленной команды нет, пока test не нажал Enter; после Enter кнопка пропала.
 - [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: кнопка «Fix» в шапке Terminal-а в светлой и тёмной теме — `../evidence/07-fix-light.png`, `../evidence/07-fix-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом из `test/e2e/terminal-ai-fix.spec.ts` на собранном приложении с временным HOME.
 - [x] `test/e2e/terminal.spec.ts` и `test/e2e/focus.spec.ts` зелёные без правки ожиданий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0. — `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 своим прогоном; gate full — за orchestrator-ом.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
 
@@ -133,3 +133,15 @@ ssh или вложенного shell-а (там нет скриптов worfy).
 
 ![Fix, светлая тема](../evidence/07-fix-light.png)
 ![Fix, тёмная тема](../evidence/07-fix-dark.png)
+
+### Gate оркестратора (2026-10-14)
+
+- Wave Epic-а под Autopilot из одного Ticket-а 07; соседей нет. Образец — Ticket 06 (каналы `state`/`changed`/`run` с пометкой `project`, contract на настоящем zsh, e2e с временным `HOME`).
+- Гейт — один круг: `VERIFIED` на `b3c29de` ([комментарий в PR #316](https://github.com/IDSAD-XL/worfy/pull/316#issuecomment-6164486894)). Verifier сам: gate fast — код 0, не из кэша; три новых test-файла — 24 passed; 14 своих мутантов — 9 красные, 2 эквивалентные, 3 — пробелы ниже; e2e `terminal-ai-fix`, `terminal`, `focus`, `terminal-ai-request` под замком — 16 passed; снимки шапки («Fix», «Fixing…», отказ) в обеих темах, контраст текста отказа 5,6:1 и 6,3:1 при ≥ 4,5:1 (`docs/design/F-SPEC.md:40`); evidence Ticket-а показывают кнопку после `ls /nonexistent-worfy`. «main не пишет Enter в pty» подтверждено: `runFix()` шлёт только `insert` (`src/main/terminal-ai/fix.ts:103`). Гонки со слушателем событий shell integration (not_verified исполнителя) нет: `terminalAi.fix.state` уходит раньше `terminal.open` (`TerminalNode.tsx:200`, `:306`).
+- Мерж: база main `69b7d1d`, head `b3c29de`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `5c4b543`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]):
+  - `src/main/ipc/terminal-ai-fix.ts:47` (`link.connected()` в `available`) и `:83` (`failed.forget(key)` при отключении zsh) защищают от одного случая, и мутант без любой из них по отдельности выживает: без test-а Restart под тем же ключом Terminal-а и события shell integration при неподключённом socket-е Terminal AI;
+  - `src/renderer/canvas/nodes/TerminalNode.tsx:389` (`onMouseDown preventDefault`) не держит ни один test: после отказа фокус остался бы на кнопке, а не в терминале.
+- Ручной пункт `pnpm dev` — `[ ]`: не проверено, `pnpm dev` с настоящим HOME не запускался; снимки — Playwright на собранном приложении с временным HOME.
+- **Решено без владельца, подтвердить:** решения исполнителя выше в «Итог» (команда — последней в «Recent commands» с кодом выхода, без отдельного поля; после Fix кнопка пропадает на всех экранах до следующей ошибки; новые тексты отказов; хвост строки прогресса — как показал бы терминал; оранжевая обводка `--blocked-ring`).
