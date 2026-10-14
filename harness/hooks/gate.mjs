@@ -588,11 +588,12 @@ async function runScript(pkg, script) {
 // A missing environment is not a defect in the code. It must not block, but it must
 // not count as green either: such work stays unverified. The second sign is what cmd.exe says
 // about a missing tool where bash says "command not found"; cmd.exe says it in English because
-// the gate starts it in a console that is at UTF-8 already (see `start`).
+// the gate starts it in a console that is at UTF-8 already (see `start`). It is a sign on
+// Windows only: elsewhere no shell says it, and a failed script that prints it has failed.
 const UNVERIFIABLE = new RegExp(
     [
         "command not found",
-        "is not recognized as an internal or external command",
+        ...(WINDOWS ? ["is not recognized as an internal or external command"] : []),
         "Cache entry required but missing",
         "ENOENT.*node_modules",
         "Cannot connect to the Docker daemon",

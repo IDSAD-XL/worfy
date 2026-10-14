@@ -5,6 +5,12 @@
 #   - each path of gate.mjs: green (a fresh run and a cache hit), red, environment unavailable
 #     (the message of sh and the one of cmd.exe, a package manager that is not installed), the
 #     registry resolver crashed, not registered, the plan resolver crashed, nothing ran;
+#   - what must not turn green: a red run repeated with no change, the second script of a
+#     profile and the second package of the plan failing, a package manager that cannot be
+#     started, an edit of a tracked file after a green run, a script ended by a signal;
+#   - a run that was stopped — a signal to the gate or to its process group while a script
+#     runs — writes nothing and removes the file of the run before;
+#   - node not found: the answer is the one of the launcher gate.sh;
 #   - a worktree path with a space, a quote and a backslash still gives a parseable file;
 #   - a second run overwrites the file; no temporary files are left in the state folder.
 # Run: bash harness/hooks/tests/gate-verdict.test.sh; exit code 0 means everything passed.
@@ -180,6 +186,13 @@ verdict "green run -> outcome green, exit 0, profile fast, key t, head" "$R" \
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && [[ "$out" == *"(кэш)"* ]]; then ok "second green run is a cache hit"; else bad "cache hit expected (rc=$rc, out: ${out:0:200})"; fi
 verdict "green from cache -> outcome green, exit 0" "$R" '.outcome == "green" and .exit == 0 and .key == "t"'
+# The green of the cache is the green of that content. `touched` adds a file git does not track;
+# here a tracked file is edited, and the script must run again.
+echo '{ "name": "fixture", "scripts": { "check": "true" }, "edited": true }' >"$R/package.json"
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]] && [[ "$out" != *"(кэш)"* ]]; then ok "an edit of a tracked file misses the cache: the script runs again"
+else bad "an edit of a tracked file: a fresh run expected (rc=$rc, out: ${out:0:300})"; fi
+git -C "$R" checkout -q -- package.json
 
 # --- 2. Red; a second run overwrites the file -----------------------------------------
 mode bad; touched
@@ -187,6 +200,11 @@ out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
 verdict "red run (full) -> outcome red, exit 2, profile full" "$R" '.outcome == "red" and .exit == 2 and .profile == "full" and .key == "t"'
 # The red marker is what stop.sh holds a turn on: a red run leaves it, a green run removes it.
 if [ -s "$STATE/red-t-$(tag "$R")" ]; then ok "red run leaves the red marker of the worktree"; else bad "red run: no red marker (state: $(ls "$STATE" | tr '\n' ' '))"; fi
+# Only green is cached: the same content checked again is run again, and is red again.
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (full): t/.:check"* ]]; then ok "a red run repeated with no change is red again, not a cache hit"
+else bad "a red run repeated with no change: rc=$rc, out: ${out:0:300}"; fi
+verdict "a red run repeated with no change -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .profile == "full"'
 mode ok; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a later green run overwrites red with green" "$R" '.outcome == "green" and .exit == 0 and .profile == "fast"'
@@ -199,6 +217,39 @@ verdict "2 MB of output with the sign of a missing tool in the last line -> outc
     '.outcome == "unverified" and .exit == 0 and .key == "t" and (.reason | endswith("sh: tool: command not found"))'
 mode ok
 
+# --- 2a. Red in the second script, in the second package, from a file that cannot be started --
+# Every script of a package is run, not only the first one.
+mode second-bad
+echo 1 >"$D/n.txt"
+out="$(cd "$D" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a profile of two scripts, the second fails -> outcome red, exit 2" "$D" '.outcome == "red" and .exit == 2 and .key == "d"'
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): d/.:second (прошло: d/.:check)"* ]]; then ok "two scripts: the line names the second as failed and the first as passed"
+else bad "two scripts: rc=$rc, out: ${out:0:300}"; fi
+mode ok
+# Every package of the plan is run, not only the first one. The root script goes through the
+# package manager of the registry and passes; the script of packages/a goes through `npm`, which
+# here is a file of the test, first on PATH, that fails.
+mkdir -p "$T/npmbad"
+if [ "$WIN" -eq 1 ]; then
+    printf '@echo off\r\necho Tests 1 failed\r\nexit /b 1\r\n' >"$T/npmbad/npm.cmd"
+    npmbad="$(cygpath -u "$T/npmbad"):$PATH"
+else
+    printf '#!/bin/sh\necho "Tests 1 failed"\nexit 1\n' >"$T/npmbad/npm"
+    chmod +x "$T/npmbad/npm"
+    npmbad="$T/npmbad:$PATH"
+fi
+out="$(cd "$K" && PATH="$npmbad" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "two packages in the plan, the second fails -> outcome red, exit 2" "$K" '.outcome == "red" and .exit == 2 and .key == "k"'
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): k/packages/a:check (прошло: k/.:check)"* ]]; then ok "two packages: the line names the second as failed and the first as passed"
+else bad "two packages: rc=$rc, out: ${out:0:300}"; fi
+# A package manager that is there but cannot be started has checked nothing: that is not a
+# script that passed.
+echo 1 >"$N/n.txt"
+out="$(cd "$N" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a package manager that cannot be started -> outcome red, exit 2" "$N" '.outcome == "red" and .exit == 2 and .key == "n"'
+if [ "$rc" -eq 2 ] && [[ "$out" != *"[gate] зелено"* ]]; then ok "a package manager that cannot be started: exit 2, no green line"
+else bad "a package manager that cannot be started: rc=$rc, out: ${out:0:300}"; fi
+
 # --- 3. Environment unavailable ------------------------------------------------------
 mode envbad; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
@@ -209,13 +260,20 @@ verdict "environment unavailable: the reason ends with the words of the script, 
 um="$STATE/unverified-t-$(tag "$R")"
 if [ -s "$um" ] && ! grep -q "$(printf '\r')" "$um" && [[ "$out" != *"$(printf '\r')"* ]]; then ok "environment unavailable: no carriage return in the marker or in the lines of the gate"
 else bad "a carriage return in the marker or the output (marker: $(od -c "$um" 2>/dev/null | head -n 5 | tr '\n' ' '))"; fi
-# cmd.exe names a missing tool in its own words; the text is the same sign on every system.
+# cmd.exe names a missing tool in its own words. They are a sign of a missing environment on
+# Windows only: elsewhere no shell says them, and a failed script that prints them has failed.
 mode envbad-cmd; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-verdict "environment unavailable in the words of cmd.exe -> outcome unverified, exit 0" "$R" \
-    '.outcome == "unverified" and .exit == 0 and (.reason | contains("is not recognized as an internal or external command"))'
-if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "the words of cmd.exe: exit 0 and the «окружение недоступно» line"
-else bad "the words of cmd.exe: rc=$rc, out: ${out:0:300}"; fi
+if [ "$WIN" -eq 1 ]; then
+    verdict "environment unavailable in the words of cmd.exe -> outcome unverified, exit 0" "$R" \
+        '.outcome == "unverified" and .exit == 0 and (.reason | contains("is not recognized as an internal or external command"))'
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "the words of cmd.exe: exit 0 and the «окружение недоступно» line"
+    else bad "the words of cmd.exe: rc=$rc, out: ${out:0:300}"; fi
+else
+    verdict "the words of cmd.exe off Windows are the output of a failed script -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .key == "t"'
+    if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): t/.:check"* ]]; then ok "the words of cmd.exe off Windows: exit 2 and the «красно» line"
+    else bad "the words of cmd.exe off Windows: rc=$rc, out: ${out:0:300}"; fi
+fi
 # The same words next to a report of a failed test: the tests did run, so the run is red.
 mode mixed; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
