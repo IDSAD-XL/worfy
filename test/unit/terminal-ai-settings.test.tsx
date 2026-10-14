@@ -66,6 +66,7 @@ function preload(): FakeMain {
 afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 /** Answers a call and lets the answer reach the section. */
@@ -343,8 +344,13 @@ describe('a feature the Limits stopped', () => {
   })
 
   it('goes away when main says the feature is on again', async () => {
+    // The mounted section reads the real clock in the local time zone. Midday local, so a pause an
+    // hour away lifts the same day whatever the hour and the time zone of the run; only Date is
+    // faked, the promises of the fake main still settle.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 14, 12, 0))
     const { main } = await mount(stateOf({}, { next: paused(Date.now() + 60 * 60 * 1000) }))
-    expect(status('next')).toMatch(/^Paused by Limits until \d\d:\d\d$/)
+    expect(status('next')).toBe('Paused by Limits until 13:00')
 
     act(() => main.changed(stateOf()))
     expect(status('next')).toBeUndefined()
