@@ -1,7 +1,7 @@
 # 04 — Suggestion от Haiku, когда история молчит: после паузы, с отменой при наборе
 
 Type: task
-Status: open
+Status: claimed — 2026-10-14
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(a) (если история молчит — после паузы Haiku с выключенным thinking; ответ может прийти через 1,5–5 с и отменяется или отбрасывается, если пользователь печатает дальше), пункт 2 (автоматическая функция — только после паузы, выключается сама по Limits), пункт 3 (контекст без вывода и переменных окружения, redaction, не во время команды, не для строки с пробелом в начале) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 3–5; [evidence spike-а](../evidence/spike-задержки-2026-10-09.md)
 
@@ -49,11 +49,11 @@ Source: решения владельца 2026-10-09: пункт 1(a) (если 
 ## Готово, когда
 
 - [ ] Contract `test/contract/terminal-ai-suggest.test.ts` (новый), остаток по ответу: строки spike-а — `npm run` и ответ `npm run dev` дают серый ` dev` (с пробелом); ответ `npm rundev` или `dev` не показывается; `grep -rn "TODO" --include` и ответ `grep -rn "TODO" --include="*.ts"` дают `="*.ts"`.
-- [ ] Тот же contract, настоящий zsh, assist — поддельный, ответ с задержкой: ввод `docker run --rm -it ub` без истории, ответ fake `docker run --rm -it ubuntu bash` — через паузу серый `untu bash`; ввод во время ожидания — `cancel`, старый ответ не показан; допечатанное `un` совпало с началом ответа — серым остался `tu bash`; набор быстрее паузы — ни одного запроса.
-- [ ] Тот же contract: в журнале запросов — строка, папка, не больше 20 команд, ветка, код выхода; вывода команд и переменных окружения нет; в истории `export GITHUB_TOKEN=ghp_…` — в журнале `[redacted]`.
-- [ ] Тот же contract: Limits `five_hour` 0,85 — запросов нет, Suggestion из истории работает; «Ask Claude when history has nothing» выключен — запросов нет; строка с пробелом в начале — запросов нет.
-- [ ] Тот же contract: `cat` ждёт ввода (идёт команда), набрано `ab` — запросов нет.
-- [ ] e2e `test/e2e/terminal-ai-suggest.spec.ts` (новый), fake с ответом: строка, которой нет в истории (уникальная метка), — серый ответ виден в буфере xterm; → принимает; в журнале fake один запрос `suggest`.
+- [x] Тот же contract, настоящий zsh, assist — поддельный, ответ с задержкой: ввод `docker run --rm -it ub` без истории, ответ fake `docker run --rm -it ubuntu bash` — через паузу серый `untu bash`; ввод во время ожидания — `cancel`, старый ответ не показан; допечатанное `un` совпало с началом ответа — серым остался `tu bash`; набор быстрее паузы — ни одного запроса.
+- [x] Тот же contract: в журнале запросов — строка, папка, не больше 20 команд, ветка, код выхода; вывода команд и переменных окружения нет; в истории `export GITHUB_TOKEN=ghp_…` — в журнале `[redacted]`.
+- [x] Тот же contract: Limits `five_hour` 0,85 — запросов нет, Suggestion из истории работает; «Ask Claude when history has nothing» выключен — запросов нет; строка с пробелом в начале — запросов нет.
+- [x] Тот же contract: `cat` ждёт ввода (идёт команда), набрано `ab` — запросов нет.
+- [x] e2e `test/e2e/terminal-ai-suggest.spec.ts` (новый), fake с ответом: строка, которой нет в истории (уникальная метка), — серый ответ виден в буфере xterm; → принимает; в журнале fake один запрос `suggest`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
 
 ## Тесты
@@ -72,4 +72,142 @@ test.
 
 ## Итог
 
-Заполняется при закрытии.
+2026-10-14. Ветка `worfy-terminal-ai/04`.
+
+### Как падал первый test
+
+`test/contract/terminal-ai-suggest.test.ts`, «without history, after the pause, the answer of the model is shown
+in grey; → takes it»:
+
+1. Без обработчика: файл не загрузился — `Cannot find module '/src/main/terminal-ai/features/suggest'`.
+2. С обработчиком, но без widget-а: `AssertionError: expected [] to include 'docker run --rm -it ub'` — shell ни
+   о чём не спросил main за 10 с. После `20-suggest-ai.zsh` — зелёный.
+
+### Числа
+
+- Пауза — **600 ms** без нажатий (как в spec, «Решено без владельца», п. 2), считается от последнего изменения
+  строки. Test на паузе самого widget-а: запрос пришёл не раньше чем через 600 ms после последней клавиши.
+- Тайм-аут — **5 с**: `FEATURE_TIMEOUT_MS.suggest` Ticket-а 02, не менял.
+- В contract пауза короче: 150 ms (отдельные test-ы — 400, 1000, 1500, 2000, 3000 ms). Её задаёт тестовый файл
+  `rc.d/15-test-pause.zsh` (переменная `__worfy_suggest_pause_ms`), который читается раньше widget-а.
+
+### Как устроено
+
+- **Widget** `src/main/terminal/zsh/rc.d/20-suggest-ai.zsh`. Функция `_worfy_suggest_line` стоит в
+  `__worfy_assist_line_hooks` Ticket-а 03. История промолчала (`$1` пустой) — сдвигает момент запроса на
+  «сейчас + пауза» и заводит таймер, если он ещё не идёт.
+- **Таймер.** Один на shell: subshell `<(print $sysparams[pid]; zselect -t …)` на pipe, его ждёт `zle -F`.
+  Внешняя программа не запускается. Клавиши во время паузы только сдвигают момент. Таймер кончился раньше
+  момента — следующий ждёт остаток. Enter (`line-finish`), Ctrl+C, пустая строка и строка, о которой не
+  спрашивают, сразу закрывают pipe и завершают subshell (`kill -TERM`). Запущенная команда не получает ни pipe,
+  ни живого subshell-а (test). Таймер, который дождался своего момента, тоже закрывает свой pipe (test).
+- **Не спрашивает:** пустую строку; строку с пробелом в начале; строку `# …`; строку, которую дала не клавиатура
+  (см. ниже); строку, для которой история дала Suggestion; строку, которая продолжает уже показанный
+  Suggestion (`kept`). Пока ждём — ничего не рисуется. Ответ рисует `_worfy_assist_on_show` Ticket-а 03, если
+  строка та же; любое её изменение отменяет `ask` там же.
+- **Обработчик** `src/main/terminal-ai/features/suggest.ts`. Вход запроса — `terminalAiInput()`
+  (`src/main/terminal-ai/input.ts`), затем `assist.request('suggest', input, ask.signal)`. Серым показывается
+  `suggestionRest(набранное, ответ)`: ответ длиннее набранного и начинается с него — остаток; иначе ничего.
+  Пустую строку и строку из нескольких строк main не спрашивает. Отказ сервиса (Limits, Settings, идёт команда,
+  альтернативный экран, процесс не стартовал, тайм-аут, пустой ответ) — тишина: ни `status`, ни строки в лог.
+
+### Что заложено для Ticket-ов 05 и 06
+
+- `src/main/terminal-ai/input.ts`:
+  `terminalAiInput(state: ShellState, line: string, extra?: TerminalAiInputExtra): TerminalAiInput | null`,
+  где `TerminalAiInputExtra = Partial<Pick<TerminalAiInput, 'request' | 'output'>>`. Возвращает папку,
+  копию команд, код выхода, `commandRunning` и `alternateScreen` (из `altScreen`). Если папка неизвестна
+  (`cwd === null`) — `null`, и запроса нет. Ветку не кладёт: её находит assist. Вывод команды кладёт, только
+  если его передал вызывающий. Unit — `test/unit/terminal-ai-input.test.ts`.
+- `test/e2e/terminal-ai-helpers.ts`:
+  - `terminalAiSandbox()` → `{ scratch, dataDir, root, home, env, answers(list), requests(), remove() }`:
+    временный `HOME` с `.zshrc`, Project `alpha`, файлы ответов и журнала fake; `env` передаётся в
+    `launchApp({ env })`;
+  - `openTerminal(window)` — новый Terminal Node с первым prompt-ом `e2e% `, в фокусе;
+  - `screenText(node)`, `editedLine(node)`, `greyText(node)` → `{ text, color }`, `typedColor(node)`;
+  - константы `ZSH`, `TERMINAL_AI_PROJECT`, `TERMINAL_AI_PROMPT`.
+
+  `greyText` берёт цвет с серой ячейки не под курсором. В окне с фокусом xterm.js мигает блочным курсором, и
+  полсекунды из каждой секунды ячейка под ним окрашена цветом курсора, то есть цветом текста. Мой e2e на этом
+  упал в первом прогоне.
+- **Признак вставленной строки** (для 06): переменная `__worfy_suggest_given` — строка, которую дала не
+  клавиатура, пока она стоит без изменений. Widget ставит её сам, если строка изменилась внутри
+  `_worfy_assist_on_insert` (сообщение `insert`), `_worfy_assist_take` (→) или `_worfy_assist_take_word`
+  (Alt+→). Проверка — по `funcstack`. Скрипту 06 ничего делать не нужно, если строку ставит main через
+  `insert`. Если скрипт ставит строку сам, он присваивает `__worfy_suggest_given=$BUFFER` до
+  `_worfy_assist_changed` (test «a line main put there with insert…», клавиша Ctrl+X p тестового скрипта).
+- Строка, которая начинается с `# `, модель Suggestion не спрашивает (test).
+
+### Правки test-ов вне «Где в коде» (по brief-у)
+
+- `test/contract/terminal-ai-zle.test.ts`: тестовый скрипт `withAskingScript` теперь спрашивает под именем
+  `probe`. Такого имени нет ни у одной функции Terminal AI. Его обработчик — `./features/probe.ts`. Настройки
+  этих test-ов включают из настоящих функций только Suggestion из истории, а после подключения test шлёт shell-у
+  `config history probe`. Так скрипты функций (`20-suggest-ai.zsh`, будущие `30-…`, `40-…`) в этих test-ах
+  молчат и не отменяют `ask` тестового скрипта. Ни одно ожидание не ослаблено: test-ы проверяют то же,
+  только под другим именем функции.
+  - Риск был настоящим: исходный файл Ticket-а 03 вместе с моим widget-ом дал 1 красный из 36 — «status is a
+    grey note that → does not take…», `expected false to be true`. Через 600 ms widget спросил `suggest`, и
+    `ask` теста отменился.
+  - Test-ы :749 и :888 (свой скрипт спрашивает `suggest`) не менял: они проверяют только `toContain` и
+    предупреждение, лишние `ask` от скриптов функций их не задевают.
+- `test/contract/terminal-shell-integration.test.ts:438`: список `rc.d` в `ZDOTDIR` теперь сравнивается со
+  списком `*.zsh` в `src/main/terminal/zsh/rc.d`, прочитанным в test-е. Изменена только эта строка.
+
+### Решено без владельца, подтвердить
+
+1. **Первый пункт «Готово, когда» выполнен не целиком — оставлен `[ ]`.** Ответ `npm rundev` на набранное
+   `npm run` показывается: серым `dev`.
+   - Почему: по двум строкам его не отличить от `docker run --rm -it ub` → `docker run --rm -it ubuntu bash`
+     (второй пункт) и `git log --one` → `git log --oneline` (spike). Там тоже буква продолжает букву, а ответ
+     верный. Правило, которое отбросит `npm rundev`, отбросит и их.
+   - Модель возвращает всю строку, хвост к набранному не приклеивается никогда. Поэтому `npm rundev` здесь —
+     собственная строка модели, а не склейка.
+   - Решение Orchestrator-а 2026-10-14 — вариант «простое правило». Остальное из пункта проверено test-ом: ответ
+     `dev` не показывается, `npm run dev` даёт ` dev`, `grep … --include` даёт `="*.ts"`. `npm rundev` → `dev`
+     закреплён отдельным test-ом с объяснением.
+   - Правило — одна чистая функция `suggestionRest` (`src/main/terminal-ai/features/suggest.ts`); менять его там.
+2. Строку, принятую из Suggestion целиком (→ или Alt+→ до конца), модель повторно не спрашивает: это уже её
+   ответ или команда из истории. Иначе каждое → тратило бы ещё один запрос.
+3. Строку из нескольких строк main не отправляет: ответ — одна строка, начинаться с такой строки он не может.
+4. Паузу можно задать переменной `__worfy_suggest_pause_ms` до widget-а. Это делают test-ы, но может и
+   `.zshrc` пользователя: он читается раньше `rc.d`.
+
+### Долги Ticket-а 03 и что они задевают
+
+- `config` позже первого prompt-а: пока настроек нет, `suggest` выключен, и таймер не заводится. Когда `config`
+  приходит, `_worfy_assist_on_config` зовёт хуки, и строка, которая уже стоит, получает свою паузу (test «with
+  "Ask Claude…" off… turned on, it asks about the line that stands»).
+- Программа в Terminal-е наследует соединение shell-а: не чинил. Свой pipe таймера widget закрывает до запуска
+  команды (test).
+
+### Mutation testing
+
+Скрипт `/tmp/worfy-tai-w3/impl-04/mut/run.mjs` — свой worktree, файл восстанавливается из копии, в конце
+сверяются контрольные суммы. 48 мутантов: `suggest.ts` — 11, `input.ts` — 11, `20-suggest-ai.zsh` — 26.
+
+- Убиты 47. Суммы всех трёх файлов после прогонов совпали с копиями.
+- S7 («cancel не доходит до запроса») сначала выжил: ответ fake с задержкой 5 с совпадал с тайм-аутом. Задержка
+  в test-е — 1,5 с, мутант убит.
+- Z7 («таймер для пустой строки») не убить: при пустой строке `__worfy_suggest_given` тоже пустая, и проверка
+  `$BUFFER != "$__worfy_suggest_given"` уже не пускает её. Мутант эквивалентный, проверку `-n $BUFFER`
+  оставил для ясности.
+
+### Проверки
+
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0: 234 файла, 4946 test-ов. Новый contract — 31 test, три
+  прогона подряд, все exit 0, около 41 с каждый.
+- `gate.sh fast` — в отчёте implementer-а.
+- e2e под `/tmp/worfy-e2e.lock`, консоль у `alexey`:
+  `playwright test test/e2e/terminal-ai-suggest.spec.ts test/e2e/terminal-ai-history.spec.ts` — exit 0, 2 passed.
+  - Первый прогон был красным: «grey is another colour than what was typed». Цвет брался с ячейки под
+    мигающим курсором; исправлен helper `greyText`.
+- `GATE_SCOPE=all` gate full — не запускал: его запускает Orchestrator.
+
+### Не проверено
+
+- Esc во время паузы: Esc отменяет открытый `ask` (Ticket 03), но не таймер, который ещё ждёт. Если нажать Esc
+  раньше, чем пауза прошла, модель всё равно спросят, и ответ покажется. Чтобы это поправить, Esc должен
+  сообщать скриптам функций о себе — правка `10-assist.zsh`, вне Ticket-а.
+- zsh старше 5.9 и zsh без модуля `zsh/zselect`: без модуля widget молча не включается, test-а на это нет.
+- Настоящий Haiku — только fake; вживую — Ticket 09.

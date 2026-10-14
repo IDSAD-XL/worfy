@@ -15,7 +15,7 @@ import { SYSTEM_PATH, type Env } from '../../src/main/agent/env'
 import type { ShellEvent } from '../../src/main/terminal/osc'
 import { spawnShellPty, TerminalRegistry, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath, type AssistDoor } from '../../src/main/terminal/shell-integration'
-import { ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
+import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
 
@@ -260,20 +260,33 @@ function stranger(path: string, firstLine?: string) {
   }
 }
 
-/** What a feature's own script does (rc.d/20-… of a later ticket): asks main when the history has nothing. */
+/**
+ * The name the tests' own script asks under. It is no feature of Terminal AI, so the scripts of the
+ * real features (rc.d/20-suggest-ai.zsh and later) never ask under it, and the tests below see the
+ * asks of their own script alone.
+ */
+const PROBE = 'probe'
+
+/** What a feature's own script does (rc.d/20-… and later): asks main when the history has nothing. */
 const ASKING_SCRIPT = [
-  '__test_ask_when_silent() { [[ -z $1 ]] && _worfy_assist_ask suggest "$BUFFER" }',
+  `__test_ask_when_silent() { [[ -z $1 ]] && _worfy_assist_ask ${PROBE} "$BUFFER" }`,
   '__worfy_assist_line_hooks+=(__test_ask_when_silent)',
 ].join('\n')
 
 async function withAskingScript(options: StartOptions = {}) {
-  const feature = recordingFeature()
-  const started = start({ features: { './features/suggest.ts': feature.loader }, ...options })
+  const feature = recordingFeature(PROBE)
+  // Of the real features only the Suggestion from history is on: their own scripts, which are in
+  // this shell too, ask nothing and cancel no ask of the test's script.
+  const settings = settingsSource({ suggestionAsksModel: false, nextCommand: false, commandRequest: false, fix: false })
+  const started = start({ features: { [`./features/${PROBE}.ts`]: feature.loader }, settings, ...options })
   const dir = await started.integration.prepare()
   await mkdir(join(dir, 'rc.d'), { recursive: true })
   await writeFile(join(dir, 'rc.d', '20-test.zsh'), `${ASKING_SCRIPT}\n`)
   const t = await started.open()
   await t.connected()
+  // The settings name the probe to the shell, as they name a real feature that is on. The `config`
+  // of the greeting went out when the shell said hello: this one is read after it.
+  expect(started.link.push(KEY, { type: 'config', features: [HISTORY_FEATURE, PROBE] })).toBe(true)
   /** The ask about `line`, once main has it. */
   const askAbout = async (line: string) => {
     await vi.waitFor(() => expect(feature.lines()).toContain(line), WAIT)
