@@ -1,8 +1,8 @@
-# Передача контекста — снимок на 2026-10-14 (UTC), main @ ce120bc
+# Передача контекста — снимок на 2026-10-14 (UTC), main @ 150c4cd
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32, 35, `epic-status` — 28/36; 26 — приёмка E3, `blocked`; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36.
+- `worfy-harness` (E3: Harness — правила, skills, agents и скрипты владельца — становится plugin-ом worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–25, 30, 32, 35, `epic-status` — 28/42; 26 (приёмка E3) ждёт 37; 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36–42.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 17 из 19; 19 (старая неудача в окне First run, low) открыт. Ticket 14 (перетаскивание без фризов) отложен владельцем, `blocked`; работа — только в локальной ветке `wip/worfy-week-14` («Итог» Ticket-а 14).
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
@@ -13,8 +13,7 @@
 
 ## Ждёт владельца
 
-- `worfy-harness` 26 (приёмка E3): код приёмки влит (PR #211, узкий круг — `NARROW: VERIFIED`); остались шаги ниже.
-- Приёмка E3 («Итог» 26): пункты 1–4 приняты (пункт 2 — 2026-10-13, код 0 на `IDSAD-XL/worfy-e3-silent-3`, снимки без расхождений); остался пункт 5 — владелец делает сам (`/Users/Shared/worfy-item5/`), пакет — из main после PR #257.
+- Приёмка E3 («Итог» `worfy-harness` 26): пункты 1–4 приняты. Пункт 5 — прогон 2026-10-14 под `worfy-test`: Wave прошла, но worfy из Finder не видит Epic-и Silent Project-а (37; 38–42 — прочее). Владелец: E3 не закрываем; после 37 и нового пакета (`/Users/Shared/worfy-item5/`) повторит двойной клик.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
 - `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
@@ -41,7 +40,7 @@
 - Пока не сделан пункт о реестре Gate и Profile, Gate `fast` и CI не проверяют PR, где изменён только `HANDOFF.md`: перед его push — `node scripts/check-handoff.mjs`. PR только в `harness/` гоняют Gate с `GATE_SCOPE=all`.
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
-- Ложный таймаут первого окна в e2e: заблокированный экран, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
+- Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
 - Замок e2e держащий обновляет `touch -c` раз в 5 минут (`rules.md` Profile-а worfy, 2026-10-10): без этого соседняя очередь снимала живой замок.
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 

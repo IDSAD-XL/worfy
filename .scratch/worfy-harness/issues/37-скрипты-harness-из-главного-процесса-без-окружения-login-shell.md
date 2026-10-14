@@ -1,0 +1,562 @@
+# 37 — worfy, запущенный из Finder, не показывает Epic-и Silent Project-а: скрипты Harness из main process идут без окружения login shell, а сбой не виден в окне
+
+Type: task
+Status: open
+Blocked by:
+Source: приёмочный прогон 2026-10-14 под вторым пользователем macOS (приёмка E3, пункт 5, Ticket [26](26-приёмка-e3.md)); отчёт прогона — [../evidence/26-пункт-5-отчёт-2026-10-14.md](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 1 (блокер). Утверждения отчёта о коде сделаны по собранному `app.asar`; здесь они сверены с исходниками на main `ff61b06f` (2026-10-14).
+
+## Что происходит
+
+Слова, которые нужны дальше:
+
+- **E3** — приёмка Epic-а `worfy-harness`. Её пункт 5 — ручной прогон под новым пользователем macOS.
+- **Harness** — plugin Claude Code со скриптами в `harness/bin`. worfy запускает эти скрипты из main
+  process (главный процесс Electron) и читает их ответ.
+- **Profile** — файл `profile.json` с фактами о Project-е. Лежит в домашней папке Harness, вне
+  репозитория. Его читает скрипт `profile`.
+- **Реестр** — файл `gate/config.json` в домашней папке Harness: список подключённых Project-ов.
+- **Full Project** — Project, у которого Ticket-ы лежат в репозитории: `<репозиторий>/.scratch`.
+- **Silent Project** — Project, у которого Ticket-ы лежат вне репозитория, в Workflow folder. По
+  умолчанию это `<домашняя папка Harness>/projects/<имя>/workflow`. Profile может назвать другую
+  папку (`workflow.folder`). У Project-а над несколькими репозиториями это папка над ними
+  (`harness/bin/profile:305-315`).
+- **Раскладка** — ответ на вопрос «где у Project-а workflow»: режим, Workflow folder, корень
+  Ticket-ов, репозитории. В коде — `ProjectLayout`.
+- **Окружение login shell** — переменные, которые печатает `$SHELL -ilc`. worfy читает их один раз
+  за запуск (`agentEnv()`, `src/main/agent/env.ts:516`). Причина записана в ADR-0007 (решение об
+  окружении процесса Claude Code): у приложения, запущенного из Finder, PATH равен
+  `/usr/bin:/bin:/usr/sbin:/sbin`, и node там нет.
+- **First run** — экран первого запуска с проверками машины, 13 строк.
+
+**Главное.** Пункт 5 приёмки E3 прошёл только с обходом: worfy запускали из Terminal.app, а не
+двойным кликом, как велит инструкция. Пока этот Ticket не сделан, пункт 5 пройден с обходом.
+
+### Что наблюдал прогон (по отчёту)
+
+- 2026-10-14, 01:47–02:13, сборка main `ba8a58c`, пользователь macOS `worfy-test`. node стоит через
+  nvm (v24.21.0).
+- worfy запущен двойным кликом. First run: 13 строк из 13 зелёные. Silent Project `silent-app`
+  подключён. Epic `e3-acceptance` положен в Workflow folder и закоммичен.
+- В окне: «No epics in .scratch/» и «No epics yet». Перезапуск из Finder не помог.
+- PATH живого процесса worfy: `/usr/bin:/bin:/usr/sbin:/sbin`.
+- Команды из `~/silent-app` с `env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin`:
+  - `ticket root` → `env: node: No such file or directory`, exit code 127;
+  - `epic-status --json` → `{"ref":"main","epics":[],"tickets":[]}`, exit code 0;
+  - то же с каталогом nvm в PATH → Epic `e3-acceptance` и Ticket 01.
+- Обход: Cmd+Q и запуск `~/Applications/worfy-stable.app/Contents/MacOS/worfy` из Terminal.app.
+  Epic появился. Wave (один проход агентов по готовым Ticket-ам Epic-а) прошла.
+- Контроль, 02:39–02:43, четыре запуска одной копии:
+  - двойной клик в Finder — Epic-ов нет у обоих Project-ов;
+  - `env -i HOME USER LOGNAME SHELL TMPDIR PATH=<nvm>:/usr/bin:/bin:/usr/sbin:/sbin open …` — те же
+    14 переменных, отличается только PATH — Epic-и есть у обоих;
+  - `open` из терминала передаёт приложению окружение терминала. Контролем служит только настоящий
+    двойной клик.
+- Wave при окружении Finder-а с node в PATH, 02:43–02:48. Процесс 80207:
+  `PATH=<nvm>:/usr/bin:/bin:/usr/sbin:/sbin`, остальные переменные — как при двойном клике.
+  «Autopilot» нажат в 02:44:20. Ticket 02 — `done`, журнал заканчивается строкой `run-stopped`.
+  Вывод отчёта: кроме node в PATH main process, от окружения терминала ничего не нужно.
+
+### Что подтверждено в исходниках (main `ff61b06f`)
+
+**1. Как worfy получает окружение login shell и кто им пользуется.** `captureLoginShellEnv`
+(`src/main/agent/env.ts:97-121`) запускает `$SHELL -ilc` из минимального окружения
+(`:28-29`, `:38-45`) с таймаутом 10 секунд (`:35`). `agentEnv()` (`:513-522`) делает это один раз за
+запуск приложения. Свой `process.env.PATH` приложение не меняет: присваиваний нет во всём `src/`.
+Если shell упал или не уложился в 10 секунд, ответ — то же минимальное окружение с системным PATH
+(`:103`, `:117`), а причина уходит в `console.warn` (`:518`).
+
+Окружение login shell получают:
+
+- Session-ы Claude Code — `src/main/agent/app-registry.ts:50`; черновик «Add project» —
+  `src/main/ipc/projects.ts:94`;
+- Terminal Node-ы (терминалы на Canvas) — `src/main/ipc/terminal.ts:211`, `:230`; Terminal AI
+  (помощник в терминале) — `src/main/terminal-ai/assist.ts:710`;
+- `gh` — `src/main/ipc/checks.ts:159`, `src/main/ipc/projects.ts:135`;
+- проверки и действия First run — `src/main/ipc/first-run.ts:93`; qmd (поиск по документам) —
+  `src/main/harness/qmd.ts:233`;
+- часть вызовов скриптов Harness: `project-connect`, `qmd-collections` и `profile` для списка
+  MCP-серверов, аккаунта GitHub, «Add project» и First run.
+
+**2. Все запуски внешних программ из `src/main` и их окружение.** «login shell» в столбце
+«Окружение» значит ответ `agentEnv()`.
+
+Скрипты Harness:
+
+| Где вызов | Что запускается | Окружение |
+| --- | --- | --- |
+| `src/main/workflow/reader.ts:107` (`runEpicStatus`; окружение — `:106`) | `epic-status --json`, `--json --ref <ветка>` | **`process.env`** + `HARNESS_HOME` |
+| `src/main/workflow/folder.ts:88`, `:96` (`readProjectLayout`) → `src/main/workflow/profile.ts:78` | `profile -C <root> --json`, `ticket root` | **`process.env`**: умолчание `options.env ?? process.env` (`folder.ts:86`). Без `env` зовут `src/main/workflow/watch.ts:221`, `src/main/workflow/reader.ts:406` и общий cache `folder.ts:124`, созданный без `env` (`:134`) |
+| `src/main/projects/store.ts:59` → `profile.ts:78` | `profile -C <папка> --json` | **`process.env`**, записано явно |
+| `src/main/agent/app-registry.ts:39` → `profile.ts:78` | `profile --field mcp.allowed` | login shell (`app-registry.ts:50-51`) |
+| `src/main/ipc/checks.ts:142` → `profile.ts:78` | `profile --field github.account` | login shell (`ipc/checks.ts:159`); `process.env`, когда задан `WORFY_GH` (test-ы) |
+| `src/main/ipc/projects.ts:144` → `profile.ts:78` | `profile` для «Add project» | login shell |
+| `src/main/ipc/first-run.ts:66` → `profile.ts:78` | `profile --name`, `--field qmd.collections` | login shell (`ipc/first-run.ts:96`, `:104`) |
+| `src/main/ipc/projects.ts:69` | `project-connect` | login shell (`:66`) + `HARNESS_HOME` |
+| `src/main/harness/qmd.ts:382` | `qmd-collections <project>` | login shell + `HARNESS_HOME` |
+
+`HARNESS_HOME` добавляет `scriptEnv` (`src/main/harness/locate.ts:96-98`), у `qmd-collections` —
+сам вызов.
+
+Остальные программы:
+
+| Где вызов | Что запускается | Окружение |
+| --- | --- | --- |
+| `src/main/agent/env.ts:106` | `$SHELL -ilc` | минимальное: системный PATH и восемь переменных из `process.env` |
+| `src/main/first-run/checks.ts:83` | `claude`, `git`, `gh`, `node`, `jq` с `--version`; `gh auth status` | login shell |
+| `src/main/first-run/actions.ts:81`, `src/main/harness/qmd.ts:183` | `npm`, `node`, `qmd` | login shell |
+| `src/main/github/prs.ts:56-59` | `gh` | то, что дал вызывающий (`:54`): login shell; `process.env`, когда задан `WORFY_GH` (`src/main/ipc/checks.ts:158-159`, `src/main/ipc/projects.ts:134-135`) |
+| `src/main/github/accounts.ts:219-224` | `/bin/sh -c 'exec "$0" auth login' gh` в pseudo-terminal | login shell; `process.env`, когда задан `WORFY_GH` |
+| `src/main/harness/install.ts:583` | `claude` из сборки, по абсолютному пути | `process.env` (`src/main/ipc/harness.ts:21`, `:27`) |
+| `src/main/terminal/pty.ts:767` (`spawnShellPty`, `:388-390`) | shell Terminal Node-а в pseudo-terminal (node-pty) | login shell (`src/main/ipc/terminal.ts:211`, `pty.ts:742`) |
+| Agent SDK, функция `query`: `src/main/agent/app-registry.ts:67`, `src/main/ipc/projects.ts:109`, `src/main/terminal-ai/assist.ts:463`; проверка входа First run — `src/main/ipc/first-run.ts:50-52` | Claude Code из сборки | login shell (`app-registry.ts:50`, `ipc/projects.ts:94`, `assist.ts:710`) |
+| `src/main/projects/store.ts:44`, `src/main/workflow/reader.ts:284`, `src/main/workflow/watch.ts:141`, `src/main/gate/state.ts:385`, `src/main/ipc/shell.ts:13`, `src/main/ipc/autopilot.ts:65`, `src/main/autopilot/origin.ts:53`, `src/main/autopilot/harness-drift.ts:65`, `src/main/terminal-ai/git-branch.ts:17`, `src/main/harness/migrate/apply.ts:139`, `src/main/harness/migrate/profiles.ts:139`, `src/main/claude-home/registry.ts:98` (`git -C <root> worktree list --porcelain`, `process.env` без четырёх переменных `GIT_*`, `:96`) | `git` по имени | `process.env` (местами без переменных `GIT_*`) |
+| `src/main/claude-home/registry.ts:248` | `ps` | `process.env` |
+| `src/main/agent/env.ts:267`, `src/main/terminal/pty.ts:322` | Windows PowerShell, только на Windows | `process.env` |
+
+`src/main/harness/migrate/restore.ts:296` и `:372` — текст отдельного скрипта `restore.mjs`
+(`:93`), main process его не выполняет.
+
+**3. Список Epic-ов.** `runEpicStatus` берёт `scriptEnv(harness, process.env)`
+(`src/main/workflow/reader.ts:102-107`). Параметра окружения нет ни у него, ни у
+`epicStatusRunner` (`:85`). Этот runner зовут наблюдатель за файлами workflow
+(`src/main/workflow/watch.ts:218`), `readWorkflow` (`reader.ts:402`) и MCP-сервер Canvas — сервер,
+через который Session видит холст (`src/main/mcp/canvas-server.ts:421`).
+
+**4. Что делает `epic-status` без node.** Скрипт на bash. Корень Ticket-ов он спрашивает у соседа
+`ticket root`, но только если `command -v node` находит node (`harness/bin/epic-status:58-59`).
+Без node он `ticket root` не зовёт вовсе. Он берёт `<git top-level или текущая папка>/.scratch`
+(`:62-64`). Это задумано: комментарий `:55` — «Without node — the old behaviour». Если такой папки
+нет, `--json` печатает пустые списки и выходит с exit code 0 (`:180`, `:320`). С `--ref` без node
+скрипт не спрашивает режим Project-а (`:283`) и тоже отвечает пустым списком.
+
+Когда node есть, а `ticket root` падает, `epic-status` выходит с его exit code (`:59`,
+`|| exit $?`). Сам `ticket root` при сломанном Profile-е отказывает с exit code 1
+(`harness/bin/ticket:126-132`).
+
+**5. Где worfy теряет режим Silent.** `readProjectLayout` (`src/main/workflow/folder.ts:84-100`)
+запускает `profile -C <root> --json`. При любом ответе «нет» он пишет строку
+`[workflow] <root>: Full mode, the workflow files in the Project root, because <причина>`
+(`:90`) и возвращает раскладку Full: режим `full`, Ticket-ы в `<root>/.scratch`, список
+репозиториев пуст (`:91`, `:41-44`). `ticket root` (`:96`) в этом случае не запускается.
+
+Ответ «нет» — это каждый из случаев `src/main/workflow/profile.ts`:
+
+- скрипта нет (`:134`); скрипт не запустился (`:135`);
+- exit code 3 — папка не в зарегистрированном Project-е (`:139`);
+- exit code 4 — «в Profile-е нет такого поля»; на `--json` скрипт так отвечать не должен, поэтому
+  это тоже отказ (`:140`); таймаут 15 секунд (`:141`, `:57`);
+- любой другой exit code, не 0 (`:142`) — сюда попадает 127 («нет node»);
+- вывод не JSON (`:259`); Harness старше Silent mode (`:262`); не те поля (`:266`).
+
+Причина видна только в консоли: `logOnce` пишет её в `console.warn` один раз на Project и причину
+(`folder.ts:64-68`). Она же лежит в поле `ProjectLayout.reason` (`:37`), но это поле никто не
+читает. Наблюдатель читает раскладку один раз, при старте (`watch.ts:12`, `:221`), и следит за
+`<root>/.scratch` (`:288`). У Silent Project-а такой папки нет.
+
+**6. Что показывает окно.** `epic-status` ответил пустым списком с exit code 0, поэтому в модели
+нет ошибки. Боковая панель пишет «No epics in .scratch/»
+(`src/renderer/shell/sidebar/EpicsSection.tsx:55`), Canvas — «No epics yet»
+(`src/renderer/canvas/overlays/FirstEpic.tsx:21`, `:64`). Канал для ошибки уже есть: текст
+`model.error.message` показывается в боковой панели (`EpicsSection.tsx:54`), и панель «No epics
+yet» при ошибке скрыта (`FirstEpic.tsx:21`).
+
+**7. Почему First run зелёный.** Экран получает окружение login shell
+(`src/main/ipc/first-run.ts:96-98`). С ним идут десять строк из 13
+(`src/main/first-run/checks.ts:131-145`): вход, инструменты (`checks.ts:83`, строка node —
+`checks.ts:250`) и три строки qmd. Строки «Harness plugin» и «Plugin dependencies» читают состояние
+установщика (`ipc/first-run.ts:101`). Установщик запускает `claude` из сборки по абсолютному пути с
+`process.env` (`src/main/harness/install.ts:406`, `:583`) и скрипт Harness не запускает. Строка
+«Old Harness in ~/.claude» только читает файлы (`checks.ts:316-319`). Строка «qmd collections» запускает `profile`, но тоже с окружением login
+shell (`ipc/first-run.ts:65-66`), а его отказ читает как «Profile-а нет» и остаётся зелёной
+(`checks.ts:358`). Ни одна строка не запускает скрипт Harness так, как его запускает чтение
+Epic-ов.
+
+**8. Почему автоматическая приёмка этого не обнаружила.**
+
+- `test/acceptance/e3.spec.ts:225-227` запускает бинарник приложения напрямую и отдаёт ему
+  окружение песочницы. PATH песочницы — `<песочница>/npm/bin:<песочница>/tools:` и системные папки
+  (`scripts/e3-sandbox.sh:109`, `:161`). В `tools/` лежит ссылка на node машины (`:89`,
+  `:126-148`). У main process в приёмке node есть в собственном PATH.
+- e2e (`test/e2e/helpers.ts:133-153`, `:160-164`) отдаёт приложению всё окружение процесса test-а.
+  Там node есть.
+- e2e Silent Project-а (`test/e2e/silent-project.spec.ts:95-112`) подменяет `profile`, `ticket` и
+  `epic-status` скриптами на `/bin/sh` (`:108`). Им node не нужен.
+- Contract test «скрипт идёт с переданным окружением, а не с окружением worfy» есть только для
+  списка MCP-серверов (`test/contract/workflow-profile.test.ts:214-224`).
+- Test-ы `readProjectLayout` в `test/contract/workflow-profile.test.ts` передают `env` сами
+  (`:417`, `:437`, `:442`, `:460`, `:500`). Умолчание `process.env` проходят другие test-ы: Silent
+  Project в `test/contract/workflow-reader.test.ts:516-532` (`readWorkflow` без `env`, `:523`) и
+  test cache в `test/contract/workflow-profile.test.ts:475`. Но их `profile` и `ticket` — скрипты
+  на `/bin/sh` (`workflow-reader.test.ts:479`, `:482`), а в test-е cache скрипта нет вовсе.
+  Интерпретатор из PATH им не нужен. Случая «скрипту нужен node, а в `process.env.PATH` его нет»
+  нет ни в одном test-е.
+
+**9. Почему дефекта не видно на учётной записи владельца.** Оба ответа без node указывают на
+`<репозиторий>/.scratch`: `epic-status` (`harness/bin/epic-status:62-64`) и раскладка Full
+(`folder.ts:43`). У Full Project-а с `tickets.root` `.scratch/` этот ответ совпадает с правдой
+случайно. Оба Project-а в приложении владельца такие; замеры — в подразделе «Что замерено на
+машине владельца».
+
+### Что замерено на машине владельца (не исходники)
+
+- Процесс `worfy-stable.app` владельца, запущен 2026-10-13 21:35:18:
+  `PATH=/usr/bin:/bin:/usr/sbin:/sbin` по `ps eww`. `command -v node` с этим PATH — exit code 1.
+  Замер Session, которая ведёт приёмку; повторён при проверке черновика 2026-10-14.
+- В списке Project-ов приложения два Project-а: репозиторий worfy и Auction. У их Profile-ов
+  `worfy` и `auction` `mode` — `full`, `tickets.root` — `.scratch/` (прочитано `jq`, только
+  чтение).
+- Третий Profile владельца, `atakama`, — `silent`. В список Project-ов приложения он не входит.
+
+### Что воспроизведено в песочнице
+
+Песочница — временная папка: git-репозитории, свой `HOME`, свой `HARNESS_HOME` с реестром и
+Profile-ами. Скрипты — из worktree на `ff61b06f`. Общий вид команды:
+`cd <репозиторий> && env -i HOME=<песочница>/home HARNESS_HOME=<…>/worfy-harness PATH=<PATH> <worktree>/harness/bin/<скрипт> …`.
+«Системный PATH» — `/usr/bin:/bin:/usr/sbin:/sbin`. node — v24.19.0 из nvm.
+
+| Репозиторий | PATH | Команда | Ответ | exit code |
+| --- | --- | --- | --- | --- |
+| Silent, без `.scratch` | системный | `ticket root` | `env: node: No such file or directory` | 127 |
+| Silent | системный | `profile -C <репозиторий> --json` | `env: node: No such file or directory` | 127 |
+| Silent | системный | `epic-status --json` | `{"ref":"main","epics":[],"tickets":[]}` | 0 |
+| Silent | системный | `epic-status` | `outside tickets (no <репозиторий>/.scratch)` | 0 |
+| Silent | системный | `epic-status --json --ref main` | `{"ref":"main","epics":[],"tickets":[]}` | 0 |
+| Full, `.scratch/demo/issues/01-x.md` | системный | `epic-status --json` | Epic `demo`, Ticket 01 | 0 |
+| Silent | с node | `ticket root` | `<Workflow folder>/.scratch` | 0 |
+| Silent | с node | `epic-status --json` | Epic `e3-acceptance`, Ticket 01 | 0 |
+| Silent | с node | `epic-status --json --ref main` | отказ «in Silent mode the status does not live in branches…» | 3 |
+| Profile сломан (`{"schema": 2}`) | с node | `epic-status --json` | `project profile not read (…, exit 1): …` | 1 |
+| Profile сломан | системный | `epic-status --json` | `{"ref":".","epics":[],"tickets":[]}` | 0 |
+| папка вне git, реестра нет | с node | `ticket root` | `project profile not read (…): profile: resolver … failed (exit 4)` | 1 |
+| папка вне git, реестра нет | с node | `profile --help` | строка usage | 0 |
+| папка вне git | системный | `profile --help` | `env: node: No such file or directory` | 127 |
+
+Приложение, e2e и сборка не запускались.
+
+### Поправки к отчёту
+
+- Отчёт: «`epic-status` при сбое `ticket root` отвечает пустым списком и кодом 0». По исходникам
+  иначе. Без node `epic-status` не зовёт `ticket root` (`harness/bin/epic-status:58`) и нарочно
+  берёт `<репозиторий>/.scratch` (`:55`, `:62-64`). При сбое `ticket root` он выходит с его exit
+  code (`:59`; воспроизведено: 1). Дефект есть, но это ветка «нет node».
+- Отчёт: «`profile --json` и `ticket root` тоже идут с `process.env`». `ticket root` из
+  `readProjectLayout` при PATH Finder-а не запускается: `profile --json` падает раньше, и функция
+  выходит (`folder.ts:89-92`).
+- Отчёт: окружение login shell не получают «вызовы скриптов Harness-а из главного процесса».
+  Не получают три группы вызовов: `epic-status`; `profile --json` и `ticket root` из
+  `readProjectLayout`; `profile --json` из `src/main/projects/store.ts:59`. Остальные получают.
+- Отчёт: `readProjectLayout` «молча переходит на раскладку Full», а строка `[workflow] …` «уходит
+  в консоль, которую при запуске из Finder не видно». Это верно. Уточнения по исходникам: строка
+  пишется один раз на Project и причину (`folder.ts:64-68`); переход случается при любом ответе
+  «нет», не только при 127 (`src/main/workflow/profile.ts:134-142`, `:259-266`).
+- Отчёт: «исправление сводится к одному» — передать окружение. Этого мало. `agentEnv()` сам может
+  вернуть системный PATH (`env.ts:103`, `:117`). Тогда остаются оба ответа без ошибки: пустой
+  список от `epic-status` без node и раскладка Full после неудачного вызова `profile`.
+
+### Что остаётся предположением
+
+- На Mac, где node стоит через Homebrew или официальный установщик, будет то же: `/opt/homebrew/bin`
+  и `/usr/local/bin` не входят в системный PATH (`env.ts:29`). На другом Mac не проверялось.
+- Silent Project над несколькими репозиториями (у владельца такой Profile есть — `atakama`) под PATH
+  Finder-а, по коду, читается как Full с пустым списком репозиториев. В окне не проверялось.
+- `env -i … PATH=/usr/bin:/bin:/usr/sbin:/sbin open <app>` даёт приложению то же окружение, что
+  двойной клик. Отчёт запускал этот вид команды только с nvm в PATH. Этот способ уже записан в
+  Harness как запуск «как из Finder»: `harness/skills/ship-ticket/SKILL.md:229-232`.
+
+## Что делаем
+
+### 1. Скрипты Harness из main process получают окружение login shell
+
+Сейчас с `process.env` идут три группы вызовов: `epic-status`; `profile --json` и `ticket root` из
+`readProjectLayout`; `profile --json` из `harnessWorkspaceOf`. Они получают то же окружение, что
+уже получают `project-connect` и `qmd-collections`: ответ `agentEnv()` плюс `HARNESS_HOME`.
+
+Что меняется:
+
+- `src/main/workflow/reader.ts` — `epicStatusRunner` и `runEpicStatus` принимают окружение
+  (`:85`, `:102-107`); `readWorkflow` передаёт его и в runner, и в `readProjectLayout` (`:402`,
+  `:406`).
+- `src/main/workflow/folder.ts` — у `readProjectLayout` нет умолчания `process.env` (`:52`, `:86`);
+  общий cache получает окружение (`:134`).
+- `src/main/workflow/watch.ts` — наблюдатель передаёт окружение в runner и в раскладку (`:218`,
+  `:221`).
+- `src/main/projects/store.ts:59` — `harnessWorkspaceOf`.
+- Места, где приложение собирает эти части: `src/main/ipc/workflow.ts:10`,
+  `src/main/ipc/autopilot.ts:103`, `src/main/ipc/actions.ts:41`,
+  `src/main/mcp/canvas-server.ts:421`.
+
+Как именно — выбор:
+
+- **(а) Рекомендуем.** Одна функция «окружение скриптов Harness» (например, в
+  `src/main/harness/`). Её зовут все места сборки и новая строка First run, которая запускает
+  скрипт Harness. Параметр окружения у `epicStatusRunner`, `readProjectLayout`, `LayoutCache`,
+  `WorkflowHub` и `readWorkflow` — обязательный, без умолчания. Компилятор покажет каждое место
+  вызова. Дефект появился как раз из необязательного параметра с умолчанием `process.env`.
+- **(б)** Один общий runner для всех скриптов Harness вместо четырёх мест запуска
+  (`reader.ts:107`, `profile.ts:78`, `ipc/projects.ts:69`, `qmd.ts:382`). Правка больше, а те же
+  места перепишет Ticket `worfy-windows/05` (перевод `epic-status` на Node и вызов скриптов через
+  `node <файл>`). Здесь не делаем.
+
+Это меняет решение из Ticket-а [23](23-worfy-читает-silent-project-и-несколько-репозиториев.md)
+(worfy читает Silent Project), раздел «Итог», пункт (2): «окружение `profile` и `ticket` для
+чтения режима — то же, что у `epic-status` (окружение процесса worfy)». Владелец подтвердил его
+2026-10-12. Прогон 2026-10-14 показал, что оно ломает Silent Project при запуске из Finder.
+Смена решения — слово владельца, до merge.
+
+### 2. `epic-status` без node отказывает, а не отвечает пустым списком
+
+Нет node в PATH и не дан `--root`: `epic-status` пишет причину в stderr и выходит с exit code,
+отличным от 0. Текст называет node и PATH. Рекомендуем exit code 3: этим кодом скрипт уже говорит
+«прочитать не могу, а не пусто» (`harness/bin/epic-status:284-285`, `:290-291`). Это касается всех
+трёх видов вызова: `--json`, `--json --ref` и строки без флагов (`:194`).
+
+С `--root <папка>` node не нужен (`:60-61`) — эта ветка остаётся.
+
+В самом Harness без node не работает ни один вызывающий: `preflight` зовёт `profile` и `node -e`
+(`harness/bin/preflight:148`, `:154`), `epic-board` — скрипт на node. Test-а на ветку «нет node» в
+`harness/bin/tests` нет.
+
+worfy для этого менять не нужно: exit code, отличный от 0, уже становится ошибкой модели с текстом
+из stderr (`src/main/workflow/reader.ts:114-115`), и окно её показывает.
+
+### 3. Неудачный вызов `profile` виден в окне, а не подменяется раскладкой Full
+
+`readResolvedProfile` (`src/main/workflow/profile.ts:252-270`) различает два вида ответа «нет»:
+
+- **Profile-а нет** — раскладка Full, как сейчас: exit code 3 (`:139`), скрипта нет (`:134`),
+  Harness старше Silent mode (`:262`).
+- **Вызов не удался** — режим неизвестен: любой другой exit code (127 — нет node; 1 — сломан
+  реестр или `profile.json`), таймаут, вывод не JSON, не те поля, exit code 4 на `--json`, скрипт
+  не запустился.
+
+Для второго вида — выбор:
+
+- **(а) Рекомендуем.** Раскладка не угадывается. Модель Project-а пустая, с ошибкой и причиной —
+  тем же путём, что при упавшем `epic-status` (`src/main/workflow/reader.ts:271-279`). Боковая
+  панель показывает текст, панель «No epics yet» скрыта, renderer не меняется. Так уже ведёт себя
+  сломанный Profile: при exit code 1 от `profile` падает `ticket root`, за ним `epic-status`
+  (воспроизведено).
+- **(б)** Раскладка Full остаётся, а рядом со списком Epic-ов появляется строка-предупреждение.
+  Нужно новое поле в модели (`src/shared/workflow/types.ts:77-85`) и новый текст в renderer.
+
+В обоих вариантах: после устранения причины состояние уходит без перезапуска приложения. Сейчас
+наблюдатель читает раскладку один раз при старте (`watch.ts:12`), а общий cache держит ответ 30
+секунд (`folder.ts:105`, `:123`). Как раскладка перечитывается после неудачи — решить при работе и
+записать в «Итог».
+
+### 4. Строка First run запускает скрипт Harness так, как его запускает main process
+
+- **(а) Рекомендуем: новая строка** в группе «Harness», после «Plugin dependencies». Она запускает
+  `profile --help` тем же runner-ом (`harnessScriptRunner`, `profile.ts:72`) и с окружением из той
+  же функции, что чтение Epic-ов, а не с `deps.env` экрана. `--help` не читает реестр
+  (`harness/bin/profile:97-100`): без файла реестра он отвечает exit code 0, а `ticket root` там
+  же — 1 (воспроизведено).
+  - exit code 0 — `ok`;
+  - любой другой или скрипт не запустился — `fail`: exit code, последняя строка stderr, подсказка,
+    что worfy не может запустить скрипты Harness;
+  - plugin не установлен — строка не красная и говорит, что проверка идёт после установки, как
+    «Plugin dependencies» (`src/main/first-run/checks.ts:308-311`).
+- **(б)** Расширить строку «Harness plugin». Не рекомендуем: её состояния и кнопки — про установку.
+
+Новая строка меняет число проверок с 13 на 14: `src/shared/ipc/first-run.ts:14-29`,
+`checks.ts:131-145`, `:399-413`, `test/acceptance/e3.spec.ts:47`, `test/e2e/first-run.spec.ts:113`,
+`test/contract/first-run-checks.test.ts:120-134` (порядок всех строк) и `:277` (строки группы
+«Harness»). First run открывается сам, когда
+красной стала проверка, которая не была красной при закрытии экрана
+(`src/main/ipc/first-run.ts:6-11`): человек с этим дефектом увидит экран при следующем запуске.
+
+### 5. Приёмка и e2e запускают приложение с PATH Finder-а
+
+- `test/acceptance/e3.spec.ts:226` — приложение получает PATH `/usr/bin:/bin:/usr/sbin:/sbin`.
+  Инструменты оно находит через login shell песочницы: `scripts/e3-sandbox.sh` пишет её PATH в
+  `home/.zshenv` и `home/.profile` (`:173-180`, `:248-252`). Команды самого test-а (`git`, `gh`,
+  скрипты Harness) идут с окружением песочницы, как сейчас.
+- Новый e2e собранного приложения с тем же PATH — первый пункт «Готово, когда».
+
+### Порядок работы: два PR (решение оркестратора, 2026-10-14)
+
+- **Срез 1 — снимает блокер приёмки.** Пункт 1. Из «Готово, когда»: первый e2e (Epic Silent
+  Project-а виден при PATH Finder-а), contract test, первые три мутанта, замер времени e2e. После
+  merge пакет в `/Users/Shared/worfy-item5/` собирается заново, и владелец делает ручную проверку.
+- **Срез 2 — сбой виден.** Пункты 2, 3, 4 и 5 и остальные строки «Готово, когда».
+- Ticket закрывается вторым срезом.
+
+Почему так. Владелец 2026-10-14 ждёт быстрый фикс для повторной проверки: «Е3 пока не закрываем,
+фикс выглядит простым и быстрым, я проверю». Пункты 2–4 меняют поведение Full Project-ов и число
+строк First run; по ним нужно его слово (раздел «Риски»).
+
+О решении из Ticket-а 23. Слова владельца сказаны после чтения отчёта прогона, который предлагает
+передать скриптам окружение login shell. Оркестратор считает их согласием на пункт 1. Это
+толкование оркестратора; прямой вопрос владельцу задан 2026-10-14, ответ — в «Итог».
+
+## Готово, когда
+
+- [ ] e2e, собранное приложение, новый случай. PATH приложения — `/usr/bin:/bin:/usr/sbin:/sbin`.
+      node — только в PATH login shell (`SHELL=/bin/sh`, временный `HOME`, `.profile`). Harness —
+      настоящие скрипты из `out/harness`, установленные как plugin. Project — Silent, Epic лежит в
+      Workflow folder до запуска приложения. В боковой панели есть строка Epic-а, на Canvas — его
+      рамка. **На нынешнем main красный: «No epics in .scratch/».**
+- [ ] Тот же e2e, node нет и в login shell: боковая панель показывает причину со словом node,
+      панели «No epics yet» нет. На нынешнем main — «No epics in .scratch/» и панель.
+- [ ] Contract test: `process.env.PATH` без node, окружение, отданное чтению, с node. Настоящие
+      `epic-status`, `ticket`, `profile`. Модель несёт Epic и Ticket Silent Project-а; раскладка —
+      `silent`, корень Ticket-ов — в Workflow folder. То же для `harnessWorkspaceOf`. На нынешнем
+      main красный.
+- [ ] `harness/bin/tests`: без node в PATH и без `--root` команды `epic-status --json`,
+      `epic-status` и `epic-status --json --ref main` выходят с exit code, отличным от 0, и
+      называют node в stderr. С `--root <папка>` без node — exit code 0, как раньше. На нынешнем
+      main — exit code 0 и пустой ответ.
+- [ ] Раскладка: таблица случаев `test/contract/workflow-profile.test.ts:447-468` разделена на
+      «Profile-а нет» (Full, как раньше) и «вызов не удался» (модель с причиной либо
+      предупреждение — по выбранному варианту); случай exit code 127 добавлен. Test на модель: при
+      неудачном вызове `profile` окно получает причину.
+- [ ] После устранения причины Epic-и появляются без перезапуска приложения; как — в «Итог».
+- [ ] First run: новая строка. Contract test — три состояния. e2e — при PATH приложения без node и
+      login shell с node строка зелёная; при login shell без node — красная, с exit code 127.
+- [ ] `test/acceptance/e3.spec.ts` запускает приложение с системным PATH.
+- [ ] Мутанты (нарочно испорченный код, на котором test обязан стать красным), каждый красный:
+      «`runEpicStatus` снова берёт `process.env`»; «`readProjectLayout` снова берёт
+      `process.env`»; «`harnessWorkspaceOf` снова берёт `process.env`»; «`epic-status` без node
+      снова отвечает `<репозиторий>/.scratch`»; «неудачный вызов `profile` снова даёт Full без
+      причины»; «строка First run берёт окружение экрана, а не общее».
+- [ ] (вручную, владелец) Второй пользователь macOS, сборка с этим Ticket-ом. Silent Project
+      подключён, Epic положен в Workflow folder и закоммичен. После этого worfy закрыт (Cmd+Q) и
+      открыт настоящим двойным кликом в Finder. `ps eww <pid>` показывает PATH
+      `/usr/bin:/bin:/usr/sbin:/sbin`. Silent Project показывает свой Epic в боковой панели и на
+      Canvas. Перезапуск нужен: в том же прогоне (02:27–02:36) Epic, положенный после подключения
+      Silent Project-а, не появился до повторного открытия Project-а, хотя node в PATH был. Это
+      отдельная находка — Ticket 41 этого Epic-а, она вне скоупа. `open` из терминала контролем
+      не считается. Ответ — в «Итог» Ticket-а 26, пункт 5.
+- [ ] Слово владельца о смене решения из Ticket-а 23 записано в «Итог».
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit code 0; gate full (полная проверка перед
+      merge) на Mac зелёный.
+
+## Тесты
+
+- **Сначала красный e2e.** Образец окружения — `test/e2e/first-run.spec.ts:52-90`: временный
+  `HOME`, `SHELL=/bin/sh`, `.profile` ставит в PATH свою папку. В этой папке — ссылка на настоящий
+  node (`process.execPath` процесса Playwright). `launchApp` копирует всё окружение test-а
+  (`test/e2e/helpers.ts:133-136`), поэтому PATH приложения test задаёт сам, через `options.env`.
+  Harness — копия `out/harness` в `<Claude home>/worfy-harness/plugin`; реестр, Silent Profile и
+  Workflow folder — во временных папках. Строка Epic-а — `data-testid="sidebar-epic"`
+  (`src/renderer/shell/sidebar/EpicsSection.tsx:67-68`).
+- **Contract test.** Образец «интерпретатор только в PATH login shell» —
+  `test/contract/workflow-profile.test.ts:112-124`. `pnpm test` идёт под Node из Electron
+  (`scripts/vitest-electron.mjs:24-27`), `process.execPath` там — Electron. Настоящий node test
+  находит через `command -v node`, как `test/contract/harness-scripts.test.ts:41-44`. PATH «без
+  node» для `process.env` test собирает сам: папка со ссылками на утилиты, которые нужны
+  `epic-status` (среди них `bash`, `git`, `awk`, `xargs`, `realpath`, `dirname`, `sed`, `tr`), без
+  node — как в `harness/hooks/tests/gate-verdict.test.sh:135-145`. `pnpm test` идёт в CI на Linux
+  (`.github/workflows/ci.yml:26`, `:49`), а там node может лежать в системной папке. Test сам
+  проверяет, что `command -v node` с этим PATH ничего не находит.
+- **Shell-test «нет node».** PATH — папка со ссылками на нужные утилиты без node, как в
+  `harness/hooks/tests/gate-verdict.test.sh:135-145`. `PATH=/usr/bin:/bin` не годится: на другой
+  машине node может лежать в `/usr/bin`.
+- **Существующие test-ы, которые изменятся.**
+  - `test/contract/workflow-profile.test.ts:447-468` закрепляет нынешнее поведение: любой отказ
+    `profile` — раскладка Full.
+  - `test/contract/workflow-reader.test.ts` передаёт stub-у данные через `process.env`
+    (`STUB_LOG`, `:27`). Этим test-ам отдать runner-у `process.env` явно.
+  - `test/fixtures/first-run-tools/node:4-9` — подставной node умеет только `--version`. С новой
+    строкой First run он должен уметь запустить скрипт, иначе e2e First run станет красным.
+- **Замер e2e.** Сейчас e2e-приложение читает Epic-и без login shell. После правки каждый старт с
+  открытым Project-ом ждёт `$SHELL -ilc` машины, на которой идут test-ы. В `test/e2e` 209 вызовов
+  `test(`. Замерить время `pnpm test:e2e` до и после, числа — в «Итог».
+- Ни один test не пишет в настоящие `~/.claude`, `~/.config` и `~/Library`.
+
+## Где в коде
+
+- `src/main/workflow/reader.ts` — `epicStatusRunner` `:85`, `runEpicStatus` `:102-118`,
+  `readCheckout` `:271-280`, `readWorkflow` `:400-412`.
+- `src/main/workflow/folder.ts` — `fullLayout` `:41-44`, `logOnce` `:64-68`, `readProjectLayout`
+  `:84-100`, cache `:114-136`.
+- `src/main/workflow/profile.ts` — `harnessScriptRunner` `:72-87`, `runProfile` `:124-144`,
+  `readResolvedProfile` `:252-270`.
+- `src/main/workflow/watch.ts` — `WorkflowWatcher.start` `:216-234`, чтение `:331-355`.
+- `src/main/harness/locate.ts` — `scriptEnv` `:96-98`.
+- `src/main/agent/env.ts` — `agentEnv` `:513-522`.
+- `src/main/projects/store.ts` — `harnessWorkspaceOf` `:58-61`.
+- `src/main/ipc/workflow.ts:10`, `src/main/ipc/autopilot.ts:103`, `src/main/ipc/actions.ts:41`,
+  `src/main/mcp/canvas-server.ts:421`, `src/main/ipc/checks.ts:52`, `src/main/ipc/docs.ts:25`.
+- `src/main/first-run/checks.ts`, `src/main/ipc/first-run.ts`, `src/shared/ipc/first-run.ts`.
+- `src/shared/workflow/types.ts` — ошибка модели `:66-71`, модель `:77-85`.
+- `src/renderer/shell/sidebar/EpicsSection.tsx:52-55`,
+  `src/renderer/canvas/overlays/FirstEpic.tsx:19-22`.
+- `harness/bin/epic-status` — выбор корня `:54-66`, `--ref` `:278-286`.
+- `harness/bin/tests/tickets-root.test.sh`, `harness/bin/tests/silent-mode.test.sh`.
+- `test/contract/workflow-reader.test.ts`, `test/contract/workflow-profile.test.ts`,
+  `test/contract/first-run-checks.test.ts`.
+- `test/e2e/silent-project.spec.ts`, `test/e2e/first-run.spec.ts`, `test/e2e/helpers.ts`,
+  `test/fixtures/first-run-tools/node`.
+- `test/acceptance/e3.spec.ts` — `launch` `:225-244`, `CHECK_IDS` `:47`.
+
+## Вне скоупа
+
+- Перевод `epic-status` на Node и вызов скриптов через `node <файл>` — Ticket `worfy-windows/05`
+  (скрипты `harness/bin` на Node). Его пункт 5 уже требует отдать `epic-status` окружение агента,
+  а пункт 1 убирает ветку «нет node». Раскладку (`readProjectLayout`), видимость сбоев и строку
+  First run он не покрывает. Его фраза «Сегодня это не мешает: bash-версия обходится без node»
+  (строки 51–53 его файла) для Silent Project-а неверна. Этот Ticket делается раньше: он устраняет
+  блокер приёмки.
+- `git` из main process идёт с `process.env` (например, `src/main/workflow/reader.ts:284`,
+  `src/main/projects/store.ts:44`). На Mac прогона `/usr/bin/git` есть: в песочнице `git` под
+  системным PATH отработал. Mac без Command Line Tools не проверялся.
+- Текст «No epics in .scratch/» у Silent Project-а называет не ту папку (`EpicsSection.tsx:55`).
+- MCP-сервер Canvas читает модель без корня Ticket-ов (`src/main/mcp/canvas-server.ts:421`), и
+  заголовки Epic-ов ищутся в `<root>/.scratch` (`src/main/workflow/reader.ts:225`). Замечено при
+  чтении кода, запуском не проверено.
+- Машина с plugin-ом, но без реестра `gate/config.json`: `profile` отвечает exit code 1, а не 3
+  (воспроизведено). Что после этого Ticket-а видно в окне — в «Риски».
+- Остальные находки отчёта (2–9) и наблюдатель за `.scratch`, созданной после подключения.
+- Текст инструкции прогона `/Users/Shared/worfy-item5/README-item5.md`.
+
+## Риски
+
+- **`agentEnv()` может вернуть системный PATH.** Shell упал или не уложился в 10 секунд
+  (`src/main/agent/env.ts:103`, `:117`) — node снова нет. Поэтому отказ `epic-status`, причина в
+  окне и строка First run нужны и после передачи окружения.
+- **Harness на машине старше приложения.** Правка `epic-status` действует после обновления
+  plugin-а (First run → Update; у владельца — `pnpm install:stable`). До этого на машине стоит
+  прежний скрипт. Причина в окне при неудачном вызове `profile` не должна зависеть от новой версии
+  `epic-status`.
+- **Первое чтение Epic-ов ждёт login shell.** Сейчас оно его не ждёт. Медленные rc-файлы задержат
+  появление Epic-ов на время до 10 секунд.
+- **e2e начинают зависеть от login shell машины.** Число для решения — замер времени
+  `pnpm test:e2e` до и после. Если время или нестабильность заметны, выбор: `launchApp` задаёт свой
+  `HOME` и `SHELL=/bin/sh`, либо переменная только для test-ов, как `WORFY_GH`
+  (`src/main/ipc/checks.ts:159`). Такая переменная не должна действовать в приёмке E3.
+- **Передача окружения сама меняет поведение там, где `profile` отвечает exit code 1.** Пример —
+  машина с plugin-ом, но без файла реестра `gate/config.json`. С node в PATH `epic-status` зовёт
+  `ticket root`, тот зовёт `profile`. `profile` выходит с exit code 1: реестр не прочитан
+  (`harness/bin/profile:139-147`, `harness/hooks/gate-resolve.mjs:41-46`). `ticket root` на любой
+  exit code, кроме 3, отказывает с exit code 1 (`harness/bin/ticket:126-131`), и `epic-status`
+  выходит с ним же. Воспроизведено в песочнице: Full-репозиторий с `.scratch/demo/issues/01-x.md`,
+  `HARNESS_HOME` без `gate/config.json`. PATH с node — `project profile not read (…, exit 1):
+  profile: resolver … failed (exit 4)`, exit code 1. Системный PATH — Epic `demo` и Ticket 01, exit
+  code 0. Сегодня worfy из Finder показывает Epic-и такого Project-а, а worfy из терминала уже
+  показывает ошибку. После пункта 1 ошибку покажет и worfy из Finder — раньше, чем сделан пункт 3.
+  Project попадает в список и без реестра: `projects.add` добавляет любой git-репозиторий
+  (`src/main/ipc/projects.ts:242-249`). Решить до начала работы: либо `profile` без файла реестра
+  отвечает exit code 3 («папка не в зарегистрированном Project-е»), либо владелец принимает ошибку
+  в окне. Сказать владельцу до merge.
+- **Отказ от угадывания раскладки меняет поведение Full Project-ов.** Сбой `profile` сегодня не
+  мешает показать Ticket-ы из `<root>/.scratch` только у worfy, запущенного из Finder: там
+  `epic-status` до `profile` не доходит. Таймаут `profile --json` сегодня даёт раскладку Full. После
+  правки в обоих случаях окно покажет причину вместо Ticket-ов. Сказать владельцу до merge.
+- **Пересечение с открытыми Ticket-ами.** `worfy-windows/05` правит `reader.ts`, `profile.ts` и
+  `epic-status`; `worfy-windows/13` (First run на Windows) — список проверок. `worfy-windows/04`
+  (hooks Harness на Node) в «Готово, когда» называет запуск через `open` «окружением, как из
+  Finder» (строка 122 его файла). Прогон показал обратное: `open` из терминала отдаёт приложению
+  окружение терминала. Его проверку нужно вести настоящим двойным кликом в Finder, как в этом
+  Ticket-е. Ticket 41 этого же прогона (Epic, положенный после подключения Silent Project-а)
+  правит `src/main/workflow/watch.ts` — тот же старт наблюдателя (`:216-234`, `:288`), что
+  пункты 1 и 3 раздела «Что делаем». Перед началом работы сверить открытые PR и сказать исполнителям этих Ticket-ов (Epic
+  `worfy-windows` ведёт отдельная Session Claude Code на Windows-ПК владельца).
+- **Переменные только из `process.env`.** Скрипт, запущенный с окружением login shell, не видит
+  переменных, заданных одному приложению (`CLAUDE_GATE_CONFIG`, `STUB_*` в test-ах). `HARNESS_HOME`
+  добавляет `scriptEnv`. Проверить, что приёмка в песочнице находит свой Claude home: её login
+  shell экспортирует те же переменные (`scripts/e3-sandbox.sh:173-180`).
+
+## Итог
+
+—
