@@ -27,6 +27,7 @@ import { readOriginKey } from '../autopilot/origin'
 import { Autopilot, RunningElsewhere, selfProjectRefusal } from '../autopilot/run'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessVersion } from '../harness/bundled'
+import { harnessScriptEnv } from '../harness/script-env'
 import { AutopilotRunsLink } from '../link/autopilot-runs'
 import { appLinkService, onAppLinkStart, type LinkService } from '../link/service'
 import { projectStore } from '../projects/store'
@@ -100,7 +101,7 @@ export function sharedAutopilot(): Autopilot {
   const autopilot = new Autopilot({
     projectRoot: (projectId) => projectStore().get(projectId).path,
     selfRefusal: (root) => selfProjectRefusal({ packaged: app.isPackaged, appPath: app.getAppPath(), projectRoot: root, gitCommonDir }),
-    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome() })).model,
+    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
     watchWorkflow: async (root, onChange) => {
       watchIds -= 1
       const id = watchIds

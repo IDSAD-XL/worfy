@@ -62,6 +62,9 @@ vi.mock('electron', () => ({
   dialog: { showOpenDialog: electron.showOpenDialog, showMessageBox: electron.showMessageBox },
   shell: { openPath: electron.openPath, openExternal: electron.openExternal },
 }))
+// The app runs the Harness scripts with the login shell environment; a test does not start the
+// login shell of the machine it runs on, so the scripts get this process's environment here.
+vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
 const PROJECT = 'demo-0a1b2c3d'
 const OTHER = 'other-0a1b2c3e'

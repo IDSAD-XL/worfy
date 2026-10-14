@@ -22,6 +22,7 @@ import * as nativePath from 'node:path'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
+import type { HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
@@ -39,6 +40,11 @@ import {
 export interface WatchOptions {
   root: string
   claudeHome: string
+  /**
+   * The environment `epic-status`, `profile` and `ticket` run with: the login shell's
+   * (src/main/harness/script-env.ts), never worfy's own, whose PATH from Finder has no node.
+   */
+  env: HarnessScriptEnvSource
   /** Quiet period after the last file event before a read (default 300 ms). */
   debounceMs?: number
   /**
@@ -215,10 +221,10 @@ export class WorkflowWatcher {
    */
   static async start(options: WatchOptions): Promise<WorkflowWatcher> {
     const root = resolve(options.root)
-    const run = options.run ?? epicStatusRunner(options.claudeHome)
+    const run = options.run ?? epicStatusRunner(options.claudeHome, options.env)
     const watcher = new WorkflowWatcher({ ...options, root, run })
     try {
-      watcher.layout = await (options.layout ?? ((at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome })))(root)
+      watcher.layout = await (options.layout ?? (async (at: string) => readProjectLayout({ root: at, claudeHome: options.claudeHome, env: await options.env() })))(root)
       await watcher.watch()
       watcher.dirtyCheckout = true
       watcher.dirtyBranches = true

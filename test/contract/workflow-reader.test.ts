@@ -16,6 +16,13 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { generateScratch } from './scratch-gen'
 
+/**
+ * The scripts' environment the readers are handed here: this process's own. The stub below reads
+ * STUB_LOG, STUB_MODE and the like from it, and a test changes them between reads, so it is asked
+ * on every run. In the app it is the login shell's (src/main/harness/script-env.ts).
+ */
+const ownEnv = (): Promise<NodeJS.ProcessEnv> => Promise.resolve(process.env)
+
 // ── stub epic-status ──────────────────────────────────────────────────────────
 
 const STUB_JS = String.raw`
@@ -199,7 +206,7 @@ afterEach(async () => {
 })
 
 async function startWatcher(repo: string, home: string, deltas: WorkflowDelta[], run?: EpicStatusRunner): Promise<WorkflowWatcher> {
-  const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, onChange: (delta) => deltas.push(delta), ...(run ? { run } : {}) })
+  const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, onChange: (delta) => deltas.push(delta), ...(run ? { run } : {}) })
   cleanups.push(() => watcher.close())
   return watcher
 }
@@ -210,7 +217,7 @@ describe('workflow reader', () => {
   it('reads Epics and Tickets from epic-status and adds "Где в коде" files and the Epic title', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
 
     expect(model.error).toBeNull()
     expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo epic: a small one' }])
@@ -222,7 +229,7 @@ describe('workflow reader', () => {
   it('keeps only the keys of the model: extra keys of the script output do not pass through', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const model = await readCheckout(repo, epicStatusRunner(home))
+    const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
       ['blockedNums', 'blockedParsed', 'blockedRaw', 'epic', 'fromBranch', 'files', 'filesListed', 'num', 'slug', 'state', 'statusRaw', 'title'].sort(),
@@ -234,14 +241,14 @@ describe('workflow reader', () => {
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
 
-    const before = (await readWorkflow({ root: repo, claudeHome: home })).model
+    const before = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(ticketOf(before, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-05', fromBranch: 'demo/02' })
     expect(ticketOf(before, 3)).toMatchObject({ state: 'open', fromBranch: null })
     // The checkout itself still says open: the claim lives in the branch only.
     expect(readFileSync(join(repo, '.scratch/demo/issues/02-second.md'), 'utf8')).toMatch(/^Status: open$/m)
 
     git(repo, 'merge', '-q', '--ff-only', 'demo/02')
-    const after = (await readWorkflow({ root: repo, claudeHome: home })).model
+    const after = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(ticketOf(after, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-05', fromBranch: null })
   })
 
@@ -251,7 +258,7 @@ describe('workflow reader', () => {
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const file = join(repo, '.scratch/demo/issues/02-second.md')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: done — 2026-10-06'))
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(ticketOf(model, 2)).toMatchObject({ state: 'done', fromBranch: null })
   })
 
@@ -262,7 +269,7 @@ describe('workflow reader', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/03', join(repo, '.claude', 'worktrees', '03'), 'main')
     const file = join(repo, '.scratch/demo/issues/03-third.md')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — rejected by review'))
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(ticketOf(model, 3)).toMatchObject({ state: 'blocked', statusRaw: 'blocked — rejected by review', fromBranch: null })
   })
 
@@ -277,7 +284,7 @@ describe('workflow reader', () => {
     for (const status of ['claimed — 2026-10-06', 'done — 2026-10-06']) {
       writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, `Status: ${status}`))
       git(path, 'commit', '-qam', `03: ${status}`)
-      expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 3), status).toMatchObject({
+      expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 3), status).toMatchObject({
         state: 'blocked',
         statusRaw: 'blocked — rejected by review',
         fromBranch: null,
@@ -293,12 +300,12 @@ describe('workflow reader', () => {
     const file = join(repo, '.scratch/demo/issues/04-fourth.md')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-06'))
     // The branch still says open, from its base: the checkout's claim stands.
-    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 4)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-06', fromBranch: null })
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-06', fromBranch: null })
     // The branch blocks the Ticket: that is news the checkout does not have yet.
     const branchFile = join(path, '.scratch/demo/issues/04-fourth.md')
     writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waits for the owner'))
     git(path, 'commit', '-qam', 'block 04')
-    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home })).model, 4)).toMatchObject({ state: 'blocked', fromBranch: 'demo/04' })
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({ state: 'blocked', fromBranch: 'demo/04' })
   })
 
   it('understands the older <epic>/<NN>-<slug> branches and skips branches that name no Ticket', async () => {
@@ -308,7 +315,7 @@ describe('workflow reader', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'feature-x', join(dir, 'elsewhere'), 'main')
     git(repo, 'worktree', 'add', '-q', '-b', 'other-epic/01', join(dir, 'other'), 'main')
 
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(ticketOf(model, 3)).toMatchObject({ state: 'work', fromBranch: 'demo/03-third' })
     // feature-x is not a Ticket branch; other-epic/01 names a Ticket the checkout does not have.
     expect(calls(log).sort()).toEqual(['.', 'demo/03-third'])
@@ -324,7 +331,7 @@ describe('workflow reader', () => {
     git(repo, 'commit', '-qm', 'more')
     for (let n = 5; n <= 10; n += 1) claimInWorktree(repo, `demo/${String(n).padStart(2, '0')}`, String(n).padStart(2, '0'), `${String(n).padStart(2, '0')}-extra.md`)
 
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     let inFlight = 0
     let peak = 0
     const counting: EpicStatusRunner = async (cwd, ref) => {
@@ -337,14 +344,14 @@ describe('workflow reader', () => {
         inFlight -= 1
       }
     }
-    const { model } = await readWorkflow({ root: repo, claudeHome: home }, counting)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, counting)
     expect(model.tickets.filter((t) => t.fromBranch !== null).map((t) => t.num)).toEqual([5, 6, 7, 8, 9, 10])
     expect(peak).toBe(4)
   })
 
   it('gives an empty model with the reason when epic-status is missing, and does not throw; the reason names both places it looked', async () => {
     const repo = makeRepo(dir)
-    const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'no-such-home') })
+    const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'no-such-home'), env: ownEnv })
     expect(model.tickets).toEqual([])
     expect(model.epics).toEqual([])
     const legacy = join(dir, 'no-such-home', 'bin', 'epic-status')
@@ -356,7 +363,7 @@ describe('workflow reader', () => {
     const repo = makeRepo(dir)
     const { home, harnessHome, log, harnessEnv } = makePluginHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(model.error).toBeNull()
     expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
     expect(ticketOf(model, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
@@ -364,7 +371,7 @@ describe('workflow reader', () => {
     // Every run, the checkout's and the branch's, got the Harness home.
     expect(calls(harnessEnv)).toEqual([harnessHome, harnessHome])
     // The plain runner the MCP server uses (canvas-server.ts) finds it too.
-    expect((await readCheckout(repo, epicStatusRunner(home))).error).toBeNull()
+    expect((await readCheckout(repo, epicStatusRunner(home, ownEnv))).error).toBeNull()
   })
 
   it('takes WORFY_HARNESS_HOME as the Harness home when it is set', async () => {
@@ -374,7 +381,7 @@ describe('workflow reader', () => {
     process.env.WORFY_HARNESS_HOME = harnessHome
     try {
       // The Claude home is elsewhere and empty: the Harness home comes from the variable.
-      const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'empty-claude-home') })
+      const { model } = await readWorkflow({ root: repo, claudeHome: join(dir, 'empty-claude-home'), env: ownEnv })
       expect(model.error).toBeNull()
       expect(calls(harnessEnv)).toEqual([harnessHome])
     } finally {
@@ -387,7 +394,7 @@ describe('workflow reader', () => {
     const repo = makeRepo(dir)
     const { harnessEnv } = makePluginHome(dir)
     const { home, log } = makeClaudeHome(dir)
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(model.error).toBeNull()
     expect(calls(log)).toEqual(['.'])
     // The plugin's script was not run.
@@ -401,7 +408,7 @@ describe('workflow reader', () => {
     mkdirSync(join(home, 'bin'))
     writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\nrm -rf '${join(home, 'bin')}'\nexit 1\n`)
     chmodSync(join(home, 'bin', 'epic-status'), 0o755)
-    const model = await readCheckout(repo, epicStatusRunner(home))
+    const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(model.error).toBeNull()
     expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
     expect(calls(log)).toEqual(['.'])
@@ -412,7 +419,7 @@ describe('workflow reader', () => {
     const repo = makeRepo(dir)
     const { home, log } = makeClaudeHome(dir)
     process.env.STUB_MODE = 'fail'
-    expect((await readCheckout(repo, epicStatusRunner(home))).error?.code).toBe('failed')
+    expect((await readCheckout(repo, epicStatusRunner(home, ownEnv))).error?.code).toBe('failed')
     expect(calls(log)).toEqual(['.'])
   })
 
@@ -421,7 +428,7 @@ describe('workflow reader', () => {
     const { home } = makePluginHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const before = treeState(home)
-    await readWorkflow({ root: repo, claudeHome: home })
+    await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(treeState(home)).toEqual(before)
   })
 
@@ -429,16 +436,16 @@ describe('workflow reader', () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     process.env.STUB_MODE = 'fail'
-    const failed = (await readWorkflow({ root: repo, claudeHome: home })).model
+    const failed = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(failed.error?.code).toBe('failed')
     expect(failed.error?.message).toMatch(/stub broke on purpose/)
     expect(failed.tickets).toEqual([])
 
     process.env.STUB_MODE = 'garbage'
-    const garbage = (await readWorkflow({ root: repo, claudeHome: home })).model
+    const garbage = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(garbage.error?.code).toBe('invalid-output')
 
-    const wrongShape = (await readWorkflow({ root: repo, claudeHome: home }, async () => JSON.stringify({ ref: 'main', epics: [], tickets: [{ epic: 'demo', num: 'one' }] }))).model
+    const wrongShape = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, async () => JSON.stringify({ ref: 'main', epics: [], tickets: [{ epic: 'demo', num: 'one' }] }))).model
     expect(wrongShape.error?.code).toBe('invalid-output')
   })
 
@@ -450,7 +457,7 @@ describe('workflow reader', () => {
     const before = treeState(repo)
     const homeBefore = treeState(home)
 
-    await readWorkflow({ root: repo, claudeHome: home })
+    await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     const deltas: WorkflowDelta[] = []
     const watcher = await startWatcher(repo, home, deltas)
     await new Promise((done) => setTimeout(done, 500))
@@ -520,7 +527,7 @@ describe('workflow reader in Silent mode', () => {
     const harnessLog = stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
     process.env.STUB_SCRATCH = scratch
 
-    const { model } = await readWorkflow({ root: repo, claudeHome: home })
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(model.error).toBeNull()
     expect(model.epics).toEqual([{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Silent epic: tickets outside the repository' }])
     expect(ticketOf(model, 1)).toMatchObject({ state: 'work', files: ['src/a.ts'], filesListed: true, fromBranch: null, branch: 'fix/first', repo: 'silent-repo' })
@@ -559,7 +566,7 @@ describe('workflow reader in Silent mode', () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
-    const before = (await readWorkflow({ root: repo, claudeHome: home })).model
+    const before = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
     expect(ticketOf(before, 2)).toMatchObject({ state: 'work', fromBranch: 'demo/02' })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
@@ -571,7 +578,7 @@ describe('workflow reader in Silent mode', () => {
       ['exit code 3', { code: 3, json: '' }, null],
     ] as const) {
       stubHarness(home, profile, ticketsRoot)
-      const { model } = await readWorkflow({ root: repo, claudeHome: home })
+      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
       expect(model, label).toEqual(before)
     }
     warn.mockRestore()
@@ -586,7 +593,7 @@ describe('workflow reader in Silent mode', () => {
     const refs = git(repo, 'for-each-ref')
     const [repoBefore, folderBefore, homeBefore] = [treeState(repo), treeState(folder), treeState(home)]
 
-    await readWorkflow({ root: repo, claudeHome: home })
+    await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     const watcher = await startWatcher(repo, home, [])
     await new Promise((done) => setTimeout(done, 500))
     await watcher.close()
@@ -730,7 +737,7 @@ describe('workflow watcher', () => {
     const { home } = makeClaudeHome(dir)
     // Both watches by chokidar, as on every system but Windows: there the Tickets root has a watch of
     // its own (worfy-windows ticket 20), whose errors test/unit/link-safe-watch.test.ts covers.
-    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, onChange: () => undefined, ticketsWatch: 'chokidar' })
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: home, env: ownEnv, onChange: () => undefined, ticketsWatch: 'chokidar' })
     cleanups.push(() => watcher.close())
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     // The watcher keeps its two chokidar watchers private: the Tickets root first, then the git refs.
@@ -774,7 +781,7 @@ describe('workflow watcher', () => {
   it('does not lose a Ticket saved while the first read runs', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     const file = join(repo, '.scratch/demo/issues/03-third.md')
     let savedAt = 0
     // The first checkout read answers with the state from before the save, as a slow read would.
@@ -804,7 +811,7 @@ describe('workflow watcher', () => {
   it('sends no onChange before start resolves, though a save during the first read makes start read twice', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     const file = join(repo, '.scratch/demo/issues/03-third.md')
     let saved = false
     // The first checkout read saves a Ticket and lasts until the watcher has seen the save and asked
@@ -824,6 +831,7 @@ describe('workflow watcher', () => {
     const watcher = await WorkflowWatcher.start({
       root: repo,
       claudeHome: home,
+      env: ownEnv,
       run: racing,
       debounceMs: 50,
       onChange: (delta) => (started ? deltas : early).push(delta),
@@ -843,7 +851,7 @@ describe('workflow watcher', () => {
   it.skipIf(process.platform !== 'darwin')('waits for 300 ms of quiet: saves closer together than that give exactly one read', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     let checkoutReads = 0
     const counting: EpicStatusRunner = async (cwd, ref) => {
       if (ref === null) checkoutReads += 1
@@ -866,7 +874,7 @@ describe('workflow watcher', () => {
   it('never overlaps reads: saves during a read give exactly one more read', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     let checkoutReads = 0
     let inFlight = 0
     let peak = 0
@@ -912,7 +920,7 @@ describe('workflow watcher', () => {
   it('reads during a steady stream of saves: saves every 200 ms for 3 s give a read before the stream ends', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     let checkoutReads = 0
     const counting: EpicStatusRunner = async (cwd, ref) => {
       if (ref === null) checkoutReads += 1
@@ -998,7 +1006,7 @@ describe('workflow hub', () => {
   it('shares one watcher per Project: the other window keeps getting changes after one leaves', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
-    const hub = new WorkflowHub({ claudeHome: home })
+    const hub = new WorkflowHub({ claudeHome: home, env: ownEnv })
     cleanups.push(() => hub.closeAll())
     const first: WorkflowDelta[] = []
     const second: WorkflowDelta[] = []
@@ -1040,7 +1048,7 @@ describe('workflow reader on an Auction-sized Project', () => {
     chmodSync(join(home, 'bin', 'epic-status'), 0o755)
 
     // The script's own time (process start, cat) is not worfy's: measure it and take it out.
-    const real = epicStatusRunner(home)
+    const real = epicStatusRunner(home, ownEnv)
     let scriptMs = 0
     const timed: EpicStatusRunner = async (cwd, ref) => {
       const start = performance.now()
@@ -1051,12 +1059,12 @@ describe('workflow reader on an Auction-sized Project', () => {
       }
     }
 
-    const previous = (await readWorkflow({ root: repo, claudeHome: home }, timed)).model
+    const previous = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, timed)).model
     const samples: number[] = []
     for (let i = 0; i < 3; i += 1) {
       scriptMs = 0
       const start = performance.now()
-      const { model } = await readWorkflow({ root: repo, claudeHome: home }, timed)
+      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv }, timed)
       diffModels(previous, model)
       samples.push(performance.now() - start - scriptMs)
       expect(model.tickets).toHaveLength(682)
@@ -1078,6 +1086,10 @@ describe('workflow IPC channels', () => {
     const { home } = makeClaudeHome(dir)
     process.env.WORFY_CLAUDE_HOME = home
     vi.resetModules()
+    // The app's hub runs the scripts with the login shell environment. The stub needs STUB_LOG of
+    // this process, and a test must not run the login shell of the machine it runs on.
+    vi.doMock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: ownEnv }))
+    cleanups.push(async () => vi.doUnmock('../../src/main/harness/script-env'))
     const module = await import('../../src/main/ipc/workflow')
     cleanups.push(() => module.workflowHub.closeAll())
 

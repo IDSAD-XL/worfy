@@ -17,6 +17,7 @@ import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
+import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
 import {
@@ -37,6 +38,11 @@ export interface ReaderOptions {
   root: string
   /** Claude Code's home; the script is that of the Harness found from it (epicStatusPath). */
   claudeHome: string
+  /**
+   * The environment `epic-status`, `profile` and `ticket` run with: the login shell's
+   * (src/main/harness/script-env.ts), never worfy's own, whose PATH from Finder has no node.
+   */
+  env: HarnessScriptEnvSource
   /** How many branch snapshots run at once (default 4). */
   concurrency?: number
   /** Where the workflow lives; read from the Harness (src/main/workflow/folder.ts) when absent. */
@@ -81,29 +87,35 @@ export const epicStatusPath = (claudeHome: string): string => join(locateHarness
  * The default runner: the real script as a child process, with a timeout and a size cap. The
  * Harness is looked for on every run, so a machine that switches to the plugin is read without a
  * restart; the plugin's script gets HARNESS_HOME.
+ *
+ * `env` is asked on every run and is the login shell environment in the app
+ * (src/main/harness/script-env.ts). The script is bash, but it asks `ticket root` for the Tickets
+ * root only when its PATH has node; without node it reads `<repository>/.scratch` and answers a
+ * Silent Project with no Epics and exit code 0.
  */
-export function epicStatusRunner(claudeHome: string): EpicStatusRunner {
+export function epicStatusRunner(claudeHome: string, env: HarnessScriptEnvSource): EpicStatusRunner {
   return async (cwd, ref) => {
+    const base = await env()
     const harness = locateHarness(harnessHomes(claudeHome))
     try {
-      return await runEpicStatus(harness, cwd, ref)
+      return await runEpicStatus(harness, base, cwd, ref)
     } catch (error) {
       // The Harness changed under the run — the move (ticket 14) took the old scripts away while
       // they ran: one more run, with the Harness found now, instead of an error that would stay
       // on the canvas until the next change in the Project.
       const now = locateHarness(harnessHomes(claudeHome))
       if (now.kind === harness.kind && now.binDir === harness.binDir) throw error
-      return runEpicStatus(now, cwd, ref)
+      return runEpicStatus(now, base, cwd, ref)
     }
   }
 }
 
-/** One run of `epic-status` of `harness`; the plugin's gets HARNESS_HOME. */
-function runEpicStatus(harness: HarnessLocation, cwd: string, ref: string | null): Promise<string> {
+/** One run of `epic-status` of `harness` with the environment `base`; the plugin's gets HARNESS_HOME on top. */
+function runEpicStatus(harness: HarnessLocation, base: HarnessScriptEnv, cwd: string, ref: string | null): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     const script = join(harness.binDir, 'epic-status')
     const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
-    const env = scriptEnv(harness, process.env)
+    const env = scriptEnv(harness, base)
     execFile(script, args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
       if (!error) return resolvePromise(stdout)
       const code = (error as NodeJS.ErrnoException).code
@@ -399,11 +411,11 @@ export function applyBranches(checkout: CheckoutModel, branches: BranchCache): W
 /** One full read: the checkout, then, in Full mode, every Ticket worktree branch. Never throws. */
 export async function readWorkflow(
   options: ReaderOptions,
-  run: EpicStatusRunner = epicStatusRunner(options.claudeHome),
+  run: EpicStatusRunner = epicStatusRunner(options.claudeHome, options.env),
   previous: BranchCache = new Map(),
 ): Promise<{ model: WorkflowModel; checkout: CheckoutModel; branches: BranchCache }> {
   const root = resolve(options.root)
-  const layout = options.layout ?? (await readProjectLayout({ root, claudeHome: options.claudeHome }))
+  const layout = options.layout ?? (await readProjectLayout({ root, claudeHome: options.claudeHome, env: await options.env() }))
   const checkout = await readCheckout(root, run, layout.ticketsRoot)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
