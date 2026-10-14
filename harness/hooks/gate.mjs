@@ -34,8 +34,10 @@
 //       tells the model about it at most once per session per repository
 //       (through additionalContext — that costs the model an extra turn, hence only once)
 //       and does not hold the turn. Agents put code 3 into not_verified, skills do not merge on it.
-//   129, 130, 143, 149 (128 + the number of a signal) — the gate itself was stopped. Nothing is
-//       written down and the work is not verified: see "A run that was stopped" below.
+//   129, 130, 143, 149 (128 + the number of a signal) — the gate itself was stopped. This run
+//       wrote no verdict, marker or cache entry, and the work is not verified: see "A run that
+//       was stopped" below, which also names the first moments of a run, where an earlier
+//       verdict file may stay.
 //
 // The verdict file (ticket worfy-harness/09, ADR-0044: the machine contract carries no language).
 // Every run inside a git worktree overwrites <state>/verdict-<tag>.json (the same folder and tag as
@@ -66,10 +68,23 @@
 // stop and its own signal handler ran (a hook that ran out of time, Ctrl-C in the window of the
 // gate): the gate exits with 128 + the number of the signal (SIGHUP 129, SIGINT 130, SIGTERM
 // 143, Ctrl+Break of Windows 149) and writes no marker, no cache entry and no verdict file; the
-// verdict file of the run before is removed. Ctrl-C reaches the gate and the script it waits
-// for: the handler of the gate then runs before the result of the script is looked at, so such a
-// run is stopped, not red. An error inside the gate itself ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ:
-// …» with code 3 and no verdict file.
+// verdict file of the run before is removed, its markers stay.
+// The gate looks for that signal wherever it waited (see "a signal while the gate waits"): after
+// each call to git, the resolver or a script, before the cache answers and before a script starts,
+// and once more right before the outcome is written down. Ctrl-C reaches the gate and the child it
+// waits for, so the child's answer is never read before the handler of the gate has had its turn:
+// the empty output of a killed `git diff` is not a clean tree, and a killed script does not make
+// the run red. A child that a signal ended alone — no signal to the gate within half a second — is
+// no answer either: a git ends the run as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git … was ended by the
+// signal …» with code 3, the resolver as a resolver that crashed (code 3), a script as a failed
+// script (code 2). Once the outcome is being written down, a signal no longer changes it: the gate
+// exits with the code of that outcome.
+// Two moments are left: a signal before the handlers exist — the first tens of milliseconds of
+// the process, or the up to 2 s the gate waits on an open stdin that sends nothing — ends the
+// process by the signal's default action. The code is the same, but the verdict file of an earlier
+// run may still be in place.
+// An error inside the gate itself ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3 and no
+// verdict file.
 //
 // Without node this file cannot run, so the hooks do not start it themselves: hooks.json calls
 // gate.sh, a launcher in bash next to this file. The launcher finds node — on PATH, else in the
@@ -94,7 +109,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
+import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 
 const WINDOWS = process.platform === "win32"
 const PROFILE = process.argv[2] || "fast"
@@ -123,6 +138,38 @@ let mb = "" // the merge-base of HEAD with the base branch, or empty
 let changed = [] // paths changed relative to the merge-base, plus the worktree and the index
 let verdictFile = ""
 let verdictWritten = false
+let head = null // the SHA of HEAD for the verdict file, read by `settle`
+let settled = false // the outcome is about to be written down: a signal no longer stops the run
+let code // the exit code of the run, once main has returned
+
+// --- a signal while the gate waits -------------------------------------------------------------
+// A signal sent to the gate itself (a hook that ran out of time, Ctrl-C) waits while the gate
+// waits for a child in a call that blocks it — git, the resolver, a script. Its handler (see
+// main) runs when the event loop next looks for events, so the gate lets the loop go round after
+// such a call and before it takes any answer as a verdict or writes anything down. Twice: an
+// immediate set by code that runs from that look itself (as after stdin was read) comes before the
+// next look, and only the one set from an immediate comes after it. Measured: one turn delivers
+// nothing in that case.
+//
+// `childSignal` — the signal that ended the child, if one did. A signal to the whole process group
+// reaches its processes one after another, so the gate may see the child ended before its own copy
+// has come; it waits half a second for it before it reads the child as ended alone.
+const STOP_WAIT_MS = 500
+const turn = () => new Promise((resolve) => setImmediate(resolve))
+async function stopIfTold(childSignal) {
+    if (childSignal) await new Promise((resolve) => setTimeout(resolve, STOP_WAIT_MS))
+    await turn()
+    await turn()
+}
+
+// Called right before the outcome is written down, and nothing after it starts a child: what the
+// verdict file needs from git is read first, then a pending signal still ends the run as stopped.
+// After it the outcome is written in one go, and a signal only ends the gate with that outcome's code.
+async function settle() {
+    head = gitText("rev-parse", "-q", "--verify", "HEAD") || null
+    await stopIfTold()
+    settled = true
+}
 
 // --- stdin ------------------------------------------------------------------------------
 // Hooks send JSON on stdin and close it. When run by hand from the Bash tool, stdin is open and
@@ -163,14 +210,18 @@ function readHookInput() {
 }
 
 // --- git ---------------------------------------------------------------------------------
+// A git that a signal ended gave no answer: its empty output would read as "no edits" or "nothing
+// changed", and the cache would answer for a tree it never saw. The run ends at the catch below main.
 function git(args, options = {}) {
-    return spawnSync("git", ["-C", repo, ...args], {
+    const run = spawnSync("git", ["-C", repo, ...args], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         maxBuffer: GIT_OUTPUT_MAX,
         windowsHide: true,
         ...options,
     })
+    if (run.signal) throw endedBySignal(`git ${args.join(" ")}`, run.signal)
+    return run
 }
 const gitOk = (...args) => git(args).status === 0
 // The output without its last line break, or empty when git failed.
@@ -189,7 +240,7 @@ function writeVerdict(outcome, exit, reason) {
         profile: PROFILE,
         worktree: repo,
         key: KEY || null,
-        head: gitText("rev-parse", "-q", "--verify", "HEAD") || null,
+        head,
         exit,
         at: utcNow(),
         reason: reason ? reason.replaceAll("\n", " ") : null,
@@ -259,7 +310,8 @@ function removeOld(dir, mine) {
 //   kind — unregistered | broken, text — what follows «ПРОВЕРИТЬ НЕ УДАЛОСЬ: »,
 //   explain — an explanation for the model. Both go into the marker: "<text>. <explain>".
 //   reason — the reason in English for the verdict file.
-function notVerified(kind, text, explain, reason) {
+async function notVerified(kind, text, explain, reason) {
+    await settle()
     writeMarker(path.join(STATE, `nokey-${kind}-${tag}-${SESSION || "anon"}`), `${text}. ${explain}\n`)
     writeVerdict("unverified", 3, reason)
     complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + text)
@@ -563,8 +615,9 @@ function captured(run) {
 // Runs one script of the profile. pkg — the package name (empty = the repository root).
 // Returns { rc, out }; { refused } too when the script was not started on purpose. A script
 // that a signal ended has failed: `rc` is what a shell reports for it, 128 + the number of the
-// signal (SIGKILL 137, SIGTERM 143), and `out` is what the script wrote up to then plus one line
-// that names the signal. On Windows a script ends by a signal only when Node itself ended it.
+// signal (SIGKILL 137, SIGTERM 143), `out` is what the script wrote up to then plus one line
+// that names the signal, and `signal` is its name. On Windows a script ends by a signal only when
+// Node itself ended it.
 async function runScript(pkg, script) {
     let words
     if (!pkg) words = [PM, "run", script]
@@ -580,7 +633,7 @@ async function runScript(pkg, script) {
     const text = out.replace(/[\r\n]+$/, "")
     if (result.signal) {
         const ended = `gate: ${words[0]}: ended by the signal ${result.signal}`
-        return { rc: 128 + (os.constants.signals[result.signal] ?? 0), out: text ? `${text}\n${ended}` : ended }
+        return { rc: 128 + (os.constants.signals[result.signal] ?? 0), out: text ? `${text}\n${ended}` : ended, signal: result.signal }
     }
     return { rc: result.status ?? 1, out: text }
 }
@@ -645,10 +698,12 @@ async function main() {
         if (!verdictWritten) remove(verdictFile)
     })
     // SIGBREAK is Ctrl+Break in a console of Windows (signal 21); nothing sends it elsewhere.
-    for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]]) {
+    // Once the outcome is written down (see `settle`) the run has ended: the signal only cuts its
+    // output short, and the gate exits with the code of that outcome.
+    for (const [signal, stopped] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]]) {
         process.on(signal, () => {
             endRunning()
-            process.exit(code)
+            process.exit(settled ? code : stopped)
         })
     }
 
@@ -659,6 +714,7 @@ async function main() {
     removeOld(BLOCKS, (name) => name.includes("__"))
 
     const which = spawnSync(process.execPath, [RESOLVE, "--which", canon], { encoding: "utf8", windowsHide: true })
+    await stopIfTold(which.signal)
     if (which.status !== 0) {
         // A crashed resolver (broken registry, broken node) is not "a directory outside
         // the repositories" and not "not registered". Staying silent and exiting with 0 is not allowed either.
@@ -729,6 +785,7 @@ async function main() {
 
     changed = changedPaths()
     if (!scopeWhy && !changed.length) {
+        await settle()
         writeVerdict("none", 0, `no changes relative to the merge-base ${short} with ${baseRef}`)
         say("[gate] ничего не прогналось (" + PROFILE + "): нет изменений относительно merge-base " + short + " с " + baseRef + ". Это не «зелено».")
         return 0
@@ -742,10 +799,12 @@ async function main() {
         maxBuffer: GIT_OUTPUT_MAX,
         windowsHide: true,
     })
+    await stopIfTold(planned.signal)
     if (planned.status !== 0) {
         // A crashed resolver would give an empty plan, and an empty plan reads as "nothing
         // touched". That is not so: verification failed. The red marker is left alone.
         const rc = planned.status ?? 1
+        await settle()
         writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify: the plan resolver exited with code ${rc}.\n`)
         writeVerdict("unverified", 3, `the plan resolver gate-resolve.mjs exited with code ${rc}`)
         complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер плана gate-resolve.mjs завершился с кодом " + rc + " — ничего не проверено, это не «зелено».")
@@ -776,6 +835,7 @@ async function main() {
     // Before the cache is looked at and before any verdict: a green cache hit must not hide a warning.
     sizeWarnings()
     if (!plan.length) {
+        await settle()
         writeVerdict("none", 0, "the changes touch no checked package")
         say("[gate] ничего не прогналось (" + PROFILE + "): изменения не затрагивают проверяемые пакеты. Это не «зелено».")
         return 0
@@ -786,6 +846,7 @@ async function main() {
     let failedLabels = ""
     let report = ""
     let envBroken = ""
+    const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
     for (const [wsdir, pkgname = "", scriptList = "", fpscope = ""] of plan) {
         const scripts = scriptList.split(" ").filter(Boolean)
         if (!scripts.length) continue
@@ -798,6 +859,9 @@ async function main() {
         const cacheName = [KEY, tag, wsdir, PROFILE].map(fileNamePart).join("__")
         const cacheFile = path.join(CACHE, `${cacheName}__${sha1(`${wsdir}\n${scriptList}`).slice(0, 8)}`)
         const fp = fingerprint((fpscope || wsdir).split(" ").filter(Boolean))
+        // Before the cache answers and before a script starts: a gate that was told to stop
+        // starts nothing.
+        await stopIfTold()
         let green = ""
         try {
             green = fs.readFileSync(cacheFile, "utf8").trim()
@@ -812,19 +876,11 @@ async function main() {
         let wsOk = true
         for (const script of scripts) {
             const label = `${KEY}/${wsdir}:${script}`
-            const { rc, out, refused } = await runScript(pkgname, script)
-            // A signal sent to the gate itself (a hook that ran out of time, Ctrl-C) waits while
-            // the gate waits for a script. Its handler runs when the event loop next looks for
-            // events, so the loop is let go round here: right after the script returns and
-            // before its result is looked at, before the next script starts and before anything
-            // is written down. The handler ends the run as stopped. Without these turns a script
-            // that Ctrl-C ended together with the gate would count as failed, and one that ended
-            // well on the signal as passed. Twice: an immediate set by code that runs from that
-            // look itself (as here, after stdin was read) comes before the next look, and only
-            // the one set from an immediate comes after it. Measured: one turn delivers nothing
-            // in that case.
-            await new Promise((resolve) => setImmediate(resolve))
-            await new Promise((resolve) => setImmediate(resolve))
+            const { rc, out, refused, signal } = await runScript(pkgname, script)
+            // Right after the script returns and before its result is looked at: a script that
+            // Ctrl-C ended together with the gate would otherwise count as failed, and one that
+            // ended well on the signal as passed.
+            await stopIfTold(signal)
             const outLines = out.split(/\r?\n/)
             if (rc === 0) {
                 ran += ` ${label}`
@@ -840,9 +896,12 @@ async function main() {
             }
         }
 
-        if (wsOk && fp) writeMarker(cacheFile, `${fp}\n`)
+        // Written down with the outcome below, so that a stopped run leaves no cache entry.
+        if (wsOk && fp) greens.push([cacheFile, fp])
     }
 
+    await settle()
+    for (const [cacheFile, fp] of greens) writeMarker(cacheFile, `${fp}\n`)
     if (failedLabels) {
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
@@ -888,13 +947,16 @@ async function main() {
 const written = (stream) => new Promise((resolve) => stream.write("", () => resolve()))
 process.stdout.on("error", () => {})
 process.stderr.on("error", () => {})
-let code
 try {
     code = await main()
 } catch (error) {
     // An error of the gate itself is neither green nor red: code 3 and one line, not a stack
     // trace with code 1. Whatever verdict this run wrote no longer holds: the exit handler removes it.
+    // A git that a signal ended (see `git`) is such an error, unless the signal came to the gate
+    // too: then its handler ends the run as stopped while the gate waits here. Such an error
+    // comes only before `settle` has finished.
     verdictWritten = false
+    if (error?.childSignal) await stopIfTold(error.childSignal)
     complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + String(error?.message ?? error).split(/\r?\n/)[0])
     complain("The gate itself failed and checked nothing — this is not green.")
     code = 3

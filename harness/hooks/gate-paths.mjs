@@ -33,9 +33,18 @@ export function gateStateDir(env = process.env) {
     return env.CLAUDE_GATE_STATE || path.join(harnessHome(env), "gate", "state")
 }
 
+// The error of a child process that a signal ended, `what` naming it ("git rev-parse HEAD"). Such
+// a child gave no answer, and its empty output must not be read as one. gate.mjs ends the run on
+// it (see its catch, below main).
+export function endedBySignal(what, signal) {
+    return Object.assign(new Error(`${what} was ended by the signal ${signal}`), { childSignal: signal })
+}
+
 // One line of git output without its line break, or null when git failed or is not installed.
+// Throws when a signal ended git.
 function gitLine(cwd, args) {
     const run = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true })
+    if (run.signal) throw endedBySignal(`git ${args.join(" ")}`, run.signal)
     return run.status === 0 ? run.stdout.replace(/\n+$/, "") : null
 }
 
