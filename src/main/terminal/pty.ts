@@ -42,6 +42,10 @@
 // is, which command runs, in which folder and how it ended (osc.ts). That state is kept per
 // Terminal (shellState) and its changes go to onShellEvent's listeners. Another shell, or zsh in a
 // registry without `integration`, runs as before.
+//
+// With `assist` as well, each such zsh is also given the socket of Terminal AI and a token of its
+// own (worfy-terminal-ai ticket 03); the token is given back when the shell has exited. A shell
+// that is not zsh gets neither.
 import { execFile } from 'node:child_process'
 import { posix, win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
@@ -49,7 +53,7 @@ import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileEx
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
-import { integrationEnv, isZsh, newNonce, type ShellIntegration } from './shell-integration'
+import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 
 export const COLS_MIN = 20
 export const COLS_MAX = 500
@@ -535,6 +539,8 @@ export interface TerminalRegistryOptions {
   commandDelayMs?: number
   /** worfy's ZDOTDIR folder: zsh starts with the shell integration. Only the Terminal Nodes' registry has it. */
   integration?: ShellIntegration
+  /** Terminal AI's socket and tokens for the zsh shells with the integration; without it they get none. */
+  assist?: AssistDoor
   /** The system the shells run on: which shell starts and how it is ended. That of this process by default. */
   platform?: NodeJS.Platform
   /** Ends every process under a shell of Windows, not the shell; endDescendants by default. Not called elsewhere. */
@@ -752,11 +758,15 @@ export class TerminalRegistry {
     if (choice.note !== null) console.warn(`[terminal] ${key}: ${choice.note}`)
     const { file } = choice
     let tracker: ShellTracker | null = null
-    const { integration } = this.options
+    // The shell's token for the socket of Terminal AI; given back when the shell is gone.
+    let admission: AssistAdmission | null = null
+    const { integration, assist } = this.options
     if (integration !== undefined && isZsh(file)) {
       try {
         const nonce = newNonce()
-        env = integrationEnv(env, await integration.prepare(), nonce)
+        const dir = await integration.prepare()
+        admission = await this.admit(key, dir)
+        env = integrationEnv(env, dir, nonce, admission)
         tracker = new ShellTracker(nonce, { limit: REPLAY_LIMIT })
       } catch (error) {
         // Without its folder the shell still starts, as it did before the integration.
@@ -764,7 +774,13 @@ export class TerminalRegistry {
       }
     }
     const { cols, rows } = clampSize(request.cols, request.rows)
-    const pty = this.spawnPty(file, choice.args, { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
+    let pty: PtyProcess
+    try {
+      pty = this.spawnPty(file, choice.args, { name: 'xterm-256color', cols, rows, cwd: request.cwd, env })
+    } catch (error) {
+      if (admission !== null) assist?.revoke(admission.token)
+      throw error
+    }
     const startedBy = Date.now()
     let exitedResolve: () => void = () => undefined
     let firstOutput: (() => void) | undefined
@@ -785,6 +801,7 @@ export class TerminalRegistry {
         ended = true
         terminal.finished = true
         if (exitPoll !== null) clearInterval(exitPoll)
+        if (admission !== null) assist?.revoke(admission.token)
         if (this.terminals.get(key) === terminal) {
           this.terminals.delete(key)
           // Ended by close: nothing to keep. Exited on its own: kept for the next open.
@@ -867,6 +884,21 @@ export class TerminalRegistry {
     }
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
     return terminal
+  }
+
+  /**
+   * The way of a new zsh to main for Terminal AI. Without it the shell starts all the same: its
+   * Suggestion from history needs no socket.
+   */
+  private async admit(key: string, dir: string): Promise<AssistAdmission | null> {
+    const { assist } = this.options
+    if (assist === undefined) return null
+    try {
+      return await assist.admit(key, dir)
+    } catch (error) {
+      console.warn(`[terminal] the socket of Terminal AI could not be opened for ${key}`, error)
+      return null
+    }
   }
 
   /** Sends one shell integration event to every listener; one that fails does not stop the others. */

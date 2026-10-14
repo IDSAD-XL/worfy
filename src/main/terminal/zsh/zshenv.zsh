@@ -9,6 +9,9 @@
 # exported: programs started from the shell do not see the nonce.
 __worfy_dir=$ZDOTDIR
 __worfy_nonce=$WORFY_SHELL_NONCE
+# The socket of Terminal AI and this shell's token for it, when worfy gave them (rc.d/10-assist.zsh).
+__worfy_assist_socket=$WORFY_ASSIST_SOCKET
+__worfy_assist_token=$WORFY_ASSIST_TOKEN
 # WORFY_USER_ZDOTDIR is there only when the user's environment had a ZDOTDIR.
 if (( ${+WORFY_USER_ZDOTDIR} )); then
   __worfy_user_zdotdir_set=1
@@ -19,7 +22,7 @@ else
   __worfy_user_zdotdir_export=0
   __worfy_user_zdotdir=$HOME
 fi
-builtin unset WORFY_USER_ZDOTDIR WORFY_SHELL_NONCE
+builtin unset WORFY_USER_ZDOTDIR WORFY_SHELL_NONCE WORFY_ASSIST_SOCKET WORFY_ASSIST_TOKEN
 
 # Gives the shell the user's ZDOTDIR as it stands: their value, exported or not, or none.
 __worfy_zdotdir_user() {
