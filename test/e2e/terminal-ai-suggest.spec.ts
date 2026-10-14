@@ -54,7 +54,7 @@ test('a line the history has nothing for is completed in grey by the model after
     // The model was asked once, about the line as it was typed, and it was Haiku.
     // Well past the pause of the widget: an ask about the line that was taken would have come by now.
     await window.waitForTimeout(1500)
-    const requests = sandbox.requests()
+    const requests = sandbox.requests().filter((r) => r.feature === 'suggest')
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({ feature: 'suggest', model: 'haiku', cancelled: false, context: { line: typed, cwd: sandbox.root, commands: [] } })
   } finally {

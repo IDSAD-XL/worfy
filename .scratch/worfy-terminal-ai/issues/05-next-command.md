@@ -1,7 +1,8 @@
 # 05 — Next command: после команды Sonnet предлагает следующую серым текстом на пустой строке
 
 Type: task
-Status: open
+Status: claimed — 2026-10-14
+Branch: worfy-terminal-ai/05
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(b) (после конца команды Sonnet с `effort: 'low'` предлагает следующую; переключатель в Settings даёт выбрать Haiku), пункт 2 (автоматическая функция — в фоне и только после паузы, выключается сама по Limits), пункт 3 (контекст: строка, папка, ~20 команд, ветка, код выхода; без вывода; redaction) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 3–6
 
