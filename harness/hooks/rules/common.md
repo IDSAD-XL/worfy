@@ -58,8 +58,10 @@ already uses.
   not from reading the diff. A failing run means unfinished. "Could not verify" means unverified.
   Neither is reported as done.
 - Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry —
-  never green. `0` is green only when the output has the line `[gate] зелено (…)`: "nothing
-  ran" («ничего не прогналось») and "could not verify" («ПРОВЕРИТЬ НЕ УДАЛОСЬ») also exit `0`.
+  never green. `130` or `143` (128 + a signal) means the gate itself was stopped: nothing was
+  written, the work is not verified — never green. `0` is green only when the output has the
+  line `[gate] зелено (…)`: "nothing ran" («ничего не прогналось») and "could not verify"
+  («ПРОВЕРИТЬ НЕ УДАЛОСЬ») also exit `0`.
   Where the gate does not cover the project, the verdict comes from the profile's
   `commands.verify` (or the project's own lint and test commands) with their exit codes, and the
   report says the gate did not run.

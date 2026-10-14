@@ -140,7 +140,9 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
    `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` ("could not verify") names the reason (project not registered,
    registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
-   not call the work green. `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
+   not call the work green. `130` or `143` (128 + a signal) — the gate itself was stopped: nothing
+   was written, the work is not verified; put it into `not_verified` with that code, never green.
+   `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
    with the line "ничего не прогналось" ("nothing ran") or "ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно"
    ("could not verify — environment unavailable") also goes into `not_verified`.
 6. `workflow.finish: "pr-green-ci"` — a PR and green CI. First `gh pr view <N> --json mergeStateStatus`:

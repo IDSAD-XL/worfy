@@ -756,6 +756,14 @@ describe('GateReader and the verdict file', () => {
     expect(await readVerdictFile(file, asRealpath, null, 'darwin')).toEqual({ problem: `is about another worktree: ${asGit}` })
   })
 
+  // The paths do not exist, so the file system of the machine that runs the test has no say.
+  it.each(['linux', 'darwin'] as const)('readVerdictFile on %s: a file whose `worktree` differs only in letter case is about another worktree', async (platform) => {
+    const { home } = await world()
+    const file = await writeVerdict(home, { worktree: '/nonexistent/worfy-gate/Repo', outcome: 'green' })
+    expect(await readVerdictFile(file, '/nonexistent/worfy-gate/repo', null, platform)).toEqual({ problem: 'is about another worktree: /nonexistent/worfy-gate/Repo' })
+    expect(await readVerdictFile(file, '/nonexistent/worfy-gate/Repo', null, platform)).toEqual({ verdict: expect.objectContaining({ outcome: 'green' }) })
+  })
+
   it('reads the file harness/hooks/gate.mjs writes: a green run in a registered repository', async () => {
     const base = await tempDir()
     const home = join(base, 'claude')
@@ -842,6 +850,31 @@ describe('TranscriptGateScanner', () => {
     const worktrees = [root, worktree07]
     expect(await scanner.lastIn(dir, { here: worktree07, worktrees })).toEqual({ outcome: 'red', at: '2026-10-13T10:02:00.000Z' })
     expect(await scanner.lastIn(dir, { here: root, worktrees })).toEqual({ outcome: 'unverified', at: '2026-10-13T10:01:00.000Z' })
+  })
+
+  // On macOS and Linux a path is compared as it is written. The paths do not exist, so the file
+  // system of the machine that runs the test has no say.
+  it.each(['linux', 'darwin'] as const)('on %s does not count a run after cd to a folder whose name only starts like the worktree’s, or to the worktree in another letter case', async (platform) => {
+    const root = '/nonexistent/worfy-gate/repo'
+    const gate = 'node "/nonexistent/plugin/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"'
+    /** The verdict for `root` after a green run in it and a red run after `cd <target>`. */
+    const lastAfterCdTo = async (target: string) => {
+      const dir = await tempDir()
+      await writeFile(
+        join(dir, 's.jsonl'),
+        [
+          bashRun('[gate] зелено (fast): a', '2026-10-14T10:00:00.000Z', { command: gate, cwd: root }),
+          bashRun('[gate] красно (fast): b', '2026-10-14T10:01:00.000Z', { command: `cd ${target} && ${gate}`, cwd: root }),
+          '',
+        ].join('\n'),
+      )
+      return new TranscriptGateScanner(platform).lastIn(dir, { here: root, worktrees: [root] })
+    }
+    const green = { outcome: 'green', at: '2026-10-14T10:00:00.000Z' }
+    expect(await lastAfterCdTo(`${root}-other`)).toEqual(green)
+    expect(await lastAfterCdTo('/nonexistent/worfy-gate/Repo')).toEqual(green)
+    // A subfolder of the worktree is the worktree: the red run counts.
+    expect(await lastAfterCdTo(`${root}/src`)).toEqual({ outcome: 'red', at: '2026-10-14T10:01:00.000Z' })
   })
 })
 
