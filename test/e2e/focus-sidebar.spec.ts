@@ -413,6 +413,9 @@ test('Esc with a popup of the sidebar open next to focus mode: History, the ADR 
     await window.getByTestId('project-row').first().click({ button: 'right' })
     await menu.getByRole('menuitem', { name: 'Project settings…' }).click()
     await expect(settings).toBeVisible()
+    // The dialog takes the focus when its settings are read, a moment after it is shown. Moved
+    // away before that, the focus would come back to the dialog, and the press would close it.
+    await expect.poll(() => holdsFocus(settings)).toBe(true)
     await focus.focus()
     await escape()
     await expect(focus).toHaveCount(0)
