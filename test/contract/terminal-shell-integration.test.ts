@@ -435,7 +435,7 @@ describe("worfy's folder", () => {
     await first.prompt()
     const dir = integration.path ?? ''
     expect((await readdir(dir)).sort()).toEqual(['.zlogin', '.zprofile', '.zshenv', '.zshrc', 'integration.zsh', 'rc.d'])
-    expect(await readdir(join(dir, 'rc.d'))).toEqual(['10-assist.zsh'])
+    expect((await readdir(join(dir, 'rc.d'))).sort()).toEqual((await readdir(join(import.meta.dirname, '../../src/main/terminal/zsh/rc.d'))).filter((name) => name.endsWith('.zsh')).sort())
 
     for (const name of await readdir(dir)) removeTestTree(join(dir, name))
     const second = await open('second')
