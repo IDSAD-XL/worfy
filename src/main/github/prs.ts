@@ -20,6 +20,7 @@
 import { execFile } from 'node:child_process'
 import { z } from 'zod'
 import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
+import { programStart } from '../program'
 
 export const BASE_INTERVAL_MS = 60_000
 export const SEARCH_INTERVAL_MS = 5 * 60_000
@@ -47,16 +48,20 @@ export interface GhRunnerOptions {
 const firstLine = (text: string): string => text.trim().split('\n')[0]?.trim() ?? ''
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-/** The default runner: gh as a child process, never through a shell. */
+/**
+ * The default runner: gh as a child process, never through a shell. A `command` that is a `.mjs`
+ * script (a stand-in in tests) runs under worfy's own Node (src/main/program.ts).
+ */
 export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
   const command = options.command ?? 'gh'
+  const start = programStart(options.command, 'gh')
   return async (args, cwd, extra = {}) => {
     const env = options.env ? await options.env() : process.env
     return new Promise((resolve, reject) => {
       execFile(
-        command,
-        [...args],
-        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1' }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
+        start.file,
+        [...start.args, ...args],
+        { cwd, env: { ...env, ...extra, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', NO_COLOR: '1', ...start.env }, encoding: 'utf8', timeout: options.timeoutMs ?? 30_000, maxBuffer: 32 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (!error) return resolve(stdout)
           const code = (error as NodeJS.ErrnoException).code

@@ -13,7 +13,7 @@ import { parseAuthStatus, parseRemote, readGithubAccounts, signInCommand, signIn
 import { ghRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
-import { authStatus, ghWorld, type GhWorld, type StubAccount, type StubRepos } from './gh-world'
+import { authStatus, ghWorld, STUB_COMMAND, type GhWorld, type StubAccount, type StubRepos } from './gh-world'
 import { removeTestTree } from '../remove'
 
 let scratch: string
@@ -182,7 +182,7 @@ describe('gh missing or failing', () => {
   })
 
   it('gh failing otherwise: the reason, and no account', async () => {
-    const failing = ghRunner({ command: join(__dirname, '..', 'fixtures', 'gh', 'gh'), env: () => Promise.resolve({ ...process.env, GH_STUB_FAIL: 'error connecting to api.github.com' }) })
+    const failing = ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_STUB_FAIL: 'error connecting to api.github.com' }) })
     const step = await readGithubAccounts([repo('shop', 'https://github.com/acme/shop.git')], { git: runGit, gh: failing })
     expect(step).toEqual({ status: 'failed', reason: 'gh auth status failed: error connecting to api.github.com' })
   })

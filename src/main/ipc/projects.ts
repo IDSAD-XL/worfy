@@ -132,7 +132,7 @@ const systemLanguage = (): 'ru' | 'en' => (app.getLocale().toLowerCase().startsW
  */
 function appGh(): GhProgram {
   const stub = process.env.WORFY_GH
-  return stub ? { command: stub, env: () => Promise.resolve(process.env) } : { command: 'gh', env: async () => (await agentEnv()).env }
+  return stub ? { command: stub, env: () => Promise.resolve(process.env) } : { env: async () => (await agentEnv()).env }
 }
 
 let sharedConnector: ProjectConnector | undefined

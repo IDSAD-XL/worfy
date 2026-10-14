@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { GH_STUB, launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -23,7 +23,7 @@ test('a data folder that is a file stops the start with exit code 1 and names th
     WORFY_DATA_DIR: dataFile,
     WORFY_CLAUDE_HOME: root,
     WORFY_AGENT: 'fake',
-    WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+    WORFY_GH: GH_STUB,
     // The native error window is modal and would hold the process until someone dismisses it.
     WORFY_STARTUP_DIALOG: 'off',
   })
@@ -116,7 +116,7 @@ for (const [mode, rejection] of [
       WORFY_DATA_DIR: join(root, 'data'),
       WORFY_CLAUDE_HOME: root,
       WORFY_AGENT: 'fake',
-      WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+      WORFY_GH: GH_STUB,
       // A failed start would otherwise hold the process with its modal error window.
       WORFY_STARTUP_DIALOG: 'off',
       E2E_INTERRUPT: mode,
