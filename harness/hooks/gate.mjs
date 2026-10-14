@@ -6,7 +6,7 @@
 // content (a hit is printed as «[gate] зелено (…): … (кэш)») and exits
 // with code 2 on red («[gate] красно (…): …»).
 //
-//   node gate.mjs fast   -> the per-ticket profile (TaskCompleted / TeammateIdle)
+//   node gate.mjs fast   -> the per-ticket profile (TaskCompleted / TeammateIdle, through gate.sh)
 //   node gate.mjs full   -> everything (by hand or when an epic closes)
 //
 // The repository is identified by its common git directory, not by its path: worktrees
@@ -28,7 +28,8 @@
 //   2 — red (TaskCompleted / TeammateIdle do not let the work finish on this code);
 //   3 — not verified: neither green nor red. The line «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …»
 //       names the reason: the project is not registered in gate/config.json; the registry
-//       cannot be read or the resolver crashed. The code does not block hooks
+//       cannot be read or the resolver crashed; node was not found (that one is said by
+//       gate.sh, see "Without node" below). The code does not block hooks
 //       (only 2 blocks). The gate leaves a marker per tree and session; stop.sh
 //       tells the model about it at most once per session per repository
 //       (through additionalContext — that costs the model an extra turn, hence only once)
@@ -70,13 +71,18 @@
 // run is stopped, not red. An error inside the gate itself ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ:
 // …» with code 3 and no verdict file.
 //
-// Without node there is no verdict at all (worfy-windows ticket 03, a departure from the bash
-// gate this file replaced). That gate looked for node itself and, finding none, said
-// «node не найден» with code 3 and wrote an "unverified" verdict file. This file is run as `node …/gate.mjs`: when node is not
-// on the PATH of Claude Code, the hook command fails with code 127 before a line of the gate
-// runs, Claude Code shows a hook error that does not block, and no marker or verdict file is
-// written — worfy shows the outcome "none", as for a worktree with no runs. The first-run screen
-// of worfy checks that node is installed.
+// Without node this file cannot run, so the hooks do not start it themselves: hooks.json calls
+// gate.sh, a launcher in bash next to this file. The launcher finds node — on PATH, else in the
+// places a hook with a bare PATH misses — and starts this file with the same arguments and
+// stdin. With no node anywhere it answers itself, as the bash gate this file replaced did:
+// «node не найден», code 3, the marker nokey-broken-<tag>-<session> and an "unverified" verdict
+// file in place of the one of the run before. Rules, skills and agents run this file as
+// `node …/gate.mjs`: with no node on their PATH that command fails with code 127 before a line
+// of the gate runs and nothing is written, so a verdict file of an earlier run stays as it is.
+// The launcher is a departure from ADR-0055 item 2 (a hook command names `node`, not a script
+// started by its first line) and from "a way without bash outside tests" of worfy-windows ticket
+// 03. It exists because nothing else can replace a stale verdict when node is missing. That
+// gate.sh is the entry point of the hook is the owner's decision of 2026-10-14.
 //
 // One file for macOS, Linux and Windows (ADR-0055): no shell utility, no path of one machine.
 // Child processes get the PATH of this process plus the folder of the node that runs the gate

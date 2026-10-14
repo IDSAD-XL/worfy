@@ -1,16 +1,136 @@
 #!/usr/bin/env bash
-# The old name of the quality gate. The gate is gate.mjs, run by node (worfy-windows ticket 03);
-# this file starts it with the same arguments and stdin and ends with its exit code.
+# The launcher of the quality gate, under the old name of the gate. The gate is gate.mjs, run by
+# node (worfy-windows ticket 03). This file does three things and decides nothing else:
+#   1. it finds node: the one on PATH; only when PATH has none, the places a hook with a bare
+#      PATH misses — /opt/homebrew/bin, then /usr/local/bin (where the installer of nodejs.org
+#      puts node; a program started from Finder has neither folder on PATH), then the version of
+#      nvm whose name sorts last (~/.nvm/versions/node/*/bin);
+#   2. it starts gate.mjs with the same arguments and stdin and ends with its exit code;
+#   3. with no node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
+#      ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден», exit code 3, the marker nokey-broken-<tag>-<session>
+#      for stop.sh and an "unverified" verdict file in place of the one of the run before.
+#      Outside a git worktree it says nothing and exits with 0, as the gate does.
 #
-# Why it is here: a profile moved from the old Harness names this file in commands.verify and in
-# rules.md ("bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full"), and agents run that line as
-# it is written. Nothing in the Harness calls this file: hooks, skills, agents and bin/ name
-# gate.mjs, and so does a new profile ("node …/hooks/gate.mjs").
+# Who calls it:
+#   - hooks.json (TaskCompleted, TeammateIdle), by its path. A hook command that named `node`
+#     fails with code 127 where node is not on PATH, before anything can replace the verdict
+#     file, and worfy goes on showing the outcome of an earlier run — a green one too;
+#   - a profile moved from the old Harness, which names this file in commands.verify and in
+#     rules.md ("bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full"); agents run that line as
+#     it is written. Rules, skills, agents and bin/ name gate.mjs, and so does a new profile.
 #
-# worfy-windows ticket 46 removes it: the move then writes "node … gate.mjs" into a profile, and
-# the installer rewrites the profiles already moved.
-#
-# Without node the answer is the one gate.sh always gave: the "could not verify" line and exit 3.
-command -v node >/dev/null 2>&1 || { echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден" >&2; exit 3; }
-# `pwd -W` is Git Bash on Windows: C:/…, a path node reads with no help from the shell.
-exec node "$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && { pwd -W 2>/dev/null || pwd -P; })/gate.mjs" "$@"
+# This file is a departure from ADR-0055 item 2 (a hook command names `node`, not a script
+# started by its first line) and from "a way without bash outside tests" of worfy-windows ticket
+# 03. It exists because nothing else can replace a stale verdict when node is missing. That this
+# file is the entry point of the hook is the owner's decision of 2026-10-14. worfy-windows ticket
+# 46 takes the old name out of the profiles.
+set -u
+
+node="$(command -v node 2>/dev/null)" || node=""
+if [ -z "$node" ]; then
+    # The last one found wins, so the order here is the reverse of the order of choice.
+    for d in "${HOME:-}"/.nvm/versions/node/*/bin /usr/local/bin /opt/homebrew/bin; do
+        [ -f "$d/node" ] && [ -x "$d/node" ] && node="$d/node"
+    done
+fi
+if [ -n "$node" ]; then
+    # `pwd -W` is Git Bash on Windows: C:/…, a path node reads with no help from the shell.
+    # ${1+"$@"}: some versions of bash take "$@" without arguments for an unset variable under set -u.
+    exec "$node" "$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && { pwd -W 2>/dev/null || pwd -P; })/gate.mjs" ${1+"$@"}
+fi
+
+# --- no node --------------------------------------------------------------------------------
+# The rest is the answer of the bash gate, cut down to this one case. The state folder, the tag
+# and the fields of the verdict file are the ones of gate-paths.mjs and gate.mjs: stop.sh and
+# worfy look for the marker and the verdict file by those names.
+PROFILE="${1:-fast}"
+
+# What is checked is the worktree. Outside git, or without git, there is nothing to say.
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$repo" ] || exit 0
+
+# The home folder as node gives it (os.homedir): USERPROFILE on Windows, HOME elsewhere.
+home="${HOME:-}"
+case "${OSTYPE:-}" in msys* | cygwin*) home="${USERPROFILE:-$home}" ;; esac
+STATE="${CLAUDE_GATE_STATE:-${HARNESS_HOME:-$home/.claude/worfy-harness}/gate/state}"
+mkdir -p "$STATE" 2>/dev/null
+
+# The tag of the worktree: the first 8 hex digits of the SHA-1 of its root as git prints it.
+# Linux and Git Bash have sha1sum, macOS has shasum. With neither there is no tag, and no file
+# can be named: only the line and the exit code are left.
+if command -v sha1sum >/dev/null 2>&1; then sum="$(printf '%s' "$repo" | sha1sum 2>/dev/null)"
+else sum="$(printf '%s' "$repo" | shasum 2>/dev/null)"; fi
+tag="${sum:0:8}"
+re_tag='^[0-9a-f]{8}$'
+[[ "$tag" =~ $re_tag ]] || tag=""
+
+# Whose session this is: session_id from the hook JSON, else CLAUDE_CODE_SESSION_ID (a run by
+# hand from the Bash tool has it). Hooks send JSON on stdin and close it; a run by hand may leave
+# stdin open and empty, so a line is waited for no longer than two seconds. On a terminal there
+# is nothing to read.
+hook_in=""
+if [ ! -t 0 ]; then
+    while :; do
+        line=""
+        IFS= read -r -t 2 line 2>/dev/null
+        r=$?
+        hook_in+="$line"
+        [ "$r" -eq 0 ] || break
+        hook_in+=$'\n'
+    done
+fi
+SESSION=""
+re_sid='"session_id"[[:space:]]*:[[:space:]]*"([^"]+)"'
+[[ "$hook_in" =~ $re_sid ]] && SESSION="${BASH_REMATCH[1]}"
+[ -n "$SESSION" ] || SESSION="${CLAUDE_CODE_SESSION_ID:-}"
+SESSION="${SESSION//[^A-Za-z0-9_-]/_}"
+
+# A JSON string literal of $1: backslash, quote and control characters escaped. Character by
+# character, with single-quoted literals only: ${s//\\/…} treats backslashes in the replacement
+# differently across bash versions (3.2 on macOS, 5.2 with patsub_replacement on Linux).
+json_str() {
+    local s="$1" out="" ch code i
+    for ((i = 0; i < ${#s}; i++)); do
+        ch="${s:i:1}"
+        case "$ch" in
+            '\') out+='\\' ;;
+            '"') out+='\"' ;;
+            $'\n') out+='\n' ;;
+            $'\r') out+='\r' ;;
+            $'\t') out+='\t' ;;
+            *)
+                printf -v code '%d' "'$ch" 2>/dev/null || code=32
+                if [ "$code" -ge 0 ] && [ "$code" -lt 32 ]; then
+                    printf -v ch '\\u%04x' "$code"
+                fi
+                out+="$ch"
+                ;;
+        esac
+    done
+    printf '"%s"' "$out"
+}
+
+text="node не найден"
+explain="Repository: $repo. The gate does not work without node — this is not green: the work was not verified by the gate."
+if [ -n "$tag" ]; then
+    # The marker is per tree and per session; with no session it is "anon" (see notVerified in gate.mjs).
+    printf '%s. %s\n' "$text" "$explain" >"$STATE/nokey-broken-$tag-${SESSION:-anon}" 2>/dev/null || true
+    # The verdict file is written whole or not at all: a temporary file in the same folder, then
+    # mv. When that fails, the file of the run before is removed: it must not tell an older outcome.
+    verdict="$STATE/verdict-$tag.json"
+    head="$(git -C "$repo" rev-parse -q --verify HEAD 2>/dev/null)" || head=""
+    [ -n "$head" ] && head="$(json_str "$head")" || head="null"
+    tmp="$(mktemp "$STATE/.verdict-$tag.XXXXXX" 2>/dev/null)" || tmp=""
+    if [ -z "$tmp" ] ||
+        ! printf '{"version":1,"outcome":"unverified","profile":%s,"worktree":%s,"key":null,"head":%s,"exit":3,"at":"%s","reason":"node not found"}\n' \
+            "$(json_str "$PROFILE")" "$(json_str "$repo")" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$tmp" 2>/dev/null ||
+        ! mv -f "$tmp" "$verdict" 2>/dev/null; then
+        [ -n "$tmp" ] && rm -f "$tmp" 2>/dev/null
+        rm -f "$verdict" 2>/dev/null
+    fi
+fi
+{
+    echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $text"
+    echo "$explain"
+} >&2
+exit 3

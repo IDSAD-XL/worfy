@@ -257,7 +257,9 @@ if jq -e .hooks "$HJ" >/dev/null 2>&1; then ok "hooks.json is valid JSON with .h
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
 # with the qmd server of the plugin (worfy-harness ticket 17). No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
-# worfy-harness ticket 24 (owner decision 2026-10-09). One line per hook: event|matcher|command|timeout.
+# worfy-harness ticket 24 (owner decision 2026-10-09). The two gate hooks call the launcher gate.sh, not
+# `node …/gate.mjs`: without node only the launcher can say so (worfy-windows ticket 03).
+# One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 # Read outside $(…): macOS bash 3.2 cannot parse a here-document with an odd number of quotes
 # inside a command substitution.
@@ -268,8 +270,8 @@ SessionStart||$R/hooks/inject-rules.sh" orchestrator|10
 SessionStart||$R/hooks/inject-rules.sh" common|10
 SessionStart||$R/hooks/gh-token-env.sh"|10
 SubagentStart||$R/hooks/inject-rules.sh" common|10
-TaskCompleted||node $R/hooks/gate.mjs" fast|900
-TeammateIdle||node $R/hooks/gate.mjs" fast|900
+TaskCompleted||$R/hooks/gate.sh" fast|900
+TeammateIdle||$R/hooks/gate.sh" fast|900
 Stop||$R/hooks/stop.sh"|10
 Stop||$R/bin/worktree-lock" beat|5
 Stop||$R/bin/qmd-refresh" --quiet|15

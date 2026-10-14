@@ -95,9 +95,39 @@ rm -f "$RED" "$T/state/stop-blocks/"*
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 
 # --- 10. No node / the resolver crashed -------------------------------------------
-# The gate has no "node not found" case any more (worfy-windows ticket 03): it is a Node script,
-# so without node it does not start, says nothing and leaves no marker — see the header of
-# gate.mjs. What stays is stop.sh, still bash: without node it holds the turn on the red marker.
+# gate.mjs is a Node script and cannot say "node not found": the launcher gate.sh says it, with
+# code 3, and leaves the marker that stop.sh delivers. NONODE is a PATH with git and the tools
+# gate.sh needs, and no node: the folders of Git Bash on Windows, elsewhere a folder of links to
+# the tools. gate.sh looks for node in /opt/homebrew/bin and /usr/local/bin itself: with node
+# there, "no node" cannot be simulated (gate-shim.test.sh has a way round it).
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+NONODE="" why=""
+if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then why="node is in /opt/homebrew/bin or /usr/local/bin, where gate.sh looks for it itself"
+elif [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
+else
+    mkdir -p "$T/bin"
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm; do
+        p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
+    done
+    NONODE="$T/bin"
+fi
+if [ -n "$NONODE" ] && (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE, next to git and the shell tools"; NONODE=""; fi
+if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then why="git is not in $NONODE"; NONODE=""; fi
+if [ -z "$NONODE" ]; then echo "skip node-missing checks of the gate: $why"; else
+out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$HOOKS/gate.sh" fast 2>&1)"; rc=$?
+check "gate: node missing -> exit 3 (not 0)" [ "$rc" -eq 3 ]
+check "gate: node missing -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден'" \
+    bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]]' _ "$out"
+check "gate: node missing -> marker of this tree and session" [ -s "$T/state/nokey-broken-$(tag "$T/reg")-s10" ]
+# stop.sh needs more tools than gate.sh: the system folders, as before; in Git Bash git and
+# shasum (a perl script) live in folders of their own.
+if [ "$WIN" -eq 1 ]; then stop_path="$NONODE:/usr/bin/core_perl"; else stop_path=/usr/bin:/bin; fi
+out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH="$stop_path" bash "$STOP" 2>&1)"; rc=$?
+check "stop without node: gate's node-missing marker -> exit 0, says 'not verified'" \
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
+rm -f "$T/state/stop-blocks/"*
+fi
+# What stays without node is stop.sh, still bash: it holds the turn on the red marker.
 # stop.sh adds /opt/homebrew/bin itself: if node is there, "no node" cannot be simulated.
 if [ -x /opt/homebrew/bin/node ]; then echo "skip node-missing check: /opt/homebrew/bin/node exists"; else
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"

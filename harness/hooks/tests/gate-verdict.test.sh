@@ -12,9 +12,6 @@
 #
 # The registry, the state folder and the repositories are temporary (CLAUDE_GATE_CONFIG,
 # CLAUDE_GATE_STATE): the test does not touch the live registry or markers.
-#
-# There is no "node not found" case (worfy-windows ticket 03): the gate is a Node script, so
-# without node it does not start and writes nothing — see the header of gate.mjs.
 set -u
 # Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
 # /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
@@ -392,6 +389,35 @@ out="$(cd "$R" && CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast </dev/nul
 verdict "registry resolver crashed -> outcome unverified, exit 3, key null" "$R" '.outcome == "unverified" and .exit == 3 and .key == null'
 out="$(cd "$U" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "not registered -> outcome unverified, exit 3, key null" "$U" '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast"'
+
+# --- 6. node not found ------------------------------------------------------------------
+# gate.mjs cannot say that: the launcher gate.sh does, and it writes the same file. PATH here has
+# git and the tools gate.sh needs, and no node: the folders of Git Bash on Windows, elsewhere a
+# folder of links to the tools. gate.sh looks for node in /opt/homebrew/bin and /usr/local/bin
+# itself: with node there, "no node" cannot be simulated (gate-shim.test.sh has a way round it).
+NONODE="" why=""
+if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then why="node is in /opt/homebrew/bin or /usr/local/bin, where gate.sh looks for it itself"
+elif [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
+else
+    mkdir -p "$T/bin"
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat; do
+        p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
+    done
+    NONODE="$T/bin"
+fi
+if [ -n "$NONODE" ] && (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE, next to git and the shell tools"; NONODE=""; fi
+if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then why="git is not in $NONODE"; NONODE=""; fi
+if [ -z "$NONODE" ]; then echo "skip the node-missing check: $why"; else
+    mode ok; touched
+    out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "before the run without node: a green file" "$R" '.outcome == "green"'
+    mkdir -p "$T/home"   # no ~/.nvm in it: gate.sh looks for node there too
+    out="$(cd "$R" && HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$HOOKS/gate.sh" fast </dev/null 2>&1)"; rc=$?
+    verdict "node not found -> outcome unverified, exit 3, key null, in place of the green file" "$R" \
+        '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast" and .reason == "node not found" and .head == $head' --arg head "$HEAD_R"
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]] && grep -q "node не найден" "$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then ok "node not found: exit 3, the «node не найден» line and the marker of the worktree"
+    else bad "node not found: rc=$rc, out: ${out:0:300}, state: $(ls "$STATE" | tr '\n' ' ')"; fi
+fi
 
 # --- 7. Nothing ran ------------------------------------------------------------------
 out="$(cd "$Q" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
