@@ -33,6 +33,8 @@
 //       tells the model about it at most once per session per repository
 //       (through additionalContext — that costs the model an extra turn, hence only once)
 //       and does not hold the turn. Agents put code 3 into not_verified, skills do not merge on it.
+//   129, 130, 143, 149 (128 + the number of a signal) — the gate itself was stopped. Nothing is
+//       written down and the work is not verified: see "A run that was stopped" below.
 //
 // The verdict file (ticket worfy-harness/09, ADR-0044: the machine contract carries no language).
 // Every run inside a git worktree overwrites <state>/verdict-<tag>.json (the same folder and tag as
@@ -54,10 +56,19 @@
 // replaced nor removed. The gate tries for half a second (see `patiently`); a file held longer
 // than that stays as it is and tells the outcome of the run before.
 //
-// A run that was stopped leaves nothing behind: when a signal ends the gate, or ends a script the
-// gate is waiting for, the gate exits with 128 + the number of the signal (SIGINT 130, SIGTERM
-// 143) and writes no marker, no cache entry and no verdict file. An error inside the gate itself
-// ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3 and no verdict file.
+// A script that a signal ended is a failed script: an out-of-memory kill (SIGKILL), a crash of
+// native code (SIGSEGV, SIGABRT), a SIGTERM, SIGINT or SIGHUP the script got or sent itself. The
+// run is red like any other failed script — code 2, the red marker, a red verdict file — and the
+// report names the signal.
+//
+// A run that was stopped leaves nothing behind. Stopped means that the gate itself was told to
+// stop and its own signal handler ran (a hook that ran out of time, Ctrl-C in the window of the
+// gate): the gate exits with 128 + the number of the signal (SIGHUP 129, SIGINT 130, SIGTERM
+// 143, Ctrl+Break of Windows 149) and writes no marker, no cache entry and no verdict file; the
+// verdict file of the run before is removed. Ctrl-C reaches the gate and the script it waits
+// for: the handler of the gate then runs before the result of the script is looked at, so such a
+// run is stopped, not red. An error inside the gate itself ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ:
+// …» with code 3 and no verdict file.
 //
 // Without node there is no verdict at all (worfy-windows ticket 03, a departure from the bash
 // gate this file replaced). That gate looked for node itself and, finding none, said
@@ -544,8 +555,10 @@ function captured(run) {
 }
 
 // Runs one script of the profile. pkg — the package name (empty = the repository root).
-// Returns { rc, out }; { refused } too when the script was not started on purpose; { signal }
-// alone when a signal ended the script — that is a stopped run, not a failed script.
+// Returns { rc, out }; { refused } too when the script was not started on purpose. A script
+// that a signal ended has failed: `rc` is what a shell reports for it, 128 + the number of the
+// signal (SIGKILL 137, SIGTERM 143), and `out` is what the script wrote up to then plus one line
+// that names the signal. On Windows a script ends by a signal only when Node itself ended it.
 async function runScript(pkg, script) {
     let words
     if (!pkg) words = [PM, "run", script]
@@ -557,9 +570,13 @@ async function runScript(pkg, script) {
     // The words a shell would say: "command not found" is one of the signs of a missing environment.
     if (result.error?.code === "ENOENT") return { rc: 127, out: `gate: ${words[0]}: command not found` }
     if (result.error) return { rc: 126, out: `gate: ${words[0]}: ${result.error.message}` }
-    if (result.signal) return { rc: 1, out: "", signal: result.signal }
     // Without the line breaks at the end; on Windows a line break is CR LF.
-    return { rc: result.status ?? 1, out: out.replace(/[\r\n]+$/, "") }
+    const text = out.replace(/[\r\n]+$/, "")
+    if (result.signal) {
+        const ended = `gate: ${words[0]}: ended by the signal ${result.signal}`
+        return { rc: 128 + (os.constants.signals[result.signal] ?? 0), out: text ? `${text}\n${ended}` : ended }
+    }
+    return { rc: result.status ?? 1, out: text }
 }
 
 // A missing environment is not a defect in the code. It must not block, but it must
@@ -788,20 +805,17 @@ async function main() {
         let wsOk = true
         for (const script of scripts) {
             const label = `${KEY}/${wsdir}:${script}`
-            const { rc, out, refused, signal } = await runScript(pkgname, script)
-            if (signal) {
-                // The script did not fail, it was stopped (Ctrl-C reaches the children first): the
-                // run ends here and writes nothing down; the exit handler removes the verdict of
-                // the run before.
-                complain(`The gate was stopped: ${signal} ended ${label}. Nothing is written down for this run.`)
-                return 128 + (os.constants.signals[signal] ?? 0)
-            }
-            // A signal sent to the gate itself (a hook that ran out of time) waits while the gate
-            // waits for a script. Its handler runs when the event loop next looks for events, so
-            // the loop is let go round here, before the next script starts and before anything
-            // is written down. Twice: an immediate set by code that runs from that look itself
-            // (as here, after stdin was read) comes before the next look, and only the one set
-            // from an immediate comes after it. Measured: one turn delivers nothing in that case.
+            const { rc, out, refused } = await runScript(pkgname, script)
+            // A signal sent to the gate itself (a hook that ran out of time, Ctrl-C) waits while
+            // the gate waits for a script. Its handler runs when the event loop next looks for
+            // events, so the loop is let go round here: right after the script returns and
+            // before its result is looked at, before the next script starts and before anything
+            // is written down. The handler ends the run as stopped. Without these turns a script
+            // that Ctrl-C ended together with the gate would count as failed, and one that ended
+            // well on the signal as passed. Twice: an immediate set by code that runs from that
+            // look itself (as here, after stdin was read) comes before the next look, and only
+            // the one set from an immediate comes after it. Measured: one turn delivers nothing
+            // in that case.
             await new Promise((resolve) => setImmediate(resolve))
             await new Promise((resolve) => setImmediate(resolve))
             const outLines = out.split(/\r?\n/)

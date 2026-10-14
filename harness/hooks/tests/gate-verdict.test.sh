@@ -65,9 +65,12 @@ verdict() {
 # --- fixtures ---------------------------------------------------------------------
 # The gate runs "$PM run <script>"; pm is this file, so the test needs no npm. What the script
 # does is set by $T/mode: ok, bad (a real test failure), envbad (a missing tool, in the words of
-# sh) or envbad-cmd (the same in the words of cmd.exe); term ends the script by SIGTERM, and
-# termparent sends SIGTERM to the gate and ends well. On Windows the file is a .cmd: node starts
-# nothing else there without an interpreter, and a .cmd knows no signals.
+# sh) or envbad-cmd (the same in the words of cmd.exe); second-bad fails in the script named
+# "second" only. term and kill9 end the script by a signal of its own (SIGTERM, SIGKILL), and
+# termparent sends SIGTERM to the gate and ends well. wait0 and wait1 write the name of the script
+# to $T/started and wait for SIGTERM or SIGINT, on which they end with code 0 or 1; left alone
+# they end with code 7 after half a minute. On Windows the file is a .cmd: node starts nothing
+# else there without an interpreter, and a .cmd knows no signals.
 if [ "$WIN" -eq 1 ]; then
     PM="$T/fakepm.cmd"
     cat >"$PM" <<'EOF'
@@ -75,6 +78,7 @@ if [ "$WIN" -eq 1 ]; then
 set /p m=<"%~dp0mode"
 if "%m%"=="ok" exit /b 0
 if "%m%"=="bad" (echo Tests 1 failed& exit /b 1)
+if "%m%"=="second-bad" (if "%~2"=="second" (echo Tests 1 failed& exit /b 1) else (exit /b 0))
 if "%m%"=="envbad" (echo sh: tool: command not found& exit /b 127)
 if "%m%"=="envbad-cmd" (echo 'tool' is not recognized as an internal or external command,& exit /b 1)
 if "%m%"=="mixed" (echo sh: tool: command not found& echo Tests 1 failed& exit /b 1)
@@ -96,8 +100,12 @@ case "\$(cat "$T/mode")" in
     envbad-cmd) echo "'tool' is not recognized as an internal or external command,"; exit 1 ;;
     mixed) echo "sh: tool: command not found"; echo "Tests 1 failed"; exit 1 ;;
     big) node -e "process.stdout.write(('x'.repeat(99) + '\n').repeat(20000))"; echo "sh: tool: command not found"; exit 127 ;;
+    second-bad) [ "\$2" = second ] || exit 0; echo "Tests 1 failed"; exit 1 ;;
     term) kill -TERM \$\$; sleep 5 ;;
+    kill9) echo "said before the kill"; kill -9 \$\$; sleep 5 ;;
     termparent) kill -TERM \$PPID; exit 0 ;;
+    wait0) trap 'exit 0' TERM INT; echo "\$2" >>"$T/started"; i=0; while [ \$i -lt 30 ]; do sleep 1; i=\$((i + 1)); done; exit 7 ;;
+    wait1) trap 'exit 1' TERM INT; echo "\$2" >>"$T/started"; i=0; while [ \$i -lt 30 ]; do sleep 1; i=\$((i + 1)); done; exit 7 ;;
 esac
 exit 1
 EOF
@@ -121,8 +129,23 @@ P="$T/percent"      # registered, key "p": a script name with a percent sign
 # registered, key "w": a path with a space, quotes and a backslash. A file name on Windows takes
 # neither a double quote nor a backslash: there the path keeps the space and the single quote.
 if [ "$WIN" -eq 1 ]; then W="$T/sp ace'x"; else W="$T/sp ace\"quo\\te'x"; fi
-for r in "$R" "$Q" "$U" "$W" "$M"; do newrepo "$r"; done
+D="$T/two"          # registered, key "d": a profile of two scripts, check and second
+K="$T/pkgs"         # registered, key "k": a script of the root and one of the package packages/a
+N="$T/nostart"      # registered, key "n": its package manager is a file that cannot be started
+for r in "$R" "$Q" "$U" "$W" "$M" "$D" "$K" "$N"; do newrepo "$r"; done
 newrepo "$P" 'a%b'
+# The resolver reads the scripts and the workspaces from the files as they are now, committed or not.
+echo '{ "name": "fixture", "scripts": { "check": "true", "second": "true" } }' >"$D/package.json"
+echo '{ "name": "fixture", "scripts": { "check": "true" }, "workspaces": ["packages/a"] }' >"$K/package.json"
+mkdir -p "$K/packages/a"
+echo '{ "name": "pkg-a", "scripts": { "check": "true" } }' >"$K/packages/a/package.json"
+# A file the system cannot start: without the execute bit, and on Windows an .exe that is no
+# program (the gate starts an .exe itself when cmd.exe cannot be given a word of the line — here
+# the percent sign of the script name).
+if [ "$WIN" -eq 1 ]; then NOSTART="$T/nostart.exe"; NOSTART_SCRIPT='a%b'; else NOSTART="$T/nostart-pm"; NOSTART_SCRIPT=check; fi
+printf '#!/bin/sh\nexit 0\n' >"$NOSTART"
+chmod a-x "$NOSTART"
+[ "$WIN" -eq 1 ] && echo '{ "name": "fixture", "scripts": { "a%b": "true" } }' >"$N/package.json"
 # Only Windows runs the next five (cmd.exe and the names of Windows); their registry entries
 # stand on every system and are simply never used elsewhere.
 C="$T/cmdmsg"       # key "c": its package manager is a .cmd that calls a tool that does not exist
@@ -132,8 +155,12 @@ S="$T/slash"        # key "s": a workspace entry written with a backslash
 X="$T/long"         # key "x": a script name that makes the command line longer than cmd.exe takes
 LONG="$(printf 'a%.0s' $(seq 1 8100))"
 jq -n --arg r "$R" --arg q "$Q" --arg w "$W" --arg m "$M" --arg p "$P" --arg pm "$PM" \
-    --arg c "$C" --arg cpm "$T/realpm.cmd" --arg a "$A" --arg apm "$T/sp dir/argpm.cmd" --arg l "$L" --arg s "$S" --arg x "$X" --arg long "$LONG" '{repos: [
+    --arg c "$C" --arg cpm "$T/realpm.cmd" --arg a "$A" --arg apm "$T/sp dir/argpm.cmd" --arg l "$L" --arg s "$S" --arg x "$X" --arg long "$LONG" \
+    --arg d "$D" --arg k "$K" --arg n "$N" --arg npm "$NOSTART" --arg nscript "$NOSTART_SCRIPT" '{repos: [
     {key: "t", match: $r, pm: $pm, root: {fast: ["check"], full: ["check"]}, workspace: {}},
+    {key: "d", match: $d, pm: $pm, root: {fast: ["check", "second"]}, workspace: {}},
+    {key: "k", match: $k, pm: $pm, root: {fast: ["check"]}, workspace: {fast: ["check"]}},
+    {key: "n", match: $n, pm: $npm, root: {fast: [$nscript]}, workspace: {}},
     {key: "q", match: $q, pm: $pm, root: {fast: ["check"]}, workspace: {}},
     {key: "w", match: $w, pm: $pm, root: {fast: ["check"]}, workspace: {}},
     {key: "m", match: $m, pm: "worfy-no-such-package-manager", root: {fast: ["check"]}, workspace: {}},
@@ -443,24 +470,112 @@ if [ -e "$T/reader.ready" ]; then ok "the reader had the verdict file open"; els
 verdict "a reader held the file -> the verdict of the new run is there: red, exit 2" "$R" '.outcome == "red" and .exit == 2'
 mode ok
 
-# --- 9b. A stopped run writes nothing down -----------------------------------------------
-# A signal that ends a script (Ctrl-C reaches the children of the gate) is not a failed script,
-# and a signal sent to the gate while it waits for a script must end the run before anything is
-# written. In both cases: exit code 128 + the signal (SIGTERM is 15), no red marker, no verdict
-# file — the one of the run before is removed. Not on Windows: a .cmd file cannot end by a
-# signal, and SIGTERM there kills node without a word.
+# --- 9b. A script ended by a signal is red; a stopped run writes nothing down ---------------
+# A script that a signal ended has failed, whoever sent the signal: exit code 2, the red marker,
+# a red verdict. A run is stopped when the gate itself gets the signal while it waits for a
+# script: the exit code is 128 + the signal (SIGTERM 143, SIGINT 130), and nothing is written —
+# no verdict line, no red marker, no cache entry, and the verdict file of the run before is
+# removed. Not on Windows: a .cmd file cannot end by a signal, and SIGTERM there kills node
+# without a word.
 if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM for a .cmd file or for node"; else
-    for how in term termparent; do
+    # (a) The script ends by a signal of its own: SIGTERM, and SIGKILL as an out-of-memory kill.
+    for how in term kill9; do
         mode ok; touched
         out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-        verdict "before the stopped run ($how): a green file" "$R" '.outcome == "green"'
+        verdict "before the script ended by a signal ($how): a green file" "$R" '.outcome == "green"'
         mode "$how"; touched
         out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-        if [ "$rc" -eq 143 ] && [ ! -e "$STATE/red-t-$(tag "$R")" ] && [ ! -e "$STATE/verdict-$(tag "$R").json" ] && [[ "$out" != *"[gate] красно"* && "$out" != *"[gate] зелено"* ]]; then
-            ok "stopped run ($how): exit 143, no red marker, no verdict file, no verdict line"
+        verdict "a script ended by a signal ($how) -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .key == "t"'
+        sig=SIGTERM; [ "$how" = kill9 ] && sig=SIGKILL
+        if [ "$rc" -eq 2 ] && [ -s "$STATE/red-t-$(tag "$R")" ] && [[ "$out" == *"[gate] красно (fast): t/.:check"* ]] && [[ "$out" == *"ended by the signal $sig"* ]]; then
+            ok "a script ended by a signal ($how): exit 2, the red marker, the «красно» line, the report names $sig"
         else
-            bad "stopped run ($how): rc=$rc, red marker: $(ls "$STATE" | grep -c '^red-t-'), verdict: $(head -c 200 "$STATE/verdict-$(tag "$R").json" 2>/dev/null), out: ${out:0:300}"
+            bad "a script ended by a signal ($how): rc=$rc, red marker: $(ls "$STATE" | grep -c '^red-t-'), out: ${out:0:400}"
         fi
+    done
+    if [[ "$out" == *"said before the kill"* ]]; then ok "a script ended by a signal: what it wrote before the signal is in the report"
+    else bad "a script ended by a signal: its output is lost (out: ${out:0:400})"; fi
+
+    # The names and the content of the cache files: a stopped run must leave them as they were.
+    cachesum() { (cd "$STATE/cache" && ls && cat ./* 2>/dev/null) | cksum; }
+    # stopped <description> <exit code> <worktree> <key> <cache before>: the run that set $rc and
+    # $out ended as a stopped one and left nothing.
+    stopped() {
+        local d="$1" want="$2" key="$4" before="$5" t
+        t="$(tag "$3")"
+        if [ "$rc" -eq "$want" ] && [ ! -e "$STATE/red-$key-$t" ] && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(cachesum)" = "$before" ] \
+            && [[ "$out" != *"[gate] красно"* && "$out" != *"[gate] зелено"* ]]; then
+            ok "$d: exit $want, no verdict line, no red marker, no verdict file, no cache entry"
+        else
+            bad "$d: rc=$rc (expected $want), red marker: $(ls "$STATE" | grep -c "^red-$key-$t"), verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), cache: $(cachesum) (before: $before), out: ${out:0:300}"
+        fi
+    }
+
+    # (b) The script sends SIGTERM to the gate and ends well: without the signal the run is green.
+    mode ok; touched
+    out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    verdict "before the stopped run (the script signals the gate): a green file" "$R" '.outcome == "green"'
+    before="$(cachesum)"
+    mode termparent; touched
+    out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    stopped "stopped run (the script signals the gate)" 143 "$R" t "$before"
+
+    # (c) The signal goes to the process group of the gate, as when a hook runs out of time or
+    # Ctrl-C is pressed: the gate and the script get it together. The script ends with code 0 on
+    # it (wait0: counted, the run would be green and cached) or with code 1 (wait1: counted, the
+    # run would be red). stdin is what a hook gives — a JSON line, then the end — or /dev/null,
+    # as the rules tell agents to run the gate.
+    # stop_group <TERM | INT> <pipe | null> <worktree>: starts the gate in a process group of its
+    # own, waits until the script says it started, sends the signal to the group; sets $rc, $out.
+    stop_group() {
+        local pid
+        rm -f "$T/started" "$T/stop.out"
+        # set -m: the job is the leader of a process group of its own (the id of the group is
+        # $!), and SIGINT is not ignored in it as it is in a job of a script without job control.
+        # exec: the process of the job is the gate itself. With <(…) on stdin, not a pipeline:
+        # $! of a pipeline is its last command, but the group is named after the first.
+        set -m
+        if [ "$2" = pipe ]; then
+            (cd "$3" && export GATE_SCOPE=all && exec node "$GATE" fast) < <(printf '%s\n' '{"session_id":"stop"}') >"$T/stop.out" 2>&1 &
+        else
+            (cd "$3" && export GATE_SCOPE=all && exec node "$GATE" fast) </dev/null >"$T/stop.out" 2>&1 &
+        fi
+        pid=$!
+        set +m
+        for _ in $(seq 1 300); do [ -s "$T/started" ] && break; sleep 0.1; done
+        if [ -s "$T/started" ]; then kill -s "$1" -- "-$pid"; else kill -s KILL -- "-$pid"; fi
+        wait "$pid"; rc=$?
+        out="$(cat "$T/stop.out")"
+        [ -s "$T/started" ] || out="the script did not start within 30 s; $out"
+    }
+    for sig in TERM INT; do
+        want=143; [ "$sig" = INT ] && want=130
+        for how in wait0 wait1; do
+            for stdin in pipe null; do
+                mode ok; touched
+                out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+                verdict "before SIG$sig to the group ($how, stdin: $stdin): a green file" "$R" '.outcome == "green"'
+                before="$(cachesum)"
+                mode "$how"; touched
+                stop_group "$sig" "$stdin" "$R"
+                stopped "SIG$sig to the process group while a script runs ($how, stdin: $stdin)" "$want" "$R" t "$before"
+            done
+        done
+    done
+    # (d) Two scripts, the signal comes during the first one: the second must not start.
+    for sig in TERM INT; do
+        want=143; [ "$sig" = INT ] && want=130
+        mode ok
+        echo "$sig" >"$D/n.txt"
+        out="$(cd "$D" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+        verdict "before SIG$sig to the group (two scripts): a green file" "$D" '.outcome == "green"'
+        before="$(cachesum)"
+        mode wait0
+        echo "$sig again" >"$D/n.txt"
+        stop_group "$sig" pipe "$D"
+        stopped "SIG$sig to the process group during the first of two scripts" "$want" "$D" d "$before"
+        if [ "$(cat "$T/started" 2>/dev/null)" = check ]; then ok "SIG$sig during the first of two scripts: the second did not start"
+        else bad "SIG$sig during the first of two scripts: started: $(tr '\n' ' ' <"$T/started" 2>/dev/null)"; fi
     done
     mode ok
 fi
