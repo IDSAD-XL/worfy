@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-14 (UTC), main @ fcaa18e
+# Передача контекста — снимок на 2026-10-14 (UTC), main @ 5c4b543
 
 ## Сейчас в работе
 
@@ -7,7 +7,7 @@
 - Stable copy и plugin `worfy` — сборка `4d3d60c` (2026-10-10). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298), `epic-status` — 22/50; 46 закрыт — `gate.sh` остаётся (решение владельца 2026-10-14); на ПК — 14. Владелец, 2026-10-13: 03–07 не ждут закрытия E3; очередь ПК — в «Дальше».
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–06, 08; 07 открыт; 09 — владелец.
+- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08; 09 (приёмка) — владелец.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10 (10 — PR #297 по переходному правилу ADR-0056; e2e `focus-sidebar.spec.ts:270` стабилен с PR #308); следом 11 и 13; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
 
@@ -26,7 +26,7 @@
 - `worfy-windows` 35 (влит, PR #287): пробный том на ПК отключает владелец, шаги — в «Итог» Ticket-а; test на настоящих папках (Ticket 45, пункт 1) ждёт его слова в чате Windows Session.
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); решения и долги — «Итог» 03–06, 09, 10.
-- `worfy-terminal-ai`: контраст Suggestion 2,30:1 и 2,71:1 при ≥ 4,5:1: `brightBlack`, `TerminalNode.tsx`; решения без владельца — «Итог» 03–06, 08.
+- `worfy-terminal-ai`: контраст Suggestion 2,30:1 и 2,71:1 при ≥ 4,5:1: `brightBlack`, `TerminalNode.tsx`; решения без владельца — «Итог» 03–08.
 
 ## Риски и долги
 
