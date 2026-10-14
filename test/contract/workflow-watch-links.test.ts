@@ -85,7 +85,7 @@ const listing =
     return JSON.stringify({ ref: 'checkout', epics, tickets })
   }
 
-const layoutOf = (ticketsRoot: string) => async (root: string): Promise<ProjectLayout> => ({ root, mode: 'silent', workflowFolder: root, ticketsRoot, repos: [], workspace: null, reason: null })
+const layoutOf = (ticketsRoot: string) => async (root: string): Promise<ProjectLayout> => ({ root, mode: 'silent', workflowFolder: root, ticketsRoot, repos: [], workspace: null, reason: null, failed: false })
 
 interface Started {
   watcher: WorkflowWatcher

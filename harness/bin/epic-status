@@ -52,7 +52,9 @@ set -- ${rest[@]+"${rest[@]}"}
 [ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref only together with --json' >&2; exit 2; }
 
 # The tickets root — one reader for everyone: `ticket root` (profile, --root, git top-level).
-# Without node — the old behaviour: <git top-level or cwd>/.scratch.
+# Without node only --root is read as given. Without node and without --root — exit 3 with the
+# reason: guessing <git top-level>/.scratch answered a Silent project, whose tickets live in its
+# Workflow folder, with an empty list as if it had none (worfy-harness ticket 37).
 # ticket is the script next to this one (the folder of its real file, not of a symlink).
 TICKET="${CLAUDE_TICKET_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)/ticket}"
 if command -v node >/dev/null 2>&1; then
@@ -60,8 +62,8 @@ if command -v node >/dev/null 2>&1; then
 elif [ -n "$ROOT_ARG" ]; then
   case $ROOT_ARG in /*) scratch=$ROOT_ARG ;; *) scratch=$(pwd -P)/$ROOT_ARG ;; esac
 else
-  root=$(git rev-parse --show-toplevel 2>/dev/null) || root=$PWD
-  scratch=$root/.scratch
+  echo "epic-status: node is not on PATH ($PATH): the tickets root comes from \`ticket root\`, which needs node — put node on PATH, or give the root with --root <dir>" >&2
+  exit 3
 fi
 scratch=${scratch%/}; [ -n "$scratch" ] || scratch=/
 

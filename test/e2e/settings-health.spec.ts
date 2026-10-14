@@ -70,7 +70,7 @@ const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim(
 const checkRuns = (): number => calls().filter((line) => line === 'qmd --version').length
 const mark = (): string => join(dataDir, 'first-run.json')
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */
 async function checksOf(place: Locator): Promise<{ id: string | null; name: string | null; status: string | null }[]> {
@@ -136,8 +136,9 @@ test('Settings → Health shows the checks of the First run dialog; closing Sett
     const inHealth = await checksOf(health)
     expect(inHealth.map((each) => each.id)).toEqual(CHECK_IDS)
     expect(checkRuns()).toBe(1)
-    // What First run shows on a first start (test/e2e/first-run.spec.ts): one failed, two warnings.
-    await expect(health.getByTestId('first-run-summary')).toHaveText('1 failed · 2 warnings')
+    // What First run shows on a first start (test/e2e/first-run.spec.ts): one failed (the Harness
+    // plugin), three warnings (its dependencies and its scripts, checked once it is installed; the qmd models).
+    await expect(health.getByTestId('first-run-summary')).toHaveText('1 failed · 3 warnings')
     await expect(health.locator('[data-check="harness"]')).toHaveAttribute('data-status', 'fail')
     await expect(health.locator('[data-check="harness"]').getByRole('button', { name: 'Install' })).toBeVisible()
     await expect(health.getByRole('button', { name: 'Check again' })).toBeVisible()

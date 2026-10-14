@@ -173,6 +173,26 @@ rm "$T/profiles/demo/profile.json"
 check "profile dir missing file -> 3" 3 "" "$PROFILE" -C "$T/repo"
 echo '{broken' >"$T/profiles/demo/profile.json"
 check "broken profile.json -> 1" 1 "" "$PROFILE" -C "$T/repo"
+# A registry the resolver cannot read: exit 1, and stderr keeps the resolver's own line, which names it.
+check "unreadable registry -> 1, stderr names the registry" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_CONFIG="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: gate-resolve: registry $0 cannot be read"* ]]' \
+    "$T/no-registry.json" "$PROFILE" "$T/repo"
+# A registry the resolver crashes on: stderr keeps its Error line, not the "Node.js vNN" line node prints last.
+echo '{"repos":[null]}' >"$T/null-entry.json"
+check "resolver crash -> 1, stderr ends with its Error line" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_CONFIG="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: TypeError: Cannot read properties of null"* ]] && [[ "$err" != *"Node.js v"* ]]' \
+    "$T/null-entry.json" "$PROFILE" "$T/repo"
+# Stand-in resolvers: an Error with properties (node prints them after the Error line), and two
+# lines of its own followed by a stack line and a version line: the last of its own lines is kept.
+# The registry itself is fine.
+printf '%s\n' "throw Object.assign(new Error('resolver exploded'), { code: 'ERR_STAND_IN' })" >"$T/resolver-props.mjs"
+printf '%s\n' "process.stderr.write('gate-resolve: reading the registry\\ngate-resolve: the registry names no repos\\n    at read (/r.mjs:1:1)\\n\\nNode.js v24.19.0\\n'); process.exit(1)" >"$T/resolver-note.mjs"
+check "resolver crash with error properties -> its Error line, not the closing brace" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_RESOLVE="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: Error: resolver exploded" ]]' \
+    "$T/resolver-props.mjs" "$PROFILE" "$T/repo"
+check "resolver message, stack and version lines -> the message" 0 "" bash -c \
+    'err=$(CLAUDE_GATE_RESOLVE="$0" "$1" -C "$2" 2>&1 >/dev/null); rc=$?; [ "$rc" -eq 1 ] && [[ "$err" == *"project not determined: gate-resolve: the registry names no repos" ]]' \
+    "$T/resolver-note.mjs" "$PROFILE" "$T/repo"
 
 # common directory (workspace): the parent of all repositories of one profile, not a repo itself
 mkdir -p "$T/ws/a" "$T/ws/b" "$T/ws/notes" "$T/ws/c" "$T/profiles/multi" "$T/profiles/multi2" "$T/mixed/x" "$T/mixed/y" "$T/mixed/z"

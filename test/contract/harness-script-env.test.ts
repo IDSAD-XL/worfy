@@ -5,17 +5,19 @@
 // node. The environment handed to the readers has node. The scripts are the real `epic-status`,
 // `ticket` and `profile` of harness/bin, installed as the plugin in a temporary Claude home, and the
 // Project is Silent: its Tickets are in the Workflow folder, outside the repository. A reader that
-// ran a script with `process.env` would find no node: `epic-status` then reads `<repository>/.scratch`
-// and answers with no Epics, and `profile` exits with 127, which reads as Full mode.
+// ran a script with `process.env` would find no node: `epic-status` then refuses with exit code 3
+// (before slice 2 of the ticket it read `<repository>/.scratch` and answered with no Epics), and
+// `profile` exits with 127, which the layout reads as a failed call.
 //
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../../src/main/harness/script-env'
+import { recaptureAgentEnv } from '../../src/main/agent/env'
+import { harnessScriptEnv, recaptureForCheckAgain, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../../src/main/harness/script-env'
 import { harnessWorkspaceOf } from '../../src/main/projects/store'
 import { LayoutCache, readProjectLayout } from '../../src/main/workflow/folder'
 import { epicStatusRunner, readCheckout, readWorkflow } from '../../src/main/workflow/reader'
@@ -47,7 +49,7 @@ function listing(dir: string): Record<string, string> {
   return out
 }
 
-const SAVED = ['PATH', 'HOME', 'WORFY_CLAUDE_HOME', 'WORFY_HARNESS_HOME'] as const
+const SAVED = ['PATH', 'HOME', 'SHELL', 'WORFY_CLAUDE_HOME', 'WORFY_HARNESS_HOME'] as const
 
 let scratch: string
 let saved: Record<string, string | undefined>
@@ -63,6 +65,9 @@ let folder: string
 let workspace: string
 /** The environment with node, as the login shell would give it. */
 let withNode: HarnessScriptEnv
+/** The folder whose only entry is node. */
+let nodeBin: string
+let home: string
 const source: HarnessScriptEnvSource = () => Promise.resolve(withNode)
 
 // The scripts are bash and POSIX paths; Windows gets them with worfy-windows ticket 05.
@@ -73,8 +78,8 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     if (!node) throw new Error('node is not on the PATH of the test run: the test cannot build the environment with node')
     scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-script-env-')))
     tools = join(scratch, 'tools')
-    const nodeBin = join(scratch, 'node-bin')
-    const home = join(scratch, 'home')
+    nodeBin = join(scratch, 'node-bin')
+    home = join(scratch, 'home')
     claudeHome = join(scratch, 'claude-home')
     harnessHome = join(claudeHome, 'worfy-harness')
     repo = join(scratch, 'silent-app')
@@ -155,9 +160,11 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     expect(commandPath('node', process.env.PATH ?? '')).toBeNull()
     expect(commandPath('bash', process.env.PATH ?? '')).not.toBeNull()
     expect(commandPath('node', withNode.PATH ?? '')).not.toBeNull()
-    // Without node `epic-status` answers with no Epics and exit code 0: what worfy showed from Finder.
+    // Without node `epic-status` refuses with exit code 3 and names node (slice 2 of the ticket);
+    // before, it answered with no Epics and exit code 0, which is what worfy showed from Finder.
     const bare = spawnSync(join(harnessHome, 'plugin', 'bin', 'epic-status'), ['--json'], { cwd: repo, env: { ...withNode, PATH: tools, HARNESS_HOME: harnessHome }, encoding: 'utf8' })
-    expect({ status: bare.status, epics: (JSON.parse(bare.stdout) as { epics: unknown[] }).epics }).toEqual({ status: 0, epics: [] })
+    expect({ status: bare.status, stdout: bare.stdout }).toEqual({ status: 3, stdout: '' })
+    expect(bare.stderr).toMatch(/node is not on PATH/)
   })
 
   it('readWorkflow: the model has the Epic and the Ticket of the Silent Project', async () => {
@@ -213,4 +220,83 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     await harnessWorkspaceOf(source)(workspace)
     expect({ repo: listing(repo), folder: listing(folder), harness: listing(harnessHome) }).toEqual(before)
   })
+
+  // Next to last in this file: it adds a Ticket to the Workflow folder, and it leaves the app's
+  // source holding the environment it captured.
+  it("the app's own source: node added to the login shell's .profile after the start shows the Epics without a restart, and a Ticket written after that shows too", async () => {
+    const until = async (done: () => boolean, what: string, ms = 20_000): Promise<void> => {
+      const end = Date.now() + ms
+      while (!done()) {
+        if (Date.now() > end) throw new Error(`not within ${ms} ms: ${what}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+    const profile = join(home, '.profile')
+    // The login shell of the app (`$SHELL -ilc`, src/main/agent/env.ts) reads this file; the PATH it
+    // sets is the whole PATH, so nothing of /etc/profile adds a node.
+    writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
+    process.env.SHELL = '/bin/sh'
+    const second = join(folder, '.scratch', 'demo', 'issues', '02-second.md')
+    const watcher = await WorkflowWatcher.start({ root: repo, claudeHome, env: harnessScriptEnv, layoutRetryMs: 100, onChange: () => undefined })
+    try {
+      expect(watcher.current.epics).toEqual([])
+      expect(watcher.current.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: .*node/)
+      expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
+
+      // The user adds node in an rc file, as nvm, fnm, volta, asdf and mise do, and worfy keeps running.
+      writeFileSync(profile, `PATH='${nodeBin}:${tools}'; export PATH\n`)
+      await until(() => watcher.current.epics.length > 0, 'the Epic after node was added')
+      expectSilentEpic(watcher.current)
+      expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).not.toBeNull()
+
+      // The watch started with the answer: a Ticket written now is read without a retry.
+      writeFileSync(second, '# 02 — Second\n\nType: task\nStatus: open\nBlocked by: —\n')
+      await until(() => watcher.current.tickets.some((ticket) => ticket.num === 2), 'the Ticket written after the recovery', 10_000)
+    } finally {
+      await watcher.close()
+      rmSync(second, { force: true })
+    }
+  }, 60_000)
+
+  // After the test above: it starts from a login shell without node, and leaves one with node.
+  // Review round 2 of PR #311: "Check again" turned its own row green while the sidebar kept the
+  // failure until the watcher's own timer, up to 5 minutes later.
+  it('"Check again" with node added since the start: the sidebar\'s failed Project shows its Epic within seconds, with one more login shell start', async () => {
+    const profile = join(home, '.profile')
+    const counter = join(scratch, 'shell-runs')
+    const shell = join(scratch, 'login-shell')
+    // /bin/sh as the login shell, with each start counted.
+    writeFileSync(shell, `#!/bin/sh\necho run >> '${counter}'\nexec /bin/sh "$@"\n`)
+    chmodSync(shell, 0o755)
+    const shellRuns = (): number => (existsSync(counter) ? readFileSync(counter, 'utf8').split('\n').filter((line) => line !== '').length : 0)
+    process.env.SHELL = shell
+    writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
+    // The app's source holds what it captured last: take the shell without node now, as at a start from Finder.
+    await recaptureAgentEnv()
+    expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
+    // A retry step far longer than the test: only "Check again" can bring the Epic in time.
+    const hub = new WorkflowHub({ claudeHome, env: harnessScriptEnv, layoutRetryMs: 60_000 })
+    try {
+      const first = await hub.open(repo, { id: 1, send: () => undefined })
+      expect(first.epics).toEqual([])
+      expect(first.error?.message).toMatch(/exit code 127: .*node/)
+      const before = shellRuns()
+
+      // The user adds node, as nvm does, and presses "Check again" (src/main/ipc/first-run.ts).
+      writeFileSync(profile, `PATH='${nodeBin}:${tools}'; export PATH\n`)
+      const pressed = Date.now()
+      await recaptureForCheckAgain(hub)
+      let current = await hub.model(repo)
+      while (!current?.epics.length) {
+        if (Date.now() - pressed > 5_000) throw new Error(`no Epic 5 s after "Check again": ${current?.error?.message ?? 'no model'}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        current = await hub.model(repo)
+      }
+      expectSilentEpic(current)
+      // The recapture of "Check again" itself; the layout it asked again started no shell of its own.
+      expect(shellRuns()).toBe(before + 1)
+    } finally {
+      await hub.closeAll()
+    }
+  }, 60_000)
 })

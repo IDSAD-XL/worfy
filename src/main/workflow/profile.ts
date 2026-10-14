@@ -6,10 +6,13 @@
 // Harness's `bin/profile -C <root> --field <a.b>` (src/main/harness/locate.ts says which; the
 // plugin's script gets HARNESS_HOME): exit code 0 prints the
 // field (JSON for an array, the bare string for a string, the bare word `null` for a null), 3 means
-// the folder is in no registered project, 4 means the field is absent. Every way of not getting a
-// value — those codes, a missing script, a failed run, output of the wrong shape — falls back to
-// what worfy did without a Profile (the default MCP list; gh with the login shell's own account),
-// and the reason goes to the log: nothing fails over its Profile.
+// the folder is in no registered project, 4 means the field is absent. For a field — the MCP list,
+// the GitHub account — every way of not getting a value (those codes, a missing script, a failed
+// run, output of the wrong shape) falls back to what worfy did without a Profile (the default MCP
+// list; gh with the login shell's own account), and the reason goes to the log. Where the workflow
+// lives (`readResolvedProfile`, below) is the exception: a call that failed is told from a folder
+// with no Profile, and the workflow readers show its reason instead of guessing (worfy-harness
+// ticket 37).
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
 import { execFile } from 'node:child_process'
@@ -36,8 +39,13 @@ export const DEFAULT_MCP_SERVERS: readonly string[] = Object.freeze(['plugin_wor
 
 /** What one run of `bin/profile` ended with. */
 export interface ProfileRun {
-  /** The exit code; null when the process was killed (timeout). */
+  /** The exit code; null when the process ended without one: killed at its time limit, or by `signal`. */
   code: number | null
+  /**
+   * The signal that ended the script when the runner did not send it for its time limit (SIGSEGV,
+   * SIGABRT, a SIGKILL from memory pressure); absent or null for a timeout and for an exit code.
+   */
+  signal?: string | null
   stdout: string
   stderr: string
 }
@@ -55,7 +63,34 @@ export type ProfileRunner = (cwd: string, args: readonly string[]) => Promise<Pr
 export const profilePath = (claudeHome: string): string => join(locateHarness(harnessHomes(claudeHome)).binDir, 'profile')
 
 const MAX_OUTPUT = 1024 * 1024
-const TIMEOUT_MS = 15_000
+/** How long a Harness script run by the main process may take before it is killed. */
+export const HARNESS_SCRIPT_TIMEOUT_MS = 15_000
+
+/** The most of a script's stderr a reason carries: its first lines, not a whole stack trace. */
+const DETAIL_LINES = 3
+const DETAIL_CHARS = 400
+
+/**
+ * What a failed Harness script's stderr says, short enough for a line of the window. A node crash
+ * gives its Error line (`TypeError: …`), not the stack under it nor the `Node.js vNN` line node
+ * prints last; other stderr gives its first lines. Empty when stderr says nothing.
+ */
+export function scriptFailureDetail(stderr: string): string {
+  const lines = stderr
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && !/^\^+$/.test(line))
+  const thrown = lines.find((line) => /^(?:[A-Z][A-Za-z]*)?Error\b.*:/.test(line))
+  const text = thrown ?? lines.slice(0, DETAIL_LINES).join(' — ')
+  return text.length > DETAIL_CHARS ? `${text.slice(0, DETAIL_CHARS)}…` : text
+}
+
+/**
+ * Whether a failed run points at the environment the script ran with rather than at the Harness:
+ * the interpreter was not found (exit code 127, `env: node: No such file or directory`) or could
+ * not be run (126). Such a failure may go away when the login shell is captured again.
+ */
+export const environmentExit = (code: number | null): boolean => code === 127 || code === 126
 
 /**
  * The default runner: the real script as a child process, with a timeout and a size cap. `env` is
@@ -70,18 +105,20 @@ export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunne
  * A runner of another read-only script of the same Harness (`ticket root`, src/main/workflow/folder.ts),
  * with the same timeout, size cap and exit-code rules as `profile`.
  */
-export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: 'profile' | 'ticket'): ProfileRunner {
+export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: 'profile' | 'ticket', timeoutMs = HARNESS_SCRIPT_TIMEOUT_MS): ProfileRunner {
   return (cwd, args) =>
     new Promise((resolvePromise, reject) => {
       // Looked for on every run; the plugin's script gets HARNESS_HOME, where its Profiles are.
       const harness = locateHarness(harnessHomes(claudeHome))
       const script = join(harness.binDir, name)
-      execFile(script, [...args], { cwd, env: scriptEnv(harness, env), maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+      execFile(script, [...args], { cwd, env: scriptEnv(harness, env), maxBuffer: MAX_OUTPUT, timeout: timeoutMs, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise({ code: 0, stdout, stderr })
         const code = (error as NodeJS.ErrnoException).code
         // A number is the script's exit code; a string is a failure to start it (ENOENT, EACCES…).
         if (typeof code === 'number') return resolvePromise({ code, stdout, stderr })
-        if (error.killed || error.signal) return resolvePromise({ code: null, stdout, stderr })
+        // `killed`: the runner's own kill at `timeout`. A signal without it came from elsewhere: a crash.
+        if (error.killed) return resolvePromise({ code: null, stdout, stderr })
+        if (error.signal) return resolvePromise({ code: null, signal: error.signal, stdout, stderr })
         reject(error)
       })
     })
@@ -113,8 +150,23 @@ export interface ReadProfileOptions {
 
 export type ReadMcpAllowlistOptions = ReadProfileOptions
 
+/**
+ * Why `profile` gave no answer. `none`: the folder has no Profile — exit code 3, or no script
+ * (worfy-harness ticket 37). `failed`: the call itself failed — any other exit code (127: no node;
+ * 1: a broken registry or profile.json), a timeout, a signal, a script that could not be started.
+ */
+export type ProfileMiss = 'none' | 'failed'
+
+/**
+ * No answer: why, of which kind, and — for a failed call — whether it points at the environment
+ * the script ran with (`environmentExit`: exit code 127 or 126 only). A script that could not be
+ * started (EACCES: no execute bit; output over the size cap) is a file problem, not one a new
+ * login shell can fix.
+ */
+export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
+
 /** One field of the Profile: its printed value, or why there is none. */
-type FieldRead = { ok: true; stdout: string } | { ok: false; reason: string }
+type FieldRead = { ok: true; stdout: string } | ProfileMissRead
 
 /** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
 function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
@@ -124,7 +176,8 @@ function readField(options: ReadProfileOptions, field: string): Promise<FieldRea
 /** Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. */
 async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
-  const none = (reason: string): FieldRead => ({ ok: false, reason })
+  const none = (reason: string): FieldRead => ({ ok: false, reason, miss: 'none' })
+  const failed = (reason: string, environment = false): FieldRead => ({ ok: false, reason, miss: 'failed', environment })
 
   let result: ProfileRun
   try {
@@ -133,14 +186,15 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
     if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
-    return none(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
+    return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
   }
 
-  const detail = result.stderr.trim()
+  const detail = scriptFailureDetail(result.stderr)
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return none(absent)
-  if (result.code === null) return none('the profile script timed out')
-  if (result.code !== 0) return none(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`)
+  if (result.code === 4) return failed(absent)
+  if (result.code === null && result.signal) return failed(`the profile script was ended by the signal ${result.signal}${detail ? `: ${detail}` : ''}`)
+  if (result.code === null) return failed(`the profile script did not answer within ${HARNESS_SCRIPT_TIMEOUT_MS / 1000} s`)
+  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code))
   return { ok: true, stdout: result.stdout.trim() }
 }
 
@@ -246,25 +300,34 @@ const resolvedSchema = z.object({
 
 /**
  * `_resolved.mode`, `workflow_folder`, `workspace` and `repos` of `bin/profile -C <root> --json`, or
- * why there are none: exit code 3, 4, a missing script, a failed run, output that is not JSON, or a
- * Harness from before Silent mode that has no such fields. Nothing is logged here; the caller
- * falls back to Full mode (src/main/workflow/folder.ts) and logs the reason once.
+ * why there are none, of two kinds (worfy-harness ticket 37). `none` — the folder has no Profile:
+ * exit code 3, a missing script, or a Harness from before Silent mode that has no such fields; the
+ * caller reads it in Full mode, as worfy read every Project before. `failed` — the call failed and
+ * the mode is unknown: any other exit code (4 included), a timeout, a script that could not be
+ * started, output that is not JSON or lacks the fields; the caller shows the reason instead of
+ * guessing (src/main/workflow/folder.ts). Nothing is logged here.
  */
-export async function readResolvedProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: ResolvedProfile } | { ok: false; reason: string }> {
+export async function readResolvedProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: ResolvedProfile } | ProfileMissRead> {
   const read = await runProfile(options, ['--json'], 'the profile script answered --json with exit code 4')
   if (!read.ok) return read
+  const wrong = (reason: string): ProfileMissRead => ({ ok: false, reason, miss: 'failed', environment: false })
   let json: unknown
   try {
     json = JSON.parse(read.stdout)
   } catch {
-    return { ok: false, reason: `profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}` }
+    return wrong(`profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}`)
   }
-  const resolved = (json as { _resolved?: { mode?: unknown } } | null)?._resolved
-  if (resolved?.mode === undefined) return { ok: false, reason: 'the Harness gives no _resolved.mode: it is older than Silent mode' }
+  // Every version of the script prints an object; `null`, a list or a string is a call that went wrong.
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return wrong(`profile --json printed no object: ${JSON.stringify(read.stdout.slice(0, 200))}`)
+  // Only a Harness older than Silent mode has no `_resolved.mode`: no `_resolved` at all, or one without the field.
+  const resolved: unknown = (json as { _resolved?: unknown })._resolved
+  if (resolved === undefined || (typeof resolved === 'object' && resolved !== null && !Array.isArray(resolved) && (resolved as { mode?: unknown }).mode === undefined)) {
+    return { ok: false, reason: 'the Harness gives no _resolved.mode: it is older than Silent mode', miss: 'none' }
+  }
   const parsed = resolvedSchema.safeParse(json)
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
-    return { ok: false, reason: `profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.')}: ${issue.message}` : ''}` }
+    return wrong(`profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.') || '(the whole answer)'}: ${issue.message}` : ''}`)
   }
   const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
   return { ok: true, profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })) } }

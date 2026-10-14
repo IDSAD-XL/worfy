@@ -415,7 +415,8 @@ export interface CanvasDeps {
   repositoryRoot?: (folder: string) => Promise<string | null>
 }
 
-const appDeps = (): CanvasDeps => ({
+/** The app's dependencies; exported for the wiring test (test/contract/harness-script-wiring.test.ts). */
+export const appDeps = (): CanvasDeps => ({
   projects: () => projectStore().list(),
   dataDir: (projectId) => projectStore().dataDir(projectId),
   layout: layoutStore(),

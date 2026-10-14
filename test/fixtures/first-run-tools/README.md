@@ -15,6 +15,7 @@ the PATH (links in a temporary folder): a tool left out is "not installed".
 | `FAKE_CLAUDE_VERSION` | `claude` | what `claude --version` prints (default `2.1.289`) |
 | `FAKE_GH_ACCOUNT` | `gh` | the signed-in account; empty — `gh auth status` exits 1, not signed in |
 | `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.11.0`) |
+| `FAKE_NODE_REAL` | `node` | the real node: every call but `--version` goes to it, so a Harness script (`#!/usr/bin/env node`) runs; unset — such a call prints an error and exits 2 |
 | `FAKE_NPM_FAIL` | `npm` | `npm install` prints it to stderr and exits 1 |
 | `FAKE_NPM_BIN` | `npm` | where `npm install -g` puts `qmd` (a folder on the PATH) |
 | `FAKE_NPM_PREFIX` | `npm` | what `npm prefix -g` prints |

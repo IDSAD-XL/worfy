@@ -19,7 +19,7 @@ import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
-import { readProjectLayout, type ProjectLayout } from './folder'
+import { layoutFailure, readProjectLayout, type ProjectLayout } from './folder'
 import {
   epicStatusSchema,
   ticketKey,
@@ -90,8 +90,9 @@ export const epicStatusPath = (claudeHome: string): string => join(locateHarness
  *
  * `env` is asked on every run and is the login shell environment in the app
  * (src/main/harness/script-env.ts). The script is bash, but it asks `ticket root` for the Tickets
- * root only when its PATH has node; without node it reads `<repository>/.scratch` and answers a
- * Silent Project with no Epics and exit code 0.
+ * root, which is node; without node it exits 3 and names node (a Harness older than worfy-harness
+ * ticket 37 read `<repository>/.scratch` instead and answered a Silent Project with no Epics).
+ * Both the first run and the retry run below take the environment asked here, once per call.
  */
 export function epicStatusRunner(claudeHome: string, env: HarnessScriptEnvSource): EpicStatusRunner {
   return async (cwd, ref) => {
@@ -280,6 +281,14 @@ export async function enrichSnapshot(
 const errorOf = (error: unknown): WorkflowError =>
   error instanceof EpicStatusError ? error.workflowError : { code: 'failed', message: error instanceof Error ? error.message : String(error) }
 
+/**
+ * The model of a Project whose layout could not be read (`layout.failed`): empty, with the reason,
+ * as for a failed `epic-status` — the window shows the text and no "No epics yet" panel.
+ */
+export function failedCheckout(root: string, layout: ProjectLayout): CheckoutModel {
+  return { root, epics: [], tickets: [], error: { code: 'failed', message: layoutFailure(layout) } }
+}
+
 /** Reads the Project's checkout. A missing or broken script gives an empty model with the reason. */
 export async function readCheckout(root: string, run: EpicStatusRunner, ticketsRoot?: string): Promise<CheckoutModel> {
   const isDir = await stat(root).then((s) => s.isDirectory()).catch(() => false)
@@ -416,6 +425,11 @@ export async function readWorkflow(
 ): Promise<{ model: WorkflowModel; checkout: CheckoutModel; branches: BranchCache }> {
   const root = resolve(options.root)
   const layout = options.layout ?? (await readProjectLayout({ root, claudeHome: options.claudeHome, env: await options.env() }))
+  if (layout.failed) {
+    // Where the Tickets live is unknown: the reason, not a guess (src/main/workflow/folder.ts).
+    const checkout = failedCheckout(root, layout)
+    return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
+  }
   const checkout = await readCheckout(root, run, layout.ticketsRoot)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }

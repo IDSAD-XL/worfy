@@ -1,8 +1,10 @@
-// The environment of the Claude Code process (ADR-0007).
+// The environment of the Claude Code process (ADR-0007), and of the Harness scripts the main
+// process starts (src/main/harness/script-env.ts, worfy-harness ticket 37).
 //
 // An app started from Finder gets a bare PATH from launchd (/usr/bin:/bin:/usr/sbin:/sbin), so
 // neither Claude Code nor the user's hooks would find node, pnpm or gh. worfy therefore takes the
-// environment of the user's interactive login shell (`$SHELL -ilc`), once, with a timeout. The
+// environment of the user's interactive login shell (`$SHELL -ilc`), once per app run, with a
+// timeout; it is taken again only when the Harness scripts or First run ask (`recaptureAgentEnv`). The
 // shell starts from a minimal environment, so variables of whoever started worfy (for example a
 // parent Claude Code session when worfy runs from a terminal) never reach the child Claude Code.
 // From the shell's environment only ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are removed: with
@@ -70,7 +72,7 @@ export function withoutApiKeys(env: Readonly<Env>): Env {
 }
 
 export interface CaptureOptions {
-  /** The shell to run; defaults to $SHELL of `source`, then /bin/zsh. */
+  /** The shell to run; defaults to $SHELL of `source`, then /bin/zsh. An empty value counts as unset. */
   shell?: string
   /** worfy's own environment: only SHELL_BASE_KEYS are taken from it. */
   source?: SourceEnv
@@ -91,12 +93,13 @@ export interface CapturedEnv {
 /**
  * Runs `$SHELL -ilc` from the minimal environment and returns its environment without the API
  * keys. When the shell fails, hangs past the timeout or prints no markers, the result is the
- * minimal environment itself (still without API keys): Claude Code starts, but tools outside the
- * system PATH are not found, and `error` says why.
+ * minimal environment itself (still without API keys): Claude Code and the Harness scripts start,
+ * but tools outside the system PATH — node among them — are not found, and `error` says why.
+ * Never rejects: an empty SHELL is read as unset, as a login would.
  */
 export async function captureLoginShellEnv(options: CaptureOptions = {}): Promise<CapturedEnv> {
   const source = options.source ?? process.env
-  const shell = options.shell ?? source.SHELL ?? '/bin/zsh'
+  const shell = [options.shell, source.SHELL].find((each) => each !== undefined && each !== '') ?? '/bin/zsh'
   const base = shellBaseEnv(source)
   // Each marker has a NUL on both sides: an rc file may print text without a trailing newline or NUL.
   const script = `printf '\\0%s\\0' ${ENV_START_MARKER}; env -0; printf '\\0%s\\0' ${ENV_END_MARKER}`
@@ -511,12 +514,53 @@ export function captureAgentEnv(options: AgentEnvOptions = {}): Promise<Captured
 }
 
 let captured: Promise<CapturedEnv> | null = null
+let recapturing: Promise<CapturedEnv> | null = null
 
-/** The agent environment, captured once per app run on first use. */
+function logged(result: CapturedEnv): CapturedEnv {
+  if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
+  return result
+}
+
+/**
+ * The agent environment, captured on first use and held for the app run; `recaptureAgentEnv`
+ * replaces it.
+ */
 export function agentEnv(): Promise<CapturedEnv> {
-  captured ??= captureAgentEnv().then((result) => {
-    if (result.error) console.warn(`[agent] ${result.from === 'fallback' ? 'using the minimal environment' : 'agent environment'}: ${result.error}`)
-    return result
-  })
+  captured ??= captureAgentEnv().then(logged)
   return captured
+}
+
+/**
+ * Captures the environment again, for a user who changed it while worfy runs: node added by an rc
+ * file (nvm, fnm, volta, asdf, mise), a shell that failed the capture fixed (worfy-harness ticket
+ * 37). Who calls it (src/main/harness/script-env.ts): a watcher's retry of a failed layout that
+ * asks `fresh` — always after exit code 127 or 126, otherwise only while the held environment is
+ * the fallback — and First run's handler of its checks (src/main/ipc/first-run.ts), which runs on
+ * "Check again", when First run opens without a report, and each time Settings → Health shows.
+ *
+ * Callers that come while a recapture runs share it, and get that run's answer: a recapture asked
+ * right after an rc file was saved may join one that started before the save, and gets the
+ * environment from before it; the next one sees the change. "One shell run at a time" holds once
+ * the first capture has ended: a recapture that is the app run's first call may run next to the
+ * capture `agentEnv()` starts. Both are harmless — the worst is one extra shell run, or one retry
+ * that still finds no node.
+ *
+ * The new environment is what `agentEnv()` answers from then on — the Harness scripts and the
+ * Sessions and Terminal Nodes started after it; a running Session keeps the environment it was
+ * started with. A capture that fell back does not replace one that did not: a shell that fails
+ * now (an rc file over the timeout) does not take node away from the next Session. Never rejects.
+ */
+export function recaptureAgentEnv(): Promise<CapturedEnv> {
+  recapturing ??= (async () => {
+    try {
+      const fresh = logged(await captureAgentEnv())
+      const held = captured ? await captured : null
+      const kept = fresh.from === 'fallback' && held !== null && held.from !== 'fallback' ? held : fresh
+      captured = Promise.resolve(kept)
+      return kept
+    } finally {
+      recapturing = null
+    }
+  })()
+  return recapturing
 }
