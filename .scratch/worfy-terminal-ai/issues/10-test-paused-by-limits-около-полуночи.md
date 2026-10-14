@@ -1,7 +1,7 @@
 # 10 — Unit test «Paused by Limits» красный каждый день с 23:00 до 24:00
 
 Type: task
-Status: claimed — 2026-10-14
+Status: done — 2026-10-14, [PR #319](https://github.com/IDSAD-XL/worfy/pull/319)
 Branch: worfy-terminal-ai/10
 Blocked by: —
 Source: проверка инструментов 2026-10-14 в 23:51 — gate fast на main `c49267f`: lint и typecheck зелёные, в vitest 1 test красный из 5171; test пришёл с [Ticket 08](08-settings-terminal-ai.md) ([PR #309](https://github.com/IDSAD-XL/worfy/pull/309))
@@ -102,3 +102,13 @@ gate 2026-10-14. В «Итог» — как падал.
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` (с временным `HOME`) — exit 0, 5105 passed,
 66 skipped из 5171. gate fast — exit 0, «[gate] зелено (fast)»; `GATE_SCOPE=all` gate fast — exit 0,
 «[gate] зелено (fast) … (кэш)».
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot из одного Ticket-а 10; соседей нет. Worktree — `.claude/worktrees/tai-10`: путь `.claude/worktrees/10` из шаблона профиля занят деревом `worfy-ui/10` (номер Ticket-а без имени Epic-а совпадает у разных Epic-ов).
+- Гейт — один круг, глубина medium (правка только в test-ах): `VERIFIED` на `871eceb` ([комментарий в PR #319](https://github.com/IDSAD-XL/worfy/pull/319#issuecomment-6179022984)). Verifier сам: gate fast — код 0, не из кэша; старый test при 23:30 местного в `Europe/Kyiv`, `America/New_York`, `Asia/Kolkata` — красный («until Thu 00:30»), новый при 23:30 и на настоящих часах — 28 из 28; мутант `.format(ms - 60_000)` — красный (старый regex его пропускал); перебор 418 часовых поясов — 2026-10-14 12:00 → 13:00 нигде не сдвигается переходом времени; других unit- и contract-test-ов с той же ошибкой нет.
+- Мерж: база main `1306056`, head `871eceb`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `2a19638`.
+- Act on, Dismissed — нет.
+- Consider ([low], на решение владельца): `test/e2e/session-view.spec.ts:95` — `transcript-date` с `toHaveCount(0)` краснеет, если полночь наступит между отправкой prompt-а и проверкой (окно в несколько секунд; `src/renderer/session/Transcript.tsx:71-75` сдвигает «сегодня» в полночь). Ticket велел чинить такое здесь же; не починено — e2e в этом Ticket-е не запускались. **Решено без владельца, подтвердить:** оставить или завести отдельный Ticket.
+- Noted ([low]): новый test держит местный часовой пояс раздела только в прогоне не в UTC — мутант `timeZone ?? 'UTC'` (`src/renderer/settings/TerminalAiSection.tsx:31`) в `TZ=UTC` (вероятный пояс CI) зелёный; старый regex его тоже не ловил.
+- Дата в строке Status — UTC: `bin/ticket` пишет её через `toISOString()`, Ticket взят в 00:17 по Киеву.
