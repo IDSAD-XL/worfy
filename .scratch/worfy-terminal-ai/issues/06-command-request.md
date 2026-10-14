@@ -78,13 +78,13 @@ PowerShell, позже.
 
 ## Готово, когда
 
-- [ ] Contract `test/contract/terminal-ai-request.test.ts` (новый), настоящий zsh, assist — поддельный: `# list big files` + Enter — строка стала ответом fake (`find . -size +100M`), команда не запущена (файла-метки, который она создала бы, нет; main не писал в pty `\r`); в журнале — функция `request`, модель `sonnet`, текст просьбы.
-- [ ] Тот же contract: нажатие до ответа — `cancel`, строка осталась `# list big files`; `#comment` без пробела — обычный `accept-line`; в `history` строки `# list big files` нет; Limits `rejected` — серым причина со временем сброса, запроса нет; Limits 0,9 окна 5 часов — запрос уходит (функция по требованию).
-- [ ] Тот же contract: `terminalAi.request.state` — `available` у zsh с интеграцией, не `available` у Terminal-а на `/bin/sh` и при выключенном Command request; `busy` во время `sleep 1`; `terminalAi.request` к Terminal-у без интеграции — ошибка без запроса к assist; каналы помечены `project`.
-- [ ] Unit (jsdom) `test/unit/terminal-ai-request.test.tsx` (новый): `available` — ⌘I в Terminal открывает панель, Ctrl+I — нет (уходит в xterm); не `available` — ⌘I уходит в xterm, панели нет; Esc закрывает; `busy` — «Terminal is busy».
-- [ ] e2e `test/e2e/terminal-ai-request.spec.ts` (новый), fake с ответом: `Meta+I` в Terminal Node — панель, текст, Enter — в строке xterm ответ fake, панель закрыта; вывода команды нет, пока test не нажал Enter.
-- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: панель Cmd+I над Terminal-ом в светлой и тёмной теме — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`. Как проверить: окно worfy.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] Contract `test/contract/terminal-ai-request.test.ts` (новый), настоящий zsh, assist — поддельный: `# list big files` + Enter — строка стала ответом fake (`find . -size +100M`), команда не запущена (файла-метки, который она создала бы, нет; main не писал в pty `\r`); в журнале — функция `request`, модель `sonnet`, текст просьбы.
+- [x] Тот же contract: нажатие до ответа — `cancel`, строка осталась `# list big files`; `#comment` без пробела — обычный `accept-line`; в `history` строки `# list big files` нет; Limits `rejected` — серым причина со временем сброса, запроса нет; Limits 0,9 окна 5 часов — запрос уходит (функция по требованию).
+- [x] Тот же contract: `terminalAi.request.state` — `available` у zsh с интеграцией, не `available` у Terminal-а на `/bin/sh` и при выключенном Command request; `busy` во время `sleep 1`; `terminalAi.request` к Terminal-у без интеграции — ошибка без запроса к assist; каналы помечены `project`.
+- [x] Unit (jsdom) `test/unit/terminal-ai-request.test.tsx` (новый): `available` — ⌘I в Terminal открывает панель, Ctrl+I — нет (уходит в xterm); не `available` — ⌘I уходит в xterm, панели нет; Esc закрывает; `busy` — «Terminal is busy».
+- [x] e2e `test/e2e/terminal-ai-request.spec.ts` (новый), fake с ответом: `Meta+I` в Terminal Node — панель, текст, Enter — в строке xterm ответ fake, панель закрыта; вывода команды нет, пока test не нажал Enter.
+- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: панель Cmd+I над Terminal-ом в светлой и тёмной теме — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом на собранном приложении с временным HOME.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0. — `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 своим прогоном; gate full — за orchestrator-ом.
 
 ## Тесты
 
@@ -111,4 +111,83 @@ Ticket-а 11 `worfy-ui`, если они к claim влиты.
 
 ## Итог
 
-Заполняется при закрытии.
+**Первый test.** Contract «`# list big files` + Enter вставляет ответ и ничего не запускает» до
+кода падал так: вместо серого «asking Claude…» zsh исполнил строку — в выводе
+`zsh: command not found: #`, код выхода 127 (`AssertionError: expected '#\b# list big files…' to match
+/…asking Claude…/`, test/contract/terminal-ai-request.test.ts).
+
+**Проверка ⌘.** `src/renderer/platform.ts` (Ticket 11 `worfy-windows`) к claim уже был на main, но
+проверка взята из `metaKey`: ⌘I без Ctrl и Alt (и без Shift), подпись «⌘I» — текстом. Так решил
+orchestrator в brief-е: Terminal AI сейчас только для zsh, Ctrl-ветка не нужна, а `isPrimary` на
+Windows отдал бы Ctrl+I (это Tab оболочки). Текст Ticket-а («если `platform.ts` уже на main — из
+него») этим не выполнен — **решено без владельца, подтвердить.** `src/shared/shortcuts.ts` на main
+нет — записи ⌘I в реестре нет, её внесёт тот, кто вливается последним (пункт 3 «Что делаем»).
+
+**Как сделано.**
+
+- zsh (`rc.d/40-command-request.zsh`): обёртка `accept-line`; пользовательский widget `accept-line`,
+  если он был, вызывается как прежде для всех строк, кроме `# …`. Запросом считается строка `# ` +
+  хотя бы один не пробельный символ, в одну строку; `#comment`, `#   ` и вставленный текст из
+  нескольких строк уходят в обычный `accept-line`. Строка `# …` в историю не попадает (Enter её не
+  принимает, `history` не трогается).
+- «Любое нажатие до ответа — `cancel`» сделано hook-ом `line-pre-redraw`: он срабатывает после
+  каждого widget-а клавиши и не срабатывает после асинхронных обработчиков socket-а (проверено
+  отдельным опытом с `zle -F`), так что `status` и `insert` от main запрос не отменяют.
+- **Протокол Ticket-а 03 не менялся.** У `insert` нет id, поэтому ответ, пришедший после `cancel`,
+  нельзя было бы отличить от нового. Решение: обработчик main шлёт подряд пустой `status <id>` и
+  `insert <команда>` (оба или ни одного), а zsh выбрасывает `insert`, который идёт за пустым
+  `status` своего уже закрытого запроса. Ответ панели (`insert` без парного `status` запроса строки)
+  принимается всегда.
+- Панель: каналы `terminalAi.request.state` / `.changed` / `terminalAi.request` /
+  `terminalAi.request.cancel`, все с пометкой `project`. `available` = zsh подключён к socket-у
+  Terminal AI и Command request включён в Settings; `busy` = идёт команда. Main слышит подключение
+  zsh через новое событие `ShellLink.onConnection` (`src/main/terminal-ai/shell-link.ts`).
+- Ни текст просьбы, ни строка, ни ответ модели в журнал и ошибки main не попадают — проверяет
+  contract (последний test файла).
+- Регрессия, найденная своим прогоном e2e: `position: relative` на `.w-terminal` вместе с его
+  `overflow: hidden` обрезал ручки изменения размера Node (`test/e2e/terminal.spec.ts`, изменение
+  размера). Панель теперь висит от якоря нулевой высоты между шапкой и экраном, `.w-terminal` не
+  тронут.
+
+**Решено без владельца, подтвердить:**
+
+1. Проверка ⌘ — `metaKey`, не `platform.ts` (см. выше).
+2. Панель отправляет контекст без текущей строки shell-а: main не может прочитать `BUFFER` zsh. Строка
+   `# …` отправляет слова, контекст строки пустой (строкой была сама просьба).
+3. Добавлен канал `terminalAi.request.cancel`: Esc в панели во время ожидания и закрытие Node
+   отменяют запрос, ответ в строку не приходит («Cancelled»).
+4. Command request выключен в Settings или zsh не подключён — `# …` + Enter работает как обычный
+   `accept-line` (zsh молча пропускает комментарий или пишет «command not found: #», как было), а не
+   пишет «Terminal AI is off». Этот текст показывается, только если main ответил отказом `off`.
+5. Тексты отказов (англ.): «Limits reached until 14:20» (другой день — «Oct 15, 14:20»), «Terminal AI
+   is off», «Terminal is busy», «Claude did not answer in time», «Claude had no command for that»,
+   «Claude could not answer», «The shell is not ready yet».
+6. Панель накрывает верх экрана (первую строку shell-а) — она закрывается, как только ответ пришёл.
+
+**Проверки (head после rebase на 1c1beadd):**
+
+- `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, `pnpm test` — exit 0 (238 файлов, 5059 tests
+  прошли, 66 пропущены); gate fast — exit 0, «зелено (fast)».
+- Свой contract три раза подряд: 26/26 каждый раз, 14,35 / 14,36 / 14,46 с, exit 0.
+- e2e на собранном приложении, по одному под общей блокировкой: свой spec вместе с
+  `terminal-ai-history`, `terminal-ai-suggest`, `terminal` — 12 passed; раньше на том же коде, кроме
+  удалённой лишней строки zsh, — ещё `focus`, `wheel-over-nodes` (22 passed) и `first-run`,
+  `linked-machines`, `focus-sidebar` (19 passed): они меряют экран, а Node получил панель.
+- Mutation testing: 43 мутанта на копиях в своём каталоге, контрольные суммы файлов после прогона
+  совпали. Первый круг — 37 убиты, 6 выжили. Под 4 выживших дописаны tests (поздний отказ и
+  вставка панели сразу после выброшенного ответа; ответ модели, пришедший после отмены панелью;
+  zsh, подключившийся позже окна). Мутант «Settings не спрашиваются» оказался эквивалентным:
+  `_worfy_assist_ask` сам не шлёт `ask` при выключенной функции — лишняя строка удалена. Мутант
+  «ушедшее окно не удаляется из подписчиков» эквивалентен по отдельности: второй guard
+  (`isDestroyed()` перед отправкой) закрывает то же; оба вместе ломают test состояния (проверено).
+  Итог: из 42 мутантов, оставшихся применимыми, убит 41; выжил один, эквивалентный.
+- Ticket-ы 03/04 (`terminal-ai-zle`, `terminal-ai-suggest`, `terminal-shell-integration`, e2e
+  `terminal-ai-history`, `terminal-ai-suggest`) зелёные без правок.
+
+Снимки панели — `../evidence/06-request-panel-light.png`, `../evidence/06-request-panel-dark.png`:
+Playwright на собранном приложении с временным HOME (`WORFY_EVIDENCE_DIR`, только свой spec), обе
+просмотрены. Контраст текста панели к фону ≥ 4,5:1 в обеих темах проверяет сам e2e.
+
+Ручной пункт (`WORFY_AGENT=fake pnpm dev`) — не проверено: `pnpm dev` с настоящим HOME по brief-у
+не запускался; снимки сделаны Playwright-ом, не в `pnpm dev`. `GATE_SCOPE=all` gate full — за
+orchestrator-ом.

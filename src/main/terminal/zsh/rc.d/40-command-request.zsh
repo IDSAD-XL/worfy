@@ -30,7 +30,7 @@ _worfy_request_ask() {
   builtin emulate -L zsh -o extended_glob
   builtin local REPLY id
   [[ $BUFFER == '# '*[^[:space:]]* && $BUFFER != *[$'\n\r']* ]] || builtin return 1
-  _worfy_assist_enabled request || builtin return 1
+  # Fails, and sends nothing, with Command request off in the settings.
   _worfy_assist_ask request "$BUFFER" || builtin return 1
   __worfy_request_id=$REPLY __worfy_request_fresh=1
   # Requests the user left are forgotten after a while: their answer has long come or never will.

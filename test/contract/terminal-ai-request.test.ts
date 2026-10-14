@@ -48,6 +48,7 @@ const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8'
 const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
 const SH_NODE = 'terminal-node-sh'
+const LATER_NODE = 'terminal-node-later'
 /** The key of the zsh Terminal, as main keys the shells of Terminal Nodes. */
 const KEY = terminalKey(PROJECT, NODE)
 const WAIT = { timeout: 10_000, interval: 20 }
@@ -407,6 +408,7 @@ describe('a line that starts with `# ` and Enter', () => {
     w.answers(answering())
     const s = await start({ world: w })
     const prompts = s.t.count('prompt')
+    const started = s.t.count('command-started')
     const from = s.t.text().length
 
     s.t.type(`${REQUEST_LINE}\r`)
@@ -418,6 +420,8 @@ describe('a line that starts with `# ` and Enter', () => {
     // zsh did not run `#`, and nothing ran the answer: no new prompt, no file, no error of zsh.
     expect(s.t.since(from)).not.toMatch(/command not found|zsh: /)
     expect(s.t.count('prompt')).toBe(prompts)
+    // The line `# …` never reached preexec: no command started.
+    expect(s.t.count('command-started')).toBe(started)
     expect(existsSync(join(root, MARK_FILE))).toBe(false)
     // Main wrote nothing into the pty: every write is a key the test typed, and none of them is Enter after the first.
     expect(s.written).toEqual(s.t.typed)
@@ -488,6 +492,31 @@ describe('a line that starts with `# ` and Enter', () => {
     // An insert with no status before it — the ⌘I panel — replaces the line.
     expect(s.link.push(KEY, { type: 'insert', text: 'echo from-the-panel' })).toBe(true)
     await vi.waitFor(async () => expect((await s.probe()).line).toBe('echo from-the-panel'), WAIT)
+  }, 30_000)
+
+  it('only the one late answer is dropped: an insert of the panel right after it, or after a late refusal, is taken', async () => {
+    const w = world()
+    w.answers(answering(1500))
+    const s = await start({ world: w })
+    s.t.type(`${REQUEST_LINE}\r`)
+    await vi.waitFor(() => expect(s.lastAsk()).toBeDefined(), WAIT)
+    const first = s.lastAsk()?.id ?? 0
+    s.t.type(LEFT)
+    await vi.waitFor(async () => expect((await s.probe()).asked).toBe(0), WAIT)
+    expect(s.link.push(KEY, { type: 'status', id: first, text: '' })).toBe(true)
+    expect(s.link.push(KEY, { type: 'insert', text: 'echo late-answer' })).toBe(true)
+    expect(s.link.push(KEY, { type: 'insert', text: 'echo from-the-panel' })).toBe(true)
+    await vi.waitFor(async () => expect((await s.probe()).line).toBe('echo from-the-panel'), WAIT)
+
+    // A refusal that comes after the cancel is no answer: the insert after it is the panel's.
+    s.t.type(`${CTRL_U}${REQUEST_LINE}\r`)
+    await vi.waitFor(() => expect(s.lastAsk()?.id).toBeGreaterThan(first), WAIT)
+    const second = s.lastAsk()?.id ?? 0
+    s.t.type(LEFT)
+    await vi.waitFor(async () => expect((await s.probe()).asked).toBe(0), WAIT)
+    expect(s.link.push(KEY, { type: 'status', id: second, text: 'Claude could not answer' })).toBe(true)
+    expect(s.link.push(KEY, { type: 'insert', text: 'echo again-from-the-panel' })).toBe(true)
+    await vi.waitFor(async () => expect((await s.probe()).line).toBe('echo again-from-the-panel'), WAIT)
   }, 30_000)
 
   it('`#comment` without a space, and `# ` without words, are accept-line as before: no ask', async () => {
@@ -622,8 +651,17 @@ class FakeWindow {
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 
+type PanelAssist = Pick<AssistService, 'state' | 'subscribe' | 'request'>
+
+interface PanelOptions extends StartOptions {
+  /** The service the channels ask, made from the real one; the real one without it. */
+  assist?: (service: AssistService) => PanelAssist
+  /** The channels hear no event of the shells: a change can only come from the link or the settings. */
+  noShellEvents?: boolean
+}
+
 /** The zsh Terminal of `start`, a Terminal on /bin/sh beside it, and the channels of the panel over both. */
-async function panel(options: StartOptions = {}) {
+async function panel(options: PanelOptions = {}) {
   const s = await start(options)
   const sh = new TerminalRegistry({
     env: () => Promise.resolve({ ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: '/bin/sh' }),
@@ -636,15 +674,17 @@ async function panel(options: StartOptions = {}) {
   const shells = {
     shellState: (key: string) => s.registry.shellState(key) ?? sh.shellState(key),
     onShellEvent: (listener: (key: string, event: ShellEvent) => void) => {
+      if (options.noShellEvents === true) return () => undefined
       const offs = [s.registry.onShellEvent(listener), sh.onShellEvent(listener)]
       return () => offs.forEach((off) => off())
     },
   }
   const handlers = new Map<string, Listener>()
+  const assist: PanelAssist = options.assist?.(s.service) ?? s.service
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
     {
-      modules: { './terminal-ai-request.ts': async () => terminalAiRequestHandlers({ registry: () => shells, link: () => s.link, assist: () => Promise.resolve(s.service) }) },
+      modules: { './terminal-ai-request.ts': async () => terminalAiRequestHandlers({ registry: () => shells, link: () => s.link, assist: () => Promise.resolve(assist) }) },
       isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
     },
   )
@@ -697,6 +737,13 @@ describe('the channels of the ⌘I panel', () => {
     await vi.waitFor(() => expect(p.window.changes().at(-1)).toEqual({ projectId: PROJECT, nodeId: NODE, available: false, busy: false }), WAIT)
   })
 
+  it('a zsh that connects after the window asked makes the panel available, without any event of the shell', async () => {
+    const p = await panel({ noShellEvents: true })
+    expect(await p.call('terminalAi.request.state', { projectId: PROJECT, nodeId: LATER_NODE })).toEqual({ ok: true, value: { available: false, busy: false } })
+    await openTerminal(p.registry, [], terminalKey(PROJECT, LATER_NODE))
+    await vi.waitFor(() => expect(p.window.changes().at(-1)).toEqual({ projectId: PROJECT, nodeId: LATER_NODE, available: true, busy: false }), WAIT)
+  })
+
   it('a request puts the command into the line of the zsh, and nothing runs', async () => {
     const p = await panel()
     p.answers(answering())
@@ -740,6 +787,37 @@ describe('the channels of the ⌘I panel', () => {
     expect((await p.probe()).line).toBe('echo typed-by-the-user')
     // A request that reached the fake at all was cancelled there.
     expect(p.requests().filter((entry) => !entry.cancelled)).toEqual([])
+  })
+
+  it('an answer that the model gave although the panel had cancelled is not put into the line', async () => {
+    let entered = false
+    let release = (): void => undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    // A service that answers after the cancel, as if the answer was already on its way.
+    const p = await panel({
+      assist: (service) => ({
+        state: () => service.state(),
+        subscribe: (listener) => service.subscribe(listener),
+        request: async (feature, input) => {
+          entered = true
+          await held
+          return service.request(feature, input)
+        },
+      }),
+    })
+    p.answers(answering(0))
+    p.t.type('echo typed-by-the-user')
+    const pending = p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS })
+    await vi.waitFor(() => expect(entered).toBe(true), WAIT)
+    expect(await p.call('terminalAi.request.cancel', { projectId: PROJECT, nodeId: NODE })).toEqual({ ok: true, value: undefined })
+    release()
+    expect(await pending).toEqual({ ok: true, value: { ok: false, message: 'Cancelled' } })
+    // The model did answer.
+    expect(p.requests().filter((entry) => !entry.cancelled)).toHaveLength(1)
+    await sleep(300)
+    expect((await p.probe()).line).toBe('echo typed-by-the-user')
   })
 })
 
