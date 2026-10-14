@@ -1,11 +1,11 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { powershellScriptCommand, type RunFile } from '../../src/main/agent/env'
 import {
   batchedProcessStarts,
@@ -28,11 +28,16 @@ import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
 
-// The Claude home of ticket 09 (test/fixtures/claude-home/README.md). Tests never touch it: each
-// one works on a copy in a temporary directory.
-const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
+// The Claude home of ticket 09 (test/fixtures/claude-home/README.md). Tests never touch it. FIXTURE
+// is a copy in a temporary directory that the tests which only read share; a test that writes
+// makes its own (copyOfFixture). The folders under projects/ of a copy have the names the registry
+// looks for on this system (claude-home-fixture.ts), so a test names one with projectDir().
+let FIXTURE: string
+let fixtureDir: string
 const DEMO = '/Users/test/projects/demo'
+const CYRILLIC = '/Users/test/проект'
 const WORKTREE_07 = '/Users/test/projects/demo/.claude/worktrees/07'
 const S1 = '11111111-1111-4111-8111-111111111111'
 const S2 = '22222222-2222-4222-8222-222222222222'
@@ -42,6 +47,15 @@ const S6 = '66666666-6666-4666-8666-666666666666'
 
 const temps: string[] = []
 const closers: (() => Promise<void>)[] = []
+
+beforeAll(async () => {
+  fixtureDir = await mkdtemp(join(tmpdir(), 'worfy-claude-home-'))
+  FIXTURE = await copyClaudeHome(join(fixtureDir, 'claude'))
+})
+
+afterAll(async () => {
+  await rm(fixtureDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
 
 afterEach(async () => {
   for (const close of closers.splice(0)) await close()
@@ -55,9 +69,7 @@ async function tempDir(): Promise<string> {
 }
 
 async function copyOfFixture(): Promise<string> {
-  const home = join(await tempDir(), 'claude')
-  await cp(FIXTURE, home, { recursive: true })
-  return home
+  return copyClaudeHome(join(await tempDir(), 'claude'))
 }
 
 const alive =
@@ -67,15 +79,20 @@ const alive =
 
 const noWorktrees = async (): Promise<string[]> => []
 
-/** `ps -o lstart=` of a process, the way Claude Code records it as procStart. */
-const lstart = async (pid: number): Promise<string> =>
-  new Promise((done, fail) => {
+/**
+ * The start of a process, the way Claude Code records it as procStart: `ps -o lstart=`; on Windows
+ * the FILETIME of the start, asked by the test's own command (claude-home-fixture.ts).
+ */
+const lstart = async (pid: number): Promise<string> => {
+  if (process.platform === 'win32') return windowsProcStart(pid)
+  return new Promise((done, fail) => {
     const ps = spawn('ps', ['-p', String(pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } })
     let out = ''
     ps.stdout.on('data', (data: Buffer) => (out += data.toString()))
     ps.on('error', fail)
     ps.on('close', () => done(out.trim()))
   })
+}
 
 const execFileAsync = promisify(execFile)
 
@@ -240,8 +257,8 @@ describe('live Sessions from the registry', () => {
     const home = await copyOfFixture()
     const elsewhere = '/Users/test/elsewhere/demo-wt'
     await writeFile(join(home, 'sessions', '41006.json'), JSON.stringify({ pid: 41006, sessionId: 'abc-6', cwd: elsewhere, status: 'thinking', procStart: 'x' }))
-    await mkdir(join(home, 'projects', projectDirName(elsewhere)))
-    await writeFile(join(home, 'projects', projectDirName(elsewhere), 'abc-6.jsonl'), `${JSON.stringify({ type: 'user', cwd: elsewhere, message: { content: 'Elsewhere prompt' } })}\n`)
+    await mkdir(join(home, 'projects', projectDir(elsewhere)))
+    await writeFile(join(home, 'projects', projectDir(elsewhere), 'abc-6.jsonl'), `${JSON.stringify({ type: 'user', cwd: elsewhere, message: { content: 'Elsewhere prompt' } })}\n`)
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: async () => [elsewhere], isAlive: alive(41006) })
     const { live, history } = await registry.sessions(DEMO)
     expect(live).toStrictEqual([{ pid: 41006, sessionId: 'abc-6', cwd: elsewhere, status: 'unknown' }])
@@ -254,15 +271,15 @@ describe('live Sessions from the registry', () => {
     // `/Users/test/projects/demo/web` and the other Project `/Users/test/projects/demo-web` share one folder name.
     const demoWeb = '/Users/test/projects/demo-web'
     const write = async (cwd: string, sessionId: string) => {
-      await mkdir(join(home, 'projects', projectDirName(cwd)), { recursive: true })
-      await writeFile(join(home, 'projects', projectDirName(cwd), `${sessionId}.jsonl`), `${userLine(`Prompt in ${cwd}`, cwd, `${sessionId}-u`)}\n`)
+      await mkdir(join(home, 'projects', projectDir(cwd)), { recursive: true })
+      await writeFile(join(home, 'projects', projectDir(cwd), `${sessionId}.jsonl`), `${userLine(`Prompt in ${cwd}`, cwd, `${sessionId}-u`)}\n`)
     }
     await writeFile(join(home, 'sessions', '41011.json'), JSON.stringify({ pid: 41011, sessionId: 'sub-live', cwd: web, status: 'busy' }))
     await write(web, 'sub-live')
     await write(web, 'sub-done')
     await write(`${DEMO}/web`, 'sub-web')
     await write(demoWeb, 'demo-web-1')
-    expect(projectDirName(`${DEMO}/web`)).toBe(projectDirName(demoWeb))
+    expect(projectDir(`${DEMO}/web`)).toBe(projectDir(demoWeb))
 
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive(41011) })
     const { live, history } = await registry.sessions(DEMO)
@@ -272,11 +289,11 @@ describe('live Sessions from the registry', () => {
     expect(byId.get('sub-done')).toMatchObject({ cwd: web, live: false })
     expect(byId.get('sub-web')).toMatchObject({ cwd: `${DEMO}/web` })
     expect(byId.has('demo-web-1')).toBe(false)
-    expect(await registry.transcriptPath(DEMO, 'sub-live')).toBe(join(home, 'projects', projectDirName(web), 'sub-live.jsonl'))
-    expect(await registry.transcriptPath(DEMO, 'sub-web')).toBe(join(home, 'projects', projectDirName(demoWeb), 'sub-web.jsonl'))
+    expect(await registry.transcriptPath(DEMO, 'sub-live')).toBe(join(home, 'projects', projectDir(web), 'sub-live.jsonl'))
+    expect(await registry.transcriptPath(DEMO, 'sub-web')).toBe(join(home, 'projects', projectDir(demoWeb), 'sub-web.jsonl'))
     expect(await registry.transcriptPath(DEMO, 'demo-web-1')).toBeNull()
     // The look-alike Project still finds its own Session.
-    expect(await registry.transcriptPath(demoWeb, 'demo-web-1')).toBe(join(home, 'projects', projectDirName(demoWeb), 'demo-web-1.jsonl'))
+    expect(await registry.transcriptPath(demoWeb, 'demo-web-1')).toBe(join(home, 'projects', projectDir(demoWeb), 'demo-web-1.jsonl'))
   })
 
   it('finds worktrees with the real `git worktree list` and leaves the repository unchanged', async () => {
@@ -575,7 +592,7 @@ describe('Session history', () => {
 
   it('names a Session that starts with a slash command after the command', async () => {
     const home = await copyOfFixture()
-    const file = join(home, 'projects', '-Users-test-projects-demo', `${S2}.jsonl`)
+    const file = join(home, 'projects', projectDir(DEMO), `${S2}.jsonl`)
     const lines = (await readFile(file, 'utf8')).split('\n').filter((line) => !line.includes('"custom-title"'))
     await writeFile(file, lines.join('\n'))
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
@@ -584,7 +601,7 @@ describe('Session history', () => {
 
   it('skips text the harness injected (isMeta) and takes the first prompt the user typed as the title', async () => {
     const home = await copyOfFixture()
-    const file = join(home, 'projects', '-Users-test-projects-demo', 'meta-1.jsonl')
+    const file = join(home, 'projects', projectDir(DEMO), 'meta-1.jsonl')
     const lines = [
       JSON.stringify({ type: 'user', uuid: 'meta', isMeta: true, timestamp: '2026-06-01T00:00:00.000Z', cwd: DEMO, message: { content: 'Base directory for this skill: injected text' } }),
       JSON.stringify({ type: 'user', uuid: 'meta-block', isMeta: true, timestamp: '2026-06-01T00:00:01.000Z', cwd: DEMO, message: { content: [{ type: 'text', text: 'Injected block text' }] } }),
@@ -597,7 +614,7 @@ describe('Session history', () => {
 
   it('reads only the head and the tail of a large transcript', async () => {
     const home = await copyOfFixture()
-    const file = join(home, 'projects', '-Users-test-projects-demo', 'big-1.jsonl')
+    const file = join(home, 'projects', projectDir(DEMO), 'big-1.jsonl')
     const filler = (n: number) => assistantLine('x'.repeat(500), `filler-${n}`)
     const lines = [
       JSON.stringify({ type: 'user', uuid: 'first', timestamp: '2026-06-01T00:00:00.000Z', cwd: DEMO, gitBranch: 'main', message: { content: 'Big first prompt' } }),
@@ -656,8 +673,8 @@ describe('Session history', () => {
         await writeFile(join(home, 'projects', dir, `${prefix}${n}.jsonl`), `${head}\n${body}${JSON.stringify({ type: 'custom-title', customTitle: `T ${prefix}${n}` })}\n`)
       }
     }
-    await write(projectDirName(root), 88, 'root-')
-    for (let w = 0; w < 13; w += 1) await write(`${projectDirName(root)}--claude-worktrees-${w}`, 3, `wt${w}-`)
+    await write(projectDir(root), 88, 'root-')
+    for (let w = 0; w < 13; w += 1) await write(`${projectDir(root)}--claude-worktrees-${w}`, 3, `wt${w}-`)
     // Unrelated folders around it are not read.
     await write('-Users-test-other', 5, 'other-')
 
@@ -675,12 +692,12 @@ describe('Session history', () => {
 describe('transcript lookup', () => {
   it('finds a transcript in the root or in a worktree folder and nowhere else', async () => {
     const registry = new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() })
-    expect(await registry.transcriptPath(DEMO, S4)).toBe(join(FIXTURE, 'projects', '-Users-test-projects-demo--claude-worktrees-07', `${S4}.jsonl`))
-    expect(await registry.transcriptPath(DEMO, S1)).toBe(join(FIXTURE, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`))
+    expect(await registry.transcriptPath(DEMO, S4)).toBe(join(FIXTURE, 'projects', projectDir(WORKTREE_07), `${S4}.jsonl`))
+    expect(await registry.transcriptPath(DEMO, S1)).toBe(join(FIXTURE, 'projects', projectDir(DEMO), `${S1}.jsonl`))
     // Another Project's Session, a missing one and a path in disguise are not found.
     expect(await registry.transcriptPath(DEMO, S6)).toBeNull()
     expect(await registry.transcriptPath(DEMO, 'no-such-session')).toBeNull()
-    expect(await registry.transcriptPath(DEMO, '../-Users-test-------/66666666-6666-4666-8666-666666666666')).toBeNull()
+    expect(await registry.transcriptPath(DEMO, `../${projectDir(CYRILLIC)}/${S6}`)).toBeNull()
   })
 })
 
@@ -740,8 +757,8 @@ describe('watching the Claude home', () => {
     await writeFile(join(home, 'sessions', '41010.json'), JSON.stringify({ pid: 41010, sessionId: 'n', cwd: DEMO }))
     await log.waitFor((change) => change.sessions)
 
-    await appendFile(join(home, 'projects', '-Users-test-------', `${S6}.jsonl`), `${assistantLine('other project', 'o-1')}\n`)
-    const worktreeDir = join(home, 'projects', '-Users-test-projects-demo--claude-worktrees-99')
+    await appendFile(join(home, 'projects', projectDir(CYRILLIC), `${S6}.jsonl`), `${assistantLine('other project', 'o-1')}\n`)
+    const worktreeDir = join(home, 'projects', projectDir(`${DEMO}/.claude/worktrees/99`))
     await mkdir(worktreeDir)
     await writeFile(join(worktreeDir, 'new-session.jsonl'), `${assistantLine('in a new worktree', 'w-1')}\n`)
     await log.waitFor((change) => change.transcripts.includes('new-session'))
@@ -757,7 +774,7 @@ describe('watching the Claude home', () => {
     await watch.ready
 
     // One folder name for `<demo>/web` and the other Project `/Users/test/projects/demo-web`.
-    const dir = join(home, 'projects', projectDirName(`${DEMO}/web`))
+    const dir = join(home, 'projects', projectDir(`${DEMO}/web`))
     await mkdir(dir)
     await writeFile(join(dir, 'foreign.jsonl'), `${userLine('foreign', '/Users/test/projects/demo-web', 'f-1')}\n`)
     await writeFile(join(dir, 'ours.jsonl'), `${userLine('ours', `${DEMO}/web`, 'o-1')}\n`)
@@ -770,7 +787,7 @@ describe('watching the Claude home', () => {
 
   it('reports the removal of a subfolder transcript that existed before watching, not of a look-alike Project', async () => {
     const home = await copyOfFixture()
-    const dir = join(home, 'projects', projectDirName(`${DEMO}/web`))
+    const dir = join(home, 'projects', projectDir(`${DEMO}/web`))
     await mkdir(dir)
     await writeFile(join(dir, 'foreign.jsonl'), `${userLine('foreign', '/Users/test/projects/demo-web', 'f-1')}\n`)
     await writeFile(join(dir, 'ours.jsonl'), `${userLine('ours', `${DEMO}/web`, 'o-1')}\n`)
@@ -975,13 +992,13 @@ describe('claudeHome IPC channels', () => {
     // A second request does not add a second watcher: one change, one message.
     expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
 
-    const file = join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`)
+    const file = join(home, 'projects', projectDir(DEMO), `${S1}.jsonl`)
     await appendFile(file, `${assistantLine('seen by the window', 'ipc-1')}\n`)
     // FSEvents may also replay the fixture copy made just before the watch (a `sessions: true`
     // change); the test looks for the append, not for an exact list.
     const mentionsS1 = (entry: { payload: unknown }) => (entry.payload as { transcripts: string[] }).transcripts.includes(S1)
     await vi.waitFor(() => expect(window.sent.filter(mentionsS1)).toHaveLength(1), { timeout: 3000, interval: 20 })
-    expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: DEMO, transcripts: [S1] } })
+    expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: resolve(DEMO), transcripts: [S1] } })
 
     window.destroy()
     await new Promise((done) => setTimeout(done, 50))
@@ -1008,12 +1025,12 @@ describe('claudeHome IPC channels', () => {
     expect(await call('claudeHome.close', { projectRoot: '/Users/test/проект' }, fakeSender(9).sender)).toStrictEqual({ ok: true, value: { closed: false } })
     expect(subscriptions.size).toBe(1)
 
-    await appendFile(join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`), `${assistantLine('after close', 'c-1')}\n`)
-    await appendFile(join(home, 'projects', '-Users-test-------', `${S6}.jsonl`), `${assistantLine('still watched', 'c-2')}\n`)
+    await appendFile(join(home, 'projects', projectDir(DEMO), `${S1}.jsonl`), `${assistantLine('after close', 'c-1')}\n`)
+    await appendFile(join(home, 'projects', projectDir(CYRILLIC), `${S6}.jsonl`), `${assistantLine('still watched', 'c-2')}\n`)
     const payloads = () => window.sent.map((entry) => entry.payload as { projectRoot: string; transcripts: string[] })
     await vi.waitFor(() => expect(payloads().some((payload) => payload.transcripts.includes(S6))).toBe(true), { timeout: 3000, interval: 20 })
     await new Promise((done) => setTimeout(done, 400))
-    expect(payloads().every((payload) => payload.projectRoot === '/Users/test/проект')).toBe(true)
+    expect(payloads().every((payload) => payload.projectRoot === resolve(CYRILLIC))).toBe(true)
   })
 
   it('starts no watcher for a window that is already gone', async () => {
@@ -1027,7 +1044,7 @@ describe('claudeHome IPC channels', () => {
   it('watches before it reads, so a change made during the read is still sent', async () => {
     const home = await copyOfFixture()
     const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
-    const file = join(home, 'projects', '-Users-test-projects-demo', `${S1}.jsonl`)
+    const file = join(home, 'projects', projectDir(DEMO), `${S1}.jsonl`)
     const read = registry.sessions.bind(registry)
     vi.spyOn(registry, 'sessions').mockImplementation(async (root) => {
       await appendFile(file, `${assistantLine('written during the read', 'r-1')}\n`)
@@ -1037,7 +1054,7 @@ describe('claudeHome IPC channels', () => {
     const window = fakeSender(11)
     expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
     // `sessions` may be true as well when FSEvents replays the fixture copy; the append is what counts.
-    await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: DEMO, transcripts: [S1] }) }), {
+    await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: resolve(DEMO), transcripts: [S1] }) }), {
       timeout: 3000,
       interval: 20,
     })

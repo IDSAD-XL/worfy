@@ -1,13 +1,14 @@
 // The Subagent channels of the `claudeHome` domain (ticket 15): `claudeHome.subagents` (what a
 // Session's transcript and its `subagents/` folder say) and `claudeHome.subagentTranscript` (one
-// Subagent's own transcript), over the synthetic Claude home of ticket 09 and a copy of it. The
-// Claude home is only read: a snapshot of every file before and after proves it.
+// Subagent's own transcript), over copies of the synthetic Claude home of ticket 09 whose folders
+// under projects/ have the names the registry looks for on this system (claude-home-fixture.ts).
+// The Claude home is only read: a snapshot of every file before and after proves it.
 import { createHash } from 'node:crypto'
 import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { ClaudeHomeRegistry, processAlive, processState } from '../../src/main/claude-home/registry'
 import { SubagentReader, transcriptSessionId } from '../../src/main/claude-home/subagents'
@@ -17,24 +18,38 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { buildSubagentTree, flattenSubagents, type SubagentFile, type SubagentSignal } from '../../src/shared/transcript/subagents'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { copyClaudeHome, projectDir, windowsProcStart } from './claude-home-fixture'
 
 type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
-const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
+const WINDOWS = process.platform === 'win32'
+
+/** A copy of the fixture that the tests which only read share; a test that writes makes its own (copyOfFixture). */
+let FIXTURE: string
+let fixtureDir: string
 const AGENTS = '/Users/test/projects/agents'
 const DEMO = '/Users/test/projects/demo'
 const S5 = '55555555-5555-4555-8555-555555555555'
 const S7 = '77777777-7777-4777-8777-777777777777'
-const S7_DIR = join('projects', '-Users-test-projects-agents')
+const S7_DIR = join('projects', projectDir(AGENTS))
 const STALE = '/Users/test/projects/stale'
 const S9 = '99999999-9999-4999-8999-999999999999'
-const S9_DIR = join('projects', '-Users-test-projects-stale')
+const S9_DIR = join('projects', projectDir(STALE))
 /** Fixture Subagents of Session 9999: A ended by a queued task-notification, B never reported. */
 const A = 'a6000000000000260'
 const B = 'a7000000000000260'
 
 const temps: string[] = []
 const closers: (() => Promise<void>)[] = []
+
+beforeAll(async () => {
+  fixtureDir = await mkdtemp(join(tmpdir(), 'worfy-subagents-'))
+  FIXTURE = await copyClaudeHome(join(fixtureDir, 'claude'))
+})
+
+afterAll(async () => {
+  await rm(fixtureDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+})
 
 afterEach(async () => {
   for (const close of closers.splice(0)) await close()
@@ -49,9 +64,7 @@ async function tempDir(): Promise<string> {
 }
 
 async function copyOfFixture(): Promise<string> {
-  const home = join(await tempDir(), 'claude')
-  await cp(FIXTURE, home, { recursive: true })
-  return home
+  return copyClaudeHome(join(await tempDir(), 'claude'))
 }
 
 /** Every file and folder under `root` with its mtime, size and sha1. */
@@ -162,8 +175,14 @@ describe('claudeHome.subagents', () => {
     const reader = new SubagentReader()
     const call = await ipcOver(registryOver(FIXTURE), reader)
     const plain = await call('claudeHome.subagents', { projectRoot: AGENTS, sessionId: S7 })
+    // The Session is found and has Subagents. For one that is not found the reader is never asked,
+    // and both answers below would be the same empty one whatever the channel lets through.
+    const found = value<SubagentsAnswer>(plain)
+    expect(found.found).toBe(true)
+    expect(found.signals.length).toBeGreaterThan(0)
+    expect(found.files.length).toBeGreaterThan(0)
     // A reader that leaks raw fields of the files (a prompt, an output path) must not reach the renderer.
-    vi.spyOn(reader, 'session').mockImplementation(async (path) => {
+    const leaking = vi.spyOn(reader, 'session').mockImplementation(async (path) => {
       const real = await SubagentReader.prototype.session.call(new SubagentReader(), path)
       return {
         signals: real.signals.map((signal) => ({ ...signal, prompt: 'Synthetic secret brief.' })),
@@ -171,6 +190,7 @@ describe('claudeHome.subagents', () => {
       }
     })
     const leaky = await call('claudeHome.subagents', { projectRoot: AGENTS, sessionId: S7, extra: true })
+    expect(leaking).toHaveBeenCalledTimes(1)
     expect(JSON.stringify(leaky)).not.toMatch(/Synthetic secret brief|outputFile/)
     expect(leaky).toStrictEqual(plain)
   })
@@ -178,9 +198,11 @@ describe('claudeHome.subagents', () => {
   it('refuses an answer of the wrong shape instead of passing it on', async () => {
     const reader = new SubagentReader()
     const call = await ipcOver(registryOver(FIXTURE), reader)
-    vi.spyOn(reader, 'session').mockResolvedValue({ signals: [{ kind: 'call', toolUseId: 7 }] as unknown as SubagentSignal[], files: [] })
+    const wrong = vi.spyOn(reader, 'session').mockResolvedValue({ signals: [{ kind: 'call', toolUseId: 7 }] as unknown as SubagentSignal[], files: [] })
     const result = await call('claudeHome.subagents', { projectRoot: AGENTS, sessionId: S7 })
-    expect(result.ok).toBe(false)
+    // The Session is found, so the reader is asked; the refusal is of its answer, not of the call.
+    expect(wrong).toHaveBeenCalledTimes(1)
+    expect(result).toStrictEqual({ ok: false, error: 'claudeHome.subagents: invalid output from the handler' })
   })
 
   it('follows a Session as it is written: a task-notification turns the running Subagent done', async () => {
@@ -329,9 +351,24 @@ describe('transcriptSessionId (worfy-windows ticket 08)', () => {
 })
 
 describe('processState', () => {
-  /** This test's own process and its start time, as `ps` prints it for `procStart`. */
-  const self = () => ({ pid: process.pid, procStart: execFileSync('ps', ['-p', String(process.pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).toString().trim() })
+  /**
+   * This test's own process and its start time, as `ps` prints it for `procStart`; on Windows the
+   * FILETIME of the start, asked by the test's own command (claude-home-fixture.ts).
+   */
+  const self = () => ({
+    pid: process.pid,
+    procStart: WINDOWS ? windowsProcStart(process.pid) : execFileSync('ps', ['-p', String(process.pid), '-o', 'lstart='], { env: { ...process.env, TZ: 'UTC', LC_ALL: 'C' } }).toString().trim(),
+  })
 
+  /**
+   * Runs `work` with no `ps` on PATH. Not for Windows: there the start time is read by the
+   * powershell.exe under SystemRoot, started by its full path, and a time once read is kept for
+   * 30 s (registry.ts), so an empty PATH does not stop the check. A start time that cannot be read
+   * on Windows is covered with the reader replaced: 'is alive when the start of the running pid
+   * is procStart, gone when it is another, unknown when it cannot be read' in
+   * claude-home-registry.test.ts, and 'does not call a Session closed when whether its process
+   * runs cannot be told' above.
+   */
   async function withoutPs<T>(work: () => Promise<T>): Promise<T> {
     const path = process.env.PATH
     process.env.PATH = '/nonexistent'
@@ -349,9 +386,11 @@ describe('processState', () => {
     expect(await processState(pid, 'Thu Jan  1 00:00:00 1970')).toBe('gone')
     expect(await processState(2_147_483_000, procStart)).toBe('gone')
     expect(await processState(0, procStart)).toBe('gone')
-    expect(await withoutPs(() => processState(pid, procStart))).toBe('unknown')
-    // The registry's own check keeps its answer: a ps that could not answer is not running there.
-    expect(await withoutPs(() => processAlive(pid, procStart))).toBe(false)
+    if (!WINDOWS) {
+      expect(await withoutPs(() => processState(pid, procStart))).toBe('unknown')
+      // The registry's own check keeps its answer: a ps that could not answer is not running there.
+      expect(await withoutPs(() => processAlive(pid, procStart))).toBe(false)
+    }
     expect(await processAlive(pid, procStart)).toBe(true)
   })
 
@@ -366,10 +405,12 @@ describe('processState', () => {
       [A, 'done'],
       [B, 'running'],
     ])
-    expect(await withoutPs(read)).toEqual([
-      [A, 'done'],
-      [B, 'running'],
-    ])
+    if (!WINDOWS) {
+      expect(await withoutPs(read)).toEqual([
+        [A, 'done'],
+        [B, 'running'],
+      ])
+    }
     await writeFile(entry, JSON.stringify({ pid, sessionId: S9, cwd: STALE, procStart: 'Thu Jan  1 00:00:00 1970' }))
     expect(await read()).toEqual([
       [A, 'done'],
@@ -391,9 +432,17 @@ describe('claudeHome.subagentTranscript', () => {
 
   it('answers found: false for an unknown Subagent and for a file outside subagents/', async () => {
     const call = await ipcOver(registryOver(FIXTURE))
-    expect(value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: AGENTS, sessionId: S7, agentId: 'a9999999999999999' })).found).toBe(false)
+    const found = async (projectRoot: string, sessionId: string, agentId: string) =>
+      value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot, sessionId, agentId })).found
+    // Both Sessions are found and have Subagents, so `false` below is about the Subagent or the
+    // file, not about a Session that is not there.
+    expect(await found(AGENTS, S7, 'a3000000000000286')).toBe(true)
+    expect(await found(DEMO, S5, 'a1000000000000286')).toBe(true)
+    expect(await found(AGENTS, S7, 'a9999999999999999')).toBe(false)
+    // A Subagent of another Session: its file exists, but not in the subagents/ of this Session.
+    expect(await found(DEMO, S5, 'a3000000000000286')).toBe(false)
     // The Session's own transcript is not a Subagent: no id leads out of subagents/.
-    expect(value<TranscriptAnswer>(await call('claudeHome.subagentTranscript', { projectRoot: DEMO, sessionId: S7, agentId: 'a3000000000000286' })).found).toBe(false)
+    expect(await found(AGENTS, S7, S7)).toBe(false)
   })
 })
 
@@ -401,7 +450,7 @@ describe('claudeHome.subagentTranscript', () => {
 describe('claudeHome.subagents: Subagents of workflow scripts', () => {
   const WORKFLOW = '/Users/test/projects/workflow'
   const S12 = '12121212-1212-4121-8121-121212121212'
-  const S12_DIR = join('projects', '-Users-test-projects-workflow')
+  const S12_DIR = join('projects', projectDir(WORKFLOW))
   const RUN_DIR = join(S12_DIR, S12, 'subagents', 'workflows', 'wf_0a1b2c3d-4e5')
   const IMPL = 'a8100000000000260'
   const askWorkflow = async (call: Awaited<ReturnType<typeof ipcOver>>) => value<SubagentsAnswer>(await call('claudeHome.subagents', { projectRoot: WORKFLOW, sessionId: S12 }))
@@ -503,7 +552,7 @@ describe('claudeHome.subagents: Subagents of workflow scripts', () => {
 describe('reading a large Session', () => {
   it('reads 24 Subagents of 400 KB each within a second', async () => {
     const home = await tempDir()
-    const dir = join(home, 'projects', '-Users-test-projects-agents')
+    const dir = join(home, S7_DIR)
     const sessionId = '88888888-8888-4888-8888-888888888888'
     const folder = join(dir, sessionId, 'subagents')
     await mkdir(folder, { recursive: true })
