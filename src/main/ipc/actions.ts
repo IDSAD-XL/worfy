@@ -8,6 +8,7 @@ import { sharedNodeSessions } from '../agent/app-node-sessions'
 import { sharedOrchestrators } from '../agent/app-orchestrators'
 import { sharedRegistry } from '../agent/app-registry'
 import { toEveryWindow } from '../broadcast'
+import { harnessScriptEnv } from '../harness/script-env'
 import { bindingStore } from '../layout/bindings'
 import { readProjectSettings } from '../projects/settings'
 import { projectStore } from '../projects/store'
@@ -38,7 +39,7 @@ export function sharedLauncher(): ActionLauncher {
     projectRoot: (projectId) => projectStore().get(projectId).path,
     settings: (projectId) => readProjectSettings(projectStore().dataDir(projectStore().get(projectId).id)),
     branch: (root) => projectStore().branch(root),
-    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome() })).model,
+    workflow: async (root) => (await readWorkflow({ root, claudeHome: claudeHome(), env: harnessScriptEnv })).model,
     sessions: { create: (projectId, near) => sharedNodeSessions().create(projectId, near) },
     orchestrators: { open: (projectId) => sharedOrchestrators().open(projectId) },
     registry: { get: (sessionId) => sharedRegistry().get(sessionId) },

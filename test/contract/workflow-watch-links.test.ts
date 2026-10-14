@@ -98,6 +98,8 @@ async function start(options: { follow?: readonly string[]; ticketsWatch?: 'link
   const watcher = await WorkflowWatcher.start({
     root: repo,
     claudeHome: join(dir, 'claude-home'),
+    // Neither script runs: `run` and `layout` replace them.
+    env: () => Promise.resolve({}),
     debounceMs: 50,
     onChange: (delta) => deltas.push(delta),
     run: listing(options.follow),

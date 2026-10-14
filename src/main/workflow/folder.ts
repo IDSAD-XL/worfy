@@ -15,6 +15,7 @@
 //
 // Nothing here writes: both scripts run with the Project as cwd and only read.
 import { isAbsolute, join, resolve } from 'node:path'
+import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { claudeHome } from '../storage/paths'
 import { harnessScriptRunner, readResolvedProfile, type ProfileEnv, type ProfileRunner, type ResolvedRepo } from './profile'
 
@@ -48,8 +49,12 @@ export interface ReadLayoutOptions {
   root: string
   /** Claude Code's home; the scripts are those of the Harness found from it. */
   claudeHome: string
-  /** The scripts' environment; worfy's own by default, as for `epic-status` (src/main/workflow/reader.ts). */
-  env?: ProfileEnv | undefined
+  /**
+   * The scripts' environment: the login shell's (src/main/harness/script-env.ts), the one
+   * `epic-status` gets (src/main/workflow/reader.ts). There is no default: with worfy's own
+   * environment `profile` finds no node when the app was started from Finder.
+   */
+  env: ProfileEnv
   /** Replaces `bin/profile` in tests. */
   run?: ProfileRunner | undefined
   /** Replaces `bin/ticket` in tests. */
@@ -83,7 +88,7 @@ async function ticketsRootOf(root: string, run: ProfileRunner): Promise<{ path: 
 /** Reads where the workflow of the Project at `root` lives; never throws (see the top of the file). */
 export async function readProjectLayout(options: ReadLayoutOptions): Promise<ProjectLayout> {
   const root = resolve(options.root)
-  const env = options.env ?? process.env
+  const { env } = options
   const log = options.log ?? ((message: string) => logOnce(root, message))
   const read = await readResolvedProfile({ root, claudeHome: options.claudeHome, env, run: options.run, log: () => undefined })
   if (!read.ok) {
@@ -101,7 +106,8 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
 
 export interface LayoutCacheOptions {
   claudeHome: () => string
-  env?: () => ProfileEnv
+  /** The scripts' environment, asked on every read (src/main/harness/script-env.ts). */
+  env: HarnessScriptEnvSource
   /** How long an answer is kept (default 30 s): a changed Profile counts within that time, without a restart. */
   ttlMs?: number
   now?: () => number
@@ -121,7 +127,7 @@ export class LayoutCache {
     const now = (this.options.now ?? Date.now)()
     const cached = this.entries.get(key)
     if (cached && now - cached.at < (this.options.ttlMs ?? 30_000)) return cached.layout
-    const layout = readProjectLayout({ root: key, claudeHome: this.options.claudeHome(), env: this.options.env?.() })
+    const layout = this.options.env().then((env) => readProjectLayout({ root: key, claudeHome: this.options.claudeHome(), env }))
     this.entries.set(key, { at: now, layout })
     return layout
   }
@@ -131,6 +137,6 @@ let shared: LayoutCache | undefined
 
 /** The app's one cache, over the Claude home of the running app (WORFY_CLAUDE_HOME or ~/.claude). */
 export function projectLayouts(): LayoutCache {
-  shared ??= new LayoutCache({ claudeHome: () => claudeHome() })
+  shared ??= new LayoutCache({ claudeHome: () => claudeHome(), env: harnessScriptEnv })
   return shared
 }

@@ -204,7 +204,7 @@ function harness(options: { script?: string; returnGraceMs?: number } = {}) {
     publish: () => undefined,
     ...(options.returnGraceMs === undefined ? {} : { returnGraceMs: options.returnGraceMs }),
   })
-  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home') }, runner)).model
+  const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
     settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES } }),

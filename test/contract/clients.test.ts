@@ -24,6 +24,9 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => electron.windows, fromWebContents: () => null },
   dialog: { showOpenDialog: vi.fn() },
 }))
+// The app runs the Harness scripts with the login shell environment; a test does not start the
+// login shell of the machine it runs on, so the scripts get this process's environment here.
+vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 type Sent = { channel: string; payload: unknown }

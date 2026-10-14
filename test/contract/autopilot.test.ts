@@ -174,7 +174,7 @@ function harness(options: HarnessOptions = {}) {
   })
   const branches = options.branches
   const workflow = async (root: string) =>
-    branches === undefined ? (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home') }, runner)).model : applyBranches(await readCheckout(root, runner), branches)
+    branches === undefined ? (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model : applyBranches(await readCheckout(root, runner), branches)
   const launcher = new ActionLauncher({
     projectRoot: () => repo,
     settings: () => ({ actionTemplates: { ...DEFAULT_ACTION_TEMPLATES, ...(options.runWave === undefined ? {} : { runWave: options.runWave }) } }),

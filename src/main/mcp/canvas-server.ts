@@ -40,6 +40,7 @@ import { SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, i
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
+import { harnessScriptEnv } from '../harness/script-env'
 import { layoutStore } from '../layout/store'
 import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -418,7 +419,7 @@ const appDeps = (): CanvasDeps => ({
   projects: () => projectStore().list(),
   dataDir: (projectId) => projectStore().dataDir(projectId),
   layout: layoutStore(),
-  workflow: (root) => readCheckout(root, epicStatusRunner(claudeHome())),
+  workflow: (root) => readCheckout(root, epicStatusRunner(claudeHome(), harnessScriptEnv)),
 })
 
 export type CanvasResolver = (request: { cwd: string; resume: string | undefined }) => Promise<CanvasSession | null>

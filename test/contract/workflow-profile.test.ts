@@ -472,7 +472,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     let runs = 0
     const home = join(scratch, 'cache-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
-    const cache = new LayoutCache({ claudeHome: () => home, ttlMs: 1000, now: () => now })
+    const cache = new LayoutCache({ claudeHome: () => home, env: () => Promise.resolve({}), ttlMs: 1000, now: () => now })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => void (runs += 1))
     const first = await cache.get('/nowhere/repo')
     expect(await cache.get('/nowhere/repo')).toBe(first)

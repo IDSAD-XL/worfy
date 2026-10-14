@@ -602,7 +602,7 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect(run.added).toEqual([repo])
     expect((await realProfile(repo, ['-C', repo, '--field', 'mode'])).stdout.trim()).toBe('silent')
     expect((await realProfile(repo, ['-C', repo, '--field', 'workflow.folder'])).stdout.trim()).toBe(join(harnessHome, 'projects', 'shop', 'workflow'))
-    const store = new ProjectStore(join(scratch, 'data'))
+    const store = new ProjectStore(join(scratch, 'data'), runGit, () => Promise.resolve(null))
     expect(store.active()).toMatchObject({ path: repo, name: 'shop' })
     // A second connection of the same repository: its match is in the registry now.
     expect(await run.connector.check({ ...renamed, profile: { ...renamed.profile, name: 'shop2' }, gate: renamed.gate.map((entry) => ({ ...entry, key: 'shop2', profile: 'shop2' })) })).toEqual([

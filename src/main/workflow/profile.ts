@@ -18,9 +18,10 @@ import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import { isAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
+import type { HarnessScriptEnv } from '../harness/script-env'
 
 /** The script's environment, for example the login shell's from src/main/agent/env.ts. */
-export type ProfileEnv = Readonly<Record<string, string | undefined>>
+export type ProfileEnv = HarnessScriptEnv
 
 /** The Profile field with the list of MCP server names. */
 export const MCP_ALLOWED_FIELD = 'mcp.allowed'

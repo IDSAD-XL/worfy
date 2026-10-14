@@ -9,6 +9,7 @@ import { mkdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { z } from 'zod'
 import type { ProjectsState, ProjectView } from '../../shared/ipc/projects'
+import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { claudeHome, dataRoot } from '../storage/paths'
 import { readResolvedProfile } from '../workflow/profile'
@@ -54,10 +55,16 @@ export const runGit: GitRunner = (args) => {
  */
 export type WorkspaceOf = (folder: string) => Promise<string | null>
 
-/** `_resolved.workspace` of `bin/profile -C <folder> --json` of the Harness in the app's Claude home. */
-export const harnessWorkspaceOf: WorkspaceOf = async (folder) => {
-  const read = await readResolvedProfile({ root: folder, claudeHome: claudeHome(), env: process.env, log: () => undefined })
-  return read.ok ? read.profile.workspace : null
+/**
+ * `_resolved.workspace` of `bin/profile -C <folder> --json` of the Harness in the app's Claude home.
+ * The script runs with the environment of `env` (src/main/harness/script-env.ts): it is
+ * `#!/usr/bin/env node`, and worfy's own PATH from Finder has no node.
+ */
+export function harnessWorkspaceOf(env: HarnessScriptEnvSource): WorkspaceOf {
+  return async (folder) => {
+    const read = await readResolvedProfile({ root: folder, claudeHome: claudeHome(), env: await env(), log: () => undefined })
+    return read.ok ? read.profile.workspace : null
+  }
 }
 
 /** Hex characters of the path hash that ends every Project id. */
@@ -113,8 +120,8 @@ export class ProjectStore {
   /** Does no I/O: the file is read on first use. */
   constructor(
     private readonly root: string,
-    private readonly git: GitRunner = runGit,
-    private readonly workspaceOf: WorkspaceOf = harnessWorkspaceOf,
+    private readonly git: GitRunner,
+    private readonly workspaceOf: WorkspaceOf,
   ) {}
 
   get file(): string {
@@ -293,6 +300,6 @@ let shared: ProjectStore | undefined
 
 /** The store of the running app, over dataRoot(). Created on first use; creating it does no I/O. */
 export function projectStore(): ProjectStore {
-  shared ??= new ProjectStore(dataRoot())
+  shared ??= new ProjectStore(dataRoot(), runGit, harnessWorkspaceOf(harnessScriptEnv))
   return shared
 }

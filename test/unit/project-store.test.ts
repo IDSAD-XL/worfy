@@ -29,7 +29,7 @@ async function addId(name: string): Promise<string> {
 
 beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-project-store-')))
-  store = new ProjectStore(join(scratch, 'data'), fakeGit)
+  store = new ProjectStore(join(scratch, 'data'), fakeGit, () => Promise.resolve(null))
   changes = []
   store.onChange((change) => changes.push(change))
 })
