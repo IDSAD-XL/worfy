@@ -12,11 +12,10 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { STUB_COMMAND } from './gh-world'
 
-// Pull requests and CI from `gh` (ticket 17), against test/fixtures/gh/gh: a stub that records
-// its arguments and answers from a prs.json. Nothing here reaches GitHub.
-
-const GH_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh')
+// Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
+// it records its arguments and answers from a prs.json. Nothing here reaches GitHub.
 
 const temps: string[] = []
 afterEach(async () => {
@@ -60,7 +59,7 @@ async function stubGh(pulls: GhPull[], env: Record<string, string> = {}) {
   const dir = await tempDir()
   const log = join(dir, 'calls.jsonl')
   await writeFile(join(dir, 'prs.json'), JSON.stringify(pulls))
-  const run = ghRunner({ command: GH_STUB, env: async () => ({ ...process.env, GH_STUB_DIR: dir, GH_STUB_LOG: log, ...env }) })
+  const run = ghRunner({ command: STUB_COMMAND, env: async () => ({ ...process.env, GH_STUB_DIR: dir, GH_STUB_LOG: log, ...env }) })
   const calls = async (): Promise<string[][]> =>
     (await readFile(log, 'utf8').catch(() => ''))
       .split('\n')

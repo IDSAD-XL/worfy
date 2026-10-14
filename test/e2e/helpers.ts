@@ -10,6 +10,11 @@ import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
+/**
+ * The gh stand-in as WORFY_GH names it: the `gh` wrapper, a shell script; on Windows, which cannot
+ * start one, the Node script itself, which worfy runs under its own Node (src/main/program.ts).
+ */
+export const GH_STUB = join(repoRoot, 'test', 'fixtures', 'gh', process.platform === 'win32' ? 'gh-stub.mjs' : 'gh')
 
 /**
  * How long the app may take to open its first window and show it, both steps together. A start
@@ -139,7 +144,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
     WORFY_CLAUDE_HOME: claudeHome,
     WORFY_AGENT: 'fake',
     // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says otherwise.
-    WORFY_GH: join(repoRoot, 'test', 'fixtures', 'gh', 'gh'),
+    WORFY_GH: GH_STUB,
     // The first-run screen (worfy-harness ticket 19) does not open by itself: it would cover the
     // window of every test. test/e2e/first-run.spec.ts turns it back on with WORFY_FIRST_RUN_AUTO=1.
     WORFY_FIRST_RUN_AUTO: '0',
