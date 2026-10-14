@@ -140,8 +140,11 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
    `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` ("could not verify") names the reason (project not registered,
    registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
-   not call the work green. `130` or `143` (128 + a signal) — the gate itself was stopped: nothing
-   was written, the work is not verified; put it into `not_verified` with that code, never green.
+   not call the work green. `127` — node is not on PATH and the gate never started: put it into
+   `not_verified` with that code. `130` or `143` (128 + a signal) — the gate itself was stopped:
+   this run wrote nothing, the work is not verified; put it into `not_verified` with that code,
+   never green. A signal in the gate's first tens of milliseconds, or while it waits up to 2 s on
+   an open stdin that sends nothing, may leave the verdict of an earlier run in place.
    `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
    with the line "ничего не прогналось" ("nothing ran") or "ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно"
    ("could not verify — environment unavailable") also goes into `not_verified`.

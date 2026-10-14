@@ -58,8 +58,11 @@ already uses.
   not from reading the diff. A failing run means unfinished. "Could not verify" means unverified.
   Neither is reported as done.
 - Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry —
-  never green. `130` or `143` (128 + a signal) means the gate itself was stopped: nothing was
-  written, the work is not verified — never green. `0` is green only when the output has the
+  never green. `127` means node is not on PATH and the command above never started the gate:
+  not verified, never green. `130` or `143` (128 + a signal) means the gate itself was stopped:
+  this run wrote nothing, the work is not verified — never green. A signal in the gate's first
+  tens of milliseconds, or while it waits up to 2 s on an open stdin that sends nothing, may
+  leave the verdict of an earlier run in place. `0` is green only when the output has the
   line `[gate] зелено (…)`: "nothing ran" («ничего не прогналось») and "could not verify"
   («ПРОВЕРИТЬ НЕ УДАЛОСЬ») also exit `0`.
   Where the gate does not cover the project, the verdict comes from the profile's
