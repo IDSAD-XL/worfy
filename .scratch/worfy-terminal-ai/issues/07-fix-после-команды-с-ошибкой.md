@@ -1,7 +1,8 @@
 # 07 — Fix: кнопка после команды с ошибкой, Sonnet вставляет исправленную команду, не запуская её
 
 Type: task
-Status: open
+Status: claimed — 2026-10-14
+Branch: worfy-terminal-ai/07
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(d) (кнопка «Fix» после команды с кодом выхода не 0; Sonnet получает команду и ~50 последних строк вывода, возвращает исправленную; она вставляется и не запускается), пункт 2 (функция по требованию доступна до `rejected`), пункт 3 (хвост вывода — только для Fix; redaction до отправки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 5–6; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`, [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6
 
@@ -52,14 +53,14 @@ ssh или вложенного shell-а (там нет скриптов worfy).
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/terminal-ai-output-tail.test.ts` (новый): цвета, движения курсора и OSC убраны; строка прогресса с `\r` — последнее её состояние; 120 строк → последние 50; пустой вывод — пустой хвост.
-- [ ] Contract `test/contract/terminal-ai-fix.test.ts` (новый), настоящий zsh, assist — поддельный: `ls /nonexistent-worfy` → `terminalAi.fix.state` и событие `terminalAi.fix.changed` — `available` true; `terminalAi.fix.run` → в журнале команда `ls /nonexistent-worfy`, код выхода не 0, хвост с «No such file», модель `sonnet`; строка shell-а — ответ fake; команда не запущена (main не писал в pty `\r`).
-- [ ] Тот же contract: команда печатает `ghp_…` и падает — в журнале `[redacted]`; началась новая команда — `available` false; команда с пробелом в начале упала — `available` false; Fix выключен в Settings — false; Terminal на `/bin/sh` — false; каналы помечены `project`; Limits `rejected` — отказ со временем сброса, запроса нет.
-- [ ] Unit (jsdom) `test/unit/terminal-ai-fix-button.test.tsx` (новый): `available` — кнопка «Fix» в шапке; нажатие — «Fixing…» и вызов канала; отказ — текст; событие `terminalAi.fix.changed` с `available` false прячет кнопку.
-- [ ] e2e `test/e2e/terminal-ai-fix.spec.ts` (новый), fake с ответом: команда с ошибкой в Terminal Node — кнопка «Fix»; нажатие — в строке xterm ответ fake; вывода исправленной команды нет, пока test не нажал Enter; после Enter кнопка пропала.
-- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: кнопка «Fix» в шапке Terminal-а в светлой и тёмной теме — `../evidence/07-fix-light.png`, `../evidence/07-fix-dark.png`. Как проверить: окно worfy.
-- [ ] `test/e2e/terminal.spec.ts` и `test/e2e/focus.spec.ts` зелёные без правки ожиданий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0.
+- [x] Unit `test/unit/terminal-ai-output-tail.test.ts` (новый): цвета, движения курсора и OSC убраны; строка прогресса с `\r` — последнее её состояние; 120 строк → последние 50; пустой вывод — пустой хвост.
+- [x] Contract `test/contract/terminal-ai-fix.test.ts` (новый), настоящий zsh, assist — поддельный: `ls /nonexistent-worfy` → `terminalAi.fix.state` и событие `terminalAi.fix.changed` — `available` true; `terminalAi.fix.run` → в журнале команда `ls /nonexistent-worfy`, код выхода не 0, хвост с «No such file», модель `sonnet`; строка shell-а — ответ fake; команда не запущена (main не писал в pty `\r`).
+- [x] Тот же contract: команда печатает `ghp_…` и падает — в журнале `[redacted]`; началась новая команда — `available` false; команда с пробелом в начале упала — `available` false; Fix выключен в Settings — false; Terminal на `/bin/sh` — false; каналы помечены `project`; Limits `rejected` — отказ со временем сброса, запроса нет.
+- [x] Unit (jsdom) `test/unit/terminal-ai-fix-button.test.tsx` (новый): `available` — кнопка «Fix» в шапке; нажатие — «Fixing…» и вызов канала; отказ — текст; событие `terminalAi.fix.changed` с `available` false прячет кнопку.
+- [x] e2e `test/e2e/terminal-ai-fix.spec.ts` (новый), fake с ответом: команда с ошибкой в Terminal Node — кнопка «Fix»; нажатие — в строке xterm ответ fake; вывода исправленной команды нет, пока test не нажал Enter; после Enter кнопка пропала.
+- [ ] (вручную) `WORFY_AGENT=fake pnpm dev`: кнопка «Fix» в шапке Terminal-а в светлой и тёмной теме — `../evidence/07-fix-light.png`, `../evidence/07-fix-dark.png`. Как проверить: окно worfy. — не проверено: `pnpm dev` с настоящим HOME не запускался; снимки по этим путям сделаны Playwright-ом из `test/e2e/terminal-ai-fix.spec.ts` на собранном приложении с временным HOME.
+- [x] `test/e2e/terminal.spec.ts` и `test/e2e/focus.spec.ts` зелёные без правки ожиданий.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `GATE_SCOPE=all` gate full локально — exit 0. — `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 своим прогоном; gate full — за orchestrator-ом.
 
 ## Тесты
 
@@ -81,4 +82,54 @@ ssh или вложенного shell-а (там нет скриптов worfy).
 
 ## Итог
 
-Заполняется при закрытии.
+**Первый test.** Contract `test/contract/terminal-ai-fix.test.ts` до кода каналов падал так: файл
+не загружался — `Error: Cannot find module '/src/main/ipc/terminal-ai-fix'` (0 tests, exit 1).
+
+**Как сделано.**
+
+- Какая команда упала, main узнаёт из событий интеграции shell-а (`command-started`,
+  `command-finished` с текстом команды и кодом выхода) — `FailedCommands` в
+  `src/main/terminal-ai/fix.ts`. Команда считается, если её текст известен (не начиналась с пробела) и
+  код выхода не 0. Её снимают: начало следующей команды, отключение zsh от socket-а, Fix, чей ответ
+  уже в строке. Слушатель событий ставится при первом вызове канала (Node вызывает
+  `terminalAi.fix.state` при монтировании), синхронно, до загрузки assist-сервиса.
+- `available` = есть упавшая команда, команда сейчас не идёт, zsh подключён, Fix включён в Settings.
+  Каналы `terminalAi.fix.state` / `terminalAi.fix.changed` / `terminalAi.fix.run`, все `project`.
+- `runFix()`: shell не ждёт ввода (идёт команда, альтернативный экран, prompt ещё не показан) —
+  «Terminal is busy», модель не спрашивается. Иначе `request('fix', …)` с хвостом вывода
+  (`outputTail`, `src/shared/terminal-ai/output-tail.ts`); redaction и обрезка строк до 500 символов —
+  прежние, в `prepareContext()` Ticket-а 02. Ответ — `insert` в zsh; Enter не пишется.
+- Ответ, пришедший после начала новой команды, в строку не попадает: начало команды отменяет запрос, и
+  `runFix()` ещё раз сверяет, что упавшая команда та же.
+- Кнопка — в шапке рядом с именем shell-а; «Fixing…» на время запроса; после ответа фокус уходит в
+  терминал (Enter запускает команду); отказ — серый текст в шапке на 4 с.
+- Ни preload, ни `channels.ts`, ни `src/main/terminal/*`, ни `shell-link.ts` не правились.
+
+**Решено без владельца, подтвердить:**
+
+1. Команда уходит в модель как последняя из «Recent commands» вместе с «Exit code of the last
+   command»; отдельного поля в контексте нет (`context.ts` не менялся).
+2. После удачного Fix кнопка пропадает на всех экранах до следующей упавшей команды; пустой Enter её
+   не возвращает.
+3. Тексты отказов: те же, что у Command request («Limits reached until 14:20», «Terminal AI is off»,
+   «Terminal is busy», «Claude did not answer in time», «Claude had no command for that», «Claude
+   could not answer», «The shell is not ready yet»), и свои — «Nothing to fix», «Cancelled»,
+   «The shell is not connected to Terminal AI», «The shell is gone».
+4. Строка прогресса: хвост показывает то, что показал бы терминал. Короткое состояние поверх длинного
+   оставляет конец длинного, если программа не стёрла его (`CSI K`).
+5. Вид кнопки — оранжевая обводка цвета ошибки (`--blocked-ring`) в обеих темах; контраст текста
+   кнопки ≥ 4,5:1 проверяет e2e.
+
+**Проверки (head на 69b7d1d3):**
+
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (242 файла прошли, 6 пропущены; 5105 tests
+  прошли, 66 пропущены); gate fast — exit 0, «зелено (fast)».
+- e2e на собранном приложении под общей блокировкой: `terminal-ai-fix` — 1 passed (снимки
+  `../evidence/07-fix-light.png`, `../evidence/07-fix-dark.png`); `terminal`, `focus`,
+  `terminal-ai-request` — 14 passed, ожидания не правились.
+- Mutation testing: 15 мутантов на копиях в своём каталоге (`fix.ts`, канал main, кнопка, хвост
+  вывода), убиты все. Первый круг оставил живым один — «Fixing…» пропадал, если main убирал кнопку до
+  ответа канала; под него дописана проверка в `test/unit/terminal-ai-fix-button.test.tsx`.
+
+![Fix, светлая тема](../evidence/07-fix-light.png)
+![Fix, тёмная тема](../evidence/07-fix-dark.png)
