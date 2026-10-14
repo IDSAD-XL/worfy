@@ -49,8 +49,12 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `src/main/workflow/profile.ts:64`.
   - `profile` получает окружение login shell пользователя, где node есть в PATH (`profile.ts:91`,
     ADR-0007). `epic-status` получает `process.env` (`reader.ts:98`). У worfy, запущенного из Finder,
-    там PATH launchd без node (`src/main/agent/env.ts:3-5`). Сегодня это не мешает: bash-версия
-    обходится без node. Версия на Node без node в PATH не запустится.
+    там PATH launchd без node (`src/main/agent/env.ts:3-5`). Bash-версия без node не зовёт
+    `ticket root` и читает `<корень>/.scratch`: у Silent Project-а (Ticket-ы вне репозитория) worfy
+    из Finder не показывал ни одного Epic-а — блокер приёмки E3 (Ticket 37 Epic-а `worfy-harness`,
+    «Вне скоупа»). С PR #305 (Ticket 37, первый срез; 2026-10-14) `epic-status` и `profile` worfy
+    запускает с окружением login shell (`src/main/harness/script-env.ts`); номера строк этого
+    абзаца — до него. Версия на Node без node в PATH не запустится.
   - «Скрипта нет» worfy узнаёт по `ENOENT` от `execFile` (`reader.ts:101-104`, `profile.ts:67-70`).
     При запуске `node <файл>` нет файла — это exit 1 от самого node. `reader.ts` принял бы его за «скрипт
     упал», а `profile.ts` — за «сломан Profile» (exit 1 у `profile` — broken config). Так же
