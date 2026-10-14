@@ -856,8 +856,9 @@ describe('what does not leak and where the widget is not', () => {
     const from = t.text().length
     t.type('zsh -i\r')
     await vi.waitFor(() => expect(t.state()?.commandRunning).toBe(true), WAIT)
-    // eslint-disable-next-line no-control-regex -- the sequences zsh ends a prompt with start with ESC.
-    await vi.waitFor(() => expect(shown(t.text().slice(from))).toMatch(/zle[%#] (?:\x1b\[[0-9;?]*[A-Za-z])*$/), WAIT)
+    // What zsh ends a prompt with: CSI sequences, and on Debian the keypad mode its /etc/zsh/zshrc turns on (ESC =).
+    // eslint-disable-next-line no-control-regex -- those sequences start with ESC.
+    await vi.waitFor(() => expect(shown(t.text().slice(from))).toMatch(/zle[%#] (?:\x1b\[[0-9;?]*[A-Za-z]|\x1b[=>])*$/), WAIT)
     t.type('print -r -- "nested:${+functions[_worfy_assist_ask]}:${+widgets[_worfy_assist_receive]}:${WORFY_ASSIST_TOKEN-none}:${+__worfy_assist_fd}"\r')
     await vi.waitFor(() => expect(t.text().slice(from)).toContain('nested:0:0:none:0'), WAIT)
     // The same history, and no grey text: the nested shell is the user's own zsh.
