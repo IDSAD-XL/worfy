@@ -19,8 +19,8 @@
 #
 # The pause is one timer at a time: a subshell that waits (zselect, no program is run) on a pipe zle
 # watches. A key during the pause moves the moment to ask and leaves the timer alone; when the timer
-# ends too soon for the line as it is by then, the next one waits for what is left. Enter, and a
-# line there is nothing to ask about, end the timer and its subshell at once.
+# ends too soon for the line as it is by then, the next one waits for what is left. Enter, Esc, and
+# a line there is nothing to ask about, end the timer and its subshell at once.
 
 # Only where rc.d/10-assist.zsh set its widget up: it does that only where a line is edited. zselect
 # waits, EPOCHREALTIME is the clock, sysparams tells the timer's subshell its pid, funcstack tells
@@ -113,3 +113,16 @@ _worfy_suggest_line() {
 __worfy_assist_line_hooks+=(_worfy_suggest_line)
 # Enter (or Ctrl+C): the line is no longer edited, and what runs next gets nothing of the timer's.
 add-zle-hook-widget line-finish _worfy_suggest_stop
+
+# Esc: rc.d/10-assist.zsh binds it (emacs and viins keymaps) to _worfy_assist_escape, which cancels
+# the open ask, hides the grey text and goes on to what Esc did before (vi-cmd-mode in vi). The
+# user put the Suggestion away, so the line that waits for its pause is not asked about either: the
+# timer ends first, then that widget runs as it did. Its widgets call the function by name, so the
+# wrapper is what they run; it is made once, however often this script is read.
+if (( ${+functions[_worfy_assist_escape]} && ! ${+functions[_worfy_suggest_escape_was]} )); then
+  functions[_worfy_suggest_escape_was]=$functions[_worfy_assist_escape]
+  _worfy_assist_escape() {
+    _worfy_suggest_stop
+    _worfy_suggest_escape_was "$@"
+  }
+fi

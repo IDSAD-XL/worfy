@@ -55,6 +55,7 @@ const BRANCH = 'worfy-suggest-branch'
 /** The keys as xterm.js 6.0.0 sends them (node_modules/@xterm/xterm/src/common/input/Keyboard.ts). */
 const RIGHT = '\x1b[C'
 const ALT_RIGHT = '\x1b[1;3C'
+const ESC = '\x1b'
 const CTRL_L = '\x0c'
 const CTRL_U = '\x15'
 
@@ -927,6 +928,81 @@ describe('the Suggestion from the model on a real zsh', () => {
     await askAbout('docker images')
     expect(lines()).toEqual(['docker images'])
     expect(shown(t.text())).not.toMatch(ZSH_ERROR)
+  })
+
+  // zsh runs the Esc widget only once it knows no longer sequence follows: KEYTIMEOUT, 400 ms by
+  // default. No key is typed sooner than that after Esc, or zsh reads both as one sequence.
+  const AFTER_ESC_MS = 700
+
+  it('Esc while the line waits for its pause ends the timer: the model is not asked and nothing grey is shown', async () => {
+    const { t, answers, lines, probe, askAbout } = await start({ pauseMs: 1500 })
+    answers([{ feature: 'suggest', match: TYPED, answer: ANSWER, delayMs: 0 }])
+    t.type(TYPED)
+    await sleep(100)
+    t.type(ESC)
+    await sleep(AFTER_ESC_MS)
+    // The pause is not over yet, and no timer runs.
+    expect(await probe()).toMatchObject({ timer: '', pid: '' })
+    await sleep(1500)
+    expect(lines()).toEqual([])
+    expect(await t.redrawn()).toMatch(lineAlone(TYPED))
+    expect(shown(t.text())).not.toContain('untu bash')
+    // A key that changes the line starts the pause over, and that line is asked about.
+    t.type('!')
+    await askAbout(`${TYPED}!`)
+    expect(lines()).toEqual([`${TYPED}!`])
+    expect(shown(t.text())).not.toMatch(ZSH_ERROR)
+  })
+
+  it('Esc in the vi keymap while the line waits for its pause asks nothing and still leaves insert mode', async () => {
+    await writeFile(join(home, '.zshrc'), "PS1='zle%# '\nHISTSIZE=1000\nSAVEHIST=1000\nbindkey -v\n")
+    const { t, answers, lines } = await start({ pauseMs: 1500 })
+    answers([{ feature: 'suggest', match: 'echo worfy-vi-esc', answer: 'echo worfy-vi-esc-from-model', delayMs: 0 }])
+    t.type('echo worfy-vi-esc')
+    await sleep(50)
+    t.type(ESC)
+    await sleep(AFTER_ESC_MS + 1500)
+    expect(lines()).toEqual([])
+    expect(await t.redrawn()).toMatch(lineAlone('echo worfy-vi-esc'))
+    expect(shown(t.text())).not.toContain('-from-model')
+    // Command mode: the cursor went back onto the last `c`, and `x` deletes it.
+    t.type('x')
+    const before = t.events().length
+    expect(await t.run('')).toContain('worfy-vi-es\r\n')
+    expect(t.events().slice(before)).toContainEqual({ type: 'command-started', command: 'echo worfy-vi-es' })
+    expect(lines()).toEqual([])
+  })
+
+  it('Esc once the grey answer is shown hides it, as before, and asks nothing new', async () => {
+    const { t, answers, lines, requests, askAbout } = await start()
+    answers([{ feature: 'suggest', match: TYPED, answer: ANSWER, delayMs: 50 }])
+    t.type(TYPED)
+    await askAbout(TYPED)
+    expect(await t.greyShown('untu bash')).toMatch(lineWithGrey(TYPED, 'untu bash'))
+    t.type(ESC)
+    await sleep(AFTER_ESC_MS)
+    expect(await t.redrawn()).toMatch(lineAlone(TYPED))
+    await sleep(SEVERAL_PAUSES_MS)
+    expect(lines()).toEqual([TYPED])
+    expect(requests()).toMatchObject([{ context: { line: TYPED }, cancelled: false }])
+  })
+
+  it('Esc after the pause, while the model answers, cancels the ask, and the answer that comes later is not shown', async () => {
+    const { t, answers, requests, askAbout, claims, lines } = await start()
+    answers([{ feature: 'suggest', match: TYPED, answer: ANSWER, delayMs: 1500 }])
+    t.type(TYPED)
+    const ask = await askAbout(TYPED)
+    await vi.waitFor(() => expect(claims()).toBe(1), WAIT)
+    const from = t.text().length
+    t.type(ESC)
+    await vi.waitFor(() => expect(ask.ask.signal.aborted).toBe(true), WAIT)
+    await vi.waitFor(() => expect(ask.finished).toBe(true), WAIT)
+    await sleep(1500 + SEVERAL_PAUSES_MS)
+    expect(await t.redrawn()).toMatch(lineAlone(TYPED))
+    expect(shown(t.text().slice(from))).not.toContain('untu bash')
+    expect(ask.shows).toEqual([])
+    expect(lines()).toEqual([TYPED])
+    expect(requests()).toMatchObject([{ context: { line: TYPED }, cancelled: true }])
   })
 
   it('Alt+→ word by word to the end of the answer asks nothing new', async () => {
