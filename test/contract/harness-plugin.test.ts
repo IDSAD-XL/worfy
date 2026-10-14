@@ -65,7 +65,8 @@ describe('harness/ holds only the Harness', () => {
         'agents/implementer.md',
         'skills/epic-wave/SKILL.md',
         'bin/profile',
-        'hooks/gate.sh',
+        'hooks/gate.mjs',
+        'hooks/gate-paths.mjs',
         'profiles/README.md',
       ]),
     )

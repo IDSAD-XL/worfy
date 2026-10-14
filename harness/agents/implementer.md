@@ -134,13 +134,18 @@ Without a skill, steps 1–4 are:
 
 Steps 5–6 are mandatory in both cases, with exactly these commands, even if the skill did not load:
 5. A bare check with the exit code: `<commands.verify>; echo "EXIT=$?"`, then
-   `bash ${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast </dev/null; echo "EXIT=$?"`. Filter the output
+   `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`. Filter the output
    only under `set -o pipefail`. Environment requirements — `commands.requires`. A red check is your
    work, not an obstacle: do not get around it.
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
    `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` ("could not verify") names the reason (project not registered,
-   registry unreadable, resolver crashed, no node); put it into `not_verified` with code 3 and do
-   not call the work green. `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
+   registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
+   not call the work green. `127` — node is not on PATH and the gate never started: put it into
+   `not_verified` with that code. `130` or `143` (128 + a signal) — the gate itself was stopped:
+   this run wrote nothing, the work is not verified; put it into `not_verified` with that code,
+   never green. A signal in the gate's first tens of milliseconds, or while it waits up to 2 s on
+   an open stdin that sends nothing, may leave the verdict of an earlier run in place.
+   `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
    with the line "ничего не прогналось" ("nothing ran") or "ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно"
    ("could not verify — environment unavailable") also goes into `not_verified`.
 6. `workflow.finish: "pr-green-ci"` — a PR and green CI. First `gh pr view <N> --json mergeStateStatus`:

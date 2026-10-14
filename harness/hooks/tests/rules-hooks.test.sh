@@ -95,13 +95,13 @@ done
 
 run_inject common '{"hook_event_name":"SubagentStart"}' -u CLAUDE_PLUGIN_ROOT
 c="$(ctx)"
-[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.sh"* ]] && [[ "$c" != *'${CLAUDE_PLUGIN_ROOT}'* ]] \
+[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.mjs"* ]] && [[ "$c" != *'${CLAUDE_PLUGIN_ROOT}'* ]] \
     && ok "no env: plugin root is the folder above hooks/ ($HARNESS)" \
     || bad "no env: rc=$rc, plugin root not substituted from the script path"
 
 run_inject common '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT=
 c="$(ctx)"
-[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.sh"* ]] \
+[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.mjs"* ]] \
     && ok "empty env: treated as unset" || bad "empty env: rc=$rc, plugin root not from the script path"
 
 # $1 description: exit 0, no additionalContext, exactly one line on stderr
@@ -135,7 +135,7 @@ for p in '~/.claude/bin' '~/.claude/hooks' '~/.claude/profiles' '$HOME/.claude';
 done
 for p in '${CLAUDE_PLUGIN_ROOT}/bin/profile' '${CLAUDE_PLUGIN_ROOT}/profiles/README.md' \
     '${CLAUDE_PLUGIN_ROOT}/bin/epic-status' '${CLAUDE_PLUGIN_ROOT}/bin/ticket' \
-    '${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh fast' \
+    'node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"' \
     'worfy:scout' 'worfy:implementer' 'worfy:reviewer' 'worfy:qmd'; do
     grep -qF -- "$p" "$all" && ok "parts name $p" || bad "parts do not name $p"
 done
@@ -257,7 +257,9 @@ if jq -e .hooks "$HJ" >/dev/null 2>&1; then ok "hooks.json is valid JSON with .h
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
 # with the qmd server of the plugin (worfy-harness ticket 17). No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
-# worfy-harness ticket 24 (owner decision 2026-10-09). One line per hook: event|matcher|command|timeout.
+# worfy-harness ticket 24 (owner decision 2026-10-09). The two gate hooks call the launcher gate.sh, not
+# `node …/gate.mjs`: without node only the launcher can say so (worfy-windows ticket 03).
+# One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 # Read outside $(…): macOS bash 3.2 cannot parse a here-document with an odd number of quotes
 # inside a command substitution.
@@ -289,11 +291,17 @@ types="$(jq -r '[.hooks[][] | .hooks[] | .type] | unique | join(",")' "$HJ" 2>/d
 [ "$types" = command ] && ok "hooks.json: every hook is a command" || bad "hooks.json: hook types '$types'"
 if grep -q 'bin/qmd-refresh.* --quiet' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs qmd-refresh --quiet"; else bad "hooks.json: no qmd-refresh"; fi
 
-# Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable.
+# Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable. A command
+# that starts with `node ` (ADR-0055) names a file node reads: it must exist, with or without the
+# executable bit.
 while IFS= read -r cmd; do
-    path="$(printf '%s' "$cmd" | sed -n 's#^"\${CLAUDE_PLUGIN_ROOT}\(/[^"]*\)".*#\1#p')"
-    if [ -z "$path" ]; then bad "command not of the form \"\${CLAUDE_PLUGIN_ROOT}/…\": $cmd"; continue; fi
-    [ -x "$HARNESS$path" ] && ok "executable: $path" || bad "not executable or missing: $path"
+    path="$(printf '%s' "$cmd" | sed -n 's#^\(node \)\{0,1\}"\${CLAUDE_PLUGIN_ROOT}\(/[^"]*\)".*#\2#p')"
+    if [ -z "$path" ]; then bad "command not of the form [node ]\"\${CLAUDE_PLUGIN_ROOT}/…\": $cmd"; continue; fi
+    if [ "${cmd#node }" != "$cmd" ]; then
+        [ -f "$HARNESS$path" ] && ok "run by node, exists: $path" || bad "missing: $path"
+    else
+        [ -x "$HARNESS$path" ] && ok "executable: $path" || bad "not executable or missing: $path"
+    fi
 done < <(jq -r '[.hooks[][] | .hooks[] | .command] | unique[]' "$HJ" 2>/dev/null)
 
 # The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part.

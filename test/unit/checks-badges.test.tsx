@@ -318,3 +318,17 @@ describe('branchesInWork', () => {
     expect(checksGet.input.safeParse({ root: ROOT, branches }).success).toBe(true)
   })
 })
+
+describe('the root checks.get and checks.repos take (worfy-windows ticket 03)', () => {
+  it('is an absolute path of macOS or of Windows, and nothing relative', async () => {
+    const { checksGet, checksRepos } = await import('../../src/shared/ipc/checks')
+    for (const root of [ROOT, '/', 'C:\\a', 'C:/a', 'c:\\Users\\x\\worfy', '\\\\srv\\share\\a']) {
+      expect(checksGet.input.safeParse({ root, branches: [] }).success, root).toBe(true)
+      expect(checksRepos.input.safeParse({ root }).success, root).toBe(true)
+    }
+    for (const root of ['a\\b', 'C:a', 'a/b', '\\a', '', '/a\0b', 'C:\\a\0']) {
+      expect(checksGet.input.safeParse({ root, branches: [] }).success, root).toBe(false)
+      expect(checksRepos.input.safeParse({ root }).success, root).toBe(false)
+    }
+  })
+})

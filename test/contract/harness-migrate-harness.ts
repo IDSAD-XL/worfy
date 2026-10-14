@@ -54,8 +54,9 @@ function substitute(dir: string, root: string): void {
   }
 }
 
-export function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '' })
+/** `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging. */
+export function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeout?: number } = {}): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '', timeout: options.timeout })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
@@ -100,6 +101,8 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
+    // os.homedir() reads USERPROFILE on Windows: a Node script of the Harness must not reach the real home.
+    USERPROFILE: home,
     CLAUDE_CONFIG_DIR: claudeHome,
     HARNESS_HOME: harnessHome,
     WORFY_CLAUDE_HOME: claudeHome,

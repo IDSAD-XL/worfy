@@ -13,28 +13,20 @@
 //                                            -> the same, but all workspaces and the root, without
 //                                               regard to the list of changes
 //
-// The empty second field of the root is the reason gate.sh must not parse
-// the line with IFS=$'\t' read: tab is a whitespace separator, two in a row
-// collapse, and the script name slides into the package field.
+// The empty second field of the root is the reason a caller must split the line by tabs and
+// keep the empty fields: a shell `IFS=$'\t' read` takes tab for a whitespace separator, two in
+// a row collapse, and the script name slides into the package field.
 
 import fs from "node:fs"
 import path from "node:path"
+import { gateConfigFile, isSameOrInside } from "./gate-paths.mjs"
 
 // The gate registry: CLAUDE_GATE_CONFIG, else $HARNESS_HOME/gate/config.json (HARNESS_HOME
-// defaults to ~/.claude/worfy-harness, ADR-0040 item 5). Transition: with no registry there but
-// one in the old place, ~/.claude/gate/config.json, read the old one (read only).
-function gateConfig() {
-    if (process.env.CLAUDE_GATE_CONFIG) return process.env.CLAUDE_GATE_CONFIG
-    const home = process.env.HOME || ""
-    const harnessHome = process.env.HARNESS_HOME || path.join(home, ".claude", "worfy-harness")
-    const current = path.join(harnessHome, "gate", "config.json")
-    const legacy = path.join(home, ".claude", "gate", "config.json")
-    return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
-}
-const CFG = gateConfig()
+// defaults to ~/.claude/worfy-harness, ADR-0040 item 5), else the old place — see gate-paths.mjs.
+const CFG = gateConfigFile()
 
 // An unreadable or broken registry is not "the project is not registered". There used to be
-// `exit 0` with empty output here, and gate.sh/stop.sh took a registered project for
+// `exit 0` with empty output here, and the gate and stop.sh took a registered project for
 // someone else's: the gate answered "not registered", and stop.sh did not notice the red marker.
 // Now it is code 4 and the reason on stderr; the callers treat this as "could not verify".
 let cfg
@@ -67,6 +59,8 @@ const readPkg = (p) => {
 // `match` through native too, but only if the result differs from the entry by case alone:
 // that way nothing but the case changes (a trailing slash, symlinks and nonexistent paths
 // stay as written). On a case-sensitive file system native changes nothing.
+// Windows: the registry may spell `match` with `\` or `/` and in any letter case, and the target
+// comes with `\` — isSameOrInside compares them whatever the separator and the case.
 const onDisk = (p) => {
     try {
         const n = fs.realpathSync.native(p)
@@ -82,7 +76,7 @@ if (process.argv[2] === "--which") {
     } catch {}
     const hit = repos
         .map((r) => ({ ...r, m: onDisk(r.match) }))
-        .filter((r) => target === r.m || target.startsWith(r.m + path.sep))
+        .filter((r) => isSameOrInside(target, r.m))
         .sort((a, b) => b.m.length - a.m.length)[0]
     if (hit) console.log([hit.key, hit.match, hit.pm || "npm"].join("\t"))
     process.exit(0)
@@ -92,7 +86,7 @@ const [, , repoPath, profile, key] = process.argv
 const rc = repos.find((r) => r.key === key)
 if (!rc || !repoPath) process.exit(0)
 
-// "Everything" mode: gate.sh does not trust the diff from the merge-base (no base, HEAD
+// "Everything" mode: the gate does not trust the diff from the merge-base (no base, HEAD
 // detached, the branch far from origin/main) and asks for the full scope.
 const ALL = process.env.GATE_ALL === "1"
 const changed = fs
@@ -162,7 +156,7 @@ const dirs = wsWanted.length ? workspaceDirs() : []
 const hit = new Set(ALL ? dirs : [])
 const uncovered = []
 for (const file of ALL ? [] : changed) {
-    const owner = dirs.find((d) => file === d || file.startsWith(d + "/"))
+    const owner = dirs.find((d) => isSameOrInside(file, d))
     if (owner) hit.add(owner)
     else uncovered.push(file)
 }

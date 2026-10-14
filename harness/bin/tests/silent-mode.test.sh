@@ -8,7 +8,7 @@
 #   - bin/silent-check finds every kind of trace, passes clean text and a clean diff, checks nothing
 #     in a Full project;
 #   - a worktree outside the repository (<HARNESS_HOME>/worktrees/<project>/05) is recognised by
-#     profile, gate.sh and worktree-lock; hooks/worktree-create.sh, kept unregistered for ticket 24, puts
+#     profile, gate.mjs and worktree-lock; hooks/worktree-create.sh, kept unregistered for ticket 24, puts
 #     a tree there with the profile's worktree.implementer template, and hooks.json does not register it;
 #   - the local finish of local-green (the block cut out of the ship-ticket skill) merges the ticket
 #     branch into main of a temporary repository.
@@ -33,7 +33,8 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 # --- sandbox -------------------------------------------------------------------------
-export HOME="$T/home" HARNESS_HOME="$T/hh" CLAUDE_CONFIG_DIR="$T/claude-config"
+# USERPROFILE with HOME: a Node script on Windows takes the home folder from it, not from HOME.
+export HOME="$T/home" USERPROFILE="$T/home" HARNESS_HOME="$T/hh" CLAUDE_CONFIG_DIR="$T/claude-config"
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR CLAUDE_PROFILE_BIN CLAUDE_TICKET_BIN CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID GATE_SCOPE
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -205,9 +206,9 @@ out="$("$BIN/profile" -C "$WT" --name 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = sp ] && ok "profile -C <tree outside the repository> -> exit 0, the same profile" || bad "profile outside tree: exit $rc, out: $out"
 got="$("$BIN/profile" -C "$WT" --field _resolved.in_worktree 2>&1)"
 [ "$got" = true ] && ok "the outside tree is a worktree of the repository" || bad "in_worktree: $got"
-out="$(cd "$WT" && GATE_SCOPE=all bash "$HOOKS/gate.sh" fast </dev/null 2>&1)"; rc=$?
+out="$(cd "$WT" && GATE_SCOPE=all node "$HOOKS/gate.mjs" fast </dev/null 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено"* ]] && ls "$HARNESS_HOME/gate/state"/verdict-*.json >/dev/null 2>&1 \
-    && ok "gate.sh fast in the outside tree finds the registry entry, green, state in HARNESS_HOME" || bad "gate outside tree: exit $rc, out: ${out:0:300}"
+    && ok "gate.mjs fast in the outside tree finds the registry entry, green, state in HARNESS_HOME" || bad "gate outside tree: exit $rc, out: ${out:0:300}"
 printf '{"session_id":"s-22","cwd":"%s"}' "$WT" | "$BIN/worktree-lock" claim >/dev/null 2>&1
 grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \
     && ok "worktree-lock claim in the outside tree writes the lock into HARNESS_HOME" || bad "worktree-lock: $(ls "$HARNESS_HOME" 2>&1)"

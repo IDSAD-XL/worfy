@@ -18,7 +18,10 @@
 # Every HOME here is a temporary folder: the real ~/.claude is neither read nor written.
 set -u
 HARNESS="${HARNESS_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"   # HARNESS_DIR — run against another copy
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
+# /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -30,15 +33,18 @@ check() { # $1 = description, the rest = condition
 rc_out() { [ "$rc" -eq "$1" ] && [ "$out" = "$2" ]; }   # last exit code and output
 absent() { local p; for p in "$@"; do [ ! -e "$p" ] || return 1; done; }
 go_or_blocked() { [ "$1" = GO ] || [ "${1#BLOCKED: }" != "$1" ]; }
-tag() { printf '%s' "$1" | shasum | awk '{print $1}' | cut -c1-8; }
+# node, not shasum: Git Bash has shasum only where perl is on PATH.
+tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
 
-# Runs a command with HOME=$1 and none of the overrides the calling session may have set.
+# Runs a command with the home folder $1 and none of the overrides the calling session may have
+# set. HOME is the home folder for bash and for node on macOS and Linux, USERPROFILE for node on
+# Windows: both are set, or a Node script would read and write the real home there.
 clean() {
     local home="$1"; shift
     env -u HARNESS_HOME -u CLAUDE_GATE_CONFIG -u CLAUDE_GATE_STATE -u CLAUDE_GATE_RESOLVE \
         -u CLAUDE_PROFILE_BIN -u CLAUDE_TICKET_BIN -u CLAUDE_PROFILES_DIR -u CLAUDE_PLUGIN_ROOT \
         -u QMD_SYNC_PROFILE_BIN -u QMD_REFRESH_SYNC -u CLAUDE_CODE_SESSION_ID -u CLAUDE_SESSION_ID \
-        -u GATE_SCOPE HOME="$home" "$@"
+        -u GATE_SCOPE HOME="$home" USERPROFILE="$home" "$@"
 }
 
 # --- fixtures: a registered repository with an epic and a fake package manager ----------
@@ -53,9 +59,20 @@ printf '# 02 — Second\n\nBlocked by: 01\nStatus: open\n' >"$R/.scratch/e1/issu
 # An old Russian Status value: epic-status still folds it into "done".
 printf '# 03 — Third\n\n**Status:** Выкачено 2026-08-23, PR #27\n' >"$R/.scratch/e1/issues/03-third.md"
 git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -q -m init
-# The gate runs "$PM run <script>"; pm is this file, so the test needs no npm.
-PM="$T/fakepm"
-cat >"$PM" <<'EOF'
+# The gate runs "$PM run <script>"; pm is this file, so the test needs no npm. On Windows the
+# file is a .cmd: node starts nothing else there without an interpreter.
+if [ "$WIN" -eq 1 ]; then
+    PM="$T/fakepm.cmd"
+    cat >"$PM" <<'EOF'
+@echo off
+if "%~2"=="ok" exit /b 0
+if "%~2"=="bad" (echo Tests 1 failed& exit /b 1)
+if "%~2"=="envbad" (echo sh: tool: command not found& exit /b 127)
+exit /b 1
+EOF
+else
+    PM="$T/fakepm"
+    cat >"$PM" <<'EOF'
 #!/bin/sh
 case "$2" in
     ok) exit 0 ;;
@@ -64,7 +81,8 @@ case "$2" in
 esac
 exit 1
 EOF
-chmod +x "$PM"
+    chmod +x "$PM"
+fi
 registry() { # $1 = file; registers $R with profile "tp"
     mkdir -p "$(dirname "$1")"
     printf '{"repos":[{"key":"t","match":"%s","pm":"%s","profile":"tp","root":{"p_ok":["ok"],"p_red":["bad"],"p_env":["envbad"]},"workspace":{}}]}\n' "$R" "$PM" >"$1"
@@ -77,7 +95,7 @@ profile_dir() { # $1 = home
 gate_runs() { # $1 = home, rest = extra env; runs the gate in three profiles and stop.sh once
     local home="$1"; shift
     for p in p_ok p_red p_env; do
-        (cd "$R" && printf '{"session_id":"s1"}' | clean "$home" env "$@" GATE_SCOPE=all bash "$HARNESS/hooks/gate.sh" "$p" >/dev/null 2>&1)
+        (cd "$R" && printf '{"session_id":"s1"}' | clean "$home" env "$@" GATE_SCOPE=all node "$HARNESS/hooks/gate.mjs" "$p" >/dev/null 2>&1)
     done
 }
 TAG="$(tag "$R")"
@@ -102,7 +120,7 @@ check "default: worktree-lock claim -> lock in \$HOME/.claude/worfy-harness/work
 (cd "$R" && clean "$H1" node "$HARNESS/bin/epic-board" --no-open >/dev/null 2>&1)
 check "default: epic-board snapshot in \$HOME/.claude/worfy-harness/state/epic-board.html" [ -s "$HH1/state/epic-board.html" ]
 U="$T/unreg"; mkdir -p "$U" && git -C "$U" init -q && git -C "$U" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
-out="$(cd "$U" && clean "$H1" bash "$HARNESS/hooks/gate.sh" fast </dev/null 2>&1)"; rc=$?
+out="$(cd "$U" && clean "$H1" node "$HARNESS/hooks/gate.mjs" fast </dev/null 2>&1)"; rc=$?
 out="$(printf '%s\n' "$out" | head -n 1)"
 check "default: an unregistered repository names the registry under ~/.claude/worfy-harness (exit 3)" \
     rc_out 3 "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: проект не зарегистрирован в ~/.claude/worfy-harness/gate/config.json"
@@ -167,13 +185,15 @@ H4="$T/h4"; TRAP="$T/trap.log"
 registry "$H4/.claude/worfy-harness/gate/config.json"; profile_dir "$H4"
 mkdir -p "$H4/.claude/bin" "$H4/.claude/hooks"
 for f in bin/profile bin/ticket bin/epic-status bin/epic-board bin/preflight bin/worktree-lock bin/qmd-sync-main \
-         hooks/gate.sh hooks/gate-resolve.mjs hooks/stop.sh; do
+         hooks/stop.sh; do
     printf '#!/bin/sh\necho "%s $*" >>"%s"\nexit 1\n' "$f" "$TRAP" >"$H4/.claude/$f"
     chmod +x "$H4/.claude/$f"
 done
-# gate-resolve.mjs is run as `node <file>`: its trap is JavaScript.
-printf 'import fs from "node:fs"\nfs.appendFileSync(%s, "hooks/gate-resolve.mjs " + process.argv.slice(2).join(" ") + "\\n")\nprocess.exit(1)\n' \
-    "\"$TRAP\"" >"$H4/.claude/hooks/gate-resolve.mjs"
+# gate.mjs and gate-resolve.mjs are run as `node <file>`: their traps are JavaScript.
+for f in hooks/gate.mjs hooks/gate-resolve.mjs; do
+    printf 'import fs from "node:fs"\nfs.appendFileSync(%s, "%s " + process.argv.slice(2).join(" ") + "\\n")\nprocess.exit(1)\n' \
+        "\"$TRAP\"" "$f" >"$H4/.claude/$f"
+done
 COPY="$T/copy/harness"; mkdir -p "$T/copy" && cp -R "$HARNESS" "$COPY"
 c() { clean "$H4" "$@"; }
 (cd "$R" && c node "$COPY/bin/ticket" root >/dev/null 2>&1)
@@ -189,16 +209,16 @@ mkdir -p "$T/fakebin" && printf '#!/bin/sh\nexit 0\n' >"$T/fakebin/qmd" && chmod
 printf 'collections:\n  tp-main:\n    path: %s\n    update: /nowhere/qmd-sync-main tp\n' "$T/mirror" >"$T/index.yml"
 (c env PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index.yml" zsh "$COPY/bin/qmd-refresh" --wait --force >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/profile" --name >/dev/null 2>&1)
-(cd "$R" && printf '{"session_id":"s4"}' | c bash "$COPY/hooks/gate.sh" p_red >/dev/null 2>&1)
+(cd "$R" && printf '{"session_id":"s4"}' | c node "$COPY/hooks/gate.mjs" p_red >/dev/null 2>&1)
 (cd "$R" && printf '{"session_id":"s4"}' | c bash "$COPY/hooks/stop.sh" >/dev/null 2>&1)
 check "copy: no script called \$HOME/.claude/bin or \$HOME/.claude/hooks" [ ! -e "$TRAP" ]
 [ -e "$TRAP" ] && sed 's/^/     /' "$TRAP"
 mkdir -p "$T/links"; ln -s "$COPY/bin/profile" "$T/links/profile"; ln -s "$COPY/bin/epic-status" "$T/links/epic-status"
 out="$(cd "$R" && c "$T/links/profile" --name 2>&1)"; rc=$?
 check "copy through a symlink: profile finds gate-resolve.mjs next to its real file" rc_out 0 tp
-ln -s "$COPY/hooks/gate.sh" "$T/links/gate.sh"
-out="$(cd "$R" && c env GATE_SCOPE=all bash "$T/links/gate.sh" p_ok </dev/null 2>&1)"; rc=$?
-check "copy through a symlink: gate.sh finds gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] зелено}" != "$out" ]
+ln -s "$COPY/hooks/gate.mjs" "$T/links/gate.mjs"
+out="$(cd "$R" && c env GATE_SCOPE=all node "$T/links/gate.mjs" p_ok </dev/null 2>&1)"; rc=$?
+check "copy through a symlink: gate.mjs finds gate-paths.mjs and gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] зелено}" != "$out" ]
 out="$(cd "$R" && c "$T/links/epic-status" --json 2>&1)"; rc=$?
 check "copy through a symlink: epic-status finds ticket next to its real file" [ "$rc" -eq 0 ]
 check "copy through a symlink: nothing called the trap" [ ! -e "$TRAP" ]
@@ -240,7 +260,7 @@ FILES=(
     skills/continuous-audit/SKILL.md skills/tickets-to-tasks/SKILL.md
     bin/profile bin/ticket bin/epic-status bin/preflight bin/worktree-lock bin/epic-board
     bin/qmd-mcp bin/qmd-refresh bin/qmd-sync-main bin/TICKETS.md
-    hooks/gate.sh hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.sh hooks/session-start.sh hooks/session-end.sh
+    hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.sh hooks/session-start.sh hooks/session-end.sh
     bin/tests/preflight.test.sh bin/tests/profile.test.sh bin/tests/qmd.test.sh bin/tests/skill-blocks.test.sh
     bin/tests/tickets-root.test.sh
     hooks/tests/gate-notverified.test.sh hooks/tests/gate-unregistered.test.sh hooks/tests/session-hooks.test.sh
@@ -256,9 +276,12 @@ check "no ~/.claude/bin, ~/.claude/hooks or КОД= in the ticket's files" [ -z 
 # and ticket still read, profile placeholders, and quoted Russian examples.
 ALLOWED="$T/allowed.txt"
 cat >"$ALLOWED" <<'EOF'
-резолвер плана gate-resolve.mjs завершился с кодом $rc — ничего не проверено, это не «зелено».
-резолвер gate-resolve.mjs завершился с кодом $rc
-нет изменений относительно merge-base ${mb:0:8} с $base_ref. Это не «зелено».
+резолвер плана gate-resolve.mjs завершился с кодом
+ничего не проверено, это не «зелено».
+резолвер gate-resolve.mjs завершился с кодом
+нет изменений относительно merge-base
+" с "
+Это не «зелено».
 изменения не затрагивают проверяемые пакеты. Это не «зелено».
 у выбранных пакетов нет скриптов профиля. Это не «зелено».
 проект не зарегистрирован в

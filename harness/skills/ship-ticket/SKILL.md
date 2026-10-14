@@ -202,14 +202,14 @@ Contract tests are not part of `commands.verify`: if the profile has `F commands
 separately.
 Test runners run once only, never in watch mode (vitest — `vitest run`): a watch process never
 exits, and the agent hangs.
-The gate gives the verdict: `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" fast </dev/null; echo "EXIT=$?"`
+The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`
 — always with stdin closed: the script is written for a hook and first drains stdin with `cat`, so
 without stdin it hangs forever (that is how ticket 63 stood for ten hours).
 Gate exit codes: `0` — green, only if the output has the line `[gate] зелено (…)` (exit code 0
 with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
 unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the
 line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry
-unreadable, resolver crashed, no node). On exit code 3 do not merge and do not call the ticket
+unreadable, resolver crashed). On exit code 3 do not merge and do not call the ticket
 done: the reason goes into the report as "not verified", and a human fixes it.
 
 With `local-green` a green step 6 is the ticket's finish as far as code goes: next are step 7
@@ -413,7 +413,7 @@ doer:
    `single` — the main checkout), resolves conflicts there (a migration is regenerated with
    `F numbering.migrations.generate`, not merged by hand), runs its checks again and reports — as
    with a `DIRTY` PR.
-2. **The gate — the orchestrator.** `bash "${CLAUDE_PLUGIN_ROOT}/hooks/gate.sh" full </dev/null; echo
+2. **The gate — the orchestrator.** `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null; echo
    "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this code is
    exactly what the main branch gets. A red gate stops here: no documents, no merge.
 3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go

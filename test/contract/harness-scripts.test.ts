@@ -1,7 +1,8 @@
 // The shell tests of the Harness (harness/{bin,hooks}/tests/*.test.sh, ticket worfy-harness/02)
 // run here, one case per file, so they run in `pnpm test`: in CI on Linux and in the gate.
 // Each file runs as `bash <file>` with HOME in a fresh empty temporary directory, so no test can
-// read or write the owner's real ~/.claude; the test finds the script it checks next to itself
+// read or write the owner's real ~/.claude (USERPROFILE is the same folder: a Node script on
+// Windows takes the home folder from it, not from HOME); the test finds the script it checks next to itself
 // (harness/), not under $HOME/.claude. Git in an empty HOME has no identity, so the author and
 // committer come from the environment.
 import { spawnSync } from 'node:child_process'
@@ -51,6 +52,7 @@ describe('harness shell tests', () => {
         const env: NodeJS.ProcessEnv = {
           PATH: process.env.PATH,
           HOME: home,
+          USERPROFILE: home,
           TMPDIR: process.env.TMPDIR ?? tmpdir(),
           // epic-status falls back to en_US.UTF-8, which a minimal Linux image may lack; the
           // warning about it would land in the output the test compares.

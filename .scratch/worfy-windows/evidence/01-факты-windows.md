@@ -723,6 +723,10 @@ harness/skills/ship-ticket/SKILL.md
 Скрипт E3, которого на main ещё нет: `harness/bin/project-connect` (node, по плану) — E3 Ticket 24,
 открыт, PR нет. Опись после закрытия E3 — отдельным коммитом, когда E3 закроется.
 
+**Опись заново на main `5ee66a7`** (к началу Ticket-а 03, 2026-10-13) — в отдельном файле:
+[03-опись-скриптов-harness.md](03-опись-скриптов-harness.md). Там же каждый скрипт на bash и zsh приписан к одному
+из Ticket-ов 03, 04, 05, 06, 15.
+
 ### 19. Как ведётся Epic, пока Harness не на Node
 
 Harness и Profile worfy на этот ПК не ставились (решение владельца 2026-10-09: plugin с bash-hook-ами
