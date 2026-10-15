@@ -43,7 +43,8 @@ const profileAllowlist: McpAllowlistResolver = async (cwd, env) => (await readMc
  * canvas. A Session in a Project (one the canvas attaches to) gets only the MCP servers its Profile
  * lists; a Session outside every Project, or whose canvas failed, keeps the user's servers as they are.
  * Every Session gets the Harness copy of this build inline unless the old Harness is on the machine
- * (sessionHarnessPlugin, ADR-0049).
+ * (sessionHarnessPlugin, ADR-0049). worfy starts the Claude Code process itself, as the SDK would,
+ * and tells the Session of it (watchedSpawn, ADR-0064).
  */
 export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAllowlist: McpAllowlistResolver = profileAllowlist): QueryFactory {
   return async (request) => {
@@ -56,6 +57,7 @@ export function sdkQueryFactory(canvas: CanvasResolver = canvasForSession, mcpAl
       resume: request.resume,
       sessionId: request.sessionId,
       stderr: request.stderr,
+      spawned: request.spawned,
       canvas: attached?.attachment,
       settings: request.settings,
       canUseTool: request.canUseTool,

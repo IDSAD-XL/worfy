@@ -26,6 +26,7 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
+import { StubProcesses, type StubKind } from './claude-process-stub'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -43,6 +44,7 @@ let repo: string
 let scriptsDir: string
 let registries: SessionRegistry[] = []
 let autopilots: Autopilot[] = []
+let stubs: StubProcesses[] = []
 
 // Wave 1: 01 and 02; Wave 2: 03 (after 01 and 02).
 const TICKETS = [
@@ -94,6 +96,8 @@ afterEach(async () => {
   autopilots = []
   for (const registry of registries) registry.closeAll()
   registries = []
+  for (const stub of stubs) await stub.stopAll()
+  stubs = []
   await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
@@ -174,20 +178,25 @@ class ReadGate {
  */
 const HALT_MS = 100
 
-function harness(options: { script?: string; returnGraceMs?: number } = {}) {
+function harness(options: { script?: string; returnGraceMs?: number; processes?: StubKind; exitWaitMs?: number } = {}) {
   const env = { WORFY_DATA_DIR: join(scratch, 'data-root') }
   const calls: (FakeCall & { unattended: boolean })[] = []
   const requests: QueryRequest[] = []
   const releases = new FakeReleases()
+  // With `processes`, a real child process stands behind each query (claude-process-stub.ts, ADR-0064).
+  const kind = options.processes
+  const stub = kind === undefined ? null : new StubProcesses(() => kind)
+  if (stub !== null) stubs.push(stub)
   const registry = new SessionRegistry((request) => {
     requests.push(request)
     const unattended = request.unattended === true
-    return fakeQueryFactory({
+    const fake = fakeQueryFactory({
       scriptsDir,
       script: unattended ? (options.script ?? 'autopilot-background') : 'autopilot-waves',
       record: (call) => calls.push({ ...call, unattended }),
       releases,
-    })(request)
+    })
+    return (stub === null ? fake : stub.wrap(fake))(request)
   })
   registries.push(registry)
   /** Every event of every Session as the main process sees it (registry.observe), and as the windows get it. */
@@ -203,6 +212,7 @@ function harness(options: { script?: string; returnGraceMs?: number } = {}) {
     broadcast: (_sessionId, event) => broadcast.push(event),
     publish: () => undefined,
     ...(options.returnGraceMs === undefined ? {} : { returnGraceMs: options.returnGraceMs }),
+    ...(options.exitWaitMs === undefined ? {} : { exitWaitMs: options.exitWaitMs }),
   })
   const workflow = async (root: string) => (await readWorkflow({ root, claudeHome: join(scratch, 'claude-home'), env: () => Promise.resolve(process.env) }, runner)).model
   const launcher = new ActionLauncher({
@@ -262,7 +272,7 @@ function harness(options: { script?: string; returnGraceMs?: number } = {}) {
   /** What reached Claude Code so far: prompts the Sessions reported, and messages the fake agent got. */
   const sent = () => ({ prompts: observed.filter((event) => event.type === 'prompt').length, messages: calls.filter((call) => call.kind === 'message').length })
   const closes = () => calls.filter((call) => call.kind === 'close').map((call) => (call.kind === 'close' ? call.backgroundTasks : []))
-  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, gate, observed, broadcast, journal, kinds, session, results, changed, sent, closes }
+  return { registry, orchestrators, autopilot, calls, requests, releases, power, states, clock, gate, observed, broadcast, journal, kinds, session, results, changed, sent, closes, stub }
 }
 
 /** The Session's background tasks as worfy counts them, by id. */
@@ -446,6 +456,22 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
     expect((await h.session()).state).toBe('idle')
     // A new run is taken at once: nothing waits to be given back.
     await expect(h.autopilot.start(PROJECT, EPIC)).resolves.toMatchObject({ status: 'running' })
+  })
+
+  it('Force stop with a Claude Code process that ignores SIGTERM: forceStop() answers once the old process was killed and the new one started (worfy-week ticket 20)', async () => {
+    const h = harness({ processes: 'ignore-term', exitWaitMs: 300 })
+    await waveWaitsForTasks(h)
+    // The attended process, then the unattended one Autopilot started after the first had exited.
+    expect(h.stub?.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2'])
+    const stopped = await h.autopilot.forceStop(PROJECT)
+    expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
+    // When forceStop() answers, the unattended process is gone and the attended one has started, in that order.
+    expect(h.stub?.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2', 'exit 2 SIGKILL', 'spawn 3'])
+    expect(h.stub?.maxAlive()).toBe(1)
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    const events = await h.journal()
+    expect(events.slice(events.findIndex((event) => event.kind === 'run-stopped')).map((event) => event.kind)).toEqual(['run-stopped', 'tasks-killed', 'orchestrator-returned'])
+    await until(async () => (await h.session()).state === 'idle', 'the attended Session to be idle')
   })
 
   /** The fixture with the Wave's turn held (wait_release `turn`) after its first `upTo` lines. */

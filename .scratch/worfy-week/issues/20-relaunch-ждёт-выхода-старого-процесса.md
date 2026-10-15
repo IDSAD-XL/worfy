@@ -75,24 +75,25 @@ Source: решение владельца 2026-10-12; `.scratch/worfy-week/issue
 
 ## Готово, когда
 
-- [ ] Test с подставным процессом, который игнорирует SIGTERM: после `giveBackNow` новый процесс не
+- [x] Test с подставным процессом, который игнорирует SIGTERM: после `giveBackNow` новый процесс не
       стартует, пока старый жив. По таймауту старый получает SIGKILL. Новый стартует после его выхода.
       Test проверяет порядок событий «выход старого» → «старт нового», а не длину ожидания.
-- [ ] Test с подставным процессом, который выходит сразу: новый процесс стартует без добавленной
+- [x] Test с подставным процессом, который выходит сразу: новый процесс стартует без добавленной
       задержки. Граница в test-е заметно меньше таймаута из пункта 3; число — в «Итог».
-- [ ] Очередь сообщений старой Session приходит в новую удержанной, как до правки: существующие
+- [x] Очередь сообщений старой Session приходит в новую удержанной, как до правки: существующие
       test-ы `giveBackNow` и relaunch зелёные.
-- [ ] Сообщение, отправленное Orchestrator-у во время ожидания, доходит до новой Session или остаётся
+- [x] Сообщение, отправленное Orchestrator-у во время ожидания, доходит до новой Session или остаётся
       в её очереди. В старый процесс оно не уходит.
-- [ ] Test-ы краснеют на мутантах (намеренно испорченных копиях кода): ожидание выхода убрано;
+- [x] Test-ы краснеют на мутантах (намеренно испорченных копиях кода): ожидание выхода убрано;
       SIGKILL по таймауту убран.
-- [ ] Существующие test-ы Force stop зелёные: `test/contract/autopilot-background.test.ts` (Force stop
+- [x] Существующие test-ы Force stop зелёные: `test/contract/autopilot-background.test.ts` (Force stop
       с живыми фоновыми задачами Session, `:423`) и `test/e2e/autopilot.spec.ts` (Force stop во время
       хода, `:485`).
 - [ ] (вручную, после влития) На Stable copy — установленной копии worfy — идёт долгий ход настоящего
       Claude Code в прогоне Autopilot. До Force stop записан pid процесса Claude Code:
       `pgrep -lP <pid worfy>`. После ответа Force stop `ps -p <старый pid>` его не находит.
       Orchestrator отвечает на следующее сообщение. Вывод команд — в «Итог».
+      Не проверено: шаг владельца на Stable copy после влития.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. `GATE_SCOPE=all gate.sh full` (полный прогон
       проверок проекта, включая e2e) — зелёный.
 
@@ -147,3 +148,47 @@ Source: решение владельца 2026-10-12; `.scratch/worfy-week/issue
   Epic-е `worfy-windows` (полный порт worfy под Windows).
 
 ## Итог
+
+Сделано в ветке `worfy-week/20` (исполнитель, 2026-10-15). Решение — ADR-0064
+(`docs/adr/0064-orchestrator-relaunch-waits-for-old-process-exit.md`); ADR-0050 не правился.
+
+- **Как worfy узнаёт о выходе процесса (пункт 1).** Опция SDK `spawnClaudeCodeProcess`: функция
+  `watchedSpawn` (`src/main/agent/options.ts`) повторяет запуск SDK по умолчанию из `sdk.mjs` 0.3.289
+  (`spawn(command, args, {cwd, stdio: pipe×3, signal, env, windowsHide: true})`, stderr как UTF-8 в
+  обработчик Session, `exit` для SDK — после закрытия stderr, не позже 200 ms) и отдаёт
+  `ChildProcess` Session через новое поле `QueryRequest.spawned`. Способ без подмены запуска
+  оценён и отвергнут: у `Query` нет pid и события выхода, `onProcessSpawned` есть только во
+  внутреннем коде SDK, а поиск pid в `~/.claude/sessions` с опросом `kill(pid, 0)` — чтение
+  `~/.claude` по таймеру с риском чужого pid.
+- **Ожидание.** `Session.exited(ms)` ждёт идущий запуск, потом выход процессов; по таймауту —
+  SIGKILL и ещё до 2 s (`KILL_EXIT_MS`), дальше relaunch идёт с предупреждением в лог.
+- **Таймаут (пункт 3):** `EXIT_WAIT_MS` = 7 500 ms (`src/main/agent/session.ts`, рядом с
+  `HALT_TURN_MS`). SDK шлёт свой SIGKILL через 7 s после `close()`; SIGKILL worfy приходит после
+  него и мягкий выход SDK не сокращает.
+- **Пока идёт ожидание (пункт 6), отступление от текста Ticket-а.** Новая Session регистрируется
+  сразу, но процесс запускает только после выхода старого (`SessionRegistry.start(…, after)`).
+  Экран показывает её `starting` с её id; сообщение, отправленное в это время, ложится в её очередь
+  и уходит в новый процесс. Вариант «живой Session нет» отвергнут: без id Session экран отвечает
+  отказом «The Session is not running», и сообщение не доходит до новой Session (пункт «Готово,
+  когда»). Второй relaunch закрывает ждущую Session до старта: она процесса не запускает, следующая
+  ждёт выхода того же старого процесса.
+- **Ответ Force stop (пункт 7).** `setUnattended` и `giveBackNow` ждут `relaunch` и отвечают после
+  старта нового процесса; `src/main/autopilot/run.ts` менять не пришлось, кроме комментариев.
+- **Test-ы.** `test/contract/orchestrator-relaunch.test.ts` (9) и новый test в
+  `test/contract/autopilot-background.test.ts`; подставной процесс — `node -e` (бинарник Electron
+  как Node) из `test/contract/claude-process-stub.ts`, запущенный через тот же `watchedSpawn`.
+  Граница test-а «выходит сразу»: новый процесс стартует меньше чем через 1 000 ms после вызова
+  relaunch при таймауте 5 000 ms.
+- **Сначала красный.** Те же test-ы на коде без ожидания в `relaunch` (`launch(…, undefined)`)
+  падают: 6 из 29. Когда relaunch ответил, порядок был `spawn 1, spawn 2` — новый процесс
+  стартовал, пока старый был жив, — вместо `spawn 1, exit 1 SIGKILL, spawn 2`.
+- **Мутанты** (по test-файлам `orchestrator-relaunch` и `autopilot-background`): ожидание убрано —
+  6 красных; SIGKILL убран — 6 красных; ожидание идущего запуска убрано — 1 красный; сообщение во
+  время ожидания не держится в очереди — 1 красный; `giveBackNow` не ждёт relaunch — 3 красных.
+- **e2e:** `test/e2e/autopilot.spec.ts` — 5 passed (под замком `/tmp/worfy-e2e.lock`).
+- **Windows.** Запуск процесса тот же, что у SDK, без веток по платформе. Новое на Windows:
+  relaunch ждёт выхода процесса и через 7,5 s шлёт `kill('SIGKILL')` (в Node на Windows это
+  TerminateProcess). Нужен gate full на Windows-ПК перед влитием (ADR-0056).
+- **Не проверено:** сколько настоящий Claude Code выходит после закрытия stdin (риск «каждый переход
+  Autopilot станет дольше») — настоящий Claude Code в этой работе не запускался; ручной пункт на
+  Stable copy — шаг владельца после влития; `GATE_SCOPE=all gate.sh full` — делает оркестратор.
