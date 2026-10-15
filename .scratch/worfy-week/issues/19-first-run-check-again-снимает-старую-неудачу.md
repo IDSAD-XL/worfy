@@ -1,7 +1,7 @@
 # 19 — First run: «Check again» снимает запись о неудаче действия, когда проверка строки уже проходит
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #344](https://github.com/IDSAD-XL/worfy/pull/344)
 Branch: worfy-week/19
 Blocked by: —
 Source: наблюдение владельца 2026-10-10 во время прогона Autopilot для пункта 3 приёмки E3 (`worfy-harness` 26): окно «First run» открылось само с «1 failed: qmd collections — The last attempt failed: …/.claude/bin/qmd-sync-main: No such file», хотя сама проверка проходила. Уровень — low.
@@ -92,3 +92,11 @@ Test-ы — `test/contract/first-run-checks.test.ts`:
 Мутанты: прежний `report()` — красные три новых test-а; мутант «строка `ok` возвращается, но
 запись не снимается» — красный первый. `pnpm lint && pnpm typecheck && pnpm test` — код 0,
 gate fast — код 0, «[gate] зелено (fast)».
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 19 и 20 параллельно, общих файлов нет.
+- Гейт — один круг: `VERIFIED` на `b42761c` ([комментарий в PR #344](https://github.com/IDSAD-XL/worfy/pull/344#issuecomment-6187409360)). Verifier сам: gate fast — код 0 и `[gate] зелено (fast)`; `first-run-checks` — 54 из 54; мутанты — прежний `report()`, запись снимается и при `warn`, неудача читается до удаления, `ok` без снятия записи — все красные; ветки по `process.platform` нет.
+- Мерж: база main `1293a37`, head `b42761c`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `522c2fd`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): `src/shared/ipc/first-run.ts:88` — комментарий канала `firstRunRun` говорит, что строка остаётся `fail` «until the next attempt», а теперь — только пока проверка строки не проходит; действие, упавшее при уже проходящей проверке (Download моделей из `ok`/`skipped`, `src/main/first-run/checks.ts:402`), оставляет строку `ok`, ошибка видна только в сообщении под строкой (`src/renderer/shell/FirstRunChecks.tsx:406`) до следующего действия или ухода с экрана — риск Ticket-а, его держит test `:824`.
