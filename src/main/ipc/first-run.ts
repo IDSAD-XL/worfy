@@ -182,7 +182,7 @@ export default [
     // A failed action counts here only while its row's check does not pass (FirstRunActions.report):
     // a cause fixed outside worfy does not open the screen.
     const report = remember(await appActions().report())
-    const fresh =report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
+    const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
     return { show: fresh, report }
   }),
   // "Check again", and Settings → Health each time it shows: the login shell is captured again
