@@ -103,7 +103,9 @@ describe('Settings → Terminal AI', () => {
   it('is a section of the Settings window, after Machines', () => {
     const section = settingsSections.find(({ id }) => id === 'TerminalAiSection')
     expect(section).toMatchObject({ title: 'Terminal AI', order: 50 })
-    expect(settingsSections.map(({ title }) => title).slice(-2)).toEqual(['Machines', 'Terminal AI'])
+    // Right after Machines; the sections of later Epics (Sessions, order 60) may follow it.
+    const titles = settingsSections.map(({ title }) => title)
+    expect(titles.slice(titles.indexOf('Machines'), titles.indexOf('Machines') + 2)).toEqual(['Machines', 'Terminal AI'])
   })
 
   it('shows the values of terminalAi.state on the switches and on the model of Next command', async () => {

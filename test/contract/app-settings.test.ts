@@ -78,7 +78,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     expect(store.get()).toStrictEqual(DEFAULT_APP_SETTINGS)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, revision: 0 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 0 })
     expect(existsSync(file)).toBe(false)
   })
 
@@ -86,7 +86,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     const changed = store.set({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { focus: false } } })
-    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, revision: 1 })
+    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 1 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(changed)
     expect(new AppSettingsStore(file).get()).toStrictEqual(changed)
   })
@@ -143,6 +143,29 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(file).get().interfaceScale).toBe(0.8)
   })
 
+  it('keeps the two autocompact windows apart, brings each into 100K–1M by steps of 10K, and keeps "Claude Code default" (null)', () => {
+    const file = freshFile()
+    const store = new AppSettingsStore(file)
+    expect(store.set({ autoCompactWindow: { orchestrator: 300_000 } }).autoCompactWindow).toStrictEqual({ orchestrator: 300_000, other: 500_000 })
+    expect(store.set({ autoCompactWindow: { other: null } }).autoCompactWindow).toStrictEqual({ orchestrator: 300_000, other: null })
+    expect(store.set({ autoCompactWindow: { orchestrator: 2_000_000 } }).autoCompactWindow.orchestrator).toBe(1_000_000)
+    expect(store.set({ autoCompactWindow: { orchestrator: 95_000 } }).autoCompactWindow.orchestrator).toBe(100_000)
+    expect(store.set({ autoCompactWindow: { orchestrator: 404_999 } }).autoCompactWindow.orchestrator).toBe(400_000)
+    expect(store.set({ autoCompactWindow: { orchestrator: Number.NaN } }).autoCompactWindow.orchestrator).toBeNull()
+    // A change that names a window as it is writes nothing.
+    const revision = store.get().revision
+    expect(store.set({ autoCompactWindow: { orchestrator: null, other: null } }).revision).toBe(revision)
+    expect(new AppSettingsStore(file).get().autoCompactWindow).toStrictEqual({ orchestrator: null, other: null })
+
+    // A file of an older version has no windows and takes the defaults; one out of range is brought into it.
+    const old = freshFile()
+    mkdirSync(join(old, '..'), { recursive: true })
+    writeFileSync(old, JSON.stringify({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, revision: 4 }))
+    expect(new AppSettingsStore(old).get().autoCompactWindow).toStrictEqual({ orchestrator: 400_000, other: 500_000 })
+    writeFileSync(old, JSON.stringify({ interfaceScale: 1, autoCompactWindow: { orchestrator: 1_234_567, other: null }, revision: 4 }))
+    expect(new AppSettingsStore(old).get().autoCompactWindow).toStrictEqual({ orchestrator: 1_000_000, other: null })
+  })
+
   it('drops a field the schema does not declare, at the top and inside `sidebar`', () => {
     const file = freshFile()
     mkdirSync(join(file, '..'), { recursive: true })
@@ -151,11 +174,12 @@ describe('AppSettingsStore', () => {
       JSON.stringify({ interfaceScale: 1.1, theme: 'dark', sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false, extra: 1 }, width: 300 }, revision: 2 }),
     )
     const store = new AppSettingsStore(file)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, revision: 2 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 2 })
     store.set({ interfaceScale: 1.2 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual({
       interfaceScale: 1.2,
       sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } },
+      autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
       revision: 3,
     })
   })

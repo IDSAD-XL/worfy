@@ -28,6 +28,12 @@ export const SESSION_SETTINGS_FILE = 'session-settings.json'
 export interface SessionLaunch {
   /** No person is at the Session: nothing it does may wait for an answer in the UI. */
   unattended: boolean
+  /**
+   * The Session is a Project's Orchestrator (src/main/agent/orchestrator.ts), attended or under
+   * Autopilot: its Claude Code gets the Orchestrator's autocompact window (worfy-polish ticket 24).
+   * Absent — any other Session.
+   */
+  orchestrator?: boolean
 }
 
 /** A Session the user started, or one they can answer: the default. */

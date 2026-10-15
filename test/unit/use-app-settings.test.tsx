@@ -9,6 +9,7 @@ import { DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/setting
 const settings = (revision: number, interfaceScale: number, collapsed: Record<string, boolean> = {}): AppSettings => ({
   interfaceScale,
   sidebar: { collapsed, visible: { normal: true, focus: true } },
+  autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   revision,
 })
 

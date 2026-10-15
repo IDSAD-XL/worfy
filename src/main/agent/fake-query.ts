@@ -73,7 +73,8 @@ import { removeFile } from '../storage/remove'
 
 /** What the fake agent was asked to do, in the order it happened. */
 export type FakeCall =
-  | { kind: 'start'; resume: string | null; settings: SessionSettings }
+  /** `orchestrator`: present, and true, only for the Session of a Project's Orchestrator (QueryRequest.orchestrator). */
+  | { kind: 'start'; resume: string | null; settings: SessionSettings; orchestrator?: true }
   /** `text`: the message's text blocks; `content`: the message content as sent, image blocks included. */
   | { kind: 'message'; text: string; content: unknown }
   | { kind: 'setModel'; model: string | null }
@@ -307,7 +308,7 @@ class FakeQuery implements QueryHandle {
     this.commands = config.commands ?? initCommands(this.steps)
     this.model = request.settings.model
     this.permissionMode = request.settings.permissionMode
-    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings } })
+    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings }, ...(request.orchestrator === true ? { orchestrator: true as const } : {}) })
   }
 
   accountInfo(): Promise<AccountInfoLike> {

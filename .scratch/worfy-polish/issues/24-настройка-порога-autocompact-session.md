@@ -1,7 +1,8 @@
 # 24 — Настройка: на скольких токенах Session делает autocompact
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
+Branch: worfy-polish/24
 Blocked by: 23
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Настройка: на скольких токенах происходит
 autocompact Session».
@@ -78,16 +79,16 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
 
 ## Готово, когда
 
-- [ ] Contract test пункта 1 красный на main и зелёный с правкой: Orchestrator и Autopilot получают
+- [x] Contract test пункта 1 красный на main и зелёный с правкой: Orchestrator и Autopilot получают
       значение «Orchestrator», Session Canvas — «Other Sessions»; ни одного запуска настоящего Claude
       Code (fake SDK).
-- [ ] Мутанты краснят свои test-ы: «`null` передаётся как ключ»; «роли перепутаны».
+- [x] Мутанты краснят свои test-ы: «`null` передаётся как ключ»; «роли перепутаны».
 - [ ] (вручную) Stable copy: Orchestrator 400K — `getContextUsage().autoCompactThreshold` новой Session
       от 380 000 до 400 000 (порог = окно минус запас на сводку до 20 000); смена значения у живой
-      Session ничего не меняет до перезапуска; значения — в «Итог».
-- [ ] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+      Session ничего не меняет до перезапуска; значения — в «Итог». Не проверено: шаг владельца.
+- [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (сделано); gate full — exit 0 и строка
+      `[gate] зелено (full)` (делает оркестратор перед merge); Linux CI зелёный (в PR).
 
 ## Тесты
 
@@ -104,6 +105,21 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
 - `src/renderer/settings/SessionsSection.tsx`
 - `test/contract/agent-autocompact.test.ts`
 - `test/unit/settings-sessions.test.tsx`
+- Дописано при claim (2026-10-16):
+  - `src/main/agent/app-registry.ts` — здесь main при запуске Session читает настройки приложения и
+    выбирает окно по роли;
+  - `src/main/agent/session-settings.ts` — признак Orchestrator-а в `SessionLaunch`;
+  - `src/main/settings/store.ts` — чтение, слияние и сравнение новых полей настроек приложения;
+  - `src/shared/ipc/session-autocompact.ts`, `src/main/ipc/session-autocompact.ts` (новые) — канал,
+    по которому раздел Settings узнаёт `CLAUDE_CODE_AUTO_COMPACT_WINDOW` из окружения login shell;
+  - `test/contract/app-settings.test.ts` — сравнение настроек целиком теперь с новым полем;
+  - `test/unit/shell.test.tsx`, `test/unit/machines-section.test.tsx`,
+    `test/unit/use-app-settings.test.tsx`, `test/unit/interface-scale.test.tsx`,
+    `test/unit/sidebar-section.test.tsx` — их образцы `AppSettings` получают новое обязательное
+    поле (иначе не проходит typecheck);
+  - `test/unit/terminal-ai-settings.test.tsx` — test ждал, что Terminal AI — последний раздел
+    Settings; теперь проверяет, что он сразу после Machines;
+  - `test/e2e/settings-sessions.spec.ts` (новый) — снимки раздела в двух темах.
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/renderer/settings/sections.ts`, `src/main/ipc/app-settings.ts`, `src/main/agent/env.ts`,
@@ -123,4 +139,50 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
 
 ## Итог
 
-—
+- **Настройки.** В `AppSettings` новое поле `autoCompactWindow: { orchestrator, other }` — окно в
+  токенах (100 000–1 000 000, шаг 10 000) или `null` («Claude Code default»). По умолчанию 400K и
+  500K. Store (`src/main/settings/store.ts`) приводит значение к пределам и шагу; в старом
+  `app-settings.json` без поля берутся значения по умолчанию.
+- **Передача в Claude Code.** Признак Orchestrator-а — `SessionLaunch.orchestrator`: его ставит
+  `Orchestrators.launch` для каждого запуска, и при Autopilot тоже. `Session` передаёт его в
+  `QueryRequest.orchestrator`. `sdkQueryFactory` читает настройки приложения при каждом запуске процесса Claude Code
+  и передаёт окно в `sessionOptions`, а оттуда — `settings: { autoCompactWindow }` в `query()`.
+  При `null` ключа `settings` нет совсем. `applyFlagSettings` для окна не вызывается: живая Session
+  держит окно, с которым запущена.
+- **Раздел Settings → Sessions** (`order = 60`, после Terminal AI). Две строки — «Orchestrator» и
+  «Other Sessions»: выбор «Claude Code default» / «Custom» и поле в тысячах токенов («K tokens»).
+  Ввод применяется по Enter или при уходе из поля. Под каждой строкой — «Applies after restarting
+  the Session.», под разделом — «Autocompact runs a little below this: Claude Code keeps room for
+  the summary.». Если в окружении login shell есть `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, вверху
+  строка «Overridden by CLAUDE_CODE_AUTO_COMPACT_WINDOW in your shell (<значение>).». Значение
+  приходит по новому каналу `sessionAutocompact.shellOverride` (`local`).
+- **Решено без владельца, подтвердить:**
+  - вид ввода: выбор «Claude Code default» / «Custom» и рядом поле; при переключении на «Custom»
+    берётся значение роли по умолчанию (400K или 500K);
+  - текст вне пределов приводится к ним молча (50 → 100K, 1500 → 1M, 455 → 460K); текст, который не
+    число, ничего не меняет, и поле снова показывает действующее значение;
+  - пустая переменная `CLAUDE_CODE_AUTO_COMPACT_WINDOW=` считается отсутствующей;
+  - черновая Session подключения Project-а (`draftSessionOptions`) окна не получает;
+  - значения по умолчанию действуют и у тех, кто настройку не открывал. Session-ы после обновления
+    worfy сжимаются у окна 400K/500K, а не у окна Claude Code по умолчанию, и flag settings
+    перекрывают `autoCompactWindow` из `settings.json` пользователя.
+- **Test-ы.** `test/contract/agent-autocompact.test.ts` — цепочка Orchestrators → Session → `sdkQueryFactory` →
+  `sessionOptions` → опции замоканного `query()`; Session играет fake agent. До правки: 6 из 7
+  test-ов красные (exit 1), после — 9 из 9 зелёные. `test/unit/settings-sessions.test.tsx` — ввод,
+  пределы, «default», строка про env, отказ main. `test/contract/app-settings.test.ts` — store.
+- **Мутанты** (на копиях, восстановление проверено `cmp`), каждый красит свои test-ы: `null`
+  передаётся как ключ (2 красных); роли перепутаны в `app-registry.ts` (5) и в
+  `autoCompactWindowFor` (5); Orchestrator не помечен (4); Session теряет признак (4); store не
+  сливает `other` (1); store не приводит к пределам (1); раздел не приводит к пределам (1);
+  «Custom» берёт значение не своей роли (1); строка про env не показывается (1); handler читает
+  не ту переменную (1).
+- **Снимки** (`test/e2e/settings-sessions.spec.ts`, `WORFY_EVIDENCE_DIR`):
+  по умолчанию — [светлая](../evidence/24-sessions-default-light.png),
+  [тёмная](../evidence/24-sessions-default-dark.png); своё значение (Orchestrator 250K, Other
+  Sessions — Claude Code default) — [светлая](../evidence/24-sessions-custom-light.png),
+  [тёмная](../evidence/24-sessions-custom-dark.png); строка про env —
+  [светлая](../evidence/24-sessions-shell-override-light.png),
+  [тёмная](../evidence/24-sessions-shell-override-dark.png).
+- **Не проверено:** порог на настоящем Claude Code (`autoCompactThreshold` 380 000–400 000 при
+  окне 400K) и то, что живая Session не меняет порог до перезапуска, — шаг владельца на Stable
+  copy.
