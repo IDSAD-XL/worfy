@@ -16,7 +16,7 @@ import { FocusMode } from '../../focus/FocusMode'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
 import { ariaKeyShortcuts, isPrimary, label, type KeyCombo } from '../../platform'
 import { useNavigation } from '../../session/navigation'
-import { usePlaneToolbar } from '../pinning'
+import { FOCUS_ENTRY_OFFSET, usePlaneToolbar } from '../pinning'
 import { onEpicFocusRequest } from '../sources/epics'
 import '../../focus/focus.css'
 
@@ -98,9 +98,11 @@ export default function FocusEntry() {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [domNode, tree, enter])
 
-  // Below the selection: the selection toolbar (SelectionToolbar.tsx, Pin and Tags) holds the top.
+  // Always below the selection. The selection toolbar (SelectionToolbar.tsx: Pin, Tags, Delete)
+  // keeps off this button: it stands on top, beside the selection, or below this button
+  // (clearToolbarPlacement() in pinning.ts).
   // Among the Nodes, not over all of them: a pinned Node stays above it (pinning.ts).
-  const style = usePlaneToolbar(selected, 'bottom', 12)
+  const style = usePlaneToolbar(selected, 'bottom', FOCUS_ENTRY_OFFSET)
 
   if (tree !== null) return <FocusMode tree={tree} onChange={setTree} onExit={leave} />
   if (selected.length === 0 || style === null) return null
