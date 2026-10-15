@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from 'react'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { ProjectView } from '../../../shared/ipc/projects'
 import type { WorfySessionNodeData } from '../../../shared/ipc/sessions'
@@ -15,7 +15,9 @@ import {
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { checkFiles, readFiles, roomFor, takeAttached } from '../../session/attach-files'
 import { STATE_CHIPS } from '../../session/format'
+import { AttachmentChips, type Chip } from '../../session/MessageInput'
 import { openSession } from '../../session/navigation'
 import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
@@ -39,6 +41,11 @@ import type { CanvasNodeProps } from './index'
 //   its last answer and an input field. A Node whose Session is not running offers Resume, under
 //   the rule of src/main/agent/resume.ts; a message sent to it resumes it first. Until the live
 //   Session answers, a resumed Node shows the last answer of its transcript (worfy-daily ticket 22).
+//   A file or an image dropped on the Node goes with the next message, as one dropped on the input
+//   field of the Session view does (session/attach-files.ts): main checks it, it shows as a chip
+//   above the Node's input field, and a refusal shows in the Node's problem line. A drop on a Node
+//   whose Session is not running resumes it first: an attachment belongs to a running Session.
+//   A read-only Node takes no files.
 //
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of claude-home/session-nodes.ts.
@@ -99,7 +106,10 @@ const styles = {
     cursor: 'text',
   },
   quiet: { flex: 1, minHeight: 0, fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
-  error: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere' },
+  error: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-line' },
+  // Files over the Node: the accent ring of a selected Node, dashed like the Session view's field.
+  dragging: { borderColor: 'var(--accent)', borderStyle: 'dashed', boxShadow: 'var(--shadow-node), 0 0 0 1px var(--accent)' },
+  chips: { flex: 'none', maxHeight: 64, overflow: 'auto', paddingBottom: 'var(--space-1)' },
   form: { flex: 'none', display: 'flex', gap: 'var(--space-1)', padding: '0 var(--space-3) var(--space-2)' },
   input: {
     flex: 1,
@@ -114,6 +124,26 @@ const styles = {
     fontSize: 'var(--text-12)',
   },
 } satisfies Record<string, CSSProperties>
+
+/** A drag that carries files, not text or a Node. */
+const hasFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files')
+
+/**
+ * The drag handlers of a Node that takes no files: the cursor says no, and a drop neither opens
+ * the file in the window nor reaches the Canvas.
+ */
+const refuseFiles = {
+  onDragOver: (event: DragEvent) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'none'
+  },
+  onDrop: (event: DragEvent) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+  },
+}
 
 /** The last answer of the Session itself (not a Subagent's, not text Claude Code wrote), or null. */
 function lastAnswer(events: readonly AgentEvent[]): string | null {
@@ -177,6 +207,14 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   const answer = liveAnswer ?? pastAnswer
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  const [chips, setChips] = useState<Chip[]>([])
+  const [dragging, setDragging] = useState(false)
+  const nextKey = useRef(1)
+  // The chips as they are now, ahead of the next render: attaching and sending are async, and each
+  // counts against the chips there are by then. Every change of the chips goes through changeChips.
+  const chipsNow = useRef<Chip[]>([])
+  // The attachments of a message being sent; set while one is on its way, so it goes once.
+  const sendingNow = useRef<Chip[] | null>(null)
 
   const saved = info.sessionId
   const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
@@ -195,20 +233,80 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
     return null
   }
 
+  const changeChips = (change: (current: Chip[]) => Chip[]) => {
+    chipsNow.current = change(chipsNow.current)
+    setChips(chipsNow.current)
+  }
+
+  /** How many more attachments the message takes, counting those of a message on its way. */
+  const room = () => roomFor(chipsNow.current.length + (sendingNow.current?.length ?? 0))
+
   const send = async (event: FormEvent): Promise<void> => {
     event.preventDefault()
     const text = draft.trim()
-    if (text === '') return
+    const attached = chipsNow.current
+    if (sendingNow.current !== null || (text === '' && attached.length === 0)) return
+    // The message leaves the field at once, as in the Session view's field: what is typed, dropped
+    // or removed while it is on its way (Resume can take a while) belongs to the next message.
+    sendingNow.current = attached
     setProblem(null)
-    const sessionId = await ensure()
-    if (sessionId === null) return
     setDraft('')
-    // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
-    const result = await invoke('agent.send', { sessionId, text })
-    if (!result.ok) {
-      setDraft(text)
-      setProblem(result.error)
+    changeChips(() => [])
+    // Why the message was not sent; null when it was. `named: true` — ensure() has shown why.
+    let failure: { named: true } | { named: false; problem: string } | null = null
+    try {
+      const sessionId = await ensure()
+      if (sessionId === null) failure = { named: true }
+      else {
+        // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
+        const result = await invoke('agent.send', { sessionId, text, attachments: attached.map((chip) => chip.attachment) })
+        if (!result.ok) failure = { named: false, problem: result.error }
+      }
+    } catch (error) {
+      failure = { named: false, problem: error instanceof Error ? error.message : String(error) }
+    } finally {
+      sendingNow.current = null
     }
+    if (failure === null) return
+    // Not sent: the text and the attachments come back, ahead of what came since, so nothing is lost.
+    setDraft((current) => (current === '' ? text : current))
+    changeChips((current) => [...attached, ...current])
+    if (!failure.named) setProblem(failure.problem)
+  }
+
+  /** Dropped files: read here; the Session started if it is not running; checked in main. */
+  const attachDropped = async (files: readonly File[]): Promise<void> => {
+    setProblem(null)
+    const read = await readFiles(files, 'dropped', room())
+    // Nothing to attach: no reason to start the Session.
+    const sessionId = read.sources.length === 0 ? null : await ensure()
+    if (read.sources.length > 0 && sessionId === null) return
+    const outcome = sessionId === null ? { results: [], refused: read.refused } : await checkFiles(read, sessionId, invoke)
+    const { taken, problem: refused } = takeAttached(outcome, room())
+    if (taken.length > 0) changeChips((current) => [...current, ...taken.map((attachment) => ({ key: nextKey.current++, attachment }))])
+    setProblem(refused)
+  }
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setDragging(true)
+  }
+
+  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    // Moving onto a child of the Node leaves the Node's own box but not the Node.
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    setDragging(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!hasFiles(event)) return
+    // Never let the window open a dropped file in place of the app, nor the Canvas see the drop.
+    event.preventDefault()
+    event.stopPropagation()
+    setDragging(false)
+    void attachDropped([...event.dataTransfer.files])
   }
 
   const act = (run: () => Promise<{ ok: true } | { ok: false; error: string }>) => {
@@ -221,13 +319,17 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   return (
     <div
       className="w-node-surface"
-      style={styles.root}
+      style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
       data-testid="session-node"
       data-live="true"
       data-node-id={id}
       data-session-id={(running ? view.sdkSessionId : null) ?? saved}
       data-cwd={cwd}
       data-status={chip.label}
+      data-dragging={dragging || undefined}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       onDoubleClick={() => {
         if (running) openSession({ nodeId: id, projectId: project.id })
         else if (saved !== undefined) openSession({ nodeId: id, projectId: project.id, external: { sessionId: saved } })
@@ -309,6 +411,11 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
           </div>
         ) : null}
       </div>
+      {chips.length > 0 ? (
+        <div className="nodrag nowheel" style={styles.chips}>
+          <AttachmentChips chips={chips} onRemove={(key) => changeChips((current) => current.filter((chip) => chip.key !== key))} />
+        </div>
+      ) : null}
       <form className="nodrag" style={styles.form} onSubmit={(event) => void send(event)}>
         <input
           style={styles.input}
@@ -318,7 +425,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" style={styles.tool} data-testid="session-node-send" disabled={draft.trim() === ''}>
+        <button type="submit" style={styles.tool} data-testid="session-node-send" disabled={draft.trim() === '' && chips.length === 0}>
           Send
         </button>
       </form>
@@ -337,7 +444,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
 
   if (info === null || project === undefined) {
     return (
-      <div className="w-node-surface" style={styles.root} data-testid="session-node" data-node-id={id}>
+      <div className="w-node-surface" style={styles.root} data-testid="session-node" data-node-id={id} {...refuseFiles}>
         <div style={styles.broken}>This Session Node has no Session</div>
       </div>
     )
@@ -359,6 +466,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
       data-node-id={id}
       data-session-id={info.sessionId}
       data-status={chip.label}
+      {...refuseFiles}
       onDoubleClick={() => openSession({ nodeId: id, projectId: project.id, external: { sessionId: info.sessionId } })}
     >
       <NodeResizeClamp

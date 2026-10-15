@@ -5,7 +5,7 @@
 // called. In a window on this Machine "+" calls `agent.attachPick`, as before.
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FILE_COPY_LIMIT_BYTES, fileTooLarge, tooManyAttachments, type Attachment, type AttachmentSource } from '../../src/shared/agent/attachments'
+import { FILE_COPY_LIMIT_BYTES, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource } from '../../src/shared/agent/attachments'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 
 const M = 'machine-m'
@@ -40,6 +40,8 @@ beforeEach(() => {
         return Promise.resolve({ ok: true, value: { ok: false, error: `${call.channel}: closed to a Linked machine` } })
       }
       if (channel === 'agent.attachPick') return Promise.resolve({ ok: true, value: { results: [] } })
+      // A window on this Machine: its own main checks a dropped file, the way M does.
+      if (channel === 'agent.attach') return Promise.resolve({ ok: true, value: attachOnM(input as { sources: AttachmentSource[] }) })
       return Promise.resolve({ ok: false, error: `no ${channel}` })
     },
     on: () => 1,
@@ -151,5 +153,43 @@ describe('"+" in a window on this Machine', () => {
     await vi.waitFor(() => expect(asked.filter((each) => each.channel === 'agent.attachPick')).toEqual([{ channel: 'agent.attachPick', input: { sessionId: 's' } }]))
     expect(fileInput()).toBeNull()
     expect(onM).toEqual([])
+  })
+})
+
+// Files dropped on the field go the same way as chosen ones (session/attach-files.ts, shared with the
+// Session Node): read here, checked by `agent.attach`, shown as chips.
+describe('files dropped on the field', () => {
+  async function drop(files: File[]) {
+    await act(async () => {
+      fireEvent.drop(screen.getByTestId('message-input-box'), { dataTransfer: { types: ['Files'], files } })
+    })
+  }
+
+  it('become chips after agent.attach checks them as `dropped` sources', async () => {
+    await mount(null)
+    await drop([named('a.txt', 'hello'), named('b.txt', 'world')])
+    await vi.waitFor(() => expect(screen.getAllByTestId('attachment-chip')).toHaveLength(2))
+    expect(asked.filter((each) => each.channel === 'agent.attach')).toEqual([
+      {
+        channel: 'agent.attach',
+        input: {
+          sessionId: 's',
+          sources: [
+            { kind: 'dropped', name: 'a.txt', data: btoa('hello') },
+            { kind: 'dropped', name: 'b.txt', data: btoa('world') },
+          ],
+        },
+      },
+    ])
+  })
+
+  it('refuses an image over 20 MB with imageTooLarge and never asks main about it', async () => {
+    await mount(null)
+    const big = new File(['x'], 'shot.png', { type: 'image/png' })
+    Object.defineProperty(big, 'size', { value: FILE_COPY_LIMIT_BYTES + 1 })
+    await drop([big])
+    await vi.waitFor(() => expect(screen.getByTestId('input-error').textContent).toBe(imageTooLarge('shot.png')))
+    expect(screen.queryAllByTestId('attachment-chip')).toHaveLength(0)
+    expect(asked.filter((each) => each.channel === 'agent.attach')).toEqual([])
   })
 })
