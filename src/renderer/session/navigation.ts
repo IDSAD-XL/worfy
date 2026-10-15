@@ -31,3 +31,37 @@ export function setView(view: ShellView): void {
 export function openSession(opened: OpenedSession): void {
   useNavigation.setState({ view: 'session', opened })
 }
+
+/**
+ * Shows the Session view with nothing opened: the view shows the active Project's Orchestrator and
+ * starts it when it does not run (SessionView.tsx, `orchestrator.open`) — the palette's "Go to
+ * Orchestrator".
+ */
+export function openOrchestrator(): void {
+  useNavigation.setState({ view: 'session', opened: null })
+}
+
+/** Where a Subagent's window is: the Node it was opened on, its Project and its Session. */
+export interface SubagentPlace {
+  nodeId: string
+  projectId: string
+  sessionId: string
+}
+
+/**
+ * The Session a Subagent belongs to: live when worfy runs it on the Node (the Orchestrator, a
+ * Session Node), else read-only from its transcript — a Session started outside worfy, or a worfy
+ * one that no longer runs.
+ */
+export function subagentSession({ nodeId, projectId, sessionId }: SubagentPlace, live: boolean): OpenedSession {
+  return live ? { nodeId, projectId } : { nodeId, projectId, external: { sessionId } }
+}
+
+/**
+ * Where "Back" leads from a Subagent's window: its parent, not the place it was opened from. A
+ * nested Subagent goes to the window of the Subagent that started it, any other to its Session.
+ */
+export function subagentParent(place: SubagentPlace, parentAgentId: string | null, live: boolean): OpenedSession {
+  if (parentAgentId !== null) return { nodeId: place.nodeId, projectId: place.projectId, external: { sessionId: place.sessionId, agentId: parentAgentId } }
+  return subagentSession(place, live)
+}
