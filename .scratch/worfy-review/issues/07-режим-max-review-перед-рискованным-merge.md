@@ -1,7 +1,7 @@
 # 07 — Режим расширенного ревью перед рискованным merge: две линзы по всей ветке, по желанию на двух моделях
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: 01, 02
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «режим max review» из таблицы, низкий приоритет; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), разделы о Thermos (plugin Cursor: два reviewer-а и сводка ведущего агента) и о skill `interrogate` из pstack (один reviewer на модель, один prompt; разнообразие даёт модель, а не роль); [spec.md](../spec.md)
 
@@ -84,7 +84,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 
 ## Готово, когда
 
-- [ ] Новый test `harness/bin/tests/max-review.test.sh`:
+- [x] Новый test `harness/bin/tests/max-review.test.sh`:
   - skill есть, в нём обе линзы, поле `model`, скептики и четыре группы;
   - в epic-wave, раздел 4, есть вызов `/worfy:max-review` для Ticket-а с пометкой о риске;
   - в skill-е и в epic-wave, раздел 4, — префикс `MAX-REVIEW:`, три места записи вердикта и правило
@@ -92,14 +92,14 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   - в разделе epic-wave «How to resume a wave» — правило о `MAX-REVIEW:`;
   - кириллица — только в разрешённых строках (названия линз из Profile).
   Код 0. Сначала test красный: skill-а нет.
-- [ ] `test/contract/harness-migrate.test.ts` — код 0 (`pnpm test`): в списке `:241` есть
+- [x] `test/contract/harness-migrate.test.ts` — код 0 (`pnpm test`): в списке `:241` есть
   `max-review`, `HARNESS_SKILLS` не изменён. Сначала test красный: папка skill-а есть, имени в списке
   нет.
-- [ ] `harness/bin/tests/epic-wave-ship-ticket.test.sh` без правок — код 0: новые строки epic-wave
+- [x] `harness/bin/tests/epic-wave-ship-ticket.test.sh` без правок — код 0: новые строки epic-wave
   по-английски.
 - [ ] Ручной прогон на одной влитой ветке с двумя моделями: число находок у каждой модели, общих, и
   время прогона — в «Итог». Это и есть замер стоимости.
-- [ ] Источник назван (spec, «Решения владельца», пункт 1). В `max-review/SKILL.md` — строки `Source:`
+- [x] Источник назван (spec, «Решения владельца», пункт 1). В `max-review/SKILL.md` — строки `Source:`
   для Thermos и pstack (`interrogate`) с путём к файлу и SHA коммита. Дословно взятый текст — ещё и
   пометка MIT: строка copyright владельца источника и полный
   текст лицензии из его `LICENSE` на том же коммите.
@@ -138,4 +138,59 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-review/07`.
+
+- **Skill `harness/skills/max-review/SKILL.md`** (`/worfy:max-review <branch> [<base>]`): ревью всей
+  ветки (`git diff <base>...<branch>`), линзы `correctness` (`корректность`) и `simplification`
+  (`упрощение`), каждая по умолчанию на двух моделях — четыре `worfy:reviewer` с одним брифом на
+  линзу, у каждого свой worktree. Затем сводка (находка у двух моделей или двух линз весит больше,
+  карта согласия), скептики по одному на находку `high`/`med` (находку одной модели опровергает
+  другая модель), четыре группы Ticket-а 01 и вердикт `MAX-REVIEW: VERIFIED` /
+  `MAX-REVIEW: REJECTED: <Act on>`. Три места записи: комментарий PR, пустой commit
+  `gate: MAX-REVIEW: …` (`local-green`), строка в файле Ticket-а (Silent mode). `REJECTED` в Wave —
+  `ticket block` без круга доработки; без человека — ещё строка «max-review REJECTED — the owner's
+  decision» в списке ожидания владельца (только по-английски). Вне Wave вердикт ничего не блокирует.
+  Цена названа: в 2–4 раза дороже обычного ревью, без пометки и просьбы режим не запускается.
+- **epic-wave**: раздел 4 — абзац «Max review of a risky ticket» перед «Local merge»; «How to resume
+  a wave» — правило для PR и для `local-green` и блок, который печатает последний вердикт Gate
+  (`GATE=`) мимо commit-ов `gate: MAX-REVIEW:` и последний вердикт max-review (`MAX-REVIEW=`). Так
+  commit `gate: MAX-REVIEW: …` после `gate: VERIFIED` не запускает Gate заново.
+- **Test** `harness/bin/tests/max-review.test.sh` (72 проверки): текст skill-а и epic-wave, плюс
+  три поведения на настоящих данных — вердикт с префиксом не попадает в счёт кругов (`jq`
+  `startswith("REJECTED")`, `grep '^gate: REJECTED'`) и не подходит под regex `VERDICT` из
+  `src/main/github/prs.ts`; блок возобновления из epic-wave, вырезанный из текста, на git-ветке
+  с `gate: VERIFIED` и затем `gate: MAX-REVIEW: REJECTED` печатает `GATE=gate: VERIFIED`;
+  `epic-status --json` с `Risk: high` в шапке выдаёт тот же JSON, что без неё. Сначала test был
+  красным (skill-а не было, код 1). Мутанты на копиях — каждый красный: убрана строка о `opus`,
+  убран `printf` Silent mode, убран `grep -v '^gate: MAX-REVIEW:'` из блока возобновления, убран
+  абзац раздела 4, regex `VERDICT` расширен на `MAX-REVIEW:`.
+- **Contract test** `test/contract/harness-migrate.test.ts`: строка со списком skills — `:81`, а не
+  `:241`; в список добавлен `'max-review'`, `HARNESS_SKILLS` не изменён. Сначала красный (код 1:
+  в списке папок лишний `max-review`), потом код 0.
+- **`harness/README.md`**: `max-review` в таблице skills.
+- Манифест plugin-а не правился: `harness/.claude-plugin/plugin.json` не перечисляет skills, они
+  берутся из папки `skills/`.
+- Источник: строки `Source:` для Thermos (`thermos/skills/thermos/SKILL.md`) и pstack
+  (`pstack/skills/interrogate/SKILL.md`), коммит `ccb5507cec1546dc88135c1139c811e6c59115ba`
+  `cursor/plugins`, с copyright (Cursor; Lauren Tan) — файлы и строки copyright сверены через GitHub
+  API на этом коммите. Дословного текста нет — правила пересказаны, поэтому полного текста лицензии
+  в skill-е нет.
+
+Решения:
+
+- **Пометка риска — строка шапки `Risk: high`** (рядом со `Status:` и `Blocked by:`). `epic-status`
+  её пропускает: проверено в test-е, JSON совпадает байт в байт; worfy читает Ticket-ы через
+  `epic-status --json` (`src/main/workflow/reader.ts`). Решено без владельца, подтвердить.
+- **Две модели — модель Orchestrator-а и `sonnet`**; если Orchestrator сам на `sonnet`, вторая —
+  `opus`. Решено без владельца, подтвердить.
+- **Две модели — по умолчанию**, одна модель на линзу — только по слову владельца: так режим
+  совпадает со ступенью `max` шкалы глубины ревью в `rules.md` («двумя линзами на двух моделях»).
+  Решено без владельца, подтвердить.
+- **Платформа:** PR не платформенный — текст skill-ов, test по тексту и contract test, без
+  скриптов в `harness/bin/` и `harness/hooks/`. Решено без владельца, подтвердить.
+
+Не проверено:
+
+- не проверено: прогон настоящих моделей — шаг Orchestrator-а или владельца; запись в ~/.claude
+  агентам запрещена. Число находок у каждой модели, общих, и время прогона (замер стоимости) —
+  после такого прогона.
