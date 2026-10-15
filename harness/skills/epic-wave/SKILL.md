@@ -282,6 +282,39 @@ automated (a system dialog, an OS notification, a live terminal) may stay `[ ]` 
 section — that is not a finding and not a reason for `REJECTED`; attached evidence (a screenshot,
 command output) that does not show what is claimed is a high-severity finding.
 
+**Gate depth.** The gate described here is `low` depth of the review depth scale (`low`, `medium`,
+`high`, `max`; the scale and its costs — skill `/worfy:ship-ticket`, step 7). The depth of the
+wave's gate is `F review.depth.wave`. An argument overrides it:
+`/worfy:epic-wave tickets 05, 06 of epic X depth medium`; the owner's word in the message
+(`wave depth medium`, in any language) is the same argument. No field (exit 4 or `null`) — `low` depth, the gate as described above, and the report says so:
+"depth low: the profile has no review.depth.wave". Above `low` depth the gate of every ticket gets
+more agents next to the verifier; they work like it, each in its own worktree
+(`F worktree.reviewer`), and answer the orchestrator:
+
+| Depth | Agents of the gate | Lenses | Mutation testing | Refute (sceptic agents) |
+|---|---|---|---|---|
+| `low` | the verifier `verify-<NN>` | the implementer's report | the verifier's own choice, on copies | none in the gate; sceptics only in the narrow round |
+| `medium` | the verifier and one reviewer | the implementer's report; the items of the previous round and the tables already made (in a first round, the first of `F review.ticket_lenses`) | changed lines only | one sceptic per `high` and `med` finding, before the verdict |
+| `high` | the verifier and two or three reviewers | the implementer's report, `F review.ticket_lenses`, its own table of cases on the real code compared with the main branch on this machine's OS, a `security` lens | every code line of the ticket | one sceptic per finding, before the verdict |
+| `max` | the agents of `high` depth, then those of `/worfy:max-review` | the lenses of `high` depth, then those of max-review | as at `high` depth | as at `high` depth, then the sceptics of max-review |
+
+`max` depth is `high` depth, then `/worfy:max-review` on the ticket's branch before its merge
+(section 4), for every ticket of the wave, not only for one marked `Risk: high`.
+A wave depth above `low` is expensive: before the dispatch, say its price — the cost of one round
+from the table of `/worfy:ship-ticket`, step 7, times the tickets of the wave (`high` depth is
+5.3–6.4 million subagent tokens per ticket and round).
+
+The findings of all the gate's agents go into one sort into the four groups (below). The verdict
+is `REJECTED` while Act on is not empty after the exchange with the agents that raised its
+findings, and `VERIFIED` only when none of them stands by a finding in Act on. The depth does not
+change the count of rounds: one rework round, the second round's three grounds and the narrow round
+stay as written below, at every depth. The limit of three review rounds of a PR another session
+wrote (`/worfy:ship-ticket`) does not apply in a wave.
+
+What blocks a merge, at every depth: a `high` or `med` finding in the code, or a gap in the tests
+that guard a destructive action (a delete, stopping a process, replacing a copy). The other gaps go
+as a list into a follow-up ticket. Such a test gap belongs to Act on whatever its level.
+
 **UI ticket — screenshots in both themes.** A ticket whose diff changes what is visible on screen
 (markup, styles, components, interface texts) is called a UI ticket in the verifier's brief, and
 the brief gives the path to the project's design spec if there is one. The verifier builds the
@@ -380,6 +413,24 @@ of the `gate: REJECTED: …` commit and the group lines are its body. In Silent 
 follow the `gate: REJECTED: …` line in the ticket file. No group line starts with `REJECTED` or
 `gate:`, so the counts above still count verdicts only.
 
+**The two report lines** close every recorded verdict, `VERIFIED` and `NARROW: …` too: the gate's
+depth and what the agents of that round spent. They follow the verdict and its group lines:
+
+```
+REJECTED: <Act on: the rework list>
+Consider: <findings>
+Review depth: <depth> — <where it came from>
+Review tokens: <subagent tokens of the round> | not measured
+```
+
+`<where it came from>` is `argument`,
+`owner's word`, `review.depth.wave` or `default: the profile has no review.depth.wave`. The tokens
+are the sum of the token counts the finished agents of the round report in their results (the
+verifier, the reviewers, the sceptics); an agent whose result shows no count makes the line
+`Review tokens: not measured`, never an estimate. The two lines are never the first line, and
+neither starts with `REJECTED` or `gate:`: the counts of rounds and worfy's reading of a PR's
+verdict (its first line) do not see them.
+
 Source: pstack, `pstack/skills/interrogate/SKILL.md` and
 `pstack/skills/interrogate/references/lead-judgment.md`, commit
 `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Lauren Tan)
@@ -444,6 +495,22 @@ The gate is closed when every ticket of the wave has a verdict.
 
 Items 1–3 — only with `pr-green-ci`; with `local-green` — the local merge below instead of them, then
 item 4.
+
+**Max review of a risky ticket.** A ticket whose header has the line `Risk: high` gets
+`/worfy:max-review` on its branch before its merge: after its `VERIFIED` of section 3, before items
+1–2 or the local merge. It reviews the whole branch with two lenses, each on two models; its rules
+are in that skill. Its verdict is `MAX-REVIEW: VERIFIED` or `MAX-REVIEW: REJECTED: <Act on>`, written
+where section 3 writes the gate's verdicts, with the prefix: with a PR — a comment in the PR; with
+`local-green` — an empty commit `gate: MAX-REVIEW: …` on the ticket's branch; in Silent mode — a line
+`gate: MAX-REVIEW: …` at the end of the ticket file. The counts of rework rounds in section 3 do not
+see these verdicts, and they do not see the rounds. `MAX-REVIEW: VERIFIED` — the merge goes on as
+usual. `MAX-REVIEW: REJECTED` → `ticket block`, without a rework round: the ticket has had its rounds
+in section 3. It is not merged, it leaves the wave as a `blocked` row with the reason "max-review
+REJECTED" and the PR number, and its Act on group goes into the report and the ticket's result
+section; whether to rework or merge it is the owner's decision. Without a human — the same, without a
+question and without waiting, plus a line in the state file's list of what waits for the owner:
+"max-review REJECTED — the owner's decision". A ticket without the line gets no max review unless the
+owner asks for it.
 
 **Local merge** (`local-green`). Every `VERIFIED` ticket is merged into the main branch of its
 repository on this machine, one at a time, under the lock below. The steps, their doers and the block
@@ -634,6 +701,15 @@ The "PR" and "Production" columns are "—" with `local-green` and without `depl
 column shows a narrow round as "+ narrow"; a narrow round that ended in `NARROW: REJECTED` is a
 `blocked` row.
 
+Under the table, for every ticket of the table, the two report lines of its gate (section 3): its
+depth and where it came from, and the subagent tokens of each of its rounds with their sum, or
+`not measured`:
+
+```
+07: Review depth: low — default: the profile has no review.depth.wave
+07: Review tokens: 410000 + 380000 = 790000
+```
+
 **A wave without a human names its decision log** (section 1). Before the report is written,
 compare the two: every decision the report shows — a `blocked` row, a narrow round, a ticket that
 was not dispatched, a Dismissed finding, a fork settled for the owner, a merge out of the plan's
@@ -684,7 +760,9 @@ implementer never started: dispatch it again. A worktree without a PR — the im
 before step 8: continue `/worfy:ship-ticket` in that worktree. An open PR — the ticket waits for
 the gate (section 3); count rework rounds by the PR comments. A `NARROW:` comment means the narrow
 round has been given; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is the ticket's verdict,
-and with no such verdict yet the narrow round's gate is ahead. A merged PR while `state` is not
+and with no such verdict yet the narrow round's gate is ahead. A ticket marked `Risk: high` whose PR
+has no `MAX-REVIEW:` comment gets `/worfy:max-review` before its merge (section 4); otherwise the last
+`MAX-REVIEW: …` comment is its verdict. A merged PR while `state` is not
 `done` — the documents PR is still ahead (section 4, item 4).
 
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
@@ -698,5 +776,26 @@ fast-forward did not follow (a session break, a failed merge); run the merge blo
 step 11, step 3) — it does not commit the documents a second time. Rework rounds — the number
 of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
 last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
+A `gate: MAX-REVIEW: …` commit is not a gate verdict: it does not restart the gate, and "the last
+`gate: VERIFIED`" above is read past it. A ticket marked `Risk: high` without such a commit gets
+`/worfy:max-review` before its merge (section 4); otherwise the last `gate: MAX-REVIEW: …` commit is
+its verdict. The block prints both — Full mode only, where the verdicts are commits (`git log` lists
+the newest commit first):
+
+```bash
+log=$(git -C <repo> log --format=%s <base>..<branch>)
+echo "GATE=$(grep '^gate: ' <<<"$log" | grep -v '^gate: MAX-REVIEW:' | head -n 1)"
+echo "MAX-REVIEW=$(grep -m1 '^gate: MAX-REVIEW:' <<<"$log")"
+```
+
+In Silent mode the verdicts are the `gate:` lines at the end of the ticket file in the Workflow folder
+(section 3), and the newest line is the last one, so the same rule reads the file from its end
+(`<ticket file>` — the path found as in section 3, `f=$(ls …/<epic>/issues/<NN>-*.md)`):
+
+```bash
+f=<ticket file>
+echo "GATE=$(grep '^gate: ' "$f" | grep -v '^gate: MAX-REVIEW:' | tail -n 1)"
+echo "MAX-REVIEW=$(grep '^gate: MAX-REVIEW:' "$f" | tail -n 1)"
+```
 
 Then — from section 1: the preflight is idempotent.

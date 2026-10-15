@@ -11,7 +11,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ActionLauncher } from '../../src/main/actions/launch'
-import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
+import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { LimitsTracker, LIMITS_FILE, observeSessionLimits, type SessionLimitsStatus } from '../../src/main/agent/limits'
 import { Orchestrators } from '../../src/main/agent/orchestrator'
 import { SessionRegistry } from '../../src/main/agent/session'
@@ -184,12 +184,25 @@ function harness(options: HarnessOptions = {}) {
     scriptsDir = join(scratch, 'scripts')
     mkdirSync(scriptsDir, { recursive: true })
     writeFileSync(join(scriptsDir, `${SCRIPT}.jsonl`), options.lines.map((line) => JSON.stringify(line)).join('\n') + '\n')
+    // The attended Orchestrator's script, as in the fixtures: without it an attended start fails.
+    writeFileSync(join(scriptsDir, 'autopilot-waves.jsonl'), readFileSync(join(fixtures, 'autopilot-waves.jsonl'), 'utf8'))
   }
   const tracker = new LimitsTracker({ dataDir: dataRoot, now: () => clock })
   const calls: FakeCall[] = []
+  /** What every fake query was asked to do, attended ones too, with how its Session was launched. */
+  const every: { unattended: boolean; call: FakeCall }[] = []
+  const releases = new FakeReleases()
   const registry = new SessionRegistry(
     tracker.observe((request) =>
-      fakeQueryFactory({ scriptsDir, script: request.unattended === true ? SCRIPT : 'autopilot-waves', record: (call) => (request.unattended === true ? calls.push(call) : undefined) })(request),
+      fakeQueryFactory({
+        scriptsDir,
+        script: request.unattended === true ? SCRIPT : 'autopilot-waves',
+        releases,
+        record: (call) => {
+          every.push({ unattended: request.unattended === true, call })
+          if (request.unattended === true) calls.push(call)
+        },
+      })(request),
     ),
   )
   registries.push(registry)
@@ -215,12 +228,18 @@ function harness(options: HarnessOptions = {}) {
     pollMs: 5,
     waitMs: 200,
   })
-  // What the agent does: marks the Wave's Tickets done when its "Run wave" arrives.
+  // What the agent does: marks the Wave's Tickets done when its "Run wave" arrives, or only claims
+  // them (`marks`), as a Wave a Force stop then interrupts would.
+  let marks: 'done' | 'claimed' = 'done'
+  const status = (): string => (marks === 'done' ? 'done — 2026-10-06' : 'claimed — 2026-10-06')
   registry.observe((_sessionId, event) => {
     if (event.type !== 'prompt') return
-    if (event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, 'done — 2026-10-06')
-    if (event.text === WAVE_2) writeTicket(3, 'done — 2026-10-06')
+    if (event.text === WAVE_1) for (const num of [1, 2]) writeTicket(num, status())
+    if (event.text === WAVE_2) writeTicket(3, status())
   })
+  const setMarks = (value: 'done' | 'claimed'): void => {
+    marks = value
+  }
   const env = { WORFY_DATA_DIR: dataRoot }
   const timers: Timer[] = []
   const states: AutopilotState[] = []
@@ -265,7 +284,16 @@ function harness(options: HarnessOptions = {}) {
   const state = () => autopilot.state(PROJECT)
   /** The run's live timer: the last one set and not cancelled. */
   const live = () => timers.filter((timer) => !timer.cancelled)
-  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state }
+  /** The texts each Claude Code process got, one list per process in start order, with how its Session was launched. */
+  const processes = (): { unattended: boolean; messages: string[] }[] => {
+    const out: { unattended: boolean; messages: string[] }[] = []
+    for (const { unattended, call } of every) {
+      if (call.kind === 'start') out.push({ unattended, messages: [] })
+      else if (call.kind === 'message') out.at(-1)?.messages.push(call.text)
+    }
+    return out
+  }
+  return { autopilot, registry, orchestrators, tracker, timers, live, states, power, journal, kinds, messages, state, releases, processes, setMarks, launcher }
 }
 
 const iso = (ms: number): string => new Date(ms).toISOString()
@@ -394,6 +422,60 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
     expect(autopilotStatusLine(h.state())).toBe('stopped: user force stop')
     expect(h.power).toEqual(['start', 'stop'])
+  })
+
+  it('the Orchestrator\'s Session dies during the wait: the run stops, and the continuation goes neither to the dead Session nor to the one given back', async () => {
+    const { refused } = fixtureTurns()
+    // Claude Code dies while idle, after the refused turn, when the test lets it.
+    const lines = [...refused, { fake: 'wait_release', name: 'die' }, { fake: 'crash', error: 'Claude Code process exited with code 1' }]
+    const h = harness({ lines })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    const timer = h.live()[0]!
+    h.releases.release('die')
+    await until(() => h.state().status === 'stopped', 'the run to stop')
+    expect(h.state()).toMatchObject({ reason: 'session-error', resumesAt: null })
+    expect(timer.cancelled).toBe(true)
+    await until(() => !h.orchestrators.isUnattended(PROJECT), 'the Orchestrator to be given back')
+
+    // The reset comes, and the timer fires late all the same, twice: nothing goes anywhere.
+    clock = timer.at
+    timer.fire()
+    timer.fire()
+    await tick()
+    expect(h.processes()).toEqual([
+      { unattended: false, messages: [] },
+      { unattended: true, messages: [WAVE_1] },
+      { unattended: false, messages: [] },
+    ])
+    const attended = h.registry.get(orchestratorSession(h.registry))
+    expect(attended.unattended).toBe(false)
+    expect(attended.queued().items).toEqual([])
+    expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'session-error', 'run-stopped'])
+  })
+
+  it('the Tickets a Force stop interrupted go with the first Wave of the next run only: the continuation after the Limits and the next Wave do not take them again', async () => {
+    const h = harness()
+    const waves = vi.spyOn(h.launcher, 'autopilotWave')
+    // The first run: its Wave is taken, then interrupted by Force stop during the wait.
+    h.setMarks('claimed')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting', 'the wait for the Limits')
+    expect(await h.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
+
+    // The next run: its first Wave takes 01 and 02 along; the agent finishes what it gets.
+    h.setMarks('done')
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(() => h.state().status === 'waiting' && h.live().length === 1, 'the wait of the next run')
+    const timer = h.live()[0]!
+    clock = timer.at
+    timer.fire()
+    await until(() => h.state().status === 'waiting' && h.state().wave === 2, 'Wave 2 of the next run')
+    await h.autopilot.forceStop(PROJECT)
+
+    expect(waves.mock.calls.map((call) => call[2])).toEqual([[], [1, 2], []])
+    const runs = h.processes().filter((each) => each.unattended).map((each) => each.messages)
+    expect(runs).toEqual([[WAVE_1], [WAVE_1, continueText(START_MS, timer.at), WAVE_2]])
   })
 
   it('takes the reset time from limits.json when the refusal has none', async () => {

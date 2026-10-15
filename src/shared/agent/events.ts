@@ -23,6 +23,21 @@ export type QueuedMessage = z.output<typeof queuedMessageSchema>
 export const queueSnapshotSchema = z.object({ items: z.array(queuedMessageSchema), paused: z.boolean() })
 export type QueueSnapshot = z.output<typeof queueSnapshotSchema>
 
+/**
+ * How full a Session's context window is, as Claude Code's getContextUsage() reports it — the
+ * numbers of `/context` (worfy-polish ticket 23). `windowTokens` is the window the percentage is
+ * measured against: the autocompact window, which on a 1M model may be smaller than the model's
+ * own. `autoCompactThreshold`: the tokens at which Claude Code compacts; null when it does not say.
+ */
+export const contextUsageSchema = z.object({
+  percentage: z.number(),
+  totalTokens: z.number(),
+  windowTokens: z.number(),
+  autoCompactThreshold: z.number().nullable(),
+  autoCompactEnabled: z.boolean(),
+})
+export type ContextUsage = z.output<typeof contextUsageSchema>
+
 /** The user's answer to a permission request (ticket 21): this call, this tool for the rest of the Session, or no. */
 export const permissionDecisionSchema = z.enum(['allow', 'always_allow', 'deny'])
 export type PermissionDecision = z.infer<typeof permissionDecisionSchema>
@@ -48,6 +63,11 @@ export const agentEvent = z.discriminatedUnion('type', [
   timed({ type: z.literal('queue'), items: z.array(queuedMessageSchema), paused: z.boolean() }),
   /** The model, effort and permission mode the Session now runs with, as worfy set them. */
   timed({ type: z.literal('settings'), settings: sessionSettingsSchema }),
+  /**
+   * How full the context window is, asked after each `result` and each compaction; `usage` null:
+   * no data (the ask failed). Sent only when it differs from the Session's last one.
+   */
+  timed({ type: z.literal('context'), usage: contextUsageSchema.nullable() }),
   /**
    * Claude Code asks before running a tool (canUseTool, src/main/agent/permissions.ts); the
    * Session is `needs_permission` until every open request is resolved. `alwaysAllow`: whether
@@ -604,4 +624,52 @@ export function sdkMessageToEvents(message: unknown): AgentEvent[] {
     // A known message whose shape changed: shown like an unknown one, never thrown.
     return [{ type: 'unknown', sdkType: describe(message) }]
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Answers of Query.getContextUsage() and the compaction message (worfy-polish ticket 23).
+
+const sdkContextUsage = z.object({
+  totalTokens: z.number(),
+  rawMaxTokens: z.number(),
+  percentage: z.number(),
+  autoCompactThreshold: optNum,
+  isAutoCompactEnabled: z.boolean(),
+})
+
+/**
+ * The context usage in a getContextUsage() answer (SDKControlGetContextUsageResponse); null when
+ * the answer lacks the numbers. The window is `rawMaxTokens`, the one `percentage` is measured
+ * against (the autocompact window), not `maxTokens`.
+ */
+export function contextUsageOf(answer: unknown): ContextUsage | null {
+  const parsed = sdkContextUsage.safeParse(answer)
+  if (!parsed.success) return null
+  const m = parsed.data
+  return {
+    percentage: m.percentage,
+    totalTokens: m.totalTokens,
+    windowTokens: m.rawMaxTokens,
+    autoCompactThreshold: orNull(m.autoCompactThreshold),
+    autoCompactEnabled: m.isAutoCompactEnabled,
+  }
+}
+
+/** Whether an SDK message is system/compact_boundary: Claude Code has just compacted the Session's history. */
+export function isCompactBoundary(message: unknown): boolean {
+  if (message === null || typeof message !== 'object') return false
+  const { type, subtype } = message as { type?: unknown; subtype?: unknown }
+  return type === 'system' && subtype === 'compact_boundary'
+}
+
+/** Whether two context usages are the same numbers; null is "no data". */
+export function sameContextUsage(a: ContextUsage | null, b: ContextUsage | null): boolean {
+  if (a === null || b === null) return a === b
+  return (
+    a.percentage === b.percentage &&
+    a.totalTokens === b.totalTokens &&
+    a.windowTokens === b.windowTokens &&
+    a.autoCompactThreshold === b.autoCompactThreshold &&
+    a.autoCompactEnabled === b.autoCompactEnabled
+  )
 }

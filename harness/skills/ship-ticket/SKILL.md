@@ -1,6 +1,6 @@
 ---
 name: ship-ticket
-description: Carry one ticket of any registered project from claim to the finish its profile declares — worktree or main checkout, reserved ADR/migration numbers, failing test first, bare verification runs, review agents, then PR + green CI + merge + production check, or locally green checks. Project commands, paths, deploy and numbering come from `${CLAUDE_PLUGIN_ROOT}/bin/profile`. Use when starting or resuming work on a ticket from the project's ticket folder (`tickets.path`, e.g. .scratch/<эпик>/issues/), or when running a wave of them.
+description: Carry one ticket of any registered project from claim to the finish its profile declares — worktree or main checkout, reserved ADR/migration numbers, failing test first, bare verification runs, review agents, then PR + green CI + merge + production check, or locally green checks. Project commands, paths, deploy and numbering come from `${CLAUDE_PLUGIN_ROOT}/bin/profile`. Use when starting or resuming work on a ticket from the project's ticket folder (`tickets.path`, e.g. .scratch/<эпик>/issues/), when running a wave of them, or when reviewing a PR another session or person wrote ("review #237 — low").
 ---
 
 # Carry a ticket from claim to finish
@@ -241,10 +241,64 @@ A WIP commit first: the reviewer's worktree takes only what is committed; it wil
 uncommitted change and will review old code. In Silent mode its message describes the change, like any
 other commit of the repository.
 
-A reviewer is the agent `worfy:reviewer` (`subagent_type: "worfy:reviewer"`), one lens each. The
-default lenses are `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what
-the change is about). Two or three in parallel. Each brief gives the path to its worktree (the
-agent runs `profile -C <path>`), the lens, the branch and the base.
+A reviewer is the agent `worfy:reviewer` (`subagent_type: "worfy:reviewer"`), one lens each, all
+of a round in parallel. Each brief gives the path to its worktree (the agent runs
+`profile -C <path>`), the lens, the branch and the base. How many reviewers a round has is set by
+its review depth.
+
+**Review depth.** A scale, like effort: `low`, `medium`, `high`, `max`. It sets how many agents
+review a round, with which lenses, how much mutation testing they do and which findings get a
+sceptic (one `worfy:reviewer` agent per finding, tasked with refuting it, as in the narrow round of
+`/worfy:epic-wave`, section 3). Every round has one depth.
+
+| Depth | Agents | Lenses | Mutation testing | Refute (sceptic agents) | Cost of a round, subagent tokens |
+|---|---|---|---|---|---|
+| `low` | one reviewer | one: it reads the diff and runs the tests of the change (the first of `F review.ticket_lenses`) | none | none | under 0.5 million (estimate) |
+| `medium` | two reviewers | the items of the previous round's report, and the tables already made (cases with inputs and expected results, from an earlier round or from the implementer) checked against the code; in a first round, which has no previous report, the first two of `F review.ticket_lenses` | changed lines only | one sceptic per `high` and `med` finding | 1–2 million (estimate); a round without `high` or `med` findings measured 0.47 million |
+| `high` | three or four reviewers | `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what the change is about); one of them builds its own table of cases on the real code and compares the tests of the change with the main branch on this machine's OS (the change may have been written on another OS); a `security` lens | every code line of the change | one sceptic per finding | 5.3–6.4 million (measured 2026-10-12) |
+| `max` | the agents of `high` depth, then those of `/worfy:max-review` | the lenses of `high` depth, then the two lenses of max-review on two models | as at `high` depth | as at `high` depth, then the sceptics of max-review | about 10 million (estimate) |
+
+`max` depth is `high` depth, then `/worfy:max-review` on the whole branch: the round at `high` depth
+first, then that skill with its own verdict. `max` depth runs only when the owner asks for it, by an
+argument, a word in a message or the profile field. The levels of findings stay `high` / `med` /
+`low`; a depth is always written with the word "depth" (`high` depth), so the two scales are not
+mixed up. The project's full local check before a merge of code (`rules.md`) is outside the depth
+scale: it runs at every depth.
+
+**Which depth.** The first that applies:
+1. An argument: `/worfy:ship-ticket <epic> <NN> depth <low|medium|high|max>`. The owner's word in
+   a message (`review #237 — low`, in any language) is the same argument; it holds for the round
+   the message asks for.
+2. The profile: the first review round of the change — `F review.depth.first_round`; a repeat
+   review after rework — `F review.depth.later_rounds`.
+3. No field (exit 4 or `null`) and no argument — the review of the ticket's own diff stays as it
+   was, without a depth: two or three reviewers in parallel, one lens each, by
+   `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what the change is
+   about), and a repeat review as described below. The report says so:
+   `Review depth: ticket lenses — default: the profile has no review.depth.first_round` (for a
+   repeat review — `review.depth.later_rounds`). The defaults `high` depth and `medium` depth are
+   only for a PR another session wrote (section "Review of a PR another session wrote").
+
+**What blocks.** What blocks a merge, at every depth: a `high` or `med` finding in the code, or a
+gap in the tests that guard a destructive action (a delete, stopping a process, replacing a copy).
+The other gaps go as a list into a follow-up ticket. Such a test gap belongs to Act on (below)
+whatever its level; the other test gaps go to Consider or Noted.
+
+**Two report lines.** The report of every review round names its depth and what its agents spent:
+
+```
+Review depth: <depth> — <where it came from>
+Review tokens: <subagent tokens of the round> | not measured
+```
+
+`<where it came from>` is `argument`, `owner's word`, `review.depth.<field>` or
+`default: the profile has no review.depth.<field>`. The tokens are the sum of the token counts the
+finished agents of the round report in their results (reviewers, sceptics, the agents of
+max-review); an agent whose result shows no count makes the line `Review tokens: not measured`,
+never an estimate. When the round's verdict is written down (a PR comment, a `gate:` commit, a line
+in the ticket file), the two lines follow the verdict and its group lines: they are never the first
+line, and neither starts with `REJECTED` or `gate:`, so the counts of rounds and worfy's reading of
+a PR's verdict stay as they are.
 
 **`parallel: worktrees`.** Every reviewer has its own worktree; the orchestrator creates it before
 the start:
@@ -510,6 +564,66 @@ they are committed there locally (`/worfy:epic-wave`, section 4, item 4), withou
 
 `F docs.handoff.check` checks the form — run it before push, if the profile sets it; what exactly
 it requires — `rules.md`. Do not touch ADRs: they are immutable.
+
+## Review of a PR another session wrote
+
+A PR that another session (for example, one on another machine) or another person wrote, which
+this session reviews and its orchestrator merges. Its author has carried steps 1–6; this session
+does step 7 on the PR and, when the review lets it, steps 8–11. The review edits nothing on the
+author's branch: rework goes back to the author as the PR comment with the verdict.
+
+The request: `/worfy:ship-ticket review #<N> depth <low|medium|high|max>`, the depth optional; the
+owner's word `review #237 — low` in a message is the same request.
+
+The depth of every round is chosen as in step 7 (argument, then the profile), but without the
+field the review of such a PR always has a depth, by what the PR changes
+(`gh pr view <N> --json files --jq '.files[].path'`):
+- A PR that changes only documents gets no review agents: its check is the local gate and the CI
+  rules of `rules.md`.
+- A PR that changes only tests and comments gets `medium` depth in its first round (the depth of
+  `F review.depth.first_round`, if that is lower).
+- A PR that touches any line of code or of a script outside the tests is a PR with code: its first
+  round has the depth of `F review.depth.first_round`, `high` depth without the field.
+- Every later round has the depth of `F review.depth.later_rounds`, `medium` depth without the field.
+- `max` depth only when the owner asks for it.
+
+The reviewers work in their own worktrees on the PR's head (`git -C <repo> fetch origin
+<headRefName>`, then `F worktree.reviewer` with `<ветка>` = `origin/<headRefName>`), with the
+briefs, the four groups of findings and the exchange with the reviewers of step 7. A repeat round
+checks the author's rework the way step 7 says for a repeat review.
+
+What blocks a merge, at every depth: a `high` or `med` finding in the code, or a gap in the tests
+that guard a destructive action (a delete, stopping a process, replacing a copy). The other gaps go
+as a list into a follow-up ticket.
+
+At most three review rounds per PR, unless a `high` finding remains. After the third round the
+`med` findings and the test gaps that are left go as a list into a follow-up ticket instead of a
+fourth round, and the PR goes on to its merge; a `high` finding that is left keeps the PR open, and
+the next round checks only that finding. The rounds are the verdict comments of the PR:
+
+```bash
+gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(VERIFIED|REJECTED)"))] | length'
+```
+
+A wave keeps its own count of rounds (`/worfy:epic-wave`, section 3): one rework round and the
+narrow round, without this limit.
+
+The verdict is a PR comment, written as in `/worfy:epic-wave`, section 3: the first line
+`VERIFIED` or `REJECTED: <Act on>`, then the lines of the other groups, then the two report lines
+of step 7:
+
+```
+REJECTED: <Act on: the rework list>
+Consider: <findings>
+Review depth: <depth> — <where it came from>
+Review tokens: <subagent tokens of the round> | not measured
+```
+
+The project's full local check before merging code (`rules.md`) is outside the depth scale: it
+runs before the merge at every depth. The owner's manual acceptance items do not hold the merge:
+the PR merges when the review lets it and the full local check is green, and the items go to the
+list of what waits for the owner in the state file (`F docs.handoff`). The report to the user is the
+verdict, the four groups and the same two report lines.
 
 ## When to stop
 

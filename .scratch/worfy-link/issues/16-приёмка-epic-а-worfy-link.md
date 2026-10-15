@@ -1,7 +1,7 @@
 # 16 — Приёмка Epic-а worfy-link по «Готово, когда»
 
 Type: task
-Status: open
+Status: blocked — приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки `worfy-harness` 26 и `worfy-link` 16 — не в Autopilot); Autopilot не берёт
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15
 Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md)); решения владельца 2026-10-07, Q12 (после E3 параллельно с Windows-портом; первая проверка — dev-сборка и Stable copy на одном Mac; мерж в main по очереди; [spec.md](../spec.md)); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 

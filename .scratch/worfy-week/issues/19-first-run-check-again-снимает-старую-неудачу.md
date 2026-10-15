@@ -1,7 +1,8 @@
 # 19 — First run: «Check again» снимает запись о неудаче действия, когда проверка строки уже проходит
 
 Type: task
-Status: open
+Status: done — 2026-10-15, [PR #344](https://github.com/IDSAD-XL/worfy/pull/344)
+Branch: worfy-week/19
 Blocked by: —
 Source: наблюдение владельца 2026-10-10 во время прогона Autopilot для пункта 3 приёмки E3 (`worfy-harness` 26): окно «First run» открылось само с «1 failed: qmd collections — The last attempt failed: …/.claude/bin/qmd-sync-main: No such file», хотя сама проверка проходила. Уровень — low.
 
@@ -38,13 +39,13 @@ Source: наблюдение владельца 2026-10-10 во время пр�
 
 ## Готово, когда
 
-- [ ] Действие строки упало, затем проверка этой строки стала `ok`: `report()` отдаёт строку `ok` без
+- [x] Действие строки упало, затем проверка этой строки стала `ok`: `report()` отдаёт строку `ok` без
       текста «The last attempt failed», и запись из `failures` снята (повторный `report()` при
       снова упавшей проверке показывает результат проверки, а не старый текст действия).
-- [ ] Действие строки упало, проверка по-прежнему не `ok`: строка — `fail` с текстом последней
+- [x] Действие строки упало, проверка по-прежнему не `ok`: строка — `fail` с текстом последней
       неудачи, как сейчас.
-- [ ] `firstRunStartup` не возвращает `show: true` из-за строки, чья проверка уже `ok`.
-- [ ] Test-ы краснеют на мутанте, который возвращает прежнее поведение `report()`.
+- [x] `firstRunStartup` не возвращает `show: true` из-за строки, чья проверка уже `ok`.
+- [x] Test-ы краснеют на мутанте, который возвращает прежнее поведение `report()`.
 
 ## Где в коде
 
@@ -66,3 +67,36 @@ Source: наблюдение владельца 2026-10-10 во время пр�
   после запуска (`ActionResult` в ответе `firstRunRun`); проверить на test-е, что он не теряется.
 
 ## Итог
+
+`FirstRunActions.report()` (`src/main/first-run/actions.ts`) снимает запись о неудаче действия у
+строки, чья свежая проверка `ok`, и отдаёт строку как есть; иначе строка — `fail` с текстом
+последней неудачи, как раньше. `firstRunStartup` получает отчёт из того же `report()`, поэтому
+устранённая неудача окно само не открывает; код `src/main/ipc/first-run.ts` изменился только
+комментарием. Renderer не тронут.
+
+Test-ы — `test/contract/first-run-checks.test.ts`:
+- «a failed action stays on its row only while the check of the row does not pass…» — неудача
+  `qmd collections` видна, пока проверка `warn`; проверка стала `ok` — строка `ok` без «The last
+  attempt failed»; проверка снова `warn` — строка показывает саму проверку (запись снята, а не
+  спрятана).
+- «an action that fails while its check already passes still answers with its error…» — риск
+  тикета: `ActionResult.message` сохраняет текст неудачи, строка остаётся такой, какой её нашла
+  проверка.
+- «a failed action whose check passes now does not open the screen by itself» — обработчики
+  `src/main/ipc/first-run.ts` (Electron и окружение подменены): при непрошедшей проверке
+  `show: true`, после `ok` — `show: false`.
+- Помощник `actions()` в test-ах теперь отдаёт проверкам те же Project-ы, что действию: прежний
+  test «a failing script makes the row fail with its output» проходил лишь потому, что проверка
+  `qmd collections` не видела Project без коллекций и была `ok`.
+
+Мутанты: прежний `report()` — красные три новых test-а; мутант «строка `ok` возвращается, но
+запись не снимается» — красный первый. `pnpm lint && pnpm typecheck && pnpm test` — код 0,
+gate fast — код 0, «[gate] зелено (fast)».
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 19 и 20 параллельно, общих файлов нет.
+- Гейт — один круг: `VERIFIED` на `b42761c` ([комментарий в PR #344](https://github.com/IDSAD-XL/worfy/pull/344#issuecomment-6187409360)). Verifier сам: gate fast — код 0 и `[gate] зелено (fast)`; `first-run-checks` — 54 из 54; мутанты — прежний `report()`, запись снимается и при `warn`, неудача читается до удаления, `ok` без снятия записи — все красные; ветки по `process.platform` нет.
+- Мерж: база main `1293a37`, head `b42761c`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `522c2fd`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): `src/shared/ipc/first-run.ts:88` — комментарий канала `firstRunRun` говорит, что строка остаётся `fail` «until the next attempt», а теперь — только пока проверка строки не проходит; действие, упавшее при уже проходящей проверке (Download моделей из `ok`/`skipped`, `src/main/first-run/checks.ts:402`), оставляет строку `ok`, ошибка видна только в сообщении под строкой (`src/renderer/shell/FirstRunChecks.tsx:406`) до следующего действия или ухода с экрана — риск Ticket-а, его держит test `:824`.

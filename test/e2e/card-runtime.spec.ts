@@ -114,8 +114,10 @@ test('a Card is shown with its <title>, a file change reloads it within a second
   await expect(content).toHaveText('v1')
   await expect(window.locator('[data-card-id="gone"]').getByTestId('card-missing')).toHaveText('Card files missing')
 
-  // Let the watch settle, then change the Card the way an agent does: rewrite its file.
-  await window.waitForTimeout(500)
+  // The watch is up once a first rewrite has reloaded the Card; then the change is timed, made the
+  // way an agent does: rewrite the file.
+  await writeFile(join(cardDir('c1'), 'index.html'), cardHtml('Clock', 'v1, watched'))
+  await expect(content).toHaveText('v1, watched')
   const started = Date.now()
   await writeFile(join(cardDir('c1'), 'index.html'), cardHtml('Clock v2', 'v2'))
   await expect(content).toHaveText('v2', { timeout: 1000 })
@@ -162,6 +164,9 @@ test('a Card reaches neither the window, another Card, file:// nor another worfy
 
   // Another Card's origin: main stops the navigation, the Card keeps running as it was.
   await frame.evaluate(navigateScript(`worfy-card://c2.${LABEL}/index.html`))
+  // A window in which nothing may happen: main refuses in will-frame-navigate and sends nothing
+  // back, so there is no sign to wait for. A navigation it let through would load a Card page
+  // served from this machine by main's protocol handler, which commits well within 300 ms.
   await window.waitForTimeout(300)
   const c1Frames = () => window.frames().filter((candidate) => candidate.url().startsWith(`worfy-card://c1.${LABEL}/`))
   expect(c1Frames()).toHaveLength(1)
@@ -169,6 +174,7 @@ test('a Card reaches neither the window, another Card, file:// nor another worfy
 
   // The web and file://: the window's own CSP (frame-src worfy-card:) refuses the frame before
   // main is asked; the frame ends on an error page, never on the target.
+  const fileRefused = window.waitForEvent('console', (message) => message.text() === 'Not allowed to load local resource: file:///etc/hosts')
   for (const [cardId, target] of [
     ['c1', 'https://example.com/'],
     ['c2', 'file:///etc/hosts'],
@@ -178,7 +184,10 @@ test('a Card reaches neither the window, another Card, file:// nor another worfy
     // The frame's document goes away when the refused navigation turns into an error page.
     await card?.evaluate(navigateScript(target)).catch(() => undefined)
   }
-  await window.waitForTimeout(300)
+  // Both refusals are over: the web page leaves Card c1 on an error page, and Chromium refuses
+  // file:// inside Card c2, says so on the console, and leaves the Card where it was.
+  await expect.poll(() => window.frames().some((candidate) => candidate.url().startsWith(`worfy-card://c1.${LABEL}/`))).toBe(false)
+  await fileRefused
   expect(window.frames().some((candidate) => candidate.url().startsWith('https:') || candidate.url().startsWith('file:///etc'))).toBe(false)
   expect(app.windows().length).toBe(before)
   await expect(window.locator('[data-testid="canvas"]')).toBeVisible()
@@ -191,20 +200,23 @@ test('main refuses every new window on its own, and a Card can neither open one 
   const frame = await cardFrame(window, 'c1')
   const rendererUrl = window.url()
   const before = app.windows().length
+  const contentsBefore = await app.evaluate(({ webContents }) => webContents.getAllWebContents().length)
 
   // The window itself has no iframe sandbox around it, so only main's window-open handler is
   // left to refuse here. A Card frame asks the same handler once its sandbox lets a popup through.
   expect(await window.evaluate("window.open('https://127.0.0.1:9/', '_blank') === null")).toBe(true)
   expect(await window.evaluate("window.open('about:blank', '_blank', 'noreferrer') === null")).toBe(true)
-  await window.waitForTimeout(300)
+  // main answers window.open while the call is still running, and a window it let through would
+  // have its web contents by the time the call returns: none was made.
+  expect(await app.evaluate(({ webContents }) => webContents.getAllWebContents().length)).toBe(contentsBefore)
   expect(app.windows().length).toBe(before)
 
   // The sandbox of a Card's iframe is exactly scripts and its own origin: no popups, no top
   // navigation, no forms.
   await expect(window.locator('[data-card-id="c1"] iframe')).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin')
   const topNavigation = await frame.evaluate(`(() => { try { top.location.href = 'https://127.0.0.1:9/'; return 'asked' } catch (error) { return error.name } })()`)
+  // Refused inside the Card before any navigation started: there is nothing to wait for.
   expect(topNavigation).toBe('SecurityError')
-  await window.waitForTimeout(300)
   expect(window.url()).toBe(rendererUrl)
   await expect(window.locator('[data-testid="canvas"]')).toBeVisible()
   expect(app.windows().length).toBe(before)

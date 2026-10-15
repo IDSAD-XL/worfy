@@ -14,6 +14,7 @@ import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { settled } from './wait'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -418,8 +419,8 @@ test('a Ticket is not dragged and keeps its ELK place; a frame dragged by its he
     await window.mouse.move(start.x + 20 + 200, start.y + 5 + 200, { steps: 12 })
     await window.mouse.up()
     expect(await inFrame(window, 'demo', 3)).toEqual(placeOf(elk, 3))
-    // Long enough for a save to have gone through main (LAYOUT_SAVE_DELAY_MS is 250 ms).
-    await window.waitForTimeout(500)
+    // A save the drop sent would have reached main by now: the renderer has caught up with it.
+    await settled(window)
     expect(await inFrame(window, 'demo', 3)).toEqual(placeOf(elk, 3))
     expect(await layoutNodes(window)).toEqual(before)
 
@@ -553,8 +554,9 @@ test('a saved Layout with the Orchestrator and HANDOFF Nodes where the frame use
     expect(placed.map(({ id, x, y }) => ({ id, x, y }))).toEqual(saved.map(({ id, x, y }) => ({ id, x, y })))
     expect(await underFrame(window, placed)).toEqual([0, 0])
     // Nothing was moved to get there: the Layout keeps both Nodes where they were (ADR-0032, no
-    // `move` of the user's Nodes), and the repository is not touched (ADR-0005).
-    await window.waitForTimeout(500)
+    // `move` of the user's Nodes), and the repository is not touched (ADR-0005). A move would have
+    // been sent in the same pass that placed the frame, which is drawn: the renderer has caught up.
+    await settled(window)
     expect((await mainNodes(window)).map(({ id, x, y }) => ({ id, x, y }))).toEqual(saved.map(({ id, x, y }) => ({ id, x, y })))
     expect(git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
   } finally {

@@ -1,0 +1,13 @@
+{"at":"2026-10-06T01:00:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"run-started","origin":"github.com/owner/demo"}
+{"at":"2026-10-06T01:00:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"wave-started","wave":1,"tickets":["01","02","03"],"text":"Tickets 01, 02, 03 of epic demo-epic"}
+{"at":"2026-10-06T04:30:00+03:00","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"limits-hit","window":"five_hour","resetsAt":"2026-10-06T02:00:00.000Z"}
+{"at":"2026-10-06T01:30:05.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"waiting-until","until":"2026-10-06T02:00:00.000Z"}
+{"at":"2026-10-06T02:00:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"resumed"}
+{"at":"2026-10-06T02:01:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"wave-sta
+
+{"at":"2026-10-06T02:02:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"comet-sighted","where":"north"}
+{"at":"2026-10-06T02:21:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"narrow-round","ticket":"01","outcome":"started","text":"NARROW: [low] a missing test"}
+{"at":"2026-10-06T02:30:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"session-error","session":"s-1","message":"spawn failed in /Users/someone/secret-project"}
+{"at":"2026-10-06T03:00:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"wave-finished","wave":1,"tickets":["01","02","03"]}
+{"at":"2026-10-06T03:00:05.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"wave-started","wave":2,"tickets":["03"]}
+{"at":"2026-10-06T03:10:00.000Z","run":"2026-10-06T01-00-00-000Z-aaaaaa","project":"demo-1a2b3c4d","epic":"demo-epic","kind":"run-stopped","reason":"no-progress","lastText":"the Orchestrator's last answer"}

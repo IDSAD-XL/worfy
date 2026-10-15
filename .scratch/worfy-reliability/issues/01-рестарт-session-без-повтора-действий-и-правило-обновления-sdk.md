@@ -1,7 +1,7 @@
 # 01 — Рестарт Session не повторяет внешних действий и не снимает отказ в разрешении; правило обновления SDK
 
 Type: task
-Status: open
+Status: done — 2026-10-15, [PR #342](https://github.com/IDSAD-XL/worfy/pull/342)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея A); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «A. P0 candidate: Claude runtime
@@ -78,12 +78,12 @@ compatibility and fail-closed regression tests»; [ADR-0029](../../../docs/adr/0
 
 ## Готово, когда
 
-- [ ] Test-ы пункта 1 есть и зелёные; на мутанте «очередь после падения не встаёт на паузу»
+- [x] Test-ы пункта 1 есть и зелёные; на мутанте «очередь после падения не встаёт на паузу»
       (`session.ts:711`) test падения краснеет.
-- [ ] Test-ы пункта 2 есть и зелёные; поведение «Always allow» после рестарта и выбор — в «Итог».
-- [ ] Раздел о правиле обновления SDK есть в `docs/lessons/`.
-- [ ] Ни один test не запускает настоящий Claude Code (только `fake-query.ts`).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] Test-ы пункта 2 есть и зелёные; поведение «Always allow» после рестарта и выбор — в «Итог».
+- [x] Раздел о правиле обновления SDK есть в `docs/lessons/`.
+- [x] Ни один test не запускает настоящий Claude Code (только `fake-query.ts`).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -102,6 +102,7 @@ compatibility and fail-closed regression tests»; [ADR-0029](../../../docs/adr/0
 - `test/contract/autopilot-limits.test.ts`
 - `test/contract/permissions.test.ts`
 - `docs/lessons/agents.md`
+- `src/main/agent/permissions.ts` — только комментарий о «Always allow» после падения Claude Code (выбор в «Итог»)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave): `src/main/agent/session.ts`,
 `src/main/agent/orchestrator.ts`, `src/main/agent/permissions.ts`, `src/main/autopilot/run.ts`,
@@ -116,4 +117,64 @@ compatibility and fail-closed regression tests»; [ADR-0029](../../../docs/adr/0
 
 ## Итог
 
-—
+Ветка `worfy-reliability/01`. Дефектов worfy test-ы не нашли: ни один новый test не был красным на
+main, правок кода нет; в `src/` — только комментарий `permissions.ts`.
+
+**Test-ы пункта 1 (не отправлено дважды).** Каждый записывает сообщения каждого процесса fake SDK
+(`messagesPerProcess` / `processes()` по записям `start` и `message`):
+
+- `test/contract/agent-session.test.ts` — падение посреди хода с сообщением в очереди: второй
+  процесс получает только новое сообщение; ушедший ход и очередь не повторяются; очередь ждёт
+  «Send queued» и уходит один раз.
+- `test/contract/orchestrator.test.ts`, блок «Orchestrator relaunch and the messages it carries
+  over» — relaunch с очередью на паузе (halt и `giveBackNow`), без паузы (`giveBackNow` без halt) и
+  после падения unattended Session (`setUnattended(false)` ждёт конца хода, ход кончается падением):
+  команда Wave не уходит снова, каждое сообщение очереди — ровно один раз за обе Session.
+- `test/contract/autopilot-limits.test.ts` — Session упала во время ожидания Limits: прогон
+  встаёт с `session-error`, таймер отменён, поздний (двойной) таймер ничего не шлёт ни в мёртвую
+  Session, ни в Session, отданную человеку; прерванные Force stop-ом Ticket-ы идут только с первой
+  Wave следующего прогона (`autopilotWave` получил `resume` `[]`, `[1, 2]`, `[]`), продолжение после
+  Limits и Wave 2 их не берут.
+
+**Test-ы пункта 2 (разрешения после рестарта)** — `test/contract/permissions.test.ts`, блок «after
+Claude Code died…»: вызов, отклонённый из-за падения, в новом процессе не выполняется, следующий
+вызов спрашивает, режим `default` у нового процесса тот же; «Deny» не запоминается ни как отказ,
+ни как разрешение — после падения между ходами тот же tool спрашивает снова; unattended Session
+после падения и `send` по-прежнему отклоняет сразу. Режим Node после relaunch — в
+`orchestrator.test.ts` («keeps the permission mode the user picked…»): unattended Session между
+ними отклоняет вызов, её bypassPermissions не сохранён поверх выбора человека.
+
+**«Always allow» после рестарта той же Session — решено без владельца, подтвердить.** По коду
+список переживает падение Claude Code: `begin()` берёт тот же `PermissionGate`. Выбор — закрепить
+это поведение и уточнить комментарий `permissions.ts`, код не менять. Довод: карточка обещает
+«Allow … until this Session ends» (`src/renderer/session/PermissionCard.tsx:94`), а падение Session
+не закрывает — Node та же, следующий `send` продолжает её. Цена: после падения tool из списка идёт
+без вопроса в новом процессе. Другой путь — очищать список в `fail()` (fail-closed): человек
+отвечает заново после каждого падения, а подпись карточки надо менять. Закрыто test-ом «"Always
+allow" given before the crash…»; закрыть и открыть заново (Resume) — по-прежнему пустой список.
+
+**Мутанты** (в своём worktree, откат копией):
+
+| Мутант | Красные test-ы |
+| --- | --- |
+| нет `this.queue.pause()` в `fail()` (`session.ts:711`) | падение посреди хода (`agent-session`); relaunch после падения (`orchestrator`) |
+| `this.queue.adopt(taken)` дважды в `adoptQueue` | все три relaunch с очередью (`orchestrator`) |
+| нет `!wait.isCurrent(id)` в `resume` (`run.ts:908`) | 3 старых test-а Limits; test «Session упала во время ожидания» зелёный — его держит вторая проверка `phase === 'stopped'` |
+| нет `isCurrent` и `phase === 'stopped'` вместе | ещё и «Session упала во время ожидания» (5 красных) |
+| нет `run.resume = []` в `sendWave` | «прерванные Ticket-ы только с первой Wave» |
+| `cancelAll()` очищает «Always allow» | «Always allow» после падения и старый test о Resume |
+| процесс после первого получает canUseTool gate-а, а не отказ unattended | unattended после падения и старый test unattended (по таймауту) |
+
+**Правило обновления SDK** — урок в конце `docs/lessons/agents.md`: поднимать
+`@anthropic-ai/claude-agent-sdk` только до сборки с Claude Code ≥ 2.1.299 и в том же PR снимать
+`test/fixtures/sdk-messages/` заново. Список тем `docs/lessons/README.md` не правился (не в следе):
+описание `agents.md` в нём об SDK не говорит.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01 и 04 параллельно, общих файлов нет; 02 и 03 — исследования, `blocked` для Autopilot (PR #331). Worktree — `.claude/worktrees/rel-01`: номера Ticket-ов разных Epic-ов в шаблоне пути совпадают.
+- Гейт — один круг: `VERIFIED` на `2bea632` ([комментарий в PR #342](https://github.com/IDSAD-XL/worfy/pull/342#issuecomment-6186275537)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0, 5208 passed (gate fast ответил из кэша); четыре test-файла — 122 passed; мутанты Ticket-а и три своих (`takeAll` теряет паузу очереди, ушедший ход повторяется после падения, без копии `autopilot-waves.jsonl`) — все красные. Выбор по «Always allow» отказ не ослабляет: код не менялся, Deny не запоминается, unattended Session после падения отклоняет каждый вызов.
+- Мерж: база main `e27868f`, head `282fbac`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `75316ed`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): `test/contract/permissions.test.ts:379`, `:400-401` — название test-а обещает, что «Always allow» в новом процессе той же Session не покрывает другой tool, а проверяется только внутренний список (`as unknown as { permissions: PermissionGate }`), вызова другого tool после падения нет; почти закрывает старый test `:241`. Урок занимает `docs/lessons/agents.md:117-125`.
+- **Решено без владельца, подтвердить:** «Always allow» переживает падение Claude Code внутри той же Session (выбор implementer-а выше).

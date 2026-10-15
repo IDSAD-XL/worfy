@@ -77,6 +77,20 @@ async function targetOf(root: string, projects: readonly { readonly path: string
 }
 
 /**
+ * The folder `root` is of the Project at `project`, which must be a Project of `projects`: its
+ * root, or one of its repositories. Throws otherwise.
+ */
+async function targetIn(root: string, project: string, projects: readonly { readonly path: string }[], scope: ChecksScope): Promise<{ project: string; repo: ProjectRepo | null; layout: ProjectLayout | null }> {
+  const asker = projects.find((each) => sameFolder(each.path, project))
+  if (!asker) throw new Error(`${project} is not a Project of this Machine`)
+  if (sameFolder(asker.path, root)) return { project: asker.path, repo: null, layout: null }
+  const layout = await scope.layout(asker.path)
+  const repo = layout.repos.find((each) => sameFolder(each.path, root))
+  if (!repo) throw new Error(`${root} is not a folder of the Project ${asker.path}: neither its root nor one of its repositories`)
+  return { project: asker.path, repo, layout }
+}
+
+/**
  * The branches the model names for Tickets checked in this root: every Ticket's in a Project of one
  * repository, only those of `repo`'s Tickets in a Project over several.
  */
@@ -87,7 +101,9 @@ function namedBranches(model: WorkflowModel | null, repo: ProjectRepo | null, la
 
 /**
  * A call from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts);
- * any call names a Project root or one of its repositories, and branches of its Tickets.
+ * any call names a Project root or one of its repositories, and branches of its Tickets. A call
+ * that names the Project asking (`project`) is judged by that Project alone: a repository of it
+ * that is also a Project of its own still takes the branches of the asking Project's Tickets.
  */
 export function checksHandlers(
   service: ChecksService,
@@ -95,9 +111,11 @@ export function checksHandlers(
   scope: ChecksScope = appChecksScope,
 ): HandlerModule {
   return [
-    defineHandler(checksGet, async ({ root, branches }, { event }) => {
+    defineHandler(checksGet, async ({ root, branches, project }, { event }) => {
       const resolved = insideProjects(event, resolve(root), projects, 'the Project root')
-      const target = await targetOf(resolved, projects(), scope)
+      // The Project that asks, when the caller names it: a Linked machine only one inside the Projects.
+      const asker = project === undefined ? undefined : insideProjects(event, resolve(project), projects, 'the Project')
+      const target = asker === undefined ? await targetOf(resolved, projects(), scope) : await targetIn(resolved, asker, projects(), scope)
       if (target === null) throw new Error(`${root} is neither the root of a Project nor one of its repositories`)
       const named = namedBranches(await scope.model(target.project), target.repo, target.layout)
       const foreign = branches.find((branch) => parseTicketBranch(branch) === null && !named.has(branch))

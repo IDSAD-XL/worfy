@@ -1,12 +1,16 @@
-import type { CSSProperties } from 'react'
+import { useEffect, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
 import { flattenSubagents } from '../../shared/transcript/subagents'
 import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes'
+import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSubagentTree } from '../claude-home/subagents'
 import { useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
+import { isPrimary, label } from '../platform'
 import { useProjects } from '../projects/useProjects'
 import { StatusChip, type Status } from '../theme/primitives'
+import { openSession, subagentParent, subagentSession, useNavigation, type OpenedSession } from './navigation'
+import { isRunning, useSessionNodeView } from './node-sessions'
 import type { RailBlock } from './rail/index'
 import { SessionRail } from './SessionRail'
 import { Transcript } from './Transcript'
@@ -18,6 +22,12 @@ import './session.css'
 // such a Session, so there is no input field: a line says why instead. With `agentId` the panel
 // shows one Subagent of a Session instead — any Session, a worfy one too — from its own transcript
 // file (`<sessionId>/subagents/agent-<agentId>.jsonl`, ticket 15), read-only as well.
+//
+// A Subagent's window leads back to its parent (worfy-polish ticket 25): the arrow left of the title
+// (and ⌘[, Ctrl+[ elsewhere) goes to the Subagent that started it, or to its Session; the "of
+// <Session>" link always goes to the Session. Not to where the window was opened from: opened from
+// the Canvas it leads to the parent all the same. The Session opens live when worfy runs it on the
+// Node (the Orchestrator, a Session Node), else read-only from its transcript.
 
 export interface ExternalSessionPanelProps {
   projectId: string
@@ -29,6 +39,33 @@ export interface ExternalSessionPanelProps {
   blocks?: readonly RailBlock[]
 }
 
+/** The arrow's key: ⌘[ on macOS, Ctrl+[ elsewhere; by its place too, for a layout that has another character there. */
+const BACK_KEY = { primary: true, key: '[' } as const
+const isBackKey = (event: KeyboardEvent): boolean => isPrimary(event) && !event.shiftKey && (event.key === '[' || (event.code === 'BracketLeft' && !event.altKey))
+
+function BackArrow({ to, name }: { to: OpenedSession; name: string }) {
+  const view = useNavigation((store) => store.view)
+  useEffect(() => {
+    // The panel stays mounted under the Canvas: the key belongs to the Session view only while it is shown.
+    if (view !== 'session') return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isBackKey(event)) return
+      event.preventDefault()
+      openSession(to)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [view, to])
+  const text = `Back to ${name}`
+  return (
+    <button type="button" className="w-session__button" style={styles.back} aria-label={text} title={`${text} (${label(BACK_KEY)})`} data-testid="session-back" onClick={() => openSession(to)}>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M13 8H3.5M7.5 3.5L3 8l4.5 4.5" />
+      </svg>
+    </button>
+  )
+}
+
 const SUBAGENT_CHIPS: Record<'running' | 'done' | 'error', { status: Status; label: string }> = {
   running: { status: 'working', label: 'running' },
   done: { status: 'done', label: 'done' },
@@ -38,6 +75,8 @@ const SUBAGENT_CHIPS: Record<'running' | 'done' | 'error', { status: Status; lab
 const styles = {
   readOnly: { fontSize: 'var(--text-13)', color: 'var(--text-secondary)' },
   source: { fontSize: 'var(--text-12)', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 },
+  back: { width: 26, padding: 0, justifyContent: 'center' },
+  link: { padding: 0, border: 'none', background: 'none', font: 'inherit', color: 'var(--accent)', textDecoration: 'underline', textUnderlineOffset: 2, cursor: 'pointer' },
 } satisfies Record<string, CSSProperties>
 
 export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, blocks = [] }: ExternalSessionPanelProps) {
@@ -46,6 +85,16 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   const transcript = useSessionTranscript(root, sessionId, agentId)
   const tree = useSubagentTree(root, agentId === undefined ? null : sessionId)
   const subagent = agentId === undefined ? undefined : flattenSubagents(tree).find((info) => info.agentId === agentId)
+  const orchestrator = useOrchestratorView(nodeId)
+  const nodeSession = useSessionNodeView(projectId, nodeId)
+  // worfy runs this Session on the Node now: the way back opens it live.
+  const runs =
+    (orchestrator !== undefined && orchestrator.state !== 'closed' && orchestrator.sessionId === sessionId) ||
+    (isRunning(nodeSession) && (nodeSession.sessionId === sessionId || nodeSession.sdkSessionId === sessionId))
+  const parentAgentId = subagent?.parentAgentId ?? null
+  const parent = parentAgentId === null ? undefined : flattenSubagents(tree).find((info) => info.agentId === parentAgentId)
+  const back = subagentParent({ nodeId, projectId, sessionId }, parentAgentId, runs)
+  const toSession = subagentSession({ nodeId, projectId, sessionId }, runs)
   const saved = useLayout(projectId).state?.layout.nodes.find((node) => node.id === nodeId)
   const data = saved ? readSessionNodeData(saved.data) : null
   const session = live?.find((each) => each.sessionId === sessionId)
@@ -68,9 +117,10 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   let empty: string | null = null
   if (transcript.error !== undefined) empty = `The transcript could not be read: ${transcript.error}`
   else if (transcript.loaded && !transcript.found) empty = agentId === undefined ? 'No transcript of this Session yet' : 'No transcript of this Subagent yet'
+  const backName = parentAgentId === null ? sessionTitle : `Subagent ${parent?.name ?? subagentTypeLabel(parent?.subagentType ?? null) ?? parentAgentId}`
   const source =
     agentId !== undefined
-      ? [subagentTypeLabel(type), subagent?.model, `of ${sessionTitle}`].filter((part) => part !== undefined && part !== null).join(' · ')
+      ? [subagentTypeLabel(type), subagent?.model].filter((part) => part !== undefined && part !== null).join(' · ')
       : desktop
         ? 'Claude desktop'
         : `terminal${cwd ? ` · ${cwd}` : ''}`
@@ -78,6 +128,7 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
   return (
     <div className="w-session" data-testid="session-view" data-session-id={sessionId} data-node-id={nodeId} data-agent-id={agentId} data-read-only="true">
       <header className="w-session__header">
+        {agentId !== undefined ? <BackArrow to={back} name={backName} /> : null}
         <h1 className="w-session__title" title={titleTooltip}>
           {title}
         </h1>
@@ -87,6 +138,22 @@ export function ExternalSessionPanel({ projectId, nodeId, sessionId, agentId, bl
         <span className="w-session__divider" aria-hidden="true" />
         <span className="w-mono" style={styles.source} data-testid="session-source" title={agentId !== undefined ? (type ?? undefined) : undefined}>
           {source}
+          {agentId !== undefined ? (
+            <>
+              {source === '' ? 'of ' : ' · of '}
+              <a
+                href="#"
+                style={styles.link}
+                data-testid="session-source-session"
+                onClick={(event) => {
+                  event.preventDefault()
+                  openSession(toSession)
+                }}
+              >
+                {sessionTitle}
+              </a>
+            </>
+          ) : null}
         </span>
         <span className="w-session__spacer" />
       </header>

@@ -139,6 +139,41 @@ export const claudeHomeSubagentTranscript = invokeChannel(
   'project',
 )
 
+/** Bounds of `claudeHome.search`: query length, snippet length, Sessions per answer. */
+export const TRANSCRIPT_SEARCH = { minQuery: 3, maxQuery: 200, snippet: 120, hits: 20 } as const
+
+/** A Session whose conversation contains the searched text (`claudeHome.search`). No file path. */
+export const transcriptHitSchema = z.object({
+  sessionId: sessionIdSchema,
+  /** The Session's title, as `claudeHome.sessions` gives it in `history`. */
+  title: z.string().optional(),
+  /** Last change of the transcript, in ms since the epoch. */
+  at: z.number(),
+  /** Up to 120 characters of the first message that matches, around the match; `…` where cut. */
+  snippet: z.string().max(TRANSCRIPT_SEARCH.snippet),
+})
+
+export type TranscriptHit = z.infer<typeof transcriptHitSchema>
+
+/**
+ * Sessions of a Project whose transcript contains `query` (at least 3 characters, case ignored)
+ * in the user's messages or Claude's replies — not in tool calls or their output. Newest first,
+ * at most 20; `limited` says a limit of the search (src/main/claude-home/search.ts) left some of
+ * the Project's transcripts unsearched. Reads only; no subscription.
+ */
+export const claudeHomeSearch = invokeChannel(
+  'claudeHome.search',
+  z.object({
+    projectRoot: absolutePath,
+    query: z
+      .string()
+      .max(TRANSCRIPT_SEARCH.maxQuery)
+      .refine((query) => query.trim().length >= TRANSCRIPT_SEARCH.minQuery, `a query of at least ${TRANSCRIPT_SEARCH.minQuery} characters`),
+  }),
+  z.object({ hits: z.array(transcriptHitSchema).max(TRANSCRIPT_SEARCH.hits), limited: z.boolean() }),
+  'project',
+)
+
 /**
  * Something changed under ~/.claude for a Project: the registry of live Sessions (`sessions`)
  * and/or the transcripts named in `transcripts` (Session ids). Debounced in main.
@@ -157,6 +192,7 @@ declare module './channels' {
     'claudeHome.transcript': typeof claudeHomeTranscript
     'claudeHome.subagents': typeof claudeHomeSubagents
     'claudeHome.subagentTranscript': typeof claudeHomeSubagentTranscript
+    'claudeHome.search': typeof claudeHomeSearch
     'claudeHome.changed': typeof claudeHomeChanged
   }
 }

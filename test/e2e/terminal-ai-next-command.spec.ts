@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { shellCaughtUp } from './wait'
 
 // Next command of Terminal AI, in a Terminal Node of the built app on a real zsh: once a command is
 // over and the line is empty, the assist process proposes the next command after a pause; it is on
@@ -49,7 +50,7 @@ test('after a command the empty line shows the next one in grey; → puts it int
     await window.keyboard.press('ArrowRight')
     await expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe('')
     expect(await editedLine(node)).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
-    await window.waitForTimeout(1500)
+    await shellCaughtUp(window, node, `${TERMINAL_AI_PROMPT}${answer}`)
     expect([...(await screenText(node)).matchAll(ran)]).toHaveLength(0)
 
     // Enter is the user's: the command runs once.

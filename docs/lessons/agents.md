@@ -113,3 +113,13 @@ Status ветки живого worktree на checkout, пока в checkout-е �
 PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skills/epic-wave/SKILL.md`,
 «4. Мерж по политике», «Уборка после мержа»).
 Код: `applyBranches` в `src/main/workflow/reader.ts`. Источник: worfy-daily Wave 6; коммит `~/.claude` ec8412c.
+
+## Agent SDK поднимать только до сборки с Claude Code 2.1.299 или новее и в том же PR заново снимать fixtures
+
+В Claude Code 2.1.296 headless Session могла дважды выполнить одобренный вызов tool, а вызовы MCP
+после переподключения шли дважды; исправлено в 2.1.299 (CHANGELOG Claude Code). Fake SDK такой
+повтор не ловит: contract test-ы доказывают лишь, что сам worfy после рестарта не шлёт ход второй раз.
+Поэтому `@anthropic-ai/claude-agent-sdk` (`package.json`) поднимать только до сборки с Claude Code
+≥ 2.1.299 и в том же PR снимать `test/fixtures/sdk-messages/` заново (`scripts/spikes/sdk-probe.ts`;
+проверка — `claude_code_version` в их `system/init`). Spike зовёт настоящую модель и пишет в `~/.claude`.
+Код: `src/main/agent/fake-query.ts`. Источник: worfy-reliability/01; PR #325, идея A.

@@ -25,8 +25,14 @@ test('a line the history has nothing for is completed in grey by the model after
   const mark = `worfy-tai-${Date.now().toString(36)}-${process.pid}`
   const typed = `echo ${mark} se`
   const answer = `echo ${mark} second third`
+  // A second line, without the mark, typed at the end: its answer shows that any ask before it is over.
+  const later = `worfy-tai-later-${Date.now().toString(36)}-${process.pid}`
+  const laterTyped = `true ${later} be`
   // As a model writes it: in backticks. The answer takes a moment, as Haiku does.
-  sandbox.answers([{ feature: 'suggest', match: mark, answer: `\`${answer}\``, delayMs: 300 }])
+  sandbox.answers([
+    { feature: 'suggest', match: mark, answer: `\`${answer}\``, delayMs: 300 },
+    { feature: 'suggest', match: later, answer: `\`true ${later} beacon\``, delayMs: 300 },
+  ])
   const launched = await launchApp({ env: sandbox.env })
   try {
     const { window } = launched
@@ -51,11 +57,13 @@ test('a line the history has nothing for is completed in grey by the model after
     await window.keyboard.press('Enter')
     await expect.poll(async () => [...(await screenText(node)).matchAll(output)].length, { timeout: 10_000 }).toBe(1)
 
-    // The model was asked once, about the line as it was typed, and it was Haiku.
-    // Well past the pause of the widget: an ask about the line that was taken would have come by now.
-    await window.waitForTimeout(1500)
+    // The model was asked once about the line, as it was typed, and it was Haiku. An ask about the
+    // line that was taken would have gone out before the one about the next line typed, after the
+    // same pause, and with the same delay of the answer would have ended before it.
+    await window.keyboard.type(laterTyped)
+    await expect.poll(async () => (await greyText(node)).text, { timeout: 15_000 }).toBe('acon')
     const requests = sandbox.requests().filter((r) => r.feature === 'suggest')
-    expect(requests).toHaveLength(1)
+    expect(requests.map((r) => r.context.line)).toEqual([typed, laterTyped])
     expect(requests[0]).toMatchObject({ feature: 'suggest', model: 'haiku', cancelled: false, context: { line: typed, cwd: sandbox.root, commands: [] } })
   } finally {
     await launched.close()

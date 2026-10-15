@@ -9,6 +9,7 @@ import { launchedHint } from '../../src/shared/actions/render-template'
 import { LIVE_SESSION_WIDTH } from '../../src/shared/ipc/sessions'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { launchApp } from './helpers'
+import { settled } from './wait'
 
 // "Ship ticket", "Run wave" and "Open PR" (ticket 23) in the built app on the fake agent, which
 // records every message it gets (WORFY_AGENT_LOG) and never calls the model. The Project is a git
@@ -210,7 +211,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     await ship(7).click({ force: true })
     const twice = await bridgeCall(window, 'actions.shipTicket', { projectId: PROJECT, epic: EPIC, num: 7 })
     expect(twice).toMatchObject({ ok: false, error: expect.stringContaining(launchedHint(7)) as unknown as string })
-    await window.waitForTimeout(300)
+    // Whatever the click sent, main has answered it by now, refusing as it refused the call above.
+    await settled(window)
     await expect(sessionNodes).toHaveCount(1)
     expect(messages(log).filter((text) => text === `/ship-ticket ${EPIC} 07`)).toHaveLength(1)
     // Once that Session closes, the button is active again without a click. Its turn holds until
@@ -244,7 +246,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     // main refuses too, whatever the renderer shows.
     const refused = await bridgeCall(window, 'actions.shipTicket', { projectId: PROJECT, epic: EPIC, num: 7 })
     expect(refused).toMatchObject({ ok: false, error: expect.stringContaining('Set the Ship ticket template in Project settings') as unknown as string })
-    await window.waitForTimeout(300)
+    // Whatever the clicks sent, main has answered it by now, refusing as it refused the call above.
+    await settled(window)
     await expect(sessionNodes).toHaveCount(2)
 
     // Run wave with the default template: the Orchestrator gets `/epic-wave Ticket-ы 07, 09 эпика worfy-mvp`
@@ -272,7 +275,8 @@ test('Ship ticket, Run wave and Open PR send the Project\'s templates, bind what
     await expect(ticket(11).getByTestId('action-open-pr')).toHaveAttribute('aria-disabled', 'true')
     await expect(ticket(11).getByTestId('action-open-pr')).toHaveAttribute('title', 'Not a GitHub address: https://gitlab.example/o/r/pull/42')
     await ticket(11).getByTestId('action-open-pr').click({ force: true })
-    await window.waitForTimeout(300)
+    // An address the click sent would have reached shell.openExternal by now.
+    await settled(window)
     expect(await app.evaluate(() => (globalThis as unknown as { opened: string[] }).opened)).toEqual(['https://github.com/o/r/pull/41'])
     await window.screenshot({ path: test.info().outputPath('ship-ticket-after.png') })
   } finally {
@@ -362,14 +366,15 @@ test('Ship ticket puts the Session right of the Epic frames\' column, by its Tic
     for (const other of before.filter(onThePlane)) expect(overlaps(session!, other), other.id).toBe(false)
     expect(overlaps(session!, frame), 'on the Epic frame').toBe(false)
 
-    // The column did not move (ADR-0032): the Session is outside its band.
-    await window.waitForTimeout(500)
+    // The column did not move (ADR-0032): the Session is outside its band. A move would follow the
+    // new Node in the renderer, which has caught up with main.
+    await settled(window)
     expect(await flowRect(window, frameId)).toEqual(frame)
     await expect(window.locator(`[data-testid="session-node"]`)).toBeVisible()
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
-      await window.waitForTimeout(200)
-      await window.screenshot({ path: test.info().outputPath(`ship-ticket-session-${scheme}.png`) })
+      // Transitions skipped: the shot never catches colours halfway through the change of theme.
+      await window.screenshot({ path: test.info().outputPath(`ship-ticket-session-${scheme}.png`), animations: 'disabled' })
     }
   } finally {
     await launched.close()

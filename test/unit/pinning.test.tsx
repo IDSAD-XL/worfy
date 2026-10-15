@@ -3,7 +3,24 @@
 // the viewport, and a pinned Node is placed on the plane anew for every viewport.
 import { describe, expect, it } from 'vitest'
 import type { LayoutNode, Viewport } from '../../src/shared/layout/types'
-import { canvasToScreen, PINNED_Z_INDEX, pinnedScreenPoint, pinOp, placePinned, planeToolbarStyle, screenToCanvas, unpinOp } from '../../src/renderer/canvas/pinning'
+import { COLUMN_GAP, FRAME_PADDING, HEADER_HEIGHT, ROW_GAP, TICKET_HEIGHT, TICKET_WIDTH, TICKETS_TOP } from '../../src/renderer/canvas/epic-layout'
+import {
+  canvasToScreen,
+  clearToolbarPlacement,
+  epicHeaderBand,
+  FOCUS_ENTRY_OFFSET,
+  FOCUS_ENTRY_SIZE,
+  PINNED_Z_INDEX,
+  pinnedScreenPoint,
+  pinOp,
+  placePinned,
+  planeToolbarStyle,
+  screenToCanvas,
+  toolbarRect,
+  unpinOp,
+  type PlaneRect,
+  type ToolbarKeepOut,
+} from '../../src/renderer/canvas/pinning'
 
 const node = (over: Partial<LayoutNode> = {}): LayoutNode => ({
   id: 'n1',
@@ -178,6 +195,165 @@ describe('the toolbars of a selection among the Nodes', () => {
 
   it('is not drawn for an empty selection', () => {
     expect(planeToolbarStyle([], 1, 'top', 12)).toBeNull()
+  })
+})
+
+describe('the selection toolbar takes a place around the selection that covers nothing', () => {
+  // A frame at the origin; its top-row Tickets start TICKETS_TOP (92) below its top edge, the
+  // columns stand COLUMN_GAP (24) apart and the rows ROW_GAP (12) apart, as epic-layout.ts lays them.
+  const frame = { x: 0, y: 0, width: 1000, height: 600 }
+  const band = epicHeaderBand(frame)
+  const ticketAt = (column: number, row: number) => ({
+    x: FRAME_PADDING + column * (TICKET_WIDTH + COLUMN_GAP),
+    y: TICKETS_TOP + row * (TICKET_HEIGHT + ROW_GAP),
+    width: TICKET_WIDTH,
+    height: TICKET_HEIGHT,
+  })
+  const size = { width: 200, height: 34 }
+  const focus = { size: FOCUS_ENTRY_SIZE, offset: FOCUS_ENTRY_OFFSET }
+  const offsets = { top: 12, side: 12, bottom: 48 }
+  const keepOut = (nodes: PlaneRect[], bands: PlaneRect[] = [band]): ToolbarKeepOut => ({ bands, nodes, focus })
+  const place = (selection: PlaneRect, zones: ToolbarKeepOut, zoom = 1) => clearToolbarPlacement([selection], zones, zoom, size, offsets)
+  const overlaps = (a: PlaneRect, b: PlaneRect): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+  const focusRect = (selection: PlaneRect, zoom: number) => toolbarRect([selection], zoom, FOCUS_ENTRY_SIZE, { side: 'bottom', offset: FOCUS_ENTRY_OFFSET })!
+
+  it('the band of a frame is its header and its column labels, no taller than the frame', () => {
+    expect(band).toEqual({ x: 0, y: 0, width: 1000, height: TICKETS_TOP })
+    // A collapsed frame is only its header row.
+    expect(epicHeaderBand({ ...frame, height: HEADER_HEIGHT })).toEqual({ ...frame, height: HEADER_HEIGHT })
+  })
+
+  for (const zoom of [1, 0.6]) {
+    it(`a top-row Ticket with a neighbour below — the toolbar covers neither the header, the neighbour nor the Focus button (zoom ${zoom})`, () => {
+      const top = ticketAt(0, 0)
+      const below = ticketAt(0, 1)
+      const placement = place(top, keepOut([below]), zoom)
+      const rect = toolbarRect([top], zoom, size, placement)!
+      expect(overlaps(rect, band), 'the header').toBe(false)
+      expect(overlaps(rect, below), 'the neighbour below').toBe(false)
+      expect(overlaps(rect, focusRect(top, zoom)), 'the Focus button').toBe(false)
+      // Beside it, on the right: nothing stands there.
+      expect(placement).toEqual({ side: 'right', offset: 12 })
+    })
+  }
+
+  it('on top when nothing is there', () => {
+    expect(place(ticketAt(0, 1), keepOut([]))).toEqual({ side: 'top', offset: 12 })
+    expect(place({ ...ticketAt(0, 0), x: 1200 }, keepOut([ticketAt(0, 0)]))).toEqual({ side: 'top', offset: 12 })
+  })
+
+  it('a Node above the selection is kept off as the header is: on the right instead', () => {
+    // A Ticket of the second row: on top the toolbar would lie over the bottom of the Ticket above (12 px apart).
+    expect(place(ticketAt(0, 1), keepOut([ticketAt(0, 0)]))).toEqual({ side: 'right', offset: 12 })
+  })
+
+  it('on the left when the top and the right are taken', () => {
+    expect(place(ticketAt(1, 1), keepOut([ticketAt(1, 0), ticketAt(2, 1)]))).toEqual({ side: 'left', offset: 12 })
+  })
+
+  it('below the Focus button when the top and both sides are taken', () => {
+    const selection = ticketAt(1, 0)
+    expect(place(selection, keepOut([ticketAt(0, 0), ticketAt(2, 0)]))).toEqual({ side: 'bottom', offset: 48 })
+    const rect = toolbarRect([selection], 1, size, { side: 'bottom', offset: 48 })!
+    expect(rect.y).toBeGreaterThanOrEqual(focusRect(selection, 1).y + FOCUS_ENTRY_SIZE.height)
+  })
+
+  it('beside the selection the toolbar is level with its top edge, `side` pixels away', () => {
+    const selection = ticketAt(1, 1)
+    expect(toolbarRect([selection], 1, size, { side: 'right', offset: 12 })).toEqual({ x: selection.x + TICKET_WIDTH + 12, y: selection.y, width: 200, height: 34 })
+    expect(toolbarRect([selection], 2, size, { side: 'left', offset: 12 })).toEqual({ x: selection.x - 6 - 100, y: selection.y, width: 100, height: 17 })
+  })
+
+  it('the Focus button is kept off: a small selection would have it under the toolbar beside it', () => {
+    // 20 × 10 units: the Focus button below it (96 px wide, centred) reaches up beside the selection's top edge.
+    const small = { x: 400, y: 400, width: 20, height: 10 }
+    const above = { x: 300, y: 300, width: 300, height: 90 }
+    const right = toolbarRect([small], 1, size, { side: 'right', offset: 12 })!
+    expect(overlaps(right, focusRect(small, 1))).toBe(true)
+    expect(place(small, keepOut([above], []))).toEqual({ side: 'bottom', offset: 48 })
+    // Without the Focus button it would go to the right.
+    expect(place(small, { bands: [], nodes: [above], focus: null })).toEqual({ side: 'right', offset: 12 })
+  })
+
+  it('at zoom 0.6 the toolbar is taller in canvas units and reaches a Node beside the selection it clears at zoom 1', () => {
+    const selection = ticketAt(0, 1)
+    // 45 units under the selection's top edge, right of it: 34 units of toolbar clear it at zoom 1, 56.7 at zoom 0.6 do not.
+    const lower = { x: selection.x + TICKET_WIDTH + 20, y: selection.y + 45, width: 204, height: 160 }
+    const zones = keepOut([ticketAt(0, 0), lower])
+    expect(place(selection, zones, 1)).toEqual({ side: 'right', offset: 12 })
+    expect(place(selection, zones, 0.6)).toEqual({ side: 'left', offset: 12 })
+  })
+
+  it('at zoom 0.5 the toolbar above reaches the band from a Ticket further down', () => {
+    // 70 canvas units below the band: at zoom 1 the toolbar above (12 + 34 = 46) clears it, at zoom 0.5 (24 + 68 = 92) it does not.
+    const lower = { ...ticketAt(0, 0), y: TICKETS_TOP + 70 }
+    expect(place(lower, keepOut([]), 1)).toEqual({ side: 'top', offset: 12 })
+    expect(place(lower, keepOut([]), 0.5)).toEqual({ side: 'right', offset: 12 })
+  })
+
+  it('a band or a Node beside the toolbar, not under it, does not move it', () => {
+    // The toolbar is 200 px wide, centred on the Ticket: x 18..218; the band starts at 300.
+    expect(place(ticketAt(0, 0), keepOut([], [{ ...band, x: 300 }]))).toEqual({ side: 'top', offset: 12 })
+    // The Ticket above ends 12 units over the selection: 12 more than the toolbar on top would need, at zoom 1 it still reaches it.
+    expect(place(ticketAt(0, 1), keepOut([{ ...ticketAt(0, 0), y: ticketAt(0, 0).y - 34 }]))).toEqual({ side: 'top', offset: 12 })
+  })
+
+  describe('when every place covers something', () => {
+    it('a Ticket in the middle of the grid: the place that covers the least of the other Nodes, the earlier one on a tie', () => {
+      // Top: the Ticket above, 200 × 34. Right and left: the neighbours from 12 units on, 188 × 34 each. Below: 200 × 34.
+      const selection = ticketAt(1, 1)
+      const zones = keepOut([ticketAt(1, 0), ticketAt(0, 1), ticketAt(2, 1), ticketAt(1, 2)])
+      expect(place(selection, zones)).toEqual({ side: 'right', offset: 12 })
+      // With no Ticket on the right the left is the least (it covers the same as the right did).
+      expect(place(selection, keepOut([ticketAt(1, 0), ticketAt(0, 1), ticketAt(1, 2), { ...ticketAt(2, 1), x: ticketAt(2, 1).x - 10 }]))).toEqual({
+        side: 'left',
+        offset: 12,
+      })
+    })
+
+    it('a frame header weighs more than any Node: a top-row Ticket in the middle of the grid keeps off the header', () => {
+      // On top the toolbar would cover 5 units of the header band only (200 × 5), less than any side covers of a neighbour.
+      const selection = { ...ticketAt(1, 0), y: TICKETS_TOP + 41 }
+      const zones = keepOut([ticketAt(0, 0), ticketAt(2, 0), ticketAt(1, 1)])
+      const top = toolbarRect([selection], 1, size, { side: 'top', offset: 12 })!
+      expect(top.y).toBe(TICKETS_TOP - 5)
+      expect(place(selection, zones)).toEqual({ side: 'right', offset: 12 })
+    })
+
+    it('the Focus button weighs as a header does', () => {
+      // A small selection under a header band, with Nodes on both sides and below. Beside it the toolbar would
+      // cover a little of the Focus button and less of the Nodes than below; below it covers the Focus button not at all.
+      const small = { x: 400, y: 400, width: 20, height: 10 }
+      const header = { x: 300, y: 300, width: 300, height: 90 }
+      const nodes = [{ x: 100, y: 380, width: 280, height: 200 }, { x: 440, y: 380, width: 280, height: 200 }, { x: 300, y: 455, width: 300, height: 100 }]
+      expect(place(small, keepOut(nodes, [header]))).toEqual({ side: 'bottom', offset: 48 })
+      // Without the Focus button the right would cover the least.
+      expect(place(small, { bands: [header], nodes, focus: null })).toEqual({ side: 'right', offset: 12 })
+    })
+  })
+
+  it('a selection with a pinned Node keeps the toolbar on top whatever is there: it moves over the plane as the Canvas pans', () => {
+    const selection = ticketAt(1, 1)
+    const zones = keepOut([ticketAt(1, 0), ticketAt(0, 1), ticketAt(2, 1), ticketAt(1, 2)])
+    expect(clearToolbarPlacement([{ ...selection, pinned: true }], zones, 1, size, offsets)).toEqual({ side: 'top', offset: 12 })
+    expect(clearToolbarPlacement([{ ...ticketAt(0, 1), pinned: false }, { ...selection, pinned: true }], zones, 1, size, offsets)).toEqual({ side: 'top', offset: 12 })
+    expect(clearToolbarPlacement([{ ...selection, pinned: false }], zones, 1, size, offsets)).toEqual({ side: 'right', offset: 12 })
+  })
+
+  it('an empty selection gets the first place', () => {
+    expect(clearToolbarPlacement([], keepOut([]), 1, size, offsets)).toEqual({ side: 'top', offset: 12 })
+  })
+
+  it('toolbarRect is where planeToolbarStyle draws the toolbar', () => {
+    const selection = ticketAt(0, 0)
+    const plain = { ...selection, z: 1000, pinned: false }
+    expect(planeToolbarStyle([plain], 1, 'bottom', 48)?.transform).toBe('translate(118px, 300px) scale(1) translate(-50%, 0%)')
+    expect(toolbarRect([plain], 1, size, { side: 'bottom', offset: 48 })).toEqual({ x: 18, y: 300, width: 200, height: 34 })
+    expect(planeToolbarStyle([plain], 2, 'right', 12)?.transform).toBe('translate(226px, 92px) scale(0.5) translate(0%, 0%)')
+    expect(toolbarRect([plain], 2, size, { side: 'right', offset: 12 })).toEqual({ x: 226, y: 92, width: 100, height: 17 })
+    expect(planeToolbarStyle([plain], 2, 'left', 12)?.transform).toBe('translate(10px, 92px) scale(0.5) translate(-100%, 0%)')
+    expect(toolbarRect([plain], 2, size, { side: 'left', offset: 12 })).toEqual({ x: -90, y: 92, width: 100, height: 17 })
+    expect(toolbarRect([], 1, size, { side: 'top', offset: 12 })).toBeNull()
   })
 })
 

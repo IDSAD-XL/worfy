@@ -40,9 +40,9 @@ afterEach(async () => {
   await rm(cwd, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
-async function harness(script: string | ((request: QueryRequest) => string), settingsHome?: string) {
+async function harness(script: string | ((request: QueryRequest) => string), settingsHome?: string, scriptsDir = fixtures) {
   const calls: FakeCall[] = []
-  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: fixtures, script, record: (call) => calls.push(call), settingsHome }))
+  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir, script, record: (call) => calls.push(call), settingsHome }))
   registries.push(registry)
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => handlers.set(channel, listener) }
@@ -87,6 +87,34 @@ async function harness(script: string | ((request: QueryRequest) => string), set
     return [...new Set([sessionId, session.id])]
   }
   return { call, ok, calls, permissions, registry, events, ofType, start, startUnattended, idsOf, received }
+}
+
+/**
+ * The text of every user message each Claude Code process got, one list per process in start
+ * order. The processes of one Session run one after another, so a `start` opens the next list.
+ */
+function messagesPerProcess(calls: readonly FakeCall[]): string[][] {
+  const processes: string[][] = []
+  for (const call of calls) {
+    if (call.kind === 'start') processes.push([])
+    else if (call.kind === 'message') processes.at(-1)?.push(call.text)
+  }
+  return processes
+}
+
+/**
+ * A scripts folder of the test's own, in the Session's temporary cwd: `permission` as in the
+ * fixtures, and `permission-then-crash` — the same turn with its two Bash calls, after whose
+ * `result` Claude Code dies while idle, between turns.
+ */
+async function scriptsWithCrashAfterTurn(): Promise<string> {
+  const dir = join(cwd, 'scripts')
+  await mkdir(dir)
+  const permission = await readFile(join(fixtures, 'permission.jsonl'), 'utf8')
+  await writeFile(join(dir, 'permission.jsonl'), permission)
+  const lines = permission.split('\n').filter((line) => line.trim() !== '')
+  await writeFile(join(dir, 'permission-then-crash.jsonl'), [...lines, JSON.stringify({ fake: 'crash', error: 'Claude Code process exited with code 1' })].join('\n') + '\n')
+  return dir
 }
 
 describe('a permission request', () => {
@@ -285,6 +313,114 @@ describe('the Session refuses an open request itself, whatever Claude Code does 
     await vi.waitFor(() => expect(h.permissions().map((each) => each.result)).toEqual([cancelled]))
     const states = h.ofType('state').map((each) => each.state)
     expect(states.slice(states.indexOf('busy'))).toEqual(['busy', 'needs_permission', 'error'])
+  })
+})
+
+// A crash of Claude Code and the next send start a new process for the same Session (session.ts,
+// begin()), with the same PermissionGate. What the user refused stays refused there; the new
+// process asks again and runs nothing until the user answers.
+describe('after Claude Code died and the Session was started again by the next send', () => {
+  const cancelled = { behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true }
+  const starts = (calls: readonly FakeCall[]) => calls.filter((each): each is Extract<FakeCall, { kind: 'start' }> => each.kind === 'start')
+  /** What a tool of the fake agent reported as run, rather than refused. */
+  const ran = (h: Awaited<ReturnType<typeof harness>>) => h.ofType('tool_result').filter((each) => !each.isError)
+
+  it('a call refused because Claude Code died does not run in the new process: the next call asks, in the mode the user picked', async () => {
+    const h = await harness((request) => (request.resume === undefined ? 'permission-crash' : 'permission'))
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'release' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    await vi.waitFor(() => expect(h.permissions().map((each) => each.result)).toEqual([cancelled]))
+
+    await h.ok('agent.send', { sessionId: id, text: 'go on' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('needs_permission'))
+    // The new process resumes the SDK session in the user's mode, gets only the new message, and
+    // its first Bash call waits for the user: no answer was given for it.
+    expect(starts(h.calls).map((each) => [each.resume, each.settings.permissionMode])).toEqual([
+      [null, 'bypassPermissions'],
+      [h.registry.get(id).sdkId, 'default'],
+    ])
+    expect(messagesPerProcess(h.calls)).toEqual([['release'], ['go on']])
+    expect(h.ofType('permission_request').map((each) => each.input)).toMatchObject([{ command: 'make release' }, { command: 'mkdir -p build/one' }])
+    expect(h.permissions().map((each) => each.result)).toEqual([cancelled])
+    expect(ran(h)).toEqual([])
+
+    // Deny refuses it, and the next call asks again.
+    const [, second] = h.ofType('permission_request')
+    await h.ok('agent.permission', { sessionId: id, requestId: second?.requestId, decision: 'deny' })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(3))
+    expect(h.permissions().map((each) => each.result)).toEqual([cancelled, { behavior: 'deny', message: DENIED_MESSAGE }])
+    expect(ran(h)).toEqual([])
+  })
+
+  it('"Deny" is not remembered as anything else: after a crash between turns the same tool asks again, and nothing runs by itself', async () => {
+    const scripts = await scriptsWithCrashAfterTurn()
+    const h = await harness((request) => (request.resume === undefined ? 'permission-then-crash' : 'permission'), undefined, scripts)
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'push the release' })
+    for (const count of [1, 2]) {
+      await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(count))
+      await h.ok('agent.permission', { sessionId: id, requestId: h.ofType('permission_request')[count - 1]?.requestId, decision: 'deny' })
+    }
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    expect(h.ofType('result')).toHaveLength(1)
+
+    await h.ok('agent.send', { sessionId: id, text: 'try again' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('needs_permission'))
+    expect(h.ofType('permission_request')).toHaveLength(3)
+    expect(h.permissions().map((each) => each.result.behavior)).toEqual(['deny', 'deny'])
+    expect(messagesPerProcess(h.calls)).toEqual([['push the release'], ['try again']])
+    expect(ran(h)).toEqual([])
+  })
+
+  // Decided in this ticket (worfy-reliability 01): "Always allow" lasts until the Session ends, as the
+  // permission card says; a crash does not end the Session, so the list stays (permissions.ts).
+  // Closing the Session and resuming it starts with an empty list (the test of "Always allow" above).
+  it('"Always allow" given before the crash still covers the tool in the new process of the same Session, and no other tool', async () => {
+    const scripts = await scriptsWithCrashAfterTurn()
+    const h = await harness((request) => (request.resume === undefined ? 'permission-then-crash' : 'permission'), undefined, scripts)
+    const id = await h.start()
+    await h.ok('agent.send', { sessionId: id, text: 'build it' })
+    await vi.waitFor(() => expect(h.ofType('permission_request')).toHaveLength(1))
+    await h.ok('agent.permission', { sessionId: id, requestId: h.ofType('permission_request')[0]?.requestId, decision: 'always_allow' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+
+    await h.ok('agent.send', { sessionId: id, text: 'build it again' })
+    await vi.waitFor(() => expect(h.ofType('result')).toHaveLength(2))
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('idle'))
+    expect(h.ofType('permission_request')).toHaveLength(1)
+    expect(h.permissions().map((each) => [each.toolName, each.result.behavior])).toEqual([
+      ['Bash', 'allow'],
+      ['Bash', 'allow'],
+      ['Bash', 'allow'],
+      ['Bash', 'allow'],
+    ])
+    expect(messagesPerProcess(h.calls)).toEqual([['build it'], ['build it again']])
+    // The Session's own gate holds Bash alone: any other tool still asks.
+    const session = h.registry.get(id) as unknown as { permissions: PermissionGate }
+    expect(session.permissions.alwaysAllowed()).toEqual(['Bash'])
+  })
+
+  it('an unattended Session started again after a crash still refuses every call at once', async () => {
+    const requests: QueryRequest[] = []
+    const h = await harness((request) => {
+      requests.push(request)
+      return request.resume === undefined ? 'crash' : 'turn'
+    })
+    const id = await h.startUnattended()
+    await h.ok('agent.send', { sessionId: id, text: 'work' })
+    await vi.waitFor(() => expect(h.registry.get(id).state).toBe('error'))
+    await h.ok('agent.send', { sessionId: id, text: 'again' })
+    await vi.waitFor(() => expect(h.ofType('result')).toHaveLength(1))
+
+    expect(requests.map((request) => [request.unattended, request.settings.permissionMode])).toEqual([
+      [true, 'bypassPermissions'],
+      [true, 'bypassPermissions'],
+    ])
+    const answer = await requests[1]?.canUseTool('Bash', { command: 'git push' }, { signal: new AbortController().signal })
+    expect(answer).toEqual({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+    expect(h.ofType('permission_request')).toEqual([])
+    expect(h.ofType('refused_dialog')).toMatchObject([{ dialog: 'permission_request', subject: 'Bash' }])
   })
 })
 

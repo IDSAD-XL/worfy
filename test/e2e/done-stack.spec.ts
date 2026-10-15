@@ -8,6 +8,7 @@ import { FRAME_GAP, ROW_GAP, TICKETS_TOP } from '../../src/renderer/canvas/epic-
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { settled } from './wait'
 
 // worfy-week ticket 11 (ADR-0039): opening the done stack of an Epic frame does not move the open
 // columns. The Epic follows notifications-telegram of Auction: more done Tickets than open ones,
@@ -210,7 +211,8 @@ test('the open done stack folds by Collapse in the place of Expand, and by Esc o
     await toggle.click()
     await open()
     await window.keyboard.press('ControlOrMeta+z')
-    await window.waitForTimeout(300)
+    // An undo that folded the stack would have done it by now, through main or not.
+    await settled(window)
     await open()
     console.log(`done stack toggle: folded ${foldedShots.light} ${foldedShots.dark}; open ${openShots.light} ${openShots.dark}`)
   } finally {

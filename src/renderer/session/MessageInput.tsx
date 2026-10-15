@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
-import { FILE_COPY_LIMIT_BYTES, MAX_ATTACHMENTS, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource, type AttachResult } from '../../shared/agent/attachments'
+import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
+import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } from './attach-files'
 import { composerItems } from './composer/index'
 import { composerHint } from './hints'
 import { stepHistory } from './history'
@@ -50,7 +51,7 @@ export interface MessageInputProps {
 const MAX_HEIGHT = 200
 
 /** An attachment shown as a chip; `key` tells two attachments of one name apart. */
-interface Chip {
+export interface Chip {
   key: number
   attachment: Attachment
 }
@@ -101,17 +102,22 @@ function formatSize(bytes: number): string {
   return `${Math.round((bytes / (1024 * 1024)) * 10) / 10} MB`
 }
 
-/** The bytes of a File in base64. */
-function base64Of(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const url = String(reader.result)
-      resolve(url.slice(url.indexOf(',') + 1))
-    }
-    reader.onerror = () => reject(reader.error ?? new Error(`${file.name} could not be read`))
-    reader.readAsDataURL(file)
-  })
+/** The chips of a message's attachments, each with its "×"; the Session Node shows them too. */
+export function AttachmentChips({ chips, onRemove }: { chips: readonly Chip[]; onRemove: (key: number) => void }) {
+  return (
+    <ul className="w-attachments" aria-label="Attachments">
+      {chips.map(({ key, attachment }) => (
+        <li key={key} className="w-attachment" data-testid="attachment-chip" data-kind={attachment.kind} title={attachment.kind === 'file' ? attachment.path : attachment.name}>
+          <FileIcon image={attachment.kind === 'image'} />
+          <span className="w-attachment__name">{attachment.name}</span>
+          <span className="w-attachment__size w-mono">{formatSize(attachment.size)}</span>
+          <button type="button" className="w-attachment__remove" aria-label={`Remove ${attachment.name}`} data-testid="attachment-remove" onClick={() => onRemove(key)}>
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 export function MessageInput({ sessionId, busy, history, recipient, onSend, onInterrupt }: MessageInputProps) {
@@ -167,51 +173,20 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   }
 
   /** How many more attachments the message takes. */
-  const room = () => Math.max(0, MAX_ATTACHMENTS - chipsNow.current.length - sendingCount.current)
+  const room = () => roomFor(chipsNow.current.length + sendingCount.current)
 
   /** Shows what main made of the attached things: chips for the taken ones, the reasons for the others. */
   const took = (results: readonly AttachResult[], refused: readonly string[] = []) => {
-    const ok = results.flatMap((result) => (result.ok ? [result.attachment] : []))
-    const fits = room()
-    const taken = ok.slice(0, fits).map((attachment) => ({ key: nextKey.current++, attachment }))
-    const left = ok.slice(fits).map((attachment) => attachment.name)
-    const reasons = [...refused, ...results.flatMap((result) => (result.ok ? [] : [result.error])), ...(left.length > 0 ? [tooManyAttachments(left)] : [])]
-    if (taken.length > 0) changeChips((current) => [...current, ...taken])
-    setError(reasons.length > 0 ? reasons.join('\n') : null)
+    const { taken, problem } = takeAttached({ results, refused }, room())
+    if (taken.length > 0) changeChips((current) => [...current, ...taken.map((attachment) => ({ key: nextKey.current++, attachment }))])
+    setError(problem)
   }
 
-  const attachSources = async (sources: AttachmentSource[], refused: string[]) => {
+  /** Pasted or dropped files: read here, checked in main (attach-files.ts). */
+  const attachFiles = async (files: readonly File[], kind: FileKind) => {
     if (sessionId === null) return
-    if (sources.length === 0) {
-      took([], refused)
-      return
-    }
-    const result = await invoke('agent.attach', { sessionId, sources })
-    if (result.ok) took(result.value.results, refused)
-    else setError([...refused, result.error].join('\n'))
-  }
-
-  /** Pasted or dropped files: read here, checked in main. A file too big to carry is refused before it is read. */
-  const attachFiles = async (all: readonly File[], kind: 'pasted' | 'dropped') => {
-    const sources: AttachmentSource[] = []
-    const refused: string[] = []
-    // What does not fit in the message is neither read nor sent to main.
-    const files = all.slice(0, room())
-    const left = all.slice(files.length).map((file) => (file.name === '' ? 'image.png' : file.name))
-    for (const file of files) {
-      const name = file.name === '' ? 'image.png' : file.name
-      if (file.size > FILE_COPY_LIMIT_BYTES) {
-        refused.push(kind === 'pasted' || file.type.startsWith('image/') ? imageTooLarge(name) : fileTooLarge(name))
-        continue
-      }
-      try {
-        sources.push({ kind, name, data: await base64Of(file) })
-      } catch (reason) {
-        refused.push(reason instanceof Error ? reason.message : String(reason))
-      }
-    }
-    if (left.length > 0) refused.push(tooManyAttachments(left))
-    await attachSources(sources, refused)
+    const { results, refused } = await attachFilesIn(files, kind, room(), sessionId, invoke)
+    took(results, refused)
   }
 
   const pick = () => {
@@ -322,26 +297,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
         >
-          {chips.length > 0 ? (
-            <ul className="w-attachments" aria-label="Attachments">
-              {chips.map(({ key, attachment }) => (
-                <li key={key} className="w-attachment" data-testid="attachment-chip" data-kind={attachment.kind} title={attachment.kind === 'file' ? attachment.path : attachment.name}>
-                  <FileIcon image={attachment.kind === 'image'} />
-                  <span className="w-attachment__name">{attachment.name}</span>
-                  <span className="w-attachment__size w-mono">{formatSize(attachment.size)}</span>
-                  <button
-                    type="button"
-                    className="w-attachment__remove"
-                    aria-label={`Remove ${attachment.name}`}
-                    data-testid="attachment-remove"
-                    onClick={() => changeChips((current) => current.filter((chip) => chip.key !== key))}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          {chips.length > 0 ? <AttachmentChips chips={chips} onRemove={(key) => changeChips((current) => current.filter((chip) => chip.key !== key))} /> : null}
           <textarea
             ref={field}
             className="w-composer__field"

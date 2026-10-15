@@ -232,8 +232,26 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'epic', 'fromBranch', 'files', 'filesListed', 'num', 'slug', 'state', 'statusRaw', 'title'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'slug', 'state', 'statusRaw', 'title'].sort(),
     )
+  })
+
+  it('carries the "(вручную)" checks of each Ticket\'s "Готово, когда" section; a Ticket without them has []', async () => {
+    const repo = makeRepo(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    const done = (items: string[]) => ['', '## Готово, когда', '', ...items, ''].join('\n')
+    writeFileSync(join(issues, '01-first.md'), ticketText(1, 'done — 2026-10-01', '—', ['src/a.ts']) + done(['- [ ] `pnpm test` exit 0', '- [x] (вручную) Stable copy: the frame is drawn.', '- [ ] (вручную) Stable copy after the merge:', '      the palette lists this check.']))
+    writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', ['src/b.ts']) + done(['- [ ] (вручную) dev build: ⌘Z undoes the move.']))
+    const { home } = makeClaudeHome(dir)
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+
+    expect(model.error).toBeNull()
+    expect(ticketOf(model, 1)?.manualChecks).toEqual([
+      { text: 'Stable copy: the frame is drawn.', checked: true },
+      { text: 'Stable copy after the merge: the palette lists this check.', checked: false },
+    ])
+    expect(ticketOf(model, 2)?.manualChecks).toEqual([{ text: 'dev build: ⌘Z undoes the move.', checked: false }])
+    expect(ticketOf(model, 3)?.manualChecks).toEqual([])
   })
 
   it('shows a Ticket claimed in a worktree branch as in work, marked with the branch; the mark goes after the merge', async () => {

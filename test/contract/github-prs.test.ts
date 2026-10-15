@@ -757,7 +757,11 @@ const silentTicket = (num: number, branch: string | null, repo: string | null): 
   repo,
 })
 
-async function severalRepos() {
+/**
+ * A Silent-mode Project over the repositories `api` and `web`. With `apiIsProject`, `api` is also
+ * added to worfy as a Project of its own, whose model names its own Ticket branch `own/b`.
+ */
+async function severalRepos({ apiIsProject = false }: { apiIsProject?: boolean } = {}) {
   const workspace = await tempDir()
   const api = join(workspace, 'api')
   const web = join(workspace, 'web')
@@ -779,12 +783,13 @@ async function severalRepos() {
     reason: null,
     failed: false,
   }
+  const apiModel: WorkflowModel = { root: api, epics: [{ epic: 'b', hasSpec: true, hasMap: false, title: 'B' }], tickets: [silentTicket(1, 'own/b', null)], error: null, branchErrors: [] }
   const modelsAsked: string[] = []
   const scope: ChecksScope = {
     layout: async (root) => (root === workspace ? layout : fullLayout(root)),
     model: async (root) => {
       modelsAsked.push(root)
-      return root === workspace ? model : null
+      return root === workspace ? model : apiIsProject && root === api ? apiModel : null
     },
   }
   const prsOf: Record<string, GhPull[]> = { [api]: [pull(11, 'fix/x'), pull(12, 'atakama/07')], [web]: [pull(21, 'fix/y'), pull(22, 'atakama/05')] }
@@ -803,14 +808,17 @@ async function severalRepos() {
       prs: new PrTracker({ run }),
       worktrees: async (root) => (root === api ? [{ path: api, branch: 'main' }, { path: worktreeX, branch: 'fix/x' }] : [{ path: root, branch: 'main' }]),
     },
-    () => [{ path: workspace }],
+    () => (apiIsProject ? [{ path: workspace }, { path: api }] : [{ path: workspace }]),
     scope,
   )
   const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
   await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener) }, { modules: { './checks.ts': async () => module }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
-  const call = async (channel: string, input: unknown): Promise<IpcResult<unknown>> =>
-    (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
-  return { workspace, api, web, elsewhere, tickets, worktreeX, ghCwds, modelsAsked, call }
+  const callFrom = async (sender: unknown, channel: string, input: unknown): Promise<IpcResult<unknown>> =>
+    (await handlers.get(`${IPC_CHANNEL_PREFIX}${channel}`)!({ senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
+  const call = (channel: string, input: unknown): Promise<IpcResult<unknown>> => callFrom(undefined, channel, input)
+  /** A call from a Linked machine: a client without a window has a string id (src/main/link/caller.ts). */
+  const callLinked = (channel: string, input: unknown): Promise<IpcResult<unknown>> => callFrom({ id: 'link:machine/1' }, channel, input)
+  return { workspace, api, web, elsewhere, tickets, worktreeX, ghCwds, modelsAsked, call, callLinked }
 }
 
 describe('checks in a Project over several repositories and in Silent mode (worfy-harness ticket 23)', () => {
@@ -902,5 +910,68 @@ describe('checks in a Project over several repositories and in Silent mode (worf
     })
     for (const root of [world.api, world.elsewhere]) expect((await world.call('checks.repos', { root })).ok, root).toBe(false)
     expect((await world.call('checks.repos', { root: 'relative' })).ok).toBe(false)
+  })
+})
+
+describe('checks.get knows which Project asks: a repository that is also a Project of its own', () => {
+  it('a Project over several repositories asks about its repository B, which is also a Project: the snapshot comes with B\'s PRs by the Branch: of its Ticket', async () => {
+    const world = await severalRepos({ apiIsProject: true })
+    const [t5] = world.tickets
+    const result = (await world.call('checks.get', { project: world.workspace, root: world.api, branches: ['fix/x'] })) as IpcResult<ChecksSnapshot>
+    if (!result.ok) throw new Error(`refused: ${result.error}`)
+    expect(result.value.root).toBe(world.api)
+    expect(pullOfTicket(result.value, t5!)?.number).toBe(11)
+    expect(worktreeOfTicket(result.value, t5!, world.tickets)?.path).toBe(world.worktreeX)
+    // The branches and the repository of Tickets come from the model of the Project that asks.
+    expect(world.modelsAsked).toEqual([world.workspace])
+    expect(world.ghCwds).toEqual([world.api])
+    // B's own Canvas asks with its own Project: the branches of B's model, not of the one above.
+    expect((await world.call('checks.get', { project: world.api, root: world.api, branches: ['own/b'] })).ok).toBe(true)
+    expect((await world.call('checks.get', { project: world.api, root: world.api, branches: ['fix/x'] })).ok).toBe(false)
+  })
+
+  it('without `project` the call goes as before: the root that is a Project answers for itself, so the branch of the Project above is refused', async () => {
+    const world = await severalRepos({ apiIsProject: true })
+    const result = await world.call('checks.get', { root: world.api, branches: ['fix/x'] })
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(/fix\/x is not the branch of a Ticket of this Project/)
+    expect((await world.call('checks.get', { root: world.api, branches: ['own/b'] })).ok).toBe(true)
+    expect((await world.call('checks.get', { root: world.web, branches: ['fix/y'] })).ok).toBe(true)
+  })
+
+  it('refuses a root that is not a folder of the Project that asks, without running gh or git', async () => {
+    const world = await severalRepos({ apiIsProject: true })
+    for (const [project, root] of [
+      [world.api, world.web],
+      [world.api, world.workspace],
+      [world.workspace, world.elsewhere],
+      [world.workspace, join(world.api, 'src')],
+    ] as const) {
+      const result = await world.call('checks.get', { project, root, branches: [] })
+      expect(result.ok, `${project} ${root}`).toBe(false)
+      expect(!result.ok && result.error).toMatch(/is not a folder of the Project/)
+    }
+    expect(world.ghCwds).toEqual([])
+  })
+
+  it('takes as `project` only a Project of this Machine, from a window and from a Linked machine', async () => {
+    const world = await severalRepos({ apiIsProject: true })
+    // A folder that is not a Project, though it holds the root: refused, gh and git never run.
+    for (const [project, root] of [
+      [world.elsewhere, world.elsewhere],
+      [join(world.workspace, 'web'), world.web],
+      ['/', world.api],
+    ] as const) {
+      for (const call of [world.call, world.callLinked]) {
+        const result = await call('checks.get', { project, root, branches: [] })
+        expect(result.ok, `${project} ${root}`).toBe(false)
+        expect(!result.ok && result.error).toMatch(/is not a Project of this Machine|outside the Projects of this Machine/)
+      }
+    }
+    expect(world.ghCwds).toEqual([])
+    // A Linked machine asks with a Project of this Machine as a window does.
+    expect((await world.callLinked('checks.get', { project: world.workspace, root: world.api, branches: ['fix/x'] })).ok).toBe(true)
+    // Still an absolute path, like `root`.
+    expect((await world.call('checks.get', { project: 'relative', root: world.api, branches: [] })).ok).toBe(false)
   })
 })

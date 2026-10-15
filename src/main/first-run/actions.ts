@@ -1,7 +1,8 @@
 // The actions of the first-run screen (worfy-harness ticket 19, question Q22): each one is run only
 // after a dialog that names what it will do — the command, the folder, the download — and the
 // user's "Confirm". Nothing runs by itself at start. After an action the checks run again; a failed
-// action makes the row of its check `fail` with the action's error, until the next attempt.
+// action makes the row of its check `fail` with the action's error, until the next attempt or until
+// the check itself passes.
 //
 // The work itself is the functions of earlier tickets, called and not changed: the Harness
 // installer (src/main/harness/install.ts, ticket 13), qmd, its models and collections
@@ -93,19 +94,27 @@ const tail = (text: string, lines = 5): string =>
     .join('\n')
 
 export class FirstRunActions {
-  /** The last failure of each check's action, shown in its row until the next attempt. */
+  /**
+   * The last failure of each check's action, shown in its row until the next attempt or until the
+   * check itself passes, whichever comes first.
+   */
   private readonly failures = new Map<CheckId, string>()
   private running = false
   private last: FirstRunReport | null = null
 
   constructor(private readonly deps: ActionDeps) {}
 
-  /** The checks, with the failures of the last actions on their rows. */
+  /**
+   * The checks, with the failures of the last actions on the rows whose check does not pass. A
+   * check that passes now drops its row's failure for good: the cause was fixed, maybe outside
+   * worfy, and the row shows the check as it is from then on.
+   */
   async report(): Promise<FirstRunReport> {
     const report = await this.deps.checks()
     this.last = {
       ...report,
       checks: report.checks.map((check) => {
+        if (check.status === 'ok') this.failures.delete(check.id)
         const failure = this.failures.get(check.id)
         return failure === undefined ? check : { ...check, status: 'fail', hint: `The last attempt failed: ${failure}` }
       }),

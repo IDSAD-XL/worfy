@@ -461,8 +461,36 @@ export async function machineIdOf(window: Page): Promise<string> {
   return id
 }
 
+/** The sidebar's Machines section. */
+const machinesSection = (window: Page): Locator => window.getByRole('region', { name: 'Machines', exact: true })
+
 /** The heading of the sidebar's Machines section: the button that collapses and expands it. */
-const machinesHeading = (window: Page): Locator => window.getByRole('region', { name: 'Machines', exact: true }).getByRole('button', { name: 'Machines', exact: true })
+const machinesHeading = (window: Page): Locator => machinesSection(window).getByRole('button', { name: 'Machines', exact: true })
+
+/**
+ * Sets the Machines section expanded or collapsed, and does nothing when it is so already.
+ *
+ * The section shows its default (collapsed) until the window has the app settings from main, and
+ * then what they say: `aria-expanded` read before they arrive may change before the click, and the
+ * click would then turn the section the wrong way. So first wait until the heading says what main
+ * has saved for the section (`sidebar.collapsed[<section id>]`); with nothing saved the default
+ * stays, whenever the settings arrive. Only then decide whether to click.
+ */
+async function setMachinesExpanded(window: Page, expanded: boolean): Promise<void> {
+  const heading = machinesHeading(window)
+  await expect(heading).toBeVisible()
+  const id = await machinesSection(window).getAttribute('data-section-id')
+  if (id === null) throw new Error('the Machines section has no data-section-id')
+  const saved = await window.evaluate(async (sectionId) => {
+    const result = await (globalThis as unknown as PageBridge).worfy.invoke('appSettings.get')
+    if (!result.ok) throw new Error(`appSettings.get failed: ${result.error}`)
+    const collapsed = (result.value as { sidebar: { collapsed: Record<string, boolean | undefined> } }).sidebar.collapsed[sectionId]
+    return collapsed === undefined ? null : !collapsed
+  }, id)
+  if (saved !== null) await expect(heading).toHaveAttribute('aria-expanded', String(saved))
+  if ((await heading.getAttribute('aria-expanded')) !== String(expanded)) await heading.click()
+  await expect(heading).toHaveAttribute('aria-expanded', String(expanded))
+}
 
 /**
  * Expands the Machines section of the sidebar, which is collapsed until the user expands it: its
@@ -470,19 +498,13 @@ const machinesHeading = (window: Page): Locator => window.getByRole('region', { 
  * when the section is expanded already.
  */
 export async function expandMachines(window: Page): Promise<void> {
-  const heading = machinesHeading(window)
-  await expect(heading).toBeVisible()
-  if ((await heading.getAttribute('aria-expanded')) !== 'true') await heading.click()
-  await expect(heading).toHaveAttribute('aria-expanded', 'true')
+  await setMachinesExpanded(window, true)
   await expect(window.getByTestId('link-machine-button')).toBeVisible()
 }
 
 /** Collapses the Machines section of the sidebar; does nothing when it is collapsed already. */
 export async function collapseMachines(window: Page): Promise<void> {
-  const heading = machinesHeading(window)
-  await expect(heading).toBeVisible()
-  if ((await heading.getAttribute('aria-expanded')) !== 'false') await heading.click()
-  await expect(heading).toHaveAttribute('aria-expanded', 'false')
+  await setMachinesExpanded(window, false)
   await expect(window.getByTestId('link-machine-button')).toBeHidden()
 }
 

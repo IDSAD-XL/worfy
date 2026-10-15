@@ -3,6 +3,8 @@
 //
 // A Wave is the set of Tickets that can be taken in parallel: open, every blocker done, and no
 // file of "Где в коде" shared with another Ticket of the Wave or with a Ticket already in work.
+// A Ticket whose `done` comes only from its unmerged worktree branch counts as still in work: its
+// code is not in the main branch yet, which is where a dependant's worktree starts.
 import type { Ticket } from './types'
 
 /** Where a Ticket sits in the blocking graph of its Epic. */
@@ -45,7 +47,18 @@ export interface ReadyWave {
   skipped: SkippedTicket[]
 }
 
-type WaveTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'>
+type WaveTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blockedNums' | 'blockedParsed' | 'files' | 'filesListed'> &
+  /** Absent or null: the status comes from the checkout. */
+  Partial<Pick<Ticket, 'fromBranch'>>
+
+/** Done in the checkout: a blocker the ready Wave counts as closed. */
+const closed = (ticket: WaveTicket | undefined): boolean => ticket?.state === 'done' && !ticket.fromBranch
+
+/** Done only in its unmerged worktree branch: not a closed blocker yet. */
+export const doneOnlyInBranch = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'fromBranch'>>): boolean => ticket.state === 'done' && Boolean(ticket.fromBranch)
+
+/** In work, or done only in its unmerged worktree branch: its files are held, its dependants wait. */
+const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || doneOnlyInBranch(ticket)
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 
@@ -149,10 +162,10 @@ export function filesOverlap(a: string, b: string): boolean {
 }
 
 /**
- * The ready Wave of one Epic: open Tickets whose blockers are all done, in number order. The
- * files of Tickets in work (claimed in the checkout or in a worktree branch) are held from the
- * start; a Ticket whose file overlaps a held file, or a file of a Ticket already taken into this
- * Wave, waits for the next one. Blocked and status-less Tickets never go into the Wave; those
+ * The ready Wave of one Epic: open Tickets whose blockers are all done in the checkout, in number
+ * order. The files of Tickets in work (claimed in the checkout or in a worktree branch) and of
+ * Tickets done only in a worktree branch are held from the start; a Ticket whose file overlaps a
+ * held file, or a file of a Ticket already taken into this Wave, waits for the next one. Blocked and status-less Tickets never go into the Wave; those
  * whose blockers are all done are listed as `skipped`.
  */
 export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyWave {
@@ -160,7 +173,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
   const cycleOf = cycles(all)
   const held: { file: string; num: number }[] = []
   for (const ticket of all.values()) {
-    if (ticket.state === 'work') for (const file of ticket.files) held.push({ file, num: ticket.num })
+    if (inFlight(ticket)) for (const file of ticket.files) held.push({ file, num: ticket.num })
   }
 
   const ready: ReadyWave['ready'] = []
@@ -170,7 +183,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
     if (ticket.state !== 'open' && ticket.state !== 'blocked' && ticket.state !== 'none') continue
 
     const problem = ownProblem(ticket, all, cycleOf)
-    const notDone = ticket.blockedNums.filter((blocker) => all.get(blocker)?.state !== 'done')
+    const notDone = ticket.blockedNums.filter((blocker) => !closed(all.get(blocker)))
     if (ticket.state !== 'open') {
       // A cycle whose other members are all done no longer blocks anything, as for an open Ticket.
       if ((!problem || problem.kind === 'cycle') && notDone.length === 0) skipped.push({ num: ticket.num, state: ticket.state })
@@ -203,20 +216,20 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
 /**
  * The Wave number of every Ticket of one Epic, keyed by Ticket number: the ready-Wave step
  * repeated to the end, as the "Волны" table of a spec counts it. Wave 1 is the ready Wave now;
- * then its Tickets count as done, and so do Tickets that are in work today. Done and in-work
- * Tickets get no number; neither do Tickets that never become ready (a cycle, an unparsed or
- * missing blocker, or a blocked state upstream).
+ * then its Tickets count as done, and so do Tickets that are in work today or done only in a
+ * worktree branch. Done and in-work Tickets get no number; neither do Tickets that never become
+ * ready (a cycle, an unparsed or missing blocker, or a blocked state upstream).
  */
 export function waveNumbers(tickets: readonly WaveTicket[], epic?: string): Map<number, number> {
   let current = [...epicTickets(tickets, epic).values()]
   const waves = new Map<number, number>()
   for (let wave = 1; ; wave += 1) {
     const { ready } = readyWave(current)
-    const working = current.some((ticket) => ticket.state === 'work')
+    const working = current.some(inFlight)
     if (!ready.length && !working) return waves
     const taken = new Set(ready.map((entry) => entry.num))
     for (const num of taken) waves.set(num, wave)
-    current = current.map((ticket) => (taken.has(ticket.num) || ticket.state === 'work' ? { ...ticket, state: 'done' as const } : ticket))
+    current = current.map((ticket) => (taken.has(ticket.num) || inFlight(ticket) ? { ...ticket, state: 'done' as const, fromBranch: null } : ticket))
     // A round with nothing ready only lets the Tickets in work finish; it does not use a number.
     if (!ready.length) wave -= 1
   }
