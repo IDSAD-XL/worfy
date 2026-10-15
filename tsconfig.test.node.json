@@ -23,6 +23,7 @@
     "src/renderer/platform.ts",
     "test/app-url.ts",
     "test/remove.ts",
+    "test/setup-contract.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts",

@@ -1,7 +1,7 @@
 # 03 — Contract test-ы не читают настоящий `~/.claude`: временный `WORFY_CLAUDE_HOME` по умолчанию
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски и долги»: «[med] Contract test-ы читают
 настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23)»;
@@ -33,12 +33,12 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 
 ## Готово, когда
 
-- [ ] Прогон шага 1 (`HOME` во временной папке, `model: haiku`): `pnpm vitest run --project contract` —
+- [x] Прогон шага 1 (`HOME` во временной папке, `model: haiku`): `pnpm vitest run --project contract` —
       exit 0; до правки — красный, число красных test-ов — в «Итог».
-- [ ] Test в `test/contract`: во время test-а `WORFY_CLAUDE_HOME` задан и не равен `~/.claude`
+- [x] Test в `test/contract`: во время test-а `WORFY_CLAUDE_HOME` задан и не равен `~/.claude`
       (`os.homedir()`), и папка пустая, если test её не заполнял.
-- [ ] Test-ы отказа вне песочницы по-прежнему проверяют отказ (переменная снята у них явно).
-- [ ] Настоящий `~/.claude` не меняется: список файлов и время изменения `settings.json` до и после
+- [x] Test-ы отказа вне песочницы по-прежнему проверяют отказ (переменная снята у них явно).
+- [x] Настоящий `~/.claude` не меняется: список файлов и время изменения `settings.json` до и после
       прогона совпадают (команда и вывод — в «Итог»).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
@@ -55,6 +55,8 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 - `vitest.config.ts`
 - `test/setup-contract.ts`
 - `test/contract/claude-home-isolation.test.ts`
+- `tsconfig.test.node.json` (дописан при работе: `tsc` проекта test-ов требует перечислить
+  `test/setup-contract.ts`, его импортирует test изоляции — ошибка TS6307 без этой строки)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `test/contract/agent-controls.test.ts`, `src/main/claude-home/registry.ts`,
@@ -68,4 +70,56 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 
 ## Итог
 
-—
+**Воспроизведение (шаг 1) на `origin/main` 12b46d8 красным не вышло.** `HOME` во временной папке,
+`.claude/settings.json` = `{"model":"haiku"}`, `.gitconfig` с `user.name` и `user.email`:
+`HOME=<tmp> node scripts/vitest-electron.mjs --project contract` — exit 0, 2278 passed, 41 skipped,
+0 failed. Десять красных test-ов из `HANDOFF.md` («Риски и долги») уже ушли: `orchestrator.test.ts` и
+`agent-controls.test.ts` сами ставят временный `WORFY_CLAUDE_HOME` (`worfy-daily` 23). Тот же прогон
+с `.claude` без прав на чтение (`chmod 000`): 2 красных, оба — timeout 15 с в
+`workflow-reader.test.ts` под нагрузкой машины, отдельным прогоном зелёные. Так что правка — защита
+на будущее: новый contract test, который забудет поставить переменную, не прочтёт `~/.claude`.
+
+**Что сделано.**
+- `test/setup-contract.ts` — `setupFiles` project-а `contract`: если `WORFY_CLAUDE_HOME` не задан
+  (пустая строка — как не задан, так же читает `claudeHome()`), ставит его на новую пустую папку
+  `mkdtemp(<tmpdir>/worfy-contract-claude-home-)` на файл test-ов; `afterAll` удаляет папку
+  (`removeTestTree`) и снимает переменную, если она ещё указывает на эту папку. Переменная ставится
+  прямо в `process.env`, не через `vi.stubEnv`: `vi.unstubAllEnvs()` в test-е возвращает эту папку,
+  а не снятую переменную.
+- `test/contract/claude-home-isolation.test.ts` — 5 test-ов: переменная задана в начале файла, лежит
+  во временной папке системы, не `~/.claude`, папка пустая; каждый вызов даёт свою папку; заданную
+  переменную не трогает; пустая строка — как не задана; `release` удаляет папку и снимает переменную
+  только пока она указывает на неё. Test читает папку только после проверки, что она во временной
+  папке системы, и вызывает функцию на своих объектах, не на `process.env` — настоящий `~/.claude`
+  не читается и при провале.
+- Test-ы отказа вне песочницы: такой один — `harness-migrate.test.ts`, «the IPC of a dev build on the
+  real ~/.claude»; он уже снимает переменную сам (строки 610–611) и зелёный. Других не нашлось:
+  `grep -rn "WORFY_CLAUDE_HOME" test/contract` и сравнение прогонов до и после.
+
+**Мутанты** (в своём worktree, восстановление из копии с `cmp`), прогон
+`node scripts/vitest-electron.mjs --project contract test/contract/claude-home-isolation.test.ts`:
+- setup-файл не подключён (строка `setupFiles` убрана) — exit 1, красный «is a temporary folder of
+  its own, not ~/.claude…»;
+- папка общая (постоянное имя вместо `mkdtemp`) — exit 1, красный «gives each call a new empty
+  folder…»;
+- переменная ставится и поверх заданной (условие убрано) — exit 1, красный «leaves a folder the run
+  named as it is…».
+
+**Какие test-ы сменили поведение.** Полный `pnpm test` до правки (exit 1: 7 красных) и после
+(exit 1: 3 красных) сравнены по JSON-отчётам. Все расхождения — timeout 15 с под нагрузкой (load
+average 7–10, параллельно шли другие implementer-ы): `docs.test.ts`, `harness-script-wiring.test.ts`
+(2), `github-prs.test.ts` (2), `workflow-profile.test.ts`, `workflow-reader.test.ts` (3). Пять этих
+файлов отдельным прогоном: с правкой — 233 из 234 (timeout в `harness-script-wiring`), без —
+233 из 234 (timeout в `github-prs`); `harness-script-wiring.test.ts` один — 21 из 21 и с правкой
+(дважды), и без. Новые только 5 test-ов изоляции. На машине владельца (`model: opus[1m]`) ни один
+test поведение не сменил.
+
+**Прогон шага 1 после правки:** exit 1 — 1 красный из 2324, timeout `workflow-reader.test.ts` под
+нагрузкой; этот файл отдельно под тем же `HOME` — exit 0, 44 из 44.
+
+**Настоящий `~/.claude` не изменился.** До и после всех прогонов:
+`stat -f '%m %N' ~/.claude/settings.json` → `1792033835 /Users/alexey/.claude/settings.json` оба раза;
+`diff <(ls -la ~/.claude | awk '{print $NF}') …` — без различий, exit 0.
+
+**Вне скоупа замечено:** project `jsdom` гоняет и `test/contract/**/*.test.tsx`, setup-файл у него
+свой (`test/setup-dom.ts`) — эти файлы переменную не получают.

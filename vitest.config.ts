@@ -65,6 +65,9 @@ export default defineConfig({
           // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
           // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s.
           testTimeout: 15_000,
+          // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
+          // test reads the ~/.claude of the machine it runs on.
+          setupFiles: ['test/setup-contract.ts'],
         },
       },
       {
