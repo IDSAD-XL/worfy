@@ -7,11 +7,13 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 
-// The selection toolbar (Pin, Tags, Delete) over an Epic frame in the built app: above a Ticket of
-// the frame's top row it would cover the frame's header and the column labels, so it goes below the
-// Ticket; above a Ticket of a lower row and above a Node outside the frame it stays on top. The
-// Epic comes from a stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that prints a ready
-// answer. With WORFY_EVIDENCE_DIR set, the light and dark screenshots are copied there.
+// The selection toolbar (Pin, Tags, Delete) over an Epic frame in the built app, at zoom 1 and 0.6:
+// above a Ticket of the frame's top row it would cover the frame's header and the column labels,
+// below it the Ticket of the next row, so it goes beside the Ticket; above the Ticket of the next
+// row it would cover the Ticket above, so that one gets it beside too; above a Node outside the
+// frame it stays on top. The Epic comes from a stub `bin/epic-status` in a temporary
+// WORFY_CLAUDE_HOME that prints a ready answer. With WORFY_EVIDENCE_DIR set, the light and dark
+// screenshots are copied there.
 
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
@@ -19,8 +21,8 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 
 const PROJECT_ID = 'demo-0000000d'
 
-/** The Canvas from its origin at zoom 1: the Orchestrator Node at (40, 40), the frames' column right of it, the note under it. */
-const VIEW = { x: 0, y: 0, zoom: 1 }
+/** The zooms the Canvas is opened at: the Orchestrator Node at (40, 40), the frames' column right of it, the note under it. */
+const ZOOMS = [1, 0.6] as const
 
 interface Box {
   x: number
@@ -44,12 +46,11 @@ function ticketText(num: number, status: string, blocked: string): string {
   return [`# ${nn} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Что делаем', '', 'text', ''].join('\n')
 }
 
-/** Tickets of the Epic `demo`: 01 done, 02 and 03 ready (one column, two rows), 04 waits on 02. */
+/** Tickets of the Epic `demo`: 01 done (the folded stack on the left), 02 and 03 ready (one column, two rows), nothing right of them. */
 const TICKETS = [
   { num: 1, status: 'done', blocked: '—', state: 'done', nums: [] as number[] },
   { num: 2, status: 'open', blocked: '—', state: 'open', nums: [] as number[] },
   { num: 3, status: 'open', blocked: '—', state: 'open', nums: [] as number[] },
-  { num: 4, status: 'open', blocked: '02', state: 'open', nums: [2] },
 ]
 
 test.beforeEach(() => {
@@ -87,11 +88,19 @@ test.beforeEach(() => {
   writeFileSync(script, `#!/bin/sh\ncat '${answerFile}'\n`)
   chmodSync(script, 0o755)
 
-  const nodes = [{ id: 'outside', kind: 'note', x: 40, y: 300, w: 220, h: 120, data: { text: 'outside' } }]
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT_ID, name: 'demo', path: repo }], activeId: PROJECT_ID }))
-  writeFileSync(join(dataDir, PROJECT_ID, 'layout.json'), JSON.stringify({ nodes, viewport: VIEW }))
 })
+
+/**
+ * The Layout the app starts with: the Canvas from its origin at `zoom`, and the note outside the
+ * frame far enough under the Orchestrator Node that the toolbar above it clears that Node at zoom
+ * 0.6 too (12 + 34 screen pixels are 77 canvas units there).
+ */
+function writeLayout(zoom: number): void {
+  const nodes = [{ id: 'outside', kind: 'note', x: 40, y: 360, w: 220, h: 120, data: { text: 'outside' } }]
+  writeFileSync(join(dataDir, PROJECT_ID, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 0, y: 0, zoom } }))
+}
 
 test.afterEach(async () => {
   await removeDir(scratch)
@@ -111,8 +120,8 @@ const ticketNode = (window: Page, num: number): Locator => window.locator(`[data
 
 /**
  * Selects the Ticket by a click on its title and waits for the toolbar to stand still. A click on
- * an empty spot of the Canvas clears the selection first: the toolbar below a top-row Ticket lies
- * over the top of the Ticket under it.
+ * an empty spot of the Canvas clears the selection first, so the toolbar of the last selection is
+ * gone before the new one is measured.
  */
 async function selectTicket(launched: LaunchedApp, num: number): Promise<Box> {
   await launched.window.locator('.react-flow__pane').click({ position: { x: 20, y: 760 } })
@@ -123,60 +132,82 @@ async function selectTicket(launched: LaunchedApp, num: number): Promise<Box> {
   return box(launched.window.getByTestId('selection-toolbar'))
 }
 
-test('the selection toolbar keeps off the Epic frame header and the column labels', async () => {
-  const launched = await launch()
-  try {
-    const { window } = launched
-    const frame = window.locator('[data-testid="epic-frame"][data-epic="demo"]')
-    // The first read of the Project's Tickets can take longer than the default 5 s.
-    await expect(frame).toBeVisible({ timeout: 20_000 })
-    await expect(ticketNode(window, 2)).toBeVisible()
-    await expect(ticketNode(window, 3)).toBeVisible()
-    await canvasReady(launched, { size: { width: 1440, height: 900 } })
+/** The rectangles of all the elements `locator` finds, as the page has them. */
+function boxesOf(locator: Locator): Promise<Box[]> {
+  return locator.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = (element as unknown as { getBoundingClientRect(): Box }).getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }),
+  )
+}
 
-    // 02 and 03 share a column; the one higher up is in the top row.
-    const [top, lower] = (await Promise.all([2, 3].map(async (num) => ({ num, box: await box(ticketNode(window, num)) })))).sort((a, b) => a.box.y - b.box.y)
-    expect(Math.round(top!.box.x)).toBe(Math.round(lower!.box.x))
-    expect(lower!.box.y).toBeGreaterThan(top!.box.y + top!.box.height)
+/** The Focus button's width that SelectionToolbar keeps off (FOCUS_ENTRY_SIZE in src/renderer/canvas/pinning.ts). */
+const FOCUS_ENTRY_WIDTH = 96
 
-    const header = await box(frame.locator('.w-epic__header'))
-    const labels = await frame.locator('.w-epic__column-label').evaluateAll((elements) =>
-      elements.map((element) => {
-        const rect = (element as unknown as { getBoundingClientRect(): Box }).getBoundingClientRect()
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-      }),
-    )
-    expect(labels.length).toBeGreaterThan(0)
+for (const zoom of ZOOMS) {
+  test(`the selection toolbar covers neither the Epic frame header nor the Tickets around it (zoom ${zoom})`, async () => {
+    writeLayout(zoom)
+    const launched = await launch()
+    try {
+      const { window } = launched
+      const frame = window.locator('[data-testid="epic-frame"][data-epic="demo"]')
+      // The first read of the Project's Tickets can take longer than the default 5 s.
+      await expect(frame).toBeVisible({ timeout: 20_000 })
+      await expect(ticketNode(window, 2)).toBeVisible()
+      await expect(ticketNode(window, 3)).toBeVisible()
+      await canvasReady(launched, { size: { width: 1440, height: 900 } })
 
-    // A Ticket of the top row: the toolbar is below it and covers neither the header nor a label.
-    const below = await selectTicket(launched, top!.num)
-    const shots = await snapshotThemes(window, 'selection-toolbar-frame')
-    if (EVIDENCE_DIR !== undefined) {
-      mkdirSync(EVIDENCE_DIR, { recursive: true })
-      copyFileSync(shots.light, join(EVIDENCE_DIR, '01-selection-toolbar-frame-light.png'))
-      copyFileSync(shots.dark, join(EVIDENCE_DIR, '01-selection-toolbar-frame-dark.png'))
+      // 02 and 03 share a column; the one higher up is in the top row, the other is its neighbour below.
+      const [top, lower] = (await Promise.all([2, 3].map(async (num) => ({ num, box: await box(ticketNode(window, num)) })))).sort((a, b) => a.box.y - b.box.y)
+      expect(Math.round(top!.box.x)).toBe(Math.round(lower!.box.x))
+      expect(lower!.box.y).toBeGreaterThan(top!.box.y + top!.box.height)
+
+      const header = await box(frame.locator('.w-epic__header'))
+      const labels = await boxesOf(frame.locator('.w-epic__column-label'))
+      expect(labels.length).toBeGreaterThan(0)
+      const neighbour = ticketNode(window, lower!.num)
+      const neighbourParts = {
+        title: await box(neighbour.locator('.w-ticket__title')),
+        'no blockers': await box(neighbour.getByText('no blockers')),
+        'Ship ticket': await box(neighbour.getByTestId('action-ship-ticket')),
+      }
+
+      // A Ticket of the top row with a neighbour below: beside it, clear of everything.
+      const toolbar = await selectTicket(launched, top!.num)
+      const name = `selection-toolbar-frame-zoom-${String(zoom).replace('.', '_')}`
+      const shots = await snapshotThemes(window, name)
+      if (EVIDENCE_DIR !== undefined) {
+        mkdirSync(EVIDENCE_DIR, { recursive: true })
+        copyFileSync(shots.light, join(EVIDENCE_DIR, `14-${name}-light.png`))
+        copyFileSync(shots.dark, join(EVIDENCE_DIR, `14-${name}-dark.png`))
+      }
+      expect(overlaps(toolbar, header), 'the toolbar covers the frame header').toBe(false)
+      for (const label of labels) expect(overlaps(toolbar, label), 'the toolbar covers a column label').toBe(false)
+      const focus = await box(window.locator('.w-focus-entry'))
+      expect(focus.width, 'the Focus button is wider than SelectionToolbar keeps off').toBeLessThanOrEqual(FOCUS_ENTRY_WIDTH)
+      expect(overlaps(toolbar, focus), 'the toolbar covers the Focus button').toBe(false)
+      for (const [part, rect] of Object.entries(neighbourParts)) expect(overlaps(toolbar, rect), `the toolbar covers the neighbour's ${part}`).toBe(false)
+      for (const ticket of await boxesOf(window.locator('[data-testid="ticket-node"]'))) expect(overlaps(toolbar, ticket), 'the toolbar covers a Ticket').toBe(false)
+      // Beside it on the right, level with its top edge.
+      expect(toolbar.x).toBeGreaterThan(top!.box.x + top!.box.width)
+      expect(Math.abs(toolbar.y - top!.box.y)).toBeLessThan(2)
+
+      // The neighbour below: on top it would cover the Ticket above, so it goes beside it too.
+      const second = await selectTicket(launched, lower!.num)
+      expect(overlaps(second, top!.box), 'the toolbar covers the Ticket above').toBe(false)
+      expect(overlaps(second, header)).toBe(false)
+      for (const ticket of await boxesOf(window.locator('[data-testid="ticket-node"]'))) expect(overlaps(second, ticket), 'the toolbar covers a Ticket').toBe(false)
+
+      // A Node outside the frame with nothing above it: the toolbar is above it.
+      const note = window.locator('.react-flow__node[data-id="outside"]')
+      await note.locator('.w-note__header').click()
+      await expect(window.locator('.react-flow__node.selected[data-id="outside"]')).toHaveCount(1)
+      await canvasReady(launched)
+      const noteToolbar = await box(window.getByTestId('selection-toolbar'))
+      expect(noteToolbar.y + noteToolbar.height).toBeLessThan((await box(note)).y)
+    } finally {
+      await launched.close()
     }
-    expect(overlaps(below, header), 'the toolbar covers the frame header').toBe(false)
-    for (const label of labels) expect(overlaps(below, label), 'the toolbar covers a column label').toBe(false)
-    expect(below.y).toBeGreaterThan(top!.box.y + top!.box.height)
-    // Below the Focus button, which stands right under the selection.
-    const focus = await box(window.locator('.w-focus-entry'))
-    expect(overlaps(below, focus), 'the toolbar covers the Focus button').toBe(false)
-    expect(below.y).toBeGreaterThanOrEqual(focus.y + focus.height)
-
-    // A Ticket of a lower row: the toolbar is above it, as before.
-    const above = await selectTicket(launched, lower!.num)
-    expect(above.y + above.height).toBeLessThan(lower!.box.y)
-    expect(overlaps(above, header)).toBe(false)
-
-    // A Node outside the frame: the toolbar is above it.
-    const note = window.locator('.react-flow__node[data-id="outside"]')
-    await note.locator('.w-note__header').click()
-    await expect(window.locator('.react-flow__node.selected[data-id="outside"]')).toHaveCount(1)
-    await canvasReady(launched)
-    const noteToolbar = await box(window.getByTestId('selection-toolbar'))
-    expect(noteToolbar.y + noteToolbar.height).toBeLessThan((await box(note)).y)
-  } finally {
-    await launched.close()
-  }
-})
+  })
+}

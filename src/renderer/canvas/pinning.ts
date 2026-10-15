@@ -21,8 +21,12 @@
 // below it) are drawn among the Nodes, not over all of them: React Flow's NodeToolbar puts them
 // over the whole plane, so another Node's toolbar covered a pinned Node. usePlaneToolbar() places
 // them in React Flow's viewport instead, under the pinned Nodes unless the selection has one.
-// The selection toolbar keeps off the header of an Epic frame and its column labels: over a
-// Ticket of the frame's top row it goes below the selection (clearToolbarPlacement()).
+// The selection toolbar takes the first place around the selection that covers nothing it must
+// keep off — the header of an Epic frame with its column labels, the other Nodes, the Focus
+// button: on top, beside on the right, beside on the left, or below the Focus button
+// (clearToolbarPlacement()). Pinned Nodes are out of that rule on both ends: a pinned selection
+// keeps its toolbar on top, and the toolbar of a selection on the plane does not avoid a pinned
+// Node, which is drawn above it.
 import { useMemo, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState, type XYPosition } from '@xyflow/react'
 import { create } from 'zustand'
@@ -199,7 +203,7 @@ export function usePinnedView(pinned: boolean): PinnedView | undefined {
 }
 
 /** The side of the selection a toolbar is drawn on. */
-export type ToolbarSide = 'top' | 'bottom'
+export type ToolbarSide = 'top' | 'right' | 'left' | 'bottom'
 
 /** What placing a selection's toolbar needs of one selected Node, as React Flow has it. */
 export interface ToolbarNode {
@@ -227,7 +231,10 @@ export interface ToolbarSize {
   height: number
 }
 
-/** Where a toolbar is drawn: the side of the selection and its distance from it, in screen pixels. */
+/**
+ * Where a toolbar is drawn: the side of the selection and its distance from it, in screen pixels.
+ * On top and below it is centred on the selection; beside it, level with the selection's top edge.
+ */
 export interface ToolbarPlacement {
   side: ToolbarSide
   offset: number
@@ -257,39 +264,97 @@ export function toolbarRect(selection: readonly PlaneRect[], zoom: number, size:
   const width = size.width / zoom
   const height = size.height / zoom
   const gap = placement.offset / zoom
-  const y = placement.side === 'top' ? bounds.top - gap - height : bounds.bottom + gap
-  return { x: (bounds.left + bounds.right) / 2 - width / 2, y, width, height }
+  switch (placement.side) {
+    case 'top':
+      return { x: (bounds.left + bounds.right) / 2 - width / 2, y: bounds.top - gap - height, width, height }
+    case 'bottom':
+      return { x: (bounds.left + bounds.right) / 2 - width / 2, y: bounds.bottom + gap, width, height }
+    case 'right':
+      return { x: bounds.right + gap, y: bounds.top, width, height }
+    case 'left':
+      return { x: bounds.left - gap - width, y: bounds.top, width, height }
+  }
 }
 
-const overlaps = (a: PlaneRect, b: PlaneRect): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+/** The area two rectangles share; 0 when they only touch or are apart. */
+function overlapArea(a: PlaneRect, b: PlaneRect): number {
+  const width = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+  const height = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  return width > 0 && height > 0 ? width * height : 0
+}
+
+/** What a selection's toolbar keeps off, on the plane. */
+export interface ToolbarKeepOut {
+  /** The header bands of the Epic frames (epicHeaderBand()). */
+  bands: readonly PlaneRect[]
+  /** The other visible Nodes: not selected, not pinned (drawn above the toolbar), not an Epic frame (its header band stands for it). */
+  nodes: readonly PlaneRect[]
+  /** The Focus button below the selection (overlays/FocusEntry.tsx): its screen size and distance from the selection. */
+  focus: { size: ToolbarSize; offset: number } | null
+}
+
+/** Screen pixels between the selection and its toolbar: on top, beside it, and below (under the Focus button). */
+export interface ToolbarOffsets {
+  top: number
+  side: number
+  bottom: number
+}
+
+/** The places a selection's toolbar may take, in the order it tries them. */
+export function toolbarCandidates(offsets: ToolbarOffsets): ToolbarPlacement[] {
+  return [
+    { side: 'top', offset: offsets.top },
+    { side: 'right', offset: offsets.side },
+    { side: 'left', offset: offsets.side },
+    { side: 'bottom', offset: offsets.bottom },
+  ]
+}
 
 /**
- * The side a selection's toolbar is drawn on so that it covers none of `keepOut` (the header bands
- * of the Epic frames, epicHeaderBand()): on top, `top` screen pixels away, when it covers none
- * there; below, `bottom` pixels away, when it covers one on top and none below; on top again when
- * it covers one on both sides.
+ * Where a selection's toolbar is drawn: the first of toolbarCandidates() — on top, on the right,
+ * on the left, below the Focus button — that covers none of `keepOut`. The toolbar keeps its
+ * screen size whatever the zoom, so at a low zoom it is taller in canvas units and reaches further.
+ *
+ * When every place covers something (a Ticket in the middle of an Epic frame's grid: the columns
+ * stand 24 px apart, the rows 12 px, and the toolbar is about 200 px wide), it takes the place
+ * that covers the least of the frame headers and the Focus button, and among those the least of
+ * the other Nodes, by area; the earlier place on a tie.
+ *
+ * A selection with a pinned Node gets the first place whatever is there: it stays at its place on
+ * the screen while the plane under it pans, so the toolbar would change sides as the Canvas moves,
+ * and its toolbar is drawn above every Node of the plane (planeToolbarStyle()).
  */
 export function clearToolbarPlacement(
-  selection: readonly PlaneRect[],
-  keepOut: readonly PlaneRect[],
+  selection: readonly (PlaneRect & { pinned?: boolean })[],
+  keepOut: ToolbarKeepOut,
   zoom: number,
   size: ToolbarSize,
-  top: number,
-  bottom: number,
+  offsets: ToolbarOffsets,
 ): ToolbarPlacement {
-  const above: ToolbarPlacement = { side: 'top', offset: top }
-  const below: ToolbarPlacement = { side: 'bottom', offset: bottom }
-  const covers = (placement: ToolbarPlacement): boolean => {
+  const candidates = toolbarCandidates(offsets)
+  if (selection.some((rect) => rect.pinned === true)) return candidates[0]!
+  const focus = keepOut.focus === null ? null : toolbarRect(selection, zoom, keepOut.focus.size, { side: 'bottom', offset: keepOut.focus.offset })
+  const chrome = focus === null ? keepOut.bands : [...keepOut.bands, focus]
+  let best = candidates[0]!
+  let bestCost: [number, number] | null = null
+  for (const placement of candidates) {
     const rect = toolbarRect(selection, zoom, size, placement)
-    return rect !== null && keepOut.some((band) => overlaps(rect, band))
+    if (rect === null) return placement
+    const sum = (zones: readonly PlaneRect[]): number => zones.reduce((total, zone) => total + overlapArea(rect, zone), 0)
+    const cost: [number, number] = [sum(chrome), sum(keepOut.nodes)]
+    if (cost[0] === 0 && cost[1] === 0) return placement
+    if (bestCost === null || cost[0] < bestCost[0] || (cost[0] === bestCost[0] && cost[1] < bestCost[1])) {
+      best = placement
+      bestCost = cost
+    }
   }
-  if (!covers(above)) return above
-  return covers(below) ? above : below
+  return best
 }
 
 /**
- * The style of a selection's toolbar inside React Flow's viewport: centred on the side of the
- * selection's bounds, `offset` screen pixels away, at its screen size whatever the zoom. Its z is
+ * The style of a selection's toolbar inside React Flow's viewport: on the side of the selection's
+ * bounds, `offset` screen pixels away — centred on top and below, level with the top edge on the
+ * right and on the left (as toolbarRect()) — at its screen size whatever the zoom. Its z is
  * just under the pinned Nodes when the selection has none (above the unselected Nodes of the
  * plane, which it is the only one to overlap: it stands outside the selection's bounds), and
  * above the selection when it has one. Null for an empty selection.
@@ -298,21 +363,35 @@ export function planeToolbarStyle(nodes: readonly ToolbarNode[], zoom: number, s
   const bounds = boundsOf(nodes)
   if (bounds === null || !(zoom > 0)) return null
   const { left, right, top, bottom } = bounds
-  const x = (left + right) / 2
-  const y = side === 'top' ? top - offset / zoom : bottom + offset / zoom
-  const shift = side === 'top' ? '-100%' : '0%'
+  const gap = offset / zoom
+  const [x, y, shift] =
+    side === 'top'
+      ? [(left + right) / 2, top - gap, '-50%, -100%']
+      : side === 'bottom'
+        ? [(left + right) / 2, bottom + gap, '-50%, 0%']
+        : side === 'right'
+          ? [right + gap, top, '0%, 0%']
+          : [left - gap, top, '-100%, 0%']
   const zIndex = nodes.some((node) => node.pinned) ? Math.max(...nodes.map((node) => node.z)) + 1 : PINNED_Z_INDEX - 1
   return {
     position: 'absolute',
     left: 0,
     top: 0,
     transformOrigin: '0 0',
-    transform: `translate(${x}px, ${y}px) scale(${1 / zoom}) translate(-50%, ${shift})`,
+    transform: `translate(${x}px, ${y}px) scale(${1 / zoom}) translate(${shift})`,
     zIndex,
     // React Flow's viewport takes no pointer events; the toolbar does.
     pointerEvents: 'all',
   }
 }
+
+/** Screen pixels between the selection and the Focus button below it (overlays/FocusEntry.tsx). */
+export const FOCUS_ENTRY_OFFSET = 12
+/**
+ * The Focus button's size on the screen, for keeping the selection toolbar off it: "Focus ⌘↩" in a
+ * --row-height (28 px) button is about 80 px wide; the width has some slack for the font.
+ */
+export const FOCUS_ENTRY_SIZE: ToolbarSize = { width: 96, height: 28 }
 
 /** A selected Node as placing its toolbar needs it; null while React Flow has not measured it. */
 function toolbarNodeOf(node: InternalNode): ToolbarNode | null {

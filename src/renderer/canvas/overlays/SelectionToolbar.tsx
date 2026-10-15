@@ -19,8 +19,23 @@ import { isOtherModifier, isPrimary, shortcutKey } from '../../platform'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { canvasSizeOf, clearToolbarPlacement, epicHeaderBand, pinOp, unpinOp, usePlaneToolbar, type PlaceToolbar, type PlaneRect, type ToolbarSize } from '../pinning'
+import {
+  canvasSizeOf,
+  clearToolbarPlacement,
+  epicHeaderBand,
+  FOCUS_ENTRY_OFFSET,
+  FOCUS_ENTRY_SIZE,
+  pinOp,
+  unpinOp,
+  usePlaneToolbar,
+  type PlaceToolbar,
+  type PlaneRect,
+  type ToolbarKeepOut,
+  type ToolbarOffsets,
+  type ToolbarSize,
+} from '../pinning'
 import { escapeFoldsDoneStack, foldLastDoneStack } from '../sources/epics'
+import { BINDING_ANCHOR_KIND } from '../sources/workflow-bindings'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
 import { useLayoutOps, type LayoutOps } from '../useLayout'
 import './selection-toolbar.css'
@@ -235,28 +250,45 @@ export function DeleteSection({ nodes }: SelectionSectionProps) {
 /** The sections of the toolbar, left to right. */
 const SELECTION_SECTIONS: readonly ComponentType<SelectionSectionProps>[] = [PinSection, TagsSection, DeleteSection]
 
-/** Screen pixels between the selection and the toolbar above it. */
+/** Screen pixels between the selection and the toolbar above it or beside it. */
 const TOP_OFFSET = 12
 /**
  * Screen pixels between the selection and the toolbar below it: the Focus button stands 12 px
  * below the selection and is --row-height (28 px) tall, then a gap of --space-2 (8 px).
  */
-const BOTTOM_OFFSET = 12 + 28 + 8
+const BOTTOM_OFFSET = FOCUS_ENTRY_OFFSET + FOCUS_ENTRY_SIZE.height + 8
+const OFFSETS: ToolbarOffsets = { top: TOP_OFFSET, side: TOP_OFFSET, bottom: BOTTOM_OFFSET }
 /** The toolbar's size until it is measured: Pin, Add tag and Delete in a row. */
 const DEFAULT_SIZE: ToolbarSize = { width: 200, height: 34 }
 
-/** The header bands of the visible, measured Epic frames, as one string so the selector compares by value. */
-function headerBandsKey(state: ReactFlowState): string {
+/**
+ * What the toolbar keeps off besides the Focus button, as one string so the selector compares by
+ * value: the header bands of the visible, measured Epic frames and the rectangles of the other
+ * visible, measured Nodes that are not selected. Empty while nothing is selected.
+ *
+ * Not the invisible Binding anchors, and not the pinned Nodes: a pinned Node stays at its place on
+ * the screen while the plane under it pans, so the toolbar would change sides as the Canvas moves;
+ * it is drawn above the toolbar instead (pinning.ts).
+ */
+function keepOutKey(state: ReactFlowState): string {
   const bands: PlaneRect[] = []
+  const nodes: PlaneRect[] = []
+  let selected = false
   for (const node of state.nodeLookup.values()) {
-    if (node.type !== 'epic-frame' || node.hidden === true) continue
+    if (node.hidden === true || node.type === BINDING_ANCHOR_KIND) continue
+    if (node.selected === true) {
+      selected = true
+      continue
+    }
+    if ((node.internals.userNode.data as { node?: Pick<LayoutNode, 'pinned'> } | undefined)?.node?.pinned === true) continue
     const width = node.measured.width ?? node.width
     const height = node.measured.height ?? node.height
     if (width === undefined || height === undefined) continue
     const { x, y } = node.internals.positionAbsolute
-    bands.push(epicHeaderBand({ x, y, width, height }))
+    if (node.type === 'epic-frame') bands.push(epicHeaderBand({ x, y, width, height }))
+    else nodes.push({ x, y, width, height })
   }
-  return JSON.stringify(bands)
+  return selected ? JSON.stringify({ bands, nodes }) : ''
 }
 
 /** The toolbar element's size on the screen, followed while it changes (tags added, a refusal shown); DEFAULT_SIZE until measured. */
@@ -283,10 +315,13 @@ export default function SelectionToolbar() {
   const projectId = activeProject(useProjects())?.id
   const selected = useNodes<CanvasFlowNode>().filter((node) => node.selected && !node.hidden)
   useCanvasKeys(projectId)
-  const bandsKey = useStore(headerBandsKey)
-  const bands = useMemo(() => JSON.parse(bandsKey) as PlaneRect[], [bandsKey])
+  const zonesKey = useStore(keepOutKey)
+  const keepOut = useMemo<ToolbarKeepOut>(() => {
+    const zones = zonesKey === '' ? { bands: [], nodes: [] } : (JSON.parse(zonesKey) as Omit<ToolbarKeepOut, 'focus'>)
+    return { ...zones, focus: { size: FOCUS_ENTRY_SIZE, offset: FOCUS_ENTRY_OFFSET } }
+  }, [zonesKey])
   const [size, measure] = useToolbarSize()
-  const place = useCallback<PlaceToolbar>((nodes, zoom) => clearToolbarPlacement(nodes, bands, zoom, size, TOP_OFFSET, BOTTOM_OFFSET), [bands, size])
+  const place = useCallback<PlaceToolbar>((nodes, zoom) => clearToolbarPlacement(nodes, keepOut, zoom, size, OFFSETS), [keepOut, size])
   // Among the Nodes, not over all of them: a pinned Node stays above another Node's toolbar (pinning.ts).
   const style = usePlaneToolbar(
     selected.map((node) => node.id),

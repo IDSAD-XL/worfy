@@ -1,7 +1,7 @@
 # 14 — Панель выделения встаёт туда, где ничего не закрывает: сбоку или под выделением
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а [01](01-панель-выделения-не-закрывает-шапку-рамки-epic-а.md)
 (раздел «Gate оркестратора (2026-10-15)», Consider [low]: отступ снизу 48 px вместо 12 px, «решено
@@ -96,4 +96,58 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а [01](01
 
 ## Итог
 
-—
+Реализовано в ветке `worfy-polish/14` (PR — в отчёте исполнителя).
+
+- **Правило выбора места** — `clearToolbarPlacement()` в `src/renderer/canvas/pinning.ts`. Кандидаты по
+  порядку: сверху (12 px), справа и слева у верхнего края выделения (12 px от боковой стороны), снизу
+  под кнопкой Focus (`BOTTOM_OFFSET` = 48 px). Запретные зоны: полосы шапок рамок Epic-ов, прямоугольники
+  других видимых Node-ов (не выбранных) и кнопка Focus (`FOCUS_ENTRY_SIZE` 96 × 28, на
+  `FOCUS_ENTRY_OFFSET` 12 px под выделением). Берётся первый кандидат, который не задевает ни одной зоны.
+  `ToolbarSide` и `planeToolbarStyle()` получили стороны `left` и `right`.
+- **Свободного места нет — правило (решено без владельца, подтвердить).** Берётся кандидат с наименьшей
+  площадью пересечения, в два яруса: сначала по шапкам рамок и кнопке Focus, потом по другим Node-ам; при
+  равенстве — более ранний по порядку. Так шапка рамки и кнопка Focus не закрываются, пока есть кандидат,
+  который их не задевает. Ticket в середине сетки получает панель справа: она закрывает 188 × 34 соседа
+  справа, сверху и снизу — по 200 × 34.
+- **Pinned Node-ы вне правила (решено без владельца, подтвердить).** Ticket просил считать запретной зоной
+  все другие видимые Node-ы. Pinned Node-ы исключены с обеих сторон: панель не обходит pinned Node, а
+  выделение с pinned Node держит панель сверху. Причины: pinned Node стоит на месте на экране, пока
+  Canvas под ним двигается, и панель меняла бы сторону при каждом pan; pinned Node рисуется над панелью
+  (z-order из pinning.ts). Ещё одна причина: e2e `pin-tags.spec.ts` (только читать в этом Ticket-е)
+  проверяет ровно это — панель лежит под pinned Node-ом. С pinned Node-ами в зонах этот test красный.
+- **Невидимые Binding anchors** (точки линий Binding, 1 × 1) в зоны не входят.
+- **Комментарий** `FocusEntry.tsx` переписан: кнопка Focus всегда снизу, панель выделения её обходит.
+
+### Проверки
+
+- Unit test пункта 1 на main (тот же сценарий через старый API, `clearToolbarPlacement(sel, keepOut, zoom, size, 12, 48)`):
+  4 failed of 4 — `header: expected true to be false` (если в зонах сосед и Focus, панель возвращается
+  наверх, на шапку) и `neighbour: expected true to be false` (как вызывает SelectionToolbar на main —
+  только шапки — панель снизу ложится на соседа), при zoom 1 и 0,6. С правкой
+  `test/unit/pinning.test.tsx`: 44 passed.
+- Мутанты на копии `pinning.ts` (восстановление через `cmp`), `test/unit/pinning.test.tsx`: «всегда снизу 48 px»
+  — 14 failed; «другие Node-ы не в зонах» — 7 failed; «кнопка Focus не в зонах» — 2 failed; «высота
+  панели без деления на zoom» — 4 failed; «без ярусов в правиле без места» — 2 failed; «pinned-выделение
+  как обычное» — 1 failed. Мутант SelectionToolbar «Node-ы не попадают в зоны» — e2e
+  `selection-toolbar-frame.spec.ts` 2 failed («the toolbar covers the Ticket above»).
+- e2e `selection-toolbar-frame.spec.ts`: на main новый случай красный — zoom 1 «the toolbar covers the
+  neighbour's title», zoom 0,6 «the toolbar covers the neighbour's Ship ticket»; с правкой 2 passed.
+  Fixture: Ticket 04 убран, чтобы справа от колонки 02/03 было свободно; Note перенесён на y 360, чтобы
+  при zoom 0,6 панель над ним не задевала Orchestrator.
+- e2e `pin-tags.spec.ts` и `focus.spec.ts`: 11 passed. В первом прогоне падал
+  `focus.spec.ts:341` (размер pty Terminal-а в focus mode, timeout 10 s) — во втором и третьем прогоне зелёный, правка его не касается.
+- `pnpm lint` 0, `pnpm typecheck` 0. `pnpm test` и gate fast на этом Mac красные только по timeout-ам
+  15 s в contract test-ах (`workflow-reader`, `github-prs`, `harness-install`, `e3-sandbox`, `docs`,
+  `harness-script-wiring`), набор меняется от прогона к прогону; load average 8–10 от соседних агентов.
+  Эти test-ы не импортируют изменённые файлы. Вердикт — Linux CI PR.
+- [ ] gate full — шаг оркестратора перед merge.
+
+### Снимки
+
+Ticket 02 верхнего ряда выделен, под ним Ticket 03; панель справа, кнопка Focus под выделением:
+
+- zoom 1: [светлая](../evidence/14-selection-toolbar-frame-zoom-1-light.png), [тёмная](../evidence/14-selection-toolbar-frame-zoom-1-dark.png)
+- zoom 0,6: [светлая](../evidence/14-selection-toolbar-frame-zoom-0_6-light.png), [тёмная](../evidence/14-selection-toolbar-frame-zoom-0_6-dark.png)
+
+Замечено вне скоупа: кнопка Focus (12 px под выделением, высота 28) сама закрывает верх Ticket-а
+следующего ряда — номер и состояние (на снимках). Её место Ticket не меняет.
