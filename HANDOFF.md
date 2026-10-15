@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-15 (UTC), main @ af1286d
+# Передача контекста — снимок на 2026-10-15 (UTC), main @ 31b4987
 
 ## Сейчас в работе
 
@@ -10,7 +10,7 @@
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 (приёмка) — владелец.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 7/8: влиты 01–03, 05–08; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; вопросы владельцу — «Итог» 07, 08.
-- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): 0/4, по исследованию PR #325; первым 01.
+- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01, 04 (PR #342, #341); 02, 03 — отчёты (PR #339, #340). Решения — «Итог» 01, 04.
 - `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 0/12 по ресерчу 2026-10-15; первыми 01–05, 12 — research.
 
 ## Ждёт владельца

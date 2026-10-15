@@ -1,7 +1,7 @@
 # 04 — Отчёт о критическом пути Ticket-ов: claim → PR → CI → Gate → merge по уже записанным событиям
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #341](https://github.com/IDSAD-XL/worfy/pull/341)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея F); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «F. P2: measure the critical path
@@ -51,7 +51,7 @@ instead of accelerating individual agents»; [ADR-0002](../../../docs/adr/0002-w
 - [x] Test проверяет, что скрипт ничего не пишет вне `--out` (временная папка, список файлов до и после).
 - [x] (вручную) Отчёт по настоящим журналам Mac владельца для одного закрытого Epic-а — в «Итог»,
       без личных путей; какой шаг вышел критическим.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -177,3 +177,16 @@ open, без PR):
 | без «вердикт узкого круга = один узкий круг» | тот же test |
 
 **Не проверено:** gate full и Linux CI — после PR, gate full делает оркестратор.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01 и 04 параллельно, общих файлов нет. Worktree — `.claude/worktrees/rel-04`: путь `.claude/worktrees/04` занят деревом `worfy-review/04`. Папка журналов по умолчанию — без ветки по платформе, как `scripts/hang-sample.mjs:49`, иначе PR платформенный (ADR-0056, пункт 2): **решено без владельца, подтвердить.**
+- Гейт — два круга. Круг 1 — `REJECTED` на `31f38e3` ([комментарий в PR #341](https://github.com/IDSAD-XL/worfy/pull/341#issuecomment-6186166641)): отказ `--out` внутри `~/.claude`, журналов или папки данных обходился регистром букв на macOS (`realpathSync` сохраняет набранный регистр, APFS к регистру не чувствительна). Круг 2, только диф доработки `31f38e3..b48949f`, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/341#issuecomment-6186459021)): `realpathSync.native`, test на другой регистр; обходы первого круга и ссылки (цепочки, относительные цели, сама `~/.claude`) — код 2, файла нет; ветки по `process.platform` нет.
+- Мерж: база main `75316ed`, head `2651e6a`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `31b4987`.
+- Act on (круг 1, исправлено): регистр букв в `--out` — см. выше.
+- Consider ([low]): `scripts/critical-path.mjs` сопоставляет workflow run-ы только по ветке, без `headSha`: если Gate поставил `VERIFIED` раньше, чем закончился CI последнего коммита, «CI зелёный» — run более старого коммита, шаг PR → CI короче настоящего. Ограничение описано в «Итог» выше.
+- Noted ([low]):
+  - круг 1, исправлено попутно: висячая symlink в `--out` внутрь `~/.claude` проходила проверку; `NARROW: REJECTED` считался кругом доработки;
+  - debt круга 2: `scripts/critical-path.mjs:667` — нет test-а на ссылку с относительной целью (мутант `resolve(readlinkSync(full))` выживает; поведение верное);
+  - debt круга 2: `:715`, `:732` — проверка `--out` и запись — разные шаги: ссылка, созданная между ними, уведёт запись в `~/.claude` (нужен параллельный процесс, пишущий в папку отчёта).
+- Dismissed — нет.
