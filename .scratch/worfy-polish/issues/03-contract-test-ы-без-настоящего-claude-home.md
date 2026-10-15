@@ -124,7 +124,10 @@ average 7–10, параллельно шли другие implementer-ы): `doc
 файлов отдельным прогоном: с правкой — 233 из 234 (timeout в `harness-script-wiring`), без —
 233 из 234 (timeout в `github-prs`); `harness-script-wiring.test.ts` один — 21 из 21 и с правкой
 (дважды), и без. Новые только 5 test-ов изоляции. На машине владельца (`model: opus[1m]`) ни один
-test поведение не сменил.
+test поведение не сменил. После второго commit-а (папка прогона) полный прогон ещё раз (load
+average до 27): красные только timeout-ы в `docs.test.ts`, `github-prs.test.ts` (3) и
+`harness-script-wiring.test.ts` (timeout и следом лишняя строка в файле вызовов от прерванного
+test-а); эти три файла отдельно — 108 из 108 и с правкой, и без; gate fast — `[gate] зелено (fast)`.
 
 **Прогон шага 1 после правки:** exit 1 — 1 красный из 2324, timeout `workflow-reader.test.ts` под
 нагрузкой; этот файл отдельно под тем же `HOME` — exit 0, 44 из 44.
