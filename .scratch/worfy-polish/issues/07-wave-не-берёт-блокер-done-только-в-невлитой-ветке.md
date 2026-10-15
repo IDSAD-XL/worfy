@@ -1,0 +1,80 @@
+# 07 — Готовая Wave не считает блокер закрытым, пока его `done` только в невлитой ветке
+
+Type: task
+Status: open
+Blocked by: —
+Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше» — «Кандидаты в Ticket-ы: `done` с
+невлитой ветки, `reader.ts:329` (`worfy-harness` 22)»; «Итог»
+[`worfy-harness` 22](../../worfy-harness/issues/22-silent-mode-в-harness.md), «Долги ревьюеров»;
+[ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md).
+
+## Что происходит
+
+- worfy кладёт Status Ticket-а из ветки его worktree поверх Status-а checkout-а (ADR-0033):
+  `branchOverrides` (`src/main/workflow/reader.ts:395-397`) — ветка перекрывает checkout, если в checkout-е
+  не `blocked` и не `done`, а в ветке не `open` и не `none`. Ticket получает `state` ветки и поле
+  `fromBranch` (`:412-415`). Значит, Ticket, у которого `done` записан коммитом в его ветке, но ветка ещё
+  не влита, показывается `done`. **Показ верен** и остаётся: ADR-0033 разбирает этот случай
+  («Отвергнуто: … в ветке уже `blocked` или `done`, показывался бы `work`»).
+- **Дефект — в готовой Wave.** `readyWave` (`src/shared/workflow/waves.ts:158`) считает блокер закрытым по
+  `state === 'done'` (`:173`) и не смотрит, откуда этот `done`. Тип `WaveTicket` (`:48`) `fromBranch` не
+  берёт. Ticket, чей блокер `done` только в невлитой ветке, попадает в `ready`, хотя кода блокера в main
+  ещё нет: worktree зависимого Ticket-а режется от `origin/main` (Profile, `worktree.base`).
+- Когда так бывает. При `pr-green-ci` `ticket done --pr N` пишется после мержа, окна нет. При
+  `local-green` skill `ship-ticket` коммитит документы с `done` в ветку Ticket-а перед fast-forward, и
+  прямо описывает сбой: «a break between the documents commit and the fast-forward, or a fast-forward
+  that failed: the branch carries `done` but is not in the main branch» (`ship-ticket/SKILL.md`, раздел
+  о `MERGED=`). Ещё — исполнитель, который по ошибке записал `done` в своей ветке PR. Во всех этих случаях
+  зависимый Ticket стартует без кода блокера. Кроме того, файлы такого блокера не держатся (`held` —
+  только `work`, `:162-163`), и зависимый Ticket может взять те же файлы.
+- `readyWave` зовут Autopilot (`src/shared/autopilot/cycle.ts:202`, `:207`), «Run wave» и шаблоны
+  действий (`src/shared/actions/render-template.ts:75`, `:150`) и раскладка рамки
+  (`src/renderer/canvas/epic-layout.ts:205`).
+
+## Что делаем
+
+1. `WaveTicket` берёт `fromBranch` (необязательное поле: старые вызовы без него ведут себя как checkout).
+2. Блокер закрыт для готовой Wave, только если `state === 'done'` и `fromBranch` пуст. Блокер `done` из
+   ветки — причина ожидания `blockers` с этим номером, как незакрытый.
+3. Файлы Ticket-а `done` из ветки держатся, как у `work`: ветка ещё не влита.
+4. Показ Status-а на Canvas не меняется (ADR-0033).
+5. Шапка `waves.ts` — одна фраза о правиле. Если Orchestrator решит, что правилу нужен ADR, номер
+   выдаёт он при взятии (spec, «Соглашения»).
+
+## Готово, когда
+
+- [ ] Unit test: блокер `done` с `fromBranch` — зависимый Ticket в `waiting` с `blockers: [N]`; тот же
+      блокер без `fromBranch` — зависимый в `ready`.
+- [ ] Unit test: файлы блокера `done` из ветки держатся — зависимый с общим файлом ждёт по `files`.
+- [ ] Unit test: старый вход без поля `fromBranch` даёт прежний результат (все test-ы `waves.test.ts`
+      зелёные без правок).
+- [ ] Contract test `cycle` Autopilot или `render-template`: Wave не называет такого Ticket-а (если
+      существующие test-ы это уже покрывают через `readyWave` — указать какие, в «Итог»).
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)`; Linux CI зелёный.
+
+## Тесты
+
+- `test/unit/waves.test.ts` — новые случаи.
+- Сначала красный: «блокер `done` из ветки не делает Ticket готовым» на нынешнем коде.
+- Мутанты: проверять `fromBranch` только у первого блокера; не держать файлы `done` из ветки; держать
+  файлы и у `done` из checkout-а. Каждый краснит свой test.
+
+## Где в коде
+
+- `src/shared/workflow/waves.ts`
+- `test/unit/waves.test.ts`
+
+Только читать (не в списке, чтобы не давать ложных пересечений Wave):
+`src/main/workflow/reader.ts`, `src/shared/workflow/types.ts`, `src/shared/autopilot/cycle.ts`,
+`src/shared/actions/render-template.ts`, `src/renderer/canvas/epic-layout.ts`,
+`docs/adr/0033-autopilot-names-wave-tickets.md`.
+
+## Вне скоупа
+
+- Показ Status-а из ветки (ADR-0033) и `branchOverrides`.
+- Status-ы `blocked` из ветки: они и так не делают Ticket готовым.
+
+## Итог
+
+—
