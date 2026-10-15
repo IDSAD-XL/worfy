@@ -126,7 +126,17 @@
           "required": ["lenses", "ticket_lenses"],
           "properties": {
             "lenses": { "type": "array", "items": { "type": "string" } },
-            "ticket_lenses": { "type": "array", "items": { "type": "string" } }
+            "ticket_lenses": { "type": "array", "items": { "type": "string" } },
+            "depth": {
+              "type": ["object", "null"],
+              "description": "Review depth (profiles/README.md): wave — the gate of a wave, first_round and later_rounds — the review rounds of skill ship-ticket and of a PR another session wrote. A field absent or null — the skill's default (low, high, medium).",
+              "additionalProperties": false,
+              "properties": {
+                "wave": { "enum": ["low", "medium", "high", "max", null] },
+                "first_round": { "enum": ["low", "medium", "high", "max", null] },
+                "later_rounds": { "enum": ["low", "medium", "high", "max", null] }
+              }
+            }
           }
         }
       }

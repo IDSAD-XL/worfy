@@ -31,6 +31,9 @@ contract is `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`.
   its gate (section 3) gave `VERIFIED` and before its merge. The mark is the line `Risk: high` in its
   header, next to `Status:` and `Blocked by:`; `epic-status` and worfy skip a header line they do not
   know. Whoever writes the ticket sets the mark; nothing sets it from the diff.
+- **As `max` depth** — the `max` depth of skill `/worfy:ship-ticket`, step 7, and of a wave
+  (`/worfy:epic-wave`, section 3) is `high` depth first, then this mode on the whole branch. The
+  `high` round gives its verdict as usual; this mode then gives its own, with its prefix.
 
 ## 2. Scope and intent
 
@@ -182,7 +185,18 @@ After the verdict is written, remove the reviewers' and the sceptics' worktrees
 The verdict line, then the four groups, then the map of agreement, then: how many findings each
 model gave, how many both models gave, how many the sceptics refuted, the time from the start of the
 reviewers to the verdict, and the agents that did not answer. Those numbers are the measure of what
-the mode costs.
+the mode costs. The report ends with the two report lines of skill `/worfy:ship-ticket`, step 7;
+the depth is `max`:
+
+```
+Review depth: max — <where it came from>
+Review tokens: <subagent tokens of the round> | not measured
+```
+
+The tokens are the sum of the token counts the finished agents of this mode report in their results
+(reviewers and sceptics); an agent whose result shows no count makes the line
+`Review tokens: not measured`, never an estimate. When the verdict is written down (section 7), the
+two lines follow its group lines; neither starts with `REJECTED`, `MAX-REVIEW:` or `gate:`.
 
 Source: Thermos, `thermos/skills/thermos/SKILL.md`, commit `ccb5507cec1546dc88135c1139c811e6c59115ba` of `cursor/plugins` (MIT, Copyright (c) 2026 Cursor)
 — two reviewers on the same diff of the whole branch, started together, and a synthesis that weighs
