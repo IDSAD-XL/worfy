@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
+import { quietWindows } from './quiet-windows'
 import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
 import { reportStartupFailure } from './startup-failure'
 import { frameOptions } from './window-frame'
@@ -67,6 +68,10 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     screen.getAllDisplays().map((display) => display.workArea),
   )
 
+  // WORFY_QUIET_WINDOWS=1, e2e tests only: shown without taking the focus, transparent, mouse-through
+  // and still painted (quiet-windows.ts). A normal start gets Electron's defaults, as before.
+  const quiet = quietWindows()
+
   const window = new BrowserWindow({
     ...bounds,
     minWidth: MIN_SIZE.width,
@@ -75,6 +80,7 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
     show: false,
     // The frame of design F on macOS, the system's own frame elsewhere (window-frame.ts).
     ...frameOptions(process.platform, nativeTheme.shouldUseDarkColors),
+    ...(quiet.opacity === undefined ? {} : { opacity: quiet.opacity }),
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       contextIsolation: true,
@@ -82,8 +88,10 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       nodeIntegration: false,
       // The interface scale of the app settings: the page is drawn at it from the first paint.
       zoomFactor: interfaceScale(),
+      ...(quiet.backgroundThrottling === undefined ? {} : { backgroundThrottling: quiet.backgroundThrottling }),
     },
   })
+  if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)
 
@@ -94,7 +102,9 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   window.on('close', remember)
 
   window.once('ready-to-show', () => {
-    window.show()
+    // show() makes worfy the active app on macOS; showInactive() puts the window on screen without that.
+    if (quiet.show === 'showInactive') window.showInactive()
+    else window.show()
   })
 
   // Navigations of the main frame to a new document: the first is the load below, any later one
