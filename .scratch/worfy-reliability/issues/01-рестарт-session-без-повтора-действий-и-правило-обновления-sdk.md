@@ -1,7 +1,7 @@
 # 01 — Рестарт Session не повторяет внешних действий и не снимает отказ в разрешении; правило обновления SDK
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #342](https://github.com/IDSAD-XL/worfy/pull/342)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея A); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «A. P0 candidate: Claude runtime
@@ -83,7 +83,7 @@ compatibility and fail-closed regression tests»; [ADR-0029](../../../docs/adr/0
 - [x] Test-ы пункта 2 есть и зелёные; поведение «Always allow» после рестарта и выбор — в «Итог».
 - [x] Раздел о правиле обновления SDK есть в `docs/lessons/`.
 - [x] Ни один test не запускает настоящий Claude Code (только `fake-query.ts`).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -169,3 +169,12 @@ allow" given before the crash…»; закрыть и открыть занов�
 `@anthropic-ai/claude-agent-sdk` только до сборки с Claude Code ≥ 2.1.299 и в том же PR снимать
 `test/fixtures/sdk-messages/` заново. Список тем `docs/lessons/README.md` не правился (не в следе):
 описание `agents.md` в нём об SDK не говорит.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01 и 04 параллельно, общих файлов нет; 02 и 03 — исследования, `blocked` для Autopilot (PR #331). Worktree — `.claude/worktrees/rel-01`: номера Ticket-ов разных Epic-ов в шаблоне пути совпадают.
+- Гейт — один круг: `VERIFIED` на `2bea632` ([комментарий в PR #342](https://github.com/IDSAD-XL/worfy/pull/342#issuecomment-6186275537)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0, 5208 passed (gate fast ответил из кэша); четыре test-файла — 122 passed; мутанты Ticket-а и три своих (`takeAll` теряет паузу очереди, ушедший ход повторяется после падения, без копии `autopilot-waves.jsonl`) — все красные. Выбор по «Always allow» отказ не ослабляет: код не менялся, Deny не запоминается, unattended Session после падения отклоняет каждый вызов.
+- Мерж: база main `e27868f`, head `282fbac`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `75316ed`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): `test/contract/permissions.test.ts:379`, `:400-401` — название test-а обещает, что «Always allow» в новом процессе той же Session не покрывает другой tool, а проверяется только внутренний список (`as unknown as { permissions: PermissionGate }`), вызова другого tool после падения нет; почти закрывает старый test `:241`. Урок занимает `docs/lessons/agents.md:117-125`.
+- **Решено без владельца, подтвердить:** «Always allow» переживает падение Claude Code внутри той же Session (выбор implementer-а выше).
