@@ -13,6 +13,8 @@
 // - `queue` and `settings` events are not part of the transcript: the store keeps only the latest
 //   of each (ticket 19), and asks main for both (`agent.controls`) when a view needs them before
 //   any arrived;
+// - a `context` event (how full the context window is, worfy-polish ticket 23) is not part of the
+//   transcript either: the store keeps the latest, for the meter under the input field;
 // - a `settings` event that changes the model is a pick in the picker: the store keeps it as
 //   `modelPick` until the next `init` says which model the Session runs, so the Session view's
 //   header does not show the model before the pick as the current one (worfy-week ticket 12).
@@ -23,7 +25,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { typedText } from '../../shared/agent/attachments'
-import type { AgentEvent, AgentEventEnvelope, QueueSnapshot } from '../../shared/agent/events'
+import type { AgentEvent, AgentEventEnvelope, ContextUsage, QueueSnapshot } from '../../shared/agent/events'
 import type { SessionSettings } from '../../shared/agent/settings'
 import { invoke, subscribe } from '../ipc'
 
@@ -49,6 +51,8 @@ export interface SessionLog {
    * pick waits for an `init` to confirm it. The first report of the settings is no pick.
    */
   modelPick: { model: string | null } | null
+  /** How full the context window is, by the last `context` event; null: no data. */
+  context: ContextUsage | null
 }
 
 interface LogsStore {
@@ -56,7 +60,7 @@ interface LogsStore {
 }
 
 const EMPTY: readonly AgentEvent[] = []
-const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null, modelPick: null }
+const EMPTY_LOG: SessionLog = { events: EMPTY, first: 0, echo: null, queue: null, settings: null, modelPick: null, context: null }
 
 export const useSessionLogs = create<LogsStore>(() => ({ logs: {} }))
 
@@ -103,6 +107,7 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
             queue: after?.queue ?? before.queue,
             settings: after?.settings ?? before.settings,
             modelPick,
+            context: after?.context ?? before.context,
           },
         },
       }
@@ -113,6 +118,8 @@ export function acceptAgentEvent({ sessionId, event: received }: AgentEventEnvel
     switch (event.type) {
       case 'queue':
         return { ...log, queue: { items: event.items, paused: event.paused } }
+      case 'context':
+        return { ...log, context: event.usage }
       case 'settings': {
         const picked = log.settings !== null && event.settings.model !== log.settings.model
         return { ...log, settings: event.settings, modelPick: picked ? { model: event.settings.model } : log.modelPick }
@@ -258,4 +265,10 @@ export function useSessionControls(sessionId: string | null): Pick<SessionLog, '
     if (missing) void loadControls(sessionId)
   }, [sessionId, missing])
   return { queue, settings, modelPick }
+}
+
+/** How full a Session's context window is, by its last `context` event; null: no data yet, or none. */
+export function useSessionContext(sessionId: string | null): ContextUsage | null {
+  useEffect(ensureAgentEvents, [])
+  return useSessionLogs((store) => (sessionId === null ? null : (store.logs[sessionId]?.context ?? null)))
 }
