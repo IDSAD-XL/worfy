@@ -4,7 +4,7 @@
 // line, a line of an unknown kind, a session error and a stop, one run of `other-epic` that ends
 // while it waits, Ticket files with Status lines, and the PR data `gh` would give.
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, posix, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -323,6 +323,37 @@ describe('critical-path: it writes nothing but --out', () => {
   })
 })
 
+describe('critical-path: --out spelled another way', () => {
+  it('refuses an --out into ~/.claude or the data folder typed in another case on a case-insensitive disk', (context) => {
+    const m = machine()
+    // On a case-sensitive file system (Linux) `.CLAUDE` is another folder, which does not exist.
+    if (!existsSync(join(m.home, '.CLAUDE')) || !existsSync(join(m.dir, 'DATA'))) context.skip('the file system tells case apart: another case is another folder')
+    const before = snapshot(m.dir)
+    for (const out of [join(m.home, '.CLAUDE', 'd.md'), join(m.dir, 'DATA', 'AutoPilot', 'e.md')]) {
+      const { status, stderr } = run(['--root', m.root, '--prs', m.prs, '--out', out], m.env)
+      expect(status, out).toBe(2)
+      expect(stderr).toContain('refused')
+    }
+    expect(snapshot(m.dir)).toEqual(before)
+  })
+
+  it('refuses an --out that is a link to a file not yet there inside ~/.claude', (context) => {
+    const m = machine()
+    mkdirSync(join(m.dir, 'reports'))
+    const target = join(m.home, '.claude', 'new.md')
+    const link = join(m.dir, 'reports', 'link.md')
+    try {
+      symlinkSync(target, link)
+    } catch (error) {
+      context.skip(`this user cannot create a symlink: ${error instanceof Error ? error.message : String(error)}`)
+    }
+    const { status, stderr } = run(['--root', m.root, '--prs', m.prs, '--out', link], m.env)
+    expect(status).toBe(2)
+    expect(stderr).toContain('refused')
+    expect(existsSync(target)).toBe(false)
+  })
+})
+
 describe('critical-path: PR data through gh', () => {
   const prs = JSON.parse(readFileSync(PRS, 'utf8')) as { number: number; headRefName: string }[]
 
@@ -388,6 +419,24 @@ describe('critical-path: PR data through gh', () => {
     }
     const { text } = await report(async () => ({ code: 0, stdout: JSON.stringify(pr), stderr: '' }), ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01', '--csv'])
     expect(rowOf(parseCsv(text), 'demo-epic', '01')).toMatchObject({ pr_to_ci_s: '3600', ci_to_gate_s: '', ci_to_gate_why: 'out of order: Gate before CI', gate_to_merge_s: '1800', total_s: '7200' })
+  })
+
+  it('counts NARROW: REJECTED as the verdict of the narrow round, not as a rework round', async () => {
+    const pr = (bodies: string[]) => ({
+      number: 11,
+      headRefName: 'demo-epic/01',
+      state: 'MERGED',
+      createdAt: '2026-10-06T01:40:00Z',
+      mergedAt: '2026-10-06T03:00:00Z',
+      commits: [],
+      statusCheckRollup: [],
+      comments: bodies.map((body, i) => ({ createdAt: `2026-10-06T02:0${i}:00Z`, body })),
+    })
+    const args = ['--journals', JOURNALS, '--root', ROOT, '--epic', 'demo-epic', '--tickets', '01', '--csv']
+    const rows = async (bodies: string[]) => rowOf(parseCsv((await report(async () => ({ code: 0, stdout: JSON.stringify(pr(bodies)), stderr: '' }), args)).text), 'demo-epic', '01')
+    expect(await rows(['REJECTED: [med] a', 'NARROW: [med] b', 'NARROW: REJECTED c', 'VERIFIED'])).toMatchObject({ rework_rounds: '1', narrow_rounds: '1', gate_to_merge_s: '3420' })
+    expect(await rows(['NARROW: REJECTED c'])).toMatchObject({ rework_rounds: '0', narrow_rounds: '1' })
+    expect(await rows(['NARROW: VERIFIED d'])).toMatchObject({ rework_rounds: '0', narrow_rounds: '1', gate_to_merge_s: '3600' })
   })
 
   it('reads a failed and an unfinished CI as not green', async () => {

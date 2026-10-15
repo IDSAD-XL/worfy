@@ -150,4 +150,30 @@ open, без PR):
 | без `origin` из `run-started` | 1: «asks gh for the PR named in the Status…» |
 | без `origin` другого прогона Project-а | 1: «asks the repository of a later run…» (26 test-ов) |
 
+**Ограничение:** workflow run-ы сопоставляются с PR только по имени ветки, без `headSha`. Run
+ветки с тем же именем, но от другого PR (ветку удалили и создали заново), попадёт в историю CI;
+отсекаются только run-ы, закончившиеся раньше открытия PR.
+
+**Круг доработки 1** (вердикт REJECTED в PR #341):
+
+- [med] Отказ `--out` внутри `~/.claude`, журналов или папки данных обходился другим регистром
+  букв на диске, нечувствительном к регистру (`--out ~/.CLAUDE/d.md`). Теперь путь сравнивается
+  через `realpathSync.native`, он даёт регистр с диска. Test — путь в другом регистре с временными
+  HOME и папкой данных; на диске, чувствительном к регистру (Linux CI), test пропускается с
+  причиной: там другой регистр — другая папка.
+- [low] Висячая symlink в `--out`, указывающая внутрь `~/.claude`, проходила проверку. Теперь
+  ссылка без цели разрешается до цели (не больше 40 ссылок подряд). Test создаёт такую ссылку и
+  ждёт отказ; где пользователь не может создать symlink (Windows без прав), test пропускается.
+- [low] `NARROW: REJECTED` считался кругом доработки. Теперь это вердикт узкого круга
+  (`harness/skills/epic-wave/SKILL.md`): `REJECTED` без `NARROW:` — круг доработки, комментарий
+  `NARROW: …` — узкий круг; вердикт узкого круга без открывающего комментария — тоже один узкий
+  круг.
+
+| Мутант круга 1 | Красный test |
+| --- | --- |
+| `realpathSync` вместо `realpathSync.native` | «refuses an --out into ~/.claude or the data folder typed in another case…» |
+| висячая ссылка не разрешается | «refuses an --out that is a link to a file not yet there inside ~/.claude» |
+| `NARROW: REJECTED` снова считается кругом доработки | «counts NARROW: REJECTED as the verdict of the narrow round…» |
+| без «вердикт узкого круга = один узкий круг» | тот же test |
+
 **Не проверено:** gate full и Linux CI — после PR, gate full делает оркестратор.

@@ -28,7 +28,7 @@
 // its TypeScript; test/unit/critical-path.test.ts keeps JOURNAL_KINDS in step with
 // JOURNAL_EVENT_KINDS of the journal format.
 import { execFile } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path'
 import process from 'node:process'
@@ -421,21 +421,28 @@ function ciMark(pr, gate) {
 const VERDICT = /^\s*(NARROW:\s*)?(VERIFIED|REJECTED)\b/
 const NARROW = /^\s*NARROW:/
 
-/** The Gate verdicts in the PR's comments. */
+/**
+ * The Gate verdicts in the PR's comments. A `NARROW: …` comment is the narrow fix round (one per
+ * Ticket, harness/skills/epic-wave/SKILL.md); its `NARROW: REJECTED` is that round's verdict, not
+ * a rework round, and its `NARROW: VERIFIED` is the Gate.
+ */
 function verdicts(pr) {
   const comments = (Array.isArray(pr.comments) ? pr.comments : []).filter((c) => typeof c?.body === 'string')
   let gate = null
   let rejected = 0
   let narrow = 0
+  let narrowVerdict = false
   for (const comment of comments) {
     const verdict = VERDICT.exec(comment.body)
     if (verdict?.[2] === 'VERIFIED') {
       const at = time(comment.createdAt)
       if (at !== null && (gate === null || at > gate)) gate = at
-    } else if (verdict?.[2] === 'REJECTED') rejected++
-    else if (NARROW.test(comment.body)) narrow++
+    } else if (verdict?.[2] === 'REJECTED' && verdict[1] === undefined) rejected++
+    if (verdict?.[1] !== undefined) narrowVerdict = true
+    else if (verdict === null && NARROW.test(comment.body)) narrow++
   }
-  return { gate, rejected, narrow }
+  // A verdict of a narrow round whose opening comment is missing still means the round was held.
+  return { gate, rejected, narrow: narrow === 0 && narrowVerdict ? 1 : narrow }
 }
 
 /** The first commit of the PR: the earliest authored time. */
@@ -634,12 +641,30 @@ function toCsv(groups) {
   return `${lines.join('\n')}\n`
 }
 
-/** A path with every existing part resolved through links, so that two names of one folder compare equal. */
-function canonical(path) {
+/** Symbolic links followed at most, as the system's own limit on a path. */
+const MAX_LINKS = 40
+
+/**
+ * A path with every existing part resolved through links and spelled as on disk, so that two names
+ * of one folder compare equal: `realpathSync.native` gives the case the disk has (on the
+ * case-insensitive file systems of macOS and Windows `~/.CLAUDE` is `~/.claude`), the JavaScript
+ * `realpathSync` keeps the case as typed. A link whose target does not exist yet is followed too:
+ * writing to it creates the target.
+ */
+function canonical(path, links = 0) {
   const full = resolve(path)
-  if (existsSync(full)) return realpathSync(full)
+  let stat = null
+  try {
+    stat = lstatSync(full)
+  } catch {
+    // Not there: resolve the parent and keep the name.
+  }
+  if (stat !== null && (!stat.isSymbolicLink() || existsSync(full))) return realpathSync.native(full)
   const parent = dirname(full)
-  return parent === full ? full : join(canonical(parent), basename(full))
+  if (parent === full) return full
+  const where = canonical(parent, links)
+  if (stat === null || links >= MAX_LINKS) return join(where, basename(full))
+  return canonical(resolve(where, readlinkSync(full)), links + 1)
 }
 
 function inside(path, dir) {
