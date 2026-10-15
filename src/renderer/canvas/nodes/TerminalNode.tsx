@@ -65,13 +65,24 @@ type Status =
   | { state: 'exited'; shell: string; exitCode: number }
   | { state: 'failed'; message: string }
 
-/** The terminal colors of the current appearance, from the tokens of design F. */
+/**
+ * The terminal colors of the current appearance, from the tokens of design F. Colour 8 (bright
+ * black) is the grey of dimmed output and of the Terminal AI Suggestion, which zsh draws as `fg=8`;
+ * xterm.js's own is too dark to read on these backgrounds.
+ */
 function themeOf(element: Element): ITheme {
   const style = getComputedStyle(element)
   const token = (name: string) => style.getPropertyValue(name).trim()
   const background = token('--terminal-bg')
   const foreground = token('--terminal-text')
-  return { background, foreground, cursor: foreground, cursorAccent: background, selectionBackground: 'rgba(152, 152, 157, 0.4)' }
+  return {
+    background,
+    foreground,
+    brightBlack: token('--terminal-dim'),
+    cursor: foreground,
+    cursorAccent: background,
+    selectionBackground: 'rgba(152, 152, 157, 0.4)',
+  }
 }
 
 /** The Command request panel of a Terminal main has not answered about yet: not there. */
