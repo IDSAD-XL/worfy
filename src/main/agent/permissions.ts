@@ -8,7 +8,9 @@
 //   in this Session, without asking; requests for the same tool already open are allowed with it.
 //   The list lives here, in main's memory, on the Session's own
 //   gate: it is never written to a settings file, never given to another Session, and a Session
-//   started again (a restart of worfy, Resume) starts with an empty one;
+//   started again (a restart of worfy, Resume) starts with an empty one. A crash of Claude Code
+//   does not end the Session: the process the next send starts (session.ts, begin()) keeps the
+//   list, as the card's "until this Session ends" says;
 // - "Deny" (`deny`): the call does not run, and the model is told the user refused.
 //
 // No answer ever passes `updatedPermissions`: the suggestions Claude Code offers write to
