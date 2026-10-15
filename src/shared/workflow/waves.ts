@@ -54,8 +54,11 @@ type WaveTicket = Pick<Ticket, 'epic' | 'num' | 'state' | 'blockedRaw' | 'blocke
 /** Done in the checkout: a blocker the ready Wave counts as closed. */
 const closed = (ticket: WaveTicket | undefined): boolean => ticket?.state === 'done' && !ticket.fromBranch
 
+/** Done only in its unmerged worktree branch: not a closed blocker yet. */
+export const doneOnlyInBranch = (ticket: Pick<Ticket, 'state'> & Partial<Pick<Ticket, 'fromBranch'>>): boolean => ticket.state === 'done' && Boolean(ticket.fromBranch)
+
 /** In work, or done only in its unmerged worktree branch: its files are held, its dependants wait. */
-const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || (ticket.state === 'done' && Boolean(ticket.fromBranch))
+const inFlight = (ticket: WaveTicket): boolean => ticket.state === 'work' || doneOnlyInBranch(ticket)
 
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 
