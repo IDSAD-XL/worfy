@@ -100,13 +100,34 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
 const nextFrame = (window: Page): Promise<void> =>
   window.evaluate(() => new Promise<void>((resolve) => (globalThis as unknown as { requestAnimationFrame(cb: () => void): void }).requestAnimationFrame(() => resolve())))
 
+/** Whether what is drawn on top at the middle of the element is the element itself or something inside it. */
+async function onTop(locator: Locator): Promise<boolean> {
+  const found = await locator.boundingBox()
+  if (!found) throw new Error('the element has no box')
+  return locator.evaluate(
+    (node, point) => {
+      const element = node as unknown as { ownerDocument: { elementFromPoint(x: number, y: number): unknown }; contains(other: unknown): boolean }
+      const top = element.ownerDocument.elementFromPoint(point.x, point.y)
+      return top !== null && element.contains(top)
+    },
+    { x: found.x + found.width / 2, y: found.y + found.height / 2 },
+  )
+}
+
+/** Whether the keyboard focus is on the element or inside it. */
+const holdsFocus = (locator: Locator): Promise<boolean> =>
+  locator.evaluate((node) => {
+    const element = node as unknown as { ownerDocument: { activeElement: unknown }; contains(other: unknown): boolean }
+    return element.contains(element.ownerDocument.activeElement)
+  })
+
 /** Takes the focus off the focused control of `dialog`, as when a focused element goes away: the page has it then. */
 async function focusToPage(window: Page, dialog: Locator): Promise<void> {
   await dialog.locator(':focus').evaluate((element) => (element as unknown as { blur(): void }).blur())
   await expect(window.locator('body')).toBeFocused()
 }
 
-test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with the focus on the page, where Tab comes back and Esc closes; it does not open under focus mode', async () => {
+test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with the focus on the page, where Tab comes back and Esc closes; it opens over focus mode and leaves it as it was', async () => {
   // A Project with two notes: ⌘F searches its Canvas and ⌘↩ opens focus mode on the selected note.
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e2e-settings-')))
   const PROJECT = 'alpha-0000000a'
@@ -177,17 +198,57 @@ test('Settings is modal: ⌘K, ⌘F and ⌘↩ do nothing under it, also with th
     await window.keyboard.press('Escape')
     await expect(find).toHaveCount(0)
 
-    // Focus mode covers the window in a layer above Settings: "Settings…" does not open under it.
+    // Focus mode is drawn in the main area, under the Settings window: "Settings…" opens over it.
     await selectNote()
     await window.keyboard.press('ControlOrMeta+Enter')
     await expect(focusMode).toBeVisible()
-    await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
-    await nextFrame(window)
-    await expect(dialog).toHaveCount(0)
-    await window.keyboard.press('Escape')
-    await expect(focusMode).toHaveCount(0)
+    const tileText = focusMode.getByTestId('focus-tile').getByRole('textbox', { name: 'Note text' })
+    await expect(tileText).toHaveCount(1)
+    await expect(tileText).toHaveValue('one')
     await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
     await expect(dialog).toBeVisible()
+    expect(await onTop(dialog)).toBe(true)
+    // A click on a section reaches the window: Playwright clicks only what is drawn on top at that
+    // point. Machines, not Health: Health would check this Machine's tools for the snapshot.
+    const machines = sections.filter({ hasText: 'Machines' })
+    await machines.click()
+    await expect(machines).toHaveAttribute('aria-current', 'true')
+    await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Machines')
+    await snapshotThemes(window, 'settings-over-focus')
+    // Under the window the app's shortcuts do nothing, and focus mode stays as it was.
+    for (const keys of ['ControlOrMeta+k', 'ControlOrMeta+f', 'ControlOrMeta+Enter']) {
+      await window.keyboard.press(keys)
+      await nextFrame(window)
+      await expect(palette, keys).toHaveCount(0)
+      await expect(find, keys).toHaveCount(0)
+      await expect(dialog, keys).toBeVisible()
+      await expect(tileText, keys).toHaveValue('one')
+    }
+    // Esc closes the window alone: focus mode is there with the same tile and has the keyboard focus back.
+    await window.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(focusMode).toBeVisible()
+    await expect(tileText).toHaveValue('one')
+    expect(await holdsFocus(focusMode)).toBe(true)
+    // The next Esc is focus mode's, as before.
+    await window.keyboard.press('Escape')
+    await expect(focusMode).toHaveCount(0)
+
+    // From the palette too: it opens over focus mode, and the window opens over both.
+    await selectNote()
+    await window.keyboard.press('ControlOrMeta+Enter')
+    await expect(focusMode).toBeVisible()
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('Settings')
+    await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'settings')
+    await window.getByTestId('palette-input').press('Enter')
+    await expect(dialog).toBeVisible()
+    await expect(palette).toHaveCount(0)
+    expect(await onTop(dialog)).toBe(true)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(focusMode).toBeVisible()
+    await expect(tileText).toHaveValue('one')
   } finally {
     await launched.close()
     await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })

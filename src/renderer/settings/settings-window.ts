@@ -16,25 +16,19 @@ export interface SettingsWindowState {
 
 export const useSettingsWindow = create<SettingsWindowState>(() => ({ open: false, section: null }))
 
-/** The z-index of the window's backdrop: above every other dialog of the app (90–101). */
-export const SETTINGS_LAYER = 110
-
 /**
- * Focus mode covers the whole window in a layer above this one (focus.css, z-index 1000), so the
- * Settings window would open unseen under it. Which of the two goes on top is decided with focus
- * mode's own layer; until then the window does not open while focus mode is on screen.
+ * The z-index of the window's backdrop: above every other dialog of the app (90–101). Focus mode's
+ * layer is drawn inside the main area of the window shell, a stacking context of its own (focus.css),
+ * so the window opens above focus mode too and leaves it as it was.
  */
-function focusModeOnScreen(): boolean {
-  return typeof document !== 'undefined' && document.querySelector('.w-focus') !== null
-}
+export const SETTINGS_LAYER = 110
 
 /**
  * Opens the window on section `sectionId` (e.g. "GeneralSection"); an id no file has shows the
  * first section. Without an id a closed window opens on the first section and an open one stays
- * where it is. While focus mode is on screen it does nothing.
+ * where it is.
  */
 export function openSettings(sectionId?: string): void {
-  if (focusModeOnScreen()) return
   const { open, section } = useSettingsWindow.getState()
   useSettingsWindow.setState({ open: true, section: sectionId ?? (open ? section : null) })
 }
