@@ -188,44 +188,21 @@ async function subagentEdge(window: Page, agentId: string): Promise<Locator> {
 /** Two boxes in the same place, to a pixel. */
 const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1
 
-/** How many times a drag is started again when its press grabbed nothing. */
-const DRAG_ATTEMPTS = 3
-
 /**
  * Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. The
- * press waits until the handle is stable and takes the pointer (Playwright's hover). A Subagent's
- * tree may still be moved clear of a Node that has just gone back (clearShift in
- * src/renderer/canvas/sources/subagents.ts) after the Canvas looked at rest; a press where the
- * handle was a moment ago grabs nothing and no outline appears. Then the pointer goes back to the
- * press and is released there, which binds nothing, and the drag starts again.
+ * press waits until the handle is stable and takes the pointer (Playwright's hover), so it lands
+ * where the handle is now, not where its box was read a moment before.
  */
 async function dropOnTicket(window: Page, handle: Locator, num: number): Promise<void> {
-  const outline = window.getByTestId('binding-drop-target')
-  const target = `${EPIC}/${String(num).padStart(2, '0')}`
-  for (let attempt = 1; ; attempt += 1) {
-    // Start only once nothing on the Canvas moves (a fold just opened, a Node just sent back).
-    await canvasReady({ window }, { visible: [handle] })
-    await handle.hover()
-    const from = await box(handle)
-    await window.mouse.down()
-    const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
-    await window.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 })
-    const outlined = await expect(outline)
-      .toHaveAttribute('data-target', target)
-      .then(
-        () => true,
-        (error: unknown) => {
-          if (attempt === DRAG_ATTEMPTS) throw error
-          return false
-        },
-      )
-    if (outlined) break
-    await window.mouse.move(from.x + from.width / 2, from.y + from.height / 2, { steps: 5 })
-    await window.mouse.up()
-    await expect(outline).toHaveCount(0)
-  }
+  // Start only once nothing on the Canvas moves (a fold just opened, a Node just sent back).
+  await canvasReady({ window }, { visible: [handle] })
+  await handle.hover()
+  await window.mouse.down()
+  const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
+  await window.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 })
+  await expect(window.getByTestId('binding-drop-target')).toHaveAttribute('data-target', `${EPIC}/${String(num).padStart(2, '0')}`)
   await window.mouse.up()
-  await expect(outline).toHaveCount(0)
+  await expect(window.getByTestId('binding-drop-target')).toHaveCount(0)
 }
 const sessionTitle = (window: Page, sessionId: string): Locator => window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"] [data-testid="session-node-title"]`)
 
@@ -267,9 +244,7 @@ async function openRail(window: Page, sessionId: string): Promise<Locator> {
  */
 async function epicReady(launched: LaunchedApp): Promise<void> {
   const frame = launched.window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
-  const t0 = Date.now()
   await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [frame] })
-  console.log('DIAGEPIC', `${Date.now() - t0}ms`)
 }
 
 /** Back to the Canvas, with nothing selected: the selection toolbar of the Node just opened would cover its neighbours. */

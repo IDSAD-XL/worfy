@@ -17,21 +17,8 @@ const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
  * whole test timeout would only hide where it hung.
  */
 const FIRST_WINDOW_TIMEOUT_MS = 30_000
-/**
- * How long the app may take to quit: from the quit asked for to Electron's `quit` event, which comes
- * once every `before-quit` and `will-quit` handler of the app has let the quit through. That takes
- * well under a second, about 0.2 s under load; this bounds a quit that hangs.
- */
+/** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
 const QUIT_TIMEOUT_MS = 20_000
-/**
- * How long the process may take to exit after the `quit` event, while Electron tears Chromium down
- * (its helper processes, the window's renderer). No code of the app runs then, and under load it is
- * slow: measured 0.2-11.7 s with every core busy (2026-10-15), where the app's own quit took 0.2 s.
- * A process still there after this is killed; the app did quit, so the test does not fail on it.
- */
-const EXIT_TIMEOUT_MS = 20_000
-/** The line main writes on Electron's `quit` event, for close() below. */
-const QUIT_MARK = '__worfy_e2e_quit__'
 
 /**
  * Arguments every test start of the app passes. macOS remembers when Electron (one bundle id,
@@ -87,25 +74,6 @@ function currentTest(): ReturnType<typeof test.info> | undefined {
 function exited(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
   return new Promise((done) => child.once('exit', () => done()))
-}
-
-/**
- * Resolves with 'quit' once main writes QUIT_MARK, on Electron's `quit` event; never when the
- * process ends without it. Its output is read as it comes, a line split between two chunks too.
- */
-function quitEvent(child: ChildProcess): Promise<'quit'> {
-  return new Promise((done) => {
-    const output = child.stdout
-    if (!output) return
-    let tail = ''
-    const read = (chunk: Buffer | string): void => {
-      tail = (tail + chunk.toString()).slice(-(QUIT_MARK.length + 1) * 4)
-      if (!tail.includes(QUIT_MARK)) return
-      output.off('data', read)
-      done('quit')
-    }
-    output.on('data', read)
-  })
 }
 
 /** Ends the app's main process with SIGKILL and waits until it has exited. */
@@ -226,25 +194,11 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       claudeHome,
       close: async () => {
         await saveArtifacts(app, window, tracing)
-        // The quit is over at Electron's `quit` event, not when the process has exited: Playwright's
-        // close() settles only then, after Chromium's teardown, which under load took up to 11.7 s
-        // of the 20 s while the app's own quit took 0.2 s. A main that hangs never gets the
-        // listener in, and then only close() or the timeout ends the wait.
-        const quitSeen = await within(app.evaluate(({ app: electronApp }, mark) => void electronApp.once('quit', () => process.stdout.write(`\n${mark}\n`)), QUIT_MARK), 5_000)
-        const quit = quitSeen ? quitEvent(child) : new Promise<never>(() => undefined)
-        const closing = app.close()
-        const closed = await Promise.race([quit, closing.then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
-        if (closed !== 'timeout') {
-          if (!(await within(exited(child), EXIT_TIMEOUT_MS))) {
-            currentTest()?.annotations.push({ type: 'slow-exit', description: `the app quit, but its process was still there ${EXIT_TIMEOUT_MS / 1000} s later and was killed` })
-            await kill(child)
-          }
-        } else await kill(child)
+        const closed = await Promise.race([app.close().then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
+        if (closed === 'timeout') await kill(child)
         await exited(child)
-        // Settled by now or never: the process is gone either way.
-        await within(closing, 1_000)
         await cleanDirs()
-        if (closed !== 'timeout') return
+        if (closed === 'closed') return
         const problem = `the app did not quit within ${QUIT_TIMEOUT_MS / 1000} s and was killed`
         // Soft inside a test: a test that already failed keeps its own error, which a throw here would replace.
         if (currentTest()) expect.soft(closed, problem).toBe('closed')
