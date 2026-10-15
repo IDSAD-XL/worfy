@@ -6,9 +6,14 @@
 // passes nothing, so the user's settings.json and Claude Code decide.
 //
 // The chain runs for real from the Orchestrators and the Session registry down to the options of
-// the SDK's query(); the SDK is mocked and the Session itself plays the fake agent, so no Claude
-// Code starts. The app settings live in a temporary data folder, the Claude home is a temporary
-// folder too: nothing is read from or written to the real ~/.claude.
+// query(); the Session itself plays the fake agent. No Claude Code can start, three ways over:
+// - sdkQueryFactory gets query() from the test (`loadSdk`), so the SDK module is never imported;
+// - were it imported all the same, the mock below answers in its place, and its query() throws;
+// - were the real query() reached even so (a mocked module imported twice at once has once come
+//   back real under vitest), the app counts as packaged with Resources in a folder that does not
+//   exist, so the executable it is pointed at is not there and nothing is spawned.
+// The app settings live in a temporary data folder, the Claude home is a temporary folder too:
+// nothing is read from or written to the real ~/.claude or worfy's real data folder.
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -24,14 +29,19 @@ import { appSettingsStore } from '../../src/main/settings/store'
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  loadSdk: vi.fn(),
   agentEnv: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
-  app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
+  app: { isPackaged: true, getAppPath: () => '/nowhere', on: () => undefined },
   BrowserWindow: { getAllWindows: () => [] },
 }))
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({ query: mocks.query }))
+vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
+  query: () => {
+    throw new Error('the Agent SDK module was imported: sdkQueryFactory must take query() from loadSdk')
+  },
+}))
 vi.mock('../../src/main/agent/env', () => ({ agentEnv: mocks.agentEnv }))
 
 const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
@@ -39,19 +49,26 @@ const { sdkQueryFactory } = await import('../../src/main/agent/app-registry')
 const PROJECT = 'demo-0000000d'
 const LOGIN_ENV = { HOME: '/Users/tester', PATH: '/usr/bin:/bin', SHELL: '/bin/zsh' }
 const SDK_QUERY = { kind: 'sdk query' }
+/** Contents/Resources of the "packaged" app of this file: a folder that does not exist, so no executable is found in it. */
+const NO_RESOURCES = join(tmpdir(), 'worfy-autocompact-no-resources-0d0d0d', 'Contents', 'Resources')
 
 /** The data folder of the whole file: the app's settings store is one per app run, made on first use. */
 let dataDir: string
 let scratch: string
 let repo: string
 let registries: SessionRegistry[] = []
+let resourcesPath: PropertyDescriptor | undefined
 
 beforeAll(() => {
   dataDir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-autocompact-data-')))
   vi.stubEnv('WORFY_DATA_DIR', dataDir)
+  resourcesPath = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
+  Object.defineProperty(process, 'resourcesPath', { value: NO_RESOURCES, configurable: true })
 })
 
 afterAll(async () => {
+  if (resourcesPath) Object.defineProperty(process, 'resourcesPath', resourcesPath)
+  else Reflect.deleteProperty(process, 'resourcesPath')
   vi.unstubAllEnvs()
   await rm(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
@@ -64,6 +81,7 @@ beforeEach(() => {
   mkdirSync(join(scratch, 'claude-home'))
   vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
   mocks.query.mockReset().mockReturnValue(SDK_QUERY)
+  mocks.loadSdk.mockReset().mockResolvedValue({ query: mocks.query })
   mocks.agentEnv.mockReset().mockResolvedValue({ env: LOGIN_ENV, from: 'login-shell' })
   // Back to the defaults of a Machine with no app-settings.json: 400K and 500K.
   appSettingsStore().set({ autoCompactWindow: { orchestrator: 400_000, other: 500_000 } })
@@ -98,15 +116,12 @@ function harness() {
   const sdk = sdkQueryFactory(
     () => Promise.resolve(null),
     () => Promise.resolve([]),
+    { loadSdk: mocks.loadSdk },
   )
-  // One start at a time through sdkQueryFactory: two of its dynamic imports of the mocked SDK in
-  // flight at once have reached the real query() under vitest, and with it a real Claude Code.
-  let previous: Promise<unknown> = Promise.resolve()
+  // Starts run side by side, as in the app: the Orchestrator and a Session of the Canvas may start at once.
   const factory: QueryFactory = async (request) => {
     requests.push(request)
-    const turn = previous.then(() => sdk(request))
-    previous = turn.catch(() => undefined)
-    if (((await turn) as unknown) !== SDK_QUERY) throw new Error('sdkQueryFactory reached past the mocked query()')
+    if (((await sdk(request)) as unknown) !== SDK_QUERY) throw new Error('sdkQueryFactory reached past the query() of loadSdk')
     return fake(request)
   }
   const registry = new SessionRegistry(factory, () => null, () => null)
@@ -168,6 +183,16 @@ describe('sessionAutocompact.shellOverride: the window the login shell sets for 
     expect(await answer()).toStrictEqual({ value: null })
     mocks.agentEnv.mockResolvedValue({ env: { ...LOGIN_ENV, CLAUDE_CODE_AUTO_COMPACT_WINDOW: '' }, from: 'login-shell' })
     expect(await answer()).toStrictEqual({ value: null })
+  })
+})
+
+describe('where query() comes from', () => {
+  it('from loadSdk, once per start, for two Sessions starting at once; the executable named lies in no existing folder', async () => {
+    const h = harness()
+    await Promise.all([h.orchestrators.open(PROJECT), Promise.resolve(h.registry.start(repo, undefined, () => undefined))])
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(2))
+    expect(mocks.loadSdk).toHaveBeenCalledTimes(2)
+    for (const n of [0, 1]) expect(String(sdkOptions(n).pathToClaudeCodeExecutable).startsWith(NO_RESOURCES)).toBe(true)
   })
 })
 

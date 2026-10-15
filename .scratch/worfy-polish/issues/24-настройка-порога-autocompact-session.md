@@ -119,7 +119,10 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
     поле (иначе не проходит typecheck);
   - `test/unit/terminal-ai-settings.test.tsx` — test ждал, что Terminal AI — последний раздел
     Settings; теперь проверяет, что он сразу после Machines;
-  - `test/e2e/settings-sessions.spec.ts` (новый) — снимки раздела в двух темах.
+  - `test/e2e/settings-sessions.spec.ts` (новый) — снимки раздела в двух темах;
+  - круг доработки 1: `test/setup-contract.ts` — свой `WORFY_DATA_DIR` у каждого файла contract
+    test-ов и защита `dataRoot()` от настоящей папки данных; `test/contract/claude-home-isolation.test.ts`
+    — test-ы этой защиты.
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/renderer/settings/sections.ts`, `src/main/ipc/app-settings.ts`, `src/main/agent/env.ts`,
@@ -183,6 +186,20 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
   [тёмная](../evidence/24-sessions-custom-dark.png); строка про env —
   [светлая](../evidence/24-sessions-shell-override-light.png),
   [тёмная](../evidence/24-sessions-shell-override-dark.png).
+- **Круг доработки 1** (ревью PR #376):
+  - `sdkQueryFactory` получает загрузчик SDK параметром (`loadSdk`, по умолчанию — dynamic import
+    SDK). `test/contract/agent-autocompact.test.ts` передаёт свой `query()` и модуль SDK не
+    импортирует. Очереди, которая запускала Session-ы по одному, больше нет: Session-ы стартуют
+    одновременно, как в приложении. Ещё две защиты: модуль SDK замокан, его `query()` бросает
+    ошибку; приложение в test-е считается собранным, и Resources лежат в несуществующей папке —
+    даже настоящий `query()` не нашёл бы исполняемый файл.
+  - `test/setup-contract.ts` даёт каждому файлу contract test-ов свой пустой `WORFY_DATA_DIR`, как
+    уже давал Claude home. `dataRoot()` с окружением процесса и без `WORFY_DATA_DIR` бросает
+    ошибку. Если код под test-ом эту ошибку поймал, test всё равно падает после себя
+    (`failOnRefusals`). Без изоляции три test-а `workflow-profile.test.ts` из ревью красные.
+  - Мутанты, все красные: загрузчик не используется (6 test-ов); нет изоляции папки данных (4,
+    из них 3 — `workflow-profile.test.ts`); защита пропускает (2); `dataRoot()` не подменён (2);
+    `failOnRefusals` молчит (1).
 - **Не проверено:** порог на настоящем Claude Code (`autoCompactThreshold` 380 000–400 000 при
   окне 400K) и то, что живая Session не меняет порог до перезапуска, — шаг владельца на Stable
   copy.

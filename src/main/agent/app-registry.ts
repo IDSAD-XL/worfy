@@ -9,6 +9,7 @@
 // other one for any other Session — so a change reaches the next start, never a running process.
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { app } from 'electron'
 import { agentEnv, type Env } from './env'
 import { fakeQueryFactory } from './fake-query'
@@ -62,20 +63,40 @@ const appAutoCompactWindow: AutoCompactWindowReader = (orchestrator) => {
   }
 }
 
+/** The part of the Agent SDK a Session start uses: query(), which starts the Claude Code process. */
+export interface AgentSdk {
+  query(params: { prompt: QueryRequest['prompt']; options: Options }): unknown
+}
+
+/** The Agent SDK itself, imported on the first Session start (Node keeps the module after that). */
+const importSdk = (): Promise<AgentSdk> => import('@anthropic-ai/claude-agent-sdk')
+
+export interface SdkQueryFactoryOptions {
+  /** The autocompact window of a Session's role; the app settings of this Machine by default. */
+  autoCompactWindow?: AutoCompactWindowReader
+  /**
+   * Where query() comes from; the Agent SDK by default. A test passes its own, so the SDK module is
+   * never imported there and no Claude Code process can start.
+   */
+  loadSdk?: () => Promise<AgentSdk>
+}
+
 /**
  * Claude Code through the Agent SDK, with the user's login shell environment and the Project's
  * canvas. A Session in a Project (one the canvas attaches to) gets only the MCP servers its Profile
  * lists; a Session outside every Project, or whose canvas failed, keeps the user's servers as they are.
  * Every Session gets the Harness copy of this build inline unless the old Harness is on the machine
- * (sessionHarnessPlugin, ADR-0049), and the autocompact window of its role (`autoCompactWindow`).
+ * (sessionHarnessPlugin, ADR-0049), and the autocompact window of its role (`autoCompactWindow`),
+ * read when the options are built — after the environment and the canvas are in, so a change made
+ * while they load still reaches this start.
  */
 export function sdkQueryFactory(
   canvas: CanvasResolver = canvasForSession,
   mcpAllowlist: McpAllowlistResolver = profileAllowlist,
-  autoCompactWindow: AutoCompactWindowReader = appAutoCompactWindow,
+  { autoCompactWindow = appAutoCompactWindow, loadSdk = importSdk }: SdkQueryFactoryOptions = {},
 ): QueryFactory {
   return async (request) => {
-    const [{ query }, environment, attached] = await Promise.all([import('@anthropic-ai/claude-agent-sdk'), agentEnv(), canvasOrNull(canvas, request)])
+    const [{ query }, environment, attached] = await Promise.all([loadSdk(), agentEnv(), canvasOrNull(canvas, request)])
     const allowlist = attached ? await mcpAllowlist(request.cwd, environment.env) : null
     const options = sessionOptions({
       cwd: request.cwd,
