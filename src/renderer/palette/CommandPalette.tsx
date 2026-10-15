@@ -110,6 +110,12 @@ const styles = {
   active: { background: 'var(--selected)' },
   inactive: { color: 'var(--text-muted)', cursor: 'default' },
   title: { flex: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // A row without a detail: its title has the whole row.
+  wholeTitle: { flex: 1, minWidth: 0, maxWidth: 'none' },
+  // A Manual check row: the check is a sentence that only makes sense in full, so its title wraps
+  // onto as many lines as it needs and the row grows with it.
+  wrappedRow: { height: 'auto', minHeight: 'var(--row-height)', padding: 'var(--space-1) var(--space-2)' },
+  wrappedTitle: { overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: '18px' },
   // A transcript row: the Session's title leaves most of the row to the snippet.
   sessionTitle: { maxWidth: '35%' },
   detail: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
@@ -142,9 +148,22 @@ interface RowProps {
   onHover: () => void
 }
 
+/** The group whose rows wrap their title instead of cutting it. */
+const WRAPPED_GROUP = 'Manual check'
+
 function RowButton({ command, prose, hint, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
-  const tooltip = state === null ? hint : state.enabled ? state.text : state.reason
+  // A row without an action state may have its title cut: the tooltip has it whole, unless the row
+  // brings its own (the snippet of a transcript hit).
+  const tooltip = state === null ? (hint ?? command.title) : state.enabled ? state.text : state.reason
+  const detail = command.detail ?? ''
+  const wrapped = !prose && command.group === WRAPPED_GROUP
+  const titleStyle: CSSProperties = {
+    ...styles.title,
+    ...(prose ? styles.sessionTitle : null),
+    ...(detail === '' ? styles.wholeTitle : null),
+    ...(wrapped ? styles.wrappedTitle : null),
+  }
   return (
     <li role="presentation">
       <button
@@ -159,17 +178,19 @@ function RowButton({ command, prose, hint, id, first, active, onPick, onHover, s
         data-active={active ? 'true' : 'false'}
         data-first={first ? 'true' : undefined}
         title={tooltip}
-        style={{ ...styles.row, ...(active ? styles.active : null), ...(enabled ? null : styles.inactive) }}
+        style={{ ...styles.row, ...(wrapped ? styles.wrappedRow : null), ...(active ? styles.active : null), ...(enabled ? null : styles.inactive) }}
         onMouseMove={onHover}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           if (enabled) onPick(command)
         }}
       >
-        <span style={prose ? { ...styles.title, ...styles.sessionTitle } : styles.title}>{command.title}</span>
-        <span className={prose ? undefined : 'w-mono'} style={styles.detail}>
-          {command.detail ?? ''}
-        </span>
+        <span style={titleStyle}>{command.title}</span>
+        {detail !== '' ? (
+          <span className={prose ? undefined : 'w-mono'} style={styles.detail}>
+            {detail}
+          </span>
+        ) : null}
         {state !== null && !state.enabled ? (
           <span style={styles.note} data-testid="palette-option-note">
             {state.reason}
