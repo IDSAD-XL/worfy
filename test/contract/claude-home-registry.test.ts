@@ -837,6 +837,7 @@ describe('claudeHome IPC channels', () => {
     expect([...handlers.keys()].sort()).toEqual([
       'worfy:claudeHome.close',
       'worfy:claudeHome.live',
+      'worfy:claudeHome.search',
       'worfy:claudeHome.sessions',
       'worfy:claudeHome.subagentTranscript',
       'worfy:claudeHome.subagents',
@@ -856,6 +857,9 @@ describe('claudeHome IPC channels', () => {
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: `${S1}/x` }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: S1, cursor: { offset: -1, fileId: null } }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: S1, maxBytes: 0 }],
+    ['claudeHome.search', { projectRoot: DEMO, query: 'ab' }],
+    ['claudeHome.search', { projectRoot: 'relative/path', query: 'synthetic' }],
+    ['claudeHome.search', { projectRoot: DEMO, query: 'x'.repeat(201) }],
   ])('rejects %s with input %j', async (channel, input) => {
     const { call } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
     const result = await call(channel, input)
