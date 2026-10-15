@@ -103,7 +103,7 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   для Thermos и pstack (`interrogate`) с путём к файлу и SHA коммита. Дословно взятый текст — ещё и
   пометка MIT: строка copyright владельца источника и полный
   текст лицензии из его `LICENSE` на том же коммите.
-- [ ] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
+- [x] `gate.sh fast` — код 0 и строка `[gate] зелено (fast)`.
 
 ## Где в коде
 
@@ -175,6 +175,12 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   `cursor/plugins`, с copyright (Cursor; Lauren Tan) — файлы и строки copyright сверены через GitHub
   API на этом коммите. Дословного текста нет — правила пересказаны, поэтому полного текста лицензии
   в skill-е нет.
+
+- **Gate:** `node harness/hooks/gate.mjs fast` своего дерева — код 0, `[gate] зелено (fast):
+  worfy/.:lint worfy/.:typecheck worfy/.:test`. Затем Gate Stable-копии
+  (`worfy-stable.app/.../harness/hooks/gate.mjs fast`) на commit-е — код 0, но с пометкой «(кэш)»,
+  поэтому отдельно: `pnpm lint` — код 0, `pnpm typecheck` — код 0, `pnpm test` — код 0 (245 файлов,
+  5196 test-ов). `GATE_SCOPE=all gate full` не запускался — шаг Orchestrator-а.
 
 Решения:
 
