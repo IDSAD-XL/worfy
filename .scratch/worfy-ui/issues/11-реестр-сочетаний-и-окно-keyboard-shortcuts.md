@@ -1,7 +1,7 @@
 # 11 — Реестр сочетаний клавиш и окно Keyboard shortcuts
 
 Type: task
-Status: open
+Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #328 VERIFIED по Mac, Windows-ПК выключен
 Blocked by: 02, 03, 07, 10
 Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — в Ticket-е 11 worfy-windows, здесь не повторяется), 7 (центральный реестр сочетаний — один источник для подписей обработчиков и для окна; окно с подписями своей системы открывают Cmd/Ctrl+/, «?» вне текстового поля, пункт палитры «Keyboard shortcuts» и Settings → Shortcuts; Ticket реестра ждёт worfy-windows 11), 8 (Cmd/Ctrl+B — везде) ([spec.md](../spec.md), «Как устроено», «Сочетания клавиш»; «Пересечения», worfy-windows 11 и worfy-terminal-ai 06; риски 5 и 8); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-windows 11](../../worfy-windows/issues/11-окно-меню-уведомления-и-ctrl-на-windows.md); [worfy-terminal-ai 06](../../worfy-terminal-ai/issues/06-command-request.md) (⌘I в Terminal-е)
 
