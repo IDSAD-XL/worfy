@@ -1,7 +1,7 @@
 # 02 — Застрявшие Ticket-ы: помог бы свежий агент с короткой записью попыток (разбор журналов, без запусков)
 
 Type: research
-Status: open
+Status: blocked — research: ведёт Session Orchestrator-а, итог — отчёт в `docs/research/`; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея B); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «B. P1 experiment: Memento-style

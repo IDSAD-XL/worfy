@@ -1,7 +1,7 @@
 # 03 — Сбой → классифицированный инцидент → регрессионный test или урока нет: предложение процесса
 
 Type: research
-Status: open
+Status: blocked — research: ведёт Session Orchestrator-а, итог — отчёт в `docs/research/`; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея E); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «E. P1/P2: learn from real failures
