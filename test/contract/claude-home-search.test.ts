@@ -3,7 +3,7 @@
 // directory (the WORFY_CLAUDE_HOME of the main process) and never reads the real ~/.claude. The
 // Claude home is only read: a snapshot of every file before and after proves it.
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -178,6 +178,90 @@ describe('claudeHome.search', () => {
     expect((await search.search(project, 'giraffe')).hits).toEqual([])
     await transcript(home, project, B, [user('Rename the module', project, 6), assistant([{ type: 'text', text: 'A giraffe now.' }], project, 7)], 31)
     expect((await search.search(project, 'giraffe')).hits.map((hit) => hit.sessionId)).toEqual([B])
+  })
+
+  it('a second search over unchanged transcripts reads none of them again, and leaves the Claude home unchanged', async () => {
+    const { home, project } = await world()
+    const registry = registryOf(home)
+    const search = new TranscriptSearch(registry)
+    const first = await search.search(project, 'zebra')
+    expect(first.hits.map((hit) => [hit.sessionId, hit.title])).toEqual([
+      [B, 'Rename the module'],
+      [A, 'Where does the Zebra config live?'],
+    ])
+    // Every transcript of the Project gets other words of the same length, under the same size and
+    // modification time. A search that read any head, tail or text again would show them.
+    const own = projectDirName(project)
+    const swaps: [string, string, string, number][] = [
+      [join(home, 'projects', own, `${A}.jsonl`), 'Zebra config', 'Horse config', 20],
+      [join(home, 'projects', own, `${B}.jsonl`), 'Rename the module', 'Delete the module', 30],
+      [join(home, 'projects', `${own}--claude-worktrees-07`, `${C}.jsonl`), 'Fix the lint errors', 'Fix the type errors', 40],
+    ]
+    for (const [path, from, to, minute] of swaps) {
+      const text = await readFile(path, 'utf8')
+      expect(text).toContain(from)
+      await writeFile(path, text.replaceAll(from, to))
+      await utimes(path, new Date(at(minute)), new Date(at(minute)))
+    }
+    const before = await snapshot(home)
+    expect(await search.search(project, 'zebra')).toEqual(first)
+    expect((await search.search(project, 'horse')).hits).toEqual([])
+    expect((await registry.sessions(project)).history.map((entry) => entry.title)).toEqual(['Fix the lint errors', 'Rename the module', 'Where does the Zebra config live?'])
+    expect(await snapshot(home)).toEqual(before)
+  })
+
+  it('finds a new transcript and what was appended to one in the very next search, and drops a removed one', async () => {
+    const { home, project } = await world()
+    const search = new TranscriptSearch(registryOf(home))
+    expect((await search.search(project, 'zebra')).hits.map((hit) => hit.sessionId)).toEqual([B, A])
+    const own = projectDirName(project)
+    const worktreeFile = join(home, 'projects', `${own}--claude-worktrees-07`, `${C}.jsonl`)
+    await appendFile(worktreeFile, `${assistant([{ type: 'text', text: 'A zebra in the worktree.' }], project, 12)}\n${JSON.stringify({ type: 'custom-title', customTitle: 'Zebra hunt' })}\n`)
+    await utimes(worktreeFile, new Date(at(45)), new Date(at(45)))
+    const E = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    await transcript(home, project, E, [user('One more zebra question', project, 13)], 55)
+    await rm(join(home, 'projects', own, `${B}.jsonl`))
+    expect((await search.search(project, 'zebra')).hits).toEqual([
+      { sessionId: E, title: 'One more zebra question', at: new Date(at(55)).getTime(), snippet: 'One more zebra question' },
+      { sessionId: C, title: 'Zebra hunt', at: new Date(at(45)).getTime(), snippet: 'A zebra in the worktree.' },
+      { sessionId: A, title: 'Where does the Zebra config live?', at: new Date(at(20)).getTime(), snippet: 'Where does the Zebra config live?' },
+    ])
+  })
+
+  it('reads a transcript again when only its modification time tells it changed', async () => {
+    const { home, project } = await world()
+    const search = new TranscriptSearch(registryOf(home))
+    expect((await search.search(project, 'zebra')).hits.map((hit) => hit.sessionId)).toEqual([B, A])
+    // Same size, newer modification time: the cached entry no longer counts.
+    const path = join(home, 'projects', projectDirName(project), `${A}.jsonl`)
+    await writeFile(path, (await readFile(path, 'utf8')).replaceAll('Zebra config', 'Horse config'))
+    await utimes(path, new Date(at(25)), new Date(at(25)))
+    expect((await search.search(project, 'horse')).hits).toEqual([
+      { sessionId: A, title: 'Where does the Horse config live?', at: new Date(at(25)).getTime(), snippet: 'Where does the Horse config live?' },
+    ])
+  })
+
+  it('finds every message of a transcript of several megabytes, the one across the first megabyte too', async () => {
+    const base = await tempDir()
+    const home = join(base, 'claude')
+    const project = join(base, 'project')
+    await mkdir(project)
+    // Messages of about 1.2 KB, two bytes per letter: a slice cut anywhere but after a line break
+    // would break a line and lose its message.
+    const lines = Array.from({ length: 3000 }, (_, n) => user(`метка-${n} ${'ж'.repeat(500)}`, project, n % 60))
+    await transcript(home, project, A, lines, 1)
+    const offsets: number[] = []
+    let offset = 0
+    for (const line of lines) {
+      offsets.push(offset)
+      offset += Buffer.byteLength(line) + 1
+    }
+    const acrossMegabyte = offsets.findLastIndex((start) => start <= 1024 * 1024)
+    expect(offsets[acrossMegabyte]).toBeLessThan(1024 * 1024)
+    const search = new TranscriptSearch(registryOf(home))
+    for (const n of [0, acrossMegabyte, acrossMegabyte + 1, lines.length - 1]) {
+      expect((await search.search(project, `метка-${n} `)).hits.map((hit) => hit.snippet.slice(0, `метка-${n}`.length)), String(n)).toEqual([`метка-${n}`])
+    }
   })
 
   it('stops at the file limit and says so; the Claude home is the same before and after', async () => {
