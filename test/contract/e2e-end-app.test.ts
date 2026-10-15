@@ -2,9 +2,9 @@
 // Windows Playwright starts Electron through cmd.exe, so the process it hands over is a shell and
 // the app is that shell's child. A POSIX shell that starts `sleep` and waits for it has the same
 // shape, so the case is checked here on macOS and Linux too.
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
-import { endApp, exited, running } from '../e2e/end-app'
+import { endApp, exited, killThenClean, running } from '../e2e/end-app'
 
 const started: ChildProcess[] = []
 const strays: number[] = []
@@ -24,16 +24,39 @@ afterEach(() => {
 async function shellOverApp(): Promise<{ shell: ChildProcess; appPid: number }> {
   const shell = spawn('sh', ['-c', 'sleep 600 & echo $!; wait'], { stdio: ['ignore', 'pipe', 'ignore'] })
   started.push(shell)
-  const appPid = await new Promise<number>((done, fail) => {
+  const appPid = await firstNumber(shell)
+  strays.push(appPid)
+  return { shell, appPid }
+}
+
+/** The first line `child` prints, as a number. */
+function firstNumber(child: ChildProcess): Promise<number> {
+  return new Promise<number>((done, fail) => {
     let out = ''
-    shell.stdout?.on('data', (chunk: Buffer) => {
+    child.stdout?.on('data', (chunk: Buffer) => {
       out += chunk.toString()
       if (out.includes('\n')) done(Number(out.trim()))
     })
-    shell.once('exit', () => fail(new Error('the shell exited before it named its child')))
+    child.once('exit', () => fail(new Error('the process exited before it printed a PID')))
   })
-  strays.push(appPid)
-  return { shell, appPid }
+}
+
+/**
+ * A zombie: a process that has exited but whose parent never reaps it, so `kill(pid, 0)` still
+ * finds it and SIGKILL cannot remove it — a process that outlives the kill. The shell starts a short
+ * `sleep` and replaces itself with `sleep 30`, which never waits for children. Resolves once the
+ * short `sleep` has become a zombie. Killing `parent` lets init reap it.
+ */
+async function zombie(): Promise<{ parent: ChildProcess; pid: number }> {
+  const parent = spawn('sh', ['-c', 'sleep 0.2 & echo $!; exec sleep 30'], { stdio: ['ignore', 'pipe', 'ignore'] })
+  started.push(parent)
+  const pid = await firstNumber(parent)
+  const deadline = Date.now() + 5_000
+  while (!execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim().startsWith('Z')) {
+    if (Date.now() > deadline) throw new Error(`process ${pid} did not become a zombie`)
+    await new Promise((done) => setTimeout(done, 20))
+  }
+  return { parent, pid }
 }
 
 /** A process that runs until killed, started directly: the app as macOS and Linux start it. */
@@ -75,6 +98,28 @@ describe('endApp', () => {
     expect(running(child.pid!)).toBe(false)
   })
 
+  it.skipIf(process.platform === 'win32')('rejects when the app’s process outlives the kill', async () => {
+    const { pid } = await zombie()
+    const child = app()
+    await new Promise((done) => child.once('spawn', done))
+
+    await expect(endApp(child, pid, { goneTimeoutMs: 300 })).rejects.toThrow(`the app's process ${pid} still runs 0.3 s after SIGKILL`)
+    expect(running(pid)).toBe(true)
+  })
+
+  it.skipIf(process.platform === 'win32')('waits until the app’s process is gone, past the exit of the started process', async () => {
+    const { parent, pid } = await zombie()
+    const child = app()
+    await new Promise((done) => child.once('spawn', done))
+    // The zombie goes once its parent dies and init reaps it: well after `child` has exited.
+    const killParent = setTimeout(() => parent.kill('SIGKILL'), 500)
+
+    await endApp(child, pid, { goneTimeoutMs: 5_000 })
+
+    expect(running(pid)).toBe(false)
+    clearTimeout(killParent)
+  })
+
   it('without the app’s PID, kills the whole tree under the started process on Windows', async () => {
     const child = app()
     await new Promise((done) => child.once('spawn', done))
@@ -84,5 +129,32 @@ describe('endApp', () => {
 
     expect(trees).toEqual([child.pid])
     await exited(child)
+  })
+})
+
+describe('killThenClean', () => {
+  it('cleans after a kill that failed, and resolves with that failure', async () => {
+    const failure = new Error('outlived')
+    const steps: string[] = []
+
+    const result = await killThenClean(
+      async () => {
+        steps.push('kill')
+        throw failure
+      },
+      async () => void steps.push('clean'),
+    )
+
+    expect(steps).toEqual(['kill', 'clean'])
+    expect(result).toBe(failure)
+  })
+
+  it('cleans after a kill that succeeded, and resolves with undefined', async () => {
+    const steps: string[] = []
+
+    const result = await killThenClean(async () => void steps.push('kill'), async () => void steps.push('clean'))
+
+    expect(steps).toEqual(['kill', 'clean'])
+    expect(result).toBeUndefined()
   })
 })

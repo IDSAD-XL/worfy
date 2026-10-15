@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
-import { endApp, exited } from './end-app'
+import { endApp, exited, killThenClean } from './end-app'
 import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -70,6 +70,20 @@ function currentTest(): ReturnType<typeof test.info> | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * Reports a kill that left the app running (endApp rejected; undefined: it did not). Soft inside a
+ * test, so the test's own error stays the one shown. Outside a test it is thrown, together with
+ * `original`, the error of a start that failed, when there is one.
+ */
+function reportKillFailure(failure: unknown, original?: unknown): void {
+  if (failure === undefined) return
+  if (currentTest()) {
+    expect.soft(failure, 'the app outlived the kill').toBeUndefined()
+    return
+  }
+  throw original === undefined ? failure : new AggregateError([original, failure], 'the app did not start, and it outlived the kill')
 }
 
 const timeout = (ms: number): Promise<'timeout'> => new Promise((done) => setTimeout(() => done('timeout'), ms).unref())
@@ -189,9 +203,11 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       close: async () => {
         await saveArtifacts(app, window, tracing)
         const closed = await Promise.race([app.close().then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
-        if (closed === 'timeout') await kill()
-        await exited(child)
-        await cleanDirs()
+        const killFailure = await killThenClean(async () => {
+          if (closed === 'timeout') await kill()
+          await exited(child)
+        }, cleanDirs)
+        reportKillFailure(killFailure)
         if (closed === 'closed') return
         const problem = `the app did not quit within ${QUIT_TIMEOUT_MS / 1000} s and was killed`
         // Soft inside a test: a test that already failed keeps its own error, which a throw here would replace.
@@ -200,8 +216,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       },
     }
   } catch (error) {
-    await kill()
-    await cleanDirs()
+    reportKillFailure(await killThenClean(kill, cleanDirs), error)
     throw error
   }
 }

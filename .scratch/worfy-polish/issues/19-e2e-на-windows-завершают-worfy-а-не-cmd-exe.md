@@ -112,8 +112,27 @@ Windows `taskkill /pid <app.process().pid> /T /F` (так убивает сам 
 `sh`), PID приложения совпадает с запущенным, без PID на macOS/Linux, без PID на Windows (подменённый
 `killTree`). Мутанты (на копии, восстановлено с `cmp`): убрать `process.kill(appPid)` — красный
 первый test («the app's process … still runs 10 s after SIGKILL»); убрать `killTree` — красный
-четвёртый. Ожидание «PID исчез» после выхода оболочки test-ом не прижато: процесс, который
-переживает SIGKILL, на macOS и Linux без root не построить.
+четвёртый.
+
+**Круг доработки 1** (REJECTED на `56ed12f`, комментарий в PR #365). Ожидание «PID приложения
+исчез» теперь покрыто test-ами. Процесс, который переживает SIGKILL, строится без root: это zombie —
+вышедший процесс, которого родитель не забирает (`sh -c 'sleep 0.2 & echo $!; exec sleep 30'`);
+`kill(pid, 0)` его находит. Срок ожидания стал параметром `goneTimeoutMs`. Два новых test-а:
+`endApp` отклоняется с «still runs 0.3 s after SIGKILL», пока zombie жив; `endApp` ждёт, пока
+zombie не исчезнет (родителя убивают через 500 ms, init забирает zombie), и только потом
+возвращается. Мутант «`return` вместо цикла ожидания» краснит оба.
+
+Там же (Consider, low): если `endApp` бросает, `launchApp` больше не теряет ошибку старта и не
+пропускает `cleanDirs`. `killThenClean` (`end-app.ts`) удаляет папки после любого исхода kill и
+возвращает ошибку kill. `reportKillFailure` (`helpers.ts`) внутри test-а сообщает её мягко
+(`expect.soft`), вне test-а бросает — в `launchApp` вместе с исходной ошибкой (`AggregateError`).
+`close()` по-прежнему мягко сообщает «did not quit». Test-ы `killThenClean` — два, мутант «чистить
+только после успешного kill» краснит первый. Сама ветка `reportKillFailure` test-ом не прижата:
+`helpers.ts` импортирует Playwright, и vitest его не грузит, а на Mac `endApp` не бросает
+(`appPid === child.pid`). Повтор `child.kill('SIGKILL')` в трёх ветках `endApp` сведён в одну строку.
+
+После круга: rebase на `origin/main` b9aeff2; gate fast — exit 0, `[gate] зелено (fast)`; e2e
+`autopilot` и `binding` под замком — 6 passed; probe на Mac снова `after close running=false`.
 
 **Probe на Mac (пункт 4)**, в PR не входит. Spec держал `will-quit` и `before-quit`, брал PID через
 `app.evaluate(() => process.pid)` и после `close()` проверял `process.kill(pid, 0)`:

@@ -33,6 +33,8 @@ export interface EndAppOptions {
   platform?: NodeJS.Platform
   /** Ends a process and its descendants; taskkill /T /F by default. Used on Windows only. */
   killTree?: (pid: number) => Promise<void>
+  /** How long the app's process may outlive the exit of `child`; GONE_TIMEOUT_MS by default. */
+  goneTimeoutMs?: number
 }
 
 /**
@@ -45,10 +47,10 @@ export interface EndAppOptions {
  * is killed first, then `child`. Without that PID, on Windows the whole tree under `child` is
  * killed instead; elsewhere `child` is the app.
  *
- * Rejects when the app's process still runs after `child` has exited and GONE_TIMEOUT_MS more.
+ * Rejects when the app's process still runs after `child` has exited and `goneTimeoutMs` more.
  */
 export async function endApp(child: ChildProcess, appPid: number | undefined, options: EndAppOptions = {}): Promise<void> {
-  const { platform = process.platform, killTree = taskkillTree } = options
+  const { platform = process.platform, killTree = taskkillTree, goneTimeoutMs = GONE_TIMEOUT_MS } = options
   const gone = exited(child)
   if (appPid !== undefined) {
     try {
@@ -56,18 +58,31 @@ export async function endApp(child: ChildProcess, appPid: number | undefined, op
     } catch {
       // Gone already.
     }
-    child.kill('SIGKILL')
   } else if (platform === 'win32' && child.pid !== undefined) {
     await killTree(child.pid)
-    child.kill('SIGKILL')
-  } else {
-    child.kill('SIGKILL')
   }
+  child.kill('SIGKILL')
   await gone
   if (appPid === undefined || appPid === child.pid) return
-  const deadline = Date.now() + GONE_TIMEOUT_MS
+  const deadline = Date.now() + goneTimeoutMs
   while (running(appPid)) {
-    if (Date.now() > deadline) throw new Error(`the app's process ${appPid} still runs ${GONE_TIMEOUT_MS / 1000} s after SIGKILL`)
+    if (Date.now() > deadline) throw new Error(`the app's process ${appPid} still runs ${goneTimeoutMs / 1000} s after SIGKILL`)
     await new Promise((done) => setTimeout(done, 50))
   }
+}
+
+/**
+ * Runs `kill`, then `clean` whether or not the kill failed, so a kill that throws does not leave
+ * the temporary directories behind. Resolves with the kill's failure (undefined when it succeeded)
+ * for the caller to report next to its own error; rejects only when `clean` does.
+ */
+export async function killThenClean(kill: () => Promise<void>, clean: () => Promise<void>): Promise<unknown> {
+  let failure: unknown
+  try {
+    await kill()
+  } catch (error) {
+    failure = error ?? new Error('the kill failed')
+  }
+  await clean()
+  return failure
 }
