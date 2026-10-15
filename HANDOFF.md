@@ -10,6 +10,7 @@
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 (приёмка) — владелец.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10 (10 — PR #297 по переходному правилу ADR-0056; e2e `focus-sidebar.spec.ts:270` стабилен с PR #308); следом 11 и 13; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
+- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): 0/4, по исследованию PR #325; первым 01.
 
 ## Ждёт владельца
 
