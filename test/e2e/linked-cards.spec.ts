@@ -141,6 +141,42 @@ async function recordPrompts(window: Page): Promise<void> {
 }
 const prompts = (window: Page) => window.evaluate(() => (globalThis as unknown as { prompts: string[] }).prompts)
 
+/** How one frame navigation went in main: whether main refused it in will-frame-navigate, and how it ended. */
+interface NavigationRecord {
+  prevented?: boolean
+  /** 'committed', or 'failed <net error code>'; absent while the navigation goes on or when it never started. */
+  end?: string
+}
+
+/**
+ * Starts recording, in main of `app`, every frame navigation of every web contents by its target
+ * address. The listeners are added after the app's own will-frame-navigate handler (installed when
+ * the contents were created), so `defaultPrevented` is main's verdict. The end comes from
+ * did-frame-navigate (committed) or did-fail-provisional-load (a navigation that never committed).
+ */
+async function recordNavigations(app: LaunchedApp['app']): Promise<void> {
+  await app.evaluate(({ webContents }) => {
+    const store = globalThis as { navigations?: Record<string, NavigationRecord> }
+    const log: Record<string, NavigationRecord> = {}
+    store.navigations = log
+    for (const contents of webContents.getAllWebContents()) {
+      contents.on('will-frame-navigate', (details) => {
+        log[details.url] = { prevented: details.defaultPrevented }
+      })
+      contents.on('did-frame-navigate', (_event, url) => {
+        log[url] = { ...log[url], end: 'committed' }
+      })
+      contents.on('did-fail-provisional-load', (_event, code, _description, url) => {
+        log[url] = { ...log[url], end: `failed ${code}` }
+      })
+    }
+  })
+}
+
+/** What main recorded so far for the navigation to `url` (see recordNavigations). */
+const navigationTo = (app: LaunchedApp['app'], url: string) =>
+  app.evaluate((_electron, target) => (globalThis as { navigations?: Record<string, NavigationRecord> }).navigations?.[target], url)
+
 /** Scripts that run inside a Card frame: source text, since this file is compiled without the DOM library. */
 const REACH_SCRIPT = `(() => {
   const attempt = (action) => { try { action(); return 'reached' } catch (error) { return error.name } }
@@ -260,13 +296,19 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     expect(afterWidening.siblings.every((result) => result === 'SecurityError')).toBe(true)
 
     // Navigating to the own Card of A or to another Card of B: main stops it, the Card stays.
+    await recordNavigations(a.app)
     for (const target of [`${ownOrigin}/index.html`, otherOfB]) {
       await cardOfB.evaluate(navigateScript(target))
-      // A window in which nothing may happen: main refuses in will-frame-navigate and sends nothing
-      // back, so there is no sign to wait for. The own Card of A is served from this machine and
-      // would commit well within 300 ms. Another Card of B comes over the link: about 0.2 s at rest
-      // (FIRST_FRAME_MS), so under load 300 ms may end before a wrong navigation would show.
-      await a.window.waitForTimeout(300)
+      // Waits for main's verdict on this navigation, not for a span of time: will-frame-navigate
+      // fires in A's main whether main refuses the navigation or lets it through, before anything
+      // of the target loads. Let through, `prevented` is false and the test fails here at once,
+      // however long the page would take over the link. A refused navigation never starts: neither
+      // did-frame-navigate nor did-fail-provisional-load follows it (Electron 44), so a recorded
+      // end can only be a commit that should not have happened.
+      await expect.poll(() => navigationTo(a.app, target), { message: target, timeout: 10_000 }).toBeDefined()
+      const navigation = await navigationTo(a.app, target)
+      expect(navigation?.prevented, `${target}: ${JSON.stringify(navigation)}`).toBe(true)
+      expect(navigation?.end, target).not.toBe('committed')
       const frames = a.window.frames().filter((candidate) => candidate.url().startsWith(`${linkedOrigin}/`))
       expect(frames, target).toHaveLength(1)
       expect(await frames[0]?.evaluate("document.getElementById('title').textContent"), target).toBe('Card of B v2')
