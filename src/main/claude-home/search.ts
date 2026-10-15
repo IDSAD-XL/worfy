@@ -10,6 +10,10 @@
 // One search reads at most `files` transcripts and `bytes` bytes and stops at `hits` Sessions; the
 // answer says when a limit left transcripts unsearched. The text of a transcript is kept in memory
 // for the next search, under its file's size and modification time: a changed file is read again.
+// The list of the Project's Sessions follows the same rule (ClaudeHomeRegistry.sessions keeps the
+// history entry of each transcript), so a search over unchanged transcripts only lists folders
+// and stats files. A large transcript is parsed a slice at a time, giving the main process's event
+// loop a turn between slices.
 //
 // Read only: nothing here writes, and no hit, query or snippet is logged — a transcript may hold
 // secrets, and the snippet goes only to the window that asked.
@@ -32,6 +36,12 @@ export const SEARCH_LIMITS: Readonly<SearchLimits> = { files: 200, bytes: 64 * 1
 
 /** Longest snippet, in characters, the ellipses included. */
 const SNIPPET_LENGTH = TRANSCRIPT_SEARCH.snippet
+
+/**
+ * Bytes of a transcript decoded and parsed between two turns of the event loop: a transcript of
+ * tens of megabytes parsed in one go held the main process for more than 100 ms.
+ */
+const PARSE_SLICE = 1024 * 1024
 
 /** Characters of transcript text kept in memory between searches, all transcripts together. */
 const CACHE_CHARS = 32 * 1024 * 1024
@@ -62,6 +72,27 @@ export function searchableMessages(lines: readonly string[]): string[] {
     if (text === undefined) continue
     const collapsed = collapse(text)
     if (collapsed !== '') messages.push(collapsed)
+  }
+  return messages
+}
+
+const nextTurn = (): Promise<void> => new Promise((done) => setImmediate(done))
+
+/**
+ * searchableMessages() of a whole transcript, a slice of about PARSE_SLICE bytes at a time with a
+ * turn of the event loop between slices. A slice ends after a line break, so no line is split (a
+ * line break byte is never part of a multi-byte UTF-8 character).
+ */
+async function messagesOf(bytes: Buffer): Promise<string[]> {
+  const messages: string[] = []
+  let start = 0
+  while (start < bytes.length) {
+    const lineEnd = start + PARSE_SLICE < bytes.length ? bytes.indexOf(0x0a, start + PARSE_SLICE) : -1
+    const end = lineEnd === -1 ? bytes.length : lineEnd + 1
+    const lines = bytes.subarray(start, end).toString('utf8').split('\n').filter((line) => line.trim() !== '')
+    for (const message of searchableMessages(lines)) messages.push(message)
+    start = end
+    if (start < bytes.length) await nextTurn()
   }
   return messages
 }
@@ -195,7 +226,7 @@ export class TranscriptSearch {
         if (bytesRead === 0) break
         filled += bytesRead
       }
-      const messages = searchableMessages(buffer.subarray(0, filled).toString('utf8').split('\n').filter((line) => line.trim() !== ''))
+      const messages = await messagesOf(buffer.subarray(0, filled))
       const text: CachedText = { size, modifiedAt: mtimeMs, messages, chars: messages.reduce((sum, message) => sum + message.length, 0) }
       this.keep(path, text)
       return text
