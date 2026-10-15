@@ -483,11 +483,12 @@ describe('canvas tools: the agent cannot remove Nodes or hide locked ones', () =
 })
 
 describe('canvas tools: Epic frames and Tickets', () => {
-  // The renderer keeps, per Epic, a Layout Node of kind epic-frame with offsets from the frame's
-  // automatic place (ticket 11); it is not a Node on the canvas.
+  // The renderer keeps, per Epic, a Layout Node of kind epic-frame: its x/y are the frame's offset
+  // from its automatic place and data.collapsed whether the user collapsed it, nothing else
+  // (ADR-0037); it is not a Node on the canvas.
   const frameState = (): LayoutOpInput => ({
     op: 'create',
-    node: { id: 'epic:worfy-mvp', kind: 'epic-frame', x: 30, y: -20, w: 1, h: 1, locked: true, data: { collapsed: true, 'offset:3': { dx: 5, dy: 6 } } },
+    node: { id: 'epic:worfy-mvp', kind: 'epic-frame', x: 30, y: -20, w: 1, h: 1, locked: true, data: { collapsed: true } },
   })
 
   it('list_nodes does not list the saved state of an Epic frame, nor a stray ticket Node', async () => {
@@ -525,15 +526,17 @@ describe('canvas tools: Epic frames and Tickets', () => {
 })
 
 describe('canvas tools: Subagent Nodes', () => {
-  // The renderer keeps, per Session, a Layout Node of kind subagent-tree with the user's offsets of
-  // its Subagent Nodes (ticket 15); the Subagent Nodes themselves are not in the Layout.
+  // Subagent Nodes are computed from their Session's transcript and nothing about them is in the
+  // Layout (ADR-0037). Older versions kept a Layout Node of kind subagent-tree per Session; main
+  // removes it when it reads layout.json. One put straight into the store stands for a stray one:
+  // the tools neither list nor change it.
   const SESSION = '77777777-7777-4777-8777-777777777777'
   const treeState = (): LayoutOpInput => ({
     op: 'create',
-    node: { id: `subagents:${SESSION}`, kind: 'subagent-tree', x: 0, y: 0, w: 1, h: 1, locked: true, data: { 'offset:toolu_1': { dx: 5, dy: 6 } } },
+    node: { id: `subagents:${SESSION}`, kind: 'subagent-tree', x: 0, y: 0, w: 1, h: 1, locked: true, data: {} },
   })
 
-  it('list_nodes lists neither the saved offsets of a Subagent tree nor a stray subagent Node', async () => {
+  it('list_nodes lists neither a stray Subagent tree nor a stray subagent Node', async () => {
     store.apply(PROJECT, treeState())
     store.apply(PROJECT, { op: 'create', node: { id: 'stray', kind: 'subagent', x: 0, y: 0, w: 260, h: 96, data: {} } })
     store.apply(PROJECT, note('n1'))
