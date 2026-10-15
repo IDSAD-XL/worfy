@@ -25,7 +25,7 @@ import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { invoke, windowMachine } from '../ipc'
 import { openProject } from '../projects/useProjects'
-import { setView } from '../session/navigation'
+import { openOrchestrator, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
@@ -261,7 +261,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
 function goToCommands({ project, model, layoutNodes, history, adrs }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
-  const commands: PaletteCommand[] = []
+  // The Orchestrator's Session view (worfy-polish ticket 25), whether it runs or not: picking the row
+  // starts an Orchestrator that does not run. Its Node's own row below centers the Canvas on it.
+  const commands: PaletteCommand[] = [
+    {
+      id: 'go-to:orchestrator',
+      group: 'Go to',
+      title: 'Orchestrator',
+      detail: 'Session view',
+      keys: ['orchestrator', 'go to orchestrator'],
+      run: () => openOrchestrator(projectId),
+    },
+  ]
   if (model && model.error === null) {
     for (const epic of model.epics) {
       commands.push({

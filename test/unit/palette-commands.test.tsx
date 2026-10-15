@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, onTestFinished } from 'vitest'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
@@ -82,6 +83,40 @@ describe('palette commands', () => {
     expect(all).not.toContain('node:a1')
     const session = buildCommands(context()).find((command) => command.id === 'node:s1')
     expect(session?.title).toBe('Fix the gate')
+  })
+
+  it('has "Orchestrator" in Go to with a Project, found by "orchestrator" and "go to orchestrator", and picking it opens its Session view (worfy-polish/25)', async () => {
+    const withNode = context({ layoutNodes: [node('o1', 'orchestrator', { data: { sessionId: 'feedbeef00' } })] })
+    const row = buildCommands(withNode).find((command) => command.id === 'go-to:orchestrator')
+    expect(row).toMatchObject({ group: 'Go to', title: 'Orchestrator', detail: 'Session view' })
+    expect(rankItems(buildCommands(withNode), 'orchestrator')[0]?.id).toBe('go-to:orchestrator')
+    expect(rankItems(buildCommands(withNode), 'go to orchestrator')[0]?.id).toBe('go-to:orchestrator')
+    // The Orchestrator Node's own row, which centers the Canvas on it, stays.
+    expect(ids(withNode)).toContain('node:o1')
+    // From a Subagent's window over the Canvas: the Session view, with nothing opened — the active Project's Orchestrator.
+    useNavigation.setState({ view: 'canvas', opened: { nodeId: 'o1', projectId: 'p1', external: { sessionId: 'feedbeef00', agentId: 'a1' } } })
+    // It also asks main to open the Orchestrator, which starts one that does not run.
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    expect(await row!.run()).toBeUndefined()
+    expect(useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(asked).toEqual([{ channel: 'orchestrator.open', input: { projectId: 'p1' } }])
+  })
+
+  it('has the Orchestrator row with no Orchestrator Node too, and none without a Project', () => {
+    expect(ids(context())).toContain('go-to:orchestrator')
+    expect(ids(context({ project: undefined }))).not.toContain('go-to:orchestrator')
   })
 
   it('finds a Ticket by its number, an ADR by its number and a Card by its id', () => {
