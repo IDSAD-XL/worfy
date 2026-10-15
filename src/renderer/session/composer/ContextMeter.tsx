@@ -4,9 +4,8 @@ import { BLOCKED_FROM, WORKING_FROM, type LimitLevel } from '../../../shared/age
 import { useSessionContext } from '../store'
 import type { ComposerItemProps } from './index'
 
-// How full the Session's context window is (worfy-polish ticket 23): a ring and a number, right
-// after the model, effort and permission pickers, from what Claude Code's getContextUsage()
-// reports. 100 % is "compacts now": the share is of the autocompact threshold (the autocompact
+// How full the Session's context window is (worfy-polish ticket 23): a ring and a number in the
+// bar under the input field, from what Claude Code's getContextUsage() reports. 100 % is "compacts now": the share is of the autocompact threshold (the autocompact
 // window minus the room kept for the summary), as the owner decided — not of the window, which is
 // what `/context` and the SDK's `percentage` measure against. With autocompact off, or no
 // threshold given, it falls back to that `percentage`. main asks after every turn and every
@@ -17,10 +16,12 @@ import type { ComposerItemProps } from './index'
 // shares of this one.
 
 /**
- * Right after the pickers (Pickers.tsx, order 10), before the queue (Queue.tsx, order 20): in a
- * narrow column the bar moves the pickers to a second line, and the meter goes along with them.
+ * Before the pickers (Pickers.tsx, order 10). In a wide bar it stands right before the model
+ * picker. In a narrower one the bar moves the pickers to a second line and the meter stays on the
+ * line of the hint, so it never takes width from the pickers: the permission mode stays whole on
+ * the default model (test/e2e/session-controls.spec.ts, test/e2e/context-meter.spec.ts).
  */
-export const order = 15
+export const order = 5
 
 const FILL: Record<LimitLevel, string> = {
   normal: 'var(--text-secondary)',

@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } fro
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 
 // The context meter under the input field (worfy-polish ticket 23) against the built app, on the
@@ -12,6 +12,11 @@ import { launchApp } from './helpers'
 // meter stands in the bar of the input field, on the line of the pickers right after them, and says "no data" before
 // the first turn and after the failed ask. The bar is shot in the light and the dark theme at each
 // state; with WORFY_EVIDENCE_DIR set, the shots are copied there.
+//
+// The meter never takes width from the pickers: in the 1280×800 window with the sidebar and the
+// rail shown, where the bar puts the pickers on a line of their own with Send, the meter stays on
+// the line of the hint and the permission mode of the default model is whole, in every state of
+// the meter (test/e2e/session-controls.spec.ts asks the same of the pickers).
 
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
@@ -74,11 +79,57 @@ async function shoot(window: Page, composer: Locator, state: string): Promise<vo
   }
 }
 
+type Box = { x: number; y: number; width: number; height: number }
+
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox()
+  if (found === null) throw new Error('no box')
+  return found
+}
+
+const middle = (found: Box): number => found.y + found.height / 2
+
+/** Makes the window `width` × `height`, as test/e2e/session-controls.spec.ts does. */
+async function resize(app: ElectronApplication, bar: Locator, width: number, height: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        // Reading a box lays the page out for the width it has now.
+        const now = await bar.evaluate((element) => element.ownerDocument.documentElement.clientWidth)
+        if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), { width, height })
+        return now
+      },
+      { message: `the window is ${width} px wide` },
+    )
+    .toBe(width)
+}
+
+/**
+ * In the 1280×800 window with the sidebar and the rail shown: the meter is in the bar, on the line
+ * of the hint, apart from the pickers, which stand on their own line with Send; the permission mode
+ * of the default model is not cut.
+ */
+async function expectPickersKeepTheirRoom(composer: Locator, state: string): Promise<void> {
+  const bar = composer.locator('.w-composer__bar')
+  const meter = composer.getByTestId('context-meter')
+  const pickers = composer.getByTestId('pickers')
+  const mode = composer.getByTestId('picker-permissions')
+  const [barBox, meterBox, pickersBox, hintBox, sendBox] = [await box(bar), await box(meter), await box(pickers), await box(composer.locator('.w-composer__hint').first()), await box(composer.getByTestId('input-send'))]
+  expect(meterBox.x, `${state}: the meter's left edge`).toBeGreaterThanOrEqual(barBox.x)
+  expect(meterBox.x + meterBox.width, `${state}: the meter's right edge`).toBeLessThanOrEqual(barBox.x + barBox.width)
+  expect(Math.abs(middle(meterBox) - middle(hintBox)), `${state}: the meter on the line of the hint`).toBeLessThan(4)
+  expect(Math.abs(middle(sendBox) - middle(pickersBox)), `${state}: Send on the line of the pickers`).toBeLessThan(4)
+  expect(middle(pickersBox), `${state}: the pickers below the meter`).toBeGreaterThan(meterBox.y + meterBox.height)
+  const cut = await mode.locator('.w-select__value').evaluate((element) => element.scrollWidth > element.clientWidth)
+  expect(cut, `${state}: the permission mode is cut`).toBe(false)
+}
+
 test('the context meter shows the share of the autocompact threshold after each turn, and "no data" without one', async () => {
   const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'context-meter' } })
   try {
     const { window } = app
     const view = await openSession(window)
+    await resize(app.app, view.locator('.w-composer__bar'), 1280, 800)
     const composer = view.getByTestId('message-input')
     const meter = composer.getByTestId('context-meter')
     const value = meter.getByTestId('context-meter-value')
@@ -88,15 +139,7 @@ test('the context meter shows the share of the autocompact threshold after each 
     await expect(value).toHaveText('no data')
     await expect(meter).toHaveAttribute('data-level', 'none')
 
-    // In the bar of the input field, on the line of the pickers and right after them — also when
-    // the narrow column moves the pickers to a second line.
-    const picker = composer.getByTestId('picker-permissions')
-    const meterBox = await meter.boundingBox()
-    const pickerBox = await picker.boundingBox()
-    expect(meterBox).not.toBeNull()
-    expect(pickerBox).not.toBeNull()
-    expect(meterBox!.x).toBeGreaterThanOrEqual(pickerBox!.x + pickerBox!.width)
-    expect(Math.abs(meterBox!.y + meterBox!.height / 2 - (pickerBox!.y + pickerBox!.height / 2))).toBeLessThan(4)
+    await expectPickersKeepTheirRoom(composer, 'no data')
     await shoot(window, composer, 'no-data')
 
     const states = [
@@ -111,6 +154,7 @@ test('the context meter shows the share of the autocompact threshold after each 
       await expect(value).toHaveText(state.text)
       await expect(meter).toHaveAttribute('data-level', state.level)
       await expect(meter).toHaveAttribute('title', state.title)
+      await expectPickersKeepTheirRoom(composer, state.text)
       await shoot(window, composer, state.shot)
     }
 
@@ -120,6 +164,14 @@ test('the context meter shows the share of the autocompact threshold after each 
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(4)
     await expect(value).toHaveText('no data')
     await expect(view.getByTestId('session-state')).toHaveText('idle')
+    await expectPickersKeepTheirRoom(composer, 'no data after a failed ask')
+
+    // The sidebar hidden, the bar wide: the meter stands right before the model picker.
+    await window.getByRole('button', { name: 'Hide sidebar' }).click()
+    const model = composer.getByTestId('picker-model')
+    await expect.poll(async () => Math.abs(middle(await box(meter)) - middle(await box(model)))).toBeLessThan(4)
+    const [meterBox, modelBox] = [await box(meter), await box(model)]
+    expect(meterBox.x + meterBox.width).toBeLessThanOrEqual(modelBox.x)
   } finally {
     await app.close()
   }
