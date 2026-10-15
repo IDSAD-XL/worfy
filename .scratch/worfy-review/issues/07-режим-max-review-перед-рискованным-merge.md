@@ -1,7 +1,7 @@
 # 07 — Режим расширенного ревью перед рискованным merge: две линзы по всей ветке, по желанию на двух моделях
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #330](https://github.com/IDSAD-XL/worfy/pull/330)
 Blocked by: 01, 02
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «режим max review» из таблицы, низкий приоритет; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), разделы о Thermos (plugin Cursor: два reviewer-а и сводка ведущего агента) и о skill `interrogate` из pstack (один reviewer на модель, один prompt; разнообразие даёт модель, а не роль); [spec.md](../spec.md)
 
@@ -206,3 +206,21 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
 - не проверено: прогон настоящих моделей — шаг Orchestrator-а или владельца; запись в ~/.claude
   агентам запрещена. Число находок у каждой модели, общих, и время прогона (замер стоимости) —
   после такого прогона.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а: Ticket-ы 04 и 07 параллельно, общих файлов нет. 07 — не платформенный PR (текст skill-а, test по тексту, contract test): **решено без владельца, подтвердить**.
+- Гейт — два круга. Круг 1 — `REJECTED` на `c23c88c` ([комментарий в PR #330](https://github.com/IDSAD-XL/worfy/pull/330#issuecomment-6184137092)): блок возобновления в epic-wave читал вердикты только из `git log`, а в Silent mode они — строки `gate:` в файле Ticket-а; Gate и платный max-review запустились бы заново. Круг 2, только диф доработки `c23c88c..772f706`, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/330#issuecomment-6184396816)): блок по `git log` помечен «Full mode only», для Silent mode — свой блок с `tail -n 1`; test запускает оба.
+- Мерж: база main `5184c74`, head `bc5f3b2` (после rebase); `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `0aada75`.
+- Act on (круг 1, исправлено): блок возобновления в Silent mode — см. выше.
+- Consider ([low], на решение владельца):
+  - `harness/skills/max-review/SKILL.md:14-15` — «2–4 times as much» спорит со следующей фразой (четыре reviewer-а вместо одного verifier-а и скептики); по шкале глубины в `rules.md` прибавка `max` к `high` — около 4 млн токенов. Цифра — из Ticket-а;
+  - `SKILL.md:33` — пометку `Risk: high` ставит «whoever writes the ticket», то есть и агент, а `rules.md` пускает `max` только по просьбе владельца;
+  - `SKILL.md:182-185` — отчёт меряет цену временем и находками, без токенов, которых требует `rules.md`.
+- Noted ([low]):
+  - `harness/bin/tests/max-review.test.sh:127-131` — счёт кругов проверяется своей копией команд, а не командами из epic-wave, раздел 3;
+  - `max-review/SKILL.md:167-168` — `ticket block` без места запуска и с причиной по-английски; epic-wave блокирует в документном PR на языке документов;
+  - номер строки списка skills в «Итог» выше — `:81`, на деле `test/contract/harness-migrate.test.ts:82`;
+  - на Windows `max-review.test.sh` падает, как все `.test.sh`, до `worfy-windows` 14;
+  - debt круга 2: fixture-ы `max-review.test.sh:157-161`, `:180-182` всегда кончаются `gate: VERIFIED` — блок, пропускающий более поздний `REJECTED` или `NARROW: …`, остаётся зелёным; `epic-wave/SKILL.md:731` не говорит, что Silent-абзац — только для `local-green`.
+- Ручной прогон двух моделей — `[ ]`: не проверено, прогон настоящих моделей — шаг Orchestrator-а или владельца.

@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-15 (UTC), main @ 083c7db
+# Передача контекста — снимок на 2026-10-15 (UTC), main @ 0aada75
 
 ## Сейчас в работе
 
@@ -9,7 +9,7 @@
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298), `epic-status` — 22/50; 46 закрыт — `gate.sh` остаётся (решение владельца 2026-10-14); на ПК — 14. Владелец, 2026-10-13: 03–07 не ждут закрытия E3; очередь ПК — в «Дальше».
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 (приёмка) — владелец.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
-- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 5/8: влиты 01, 03, 05 (Wave 1), 02 и 06 (PR #231, #232) — Wave 2. Следом 04 и 07; 08 (глубина ревью) ждёт ответов владельца.
+- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 6/8: влиты 01–03, 05–07; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; 08 (глубина ревью) ждёт ответов владельца.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): 0/4, по исследованию PR #325; первым 01.
 - `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 0/12 по ресерчу 2026-10-15; первыми 01–05, 12 — research.
 
