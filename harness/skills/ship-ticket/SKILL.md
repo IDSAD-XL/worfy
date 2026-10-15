@@ -189,6 +189,58 @@ Make sure the test is red, and only then fix. What must be running for the tests
 Along the files listed in the ticket (section `F tickets.trail_section`; worfy: `## Где в коде`).
 Going outside that list is a reason to say so, not to widen the change silently.
 
+The change is the smallest one that does the whole ticket. It comes after step 4 — the failing test
+stays first — and it never drops an item of the ticket's list of what "done" means.
+- Before the edit, list every place the change has to reach: callers, tests, fixtures,
+  configuration, exports.
+- For a bug, grep every caller of the function you change and fix the cause once, in the shared
+  code.
+- Then take the first of these options that solves the whole task:
+  1. Nothing: the task does not need this code.
+  2. Code the repository already has — a helper, a component, a pattern; use it the way the code around it does.
+  3. The standard library or a feature of the platform.
+  4. A dependency the project already installs; a new dependency for a few lines is not an option.
+  5. One line that a reader understands at a glance.
+  6. The least new code that works.
+- Never cut, whatever the size of the change: checks of input at a trust boundary, error handling
+  that keeps data from being lost, security, accessibility, anything the ticket asks for.
+- A simplification with a known limit gets a comment in the comment syntax of the language:
+  `shortcut: <limit>, <when to redo>` — what the simple code does not handle, then the condition
+  under which it has to be replaced. A comment without the part after the comma is incomplete:
+  nobody will know when to redo the code. `"${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger"` lists the
+  `shortcut:` comments of a work tree and marks the incomplete ones `no-trigger`.
+
+Source: ponytail, `skills/ponytail/SKILL.md` and `skills/ponytail-debt/SKILL.md`, commit
+`9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0) — the order of
+options, the list of places before the edit, the rule for a bug, what is never cut, the
+`shortcut:` comment and the `no-trigger` mark. The rules are reworded; the marker `shortcut:` and
+the mark `no-trigger` are taken as they are. The order of options follows the source closely, so
+its licence goes with it — `LICENSE` of the source at that commit:
+
+```text
+MIT License
+
+Copyright (c) 2026 DietrichGebert
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## 6. Checks — bare, with the exit code
 
 ```bash
