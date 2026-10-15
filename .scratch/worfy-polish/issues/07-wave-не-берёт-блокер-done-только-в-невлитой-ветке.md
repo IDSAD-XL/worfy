@@ -1,7 +1,7 @@
 # 07 — Готовая Wave не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #349](https://github.com/IDSAD-XL/worfy/pull/349)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше» — «Кандидаты в Ticket-ы: `done` с
 невлитой ветки, `reader.ts:329` (`worfy-harness` 22)»; «Итог»
@@ -50,7 +50,7 @@ Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше
       зелёные без правок).
 - [x] Contract test `cycle` Autopilot или `render-template`: Wave не называет такого Ticket-а (если
       существующие test-ы это уже покрывают через `readyWave` — указать какие, в «Итог»).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -64,6 +64,8 @@ Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше
 
 - `src/shared/workflow/waves.ts`
 - `test/unit/waves.test.ts`
+- `src/renderer/canvas/elk/client.ts` (добавлен в круге доработки)
+- `test/unit/elk-client.test.tsx` (добавлен в круге доработки)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/main/workflow/reader.ts`, `src/shared/workflow/types.ts`, `src/shared/autopilot/cycle.ts`,
@@ -106,3 +108,12 @@ Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше
   сразу после мержа и после нового ответа ELK, ответ на старые входы, пришедший после мержа, отброшен.
 - Не сделано здесь: «Ship ticket» (`shipTicketState`, `src/shared/actions/render-template.ts:128`) по-прежнему
   считает блокер закрытым по одному `state === 'done'` — кандидат в следующий Ticket.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — два круга. Круг 1 — `REJECTED` на `615dddd` ([комментарий в PR #349](https://github.com/IDSAD-XL/worfy/pull/349#issuecomment-6188814064)): ключ кэша раскладки ELK (`src/renderer/canvas/elk/client.ts:72`) не учитывал `fromBranch`; после merge ветки блокера рамка Epic-а оставляла зависимый Ticket неготовым, хотя «Run wave» уже включён. Круг 2, только доработка `615dddd..05360e4`, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/349#issuecomment-6189245469)): ключ несёт `doneOnlyInBranch` (`waves.ts:58`, одно правило с `inFlight`); Ticket, у которого меняется только `fromBranch`, доходит до renderer-а новым объектом (`reader.ts:414-415` → `diffModels` → `applyWorkflowDelta` → `sources/epics.ts:396`).
+- Мерж: база `4c21410`, head `10301b4`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `be68c08`.
+- Act on (круг 1, исправлено): ключ ELK — см. выше. След расширен на `src/renderer/canvas/elk/client.ts` и `test/unit/elk-client.test.tsx`.
+- Consider, Dismissed — нет.
+- Noted: debt круга 2 — раздел «Где в коде» не называл двух новых файлов, дописаны; вне скоупа, подтверждено verifier-ом — «Ship ticket» (`src/shared/actions/render-template.ts:128`, `shipTicketState`) считает блокер закрытым по одному `state`, кандидат в Ticket; **решено без владельца, подтвердить** — зависимые Ticket-а с `done` из ветки получают номер Wave на Card-ах на один позже.

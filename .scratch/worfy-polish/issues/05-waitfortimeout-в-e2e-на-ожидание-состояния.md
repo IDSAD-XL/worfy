@@ -1,7 +1,7 @@
 # 05 — 32 `waitForTimeout` в e2e: ожидание состояния или обоснованное окно «ничего не случилось»
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #356](https://github.com/IDSAD-XL/worfy/pull/356)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски и долги» (нестабильные e2e, ложные
 таймауты под нагрузкой); [docs/lessons/agents.md](../../../docs/lessons/agents.md).
@@ -35,9 +35,9 @@ Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски �
 - [x] Каждый изменённый файл зелёный 5 из 5 под нагрузкой (половина ядер `yes > /dev/null`, как в
       Ticket-е 04); вывод с exit code — в «Итог». Кроме `packaged.spec.ts`: в нём только комментарий,
       не прогонялся (см. «Итог»).
-- [x] Общее время `pnpm test:e2e` не выросло (до и после — в «Итог»). Замер — по 17 изменённым spec-ам,
+- [ ] (не проверено целиком: только 17 spec-ов) Общее время `pnpm test:e2e` не выросло (до и после — в «Итог»). Замер — по 17 изменённым spec-ам,
       не по всему `pnpm test:e2e`: целиком его implementer-ам Wave запускать нельзя.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный. lint, typecheck, test и gate fast — exit 0; gate full —
       шаг оркестратора; CI — в PR.
 
@@ -182,3 +182,12 @@ Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски �
 
 `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, gate fast — exit 0, `[gate] зелено (fast): worfy/.:lint
 worfy/.:typecheck worfy/.:test`. gate full — шаг оркестратора перед merge.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `19f15fb`, глубина medium — PR только с test-ами ([комментарий в PR #356](https://github.com/IDSAD-XL/worfy/pull/356#issuecomment-6192109001)). Verifier сам: `pnpm build` — код 0; 16 изменённых spec-ов без `packaged` и `epic-frame` под e2e-замком — 41 passed; `epic-frame.spec.ts` — 7; мутант `SessionNodes.tsx` — новый spec красный на `:251`, старый зелёный; каждая проверка «X не случилось» разобрана по одной.
+- Мерж: база `338079c`, head `f55f28f`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `30157ab`.
+- Act on, Dismissed — нет.
+- Consider ([low]): `test/e2e/terminal-ai-request.spec.ts:121-124` — проверка «модель спросили один раз» перенесена до маяка `shellCaughtUp`, повторный `request` после ответа больше не ловится; `test/e2e/wait.ts:29-31` — комментарий обещает порядок ответов, а `ipcMain.handle` идут параллельно (`src/main/ipc/index.ts:136-163`): обработчик с fs, spawn или git ответит позже `app.version`; сейчас все `settled()` стоят после синхронных обработчиков.
+- Noted: пункт «Общее время `pnpm test:e2e` не выросло» снят — замерены только 17 spec-ов; `linked-cards.spec.ts:269` (окно 300 ms) под нагрузкой может дать ложный зелёный, как и до правки — **решено без владельца, подтвердить**.

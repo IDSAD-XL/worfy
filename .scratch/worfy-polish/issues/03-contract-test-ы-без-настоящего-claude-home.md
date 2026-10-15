@@ -1,7 +1,7 @@
 # 03 — Contract test-ы не читают настоящий `~/.claude`: временный `WORFY_CLAUDE_HOME` по умолчанию
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #351](https://github.com/IDSAD-XL/worfy/pull/351)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски и долги»: «[med] Contract test-ы читают
 настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23)»;
@@ -34,13 +34,13 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 ## Готово, когда
 
 - [x] Прогон шага 1 (`HOME` во временной папке, `model: haiku`): `pnpm vitest run --project contract` —
-      exit 0; до правки — красный, число красных test-ов — в «Итог».
+      exit 0; до правки — тоже exit 0: посылка опровергнута, правка — защита на будущее (см. «Итог»).
 - [x] Test в `test/contract`: во время test-а `WORFY_CLAUDE_HOME` задан и не равен `~/.claude`
       (`os.homedir()`), и папка пустая, если test её не заполнял.
 - [x] Test-ы отказа вне песочницы по-прежнему проверяют отказ (переменная снята у них явно).
 - [x] Настоящий `~/.claude` не меняется: список файлов и время изменения `settings.json` до и после
       прогона совпадают (команда и вывод — в «Итог»).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -123,7 +123,7 @@ average 7–10, параллельно шли другие implementer-ы): `doc
 (2), `github-prs.test.ts` (2), `workflow-profile.test.ts`, `workflow-reader.test.ts` (3). Пять этих
 файлов отдельным прогоном: с правкой — 233 из 234 (timeout в `harness-script-wiring`), без —
 233 из 234 (timeout в `github-prs`); `harness-script-wiring.test.ts` один — 21 из 21 и с правкой
-(дважды), и без. Новые только 5 test-ов изоляции. На машине владельца (`model: opus[1m]`) ни один
+(дважды), и без. Новые только 6 test-ов изоляции. На машине владельца (`model: opus[1m]`) ни один
 test поведение не сменил. После второго commit-а (папка прогона) полный прогон ещё раз (load
 average до 27): красные только timeout-ы в `docs.test.ts`, `github-prs.test.ts` (3) и
 `harness-script-wiring.test.ts` (timeout и следом лишняя строка в файле вызовов от прерванного
@@ -138,3 +138,11 @@ test-а); эти три файла отдельно — 108 из 108 и с пр�
 
 **Вне скоупа замечено:** project `jsdom` гоняет и `test/contract/**/*.test.tsx`, setup-файл у него
 свой (`test/setup-dom.ts`) — эти файлы переменную не получают.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `b7b5586` ([комментарий в PR #351](https://github.com/IDSAD-XL/worfy/pull/351#issuecomment-6189209631)). Verifier сам, всё с временным HOME: gate fast — код 0, `[gate] зелено (fast)`, не из кэша; на базе `12b46d8` project contract с `model: haiku` — код 0 (2278 passed): **посылка Ticket-а опровергнута**, правка — защита на будущее; на ветке — код 0, отличаются только 6 новых test-ов; мутанты (папки вне папки прогона, `release` всегда снимает переменную, `release` не удаляет папку, без `setupFiles`) — все красные; настоящий `~/.claude` не изменился. След расширен на `test/global-setup-contract.ts` и `tsconfig.test.node.json` — оправдано.
+- Мерж: база `056c32a`, head `ae74b08`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `cf8ebec`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): пункт шага 1 в «Готово, когда» обещал «до правки — красный» — переписан ниже по факту; в «Итог» «Новые только 5 test-ов» — их 6, исправлено. Не проверено: на Windows открытый дескриптор папки может дать EBUSY при удалении в конце файла — покажет gate Windows-ПК.

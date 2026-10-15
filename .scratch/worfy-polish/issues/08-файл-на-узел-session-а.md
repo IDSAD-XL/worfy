@@ -1,7 +1,7 @@
 # 08 — Файл или картинку можно бросить прямо на Узел Session-а
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #352](https://github.com/IDSAD-XL/worfy/pull/352)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U2; «Итог»
 [`worfy-mvp` 20](../../worfy-mvp/issues/20-поле-ввода-slash-и-вложения.md): «Перетаскивание на Узел не
@@ -45,7 +45,7 @@ Source: [spec.md](../spec.md), кандидат U2; «Итог»
 - [x] Test-ы `message-input-attach.test.tsx` зелёные без изменения ожиданий (общий код не поменял поведение).
 - [ ] (вручную) Stable copy: скриншот из Finder на Узел Session-и → Enter — Claude видит картинку.
       Не проверено: шаг владельца на Stable copy после влития.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный. Lint, typecheck, test и gate fast — exit 0;
       gate full делает оркестратор перед merge.
 
@@ -96,3 +96,13 @@ Source: [spec.md](../spec.md), кандидат U2; «Итог»
   сообщения в пути считаются в лимит 20 один раз.
 - Test-ы: `test/unit/session-node-drop.test.tsx` (22 test-а), мутанты — 23 из 23 убиты. Снимки обеих тем
   (рамка при броске, чипы, после отправки на fake agent) — в scratchpad, в репозиторий не кладутся.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — два круга. Круг 1 — `VERIFIED` на `4b8cf7e` ([комментарий в PR #352](https://github.com/IDSAD-XL/worfy/pull/352#issuecomment-6190098765)); оркестратор вернул на один круг два пункта Consider: чип, удалённый во время Resume, всё равно уходил Claude, `room()` считал вложения в пути дважды; выживший мутант без сброса `sendingNow` (Send на Узле умирает после первого сообщения). Круг 2, только доработка, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/352#issuecomment-6190624472)): текст и чипы уходят из поля при Send, возвращаются в четырёх случаях неудачи; дублей и залипания нет.
+- Мерж: база `e342f02`, head `8380829`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `9e2a208`.
+- Act on — нет.
+- Consider (круг 1, исправлено): см. выше.
+- Noted ([low]): debt круга 2 — `src/renderer/canvas/nodes/SessionNode.tsx:272`, `:273`: ветки восстановления (текст, набранный во время неудачной отправки; файлы, брошенные за это время) не держит ни один test. При неудаче Resume во время броска видна только его ошибка, отказы по размеру того же броска — нет (`:275`).
+- Dismissed — нет.
