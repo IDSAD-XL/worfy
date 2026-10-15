@@ -8,6 +8,7 @@
 // and again after each change of the registry.
 import { resolve } from 'node:path'
 import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
+import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
@@ -18,6 +19,7 @@ import {
   claudeHomeChanged,
   claudeHomeClose,
   claudeHomeLive,
+  claudeHomeSearch,
   claudeHomeSessions,
   claudeHomeSubagents,
   claudeHomeSubagentTranscript,
@@ -138,6 +140,7 @@ export function claudeHomeHandlers(
   subscriptions = new ClaudeHomeSubscriptions(registry),
   subagents = new SubagentReader(),
   projects: () => readonly { readonly path: string }[] = () => projectStore().list(),
+  search = new TranscriptSearch(registry),
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   /** The resolved root, checked for a call from a Linked machine. */
@@ -177,6 +180,7 @@ export function claudeHomeHandlers(
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: parseTranscriptLines(chunk.lines).map(timedEvent), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
+    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(rootOf(projectRoot, event), query)),
   ]
 }
 
