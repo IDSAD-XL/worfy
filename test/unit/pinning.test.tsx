@@ -3,7 +3,20 @@
 // the viewport, and a pinned Node is placed on the plane anew for every viewport.
 import { describe, expect, it } from 'vitest'
 import type { LayoutNode, Viewport } from '../../src/shared/layout/types'
-import { canvasToScreen, PINNED_Z_INDEX, pinnedScreenPoint, pinOp, placePinned, planeToolbarStyle, screenToCanvas, unpinOp } from '../../src/renderer/canvas/pinning'
+import { HEADER_HEIGHT, TICKETS_TOP } from '../../src/renderer/canvas/epic-layout'
+import {
+  canvasToScreen,
+  clearToolbarPlacement,
+  epicHeaderBand,
+  PINNED_Z_INDEX,
+  pinnedScreenPoint,
+  pinOp,
+  placePinned,
+  planeToolbarStyle,
+  screenToCanvas,
+  toolbarRect,
+  unpinOp,
+} from '../../src/renderer/canvas/pinning'
 
 const node = (over: Partial<LayoutNode> = {}): LayoutNode => ({
   id: 'n1',
@@ -178,6 +191,68 @@ describe('the toolbars of a selection among the Nodes', () => {
 
   it('is not drawn for an empty selection', () => {
     expect(planeToolbarStyle([], 1, 'top', 12)).toBeNull()
+  })
+})
+
+describe('the selection toolbar keeps off the header of an Epic frame and its column labels', () => {
+  // A frame at the origin; its top-row Tickets start TICKETS_TOP (92) below its top edge.
+  const frame = { x: 0, y: 0, width: 1000, height: 600 }
+  const band = epicHeaderBand(frame)
+  const topRowTicket = { x: 16, y: TICKETS_TOP, width: 280, height: 160 }
+  const size = { width: 200, height: 34 }
+  const placeOf = (selection: (typeof topRowTicket)[], zoom: number) => clearToolbarPlacement(selection, [band], zoom, size, 12, 48)
+
+  it('the band of a frame is its header and its column labels, no taller than the frame', () => {
+    expect(band).toEqual({ x: 0, y: 0, width: 1000, height: TICKETS_TOP })
+    // A collapsed frame is only its header row.
+    expect(epicHeaderBand({ ...frame, height: HEADER_HEIGHT })).toEqual({ ...frame, height: HEADER_HEIGHT })
+  })
+
+  it('a Ticket of the top row — the toolbar goes below it, `bottom` pixels away', () => {
+    // At zoom 1 the toolbar above would cover y 46..80: the header (0..56) and the column labels (56..92).
+    expect(placeOf([topRowTicket], 1)).toEqual({ side: 'bottom', offset: 48 })
+  })
+
+  it('a Ticket of the second row and a Node outside the frame — the toolbar stays on top', () => {
+    const secondRow = { ...topRowTicket, y: TICKETS_TOP + 160 + 12 }
+    expect(placeOf([secondRow], 1)).toEqual({ side: 'top', offset: 12 })
+    const outside = { ...topRowTicket, x: 1200 }
+    expect(placeOf([outside], 1)).toEqual({ side: 'top', offset: 12 })
+    // Below the frame, where no band is.
+    expect(placeOf([{ ...topRowTicket, y: frame.height + 48 }], 1)).toEqual({ side: 'top', offset: 12 })
+  })
+
+  it('over the column labels only — at zoom 2 the toolbar above covers y 69..86, below the header row', () => {
+    const rect = toolbarRect([topRowTicket], 2, size, { side: 'top', offset: 12 })
+    expect(rect).toEqual({ x: 156 - 50, y: TICKETS_TOP - 6 - 17, width: 100, height: 17 })
+    expect(rect?.y).toBeGreaterThanOrEqual(HEADER_HEIGHT)
+    expect(placeOf([topRowTicket], 2)).toEqual({ side: 'bottom', offset: 48 })
+  })
+
+  it('at zoom 0.5 the toolbar is twice as tall in canvas units and reaches the band from a Ticket further down', () => {
+    // 70 canvas units below the band: at zoom 1 the toolbar above (12 + 34 = 46) clears it, at zoom 0.5 (24 + 68 = 92) it does not.
+    const lower = { ...topRowTicket, y: TICKETS_TOP + 70 }
+    expect(placeOf([lower], 1)).toEqual({ side: 'top', offset: 12 })
+    expect(placeOf([lower], 0.5)).toEqual({ side: 'bottom', offset: 48 })
+  })
+
+  it('stays on top when it would cover a band on both sides of the selection', () => {
+    // A tall selection whose bottom edge is 20 units above the next frame's header.
+    const next = epicHeaderBand({ x: 0, y: 700, width: 1000, height: 400 })
+    const tall = { ...topRowTicket, height: 700 - TICKETS_TOP - 20 }
+    expect(clearToolbarPlacement([tall], [band, next], 1, size, 12, 48)).toEqual({ side: 'top', offset: 12 })
+  })
+
+  it('a band beside the toolbar, not under it, does not move it', () => {
+    // The toolbar is 200 px wide, centred on the Ticket: x 56..256; the band starts at 300.
+    expect(clearToolbarPlacement([topRowTicket], [{ ...band, x: 300 }], 1, size, 12, 48)).toEqual({ side: 'top', offset: 12 })
+  })
+
+  it('toolbarRect is where planeToolbarStyle draws the toolbar', () => {
+    const plain = { ...topRowTicket, z: 1000, pinned: false }
+    expect(planeToolbarStyle([plain], 1, 'bottom', 48)?.transform).toBe('translate(156px, 300px) scale(1) translate(-50%, 0%)')
+    expect(toolbarRect([plain], 1, size, { side: 'bottom', offset: 48 })).toEqual({ x: 56, y: 300, width: 200, height: 34 })
+    expect(toolbarRect([], 1, size, { side: 'top', offset: 12 })).toBeNull()
   })
 })
 
