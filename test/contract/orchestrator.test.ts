@@ -11,9 +11,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fakeQueryFactory } from '../../src/main/agent/fake-query'
+import { fakeQueryFactory, FakeReleases, type FakeCall } from '../../src/main/agent/fake-query'
 import { CostCounter, Orchestrators, orchestratorPlace } from '../../src/main/agent/orchestrator'
 import type { TranscriptFacts } from '../../src/main/agent/orchestrator-transcript'
+import { UNATTENDED_DENIED_MESSAGE } from '../../src/main/agent/permissions'
 import { SessionRegistry, type QueryFactory, type QueryRequest } from '../../src/main/agent/session'
 import { SESSION_SETTINGS_FILE, SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
@@ -90,6 +91,10 @@ interface HarnessOptions {
   factory?: (fake: QueryFactory) => QueryFactory
   /** The transcript of a saved session: found with these facts (default), missing (null), unreadable (an Error) or still being read (a Promise). */
   transcript?: (sdkSessionId: string) => TranscriptFacts | null | Error | Promise<TranscriptFacts | null>
+  /** Gets what every fake query was asked to do (FakeCall). */
+  record?: (call: FakeCall) => void
+  /** What lets the `wait_release` lines of the scripts pass. */
+  releases?: FakeReleases
 }
 
 const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
@@ -98,7 +103,7 @@ const NO_FACTS: TranscriptFacts = { model: null, statusBlock: null }
 function harness(options: HarnessOptions = {}) {
   const layout = new LayoutStore((projectId) => join(scratch, 'data', projectId), { delayMs: 0 })
   const requests: QueryRequest[] = []
-  const fake = fakeQueryFactory({ scriptsDir: options.scripts ?? scriptsDir, script: options.script ?? 'orchestrator' })
+  const fake = fakeQueryFactory({ scriptsDir: options.scripts ?? scriptsDir, script: options.script ?? 'orchestrator', record: options.record, releases: options.releases })
   const factory = options.factory?.(fake) ?? fake
   const registry = new SessionRegistry((request) => {
     requests.push(request)
@@ -441,6 +446,147 @@ describe('Orchestrator Session', () => {
     await expect(opening).rejects.toThrow(/was stopped/)
     expect(h.requests).toEqual([])
     expect(h.published).toEqual([])
+  })
+})
+
+/**
+ * The text of every user message each Claude Code process got, one list per process in start
+ * order. A relaunch closes the old process before it starts the new one, so a `start` opens the
+ * next list.
+ */
+function messagesPerProcess(calls: readonly FakeCall[]): string[][] {
+  const processes: string[][] = []
+  for (const call of calls) {
+    if (call.kind === 'start') processes.push([])
+    else if (call.kind === 'message') processes.at(-1)?.push(call.text)
+  }
+  return processes
+}
+
+/**
+ * Scripts of the relaunch tests, in a folder of the test: `turn` ends each turn at once; `held`
+ * holds its turn until the test releases `turn`; `held-crash` dies there instead.
+ */
+function relaunchScripts(): string {
+  const scripts = join(scratch, 'scripts')
+  mkdirSync(scripts)
+  const wait = JSON.stringify({ fake: 'wait_message' })
+  const init = JSON.stringify({ type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default', slash_commands: [], apiKeySource: 'none', claude_code_version: '2.1.289', uuid: '00000000-0000-4000-8000-0000000000d1' })
+  const result = JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'ok', total_cost_usd: 0.01, duration_ms: 1, duration_api_ms: 1, num_turns: 1, usage: { input_tokens: 1, output_tokens: 1 }, session_id: '{{session}}', uuid: '00000000-0000-4000-8000-0000000000d2' })
+  const hold = JSON.stringify({ fake: 'wait_release', name: 'turn' })
+  writeFileSync(join(scripts, 'turn.jsonl'), [wait, init, result].join('\n'))
+  writeFileSync(join(scripts, 'held.jsonl'), [wait, init, hold, result].join('\n'))
+  writeFileSync(join(scripts, 'held-crash.jsonl'), [wait, init, hold, JSON.stringify({ fake: 'crash', error: 'Claude Code process exited with code 1' })].join('\n'))
+  return scripts
+}
+
+// A relaunch (Autopilot taking the Orchestrator and giving it back, session.ts handOverQueue and
+// adoptQueue) starts a new Claude Code process. A message that reached the old process may already
+// have acted outside (a commit, a merge, a Wave): it is never sent again, and each message of the
+// queue reaches Claude Code once across both Sessions.
+describe('Orchestrator relaunch and the messages it carries over', () => {
+  const WAVE = '/epic-wave Ticket-ы 01 эпика demo'
+
+  async function unattendedInTurn(script: string) {
+    const calls: FakeCall[] = []
+    const releases = new FakeReleases()
+    const h = harness({ scripts: relaunchScripts(), script: (request) => (request.unattended === true ? script : 'turn'), record: (call) => calls.push(call), releases })
+    await h.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    const unattended = h.registry.get(h.sessionId())
+    expect(unattended.send(WAVE)).toBe('sent')
+    expect(unattended.send('merge PR #7')).toBe('queued')
+    expect(unattended.send('merge PR #8')).toBe('queued')
+    await vi.waitFor(() => expect(messagesPerProcess(calls)).toEqual([[], [WAVE]]))
+    return { h, calls, releases, unattended }
+  }
+
+  /** The attended Session that replaced `old`, once it is idle; with time for a queue let go by mistake to reach its process. */
+  async function attendedAfter(h: ReturnType<typeof harness>, old: unknown) {
+    await vi.waitFor(() => expect(h.orchestrators.isUnattended(PROJECT)).toBe(false))
+    await vi.waitFor(() => expect(h.registry.get(h.sessionId())).not.toBe(old))
+    const attended = h.registry.get(h.sessionId())
+    await vi.waitFor(() => expect(attended.state).toBe('idle'))
+    await new Promise((done) => setTimeout(done, 50))
+    return attended
+  }
+
+  it('with a held queue (Stop in Autopilot): the Wave is not sent again, and each queued message goes once, after "Send queued"', async () => {
+    const { h, calls, unattended } = await unattendedInTurn('held')
+    await unattended.halt(10)
+    await h.orchestrators.giveBackNow(PROJECT)
+    const attended = await attendedAfter(h, unattended)
+    expect(attended.queued()).toMatchObject({ items: [{ text: 'merge PR #7' }, { text: 'merge PR #8' }], paused: true })
+    expect(messagesPerProcess(calls)).toEqual([[], [WAVE], []])
+
+    attended.sendQueued()
+    await vi.waitFor(() => expect(messagesPerProcess(calls)[2]).toHaveLength(2))
+    await vi.waitFor(() => expect(attended.state).toBe('idle'))
+    expect(messagesPerProcess(calls)).toEqual([[], [WAVE], ['merge PR #7', 'merge PR #8']])
+    expect(attended.queued()).toMatchObject({ items: [], paused: false })
+  })
+
+  it('with a queue that is not held: the new Session sends each message once, one per turn, and the Wave not again', async () => {
+    const { h, calls, unattended } = await unattendedInTurn('held')
+    // Given back without a halt: the queue goes over as it was, not held.
+    await h.orchestrators.giveBackNow(PROJECT)
+    const attended = await attendedAfter(h, unattended)
+    await vi.waitFor(() => expect(messagesPerProcess(calls)[2]).toHaveLength(2))
+    await vi.waitFor(() => expect(attended.state).toBe('idle'))
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messagesPerProcess(calls)).toEqual([[], [WAVE], ['merge PR #7', 'merge PR #8']])
+    expect(attended.queued()).toMatchObject({ items: [], paused: false })
+  })
+
+  it('after the unattended Session crashed: the relaunch carries the queue held, nothing goes by itself, then each message once', async () => {
+    const { h, calls, releases, unattended } = await unattendedInTurn('held-crash')
+    // Autopilot gives the Orchestrator back once the turn ends; the turn ends with a crash.
+    await h.orchestrators.setUnattended(PROJECT, false)
+    expect(h.orchestrators.isUnattended(PROJECT)).toBe(true)
+    releases.release('turn')
+    const attended = await attendedAfter(h, unattended)
+    expect(attended.queued()).toMatchObject({ items: [{ text: 'merge PR #7' }, { text: 'merge PR #8' }], paused: true })
+    expect(messagesPerProcess(calls)).toEqual([[], [WAVE], []])
+    // The new process resumes the SDK session of the one that died.
+    expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
+    expect(h.requests[2]?.resume).toBe(h.requests[1]?.sessionId)
+
+    attended.sendQueued()
+    await vi.waitFor(() => expect(messagesPerProcess(calls)[2]).toHaveLength(2))
+    await vi.waitFor(() => expect(attended.state).toBe('idle'))
+    expect(messagesPerProcess(calls)).toEqual([[], [WAVE], ['merge PR #7', 'merge PR #8']])
+  })
+
+  it('keeps the permission mode the user picked for the Node; the unattended Session in between refuses every call at once', async () => {
+    const h = harness({ scripts: relaunchScripts(), script: 'turn' })
+    await h.orchestrators.open(PROJECT)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    await h.registry.get(h.sessionId()).configure({ permissionMode: 'default' })
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+    await h.orchestrators.setUnattended(PROJECT, false)
+    await vi.waitFor(() => expect(h.orchestrators.isUnattended(PROJECT)).toBe(false))
+    await vi.waitFor(() => expect(h.view().state).toBe('idle'))
+
+    expect(h.requests.map((request) => [request.unattended, request.settings.permissionMode])).toEqual([
+      [false, DEFAULT_SETTINGS.permissionMode],
+      [true, 'bypassPermissions'],
+      [false, 'default'],
+    ])
+    // The forced bypassPermissions of the unattended Session was not saved over the user's pick.
+    expect(JSON.parse(readFileSync(settingsFile(), 'utf8'))).toMatchObject({ nodes: { [h.node().id]: { permissionMode: 'default' } } })
+    expect(h.registry.get(h.sessionId()).settings.permissionMode).toBe('default')
+
+    const unattendedAnswer = await h.requests[1]?.canUseTool('Bash', { command: 'git push' }, { signal: new AbortController().signal })
+    expect(unattendedAnswer).toEqual({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+    // The attended Session's gate waits for the person; the abort ends the request.
+    const asking = new AbortController()
+    const attendedAnswer = h.requests[2]?.canUseTool('Bash', { command: 'git push' }, { signal: asking.signal })
+    await vi.waitFor(() => expect(h.broadcast.filter((each) => each.event.type === 'permission_request')).toHaveLength(1))
+    asking.abort()
+    expect(await attendedAnswer).toMatchObject({ behavior: 'deny', interrupt: true })
   })
 })
 

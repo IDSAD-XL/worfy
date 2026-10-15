@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { fakeQueryFactory } from '../../src/main/agent/fake-query'
+import { fakeQueryFactory, type FakeCall } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session'
 import { agentHandlers, everyClientSink } from '../../src/main/ipc/agent'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -35,10 +35,11 @@ afterEach(async () => {
  * The agent handlers registered on a fake ipcMain, over a registry with the fake agent. `script`
  * picks the scenario for each query the registry starts (a resumed Session starts a new one).
  * With `registryHome` the fake agent writes its entry to <registryHome>/sessions, as Claude Code does.
+ * `record` gets what every fake query was asked to do (FakeCall).
  */
-async function harness(script: string | ((request: QueryRequest) => string), registryHome?: string) {
+async function harness(script: string | ((request: QueryRequest) => string), registryHome?: string, record?: (call: FakeCall) => void) {
   const requests: QueryRequest[] = []
-  const factory = fakeQueryFactory({ scriptsDir, script, registryHome })
+  const factory = fakeQueryFactory({ scriptsDir, script, registryHome, record })
   /** close() of each query the registry started, in start order. */
   const closes: MockInstance<() => void>[] = []
   const registry = new SessionRegistry(async (request) => {
@@ -102,6 +103,19 @@ async function harness(script: string | ((request: QueryRequest) => string), reg
 
 const ofType = <T extends AgentEvent['type']>(events: AgentEvent[], type: T) => events.filter((e): e is Extract<AgentEvent, { type: T }> => e.type === type)
 
+/**
+ * The text of every user message each Claude Code process got, one list per process in start
+ * order. The processes of one Session run one after another, so a `start` opens the next list.
+ */
+function messagesPerProcess(calls: readonly FakeCall[]): string[][] {
+  const processes: string[][] = []
+  for (const call of calls) {
+    if (call.kind === 'start') processes.push([])
+    else if (call.kind === 'message') processes.at(-1)?.push(call.text)
+  }
+  return processes
+}
+
 describe('agent channels on the fake agent', () => {
   it('start → send gives busy … result … idle, under the id worfy gave the new Session from its start', async () => {
     const h = await harness('turn')
@@ -161,6 +175,37 @@ describe('agent channels on the fake agent', () => {
       [undefined, id],
       [id, undefined],
     ])
+  })
+
+  // A turn that reached Claude Code may already have acted outside (a commit, a merge): after the
+  // crash worfy sends neither it nor what waited behind it into the new process by itself.
+  it('a crash in the middle of a turn: the restarted process gets only the new message; the turn that went and the queued one are not sent again', async () => {
+    const calls: FakeCall[] = []
+    const h = await harness((request) => (request.resume === undefined ? 'crash' : 'turn'), undefined, (call) => calls.push(call))
+    const id = await h.start()
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    const session = h.registry.get(id)
+    expect(session.send('commit the fix')).toBe('sent')
+    expect(session.send('then merge the PR')).toBe('queued')
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('error'))
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then merge the PR' }], paused: true })
+
+    await h.ok('agent.send', { sessionId: id, text: 'try again' })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(1))
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    // Time for a queue that was let go by mistake to reach the process.
+    await new Promise((done) => setTimeout(done, 50))
+    expect(messagesPerProcess(calls)).toEqual([['commit the fix'], ['try again']])
+    expect(session.queued()).toMatchObject({ items: [{ text: 'then merge the PR' }], paused: true })
+    expect(h.requests.map((request) => request.resume)).toEqual([undefined, id])
+
+    // "Send queued": the held message goes once, into the same process.
+    await h.ok('agent.queueSend', { sessionId: id })
+    await vi.waitFor(() => expect(ofType(h.eventsOf([id]), 'result')).toHaveLength(2))
+    await vi.waitFor(() => expect(h.states([id]).at(-1)).toBe('idle'))
+    expect(messagesPerProcess(calls)).toEqual([['commit the fix'], ['try again', 'then merge the PR']])
+    expect(session.queued()).toMatchObject({ items: [], paused: false })
+    expect(h.requests).toHaveLength(2)
   })
 
   it('a Claude Code that died before the first turn is replaced under a new id, never the one it was given', async () => {
