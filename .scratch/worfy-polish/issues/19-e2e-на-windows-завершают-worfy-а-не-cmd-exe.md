@@ -54,11 +54,15 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а
 ## Готово, когда
 
 - [ ] Probe пункта 1 на Windows-ПК: на main worfy жив после `close()`, с правкой — нет; вывод
-      `tasklist` до и после — в «Итог».
-- [ ] Probe пункта 4 на Mac — зелёный; e2e `autopilot`, `binding` и `packaged` зелёные на Mac.
+      `tasklist` до и после — в «Итог». Не проверено: ждёт gate full на Windows-ПК.
+- [x] Probe пункта 4 на Mac — зелёный; e2e `autopilot`, `binding` и `packaged` зелёные на Mac
+      (`packaged` — без тегов `@packaged`: их гоняет `test:package` в gate full).
 - [ ] Gate full на Windows-ПК — строка вердикта и код выхода в «Итог» (ADR-0056, пункт 2).
+      Не проверено: ждёт gate full на Windows-ПК.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+      `[gate] зелено (full)`; Linux CI зелёный. Lint и typecheck — exit 0, Linux CI зелёный (PR #365);
+      `pnpm test` на Mac красный по таймаутам contract test-ов, как и на `origin/main` (см. «Итог»);
+      gate full — за оркестратором.
 
 ## Тесты
 
@@ -87,7 +91,54 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а
 
 ## Итог
 
-—
+Ветка `worfy-polish/19`, PR #365.
+
+**Что сделано.** Выбор, какой процесс убивать, вынесен в `test/e2e/end-app.ts` (`endApp`; без импорта
+Playwright, чтобы его грузил vitest). `launchApp` сразу после `_electron.launch` спрашивает у
+приложения PID главного процесса (`app.evaluate(() => process.pid)`, без ожидания); `kill` ждёт
+ответ не больше 5 s. `endApp` шлёт SIGKILL сначала этому PID, потом `app.process()`, ждёт выхода
+`app.process()`, затем — исчезновения PID приложения (не дольше 10 s, иначе ошибка с PID). Условия
+Ticket-а 04 в `close()` не тронуты: «не завершил quit» по-прежнему ошибка test-а.
+
+**Запасной путь без PID** (приложение не ответило за 5 s) — решено без владельца, подтвердить: на
+Windows `taskkill /pid <app.process().pid> /T /F` (так убивает сам Playwright), затем `child.kill`;
+на macOS и Linux — `child.kill('SIGKILL')`, как раньше. Ветка по `process.platform` есть только
+здесь: без PID приложения на Windows нет другого способа достать процесс под `cmd.exe`, а
+`taskkill /T` на macOS нет. Основной путь (PID известен) одинаков на всех платформах.
+
+**Contract test** `test/contract/e2e-end-app.test.ts`, на настоящих процессах: оболочка
+`sh -c 'sleep 600 & echo $!; wait'` повторяет форму `cmd.exe` над `electron.exe` — SIGKILL одной
+оболочке оставляет `sleep` жить. Четыре случая: приложение под оболочкой (на win32 пропущен — нет
+`sh`), PID приложения совпадает с запущенным, без PID на macOS/Linux, без PID на Windows (подменённый
+`killTree`). Мутанты (на копии, восстановлено с `cmp`): убрать `process.kill(appPid)` — красный
+первый test («the app's process … still runs 10 s after SIGKILL»); убрать `killTree` — красный
+четвёртый. Ожидание «PID исчез» после выхода оболочки test-ом не прижато: процесс, который
+переживает SIGKILL, на macOS и Linux без root не построить.
+
+**Probe на Mac (пункт 4)**, в PR не входит. Spec держал `will-quit` и `before-quit`, брал PID через
+`app.evaluate(() => process.pid)` и после `close()` проверял `process.kill(pid, 0)`:
+
+```
+с правкой:   probe-19 platform=darwin appPid=17606 childPid=17606 before close running=true
+             probe-19 after close running=false
+helper main: probe-19 platform=darwin appPid=36208 childPid=36208 before close running=true
+             probe-19 after close running=false
+```
+
+В обоих прогонах test красный только мягкой ошибкой `close()` «the app did not quit within 20 s and
+was killed» — так и задумано (условие Ticket-а 04); проверка probe зелёная. На Mac PID приложения
+равен PID запущенного процесса.
+
+**e2e на Mac** под замком: `autopilot.spec.ts`, `binding.spec.ts`, `packaged.spec.ts`
+(`--grep-invert @packaged`) — 15 passed, exit 0.
+
+**Проверки.** `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; Linux CI (job `check`) — pass.
+`pnpm test` и gate fast на Mac — exit 1 и 2: таймауты 15 s в contract test-ах `workflow-reader`,
+`harness-script-wiring`, `e3-sandbox`, `github-prs`, `harness-qmd` при load average 9–12 (соседи по
+Wave). Тот же полный прогон на чистом `origin/main` 05a6cdb — тоже exit 1, 17 упавших в тех же
+файлах. Отдельно эти файлы зелёные и на ветке, и на `main` (по два прогона подряд, 66 из 66).
+
+**Windows** — не проверено: ждёт gate full на Windows-ПК. Probe пункта 1 и вывод `tasklist` — там же.
 
 ### Gate оркестратора (2026-10-15)
 
