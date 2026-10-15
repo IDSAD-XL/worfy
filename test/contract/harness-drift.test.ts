@@ -32,8 +32,13 @@ const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => 
  */
 const GIT_SETTINGS = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0']
 
+/** git with GIT_SETTINGS, in `cwd`, with `env` added to the environment of the tests' git. */
+function gitWith(env: Record<string, string>, cwd: string, ...args: string[]): string {
+  return execFileSync('git', [...GIT_SETTINGS, ...args], { cwd, env: { ...gitEnv, ...env }, encoding: 'utf8' }).trim()
+}
+
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', [...GIT_SETTINGS, ...args], { cwd, env: gitEnv, encoding: 'utf8' }).trim()
+  return gitWith({}, cwd, ...args)
 }
 
 function commit(repo: string, path: string, text: string): string {
@@ -78,9 +83,9 @@ describe('the git of these tests', () => {
     git(repo, 'init', '-q')
     writeFileSync(join(repo, 'a.md'), 'a\n')
     git(repo, 'add', '.')
-    // GIT_TRACE lists every process git starts; the helper's own settings, a trace of this commit.
+    // GIT_TRACE lists every process git starts: the commit goes through the helper, with a trace.
     const trace = join(tempDir(), 'trace.log')
-    execFileSync('git', [...GIT_SETTINGS, 'commit', '-q', '-m', 'traced'], { cwd: repo, env: { ...gitEnv, GIT_TRACE: trace }, encoding: 'utf8' })
+    gitWith({ GIT_TRACE: trace }, repo, 'commit', '-q', '-m', 'traced')
     const started = readFileSync(trace, 'utf8').split('\n').filter((line) => line.includes('run_command:'))
     expect(started.filter((line) => /maintenance|gc --auto/.test(line))).toEqual([])
   })

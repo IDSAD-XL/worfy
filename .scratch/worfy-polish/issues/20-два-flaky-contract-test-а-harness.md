@@ -154,10 +154,14 @@ Test писал свои stub-скрипты `epic-status`, `profile`, `ticket` 
 шла дальше (`exec bin/epic-status 5274ms`, `exec bin/profile 5932ms` — уже после конца test-а, в
 журнале того же процесса). Правка: `scriptRun(root)` даёт каждому test-у свои `claudeHome`, `calls`,
 `asked()` и `source`; `source` замкнут на значения этого вызова, а не на переменные `describe`.
-Test «a run that a test left going logs into that test's calls file, not into the next test's».
-Мутант «`source` читает общую переменную, которую следующий вызов переписывает» — красный: строка
-ушла в файл вызовов следующего (`expect(existsSync(next.calls)).toBe(false)` — `expected true to be
-false`), остальные 21 test зелёные.
+Всё, что делает `beforeEach`, — функция `startRun(root)`. Test «a run that a test left going logs
+into that test's calls file, not into the next test's» зовёт её второй раз, как `beforeEach`
+следующего test-а, и только потом запускает run первого. Мутанты (раунд 2 после gate), каждый красный
+только в этом test-е, 21 из 22 зелёные, `expected true to be false` — строка ушла в файл вызовов
+следующего:
+- `source` берёт `CALLS` из переменной `describe`, которую ставит `startRun`;
+- `source` берёт `CALLS` из `run.calls` (переменная `describe` `run`);
+- `source` берёт `CALLS` из общей переменной, которую переписывает `scriptRun`.
 
 ### 2. ENOTEMPTY в `harness-drift.test.ts` — причина не воспроизведена
 
@@ -184,9 +188,10 @@ false`), остальные 21 test зелёные.
   `-c maintenance.auto=false -c gc.auto=0` (как `test/unit/attachments.test.ts` после PR #33): к
   уборке у test-а не остаётся живых процессов git. С правкой и тем же shim-ом задержки lock в момент
   уборки не лежит ни разу (3 из 3 прогонов, 0 случаев). Test «a commit starts no background
-  maintenance that would outlive it» проверяет по `GIT_TRACE`, что commit с настройками helper-а не
-  запускает `maintenance`/`gc --auto`; мутант без `maintenance.auto=false` — красный (`run_command:
-  git maintenance run --auto --quiet --detach`). `maxRetries` не добавлен.
+  maintenance that would outlive it» делает commit через сам helper (`gitWith`, с `GIT_TRACE`) и
+  проверяет, что git не запустил `maintenance`/`gc --auto`. Мутанты: без `maintenance.auto=false` в
+  настройках и helper, который не передаёт `GIT_SETTINGS`, — оба красные (`run_command: git
+  maintenance run --auto --quiet --detach`). `maxRetries` не добавлен.
 
 ### Кандидаты с той же причиной (вне diff)
 

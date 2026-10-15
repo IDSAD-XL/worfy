@@ -345,17 +345,26 @@ function scriptRun(root: string): ScriptRun {
 describe.skipIf(process.platform === 'win32')('what each run of a script gets', () => {
   let run: ScriptRun
 
+  /**
+   * All that beforeEach does to start a test's run under `root`. The leak test below calls it again
+   * as the next test's beforeEach would: whatever it sets, the next test's run sets anew.
+   */
+  function startRun(root: string): ScriptRun {
+    run = scriptRun(root)
+    return run
+  }
+
   beforeEach(() => {
-    run = scriptRun(scratch)
+    startRun(scratch)
   })
 
   it('a run that a test left going logs into that test\'s calls file, not into the next test\'s', async () => {
-    // As a test cut off by its timeout leaves it: the next test already has its own calls file
-    // when the run of the cut-off one asks its source.
+    // As a test cut off by its timeout leaves it: the next test's beforeEach has already started
+    // its run when the run of the cut-off one asks its source.
     const { claudeHome, calls, source } = run
     pluginHarness(claudeHome)
-    const next = scriptRun(join(scratch, 'next'))
     mkdirSync(join(scratch, 'next'))
+    const next = startRun(join(scratch, 'next'))
     await epicStatusRunner(claudeHome, source)(scratch, null)
     expect(existsSync(next.calls)).toBe(false)
     expect(lines(calls)).toHaveLength(1)
@@ -403,7 +412,7 @@ describe.skipIf(process.platform === 'win32')('what each run of a script gets', 
     await cache.get(scratch)
     expect(asked()).toBe(2)
     await readWorkflow({ root: scratch, claudeHome, env: source })
-    // Once for the layout, once for the run of epic-status.
+    // Two asks more: one for the layout, one for the run of epic-status.
     expect(asked()).toBe(4)
   })
 
