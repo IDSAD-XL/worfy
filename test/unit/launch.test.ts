@@ -46,6 +46,32 @@ describe('shipTicketState', () => {
     expect(shipTicketState({ ticket: ticketOf(8), tickets, template: 'x', branch: null })).toEqual({ enabled: false, reason: 'blocked by 09' })
   })
 
+  it('a blocker done only in its unmerged branch is not closed yet: the same rule as the Wave (doneOnlyInBranch)', () => {
+    const inBranch = { ...t(7, 'done'), fromBranch: 'worfy-polish/07' }
+    const blocked = t(10, 'open', [7])
+    expect(shipTicketState({ ticket: blocked, tickets: [inBranch], template: 'x', branch: null })).toEqual({
+      enabled: false,
+      reason: 'blocked by 07 (done in branch worfy-polish/07, not merged)',
+    })
+    // Done in the checkout: closed, whether `fromBranch` is null or absent.
+    expect(shipTicketState({ ticket: blocked, tickets: [{ ...inBranch, fromBranch: null }], template: 'x', branch: null })).toEqual({ enabled: true, text: 'x' })
+    expect(shipTicketState({ ticket: blocked, tickets: [{ epic: 'worfy-mvp', num: 7, state: 'done' }], template: 'x', branch: null })).toEqual({ enabled: true, text: 'x' })
+    // A branch name on a Ticket that is not done there does not close it either.
+    expect(shipTicketState({ ticket: blocked, tickets: [{ ...t(7, 'work'), fromBranch: 'worfy-polish/07' }], template: 'x', branch: null })).toEqual({ enabled: false, reason: 'blocked by 07' })
+  })
+
+  it('checks every blocker for a branch-only done, not just the first, and names each open one in the order of "Blocked by"', () => {
+    const tickets = [t(7, 'done'), { ...t(11, 'done'), fromBranch: 'worfy-polish/11' }, t(9, 'open')]
+    expect(shipTicketState({ ticket: t(10, 'open', [7, 11]), tickets, template: 'x', branch: null })).toEqual({
+      enabled: false,
+      reason: 'blocked by 11 (done in branch worfy-polish/11, not merged)',
+    })
+    expect(shipTicketState({ ticket: t(10, 'open', [9, 11]), tickets, template: 'x', branch: null })).toEqual({
+      enabled: false,
+      reason: 'blocked by 09, 11 (done in branch worfy-polish/11, not merged)',
+    })
+  })
+
   it('is inactive on a Ticket that is not open, saying why', () => {
     expect(state(12)).toEqual({ enabled: false, reason: 'Ticket is claimed' })
     expect(state(11)).toEqual({ enabled: false, reason: 'Ticket is done' })
@@ -243,6 +269,17 @@ describe('ActionLauncher.shipTicket', () => {
       await expect(launch.shipTicket('p', 'worfy-mvp', num)).rejects.toThrow(reason)
       expect(created, reason).toEqual([])
     }
+  })
+
+  it('refuses, and starts no Session, while a blocker is done only in its unmerged branch; starts once it is done in the checkout', async () => {
+    const inBranch = (fromBranch: string | null) => [t(7, 'done'), t(10, 'open', [7, 11]), { ...t(11, 'done'), fromBranch }]
+    const refused = launcher({ tickets: inBranch('worfy-polish/11') })
+    await expect(refused.launch.shipTicket('p', 'worfy-mvp', 10)).rejects.toThrow('blocked by 11 (done in branch worfy-polish/11, not merged)')
+    expect(refused.created).toEqual([])
+    expect(refused.bindings).toEqual([])
+    const merged = launcher({ tickets: inBranch(null) })
+    await expect(merged.launch.shipTicket('p', 'worfy-mvp', 10)).resolves.toMatchObject({ text: '/ship-ticket worfy-mvp 10' })
+    expect(merged.created).toEqual(['p'])
   })
 
   it('gives up the Binding of a Session that closes before it is named, without waiting out the wait', async () => {

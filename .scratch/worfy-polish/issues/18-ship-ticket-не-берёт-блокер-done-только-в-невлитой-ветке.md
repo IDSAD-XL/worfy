@@ -1,7 +1,7 @@
 # 18 — «Ship ticket» не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 [07](07-wave-не-берёт-блокер-done-только-в-невлитой-ветке.md) («Не сделано здесь: «Ship ticket»
@@ -45,11 +45,11 @@ Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 
 ## Готово, когда
 
-- [ ] Test пункта 1 красный на main и зелёный с правкой.
-- [ ] Test пункта 5: main не запускает Session при блокере `done` только в ветке.
-- [ ] Мутанты на копии краснят свои test-ы: код main (только `state`); проверка `fromBranch` только
+- [x] Test пункта 1 красный на main и зелёный с правкой.
+- [x] Test пункта 5: main не запускает Session при блокере `done` только в ветке.
+- [x] Мутанты на копии краснят свои test-ы: код main (только `state`); проверка `fromBranch` только
       у первого блокера; своя копия условия вместо `doneOnlyInBranch` с ошибкой (`||` вместо `&&`).
-- [ ] Старые test-ы `launch.test.ts`, `render-template.test.ts`, `canvas-actions.test.tsx` зелёные без
+- [x] Старые test-ы `launch.test.ts`, `render-template.test.ts`, `canvas-actions.test.tsx` зелёные без
       правок их ожиданий.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
@@ -77,4 +77,23 @@ Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 
 ## Итог
 
-—
+- Правило — в `shipTicketState` (`src/shared/actions/render-template.ts`): блокер закрыт, только если он
+  `done` в checkout-е. Блокер `done` только в невлитой ветке проверяется функцией `doneOnlyInBranch` из
+  `src/shared/workflow/waves.ts` — то же правило, что у Wave (Ticket 07), без своей копии условия.
+  `waves.ts` не правился: `doneOnlyInBranch` уже экспортирована.
+- Тип входа `tickets` — `Pick<Ticket, 'epic' | 'num' | 'state'> & Partial<Pick<Ticket, 'fromBranch'>>`, как
+  `WaveTicket`: вход без поля читается как Ticket из checkout-а. Вызовы в `gates.ts` и `launch.ts` не
+  менялись — они уже передают полные `Ticket` с `fromBranch`.
+- Причина отказа: `blocked by 07 (done in branch worfy-polish/07, not merged)`. Обычный открытый блокер
+  пишется как раньше (`blocked by 09`); несколько блокеров — через запятую в порядке «Blocked by»:
+  `blocked by 09, 11 (done in branch worfy-polish/11, not merged)`.
+- Test-ы (`test/unit/launch.test.ts`): в `describe('shipTicketState')` — «a blocker done only in its unmerged
+  branch is not closed yet…» (ветка — неактивна; `fromBranch: null` и без поля — активна; ветка у Ticket-а
+  в `work` не закрывает его) и «checks every blocker for a branch-only done, not just the first…»; в
+  `describe('ActionLauncher.shipTicket')` — «refuses, and starts no Session, while a blocker is done only in
+  its unmerged branch…» (отказ с той же причиной, Session и Binding не созданы; после мержа — запуск).
+  На коде origin/main все три красные.
+- Мутанты (на копии, восстановление через `cmp`): код origin/main — 3 test-а красные; проверка `fromBranch`
+  только у первого блокера — 2 красных; своя копия условия с `||` вместо `&&` — 4 красных.
+- Старые test-ы `launch.test.ts`, `render-template.test.ts`, `canvas-actions.test.tsx`, `waves.test.ts` зелёные,
+  их ожидания не правились.
