@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
+import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
 
 // The Subagent tree of a Session (ticket 15), against the built app:
@@ -13,6 +14,9 @@ import { settled } from './wait'
 // - a Session started in a terminal, whose transcript and subagents/ folder the test writes the way
 //   Claude Code does, from the synthetic Session 7777 (test/fixtures/claude-home/README.md).
 // A temporary WORFY_CLAUDE_HOME stands in for ~/.claude; worfy must not write there.
+// With WORFY_EVIDENCE_DIR set, the light and dark screenshots of the Session rail are copied there.
+
+const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
@@ -162,9 +166,15 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     await expect(window.getByTestId('subagent-fold')).toHaveCount(2)
     await window.screenshot({ path: test.info().outputPath('subagent-tree-done.png') })
 
-    // The Session rail lists the same tree.
+    // The Session rail lists the same tree, the done Subagent with its scout in the closed "Done (1)" group.
     await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
     const rail = window.getByTestId('subagents-rail')
+    const group = rail.getByTestId('subagents-rail-done')
+    await expect(group).toHaveText('Done (1)')
+    await expect(group).toHaveAttribute('aria-expanded', 'false')
+    await expect(rail.getByTestId('subagents-rail-row')).toHaveCount(0)
+    await group.click()
+    await expect(group).toHaveAttribute('aria-expanded', 'true')
     await expect(rail.getByTestId('subagents-rail-row')).toHaveCount(2)
     await expect(rail.locator('[data-subagent-id="afake00000000impl"]')).toHaveAttribute('data-status', 'done')
     await expect(rail.locator('[data-subagent-id="afake0000000scout"]')).toHaveAttribute('data-status', 'done')
@@ -348,6 +358,79 @@ test('a Session with 24 Subagents: the tree is shown within a second of opening 
     expect(shown).toBeGreaterThanOrEqual(0)
     console.info(`[subagent-tree] 24 Subagents (24 files of ${Math.round((200 * filler.length) / 1024)} KB) shown ${shown} ms after opening the Session`)
     expect(shown).toBeLessThanOrEqual(1000)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a Session with running, failed and done Subagents: the rail lists the newest first and folds the done ones', async () => {
+  const sessionId = '99999999-9999-4999-8999-999999999999'
+  const dir = transcriptDir(projectPath)
+  // Started a minute apart, in this order. The one still running was started in the background; the
+  // others are calls that waited for their answer, one of them an error (the file's meta names each).
+  const statuses = ['done', 'error', 'done', 'done', 'running', 'done', 'done'] as const
+  const at = (minute: number): string => `2026-10-05T10:${String(minute).padStart(2, '0')}:00.000Z`
+  const record = (minute: number, fields: Record<string, unknown>) => JSON.stringify({ cwd: projectPath, sessionId, version: '2.1.289', timestamp: at(minute), ...fields })
+  const main = [record(0, { type: 'user', isSidechain: false, message: { role: 'user', content: 'Run the wave.' } })]
+  mkdirSync(join(dir, sessionId, 'subagents'), { recursive: true })
+  statuses.forEach((status, n) => {
+    const agentId = `a${String(n).padStart(16, '0')}`
+    const toolUseId = `toolu_wave_${n}`
+    const background = status === 'running'
+    main.push(record(n + 1, { type: 'assistant', isSidechain: false, message: { id: `m${n}`, model: 'claude-opus-5-5', content: [{ type: 'tool_use', id: toolUseId, name: 'Agent', input: { subagent_type: 'implementer', name: `impl-${n}`, run_in_background: background } }] } }))
+    const content = background ? 'Async agent launched successfully.' : status === 'error' ? 'Agent failed: the tests are red.' : `impl-${n} is done.`
+    main.push(record(n + 1, { type: 'user', isSidechain: false, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: status === 'error' }] }, toolUseResult: background ? { status: 'async_launched', agentId } : undefined }))
+    writeFileSync(join(dir, sessionId, 'subagents', `agent-${agentId}.meta.json`), JSON.stringify({ agentType: 'implementer', name: `impl-${n}`, toolUseId, spawnDepth: 1, requestShape: background ? 'background' : 'foreground' }))
+    writeFileSync(join(dir, sessionId, 'subagents', `agent-${agentId}.jsonl`), `${record(n + 1, { type: 'assistant', isSidechain: true, agentId, message: { model: 'claude-sonnet-5', content: [{ type: 'text', text: 'Working.' }], stop_reason: 'tool_use' } })}\n`)
+  })
+  writeFileSync(join(dir, `${sessionId}.jsonl`), `${main.join('\n')}\n`)
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    const claude = claudeProcess()
+    writeFileSync(join(claudeHome, 'sessions', `${claude.pid}.json`), JSON.stringify({ pid: claude.pid, sessionId, cwd: projectPath, kind: 'interactive', entrypoint: 'cli', status: 'busy', version: '2.1.289', name: 'wave' }))
+    expected = snapshot()
+    const node = window.locator(`[data-testid="session-node"][data-session-id="${sessionId}"]`)
+    await node.waitFor({ state: 'visible', timeout: 5000 })
+    await node.getByTestId('session-node-title').dblclick()
+    const rail = window.locator('.w-shell__view[data-view="session"]').getByTestId('subagents-rail')
+    const rows = rail.getByTestId('subagents-rail-row')
+    const shown = () => rows.evaluateAll((list) => list.map((row) => `${row.getAttribute('data-subagent-id')?.slice(-1)}:${row.getAttribute('data-status')}`))
+
+    // Closed by default: the running and the failed one above it, newest first.
+    const group = rail.getByTestId('subagents-rail-done')
+    await expect(group).toHaveText('Done (5)')
+    await expect(group).toHaveAttribute('aria-expanded', 'false')
+    await expect.poll(shown).toEqual(['4:running', '1:error'])
+    const closed = await snapshotThemes(window, 'subagents-rail-closed')
+
+    // Opened from the keyboard: the done ones under the group, newest first.
+    await group.focus()
+    await window.keyboard.press('Enter')
+    await expect(group).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(shown).toEqual(['4:running', '1:error', '6:done', '5:done', '3:done', '2:done', '0:done'])
+    const open = await snapshotThemes(window, 'subagents-rail-open')
+
+    // Back on the Canvas and into the Session again: the group is still open; Space closes it.
+    await window.getByRole('button', { name: /Canvas/ }).click()
+    await node.getByTestId('session-node-title').dblclick()
+    await expect(group).toHaveAttribute('aria-expanded', 'true')
+    await expect(rows).toHaveCount(7)
+    await group.focus()
+    await window.keyboard.press('Space')
+    await expect(group).toHaveAttribute('aria-expanded', 'false')
+    await expect(rows).toHaveCount(2)
+
+    if (EVIDENCE_DIR) {
+      mkdirSync(EVIDENCE_DIR, { recursive: true })
+      for (const [state, shots] of [['closed', closed], ['open', open]] as const) {
+        copyFileSync(shots.light, join(EVIDENCE_DIR, `21-subagents-rail-${state}-light.png`))
+        copyFileSync(shots.dark, join(EVIDENCE_DIR, `21-subagents-rail-${state}-dark.png`))
+      }
+    }
+    expectUntouched()
   } finally {
     await launched.close()
   }

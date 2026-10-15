@@ -1,7 +1,7 @@
 # 21 — Subagent-ы в правой колонке Session view: новые сверху, `done` — в свёрнутой группе «Done (N)»
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В окне Session (у Orchestrator-а) справа
 список subagents. При большом числе он становится огромным. Нужно: subagents со статусом done прятать
@@ -52,13 +52,13 @@ Session view — окно одной Session (переключатель Canvas 
 
 ## Готово, когда
 
-- [ ] Test пункта 1 красный на main и зелёный с правкой.
-- [ ] Мутанты краснят свои test-ы: «группа открыта по умолчанию»; «порядок от старого к новому»;
+- [x] Test пункта 1 красный на main и зелёный с правкой.
+- [x] Мутанты краснят свои test-ы: «группа открыта по умолчанию»; «порядок от старого к новому»;
       «`error` уходит в группу».
-- [ ] Узлы Subagent-ов на Canvas не сдвинулись: `placeSubagents` test-ы в `subagent-nodes.test.tsx`
+- [x] Узлы Subagent-ов на Canvas не сдвинулись: `placeSubagents` test-ы в `subagent-nodes.test.tsx`
       зелёные без правок их ожиданий.
-- [ ] e2e `subagent-tree.spec.ts` зелёный.
-- [ ] Снимки в светлой и тёмной теме — ссылки в «Итог».
+- [x] e2e `subagent-tree.spec.ts` зелёный.
+- [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
@@ -85,4 +85,27 @@ Session view — окно одной Session (переключатель Canvas 
 
 ## Итог
 
-—
+Rail строит свой список поверх общего дерева (`src/renderer/session/rail/SubagentsRail.tsx`):
+на каждом уровне — от нового к старому по `startedAt`, Subagent без `startedAt` — внизу уровня,
+равное время — в порядке дерева. Subagent-ы первого уровня со статусом `done` вместе с поддеревом
+уходят в группу «Done (N)» под `running` и `error`; N — число Subagent-ов первого уровня в группе.
+Группа — `<button>` с `aria-expanded` и `aria-controls`, Enter и Space работают (e2e). По умолчанию
+свёрнута; открытость хранится в памяти окна по ключу `<projectId>/<id Session-а>`, на диск не
+пишется. `buildSubagentTree` и Canvas не тронуты.
+
+- Test-ы: `test/unit/subagent-nodes.test.tsx`, блок `SubagentsList` — четыре новых test-а (порядок и
+  группа, `error` над группой, Subagent без времени старта, открытость по Session) и старый test
+  списка с открытием группы; на main четыре из них красные. Мутанты «группа открыта по умолчанию»,
+  «порядок от старого к новому», «`error` уходит в группу» — каждый красит свои test-ы.
+- e2e `test/e2e/subagent-tree.spec.ts`: rail Orchestrator-а открывает «Done (1)» перед проверкой
+  `done`-строк; новый test — Session с 1 `running`, 1 `error` и 5 `done`: свёрнутость по умолчанию,
+  порядок, открытие с клавиатуры, открытость после возврата на Canvas.
+- Решено без владельца, подтвердить: при Session из одних `done` в rail видна только строка
+  «Done (N)», без надписи «No Subagents yet»; ключ открытости — id Session-а Claude Code, поэтому
+  у live Session открытость сбрасывается один раз, когда Claude Code даёт ей свой id.
+
+Снимки (группа свёрнута и открыта, светлая и тёмная тема):
+[свёрнута, светлая](../evidence/21-subagents-rail-closed-light.png),
+[свёрнута, тёмная](../evidence/21-subagents-rail-closed-dark.png),
+[открыта, светлая](../evidence/21-subagents-rail-open-light.png),
+[открыта, тёмная](../evidence/21-subagents-rail-open-dark.png).
