@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-15 (UTC), main @ 37e422c
+# Передача контекста — снимок на 2026-10-15 (UTC), main @ cf2eb22
 
 ## Сейчас в работе
 
@@ -11,7 +11,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 7/8: влиты 01–03, 05–08; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; вопросы владельцу — «Итог» 07, 08.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01, 04 (PR #342, #341); 02, 03 — отчёты (PR #339, #340). Решения — «Итог» 01, 04.
-- `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 10/13 — влиты 01–05, 07–11 (PR #347–#357); 06, 13 open, 12 — research. Решения без владельца — «Gate оркестратора» Ticket-ов.
+- `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 11/13 — влиты 01–11 (PR #347–#359); 13 — PR #360 `VERIFIED` по Mac, ждёт Windows-ПК; 12 — research. Решения без владельца — «Gate оркестратора».
 
 ## Ждёт владельца
 
