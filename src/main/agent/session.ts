@@ -50,7 +50,18 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
-import { isMainOnlyEvent, sdkMessageToEvents, type AgentEvent, type PermissionDecision, type QueueSnapshot, type SessionState } from '../../shared/agent/events'
+import {
+  contextUsageOf,
+  isCompactBoundary,
+  isMainOnlyEvent,
+  sameContextUsage,
+  sdkMessageToEvents,
+  type AgentEvent,
+  type ContextUsage,
+  type PermissionDecision,
+  type QueueSnapshot,
+  type SessionState,
+} from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
   EFFORT_LEVELS,
@@ -99,6 +110,11 @@ export interface QueryHandle extends AsyncIterable<unknown> {
   supportedModels(): Promise<ModelInfoLike[]>
   /** The slash commands and skills (ticket 20); optional, as a query that lacks it lists those of system/init. */
   supportedCommands?(): Promise<CommandInfoLike[]>
+  /**
+   * How full the context window is (worfy-polish ticket 23), read leniently (contextUsageOf);
+   * optional, as a query that lacks it reports no usage.
+   */
+  getContextUsage?(opts?: { detail?: 'summary' | 'full' }): Promise<unknown>
 }
 
 export interface QueryRequest {
@@ -275,6 +291,10 @@ export class Session {
   /** Claude Code processes started for this Session without an SDK session to resume. */
   private processes = 0
   private liveTaskList: BackgroundTask[] = []
+  /** The context usage last sent; null: none, or the last ask failed. */
+  private contextValue: ContextUsage | null = null
+  /** Asks for the context usage so far; an answer to any but the latest is dropped. */
+  private contextAsks = 0
   private readonly queue = new MessageQueue((snapshot) => this.emit({ type: 'queue', ...snapshot }))
   private readonly catalog = new CommandCatalog()
   private readonly permissions = new PermissionGate(
@@ -723,6 +743,8 @@ export class Session {
 
   private handle(message: unknown): void {
     this.catalog.observe(message)
+    // A compaction empties most of the window while the turn may go on for long.
+    if (isCompactBoundary(message)) this.askContext()
     for (const event of sdkMessageToEvents(message)) {
       if (event.type === 'init') {
         this.sdkSessionId = event.sdkSessionId
@@ -745,6 +767,7 @@ export class Session {
         this.interrupted = false
         // A turn that ended leaves no request to answer.
         this.permissions.cancelAll()
+        this.askContext()
         this.setState('idle')
         this.next()
         continue
@@ -752,6 +775,33 @@ export class Session {
       this.emit(event)
       if (isTaskEvent(event)) this.trackTasks(foldTaskEvent(this.taskFold, event))
     }
+  }
+
+  /**
+   * Asks the running query how full the context window is and sends a `context` event when the
+   * answer differs from the last one. `summary` answers from the last response's usage, without
+   * token-count requests. A failed ask is "no data", never a failed turn. An answer is dropped when
+   * a newer ask was made, the query was replaced or the Session is closing.
+   */
+  private askContext(): void {
+    const run = this.run
+    const query = run?.query
+    if (run === null || query?.getContextUsage === undefined) return
+    const ask = ++this.contextAsks
+    const answer = (async () => {
+      try {
+        return contextUsageOf(await query.getContextUsage?.({ detail: 'summary' }))
+      } catch (error) {
+        console.warn(`[agent] could not read the context usage of ${this.current}`, error)
+        return null
+      }
+    })()
+    void answer.then((usage) => {
+      if (ask !== this.contextAsks || this.run !== run || this.closing) return
+      if (sameContextUsage(usage, this.contextValue)) return
+      this.contextValue = usage
+      this.emit({ type: 'context', usage })
+    })
   }
 
   /** Takes a new fold of the tasks; tells the subscribers when the live set changed. */

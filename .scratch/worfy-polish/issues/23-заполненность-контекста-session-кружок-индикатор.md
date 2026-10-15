@@ -1,7 +1,8 @@
 # 23 — Заполненность контекста Session: кружок с процентом окна контекста
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
+Branch: worfy-polish/23
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Заполненность контекста текущей Session —
 кружок-индикатор (процент заполнения окна контекста)».
@@ -56,13 +57,13 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
 
 ## Готово, когда
 
-- [ ] Contract test пункта 1 красный на main и зелёный с правкой; ни одного запуска настоящего Claude
+- [x] Contract test пункта 1 красный на main и зелёный с правкой; ни одного запуска настоящего Claude
       Code (fake SDK).
-- [ ] Unit test кружка: процент, цвет по порогам, подсказка, «нет данных», `autocompact off`.
-- [ ] Мутант «событие не шлётся после compaction» — красный test.
+- [x] Unit test кружка: процент, цвет по порогам, подсказка, «нет данных», `autocompact off`.
+- [x] Мутант «событие не шлётся после compaction» — красный test.
 - [ ] (вручную) Stable copy, живой Orchestrator: процент совпадает с `/context` той же Session (до
-      1 п.п.); значение и снимок — в «Итог».
-- [ ] Снимки в светлой и тёмной теме — ссылки в «Итог».
+      1 п.п.); значение и снимок — в «Итог». Не проверено: шаг владельца.
+- [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
@@ -80,6 +81,12 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
 - `src/renderer/session/composer/ContextMeter.tsx`
 - `test/contract/agent-context-usage.test.ts`
 - `test/unit/context-meter.test.tsx`
+- `src/renderer/session/store.ts` — дописан при claim: хранит последнее событие `context`, как `queue`
+  и `settings` (не в списке ни одного Ticket-а Wave 3).
+- `test/fixtures/agent-scripts/context.jsonl` — дописан при claim: script fake SDK для contract test.
+- `test/e2e/context-meter.spec.ts` — дописан при claim: место кружка в панели и снимки в обеих темах.
+- `test/fixtures/agent-scripts/context-meter.jsonl` — дописан при claim: script fake SDK для e2e (10 %, 75 %, 95 %, ошибка).
+- `test/fixtures/agent-scripts/context-crash.jsonl` — дописан в круге доработки 1: процесс Claude Code умирает после хода.
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`,
@@ -95,4 +102,44 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
 
 ## Итог
 
-—
+- **Источник — способ 1.** `QueryHandle.getContextUsage?` (необязательный, как `supportedCommands`);
+  `Session` спрашивает `getContextUsage({ detail: 'summary' })` после каждого `result` и после
+  `system/compact_boundary` и шлёт событие `context` с `usage` (`percentage`, `totalTokens`,
+  `windowTokens` = `rawMaxTokens`, `autoCompactThreshold`, `autoCompactEnabled`) или `usage: null`
+  («нет данных»), когда запрос упал или ответ без чисел. Событие шлётся, только когда значение
+  изменилось. Ответ на старый запрос, ответ после замены процесса Claude Code и после закрытия
+  Session отбрасываются. Запасной способ 2 не понадобился на fake SDK; на настоящем Claude Code не
+  проверено.
+- **Процент — от порога autocompact** (решение владельца, spec.md: «считается от порога
+  autocompact»; исправлено в круге доработки 1): 100 % — «сейчас будет compaction», доля
+  `totalTokens / autoCompactThreshold`, не больше 100 %. `percentage` из SDK (и `/context`) считается
+  от окна autocompact, у которого порог ниже на запас для сводки: при окне 200K и пороге 167K кружок
+  показывает 100 %, а `/context` — 84 %. Без порога или с выключенным autocompact кружок показывает
+  `percentage` из SDK. Сверку с `/context` в «Готово, когда» поэтому надо читать как
+  `/context`-токены, делённые на порог.
+- **Место — решено без владельца, подтвердить:** кружок стоит перед выбором модели (`order = 5`).
+  В широкой панели он сразу слева от «Model». В окне 1280×800 с открытыми sidebar и rail панель
+  переносит выбор модели, effort и режима разрешений на вторую строку вместе с Send, а кружок
+  остаётся справа на строке подсказки. Так он не отнимает ширину у выбора модели: «Bypass
+  permissions» на модели по умолчанию виден целиком. Круг доработки 2: при `order = 15` кружок
+  стоял на строке выбора модели и обрезал «Bypass permissions»
+  (`test/e2e/session-controls.spec.ts:270` в gate full). `test/e2e/context-meter.spec.ts` проверяет
+  место во всех состояниях кружка («нет данных», 10/75/95 %, «нет данных» после ошибки).
+  Цена: в узком окне кружок не на одной строке с выбором модели. Есть промежуток ширин, где без
+  кружка вся панель влезла бы в одну строку, а с ним выбор модели уходит на вторую.
+- **Цвет — решено без владельца, подтвердить:** пороги полос Limits (60 % и 85 %, токены
+  `--text-secondary`, `--working-dot`, `--blocked-ring`) на доле от порога autocompact.
+- **Чего нет:** у Session view, открытого после события, значение берётся из store renderer-а;
+  `agent.controls` его не отдаёт. После перезагрузки окна кружок пуст до следующего хода.
+- **Test-ы:** `test/contract/agent-context-usage.test.ts` (fake SDK; красный на main — 6 из 7),
+  `test/unit/context-meter.test.tsx`, `test/e2e/context-meter.spec.ts`. Мутанты: нет запроса после
+  compaction, нет запроса после result, нет отсечки старого ответа, нет отсечки после закрытия, нет
+  отсечки одинаковых значений, нет ограничения кольца 100 % — каждый красный. Круг доработки 1:
+  доля снова от `percentage`, без ограничения 100 % от порога, без проверки «autocompact включён»,
+  без отсечки ответа умершего процесса, необязательный `isAutoCompactEnabled` — каждый красный.
+- **Снимки** (окно e2e, поле ввода): «нет данных» —
+  [светлая](../evidence/23-context-meter-no-data-light.png), [тёмная](../evidence/23-context-meter-no-data-dark.png);
+  10 % — [светлая](../evidence/23-context-meter-10-light.png), [тёмная](../evidence/23-context-meter-10-dark.png);
+  75 % — [светлая](../evidence/23-context-meter-75-light.png), [тёмная](../evidence/23-context-meter-75-dark.png);
+  95 % — [светлая](../evidence/23-context-meter-95-light.png), [тёмная](../evidence/23-context-meter-95-dark.png).
+- Сверка процента с `/context` на Stable copy — шаг владельца, не сделана.
