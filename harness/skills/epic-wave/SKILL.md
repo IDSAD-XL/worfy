@@ -445,6 +445,22 @@ The gate is closed when every ticket of the wave has a verdict.
 Items 1–3 — only with `pr-green-ci`; with `local-green` — the local merge below instead of them, then
 item 4.
 
+**Max review of a risky ticket.** A ticket whose header has the line `Risk: high` gets
+`/worfy:max-review` on its branch before its merge: after its `VERIFIED` of section 3, before items
+1–2 or the local merge. It reviews the whole branch with two lenses, each on two models; its rules
+are in that skill. Its verdict is `MAX-REVIEW: VERIFIED` or `MAX-REVIEW: REJECTED: <Act on>`, written
+where section 3 writes the gate's verdicts, with the prefix: with a PR — a comment in the PR; with
+`local-green` — an empty commit `gate: MAX-REVIEW: …` on the ticket's branch; in Silent mode — a line
+`gate: MAX-REVIEW: …` at the end of the ticket file. The counts of rework rounds in section 3 do not
+see these verdicts, and they do not see the rounds. `MAX-REVIEW: VERIFIED` — the merge goes on as
+usual. `MAX-REVIEW: REJECTED` → `ticket block`, without a rework round: the ticket has had its rounds
+in section 3. It is not merged, it leaves the wave as a `blocked` row with the reason "max-review
+REJECTED" and the PR number, and its Act on group goes into the report and the ticket's result
+section; whether to rework or merge it is the owner's decision. Without a human — the same, without a
+question and without waiting, plus a line in the state file's list of what waits for the owner:
+"max-review REJECTED — the owner's decision". A ticket without the line gets no max review unless the
+owner asks for it.
+
 **Local merge** (`local-green`). Every `VERIFIED` ticket is merged into the main branch of its
 repository on this machine, one at a time, under the lock below. The steps, their doers and the block
 are in skill `/worfy:ship-ticket`, step 11: the implementer puts its branch on top of the main branch
@@ -684,7 +700,9 @@ implementer never started: dispatch it again. A worktree without a PR — the im
 before step 8: continue `/worfy:ship-ticket` in that worktree. An open PR — the ticket waits for
 the gate (section 3); count rework rounds by the PR comments. A `NARROW:` comment means the narrow
 round has been given; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is the ticket's verdict,
-and with no such verdict yet the narrow round's gate is ahead. A merged PR while `state` is not
+and with no such verdict yet the narrow round's gate is ahead. A ticket marked `Risk: high` whose PR
+has no `MAX-REVIEW:` comment gets `/worfy:max-review` before its merge (section 4); otherwise the last
+`MAX-REVIEW: …` comment is its verdict. A merged PR while `state` is not
 `done` — the documents PR is still ahead (section 4, item 4).
 
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
@@ -698,5 +716,26 @@ fast-forward did not follow (a session break, a failed merge); run the merge blo
 step 11, step 3) — it does not commit the documents a second time. Rework rounds — the number
 of `gate: REJECTED` commits. A `gate: NARROW:` commit means the narrow round has been given; the
 last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdict.
+A `gate: MAX-REVIEW: …` commit is not a gate verdict: it does not restart the gate, and "the last
+`gate: VERIFIED`" above is read past it. A ticket marked `Risk: high` without such a commit gets
+`/worfy:max-review` before its merge (section 4); otherwise the last `gate: MAX-REVIEW: …` commit is
+its verdict. The block prints both — Full mode only, where the verdicts are commits (`git log` lists
+the newest commit first):
+
+```bash
+log=$(git -C <repo> log --format=%s <base>..<branch>)
+echo "GATE=$(grep '^gate: ' <<<"$log" | grep -v '^gate: MAX-REVIEW:' | head -n 1)"
+echo "MAX-REVIEW=$(grep -m1 '^gate: MAX-REVIEW:' <<<"$log")"
+```
+
+In Silent mode the verdicts are the `gate:` lines at the end of the ticket file in the Workflow folder
+(section 3), and the newest line is the last one, so the same rule reads the file from its end
+(`<ticket file>` — the path found as in section 3, `f=$(ls …/<epic>/issues/<NN>-*.md)`):
+
+```bash
+f=<ticket file>
+echo "GATE=$(grep '^gate: ' "$f" | grep -v '^gate: MAX-REVIEW:' | tail -n 1)"
+echo "MAX-REVIEW=$(grep '^gate: MAX-REVIEW:' "$f" | tail -n 1)"
+```
 
 Then — from section 1: the preflight is idempotent.
