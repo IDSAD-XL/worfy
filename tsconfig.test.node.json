@@ -22,6 +22,7 @@
     "src/renderer/machines/machines-dot.ts",
     "src/renderer/platform.ts",
     "test/app-url.ts",
+    "test/global-setup-contract.ts",
     "test/remove.ts",
     "test/setup-contract.ts",
     "test/unit/**/*.ts",

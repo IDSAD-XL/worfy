@@ -55,8 +55,10 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 - `vitest.config.ts`
 - `test/setup-contract.ts`
 - `test/contract/claude-home-isolation.test.ts`
+- `test/global-setup-contract.ts` (дописан при работе: папка прогона, см. «Итог»)
 - `tsconfig.test.node.json` (дописан при работе: `tsc` проекта test-ов требует перечислить
-  `test/setup-contract.ts`, его импортирует test изоляции — ошибка TS6307 без этой строки)
+  `test/setup-contract.ts` и `test/global-setup-contract.ts`, их импортирует test изоляции —
+  ошибка TS6307 без этих строк)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `test/contract/agent-controls.test.ts`, `src/main/claude-home/registry.ts`,
@@ -81,17 +83,25 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 
 **Что сделано.**
 - `test/setup-contract.ts` — `setupFiles` project-а `contract`: если `WORFY_CLAUDE_HOME` не задан
-  (пустая строка — как не задан, так же читает `claudeHome()`), ставит его на новую пустую папку
-  `mkdtemp(<tmpdir>/worfy-contract-claude-home-)` на файл test-ов; `afterAll` удаляет папку
-  (`removeTestTree`) и снимает переменную, если она ещё указывает на эту папку. Переменная ставится
-  прямо в `process.env`, не через `vi.stubEnv`: `vi.unstubAllEnvs()` в test-е возвращает эту папку,
-  а не снятую переменную.
-- `test/contract/claude-home-isolation.test.ts` — 5 test-ов: переменная задана в начале файла, лежит
-  во временной папке системы, не `~/.claude`, папка пустая; каждый вызов даёт свою папку; заданную
-  переменную не трогает; пустая строка — как не задана; `release` удаляет папку и снимает переменную
-  только пока она указывает на неё. Test читает папку только после проверки, что она во временной
-  папке системы, и вызывает функцию на своих объектах, не на `process.env` — настоящий `~/.claude`
-  не читается и при провале.
+  (пустая строка — как не задана, так же читает `claudeHome()`), ставит его на новую пустую папку
+  `claude-home-*` на файл test-ов; `afterAll` удаляет папку (`removeTestTree`) и снимает переменную,
+  если она ещё указывает на эту папку. Переменная ставится прямо в `process.env`, не через
+  `vi.stubEnv`: `vi.unstubAllEnvs()` в test-е возвращает эту папку, а не снятую переменную.
+- `test/global-setup-contract.ts` — `globalSetup` project-а `contract`: одна папка
+  `<tmpdir>/worfy-contract-claude-homes-*` на прогон (передаётся файлам через `provide`/`inject`),
+  папки файлов — внутри неё; по окончании прогона удаляется целиком. Нужна потому, что vitest не
+  запускает `afterAll` в файле, где все test-ы пропущены: первая версия без неё оставляла 6 пустых
+  папок на прогон — по одной от каждого такого файла (`cards-watch-links`, `docs-watch-root`,
+  `limits-watch-root`, `remote-guards-links`, `terminal-windows`, `workflow-watch-links`).
+  `process.once('exit')` в worker-е не сработал (проверено: папки остались). Папки прогона,
+  брошенные убитым прогоном, `vitest.config.ts` удаляет через час, как `worfy-glob-probe-*`.
+- `test/contract/claude-home-isolation.test.ts` — 6 test-ов: переменная задана в начале файла,
+  указывает на папку внутри папки прогона во временной папке системы, не на `~/.claude`, и папка
+  пустая; папка прогона удаляется вместе с папкой файла, у которого не было `afterAll`; каждый вызов
+  даёт свою папку; заданную переменную не трогает; пустая строка — как не задана; `release`
+  удаляет папку и снимает переменную только пока она указывает на неё. Test читает папку только
+  после проверки, что она во временной папке системы, и вызывает функции на своих объектах и
+  папках, не на `process.env` — настоящий `~/.claude` не читается и при провале.
 - Test-ы отказа вне песочницы: такой один — `harness-migrate.test.ts`, «the IPC of a dev build on the
   real ~/.claude»; он уже снимает переменную сам (строки 610–611) и зелёный. Других не нашлось:
   `grep -rn "WORFY_CLAUDE_HOME" test/contract` и сравнение прогонов до и после.
@@ -103,7 +113,9 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 - папка общая (постоянное имя вместо `mkdtemp`) — exit 1, красный «gives each call a new empty
   folder…»;
 - переменная ставится и поверх заданной (условие убрано) — exit 1, красный «leaves a folder the run
-  named as it is…».
+  named as it is…»;
+- teardown папки прогона ничего не удаляет — exit 1, красный «is made in the temp directory, given to
+  the test files, and removed with every home in it at the end…».
 
 **Какие test-ы сменили поведение.** Полный `pnpm test` до правки (exit 1: 7 красных) и после
 (exit 1: 3 красных) сравнены по JSON-отчётам. Все расхождения — timeout 15 с под нагрузкой (load
