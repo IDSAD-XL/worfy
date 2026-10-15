@@ -12,7 +12,7 @@ import { FirstRunActions, type Confirmation } from '../../src/main/first-run/act
 import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
-import type { CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
+import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
 import { removeTestTree } from '../remove'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
@@ -515,7 +515,8 @@ describe('first-run checks', () => {
 describe('first-run actions', () => {
   function actions(env: Record<string, string>, answers: boolean[], shown: Confirmation[] = [], projects: ProjectProfile[] = []): FirstRunActions {
     return new FirstRunActions({
-      checks: () => runChecks(deps(env)),
+      // The checks see the same Projects as the action, as in the app.
+      checks: () => runChecks(deps(env, { projects: () => Promise.resolve(projects) })),
       confirm: (confirmation) => {
         shown.push(confirmation)
         return Promise.resolve(answers.shift() ?? false)
@@ -779,6 +780,141 @@ describe('first-run actions', () => {
     await expect(runner.run('qmd-install')).rejects.toThrow(/another action/)
     release(false)
     expect((await first).outcome).toBe('declined')
+  })
+
+  it('a failed action stays on its row only while the check of the row does not pass; once it passes, the failure is dropped', async () => {
+    tools(...ALL_TOOLS, 'qmd')
+    collectionsScript()
+    let projects: ProjectProfile[] = [ALPHA]
+    const env = loginEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: qmd-sync-main: No such file' })
+    const runner = new FirstRunActions({
+      checks: () => runChecks(deps(env, { projects: () => Promise.resolve(projects) })),
+      confirm: () => Promise.resolve(true),
+      env: () => Promise.resolve(env),
+      homes: { harnessHome, claudeHome },
+      installHarness: (confirm) => installer(env).install(confirm),
+      projects: () => Promise.resolve(projects),
+      binDir: join(harnessHome, 'plugin', 'bin'),
+    })
+    const failing = await runner.run('qmd-collections')
+    expect(failing.outcome).toBe('failed')
+    // The check does not pass yet (alpha names no collections): the row shows the action's error.
+    expect(checkOf(failing.report, 'qmd-collections').status).toBe('fail')
+    expect(checkOf(failing.report, 'qmd-collections').hint).toContain('The last attempt failed: ')
+    expect(checkOf(failing.report, 'qmd-collections').hint).toContain('qmd-sync-main: No such file')
+    // "Check again" while the check still does not pass: the same.
+    const still = checkOf(await runner.report(), 'qmd-collections')
+    expect(still.status).toBe('fail')
+    expect(still.hint).toContain('qmd-sync-main: No such file')
+
+    // The cause is fixed outside worfy: the Profile names its collections now, and the check passes.
+    projects = [{ ...ALPHA, collections: ['alpha-docs'] }]
+    const fixed = checkOf(await runner.report(), 'qmd-collections')
+    expect(fixed.status).toBe('ok')
+    expect(fixed.hint).not.toContain('The last attempt failed')
+
+    // Dropped, not hidden: when the check stops passing again, the row shows the check's own result.
+    projects = [ALPHA]
+    const again = checkOf(await runner.report(), 'qmd-collections')
+    expect(again).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-collections' }] })
+    expect(again.hint).not.toContain('The last attempt failed')
+    expect(again.detail).toContain('alpha')
+  })
+
+  it('an action that fails while its check already passes still answers with its error; the row stays as the check found it', async () => {
+    const harness: Check = { id: 'harness', group: 'Harness', title: 'Harness', status: 'ok', detail: BUNDLED_HARNESS, hint: '', command: null, actions: [] }
+    const runner = new FirstRunActions({
+      checks: () => Promise.resolve({ checks: [harness], checkedAt: new Date(0).toISOString() }),
+      confirm: () => Promise.resolve(true),
+      env: () => Promise.resolve(loginEnv()),
+      homes: { harnessHome, claudeHome },
+      installHarness: () => Promise.reject(new Error('no network')),
+      projects: () => Promise.resolve([]),
+      binDir: join(harnessHome, 'plugin', 'bin'),
+    })
+    const result = await runner.run('harness-install')
+    expect(result.outcome).toBe('failed')
+    expect(result.message).toBe('no network')
+    expect(checkOf(result.report, 'harness')).toEqual(harness)
+  })
+})
+
+describe('the first-run screen at start (src/main/ipc/first-run.ts)', () => {
+  const MOCKED = ['electron', '../../src/main/agent/env', '../../src/main/ipc/harness', '../../src/main/ipc/workflow', '../../src/main/first-run/checks']
+  let data: string
+
+  beforeEach(() => {
+    vi.resetModules()
+    data = join(root, 'data')
+    mkdirSync(data)
+    vi.stubEnv('WORFY_DATA_DIR', data)
+    vi.stubEnv('WORFY_CLAUDE_HOME', claudeHome)
+    vi.stubEnv('WORFY_HARNESS_HOME', harnessHome)
+    vi.stubEnv('WORFY_FIRST_RUN_AUTO', '1')
+  })
+
+  afterEach(() => {
+    for (const path of MOCKED) vi.doUnmock(path)
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  /**
+   * The module's handlers, with the checks answering one Harness row of `harness()` status and the
+   * Harness install failing with "no network".
+   */
+  async function handlers(harness: () => CheckStatus): Promise<{ startup: () => Promise<unknown>; run: (input: unknown) => Promise<unknown> }> {
+    vi.doMock('electron', () => ({
+      app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined, quit: () => undefined },
+      BrowserWindow: { getAllWindows: () => [], fromWebContents: () => null },
+      dialog: { showMessageBox: () => Promise.reject(new Error('no dialog in this test')) },
+      powerSaveBlocker: { start: () => 0, stop: () => undefined, isStarted: () => false },
+    }))
+    vi.doMock('../../src/main/agent/env', async (original) => ({
+      ...(await original<object>()),
+      agentEnv: () => Promise.resolve({ env: loginEnv(), from: 'login-shell', error: null }),
+    }))
+    vi.doMock('../../src/main/ipc/harness', async (original) => ({
+      ...(await original<object>()),
+      appInstaller: () => ({ install: () => Promise.reject(new Error('no network')), status: () => Promise.reject(new Error('not read in this test')) }),
+    }))
+    vi.doMock('../../src/main/ipc/workflow', () => ({ workflowHub: { retryFailedLayouts: () => Promise.resolve(0) } }))
+    vi.doMock('../../src/main/first-run/checks', async (original) => ({
+      ...(await original<object>()),
+      runChecks: (): Promise<FirstRunReport> =>
+        Promise.resolve({
+          checks: [{ id: 'harness', group: 'Harness', title: 'Harness', status: harness(), detail: '', hint: '', command: null, actions: [] }],
+          checkedAt: new Date(0).toISOString(),
+        }),
+    }))
+    const module = (await import('../../src/main/ipc/first-run')).default as unknown as { channel: unknown; handle: (input: unknown, context: unknown) => Promise<unknown> }[]
+    // The channels of this module load: the modules were loaded again after vi.resetModules().
+    const { firstRunRun, firstRunStartup } = await import('../../src/shared/ipc/first-run')
+    const handle = (channel: unknown) => {
+      const found = module.find((handler) => handler.channel === channel)
+      if (found === undefined) throw new Error('no handler of the channel')
+      return (input?: unknown) => found.handle(input, { event: { sender: {} } })
+    }
+    return { startup: handle(firstRunStartup), run: handle(firstRunRun) }
+  }
+
+  it('a failed action whose check passes now does not open the screen by itself', async () => {
+    // The screen was closed once with nothing failing.
+    writeFileSync(join(data, 'first-run.json'), `${JSON.stringify({ closedAt: new Date(0).toISOString(), failing: [] })}\n`)
+    let status: CheckStatus = 'warn'
+    const app = await handlers(() => status)
+    expect(await app.run({ action: 'harness-install' })).toMatchObject({ outcome: 'failed', message: 'no network' })
+
+    // While the check does not pass, the failure is new since the screen was closed: it opens.
+    const failing = (await app.startup()) as { show: boolean; report: FirstRunReport }
+    expect(failing.show).toBe(true)
+    expect(checkOf(failing.report, 'harness').hint).toContain('The last attempt failed: no network')
+
+    // The cause is fixed outside worfy: nothing to fix, the screen stays closed.
+    status = 'ok'
+    const fixed = (await app.startup()) as { show: boolean; report: FirstRunReport }
+    expect(fixed.show).toBe(false)
+    expect(checkOf(fixed.report, 'harness')).toMatchObject({ status: 'ok', hint: '' })
   })
 })
 
