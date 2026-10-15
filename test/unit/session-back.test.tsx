@@ -3,7 +3,7 @@
 // where the window was opened from. A Session worfy runs opens live; any other Session, and a
 // worfy Session that no longer runs, opens read-only from its transcript. ⌘[ (Ctrl+[ elsewhere) is
 // the arrow's key. The panel is rendered against a fake bridge: no main process, no ~/.claude.
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SubagentFile } from '../../src/shared/transcript/subagents'
@@ -30,9 +30,13 @@ const file = (agentId: string, meta: Record<string, unknown>): SubagentFile => (
 const FILES = [file('aimpl', { agentType: 'worfy:implementer', name: 'impl-09' }), file('ascout', { agentType: 'scout', name: 'scout-1', parentAgentId: 'aimpl' })]
 
 let answers: Record<string, (input: unknown) => unknown>
+/** Every call the renderer made, in order. */
+const asked: { channel: string; input: unknown }[] = []
+const opens = () => asked.filter((call) => call.channel === 'orchestrator.open')
 
 beforeEach(() => {
   vi.resetModules()
+  asked.length = 0
   answers = {
     'projects.list': () => ({ projects: [{ id: PROJECT, name: 'alpha', path: ROOT, branch: 'main' }], activeId: PROJECT, revision: 1 }),
     'linked.state': () => ({ machines: [] }),
@@ -53,6 +57,7 @@ beforeEach(() => {
   }
   const bridge = {
     invoke: (channel: string, input: unknown) => {
+      asked.push({ channel, input })
       const answer = answers[channel]
       return Promise.resolve(answer ? { ok: true, value: answer(input) } : { ok: false, error: `no ${channel}` })
     },
@@ -114,6 +119,18 @@ describe('the way back from a Subagent window', () => {
 
   const nodeView = (state: string) => ({ projectId: PROJECT, nodeId: 'node-s', sessionId: 'pending-1', sdkSessionId: SESSION, state, error: null, cwd: ROOT, model: null, version: 1 })
 
+  it('a Subagent of an Orchestrator whose Session closed goes back to its transcript read-only', async () => {
+    answers['orchestrator.view'] = () => ({
+      view: { projectId: PROJECT, nodeId: ORCH, sessionId: SESSION, state: 'closed', error: null, model: null, costUsd: 0, statusBlock: null, version: 2 },
+    })
+    const navigation = await openSubagent('aimpl')
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0))
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to Wave 3' }))
+    expect(navigation.useNavigation.getState().opened).toEqual({ nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION } })
+  })
+
   it('a Subagent of a worfy Session Node that runs goes back to it live', async () => {
     answers['sessions.views'] = () => ({ views: [nodeView('idle')] })
     const navigation = await openSubagent('aimpl', 'node-s')
@@ -167,11 +184,72 @@ describe('the parent of a Subagent (navigation.ts)', () => {
     expect(subagentSession(at, false)).toEqual({ nodeId: 'n', projectId: PROJECT, external: { sessionId: SESSION } })
   })
 
-  it('openOrchestrator shows the Session view with nothing opened: the view shows the active Project’s Orchestrator', async () => {
+  it('openOrchestrator shows the Session view with nothing opened and asks main to open the Project’s Orchestrator', async () => {
     const navigation = await import('../../src/renderer/session/navigation')
     navigation.openSession({ nodeId: 'n', projectId: PROJECT, external: { sessionId: SESSION, agentId: 'aimpl' } })
     navigation.setView('canvas')
-    navigation.openOrchestrator()
+    answers['orchestrator.open'] = () => ({ projectId: PROJECT, nodeId: ORCH, sessionId: null, state: 'starting', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 })
+    const done = navigation.openOrchestrator(PROJECT)
+    // The view changes at once, not after main's answer.
+    expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(await done).toBeUndefined()
+    expect(opens().map((call) => call.input)).toEqual([{ projectId: PROJECT }])
+    // A refusal of main is the palette's reason.
+    delete answers['orchestrator.open']
+    expect(await navigation.openOrchestrator(PROJECT)).toBe('no orchestrator.open')
+  })
+})
+
+describe('"Go to Orchestrator" with an Orchestrator that is down (palette row)', () => {
+  const orchestratorView = (state: string, error: string | null) => ({
+    projectId: PROJECT,
+    nodeId: ORCH,
+    sessionId: null,
+    state,
+    error,
+    model: null,
+    costUsd: 0,
+    statusBlock: null,
+    version: 1,
+  })
+
+  it('the Session view shows the Orchestrator in error; picking the row asks main to open it once more', async () => {
+    answers['orchestrator.open'] = () => orchestratorView('error', 'the session is already live in another Session')
+    answers['orchestrator.view'] = () => ({ view: orchestratorView('error', 'the session is already live in another Session') })
+    const { SessionView } = await import('../../src/renderer/session/SessionView')
+    const { buildCommands } = await import('../../src/renderer/palette/commands')
+    const navigation = await import('../../src/renderer/session/navigation')
+    render(<SessionView projectId={PROJECT} projectName="alpha" />)
+    expect((await screen.findByTestId('session-view')).dataset['nodeId']).toBe(ORCH)
+    await act(async () => {
+      await new Promise((done) => setTimeout(done, 0))
+    })
+    await waitFor(() => expect(screen.getByTestId('session-state').textContent).toBe('error'))
+    // The view asked once, when it mounted; nothing asks again by itself.
+    expect(opens()).toHaveLength(1)
+
+    act(() => navigation.openSession({ nodeId: ORCH, projectId: PROJECT, external: { sessionId: SESSION, agentId: 'aimpl' } }))
+    const project = { id: PROJECT, name: 'alpha', path: ROOT, branch: 'main' }
+    const row = buildCommands({
+      project,
+      projects: [project],
+      view: 'session',
+      model: undefined,
+      layoutNodes: [],
+      history: [],
+      adrs: [],
+      tagFilter: null,
+      createItems: [],
+    }).find((command) => command.id === 'go-to:orchestrator')
+    // main starts the Orchestrator again on this call (src/main/agent/orchestrator.ts, launch); here it answers `starting`.
+    answers['orchestrator.open'] = () => orchestratorView('starting', null)
+    let reason: string | undefined = 'not run'
+    await act(async () => {
+      reason = await row!.run()
+    })
+    expect(reason).toBeUndefined()
+    expect(opens()).toHaveLength(2)
+    expect(opens()[1]?.input).toEqual({ projectId: PROJECT })
     expect(navigation.useNavigation.getState()).toEqual({ view: 'session', opened: null })
   })
 })

@@ -118,9 +118,14 @@ Session-а, `detail` — «Orchestrator»; выбор центрирует ег�
 
 **«Go to Orchestrator» в палитре** (`src/renderer/palette/commands.ts`): строка `go-to:orchestrator` в группе `Go to`,
 заголовок `Orchestrator`, `detail` — `Session view`, ключи `orchestrator`, `go to orchestrator`; есть всегда, когда
-есть Project (выбор владельца в пункте 5), без Project-а её нет. Выбор вызывает `openOrchestrator()` (`view: 'session'`,
-`opened: null`) — Session view показывает Orchestrator активного Project-а и запускает его, если он не запущен.
-Строка Узла Orchestrator-а (центрирует Canvas) осталась.
+есть Project (выбор владельца в пункте 5), без Project-а её нет. Выбор вызывает `openOrchestrator(projectId)`: сразу
+`view: 'session'`, `opened: null` (Session view показывает Orchestrator Project-а), и вызов `orchestrator.open`.
+Session view сам вызывает его только при монтировании и смене Project-а, поэтому без этого вызова Orchestrator,
+который не стартовал или закрылся, оставался бы лежать (ревью, круг 1). main на `orchestrator.open` при живой или
+стартующей Session ничего не меняет: второй вызов во время запуска ждёт тот же запуск (contract test
+`test/contract/orchestrator.test.ts` «concurrent and later opens keep the Node and the Session»); закрытый или
+не стартовавший запускает снова (там же, «a closed Orchestrator is started again…», «…the next open tries again»).
+Отказ main — причина в строке палитры. Строка Узла Orchestrator-а (центрирует Canvas) осталась.
 
 **Test-ы.**
 - `test/unit/session-back.test.tsx` (новый): был красным на main (9 из 10 test-ов: нет кнопки, нет функций), зелёный
@@ -132,7 +137,10 @@ Session-а, `detail` — «Orchestrator»; выбор центрирует ег�
 - `test/e2e/session-back.spec.ts` (новый, fake agent): Orchestrator → impl-09 из rail → стрелка → Session view
   Orchestrator-а; scout → стрелка → impl-09 → ссылка «of» → Orchestrator; Canvas → impl-09 → ⌘[ → Orchestrator;
   палитра «go to orchestrator» из окна scout → Orchestrator.
-- Mutation testing: `subagentParent` без ветки родителя — 3 test-а красные; «Orchestrator никогда не живой» — 2 красные.
+- Session view с Orchestrator-ом в `error` → строка палитры → второй вызов `orchestrator.open` (`session-back.test.tsx`);
+  окно Subagent-а закрытого Orchestrator-а → «назад» ведёт в транскрипт только для чтения.
+- Mutation testing: `subagentParent` без ветки родителя — 3 test-а красные; «Orchestrator никогда не живой» — 2;
+  `openOrchestrator` без вызова `orchestrator.open` — 3; без проверки `!== 'closed'` — 1.
 
 **Снимки** (светлая и тёмная тема):
 - окно Subagent-а, открытое из rail: [светлая](../evidence/25-subagent-from-rail-light.png), [тёмная](../evidence/25-subagent-from-rail-dark.png);

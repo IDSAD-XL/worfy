@@ -261,8 +261,8 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
 function goToCommands({ project, model, layoutNodes, history, adrs }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
-  // The Orchestrator's Session view (worfy-polish ticket 25), whether it runs or not: the view starts
-  // it, as the toolbar's Session switch does. Its Node's own row below centers the Canvas on it.
+  // The Orchestrator's Session view (worfy-polish ticket 25), whether it runs or not: picking the row
+  // starts an Orchestrator that does not run. Its Node's own row below centers the Canvas on it.
   const commands: PaletteCommand[] = [
     {
       id: 'go-to:orchestrator',
@@ -270,10 +270,7 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
       title: 'Orchestrator',
       detail: 'Session view',
       keys: ['orchestrator', 'go to orchestrator'],
-      run: () => {
-        openOrchestrator()
-        return undefined
-      },
+      run: () => openOrchestrator(projectId),
     },
   ]
   if (model && model.error === null) {

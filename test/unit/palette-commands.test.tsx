@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, onTestFinished } from 'vitest'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
@@ -94,8 +95,23 @@ describe('palette commands', () => {
     expect(ids(withNode)).toContain('node:o1')
     // From a Subagent's window over the Canvas: the Session view, with nothing opened — the active Project's Orchestrator.
     useNavigation.setState({ view: 'canvas', opened: { nodeId: 'o1', projectId: 'p1', external: { sessionId: 'feedbeef00', agentId: 'a1' } } })
+    // It also asks main to open the Orchestrator, which starts one that does not run.
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
     expect(await row!.run()).toBeUndefined()
     expect(useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(asked).toEqual([{ channel: 'orchestrator.open', input: { projectId: 'p1' } }])
   })
 
   it('has the Orchestrator row with no Orchestrator Node too, and none without a Project', () => {
