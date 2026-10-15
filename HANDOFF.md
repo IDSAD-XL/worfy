@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-15 (UTC), main @ cf2eb22
+# Передача контекста — снимок на 2026-10-15 (UTC), main @ de6147f
 
 ## Сейчас в работе
 
@@ -11,7 +11,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 7/8: влиты 01–03, 05–08; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; вопросы владельцу — «Итог» 07, 08.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01, 04 (PR #342, #341); 02, 03 — отчёты (PR #339, #340). Решения — «Итог» 01, 04.
-- `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 12/26 — влиты 01–11, 12 — отчёт (PR #338); 13 — PR #360 `VERIFIED` по Mac, ждёт Windows-ПК; 14–26 open (spec, Wave 3–5).
+- `worfy-polish`: 20/26 — влиты 01–11, 14–18, 21, 23, 25; 12 — отчёт; 13 (#360), 19 (#365) `VERIFIED` по Mac, ждут Windows-ПК; 20 (#372) `REJECTED` дважды, blocked; open 22, 24, 26.
 
 ## Ждёт владельца
 
@@ -29,6 +29,7 @@
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); решения и долги — «Итог» 03–06, 09, 10, 13; 11 — gate full на Windows-ПК и решения в PR #328.
 - `worfy-terminal-ai`: решения без владельца — «Итог» 03–08, 10 (e2e `session-view` у полуночи).
+- `worfy-polish` Wave 3, подтвердить: 14 pinned Node; 16 лимит строк, tooltip; 20 `maintenance.auto=false`; 21 «Done (N)»; 23 `/context` ÷ порог. Вопросы: 17 кэш 32M симв. < поиска 64 MB; 20 узкий круг?
 
 ## Риски и долги
 

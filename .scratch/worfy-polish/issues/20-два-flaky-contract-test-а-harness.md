@@ -1,7 +1,7 @@
 # 20 — Два flaky contract test-а: timeout в `harness-script-wiring`, ENOTEMPTY в `harness-drift`
 
 Type: task
-Status: open
+Status: blocked — REJECTED дважды (PR #372): test на протечку состояния не ловит мутанты A и C; правка timeout подтверждена; узкий круг — по решению владельца
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy-polish (разделы «Gate оркестратора
 (2026-10-15)»): [01](01-панель-выделения-не-закрывает-шапку-рамки-epic-а.md) — CI красный в
@@ -102,3 +102,14 @@ Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy
 ## Итог
 
 —
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Круг 1: `REJECTED` на `47899730` ([комментарий в PR #372](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6202332730)) — [med] test на протечку состояния (`harness-script-wiring.test.ts:352-362`) зелёный на мутанте, который называет Ticket (`source` читает переменную уровня `describe`).
+- Круг 2: `REJECTED` на `6a007c98` ([комментарий в PR #372](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6202757319)) — test ловит только переменную внутри `startRun` (мутант B); мутанты A (переменная файла, заданная в `beforeEach`) и C (`source` читает `scratch`) — 22/22 зелёные. `harness-drift.test.ts` исправлен: мутант D красный.
+- Merge: нет. По правилу Wave после второго REJECTED Ticket выведен из волны; вопрос владельцу об узком круге отклонён автоматически (Autopilot). PR #372 открыт, worktree `pol-20` сохранён.
+- Act on: [med] test на протечку — предложение verifier-а: настоящая пара test-ов (первый запускает run без await, второй после настоящих `beforeEach` ждёт его и проверяет, что в его `run.calls` ничего не пришло).
+- Consider (**решено без владельца, подтвердить**): причина ENOTEMPTY в `harness-drift` не найдена (около 290 прогонов, strace, LD_PRELOAD shim); правка `maintenance.auto=false` и `gc.auto=0` правдоподобна и безвредна; если ENOTEMPTY вернётся в CI — новый Ticket с логом прогона.
+- Noted: правка timeout подтверждена — XprotectService проверяет каждый новый исполняемый файл, по одному на машину (первый запуск нового скрипта 142–148 ms, symlink на уже запущенный 7–9 ms); stub-ы стали постоянными файлами в `test/fixtures/harness-stub`. Кандидаты с той же причиной timeout: `harness-qmd`, `docs`, `github-prs`, `workflow-reader`.
+- Dismissed — нет (`testTimeout` и пределы в файлах не подняты — проверено).

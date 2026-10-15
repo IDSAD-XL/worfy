@@ -1,7 +1,7 @@
 # 25 — Окно Subagent-а: стрелка «назад» к родительской Session; в палитре — «Go to Orchestrator»
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #371](https://github.com/IDSAD-XL/worfy/pull/371)
 Branch: worfy-polish/25
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Из окна Session Orchestrator-а можно
@@ -69,8 +69,8 @@ Session-а, `detail` — «Orchestrator»; выбор центрирует ег�
       `openOrchestrator()`; без Project-а строки нет.
 - [x] e2e: Orchestrator → Subagent из rail → «назад» → Session view Orchestrator-а (новый spec).
 - [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -146,3 +146,15 @@ Session view сам вызывает его только при монтиров
 - окно Subagent-а, открытое из rail: [светлая](../evidence/25-subagent-from-rail-light.png), [тёмная](../evidence/25-subagent-from-rail-dark.png);
 - окно Subagent-а, открытое с Canvas: [светлая](../evidence/25-subagent-from-canvas-light.png), [тёмная](../evidence/25-subagent-from-canvas-dark.png);
 - палитра со строкой: [светлая](../evidence/25-palette-go-to-orchestrator-light.png), [тёмная](../evidence/25-palette-go-to-orchestrator-dark.png).
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Круг 1: `REJECTED` на `dd5727a` ([комментарий в PR #371](https://github.com/IDSAD-XL/worfy/pull/371#issuecomment-6198419739)) — [med] «Go to Orchestrator» не запускал остановленный Orchestrator (`navigation.ts:40` меняла только состояние навигации, без `orchestrator.open`), а владелец решил, что строка его запускает.
+- Круг 2: `VERIFIED` на `f390d8b` ([комментарий в PR #371](https://github.com/IDSAD-XL/worfy/pull/371#issuecomment-6199425698)) — `openOrchestrator()` зовёт `orchestrator.open` и возвращает отказ main; двойного запуска и необработанного rejection нет; `pnpm test` — один 15 s timeout в `harness-script-wiring.test.ts:357` вне diff, отдельно 21 passed; e2e `session-back` под замком — passed; CI `check` passed.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `5faffae`.
+- Act on: [med] круга 1 исправлен в круге 2.
+- Consider: [low] ⌘[ не проверяет, открыты ли поверх палитра или Settings (`ExternalSessionPanel.tsx:51-55`).
+- Noted: [low] нет test-а «Orchestrator закрыт — назад открывает транскрипт только для чтения» (мутант без `!== 'closed'` выживает, `ExternalSessionPanel.tsx:92`); с PR #328 (реестр сочетаний клавиш) конфликта нет — PR, влитый вторым, добавляет ⌘[ в `src/shared/shortcuts.ts`.
+- Dismissed — нет.
+- [low] debt: строка палитры не перезапускает Orchestrator в `error` (первое сообщение из поля ввода запускает его снова); нет test-а, что отказ main доходит до палитры (мутант на `commands.ts:273` выжил); «Starting…» в SessionView остаётся после отказа первого открытия и успешного запуска из палитры (файл закреплён за Ticket-ом 23).

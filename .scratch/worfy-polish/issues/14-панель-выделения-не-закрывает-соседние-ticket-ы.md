@@ -1,7 +1,7 @@
 # 14 — Панель выделения встаёт туда, где ничего не закрывает: сбоку или под выделением
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #367](https://github.com/IDSAD-XL/worfy/pull/367)
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а [01](01-панель-выделения-не-закрывает-шапку-рамки-epic-а.md)
 (раздел «Gate оркестратора (2026-10-15)», Consider [low]: отступ снизу 48 px вместо 12 px, «решено
@@ -65,8 +65,8 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а [01](01
 - [ ] Снимки в светлой и тёмной теме: Ticket верхнего ряда с соседом снизу, zoom 1 и 0,6 —
       `.scratch/worfy-polish/evidence/14-*.png`, ссылки в «Итог».
 - [ ] Правило для случая «свободного места нет» записано в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -151,3 +151,13 @@ Ticket 02 верхнего ряда выделен, под ним Ticket 03; п�
 
 Замечено вне скоупа: кнопка Focus (12 px под выделением, высота 28) сама закрывает верх Ticket-а
 следующего ряда — номер и состояние (на снимках). Её место Ticket не меняет.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Gate — один круг: `VERIFIED` на `7a4972d` ([комментарий в PR #367](https://github.com/IDSAD-XL/worfy/pull/367#issuecomment-6198560360)). Verifier сам: lint и typecheck — 0; `pnpm test` красный только на 15 s timeout-ах в пяти contract-файлах вне diff, повтор с `pinning.test.tsx` — 230 passed; `pnpm build` — 0; под замком e2e `selection-toolbar-frame`, `pin-tags`, `focus` — 13 passed; три своих мутанта красные; снимки в обеих темах (рамка Epic-а 3×3, zoom 0,6).
+- Merge: первый gate full красный на flaky `harness-script-wiring` (файл отдельно — 147 passed); повтор: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `342b32b`.
+- Act on, Dismissed — нет.
+- Consider: [low] стопка done рисуется внутри Node рамки и не входит в зоны, куда нельзя ставить панель (`SelectionToolbar.tsx:276`, `EpicFrameNode.tsx:143-150`): Ticket уровня 1 с соседями сверху и справа получает панель слева, поверх «✓ 1 done». Follow-up — `layout.doneStack` в полосы.
+- Noted (**решено без владельца, подтвердить**): закреплённые (pinned) Node-ы вне правила свободного места (`SelectionToolbar.tsx:285`) — так решено в worfy-daily 12, и это проверяет `pin-tags.spec.ts:401-440`, который Ticket велит не менять.
+- Noted: пропуск якорей Binding в зонах не покрыт test-ом; вне diff — кнопка Focus в 12 px под выделением закрывает номер и заголовок Ticket-а следующего ряда (`FocusEntry.tsx:105`).

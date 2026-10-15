@@ -1,7 +1,7 @@
 # 18 — «Ship ticket» не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #368](https://github.com/IDSAD-XL/worfy/pull/368)
 Blocked by: —
 Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 [07](07-wave-не-берёт-блокер-done-только-в-невлитой-ветке.md) («Не сделано здесь: «Ship ticket»
@@ -51,8 +51,8 @@ Source: решение владельца 2026-10-15 по «Итог» Ticket-а
       у первого блокера; своя копия условия вместо `doneOnlyInBranch` с ошибкой (`||` вместо `&&`).
 - [x] Старые test-ы `launch.test.ts`, `render-template.test.ts`, `canvas-actions.test.tsx` зелёные без
       правок их ожиданий.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -97,3 +97,10 @@ Source: решение владельца 2026-10-15 по «Итог» Ticket-а
   только у первого блокера — 2 красных; своя копия условия с `||` вместо `&&` — 4 красных.
 - Старые test-ы `launch.test.ts`, `render-template.test.ts`, `canvas-actions.test.tsx`, `waves.test.ts` зелёные,
   их ожидания не правились.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Gate — один круг: `VERIFIED` на `fbcc081` ([комментарий в PR #368](https://github.com/IDSAD-XL/worfy/pull/368#issuecomment-6198415851)). Verifier сам: все три вызова `shipTicketState` (кнопка на Canvas, строка палитры, запуск в main) получают полные `Ticket` с `fromBranch`; gate fast из кэша, поэтому `pnpm lint`, `pnpm typecheck`, `pnpm test` — 0 (5344 test-а); 4 файла Ticket-а — 249 passed; три своих мутанта красные; e2e `ship-ticket.spec.ts` под замком — 2 passed; CI `check` passed, CLEAN.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `c9c170b`.
+- Act on, Consider, Noted, Dismissed — нет.

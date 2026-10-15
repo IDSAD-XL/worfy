@@ -1,7 +1,7 @@
 # 19 — e2e на Windows: helper завершает сам worfy, а не только `cmd.exe` над ним
 
 Type: task
-Status: open
+Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #365 VERIFIED по Mac, Windows-ПК выключен
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а
 [04](04-три-нестабильных-e2e-ждут-состояние.md) (раздел «Gate оркестратора (2026-10-15)», Noted
@@ -86,3 +86,15 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а
 ## Итог
 
 —
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Круг 1: `REJECTED` на `56ed12f` ([комментарий в PR #365](https://github.com/IDSAD-XL/worfy/pull/365#issuecomment-6198922885)) — [med] у ожидания исчезновения процесса после kill (`test/e2e/end-app.ts:67-72`) нет test-а; verifier показал, что его можно построить на zombie-процессе без root.
+- Круг 2: `VERIFIED` на `9638bc4` ([комментарий в PR #365](https://github.com/IDSAD-XL/worfy/pull/365#issuecomment-6199728942)) — два test-а на zombie-процессе, мутант круга 1 красный; `pnpm test` — 0 (5357 passed); e2e `autopilot` и `binding` под замком — 6 passed; CI `check` passed.
+- Merge: нет. Платформенный PR (ветка по `process.platform`, `taskkill`) — по ADR-0056, пункт 2, вливается только после gate full на Windows-ПК; Windows-ПК выключен, PR #365 открыт, Ticket blocked.
+- Act on: [med] круга 1 исправлен в круге 2.
+- Consider: [low] (круг 1) при ошибке `endApp` терялась исходная ошибка запуска и пропускался `cleanDirs`; в круге 2 порядок kill → `exited` → `cleanDirs`, исходная ошибка остаётся первой (`helpers.ts:206-220`).
+- Noted: [low] `child.kill('SIGKILL')` повторён во всех трёх ветках (`end-app.ts:59,62,64`).
+- Dismissed — нет.
+- [low] debt: мутант M3 (`GONE_TIMEOUT_MS` вместо `goneTimeoutMs`, `end-app.ts:67`) выжил — test проверяет сообщение, не длину ожидания; `reportKillFailure` (`helpers.ts:80-87`) без test-а.
