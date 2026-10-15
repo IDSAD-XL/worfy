@@ -1,7 +1,7 @@
 # 06 — Долги [low] test-ов: предел строк палитры, `expandMachines`, старые fixture-ы `canvas-tools`
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #359](https://github.com/IDSAD-XL/worfy/pull/359)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R11; «Итог»
 [`worfy-ui` 07](../../worfy-ui/issues/07-группы-в-палитре.md) (долг [low] про `SHOWN`),
@@ -44,8 +44,8 @@ Source: [spec.md](../spec.md), кандидат R11; «Итог»
 - [x] `expandMachines` и `collapseMachines` без чтения атрибута один раз; e2e `sidebar-sections` зелёный.
 - [x] В `canvas-tools.test.ts` нет fixture-ов с `offset:*` и смещением Subagent-а, кроме test-а на их
       снятие; комментарии описывают нынешнее поведение.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (сделано); gate full — exit 0 и строка
-      `[gate] зелено (full)` (не проверено: делает оркестратор перед merge); Linux CI зелёный (см. PR).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный (см. PR).
 
 ## Тесты
 
@@ -112,3 +112,11 @@ e2e под замком: `playwright test test/e2e/sidebar-sections.spec.ts test
 снятие при чтении `layout.json` проверяет `test/contract/layout-store.test.ts`. `grep -n "offset:"` по файлу — пусто.
 
 Проверка: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (253 файла passed, 6 skipped).
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 06 и 13 параллельно, общих файлов в «Где в коде» нет; нагрузки CPU в их «Готово, когда» нет. Worktree — `.claude/worktrees/pol-<NN>`.
+- Гейт — один круг: `VERIFIED` на `dd5bd54`, глубина medium — PR только с test-ами ([комментарий в PR #359](https://github.com/IDSAD-XL/worfy/pull/359#issuecomment-6193811408)). Verifier сам: gate fast — код 0, `[gate] зелено (fast)`, не из кэша; `pnpm build` — код 0; под замком e2e `sidebar-sections` и `linked-machines` — 12 passed; три своих мутанта красные (группировать, потом резать; `list_nodes` показывает `subagent-tree`; обратное сохранённое значение в helper-е Machines).
+- Мерж: база `ffe362d`, head `dd5bd54`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `cf2eb22`.
+- Act on, Consider, Dismissed — нет.
+- Noted (**решено без владельца, подтвердить**): fixture test-а палитры отличается от предложенного Ticket-ом — тот мутанта не ловит; helper-ы Machines ждут сохранённого состояния (вариант 1 Ticket-а), а не кликают до нужного значения (вариант 2).
