@@ -1,7 +1,7 @@
 # 22 — Убрать блок Limits из правой колонки Session view: он повторяет Limits в toolbar
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В той же правой колонке убрать секцию
 лимитов: она дублирует то, что уже показано в шапке (header)». Блок добавил Ticket
@@ -46,11 +46,11 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
 
 ## Готово, когда
 
-- [ ] Test пункта 1 красный на main и зелёный с правкой.
-- [ ] `grep -rn "LimitsRail\|limits-rail" src test` — пусто (кроме `test/fixtures`, это копия старого
+- [x] Test пункта 1 красный на main и зелёный с правкой.
+- [x] `grep -rn "LimitsRail\|limits-rail" src test` — пусто (кроме `test/fixtures`, это копия старого
       Epic-а).
-- [ ] Limits в toolbar работают как раньше: test-ы `LimitsMeterView` зелёные без правок ожиданий.
-- [ ] Снимки в светлой и тёмной теме — ссылки в «Итог».
+- [x] Limits в toolbar работают как раньше: test-ы `LimitsMeterView` зелёные без правок ожиданий.
+- [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
@@ -83,4 +83,18 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
 
 ## Итог
 
-—
+- Блок Limits в rail Session view удалён: файла `src/renderer/session/rail/LimitsRail.tsx` больше
+  нет, rail находит только `BindingRail` и `SubagentsRail`. Limits видны только в toolbar.
+- `LimitBarView` потерял вариант `rail` и проп `variant` вместе с типом `LimitBarVariant`: других
+  вызовов, кроме toolbar, не осталось. Вид полос в toolbar не менялся. Решено без владельца,
+  подтвердить.
+- Комментарии, которые называли блок, переписаны: `LimitBar.tsx`, `LimitsMeter.tsx`,
+  `useLimits.ts`, `BindingRail.tsx`, `SubagentsRail.tsx`, `rail/index.ts`.
+- Test: `test/unit/session-rail-discovery.test.tsx` — «has no Limits block» сравнивает весь
+  список блоков rail; на main красный (в списке есть `LimitsRail`), с правкой зелёный; мутант
+  «вернуть `LimitsRail.tsx`» — красный. Из `test/unit/limits-meter.test.tsx` ушёл блок
+  `LimitsRailView`; test-ы `LimitsMeterView` не менялись и зелёные.
+- e2e `limits.spec.ts` и `session-view.spec.ts` — зелёные. Снимки Session view сняты временным
+  spec-ом (в репозиторий не вошёл): rail — Binding и Subagents, Limits — в toolbar.
+  - светлая тема: [22-session-rail-no-limits-light.png](../evidence/22-session-rail-no-limits-light.png)
+  - тёмная тема: [22-session-rail-no-limits-dark.png](../evidence/22-session-rail-no-limits-dark.png)
