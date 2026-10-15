@@ -33,6 +33,8 @@ let calls: { channel: string; input: unknown }[]
 let views: SessionNodeView[]
 /** What `agent.send` answers; a test may hold it back. */
 let sendAnswer: () => Promise<unknown>
+/** What `sessions.start` (Resume) answers; a test may hold it back. */
+let startAnswer: () => Promise<unknown>
 
 /** main's answer to `agent.attach`: an image block for an image, a copy for any other file. */
 function attachInMain(sources: AttachmentSource[]) {
@@ -52,10 +54,12 @@ beforeEach(() => {
   calls = []
   views = [view('live-1')]
   sendAnswer = () => Promise.resolve({ ok: true, value: undefined })
+  startAnswer = () => Promise.resolve({ ok: true, value: view('started-1', 2) })
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel: string, input: unknown) => {
       calls.push({ channel, input })
       if (channel === 'agent.send') return sendAnswer()
+      if (channel === 'sessions.start') return startAnswer()
       const value: unknown =
         channel === 'projects.list'
           ? { projects: [PROJECT], activeId: PROJECT.id, revision: 1 }
@@ -65,11 +69,9 @@ beforeEach(() => {
               ? { live: [] }
               : channel === 'sessions.views'
                 ? { views }
-                : channel === 'sessions.start'
-                  ? view('started-1', 2)
-                  : channel === 'agent.attach'
-                    ? attachInMain((input as { sources: AttachmentSource[] }).sources)
-                    : undefined
+                : channel === 'agent.attach'
+                  ? attachInMain((input as { sources: AttachmentSource[] }).sources)
+                  : undefined
       return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
     },
     on: () => 1,
@@ -79,6 +81,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
+  vi.doUnmock('../../src/renderer/ipc')
   vi.restoreAllMocks()
 })
 
@@ -190,7 +193,7 @@ describe('a file dropped on the Node of a Session worfy runs', () => {
     expect(chips()).toHaveLength(1)
   })
 
-  it('sends a message once while the first send is still on its way', async () => {
+  it('while a message is on its way, the next one waits in the field for Send again', async () => {
     let answer: (value: unknown) => void = () => undefined
     sendAnswer = () => new Promise((resolve) => (answer = resolve))
     const node = await mountRunning()
@@ -201,10 +204,22 @@ describe('a file dropped on the Node of a Session worfy runs', () => {
       fireEvent.submit(form)
       fireEvent.submit(form)
     })
+    // Typed and sent while the first is still on its way: it stays in the field.
+    fireEvent.change(screen.getByTestId('session-node-input'), { target: { value: 'two' } })
+    await act(async () => {
+      fireEvent.submit(form)
+    })
+    expect(called('agent.send')).toHaveLength(1)
+    expect((screen.getByTestId('session-node-input') as HTMLInputElement).value).toBe('two')
     await act(async () => {
       answer({ ok: true, value: undefined })
     })
     expect(called('agent.send')).toHaveLength(1)
+    sendAnswer = () => Promise.resolve({ ok: true, value: undefined })
+    await act(async () => {
+      fireEvent.submit(form)
+    })
+    await vi.waitFor(() => expect(called('agent.send').map((each) => (each as { text: string }).text)).toEqual(['', 'two']))
   })
 
   it('a chip removed with × does not go with the message', async () => {
@@ -354,5 +369,161 @@ describe('a file dropped on a Node that takes none', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
     expect(called('agent.attach')).toEqual([])
+  })
+})
+
+/** Holds every `sessions.start` back until `release(count)` sees `count` of them: Resume on its way. */
+function holdResume(): { release: (count: number) => Promise<void> } {
+  const waiting: (() => void)[] = []
+  startAnswer = () => new Promise((resolve) => waiting.push(() => resolve({ ok: true, value: view('started-1', 2) })))
+  return {
+    release: async (count) => {
+      await vi.waitFor(() => expect(waiting.length).toBe(count))
+      await act(async () => {
+        for (const resolve of waiting.splice(0)) resolve()
+      })
+    },
+  }
+}
+
+const input = () => screen.getByTestId('session-node-input') as HTMLInputElement
+const sentTexts = () => called('agent.send').map((each) => (each as { text: string }).text)
+const sentNames = (at: number) => (called('agent.send')[at] as { attachments: Attachment[] }).attachments.map((each) => each.name)
+
+async function submit(message?: string) {
+  if (message !== undefined) fireEvent.change(input(), { target: { value: message } })
+  await act(async () => {
+    fireEvent.submit(input().closest('form') as HTMLFormElement)
+  })
+}
+
+describe('one send after another', () => {
+  it('sends again once the first send has finished', async () => {
+    await mountRunning()
+    await submit('one')
+    await vi.waitFor(() => expect(sentTexts()).toEqual(['one']))
+    await submit('two')
+    await vi.waitFor(() => expect(sentTexts()).toEqual(['one', 'two']))
+  })
+
+  it('after a send the bridge rejected, the text and the chips are back and the next Send carries them', async () => {
+    let first = true
+    sendAnswer = () => {
+      if (!first) return Promise.resolve({ ok: true, value: undefined })
+      first = false
+      return Promise.reject(new Error('the bridge is gone'))
+    }
+    const node = await mountRunning()
+    await drop(node, [text()])
+    await vi.waitFor(() => expect(chips()).toHaveLength(1))
+    await submit('hi')
+    await vi.waitFor(() => expect(screen.getByTestId('session-node-error').textContent).toBe('the bridge is gone'))
+    expect(chips()).toHaveLength(1)
+    expect(input().value).toBe('hi')
+    await submit()
+    await vi.waitFor(() => expect(sentTexts()).toEqual(['hi', 'hi']))
+    expect(sentNames(1)).toEqual(['notes.txt'])
+    await vi.waitFor(() => expect(chips()).toHaveLength(0))
+  })
+
+  it('when agent.send throws in the renderer, the text and the chips come back and Send works again', async () => {
+    let throwOnce = true
+    vi.doMock('../../src/renderer/ipc', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../../src/renderer/ipc')>()
+      const invoke = ((channel: string, ...args: unknown[]) => {
+        if (channel === 'agent.send' && throwOnce) {
+          throwOnce = false
+          throw new Error('renderer broke')
+        }
+        return (actual.invoke as (channel: string, ...rest: unknown[]) => unknown)(channel, ...args)
+      }) as typeof actual.invoke
+      return { ...actual, invoke }
+    })
+    const node = await mountRunning()
+    await drop(node, [text()])
+    await vi.waitFor(() => expect(chips()).toHaveLength(1))
+    await submit('hi')
+    await vi.waitFor(() => expect(screen.getByTestId('session-node-error').textContent).toBe('renderer broke'))
+    expect(chips()).toHaveLength(1)
+    expect(input().value).toBe('hi')
+    await submit()
+    await vi.waitFor(() => expect(sentTexts()).toEqual(['hi']))
+    expect(sentNames(0)).toEqual(['notes.txt'])
+  })
+})
+
+describe('a send while Resume is on its way', () => {
+  it('the message leaves the field at once: its chips cannot be removed meanwhile, and a file dropped meanwhile waits for the next message', async () => {
+    views = []
+    const node = await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    await drop(node, [text('a.txt'), text('b.txt')])
+    await vi.waitFor(() => expect(chips()).toHaveLength(2))
+    const resume = holdResume()
+    await submit('go')
+    // Resume is on its way: the message is no longer on the field.
+    expect(chips()).toHaveLength(0)
+    expect(input().value).toBe('')
+    await drop(node, [text('c.txt')])
+    // Two Resumes: the send's, and the drop's (main answers both with the one Session).
+    await resume.release(2)
+    await vi.waitFor(() => expect(sentTexts()).toEqual(['go']))
+    expect(sentNames(0)).toEqual(['a.txt', 'b.txt'])
+    await vi.waitFor(() => expect(chips()).toHaveLength(1))
+    expect(screen.getByRole('button', { name: 'Remove c.txt' })).toBeTruthy()
+  })
+
+  it('a drop meanwhile takes the room the message on its way leaves: 10 chips sent, 10 more taken', async () => {
+    views = []
+    const node = await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    await drop(
+      node,
+      Array.from({ length: 10 }, (_, index) => text(`a${index}.txt`)),
+    )
+    await vi.waitFor(() => expect(chips()).toHaveLength(10))
+    const resume = holdResume()
+    await submit('go')
+    await drop(
+      node,
+      Array.from({ length: 10 }, (_, index) => text(`b${index}.txt`)),
+    )
+    // Two Resumes: the send's, and the drop's (main answers both with the one Session).
+    await resume.release(2)
+    await vi.waitFor(() => expect(chips()).toHaveLength(10))
+    expect(screen.queryByTestId('session-node-error')).toBeNull()
+    expect(sentNames(0)).toEqual(Array.from({ length: 10 }, (_, index) => `a${index}.txt`))
+    expect(chips().map((chip) => chip.textContent?.split(' ')[0])).toEqual(Array.from({ length: 10 }, (_, index) => expect.stringContaining(`b${index}.txt`)))
+  })
+
+  it('the message on its way still counts against the 20: of 10 dropped beside 15 on their way, 5 are taken', async () => {
+    views = []
+    const node = await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    await drop(
+      node,
+      Array.from({ length: 15 }, (_, index) => text(`a${index}.txt`)),
+    )
+    await vi.waitFor(() => expect(chips()).toHaveLength(15))
+    const resume = holdResume()
+    await submit('go')
+    const late = Array.from({ length: 10 }, (_, index) => `b${index}.txt`)
+    await drop(
+      node,
+      late.map((name) => text(name)),
+    )
+    await resume.release(2)
+    await vi.waitFor(() => expect(chips()).toHaveLength(5))
+    expect(screen.getByTestId('session-node-error').textContent).toBe(tooManyAttachments(late.slice(5)))
+  })
+
+  it('a Resume that fails brings the text and the chips back, with its reason', async () => {
+    views = []
+    const node = await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    await drop(node, [text()])
+    await vi.waitFor(() => expect(chips()).toHaveLength(1))
+    startAnswer = () => Promise.resolve({ ok: false, error: 'the transcript is gone' })
+    await submit('go')
+    await vi.waitFor(() => expect(screen.getByTestId('session-node-error').textContent).toBe('the transcript is gone'))
+    expect(chips()).toHaveLength(1)
+    expect(input().value).toBe('go')
+    expect(called('agent.send')).toEqual([])
   })
 })

@@ -246,24 +246,32 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
     const text = draft.trim()
     const attached = chipsNow.current
     if (sendingNow.current !== null || (text === '' && attached.length === 0)) return
+    // The message leaves the field at once, as in the Session view's field: what is typed, dropped
+    // or removed while it is on its way (Resume can take a while) belongs to the next message.
     sendingNow.current = attached
+    setProblem(null)
+    setDraft('')
+    changeChips(() => [])
+    // Why the message was not sent; null when it was. `named: true` — ensure() has shown why.
+    let failure: { named: true } | { named: false; problem: string } | null = null
     try {
-      setProblem(null)
       const sessionId = await ensure()
-      if (sessionId === null) return
-      setDraft('')
-      changeChips((current) => current.filter((chip) => !attached.includes(chip)))
-      // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
-      const result = await invoke('agent.send', { sessionId, text, attachments: attached.map((chip) => chip.attachment) })
-      if (!result.ok) {
-        // Not sent: the text and the attachments come back so nothing is lost.
-        setDraft(text)
-        changeChips((current) => [...attached, ...current])
-        setProblem(result.error)
+      if (sessionId === null) failure = { named: true }
+      else {
+        // The transcript shows the message when main gives it to Claude Code (a `prompt` event).
+        const result = await invoke('agent.send', { sessionId, text, attachments: attached.map((chip) => chip.attachment) })
+        if (!result.ok) failure = { named: false, problem: result.error }
       }
+    } catch (error) {
+      failure = { named: false, problem: error instanceof Error ? error.message : String(error) }
     } finally {
       sendingNow.current = null
     }
+    if (failure === null) return
+    // Not sent: the text and the attachments come back, ahead of what came since, so nothing is lost.
+    setDraft((current) => (current === '' ? text : current))
+    changeChips((current) => [...attached, ...current])
+    if (!failure.named) setProblem(failure.problem)
   }
 
   /** Dropped files: read here; the Session started if it is not running; checked in main. */
