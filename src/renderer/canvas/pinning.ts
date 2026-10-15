@@ -21,10 +21,13 @@
 // below it) are drawn among the Nodes, not over all of them: React Flow's NodeToolbar puts them
 // over the whole plane, so another Node's toolbar covered a pinned Node. usePlaneToolbar() places
 // them in React Flow's viewport instead, under the pinned Nodes unless the selection has one.
+// The selection toolbar keeps off the header of an Epic frame and its column labels: over a
+// Ticket of the frame's top row it goes below the selection (clearToolbarPlacement()).
 import { useMemo, type CSSProperties } from 'react'
 import { useStore, type InternalNode, type ReactFlowState, type XYPosition } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode, LayoutOpInput, Viewport } from '../../shared/layout/types'
+import { TICKETS_TOP } from './epic-layout'
 
 /** Pinned Nodes are drawn above the rest of the plane. */
 export const PINNED_Z_INDEX = 1000
@@ -210,6 +213,80 @@ export interface ToolbarNode {
   pinned: boolean
 }
 
+/** A rectangle on the plane, in canvas units. */
+export interface PlaneRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** A toolbar's size on the screen, in pixels: it keeps that size whatever the zoom. */
+export interface ToolbarSize {
+  width: number
+  height: number
+}
+
+/** Where a toolbar is drawn: the side of the selection and its distance from it, in screen pixels. */
+export interface ToolbarPlacement {
+  side: ToolbarSide
+  offset: number
+}
+
+/** The bounds of the rectangles; null for none. */
+function boundsOf(rects: readonly PlaneRect[]): { left: number; right: number; top: number; bottom: number } | null {
+  if (rects.length === 0) return null
+  return {
+    left: Math.min(...rects.map((rect) => rect.x)),
+    right: Math.max(...rects.map((rect) => rect.x + rect.width)),
+    top: Math.min(...rects.map((rect) => rect.y)),
+    bottom: Math.max(...rects.map((rect) => rect.y + rect.height)),
+  }
+}
+
+/** The part of an Epic frame a toolbar must not cover: its header row and the column labels under it. */
+export function epicHeaderBand(frame: PlaneRect): PlaneRect {
+  return { ...frame, height: Math.min(frame.height, TICKETS_TOP) }
+}
+
+/** The rectangle on the plane a toolbar of `size` covers at `placement`, as planeToolbarStyle() draws it. */
+export function toolbarRect(selection: readonly PlaneRect[], zoom: number, size: ToolbarSize, placement: ToolbarPlacement): PlaneRect | null {
+  const bounds = boundsOf(selection)
+  if (bounds === null || !(zoom > 0)) return null
+  // The toolbar is not scaled: its screen size is that many canvas units divided by the zoom.
+  const width = size.width / zoom
+  const height = size.height / zoom
+  const gap = placement.offset / zoom
+  const y = placement.side === 'top' ? bounds.top - gap - height : bounds.bottom + gap
+  return { x: (bounds.left + bounds.right) / 2 - width / 2, y, width, height }
+}
+
+const overlaps = (a: PlaneRect, b: PlaneRect): boolean => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+/**
+ * The side a selection's toolbar is drawn on so that it covers none of `keepOut` (the header bands
+ * of the Epic frames, epicHeaderBand()): on top, `top` screen pixels away, when it covers none
+ * there; below, `bottom` pixels away, when it covers one on top and none below; on top again when
+ * it covers one on both sides.
+ */
+export function clearToolbarPlacement(
+  selection: readonly PlaneRect[],
+  keepOut: readonly PlaneRect[],
+  zoom: number,
+  size: ToolbarSize,
+  top: number,
+  bottom: number,
+): ToolbarPlacement {
+  const above: ToolbarPlacement = { side: 'top', offset: top }
+  const below: ToolbarPlacement = { side: 'bottom', offset: bottom }
+  const covers = (placement: ToolbarPlacement): boolean => {
+    const rect = toolbarRect(selection, zoom, size, placement)
+    return rect !== null && keepOut.some((band) => overlaps(rect, band))
+  }
+  if (!covers(above)) return above
+  return covers(below) ? above : below
+}
+
 /**
  * The style of a selection's toolbar inside React Flow's viewport: centred on the side of the
  * selection's bounds, `offset` screen pixels away, at its screen size whatever the zoom. Its z is
@@ -218,11 +295,9 @@ export interface ToolbarNode {
  * above the selection when it has one. Null for an empty selection.
  */
 export function planeToolbarStyle(nodes: readonly ToolbarNode[], zoom: number, side: ToolbarSide, offset: number): CSSProperties | null {
-  if (nodes.length === 0 || !(zoom > 0)) return null
-  const left = Math.min(...nodes.map((node) => node.x))
-  const right = Math.max(...nodes.map((node) => node.x + node.width))
-  const top = Math.min(...nodes.map((node) => node.y))
-  const bottom = Math.max(...nodes.map((node) => node.y + node.height))
+  const bounds = boundsOf(nodes)
+  if (bounds === null || !(zoom > 0)) return null
+  const { left, right, top, bottom } = bounds
   const x = (left + right) / 2
   const y = side === 'top' ? top - offset / zoom : bottom + offset / zoom
   const shift = side === 'top' ? '-100%' : '0%'
@@ -249,18 +324,24 @@ function toolbarNodeOf(node: InternalNode): ToolbarNode | null {
   return { x, y, width, height, z: node.internals.z, pinned: data?.node?.pinned === true }
 }
 
+/** Chooses where a toolbar goes from the selected Nodes and the zoom, as clearToolbarPlacement() does. */
+export type PlaceToolbar = (nodes: readonly ToolbarNode[], zoom: number) => ToolbarPlacement
+
 /**
  * planeToolbarStyle() of the Nodes `ids` under the current viewport, for a toolbar drawn in React
- * Flow's ViewportPortal; null while none of them is there and measured.
+ * Flow's ViewportPortal; null while none of them is there and measured. `side` is a fixed side,
+ * `offset` screen pixels away, or a function that chooses the side and the offset.
  */
-export function usePlaneToolbar(ids: readonly string[], side: ToolbarSide, offset: number): CSSProperties | null {
+export function usePlaneToolbar(ids: readonly string[], side: ToolbarSide | PlaceToolbar, offset: number): CSSProperties | null {
   const key = useStore((state) => {
     const nodes = ids.flatMap((id) => {
       const node = state.nodeLookup.get(id)
       const placed = node === undefined ? null : toolbarNodeOf(node)
       return placed === null ? [] : [placed]
     })
-    return JSON.stringify(planeToolbarStyle(nodes, state.transform[2], side, offset))
+    const zoom = state.transform[2]
+    const placement = typeof side === 'function' ? side(nodes, zoom) : { side, offset }
+    return JSON.stringify(planeToolbarStyle(nodes, zoom, placement.side, placement.offset))
   })
   return useMemo(() => JSON.parse(key) as CSSProperties | null, [key])
 }

@@ -1,7 +1,7 @@
 # 01 — Панель выделения не закрывает шапку рамки Epic-а и подписи колонок
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 10](../../worfy-week/issues/10-тёмная-тема-стопка-done-и-кольцо-выделения.md),
 абзац «Долг» (ревью заметило: панель выделения закрывает шапку рамки Epic-а и подпись «Done 2»);
@@ -30,11 +30,11 @@ Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 1
 
 ## Готово, когда
 
-- [ ] Ticket верхнего ряда в рамке выделен — панель под ним, шапка рамки и подписи колонок видны.
-- [ ] Ticket не верхнего ряда и Node вне рамки — панель сверху, как раньше.
-- [ ] Unit test-ы на функцию выбора стороны: пересечение с полосой шапки, без пересечения, обе стороны
+- [x] Ticket верхнего ряда в рамке выделен — панель под ним, шапка рамки и подписи колонок видны.
+- [x] Ticket не верхнего ряда и Node вне рамки — панель сверху, как раньше.
+- [x] Unit test-ы на функцию выбора стороны: пересечение с полосой шапки, без пересечения, обе стороны
       пересекают — сверху; zoom 0,5 и 2.
-- [ ] e2e `test/e2e/selection-toolbar-frame.spec.ts`: выделить Ticket верхнего ряда — прямоугольник
+- [x] e2e `test/e2e/selection-toolbar-frame.spec.ts`: выделить Ticket верхнего ряда — прямоугольник
       панели не пересекает шапку рамки и подпись колонки; снимки в светлой и тёмной теме — в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
@@ -64,4 +64,19 @@ Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 1
 
 ## Итог
 
-—
+- Выбор стороны — чистая функция `clearToolbarPlacement()` в `src/renderer/canvas/pinning.ts`
+  (рядом — `toolbarRect()`, где панель ляжет на плоскости, и `epicHeaderBand()`, полоса рамки
+  `[y, y + min(TICKETS_TOP, высота рамки))`). `SelectionToolbar.tsx` собирает полосы из Node-ов
+  `epic-frame` хранилища React Flow и меряет панель через `ResizeObserver` (до замера — 200 × 34 px).
+  `usePlaneToolbar()` принимает вместо стороны функцию выбора; `FocusEntry.tsx` зовёт его как раньше.
+- **Отступ снизу — не 12 px, а 48 px** (решено без владельца, подтвердить). Под выделением на
+  12 px уже стоит кнопка Focus (`FocusEntry.tsx`, высота `--row-height` 28 px): на 12 px панель легла бы
+  на неё. Панель встаёт под кнопку Focus с зазором 8 px. Цена: снизу панель закрывает верх
+  Ticket-а следующего ряда (видно на снимке), как сверху раньше закрывала шапку.
+- Ширина панели тоже учитывается: полоса сбоку от панели её не сдвигает.
+- Unit test-ы — `test/unit/pinning.test.tsx`, блок «the selection toolbar keeps off the header…».
+  Мутанты на копиях, каждый краснит свой test: всегда `'top'`; полоса без подписей колонок
+  (`TICKETS_TOP - 36` = `HEADER_HEIGHT`); высота панели без деления на zoom.
+- e2e `test/e2e/selection-toolbar-frame.spec.ts`: на коде `origin/main` красный («the toolbar
+  covers the frame header»), с правкой зелёный. Снимки после правки:
+  [светлая](../evidence/01-selection-toolbar-frame-light.png), [тёмная](../evidence/01-selection-toolbar-frame-dark.png).

@@ -7,15 +7,19 @@
 // is on it (or nowhere), never in a text field: Delete and Backspace delete the selection to the
 // trash, ⌘Z undoes and ⇧⌘Z redoes the user's last change to the Layout (history.ts). Esc with
 // nothing selected folds the done stack of an Epic frame opened last (worfy-week ticket 15).
-import { useEffect, useState, type ComponentType, type KeyboardEvent } from 'react'
-import { useNodes, useReactFlow, useStoreApi, ViewportPortal } from '@xyflow/react'
+//
+// The toolbar stands above the selection unless there it would cover an Epic frame's header or
+// its column labels (a Ticket of the frame's top row); then it goes below the selection, under the
+// Focus button (FocusEntry.tsx), which holds the place right below it.
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
+import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { isOtherModifier, isPrimary, shortcutKey } from '../../platform'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { canvasSizeOf, pinOp, unpinOp, usePlaneToolbar } from '../pinning'
+import { canvasSizeOf, clearToolbarPlacement, epicHeaderBand, pinOp, unpinOp, usePlaneToolbar, type PlaceToolbar, type PlaneRect, type ToolbarSize } from '../pinning'
 import { escapeFoldsDoneStack, foldLastDoneStack } from '../sources/epics'
 import { addTagOps, normalizeTag, removeTagOps, selectionTags } from '../tags'
 import { useLayoutOps, type LayoutOps } from '../useLayout'
@@ -231,22 +235,70 @@ export function DeleteSection({ nodes }: SelectionSectionProps) {
 /** The sections of the toolbar, left to right. */
 const SELECTION_SECTIONS: readonly ComponentType<SelectionSectionProps>[] = [PinSection, TagsSection, DeleteSection]
 
+/** Screen pixels between the selection and the toolbar above it. */
+const TOP_OFFSET = 12
+/**
+ * Screen pixels between the selection and the toolbar below it: the Focus button stands 12 px
+ * below the selection and is --row-height (28 px) tall, then a gap of --space-2 (8 px).
+ */
+const BOTTOM_OFFSET = 12 + 28 + 8
+/** The toolbar's size until it is measured: Pin, Add tag and Delete in a row. */
+const DEFAULT_SIZE: ToolbarSize = { width: 200, height: 34 }
+
+/** The header bands of the visible, measured Epic frames, as one string so the selector compares by value. */
+function headerBandsKey(state: ReactFlowState): string {
+  const bands: PlaneRect[] = []
+  for (const node of state.nodeLookup.values()) {
+    if (node.type !== 'epic-frame' || node.hidden === true) continue
+    const width = node.measured.width ?? node.width
+    const height = node.measured.height ?? node.height
+    if (width === undefined || height === undefined) continue
+    const { x, y } = node.internals.positionAbsolute
+    bands.push(epicHeaderBand({ x, y, width, height }))
+  }
+  return JSON.stringify(bands)
+}
+
+/** The toolbar element's size on the screen, followed while it changes (tags added, a refusal shown); DEFAULT_SIZE until measured. */
+function useToolbarSize(): [ToolbarSize, (element: HTMLDivElement | null) => void] {
+  const [size, setSize] = useState<ToolbarSize>(DEFAULT_SIZE)
+  const observer = useRef<ResizeObserver | null>(null)
+  const ref = useCallback((element: HTMLDivElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    const measure = () => {
+      // Layout sizes ignore the toolbar's scale(1 / zoom), which cancels the viewport's zoom: screen pixels.
+      const width = element.offsetWidth
+      const height = element.offsetHeight
+      if (width > 0 && height > 0) setSize((old) => (old.width === width && old.height === height ? old : { width, height }))
+    }
+    observer.current = new ResizeObserver(measure)
+    observer.current.observe(element)
+  }, [])
+  return [size, ref]
+}
+
 export default function SelectionToolbar() {
   const projectId = activeProject(useProjects())?.id
   const selected = useNodes<CanvasFlowNode>().filter((node) => node.selected && !node.hidden)
   useCanvasKeys(projectId)
+  const bandsKey = useStore(headerBandsKey)
+  const bands = useMemo(() => JSON.parse(bandsKey) as PlaneRect[], [bandsKey])
+  const [size, measure] = useToolbarSize()
+  const place = useCallback<PlaceToolbar>((nodes, zoom) => clearToolbarPlacement(nodes, bands, zoom, size, TOP_OFFSET, BOTTOM_OFFSET), [bands, size])
   // Among the Nodes, not over all of them: a pinned Node stays above another Node's toolbar (pinning.ts).
   const style = usePlaneToolbar(
     selected.map((node) => node.id),
-    'top',
-    12,
+    place,
+    TOP_OFFSET,
   )
   if (selected.length === 0 || style === null) return null
   const nodes = selected.map((node) => node.data.node)
   return (
     <ViewportPortal>
       <div style={style} className="react-flow__node-toolbar">
-        <div className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
+        <div ref={measure} className="w-selection-toolbar nodrag nopan nowheel" role="toolbar" aria-label="Selection" data-testid="selection-toolbar">
           {SELECTION_SECTIONS.map((Section, index) => (
             <Section key={Section.displayName ?? Section.name ?? index} nodes={nodes} />
           ))}
