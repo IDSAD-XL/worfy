@@ -12,7 +12,7 @@ Source: слово владельца 2026-10-15 ~06:50: «если законч
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md),
 [0033](../../docs/adr/0033-autopilot-names-wave-tickets.md); Epic
 [worfy-reliability](../worfy-reliability/spec.md) — формат и соглашения.
-Ticket-ы: Epic `worfy-polish`, 12 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-polish`, 13 Ticket-ов (13 добавлен 2026-10-15 днём по слову владельца), нумерация с `01`. Шапка — тот же диалект, что у
 worfy-reliability (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`,
 `ticket` и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -69,6 +69,8 @@ Epic готов, когда:
    (Ticket 11).
 5. Есть отчёт о запросах разрешения Bash, на которых Autopilot терял ход, с предложением правки
    (Ticket 12).
+6. e2e на Mac не забирают фокус и не видны владельцу: окно test-а показывается без активации, без
+   иконки в Dock и пропускает мышь (Ticket 13).
 
 ## Решения владельца
 
@@ -82,6 +84,9 @@ Epic готов, когда:
    iTerm2. Если владелец не согласен, Ticket 02 откатывается одним revert-ом.
 2. **R1 — research.** Правка, скорее всего, в разрешениях Profile-а или Harness — это только по слову
    владельца.
+3. **Тихие окна e2e — Ticket 13.** Слово владельца 2026-10-15 ~13:10, уже не во сне: «А можно сделать
+   как-то так что бы запускаемые тесты не открывали окна на маке и не мешали мне им пользоваться?»,
+   затем «Да, заведи Ticket на тихие окна e2e в worfy-polish, пусть Autopilot возьмёт его следующим».
 
 ## Не в этом Epic-е
 
@@ -151,13 +156,16 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 10 | `src/main/claude-home/search.ts`, `src/main/ipc/claude-home.ts`, `src/shared/ipc/claude-home.ts`, `src/renderer/palette/CommandPalette.tsx`, `test/contract/claude-home-search.test.ts`, `test/unit/palette-transcripts.test.tsx`, `test/contract/claude-home-registry.test.ts` | 1 |
 | 11 | `src/main/ipc/checks.ts`, `src/shared/ipc/checks.ts`, `src/renderer/canvas/badges/use-checks.ts`, `test/contract/github-prs.test.ts`, `test/unit/checks-badges.test.tsx` | 1 |
 | 12 | `docs/research/2026-10-NN-bash-запросы-разрешения-autopilot.md` | 1 |
+| 13 | `src/main/quiet-windows.ts`, `src/main/window.ts`, `src/main/index.ts`, `playwright.config.ts`, `test/unit/quiet-windows.test.ts`, `test/e2e/quiet-windows.spec.ts` | 2 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
 
 - **Wave 1 — 01–05 и 07–12.** Блокеров нет, общих файлов нет. Autopilot берёт из неё 01–05 и 07–11
   порциями (сначала 01–05); 12 ведёт Orchestrator.
-- **Wave 2 — 06.** Общий с 04 файл `test/e2e/helpers.ts`.
+- **Wave 2 — 06 и 13.** 06 — общий с 04 файл `test/e2e/helpers.ts`. 13 добавлен, когда Wave 1 уже шла:
+  блокеров и общих файлов у него нет, он берётся в первую Wave после текущей. `helpers.ts` он не
+  правит (env включается в `playwright.config.ts`), поэтому с 06 не пересекается.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если исполнителю нужен файл вне своего списка (например,
