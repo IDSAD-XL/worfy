@@ -122,10 +122,15 @@ export type ChecksSnapshot = z.infer<typeof checksSnapshotSchema>
  * Ticket of that repository; main refuses any other and adds the branches of the worktrees itself.
  * `gh` runs at most once per interval whatever the call rate, so the renderer may ask often (it
  * asks only while its window is focused).
+ *
+ * `project` is the root of the Project whose Canvas asks. With it, `root` must be that Project's
+ * root or one of its repositories, and its Tickets name the branches — also when `root` is added to
+ * worfy as a Project of its own. Without it (an older caller) main takes the first Project `root`
+ * belongs to, a Project root before a repository.
  */
 export const checksGet = invokeChannel(
   'checks.get',
-  z.object({ root: absolutePath, branches: z.array(branchNameSchema).max(500) }),
+  z.object({ root: absolutePath, branches: z.array(branchNameSchema).max(500), project: absolutePath.optional() }),
   checksSnapshotSchema,
   'project',
 )

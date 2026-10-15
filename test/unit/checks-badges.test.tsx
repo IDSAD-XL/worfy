@@ -36,12 +36,20 @@ let snapshot: ChecksSnapshot
 let snapshotsByRoot: Record<string, ChecksSnapshot>
 /** What checks.repos answers: one repository unless a test says otherwise. */
 let repos: ProjectRepos
+/** What workflow.open and checks.repos answer for a Project root other than ROOT, when a test sets them. */
+let modelsByRoot: Record<string, WorkflowModel>
+let reposByRoot: Record<string, ProjectRepos>
+/** What checks.get answers by the Project that asks, before `snapshotsByRoot`. */
+let snapshotsByProject: Record<string, ChecksSnapshot>
 let checksCalls: unknown[]
 let focused: boolean
 
 beforeEach(() => {
   model = MODEL
   snapshotsByRoot = {}
+  modelsByRoot = {}
+  reposByRoot = {}
+  snapshotsByProject = {}
   repos = { mode: 'full', repos: [{ name: 'demo', path: ROOT }] }
   vi.resetModules()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
@@ -61,11 +69,12 @@ beforeEach(() => {
     invoke: (channel: string, input: unknown) => {
       if (channel === 'checks.get') {
         checksCalls.push(input)
-        const root = (input as { root: string }).root
-        return Promise.resolve({ ok: true, value: snapshotsByRoot[root] ?? snapshot })
+        const { root, project } = input as { root: string; project?: string }
+        return Promise.resolve({ ok: true, value: (project === undefined ? undefined : snapshotsByProject[project]) ?? snapshotsByRoot[root] ?? snapshot })
       }
-      if (channel === 'checks.repos') return Promise.resolve({ ok: true, value: repos })
-      if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: model })
+      const asked = (input as { root?: string } | undefined)?.root ?? ''
+      if (channel === 'checks.repos') return Promise.resolve({ ok: true, value: reposByRoot[asked] ?? repos })
+      if (channel === 'workflow.open') return Promise.resolve({ ok: true, value: modelsByRoot[asked] ?? model })
       if (channel === 'claudeHome.sessions')
         return Promise.resolve({
           ok: true,
@@ -122,7 +131,7 @@ describe('ChecksBadges on a Ticket', () => {
   it('asks about the branches of Tickets in work: the claimed branch, else <epic>/<NN>', async () => {
     const { default: ChecksBadges } = await load()
     render(<ChecksBadges subject={ticketSubject(9)} />)
-    await vi.waitFor(() => expect(checksCalls.at(-1)).toEqual({ root: ROOT, branches: ['demo/07', 'demo/08'] }))
+    await vi.waitFor(() => expect(checksCalls.at(-1)).toEqual({ root: ROOT, branches: ['demo/07', 'demo/08'], project: ROOT }))
   })
 
   it('shows «gh unavailable» on Tickets in work, and nothing on an open Ticket without a worktree', async () => {
@@ -237,6 +246,71 @@ describe('ChecksBadges in a Project over two repositories (worfy-harness ticket 
     render(<ChecksBadges subject={subject(7)} />)
     expect((await screen.findByTestId('checks-pr')).textContent).toBe('PR #97')
     expect(new Set((checksCalls as { root: string }[]).map((each) => each.root))).toEqual(new Set([ROOT]))
+  })
+})
+
+describe('ChecksBadges when a repository of a Project is also a Project of its own', () => {
+  // Project M over the repositories b and c; b is also added to worfy as Project B.
+  const M = '/Users/test/projects/m'
+  const B = '/Users/test/projects/b'
+  const C = '/Users/test/projects/c'
+  const inRepo = (num: number, epic: string, repo: string | null, branch: string): Ticket => ({ ...ticket(num, 'work'), epic, branch, repo })
+  const mTicket = inRepo(5, 'm', 'b', 'fix/x')
+  const bTicket = inRepo(1, 'own', null, 'own/b')
+  const pullOn = (number: number, branch: string): ChecksSnapshot['pulls'][number] => ({ number, url: `https://github.com/o/r/pull/${number}`, state: 'OPEN', branch, ci: 'passing', verdict: null })
+  const snap = (pulls: ChecksSnapshot['pulls']): ChecksSnapshot => ({ root: B, worktrees: [{ path: B, branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls, gh: { available: true, error: null, intervalMs: 60_000 } })
+
+  beforeEach(() => {
+    modelsByRoot = {
+      [M]: { root: M, epics: [{ epic: 'm', hasSpec: true, hasMap: false, title: 'M' }], tickets: [mTicket], error: null, branchErrors: [] },
+      [B]: { root: B, epics: [{ epic: 'own', hasSpec: true, hasMap: false, title: 'B' }], tickets: [bTicket], error: null, branchErrors: [] },
+    }
+    reposByRoot = {
+      [M]: {
+        mode: 'silent',
+        repos: [
+          { name: 'b', path: B },
+          { name: 'c', path: C },
+        ],
+      },
+      [B]: { mode: 'full', repos: [] },
+    }
+    // main answers each Project with its own Tickets' PRs in the same folder.
+    snapshotsByProject = { [M]: snap([pullOn(11, 'fix/x')]), [B]: snap([pullOn(41, 'own/b')]) }
+  })
+
+  it('two Canvases ask about the same folder each with its own Project, and keep their own branches and badges', async () => {
+    const { default: ChecksBadges, POLL_MS } = await load()
+    render(
+      <>
+        <div data-testid="m5">
+          <ChecksBadges subject={{ kind: 'ticket', projectId: 'm', root: M, ticket: mTicket }} />
+        </div>
+        <div data-testid="b1">
+          <ChecksBadges subject={{ kind: 'ticket', projectId: 'b', root: B, ticket: bTicket }} />
+        </div>
+      </>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('m5').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #11'))
+    await vi.waitFor(() => expect(screen.getByTestId('b1').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #41'))
+    await act(async () => await vi.advanceTimersByTimeAsync(POLL_MS * 2))
+    const asked = checksCalls as { root: string; branches: string[]; project?: string }[]
+    expect(asked.every((each) => each.root === B)).toBe(true)
+    expect(new Set(asked.map((each) => each.project))).toEqual(new Set([M, B]))
+    // Each Canvas's list of branches stays its own on every ask, the timer's included.
+    for (const each of asked) expect(each.branches).toEqual(each.project === M ? ['fix/x'] : ['own/b'])
+    expect(asked.filter((each) => each.project === M).length).toBeGreaterThanOrEqual(3)
+    expect(asked.filter((each) => each.project === B).length).toBeGreaterThanOrEqual(3)
+    expect(screen.getByTestId('m5').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #11')
+    expect(screen.getByTestId('b1').querySelector('[data-testid="checks-pr"]')?.textContent).toBe('PR #41')
+  })
+
+  it('sends the Project root as `project` when it asks about the root itself', async () => {
+    const { default: ChecksBadges } = await load()
+    render(<ChecksBadges subject={ticketSubject(8)} />)
+    await screen.findByTestId('checks-pr')
+    expect(checksCalls.length).toBeGreaterThan(0)
+    for (const each of checksCalls as { root: string; project?: string }[]) expect(each).toMatchObject({ root: ROOT, project: ROOT })
   })
 })
 

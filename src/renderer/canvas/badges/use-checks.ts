@@ -6,8 +6,10 @@
 //
 // A Project over several repositories (ADR-0045, `checks.repos`) is asked one repository at a
 // time: a Ticket's badges come from the snapshot of the repository its `Repo:` line names, and a
-// Ticket that names none has no badges. A copy is kept per folder asked, the Project root or a
-// repository; the Ticket branches sent with it are those of that folder's Tickets.
+// Ticket that names none has no badges. A copy is kept per Project and folder asked, the Project
+// root or a repository; the Ticket branches sent with it are those of that folder's Tickets in that
+// Project. The same folder may be a repository of one Project and a Project of its own: each
+// Canvas asks with its own Project (`project` of `checks.get`) and keeps its own copy.
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import {
@@ -27,7 +29,7 @@ import { useWorkflow } from '../../workflow/useWorkflow'
 export const POLL_MS = 10_000
 
 interface ChecksStore {
-  /** By the folder asked: the Project root, or one of its repositories. */
+  /** By Project and folder asked (`keyOf`): the Project root, or one of its repositories. */
   byRoot: Readonly<Record<string, ChecksSnapshot>>
   /** The mode and repositories of each Project root, once `checks.repos` answered. */
   repos: Readonly<Record<string, ProjectRepos>>
@@ -62,7 +64,14 @@ export function useProjectRepos(root: string): ProjectRepos | undefined {
   return useChecksStore((store) => store.repos[root])
 }
 
+/** What a copy of the checks is kept by: the Project that asks and the folder it asks about. */
+const keyOf = (project: string, folder: string): string => JSON.stringify([project, folder])
+
 interface Poller {
+  /** The root of the Project that asks. */
+  project: string
+  /** The folder asked: the Project root or one of its repositories. */
+  folder: string
   users: number
   timer: ReturnType<typeof setInterval>
   inFlight: boolean
@@ -71,12 +80,13 @@ interface Poller {
   onFocus: () => void
 }
 
+/** By `keyOf`. */
 const pollers = new Map<string, Poller>()
-/** Ticket branches in work, by Project, as the badges last computed them. */
-const branchesByRoot = new Map<string, readonly string[]>()
+/** Ticket branches in work, by `keyOf`, as the badges last computed them. */
+const branchesByKey = new Map<string, readonly string[]>()
 
-async function fetchChecks(root: string): Promise<void> {
-  const poller = pollers.get(root)
+async function fetchChecks(key: string): Promise<void> {
+  const poller = pollers.get(key)
   if (!poller) return
   if (poller.inFlight) {
     poller.again = true
@@ -84,47 +94,49 @@ async function fetchChecks(root: string): Promise<void> {
   }
   poller.inFlight = true
   poller.again = false
+  const { project, folder } = poller
   try {
-    const result = await invoke('checks.get', { root, branches: [...(branchesByRoot.get(root) ?? [])] })
-    if (!pollers.has(root)) return
-    if (result.ok) useChecksStore.setState(({ byRoot }) => ({ byRoot: { ...byRoot, [root]: result.value } }))
-    else console.error(`checks.get ${root} failed:`, result.error)
+    const result = await invoke('checks.get', { root: folder, branches: [...(branchesByKey.get(key) ?? [])], project })
+    if (!pollers.has(key)) return
+    if (result.ok) useChecksStore.setState(({ byRoot }) => ({ byRoot: { ...byRoot, [key]: result.value } }))
+    else console.error(`checks.get ${folder} of ${project} failed:`, result.error)
   } finally {
     poller.inFlight = false
   }
-  if (poller.again && pollers.get(root) === poller) await fetchChecks(root)
+  if (poller.again && pollers.get(key) === poller) await fetchChecks(key)
 }
 
 const focused = (): boolean => typeof document !== 'undefined' && document.visibilityState === 'visible' && document.hasFocus()
 
-function acquire(root: string): void {
-  const existing = pollers.get(root)
+function acquire(project: string, folder: string): void {
+  const key = keyOf(project, folder)
+  const existing = pollers.get(key)
   if (existing) {
     existing.users += 1
     return
   }
-  const onFocus = () => void fetchChecks(root)
+  const onFocus = () => void fetchChecks(key)
   const timer = setInterval(() => {
-    if (focused()) void fetchChecks(root)
+    if (focused()) void fetchChecks(key)
   }, POLL_MS)
-  pollers.set(root, { users: 1, timer, inFlight: false, again: false, onFocus })
+  pollers.set(key, { project, folder, users: 1, timer, inFlight: false, again: false, onFocus })
   window.addEventListener('focus', onFocus)
   // Let the first render of the other badges record their branches before the first ask.
-  queueMicrotask(() => void fetchChecks(root))
+  queueMicrotask(() => void fetchChecks(key))
 }
 
-function release(root: string): void {
-  const poller = pollers.get(root)
+function release(key: string): void {
+  const poller = pollers.get(key)
   if (!poller) return
   poller.users -= 1
   if (poller.users > 0) return
   clearInterval(poller.timer)
   window.removeEventListener('focus', poller.onFocus)
-  pollers.delete(root)
-  branchesByRoot.delete(root)
+  pollers.delete(key)
+  branchesByKey.delete(key)
   useChecksStore.setState(({ byRoot }) => {
     const rest = { ...byRoot }
-    delete rest[root]
+    delete rest[key]
     return { byRoot: rest }
   })
 }
@@ -163,23 +175,24 @@ export function branchesInWork(tickets: readonly Ticket[]): string[] {
  */
 export function useChecks(root: string, repo?: ProjectRepoView | null): ChecksSnapshot | undefined {
   const { model } = useWorkflow(root)
-  const key = repo === undefined ? root : repo === null ? null : repo.path
+  const folder = repo === undefined ? root : repo === null ? null : repo.path
+  const key = folder === null ? null : keyOf(root, folder)
   const repoName = repo?.name
   useEffect(() => {
     if (!model || key === null) return
     const tickets = repoName === undefined ? model.tickets : model.tickets.filter((ticket) => ticket.repo === repoName)
     const branches = branchesInWork(tickets)
-    const before = branchesByRoot.get(key)
+    const before = branchesByKey.get(key)
     if (before !== undefined && before.join('\n') === branches.join('\n')) return
-    branchesByRoot.set(key, branches)
+    branchesByKey.set(key, branches)
     // New Tickets in work: ask now rather than at the next focused tick.
     void fetchChecks(key)
   }, [key, repoName, model])
   useEffect(() => {
-    if (key === null) return
-    acquire(key)
+    if (key === null || folder === null) return
+    acquire(root, folder)
     return () => release(key)
-  }, [key])
+  }, [key, root, folder])
   return useChecksStore((store) => (key === null ? undefined : store.byRoot[key]))
 }
 
