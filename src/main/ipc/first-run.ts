@@ -179,6 +179,8 @@ export default [
     if (process.env.WORFY_FIRST_RUN_AUTO === '0') return { show: false, report: null }
     const mark = readMark()
     if (mark === null) return { show: true, report: null }
+    // A failed action counts here only while its row's check does not pass (FirstRunActions.report):
+    // a cause fixed outside worfy does not open the screen.
     const report = remember(await appActions().report())
     const fresh = report.checks.some((check) => check.status === 'fail' && !mark.failing.includes(check.id))
     return { show: fresh, report }
