@@ -212,8 +212,10 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     expect(await cardOfB.evaluate('Object.keys(window.worfy).join()')).toBe('data,ask,workflow')
     await evidence(a.window, 'card-of-linked-machine')
 
-    // A file change of the Card on B reloads the frame in A within a second.
-    await a.window.waitForTimeout(500)
+    // A file change of the Card on B reloads the frame in A within a second. The watch is up once a
+    // first rewrite has reloaded the frame; then the change is timed.
+    await writeFile(join(bData, SHARED, 'cards', 'c1', 'index.html'), cardHtml('Card of B, watched'))
+    await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B, watched')
     const started = Date.now()
     await writeFile(join(bData, SHARED, 'cards', 'c1', 'index.html'), cardHtml('Card of B v2'))
     await expect(a.window.frameLocator('[data-card-id="c1"] iframe').locator('#title')).toHaveText('Card of B v2', { timeout: 1_000 })
@@ -260,6 +262,10 @@ test('A shows the Card of B from B, its own Card as before; a file change on B r
     // Navigating to the own Card of A or to another Card of B: main stops it, the Card stays.
     for (const target of [`${ownOrigin}/index.html`, otherOfB]) {
       await cardOfB.evaluate(navigateScript(target))
+      // A window in which nothing may happen: main refuses in will-frame-navigate and sends nothing
+      // back, so there is no sign to wait for. The own Card of A is served from this machine and
+      // would commit well within 300 ms. Another Card of B comes over the link: about 0.2 s at rest
+      // (FIRST_FRAME_MS), so under load 300 ms may end before a wrong navigation would show.
       await a.window.waitForTimeout(300)
       const frames = a.window.frames().filter((candidate) => candidate.url().startsWith(`${linkedOrigin}/`))
       expect(frames, target).toHaveLength(1)

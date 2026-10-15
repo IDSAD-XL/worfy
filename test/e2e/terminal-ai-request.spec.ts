@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { shellCaughtUp } from './wait'
 
 // Command request of Terminal AI from the ⌘I panel, in a Terminal Node of the built app on a real
 // zsh: ⌘I opens the panel over the screen, Enter asks the assist process, the command of its answer
@@ -117,15 +118,15 @@ test('⌘I opens the panel over the Terminal; Enter puts the command of the answ
     // The answer: the panel is gone, and the line of the shell is the command.
     await expect(panel).toBeHidden({ timeout: 15_000 })
     await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(`${TERMINAL_AI_PROMPT}${answer}`)
-    // Nothing ran: the output of the command is not on the screen.
-    const output = new RegExp(`^${mark} done$`, 'gm')
-    await window.waitForTimeout(500)
-    expect([...(await screenText(node)).matchAll(output)]).toHaveLength(0)
-
     // The model was asked once, for the words of the panel, and it was Sonnet.
     const requests = sandbox.requests()
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({ feature: 'request', model: 'sonnet', cancelled: false, context: { request: words, line: '', cwd: sandbox.root } })
+
+    // Nothing ran: once the shell has read all it was given, the output of the command is not on the screen.
+    const output = new RegExp(`^${mark} done$`, 'gm')
+    await shellCaughtUp(window, node, `${TERMINAL_AI_PROMPT}${answer}`)
+    expect([...(await screenText(node)).matchAll(output)]).toHaveLength(0)
 
     // The focus is back in the terminal: Enter there runs the command, once.
     await window.keyboard.press('Enter')

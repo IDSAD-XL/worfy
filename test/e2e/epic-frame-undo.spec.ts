@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
+import { settled } from './wait'
 
 // ⌘Z and ⇧⌘Z over an Epic frame in the built app (worfy-week ticket 08): dragging a frame by its
 // header and its collapse button are steps of the user's history, like any other gesture on the
@@ -148,8 +149,8 @@ test('⌘Z puts a frame dragged by its header back and leaves the step before it
     await window.keyboard.press('ControlOrMeta+z')
     await expect.poll(() => flowPosition(window, FRAME)).toEqual(before)
     expect(await nodeIn(window, FRAME)).toMatchObject({ x: 0, y: 0 })
-    // Long enough for a wrong second undo to have reached main (LAYOUT_SAVE_DELAY_MS is 250 ms).
-    await window.waitForTimeout(500)
+    // A wrong second undo would have been sent by now: the renderer has caught up with main.
+    await settled(window)
     expect(await nodeIn(window, 'n1')).toMatchObject({ x: noteMoved.x, y: noteMoved.y })
 
     // ⇧⌘Z: the frame goes back to where it was dropped.

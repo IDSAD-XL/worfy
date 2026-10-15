@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
+import { settled } from './wait'
 
 // The Subagent tree of a Session (ticket 15), against the built app:
 // - the Orchestrator on the fake agent (test/fixtures/agent-scripts/subagents.jsonl) starts a
@@ -266,8 +267,8 @@ test('a terminal Session with three Subagents: the tree from its files, REJECTED
     await window.mouse.move(before.x + 40 + 200, before.y + 212, { steps: 8 })
     await window.mouse.up()
     await canvasReady(launched)
-    // Long enough for a save to have gone through main (LAYOUT_SAVE_DELAY_MS is 250 ms).
-    await window.waitForTimeout(500)
+    // A save the drop sent would have reached main by now: the renderer has caught up with it.
+    await settled(window)
     const after = (await reviewer.boundingBox())!
     expect({ x: Math.round(after.x), y: Math.round(after.y) }).toEqual({ x: Math.round(before.x), y: Math.round(before.y) })
     expect(JSON.parse(await layoutNow()) as unknown).toEqual(JSON.parse(savedBefore) as unknown)

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, realpathSync, unlinkSync, writeFil
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { SETTLE_READS_MS } from '../../src/main/docs/watch'
 import { launchApp } from './helpers'
 
@@ -55,14 +55,11 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-/** How long `check` takes to pass, polled on every animation frame of the page. */
-async function msUntil(window: Page, check: () => Promise<boolean>, timeoutMs = 5000): Promise<number> {
+/** How long `check` takes to pass, asked again about once per frame (16 ms). */
+async function msUntil(check: () => Promise<boolean>, timeoutMs = 5000): Promise<number> {
   const start = Date.now()
-  while (Date.now() - start < timeoutMs) {
-    if (await check()) return Date.now() - start
-    await window.waitForTimeout(16)
-  }
-  throw new Error(`not seen within ${timeoutMs} ms`)
+  await expect.poll(check, { intervals: [16], timeout: timeoutMs }).toBe(true)
+  return Date.now() - start
 }
 
 test('the HANDOFF Node renders HANDOFF.md, follows an edit within a second, and the ADR list opens an ADR read-only', async () => {
@@ -85,10 +82,13 @@ test('the HANDOFF Node renders HANDOFF.md, follows an edit within a second, and 
 
     // An edit, as an agent would make it, is on the Node within a second. It is made after the
     // reads main makes when its watcher starts (SETTLE_READS_MS, counted from before the window
-    // showed the Node), so only the file events can bring it.
+    // showed the Node), so only the file events can bring it. A window that only waits: those
+    // reads change nothing on an unchanged file, so nothing shows when they are over. The last one
+    // is due SETTLE_READS_MS after the watcher started, which was before the Node was shown; 200 ms
+    // more covers the read itself.
     await window.waitForTimeout(Math.max(...SETTLE_READS_MS) + 200)
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF.replace('- волна 8', '- волна 8\n- новая строка от агента'))
-    const shownAfter = await msUntil(window, async () => (await node.textContent())?.includes('новая строка от агента') ?? false)
+    const shownAfter = await msUntil(async () => (await node.textContent())?.includes('новая строка от агента') ?? false)
     expect(shownAfter).toBeLessThanOrEqual(1000)
 
     // Sidebar: the ADRs of docs/adr/, by number, with the count; README.md is not one.
