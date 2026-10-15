@@ -2,6 +2,9 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { codeSection } from '../../src/main/workflow/reader'
+import { runWaveState } from '../../src/shared/actions/render-template'
+import { initialCycle, step } from '../../src/shared/autopilot/cycle'
+import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels, waveNumbers } from '../../src/shared/workflow/waves'
 
@@ -250,6 +253,61 @@ describe('ready wave', () => {
   it('has no skipped Tickets when every Ticket not done is open', () => {
     expect(readyWave([ticket(1), ticket(2, blocked(1))]).skipped).toEqual([])
   })
+
+  describe('a blocker done only in its worktree branch, not yet merged', () => {
+    const doneInBranch = (num: number, over: Partial<Ticket> = {}) => ticket(num, { state: 'done', statusRaw: 'done', fromBranch: `e/0${num}`, ...over })
+
+    it('does not close the blocker: the dependant waits for it, as for a blocker not done', () => {
+      const wave = readyWave([doneInBranch(1), ticket(2, blocked(1))])
+      expect(wave.ready).toEqual([])
+      expect(wave.waiting).toEqual([{ num: 2, reason: { kind: 'blockers', blockers: [1] } }])
+    })
+
+    it('closes the same blocker once its done comes from the checkout', () => {
+      const wave = readyWave([doneInBranch(1, { fromBranch: null }), ticket(2, blocked(1))])
+      expect(wave.ready.map((r) => r.num)).toEqual([2])
+      expect(wave.waiting).toEqual([])
+    })
+
+    it('checks every blocker, not only the first one', () => {
+      const wave = readyWave([ticket(1, { state: 'done', statusRaw: 'done' }), doneInBranch(2), ticket(3, blocked(1, 2))])
+      expect(wave.waiting).toEqual([{ num: 3, reason: { kind: 'blockers', blockers: [2] } }])
+    })
+
+    it('holds its files: a Ticket sharing a file waits for it by files', () => {
+      const wave = readyWave([doneInBranch(1, { files: ['src/shared.ts'] }), ticket(2, { files: ['src/shared.ts', 'src/own.ts'] }), ticket(3, { files: ['src/free.ts'] })])
+      expect(wave.ready.map((r) => r.num)).toEqual([3])
+      expect(wave.waiting).toEqual([{ num: 2, reason: { kind: 'files', files: ['src/shared.ts'], heldBy: [1] } }])
+    })
+
+    it('does not hold the files of a Ticket done in the checkout', () => {
+      const wave = readyWave([ticket(1, { state: 'done', statusRaw: 'done', files: ['src/shared.ts'] }), ticket(2, { files: ['src/shared.ts'] })])
+      expect(wave.ready.map((r) => r.num)).toEqual([2])
+      expect(wave.waiting).toEqual([])
+    })
+
+    it('does not list as skipped a blocked Ticket whose only blocker is done in a branch', () => {
+      const wave = readyWave([doneInBranch(1), ticket(2, { ...blocked(1), state: 'blocked', statusRaw: 'blocked' })])
+      expect(wave.skipped).toEqual([])
+    })
+
+    it('reads a Ticket without the fromBranch field as one from the checkout', () => {
+      const one: Omit<Ticket, 'fromBranch'> & { fromBranch?: string | null } = ticket(1, { state: 'done', statusRaw: 'done', files: ['src/shared.ts'] })
+      delete one.fromBranch
+      expect('fromBranch' in one).toBe(false)
+      const wave = readyWave([one, ticket(2, blocked(1)), ticket(3, { files: ['src/shared.ts'] })])
+      expect(wave.ready.map((r) => r.num)).toEqual([2, 3])
+    })
+
+    it('is not named by "Run wave" nor started by Autopilot', () => {
+      const tickets = [doneInBranch(1), ticket(2, blocked(1)), ticket(3)]
+      expect(runWaveState({ epic: 'e', tickets, template: DEFAULT_ACTION_TEMPLATES.runWave, branch: 'main' })).toMatchObject({ enabled: true, tickets: [3] })
+      expect(runWaveState({ epic: 'e', tickets: tickets.slice(0, 2), template: DEFAULT_ACTION_TEMPLATES.runWave, branch: 'main' })).toEqual({ enabled: false, reason: 'No ready wave' })
+      expect(step(initialCycle('e'), { type: 'start', tickets: tickets.slice(0, 2) }).effects).toEqual([{ kind: 'stopped', reason: 'no-ready-wave' }])
+      const merged = [doneInBranch(1, { fromBranch: null }), ticket(2, blocked(1))]
+      expect(step(initialCycle('e'), { type: 'start', tickets: merged }).effects).toEqual([{ kind: 'send-wave' }])
+    })
+  })
 })
 
 describe('wave numbers', () => {
@@ -268,6 +326,18 @@ describe('wave numbers', () => {
   it('leaves a Ticket in work out of the numbering but lets dependants follow it', () => {
     const waves = waveNumbers([ticket(1, { state: 'work', statusRaw: 'claimed' }), ticket(2, blocked(1)), ticket(3)])
     expect(Object.fromEntries(waves)).toEqual({ 3: 1, 2: 2 })
+  })
+
+  it('numbers the dependants of a Ticket done only in a branch after it, as after a Ticket in work', () => {
+    const waves = waveNumbers([
+      ticket(1, { state: 'done', statusRaw: 'done', fromBranch: 'e/01' }),
+      ticket(2, blocked(1)),
+      ticket(3),
+      ticket(4, { files: ['src/t1.ts'] }),
+    ])
+    // 2 waits for the merge of 1, 4 for its file; 1 itself gets no number, like a Ticket in work.
+    expect(Object.fromEntries(waves)).toEqual({ 3: 1, 2: 2, 4: 2 })
+    expect(Object.fromEntries(waveNumbers([ticket(1, { state: 'done', statusRaw: 'done', fromBranch: 'e/01' }), ticket(2, blocked(1))]))).toEqual({ 2: 1 })
   })
 
   it('does not spend a number on a round where only Tickets in work move', () => {
