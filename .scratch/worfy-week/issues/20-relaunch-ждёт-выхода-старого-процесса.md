@@ -2,6 +2,7 @@
 
 Type: task
 Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #345 VERIFIED по Mac, Windows-ПК выключен
+Branch: worfy-week/20
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-week/issues/17-stop-в-autopilot-прерывает-orchestrator.md:214`
 
