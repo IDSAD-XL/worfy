@@ -100,21 +100,21 @@ PowerShell).
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/shortcuts.test.tsx` (новый, jsdom): id записей уникальны; у двух записей одной
+- [x] Unit `test/unit/shortcuts.test.tsx` (новый, jsdom): id записей уникальны; у двух записей одной
   области нет одинаковых клавиш; `label` на Mac и Windows (система — параметр): «⌘K» / «Ctrl+K»,
   «⇧⏎» / «Shift+Enter», «⌥⌘=» / «Ctrl+Alt+=»; `matches` на Mac и Windows; запись с `primary` в
   Terminal Node на Windows не срабатывает; запись только для Mac на Windows не срабатывает и в окне
   не показывается.
-- [ ] Unit `test/unit/shortcuts-overlay.test.tsx` (новый): «?» на Canvas открывает окно, «?» в
+- [x] Unit `test/unit/shortcuts-overlay.test.tsx` (новый): «?» на Canvas открывает окно, «?» в
   `textarea` — нет; группы с заголовками; Esc закрывает окно и до `window` не доходит; Settings →
   Shortcuts показывает те же строки; пункт палитры «Keyboard shortcuts» открывает окно.
-- [ ] Contract `test/contract/view-menu.test.ts`: меню Help есть, с ролью `help`; ускорители
+- [x] Contract `test/contract/view-menu.test.ts`: меню Help есть, с ролью `help`; ускорители
   «Settings…», «Bigger», «Smaller», «Actual size», «Toggle Sidebar», «Keyboard Shortcuts» равны
   реестру; Help ▸ Keyboard Shortcuts с окном шлёт этому окну `menu.command` со значением `shortcuts`.
-- [ ] e2e `test/e2e/shortcuts.spec.ts` (новый): «?» на Canvas открывает окно, Esc закрывает;
+- [x] e2e `test/e2e/shortcuts.spec.ts` (новый): «?» на Canvas открывает окно, Esc закрывает;
   `clickMenuItem` открывает; Settings → Shortcuts показывает список; ⌘K, ⌘F, ⌘↩ работают, как до
   перевода на реестр. Снимки `shortcuts` в светлой и тёмной теме.
-- [ ] grep по файлам «Где в коде» этого Ticket-а: `metaKey` как модификатор сочетания (`event.metaKey
+- [x] grep по файлам «Где в коде» этого Ticket-а: `metaKey` как модификатор сочетания (`event.metaKey
   &&`, `!event.metaKey ||` и подобное) — только в `src/renderer/shortcuts/` и
   `src/renderer/platform.ts`; проверки «без модификаторов» остаются. Подписи с ⌘, ⇧, ⏎, ⌥ в JSX
   этих файлов — только через `label` (комментарии не в счёт).
@@ -164,6 +164,92 @@ PowerShell).
 
 ## Итог
 
-Заполняется при закрытии.
+Заполнено implementer-ом 2026-10-15; gate full на Mac и Windows-ПК, ревью и мерж — у Orchestrator-а.
+
+- **Что сделано.**
+  - Реестр `src/shared/shortcuts.ts`: 26 записей (`SHORTCUTS`, список `SHORTCUT_LIST`), группы Window,
+    Canvas, Focus mode, Find, Session, Terminal; у записи id, английское название, группа, область
+    (`scope`), клавиши без системы (`primary`, `shift`, `alt`, `key`, `also`, `macKey`, `name`),
+    `platforms` (только Mac — ⌘I), `pointer` (⌘ + drag), `shellKeeps` (какие клавиши Terminal Node
+    оставляет оболочке на Windows; у масштаба Canvas — только `_`, как было) и `rendererCatchesOn`.
+    Main берёт оттуда ускорители: `accelerator()` и `menuKeys()`.
+  - `src/renderer/shortcuts/match.ts`: `matches`, `held` (модификатор при перетаскивании), `label`,
+    `ariaKeys`, `availableOn`, `rendererCatches`, общий `isTextTarget` (копии в `SelectionToolbar.tsx`
+    и `FocusEntry.tsx` удалены; строка в `epics.ts` не тронута) и `isInTerminalNode`. Правило Terminal
+    Node одно, в `matches`: запись с `primary` на Windows и Linux внутри `.xterm` не срабатывает,
+    кроме клавиш, которые запись сама отдаёт (`shellKeeps`).
+  - На реестр переведены: палитра ⌘K, поиск ⌘F и подписи полосы поиска (в том числе «(⇧Enter)»,
+    «Next match (Enter)», «Close (Esc)»), вход в режим фокуса ⌘↩ и `aria-keyshortcuts`, история ⌘Z /
+    ⇧⌘Z и Delete/Backspace, масштаб Canvas ⌘= / ⌘−, ⌘ при перетаскивании, глушение масштаба в режиме
+    фокуса и «Exit focus Esc», ⌘I Terminal-а и его подпись в `TerminalAiRequest.tsx`, подписи поля
+    ввода «⇧⏎ new line · ↑↓ history» и «⏎ select», кнопка Hide/Show sidebar (⌘B). Ускорители
+    «Settings…», «Bigger», «Smaller», «Actual size», «Toggle Sidebar» и нового «Keyboard Shortcuts» — из
+    реестра. Проверки «без модификаторов» (`MessageInput.tsx`, `SlashMenu.tsx`, клик по Node в
+    `Canvas.tsx`, `epics.ts`) и колесо не менялись.
+  - Окно `ShortcutsOverlay.tsx` + `shortcuts.css`: портал в `body`, `z-index` = `SETTINGS_LAYER` (110),
+    по группам, у строки название и `<kbd>` своей системы; запись только для Mac на Windows не
+    показывается, пустая группа Terminal — тоже. Открывают: меню Help (роль `help`) ▸ Keyboard
+    Shortcuts (`help.shortcuts`, Cmd/Ctrl+/, `menu.command` `shortcuts`), «?» вне текстового поля и вне
+    Terminal Node, пункт палитры «Keyboard shortcuts» (группа View, рядом с «Settings…»), Settings →
+    Shortcuts (`ShortcutsSection.tsx`, `order` 30). Смонтировано в `AppShell.tsx`.
+  - Модальность окна — `src/renderer/shortcuts/shortcuts-window.ts` (состояние и guard на `window` в
+    фазе capture, добавлен при загрузке модуля, раньше слушателей компонентов): пока окно открыто,
+    ни одна клавиша не доходит до слушателей приложения; Esc закрывает окно (`preventDefault`,
+    `stopImmediatePropagation`) — режим фокуса под ним остаётся; Tab ходит между списком и Close;
+    фокус возвращается туда, где был. Одно модальное окно за раз: при открытом Settings «открыть
+    сочетания» показывает раздел Shortcuts; Settings, открытый поверх, закрывает это окно.
+- **Как падал первый test.** `test/unit/shortcuts.test.tsx` (в нём «label записи палитры на Windows —
+  Ctrl+K») до реестра: `Failed to resolve import "../../src/shared/shortcuts"` — файла реестра не было,
+  Test Files 1 failed, no tests.
+- **Решение по пункту 5** (решено без владельца, подтвердить). По «Итог» worfy-windows 11 ускорители
+  меню не отнимают у страницы нажатие, которое она отменила (Ctrl+-, Ctrl+Z); Electron отдаёт меню
+  только неотменённые нажатия. Значит, всё решает xterm.js 6.0.0, и test с настоящим xterm.js в jsdom
+  это показал (`test/unit/shortcuts.test.tsx`, «xterm.js and the keys of the app menu outside macOS»):
+  - Ctrl+B xterm.js отменяет (шлёт оболочке ^B), с русской раскладкой (`key: 'и'`, `KeyB`) тоже —
+    «Toggle Sidebar» его в Terminal не получает; правка не нужна, ускоритель остаётся везде. Это
+    совпадает с наблюдением на Windows-ПК 2026-10-14 (панель не переключилась).
+  - Ctrl+/ xterm.js не отменяет (у него нет кода для Ctrl+/), и ускоритель меню отнял бы его у
+    Terminal. Поэтому у «Keyboard Shortcuts» на Windows и Linux `registerAccelerator: false` (меню
+    показывает Ctrl+/, но не берёт), а Ctrl+/ ловит renderer по реестру вне Terminal Node. На Mac ⌘/ —
+    обычный ускоритель, работает везде, в том числе в Terminal.
+  - Цена: на Windows Ctrl+/ не откроет окно, пока открыт Settings (его guard останавливает Ctrl-клавиши
+    внутри окна) и пока фокус в странице Card. Вариант «`registerAccelerator: false` для обоих» отвергнут:
+    Ctrl+B перестал бы работать в Settings и в Card, а выигрыша нет — xterm.js и так оставляет Ctrl+B
+    оболочке.
+- **⌘I внёс этот Ticket:** Ticket 06 worfy-terminal-ai уже в main (fcaa18e). Запись `terminalRequest` —
+  только Mac, область terminal, группа Terminal; `TerminalNode.tsx` проверяет её через `matches`,
+  `TerminalAiRequest.tsx` пишет подпись через `label`. Кнопка Fix (Ticket 07) не тронута.
+- **Отступления от текста Ticket-а.**
+  - `src/renderer/shortcuts/shortcuts-window.ts` — новый файл вне «Где в коде»: состояние окна и guard
+    нельзя держать в `ShortcutsOverlay.tsx` (правило ESLint `react-refresh/only-export-components`), а
+    палитре нужен `openShortcuts` без импорта окна — как `settings-window.ts` у Settings.
+  - `src/renderer/session/hints.ts` и `src/renderer/shell/sidebar-visibility.ts` — вне «Где в коде»:
+    подписи «⇧⏎ new line» и «⏎ select» worfy-windows 11 перенёс в `hints.ts`, а кнопку ⌘B Ticket 10
+    сделал в `sidebar-visibility.ts`, не в `Toolbar.tsx`. `MessageInput.tsx`, `SlashMenu.tsx` и
+    `Toolbar.tsx` правки не потребовали.
+  - `test/unit/palette-commands.test.tsx` — вне «Где в коде»: список команд без Project теперь с
+    «shortcuts».
+  - Режим фокуса по-прежнему глушит и Cmd/Ctrl+0 (его ждёт `test/unit/canvas.test.tsx`), хотя
+    сочетания ⌘0 в реестре нет: это не сочетание worfy, оно оставлено одной проверкой в `FocusMode.tsx`.
+  - Клик по фону окна закрывает его (у Settings — нет).
+- **Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (247 файлов, 5239 test-ов); gate
+  fast — «[gate] зелено (fast)», exit 0. e2e под замком `/tmp/worfy-e2e.lock`, с временным HOME:
+  `shortcuts`, `palette-groups`, `focus`, `focus-sidebar`, `settings`, `interface-scale`,
+  `message-input-slash`, `terminal`, `terminal-ai-request`, `terminal-ai-fix`, `snapping`,
+  `trash-undo`, `toolbar` — зелёные (`focus-sidebar` в первом прогоне не дождался окна за 30 с, во
+  втором прошёл). `select.spec.ts` упал на шаге Draft «Add project»: `env: node: No such file or
+  directory` — у приложения с временным HOME нет `node` в PATH; к сочетаниям не относится.
+  `palette-find.spec.ts` не прогонялся (бриф: настоящий HOME владельца).
+- **Mutation testing:** 31 мутант на копиях (ветки `matches`, `label`, `held`, правило Terminal Node,
+  `shellKeeps`, `rendererCatchesOn`, `platforms`, guard окна, «?» в тексте и в Terminal, Help-меню,
+  ⌘0 в режиме фокуса, ⌘I, undo/redo) — 31 убит.
+- **Снимки:** [светлая](../evidence/11-shortcuts-light.png), [тёмная](../evidence/11-shortcuts-dark.png).
+- **Не проверено.**
+  - (вручную) `pnpm dev`, ⌘/ на Canvas, в Session и в режиме фокуса — не проверено: ускоритель меню
+    Playwright не нажимает, а ручную проверку в GUI implementer не делал; пункт меню по id, «?» и
+    подписи с ⌘ проверены e2e, окно поверх режима фокуса — e2e со снимком
+    (`test-results/snapshots/shortcuts-focus-mode/`).
+  - Windows-ПК: gate full и ручные проверки — у владельца / Session на Windows (раздел в PR).
+
 
 Наблюдение до начала работы (Windows-ПК, 2026-10-14, [ответ в PR #297](https://github.com/IDSAD-XL/worfy/pull/297#issuecomment-6158507320)): в Terminal Node при русской раскладке `Ctrl+B` дал shell букву «и» (код клавиши `KeyB`), а не управляющий символ Ctrl+B. Панель при этом не переключилась, как и требует spec. При английской раскладке не проверено.
