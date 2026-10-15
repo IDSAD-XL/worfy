@@ -1,7 +1,7 @@
 # 05 — 32 `waitForTimeout` в e2e: ожидание состояния или обоснованное окно «ничего не случилось»
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски и долги» (нестабильные e2e, ложные
 таймауты под нагрузкой); [docs/lessons/agents.md](../../../docs/lessons/agents.md).
@@ -65,6 +65,7 @@ Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски �
 - `test/e2e/packaged.spec.ts`
 - `test/e2e/session-controls.spec.ts`
 - `test/e2e/epic-frame.spec.ts`
+- `test/e2e/wait.ts` (новый: общие helper-ы ожидания состояния; дописан при claim)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave): `test/e2e/helpers.ts` — если
 нужен общий helper ожидания, он пишется в своём файле `test/e2e/wait.ts` (исполнитель дописывает его в
