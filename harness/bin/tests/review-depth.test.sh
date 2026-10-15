@@ -51,8 +51,13 @@ for fld in wave first_round later_rounds; do
 done
 check "README: the four values" in_text "$rd" '`"low"` \| `"medium"` \| `"high"` \| `"max"` \| null'
 check "README: no review.depth.wave — low depth" in_text "$rd" 'absent or `null` — `low` depth'
-check "README: no review.depth.first_round — high depth" in_text "$rd" 'absent or `null` — `high` depth'
-check "README: no review.depth.later_rounds — medium depth" in_text "$rd" 'absent or `null` — `medium` depth'
+# Without the field the review of a ticket's own diff keeps its old form and cost; the high and medium
+# defaults are for a PR another session wrote only.
+check "README: no review.depth.first_round — a ticket's own review as before, another session's PR high" in_text "$rd" \
+    'absent or `null` — the review of a ticket'"'"'s own diff stays as it was, without a depth (two or three reviewers by `review.ticket_lenses`, the same cost as before), and a PR another session wrote gets `high` depth'
+check "README: no review.depth.later_rounds — a ticket's own repeat review as before, another session's PR medium" in_text "$rd" \
+    'absent or `null` — the repeat review of a ticket'"'"'s own diff stays as it was, and a PR another session wrote gets `medium` depth'
+check "README: no first_round row that makes high the default of every review" lacks "$rd" 'absent or `null` — `high` depth'
 check "README: the skill says it took the default" in_text "$rd" 'the skill says in its report that it took the default'
 check "README: the depth scale is described in ship-ticket step 7" in_text "$rd" 'the scale is described in skill `ship-ticket`, step 7'
 
@@ -130,7 +135,17 @@ check "ship-ticket: the argument" in_text "$st7" '`/worfy:ship-ticket <epic> <NN
 check "ship-ticket: the owner's word is the same argument" in_text "$st7" "The owner's word in a message (\`review #237 — low\`, in any language) is the same argument"
 check "ship-ticket: reads review.depth.first_round" in_text "$st7" '`F review.depth.first_round`'
 check "ship-ticket: reads review.depth.later_rounds" in_text "$st7" '`F review.depth.later_rounds`'
-check "ship-ticket: the defaults, said in words" in_text "$st7" 'No field (exit 4 or `null`) — `high` depth for the first round and `medium` depth for later rounds, and the report says so'
+check "ship-ticket: no field — a ticket's own review stays two or three reviewers by ticket_lenses" in_text "$st7" \
+    "No field (exit 4 or \`null\`) and no argument — the review of the ticket's own diff stays as it was, without a depth: two or three reviewers in parallel, one lens each, by \`F review.ticket_lenses\`"
+check "ship-ticket: no field — the report says so" in_text "$st7" '`Review depth: ticket lenses — default: the profile has no review.depth.first_round`'
+check "ship-ticket: the high and medium defaults are for another session's PR only" in_text "$st7" 'The defaults `high` depth and `medium` depth are only for a PR another session wrote'
+check "ship-ticket: step 7 has no high default for a ticket's own review" lacks "$st7" 'No field (exit 4 or `null`) — `high` depth'
+check "ship-ticket: medium depth names its lenses for a first round" in_text "$st7" 'in a first round, which has no previous report, the first two of `F review.ticket_lenses`'
+check "epic-wave: medium depth names its lens for a first round" in_text "$ew3" '(in a first round, the first of `F review.ticket_lenses`)'
+for f in "$ST" "$EW" "$MR"; do
+    left="$(flat <"$f" | grep -oE 'the `high` (agents|lenses|round)|as `high` [|,]|`high` round' | head -n 2 | tr '\n' ' ')"
+    check "$(basename "$(dirname "$f")"): a depth next to high carries the word depth${left:+ — first: $left}" test -z "$left"
+done
 check "ship-ticket: max only on the owner's request" in_text "$st7" '`max` depth runs only when the owner asks for it'
 check "ship-ticket: the blocking rule" in_text "$st7" "$BLOCK"
 check "ship-ticket: the depth line of the report" in_text "$st7" "$LINE_DEPTH"
@@ -138,7 +153,6 @@ check "ship-ticket: the token line of the report" in_text "$st7" "$LINE_TOKENS"
 check "ship-ticket: the report lines are not the verdict's first line" in_text "$st7" "$NOT_FIRST"
 check "ship-ticket: no count — not measured, not an estimate" in_text "$st7" "$NOT_ESTIMATE"
 check "ship-ticket: the full local check is outside the scale" in_text "$st" 'is outside the depth scale'
-check "ship-ticket: the step no longer fixes two or three reviewers" lacks "$st7" 'Two or three in parallel.'
 
 # --- 4. ship-ticket: the review of a PR another session or person wrote ------------------------------
 check "ship-ticket: the section exists" grep -qx '## Review of a PR another session wrote' "$ST"
@@ -146,6 +160,10 @@ check "ship-ticket: the description names the review of another session's PR" ba
 check "ship-ticket PR review: depth as in step 7" in_text "$stpr" 'The depth of every round is chosen as in step 7'
 check "ship-ticket PR review: documents only — no review agents" in_text "$stpr" 'A PR that changes only documents gets no review agents'
 check "ship-ticket PR review: tests and comments only — medium first round" in_text "$stpr" 'A PR that changes only tests and comments gets `medium` depth in its first round'
+check "ship-ticket PR review: tests and comments only — a lower first_round wins" in_text "$stpr" '(the depth of `F review.depth.first_round`, if that is lower)'
+check "ship-ticket PR review: a PR with code — high depth without the field" in_text "$stpr" 'its first round has the depth of `F review.depth.first_round`, `high` depth without the field'
+check "ship-ticket PR review: later rounds — medium depth without the field" in_text "$stpr" 'Every later round has the depth of `F review.depth.later_rounds`, `medium` depth without the field'
+check "ship-ticket PR review: without the field the PR review always has a depth" in_text "$stpr" 'but without the field the review of such a PR always has a depth'
 check "ship-ticket PR review: any code or script line outside tests is a PR with code" in_text "$stpr" 'A PR that touches any line of code or of a script outside the tests is a PR with code'
 check "ship-ticket PR review: the three-round limit" in_text "$stpr" 'At most three review rounds per PR, unless a `high` finding remains.'
 check "ship-ticket PR review: the limit is not the wave's" in_text "$stpr" 'A wave keeps its own count of rounds (`/worfy:epic-wave`, section 3)'
@@ -170,6 +188,7 @@ check "epic-wave: the depth line of the recorded verdict" in_text "$ew3" "$LINE_
 check "epic-wave: the token line of the recorded verdict" in_text "$ew3" "$LINE_TOKENS"
 check "epic-wave: the report lines are not the verdict's first line" in_text "$ew3" "$NOT_FIRST"
 check "epic-wave: no count — not measured, not an estimate" in_text "$ew3" "$NOT_ESTIMATE"
+check "epic-wave: the report lines close every verdict, VERIFIED and NARROW too" in_text "$ew3" '**The two report lines** close every recorded verdict, `VERIFIED` and `NARROW: …` too'
 check "epic-wave report: the depth and token lines of every ticket" in_text "$ew5" 'for every ticket of the table, the two report lines of its gate (section 3)'
 
 # --- 6. max-review: max depth and the token line ---------------------------------------------------------

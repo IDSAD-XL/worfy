@@ -254,12 +254,12 @@ sceptic (one `worfy:reviewer` agent per finding, tasked with refuting it, as in 
 | Depth | Agents | Lenses | Mutation testing | Refute (sceptic agents) | Cost of a round, subagent tokens |
 |---|---|---|---|---|---|
 | `low` | one reviewer | one: it reads the diff and runs the tests of the change (the first of `F review.ticket_lenses`) | none | none | under 0.5 million (estimate) |
-| `medium` | two reviewers | the items of the previous round's report, and the tables already made (cases with inputs and expected results, from an earlier round or from the implementer) checked against the code | changed lines only | one sceptic per `high` and `med` finding | 1–2 million (estimate); a round without `high` or `med` findings measured 0.47 million |
+| `medium` | two reviewers | the items of the previous round's report, and the tables already made (cases with inputs and expected results, from an earlier round or from the implementer) checked against the code; in a first round, which has no previous report, the first two of `F review.ticket_lenses` | changed lines only | one sceptic per `high` and `med` finding | 1–2 million (estimate); a round without `high` or `med` findings measured 0.47 million |
 | `high` | three or four reviewers | `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what the change is about); one of them builds its own table of cases on the real code and compares the tests of the change with the main branch on this machine's OS (the change may have been written on another OS); a `security` lens | every code line of the change | one sceptic per finding | 5.3–6.4 million (measured 2026-10-12) |
-| `max` | the `high` agents, then those of `/worfy:max-review` | the `high` lenses, then the two lenses of max-review on two models | as `high` | as `high`, then the sceptics of max-review | about 10 million (estimate) |
+| `max` | the agents of `high` depth, then those of `/worfy:max-review` | the lenses of `high` depth, then the two lenses of max-review on two models | as at `high` depth | as at `high` depth, then the sceptics of max-review | about 10 million (estimate) |
 
-`max` depth is `high` depth, then `/worfy:max-review` on the whole branch: the `high` round first,
-then that skill with its own verdict. `max` depth runs only when the owner asks for it, by an
+`max` depth is `high` depth, then `/worfy:max-review` on the whole branch: the round at `high` depth
+first, then that skill with its own verdict. `max` depth runs only when the owner asks for it, by an
 argument, a word in a message or the profile field. The levels of findings stay `high` / `med` /
 `low`; a depth is always written with the word "depth" (`high` depth), so the two scales are not
 mixed up. The project's full local check before a merge of code (`rules.md`) is outside the depth
@@ -271,8 +271,13 @@ scale: it runs at every depth.
    the message asks for.
 2. The profile: the first review round of the change — `F review.depth.first_round`; a repeat
    review after rework — `F review.depth.later_rounds`.
-3. No field (exit 4 or `null`) — `high` depth for the first round and `medium` depth for later
-   rounds, and the report says so: "depth high: the profile has no review.depth.first_round".
+3. No field (exit 4 or `null`) and no argument — the review of the ticket's own diff stays as it
+   was, without a depth: two or three reviewers in parallel, one lens each, by
+   `F review.ticket_lenses` (no field — two or three of `F review.lenses`, by what the change is
+   about), and a repeat review as described below. The report says so:
+   `Review depth: ticket lenses — default: the profile has no review.depth.first_round` (for a
+   repeat review — `review.depth.later_rounds`). The defaults `high` depth and `medium` depth are
+   only for a PR another session wrote (section "Review of a PR another session wrote").
 
 **What blocks.** What blocks a merge, at every depth: a `high` or `med` finding in the code, or a
 gap in the tests that guard a destructive action (a delete, stopping a process, replacing a copy).
@@ -570,8 +575,8 @@ author's branch: rework goes back to the author as the PR comment with the verdi
 The request: `/worfy:ship-ticket review #<N> depth <low|medium|high|max>`, the depth optional; the
 owner's word `review #237 — low` in a message is the same request.
 
-The depth of every round is chosen as in step 7 (argument, then the profile, then the default),
-with these rules for the first round, by what the PR changes
+The depth of every round is chosen as in step 7 (argument, then the profile), but without the
+field the review of such a PR always has a depth, by what the PR changes
 (`gh pr view <N> --json files --jq '.files[].path'`):
 - A PR that changes only documents gets no review agents: its check is the local gate and the CI
   rules of `rules.md`.

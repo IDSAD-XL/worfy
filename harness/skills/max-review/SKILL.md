@@ -33,7 +33,7 @@ contract is `${CLAUDE_PLUGIN_ROOT}/profiles/README.md`.
   know. Whoever writes the ticket sets the mark; nothing sets it from the diff.
 - **As `max` depth** — the `max` depth of skill `/worfy:ship-ticket`, step 7, and of a wave
   (`/worfy:epic-wave`, section 3) is `high` depth first, then this mode on the whole branch. The
-  `high` round gives its verdict as usual; this mode then gives its own, with its prefix.
+  round at `high` depth gives its verdict as usual; this mode then gives its own, with its prefix.
 
 ## 2. Scope and intent
 

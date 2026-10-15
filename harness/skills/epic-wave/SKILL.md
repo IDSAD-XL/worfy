@@ -294,9 +294,9 @@ more agents next to the verifier; they work like it, each in its own worktree
 | Depth | Agents of the gate | Lenses | Mutation testing | Refute (sceptic agents) |
 |---|---|---|---|---|
 | `low` | the verifier `verify-<NN>` | the implementer's report | the verifier's own choice, on copies | none in the gate; sceptics only in the narrow round |
-| `medium` | the verifier and one reviewer | the implementer's report; the items of the previous round and the tables already made | changed lines only | one sceptic per `high` and `med` finding, before the verdict |
+| `medium` | the verifier and one reviewer | the implementer's report; the items of the previous round and the tables already made (in a first round, the first of `F review.ticket_lenses`) | changed lines only | one sceptic per `high` and `med` finding, before the verdict |
 | `high` | the verifier and two or three reviewers | the implementer's report, `F review.ticket_lenses`, its own table of cases on the real code compared with the main branch on this machine's OS, a `security` lens | every code line of the ticket | one sceptic per finding, before the verdict |
-| `max` | the `high` agents, then those of `/worfy:max-review` | the `high` lenses, then those of max-review | as `high` | as `high`, then the sceptics of max-review |
+| `max` | the agents of `high` depth, then those of `/worfy:max-review` | the lenses of `high` depth, then those of max-review | as at `high` depth | as at `high` depth, then the sceptics of max-review |
 
 `max` depth is `high` depth, then `/worfy:max-review` on the ticket's branch before its merge
 (section 4), for every ticket of the wave, not only for one marked `Risk: high`.
