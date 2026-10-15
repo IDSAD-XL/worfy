@@ -68,13 +68,15 @@ Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy
 ## Готово, когда
 
 - [ ] Причины обоих падений названы в «Итог» с доказательством: вывод прогона, в котором test
-      красный до правки.
-- [ ] После правки под той же нагрузкой: `harness-script-wiring.test.ts` и `harness-drift.test.ts` —
+      красный до правки. Timeout — да. ENOTEMPTY — нет: причина не воспроизведена (0 красных), см.
+      «Итог», пункт 2.
+- [x] После правки под той же нагрузкой: `harness-script-wiring.test.ts` и `harness-drift.test.ts` —
       0 красных из N прогонов (N — не меньше числа прогонов до первого красного × 3); вывод в «Итог».
-- [ ] Test на протечку состояния (пункт 2) и его мутант — красный на мутанте.
-- [ ] `testTimeout` в `vitest.config.ts` и пределы в файлах не подняты (или подняты по пункту 5).
+- [x] Test на протечку состояния (пункт 2) и его мутант — красный на мутанте.
+- [x] `testTimeout` в `vitest.config.ts` и пределы в файлах не подняты (или подняты по пункту 5).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+      `[gate] зелено (full)`; Linux CI зелёный. lint, typecheck, test и gate fast — exit 0 у
+      исполнителя; gate full и merge — шаг оркестратора.
 
 ## Тесты
 
@@ -87,6 +89,8 @@ Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy
 
 - `test/contract/harness-script-wiring.test.ts`
 - `test/contract/harness-drift.test.ts`
+- `test/fixtures/harness-stub/answer`, `test/fixtures/harness-stub/gone` — новые, дописаны при работе
+  (общие stub-скрипты Harness вместо копии на каждый test)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave): `src/main/workflow/folder.ts`,
 `src/main/workflow/reader.ts`, `src/main/autopilot/harness-drift.ts`, `src/main/storage/remove.ts`,
@@ -101,7 +105,98 @@ Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy
 
 ## Итог
 
-—
+### 1. Timeout в `harness-script-wiring.test.ts` — причина найдена
+
+**Куда ушли 15 s.** macOS проверяет каждый новый исполняемый файл при первом запуске (процесс
+`XprotectService`; у файла есть `com.apple.provenance`). Проверка идёт по одному файлу на всю машину.
+Test писал свои stub-скрипты `epic-status`, `profile`, `ticket` заново в каждом test-е, и каждый
+первый запуск ждал очереди.
+
+- Без нагрузки, один процесс: первый запуск нового скрипта — 142–278 ms, повторный — 6–8 ms.
+  Hard link и symlink на уже проверенный файл — 3–4 ms; кэш общий для процессов.
+- Очередь общая: 1 процесс — около 145 ms на новый файл, 4 процесса разом — 355–1120 ms,
+  8 процессов — 329–2543 ms. Во время замера `XprotectService` — 26 % CPU.
+- Под нагрузкой (9 процессов `yes`, половина ядер) один файл в цикле не краснеет: 15 из 15 зелёные,
+  test 673–1243 ms. `yes` грузит CPU, а не эту очередь.
+- Красный до правки: два прогона `--project contract` разом под `yes` (как два gate параллельно,
+  load 16.5). Первый же прогон — красный в обоих запусках:
+  `FAIL … what each run of a script gets > the layout cache and the workflow read ask the source on
+  each read — Error: Test timed out in 15000ms.` Шаги этого test-а по замеру (копия test-а с
+  журналом каждого `execFile`):
+
+  ```
+  step cache.get 1 start
+  exec bin/profile 5214ms        (первый запуск нового файла)
+  exec bin/ticket 5315ms         (первый запуск нового файла)
+  step cache.get 1 10530ms
+  step cache.get 3 14ms          (profile 7ms, ticket 7ms — повторные)
+  step readWorkflow start
+  exec bin/profile 6ms, exec bin/ticket 8ms
+  exec bin/epic-status 5507ms    (первый запуск нового файла)
+  step readWorkflow 5524ms       → итого ~16 s, предел 15 s
+  ```
+
+  Остальные test-ы блока в тех же прогонах: 1.5–11.6 s. Тот же шаблон (три первых запуска по
+  2.5–2.6 s) — в одиночном прогоне `--project contract` под `yes`: test 7.8 s, зелёный.
+- **Правка.** Stub-скрипты — два файла в репозитории: `test/fixtures/harness-stub/answer` (пишет в
+  `$CALLS` и отвечает по имени, под которым запущен: `epic-status`, `profile`, `ticket`; путь Workflow
+  folder — из `$WORKFLOW`; код выхода `profile` для test-а watcher-а — из `$PROFILE_EXIT_FILE`) и
+  `gone` (старый Harness, который удаляет себя). Test-ы ставят на них symlink-и, новых исполняемых
+  файлов не пишут. Файл проверяется один раз после checkout, дальше — из кэша.
+- **После правки под той же нагрузкой** (два прогона `--project contract` разом под `yes`, load
+  14.8–16.5), 3 серии, N = 1 × 3: 6 прогонов из 6 — exit 0, 0 красных в обоих файлах.
+  Test «the layout cache…» — 75–90 ms (до правки 7–15 s). Самый долгий test блока — 292 ms (watcher
+  с таймерами повторов). В прогоне до правки, где копия старого файла упала, исправленный файл шёл
+  13–73 ms.
+- `testTimeout` и пределы в файле не подняты.
+
+**Протечка состояния (пункт 2).** Замер её подтвердил: после timeout-а цепочка прерванного test-а
+шла дальше (`exec bin/epic-status 5274ms`, `exec bin/profile 5932ms` — уже после конца test-а, в
+журнале того же процесса). Правка: `scriptRun(root)` даёт каждому test-у свои `claudeHome`, `calls`,
+`asked()` и `source`; `source` замкнут на значения этого вызова, а не на переменные `describe`.
+Test «a run that a test left going logs into that test's calls file, not into the next test's».
+Мутант «`source` читает общую переменную, которую следующий вызов переписывает» — красный: строка
+ушла в файл вызовов следующего (`expect(existsSync(next.calls)).toBe(false)` — `expected true to be
+false`), остальные 21 test зелёные.
+
+### 2. ENOTEMPTY в `harness-drift.test.ts` — причина не воспроизведена
+
+- **Лог CI (PR #348, run 38723033081, попытка 1).** Test «a repository without
+  harness/.claude-plugin/plugin.json, or whose plugin is not worfy: no mark», ошибка в `afterEach`:
+  `ENOTEMPTY, Directory not empty: /tmp/worfy-harness-drift-fJb98K`. Runner — ubuntu-24.04, образ
+  20261012.334, git 2.55.0. В этом test-е `checkHarnessDrift` не запускает git вовсе (оба раза выход
+  на проверке plugin.json) и `loggingGit` не используется. Кандидаты 1 и 3 отпадают.
+- **Кандидат 2 подтверждён как процесс, который переживает test.** `git commit` (2.50.1 на Mac,
+  2.55.0 в контейнере Ubuntu 24.04 с PPA git-core, как на runner-е) запускает
+  `git maintenance run --auto --quiet --detach`. Его foreground-часть берёт
+  `.git/objects/maintenance.lock`, отделившийся процесс живёт после конца `git commit` и сам удаляет
+  lock (strace: lock создан pid 4751, удалён pid 4752 после выхода `git commit`).
+- **Воспроизвести ENOTEMPTY не удалось.** В контейнере (Electron 44.5.1 linux, как в CI): 96 + 128 +
+  64 прогона файла параллельно, в том числе под `yes` на Mac и при 2 CPU у контейнера — 0 красных.
+  На Mac: 10 без нагрузки и 12 под двумя прогонами suite — 0 красных. Shim `LD_PRELOAD`, который
+  задерживает отделившийся maintenance на 300 ms: lock лежит в момент уборки в 10 из 13 уборок
+  прогона, test-ы зелёные. Shim, который удаляет `maintenance.lock` в окне между `openat` и `unlinkat`
+  `rmSync`: Electron удаляет дерево целиком (официальный Node 24.22 на Linux в том же случае молча
+  оставляет дерево). strace прогонов под конкуренцией: после начала уборки никакой другой процесс в
+  папку не пишет. Отделившийся maintenance git 2.55 в этих репозиториях только читает и удаляет
+  свой lock, файлов не создаёт. Чем мог появиться новый файл в CI — не установлено.
+- **Правка (решено без владельца, подтвердить).** Helper `git` test-а идёт с
+  `-c maintenance.auto=false -c gc.auto=0` (как `test/unit/attachments.test.ts` после PR #33): к
+  уборке у test-а не остаётся живых процессов git. С правкой и тем же shim-ом задержки lock в момент
+  уборки не лежит ни разу (3 из 3 прогонов, 0 случаев). Test «a commit starts no background
+  maintenance that would outlive it» проверяет по `GIT_TRACE`, что commit с настройками helper-а не
+  запускает `maintenance`/`gc --auto`; мутант без `maintenance.auto=false` — красный (`run_command:
+  git maintenance run --auto --quiet --detach`). `maxRetries` не добавлен.
+
+### Кандидаты с той же причиной (вне diff)
+
+Исполняемые файлы во время test-ов пишут (chmod `0o755`/`0o700`) и другие contract test-ы:
+`agent-env-recapture`, `e3-owner-check`, `e3-sandbox`, `first-run-checks`, `github-prs`,
+`harness-evals`, `harness-install`, `harness-script-env`, `harness-qmd`, `link-access`, `postinstall`,
+`projects`, `statusline-bridge`, `terminal-ai-zle`, `workflow-reader`, `workflow-profile`, `trash`.
+Самые долгие test-ы в красном прогоне до правки (два suite разом): `harness-qmd` 9.9 s, `docs` 9.9 s,
+`github-prs` 9.8 s, `workflow-reader` 9.0 s, `harness-scripts` 8.5 s, `workflow-profile` 8.5 s. Та ли у
+них причина, не проверено. Если та — лечение то же: общий файл в `test/fixtures/` и ссылки на него. Не в этом Ticket-е.
 
 ### Gate оркестратора (2026-10-15)
 

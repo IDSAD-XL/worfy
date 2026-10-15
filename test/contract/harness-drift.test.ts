@@ -24,8 +24,16 @@ function tempDir(): string {
 
 const gitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
 
+/**
+ * The settings of every git the tests run themselves. Auto maintenance is off: otherwise each
+ * `git commit` starts `git maintenance run --auto --detach`, which outlives the commit, holds
+ * .git/objects/maintenance.lock and removes it on its own time, while afterEach may already be
+ * removing the folder.
+ */
+const GIT_SETTINGS = ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', '-c', 'maintenance.auto=false', '-c', 'gc.auto=0']
+
 function git(cwd: string, ...args: string[]): string {
-  return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', '-c', 'commit.gpgsign=false', ...args], { cwd, env: gitEnv, encoding: 'utf8' }).trim()
+  return execFileSync('git', [...GIT_SETTINGS, ...args], { cwd, env: gitEnv, encoding: 'utf8' }).trim()
 }
 
 function commit(repo: string, path: string, text: string): string {
@@ -63,6 +71,20 @@ function loggingGit(): { path: string; calls: () => string[] } {
   chmodSync(path, 0o755)
   return { path, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
 }
+
+describe('the git of these tests', () => {
+  it('a commit starts no background maintenance that would outlive it', () => {
+    const repo = tempDir()
+    git(repo, 'init', '-q')
+    writeFileSync(join(repo, 'a.md'), 'a\n')
+    git(repo, 'add', '.')
+    // GIT_TRACE lists every process git starts; the helper's own settings, a trace of this commit.
+    const trace = join(tempDir(), 'trace.log')
+    execFileSync('git', [...GIT_SETTINGS, 'commit', '-q', '-m', 'traced'], { cwd: repo, env: { ...gitEnv, GIT_TRACE: trace }, encoding: 'utf8' })
+    const started = readFileSync(trace, 'utf8').split('\n').filter((line) => line.includes('run_command:'))
+    expect(started.filter((line) => /maintenance|gc --auto/.test(line))).toEqual([])
+  })
+})
 
 describe('checkHarnessDrift', () => {
   it('a commit in harness/ after the build commit: the Harness in main is newer, by 1 commit', async () => {
