@@ -137,6 +137,8 @@ async function jerk(window: Page, from: Point, by: Point, button: 'left' | 'midd
   const steps = Math.ceil(Math.hypot(by.x, by.y) / STEP_PX)
   for (let step = 1; step <= steps; step += 1) {
     await window.mouse.move(from.x + (by.x * step) / steps, from.y + (by.y * step) / steps)
+    // Not a wait for anything: the pace of the gesture under test, the one that hung the drag in
+    // the manual check M23. Shorter or longer, it is another gesture.
     await window.waitForTimeout(STEP_MS)
   }
   await window.mouse.up({ button })

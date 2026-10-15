@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
+import { settled } from './wait'
 
 // Focus mode against the built app: selected Nodes fill the window as tiles, presets, dividers
 // and title-bar drags change the tiling, Esc brings the Canvas back with the same viewport, and
@@ -13,9 +14,6 @@ import { launchApp } from './helpers'
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 const ALPHA = 'alpha-0000000a'
-/** Longer than main's save delay (LAYOUT_SAVE_DELAY_MS, 250 ms): a write that was coming has landed. */
-const SAVE_SETTLE_MS = 800
-
 interface LayoutState {
   revision: number
   layout: { nodes: { id: string; data: Record<string, unknown> }[]; viewport: { x: number; y: number; zoom: number } }
@@ -92,7 +90,10 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     const before = await stateOf(window)
     const transformBefore = await viewportTransform(window)
     expect(transformBefore).toContain('translate(30px, 20px)')
-    await window.waitForTimeout(SAVE_SETTLE_MS)
+    // main writes layout.json only after an operation (LAYOUT_SAVE_DELAY_MS after the last one), or
+    // at once when it upgrades the file on the first read. An operation at the start leaves a write
+    // on its way: it lands with the Layout as main has it now.
+    if (before.revision > 0) await expect.poll(() => JSON.parse(readFileSync(layoutFile, 'utf8')) as unknown).toEqual(before.layout)
     const fileBefore = readFileSync(layoutFile, 'utf8')
 
     await select(window, ['n1', 'n2', 'n3'])
@@ -201,11 +202,11 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     await focus.getByRole('button', { name: /^Exit focus/ }).click()
     await expect(focus).toHaveCount(0)
 
-    // Nothing reached main, and nothing was written.
+    // Nothing reached main, and nothing was written: without an operation main has no write to make.
+    await settled(window)
     const after = await stateOf(window)
     expect(after.revision).toBe(before.revision)
     expect(after.layout).toEqual(before.layout)
-    await window.waitForTimeout(SAVE_SETTLE_MS)
     expect(readFileSync(layoutFile, 'utf8')).toBe(fileBefore)
   } finally {
     await launched.close()

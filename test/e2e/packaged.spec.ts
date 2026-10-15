@@ -520,8 +520,10 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
         const call = (channel: string, input: unknown) => window.evaluate(([name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke(name as string, value), [channel, input] as const)
         expect(await call('projects.select', { id: ids.current })).toMatchObject({ ok: true })
         await expect(frame.getByTestId('action-autopilot')).toBeVisible({ timeout: 20_000 })
-        // The comparison answers through autopilot.changed once git has: give it the time the
-        // chip above took, several times over, before saying it is not there.
+        // A window in which nothing may happen: main keeps no "compared" mark apart from "not
+        // behind" (autopilot.state answers null for both), so nothing shows that the comparison of
+        // this clone is over. It answers through autopilot.changed once git has read the clone's refs,
+        // a local read with no fetch; 3 s is many times what that read takes.
         await window.waitForTimeout(3000)
         await expect(chip).toHaveCount(0)
         expect(await call('autopilot.state', { projectId: ids.current })).toMatchObject({ ok: true, value: { harnessBehind: null } })
