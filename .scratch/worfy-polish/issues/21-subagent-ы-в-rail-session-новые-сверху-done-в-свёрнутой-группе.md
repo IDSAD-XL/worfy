@@ -1,7 +1,7 @@
 # 21 — Subagent-ы в правой колонке Session view: новые сверху, `done` — в свёрнутой группе «Done (N)»
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #364](https://github.com/IDSAD-XL/worfy/pull/364)
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В окне Session (у Orchestrator-а) справа
 список subagents. При большом числе он становится огромным. Нужно: subagents со статусом done прятать
@@ -59,8 +59,8 @@ Session view — окно одной Session (переключатель Canvas 
       зелёные без правок их ожиданий.
 - [x] e2e `subagent-tree.spec.ts` зелёный.
 - [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -109,3 +109,12 @@ Rail строит свой список поверх общего дерева (
 [свёрнута, тёмная](../evidence/21-subagents-rail-closed-dark.png),
 [открыта, светлая](../evidence/21-subagents-rail-open-light.png),
 [открыта, тёмная](../evidence/21-subagents-rail-open-dark.png).
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Gate — один круг: `VERIFIED` на head PR ([комментарий в PR #364](https://github.com/IDSAD-XL/worfy/pull/364#issuecomment-6198134740)). Verifier сам: lint и typecheck — 0; `pnpm test` красный только на 15 s timeout-ах в четырёх contract-файлах вне diff, отдельно — 129 passed; `subagent-nodes.test.tsx` — 28 passed (с `SubagentsRail.tsx` из main — 4 failed); пять мутантов красные; `pnpm build` — 0; e2e `subagent-tree.spec.ts` под замком — 6 passed; снимки в обеих темах.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `b9aeff2`.
+- Act on, Consider, Dismissed — нет.
+- Noted: [low] самодельный store состояния «группа открыта» (`SubagentsRail.tsx:61-71`), Canvas для того же использует zustand; [low] третья копия SVG chevron (`SubagentsRail.tsx:73-78`) — общий компонент — отдельный Ticket.
+- Noted (**решено без владельца, подтвердить**): когда все Subagent-ы завершены, видна только строка «Done (N)»; открытое состояние живой Session сбрасывается один раз, когда Claude Code даёт ей id.
