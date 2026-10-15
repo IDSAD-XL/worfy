@@ -6,13 +6,14 @@ import { describe, expect, it } from 'vitest'
 import { NORMAL_WINDOWS, quietWindows } from '../../src/main/quiet-windows'
 
 describe('quietWindows', () => {
-  it('without WORFY_QUIET_WINDOWS keeps the normal start: show(), focus on a second start, no activation policy', () => {
+  it('without WORFY_QUIET_WINDOWS keeps the normal start: show(), focus, system notifications, no activation policy', () => {
     const plan = quietWindows({}, 'darwin')
     expect(plan).toEqual(NORMAL_WINDOWS)
     expect(plan).toEqual({
       quiet: false,
       show: 'show',
-      focusOnSecondInstance: true,
+      takesFocus: true,
+      systemNotifications: true,
       activationPolicy: null,
       chromiumSwitches: [],
       backgroundThrottling: undefined,
@@ -21,11 +22,12 @@ describe('quietWindows', () => {
     })
   })
 
-  it('with WORFY_QUIET_WINDOWS=1 shows the window inactive, transparent, mouse-through and kept painting', () => {
+  it('with WORFY_QUIET_WINDOWS=1 shows the window inactive, transparent, mouse-through and kept painting, without system notifications', () => {
     expect(quietWindows({ WORFY_QUIET_WINDOWS: '1' }, 'darwin')).toEqual({
       quiet: true,
       show: 'showInactive',
-      focusOnSecondInstance: false,
+      takesFocus: false,
+      systemNotifications: false,
       activationPolicy: 'accessory',
       chromiumSwitches: ['disable-backgrounding-occluded-windows', 'disable-renderer-backgrounding'],
       backgroundThrottling: false,

@@ -86,7 +86,7 @@ function start(): void {
     const [window] = BrowserWindow.getAllWindows()
     if (window !== undefined) {
       if (window.isMinimized()) window.restore()
-      if (quiet.focusOnSecondInstance) window.focus()
+      if (quiet.takesFocus) window.focus()
       return
     }
     // No window yet means startup is still on its way to the first one; after it, a start with
