@@ -1,7 +1,7 @@
 # 08 — Файл или картинку можно бросить прямо на Узел Session-а
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U2; «Итог»
 [`worfy-mvp` 20](../../worfy-mvp/issues/20-поле-ввода-slash-и-вложения.md): «Перетаскивание на Узел не
@@ -38,14 +38,16 @@ Source: [spec.md](../spec.md), кандидат U2; «Итог»
 
 ## Готово, когда
 
-- [ ] Unit test: бросок картинки и текстового файла на Узел живой Session-и — два чипа; отправка зовёт
+- [x] Unit test: бросок картинки и текстового файла на Узел живой Session-и — два чипа; отправка зовёт
       `agent.send` с `attachments` из `agent.attach`.
-- [ ] Unit test: Узел внешней Session-и — `agent.attach` не зовётся.
-- [ ] Unit test: файл больше лимита — отказ в строке проблемы, чипа нет, `agent.attach` для него не зовётся.
-- [ ] Test-ы `message-input-attach.test.tsx` зелёные без изменения ожиданий (общий код не поменял поведение).
+- [x] Unit test: Узел внешней Session-и — `agent.attach` не зовётся.
+- [x] Unit test: файл больше лимита — отказ в строке проблемы, чипа нет, `agent.attach` для него не зовётся.
+- [x] Test-ы `message-input-attach.test.tsx` зелёные без изменения ожиданий (общий код не поменял поведение).
 - [ ] (вручную) Stable copy: скриншот из Finder на Узел Session-и → Enter — Claude видит картинку.
+      Не проверено: шаг владельца на Stable copy после влития.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+      `[gate] зелено (full)`; Linux CI зелёный. Lint, typecheck, test и gate fast — exit 0;
+      gate full делает оркестратор перед merge.
 
 ## Тесты
 
@@ -75,4 +77,19 @@ Source: [spec.md](../spec.md), кандидат U2; «Итог»
 
 ## Итог
 
-—
+- Общий код вынесен в `src/renderer/session/attach-files.ts`: `readFiles` (чтение, отказ по размеру
+  до чтения, лишние сверх `MAX_ATTACHMENTS`), `checkFiles` (`agent.attach`), `attachFiles` (оба шага),
+  `takeAttached` (чипы и строка отказов по ответу main). `MessageInput.tsx` зовёт их; разметка
+  чипов вынесена в `AttachmentChips` (там же) и общая с Узлом. Ожидания
+  `message-input-attach.test.tsx` не менялись; добавлены два test-а броска на поле.
+- Узел живой Session-и (`SessionNode.tsx`) принимает файлы: рамка при `dragover` — пунктир и кольцо
+  `--accent`; `drop` — `preventDefault` и `stopPropagation` (Canvas событие не получает); чипы над
+  полем ввода; отправка несёт `attachments`, сообщение только из вложений тоже уходит; при отказе
+  отправки текст и чипы возвращаются. Узел только для чтения и Узел без Session-и: курсор «нельзя»
+  (`dropEffect = 'none'`), ничего не прикрепляется.
+- Решено без владельца, подтвердить: (1) если ни один брошенный файл не прошёл проверку размера,
+  Session не запускается (Resume не делается ради отказа); (2) вторая отправка, пока первая в пути,
+  не уходит — иначе вложения ушли бы дважды; (3) список чипов на Узле — до 64 px высоты, дальше
+  прокрутка.
+- Test-ы: `test/unit/session-node-drop.test.tsx` (15 test-ов), мутанты — 14 из 14 убиты. Снимки обеих тем
+  (рамка при броске, чипы, после отправки на fake agent) — в scratchpad, в репозиторий не кладутся.
