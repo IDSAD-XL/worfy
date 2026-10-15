@@ -70,6 +70,8 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а
 ## Где в коде
 
 - `test/e2e/helpers.ts`
+- `test/e2e/end-app.ts` (новый: выбор, какой процесс убивать; без импорта Playwright, чтобы его грузил vitest)
+- `test/contract/e2e-end-app.test.ts` (новый: contract test этого выбора на настоящих процессах)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave): `playwright.config.ts`,
 `test/e2e/autopilot.spec.ts`, `test/e2e/binding.spec.ts`, `test/e2e/packaged.spec.ts`,

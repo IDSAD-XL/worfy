@@ -1,4 +1,3 @@
-import type { ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
+import { endApp, exited } from './end-app'
 import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -19,6 +19,8 @@ const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
 const FIRST_WINDOW_TIMEOUT_MS = 30_000
 /** How long the app may take to quit. A quit takes well under a second; this bounds a quit that hangs. */
 const QUIT_TIMEOUT_MS = 20_000
+/** How long a kill waits for the app to name its PID (launchApp); an app that answers at all does in milliseconds. */
+const PID_TIMEOUT_MS = 5_000
 
 /**
  * Arguments every test start of the app passes. macOS remembers when Electron (one bundle id,
@@ -68,19 +70,6 @@ function currentTest(): ReturnType<typeof test.info> | undefined {
   } catch {
     return undefined
   }
-}
-
-/** Resolves once the app's main process has exited; at once when it already has. */
-function exited(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve()
-  return new Promise((done) => child.once('exit', () => done()))
-}
-
-/** Ends the app's main process with SIGKILL and waits until it has exited. */
-async function kill(child: ChildProcess): Promise<void> {
-  const gone = exited(child)
-  child.kill('SIGKILL')
-  await gone
 }
 
 const timeout = (ms: number): Promise<'timeout'> => new Promise((done) => setTimeout(() => done('timeout'), ms).unref())
@@ -168,6 +157,11 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
   // Taken now: once Playwright has closed its connection to the app, app.process() throws.
   const child = app.process()
+  // The PID of the app's main process, as the app names it. On Windows `child` is the cmd.exe
+  // Playwright starts Electron through, and the app is its child (end-app.ts). Asked now, while the
+  // app answers; a kill waits for the answer only briefly, since a hung app may never give it.
+  const appPid: Promise<number | undefined> = app.evaluate(() => process.pid).catch(() => undefined)
+  const kill = async (): Promise<void> => endApp(child, await Promise.race([appPid, timeout(PID_TIMEOUT_MS).then(() => undefined)]))
   const tracing = currentTest() !== undefined && (await app.context().tracing.start({ snapshots: true, screenshots: false }).then(() => true, () => false))
   const windowDeadline = Date.now() + FIRST_WINDOW_TIMEOUT_MS
   const windowLeft = (): number => Math.max(1, windowDeadline - Date.now())
@@ -195,7 +189,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       close: async () => {
         await saveArtifacts(app, window, tracing)
         const closed = await Promise.race([app.close().then(() => 'closed' as const), timeout(QUIT_TIMEOUT_MS)])
-        if (closed === 'timeout') await kill(child)
+        if (closed === 'timeout') await kill()
         await exited(child)
         await cleanDirs()
         if (closed === 'closed') return
@@ -206,7 +200,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       },
     }
   } catch (error) {
-    await kill(child)
+    await kill()
     await cleanDirs()
     throw error
   }
