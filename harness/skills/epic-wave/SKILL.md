@@ -719,12 +719,23 @@ last `gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED` is the ticket's verdic
 A `gate: MAX-REVIEW: …` commit is not a gate verdict: it does not restart the gate, and "the last
 `gate: VERIFIED`" above is read past it. A ticket marked `Risk: high` without such a commit gets
 `/worfy:max-review` before its merge (section 4); otherwise the last `gate: MAX-REVIEW: …` commit is
-its verdict. The block prints both (`git log` lists the newest commit first):
+its verdict. The block prints both — Full mode only, where the verdicts are commits (`git log` lists
+the newest commit first):
 
 ```bash
 log=$(git -C <repo> log --format=%s <base>..<branch>)
 echo "GATE=$(grep '^gate: ' <<<"$log" | grep -v '^gate: MAX-REVIEW:' | head -n 1)"
 echo "MAX-REVIEW=$(grep -m1 '^gate: MAX-REVIEW:' <<<"$log")"
+```
+
+In Silent mode the verdicts are the `gate:` lines at the end of the ticket file in the Workflow folder
+(section 3), and the newest line is the last one, so the same rule reads the file from its end
+(`<ticket file>` — the path found as in section 3, `f=$(ls …/<epic>/issues/<NN>-*.md)`):
+
+```bash
+f=<ticket file>
+echo "GATE=$(grep '^gate: ' "$f" | grep -v '^gate: MAX-REVIEW:' | tail -n 1)"
+echo "MAX-REVIEW=$(grep '^gate: MAX-REVIEW:' "$f" | tail -n 1)"
 ```
 
 Then — from section 1: the preflight is idempotent.

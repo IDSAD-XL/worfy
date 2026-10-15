@@ -139,28 +139,54 @@ check "worfy's PR verdict reader sees NARROW: REJECTED (the regex works here)" m
 check "worfy's PR verdict reader does not see MAX-REVIEW: REJECTED" no_match "$re" "$v_rej"
 check "worfy's PR verdict reader does not see MAX-REVIEW: VERIFIED" no_match "$re" 'MAX-REVIEW: VERIFIED'
 
-# --- 11. Behaviour: the resume block of epic-wave on a real branch ------------------------------------------
-# The block is cut out of the How to resume section and run on a repository whose ticket branch has
-# `gate: VERIFIED` and then `gate: MAX-REVIEW: REJECTED: …`.
-blk="$(section "$EW" 'How to resume a wave' | awk '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,"MAX-REVIEW")) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}')"
-check "resume: the block that reads the gate: verdicts is there" test -n "$blk"
+# --- 11. Behaviour: the resume blocks of epic-wave on real verdicts ---------------------------------------
+# Each block is cut out of the How to resume section and run. Full mode: a repository whose ticket branch
+# has two gate verdicts and two `gate: MAX-REVIEW:` commits. Silent mode: a ticket file with the same
+# verdicts as lines at its end. Both must print the last verdict of each kind.
+resume_block() { # $1 = a string that identifies the ```bash block of the How to resume section
+    section "$EW" 'How to resume a wave' \
+        | awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}'
+}
+blk="$(resume_block 'log --format=%s <base>..<branch>')"
+check "resume: the Full mode block that reads the gate: commits is there" test -n "$blk"
+check "resume: the Full mode block is named Full mode only" inr 'The block prints both — Full mode only, where the verdicts are commits'
 G="$T/repo"; mkdir -p "$G"
 git -C "$G" init -q -b main && git -C "$G" commit -q --allow-empty -m base \
     && git -C "$G" switch -q -c e/07 && git -C "$G" commit -q --allow-empty -m work \
     && git -C "$G" commit -q --allow-empty -m 'gate: REJECTED: one' \
+    && git -C "$G" commit -q --allow-empty -m 'gate: MAX-REVIEW: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m 'gate: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m "gate: $v_rej"
 run="${blk//<repo>/$G}"; run="${run//<base>/main}"; run="${run//<branch>/e/07}"
 out="$(bash -c "$run" 2>&1)"
-check "resume block: the gate's last verdict is gate: VERIFIED (got: $(printf '%s' "$out" | head -n 1))" \
+check "resume block (Full): the gate's last verdict is gate: VERIFIED (got: $(printf '%s' "$out" | head -n 1))" \
     test "$(printf '%s\n' "$out" | sed -n 1p)" = 'GATE=gate: VERIFIED'
-check "resume block: the max-review verdict is the MAX-REVIEW: REJECTED commit" \
+check "resume block (Full): the max-review verdict is the last MAX-REVIEW: commit (got: $(printf '%s\n' "$out" | sed -n 2p))" \
     test "$(printf '%s\n' "$out" | sed -n 2p)" = "MAX-REVIEW=gate: $v_rej"
 git -C "$G" switch -q -c e/08 main && git -C "$G" commit -q --allow-empty -m 'gate: VERIFIED'
 run="${blk//<repo>/$G}"; run="${run//<base>/main}"; run="${run//<branch>/e/08}"
 out="$(bash -c "$run" 2>&1)"
-check "resume block: no max-review yet prints an empty MAX-REVIEW= line" \
+check "resume block (Full): no max-review yet prints an empty MAX-REVIEW= line" \
     test "$out" = $'GATE=gate: VERIFIED\nMAX-REVIEW='
+
+sblk="$(resume_block 'f=<ticket file>')"
+check "resume: the Silent mode block that reads the ticket file is there" test -n "$sblk"
+check "resume: the Silent mode block is introduced" \
+    inr 'In Silent mode the verdicts are the `gate:` lines at the end of the ticket file in the Workflow folder'
+TF="$T/workflow/e/issues/07-x.md"; mkdir -p "$(dirname "$TF")"
+printf '%s\n' '# 07 — x' '' 'Status: claimed — 2026-10-15' 'Risk: high' '' '## Итог' '' \
+    'gate: REJECTED: one — 2026-10-14' 'Consider: a finding' 'gate: MAX-REVIEW: VERIFIED — 2026-10-14' '' \
+    'gate: VERIFIED — 2026-10-15' '' "gate: $v_rej — 2026-10-15" >"$TF"
+out="$(bash -c "${sblk//<ticket file>/\"$TF\"}" 2>&1)"
+check "resume block (Silent): the gate's last verdict is the last gate: line (got: $(printf '%s' "$out" | head -n 1))" \
+    test "$(printf '%s\n' "$out" | sed -n 1p)" = 'GATE=gate: VERIFIED — 2026-10-15'
+check "resume block (Silent): the max-review verdict is the last MAX-REVIEW: line (got: $(printf '%s\n' "$out" | sed -n 2p))" \
+    test "$(printf '%s\n' "$out" | sed -n 2p)" = "MAX-REVIEW=gate: $v_rej — 2026-10-15"
+TF2="$T/workflow/e/issues/08-y.md"
+printf '%s\n' '# 08 — y' '' '## Итог' '' 'gate: VERIFIED — 2026-10-15' >"$TF2"
+out="$(bash -c "${sblk//<ticket file>/\"$TF2\"}" 2>&1)"
+check "resume block (Silent): no max-review yet prints an empty MAX-REVIEW= line" \
+    test "$out" = $'GATE=gate: VERIFIED — 2026-10-15\nMAX-REVIEW='
 
 # --- 12. Behaviour: epic-status ignores the Risk: high header line -----------------------------------------
 for d in plain risky; do

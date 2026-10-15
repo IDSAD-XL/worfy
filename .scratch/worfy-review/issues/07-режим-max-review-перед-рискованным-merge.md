@@ -155,7 +155,13 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   a wave» — правило для PR и для `local-green` и блок, который печатает последний вердикт Gate
   (`GATE=`) мимо commit-ов `gate: MAX-REVIEW:` и последний вердикт max-review (`MAX-REVIEW=`). Так
   commit `gate: MAX-REVIEW: …` после `gate: VERIFIED` не запускает Gate заново.
-- **Test** `harness/bin/tests/max-review.test.sh` (72 проверки): текст skill-а и epic-wave, плюс
+- **Круг доработки 1** (Gate PR #330, находка [med]): блок возобновления по `git log` назван «Full
+  mode only»; для Silent mode добавлен второй блок — он читает строки `gate:` в конце файла Ticket-а
+  и берёт последнюю (`tail -n 1`), а не первую. Test запускает оба блока: ветку с двумя вердиктами
+  Gate и двумя commit-ами `gate: MAX-REVIEW:` и файл Ticket-а с теми же строками; ждёт последний
+  вердикт каждого вида. Мутанты на копиях красные: `head` вместо `tail` в каждой строке Silent-блока,
+  Silent-блок без `grep -v`, Silent-блок в форме для `git log`, `tail` вместо `grep -m1` в Full-блоке.
+- **Test** `harness/bin/tests/max-review.test.sh` (после круга доработки — 78 проверок): текст skill-а и epic-wave, плюс
   три поведения на настоящих данных — вердикт с префиксом не попадает в счёт кругов (`jq`
   `startswith("REJECTED")`, `grep '^gate: REJECTED'`) и не подходит под regex `VERDICT` из
   `src/main/github/prs.ts`; блок возобновления из epic-wave, вырезанный из текста, на git-ветке
