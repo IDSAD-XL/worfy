@@ -74,7 +74,7 @@ async function shoot(window: Page, composer: Locator, state: string): Promise<vo
   }
 }
 
-test('the context meter shows the share of the autocompact window after each turn, and "no data" without one', async () => {
+test('the context meter shows the share of the autocompact threshold after each turn, and "no data" without one', async () => {
   const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'context-meter' } })
   try {
     const { window } = app
