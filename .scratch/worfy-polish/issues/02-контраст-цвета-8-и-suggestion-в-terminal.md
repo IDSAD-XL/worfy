@@ -1,7 +1,7 @@
 # 02 — Цвет 8 Terminal-а и серый Suggestion Terminal AI: контраст ≥ 4,5:1 в обеих темах
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #347](https://github.com/IDSAD-XL/worfy/pull/347)
 Branch: worfy-polish/02
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Итог»
@@ -38,7 +38,7 @@ Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Ито
 - [x] e2e `terminal-ai-suggest` зелёный; снимок Suggestion в светлой и тёмной теме — в «Итог».
 - [ ] (вручную; не проверено: шаг владельца на Stable copy после влития) Stable copy: `ls --color` и `git log --oneline --decorate` в Terminal-е — цвет 8 читается
       в обеих темах.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -116,3 +116,12 @@ e2e `test/e2e/terminal-ai-suggest.spec.ts` на собранном прилож�
 
 Откат: если владелец решит иначе (spec, решение 1), revert squash-коммита этого PR возвращает цвет 8
 xterm.js по умолчанию.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `8e52f35` ([комментарий в PR #347](https://github.com/IDSAD-XL/worfy/pull/347#issuecomment-6188442382)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0, 5247 test-ов; test-ы Ticket-а — 62; `terminal-ai-suggest.spec.ts` под e2e-замком; мутанты (без `brightBlack`, тёмный `--terminal-dim` = цвет текста, светлый `#707075`) — все красные; контраст пересчитан: 5,16:1 и 6,75:1 к фону; живая смена темы перекрашивает тот же Terminal.
+- Мерж: два gate full красные не из-за diff — сначала timeout-ы в `test` (в т.ч. `harness-script-wiring`) и e2e производительности `epic-frame.spec.ts` (интерактивность ≤3 s), затем e2e `harness-install.spec.ts:137`, `:180` (диалог не показан за 5 s); load average за 15 мин до 23. Третья попытка: база `be68c08`, head `0c1481b`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `e342f02`.
+- Act on, Dismissed — нет.
+- Consider ([low]): `test/unit/terminal-theme.test.tsx:13` — `/// <reference types="node" />` даёт типы Node всему проекту `tsconfig.test.web.json`; комментарий `test/unit/glob-probe.tsx:15-18` («without Node's types») стал ложным. Граница renderer-а держится (`tsconfig.web.json`). Правка — читать `tokens.css` обходом из `glob-probe.tsx`.
+- Noted (**решено без владельца, подтвердить**): тёмный `--terminal-dim` — `#9C968D` (тёмный `--text-muted`); `#8E8E93` Ticket даёт лишь примером.

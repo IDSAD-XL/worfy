@@ -1,7 +1,7 @@
 # 09 — Неотмеченные ручные проверки «(вручную)» всех Ticket-ов — в палитре
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #353](https://github.com/IDSAD-XL/worfy/pull/353)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U12; `HANDOFF.md`, «Дальше»: «Ручные проверки на Stable copy
 одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, … Шаги — пункты
@@ -42,7 +42,7 @@ Source: [spec.md](../spec.md), кандидат U12; `HANDOFF.md`, «Дальш�
       выбор зовёт `focusCanvasNode` с id Node-а Ticket-а.
 - [x] На настоящем `.scratch/` worfy (временная копия, только чтение) число неотмеченных проверок в
       модели совпадает с `grep -h -- "- \[ \] (вручную)" .scratch/*/issues/*.md | wc -l`; числа — в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -113,3 +113,12 @@ Source: [spec.md](../spec.md), кандидат U12; `HANDOFF.md`, «Дальш�
 - Mutation testing: «брать `(вручную)` из любого раздела», «терять продолжение строки», «показывать
   отмеченные», «не убирать строки при пустом поле», «reader не заполняет поле», «терять пометку» —
   каждый мутант краснит свой test.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `a649b61` ([комментарий в PR #353](https://github.com/IDSAD-XL/worfy/pull/353#issuecomment-6189598415)). След расширен оркестратором на `src/renderer/palette/CommandPalette.tsx` (фильтр `forQuery` до ранжирования): запрос виден только там; обход через порядок команд и предел в 50 строк ломается на маленьком Project-е. Verifier сам: gate fast — код 0, не из кэша; пересчёт на `.scratch`: 247 Ticket-ов, 86 неотмеченных, 23 отмеченных; разбор — ~4,8 ms на чтение; дельта и watcher поле не теряют; снимок Card API формы не меняет; четыре мутанта — все красные; снимки в обеих темах.
+- Мерж: база `cf8ebec`, head `e3c9766`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `4c21410`.
+- Act on, Dismissed — нет.
+- Consider ([low]): `src/renderer/palette/CommandPalette.tsx:96` — `maxWidth: '60%'` обрезает 85 из 86 настоящих проверок, подсказки нет.
+- Noted (**решено без владельца, подтвердить**): `(вручную, <пометка>)` тоже считается проверкой — 86 в модели против 74 строгого grep; `manualChecks` — `.optional()` без `.default([])`.
