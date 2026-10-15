@@ -124,4 +124,4 @@ xterm.js по умолчанию.
 - Мерж: два gate full красные не из-за diff — сначала timeout-ы в `test` (в т.ч. `harness-script-wiring`) и e2e производительности `epic-frame.spec.ts` (интерактивность ≤3 s), затем e2e `harness-install.spec.ts:137`, `:180` (диалог не показан за 5 s); load average за 15 мин до 23. Третья попытка: база `be68c08`, head `0c1481b`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `e342f02`.
 - Act on, Dismissed — нет.
 - Consider ([low]): `test/unit/terminal-theme.test.tsx:13` — `/// <reference types="node" />` даёт типы Node всему проекту `tsconfig.test.web.json`; комментарий `test/unit/glob-probe.tsx:15-18` («without Node's types») стал ложным. Граница renderer-а держится (`tsconfig.web.json`). Правка — читать `tokens.css` обходом из `glob-probe.tsx`.
-- Noted (**решено без владельца, подтвердить**): тёмный `--terminal-dim` — `#9C968D` (тёмный `--text-muted`); `#8E8E93` Ticket даёт лишь примером.
+- Noted (**подтверждено владельцем 2026-10-15**): тёмный `--terminal-dim` — `#9C968D` (тёмный `--text-muted`); `#8E8E93` Ticket даёт лишь примером.

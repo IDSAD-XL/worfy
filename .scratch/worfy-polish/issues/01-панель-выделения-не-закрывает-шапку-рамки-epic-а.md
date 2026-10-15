@@ -69,7 +69,7 @@ Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 1
   `[y, y + min(TICKETS_TOP, высота рамки))`). `SelectionToolbar.tsx` собирает полосы из Node-ов
   `epic-frame` хранилища React Flow и меряет панель через `ResizeObserver` (до замера — 200 × 34 px).
   `usePlaneToolbar()` принимает вместо стороны функцию выбора; `FocusEntry.tsx` зовёт его как раньше.
-- **Отступ снизу — не 12 px, а 48 px** (решено без владельца, подтвердить). Под выделением на
+- **Отступ снизу — не 12 px, а 48 px** (владелец 2026-10-15: остаётся до Ticket-а 14, панель ставится туда, где ничего не закрывает). Под выделением на
   12 px уже стоит кнопка Focus (`FocusEntry.tsx`, высота `--row-height` 28 px): на 12 px панель легла бы
   на неё. Панель встаёт под кнопку Focus с зазором 8 px. Цена: снизу панель закрывает верх
   Ticket-а следующего ряда (видно на снимке), как сверху раньше закрывала шапку.
@@ -87,5 +87,5 @@ Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 1
 - Гейт — один круг: `VERIFIED` на `bbe28ab` ([комментарий в PR #348](https://github.com/IDSAD-XL/worfy/pull/348#issuecomment-6188875639)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (gate fast из кэша); `pinning.test.tsx` — 34; под e2e-замком `selection-toolbar-frame`, `pin-tags`, `focus` — 12 passed; на базе `12b46d8` новый spec красный («the toolbar covers the frame header»); пять мутантов `pinning.ts` — все красные; снимки в обеих темах.
 - Мерж: первая попытка — база `be68c08`, head `d5adebf`, gate full зелёный, но CI красный в `test/contract/harness-drift.test.ts` (уборка временной папки, ENOTEMPTY; вне diff); job перезапущен и зелёный, но main ушёл. Вторая: база `9e2a208`, head `7531042`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `d494f60`.
 - Act on, Dismissed — нет.
-- Consider ([low], **решено без владельца, подтвердить**): отступ снизу 48 px вместо 12 px Ticket-а. Над Ticket-ом верхнего ряда панель встаёт под кнопку Focus и закрывает заголовок Ticket-а следующего ряда и «no blockers», при zoom 0,6 — и его кнопку «Ship ticket». С 12 px панель легла бы на Focus (`FocusEntry.tsx:102`), нижний ряд закрыт и так; прежде закрывались подписи колонок и низ шапки.
+- Consider ([low], **владелец 2026-10-15: остаётся до Ticket-а 14, панель ставится туда, где ничего не закрывает**): отступ снизу 48 px вместо 12 px Ticket-а. Над Ticket-ом верхнего ряда панель встаёт под кнопку Focus и закрывает заголовок Ticket-а следующего ряда и «no blockers», при zoom 0,6 — и его кнопку «Ship ticket». С 12 px панель легла бы на Focus (`FocusEntry.tsx:102`), нижний ряд закрыт и так; прежде закрывались подписи колонок и низ шапки.
 - Noted ([low]): `src/renderer/canvas/overlays/FocusEntry.tsx:100` — комментарий «the selection toolbar … holds the top» теперь верен не всегда.
