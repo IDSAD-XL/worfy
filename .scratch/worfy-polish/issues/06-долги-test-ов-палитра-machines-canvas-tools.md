@@ -1,7 +1,7 @@
 # 06 — Долги [low] test-ов: предел строк палитры, `expandMachines`, старые fixture-ы `canvas-tools`
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R11; «Итог»
 [`worfy-ui` 07](../../worfy-ui/issues/07-группы-в-палитре.md) (долг [low] про `SHOWN`),
@@ -40,12 +40,12 @@ Source: [spec.md](../spec.md), кандидат R11; «Итог»
 
 ## Готово, когда
 
-- [ ] Test предела палитры зелёный; с порядком «группировать, потом резать» — красный.
-- [ ] `expandMachines` и `collapseMachines` без чтения атрибута один раз; e2e `sidebar-sections` зелёный.
-- [ ] В `canvas-tools.test.ts` нет fixture-ов с `offset:*` и смещением Subagent-а, кроме test-а на их
+- [x] Test предела палитры зелёный; с порядком «группировать, потом резать» — красный.
+- [x] `expandMachines` и `collapseMachines` без чтения атрибута один раз; e2e `sidebar-sections` зелёный.
+- [x] В `canvas-tools.test.ts` нет fixture-ов с `offset:*` и смещением Subagent-а, кроме test-а на их
       снятие; комментарии описывают нынешнее поведение.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (сделано); gate full — exit 0 и строка
+      `[gate] зелено (full)` (не проверено: делает оркестратор перед merge); Linux CI зелёный (см. PR).
 
 ## Тесты
 
@@ -72,4 +72,43 @@ Source: [spec.md](../spec.md), кандидат R11; «Итог»
 
 ## Итог
 
-—
+Код приложения не менялся; правки только в трёх файлах test-ов.
+
+**1. Предел строк палитры.** Новый test в `test/unit/palette-groups.test.tsx` («shows 50 rows at most,
+cut by rank before grouping…»): 60 команд на запрос `deploy`. В группе Go to — лучшая строка
+(`Deploy`, точный префикс) и ещё 54 строки, где `deploy` — слово внутри названия; в группе Action —
+5 строк с префиксом `Deploy now N`, второй ранг, построены последними. Ожидание: ровно 50 строк, среди
+них `Deploy` и все 5 строк Action, группы Go to (45 строк) и Action, отрезаны последние 10 строк Go to.
+Исходные данные ticket-а («55 одной группы и 5 другой с лучшим рангом») мутанта не ловят: группа
+стоит там, где её лучшая строка, и если лучший ранг у маленькой группы, она идёт первой при любом
+порядке резки. Поэтому лучшая строка вообще — в большой группе (решено без владельца, подтвердить).
+
+Мутант «группировать, потом резать» — в `CommandPalette.tsx` строка `const groups = …` заменена на
+`groupRows(rankItems(…без предела…))` с резкой групп по очереди до 50 строк (на копии, восстановлено,
+`cmp` совпал): `node scripts/vitest-electron.mjs run test/unit/palette-groups.test.tsx` — exit 1,
+`Tests 1 failed | 135 passed (136)`, упал только новый test (`AssertionError: expected [ 'go:best',
+'go:1', 'go:2', …(47) ] to deeply equal ArrayContaining{…}`). Без нового test-а все остальные
+зелёные и с мутантом — это те же 135 passed. На настоящем коде — exit 0, 136 passed.
+
+**2. `expandMachines` / `collapseMachines`** (`test/e2e/helpers.ts`) — общая функция
+`setMachinesExpanded`. Раздел показывает своё значение по умолчанию (свёрнут), пока окно не получило
+настройки приложения из main. Функция сначала спрашивает main (`appSettings.get`), что сохранено для
+раздела (`sidebar.collapsed[<data-section-id>]`), и ждёт, пока `aria-expanded` заголовка покажет это
+значение; если ничего не сохранено, приход настроек значение не меняет. Только после этого она
+читает атрибут и решает, кликать ли. Пауз на время нет. Выбран первый вариант ticket-а (дождаться
+загрузки), а не «кликать до нужного значения»: повторные клики не закрывают случай, когда атрибут уже
+равен нужному, а настройки приходят позже и меняют его (решено без владельца, подтвердить).
+e2e под замком: `playwright test test/e2e/sidebar-sections.spec.ts test/e2e/linked-machines.spec.ts`
+— exit 0, 12 passed. Других spec-ов, которые зовут эти функции, нет (`grep -rl` по `test/e2e`).
+Мутант «клик без ожидания загрузки» — это прежний код; e2e на нём не краснел детерминированно
+(main был зелёным), гонку test-ом не воспроизвести.
+
+**3. Fixture-ы `test/contract/canvas-tools.test.ts`.** У Node-а `epic-frame` убран ключ `offset:3`,
+остался `collapsed: true`; комментарий описывает Node по ADR-0037 (x/y — смещение рамки, `collapsed`).
+У Node-а `subagent-tree` убрано `offset:toolu_1` (`data: {}`); сам Node остался: canvas tools по-прежнему
+отказывают Node-у этого вида (`src/main/mcp/canvas-server.ts`), и test проверяет именно это.
+Комментарий: такой Node писали старые версии, main снимает его при чтении `layout.json`, здесь он
+положен прямо в store как случайно оставшийся. Test-а на снятие старых ключей в этом файле нет —
+снятие при чтении `layout.json` проверяет `test/contract/layout-store.test.ts`. `grep -n "offset:"` по файлу — пусто.
+
+Проверка: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (253 файла passed, 6 skipped).
