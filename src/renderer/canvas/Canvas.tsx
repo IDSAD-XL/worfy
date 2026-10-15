@@ -51,8 +51,10 @@ import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { invoke, windowMachine } from '../ipc'
-import { isMac, isPrimary, isTerminalKey } from '../platform'
+import { isMac } from '../platform'
+import { held, matches } from '../shortcuts/match'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
@@ -374,7 +376,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   const onNodeDrag: OnNodeDrag<CanvasFlowNode> = useCallback(
     (event, node, dragged) => {
-      const plan = planFor(node, dragged, isPrimary(event))
+      const plan = planFor(node, dragged, held(event, SHORTCUTS.dragFree))
       if (plan === undefined) return
       showSnapGuides(plan)
       if (dragged.every((each) => !plan.snapped.has(each.id) || (plan.snapped.get(each.id)!.x === each.position.x && plan.snapped.get(each.id)!.y === each.position.y))) return
@@ -385,7 +387,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   const onNodeDragStop: OnNodeDrag<CanvasFlowNode> = useCallback(
     (event, lead, released) => {
-      const plan = planFor(lead, released, isPrimary(event))
+      const plan = planFor(lead, released, held(event, SHORTCUTS.dragFree))
       dragScene.current = null
       clearSnapGuides()
       // Every dropped Node at its landing place: the place the outline showed.
@@ -434,17 +436,12 @@ function Flow({ projectId, state, opening }: FlowProps) {
   // ⌘= / ⌘− zoom, while the Canvas view is the one on screen (the Session view hides it).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey) return
-      // On Windows Ctrl+_ in a Terminal Node is the shell's undo (readline), not a zoom.
-      if (event.key === '_' && isTerminalKey(event)) return
+      // On Windows Ctrl+_ in a Terminal Node is the shell's undo (readline), not a zoom (`shellKeeps`).
+      const zoomIn = matches(event, SHORTCUTS.canvasZoomIn)
+      if (!zoomIn && !matches(event, SHORTCUTS.canvasZoomOut)) return
       if (wrapper.current === null || wrapper.current.offsetParent === null) return
-      if (event.key === '=' || event.key === '+') {
-        event.preventDefault()
-        void flow.zoomIn()
-      } else if (event.key === '-' || event.key === '_') {
-        event.preventDefault()
-        void flow.zoomOut()
-      }
+      event.preventDefault()
+      void (zoomIn ? flow.zoomIn() : flow.zoomOut())
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

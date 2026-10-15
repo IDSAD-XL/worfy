@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 import './TerminalNode.css'
 import { invoke, subscribe } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { matches } from '../../shortcuts/match'
 import type { CanvasNodeProps } from './index'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
@@ -14,6 +15,7 @@ import TerminalAiRequest from './TerminalAiRequest'
 import { failureReason } from '../../../shared/ipc/channels'
 import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
+import { SHORTCUTS } from '../../../shared/shortcuts'
 
 // A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
@@ -78,13 +80,12 @@ function themeOf(element: Element): ITheme {
 const REQUEST_UNAVAILABLE: TerminalAiRequestState = { available: false, busy: false }
 
 /**
- * True for the key that opens the Command request panel: ⌘ (metaKey, as the other shortcuts of the
- * renderer) and I, without Ctrl, Alt and Shift, in a Terminal where the panel is available. Ctrl+I
- * is never it: in a terminal that is Tab. The physical key I, so another keyboard layout opens it too.
+ * True for the key that opens the Command request panel, in a Terminal where the panel is
+ * available: ⌘I of the registry, without Ctrl, Alt and Shift, an entry of macOS alone. Ctrl+I is
+ * never it: in a terminal that is Tab. A layout that is not Latin opens it by the place of the key I.
  */
 function opensRequestPanel(event: KeyboardEvent, available: boolean): boolean {
-  if (!available || !event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false
-  return event.code === 'KeyI' || event.key === 'i'
+  return available && matches(event, SHORTCUTS.terminalRequest)
 }
 
 /**

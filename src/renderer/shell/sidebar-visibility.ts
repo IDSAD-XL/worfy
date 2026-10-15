@@ -12,14 +12,12 @@ import { create } from 'zustand'
 import type { WorfyBridge } from '../../shared/ipc/channels'
 import { focusModeActive, useFocusState } from '../focus/focus-state'
 import { subscribe } from '../ipc'
-import { ariaKeyShortcuts, label, type KeyCombo } from '../platform'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
+import { ariaKeys, label } from '../shortcuts/match'
 
 /** Which of the two saved answers counts: the one of focus mode while it is on screen. */
 export type SidebarMode = 'normal' | 'focus'
-
-/** ⌘B on macOS, Ctrl+B elsewhere: the accelerator of View ▸ Toggle Sidebar (src/main/menu.ts). */
-export const SIDEBAR_KEYS: KeyCombo = { primary: true, key: 'B' }
 
 /**
  * What the last switch asked for, per mode, while its write is on its way to main or was refused;
@@ -104,8 +102,9 @@ export function SidebarToggle({ visible, onToggle, className }: SidebarTogglePro
       className,
       'aria-label': name,
       'aria-pressed': visible,
-      'aria-keyshortcuts': ariaKeyShortcuts(SIDEBAR_KEYS),
-      title: `${name} (${label(SIDEBAR_KEYS)})`,
+      // ⌘B on macOS, Ctrl+B elsewhere: the accelerator of View ▸ Toggle Sidebar (src/main/menu.ts).
+      'aria-keyshortcuts': ariaKeys(SHORTCUTS.toggleSidebar),
+      title: `${name} (${label(SHORTCUTS.toggleSidebar)})`,
       'data-sidebar-toggle': '',
       onClick: onToggle,
     },

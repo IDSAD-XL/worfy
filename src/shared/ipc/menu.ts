@@ -6,9 +6,10 @@ import { eventChannel } from './channels'
 
 /**
  * What a menu item asks the window for. `settings` opens the Settings window; `toggleSidebar` hides
- * or shows the sidebar in what the window shows now, the normal view or focus mode.
+ * or shows the sidebar in what the window shows now, the normal view or focus mode; `shortcuts`
+ * opens the Keyboard shortcuts window (Help ▸ Keyboard Shortcuts).
  */
-export const MENU_COMMANDS = ['settings', 'toggleSidebar'] as const
+export const MENU_COMMANDS = ['settings', 'toggleSidebar', 'shortcuts'] as const
 export const menuCommandSchema = z.enum(MENU_COMMANDS)
 export type MenuCommand = z.output<typeof menuCommandSchema>
 

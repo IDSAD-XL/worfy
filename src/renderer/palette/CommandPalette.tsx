@@ -8,24 +8,22 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSPrope
 import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
 import type { ProjectView } from '../../shared/ipc/projects'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
-import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
+import { label, matches } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { buildCommands, type CommandGate, type PaletteCommand } from './commands'
 import { groupRows } from './groups'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
-
-/** ⌘K on macOS, Ctrl+K on Windows. */
-const PALETTE_KEYS: KeyCombo = { primary: true, key: 'K' }
 
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
@@ -372,9 +370,8 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey || event.shiftKey || shortcutKey(event) !== 'k') return
-      // On Windows Ctrl+K in a Terminal Node is the shell's (worfy-windows ticket 11).
-      if (isTerminalKey(event)) return
+      // ⌘K on macOS, Ctrl+K elsewhere; on Windows Ctrl+K in a Terminal Node is the shell's (match.ts).
+      if (!matches(event, SHORTCUTS.palette)) return
       event.preventDefault()
       setOpen(true)
     }
@@ -398,7 +395,7 @@ export function CommandPalette() {
       >
         <SearchIcon />
         <span className="w-toolbar__palette-text">Search or run…</span>
-        <kbd className="w-mono">{label(PALETTE_KEYS)}</kbd>
+        <kbd className="w-mono">{label(SHORTCUTS.palette)}</kbd>
       </button>
       {open ? (
         project ? (

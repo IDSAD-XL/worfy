@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { invoke } from '../../ipc'
+import { label } from '../../shortcuts/match'
 import { failureReason } from '../../../shared/ipc/channels'
 import { MAX_REQUEST_CHARS } from '../../../shared/ipc/terminal-ai-request'
+import { SHORTCUTS } from '../../../shared/shortcuts'
 
 // Command request of Terminal AI from the keyboard: ⌘I in a Terminal Node opens this small panel
 // over its screen (the key and the state of the panel are in TerminalNode.tsx). The user writes
@@ -80,7 +82,7 @@ export default function TerminalAiRequest({ projectId, nodeId, busy, onClose }: 
       <div className="w-terminal-request__panel nodrag nowheel nopan nokey" role="dialog" aria-label="Command request" data-testid="terminal-ai-request">
         <div className="w-terminal-request__row">
           <span className="w-terminal-request__key" aria-hidden="true">
-            ⌘I
+            {label(SHORTCUTS.terminalRequest)}
           </span>
           <input
             ref={field}
