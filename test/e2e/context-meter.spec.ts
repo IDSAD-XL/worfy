@@ -7,7 +7,8 @@ import { launchApp } from './helpers'
 
 // The context meter under the input field (worfy-polish ticket 23) against the built app, on the
 // fake agent with test/fixtures/agent-scripts/context-meter.jsonl: each turn sets what
-// getContextUsage() answers — 10 %, 75 %, 95 % of a 200K autocompact window, then an error. The
+// getContextUsage() answers — 10 %, 75 %, 95 % of the 167K autocompact threshold of a 200K window
+// (8 %, 63 %, 79 % of the window, the SDK's own percentage), then an error. The
 // meter stands in the bar of the input field, on the line of the pickers right after them, and says "no data" before
 // the first turn and after the failed ask. The bar is shot in the light and the dark theme at each
 // state; with WORFY_EVIDENCE_DIR set, the shots are copied there.
@@ -99,9 +100,9 @@ test('the context meter shows the share of the autocompact window after each tur
     await shoot(window, composer, 'no-data')
 
     const states = [
-      { text: '10%', level: 'normal', title: '20K / 200K tokens · autocompact at 167K', shot: '10' },
-      { text: '75%', level: 'working', title: '150K / 200K tokens · autocompact at 167K', shot: '75' },
-      { text: '95%', level: 'blocked', title: '190K / 200K tokens · autocompact at 167K', shot: '95' },
+      { text: '10%', level: 'normal', title: '16.7K / 200K tokens · autocompact at 167K', shot: '10' },
+      { text: '75%', level: 'working', title: '125.2K / 200K tokens · autocompact at 167K', shot: '75' },
+      { text: '95%', level: 'blocked', title: '158.6K / 200K tokens · autocompact at 167K', shot: '95' },
     ]
     for (const [index, state] of states.entries()) {
       await field.fill(`turn ${index + 1}`)

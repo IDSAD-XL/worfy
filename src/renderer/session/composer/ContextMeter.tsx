@@ -4,15 +4,17 @@ import { BLOCKED_FROM, WORKING_FROM, type LimitLevel } from '../../../shared/age
 import { useSessionContext } from '../store'
 import type { ComposerItemProps } from './index'
 
-// How full the Session's context window is (worfy-polish ticket 23): a ring filled to the share of
-// the window Claude Code's getContextUsage() reports — the numbers of `/context` — and that share
-// in words, right after the model, effort and permission pickers. The window is the autocompact window, so 100 % is where
-// Claude Code compacts the history, not the model's whole window. main asks after every turn and
-// every compaction (src/main/agent/session.ts); until an answer, or when the ask failed, the ring
-// is empty and says "no data".
+// How full the Session's context window is (worfy-polish ticket 23): a ring and a number, right
+// after the model, effort and permission pickers, from what Claude Code's getContextUsage()
+// reports. 100 % is "compacts now": the share is of the autocompact threshold (the autocompact
+// window minus the room kept for the summary), as the owner decided — not of the window, which is
+// what `/context` and the SDK's `percentage` measure against. With autocompact off, or no
+// threshold given, it falls back to that `percentage`. main asks after every turn and every
+// compaction (src/main/agent/session.ts); until an answer, or when the ask failed, the ring is
+// empty and says "no data".
 //
-// The colours are the levels of the Limits bars (src/renderer/limits/LimitBar.tsx): the same
-// shares, and "at the threshold" from the autocompact threshold itself when Claude Code gives one.
+// The colours are the levels of the Limits bars (src/renderer/limits/LimitBar.tsx), at the same
+// shares of this one.
 
 /**
  * Right after the pickers (Pickers.tsx, order 10), before the queue (Queue.tsx, order 20): in a
@@ -31,11 +33,20 @@ const STROKE = 2
 const RADIUS = (SIZE - STROKE) / 2
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 
-/** Normal, nearer the threshold, at it: the shares of the Limits bars, or the threshold's own tokens. */
-function levelOf(usage: ContextUsage): LimitLevel {
-  const atThreshold = usage.autoCompactEnabled && usage.autoCompactThreshold !== null && usage.totalTokens >= usage.autoCompactThreshold
-  if (atThreshold || usage.percentage >= BLOCKED_FROM * 100) return 'blocked'
-  if (usage.percentage >= WORKING_FROM * 100) return 'working'
+/**
+ * The share in percent: of the autocompact threshold, at most 100, when autocompact is on and the
+ * threshold is known; else Claude Code's own percentage of the window, which may pass 100.
+ */
+function percentOf(usage: ContextUsage): number {
+  const threshold = usage.autoCompactThreshold
+  if (usage.autoCompactEnabled && threshold !== null && threshold > 0) return Math.min((usage.totalTokens / threshold) * 100, 100)
+  return usage.percentage
+}
+
+/** Normal, nearer the threshold, at it: the shares of the Limits bars. */
+function levelOf(percent: number): LimitLevel {
+  if (percent >= BLOCKED_FROM * 100) return 'blocked'
+  if (percent >= WORKING_FROM * 100) return 'working'
   return 'normal'
 }
 
@@ -60,9 +71,10 @@ export default function ContextMeter({ sessionId }: ComposerItemProps) {
   const usage = useSessionContext(sessionId)
   if (sessionId === null) return null
 
-  const level = usage === null ? null : levelOf(usage)
-  const share = usage === null ? 0 : Math.min(Math.max(usage.percentage, 0), 100) / 100
-  const percent = usage === null ? null : Math.round(usage.percentage)
+  const exact = usage === null ? null : percentOf(usage)
+  const level = exact === null ? null : levelOf(exact)
+  const share = exact === null ? 0 : Math.min(Math.max(exact, 0), 100) / 100
+  const percent = exact === null ? null : Math.round(exact)
   const meter =
     usage === null
       ? { 'aria-label': 'Context window: no data' }

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeReleases, fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type QueryFactory, type QueryHandle } from '../../src/main/agent/session'
-import type { AgentEvent } from '../../src/shared/agent/events'
+import { contextUsageOf, type AgentEvent } from '../../src/shared/agent/events'
 
 const scriptsDir = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'agent-scripts')
 
@@ -182,5 +182,47 @@ describe('the context usage of a Session', () => {
     pending[0]?.()
     await new Promise((done) => setTimeout(done, 50))
     expect(ofType('context')).toEqual([])
+  })
+
+  it('an answer that arrives after the Claude Code process died is dropped', async () => {
+    const pending: (() => void)[] = []
+    const { session, ofType, turn } = harness('context-crash', (query) => {
+      const handle = query as QueryHandle & { getContextUsage: (opts?: { detail?: 'summary' | 'full' }) => Promise<unknown> }
+      const real = handle.getContextUsage.bind(handle)
+      handle.getContextUsage = (opts) => {
+        const answer = real(opts)
+        return new Promise((done) => pending.push(() => done(answer)))
+      }
+      return handle
+    })
+    await vi.waitFor(() => expect(session.state).toBe('idle'))
+    await turn('one')
+    expect(pending).toHaveLength(1)
+    // The next message reaches a process that dies: the Session is in error, its query gone.
+    session.send('two')
+    await vi.waitFor(() => expect(session.state).toBe('error'))
+    pending[0]?.()
+    await new Promise((done) => setTimeout(done, 50))
+    expect(ofType('context')).toEqual([])
+  })
+})
+
+describe('contextUsageOf', () => {
+  const answer = { totalTokens: 84_200, maxTokens: 200_000, rawMaxTokens: 200_000, percentage: 42, autoCompactThreshold: 167_000, isAutoCompactEnabled: false, categories: [] }
+
+  it('takes the numbers of a getContextUsage() answer; the window is rawMaxTokens', () => {
+    expect(contextUsageOf(answer)).toEqual({ percentage: 42, totalTokens: 84_200, windowTokens: 200_000, autoCompactThreshold: 167_000, autoCompactEnabled: false })
+  })
+
+  it('is no data for an answer without isAutoCompactEnabled, which the SDK always gives', () => {
+    const without: Record<string, unknown> = { ...answer }
+    delete without.isAutoCompactEnabled
+    expect(contextUsageOf(without)).toBeNull()
+  })
+
+  it('has no threshold when the answer gives none', () => {
+    const without: Record<string, unknown> = { ...answer }
+    delete without.autoCompactThreshold
+    expect(contextUsageOf(without)?.autoCompactThreshold).toBeNull()
   })
 })

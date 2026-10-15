@@ -634,7 +634,7 @@ const sdkContextUsage = z.object({
   rawMaxTokens: z.number(),
   percentage: z.number(),
   autoCompactThreshold: optNum,
-  isAutoCompactEnabled: z.boolean().nullish(),
+  isAutoCompactEnabled: z.boolean(),
 })
 
 /**
@@ -646,13 +646,12 @@ export function contextUsageOf(answer: unknown): ContextUsage | null {
   const parsed = sdkContextUsage.safeParse(answer)
   if (!parsed.success) return null
   const m = parsed.data
-  const autoCompactThreshold = orNull(m.autoCompactThreshold)
   return {
     percentage: m.percentage,
     totalTokens: m.totalTokens,
     windowTokens: m.rawMaxTokens,
-    autoCompactThreshold,
-    autoCompactEnabled: m.isAutoCompactEnabled ?? autoCompactThreshold !== null,
+    autoCompactThreshold: orNull(m.autoCompactThreshold),
+    autoCompactEnabled: m.isAutoCompactEnabled,
   }
 }
 

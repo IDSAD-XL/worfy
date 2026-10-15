@@ -86,6 +86,7 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
 - `test/fixtures/agent-scripts/context.jsonl` — дописан при claim: script fake SDK для contract test.
 - `test/e2e/context-meter.spec.ts` — дописан при claim: место кружка в панели и снимки в обеих темах.
 - `test/fixtures/agent-scripts/context-meter.jsonl` — дописан при claim: script fake SDK для e2e (10 %, 75 %, 95 %, ошибка).
+- `test/fixtures/agent-scripts/context-crash.jsonl` — дописан в круге доработки 1: процесс Claude Code умирает после хода.
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/renderer/session/SessionView.tsx`, `src/renderer/session/MessageInput.tsx`,
@@ -107,23 +108,30 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
   `windowTokens` = `rawMaxTokens`, `autoCompactThreshold`, `autoCompactEnabled`) или `usage: null`
   («нет данных»), когда запрос упал или ответ без чисел. Событие шлётся, только когда значение
   изменилось. Ответ на старый запрос, ответ после замены процесса Claude Code и после закрытия
-  Session отбрасываются. Процент — тот, что даёт SDK (`/context`): от окна autocompact, а не от окна
-  модели. Запасной способ 2 не понадобился на fake SDK; на настоящем Claude Code не проверено.
+  Session отбрасываются. Запасной способ 2 не понадобился на fake SDK; на настоящем Claude Code не
+  проверено.
+- **Процент — от порога autocompact** (решение владельца, spec.md: «считается от порога
+  autocompact»; исправлено в круге доработки 1): 100 % — «сейчас будет compaction», доля
+  `totalTokens / autoCompactThreshold`, не больше 100 %. `percentage` из SDK (и `/context`) считается
+  от окна autocompact, у которого порог ниже на запас для сводки: при окне 200K и пороге 167K кружок
+  показывает 100 %, а `/context` — 84 %. Без порога или с выключенным autocompact кружок показывает
+  `percentage` из SDK. Сверку с `/context` в «Готово, когда» поэтому надо читать как
+  `/context`-токены, делённые на порог.
 - **Место — решено без владельца, подтвердить:** кружок стоит сразу после выбора модели, effort и
   режима разрешений (`order = 15`), а не перед выбором модели. В узкой колонке (sidebar и rail
   открыты) панель переносит выбор модели на вторую строку, и кружок с `order = 5` оставался на первой
   строке, отдельно от выбора модели (первый прогон e2e). С `order = 15` он переносится вместе с ним.
   Цена: в узкой колонке кнопка «Model» уже, имя модели обрезается раньше.
 - **Цвет — решено без владельца, подтвердить:** пороги полос Limits (60 % и 85 %, токены
-  `--text-secondary`, `--working-dot`, `--blocked-ring`); «у порога» — также когда `totalTokens`
-  дошёл до `autoCompactThreshold` (при окне 200K и пороге 167K это 84 %).
+  `--text-secondary`, `--working-dot`, `--blocked-ring`) на доле от порога autocompact.
 - **Чего нет:** у Session view, открытого после события, значение берётся из store renderer-а;
   `agent.controls` его не отдаёт. После перезагрузки окна кружок пуст до следующего хода.
 - **Test-ы:** `test/contract/agent-context-usage.test.ts` (fake SDK; красный на main — 6 из 7),
   `test/unit/context-meter.test.tsx`, `test/e2e/context-meter.spec.ts`. Мутанты: нет запроса после
   compaction, нет запроса после result, нет отсечки старого ответа, нет отсечки после закрытия, нет
-  отсечки одинаковых значений, нет правила порога autocompact, нет ограничения кольца 100 % — каждый
-  красный.
+  отсечки одинаковых значений, нет ограничения кольца 100 % — каждый красный. Круг доработки 1:
+  доля снова от `percentage`, без ограничения 100 % от порога, без проверки «autocompact включён»,
+  без отсечки ответа умершего процесса, необязательный `isAutoCompactEnabled` — каждый красный.
 - **Снимки** (окно e2e, поле ввода): «нет данных» —
   [светлая](../evidence/23-context-meter-no-data-light.png), [тёмная](../evidence/23-context-meter-no-data-dark.png);
   10 % — [светлая](../evidence/23-context-meter-10-light.png), [тёмная](../evidence/23-context-meter-10-dark.png);
