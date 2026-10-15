@@ -2,8 +2,9 @@
 //
 // The only reader of the Ticket format is `epic-status --json` of the Harness found on the machine
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
-// two things that script does not carry: the files listed under each Ticket's "Где в коде"
-// section and the Epic's title (the H1 of spec.md), both read from the Tickets root the Harness
+// things that script does not carry: the files listed under each Ticket's "Где в коде"
+// section, the Ticket's "(вручную)" checks of "Готово, когда" (shared/workflow/manual-checks.ts)
+// and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
 // names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
 // mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
 // `epic-status --json --ref <branch>` reads that branch. A branch never undoes blocked or done of
@@ -15,6 +16,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
+import { manualChecks } from '../../shared/workflow/manual-checks'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
@@ -271,7 +273,8 @@ export async function enrichSnapshot(
       const path = issueFiles.get(ticket.epic)?.get(`${ticket.num}:${ticket.slug}`)
       const markdown = path ? await read(path) : null
       const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown)
-      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null }
+      const checks = markdown === null ? [] : manualChecks(markdown)
+      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks }
     }),
   )
 

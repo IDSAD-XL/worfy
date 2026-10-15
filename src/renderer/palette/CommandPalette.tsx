@@ -18,7 +18,7 @@ import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { buildCommands, type CommandGate, type PaletteCommand } from './commands'
+import { buildCommands, forQuery, type CommandGate, type PaletteCommand } from './commands'
 import { groupRows } from './groups'
 
 /** Rows shown at most; the rest are reached by typing more. */
@@ -232,8 +232,9 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
   const [running, setRunning] = useState(false)
 
   // Ranked and cut to SHOWN first, then grouped; `shown` is the rows in the order on screen, which
-  // is the order ↑/↓ walk and the index `picked` counts in.
-  const groups = useMemo(() => groupRows(rankItems(commands, query, SHOWN), (command) => command.group), [commands, query])
+  // is the order ↑/↓ walk and the index `picked` counts in. Rows for a query only (the manual
+  // checks) are left out while the field is empty.
+  const groups = useMemo(() => groupRows(rankItems(forQuery(commands, query), query, SHOWN), (command) => command.group), [commands, query])
   const shown = useMemo(() => groups.flatMap((group) => group.rows), [groups])
   const current = Math.min(picked, Math.max(0, shown.length - 1))
 
