@@ -1,7 +1,7 @@
 # 07 — Готовая Wave не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: open
+Status: claimed — 2026-10-15
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше» — «Кандидаты в Ticket-ы: `done` с
 невлитой ветки, `reader.ts:329` (`worfy-harness` 22)»; «Итог»
@@ -43,12 +43,12 @@ Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше
 
 ## Готово, когда
 
-- [ ] Unit test: блокер `done` с `fromBranch` — зависимый Ticket в `waiting` с `blockers: [N]`; тот же
+- [x] Unit test: блокер `done` с `fromBranch` — зависимый Ticket в `waiting` с `blockers: [N]`; тот же
       блокер без `fromBranch` — зависимый в `ready`.
-- [ ] Unit test: файлы блокера `done` из ветки держатся — зависимый с общим файлом ждёт по `files`.
-- [ ] Unit test: старый вход без поля `fromBranch` даёт прежний результат (все test-ы `waves.test.ts`
+- [x] Unit test: файлы блокера `done` из ветки держатся — зависимый с общим файлом ждёт по `files`.
+- [x] Unit test: старый вход без поля `fromBranch` даёт прежний результат (все test-ы `waves.test.ts`
       зелёные без правок).
-- [ ] Contract test `cycle` Autopilot или `render-template`: Wave не называет такого Ticket-а (если
+- [x] Contract test `cycle` Autopilot или `render-template`: Wave не называет такого Ticket-а (если
       существующие test-ы это уже покрывают через `readyWave` — указать какие, в «Итог»).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
@@ -77,4 +77,25 @@ Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше
 
 ## Итог
 
-—
+- Правило — в `src/shared/workflow/waves.ts`: блокер закрыт для готовой Wave, только если `state === 'done'`
+  и `fromBranch` пуст (`closed`). Ticket `done` из невлитой ветки считается «в работе» (`inFlight`): его
+  файлы держатся, зависимые ждут его с причиной `blockers`, блокированный Ticket за ним не попадает в
+  `skipped`. `WaveTicket` берёт `fromBranch` необязательным полем: вход без поля читается как checkout.
+  Показ Status-а на Canvas и `branchOverrides` не тронуты (ADR-0033).
+- **Решено без владельца, подтвердить:** `waveNumbers` (номера Wave на Card-ах и в «Run wave»)
+  обращается с `done` из ветки так же, как с `work`: Ticket номера не получает, зависимые идут в
+  следующую Wave после него. Без этого зависимые такого Ticket-а остались бы вовсе без номера.
+  `readyWaveNumber` / `planWaveNumber` считают план по всем Ticket-ам как `open` — их это не меняет.
+- Test-ы (`test/unit/waves.test.ts`, блок «a blocker done only in its worktree branch, not yet merged» и
+  «numbers the dependants of a Ticket done only in a branch…»): ожидание по `blockers`, тот же блокер из
+  checkout-а, проверка каждого блокера, удержание файлов, неудержание файлов `done` из checkout-а,
+  `skipped`, вход без поля `fromBranch`, номера Wave. Старые test-ы файла не правились.
+- Пункт о `cycle` / `render-template`: test-ы этих файлов вне «Где в коде», поэтому случай проверен из
+  `waves.test.ts` через настоящие `runWaveState` и `step` Autopilot («is not named by "Run wave" nor started
+  by Autopilot»): «Run wave» не называет зависимого, Autopilot останавливается с `no-ready-wave`; после
+  мержа блокера (`fromBranch: null`) — `send-wave`.
+- Мутанты (на копии, восстановление через `cmp`): код origin/main; `fromBranch` только у первого блокера;
+  без удержания файлов `done` из ветки; удержание файлов и у `done` из checkout-а; `waveNumbers` без
+  учёта `done` из ветки — каждый краснит свой test.
+- Не сделано здесь: «Ship ticket» (`shipTicketState`, `src/shared/actions/render-template.ts:128`) по-прежнему
+  считает блокер закрытым по одному `state === 'done'` — кандидат в следующий Ticket.
