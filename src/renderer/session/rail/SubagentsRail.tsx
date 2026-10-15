@@ -18,7 +18,7 @@ import type { RailBlockProps } from './index'
 // closed until opened, and stays open for that Session while the window runs (not saved to disk).
 // The Canvas folds done Subagents by its own rule, under each parent.
 
-// After the Binding (ticket 16), before the Limits.
+// After the Binding (ticket 16), last in the rail.
 export const order = 20
 
 const CHIP: Record<SubagentInfo['status'], Status> = { running: 'working', done: 'done', error: 'blocked' }
