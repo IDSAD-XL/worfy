@@ -63,6 +63,8 @@
   --done-bg: #f2f2f5;
   --terminal-bg: #1d1d1f;
   --terminal-text: #e5e5ea;
+  /* Colour 8 of the terminal palette (bright black): dimmed output and the Terminal AI Suggestion */
+  --terminal-dim: #8e8e93;
 
   /* Segmented control, as drawn in the F mockups */
   --segment-track: #e2e2e6;
@@ -110,6 +112,7 @@
     --done-bg: #1b1a18;
     --terminal-bg: #0b0a09;
     --terminal-text: #ece8e1;
+    --terminal-dim: #9c968d;
 
     --segment-track: #22201e;
     --segment-thumb: #3b3834;

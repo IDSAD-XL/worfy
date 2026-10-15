@@ -35,7 +35,7 @@ The user picked a merge of A (Graphite) and E (Native). Rules of the merge:
 | working (claimed, running, CI running, busy) | text #0062CC on #E6F0FC, dot #0071E3 | text #5E9BFF on #1A2233, dot #5E9BFF |
 | blocked | text #A84B00 on #FFF0DE, ring #FF9F0A | text #FFAE5C on #2E2216, ring #FFAE5C |
 | done | text #636366 + check icon, surface #F2F2F5 | text #9C968D + check icon, surface #1B1A18 |
-| terminal node | bg #1D1D1F text #E5E5EA | bg #0B0A09 text #ECE8E1 |
+| terminal node | bg #1D1D1F text #E5E5EA, colour 8 (dimmed output, Terminal AI Suggestion) #8E8E93 | bg #0B0A09 text #ECE8E1, colour 8 #9C968D |
 
 Always pair status color with a text label or icon. Contrast ≥ 4.5:1 for text.
 
