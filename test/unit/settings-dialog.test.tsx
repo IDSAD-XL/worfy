@@ -1,12 +1,24 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { ReactFlowProvider } from '@xyflow/react'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CanvasFlowNode } from '../../src/renderer/canvas/nodes/index'
+import { FocusMode } from '../../src/renderer/focus/FocusMode'
+import { buildPreset, type TileTree } from '../../src/renderer/focus/split-tree'
 import { SettingSwitch } from '../../src/renderer/settings/controls'
 import { SettingsDialogView } from '../../src/renderer/settings/SettingsDialog'
 import { collectSections } from '../../src/renderer/settings/sections'
 import { closeSettings, openSettings, useSettingsWindow } from '../../src/renderer/settings/settings-window'
+import { AppShell } from '../../src/renderer/shell/AppShell'
 
 // The Settings window (worfy-ui ticket 2): a modal dialog with its sections on the left, found by
 // file. Two stub sections stand in for the real files, their `order` against their file names.
+// The window the shell mounts (SettingsDialog) shows one stub section instead of the real ones,
+// which read the app's settings through the preload bridge.
+vi.mock('../../src/renderer/settings/sections', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/settings/sections')>()
+  return { ...actual, settingsSections: actual.collectSections({ './StubSection.tsx': { default: () => 'Stub body', order: 10, title: 'Stub' } }) }
+})
 
 const section = (text: string) =>
   function Section() {
@@ -193,7 +205,7 @@ describe('Settings window: modal', () => {
   }
 
   afterEach(() => {
-    for (const each of [...document.body.querySelectorAll('[data-test-layer], .w-focus')]) each.remove()
+    for (const each of [...document.body.querySelectorAll('[data-test-layer]')]) each.remove()
   })
 
   it('focus outside the dialog: Tab returns into the dialog, Esc still closes, and nothing behind hears the keys', () => {
@@ -324,18 +336,123 @@ describe('Settings window: modal', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(document.activeElement).toBe(opener)
   })
+})
 
-  it('does not open while focus mode is on screen: it would open unseen under it', () => {
-    renderWithOpener()
-    const focusMode = document.createElement('div')
-    focusMode.className = 'w-focus'
-    document.body.append(focusMode)
+// Focus mode is drawn inside the main area of the window shell, which is a stacking context of its
+// own, so the Settings window on <body> is above it: "Settings…" opens over focus mode and leaves it
+// as it was. The real shell and the real focus mode, with the window's sections stubbed (above).
+describe('Settings window over focus mode', () => {
+  const flowNode = (id: string): CanvasFlowNode => ({
+    id,
+    position: { x: 0, y: 0 },
+    // A kind no file declares: the tile draws the placeholder, which needs no Layout operations.
+    data: { node: { id, kind: 'zz-settings-test', x: 0, y: 0, w: 100, h: 100, hidden: false, locked: false, pinned: false, tags: [], data: { title: id.toUpperCase() } } },
+  })
+
+  function Layer({ onExit }: { onExit: () => void }) {
+    const [tree, setTree] = useState<TileTree | null>(() => buildPreset('columns', ['a', 'b']))
+    if (tree === null) return null
+    return (
+      <FocusMode
+        tree={tree}
+        onChange={setTree}
+        onExit={() => {
+          onExit()
+          setTree(null)
+        }}
+      />
+    )
+  }
+
+  /** The shell, then focus mode opened over its Canvas view, as FocusEntry opens it in a shell on screen. */
+  function openFocusMode(): { exits: () => number; layer: HTMLElement } {
+    let exits = 0
+    const { rerender } = render(<AppShell />)
+    rerender(
+      <AppShell
+        canvas={
+          <ReactFlowProvider initialNodes={[flowNode('a'), flowNode('b')]}>
+            <Layer
+              onExit={() => {
+                exits += 1
+              }}
+            />
+          </ReactFlowProvider>
+        }
+      />,
+    )
+    const layer = screen.getByTestId('focus-mode')
+    expect(document.activeElement).toBe(layer)
+    return { exits: () => exits, layer }
+  }
+
+  const tileTitles = (layer: HTMLElement): string[] => within(layer).getAllByTestId('focus-tile-title').map((title) => title.textContent ?? '')
+
+  /** A key pressed where the keyboard focus is, as the browser sends it. */
+  const pressHere = (init: KeyboardEventInit): KeyboardEvent => {
+    const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init })
+    act(() => {
+      ;(document.activeElement ?? document.body).dispatchEvent(event)
+    })
+    return event
+  }
+
+  it('opens over focus mode: on <body>, outside the layer, nothing of it inert, the focus in it', () => {
+    const { layer } = openFocusMode()
     act(() => openSettings())
-    expect(useSettingsWindow.getState().open).toBe(false)
+    expect(useSettingsWindow.getState().open).toBe(true)
+    const shown = dialog()
+    expect(shown.closest('[inert]')).toBeNull()
+    expect(layer.contains(shown)).toBe(false)
+    expect(shown.contains(document.activeElement)).toBe(true)
+    expect(shownTitle()).toBe('Stub')
+  })
+
+  it('keys pressed in it do not reach focus mode; Esc closes only the window and gives the layer its focus back; the next Esc leaves focus mode', () => {
+    const { exits, layer } = openFocusMode()
+    const titles = tileTitles(layer)
+    expect(titles).toHaveLength(2)
+    // Listeners of the app on window: in the capture phase, as FocusEntry's ⌘↩; in the bubble
+    // phase, as focus mode's Esc.
+    const capture = vi.fn()
+    const bubble = vi.fn()
+    window.addEventListener('keydown', capture, true)
+    window.addEventListener('keydown', bubble)
+    try {
+      act(() => openSettings())
+      for (const key of [{ key: 'Enter', metaKey: true }, { key: 'Enter', ctrlKey: true }, { key: 'k', metaKey: true }]) pressHere(key)
+      expect(capture).not.toHaveBeenCalled()
+      expect(bubble).not.toHaveBeenCalled()
+      expect(dialog()).toBeTruthy()
+
+      const escape = pressHere({ key: 'Escape' })
+      expect(escape.defaultPrevented).toBe(true)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(bubble).not.toHaveBeenCalled()
+      expect(exits()).toBe(0)
+      expect(screen.getByTestId('focus-mode')).toBe(layer)
+      expect(tileTitles(layer)).toEqual(titles)
+      expect(document.activeElement).toBe(layer)
+    } finally {
+      window.removeEventListener('keydown', capture, true)
+      window.removeEventListener('keydown', bubble)
+    }
+
+    pressHere({ key: 'Escape' })
+    expect(exits()).toBe(1)
+    expect(screen.queryByTestId('focus-mode')).toBeNull()
+  })
+
+  it('with the focus on the page under it, Esc still closes only the window', () => {
+    const { exits, layer } = openFocusMode()
+    act(() => openSettings())
+    act(() => (document.activeElement as HTMLElement).blur())
+    expect(document.activeElement).toBe(document.body)
+    pressHere({ key: 'Escape' })
     expect(screen.queryByRole('dialog')).toBeNull()
-    focusMode.remove()
-    act(() => openSettings())
-    expect(screen.queryByRole('dialog')).not.toBeNull()
+    expect(exits()).toBe(0)
+    expect(screen.getByTestId('focus-mode')).toBe(layer)
+    expect(document.activeElement).toBe(layer)
   })
 })
 
