@@ -481,6 +481,10 @@ waves or workflows run in parallel, a merge and any commit to the main branch go
 under the shared lock `mkdir <scratchpad>/main.lock` (the command and the rule for a stuck lock —
 skill `/worfy:epic-wave`, section 4).
 
+The gate the project requires before this merge is `F workflow.merge_gate` — skill
+`/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
+is a set of one PR: the same three blocks, with `PRS=(<N>)`.
+
 ## 10. Check production
 
 Only with `pr-green-ci` and if `F deploy` exists; absent or `null` — "step 10 skipped: the project

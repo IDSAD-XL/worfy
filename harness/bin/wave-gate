@@ -1,0 +1,567 @@
+#!/usr/bin/env node
+// wave-gate — one `gate full` for the whole set of ready PRs of a wave, instead of a rebase and a
+// `gate full` for every PR (worfy ADR-0065; skill epic-wave, section 4, "Gate before merge").
+//
+//   wave-gate check <state.json>   squash-merge the set in a temporary worktree, run `gate full` on it
+//   wave-gate merge <state.json>   merge the checked set (or its green prefix) with `gh pr merge`
+//
+// The state file is the input and the record. The orchestrator writes the input:
+//   repo       absolute path of a checkout of the repository
+//   branch     the main branch ("main"); its remote copy is <remote>/<branch>
+//   remote     optional, "origin" by default
+//   prs        [{number, head, labels, platform}] in merge order: head — the head SHA the PR was verified
+//              on, labels — names, platform — true for a platform PR (the project's rules say which)
+//   e2e_lock   path of the e2e lock directory (profile workflow.e2e_lock), or null — no lock
+//   prepare    shell command that readies a fresh tree (profile commands.prepare_tree), or null
+//   main_lock  optional path of the main-branch lock; <git common dir>/main.lock by default
+// `check` adds: base (SHA of <remote>/<branch>), excluded [{number, reason}], set (numbers), prefixes
+// [{number, head, commit, tree}] — the tree after each PR of the set, runs [{role, size, tree, outcome, …}],
+// status, and for red: culprit, green_prefix, green_tree; for a green repeat of a red run: flaky.
+// `merge` adds merge: {merged: [{number, commit, tree}], status, stopped}.
+//
+// check:
+//   - a PR with platform: true or the label needs-mac-gate leaves the set with that reason: it is
+//     merged the old way (one at a time, rebase, its own gate full);
+//   - a temporary worktree at a fixed path in the git directory, <git common dir>/worfy-wave-gate,
+//     starts at base; each PR in order is `git merge --squash` + commit, as GitHub's squash merge does;
+//     a conflict takes the PR out of the set with reason DIRTY;
+//   - `GATE_SCOPE=all gate full` on the tree of the whole set, under the e2e lock. Green — status green.
+//     Red — the same tree once more: green now — status green with flaky (the failures of the first run);
+//     red again — bisection over the prefixes of the merge order: the shortest red prefix names the
+//     culprit, the prefix before it is green_prefix. At most 2 + ceil(log2 N) gate runs;
+//   - "could not verify" (exit 3, 127, a signal, "nothing ran", the environment unavailable) — status
+//     unverified: not green, nothing is merged; the next check tries that run again;
+//   - every finished step is written to the state file at once. A check that was broken off (the
+//     session ended) is resumed by running it again on the same file: finished gate runs are not
+//     repeated, the worktree it left is reused. When <remote>/<branch> has moved since, the state is
+//     reset and the set is checked again. The worktree is removed at the end and on an error; a signal
+//     leaves it for the resume.
+// merge (status green: the set; status red: green_prefix), under the main-branch lock:
+//   - fetch; <remote>/<branch> must still be base, else no merge at all: "base moved";
+//   - each PR: `gh pr merge <N> --squash --match-head-commit <head>`, fetch, and the tree of the main
+//     branch must equal the checked tree of that prefix; the first mismatch stops: no further merges,
+//     the reason goes to the state file — then gate full on the main branch.
+//
+// The e2e lock has the semantics of the shared one-command lock of the project rules: mkdir; a lock
+// older than 30 min counts as abandoned and is removed; a heartbeat `touch -c` every 5 min while it is
+// held; released on exit and on error.
+//
+// Exit codes. check: 0 green (or nothing to check), 2 red, 3 unverified, 1 error. merge: 0 merged
+// (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
+//
+// Environment: WAVE_GATE_GATE — an executable used instead of `node <plugin>/hooks/gate.mjs` (it gets
+// the argument `full`); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
+// lock timings (20, 1800, 300); WAVE_GATE_MAIN_LOCK_POLL_S, WAVE_GATE_MAIN_LOCK_STALE_S — the main
+// lock (30, 5400). Tests set them; the defaults are the project's.
+"use strict"
+const fs = require("fs")
+const path = require("path")
+const { spawn, spawnSync } = require("child_process")
+
+const GATE_SCRIPT = path.join(__dirname, "..", "hooks", "gate.mjs")
+const TREE_NAME = "worfy-wave-gate"
+const SHA = /^[0-9a-f]{40}$/
+const seconds = (name, dflt) => {
+    const v = Number(process.env[name])
+    return Number.isFinite(v) && v > 0 ? v : dflt
+}
+const E2E = { poll: seconds("WAVE_GATE_LOCK_POLL_S", 20), stale: seconds("WAVE_GATE_LOCK_STALE_S", 1800), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
+const MAIN = { poll: seconds("WAVE_GATE_MAIN_LOCK_POLL_S", 30), stale: seconds("WAVE_GATE_MAIN_LOCK_STALE_S", 5400), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
+const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }
+
+class Fail extends Error {}
+const fail = (msg) => {
+    throw new Fail(msg)
+}
+const say = (msg) => process.stdout.write(`[wave-gate] ${msg}\n`)
+const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000))
+const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
+
+// --- what has to be undone on the way out ----------------------------------------------------
+const held = { locks: new Map(), child: null, pidFile: null, tree: null, repo: null }
+
+function git(args, cwd, { allowFail = false } = {}) {
+    const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
+    if (r.error) fail(`git ${args.join(" ")}: ${r.error.message}`)
+    if (!allowFail && r.status !== 0) fail(`git ${args.join(" ")} (exit ${r.status}): ${(r.stderr || "").trim().split("\n")[0]}`)
+    return r
+}
+const out = (args, cwd) => git(args, cwd).stdout.trim()
+const real = (p) => {
+    try {
+        return fs.realpathSync(p)
+    } catch {
+        return path.resolve(p)
+    }
+}
+
+// --- the state file ----------------------------------------------------------------------------
+function load(file) {
+    let st
+    try {
+        st = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (e) {
+        fail(`${file}: ${e.message}`)
+    }
+    if (!st || typeof st !== "object" || Array.isArray(st)) fail(`${file} is not a JSON object`)
+    if (typeof st.repo !== "string" || !path.isAbsolute(st.repo) || !fs.existsSync(st.repo)) fail(`${file}: "repo" must be the absolute path of a checkout`)
+    if (typeof st.branch !== "string" || !st.branch) fail(`${file}: "branch" must name the main branch`)
+    if (st.remote !== undefined && (typeof st.remote !== "string" || !st.remote)) fail(`${file}: "remote" must be a remote name`)
+    for (const key of ["e2e_lock", "prepare"])
+        if (!(key in st) || (st[key] !== null && (typeof st[key] !== "string" || !st[key])))
+            fail(`${file}: "${key}" must be present: a string or null (a missing one would silently run without it)`)
+    if (st.e2e_lock !== null && !path.isAbsolute(st.e2e_lock)) fail(`${file}: "e2e_lock" must be an absolute path`)
+    if (st.main_lock !== undefined && st.main_lock !== null && (typeof st.main_lock !== "string" || !path.isAbsolute(st.main_lock)))
+        fail(`${file}: "main_lock" must be an absolute path`)
+    if (!Array.isArray(st.prs)) fail(`${file}: "prs" must be a list`)
+    const seen = new Set()
+    for (const pr of st.prs) {
+        if (!pr || !Number.isInteger(pr.number) || pr.number <= 0) fail(`${file}: every PR needs a positive integer "number"`)
+        if (typeof pr.head !== "string" || !SHA.test(pr.head)) fail(`${file}: PR #${pr.number}: "head" must be a full SHA`)
+        if (seen.has(pr.number)) fail(`${file}: PR #${pr.number} is listed twice`)
+        seen.add(pr.number)
+    }
+    return st
+}
+function save(file, st) {
+    const tmp = `${file}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, JSON.stringify(st, null, 2) + "\n")
+    fs.renameSync(tmp, file)
+}
+const labelsOf = (pr) => (Array.isArray(pr.labels) ? pr.labels : []).map((l) => (typeof l === "string" ? l : l && l.name)).filter(Boolean)
+const RESULT_KEYS = ["base", "excluded", "candidates", "set", "prefixes", "runs", "status", "flaky", "culprit", "green_prefix", "green_tree", "error", "checked_at"]
+
+// --- locks: a directory made by mkdir ---------------------------------------------------------------
+async function lock(dir, t, what) {
+    let told = false
+    for (;;) {
+        try {
+            fs.mkdirSync(dir)
+            break
+        } catch (e) {
+            if (e.code !== "EEXIST") throw e
+        }
+        let m
+        try {
+            m = fs.statSync(dir).mtimeMs
+        } catch {
+            continue // released between mkdir and stat
+        }
+        if ((Date.now() - m) / 1000 > t.stale) {
+            say(`${what} ${dir} is older than ${t.stale} s — abandoned, removed`)
+            try {
+                fs.rmdirSync(dir)
+            } catch {}
+            continue
+        }
+        if (!told) say(`waiting for ${what} ${dir}`)
+        told = true
+        await sleep(t.poll)
+    }
+    // touch -c: a lock someone else removed is not created again by the heartbeat
+    const beat = setInterval(() => {
+        try {
+            const d = new Date()
+            fs.utimesSync(dir, d, d)
+        } catch {
+            clearInterval(beat)
+        }
+    }, t.beat * 1000)
+    held.locks.set(dir, beat)
+}
+function unlock(dir) {
+    const beat = held.locks.get(dir)
+    if (beat === undefined) return
+    clearInterval(beat)
+    held.locks.delete(dir)
+    try {
+        fs.rmdirSync(dir)
+    } catch {}
+}
+
+// --- the temporary worktree -----------------------------------------------------------------------
+function commonDir(repo) {
+    return real(out(["rev-parse", "--path-format=absolute", "--git-common-dir"], repo))
+}
+function registered(repo, dir) {
+    const list = out(["worktree", "list", "--porcelain"], repo)
+    return list.split("\n").some((l) => l.startsWith("worktree ") && real(l.slice(9)) === dir)
+}
+function openTree(repo, dir, at) {
+    git(["worktree", "prune"], repo)
+    if (registered(repo, dir)) {
+        say(`reusing the worktree ${dir} left by an earlier run`)
+        git(["reset", "-q", "--hard", at], dir)
+        git(["clean", "-fdq"], dir)
+    } else {
+        fs.rmSync(dir, { recursive: true, force: true })
+        git(["worktree", "add", "-q", "--detach", dir, at], repo)
+    }
+    held.tree = dir
+    held.repo = repo
+}
+function closeTree() {
+    if (!held.tree) return
+    const r = git(["worktree", "remove", "--force", held.tree], held.repo, { allowFail: true })
+    if (r.status !== 0) {
+        fs.rmSync(held.tree, { recursive: true, force: true })
+        git(["worktree", "prune"], held.repo, { allowFail: true })
+    }
+    held.tree = null
+}
+function guardPid(common) {
+    const file = path.join(common, `${TREE_NAME}.pid`)
+    try {
+        const pid = Number(fs.readFileSync(file, "utf8").trim())
+        if (pid && pid !== process.pid) {
+            let alive = true
+            try {
+                process.kill(pid, 0)
+            } catch (e) {
+                alive = e.code === "EPERM"
+            }
+            if (alive) fail(`another wave-gate check runs in this repository (pid ${pid}, ${file})`)
+        }
+    } catch (e) {
+        if (e instanceof Fail) throw e
+    }
+    fs.writeFileSync(file, `${process.pid}\n`)
+    held.pidFile = file
+}
+
+// --- a child process, killable on a signal ------------------------------------------------------------
+function run(cmd, args, opts, logFile) {
+    return new Promise((resolve) => {
+        let text = ""
+        const log = fs.createWriteStream(logFile, { flags: "a" })
+        let child
+        try {
+            child = spawn(cmd, args, { ...opts, stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+        } catch (e) {
+            log.end(`${e.message}\n`)
+            return resolve({ code: 127, text: e.message })
+        }
+        held.child = child
+        const take = (b) => {
+            text += b
+            log.write(b)
+        }
+        child.stdout.on("data", take)
+        child.stderr.on("data", take)
+        child.on("error", (e) => {
+            text += `${e.message}\n`
+        })
+        child.on("close", (code, signal) => {
+            held.child = null
+            log.end()
+            resolve({ code: code ?? (signal ? 128 + (require("os").constants.signals[signal] || 0) : 127), text })
+        })
+    })
+}
+
+function gateCommand() {
+    if (process.env.WAVE_GATE_GATE) return [process.env.WAVE_GATE_GATE, ["full"]]
+    return [process.execPath, [GATE_SCRIPT, "full"]]
+}
+function verdict(code, text) {
+    const lines = text.split(/\r?\n/)
+    if (code === 0 && lines.some((l) => l.startsWith("[gate] зелено (full)"))) return "green"
+    if (code === 2) return "red"
+    return "unverified"
+}
+function failures(text) {
+    const lines = text.split(/\r?\n/)
+    const red = lines.find((l) => l.startsWith("[gate] красно"))
+    const scripts = red ? red.replace(/^\[gate\] красно \([^)]*\):/, "").replace(/\(прошло:.*$/, "").trim().split(/\s+/).filter(Boolean) : []
+    const tests = [...new Set(lines.filter((l) => /^\s*(FAIL|✘|×|✗)\s+\S/.test(l)).map((l) => l.trim()))].slice(0, 30)
+    return { scripts, tests }
+}
+
+// --- check ---------------------------------------------------------------------------------------------
+async function check(file) {
+    const st = load(file)
+    if (st.merge && Array.isArray(st.merge.merged) && st.merge.merged.length)
+        fail(`${file}: the merge of this set has started (${st.merge.merged.length} merged) — a new set needs a new state file`)
+    const remote = st.remote || "origin"
+    const repo = st.repo
+    const common = commonDir(repo)
+    guardPid(common)
+    git(["fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`], repo)
+    const baseNow = out(["rev-parse", `refs/remotes/${remote}/${st.branch}^{commit}`], repo)
+    if (st.base && st.base !== baseNow) {
+        say(`${remote}/${st.branch} moved (${st.base.slice(0, 8)} -> ${baseNow.slice(0, 8)}): the set is checked again`)
+        st.resets = [...(st.resets || []), { at: now(), from: st.base, to: baseNow }]
+        for (const k of RESULT_KEYS) delete st[k]
+    }
+    if (["green", "red", "empty"].includes(st.status)) {
+        summary(st)
+        return codeOf(st.status)
+    }
+    if (Array.isArray(st.runs)) st.runs = st.runs.filter((r) => r.outcome === "green" || r.outcome === "red")
+    delete st.error
+    if (!st.base) {
+        st.base = baseNow
+        st.excluded = []
+        st.candidates = []
+        st.prefixes = []
+        st.runs = []
+        for (const pr of st.prs) {
+            if (pr.platform === true) st.excluded.push({ number: pr.number, reason: "platform" })
+            else if (labelsOf(pr).includes("needs-mac-gate")) st.excluded.push({ number: pr.number, reason: "needs-mac-gate" })
+            else st.candidates.push(pr.number)
+        }
+    }
+    st.status = "checking"
+    save(file, st)
+    const ctx = { st, file, repo, remote, dir: path.join(common, TREE_NAME), logs: `${file}.logs` }
+    fs.mkdirSync(ctx.logs, { recursive: true })
+    openTree(repo, ctx.dir, st.base)
+    squashAll(ctx)
+    if (!st.set.length) return finish(ctx, "empty")
+
+    const N = st.set.length
+    const first = await gateOn(ctx, N, "full")
+    if (first.outcome !== "red") return finish(ctx, first.outcome)
+    const again = await gateOn(ctx, N, "retry")
+    if (again.outcome === "unverified") return finish(ctx, "unverified")
+    if (again.outcome === "green") {
+        st.flaky = failures(fs.readFileSync(first.log, "utf8"))
+        return finish(ctx, "green")
+    }
+    // The empty prefix (base) is taken as green: a red base names the first PR, and nothing is merged.
+    let lo = 0
+    let hi = N
+    while (hi - lo > 1) {
+        const mid = Math.floor((lo + hi) / 2)
+        const r = await gateOn(ctx, mid, "bisect")
+        if (r.outcome === "unverified") return finish(ctx, "unverified")
+        if (r.outcome === "green") lo = mid
+        else hi = mid
+    }
+    st.culprit = st.set[hi - 1]
+    st.green_prefix = st.set.slice(0, lo)
+    st.green_tree = lo === 0 ? out(["rev-parse", `${st.base}^{tree}`], repo) : st.prefixes[lo - 1].tree
+    return finish(ctx, "red")
+}
+
+function haveCommit(repo, sha) {
+    return git(["cat-file", "-e", `${sha}^{commit}`], repo, { allowFail: true }).status === 0
+}
+function fetchHead(ctx, pr) {
+    if (haveCommit(ctx.repo, pr.head)) return true
+    git(["fetch", "-q", ctx.remote, `refs/pull/${pr.number}/head`], ctx.repo, { allowFail: true })
+    if (haveCommit(ctx.repo, pr.head)) return true
+    git(["fetch", "-q", ctx.remote, pr.head], ctx.repo, { allowFail: true })
+    return haveCommit(ctx.repo, pr.head)
+}
+function squashAll(ctx) {
+    const { st, dir } = ctx
+    const done = new Set([...st.prefixes.map((p) => p.number), ...st.excluded.map((e) => e.number)])
+    for (const p of st.prefixes) if (!haveCommit(ctx.repo, p.commit)) fail(`the squash commit of PR #${p.number} is gone — start from a fresh state file`)
+    for (const n of st.candidates) {
+        if (done.has(n)) continue
+        const pr = st.prs.find((p) => p.number === n)
+        const tip = st.prefixes.length ? st.prefixes[st.prefixes.length - 1].commit : st.base
+        git(["reset", "-q", "--hard", tip], dir)
+        git(["clean", "-fdq"], dir)
+        if (!fetchHead(ctx, pr)) {
+            st.excluded.push({ number: n, reason: "head-missing", detail: `${pr.head} is not in ${ctx.repo} or ${ctx.remote}` })
+            save(ctx.file, st)
+            continue
+        }
+        const m = git(["merge", "--squash", "--no-verify", pr.head], dir, { allowFail: true })
+        if (m.status !== 0) {
+            const unmerged = out(["diff", "--name-only", "--diff-filter=U"], dir).split("\n").filter(Boolean)
+            if (!unmerged.length) fail(`git merge --squash of PR #${n} failed without a conflict: ${(m.stderr || m.stdout).trim().split("\n")[0]}`)
+            git(["reset", "-q", "--hard", tip], dir)
+            st.excluded.push({ number: n, reason: "DIRTY", detail: unmerged.join(" ") })
+            say(`PR #${n} conflicts with the set (${unmerged.join(" ")}): out of the set, DIRTY`)
+            save(ctx.file, st)
+            continue
+        }
+        git(
+            ["-c", "user.name=wave-gate", "-c", "user.email=wave-gate@localhost", "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify", "--allow-empty", "-m", `wave-gate: squash of #${n}`],
+            dir
+        )
+        const commit = out(["rev-parse", "HEAD"], dir)
+        st.prefixes.push({ number: n, head: pr.head, commit, tree: out(["rev-parse", "HEAD^{tree}"], dir) })
+        save(ctx.file, st)
+    }
+    st.set = st.prefixes.map((p) => p.number)
+    save(ctx.file, st)
+}
+
+// One gate run on the first `size` PRs of the set; a finished run of the same role and size is not repeated.
+async function gateOn(ctx, size, role) {
+    const { st, dir } = ctx
+    const done = st.runs.find((r) => r.role === role && r.size === size && (r.outcome === "green" || r.outcome === "red"))
+    if (done) return done
+    const commit = size === 0 ? st.base : st.prefixes[size - 1].commit
+    git(["reset", "-q", "--hard", commit], dir)
+    git(["clean", "-fdq"], dir)
+    const tree = out(["rev-parse", "HEAD^{tree}"], dir)
+    const log = path.join(ctx.logs, `${String(st.runs.length + 1).padStart(2, "0")}-${role}-${size}.log`)
+    fs.writeFileSync(log, "")
+    const rec = { role, size, prs: st.set.slice(0, size), tree, at: now(), log }
+    if (st.prepare) {
+        const p = await run(st.prepare, [], { cwd: dir, shell: true, env: process.env }, log)
+        if (p.code !== 0) {
+            Object.assign(rec, { outcome: "unverified", exit: p.code, reason: `prepare failed (exit ${p.code})` })
+            st.runs.push(rec)
+            save(ctx.file, st)
+            say(`run ${role} on ${size} PR(s): could not prepare the tree (exit ${p.code}) — see ${log}`)
+            return rec
+        }
+    }
+    if (st.e2e_lock) await lock(st.e2e_lock, E2E, "the e2e lock")
+    let g
+    try {
+        const [cmd, args] = gateCommand()
+        say(`gate full on ${size} PR(s) (${role}): #${rec.prs.join(" #")}`)
+        g = await run(cmd, args, { cwd: dir, env: { ...process.env, GATE_SCOPE: "all" } }, log)
+    } finally {
+        if (st.e2e_lock) unlock(st.e2e_lock)
+    }
+    Object.assign(rec, { outcome: verdict(g.code, g.text), exit: g.code })
+    if (rec.outcome === "red") Object.assign(rec, failures(g.text))
+    st.runs.push(rec)
+    save(ctx.file, st)
+    say(`  -> ${rec.outcome} (exit ${g.code}); log ${log}`)
+    return rec
+}
+
+function codeOf(status) {
+    return { green: 0, empty: 0, red: 2, unverified: 3 }[status] ?? 1
+}
+function finish(ctx, status) {
+    ctx.st.status = status
+    ctx.st.checked_at = now()
+    closeTree()
+    save(ctx.file, ctx.st)
+    summary(ctx.st)
+    return codeOf(status)
+}
+function summary(st) {
+    const ex = (st.excluded || []).map((e) => `#${e.number} (${e.reason})`).join(", ") || "none"
+    say(`status: ${st.status}; base ${String(st.base).slice(0, 12)}; set: ${(st.set || []).map((n) => "#" + n).join(" ") || "empty"}; out of the set: ${ex}; gate runs: ${(st.runs || []).length}`)
+    if (st.status === "red") say(`culprit: #${st.culprit}; green prefix: ${st.green_prefix.map((n) => "#" + n).join(" ") || "none"} (tree ${String(st.green_tree).slice(0, 12)})`)
+    if (st.flaky) say(`flaky on the first run: ${[...st.flaky.scripts, ...st.flaky.tests].join("; ")}`)
+    if (st.status === "unverified") say("not verified: nothing is merged; fix the cause and run check again")
+    if (st.merge) say(`merge: ${st.merge.status}; merged ${st.merge.merged.map((m) => "#" + m.number).join(" ") || "none"}${st.merge.stopped ? `; stopped at #${st.merge.stopped.number}: ${st.merge.stopped.reason}` : ""}`)
+    process.stdout.write(`STATUS=${st.status}\n`)
+}
+
+// --- merge ----------------------------------------------------------------------------------------------
+async function merge(file) {
+    const st = load(file)
+    if (st.status !== "green" && st.status !== "red" && st.status !== "empty") fail(`status is ${st.status ?? "not checked"}: nothing is merged (run check first)`)
+    const list = st.status === "green" ? st.set : st.status === "red" ? st.green_prefix : []
+    st.merge = st.merge || { merged: [], status: "pending" }
+    if (st.merge.status === "stopped") {
+        summary(st)
+        say("this merge stopped earlier: no further merges from this state file")
+        return 4
+    }
+    if (!list.length || st.merge.merged.length >= list.length) {
+        st.merge.status = "done"
+        save(file, st)
+        summary(st)
+        return 0
+    }
+    const remote = st.remote || "origin"
+    const repo = st.repo
+    const mainLock = st.main_lock || path.join(commonDir(repo), "main.lock")
+    const stop = (number, reason) => {
+        st.merge.status = "stopped"
+        st.merge.stopped = { number, reason, at: now() }
+        save(file, st)
+        summary(st)
+        say(`stopped: no further merges. Run gate full on ${st.branch}, and check the set's PRs that are not merged again (a new state file).`)
+        return 4
+    }
+    const treeOf = (n) => st.prefixes.find((p) => p.number === n).tree
+    await lock(mainLock, MAIN, "the main-branch lock")
+    try {
+        const fetch = () => {
+            git(["fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`], repo)
+            return out(["rev-parse", `refs/remotes/${remote}/${st.branch}^{commit}`], repo)
+        }
+        const tip = fetch()
+        const k = st.merge.merged.length
+        if (k === 0 && tip !== st.base) return stop(list[0], `base moved: ${remote}/${st.branch} is ${tip}, the set was checked on ${st.base}`)
+        if (k > 0 && out(["rev-parse", `${tip}^{tree}`], repo) !== st.merge.merged[k - 1].tree)
+            return stop(list[k], `base moved: ${remote}/${st.branch} changed after the merge of #${st.merge.merged[k - 1].number}`)
+        for (let i = k; i < list.length; i++) {
+            const n = list[i]
+            const pr = st.prs.find((p) => p.number === n)
+            say(`gh pr merge ${n} --squash --match-head-commit ${pr.head}`)
+            const r = spawnSync("gh", ["pr", "merge", String(n), "--squash", "--match-head-commit", pr.head], { cwd: repo, encoding: "utf8", windowsHide: true })
+            if (r.error || r.status !== 0) return stop(n, `gh pr merge failed (exit ${r.status ?? r.error.message}): ${(r.stderr || "").trim().split("\n")[0]}`)
+            const sha = fetch()
+            const tree = out(["rev-parse", `${sha}^{tree}`], repo)
+            st.merge.merged.push({ number: n, commit: sha, tree, at: now() })
+            save(file, st)
+            if (tree !== treeOf(n)) return stop(n, `tree mismatch after #${n}: ${st.branch} has ${tree}, the checked prefix had ${treeOf(n)}`)
+        }
+        st.merge.status = "done"
+        save(file, st)
+        summary(st)
+        return 0
+    } finally {
+        unlock(mainLock)
+    }
+}
+
+// --- entry -------------------------------------------------------------------------------------------------
+function release() {
+    for (const dir of [...held.locks.keys()]) unlock(dir)
+    if (held.pidFile) {
+        try {
+            fs.rmSync(held.pidFile, { force: true })
+        } catch {}
+        held.pidFile = null
+    }
+}
+for (const [sig, n] of Object.entries(SIGNALS))
+    process.on(sig, () => {
+        // A signal is a broken-off run: the worktree stays for the resume, the locks go.
+        if (held.child) held.child.kill(sig)
+        release()
+        process.stderr.write(`[wave-gate] stopped by ${sig}: the state file has every finished step; run the same command again to resume\n`)
+        process.exit(128 + n)
+    })
+
+async function main() {
+    const [cmd, file, ...rest] = process.argv.slice(2)
+    if (!["check", "merge"].includes(cmd) || !file || rest.length) fail("usage: wave-gate check <state.json> | wave-gate merge <state.json>")
+    const abs = path.resolve(file)
+    if (cmd === "merge") return merge(abs)
+    try {
+        return await check(abs)
+    } catch (e) {
+        try {
+            const st = JSON.parse(fs.readFileSync(abs, "utf8"))
+            if (st && typeof st === "object" && st.status === "checking") {
+                st.status = "error"
+                st.error = e.message
+                save(abs, st)
+            }
+        } catch {}
+        throw e
+    }
+}
+main().then(
+    (code) => {
+        closeTree()
+        release()
+        process.exit(code)
+    },
+    (e) => {
+        try {
+            closeTree()
+        } catch {}
+        release()
+        process.stderr.write(`[wave-gate] error: ${e instanceof Fail ? e.message : e.stack || e}\n`)
+        process.exit(1)
+    }
+)

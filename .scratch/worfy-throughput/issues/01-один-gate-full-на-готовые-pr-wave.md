@@ -190,3 +190,105 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
   `merge_gate` на них не действует.
 
 ## Итог
+
+PR #384, ветка `worfy-throughput/01`.
+
+**Что сделано.**
+
+- `harness/bin/wave-gate` (Node, без зависимостей): `check` и `merge`, как в «Что делаем», пункт 2.
+  Временный worktree — `<git common dir>/worfy-wave-gate`; логи прогонов gate — `<state.json>.logs/`.
+  Коды выхода: `check` — 0 green (или набор пуст), 2 red, 3 unverified, 1 ошибка; `merge` — 0 влито
+  (или нечего вливать), 4 стоп (причина в `merge.stopped`), 1 ошибка или отказ.
+- `harness/bin/profile`: `workflow.merge_gate` — `"each"`, `"wave"`, `null` или нет поля;
+  `workflow.e2e_lock` — абсолютный путь (`~/` раскрывается) или `null`; другое — exit 1 с причиной.
+  Нет поля — `--field` отвечает кодом 4, как для любого необязательного поля.
+- Skill `epic-wave`, раздел 4 — блок «Gate before merge»: три значения `merge_gate`, набор и PR вне
+  его, три блока (файл состояния, `check` в фоне, `merge`), что делать при каждом коде выхода, revert
+  при красном CI на main. Пункт 1 списка мержа ссылается на блок. Skill `ship-ticket`, шаг 9 —
+  ссылка: Ticket вне Wave — набор из одного PR.
+- `harness/profiles/README.md` (две строки таблицы), `draft.schema.json` (два поля `workflow`),
+  `harness/README.md` (`wave-gate` в списке `bin/`), ADR-0065.
+
+**Test-ы.** `harness/bin/tests/wave-gate.test.sh` — 76 проверок на временных git-репозиториях со
+stub-ами gate и `gh`, плюс блоки skill-а под bash и zsh. `harness/bin/tests/profile.test.sh` — 14
+проверок новых полей. Первым написан test «красный набор: вливается только зелёный префикс» — он был
+красным (скрипта нет, exit 127).
+
+Мутанты (каждый на копии `bin/`, `BIN_DIR=<копия>`; оригинал сверен после каждого):
+
+| Мутант | Чем краснеет |
+| --- | --- |
+| вливать при красном наборе весь набор | `red set: merge merges only PRs 1 and 2` (влиты 1–5) |
+| не повторять красный набор перед делением | `red set: the whole set is run again before the bisection` |
+| не сверять `base` перед первым мержем | `merge: origin/main != base -> no merge` |
+| не сверять дерево после мержа | `merge: the tree after PR 2 differs -> PR 3 is not merged` |
+| брать в набор PR с `platform` | `platform: the set is 1, 4` |
+| не снимать замок e2e на ошибке (сигнал) | `e2e lock: released when wave-gate is stopped` |
+| повторять готовый прогон при возобновлении | `resume: the finished run is not repeated` (6 вызовов stub-а вместо 5) |
+| `profile` без проверки новых полей | 6 проверок `profile.test.sh` (exit 1 и `~/`) |
+
+**Решено без владельца, подтвердить.**
+
+- `wave-gate merge` берёт замок главной ветки сам: путь — `main_lock` файла состояния (блок skill-а
+  пишет туда путь замка из раздела 4), по умолчанию `<git common dir>/main.lock`; 90 min — брошенный,
+  как в skill-е. Skill говорит не оборачивать скрипт в команду замка.
+- Замок e2e берётся на каждый прогон gate full, а не на весь `check`: между прогонами e2e других
+  агентов может пройти.
+- Перед каждым прогоном gate во временном worktree идёт `prepare` (`commands.prepare_tree` Profile-а,
+  у worfy — `pnpm install --frozen-lockfile`): свежему дереву нужны `node_modules`. Его ошибка —
+  `unverified`, а не красный: сбой сети не должен назначать виноватый PR.
+- База (пустой префикс) при делении считается зелёной: красный main даёт виноватым первый PR и пустой
+  зелёный префикс — ничего не вливается.
+- PR, чей head нет ни локально, ни в `refs/pull/<N>/head` origin-а, выходит из набора с причиной
+  `head-missing`.
+- `flaky` — объект `{scripts, tests}`: скрипты из строки `[gate] красно` первого прогона и строки
+  лога, которые начинаются с `FAIL`, `✘`, `×` или `✗`.
+- Обрыв `merge` между `gh pr merge` и записью состояния: при повторном запуске дерево main не совпадёт
+  с последним записанным мержем — стоп с `base moved`, дальше разбирает Orchestrator.
+- Два `check` в одном репозитории одновременно не идут: `<git common dir>/worfy-wave-gate.pid` с живым
+  pid — отказ с exit 1.
+- Ревью PR #382, на которое ссылается Ticket, в комментариях PR нет (там только «CI skipped»); три
+  его пункта взяты из текста Ticket-а.
+
+**Вне репозитория — шаг Orchestrator-а после мержа** (`~/.claude/worfy-harness/projects/worfy/`).
+
+`profile.json`, объект `workflow`:
+
+```diff
+     "finish": "pr-green-ci",
+     "merge": "orchestrator",
++    "merge_gate": "wave",
++    "e2e_lock": "/tmp/worfy-e2e.lock",
+     "preflight": "…"
+```
+
+`rules.md`, правило о gate перед мержем (сейчас строки 25–28):
+
+```diff
+-- **Перед мержем любого PR с кодом — `GATE_SCOPE=all bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full` на ветке после
+-  rebase, код 0 и строка «[gate] зелено».** `full` = lint, typecheck, test, `test:e2e`, `test:package`:
++- **Gate перед мержем PR с кодом — `workflow.merge_gate: "wave"` (ADR-0065).** Готовые PR Wave вливаются
++  набором после одного `GATE_SCOPE=all` gate full на общем дереве: `bin/wave-gate`, skill `epic-wave`,
++  раздел 4, «Gate before merge». Платформенные PR (ADR-0056, пункт 2) и PR с меткой `needs-mac-gate` —
++  по-старому: rebase, свой `GATE_SCOPE=all bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full`, код 0
++  и строка «[gate] зелено». `full` = lint, typecheck, test, `test:e2e`, `test:package`:
+```
+
+`rules.md`, правило замка e2e (сейчас строки 37–44), первая фраза:
+
+```diff
+-- **e2e и gate full разных агентов — по одному, под общим замком.** Несколько Electron e2e сразу
++- **e2e и gate full разных агентов — по одному, под общим замком `workflow.e2e_lock`
++  (`/tmp/worfy-e2e.lock`).** `wave-gate` берёт его сам. Несколько Electron e2e сразу
+```
+
+**Пункты «Готово, когда».**
+
+- [x] ADR-0065, test-ы `check`/`merge`, platform и `needs-mac-gate`, красный третий из пяти (4 прогона
+      stub-а: первый, повтор, деление 2 и 3), flaky, код 3 и «ничего не прогналось», возобновление и
+      ушедшая база, `merge` (base moved, дерево, red), замок e2e (ждёт, 30 min, heartbeat, снятие
+      после выхода и сигнала), worktree удалён (green, red, ошибка посреди слияния), `profile`, блоки
+      skill-а под bash и zsh — `wave-gate.test.sh`, `profile.test.sh`.
+- [ ] (вручную) Вердикт Windows — не проверено: шаг владельца/оркестратора на Windows-ПК.
+- [ ] (вручную) Первая Wave после обновления Harness — не проверено: шаг оркестратора.
+- gate full — шаг Orchestrator-а перед merge (по старой схеме).
