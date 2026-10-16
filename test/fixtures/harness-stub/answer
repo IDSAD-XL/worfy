@@ -1,0 +1,29 @@
+#!/bin/sh
+# A stand-in for the Harness scripts epic-status, profile and ticket (test/contract/harness-script-wiring.test.ts):
+# the tests link it under those names. It logs what it got to $CALLS and answers as the real script of
+# its name would; the answers take the Workflow folder from $WORKFLOW.
+#
+# The script is the same file in every test, and only links to it are new: macOS checks every new
+# executable file on its first run, a few hundred ms each and one at a time for the whole machine,
+# and a new copy per test made the tests of a loaded full run time out.
+name=$(basename "$0")
+echo "$name MARK=${MARK-unset} WORFY_WIRING_LEAK=${WORFY_WIRING_LEAK-unset} HARNESS_HOME=${HARNESS_HOME-unset}" >> "$CALLS"
+case "$name" in
+  epic-status)
+    printf '%s' '{"ref":"main","epics":[{"epic":"demo","hasSpec":false,"hasMap":false}],"tickets":[]}'
+    ;;
+  profile)
+    # The exit code in $PROFILE_EXIT_FILE, when set: a profile without node or with a broken registry.
+    if [ -n "${PROFILE_EXIT_FILE-}" ]; then
+      code=$(cat "$PROFILE_EXIT_FILE")
+      if [ "$code" != 0 ]; then
+        echo 'env: node: No such file or directory' >&2
+        exit "$code"
+      fi
+    fi
+    printf '{"_resolved":{"mode":"silent","workflow_folder":"%s","repos":[]}}' "$WORKFLOW"
+    ;;
+  ticket)
+    echo "$WORKFLOW/.scratch"
+    ;;
+esac
