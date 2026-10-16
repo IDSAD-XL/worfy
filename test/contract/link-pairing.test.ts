@@ -502,32 +502,69 @@ describe('a machine in the middle', () => {
 })
 
 describe('a pairing connection that never sends its first message', () => {
-  it(`counts as a failure when the step times out, keeps the code, and ${PAIRING_MAX_FAILURES} in a row close "Link a machine"`, async () => {
+  /**
+   * Opens `count` pairing connections from `from` to `to`, one after another, none of which sends
+   * pake1. `ends` says who ends each one: B after its step timeout, or the connection itself at once.
+   * After each of the first PAIRING_MAX_FAILURES - 1, "Link a machine" is still open and shows `code`.
+   */
+  async function silentAttempts(from: BenchMachine, to: BenchMachine, code: string, count: number, ends: 'timeout' | 'itself'): Promise<void> {
+    const port = bench.portOf(to)
+    const before = to.pairingFailures.length
+    for (let attempt = 1; attempt <= count; attempt++) {
+      const held = await openLinkSocket({ host: '127.0.0.1', port, path: PAIR_PATH, key: secretsOf(from)['machine-key'] ?? '', certificate: certificateOf(from) })
+      const closed = new Promise<void>((resolve) => held.ws.once('close', () => resolve()))
+      if (ends === 'itself') held.ws.terminate()
+      await closed
+      // One failure per attempt, counted once: the window stays open until the last of ten.
+      await expect.poll(() => to.pairingFailures.length).toBeGreaterThanOrEqual(before + attempt)
+      if (before + attempt < PAIRING_MAX_FAILURES) {
+        expect(to.pairingFailures.length).toBe(before + attempt)
+        // Nobody saw the code: B still shows the same one.
+        expect(to.service.pairingCode()?.code).toBe(code)
+      }
+    }
+  }
+
+  it(`counts as a failure when B's step times out, keeps the code, and ${PAIRING_MAX_FAILURES} in a row close "Link a machine"`, async () => {
     // A short step timeout instead of the real 15 s: the connection sends nothing, so nothing races it.
     await bench.close()
     bench = new LinkBench({ pairingStepTimeoutMs: 100 })
     const b = await bench.machine('beta')
     const c = await bench.machine('gamma')
     const code = await bench.codeOf(b)
-    const port = bench.portOf(b)
-    const failures = (): number => (b.service as unknown as { pairingWindow: { failures: number } }).pairingWindow.failures
-    for (let attempt = 1; attempt <= PAIRING_MAX_FAILURES; attempt++) {
-      const held = await openLinkSocket({ host: '127.0.0.1', port, path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
-      const closed = new Promise<void>((resolve) => held.ws.once('close', () => resolve()))
-      // B ends the silent attempt itself, after the step timeout.
-      await closed
-      await expect.poll(() => b.pairingFailures.length).toBeGreaterThanOrEqual(attempt)
-      if (attempt < PAIRING_MAX_FAILURES) {
-        expect(failures()).toBe(attempt)
-        // Nobody saw the code: B still shows the same one.
-        expect(b.service.pairingCode()?.code).toBe(code)
-      }
-    }
+    await silentAttempts(c, b, code, PAIRING_MAX_FAILURES, 'timeout')
     await expect.poll(() => b.service.pairingCode()).toBeNull()
     expect(b.pairingFailures.at(-1)).toMatch(/too many failed pairing attempts/)
     await b.service.settled()
     expect(b.service.status().listening).toBe(false)
   })
+
+  it(`counts as a failure when it closes itself before the step timeout, keeps the code, and ${PAIRING_MAX_FAILURES} in a row close "Link a machine"`, async () => {
+    // The real 15 s step timeout: each connection is gone long before it, so only its own close ends it.
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    const code = await bench.codeOf(b)
+    await silentAttempts(c, b, code, PAIRING_MAX_FAILURES, 'itself')
+    await expect.poll(() => b.service.pairingCode()).toBeNull()
+    expect(b.pairingFailures.at(-1)).toMatch(/too many failed pairing attempts/)
+    await b.service.settled()
+    expect(b.service.status().listening).toBe(false)
+  })
+
+  for (const cut of ['closeLinking', 'stop'] as const) {
+    it(`is not counted when B cuts it off (${cut}), even after ${PAIRING_MAX_FAILURES - 1} failures`, async () => {
+      const b = await bench.machine('beta')
+      const c = await bench.machine('gamma')
+      const code = await bench.codeOf(b)
+      await silentAttempts(c, b, code, PAIRING_MAX_FAILURES - 1, 'itself')
+      const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+      const closed = new Promise<void>((resolve) => held.ws.once('close', () => resolve()))
+      await b.service[cut]()
+      await closed
+      await expect.poll(() => b.pairingFailures.length).toBe(PAIRING_MAX_FAILURES)
+      expect(b.pairingFailures.some((message) => /too many failed pairing attempts/.test(message))).toBe(false)
+    })
+  }
 })
 
 describe('PairingWindow', () => {
@@ -538,16 +575,16 @@ describe('PairingWindow', () => {
     return { win, changes: () => changes }
   }
 
-  it(`closes after ${PAIRING_MAX_FAILURES} attempts in a row that timed out before the first message, like ${PAIRING_MAX_FAILURES} wrong codes`, () => {
+  it(`closes after ${PAIRING_MAX_FAILURES} attempts in a row that ended before the first message, like ${PAIRING_MAX_FAILURES} wrong codes, and keeps the code`, () => {
     const silent = openWindow()
     const code = silent.win.code()?.code
     for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
       expect(silent.win.begin()).toBeNull()
-      expect(silent.win.end(false, true)).toBe('open')
+      expect(silent.win.end(false)).toBe('open')
       expect(silent.win.code()?.code).toBe(code)
     }
     expect(silent.win.begin()).toBeNull()
-    expect(silent.win.end(false, true)).toBe('closed')
+    expect(silent.win.end(false)).toBe('closed')
     expect(silent.win.isOpen).toBe(false)
     // Only the opening and the closing changed the code shown: no attempt replaced it.
     expect(silent.changes()).toBe(2)
@@ -558,32 +595,46 @@ describe('PairingWindow', () => {
       wrong.win.take()
       expect(wrong.win.end(false)).toBe('open')
     }
+    expect(wrong.win.code()?.code).not.toBe(code)
     expect(wrong.win.begin()).toBeNull()
     wrong.win.take()
     expect(wrong.win.end(false)).toBe('closed')
   })
 
-  it('does not count an attempt that ended before the first message without a timeout', () => {
+  it('counts an attempt that is ended twice (its socket closed as its step timed out) once', () => {
     const { win } = openWindow()
-    const code = win.code()?.code
-    for (let attempt = 1; attempt <= PAIRING_MAX_FAILURES; attempt++) {
+    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
+      expect(win.begin()).toBeNull()
+      expect(win.end(false)).toBe('open')
+      expect(win.end(false)).toBe('open')
+    }
+    expect(win.begin()).toBeNull()
+    expect(win.end(false)).toBe('closed')
+  })
+
+  it('does not count an attempt that close() cut off, nor replace the code, even when linking was opened again before it ended', () => {
+    const { win, changes } = openWindow()
+    expect(win.begin()).toBeNull()
+    win.close()
+    expect(win.end(false)).toBe('closed')
+
+    win.open()
+    expect(win.begin()).toBeNull()
+    win.take()
+    win.close()
+    win.open()
+    const reopened = win.code()?.code
+    const shown = changes()
+    // The attempt cut off by close() ends only now, in the new opening.
+    expect(win.end(false)).toBe('open')
+    expect(win.code()?.code).toBe(reopened)
+    expect(changes()).toBe(shown)
+    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
       expect(win.begin()).toBeNull()
       expect(win.end(false)).toBe('open')
     }
-    expect(win.code()?.code).toBe(code)
-  })
-
-  it('counts a timeout after the code was taken once, and replaces the code', () => {
-    const { win } = openWindow()
-    const code = win.code()?.code
-    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
-      expect(win.begin()).toBeNull()
-      win.take()
-      expect(win.end(false, true)).toBe('open')
-    }
-    expect(win.code()?.code).not.toBe(code)
     expect(win.begin()).toBeNull()
-    expect(win.end(false, true)).toBe('closed')
+    expect(win.end(false)).toBe('closed')
   })
 })
 

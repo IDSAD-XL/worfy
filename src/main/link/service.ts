@@ -57,7 +57,6 @@ import {
   PAIRING_CODE_PATTERN,
   PAIRING_CODE_TTL_MS,
   PairingError,
-  PairingTimeoutError,
   PairingWindow,
   respondToPairing,
   type Hello,
@@ -655,7 +654,6 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   private async respond(ws: WebSocket, clientFingerprint: string, remoteAddress: string): Promise<void> {
     let stored: LinkedMachineRecord | undefined
-    let timedOut = false
     this.pairingSockets.add(ws)
     try {
       await respondToPairing(ws, () => this.pairingWindow.take(), {
@@ -674,19 +672,18 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       if (stored !== undefined) this.emit('linked', this.info(stored))
     } catch (error) {
       ws.terminate()
-      timedOut = error instanceof PairingTimeoutError
       const message = error instanceof PairingError ? error.message : `linking failed: ${messageOf(error)}`
       this.warn(`[link] a pairing attempt from ${remoteAddress} failed: ${message}`)
       this.emit('pairing-failed', { message })
     } finally {
       this.pairingSockets.delete(ws)
-      this.endAttempt(stored !== undefined, timedOut)
+      this.endAttempt(stored !== undefined)
     }
   }
 
   /** Ends a pairing attempt; too many failures in a row close "Link a machine" (pairing.ts). */
-  private endAttempt(succeeded: boolean, timedOut = false): void {
-    if (this.pairingWindow.end(succeeded, timedOut) === 'closed' && this.reasons.has('linking')) {
+  private endAttempt(succeeded: boolean): void {
+    if (this.pairingWindow.end(succeeded) === 'closed' && this.reasons.has('linking')) {
       this.warn('[link] "Link a machine" closed after too many failed pairing attempts')
       this.emit('pairing-failed', { message: 'too many failed pairing attempts; "Link a machine" was closed' })
       this.reasons.delete('linking')

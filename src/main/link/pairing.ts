@@ -152,17 +152,14 @@ export class PairingError extends Error {
   }
 }
 
-/** The other Machine sent no pairing message within the step timeout. */
-export class PairingTimeoutError extends PairingError {}
-
 /** What the code proves wrong: the user cannot tell a typo from a machine in the middle, so neither do we. */
 export const PAIRING_FAILED = 'the code did not match, or the connection to the other Machine was intercepted; nothing was linked'
 
 /**
  * Failed attempts in a row after which "Link a machine" closes by itself. Each attempt is one guess
  * at one code, so this keeps an attacker on the network at 10 guesses per opening, 1 in 100 000.
- * An attempt that holds the one slot through a step timeout without sending anything counts too, so
- * a silent connection cannot keep the slot from the real Machine for longer than 10 timeouts.
+ * An attempt that ends without the first SPAKE2 message counts too, whether it timed out or closed
+ * itself, so a silent connection holds the one slot for at most 10 steps per opening.
  */
 export const PAIRING_MAX_FAILURES = 10
 
@@ -176,6 +173,8 @@ export class PairingWindow {
   private attemptRunning = false
   /** The running attempt has taken the code. */
   private burnt = false
+  /** This side closed linking while the attempt ran, so the attempt is not the other Machine's failure. */
+  private cut = false
   private failures = 0
 
   constructor(
@@ -195,6 +194,7 @@ export class PairingWindow {
   }
 
   close(): void {
+    if (this.attemptRunning) this.cut = true
     this.current = null
     this.onCodeChange()
   }
@@ -216,6 +216,7 @@ export class PairingWindow {
     }
     this.attemptRunning = true
     this.burnt = false
+    this.cut = false
     return null
   }
 
@@ -226,17 +227,22 @@ export class PairingWindow {
   }
 
   /**
-   * Ends the running attempt. A burnt code is replaced; a failed one counts, and the
-   * PAIRING_MAX_FAILURES-th failure in a row closes linking (the result is then 'closed'). An attempt
-   * that `timedOut` counts even if it never took the code, which it then keeps: nobody saw it.
+   * Ends the running attempt, once. A failed attempt counts whether or not it took the code, and the
+   * PAIRING_MAX_FAILURES-th failure in a row closes linking (the result is then 'closed'). Only a
+   * burnt code is replaced: an attempt without the first message saw nothing. An attempt cut off by
+   * close() neither counts nor replaces the code, even if linking was opened again meanwhile.
    */
-  end(succeeded: boolean, timedOut = false): 'open' | 'closed' {
+  end(succeeded: boolean): 'open' | 'closed' {
+    if (!this.attemptRunning) return this.isOpen ? 'open' : 'closed'
     this.attemptRunning = false
     const burnt = this.burnt
+    const cut = this.cut
     this.burnt = false
+    this.cut = false
     if (this.current === null) return 'closed'
+    if (cut) return 'open'
     if (succeeded) this.failures = 0
-    else if (burnt || timedOut) this.failures += 1
+    else this.failures += 1
     if (this.failures >= PAIRING_MAX_FAILURES) {
       this.close()
       return 'closed'
@@ -297,7 +303,7 @@ function nextFrame<S extends z.ZodType>(ws: WebSocket, schema: S, timeoutMs: num
     }
     const timer = setTimeout(() => {
       cleanup()
-      reject(new PairingTimeoutError('the other Machine did not answer in time; nothing was linked'))
+      reject(new PairingError('the other Machine did not answer in time; nothing was linked'))
     }, timeoutMs)
     const onMessage = (data: WebSocket.RawData): void => {
       cleanup()
