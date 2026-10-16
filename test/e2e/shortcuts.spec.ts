@@ -82,8 +82,9 @@ test('"?" on the Canvas opens Keyboard shortcuts in groups and Esc closes it; "?
     await window.locator('.react-flow__pane').click({ position: { x: 600, y: 400 } })
     await window.keyboard.press('Shift+Slash')
     await expect(shortcuts).toBeVisible()
-    await expect(shortcuts.getByRole('heading', { level: 3 })).toHaveText(['Window', 'Canvas', 'Focus mode', 'Find', 'Session', 'Terminal'])
     const mac = process.platform === 'darwin'
+    // The Terminal group holds only the macOS-only command request (terminalRequest): elsewhere it is left out.
+    await expect(shortcuts.getByRole('heading', { level: 3 })).toHaveText(['Window', 'Canvas', 'Focus mode', 'Find', 'Session', ...(mac ? ['Terminal'] : [])])
     await expect(shortcuts.locator('[data-shortcut="palette"] kbd')).toHaveText(mac ? '⌘K' : 'Ctrl+K')
     await expect(shortcuts.locator('[data-shortcut="session.new-line"] kbd')).toHaveText(mac ? '⇧⏎' : 'Shift+Enter')
     // Above everything else of the window, in the layer of Settings.
@@ -134,6 +135,8 @@ test('Settings → Shortcuts shows the list of the window; Help ▸ Keyboard Sho
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
   try {
     const { app, window } = launched
+    // The renderer is up and follows menu commands before the first click: a click before that is lost.
+    await expect(window.getByTestId('note-node')).toHaveCount(2)
     const settings = window.getByRole('dialog', { name: 'Settings' })
     await clickMenuItem(app, SETTINGS_MENU_ITEM_ID)
     await expect(settings).toBeVisible()
@@ -154,8 +157,7 @@ test('Settings → Shortcuts shows the list of the window; Help ▸ Keyboard Sho
     await clickMenuItem(app, SHORTCUTS_MENU_ITEM_ID)
     const shortcuts = window.getByRole('dialog', { name: 'Keyboard shortcuts' })
     await expect(shortcuts).toBeVisible()
-    const inWindow = await shortcuts.locator('[data-shortcut]').evaluateAll((rows) => rows.map((row) => (row as unknown as { textContent: string }).textContent))
-    expect(inWindow).toEqual(inSettings)
+    await expect(shortcuts.locator('[data-shortcut]')).toHaveText(inSettings)
   } finally {
     await launched.close()
   }
