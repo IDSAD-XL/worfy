@@ -91,10 +91,19 @@ export const agentEvent = z.discriminatedUnion('type', [
   /**
    * An unattended Session (Autopilot, src/main/agent/session-settings.ts) refused something that
    * would have waited for a person, and showed nothing: a permission request (`subject`: the tool's
-   * name) or a Card's `session.ask` (`subject`: the Card's id). `message`: the refusal given. The
-   * journal of an Autopilot run records it as `refused-dialog`.
+   * name) or a Card's `session.ask` (`subject`: the Card's id). `message`: the refusal given. For a
+   * permission request, `agent`: the Subagent that asked (Claude Code's agentID), absent for the
+   * Session's own turn; `reason`: why Claude Code asked (its decisionReason), when it said. A
+   * `card_ask` has neither. The journal of an Autopilot run records it as `refused-dialog`.
    */
-  timed({ type: z.literal('refused_dialog'), dialog: z.enum(['permission_request', 'card_ask']), subject: z.string(), message: z.string() }),
+  timed({
+    type: z.literal('refused_dialog'),
+    dialog: z.enum(['permission_request', 'card_ask']),
+    subject: z.string(),
+    message: z.string(),
+    agent: z.string().min(1).optional(),
+    reason: z.string().min(1).optional(),
+  }),
   /** system/init: arrives at the start of every turn with the current model and mode. */
   timed({
     type: z.literal('init'),

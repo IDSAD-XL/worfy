@@ -7,7 +7,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -26,7 +26,7 @@ import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { LayoutStore } from '../../src/main/layout/store'
 import { applyBranches, readCheckout, readWorkflow, type BranchCache, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
-import type { JournalEvent } from '../../src/shared/autopilot/journal'
+import { REASON_MAX, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotChanged, autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE } from '../../src/shared/projects/action-templates'
@@ -364,6 +364,30 @@ describe('an Autopilot run on the fake agent', () => {
     ;(await h.session()).refuseDialog('card_ask', 'card-7', 'No one is at this Session')
     await until(async () => (await h.kinds()).some(([kind]) => kind === 'refused-dialog'), 'the refused-dialog line')
     expect((await h.journal()).find((event) => event.kind === 'refused-dialog')).toMatchObject({ what: 'card_ask card-7', session: (await h.session()).id })
+  })
+
+  it('journals a permission Claude Code asked for in bypassPermissions: the Subagent and the reason, the home folder as ~, no command', async () => {
+    const h = harness({ script: 'autopilot-refused-permission' })
+    await h.autopilot.start(PROJECT, EPIC)
+    await until(async () => (await h.kinds()).filter(([kind]) => kind === 'refused-dialog').length >= 2, 'two refused-dialog lines')
+    const session = (await h.session()).id
+    await h.autopilot.forceStop(PROJECT)
+    // The model got the reason with the refusal (the fake records canUseTool's answer).
+    const [answer] = h.calls.filter((call) => call.kind === 'permission')
+    expect(answer).toMatchObject({ toolName: 'Bash', result: { behavior: 'deny', message: expect.stringContaining(`\nrefused because: rm -rf with a target that cannot be resolved (${homedir()}/projects/app)`) as unknown } })
+
+    const [subagent, own] = (await h.journal()).filter((event) => event.kind === 'refused-dialog')
+    expect(subagent).toEqual(
+      expect.objectContaining({ session, what: 'permission_request Bash', agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/projects/app): this requires explicit approval' }),
+    )
+    // The Session's own turn has no agent; a long reason keeps its start only.
+    expect(own).not.toHaveProperty('agent')
+    const long = `A long reason with no Subagent: the Session's own turn asked. ${'It goes on and on so that the journal keeps only its start. '.repeat(5)}`
+    expect((own as { reason?: string }).reason).toBe(long.slice(0, REASON_MAX))
+    const dir = join(h.env.WORFY_DATA_DIR, 'autopilot')
+    const raw = readFileSync(join(dir, readdirSync(dir)[0]!), 'utf8')
+    expect(raw).not.toContain(homedir())
+    for (const command of ['secret-token-123', '$BUILD_DIR', '$OTHER_DIR', 'secret-flag-456']) expect(raw).not.toContain(command)
   })
 
   it('does not journal what a person does in another Session', async () => {

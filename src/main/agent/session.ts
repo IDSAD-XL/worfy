@@ -84,7 +84,7 @@ import {
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
-import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
+import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type RefusalDetails } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
@@ -397,7 +397,7 @@ export class Session {
     // lets the Orchestrator save the corrected picks.
     this.settingsValue = withSelectableModel(launchSettings(settings, launch))
     this.canUseTool = launch.unattended
-      ? unattendedCanUseTool((toolName, message) => this.refuseDialog('permission_request', toolName, message))
+      ? unattendedCanUseTool((toolName, message, details) => this.refuseDialog('permission_request', toolName, message, details))
       : this.permissions.canUseTool
   }
 
@@ -409,11 +409,11 @@ export class Session {
   /**
    * Tells the subscribers that this Session refused something that would have waited for a person
    * (a permission request, a Card's `session.ask`), and logs it: the record a check of an
-   * unattended run reads.
+   * unattended run reads. `details`: the Subagent that asked and Claude Code's reason, when given.
    */
-  refuseDialog(dialog: 'permission_request' | 'card_ask', subject: string, message: string): void {
+  refuseDialog(dialog: 'permission_request' | 'card_ask', subject: string, message: string, details: RefusalDetails = {}): void {
     console.warn(`[agent] unattended Session ${this.current} refused a ${dialog} (${subject})`)
-    this.emit({ type: 'refused_dialog', dialog, subject, message })
+    this.emit({ type: 'refused_dialog', dialog, subject, message, ...details })
   }
 
   get id(): string {
