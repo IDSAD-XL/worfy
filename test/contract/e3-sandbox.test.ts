@@ -19,7 +19,7 @@ import { removeTestTree } from '../remove'
 
 const SCRIPT = join(__dirname, '..', '..', 'scripts', 'e3-sandbox.sh')
 /** e3-sandbox.sh is the acceptance sandbox of the macOS app; it is not supported on Windows. */
-const NOT_ON_WINDOWS = process.platform === 'win32'
+const ON_WINDOWS = process.platform === 'win32'
 const TOKEN = 'gho_made-up-token-of-the-stub'
 
 let scratch: string
@@ -97,7 +97,7 @@ function expectExit(run: Run, code: number): void {
 
 const ghCalls = (): string[] => (existsSync(ghLog) ? readFileSync(ghLog, 'utf8').trim().split('\n').filter(Boolean) : [])
 
-describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh init', () => {
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh init', () => {
   it('makes the sandbox in the given temp dir: its folders, marker, .gitconfig and the variables of its login shells', () => {
     const run = sandbox(['init'])
     expectExit(run, 0)
@@ -173,7 +173,7 @@ describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh init', () => {
   })
 })
 
-describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh env and run', () => {
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh env and run', () => {
   it('runs a command with the sandbox variables only: nothing of the caller reaches it', () => {
     expectExit(sandbox(['init']), 0)
     const run = sandbox(['run', '/usr/bin/env'], { env: { CALLER_SECRET: 'x', GH_TOKEN: 'y', ANTHROPIC_API_KEY: 'z' } })
@@ -194,7 +194,7 @@ describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh env and run', () => {
   })
 })
 
-describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh tools', () => {
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh tools', () => {
   const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
   const TOOLS = ['claude', 'gh', 'git', 'jq', 'node', 'npm', 'npx']
 
@@ -491,7 +491,7 @@ describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh tools', () => {
   })
 })
 
-describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh reset and reset-harness', () => {
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh reset and reset-harness', () => {
   /** What an install leaves in the sandbox, and the sign-in next to it. */
   function installed(claudeHome = join(root, 'home', '.claude')): void {
     mkdirSync(join(claudeHome, 'worfy-harness', 'plugin'), { recursive: true })
@@ -586,7 +586,7 @@ describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh reset and reset-harness', () => {
   })
 })
 
-describe.skipIf(NOT_ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   const ran = (): boolean => existsSync(join(scratch, 'ran'))
   /** The command under the lock: it records that it ran, what E3_LOCK_HELD was and that the lock folder was there. */
   const touchRan = ['sh', '-c', 'echo "held=$E3_LOCK_HELD lock=$(ls -d "$E3_LOCK_DIR")" > "$SCRATCH/ran"']
