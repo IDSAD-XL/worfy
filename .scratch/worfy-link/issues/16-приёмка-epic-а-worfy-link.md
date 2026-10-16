@@ -90,3 +90,11 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 ## Итог
 
 Заполняется при закрытии.
+
+## Решения владельца (2026-10-16)
+
+- Приёмка — после конца run Autopilot на worfy-link (Ticket-ы 21–24): шаг 3 стартует Autopilot в
+  Stable copy.
+- В приёмку входит живая проверка уровня Read only на двух Machine: `agent.event` и уведомления
+  ([18](18-право-только-чтение-для-linked-machine.md), «Решения владельца»), и ручной пункт Ticket-а 02 —
+  Bonjour и запрос Local Network.
