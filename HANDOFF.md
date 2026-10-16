@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-16 (UTC), main @ 713b555
+# Передача контекста — снимок на 2026-10-16 (UTC), main @ af4bf07
 
 ## Сейчас в работе
 
@@ -11,12 +11,12 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; открыт 15 (подписи Model и Permissions в composer-е скрываются, когда значение не помещается); 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–04 (02, 03 — отчёты, решения владельца — «Итог»). Открыты 05 (compatibility suite SDK), 06–09 (процесс 03 «сбой → инцидент → test»: уроки, `check-lessons`, skill `retro`).
-- `worfy-polish`: 26/29 — 01–26 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — PR #365 после `pnpm test` на Windows-ПК без новых падений); открыты 27 (разбить `session.ts`), 28 (заголовки Command palette до 3 строк), 29 (`autoCompactWindow` из `settings.json`).
-- `worfy-throughput` (короче путь от claim до merge; [spec](.scratch/worfy-throughput/spec.md)): влиты 01 (`wave-gate`, ADR-0065), 03; 02 — Autopilot; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
+- `worfy-polish`: 26/29 — 01–26 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — PR #365 после `pnpm test` на Windows-ПК без новых падений); открыты 27 (разбить `session.ts`), 28 (заголовки Command palette до 3 строк), 29 (`autoCompactWindow` из `settings.json`), 30 (flaky contract test-ы).
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): влиты 01 (`wave-gate`, ADR-0065), 03; 02 (#392) `VERIFIED` по Mac, ждёт Windows-ПК; 06 — stub-ы для Windows; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
 
 ## Ждёт владельца
 
-- `worfy-throughput` 01 влит без вердикта Windows (ADR-0056, ошибка): прогон на ПК или revert; Profile — «Итог» 01, 03.
+- `worfy-throughput`: 01 влит без вердикта Windows (ошибка) — gate full на ПК для 01, 02 (`wave-gate.test.sh` там красный до 06); затем Harness, Profile.
 - Приёмка E3 («Итог» `worfy-harness` 26) закрыта 2026-10-15: пункты 1–5 приняты, версия `0.3.0`. Ошибка в окне без `gate/config.json` принята.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
