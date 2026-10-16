@@ -14,6 +14,14 @@ import type { QueryFactory, QueryRequest } from '../../src/main/agent/session'
 /** `ignore-term`: SIGTERM and the stdin's end do not end it, only SIGKILL does; `exit-at-once`: exits when its stdin ends. */
 export type StubKind = 'ignore-term' | 'exit-at-once'
 
+/**
+ * The signal an `ignore-term` process's exit reports after its Session closed it. On Windows Node's
+ * kill() is TerminateProcess whatever the signal: the SIGTERM handler never runs, the process dies at
+ * the close's SIGTERM, and its exit reports the signal asked for (SIGTERM) — worfy's SIGKILL at the
+ * limit is never needed there. Elsewhere SIGTERM is ignored and only that SIGKILL ends it.
+ */
+export const IGNORE_TERM_EXIT_SIGNAL: NodeJS.Signals = process.platform === 'win32' ? 'SIGTERM' : 'SIGKILL'
+
 /** How long a stub process lives at most, whatever happens to the test. */
 const STUB_LIFETIME_MS = 30_000
 

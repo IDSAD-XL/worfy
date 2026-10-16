@@ -26,7 +26,7 @@ import type { AgentEvent } from '../../src/shared/agent/events'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { autopilotStatusLine, type AutopilotState } from '../../src/shared/ipc/autopilot'
 import { DEFAULT_ACTION_TEMPLATES } from '../../src/shared/projects/action-templates'
-import { StubProcesses, type StubKind } from './claude-process-stub'
+import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -461,12 +461,14 @@ describe('Autopilot waits for the background tasks of its Orchestrator', () => {
   it('Force stop with a Claude Code process that ignores SIGTERM: forceStop() answers once the old process was killed and the new one started (worfy-week ticket 20)', async () => {
     const h = harness({ processes: 'ignore-term', exitWaitMs: 300 })
     await waveWaitsForTasks(h)
-    // The attended process, then the unattended one Autopilot started after the first had exited.
-    expect(h.stub?.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2'])
+    // The attended process, then the unattended one Autopilot started after the first had exited. On
+    // Windows kill() is TerminateProcess: each old process dies at its SIGTERM, which its exit reports.
+    const killed = (n: number): string => `exit ${n} ${IGNORE_TERM_EXIT_SIGNAL}`
+    expect(h.stub?.order()).toEqual(['spawn 1', killed(1), 'spawn 2'])
     const stopped = await h.autopilot.forceStop(PROJECT)
     expect(stopped).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [1, 2] })
     // When forceStop() answers, the unattended process is gone and the attended one has started, in that order.
-    expect(h.stub?.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2', 'exit 2 SIGKILL', 'spawn 3'])
+    expect(h.stub?.order()).toEqual(['spawn 1', killed(1), 'spawn 2', killed(2), 'spawn 3'])
     expect(h.stub?.maxAlive()).toBe(1)
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
     const events = await h.journal()

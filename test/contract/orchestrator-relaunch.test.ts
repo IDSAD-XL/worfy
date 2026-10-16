@@ -15,7 +15,7 @@ import { SessionRegistry, type QueryRequest } from '../../src/main/agent/session
 import { SessionSettingsStore } from '../../src/main/agent/session-settings'
 import { LayoutStore } from '../../src/main/layout/store'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
-import { StubProcesses, type StubKind } from './claude-process-stub'
+import { IGNORE_TERM_EXIT_SIGNAL, StubProcesses, type StubKind } from './claude-process-stub'
 
 vi.mock('electron', () => ({
   app: { isPackaged: false, getAppPath: () => '/nowhere', on: () => undefined },
@@ -23,6 +23,12 @@ vi.mock('electron', () => ({
 }))
 
 const PROJECT = 'demo-00000020'
+
+// On Windows kill() is TerminateProcess: an `ignore-term` stub dies at the close's SIGTERM, so there
+// is no wait for the old process to happen in, and its exit reports SIGTERM (IGNORE_TERM_EXIT_SIGNAL).
+const WINDOWS = process.platform === 'win32'
+/** How the old `ignore-term` process exited, as StubProcesses.order() writes it. */
+const KILLED = (n: number): string => `exit ${n} ${IGNORE_TERM_EXIT_SIGNAL}`
 
 let scratch: string
 let repo: string
@@ -104,17 +110,20 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     expect(h.stub.order()).toEqual(['spawn 1'])
 
     await h.orchestrators.setUnattended(PROJECT, true)
-    expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2'])
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2'])
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
 
     const answer = await h.orchestrators.giveBackNow(PROJECT)
     // Force stop's answer: the new process has started, after the old one's exit.
-    expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2', 'exit 2 SIGKILL', 'spawn 3'])
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2', KILLED(2), 'spawn 3'])
     expect(answer?.state).toBe('starting')
     expect(h.stub.maxAlive()).toBe(1)
-    // The SIGTERM did reach the old process; its stderr went to its Session, as the SDK's own spawn sends it.
-    expect(h.stub.stderr.get(1)).toContain('SIGTERM ignored')
-    expect(h.stub.stderr.get(2)).toContain('SIGTERM ignored')
+    // The SIGTERM did reach the old process; its stderr went to its Session, as the SDK's own spawn
+    // sends it. On Windows the SIGTERM is TerminateProcess: the handler never runs to write it.
+    for (const n of [1, 2]) {
+      if (WINDOWS) expect(h.stub.stderr.get(n)).not.toContain('SIGTERM ignored')
+      else expect(h.stub.stderr.get(n)).toContain('SIGTERM ignored')
+    }
     expect(h.requests.map((request) => request.unattended)).toEqual([false, true, false])
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
   })
@@ -140,44 +149,56 @@ describe('Orchestrator relaunch waits for the old Claude Code process', () => {
     const relaunched = h.orchestrators.setUnattended(PROJECT, true)
     // The new Session is live at once, `starting`, with no process yet.
     await vi.waitFor(() => expect(h.view().sessionId).not.toBe(old))
-    expect(h.view()).toMatchObject({ state: 'starting', error: null })
+    // On Windows the old process is usually gone by now, so the new Session may be past `starting`.
+    if (WINDOWS) expect(h.view().error).toBeNull()
+    else expect(h.view()).toMatchObject({ state: 'starting', error: null })
     const waiting = h.registry.get(h.view().sessionId ?? '')
-    expect(waiting.send('status?')).toBe('queued')
+    const sent = waiting.send('status?')
     expect(() => h.registry.get(old)).toThrow(/No live Session/)
-    expect(h.stub.order()).toEqual(['spawn 1'])
-    expect(h.messagesPerProcess()).toEqual([[]])
+    if (WINDOWS) {
+      // The old process died at the close's TerminateProcess, usually before the new Session was
+      // seen (vi.waitFor polls every 50 ms): the message mostly goes at once. Either way it must
+      // reach the new process and only it, which the lines after the relaunch check.
+      expect(['sent', 'queued']).toContain(sent)
+    } else {
+      expect(sent).toBe('queued')
+      expect(h.stub.order()).toEqual(['spawn 1'])
+      expect(h.messagesPerProcess()).toEqual([[]])
+    }
 
     await relaunched
-    expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2'])
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2'])
     await vi.waitFor(() => expect(h.messagesPerProcess()).toEqual([[], ['status?']]))
     await vi.waitFor(() => expect(waiting.state).toBe('idle'))
     expect(waiting.queued()).toMatchObject({ items: [], paused: false })
   })
 
-  it('a second relaunch during the wait starts no second process: the Session in between never starts one', async () => {
+  // Needs the old process to outlive its SIGTERM; on Windows kill() is TerminateProcess, so there is no wait to relaunch in.
+  it.skipIf(WINDOWS)('a second relaunch during the wait starts no second process: the Session in between never starts one', async () => {
     const h = harness('ignore-term', 300)
     await h.opened()
     const first = h.orchestrators.setUnattended(PROJECT, true)
     await vi.waitFor(() => expect(h.view().state).toBe('starting'))
     const second = h.orchestrators.giveBackNow(PROJECT)
     await Promise.all([first, second])
-    expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL', 'spawn 2'])
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1), 'spawn 2'])
     expect(h.stub.maxAlive()).toBe(1)
     // Only the last launch asked for a process: attended, as giveBackNow wants it.
     expect(h.requests.map((request) => request.unattended)).toEqual([false, false])
     expect(h.orchestrators.isUnattended(PROJECT)).toBe(false)
   })
 
-  it('a Project closed during the wait starts no new process; the old one is still killed at the limit', async () => {
+  // Needs the old process to outlive its SIGTERM; on Windows kill() is TerminateProcess, so there is no wait to close the Project in.
+  it.skipIf(WINDOWS)('a Project closed during the wait starts no new process; the old one is still killed at the limit', async () => {
     const h = harness('ignore-term', 200)
     await h.opened()
     const relaunched = h.orchestrators.setUnattended(PROJECT, true)
     await vi.waitFor(() => expect(h.view().state).toBe('starting'))
     h.orchestrators.retain(new Set())
     await expect(relaunched).rejects.toThrow(/was stopped/)
-    await vi.waitFor(() => expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL']))
+    await vi.waitFor(() => expect(h.stub.order()).toEqual(['spawn 1', KILLED(1)]))
     await new Promise((done) => setTimeout(done, 100))
-    expect(h.stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL'])
+    expect(h.stub.order()).toEqual(['spawn 1', KILLED(1)])
     expect(h.requests).toHaveLength(1)
   })
 })
@@ -209,7 +230,8 @@ describe('Session.exited', () => {
     expect(done).toBe(false)
     release()
     await exited
-    expect(stub.order()).toEqual(['spawn 1', 'exit 1 SIGKILL'])
+    // On Windows the process ends at the SIGTERM of the late start's close (TerminateProcess), before the limit.
+    expect(stub.order()).toEqual(['spawn 1', KILLED(1)])
   })
 
   it('answers at once for a Session without a process of its own (the fake agent)', async () => {
