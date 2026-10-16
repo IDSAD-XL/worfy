@@ -439,6 +439,9 @@ describe('claudeHome.subagentTranscript', () => {
     expect(await found(AGENTS, S7, 'a3000000000000286')).toBe(true)
     expect(await found(DEMO, S5, 'a1000000000000286')).toBe(true)
     expect(await found(AGENTS, S7, 'a9999999999999999')).toBe(false)
+    // A Subagent of another Project's Session is not served through this Project's root: S7 is a
+    // Session of AGENTS, and its Subagent a3… is found there (above), but not through DEMO.
+    expect(await found(DEMO, S7, 'a3000000000000286')).toBe(false)
     // A Subagent of another Session: its file exists, but not in the subagents/ of this Session.
     expect(await found(DEMO, S5, 'a3000000000000286')).toBe(false)
     // The Session's own id names no Subagent: the reader looks only for subagents/agent-<id>.jsonl.

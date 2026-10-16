@@ -92,4 +92,6 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
   - `gate full` на head `7051b9bf` (база `34aee14a`) — exit 0, `[gate] зелено (full)`. Три прогона
     до него были красные только от нагрузки: каждый раз другие contract test-ы и один e2e, все
     зелёные по отдельности; это теперь worfy-polish 30.
+  - `e3-sandbox.test.ts` отдельно (локальный прогон 2026-10-16 до merge) — 57 passed, 0 skipped,
+    как на main: `skipIf` срабатывает только на Windows.
   - Linux CI — зелёный.
