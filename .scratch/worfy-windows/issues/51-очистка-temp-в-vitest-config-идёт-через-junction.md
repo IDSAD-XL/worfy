@@ -139,6 +139,14 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-
   - **Мутанты, все — exit 1:** `catch` бросает дальше; порог 90 мин и 2 мин; префикс через
     `includes`; префикс шире (`worfy-contract-claude-`); `ZzVitestProbe` через `includes`; два
     регулярных выражения для имён конфигов уже; конфиг не зовёт очистку `%TEMP%`.
-  - **`pnpm lint` exit 0, `pnpm typecheck` exit 0.**
-  - Test-ы `glob-probe` (`canvas`, `session-rail-discovery`, `shell-discovery`) с
-    `stale-leftovers` и `no-rmsync` — 59 из 59.
+  - **`pnpm test` на ветке (до merge main):** exit 1, 466 failed, 4867 passed, 84 skipped —
+    падения Windows, как на main. Сравнение по имени test-а с прогоном main `524abb3` на том же
+    ПК: 22 test-а падают только на ветке, почти все — timeout. Повтор их десяти файлов отдельно:
+    осталось два.
+    - `canvas.test.tsx` «maps each kind to its component…» — timeout 5 с. Отдельно на ветке
+      38 из 38; на main `ed820a5` отдельно — тот же timeout. Flaky, не от правки.
+    - `startup-failure.test.ts` — 11 падений и на ветке, и на main `ed820a5`, те же имена, два
+      прогона на каждой стороне.
+  - **После merge `origin/main` (`c53f8a8`):** install, `pnpm lint`, `pnpm typecheck` — exit 0;
+    `stale-leftovers`, `no-rmsync`, test-ы `glob-probe` (`canvas`, `session-rail-discovery`,
+    `shell-discovery`) и `e2e-no-spawn-on-load` — 94 из 94.
