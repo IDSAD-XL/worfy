@@ -1,7 +1,7 @@
 # 51 — Очистка старых папок `%TEMP%` в `vitest.config.ts` и в `glob-probe.tsx` идёт через junction и опустошает папку за ним
 
 Type: task
-Status: open
+Status: done — 2026-10-16, [PR #389](https://github.com/IDSAD-XL/worfy/pull/389)
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-10-16: опыт с поддельной старой папкой `worfy-glob-probe-zzexp` (ниже); вопрос возник при разборе Ticket-а [52](52-из-node_modules-соседних-worktree-пропадают-пакеты.md). Код перечитан на Mac по main `9974e0e0`.
 
@@ -150,3 +150,9 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-
   - **После merge `origin/main` (`c53f8a8`):** install, `pnpm lint`, `pnpm typecheck` — exit 0;
     `stale-leftovers`, `no-rmsync`, test-ы `glob-probe` (`canvas`, `session-rail-discovery`,
     `shell-discovery`) и `e2e-no-spawn-on-load` — 94 из 94.
+- **Merge.** PR #389 влит 2026-10-16, squash `0aa5fc05`. Проверки Session на Mac:
+  - `gate full` на head `6e36f981` (база `c53f8a86`) — exit 0, `[gate] зелено (full)`: lint,
+    typecheck, test, test:e2e, test:package. test:package собирал через новый
+    `electron.vite.config.ts`.
+  - Linux CI — зелёный с первого прогона.
+  - Review на Mac (correctness, medium): находок нет.
