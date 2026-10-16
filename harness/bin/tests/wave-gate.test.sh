@@ -34,6 +34,10 @@ cat >"$STUBS/gate" <<'EOF'
 #!/usr/bin/env bash
 n=$(( $(cat "$GATE_DIR/count" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$GATE_DIR/count"
 echo "$n $(git rev-parse HEAD^{tree}) $(ls | tr '\n' ' ') scope=${GATE_SCOPE:-} arg=$1 lock=$([ -n "${GATE_LOCK:-}" ] && [ -d "$GATE_LOCK" ] && echo held || echo none)" >>"$GATE_DIR/log"
+if [ -f "$GATE_DIR/artifacts" ]; then  # what an earlier run left in the tree; then leave a build output and node_modules
+  echo "$n leftover=$([ -e build-out/leftover ] && echo yes || echo no) nm=$([ -e node_modules/keep ] && echo kept || echo none)" >>"$GATE_DIR/artifacts.log"
+  mkdir -p build-out node_modules && touch build-out/leftover node_modules/keep
+fi
 mt() { node -e 'try{process.stdout.write(String(Math.floor(require("fs").statSync(process.argv[1]).mtimeMs/1000)))}catch{process.stdout.write("gone")}' "$1"; }
 [ -f "$GATE_DIR/lockwatch" ] && echo "start $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
 if [ -f "$GATE_DIR/kill$n" ]; then kill -"$(cat "$GATE_DIR/kill$n")" "$PPID"; sleep 1; exit 0; fi
@@ -79,7 +83,7 @@ new_world() {
     mkdir -p "$W/gate" "$W/gh"
     git init -q --bare -b main "$W/origin.git"
     git clone -q "$W/origin.git" "$W/seed" 2>/dev/null
-    echo base >"$W/seed/base.txt"; echo shared >"$W/seed/shared.txt"
+    echo base >"$W/seed/base.txt"; echo shared >"$W/seed/shared.txt"; printf 'build-out/\nnode_modules/\n' >"$W/seed/.gitignore"
     git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m base && git -C "$W/seed" push -q origin HEAD:main
     for spec in "$@"; do
         n="${spec%%:*}"; f="${spec#*:}"; c="$n"
@@ -247,6 +251,77 @@ GH_EXTRA_AT=2 "$WG" merge "$S" >"$W/mout" 2>&1; rc=$?
 grep -q "gate full on" "$W/mout" && ok "merge: the stop asks for gate full on the main branch" || bad "merge tree: output $(cat "$W/mout")"
 "$WG" merge "$S" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 4 ] && [ "$(grep -c 'pr merge' "$GH_LOG")" = 2 ] && ok "merge: a stopped merge does not go on" || bad "merge tree: second merge exit $rc"
+
+# --- merge resumed after a break: the main branch must still be the commit of the last recorded merge ---
+new_world mresume 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; state "$S" null 1 2 3
+"$WG" check "$S" >/dev/null 2>&1
+# PR 1 merged, then the session broke before PR 2: the state has merge.merged = [#1], status pending
+gh pr merge 1 --squash --match-head-commit "$(head_of 1)" >/dev/null 2>&1
+m1="$(git -C "$W/origin.git" rev-parse main)"
+node -e 'const fs=require("fs"),[f,c,t]=process.argv.slice(1),s=JSON.parse(fs.readFileSync(f,"utf8")); s.merge={merged:[{number:1,commit:c,tree:t}],status:"pending"}; fs.writeFileSync(f,JSON.stringify(s))' \
+    "$S" "$m1" "$(git -C "$W/origin.git" rev-parse 'main^{tree}')"
+cp "$S" "$W/state-clean.json"
+: >"$GH_LOG"
+echo foreign >"$W/seed/foreign.txt"; git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m foreign && git -C "$W/seed" pull -q --rebase origin main 2>/dev/null; git -C "$W/seed" push -q origin HEAD:main
+"$WG" merge "$S" >"$W/mout" 2>&1; rc=$?
+[ "$rc" -eq 4 ] && ! grep -q "pr merge" "$GH_LOG" && ok "merge resume: a push after the recorded merge of #1 -> exit 4, no gh pr merge" || bad "merge resume: exit $rc gh [$(cat "$GH_LOG")]: $(tail -3 "$W/mout")"
+[ "$(q "$S" s.merge.stopped.number)" = 2 ] && [[ "$(q "$S" s.merge.stopped.reason)" == *"after the merge of #1"* ]] && ok "merge resume: the stop names #2 and the merge of #1" || bad "merge resume: stopped $(q "$S" s.merge 2>&1)"
+# without the foreign push the resume goes on from #2
+new_world mresume2 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; state "$S" null 1 2 3
+"$WG" check "$S" >/dev/null 2>&1
+gh pr merge 1 --squash --match-head-commit "$(head_of 1)" >/dev/null 2>&1
+node -e 'const fs=require("fs"),[f,c,t]=process.argv.slice(1),s=JSON.parse(fs.readFileSync(f,"utf8")); s.merge={merged:[{number:1,commit:c,tree:t}],status:"pending"}; fs.writeFileSync(f,JSON.stringify(s))' \
+    "$S" "$(git -C "$W/origin.git" rev-parse main)" "$(git -C "$W/origin.git" rev-parse 'main^{tree}')"
+: >"$GH_LOG"
+"$WG" merge "$S" >"$W/mout" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "2 3 " ] && ok "merge resume: an unchanged main -> merges #2 and #3 only" || bad "merge resume clean: exit $rc gh [$(cat "$GH_LOG")]"
+
+# --- one check per repository: the pid file ------------------------------------------------------
+PIDF() { echo "$(cd "$W/repo/.git" && pwd -P)/worfy-wave-gate.pid"; }
+new_world pidlive 1:a.txt
+S="$W/state.json"; state "$S" null 1
+git -C "$W/repo" worktree add -q --detach "$(TMPW_OF)" origin/main && echo mine >"$(TMPW_OF)/marker"
+sleep 60 & sp=$!
+echo "$sp" >"$(PIDF)"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" && ok "pid: a live check's pid -> exit 1 naming it" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
+[ "$(cat "$(TMPW_OF)/marker" 2>/dev/null)" = mine ] && git -C "$W/repo" worktree list | grep -q worfy-wave-gate && [ "$(gate_count)" = 0 ] && [ "$(cat "$(PIDF)")" = "$sp" ] \
+    && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
+kill "$sp"; wait "$sp" 2>/dev/null
+git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
+# a dead pid: stale, taken over
+sleep 0 & dp=$!; wait "$dp"
+echo "$dp" >"$(PIDF)"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "pid $dp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && ok "pid: a dead pid is taken over; the pid file is gone at the end" || bad "pid dead: exit $rc: $(tail -3 "$W/out")"
+# an empty pid file: young — its writer is between open and write; old — stale
+new_world pidempty 1:a.txt
+S="$W/state.json"; state "$S" null 1
+: >"$(PIDF)"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q "its pid is being written" "$W/out" && ok "pid: an empty pid file just made -> exit 1" || bad "pid empty young: exit $rc: $(tail -3 "$W/out")"
+touch -t 202001010000 "$(PIDF)"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "no pid for over" "$W/out" && ok "pid: an empty pid file older than 10 s is taken over" || bad "pid empty old: exit $rc: $(tail -3 "$W/out")"
+# two checks started together: exactly one runs
+new_world pidrace 1:a.txt
+state "$W/s1.json" null 1; state "$W/s2.json" null 1
+echo 2 >"$GATE_DIR/sleep"
+"$WG" check "$W/s1.json" >"$W/o1" 2>&1 & p1=$!
+"$WG" check "$W/s2.json" >"$W/o2" 2>&1 & p2=$!
+wait "$p1"; r1=$?; wait "$p2"; r2=$?
+codes="$(printf '%s\n' "$r1" "$r2" | sort | tr '\n' ' ')"
+[ "$codes" = "0 1 " ] && grep -q "another wave-gate check" "$W/o1" "$W/o2" && [ "$(gate_count)" = 1 ] && ok "pid: two checks at once -> one runs, the other exits 1" || bad "pid race: codes [$codes] runs $(gate_count): $(tail -2 "$W/o1") | $(tail -2 "$W/o2")"
+rm -f "$GATE_DIR/sleep"
+
+# --- between runs: ignored build output is removed, node_modules stays ---------------------------
+new_world artifacts 1:a.txt 2:RED
+S="$W/state.json"; state "$S" null 1 2; touch "$GATE_DIR/artifacts"
+"$WG" check "$S" >/dev/null 2>&1
+[ "$(awk 'NR>1{print $2, $3}' "$GATE_DIR/artifacts.log" | sort -u)" = "leftover=no nm=kept" ] && [ "$(wc -l <"$GATE_DIR/artifacts.log" | tr -d ' ')" = 3 ] \
+    && ok "between runs: no build output of the run before, node_modules kept" || bad "between runs: $(cat "$GATE_DIR/artifacts.log")"
 
 # --- the e2e lock ---------------------------------------------------------------------------
 new_world lock 1:a.txt

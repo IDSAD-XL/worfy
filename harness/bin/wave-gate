@@ -36,8 +36,10 @@
 //     repeated, the worktree it left is reused. When <remote>/<branch> has moved since, the state is
 //     reset and the set is checked again. The worktree is removed at the end and on an error; a signal
 //     leaves it for the resume.
+//   - one check per repository at a time: <git common dir>/worfy-wave-gate.pid (see guardPid).
 // merge (status green: the set; status red: green_prefix), under the main-branch lock:
 //   - fetch; <remote>/<branch> must still be base, else no merge at all: "base moved";
+//     resumed after a break, it must still be the commit of the last recorded merge;
 //   - each PR: `gh pr merge <N> --squash --match-head-commit <head>`, fetch, and the tree of the main
 //     branch must equal the checked tree of that prefix; the first mismatch stops: no further merges,
 //     the reason goes to the state file — then gate full on the main branch.
@@ -192,7 +194,7 @@ function openTree(repo, dir, at) {
     if (registered(repo, dir)) {
         say(`reusing the worktree ${dir} left by an earlier run`)
         git(["reset", "-q", "--hard", at], dir)
-        git(["clean", "-fdq"], dir)
+        git(["clean", "-fdqx", "-e", "node_modules"], dir)
     } else {
         fs.rmSync(dir, { recursive: true, force: true })
         git(["worktree", "add", "-q", "--detach", dir, at], repo)
@@ -209,24 +211,79 @@ function closeTree() {
     }
     held.tree = null
 }
+// One check per repository at a time: <git common dir>/worfy-wave-gate.pid, created with O_EXCL ("wx"), so two
+// checks that start together cannot both get it. A file whose pid is dead, or which stays without a pid for
+// longer than PID_EMPTY_S (its writer died between open and write), is stale. It is taken over by renaming it
+// to a name of our own first: only one of two racing checks gets the rename, and the file it got is read again —
+// if it is not the stale one it saw (another check took over and wrote a live pid in between), it is put back
+// with link(), which fails rather than overwrite a newer file, and this check gives way.
+const PID_EMPTY_S = 10
+const pidAlive = (pid) => {
+    try {
+        process.kill(pid, 0)
+        return true
+    } catch (e) {
+        return e.code === "EPERM"
+    }
+}
+function pidState(file) {
+    let text, st
+    try {
+        st = fs.statSync(file)
+        text = fs.readFileSync(file, "utf8")
+    } catch (e) {
+        if (e.code === "ENOENT") return { gone: true }
+        throw e
+    }
+    const pid = Number(text.trim())
+    if (Number.isInteger(pid) && pid > 0) return { text, pid, live: pidAlive(pid) }
+    return { text, pid: null, live: (Date.now() - st.mtimeMs) / 1000 <= PID_EMPTY_S }
+}
 function guardPid(common) {
     const file = path.join(common, `${TREE_NAME}.pid`)
-    try {
-        const pid = Number(fs.readFileSync(file, "utf8").trim())
-        if (pid && pid !== process.pid) {
-            let alive = true
-            try {
-                process.kill(pid, 0)
-            } catch (e) {
-                alive = e.code === "EPERM"
-            }
-            if (alive) fail(`another wave-gate check runs in this repository (pid ${pid}, ${file})`)
+    for (let attempt = 0; attempt < 5; attempt++) {
+        let fd
+        try {
+            fd = fs.openSync(file, "wx")
+        } catch (e) {
+            if (e.code !== "EEXIST") throw e
         }
-    } catch (e) {
-        if (e instanceof Fail) throw e
+        if (fd !== undefined) {
+            fs.writeSync(fd, `${process.pid}\n`)
+            fs.closeSync(fd)
+            held.pidFile = file
+            return
+        }
+        const seen = pidState(file)
+        if (seen.gone) continue
+        if (seen.live) fail(`another wave-gate check runs in this repository (${seen.pid ? `pid ${seen.pid}` : "its pid is being written"}, ${file})`)
+        const aside = `${file}.stale-${process.pid}`
+        try {
+            fs.renameSync(file, aside)
+        } catch (e) {
+            if (e.code === "ENOENT") continue
+            throw e
+        }
+        const got = fs.readFileSync(aside, "utf8")
+        if (got !== seen.text) {
+            try {
+                fs.linkSync(aside, file)
+            } catch {}
+            fs.rmSync(aside, { force: true })
+            fail(`another wave-gate check took over ${file} at the same moment`)
+        }
+        say(`${file} named ${seen.pid ? `pid ${seen.pid}, which is not running` : "no pid for over " + PID_EMPTY_S + " s"} — stale, taken over`)
+        fs.rmSync(aside, { force: true })
     }
-    fs.writeFileSync(file, `${process.pid}\n`)
-    held.pidFile = file
+    fail(`could not create ${file}`)
+}
+function releasePid() {
+    if (!held.pidFile) return
+    // Only our own: a file another check wrote after ours was taken over stays.
+    try {
+        if (fs.readFileSync(held.pidFile, "utf8").trim() === String(process.pid)) fs.rmSync(held.pidFile, { force: true })
+    } catch {}
+    held.pidFile = null
 }
 
 // --- a child process, killable on a signal ------------------------------------------------------------
@@ -363,7 +420,7 @@ function squashAll(ctx) {
         const pr = st.prs.find((p) => p.number === n)
         const tip = st.prefixes.length ? st.prefixes[st.prefixes.length - 1].commit : st.base
         git(["reset", "-q", "--hard", tip], dir)
-        git(["clean", "-fdq"], dir)
+        git(["clean", "-fdqx", "-e", "node_modules"], dir)
         if (!fetchHead(ctx, pr)) {
             st.excluded.push({ number: n, reason: "head-missing", detail: `${pr.head} is not in ${ctx.repo} or ${ctx.remote}` })
             save(ctx.file, st)
@@ -397,8 +454,10 @@ async function gateOn(ctx, size, role) {
     const done = st.runs.find((r) => r.role === role && r.size === size && (r.outcome === "green" || r.outcome === "red"))
     if (done) return done
     const commit = size === 0 ? st.base : st.prefixes[size - 1].commit
+    // Ignored files go too (a build output of a bigger prefix must not reach a run of a smaller one);
+    // node_modules stays, and prepare brings it to this tree.
     git(["reset", "-q", "--hard", commit], dir)
-    git(["clean", "-fdq"], dir)
+    git(["clean", "-fdqx", "-e", "node_modules"], dir)
     const tree = out(["rev-parse", "HEAD^{tree}"], dir)
     const log = path.join(ctx.logs, `${String(st.runs.length + 1).padStart(2, "0")}-${role}-${size}.log`)
     fs.writeFileSync(log, "")
@@ -489,7 +548,8 @@ async function merge(file) {
         const tip = fetch()
         const k = st.merge.merged.length
         if (k === 0 && tip !== st.base) return stop(list[0], `base moved: ${remote}/${st.branch} is ${tip}, the set was checked on ${st.base}`)
-        if (k > 0 && out(["rev-parse", `${tip}^{tree}`], repo) !== st.merge.merged[k - 1].tree)
+        // Resuming after a break: the main branch must still be the commit our last merge made.
+        if (k > 0 && tip !== st.merge.merged[k - 1].commit)
             return stop(list[k], `base moved: ${remote}/${st.branch} changed after the merge of #${st.merge.merged[k - 1].number}`)
         for (let i = k; i < list.length; i++) {
             const n = list[i]
@@ -515,12 +575,7 @@ async function merge(file) {
 // --- entry -------------------------------------------------------------------------------------------------
 function release() {
     for (const dir of [...held.locks.keys()]) unlock(dir)
-    if (held.pidFile) {
-        try {
-            fs.rmSync(held.pidFile, { force: true })
-        } catch {}
-        held.pidFile = null
-    }
+    releasePid()
 }
 for (const [sig, n] of Object.entries(SIGNALS))
     process.on(sig, () => {
