@@ -30,8 +30,10 @@
 // - Force stop (`user-force-stop`, worfy-week ticket 17, ADR-0050) does not wait: it halts the
 //   Orchestrator's Session (interrupts its turn, HALT_TURN_MS at most, and holds its queue) and
 //   gives the Orchestrator back at once; closing the old process kills its background tasks. The
-//   journal says `run-stopped` with the Tickets of the interrupted Wave, `tasks-killed` when tasks
-//   lived, and `orchestrator-returned`; forceStop() answers after that. The next run of the Epic
+//   give-back answers once the old process has exited (SIGKILL past its limit) and the attended one
+//   has started (worfy-week ticket 20, ADR-0064). The journal says `run-stopped` with the Tickets of
+//   the interrupted Wave, `tasks-killed` when tasks lived, and `orchestrator-returned`; forceStop()
+//   answers after that. The next run of the Epic
 //   takes those Tickets, if still in work, into its first Wave (`resumable`); after a graceful Stop
 //   it takes none.
 // - keep-awake (power.ts) is held from the start to the end of the run.
@@ -167,7 +169,10 @@ export interface AutopilotDeps {
   watchWorkflow(root: string, onChange: () => void): Promise<() => Promise<void> | void>
   orchestrators: {
     setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null>
-    /** Stop by the user: the Orchestrator attended again at once, its old process closed (Orchestrators.giveBackNow). */
+    /**
+     * Stop by the user: the Orchestrator attended again at once, its old process closed; answers once
+     * that process has exited and the new one started (Orchestrators.giveBackNow, ADR-0064).
+     */
     giveBackNow(projectId: string): Promise<OrchestratorView | null>
   }
   registry: {

@@ -88,7 +88,8 @@ export interface SdkQueryFactoryOptions {
  * Every Session gets the Harness copy of this build inline unless the old Harness is on the machine
  * (sessionHarnessPlugin, ADR-0049), and the autocompact window of its role (`autoCompactWindow`),
  * read when the options are built — after the environment and the canvas are in, so a change made
- * while they load still reaches this start.
+ * while they load still reaches this start. worfy starts the Claude Code process itself, as the SDK
+ * would, and tells the Session of it (watchedSpawn, ADR-0064).
  */
 export function sdkQueryFactory(
   canvas: CanvasResolver = canvasForSession,
@@ -105,6 +106,7 @@ export function sdkQueryFactory(
       resume: request.resume,
       sessionId: request.sessionId,
       stderr: request.stderr,
+      spawned: request.spawned,
       canvas: attached?.attachment,
       settings: request.settings,
       canUseTool: request.canUseTool,
