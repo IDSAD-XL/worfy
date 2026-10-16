@@ -26,10 +26,12 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
 import { UnknownNode } from '../canvas/UnknownNode'
-import { isPrimary, isTerminalKey } from '../platform'
+import { isPrimary } from '../platform'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
+import { label, matches } from '../shortcuts/match'
 import { setFocusActive, useFocusState } from './focus-state'
 import {
   buildPreset,
@@ -58,8 +60,13 @@ export interface FocusModeProps {
 /** How far the pointer must travel before a press on a title bar becomes a drag. */
 const DRAG_THRESHOLD_PX = 4
 
-/** Canvas zoom keys (Canvas.tsx), swallowed while the Canvas is covered: they would zoom it unseen. */
-const ZOOM_KEYS = new Set(['=', '+', '-', '_', '0'])
+/**
+ * The zoom keys of the Canvas (Canvas.tsx), swallowed while the Canvas is covered: they would zoom
+ * it unseen. Cmd/Ctrl+0 is no shortcut of worfy (Actual size of the View menu carries Alt) and is
+ * swallowed with them, so nothing under the layer takes it either.
+ */
+const isZoomKey = (event: KeyboardEvent): boolean =>
+  matches(event, SHORTCUTS.canvasZoomIn) || matches(event, SHORTCUTS.canvasZoomOut) || (isPrimary(event) && !event.altKey && event.key === '0')
 
 const percent = (share: number): string => `${share * 100}%`
 
@@ -299,11 +306,10 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
     // Capture phase: the Canvas listens on window too, and must not zoom while it is covered.
     const swallowZoom = (event: KeyboardEvent) => {
       // On Windows Ctrl+_ in a Terminal tile is the shell's undo (readline): it goes to the terminal,
-      // which keeps it from the Canvas itself.
-      if (event.key === '_' && isTerminalKey(event)) return
-      // With Alt the combination is the interface scale of the View menu (src/main/menu.ts), which
-      // the Canvas leaves alone too: swallowed here, Ctrl+Alt+= on Windows would never reach the menu.
-      if (isPrimary(event) && !event.altKey && ZOOM_KEYS.has(event.key)) {
+      // which keeps it from the Canvas itself (`shellKeeps` of the registry). With Alt the
+      // combination is the interface scale of the View menu (src/main/menu.ts), which the Canvas
+      // leaves alone too: swallowed here, Ctrl+Alt+= on Windows would never reach the menu.
+      if (isZoomKey(event)) {
         event.preventDefault()
         event.stopImmediatePropagation()
       }
@@ -444,7 +450,7 @@ export function FocusMode({ tree, onChange, onExit }: FocusModeProps) {
           ))}
         </div>
         <button type="button" className="w-focus__button w-focus__exit" onClick={() => latest.current.onExit()}>
-          Exit focus <kbd>Esc</kbd>
+          Exit focus <kbd>{label(SHORTCUTS.focusExit)}</kbd>
         </button>
       </div>
       <div ref={area} className="w-focus__area" data-dragging={drag?.moving === true ? 'true' : undefined}>

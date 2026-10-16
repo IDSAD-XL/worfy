@@ -13,6 +13,7 @@ import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
 import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
 import { sessionNodeId } from '../claude-home/session-nodes'
@@ -21,9 +22,9 @@ import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
 import { invoke, readableReason } from '../ipc'
-import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
+import { label, matches } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { buildCommands, forQuery, type CommandGate, type PaletteCommand } from './commands'
 import { groupRows, type RowGroup } from './groups'
@@ -39,9 +40,6 @@ export const TRANSCRIPTS_GROUP = 'In transcripts'
 
 /** Characters of a snippet shown before its match; the row cuts the rest at its end. */
 const SNIPPET_LEAD = 24
-
-/** ⌘K on macOS, Ctrl+K on Windows. */
-const PALETTE_KEYS: KeyCombo = { primary: true, key: 'K' }
 
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
@@ -523,9 +521,8 @@ export function CommandPalette() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey || event.shiftKey || shortcutKey(event) !== 'k') return
-      // On Windows Ctrl+K in a Terminal Node is the shell's (worfy-windows ticket 11).
-      if (isTerminalKey(event)) return
+      // ⌘K on macOS, Ctrl+K elsewhere; on Windows Ctrl+K in a Terminal Node is the shell's (match.ts).
+      if (!matches(event, SHORTCUTS.palette)) return
       event.preventDefault()
       setOpen(true)
     }
@@ -549,7 +546,7 @@ export function CommandPalette() {
       >
         <SearchIcon />
         <span className="w-toolbar__palette-text">Search or run…</span>
-        <kbd className="w-mono">{label(PALETTE_KEYS)}</kbd>
+        <kbd className="w-mono">{label(SHORTCUTS.palette)}</kbd>
       </button>
       {open ? (
         project ? (

@@ -5,12 +5,15 @@
 // size (worfy-ui ticket 3) change the interface scale of the app settings, over a temporary
 // WORFY_DATA_DIR; src/main/settings/interface-scale.ts gives that scale to every window as its zoom.
 // View ▸ Toggle Sidebar (worfy-ui ticket 10) carries Cmd/Ctrl+B and tells one window to hide or show
-// its sidebar; what is saved, the window decides.
+// its sidebar; what is saved, the window decides. Help ▸ Keyboard Shortcuts (worfy-ui ticket 11)
+// carries Cmd/Ctrl+/ and tells one window to open its Keyboard shortcuts window; every accelerator
+// above is the one of the registry of shortcuts (src/shared/shortcuts.ts).
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX } from '../../src/shared/ipc/channels'
 import { menuCommand } from '../../src/shared/ipc/menu'
+import { accelerator, SHORTCUTS } from '../../src/shared/shortcuts'
 import { viewChanged, viewGet } from '../../src/shared/ipc/view'
 import { removeTestTree } from '../remove'
 
@@ -20,6 +23,7 @@ interface TemplateItem {
   role?: string
   type?: string
   accelerator?: string
+  registerAccelerator?: boolean
   checked?: boolean
   enabled?: boolean
   click?: (item: { checked: boolean }, window?: unknown) => void
@@ -471,7 +475,7 @@ describe('Settings…', () => {
       'separator',
       'quit',
     ])
-    expect(template.map((item) => item.role ?? item.label)).toEqual(['worfy', 'fileMenu', 'editMenu', 'View', 'windowMenu'])
+    expect(template.map((item) => item.role ?? item.label)).toEqual(['worfy', 'fileMenu', 'editMenu', 'View', 'windowMenu', 'help'])
   })
 
   it('on Windows is the first item of File, and File still quits the app', async () => {
@@ -481,7 +485,7 @@ describe('Settings…', () => {
     expect(file?.label).toBe('File')
     expect(file?.submenu?.[0]).toBe(settings)
     expect(file?.submenu?.map((item) => item.role ?? item.type ?? item.label)).toEqual(['Settings…', 'separator', 'quit'])
-    expect(template.map((item) => item.role ?? item.label)).toEqual(['File', 'editMenu', 'View', 'windowMenu'])
+    expect(template.map((item) => item.role ?? item.label)).toEqual(['File', 'editMenu', 'View', 'windowMenu', 'help'])
     expect(items(template).some((item) => item.role === 'about' || item.role === 'services')).toBe(false)
   })
 
@@ -590,12 +594,100 @@ describe('View ▸ Toggle Sidebar', () => {
   })
 })
 
+describe('Help ▸ Keyboard Shortcuts', () => {
+  async function templateFor(platform: NodeJS.Platform) {
+    vi.resetModules()
+    const menu = await import('../../src/main/menu')
+    const template = menu.menuTemplate(() => undefined, platform) as TemplateItem[]
+    const help = template.at(-1)
+    const shortcuts = help?.submenu?.find((item) => item.id === menu.SHORTCUTS_MENU_ITEM_ID)
+    if (!shortcuts) throw new Error('Help ▸ Keyboard Shortcuts is missing')
+    return { menu, template, help, shortcuts }
+  }
+
+  it.each(['darwin', 'win32', 'linux'] as const)('on %s Help is the last menu, with the help role, and carries Keyboard Shortcuts with CmdOrCtrl+/', async (platform) => {
+    const { menu, template, help, shortcuts } = await templateFor(platform)
+    // test/e2e/shortcuts.spec.ts clicks the item by this id.
+    expect(menu.SHORTCUTS_MENU_ITEM_ID).toBe('help.shortcuts')
+    // The help role gives the menu the search field of macOS.
+    expect(help).toMatchObject({ role: 'help', label: 'Help' })
+    expect(help?.submenu).toEqual([shortcuts])
+    expect(shortcuts).toMatchObject({ label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/' })
+    expect(shortcuts.role).toBeUndefined()
+    expect(items(template).filter((item) => item.accelerator === 'CmdOrCtrl+/')).toEqual([shortcuts])
+  })
+
+  it('takes Cmd+/ on macOS; on Windows and Linux it shows Ctrl+/ and leaves the key to the renderer, which keeps it from a Terminal', async () => {
+    expect((await templateFor('darwin')).shortcuts).not.toHaveProperty('registerAccelerator')
+    expect((await templateFor('win32')).shortcuts).toMatchObject({ registerAccelerator: false })
+    expect((await templateFor('linux')).shortcuts).toMatchObject({ registerAccelerator: false })
+    // Ctrl+B stays the menu's everywhere: xterm.js cancels it in a terminal, so the menu never sees it there.
+    for (const platform of ['darwin', 'win32', 'linux'] as const) {
+      vi.resetModules()
+      const menu = await import('../../src/main/menu')
+      const template = menu.menuTemplate(() => undefined, platform) as TemplateItem[]
+      const taken = items(template).filter((item) => item.accelerator !== undefined && item.registerAccelerator === false)
+      expect(taken.map((item) => item.id)).toEqual(platform === 'darwin' ? [] : [menu.SHORTCUTS_MENU_ITEM_ID])
+    }
+  })
+
+  it('a click with a window tells that window `shortcuts`, not the focused one and not every window', async () => {
+    const { shortcuts } = await templateFor('darwin')
+    const other = new electron.FakeBrowserWindow('other')
+    electron.FakeBrowserWindow.all = [electron.window, other]
+    electron.FakeBrowserWindow.focused = electron.window
+    shortcuts.click?.({ checked: false }, other)
+    expect(electron.sent).toEqual([{ to: 'other', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'shortcuts' }])
+  })
+
+  it('a click without a window tells the focused one; with no window in focus, nobody', async () => {
+    const { shortcuts } = await templateFor('win32')
+    electron.FakeBrowserWindow.focused = electron.window
+    shortcuts.click?.({ checked: false }, undefined)
+    expect(electron.sent).toEqual([{ to: 'main', channel: `${IPC_CHANNEL_PREFIX}menu.command`, payload: 'shortcuts' }])
+    electron.sent.length = 0
+    electron.FakeBrowserWindow.focused = null
+    shortcuts.click?.({ checked: false }, undefined)
+    expect(electron.sent).toEqual([])
+  })
+
+  it('the installed menu carries it too', async () => {
+    const { template } = await load()
+    expect(items(template).filter((item) => item.label === 'Keyboard Shortcuts')).toHaveLength(1)
+  })
+})
+
+describe('the accelerators of the menu', () => {
+  it.each(['darwin', 'win32', 'linux'] as const)('on %s are the keys of the registry of shortcuts', async (platform) => {
+    vi.resetModules()
+    const menu = await import('../../src/main/menu')
+    const template = menu.menuTemplate(() => undefined, platform) as TemplateItem[]
+    const byId = (id: string) => items(template).find((item) => item.id === id)
+    expect(byId(menu.SETTINGS_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.settings))
+    expect(byId(menu.SCALE_BIGGER_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.scaleBigger))
+    expect(byId(menu.SCALE_SMALLER_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.scaleSmaller))
+    expect(byId(menu.SCALE_ACTUAL_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.scaleActual))
+    expect(byId(menu.SIDEBAR_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.toggleSidebar))
+    expect(byId(menu.SHORTCUTS_MENU_ITEM_ID)?.accelerator).toBe(accelerator(SHORTCUTS.shortcuts))
+    // And the registry says what the menu has always carried.
+    expect([SHORTCUTS.settings, SHORTCUTS.scaleBigger, SHORTCUTS.scaleSmaller, SHORTCUTS.scaleActual, SHORTCUTS.toggleSidebar, SHORTCUTS.shortcuts].map(accelerator)).toEqual([
+      'CmdOrCtrl+,',
+      'CmdOrCtrl+Alt+=',
+      'CmdOrCtrl+Alt+-',
+      'CmdOrCtrl+Alt+0',
+      'CmdOrCtrl+B',
+      'CmdOrCtrl+/',
+    ])
+  })
+})
+
 describe('menu contract', () => {
   it('menu.command carries one of the known commands, nothing else', () => {
     expect(menuCommand.access).toBe('local')
     expect(menuCommand.payload.parse('settings')).toBe('settings')
     expect(menuCommand.payload.parse('toggleSidebar')).toBe('toggleSidebar')
-    expect(menuCommand.payload.options).toEqual(['settings', 'toggleSidebar'])
+    expect(menuCommand.payload.parse('shortcuts')).toBe('shortcuts')
+    expect(menuCommand.payload.options).toEqual(['settings', 'toggleSidebar', 'shortcuts'])
     expect(menuCommand.payload.safeParse('togglesidebar').success).toBe(false)
     expect(menuCommand.payload.safeParse('quit').success).toBe(false)
     expect(menuCommand.payload.safeParse({ command: 'settings' }).success).toBe(false)

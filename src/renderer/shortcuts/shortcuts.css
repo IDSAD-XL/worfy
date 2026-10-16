@@ -1,0 +1,92 @@
+/* The Keyboard shortcuts window (ShortcutsOverlay.tsx): placed and drawn like the Settings window
+   (settings/settings.css), and the list it shares with Settings → Shortcuts. Every text is --text or
+   --text-secondary, at least 4.5:1 on --surface and --surface-raised in both themes
+   (docs/design/F-SPEC.md, "Contrast ≥ 4.5:1 for text"). */
+.w-shortcuts__backdrop {
+  position: fixed;
+  inset: 0;
+  /* z-index: SETTINGS_LAYER (settings-window.ts), set inline: the layer of the Settings window. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+}
+.w-shortcuts {
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  max-height: min(600px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: var(--radius-popover);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-node);
+  font-size: var(--text-13);
+  outline: none;
+  overflow: hidden;
+}
+.w-shortcuts__title {
+  flex: none;
+  margin: 0;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  font-size: var(--text-20);
+  font-weight: 600;
+}
+.w-shortcuts__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-4) var(--space-4);
+  /* It takes the focus on opening so the arrows scroll it; a ring around the whole list would only
+     frame the window a second time. */
+  outline: none;
+}
+.w-shortcuts__footer {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+/* ShortcutList: a heading per group, a row per entry — what the keys do, then the keys. */
+.w-shortcut-list__group + .w-shortcut-list__group {
+  margin-top: var(--space-4);
+}
+.w-shortcut-list__heading {
+  margin: 0 0 var(--space-1);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+  font-weight: 600;
+}
+.w-shortcut-list__rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-shortcut-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 28px;
+  border-bottom: 1px solid var(--border);
+}
+.w-shortcut-list__title {
+  min-width: 0;
+  font-size: var(--text-13);
+}
+.w-shortcut-list__keys {
+  flex: none;
+  font-family: var(--font-ui);
+  font-size: var(--text-12);
+  line-height: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-chip);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}

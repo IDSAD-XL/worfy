@@ -2,6 +2,7 @@ import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode
 import { setFocusSlot } from '../focus/focus-state'
 import { useInterfaceScale } from '../settings/interface-scale'
 import { SettingsDialog } from '../settings/SettingsDialog'
+import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
 import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
 import { followSidebarCommand, SIDEBAR_TOGGLE_SELECTOR, useSidebarVisibility } from './sidebar-visibility'
@@ -95,6 +96,8 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
       <FirstRun />
       {/* The Settings window (worfy-ui ticket 2): over everything when open; the menu's "Settings…" and the palette open it. */}
       <SettingsDialog />
+      {/* The Keyboard shortcuts window (worfy-ui ticket 11): Cmd/Ctrl+/, "?", the palette; in the layer of Settings. */}
+      <ShortcutsOverlay />
     </div>
   )
 }

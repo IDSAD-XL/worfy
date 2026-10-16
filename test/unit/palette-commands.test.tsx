@@ -150,8 +150,16 @@ describe('palette commands', () => {
     expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 2 })
   })
 
-  it('without a Project keeps only the views, the first-run checks, Settings and the Projects', () => {
-    expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual(['view:canvas', 'view:session', 'first-run', 'settings', 'project:p1', 'project:p2'])
+  it('without a Project keeps only the views, the first-run checks, Settings, Keyboard shortcuts and the Projects', () => {
+    expect(ids(context({ project: undefined, model: undefined, layoutNodes: [], adrs: [], createItems: [] }))).toEqual([
+      'view:canvas',
+      'view:session',
+      'first-run',
+      'settings',
+      'shortcuts',
+      'project:p1',
+      'project:p2',
+    ])
   })
 
   it('has Settings… in the View group, with or without a Project, and running it opens the Settings window (worfy-ui/02)', async () => {

@@ -15,25 +15,21 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } from '@xyflow/react'
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems } from '../canvas/overlays/create-items'
 import { useTidyUp } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
-import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useSessionLogs } from '../session/store'
+import { label, matches as matchesShortcut } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { closeFind, openFind, useCanvasRequests } from './canvas-requests'
 import { FIND_LIMIT, findDocs, FindIndex, MIN_FIND_QUERY, orderMatches, selectionScope, snippet, stepMatch, type FindField, type FindMatch } from './search-index'
 
 export const order = 60
-
-/** ⌘F on macOS, Ctrl+F on Windows. */
-const FIND_KEYS: KeyCombo = { primary: true, key: 'F' }
-/** The previous match: written ⇧Enter on macOS, Shift+Enter on Windows. */
-const PREVIOUS_KEYS: KeyCombo = { shift: true, key: 'Enter', macKey: 'Enter' }
 
 /** The Canvas menu's "New …" items (the same glob as CanvasMenu.tsx), for the palette's commands. */
 const menuItems = createItems(import.meta.glob('../canvas/nodes/*Node.tsx', { eager: true }), nodeTypes).map(({ label, type }) => ({ label, kind: type.kind }))
@@ -426,20 +422,20 @@ function FindBar({ projectId, root }: FindBarProps) {
           onKeyDown={onKeyDown}
         />
         {scope !== undefined ? (
-          <span style={barStyles.scope} title={`Only the Nodes selected at the last ${label(FIND_KEYS)}`} data-testid="find-scope">
+          <span style={barStyles.scope} title={`Only the Nodes selected at the last ${label(SHORTCUTS.find)}`} data-testid="find-scope">
             in selection
           </span>
         ) : null}
         <span className="w-mono" style={barStyles.count} data-testid="find-count" aria-live="polite">
           {count}
         </span>
-        <button type="button" style={barStyles.button} aria-label="Previous match" title={`Previous match (${label(PREVIOUS_KEYS)})`} onClick={() => go(true)}>
+        <button type="button" style={barStyles.button} aria-label="Previous match" title={`Previous match (${label(SHORTCUTS.findPrevious)})`} onClick={() => go(true)}>
           ↑
         </button>
-        <button type="button" style={barStyles.button} aria-label="Next match" title="Next match (Enter)" onClick={() => go(false)}>
+        <button type="button" style={barStyles.button} aria-label="Next match" title={`Next match (${label(SHORTCUTS.findNext)})`} onClick={() => go(false)}>
           ↓
         </button>
-        <button type="button" style={barStyles.button} aria-label="Close" title="Close (Esc)" onClick={closeFind}>
+        <button type="button" style={barStyles.button} aria-label="Close" title={`Close (${label(SHORTCUTS.findClose)})`} onClick={closeFind}>
           ×
         </button>
       </div>
@@ -465,9 +461,8 @@ function ProjectFind({ projectId, root }: FindBarProps) {
   // ⌘F, while the Canvas is the view on screen (the Session view hides it).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!isPrimary(event) || event.altKey || event.shiftKey || shortcutKey(event) !== 'f') return
-      // On Windows Ctrl+F in a Terminal Node is the shell's (worfy-windows ticket 11).
-      if (isTerminalKey(event)) return
+      // ⌘F on macOS, Ctrl+F elsewhere; on Windows Ctrl+F in a Terminal Node is the shell's (match.ts).
+      if (!matchesShortcut(event, SHORTCUTS.find)) return
       const dom = store.getState().domNode
       if (dom === null || dom.offsetParent === null) return
       event.preventDefault()

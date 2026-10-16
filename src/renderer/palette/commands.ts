@@ -18,6 +18,7 @@ import type { HistorySession } from '../../shared/ipc/claude-home'
 import { failureReason } from '../../shared/ipc/channels'
 import { epicNodeId, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { applyLayoutOp } from '../canvas/useLayout'
@@ -29,6 +30,8 @@ import { openOrchestrator, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
+import { label } from '../shortcuts/match'
+import { openShortcuts } from '../shortcuts/shortcuts-window'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -207,6 +210,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
     keys: ['settings', 'preferences', 'options'],
     run: () => {
       openSettings()
+      return undefined
+    },
+  })
+  // The Keyboard shortcuts window (worfy-ui ticket 11): always here, with or without a Project.
+  commands.push({
+    id: 'shortcuts',
+    group: 'View',
+    title: 'Keyboard shortcuts',
+    detail: label(SHORTCUTS.shortcuts),
+    keys: ['shortcuts', 'keys', 'hotkeys', 'keyboard'],
+    run: () => {
+      openShortcuts()
       return undefined
     },
   })
