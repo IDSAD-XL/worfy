@@ -11,15 +11,16 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; открыт 15 (подписи Model и Permissions в composer-е скрываются, когда значение не помещается); 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–04 (02, 03 — отчёты, решения владельца — «Итог»). Открыты 05 (compatibility suite SDK), 06–09 (процесс 03 «сбой → инцидент → test»: уроки, `check-lessons`, skill `retro`).
-- `worfy-polish`: 26/29 — 01–26 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — PR #365 после `pnpm test` на Windows-ПК без новых падений); открыты 27 (разбить `session.ts`), 28 (заголовки Command palette до 3 строк), 29 (`autoCompactWindow` из `settings.json`), 30 (flaky contract test-ы).
+- `worfy-polish`: 26/31 — 01–26 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — PR #365 после `pnpm test` на Windows-ПК без новых падений); открыты 27 (разбить `session.ts`), 28 (заголовки Command palette), 29 (`autoCompactWindow`), 30 (flaky contract test-ы), 31 (иконка Electron у уведомлений).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): влиты 01–03 (`wave-gate`, ADR-0065; вердикт Windows для 01, 02 — новых падений нет); 06 — stub-ы для Windows, 07 — дерево `wave-gate`; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 01–08 open, Autopilot после `worfy-link`.
 
 ## Ждёт владельца
 
 - `wave-gate` на Mac краснит typecheck в своём дереве: до `worfy-throughput` 07 — merge-once.
 - Приёмка E3 («Итог» `worfy-harness` 26) закрыта 2026-10-15: пункты 1–5 приняты, версия `0.3.0`. Ошибка в окне без `gate/config.json` принята.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
-- Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
+- Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Исправление — `worfy-harness` 36.
 - Приёмка `worfy-link` 16 (с Bonjour и запросом Local Network из 02) — после run Autopilot на 21–24; до связи вне LAN — ревьюер-человек SPAKE2 (решения владельца 2026-10-16 — в 16–20).
 - `worfy-link` 21, 25 — решено без владельца, подтвердить («Итог»): протокол связи 2 — сборки 1 и 2 не соединятся (21); ответы на вопросы 1–2 (25).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
@@ -67,7 +68,7 @@
 - Spec-и: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-review](.scratch/worfy-review/spec.md), [worfy-terminal-ai](.scratch/worfy-terminal-ai/spec.md), [worfy-ui](.scratch/worfy-ui/spec.md).
 - Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
-- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0065, номера 0025–0028 не используются.
+- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0067, номера 0025–0028 не используются.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
 - Прошлые снимки — `git log -p -- HANDOFF.md`; последний подробный, до сжатия 2026-10-08, — `git show 84684b5:HANDOFF.md`.
