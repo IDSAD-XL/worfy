@@ -2,7 +2,8 @@
 // one field over the window; typing ranks the commands (commands.ts, find/search-index.ts), ↑/↓
 // pick one, Enter runs it, Esc closes. A command that cannot run now ("Ship ticket" for a Ticket
 // with an open blocker) stays in the list, inactive, with the reason as its tooltip — the same
-// reason the button on the Canvas shows. The ranked rows are shown in groups (groups.ts), each under
+// reason the button on the Canvas shows; on the read-only screen of a Linked machine a command that
+// would change the Project is inactive the same way, with the read-only hint. The ranked rows are shown in groups (groups.ts), each under
 // a heading with its name; ↑/↓ walk the rows across the groups.
 //
 // Below the commands, "In transcripts" lists the Project's Sessions whose conversation contains the
@@ -22,7 +23,7 @@ import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
 import { invoke, readableReason } from '../ipc'
-import { activeProject, useProjects } from '../projects/useProjects'
+import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
 import { label, matches } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
@@ -209,7 +210,9 @@ function RunWaveRow({ gate, ...props }: RowProps & { gate: Extract<CommandGate, 
 }
 
 function CommandRow(props: RowProps) {
-  const { gate } = props.command
+  const { gate, readOnly } = props.command
+  // Before the gate: on a read-only screen the action cannot run whatever its own state is.
+  if (readOnly !== undefined) return <RowButton {...props} state={{ enabled: false, reason: readOnly }} />
   if (gate === undefined) return <RowButton {...props} state={null} />
   return gate.kind === 'ship-ticket' ? <ShipTicketRow {...props} gate={gate} /> : <RunWaveRow {...props} gate={gate} />
 }
@@ -325,6 +328,7 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
   const { history } = useClaudeHome(project.path)
   const { state: docs } = useDocs(project.id)
   const layout = useLayout(project.id).state
+  const readOnly = useReadOnly()
   const commands = useMemo(
     () =>
       buildCommands({
@@ -337,8 +341,9 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
         adrs: docs?.adrs ?? [],
         tagFilter,
         createItems,
+        readOnly,
       }),
-    [project, projects, view, model, layout, history, docs, tagFilter, createItems],
+    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly],
   )
   const transcripts = useMemo(() => ({ projectId: project.id, projectRoot: project.path }), [project.id, project.path])
   return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} transcripts={transcripts} />
