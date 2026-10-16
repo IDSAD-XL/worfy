@@ -1,7 +1,8 @@
 # 01 — Один gate full на все готовые PR Wave вместо rebase и gate full на каждый PR
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
+Branch: worfy-throughput/01
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер критического пути (раздел
 «Откуда» spec-а: Gate → merge — 25 % времени, Wave 1 `worfy-polish` — Σ Gate → merge 611 min);
