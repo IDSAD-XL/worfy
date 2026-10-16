@@ -87,7 +87,7 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
   нет, rail находит только `BindingRail` и `SubagentsRail`. Limits видны только в toolbar.
 - `LimitBarView` потерял вариант `rail` и проп `variant` вместе с типом `LimitBarVariant`: других
   вызовов, кроме toolbar, не осталось. Вид полос в toolbar не менялся. Решено без владельца,
-  подтвердить.
+  подтверждено владельцем 2026-10-16.
 - Комментарии, которые называли блок, переписаны: `LimitBar.tsx`, `LimitsMeter.tsx`,
   `useLimits.ts`, `BindingRail.tsx`, `SubagentsRail.tsx`, `rail/index.ts`.
 - Test: `test/unit/session-rail-discovery.test.tsx` — «has no Limits block» сравнивает весь
@@ -106,4 +106,7 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
 - Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `c41b376`.
 - Act on, Dismissed — нет.
 - Consider: [low] у `Meter` остался параметр `height`, его всегда передают 4 (`LimitBar.tsx:16`, `:51`); объект `common` теперь раскрывается в одном месте (`:30`, `:38`).
-- Noted (**решено без владельца, подтвердить**): проп `variant` и тип `LimitBarVariant` удалены целиком — других вызовов варианта rail нет.
+- Noted (**решено без владельца, подтверждено владельцем 2026-10-16**): проп `variant` и тип `LimitBarVariant` удалены целиком — других вызовов варианта rail нет.
+
+Решение владельца 2026-10-16: принято — проп `variant` и тип `LimitBarVariant`
+удалены целиком.

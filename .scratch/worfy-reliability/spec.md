@@ -11,7 +11,7 @@ Source: исследование [PR #325](https://github.com/IDSAD-XL/worfy/pul
 [0029](../../docs/adr/0029-autopilot-waits-for-background-tasks.md),
 [0046](../../docs/adr/0046-autopilot-narrow-round-without-owner.md); Epic
 [worfy-review](../worfy-review/spec.md) — формат и соглашения.
-Ticket-ы: Epic `worfy-reliability`, 4 Ticket-а, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-reliability`, 9 Ticket-ов, нумерация с `01` (05–09 добавлены 2026-10-16 по решению владельца). Шапка — тот же диалект, что у
 worfy-review (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`, `ticket` и
 вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -51,6 +51,11 @@ Epic готов, когда:
    владельца по нему (Ticket 03).
 4. Скрипт строит отчёт о критическом пути Ticket-ов из журнала Autopilot, Status-ов, git и PR;
    unit test-ы на fixture-журнале зелёные (Ticket 04).
+5. Версия SDK, fixtures настоящих сообщений и fake SDK сверяются test-ами; разницу форм двух версий
+   печатает скрипт (Ticket 05).
+6. Процесс Ticket-а 03 встроен: README уроков с классами и записью «Инцидент» (06), `Проверка:` у
+   каждого урока и `scripts/check-lessons.mjs` в `pnpm lint` (07), урок про `fseventsd` (08), шаг
+   классификации в skill `retro` (09).
 
 ## Решения владельца
 
@@ -59,6 +64,19 @@ Epic готов, когда:
 1. **A, B, E, F** — по одному Ticket-у: 01 (A), 02 (B), 03 (E), 04 (F).
 2. **D** (Dynamic Workflows у Managed Agents) — не берём совсем: ни Ticket-а, ни исследования.
 3. **C и G** сейчас не берём (раздел «Не в этом Epic-е»).
+
+2026-10-16 («со всем согласен»), по отчётам Ticket-ов 02 и 03:
+
+4. **02 — ответ «нет» принят**: follow-up по «Memento» не заводится; 7 случаев «доработка вносит новый
+   дефект» — входные данные Ticket-а 03.
+5. **03 — процесс принят**: шесть классов без изменений; инцидент — подраздел «Инцидент» в «Итог»
+   Ticket-а, где случился сбой; встраивание — В1 и В2 (Ticket-ы 06, 07), затем В3 (09); В4 — только
+   если инциденты продолжат теряться; `Проверка:` — всем урокам вместе с В2; отказ hook-а на `rm -rf`
+   — уже `worfy-harness` 48; flaky test вылечен после 10 повторов без красного под нагрузкой полного
+   `pnpm test`; «временный сбой машины» — после зелёного повтора того же commit-а. Подробно — «Итог»
+   Ticket-а 03.
+6. **Compatibility suite** (идея A исследования PR #325, P0) — Ticket 05; Ticket 01 закрыл из идеи A
+   только рестарт без повтора действий и правило обновления SDK.
 
 ## Не в этом Epic-е
 
@@ -88,8 +106,8 @@ Epic готов, когда:
 падающий test, только чтение чужих файлов, ручные пункты «(вручную)», Autopilot над worfy — только на
 Stable copy, без `gh auth switch`, мерж в main — по очереди. Отличия:
 
-- **Кто ведёт.** Autopilot может брать 01 и 04 (команда `/worfy:epic-wave tickets 01, 04 of epic
-  worfy-reliability`). 02 и 03 — research: их ведёт Session Orchestrator-а, итог — отчёт в
+- **Кто ведёт.** Autopilot может брать 01, 04 и 05–09 (команда `/worfy:epic-wave tickets 05, 06, 07 of
+  epic worfy-reliability`). 02 и 03 — research: их ведёт Session Orchestrator-а, итог — отчёт в
   `docs/research/`, который читает владелец. В команду Wave Autopilot 02 и 03 не входят.
 - **Конец Ticket-а** — `pr-green-ci`, как у других Epic-ов: PR, зелёный CI на Linux, gate full на Mac
   перед мержем, мерж — Orchestrator.
@@ -126,6 +144,11 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 02 | `docs/research/2026-10-NN-застрявшие-ticket-ы.md` | 1 |
 | 03 | `docs/research/2026-10-NN-сбой-инцидент-test.md` | 1 |
 | 04 | `scripts/critical-path.mjs`, `test/unit/critical-path.test.ts`, `test/fixtures/critical-path/` | 1 |
+| 05 | `test/contract/sdk-compat.test.ts`, `test/unit/sdk-compat-diff.test.ts`, `scripts/sdk-compat.mjs`, `test/fixtures/sdk-messages/README.md`, `test/fixtures/sdk-compat/` | 2 |
+| 06 | `docs/lessons/README.md` | 2 |
+| 07 | `scripts/check-lessons.mjs`, `test/unit/check-lessons.test.ts`, `test/fixtures/check-lessons/`, `package.json`, `docs/lessons/agents.md`, `docs/lessons/process.md`, `docs/lessons/testing.md`, `docs/lessons/ci-merge.md` | 2 |
+| 08 | `docs/lessons/agents.md`, `HANDOFF.md` | 3 |
+| 09 | `harness/skills/retro/SKILL.md`, `test/contract/harness-retro-skill.test.ts` | 3 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -133,6 +156,12 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 1 — 01, 02, 03 и 04.** Блокеров нет. Общих файлов нет: 01 — contract test-ы и урок, 02 и 03
   — свои отчёты в `docs/research/`, 04 — новый скрипт, его test и fixture. Autopilot берёт из неё 01 и
   04; 02 и 03 ведёт Orchestrator.
+- **Wave 2 — 05, 06, 07.** Добавлены 2026-10-16 по решению владельца, когда Wave 1 влита. Блокеров
+  нет, общих файлов нет: 05 — test-ы и скрипт совместимости SDK, 06 — `docs/lessons/README.md`, 07 —
+  скрипт проверки уроков и строки `Проверка:` в четырёх файлах уроков.
+- **Wave 3 — 08 и 09.** 08 — общий с 07 файл `docs/lessons/agents.md`, уходит в следующую Wave (и
+  его урок сразу проходит проверку 07). 09 ждёт 06 (`Blocked by: 06`): шаг skill-а опирается на классы
+  README. Общих файлов у 08 и 09 нет. 09 — PR в `harness/`: после мержа `pnpm install:stable`.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если Ticket 01 правит код `src/` (раздел «Что делаем»,

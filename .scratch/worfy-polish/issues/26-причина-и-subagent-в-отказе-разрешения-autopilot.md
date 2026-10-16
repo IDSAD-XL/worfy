@@ -129,7 +129,7 @@ Autopilot — режим, в котором Wave-ы идут без челове
   `decisionReason`, `agentID`; в сценариях появилась подстановка `{{home}}`. Новый сценарий
   `test/fixtures/agent-scripts/autopilot-refused-permission.jsonl` — два отказа за ход: от Subagent-а с
   короткой причиной и от самого Session-а с длинной.
-- Решено без владельца, подтвердить:
+- Решено без владельца, подтверждено владельцем 2026-10-16:
   - причина идёт в ответ модели отдельной строкой после `UNATTENDED_DENIED_MESSAGE`;
   - пустая или пробельная `decisionReason` считается отсутствующей;
   - регистр не учитывается на всех платформах: на Linux `/home/Ann` при домашней `/home/ann` тоже
@@ -148,7 +148,7 @@ Autopilot — режим, в котором Wave-ы идут без челове
 - Круг 2 — `REJECTED` по основанию (б) ([комментарий](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6206051366)): правило «перед домом не разделитель» из брифа оркестратора вернуло утечку имени в `\\?\C:\Users\Ann\…`, `\\.\C:\…`, `file:///C:\…`, которые круг 1 заменял. Пункт круга 1 исправлен. Предложение verifier-а: разделитель проверять только для формы `/c/…`, для `C:` достаточно «перед ним не буква, цифра, `.`, `_`, `-`»; test на `\\?\C:\…`.
 - Выведен из Wave: Ticket листовой, узкий круг — только по решению владельца. PR #378 открыт, worktree `pol-26` сохранён.
 - Consider: [low] текст для модели «rewrite the command so this check does not fire» (`permissions.ts:75`) взят из Ticket-а; verifier предлагает «follow the reason above: give a literal, resolvable target» — решение владельца.
-- Noted: причина Claude Code сама цитирует часть команды `rm` — до 200 символов попадают в журнал (выбор research-отчёта, **решено без владельца, подтвердить**). [low] debt: WSL `/mnt/c/Users/…` и `/cygdrive/c/…` не заменяются (и в круге 1); `/System/Volumes/Data/Users/…` на macOS; нет test-а на дом с символами regex (мутант без `escapeRegExp` проходит).
+- Noted: причина Claude Code сама цитирует часть команды `rm` — до 200 символов попадают в журнал (выбор research-отчёта, **решено без владельца, подтверждено владельцем 2026-10-16**). [low] debt: WSL `/mnt/c/Users/…` и `/cygdrive/c/…` не заменяются (и в круге 1); `/System/Volumes/Data/Users/…` на macOS; нет test-а на дом с символами regex (мутант без `escapeRegExp` проходит).
 - Dismissed — нет.
 
 ### Gate оркестратора — узкий круг (2026-10-16)
@@ -159,3 +159,9 @@ Autopilot — режим, в котором Wave-ы идут без челове
 - Гейт узкого круга — `NARROW: VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6206489937)): `journalReason` кругов 1, 2 и head сравнён на 52 строках — утечки круга 2 закрыты, новой лишней замены нет; мутанты m1–m5 красные.
 - Merge: gate full на Mac зелёный (lint, typecheck, test, test:e2e, test:package), CI зелёный — `e38d4a1`.
 - [low] debt: `\c\Users\Ann` (один обратный слеш) заменяется лишний раз; `file:///Users/ann/x` даёт `file:~/x` (только вид строки). Оба — с круга 2.
+
+Решение владельца 2026-10-16: принято. Текст для модели после причины отказа
+остаётся формулировкой verifier-а — «follow the reason above: give a literal, resolvable target»
+(`src/main/agent/permissions.ts:75`). Остальные решения без владельца (причина отдельной строкой,
+пустая причина — нет причины, регистр не учитывается, правило точки после дома, причина в journal
+как есть, до 200 символов) приняты.
