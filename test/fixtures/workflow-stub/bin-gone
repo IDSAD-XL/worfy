@@ -1,0 +1,6 @@
+#!/bin/sh
+# The old Harness's epic-status while the move to the plugin takes <Claude home>/bin away
+# (test/contract/workflow-reader.test.ts): removes the folder of the link it was started by, and
+# fails. Only through a link, so running this file itself removes nothing of the fixtures.
+if [ -L "$0" ]; then rm -rf "$(dirname "$0")"; fi
+exit 1

@@ -1,0 +1,4 @@
+#!/bin/sh
+# npm (see ./node): logs its arguments to $CALLS; fails as npm does when NPM_STUB_CODE is not 0.
+printf 'npm %s mark=%s\n' "$*" "$LOGIN_MARK" >>"$CALLS"
+[ "${NPM_STUB_CODE:-0}" -eq 0 ] || { printf 'npm warn something\nnpm error code EACCES\n' >&2; exit "$NPM_STUB_CODE"; }

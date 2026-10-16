@@ -1,0 +1,13 @@
+#!/bin/sh
+# qmd (see ./node): QMD_STUB_VERSION for --version; other runs are logged to $CALLS with the models
+# they were given; `pull` fails with QMD_STUB_PULL_CODE when it is not 0, else prints what qmd 2.8.3
+# prints per model. PULLED_GENERATE stands for a model pinned in index.yml; QMD_STUB_GENERATE_DEFAULT
+# and QMD_STUB_RERANK are the URIs of src/main/harness/qmd.ts.
+if [ "$1" = --version ]; then printf 'qmd %s (abc1234)\n' "$QMD_STUB_VERSION"; exit 0; fi
+printf 'qmd %s emb=%s gen=%s mark=%s\n' "$*" "$QMD_EMBED_MODEL" "${QMD_GENERATE_MODEL:-unset}" "$LOGIN_MARK" >>"$CALLS"
+[ "${QMD_STUB_PULL_CODE:-0}" -eq 0 ] || { printf 'first\npull: network down\n' >&2; exit "$QMD_STUB_PULL_CODE"; }
+[ "$1" = pull ] || exit 0
+printf '\033[1mPulling models\033[0m\n'
+printf '%s\n' "- $QMD_EMBED_MODEL -> /cache/a.gguf (610 MB, cached/checked)"
+printf '%s\n' "- ${PULLED_GENERATE:-${QMD_GENERATE_MODEL:-$QMD_STUB_GENERATE_DEFAULT}} -> /cache/b.gguf (1 GB, refreshed)"
+printf '%s\n' "- $QMD_STUB_RERANK -> /cache/c.gguf (610 MB, cached/checked)"

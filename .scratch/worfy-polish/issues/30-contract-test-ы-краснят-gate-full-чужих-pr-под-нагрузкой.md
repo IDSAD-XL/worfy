@@ -1,7 +1,8 @@
 # 30 — Contract test-ы с timeout-ом под нагрузкой краснят gate full чужих PR: постоянные stub-ы вместо новых исполняемых файлов
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
+Branch: worfy-polish/30
 Blocked by: —
 Source: решение владельца 2026-10-16 — открыть Ticket и поставить первым в следующую Wave; «Итог»
 [20](20-два-flaky-contract-test-а-harness.md) («Timeout в `harness-script-wiring.test.ts`»,
@@ -56,7 +57,7 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
 
 ## Готово, когда
 
-- [ ] В `workflow-reader`, `github-prs`, `harness-qmd`, `docs`, `harness-script-env` test не пишет
+- [x] В `workflow-reader`, `github-prs`, `harness-qmd`, `docs`, `harness-script-env` test не пишет
       новых исполняемых файлов, или в «Итог» названа причина.
 - [ ] Причины падений `harness-script-env` и `terminal-ai-zle` — в «Итог» с выводом красного прогона до
       правки. Не воспроизвелось — так и записано, с числом прогонов.
@@ -65,7 +66,7 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
       N не меньше числа прогонов до первого красного × 3. Время самых долгих test-ов — в «Итог».
 - [ ] Мутанты, где они что-то значат: stub снова пишется в каждом test-е; без `{ shuffle: false }` пара
       краснеет при `--sequence.shuffle.tests`, с ним — зелёная.
-- [ ] `testTimeout` в `vitest.config.ts`, `WAIT` и пределы в файлах не подняты.
+- [x] `testTimeout` в `vitest.config.ts`, `WAIT` и пределы в файлах не подняты.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Linux CI зелёный. gate full — шаг
       Orchestrator-а перед merge.
 
@@ -92,3 +93,112 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
   краснят gate; иначе — запись в «Итог».
 - e2e из тех же gate full (`session-back.spec.ts`, `harness-install.spec.ts`).
 - ENOTEMPTY в `harness-drift` — решено в Ticket-е 20.
+
+## Итог
+
+PR — ветка `worfy-polish/30`. Замер под нагрузкой и gate full — за Orchestrator-ом (ниже, «Что не
+сделано»).
+
+### 1. Постоянные stub-ы вместо нового исполняемого файла в каждом test-е
+
+Test-ы ставят symlink на файл из `test/fixtures/`; то, что раньше вписывалось в текст скрипта, stub
+берёт из файлов рядом со своей ссылкой или из env.
+
+- `test/fixtures/harness-stub/canned` — общий stub `profile`, `ticket`, `epic-status`: печатает
+  `<ссылка>.out` и `<ссылка>.err`, выходит с кодом из `<ссылка>.code`, пишет журнал
+  `<имя> <аргументы> in <cwd>` в файл, путь к которому лежит в `<ссылка>.log`. Его берут
+  `workflow-reader` (`stubHarness`, 682 Ticket-а Auction), `github-prs` (`accountWorld` → `bin/profile`),
+  `docs` (блок «a Silent Project»).
+- `test/fixtures/workflow-stub/` — `epic-status` и `plugin-epic-status` (sh) запускают
+  `epic-status.mjs` (бывшая строка `STUB_JS`) под Node test-а; путь к Node и к `.mjs` — в env
+  (`WORKFLOW_STUB_NODE`, `WORKFLOW_STUB_JS`), журнал `HARNESS_HOME` плагина — `STUB_HARNESS_ENV`.
+  `bin-gone` — разовый старый `epic-status` из test-а «the move of ticket 14»: удаляет папку своей
+  ссылки и выходит с 1 (только через ссылку, сам файл fixtures не удаляет).
+- `test/fixtures/gh/gh-account` — бывший `GH_ACCOUNT_STUB` из `github-prs` (текст не зависел от
+  test-а; тело совпадает побайтно, проверено сравнением).
+- `test/fixtures/qmd-stub/` — `node`, `npm`, `qmd`, `qmd-collections` для `harness-qmd`; версия, код
+  выхода и URI моделей — из env, который test и так передаёт модулю (`stubVars`). На PATH test-а
+  только папка ссылок, поэтому stub-ы — на встроенных командах shell, как раньше.
+- `test/fixtures/harness-stub/login-shell` — login shell test-а «"Check again" with node added»
+  (`harness-script-env`), счётчик запусков — `<ссылка>.runs`.
+
+Чего test-ы больше не делают: `chmod`/`0o755`/`#!` в этих пяти файлах нет (grep пуст). Формат журнала
+`profile` стал общим: `profile -C <root> --json in <cwd>` в `workflow-reader` и
+`profile -C <root> --field github.account in <root>` в `github-prs` — ожидания test-ов обновлены, проверка
+стала строже (видно cwd).
+
+Почему это лечит: замер на этой машине 2026-10-16 ~21:00, без искусственной нагрузки (load 6 от
+соседнего Autopilot), 15 запусков подряд:
+
+```
+new file each run: median 2565.6 ms, max 4920.4 ms
+link to one file:  median 2.5 ms,    max 3.4 ms
+```
+
+Остаток: файл fixture-а тоже новый для macOS один раз на свежем checkout-е (новый worktree) — первый
+запуск каждого из ~10 файлов ждёт очередь один раз за прогон, а не в каждом test-е.
+
+### 2. `harness-script-env` — механизм подтверждён, красный прогон до правки не воспроизведён
+
+- Чтение `src/main/agent/env.ts`: `captureLoginShellEnv` убивает shell через `SHELL_TIMEOUT_MS` = 10 s
+  и отдаёт `fallback`; `recaptureAgentEnv` (`:556-559`) не меняет удачный снимок на `fallback`. Значит,
+  если login shell не уложился в 10 s, остаётся снимок прошлого test-а, где PATH ведёт в
+  `<tmp>/node-bin` — отсюда `expected '/private/var/folders/…' to be null`.
+- Мутант (в своём worktree, файл восстановлен из копии): `.profile` с `sleep 12` перед `PATH=…` —
+  красный ровно с сообщением gate full:
+  `AssertionError: recapture took 10003 ms, the login shell started 1 times: expected '/private/var/folders/3c/vgccn1z92czdr…' to be null`.
+- Причина «shell не уложился» в gate full — первый запуск нового файла `login-shell` в очереди
+  `XprotectService` (пункт 1 замера: до 4,9 s на файл при load 6; при load ~15 и нескольких test-файлах
+  с новыми скриптами разом 10 s правдоподобны). Лечение — пункт 1. В test добавлено сообщение к
+  проверке: время `recaptureAgentEnv()` и число запусков shell. При следующем красном оно разделит
+  причины: «started 0 times» — exec ждал очередь, «started 1 times» и ≥ 10 000 ms — сам shell
+  медленный. `from` в сообщение не входит: после `fallback` `recaptureAgentEnv` отдаёт прежний удачный
+  снимок с его `from` = `login-shell` (ревью PR #401).
+- Красного прогона до правки нет: файл на `origin/main` не запускался. 2 зелёных прогона после правки
+  о коде до правки ничего не говорят. Прогон под нагрузкой до и после правки идёт вместе с замером
+  (третий чекбокс «Готово, когда»), поэтому второй чекбокс не отмечен.
+
+### 3. `terminal-ai-zle` — какой `run`, установлено чтением; почему — не установлено
+
+- Сообщение `expected 1 to be greater than 1` — вторая проверка `run` (`count('prompt')`), значит
+  первая (`command-finished` = было + 1) уже прошла: маркер D пришёл, следующего B за `WAIT` = 10 s нет.
+  `prompts` = 1 бывает только у первого `t.run('echo worfy-zle-1 second third')` в test-е Alt+→: к
+  последнему `t.run('')` prompt-ов уже не меньше двух.
+- Между D и B: `__worfy_precmd` (последний в `precmd_functions`) печатает D и P, потом zsh запускает zle
+  (`line-init` hook-и `rc.d/10-assist.zsh`, `30-next-command.zsh`) и рисует PS1 с B. Что из этого
+  ждало 10 s в Linux CI (2 vCPU, параллельные test-файлы) — не установлено. `XprotectService` тут ни при
+  чём (Linux), исполняемых файлов test не пишет.
+- Не воспроизведено: 3 прогона файла без нагрузки, 36/36 зелёные, exit 0 каждый (25–27 s).
+
+### 4. `{ shuffle: false }` и мутанты
+
+- `harness-script-wiring.test.ts`: `describe(..., { shuffle: false }, ...)` у «what each run of a script gets».
+- Мутант порядка: до правки `--sequence.shuffle.tests --sequence.seed=5` — exit 1,
+  `FAIL … the run a test left behind still logs into that test's calls file … (the second of two)`
+  (seed 1–4 — зелёные: порядок пары совпал случайно). После правки seed 5–9 — exit 0, 23/23.
+- Мутант «stub снова пишется в каждом test-е» без нагрузки ничего не значит: test зелёный и с ним.
+  Его проверяет только замер ниже.
+
+### Что не сделано
+
+- **Замер (чекбокс не отмечен)** — отложен Orchestrator-у на тихое окно: рядом шёл Autopilot Epic-а
+  `worfy-link`, нагрузка краснит его gate. Команды — в отчёте PR и ниже.
+- Мутант «stub в каждом test-е» под нагрузкой — часть того же замера.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test` локально — в отчёте PR; Linux CI — в PR.
+
+Команды замера. «До» — в worktree на `origin/main` до merge-а этого PR (`git worktree add --detach
+<путь> origin/main`, `pnpm install --frozen-lockfile`), «после» — в worktree ветки; только когда других
+агентов на машине нет. Один круг — два прогона `--project contract` разом под `yes` на половине ядер:
+
+```sh
+M=$(mktemp -d); N=$(( $(sysctl -n hw.ncpu) / 2 )); YES=""
+for i in $(seq $N); do yes > /dev/null & YES="$YES $!"; done
+for r in $(seq 1 10); do   # «до»: до первого красного; «после»: N ≥ 3 × (число кругов «до»)
+  node scripts/vitest-electron.mjs --project contract --reporter=default --reporter=json --outputFile.json=$M/$r-a.json > $M/$r-a.log 2>&1 & A=$!
+  node scripts/vitest-electron.mjs --project contract --reporter=default --reporter=json --outputFile.json=$M/$r-b.json > $M/$r-b.log 2>&1 & B=$!
+  wait $A; echo "round $r a EXIT=$? load=$(sysctl -n vm.loadavg)"; wait $B; echo "round $r b EXIT=$?"
+done
+kill $YES
+# десять самых долгих test-ов по всем прогонам
+node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.readdirSync(d).filter(f=>f.endsWith(".json")))for(const x of JSON.parse(fs.readFileSync(d+"/"+f)).testResults)for(const a of x.assertionResults)t.push([a.duration??0,a.status,x.name.split("/test/")[1]+" > "+a.title]);t.sort((p,q)=>q[0]-p[0]);for(const r of t.slice(0,10))console.log(Math.round(r[0])+" ms",r[1],r[2])' $M
+```

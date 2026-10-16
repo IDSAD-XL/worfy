@@ -1,0 +1,6 @@
+#!/bin/sh
+# /bin/sh as the user's login shell, with each start counted: one line "run" in <link>.runs
+# (test/contract/harness-script-env.test.ts links it and sets SHELL to the link). The same file in
+# every run, so macOS checks it once, not once per test (see test/fixtures/harness-stub/canned).
+echo run >> "$0.runs"
+exec /bin/sh "$@"

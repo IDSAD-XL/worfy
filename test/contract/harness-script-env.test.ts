@@ -12,7 +12,7 @@
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -263,17 +263,23 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
   // failure until the watcher's own timer, up to 5 minutes later.
   it('"Check again" with node added since the start: the sidebar\'s failed Project shows its Epic within seconds, with one more login shell start', async () => {
     const profile = join(home, '.profile')
-    const counter = join(scratch, 'shell-runs')
     const shell = join(scratch, 'login-shell')
-    // /bin/sh as the login shell, with each start counted.
-    writeFileSync(shell, `#!/bin/sh\necho run >> '${counter}'\nexec /bin/sh "$@"\n`)
-    chmodSync(shell, 0o755)
+    const counter = `${shell}.runs`
+    // /bin/sh as the login shell, with each start counted in <link>.runs: a link to the same file in
+    // every run, since a new executable file waits for the macOS check of new files, under load for
+    // longer than the login shell's time limit (worfy-polish ticket 30).
+    symlinkSync(join(__dirname, '..', 'fixtures', 'harness-stub', 'login-shell'), shell)
     const shellRuns = (): number => (existsSync(counter) ? readFileSync(counter, 'utf8').split('\n').filter((line) => line !== '').length : 0)
     process.env.SHELL = shell
     writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
     // The app's source holds what it captured last: take the shell without node now, as at a start from Finder.
+    const capturing = Date.now()
     await recaptureAgentEnv()
-    expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
+    // A capture that fell back keeps the test above's, with node: the time and the shell's starts tell
+    // a login shell over its time limit (src/main/agent/env.ts, SHELL_TIMEOUT_MS) from another cause.
+    // Not `from`: after a fallback recaptureAgentEnv answers with the kept capture, and its `from`.
+    const how = `recapture took ${Date.now() - capturing} ms, the login shell started ${shellRuns()} times`
+    expect(commandPath('node', (await harnessScriptEnv()).PATH ?? ''), how).toBeNull()
     // A retry step far longer than the test: only "Check again" can bring the Epic in time.
     const hub = new WorkflowHub({ claudeHome, env: harnessScriptEnv, layoutRetryMs: 60_000 })
     try {

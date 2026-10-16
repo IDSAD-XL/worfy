@@ -1,0 +1,18 @@
+#!/bin/sh
+# A Harness script (profile, ticket, epic-status) with a canned answer, for tests that need its exit
+# code and output rather than its logic (test/contract/workflow-reader, github-prs, docs). A test
+# links this file under the script's name and writes the answer next to the link:
+#   <link>.out  — printed to stdout;  <link>.err — printed to stderr;
+#   <link>.code — the exit code, 0 when there is no such file;
+#   <link>.log  — the path of a file to log each run to, as "<name> <arguments> in <cwd>".
+#
+# The script is the same file in every test, and only links to it are new: macOS checks every new
+# executable file on its first run, one at a time for the whole machine, and a new script per test
+# made the tests of a loaded full run time out (test/fixtures/harness-stub/answer has the same note).
+if [ -f "$0.log" ]; then
+  printf '%s %s in %s\n' "$(basename "$0")" "$*" "$(pwd -P)" >> "$(cat "$0.log")"
+fi
+if [ -f "$0.out" ]; then cat "$0.out"; fi
+if [ -f "$0.err" ]; then cat "$0.err" >&2; fi
+if [ -f "$0.code" ]; then exit "$(cat "$0.code")"; fi
+exit 0

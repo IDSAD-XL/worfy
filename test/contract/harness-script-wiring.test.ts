@@ -342,7 +342,7 @@ function scriptRun(root: string): ScriptRun {
   }
 }
 
-describe.skipIf(process.platform === 'win32')('what each run of a script gets', () => {
+describe.skipIf(process.platform === 'win32')('what each run of a script gets', { shuffle: false }, () => {
   let run: ScriptRun
   /** The run of the first of the two leak tests, and the folder it ran in; the second asks it. */
   let leftover: { run: ScriptRun; root: string } | undefined
