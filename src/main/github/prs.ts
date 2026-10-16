@@ -18,6 +18,7 @@
 // Read-only: the only gh commands ever run are `gh pr list` and `gh auth token -u <account>`.
 // Nothing is written to GitHub, to the Project, to the gh config or to the Claude home.
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
 import { programStart } from '../program'
@@ -57,6 +58,9 @@ export function ghRunner(options: GhRunnerOptions = {}): GhRunner {
   const start = programStart(options.command, 'gh')
   return async (args, cwd, extra = {}) => {
     const env = options.env ? await options.env() : process.env
+    // A script started under worfy's own Node: the system cannot say it is missing, Node would.
+    const [script] = start.args
+    if (script !== undefined && !existsSync(script)) throw new Error(`gh not found (${command})`)
     return new Promise((resolve, reject) => {
       execFile(
         start.file,

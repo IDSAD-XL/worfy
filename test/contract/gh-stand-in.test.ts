@@ -63,4 +63,10 @@ describe('ghRunner over a program that is a .mjs script', () => {
     const run = ghRunner({ command: SCRIPT, env: () => Promise.resolve(appEnv()), timeoutMs: 10_000 })
     await expect(run(['pr', 'list'], join(scratch, 'no-such-folder'))).rejects.toThrow(`gh not found (${SCRIPT})`)
   })
+
+  it('a script that is not there is "gh not found" with its path, not the error of the Node that would run it', async () => {
+    const missing = join(scratch, 'no-such-gh.mjs')
+    const run = ghRunner({ command: missing, env: () => Promise.resolve(appEnv()), timeoutMs: 10_000 })
+    await expect(run(['pr', 'list'], scratch)).rejects.toThrow(`gh not found (${missing})`)
+  })
 })
