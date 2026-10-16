@@ -1,7 +1,7 @@
 # 20 — SPAKE2: строгая кодировка доли и test-ы по всем векторам RFC 9382
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #400](https://github.com/IDSAD-XL/worfy/pull/400)
 Branch: worfy-link/20
 Blocked by: —
 Source: независимое ревью SPAKE2, Ticket [17](17-независимое-ревью-spake2.md), находки Н1 (med) и Н2 (low)
@@ -111,3 +111,8 @@ Source: независимое ревью SPAKE2, Ticket [17](17-независ�
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test`: EXIT=1 из-за одного test-а
 `test/contract/terminal.test.ts` (настоящий pty, timeout под нагрузкой; load average 4.2). Отдельный
 повтор файла: EXIT=0, 47 passed. gate fast: EXIT=0, `[gate] зелено (fast)`.
+
+**Ревью и merge** (PR #400, VERIFIED в первом круге, depth low). Verifier сам разобрал `rfc9382.txt`: 40 из 40 значений таблицы test-а совпали.
+- Consider (долг, low): проверка «у B нет записи» (`test/contract/link-pairing.test.ts:375-376`) упасть не может — сырое соединение не шлёт `pake3`; тест держат закрытие 4001, счётчик неудач и смена кода. Сильнее — честный A со сжатой pA до `pake3`.
+- Noted: свой текст ошибки у проверки K = 0 (`pairing.ts:122`) — отступление от Ticket-а, решено без владельца, подтвердить.
+- Merge: `GATE_SCOPE=all` gate full на Mac зелёный, `36e11dc0`.

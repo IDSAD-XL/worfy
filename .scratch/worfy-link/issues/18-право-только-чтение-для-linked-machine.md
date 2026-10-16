@@ -1,7 +1,7 @@
 # 18 — Право «только чтение» для Linked machine до связи с чужой машиной
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #399](https://github.com/IDSAD-XL/worfy/pull/399)
 Branch: worfy-link/18
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md:278`
@@ -302,3 +302,8 @@ tooltip), снимком не снят.
 `linked-machines.spec.ts` — 9 passed; e2e `linked-sleep`, `linked-notify`, `linked-add-project`,
 `linked-cards`, `linked-system-actions`, `linked-autopilot` (пользуются `setProjectsAccess`) — 10 passed.
 `GATE_SCOPE=all gate full` — не проверено: шаг оркестратора перед merge.
+
+**Ревью и merge** (PR #399, VERIFIED в первом круге, depth low). Verifier сверил все 36 вызовов `read` с handler-ами; обхода проверки уровня нет.
+- Noted: служебная запись Layout у `docs.open` и `layout.get` при пометке `read` — решено без владельца, подтвердить (выше).
+- Не проверено: принимает ли сборка до этого Ticket-а новое поле `level` в сообщении `projects-access`.
+- Merge: первый gate full красный только на двух timeout `test/contract/workflow-reader.test.ts` (flaky под нагрузкой, `worfy-polish` 30; файл отдельно — 45/45), второй зелёный; `01479c7d`.
