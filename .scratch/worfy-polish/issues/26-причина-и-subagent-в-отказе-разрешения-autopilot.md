@@ -89,6 +89,7 @@ Autopilot — режим, в котором Wave-ы идут без челове
 - `test/contract/autopilot.test.ts`
 - `test/unit/autopilot-journal.test.ts`
 - `test/contract/autopilot-journal.test.ts`
+- `test/fixtures/agent-scripts/autopilot-refused-permission.jsonl` (новый сценарий fake SDK; добавлен при claim)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `src/main/ipc/card-api.ts`, `test/contract/orchestrator.test.ts`,
@@ -104,7 +105,41 @@ Autopilot — режим, в котором Wave-ы идут без челове
 
 ## Итог
 
-—
+- **Ответ модели.** `unattendedCanUseTool` (`src/main/agent/permissions.ts`) читает `decisionReason` и
+  `agentID` третьего аргумента. Есть причина — ответ `UNATTENDED_DENIED_MESSAGE` + перевод строки +
+  `refused because: <reason>; follow the reason above: give a literal, resolvable target`. Нет причины
+  (или она пустая) — ответ прежний, слово в слово. Текст после `;` — решение владельца в узком круге
+  (было «rewrite the command so this check does not fire» из Ticket-а); владелец может сменить его
+  отдельным PR.
+- **Событие.** `refused_dialog` получил необязательные `agent` и `reason` (`src/shared/agent/events.ts`);
+  `Session.refuseDialog` передаёт их; `card_ask` их не имеет. В событии причина полная, без обрезки.
+- **Журнал.** `refused-dialog` получил необязательные `agent` (agentID как есть; имени Subagent-а нет —
+  без чтения файлов оно недоступно) и `reason` — через `journalReason`
+  (`src/shared/autopilot/journal.ts`): домашняя папка (`os.homedir()`) → `~`, затем не больше
+  `REASON_MAX` = 200 UTF-16 units без половины суррогатной пары. Правило одно на все платформы
+  (круг 2 ревью): регистр не важен, `\` и `/` — один разделитель, для домашней папки на диске
+  принимается и форма MSYS (`/c/Users/Ann` для `C:\Users\Ann`); заменяется только путь, который не
+  продолжает имя пути: перед ним не буква, не цифра, не `.`, `_`, `-`; перед домом без диска и перед
+  формой MSYS `/c/…` — ещё и не разделитель (`/mnt/Users/ann`, `x/Users/ann`, `/mnt/c/Users/Ann`
+  остаются, `,/Users/ann`, `[/Users/ann`, `>/Users/ann` — заменяются). Перед формой `C:` разделитель
+  замене не мешает (узкий круг владельца): `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:/…` → `~`. Команду журнал не пишет. Старые
+  строки без полей читаются как прежде; строка с `reason` длиннее 200 — не читается (как `narrow-round`
+  с длинным `text`).
+- **Fake SDK.** Строка `permission` получила `bypassImmune` (спрашивать и в `bypassPermissions`),
+  `decisionReason`, `agentID`; в сценариях появилась подстановка `{{home}}`. Новый сценарий
+  `test/fixtures/agent-scripts/autopilot-refused-permission.jsonl` — два отказа за ход: от Subagent-а с
+  короткой причиной и от самого Session-а с длинной.
+- Решено без владельца, подтвердить:
+  - причина идёт в ответ модели отдельной строкой после `UNATTENDED_DENIED_MESSAGE`;
+  - пустая или пробельная `decisionReason` считается отсутствующей;
+  - регистр не учитывается на всех платформах: на Linux `/home/Ann` при домашней `/home/ann` тоже
+    станет `~` — лишняя замена, не утечка;
+  - после домашней папки точка не мешает замене (`/Users/ann.` → `~.`), буква, цифра, `_` и `-` —
+    мешают (`/Users/ann2` остаётся): лишняя замена безопаснее, чем утечка пути;
+  - `decisionReason` от Claude Code сама может содержать команду или её часть; журнал пишет её как есть
+    (обрезанной и с `~`), отдельно команду из `input` не пишет.
+- Не проверено: шаг владельца — отказ настоящего Claude Code в Autopilot (настоящий SDK в этом Ticket-е
+  не запускался, только fake).
 
 ### Gate оркестратора (2026-10-16)
 
@@ -115,4 +150,3 @@ Autopilot — режим, в котором Wave-ы идут без челове
 - Consider: [low] текст для модели «rewrite the command so this check does not fire» (`permissions.ts:75`) взят из Ticket-а; verifier предлагает «follow the reason above: give a literal, resolvable target» — решение владельца.
 - Noted: причина Claude Code сама цитирует часть команды `rm` — до 200 символов попадают в журнал (выбор research-отчёта, **решено без владельца, подтвердить**). [low] debt: WSL `/mnt/c/Users/…` и `/cygdrive/c/…` не заменяются (и в круге 1); `/System/Volumes/Data/Users/…` на macOS; нет test-а на дом с символами regex (мутант без `escapeRegExp` проходит).
 - Dismissed — нет.
-

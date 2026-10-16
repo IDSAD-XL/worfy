@@ -78,8 +78,14 @@
 //   waiting-until  until             the run sleeps until this ISO time
 //   resumed                          the run continues after a wait
 //   session-error  session, message  a Session failed; session: its id or null
-//   refused-dialog session, what     a Session asked for a person (a permission or a question)
-//                                    and the run refused it without one; what: which request
+//   refused-dialog session, what,    a Session asked for a person (a permission or a question)
+//                  agent?, reason?   and the run refused it without one; what: which request;
+//                                    agent: the Subagent that asked (Claude Code's agentID), absent
+//                                    for the Session's own turn; reason: why Claude Code asked, its
+//                                    first REASON_MAX units with the home folder written as `~`
+//                                    (journalReason). The command itself is never written: it may
+//                                    hold tokens and personal paths. Lines written before
+//                                    worfy-polish ticket 26 have neither field
 //   human-input    source, what      a person stepped into the run; any such line is a defect
 //   background-tasks tasks           the live background tasks of the run's Orchestrator Session
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
@@ -195,6 +201,8 @@ const text = z.string().min(1)
 const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
 /** How much of the Orchestrator's last answer `run-stopped` keeps. */
 export const LAST_TEXT_MAX = 1000
+/** How much of Claude Code's reason for a permission request `refused-dialog` keeps. */
+export const REASON_MAX = 200
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
@@ -219,7 +227,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),
   event('session-error', { session, message: z.string() }),
-  event('refused-dialog', { session, what: text }),
+  event('refused-dialog', { session, what: text, agent: text.optional(), reason: text.max(REASON_MAX).optional() }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
@@ -229,15 +237,57 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
 
-/**
- * The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units (as the
- * format checks it), without half of a surrogate pair at the cut.
- */
-export function clipLastText(answer: string): string {
-  if (answer.length <= LAST_TEXT_MAX) return answer
-  const cut = answer.slice(0, LAST_TEXT_MAX)
+/** The start of a text: at most `max` UTF-16 units (as the format checks it), without half of a surrogate pair at the cut. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
   const last = cut.charCodeAt(cut.length - 1)
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
+
+/** The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units. */
+export function clipLastText(answer: string): string {
+  return clip(answer, LAST_TEXT_MAX)
+}
+
+/**
+ * Where a path that starts with a separator (`/Users/ann`, the MSYS `/c/Users/Ann`) may start in a
+ * reason: anywhere but right after a character of a path name — a letter, a digit, `.`, `_`, `-` —
+ * or a separator. The start of the text counts.
+ */
+const PATH_START = String.raw`(?<![\p{L}\p{N}._\\/-])`
+/**
+ * Where a drive path (`C:\Users\Ann`) may start: anywhere but right after a character of a path
+ * name. A separator before it does not stop it: `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:/…`.
+ */
+const DRIVE_START = String.raw`(?<![\p{L}\p{N}._-])`
+/** Any run of path separators, of either platform. */
+const SEPARATOR = String.raw`[\\/]+`
+/** What may not follow the home folder: more of a folder name (`/Users/ann2` is not `/Users/ann`). */
+const NAME_GOES_ON = String.raw`(?![\p{L}\p{N}_-])`
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Claude Code's reason for a permission request as `refused-dialog` keeps it: the home folder
+ * (`home`, the user's) written as `~` wherever a path starts with it, then at most REASON_MAX
+ * UTF-16 units. The same rule on every platform: case is ignored and `\` and `/` are one
+ * separator, so `c:\users\ann`, `C:/Users/Ann` and the MSYS form `/c/Users/Ann` are all the home
+ * `C:\Users\Ann`, and `/Users/Ann` is the home `/Users/ann`. Only a path is replaced, one that
+ * does not go on from a path name (PATH_START: `/mnt/Users/ann` and `x/Users/ann` stay, while
+ * `,/Users/ann` or `[/Users/ann` is replaced; DRIVE_START: `\\?\C:\Users\Ann` is replaced,
+ * `xC:\Users\Ann` stays); a folder
+ * whose name only goes on from the home's (`/Users/ann2`) stays; a dot after the home (the end of
+ * a sentence) does not stop the replacement.
+ */
+export function journalReason(reason: string, home: string): string {
+  const parts = home.split(/[\\/]+/).filter((part) => part !== '')
+  if (parts.length === 0) return clip(reason, REASON_MAX)
+  const drive = /^([A-Za-z]):$/.exec(parts[0] ?? '')
+  const rest = parts.slice(drive === null ? 0 : 1).map((part) => `${SEPARATOR}${escapeRegExp(part)}`).join('')
+  // `C:` or `/c` before a drive home's folders; a separator before any other home's.
+  const prefix = drive === null ? `${PATH_START}${rest}` : `(?:${DRIVE_START}${drive[1]}:|${PATH_START}[\\\\/]${drive[1]})${rest}`
+  return clip(reason.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~'), REASON_MAX)
 }
 
 /** The fields every line shares; the writer fills them in. */

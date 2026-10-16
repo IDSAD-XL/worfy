@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import {
   JOURNAL_EVENT_KINDS,
   LAST_TEXT_MAX,
+  REASON_MAX,
   clipLastText,
   formatJournalLine,
   isRunId,
+  journalReason,
   parseJournal,
   type JournalEvent,
 } from '../../src/shared/autopilot/journal'
@@ -160,6 +162,110 @@ describe('parseJournal', () => {
     const pair = `${'a'.repeat(LAST_TEXT_MAX - 1)}😀tail`
     expect(clipLastText(pair)).toBe('a'.repeat(LAST_TEXT_MAX - 1))
     expect(() => formatJournalLine({ ...stopped, lastText: clipLastText('я'.repeat(5000)) })).not.toThrow()
+  })
+
+  const refusedOld: JournalEvent = { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'permission_request Bash' }
+  const refusedNew: JournalEvent = { ...refusedOld, agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/x)' }
+
+  it('reads refused-dialog with the Subagent and the reason, and an old line without them as before', () => {
+    expect(parseJournal(line(started) + line(refusedOld) + line(refusedNew) + line(stopped))).toEqual({ events: [started, refusedOld, refusedNew, stopped], skipped: 0 })
+    expect(parseJournal(line(refusedOld)).events[0]).toStrictEqual(refusedOld)
+  })
+
+  it('skips refused-dialog with an empty agent or reason, or a reason over REASON_MAX, and counts it', () => {
+    for (const fields of [{ agent: '' }, { reason: '' }, { agent: 7 }, { reason: 'x'.repeat(REASON_MAX + 1) }]) {
+      expect(parseJournal(line(started) + line({ ...refusedOld, ...fields }) + line(stopped)), JSON.stringify(fields)).toEqual({ events: [started, stopped], skipped: 1 })
+    }
+    expect(parseJournal(line({ ...refusedOld, reason: 'x'.repeat(REASON_MAX) })).skipped).toBe(0)
+  })
+
+  it('journalReason writes the home folder as ~ and clips to REASON_MAX units without cutting a surrogate pair', () => {
+    expect(journalReason('cannot resolve /Users/someone/app and /Users/someone', '/Users/someone')).toBe('cannot resolve ~/app and ~')
+    expect(journalReason('a path in /Users/someone/', '/Users/someone/')).toBe('a path in ~/')
+    // Another user whose name starts with the same letters keeps the path.
+    expect(journalReason('/Users/someone2/app, /Users/someone_x and /Users/someoneé', '/Users/someone')).toBe('/Users/someone2/app, /Users/someone_x and /Users/someoneé')
+    expect(journalReason('it is in /Users/someone.', '/Users/someone')).toBe('it is in ~.')
+    expect(journalReason('in C:\\Users\\someone\\app', 'C:\\Users\\someone')).toBe('in ~\\app')
+    expect(journalReason('a (b) /', '')).toBe('a (b) /')
+    expect(journalReason('a (b) /', '/')).toBe('a (b) /')
+    expect(journalReason('a'.repeat(REASON_MAX + 5), '/h')).toBe('a'.repeat(REASON_MAX))
+    expect(journalReason(`/h/${'a'.repeat(REASON_MAX)}`, '/h')).toBe(`~/${'a'.repeat(REASON_MAX - 2)}`)
+    expect(journalReason(`${'a'.repeat(REASON_MAX - 1)}😀tail`, '/h')).toBe('a'.repeat(REASON_MAX - 1))
+    expect(() => formatJournalLine({ ...refusedOld, reason: journalReason('я'.repeat(500), '/h') })).not.toThrow()
+  })
+
+  describe('journalReason: one rule for the home folder on every platform', () => {
+    const windows = 'C:\\Users\\Ann'
+
+    it('matches the home in any case: c:\\users\\ann on Windows, /Users/Ann for /Users/ann on a Mac', () => {
+      expect(journalReason('rm -rf c:\\users\\ann\\x', windows)).toBe('rm -rf ~\\x')
+      expect(journalReason('rm -rf C:\\USERS\\ANN\\x', windows)).toBe('rm -rf ~\\x')
+      expect(journalReason('rm -rf /Users/Ann/x', '/Users/ann')).toBe('rm -rf ~/x')
+    })
+
+    it('takes \\ and / as the same separator: C:/Users/Ann and a mixed C:\\Users/Ann', () => {
+      expect(journalReason('rm -rf C:\\Users\\Ann\\x', windows)).toBe('rm -rf ~\\x')
+      expect(journalReason('rm -rf C:/Users/Ann/x', windows)).toBe('rm -rf ~/x')
+      expect(journalReason('rm -rf C:\\Users/Ann/x', windows)).toBe('rm -rf ~/x')
+    })
+
+    it('takes the MSYS drive form /c/Users/Ann for a home on drive C, and no other drive', () => {
+      expect(journalReason('rm -rf /c/Users/Ann/x', windows)).toBe('rm -rf ~/x')
+      expect(journalReason('rm -rf /C/users/ann', windows)).toBe('rm -rf ~')
+      expect(journalReason('rm -rf /d/Users/Ann/x and D:\\Users\\Ann\\x', windows)).toBe('rm -rf /d/Users/Ann/x and D:\\Users\\Ann\\x')
+    })
+
+    it('takes a home given with a trailing separator as the same home', () => {
+      expect(journalReason('rm -rf /Users/ann/x', '/Users/ann/')).toBe('rm -rf ~/x')
+      expect(journalReason('rm -rf C:/Users/Ann/x', 'C:\\Users\\Ann\\')).toBe('rm -rf ~/x')
+    })
+
+    it.each([',', '[', ';', '>', '"', "'", '`', '(', '=', ':', ' ', '\n', '|', '{', '<', '*'])('replaces the home after %j: punctuation is not part of a path', (before) => {
+      expect(journalReason(`rm${before}/Users/ann/x`, '/Users/ann')).toBe(`rm${before}~/x`)
+      expect(journalReason(`rm${before}c:/users/ann/x`, windows)).toBe(`rm${before}~/x`)
+    })
+
+    it('replaces the home at the start of the text', () => {
+      expect(journalReason('/Users/ann/x', '/Users/ann')).toBe('~/x')
+      expect(journalReason('/c/Users/Ann/x', windows)).toBe('~/x')
+    })
+
+    it.each(['x', 'Z', '7', 'я', '.', '_', '-'])('keeps a path that goes on from a path name: after %j', (before) => {
+      expect(journalReason(`rm ${before}/Users/ann/x`, '/Users/ann')).toBe(`rm ${before}/Users/ann/x`)
+      expect(journalReason(`rm ${before}C:\\Users\\Ann\\x`, windows)).toBe(`rm ${before}C:\\Users\\Ann\\x`)
+    })
+
+    it('keeps /mnt/Users/ann: the home in the middle of another path, after a name or a separator', () => {
+      expect(journalReason('/mnt/Users/ann/x and x/Users/ann', '/Users/ann')).toBe('/mnt/Users/ann/x and x/Users/ann')
+      expect(journalReason('rm /mnt//Users/ann/x and x\\/Users/ann', '/Users/ann')).toBe('rm /mnt//Users/ann/x and x\\/Users/ann')
+      // A doubled separator at a path start is the same path: the run of separators is the home's own.
+      expect(journalReason('rm //Users/ann/x', '/Users/ann')).toBe('rm ~/x')
+    })
+
+    it('replaces a drive home after a separator: the \\\\?\\ and \\\\.\\ prefixes, /C:\\ and file:///C:/', () => {
+      expect(journalReason('rm \\\\?\\C:\\Users\\Ann\\x', windows)).toBe('rm \\\\?\\~\\x')
+      expect(journalReason('rm \\\\.\\C:\\Users\\Ann\\x', windows)).toBe('rm \\\\.\\~\\x')
+      expect(journalReason('rm \\\\?\\c:\\users\\ann\\x', windows)).toBe('rm \\\\?\\~\\x')
+      expect(journalReason('rm /C:\\Users\\Ann\\x', windows)).toBe('rm /~\\x')
+      expect(journalReason('open file:///C:/Users/Ann/x', windows)).toBe('open file:///~/x')
+      expect(journalReason('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann', windows)).toBe('rm x/~\\x and y\\~')
+    })
+
+    it('keeps a drive home that goes on from a path name, and an MSYS form after a separator or a name', () => {
+      expect(journalReason('rm x/c/Users/Ann and /mnt/c/Users/Ann/x', windows)).toBe('rm x/c/Users/Ann and /mnt/c/Users/Ann/x')
+      // A UNC server named c and a doubled separator before /c are not the MSYS form of the home.
+      expect(journalReason('rm \\\\c\\Users\\Ann and /mnt//c/Users/Ann', windows)).toBe('rm \\\\c\\Users\\Ann and /mnt//c/Users/Ann')
+      expect(journalReason('rm xC:\\Users\\Ann\\x and C:\\Users\\Ann2', windows)).toBe('rm xC:\\Users\\Ann\\x and C:\\Users\\Ann2')
+    })
+
+    it('keeps a home without a drive after a name or a separator: x/Users/ann, /System/Volumes/Data/Users/ann', () => {
+      expect(journalReason('rm x/Users/ann and /System/Volumes/Data/Users/ann/x', '/Users/ann')).toBe('rm x/Users/ann and /System/Volumes/Data/Users/ann/x')
+    })
+
+    it('keeps a folder whose name only goes on from the home\'s', () => {
+      expect(journalReason('rm C:\\Users\\Ann2\\x and /c/Users/Ann_b', windows)).toBe('rm C:\\Users\\Ann2\\x and /c/Users/Ann_b')
+      expect(journalReason('rm /Users/ann-old/x', '/Users/ann')).toBe('rm /Users/ann-old/x')
+    })
   })
 
   it('ignores blank lines without counting them, including CRLF endings', () => {
