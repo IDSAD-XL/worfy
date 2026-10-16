@@ -1,7 +1,7 @@
 # 04 — Вердикт Windows без ручного разбора: порядок Ticket-ов `worfy-windows` 53, 51, 14 и запись worfy в реестре Gate на ПК
 
 Type: task
-Status: open
+Status: blocked — research: ведёт Session Orchestrator-а вместе с Session на Windows-ПК, итог — в «Итог»; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер: `worfy-polish` 13 ждал
 9 h (gate full на Windows-ПК); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md),
@@ -15,10 +15,10 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
   на ПК сравнивает списки, Orchestrator на Mac его перепроверяет. Сегодня так ждёт `worfy-polish` 19
   (PR #365).
 - **Gate full на Windows сейчас не запускает ни одного e2e.** Четыре файла `test/e2e` при загрузке
-  модуля вызывают `/bin/sh`, Playwright падает на загрузке всего набора — `worfy-windows` 53 (в
-  открытом docs-PR #380, может влиться после этого PR).
+  модуля вызывают `/bin/sh`, Playwright падает на загрузке всего набора — `worfy-windows` 53
+  (`.scratch/worfy-windows/issues/53-e2e-не-загружаются-на-windows-из-за-bin-sh.md`, влит docs-PR #380).
 - **Очистка `%TEMP%` при старте vitest идёт через junction** и опустошает папку за ним (например,
-  `node_modules` соседнего worktree) — `worfy-windows` 51 (тоже в PR #380; рядом 52 — пропадающие
+  `node_modules` соседнего worktree) — `worfy-windows` 51 (тоже влит PR #380; рядом 52 — пропадающие
   пакеты в `node_modules` соседних worktree).
 - **Gate full на Windows как правило** — `worfy-windows` 14 («Gate full на Windows: unit- и
   e2e-test-ы»), `Status: open`, блокеры 03, 08, 10, 11, 12 все `done`. Идёт срезами (его «Итог»).

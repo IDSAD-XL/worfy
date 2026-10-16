@@ -46,7 +46,7 @@ worfy-reliability (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы 
 - **Implementer-ы с тяжёлыми e2e.** `worfy-polish` 04 — 220 min до PR, 05 — 216 min: 10 повторов e2e
   под нагрузкой CPU, а замок e2e `/tmp/worfy-e2e.lock` у всех implementer-ов и Orchestrator-а один.
   Оба Ticket-а — охота на flaky test-ы, и повторы требовал их собственный «Готово, когда»
-  (`.scratch/worfy-polish/issues/04-три-нестабильных-e2e-ждут-состояние.md:26-28`).
+  (`.scratch/worfy-polish/issues/04-три-нестабильных-e2e-ждут-состояние.md:43`).
 - **Доработка:** 22 Ticket-а из 81 (27 %), всего 28 кругов. Ревью и Linux CI дешёвые. Ожидание
   Limits — 0 h.
 
@@ -71,10 +71,12 @@ gate full на каждый PR. Мержи не стоят из-за забло�
 Epic готов, когда:
 
 1. Orchestrator вливает все готовые PR Wave после одного `GATE_SCOPE=all gate full` на общем дереве;
-   красный gate находит виноватый PR делением набора пополам, ни один PR не вливается при красном
-   наборе; решение записано в ADR-0065 (Ticket 01).
-2. Пока Orchestrator вливает PR вне Autopilot, экран не гаснет; заблокированный экран перед gate full
-   — одна строка «экран заблокирован», а не красный e2e (Ticket 02).
+   красный и при повторе gate находит виноватый PR делением набора пополам, ни один PR вне зелёного
+   префикса не вливается; база и дерево main сверяются на каждом мерже; платформенные PR и PR с меткой
+   `needs-mac-gate` вливаются по-старому; решение записано в ADR-0065 (Ticket 01).
+2. Пока идут проверка набора и мержи вне Autopilot, экран не гаснет (`caffeinate` самих команд);
+   заблокированный экран перед gate full — одна строка «экран заблокирован», а не красный e2e
+   (Ticket 02).
 3. Harness и Profile говорят implementer-у: e2e — только spec-и, которые Ticket трогает; весь
    `test:e2e` — в gate full Orchestrator-а перед мержем; повторы e2e — только по слову Ticket-а
    (Ticket 03).
@@ -120,13 +122,18 @@ Epic готов, когда:
 ## Риски
 
 - **Общее дерево ≠ main после мержей.** Squash-мерж на GitHub и локальное слияние веток могут дать
-  разные деревья. Ticket 01 сверяет хеш дерева main после последнего мержа с проверенным; не совпало
-  — gate full на main сразу, новых мержей нет.
+  разные деревья, а main может уйти, пока идёт проверка. Ticket 01 записывает SHA базы и дерево после
+  каждого PR порядка мержа: перед первым мержем база должна совпасть, после каждого мержа дерево main
+  — с проверенным префиксом; первое несовпадение — стоп.
 - **Flaky test в общем gate full** краснит весь набор. Деление пополам тогда находит «виноватого»,
-  которого нет. Ticket 01 повторяет красный e2e-файл отдельно, прежде чем делить набор (урок
-  `docs/lessons/agents.md:38-46`).
-- **Один красный PR задерживает соседей** на log₂(N) прогонов gate full (около 11,5 min каждый). При
-  10 PR — до четырёх прогонов, всё равно меньше, чем 10 прогонов сейчас.
+  которого нет. Ticket 01 сначала повторяет gate full на всём наборе: зелёный повтор — flaky test
+  записан, мерж идёт (урок `docs/lessons/agents.md:38-46`).
+- **Один красный PR задерживает соседей** на 1+⌈log₂ N⌉ прогонов gate full (повтор и деление, около
+  11,5 min каждый). При 10 PR — до шести прогонов вместе с первым, всё равно меньше 10 прогонов сейчас.
+  Прогон долгий: `wave-gate` идёт в фоне и продолжает с записанного состояния после обрыва.
+- **Платформенные PR не ускоряются.** PR, которым нужен вердикт Windows (ADR-0056, пункт 2), и PR
+  Session на Windows-ПК с меткой `needs-mac-gate` остаются вне набора. Ticket-ы 01 и 02 этого Epic-а —
+  сами платформенные (скрипты Harness): их вердикт Windows — в их «Готово, когда».
 - **Общий файл с `worfy-windows`.** `worfy-windows` 07 и 17 (оба open) правят
   `harness/skills/epic-wave/SKILL.md`, разделы 1 и 4, — те же, что Ticket 01. Перед Wave — проверка
   открытых PR второго Epic-а (ADR-0056, пункт 5).
@@ -143,7 +150,10 @@ worfy — только на Stable copy, без `gh auth switch`, мерж в ma
 - **Кто ведёт.** Autopilot может брать 01, 02 и 03 (команда `/worfy:epic-wave tickets 01, 03 of epic
   worfy-throughput`): их код — `harness/` и тексты Harness. Правку `rules.md` Profile-а и ручные пункты
   делает Orchestrator после мержа. 04 и 05 ведёт только Session Orchestrator-а: 04 — порядок Ticket-ов
-  `worfy-windows` и шаг на Windows-ПК, 05 — замер и отчёт. В команду Wave Autopilot 04 и 05 не входят.
+  `worfy-windows` и шаг на Windows-ПК, 05 — замер и отчёт. В команду Wave Autopilot 04 и 05 не входят:
+  их Status — `blocked — research: …; Autopilot не берёт`, как у `worfy-reliability` 02.
+- **Платформенные PR.** 01 и 02 меняют скрипты Harness — по ADR-0056, пункт 2, это платформенные PR:
+  перед мержем — вердикт Windows (их «Готово, когда»). 03 меняет только текст агента — не платформенный.
 - **Конец Ticket-а** — `pr-green-ci`: PR, зелёный CI на Linux, gate full на Mac перед мержем, мерж —
   Orchestrator. Пока Ticket 01 не влит и Harness не обновлён — мерж по старой схеме, по одному.
 - **Когда правка Harness действует.** Живой Harness — копия, которую несёт сборка worfy
@@ -151,8 +161,9 @@ worfy — только на Stable copy, без `gh auth switch`, мерж в ma
   и Harness из неё. Ручной пункт «новая процедура на настоящей Wave» — после этого.
 - **Ветки** — `worfy-throughput/<NN>`; worktree — `.claude/worktrees/<NN>`, если путь занят деревом
   другого Epic-а — `.claude/worktrees/tp-<NN>`.
-- **ADR.** Ticket 01 меняет правило «каждый PR перед мержем — rebase и свой gate full»
-  (`rules.md` Profile-а) и уточняет ADR-0056, пункт 6. Для него зарезервирован **ADR-0065**
+- **ADR.** Ticket 01 меняет три правила — rebase и gate full на каждый PR (`rules.md` Profile-а),
+  CI на Linux заново перед мержем и gate full на Windows заново после rebase (ADR-0056, пункт 6; теперь
+  только для PR вне набора) — и задаёт revert при красном CI на main. Для него зарезервирован **ADR-0065**
   (следующий свободный на main `99b18c8`; в открытых PR номеров ADR нет). ADR — часть Ticket-а 01.
   Остальным Ticket-ам новый ADR не нужен. Принятые ADR не правятся.
 - **Скрипты Harness — на Node** (`#!/usr/bin/env node`), как `harness/bin/ticket`: Harness идёт и на
@@ -184,7 +195,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 
 | Тикет | Файлы из «Где в коде» | Волна |
 | --- | --- | --- |
-| 01 | `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/profiles/README.md`, `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `docs/adr/0065-one-gate-full-per-wave-merge-set.md` | 1 |
+| 01 | `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json`, `harness/README.md`, `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `docs/adr/0065-one-gate-full-per-wave-merge-set.md` | 1 |
 | 02 | `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `docs/lessons/agents.md` | 2 |
 | 03 | `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh` | 1 |
 | 04 | — | 1 |

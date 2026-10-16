@@ -14,7 +14,7 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
   `commands.verify` — `pnpm lint && pnpm typecheck && pnpm test`, `commands.e2e` — `pnpm test:e2e`
   (`profile.json` Profile-а worfy). В `harness/agents/` и `harness/skills/` слов `e2e` и `test:e2e` нет.
 - **Profile говорит только о замке.** `rules.md` Profile-а worfy
-  (`~/.claude/worfy-harness/projects/worfy/rules.md:37-45`): «e2e и gate full разных агентов — по одному,
+  (`~/.claude/worfy-harness/projects/worfy/rules.md:37-44`): «e2e и gate full разных агентов — по одному,
   под общим замком» `/tmp/worfy-e2e.lock`. Кто какой e2e гоняет — не сказано. Перед мержем весь
   `test:e2e` и `test:package` идут в gate full Orchestrator-а (`:25-28`).
 - **Правило «весь `test:e2e` implementer-у Wave нельзя» уже действует, но только в брифе
@@ -27,7 +27,7 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
   в других — нет.
 - **Тяжёлые implementer-ы замера — охота на flaky test-ы.** `worfy-polish` 04 и 05 гоняли
   `--repeat-each=10` под нагрузкой CPU по собственному «Готово, когда»
-  (`.scratch/worfy-polish/issues/04-три-нестабильных-e2e-ждут-состояние.md:26-28`). Такое правило
+  (`.scratch/worfy-polish/issues/04-три-нестабильных-e2e-ждут-состояние.md:43`). Такое правило
   остаётся: этот Ticket время таких Ticket-ов не сокращает. Его выигрыш — меньше ожидания общего
   замка e2e соседями и одно понятное правило.
 - `pnpm test:e2e` принимает файлы: `electron-vite build && playwright test --grep-invert @packaged`
@@ -40,11 +40,14 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
    назвал его раздел «Тесты» (`<commands.e2e> <файлы>; echo "EXIT=$?"`). Весь набор e2e — шаг
    Orchestrator-а перед мержем (gate full). Повторы (`--repeat-each`) и нагрузка CPU — только когда их
    требует «Готово, когда» Ticket-а. Замок e2e — по `rules.md` Profile-а.
-2. **(вручную, Orchestrator после мержа)** `rules.md` Profile-а worfy, правило о замке (`:37-45`):
+2. **(вручную, Orchestrator после мержа)** `rules.md` Profile-а worfy, правило о замке (`:37-44`):
    одна фраза — implementer гоняет под замком только свои spec-и (`pnpm test:e2e <файлы>`), весь
    `test:e2e` и `test:package` — gate full Orchestrator-а. Diff — в «Итог».
 3. **Шаблон «Готово, когда»** — в «Соглашениях» spec-а `worfy-throughput` уже записан: «gate full —
    шаг Orchestrator-а перед merge». Старые Ticket-ы не переписываются.
+
+Этот Ticket — не платформенный PR по ADR-0056, пункт 2: он меняет текст агента и shell test текста,
+а не скрипт Harness, код с ветками по платформе или упаковку. Вердикт Windows ему не нужен.
 
 ## Готово, когда
 
