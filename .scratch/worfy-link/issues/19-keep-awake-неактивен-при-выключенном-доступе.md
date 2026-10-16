@@ -1,7 +1,8 @@
 # 19 — Переключатель «Keep this computer awake» неактивен, пока доступ к Project-ам выключен
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
+Branch: worfy-link/19
 Blocked by: —
 Source: решение владельца 2026-10-12 («изменить») по пункту «решено без владельца» Ticket-а [14](14-машина-project-а-не-засыпает-статус-спит.md) (`:145-147`, долг ревью PR #167).
 
@@ -42,26 +43,31 @@ Source: решение владельца 2026-10-12 («изменить») по
 
 ## Готово, когда
 
-- [ ] Под переключателем доступа стоит строка «Work already started from a Linked machine keeps
+- [x] Под переключателем доступа стоит строка «Work already started from a Linked machine keeps
       running»; test на её текст.
-- [ ] Доступ выключен, Linked machine есть: переключатель «Keep awake» неактивен, нажатие ничего не
+- [x] Доступ выключен, Linked machine есть: переключатель «Keep awake» неактивен, нажатие ничего не
       меняет, `setKeepAwake` не вызывается; подсказка называет причину.
-- [ ] Доступ включают: переключатель активен и показывает сохранённое значение `keepAwake`.
-- [ ] Доступ выключают при включённом «Keep awake»: сохранённое значение не сбрасывается (после
+- [x] Доступ включают: переключатель активен и показывает сохранённое значение `keepAwake`.
+- [x] Доступ выключают при включённом «Keep awake»: сохранённое значение не сбрасывается (после
       включения доступа переключатель снова «включено»).
-- [ ] Нет Linked machines: оба переключателя неактивны, как раньше.
-- [ ] Снимки секции в светлой и тёмной теме — доступ выключен и доступ включён — в
+- [x] Нет Linked machines: оба переключателя неактивны, как раньше (уточнено в «Итог»: «как раньше» — без этой Machine).
+- [x] Снимки секции в светлой и тёмной теме — доступ выключен и доступ включён — в
       `.scratch/worfy-link/evidence/`.
-- [ ] `docs/design/F-SPEC.md`: если секция Machines там описана — состояние переключателя добавлено.
-- [ ] Test краснеет на мутанте, который возвращает `disabled={noMachine}`.
+- [x] `docs/design/F-SPEC.md`: если секция Machines там описана — состояние переключателя добавлено.
+- [x] Test краснеет на мутанте, который возвращает `disabled={noMachine}`.
 
 ## Где в коде
 
-- `src/renderer/shell/sidebar/MachinesSection.tsx` — переключатели (`:244-245`), `SectionSwitch` (`:113-135`).
-- `test/unit/` — test секции Machines: на main `a995a59` отдельного test-а секции нет (`grep
-  link-keep-awake-switch test` пуст); новый файл или тот, что заводит `worfy-ui` 05.
-- `test/e2e/linked-sleep.spec.ts` — если e2e проверяет переключатель.
+- `src/renderer/settings/MachinesSection.tsx` — оба переключателя (`:38-42`): с `worfy-ui` 05
+  (PR #296) они в окне Settings → Machines, а не в боковой панели
+  (`src/renderer/shell/sidebar/MachinesSection.tsx` переключателей больше не содержит).
+- `src/renderer/settings/controls.tsx` — `SettingSwitch` без `title`: подсказка о причине неактивного
+  переключателя требует этого свойства.
+- `test/unit/machines-section.test.tsx` — test секции (завёл `worfy-ui` 05).
+- `test/e2e/linked-sleep.spec.ts` и `test/e2e/linked-machines.spec.ts` — оба включают или проверяют
+  «Keep awake» на свежей Machine с выключенным доступом.
 - `docs/design/F-SPEC.md`.
+- `.scratch/worfy-link/evidence/19-*.png` — снимки.
 
 ## Вне скоупа
 
@@ -76,3 +82,60 @@ Source: решение владельца 2026-10-12 («изменить») по
   порядку мержа делает rebase и переносит правило неактивного переключателя в новое место.
 
 ## Итог
+
+**Сделано (ветка `worfy-link/19`).** Переключатели — в окне Settings → Machines
+(`src/renderer/settings/MachinesSection.tsx`), а не в боковой панели: их перенёс `worfy-ui` 05 (PR #296).
+
+- Под переключателем доступа — строка «Work already started from a Linked machine keeps running»
+  (ADR-0060). Это `description` общего `SettingRow` — второй строкой, 12 px вторичным цветом. Видна
+  всегда: и при выключенном, и при включённом доступе.
+- «Keep this computer awake…» неактивен, пока доступ выключен (как и без этой Machine). Правило
+  `wanted()` в `src/main/link/keep-awake.ts` не менялось. Сохранённое значение `keepAwake` секция не
+  трогает: ни выключение доступа, ни нажатие на неактивный переключатель `link.setKeepAwake` не
+  вызывают.
+- **Что показывает неактивный переключатель — решено без владельца, подтвердить.** Выбрана
+  рекомендация Ticket-а: положение «выключено» (сон сейчас не запрещается), а не сохранённое значение.
+  Включат доступ — переключатель снова активен и показывает сохранённое значение (на свежей Machine —
+  «включено»). Подсказка (`title`, её же screen reader читает как описание): «Turn on "Linked machines
+  can work with my Projects" first». Без этой Machine (link service не запущен) подсказки нет:
+  включение доступа там не помогло бы, неактивен и сам переключатель доступа.
+- `SettingSwitch` (`src/renderer/settings/controls.tsx`) получил необязательное свойство `title`:
+  без него подсказку некуда поставить.
+- **Пункт «Нет Linked machines: оба неактивны, как раньше» — посылка неточна.** Ни раньше, ни теперь
+  переключатели не зависят от числа Linked machines: `noMachine` — это «нет этой Machine»
+  (`state.machine == null`, link service не запущен). Так и осталось: без этой Machine оба неактивны
+  (test «without this Machine both switches are disabled…»). Доступ нужно уметь включить до первой
+  связи, поэтому делать его неактивным без Linked machines нельзя.
+- `docs/design/F-SPEC.md`: окна Settings и секции Machines там нет (`grep -i "settings\|keep awake"`
+  — только Confirm dialog первого запуска и чипы Machine у Autopilot). Описывать нечего, раздел не
+  заводился.
+
+**Test-ы.**
+
+- `test/unit/machines-section.test.tsx`: строка-подсказка в строке доступа при выключенном и
+  включённом доступе, одна; доступ выключен, Linked machine есть — keep-awake неактивен, «выключено»,
+  `title` с причиной, клик не вызывает main; доступ включили — активен и «включено»; выключили —
+  снова неактивен, а `link.setKeepAwake` не вызывался; включили ещё раз — «включено»; без этой
+  Machine — неактивен без подсказки. Старые test-ы секции, которые щёлкали keep-awake на свежем
+  состоянии (доступ выключен), теперь начинают с включённого доступа.
+- Мутант `disabled={noMachine}` у keep-awake (на копии, восстановлен, `cmp` совпал): красные 2 test-а
+  из 19 — «access off, a Linked machine online…» и «access switched on…». Мутант, который заодно
+  возвращает `checked={keepAwake}`, — те же 2 красных.
+- e2e (`pnpm test:e2e test/e2e/linked-machines.spec.ts test/e2e/linked-sleep.spec.ts`, под замком
+  `/tmp/worfy-e2e.lock`): 11 из 11 зелёные. `linked-machines.spec.ts` на свежей Machine проверяет
+  неактивный keep-awake с `title`, строку-подсказку и активный keep-awake после включения доступа;
+  `linked-sleep.spec.ts` перед выключением keep-awake сначала включает доступ.
+
+**Снимки** (Playwright, свежая Machine, окно Settings → Machines):
+
+- [доступ выключен, светлая](../evidence/19-access-off-light.png),
+  [тёмная](../evidence/19-access-off-dark.png): под «Linked machines can work with my Projects» —
+  вторичным текстом «Work already started from a Linked machine keeps running»; оба переключателя в
+  положении «выключено», keep-awake чуть бледнее (стиль `:disabled`). Разница с активным выключенным
+  переключателем доступа на снимке едва заметна — это существующий стиль `.w-setting-switch:disabled`,
+  Ticket его не менял.
+- [доступ включён, светлая](../evidence/19-access-on-light.png),
+  [тёмная](../evidence/19-access-on-dark.png): оба переключателя включены (синие в светлой теме,
+  салатовые в тёмной), строка-подсказка на месте.
+- Подсказку `title` снимок страницы не показывает (это нативный tooltip); её проверяют unit- и
+  e2e-test.

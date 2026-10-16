@@ -95,6 +95,8 @@ test('the keep-awake switch is on on a fresh Machine and stays off across a rest
     const first = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
     try {
       await machineIdOf(first.window)
+      // The keep-awake switch works only while access is on: with access off it is disabled.
+      await setProjectsAccess(first, true)
       const toggle = (await openMachinesSettings(first)).getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
       await expect(toggle).toBeVisible()
       await expect(toggle).toBeEnabled()

@@ -32,11 +32,13 @@ export interface SettingSwitchProps {
   checked: boolean
   onChange: (checked: boolean) => void
   disabled?: boolean
+  /** The tooltip, which a screen reader reads as the description: why a disabled switch is disabled. */
+  title?: string
   testId?: string
 }
 
 /** An on/off switch; a click asks for the other value, a disabled switch asks for nothing. */
-export function SettingSwitch({ label, checked, onChange, disabled = false, testId }: SettingSwitchProps) {
+export function SettingSwitch({ label, checked, onChange, disabled = false, title, testId }: SettingSwitchProps) {
   return (
     <button
       type="button"
@@ -44,6 +46,7 @@ export function SettingSwitch({ label, checked, onChange, disabled = false, test
       className="w-setting-switch"
       aria-checked={checked}
       aria-label={label}
+      title={title}
       data-testid={testId}
       disabled={disabled}
       onClick={() => {
