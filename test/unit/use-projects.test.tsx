@@ -90,9 +90,9 @@ const linkState = (linked: { id: string; name: string; state?: 'online' | 'unava
   keepAwake: true,
 })
 
-const linkedState = (machines: { id: string; sharing: 'yes' | 'no' | 'unknown'; epoch?: number; online?: boolean }[], revision = 1): LinkedState => ({
+const linkedState = (machines: { id: string; sharing: 'yes' | 'no' | 'unknown'; epoch?: number; online?: boolean; readOnly?: boolean }[], revision = 1): LinkedState => ({
   revision,
-  machines: machines.map(({ id, sharing, epoch = 1, online = true }) => ({ id, sharing, readOnly: false, epoch, online })),
+  machines: machines.map(({ id, sharing, epoch = 1, online = true, readOnly = false }) => ({ id, sharing, readOnly, epoch, online })),
 })
 
 const listOf = (prefix: string, activeId: string | null = null): ProjectsState => ({
@@ -229,6 +229,45 @@ describe('the Projects of Linked machines', () => {
     expect(mini.getAttribute('data-state')).toBe('unavailable')
     expect(within(mini).getByText('Unavailable')).toBeTruthy()
     expect(within(mini).queryAllByTestId('project-row')).toHaveLength(0)
+  })
+
+  it('a Machine that shares its Projects read-only is marked "Read only" beside Online; its rows cannot be removed and it cannot be chosen for Add project (worfy-link ticket 25)', async () => {
+    const link = linkState([
+      { id: M, name: 'Mini' },
+      { id: Z, name: 'Zeta' },
+    ])
+    const { calls } = await loadModules({ link, linked: linkedState([{ id: M, sharing: 'yes', readOnly: true }, { id: Z, sharing: 'yes' }]) })
+    const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+    render(<ProjectsSection />)
+    await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(6))
+    const [, mini, zeta] = screen.getAllByTestId('machine-group')
+    const mark = within(mini!).getByTestId('machine-read-only')
+    expect(mark.textContent).toBe('Read only')
+    expect(mark.getAttribute('title')).toBe('Mini gives this Machine read-only access')
+    expect(within(mini!).getByText('Online')).toBeTruthy()
+    expect(within(zeta!).queryByTestId('machine-read-only')).toBeNull()
+
+    // The context menu of a row of Mini: "Remove from list" is inactive and removes nothing.
+    fireEvent.contextMenu(within(mini!).getAllByTestId('project-row')[0]!)
+    const remove = screen.getByRole('menuitem', { name: 'Remove from list' })
+    expect(remove.getAttribute('aria-disabled')).toBe('true')
+    expect(remove.getAttribute('title')).toBe('Mini gives this Machine read-only access')
+    fireEvent.click(remove)
+    expect(calls.filter(([channel, input]) => channel === 'linked.invoke' && (input as { channel: string }).channel === 'projects.remove')).toEqual([])
+    fireEvent.keyDown(screen.getByRole('menu', { name: 'Project' }), { key: 'Escape' })
+
+    // A row of Zeta, with Full access: as before.
+    fireEvent.contextMenu(within(zeta!).getAllByTestId('project-row')[0]!)
+    expect(screen.getByRole('menuitem', { name: 'Remove from list' }).getAttribute('aria-disabled')).toBeNull()
+    fireEvent.keyDown(screen.getByRole('menu', { name: 'Project' }), { key: 'Escape' })
+
+    // Add project: Mini cannot be chosen and says why; Zeta can.
+    fireEvent.click(screen.getByRole('button', { name: 'Add project' }))
+    const options = within(await screen.findByTestId('add-project-machine')).getAllByTestId('add-project-machine-option')
+    const option = (id: string) => options.find((candidate) => candidate.getAttribute('data-machine-id') === id)!
+    expect((option(M) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(option(M)).getByTestId('add-project-machine-reason').textContent).toBe('Mini gives this Machine read-only access')
+    expect((option(Z) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it("choosing a Project of M does not call projects.select: the window loads again on M with that Project", async () => {

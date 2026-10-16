@@ -7,6 +7,7 @@ import { invokeOn, readableReason, windowMachine } from '../../ipc'
 import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
+import { readOnlyHint, writeAction } from '../../projects/read-only'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
@@ -117,6 +118,7 @@ function machineOptions(groups: readonly ProjectGroup[], link: LinkState | undef
     else if (view?.state === 'sleeping') unavailable = `${group.name} is asleep`
     else if (group.state !== 'online') unavailable = `${group.name} is not online`
     else if (!group.sharing) unavailable = `${group.name} doesn't let Linked machines work with its Projects`
+    else if (group.readOnly) unavailable = readOnlyHint(group.name)
     return { machine: group.machine, name: group.name, unavailable }
   })
 }
@@ -209,13 +211,15 @@ const folderIcon = (
 interface MenuProps {
   x: number
   y: number
+  /** The read-only hint of the row's Machine (worfy-link ticket 25): "Remove from list" is inactive. */
+  readOnly: string | null
   onSettings: () => void
   onRemove: () => void
   onClose: () => void
 }
 
 /** The context menu of a Project row. Escape, a click elsewhere or leaving the menu closes it. */
-function ProjectMenu({ x, y, onSettings, onRemove, onClose }: MenuProps) {
+function ProjectMenu({ x, y, readOnly, onSettings, onRemove, onClose }: MenuProps) {
   const menu = useRef<HTMLDivElement>(null)
   // The latest onClose, so the effect below runs once per opening and not on every render.
   const close = useRef(onClose)
@@ -257,17 +261,31 @@ function ProjectMenu({ x, y, onSettings, onRemove, onClose }: MenuProps) {
       <button type="button" role="menuitem" className="w-row" onClick={onSettings}>
         Project settings…
       </button>
-      <button type="button" role="menuitem" className="w-row" onClick={onRemove}>
+      <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onRemove)}>
         Remove from list
       </button>
     </div>
   )
 }
 
-/** The state of a Machine in words, always with its colour (F-SPEC: a status colour never stands alone). */
+/**
+ * The state of a Machine in words, always with its colour (F-SPEC: a status colour never stands
+ * alone). A Machine that shares its Projects read-only (worfy-link ticket 25) says so beside it.
+ */
 function GroupState({ group }: { group: ProjectGroup }) {
   if (group.state === 'this') return null
-  if (group.state === 'online') return <StatusChip status="ready" label="Online" />
+  if (group.state === 'online') {
+    return (
+      <>
+        <StatusChip status="ready" label="Online" />
+        {group.readOnly ? (
+          <span className="w-chip w-read-only-chip" data-testid="machine-read-only" title={readOnlyHint(group.name)}>
+            Read only
+          </span>
+        ) : null}
+      </>
+    )
+  }
   return (
     <span className="w-chip" style={styles.unavailable}>
       Unavailable
@@ -392,6 +410,9 @@ export default function ProjectsSection() {
     else fail(result.error)
   }
 
+  // The Machine of the row whose menu is open: its Projects may be read-only (worfy-link ticket 25).
+  const menuGroup = menu === undefined ? undefined : groups?.find((group) => group.machine === menu.machine)
+
   const rowsOf = (group: Pick<ProjectGroup, 'machine' | 'projects' | 'selectedId'>) => (
     <ProjectRows
       group={group}
@@ -428,6 +449,7 @@ export default function ProjectsSection() {
             <ProjectMenu
               x={menu.x}
               y={menu.y}
+              readOnly={menuGroup?.readOnly === true ? readOnlyHint(menuGroup.name) : null}
               onClose={() => setMenu(undefined)}
               onSettings={() => {
                 setSettingsFor({ machine: menu.machine, project: menu.project })

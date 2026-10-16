@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react'
 import type { Attachment, AttachResult } from '../../shared/agent/attachments'
 import { invoke, windowMachine } from '../ipc'
+import { writeAction } from '../projects/read-only'
+import { useReadOnly } from '../projects/useProjects'
 import { attachFiles as attachFilesIn, roomFor, takeAttached, type FileKind } from './attach-files'
 import { composerItems } from './composer/index'
 import { composerHint } from './hints'
@@ -139,7 +141,9 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
   // A window on a Linked machine picks files with this Machine's dialog (the hidden input). The
   // window's Machine never changes: another Machine loads the window again (useProjects.ts).
   const [pickHere] = useState(() => windowMachine() !== null)
-  const disabled = sessionId === null
+  // On a read-only screen (worfy-link ticket 25) the field is off as when no Session runs, and says why.
+  const readOnly = useReadOnly()
+  const disabled = sessionId === null || readOnly !== null
 
   // Grows with the text up to MAX_HEIGHT.
   useLayoutEffect(() => {
@@ -302,7 +306,8 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
             ref={field}
             className="w-composer__field"
             aria-label={`Message ${recipient}`}
-            placeholder={disabled ? 'The Session is not running' : `Message ${recipient}`}
+            placeholder={readOnly ?? (disabled ? 'The Session is not running' : `Message ${recipient}`)}
+            title={readOnly ?? undefined}
             rows={1}
             value={text}
             disabled={disabled}
@@ -311,7 +316,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
             onPaste={onPaste}
           />
           <div className="w-composer__bar">
-            <button type="button" className="w-composer__attach" aria-label="Attach files" title="Attach files" data-testid="input-attach" disabled={disabled} onClick={pick}>
+            <button type="button" className="w-composer__attach" aria-label="Attach files" title={readOnly ?? 'Attach files'} data-testid="input-attach" disabled={disabled} onClick={pick}>
               <PlusIcon />
             </button>
             {pickHere ? <input ref={chooser} type="file" multiple hidden tabIndex={-1} aria-hidden="true" data-testid="input-attach-file" onChange={chosen} /> : null}
@@ -323,7 +328,7 @@ export function MessageInput({ sessionId, busy, history, recipient, onSend, onIn
               </span>
             ))}
             {busy ? (
-              <button type="button" className="w-session__button" data-testid="input-interrupt" onClick={onInterrupt}>
+              <button type="button" className="w-session__button" data-testid="input-interrupt" {...writeAction(readOnly, onInterrupt)}>
                 <StopIcon />
                 Interrupt
                 <kbd className="w-session__kbd w-mono">esc</kbd>

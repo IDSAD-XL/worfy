@@ -9,7 +9,8 @@ import {
   type ActionTemplates,
   type TerminalShellSetting,
 } from '../../shared/projects/action-templates'
-import { invoke, invokeOn } from '../ipc'
+import { invoke, invokeOn, windowMachine } from '../ipc'
+import { useReadOnly } from '../projects/useProjects'
 import { PrimaryButton } from '../theme/primitives'
 import { Select } from '../theme/Select'
 
@@ -94,6 +95,8 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   const [shells, setShells] = useState<ShellOptions>([])
   const [failure, setFailure] = useState<string>()
   const [saving, setSaving] = useState(false)
+  // A Project of a Linked machine that shares it read-only (worfy-link ticket 25): the settings show, Save is off.
+  const readOnly = useReadOnly(machine === undefined ? windowMachine() : machine)
   const titleId = useId()
   const fieldId = useId()
   const shellId = useId()
@@ -127,7 +130,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
   const invalid = ACTIONS.some((action) => errors[action] !== undefined)
 
   const save = async (): Promise<void> => {
-    if (!templates || invalid) return
+    if (!templates || invalid || readOnly !== null) return
     setSaving(true)
     // The whole settings go back: the templates, and the shell when one is chosen or was saved before.
     const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: templates, ...(terminalShell === undefined ? {} : { terminalShell }) } })
@@ -236,6 +239,12 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           ))}
         </ul>
 
+        {readOnly !== null ? (
+          <p className="w-read-only-note" style={{ margin: '0 0 var(--space-3)' }} data-testid="project-settings-read-only">
+            {readOnly}
+          </p>
+        ) : null}
+
         {failure ? (
           <p role="alert" style={{ ...styles.error, margin: '0 0 var(--space-3)' }}>
             {failure}
@@ -250,7 +259,7 @@ export function ProjectSettings({ project, machine, onClose }: ProjectSettingsPr
           <button type="button" style={styles.secondary} onClick={onClose}>
             Cancel
           </button>
-          <PrimaryButton disabled={!templates || invalid || saving} onClick={() => void save()}>
+          <PrimaryButton disabled={!templates || invalid || saving || readOnly !== null} onClick={() => void save()}>
             Save
           </PrimaryButton>
         </div>

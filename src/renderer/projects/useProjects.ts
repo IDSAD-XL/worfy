@@ -17,6 +17,9 @@ import type { LinkState } from '../../shared/ipc/link'
 import type { LinkedState } from '../../shared/ipc/linked'
 import type { ProjectsState, ProjectView } from '../../shared/ipc/projects'
 import { invoke, invokeOn, MACHINE_PARAM, subscribe, subscribeOn, windowMachine } from '../ipc'
+import { linkStateNow, useMachineName } from '../machines/useMachines'
+import { readOnlyHint } from './read-only'
+import { answerReadOnly } from './read-only-now'
 
 /** The parameter of the window's address that names the Project a window on a Linked machine shows. */
 export const PROJECT_PARAM = 'project'
@@ -207,6 +210,36 @@ export function useLinked(): LinkedState | undefined {
   return useLinkedStore((store) => store.linked)
 }
 
+/**
+ * The hint of Machine `machine` (null — this Machine) when it shares its Projects with this Machine
+ * read-only (worfy-link ticket 25, ADR-0066); null otherwise, and while main has not said yet.
+ */
+function readOnlyOf(machine: string | null, linked: LinkedState | undefined, name: string | undefined): string | null {
+  if (machine === null || linked?.machines.find((candidate) => candidate.id === machine)?.readOnly !== true) return null
+  return readOnlyHint(name)
+}
+
+/**
+ * Why the write actions on Projects of Machine `machine` are inactive: "<Machine> gives this Machine
+ * read-only access", or null when they are not. Left out: the window's Machine. Follows the level
+ * as main learns it, so a change takes effect without loading the window again.
+ */
+export function useReadOnly(machine: string | null = windowMachine()): string | null {
+  // This Machine's Projects are never read-only: no call to main for them.
+  useEffect(() => {
+    if (machine !== null) followLinked()
+  }, [machine])
+  const linked = useLinkedStore((store) => store.linked)
+  return readOnlyOf(machine, linked, useMachineName(machine))
+}
+
+/** useReadOnly() of the window's Machine outside React: for the code that sends, not only the buttons. */
+export function readOnlyNow(): string | null {
+  const machine = windowMachine()
+  return readOnlyOf(machine, useLinkedStore.getState().linked, linkStateNow()?.linked.find((candidate) => candidate.id === machine)?.name)
+}
+answerReadOnly(readOnlyNow)
+
 /** The followed lists of Machines other than the window's: key → what was followed and the unsubscribe. */
 const followed = new Map<string, { version: string; stop: () => void }>()
 
@@ -263,6 +296,8 @@ export interface ProjectGroup {
   state: 'this' | 'online' | 'unavailable'
   /** False when the Machine does not let this one work with its Projects: no Projects are shown. */
   sharing: boolean
+  /** It shares its Projects with this Machine read-only (worfy-link ticket 25): the sidebar marks it. */
+  readOnly: boolean
   projects: ProjectView[]
   /** The Project this window shows, when it is in this group. */
   selectedId: string | null
@@ -296,6 +331,7 @@ export function groupProjects({ windowMachine: shownMachine, windowState, link, 
       name: link?.machine?.name ?? 'This Machine',
       state: 'this',
       sharing: true,
+      readOnly: false,
       projects: own.state?.projects ?? [],
       selectedId: shownMachine === null ? (own.state?.activeId ?? null) : null,
       error: own.error ?? null,
@@ -312,6 +348,7 @@ export function groupProjects({ windowMachine: shownMachine, windowState, link, 
       name: machine.name,
       state: online ? 'online' : 'unavailable',
       sharing,
+      readOnly: sharing && info?.readOnly === true,
       projects: online && sharing ? (list.state?.projects ?? []) : [],
       selectedId: machine.id === shownMachine ? (list.state?.activeId ?? null) : null,
       error: online && sharing ? (list.error ?? null) : null,

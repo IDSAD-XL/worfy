@@ -29,6 +29,7 @@ import { createStore } from 'zustand/vanilla'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
 import { trashRefusal, type TrashEntry } from '../../shared/ipc/trash'
 import { invoke } from '../ipc'
+import { readOnlyNow } from '../projects/read-only-now'
 import { screenId } from './screen'
 
 /** How many steps can be undone. */
@@ -129,6 +130,8 @@ export class History {
 
   private run(stack: () => HistoryStep[], direction: Direction, done: (step: HistoryStep) => void): Promise<StepOutcome> {
     const next = this.queue.then(async () => {
+      // A read-only screen (worfy-link ticket 25) changes nothing; the steps stay for when it may again.
+      if (readOnlyNow() !== null) return false
       // Wait until the latest step is complete; another gesture may take the top meanwhile.
       for (let top = stack().at(-1); top?.complete !== undefined; ) {
         await top.complete
@@ -611,6 +614,9 @@ export const ipcTrash: TrashClient = {
  * (Watch.ownRevision); unknown when none did.
  */
 export async function trashRecorded(projectId: string, nodeId: string, trash: TrashClient = ipcTrash, group?: Group): Promise<string | undefined> {
+  // A read-only screen (worfy-link ticket 25) puts nothing in the trash.
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) return readOnly
   const watch = watchOf(projectId)
   const footprint: Footprint = new Map([[nodeId, new Set<Side>(['existence'])]])
   const answerSince = (since: number | undefined): SendAnswer => {
@@ -652,6 +658,9 @@ export const deletableNodes = (nodes: readonly LayoutNode[]): LayoutNode[] => no
  * when all went.
  */
 export async function deleteToTrash(projectId: string, nodes: readonly LayoutNode[], trash: TrashClient = ipcTrash): Promise<string[]> {
+  // A read-only screen (worfy-link ticket 25): one hint for the whole selection, nothing sent.
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) return deletableNodes(nodes).length > 0 ? [readOnly] : []
   const refusals: string[] = []
   await grouped(async (group) => {
     for (const node of deletableNodes(nodes)) {
