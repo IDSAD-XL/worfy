@@ -415,4 +415,11 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` и
 
 - **e2e `window.spec.ts`** (в нём два test-а с `GH_STUB`) на ПК, `electron-vite build` и Playwright: main `eb96efe` и ветка `c89824e` одинаково — exit 1, 4 прошли, 2 упали. Оба падения не о `gh`: «traffic lights sit inset» зовёт `getWindowButtonPosition`, которого на Windows нет, а «a moved or resized window is saved at once» падает на `EBUSY` при удалении папки данных. Test-ы с `GH_STUB` прошли на обеих сторонах; ответ `gh` им не нужен, так что запуск подмены они не доказывают — его доказывает `gh-stand-in.test.ts`.
 
+- **Ревью Session на Mac** (глубина high: корректность против main на macOS, безопасность `programStart` и `ELECTRON_RUN_AS_NODE`, мутанты `program.ts`): безопасность чистая — `WORFY_GH` и `command` берутся только из окружения main-процесса; из 25 мутантов выжили 9. Исправлено в `c297b5f`:
+  - `ELECTRON_RUN_AS_NODE=1` в дочернем процессе ничто не проверяло: без переменной Electron всё равно запускает `.mjs` — как главный скрипт второго приложения, с тем же ответом. `gh-stub.mjs` пишет в `GH_STUB_RUNTIME`, как его запустили (`runAsNode`, `process.type`), и `gh-stand-in.test.ts` ждёт `{"runAsNode":"1","type":null}`. Неверный комментарий об этом в test-е исправлен.
+  - `ghRunner` без `command` ничто не вызывало: test запускает `gh` из PATH (обёртка `test/fixtures/gh/gh`; на Windows пропущен — обёртку там не запустить) и test «gh not found (gh)» без `gh` в PATH (на всех системах).
+  - Относительный `.mjs` искался от корня Project-а, где идёт `gh`: `programStart` приводит его к абсолютному от папки worfy; путь, абсолютный в форме POSIX или Windows, не трогает.
+  - Значение `gh` по умолчанию у `signInRegistry`: test с подставленным spawn, который только записывает вызов.
+  - Мутанты на ПК после правки: без `...start.env` падают 3 test-а, без приведения пути — 2.
+  - **Не сделано:** у `appGh` (`src/main/ipc/projects.ts`) нет contract-test-а — кандидат на отдельный Ticket.
 **Не проверено:** `packaged.spec.ts` на Windows (собранное приложение — срез 5); на macOS и Linux `GH_STUB` — та же обёртка, что раньше.
