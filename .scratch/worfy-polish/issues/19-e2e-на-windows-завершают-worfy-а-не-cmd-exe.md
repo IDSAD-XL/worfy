@@ -1,7 +1,7 @@
 # 19 — e2e на Windows: helper завершает сам worfy, а не только `cmd.exe` над ним
 
 Type: task
-Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #365 VERIFIED по Mac, Windows-ПК выключен
+Status: done — 2026-10-16, [PR #365](https://github.com/IDSAD-XL/worfy/pull/365)
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а
 [04](04-три-нестабильных-e2e-ждут-состояние.md) (раздел «Gate оркестратора (2026-10-15)», Noted
@@ -170,3 +170,8 @@ Wave). Тот же полный прогон на чистом `origin/main` 05a
 - Noted: [low] `child.kill('SIGKILL')` повторён во всех трёх ветках (`end-app.ts:59,62,64`).
 - Dismissed — нет.
 - [low] debt: мутант M3 (`GONE_TIMEOUT_MS` вместо `goneTimeoutMs`, `end-app.ts:67`) выжил — test проверяет сообщение, не длину ожидания; `reportKillFailure` (`helpers.ts:80-87`) без test-а.
+
+### Merge (2026-10-16)
+
+- Windows-ПК (Session «Worfy тесты на ПК», ночь 2026-10-16): `pnpm test` — новых падений против main нет (исключение ADR-0056 до `worfy-windows` 14). Сам фикс на ПК не показан: test-ы на настоящих процессах пропущены на win32, e2e на Windows не грузятся (`worfy-windows` 53).
+- Mac: merge origin/main в ветку (`ba97d7c3`), `GATE_SCOPE=all gate.sh full` — exit 0, `[gate] зелено (full)` (lint, typecheck, test, test:e2e, test:package); CI `check` — 0. Squash-merge `e0da75f3`.

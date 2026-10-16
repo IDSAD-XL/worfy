@@ -1,7 +1,7 @@
 # 20 — Relaunch Orchestrator-а ждёт выхода старого процесса Claude Code; по таймауту — SIGKILL
 
 Type: task
-Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #345 VERIFIED по Mac, Windows-ПК выключен
+Status: done — 2026-10-16, [PR #345](https://github.com/IDSAD-XL/worfy/pull/345)
 Branch: worfy-week/20
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-week/issues/17-stop-в-autopilot-прерывает-orchestrator.md:214`
@@ -192,3 +192,10 @@ Source: решение владельца 2026-10-12; `.scratch/worfy-week/issue
 - **Не проверено:** сколько настоящий Claude Code выходит после закрытия stdin (риск «каждый переход
   Autopilot станет дольше») — настоящий Claude Code в этой работе не запускался; ручной пункт на
   Stable copy — шаг владельца после влития; `GATE_SCOPE=all gate.sh full` — делает оркестратор.
+
+### Merge (2026-10-16)
+
+- Windows-ПК (Session «Worfy тесты на ПК», ночь 2026-10-16): на первом head kill через SIGTERM на win32 не давал выхода с сигналом — исправлено в ветке: `IGNORE_TERM_EXIT_SIGNAL` в `test/contract/claude-process-stub.ts` (SIGTERM на win32, SIGKILL на остальных), два test-а `skipIf` win32, четыре — с ожиданием для win32. После фикса два исправленных файла — 27 passed и 2 skipped на win32, `pnpm test` — новых падений против main нет (исключение ADR-0056 до `worfy-windows` 14).
+- Конфликт с `worfy-polish` 24 в `src/main/agent/` разрешён merge-коммитом `7d8ff911`, проверен.
+- Mac: `GATE_SCOPE=all gate.sh full` на `416a0119` — exit 0, `[gate] зелено (full)`; предупреждение: `src/main/agent/session.ts` 947 → 1077 строк (долг: разделить файл). CI `check` — 0. Squash-merge `99b18c8c`.
+- Не проверено: ручной пункт на Stable copy (время выхода настоящего Claude Code) — шаг владельца.
