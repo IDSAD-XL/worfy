@@ -16,6 +16,8 @@
 // This repository configures no fuses (electron-builder.yml has no electronFuses, and nothing
 // flips them after packaging), so the mode is on in `pnpm dev` and in the packaged app.
 
+import { posix, resolve, win32 } from 'node:path'
+
 /** What to start in place of a program. */
 export interface ProgramStart {
   file: string
@@ -28,9 +30,14 @@ export interface ProgramStart {
 /**
  * What to start for `usual` when `override` may name another program in its place. `execPath` is
  * the file worfy itself runs from.
+ *
+ * A relative `.mjs` is resolved against worfy's own folder: the child runs in another one (gh in the
+ * Project root), where Node would look for it otherwise. A path absolute in either form — POSIX or
+ * Windows — stays as it is.
  */
 export function programStart(override: string | undefined, usual: string, execPath: string = process.execPath): ProgramStart {
   if (override === undefined) return { file: usual, args: [], env: {} }
   if (!override.endsWith('.mjs')) return { file: override, args: [], env: {} }
-  return { file: execPath, args: [override], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  const script = posix.isAbsolute(override) || win32.isAbsolute(override) ? override : resolve(override)
+  return { file: execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } }
 }

@@ -233,6 +233,17 @@ describe('"Sign in with gh"', () => {
     expect(signInCommand('/opt/stub/gh')).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', '/opt/stub/gh'] })
   })
 
+  it('without WORFY_GH the sign-in runs `gh` itself (nothing is started here: the spawn only records)', async () => {
+    let started: string[] | undefined
+    const registry = signInRegistry({ env: () => Promise.resolve({}) }, (file, args) => {
+      started = [file, ...args]
+      throw new Error('not started in this test')
+    })
+    await Promise.resolve(registry.open('s0', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: () => undefined, exit: () => undefined, started: () => undefined })).catch(() => undefined)
+    expect(started).toEqual(['/bin/sh', '-c', 'exec "$0" auth login', 'gh'])
+    await registry.closeAll()
+  })
+
   // The two tests below start the sign-in in a real pseudo-terminal through /bin/sh, which Windows
   // does not have: node-pty answers "File not found:". The product has the same defect there;
   // worfy-windows ticket 50 fixes it and runs these tests on Windows.
