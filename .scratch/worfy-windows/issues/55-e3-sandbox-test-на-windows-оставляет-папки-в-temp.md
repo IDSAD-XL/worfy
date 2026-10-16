@@ -75,4 +75,16 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 
 ## Итог
 
-—
+- **Правка.** `test/contract/e3-sandbox.test.ts`: константа `NOT_ON_WINDOWS` и
+  `describe.skipIf(NOT_ON_WINDOWS)` на пяти `describe` верхнего уровня (`init`, `env and run`,
+  `tools`, `reset and reset-harness`, `lock-run`). Test-ов вне этих `describe` в файле нет. Причина
+  пропуска — в комментарии в начале файла.
+- **Проверки на Windows-ПК, Git Bash** (`command -v bash` → `/usr/bin/bash`, не WSL), ветка после
+  rebase на main `0aa5fc05`:
+  - `node scripts/vitest-electron.mjs test/contract/e3-sandbox.test.ts` — exit 0, 57 skipped из 57;
+    список папок `worfy-e3-sandbox-test-*` до и после одинаковый (68 и 68).
+  - До правки, на main: 39 failed, 18 passed из 57.
+  - `pnpm lint`, `pnpm typecheck` — exit 0.
+- **На macOS** прогон не меняется: `NOT_ON_WINDOWS` там `false`. Проверяет Session на Mac.
+- **В этом PR же** — Ticket 51 отмечен done (PR #389) и его «Итог» дописан пунктом Merge, по
+  просьбе Session на Mac.
