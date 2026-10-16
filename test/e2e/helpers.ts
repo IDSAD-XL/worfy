@@ -555,8 +555,34 @@ async function setMachinesSwitch(launched: Pick<LaunchedApp, 'app' | 'window'>, 
   await closeSettings(launched.window)
 }
 
-/** Sets "Linked machines can work with my Projects" of this worfy, in Settings → Machines. */
-export const setProjectsAccess = (launched: Pick<LaunchedApp, 'app' | 'window'>, on: boolean): Promise<void> => setMachinesSwitch(launched, PROJECTS_ACCESS_LABEL, on)
+/**
+ * Sets "Linked machines can work with my Projects" of this worfy, in Settings → Machines. On also
+ * gives every Machine linked now full access (worfy-link ticket 18: each Linked machine has its own
+ * level, and a new one starts at Off), so "on" means what the one switch meant before; off leaves
+ * the levels as they are.
+ */
+export async function setProjectsAccess(launched: Pick<LaunchedApp, 'app' | 'window'>, on: boolean): Promise<void> {
+  if (!on) return setMachinesSwitch(launched, PROJECTS_ACCESS_LABEL, false)
+  await setMachinesSwitch(launched, PROJECTS_ACCESS_LABEL, true)
+  const dialog = await openMachinesSettings(launched)
+  const levels = dialog.locator('[data-testid^="link-machine-access-"]')
+  for (const level of await levels.all()) await chooseLevel(launched.window, level, 'all')
+  await closeSettings(launched.window)
+}
+
+/** The labels of the levels of a Linked machine in Settings → Machines, by value. */
+export const ACCESS_LEVEL_LABELS = { off: 'Off', read: 'Read only', all: 'Full access' } as const
+
+/** Chooses `value` in the level field `level` of Settings → Machines, the way a person does. */
+export async function chooseLevel(window: Page, level: Locator, value: keyof typeof ACCESS_LEVEL_LABELS): Promise<void> {
+  await expect(level).toBeEnabled()
+  if ((await level.getAttribute('data-value')) === value) return
+  await level.click()
+  await window.locator(`[role="option"][data-value="${value}"]`).click()
+  // Main answers with the new state: the field shows the level once main has it.
+  await expect(level).toHaveAttribute('data-value', value)
+  await expect(level).toContainText(ACCESS_LEVEL_LABELS[value])
+}
 
 /** Sets "Keep this computer awake while linked machines are connected" of this worfy, in Settings → Machines. */
 export const setKeepAwake = (launched: Pick<LaunchedApp, 'app' | 'window'>, on: boolean): Promise<void> => setMachinesSwitch(launched, KEEP_AWAKE_LABEL, on)
