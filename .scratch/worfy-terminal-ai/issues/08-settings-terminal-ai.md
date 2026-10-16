@@ -166,7 +166,7 @@ Playwright, `dialog.screenshot()` на собранном приложении �
   rebase — exit 0, 10 passed. Test-ы окна Settings (`settings.spec.ts`, `settings-health.spec.ts`,
   `test/unit/settings-dialog.test.tsx`) зелёные без правок.
 
-### Решено без владельца, подтвердить
+### Решено без владельца, подтверждено владельцем 2026-10-16
 
 1. Тексты подсказок (английский UI): «Claude suggests commands and never runs them. Works in zsh
    Terminals.», «Grey text after the cursor, from your command history.», «Claude continues the line after
@@ -198,3 +198,5 @@ Playwright, `dialog.screenshot()` на собранном приложении �
 - Мерж: база main `5a1f520`, head `3ad4633`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `975de42`.
 - Ручной пункт «Готово, когда» возвращён в `[ ]` (Noted, [low]): `WORFY_AGENT=fake pnpm dev` не запускался, сняты только снимки Playwright-ом на собранном приложении с временным `HOME` — вид в живом окне и ⌘, смотрит владелец.
 - Вне Ticket-а: при выключенном «Terminal AI» раздел выше окна Settings, строка Fix видна после прокрутки (`src/renderer/settings/settings.css:15` — высота 520 px, `:41` — тело прокручивается); у неактивного `SettingSwitch` признак — только прозрачность (`settings.css:145`), в этом разделе его возмещает текст строки.
+
+Решение владельца 2026-10-16: все пункты «Решено без владельца» этого Ticket-а приняты пакетом.

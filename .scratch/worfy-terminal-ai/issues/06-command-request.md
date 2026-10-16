@@ -120,7 +120,7 @@ Ticket-а 11 `worfy-ui`, если они к claim влиты.
 проверка взята из `metaKey`: ⌘I без Ctrl и Alt (и без Shift), подпись «⌘I» — текстом. Так решил
 orchestrator в brief-е: Terminal AI сейчас только для zsh, Ctrl-ветка не нужна, а `isPrimary` на
 Windows отдал бы Ctrl+I (это Tab оболочки). Текст Ticket-а («если `platform.ts` уже на main — из
-него») этим не выполнен — **решено без владельца, подтвердить.** `src/shared/shortcuts.ts` на main
+него») этим не выполнен — **решено без владельца, подтверждено владельцем 2026-10-16.** `src/shared/shortcuts.ts` на main
 нет — записи ⌘I в реестре нет, её внесёт тот, кто вливается последним (пункт 3 «Что делаем»).
 
 **Как сделано.**
@@ -149,7 +149,7 @@ Windows отдал бы Ctrl+I (это Tab оболочки). Текст Ticket-
   размера). Панель теперь висит от якоря нулевой высоты между шапкой и экраном, `.w-terminal` не
   тронут.
 
-**Решено без владельца, подтвердить:**
+**Решено без владельца, подтверждено владельцем 2026-10-16:**
 
 1. Проверка ⌘ — `metaKey`, не `platform.ts` (см. выше).
 2. Панель отправляет контекст без текущей строки shell-а: main не может прочитать `BUFFER` zsh. Строка
@@ -194,10 +194,12 @@ orchestrator-ом.
 
 ### Gate оркестратора (2026-10-14)
 
-- Wave Epic-а под Autopilot; 06 роздан после мержа 04 и шёл параллельно с 05. Решения Orchestrator-а: проверка ⌘I — голый `metaKey` без Ctrl, Alt и Shift, не `isPrimary`/`isMac()` из `src/renderer/platform.ts` (`isPrimary` на Windows — Ctrl, а Ctrl+I в терминале — Tab; ветка `isMac()` сделала бы PR платформенным, ADR-0056, пункт 2) — расходится с текстом Ticket-а, **решено без владельца, подтвердить**; `src/main/terminal-ai/shell-link.ts` в этой Wave правил только этот Ticket; записи ⌘I в `src/shared/shortcuts.ts` нет — файла на main нет (Ticket 11 `worfy-ui` не влит).
+- Wave Epic-а под Autopilot; 06 роздан после мержа 04 и шёл параллельно с 05. Решения Orchestrator-а: проверка ⌘I — голый `metaKey` без Ctrl, Alt и Shift, не `isPrimary`/`isMac()` из `src/renderer/platform.ts` (`isPrimary` на Windows — Ctrl, а Ctrl+I в терминале — Tab; ветка `isMac()` сделала бы PR платформенным, ADR-0056, пункт 2) — расходится с текстом Ticket-а, **решено без владельца, подтверждено владельцем 2026-10-16**; `src/main/terminal-ai/shell-link.ts` в этой Wave правил только этот Ticket; записи ⌘I в `src/shared/shortcuts.ts` нет — файла на main нет (Ticket 11 `worfy-ui` не влит).
 - Гейт — один круг: `VERIFIED` на `75a2fcc` ([комментарий в PR #314](https://github.com/IDSAD-XL/worfy/pull/314#issuecomment-6163535632)). Verifier сам: gate fast из кэша, поэтому `pnpm lint`, `pnpm typecheck`, `pnpm test` отдельно — код 0; свой contract-файл дважды — 26 из 26; unit панели — код 0; contract-test-ы Ticket-ов 03 и 04 без правок — код 0; e2e `terminal-ai-request`, `terminal`, `focus` под замком — 14 passed; 11 мутантов — все красные; на настоящем zsh запрос не отменяют изменение размера pty, конец фоновой задачи, `zle -R` от main, часы в prompt-е, чужой async-обработчик, а ← отменяет; повторный `source` оставляет одну обёртку; выбрасывается только `insert` сразу за пустым `status` закрытого запроса; веток по платформе нет; снимки в обеих темах (панель, отказ по Limits, «Terminal is busy»).
 - Мерж: база main `1f479d9` (с Ticket-ом 05 — скрипты 05 и 06 впервые вместе), head `17d6a0b`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `fcaa18e`.
 - На решение владельца (Consider, [low]):
   - панель ⌘I не отправляет модели текущую строку shell-а (`src/main/ipc/terminal-ai-request.ts:120` передаёт пустую строку), хотя Ticket (пункт 5) и spec её требуют: main видит строку только в `ask`; исправить можно расширением протокола Ticket-а 03 или чтением буфера xterm в renderer;
   - при выключенном Command request строка `# слова` + Enter — обычный `accept-line` (`40-command-request.zsh:32-34`): zsh может написать «command not found: #», слова попадают в историю; Ticket ждал серое «Terminal AI is off»; так сохраняются обычные строки-комментарии;
   - открытая панель закрывает первую строку Terminal-а (`TerminalNode.css:113`): в «Terminal is busy» не видно, какая команда идёт.
+
+Решение владельца 2026-10-16: все пункты «Решено без владельца» этого Ticket-а приняты пакетом.
