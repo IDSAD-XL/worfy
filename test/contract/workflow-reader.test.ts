@@ -14,6 +14,7 @@ import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } f
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
+import { NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 
 /**
@@ -29,14 +30,12 @@ const ownEnv = (): Promise<NodeJS.ProcessEnv> => Promise.resolve(process.env)
  * The stand-ins of the Harness scripts are files in test/fixtures, the same in every test; a test
  * only links them into its temporary homes. macOS checks every new executable file on its first run,
  * one at a time for the whole machine, and a new script per test made the tests of a loaded full
- * run time out at 15 s (worfy-polish ticket 30).
+ * run time out at 15 s (worfy-polish ticket 30). They are Node scripts: worfy runs them as
+ * `node <script>` with the node on the PATH of the environment it is handed (test/harness-node.ts).
  */
 const FIXTURES = join(__dirname, '..', 'fixtures')
 const WORKFLOW_STUB = join(FIXTURES, 'workflow-stub')
 const CANNED = join(FIXTURES, 'harness-stub', 'canned')
-// workflow-stub/epic-status runs epic-status.mjs with this test's Node.
-process.env.WORKFLOW_STUB_NODE = process.execPath
-process.env.WORKFLOW_STUB_JS = join(WORKFLOW_STUB, 'epic-status.mjs')
 
 /** Links `target` at `path`, replacing whatever link was there. */
 function link(target: string, path: string): void {
@@ -90,6 +89,27 @@ function makePluginHome(dir: string): { home: string; harnessHome: string; log: 
 }
 
 const calls = (log: string): string[] => readFileSync(log, 'utf8').split('\n').filter(Boolean)
+
+/** An empty folder of this test: a PATH of it has no node. */
+function emptyDir(): string {
+  const path = join(dir, 'no-node-here')
+  mkdirSync(path, { recursive: true })
+  return path
+}
+
+/**
+ * Takes node off this process's own PATH, as worfy started from Finder has it; gives back the undo.
+ * Every spelling of the key goes: on Windows `Path` and `PATH` are one variable.
+ */
+function withoutNodeHere(): () => void {
+  const saved = Object.entries(process.env).filter(([key]) => key.toUpperCase() === 'PATH')
+  for (const [key] of saved) delete process.env[key]
+  process.env.PATH = emptyDir()
+  return () => {
+    delete process.env.PATH
+    for (const [key, value] of saved) process.env[key] = value
+  }
+}
 
 // ── temporary repository ─────────────────────────────────────────────────────
 
@@ -350,6 +370,35 @@ describe('workflow reader', () => {
     const legacy = join(dir, 'no-such-home', 'bin', 'epic-status')
     const plugin = join(dir, 'no-such-home', 'worfy-harness', 'plugin', 'bin', 'epic-status')
     expect(model.error).toEqual({ code: 'not-found', message: `epic-status not found: ${legacy} or ${plugin}` })
+    // A missing script is said before a missing node: neither file is there to run.
+    const bare = await readCheckout(repo, epicStatusRunner(join(dir, 'no-such-home'), () => Promise.resolve(withPath(process.env, [emptyDir()]))))
+    expect(bare.error).toEqual({ code: 'not-found', message: `epic-status not found: ${legacy} or ${plugin}` })
+  })
+
+  // worfy-windows ticket 05: the script runs as `node <script>`, node from the environment handed to the runner.
+  it("reads the Epics with node only on the PATH of the runner's environment, none on worfy's own", async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const scriptsEnv = withPath(process.env, [NODE_DIR])
+    const restore = withoutNodeHere()
+    try {
+      const model = await readCheckout(repo, epicStatusRunner(home, () => Promise.resolve(scriptsEnv)))
+      expect(model.error).toBeNull()
+      expect(model.epics.map((epic) => epic.epic)).toEqual(['demo'])
+      expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
+    } finally {
+      restore()
+    }
+  })
+
+  it('says node is not on the PATH, not that epic-status is missing, when the environment has no node', async () => {
+    const repo = makeRepo(dir)
+    const { home, log } = makeClaudeHome(dir)
+    const model = await readCheckout(repo, epicStatusRunner(home, () => Promise.resolve(withPath(process.env, [emptyDir()]))))
+    expect(model.error?.code).toBe('not-found')
+    expect(model.error?.message).toBe(`node not found in PATH: epic-status is not run (${join(home, 'bin', 'epic-status')})`)
+    // Nothing was started.
+    expect(calls(log)).toEqual([])
   })
 
   it('runs epic-status of the Harness plugin when only the plugin is there, with HARNESS_HOME in its environment (worfy-harness ticket 12)', async () => {
