@@ -10,7 +10,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { fingerprintOf, generateCertificate } from '../../src/main/link/identity'
 import { CONNECT_PATH, LINK_PROTOCOL_VERSION, PAIR_PATH } from '../../src/main/link/messages'
-import { PAIRING_CLOSE_FAILED, PAIRING_CODE_TTL_MS, PAIRING_FAILED, PAIRING_MAX_FAILURES, SPAKE2_M, SPAKE2_N, spake2Finish, spake2Share } from '../../src/main/link/pairing'
+import {
+  PAIRING_CLOSE_FAILED,
+  PAIRING_CODE_TTL_MS,
+  PAIRING_FAILED,
+  PAIRING_MAX_FAILURES,
+  PairingWindow,
+  SPAKE2_M,
+  SPAKE2_N,
+  spake2Finish,
+  spake2Share,
+} from '../../src/main/link/pairing'
 import { tokenHash } from '../../src/main/link/store'
 import { LinkBench, type BenchMachine } from './link-bench'
 
@@ -488,6 +498,92 @@ describe('a machine in the middle', () => {
     } finally {
       proxy.close()
     }
+  })
+})
+
+describe('a pairing connection that never sends its first message', () => {
+  it(`counts as a failure when the step times out, keeps the code, and ${PAIRING_MAX_FAILURES} in a row close "Link a machine"`, async () => {
+    // A short step timeout instead of the real 15 s: the connection sends nothing, so nothing races it.
+    await bench.close()
+    bench = new LinkBench({ pairingStepTimeoutMs: 100 })
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    const code = await bench.codeOf(b)
+    const port = bench.portOf(b)
+    const failures = (): number => (b.service as unknown as { pairingWindow: { failures: number } }).pairingWindow.failures
+    for (let attempt = 1; attempt <= PAIRING_MAX_FAILURES; attempt++) {
+      const held = await openLinkSocket({ host: '127.0.0.1', port, path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+      const closed = new Promise<void>((resolve) => held.ws.once('close', () => resolve()))
+      // B ends the silent attempt itself, after the step timeout.
+      await closed
+      await expect.poll(() => b.pairingFailures.length).toBeGreaterThanOrEqual(attempt)
+      if (attempt < PAIRING_MAX_FAILURES) {
+        expect(failures()).toBe(attempt)
+        // Nobody saw the code: B still shows the same one.
+        expect(b.service.pairingCode()?.code).toBe(code)
+      }
+    }
+    await expect.poll(() => b.service.pairingCode()).toBeNull()
+    expect(b.pairingFailures.at(-1)).toMatch(/too many failed pairing attempts/)
+    await b.service.settled()
+    expect(b.service.status().listening).toBe(false)
+  })
+})
+
+describe('PairingWindow', () => {
+  const openWindow = (): { win: PairingWindow; changes: () => number } => {
+    let changes = 0
+    const win = new PairingWindow(() => 0, PAIRING_CODE_TTL_MS, () => (changes += 1))
+    win.open()
+    return { win, changes: () => changes }
+  }
+
+  it(`closes after ${PAIRING_MAX_FAILURES} attempts in a row that timed out before the first message, like ${PAIRING_MAX_FAILURES} wrong codes`, () => {
+    const silent = openWindow()
+    const code = silent.win.code()?.code
+    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
+      expect(silent.win.begin()).toBeNull()
+      expect(silent.win.end(false, true)).toBe('open')
+      expect(silent.win.code()?.code).toBe(code)
+    }
+    expect(silent.win.begin()).toBeNull()
+    expect(silent.win.end(false, true)).toBe('closed')
+    expect(silent.win.isOpen).toBe(false)
+    // Only the opening and the closing changed the code shown: no attempt replaced it.
+    expect(silent.changes()).toBe(2)
+
+    const wrong = openWindow()
+    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
+      expect(wrong.win.begin()).toBeNull()
+      wrong.win.take()
+      expect(wrong.win.end(false)).toBe('open')
+    }
+    expect(wrong.win.begin()).toBeNull()
+    wrong.win.take()
+    expect(wrong.win.end(false)).toBe('closed')
+  })
+
+  it('does not count an attempt that ended before the first message without a timeout', () => {
+    const { win } = openWindow()
+    const code = win.code()?.code
+    for (let attempt = 1; attempt <= PAIRING_MAX_FAILURES; attempt++) {
+      expect(win.begin()).toBeNull()
+      expect(win.end(false)).toBe('open')
+    }
+    expect(win.code()?.code).toBe(code)
+  })
+
+  it('counts a timeout after the code was taken once, and replaces the code', () => {
+    const { win } = openWindow()
+    const code = win.code()?.code
+    for (let attempt = 1; attempt < PAIRING_MAX_FAILURES; attempt++) {
+      expect(win.begin()).toBeNull()
+      win.take()
+      expect(win.end(false, true)).toBe('open')
+    }
+    expect(win.code()?.code).not.toBe(code)
+    expect(win.begin()).toBeNull()
+    expect(win.end(false, true)).toBe('closed')
   })
 })
 
