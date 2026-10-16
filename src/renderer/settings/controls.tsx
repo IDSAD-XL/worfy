@@ -10,13 +10,15 @@ export interface SettingRowProps {
   description?: ReactNode
   /** The control at the right: a slider, a SettingSwitch, a Select, a value. */
   children: ReactNode
+  /** The control is disabled: the label and the hint are dimmed with it. */
+  disabled?: boolean
   testId?: string
 }
 
 /** One setting: the label and its hint on the left, the control on the right. */
-export function SettingRow({ label, description, children, testId }: SettingRowProps) {
+export function SettingRow({ label, description, children, disabled = false, testId }: SettingRowProps) {
   return (
-    <div className="w-setting-row" data-testid={testId}>
+    <div className="w-setting-row" data-testid={testId} data-disabled={disabled ? '' : undefined}>
       <div className="w-setting-row__text">
         <div className="w-setting-row__label">{label}</div>
         {description !== undefined ? <div className="w-setting-row__description">{description}</div> : null}

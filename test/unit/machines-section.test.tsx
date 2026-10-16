@@ -354,6 +354,26 @@ describe('Settings → Machines', () => {
     expect(main.calls).toStrictEqual([])
   })
 
+  // The row of a disabled switch is drawn dimmed (settings.css, `.w-setting-row[data-disabled]`): an
+  // "off" that cannot be switched must not look like an "off" that can.
+  it('the row of the disabled keep-awake switch is marked disabled, the access row is not; access on — neither', async () => {
+    const linked = [machine(MINI, 'Mini')]
+    await mountSettings(linkState(1, { linked, projectsAccess: false }))
+    const keepAwakeRow = () => screen.getByTestId('settings-machines-keep-awake-row')
+    const accessRow = () => screen.getByTestId('settings-machines-access-row')
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(true)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(false)
+
+    act(() => main.linkChanged(linkState(2, { linked, projectsAccess: true })))
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(false)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(false)
+
+    // Without this Machine both rows are disabled.
+    act(() => main.linkChanged(linkState(3, { machine: null, problem: 'the link service stopped' })))
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(true)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(true)
+  })
+
   it('access switched on: keep-awake works again and shows the value kept in main; switched off: kept, not reset', async () => {
     const linked = [machine(MINI, 'Mini')]
     await mountSettings(linkState(1, { linked, projectsAccess: false, keepAwake: true }))

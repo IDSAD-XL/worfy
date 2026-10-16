@@ -43,10 +43,10 @@ export default function MachinesSection() {
 
   return (
     <>
-      <SettingRow label={ACCESS_LABEL} description={ACCESS_HINT} testId="settings-machines-access-row">
+      <SettingRow label={ACCESS_LABEL} description={ACCESS_HINT} disabled={noMachine} testId="settings-machines-access-row">
         <SettingSwitch label={ACCESS_LABEL} testId="link-access-switch" checked={access} disabled={noMachine} onChange={(on) => run(setProjectsAccess(on))} />
       </SettingRow>
-      <SettingRow label={KEEP_AWAKE_LABEL} testId="settings-machines-keep-awake-row">
+      <SettingRow label={KEEP_AWAKE_LABEL} disabled={keepAwakeIdle} testId="settings-machines-keep-awake-row">
         <SettingSwitch
           label={KEEP_AWAKE_LABEL}
           testId="link-keep-awake-switch"

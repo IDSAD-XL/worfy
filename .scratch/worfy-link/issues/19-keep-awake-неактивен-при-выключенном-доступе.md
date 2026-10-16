@@ -62,7 +62,9 @@ Source: решение владельца 2026-10-12 («изменить») по
   (PR #296) они в окне Settings → Machines, а не в боковой панели
   (`src/renderer/shell/sidebar/MachinesSection.tsx` переключателей больше не содержит).
 - `src/renderer/settings/controls.tsx` — `SettingSwitch` без `title`: подсказка о причине неактивного
-  переключателя требует этого свойства.
+  переключателя требует этого свойства; `SettingRow` получает `disabled` (приглушённая строка).
+- `src/renderer/settings/settings.css` — заметный вид неактивной строки и неактивного выключенного
+  переключателя (круг доработки PR #397).
 - `test/unit/machines-section.test.tsx` — test секции (завёл `worfy-ui` 05).
 - `test/e2e/linked-sleep.spec.ts` и `test/e2e/linked-machines.spec.ts` — оба включают или проверяют
   «Keep awake» на свежей Machine с выключенным доступом.
@@ -101,7 +103,8 @@ Source: решение владельца 2026-10-12 («изменить») по
   включение доступа там не помогло бы, неактивен и сам переключатель доступа.
 - `SettingSwitch` (`src/renderer/settings/controls.tsx`) получил необязательное свойство `title`:
   без него подсказку некуда поставить.
-- **Пункт «Нет Linked machines: оба неактивны, как раньше» — посылка неточна.** Ни раньше, ни теперь
+- **Пункт «Нет Linked machines: оба неактивны, как раньше» — посылка неточна; прочтение «как
+  раньше = без этой Machine» решено без владельца, подтвердить.** Ни раньше, ни теперь
   переключатели не зависят от числа Linked machines: `noMachine` — это «нет этой Machine»
   (`state.machine == null`, link service не запущен). Так и осталось: без этой Machine оба неактивны
   (test «without this Machine both switches are disabled…»). Доступ нужно уметь включить до первой
@@ -126,14 +129,36 @@ Source: решение владельца 2026-10-12 («изменить») по
   неактивный keep-awake с `title`, строку-подсказку и активный keep-awake после включения доступа;
   `linked-sleep.spec.ts` перед выключением keep-awake сначала включает доступ.
 
-**Снимки** (Playwright, свежая Machine, окно Settings → Machines):
+**Круг доработки PR #397** (verifier: неактивный keep-awake на снимках не отличался от активного
+выключенного переключателя доступа — был только `opacity: 0.5`).
+
+- Неактивность теперь видна в обеих темах. `SettingRow` получил `disabled` и ставит `data-disabled`.
+  Подпись и подсказка такой строки — цветом `--text-muted` (`settings.css`). Неактивный выключенный
+  переключатель рисуется пунктирной рамкой без заливки дорожки, бегунок — плоский, цвета
+  `--border-strong`, без тени, при полной непрозрачности: при `opacity: 0.5` пунктир в тёмной теме
+  почти пропадал. Неактивный включённый переключатель (бывает только у доступа без этой Machine)
+  остаётся прежним — `opacity: 0.5`.
+- `cursor: not-allowed` не добавлен: в renderer его нет нигде, все элементы управления используют
+  `cursor: default`, как в macOS.
+- Test-ы: unit «the row of the disabled keep-awake switch is marked disabled…» — `data-disabled` у строки
+  keep-awake при выключенном доступе, нет — при включённом, у обеих строк — без этой Machine. Мутанты на
+  копиях, восстановлены с `cmp`: убрать `disabled` у строки keep-awake в `MachinesSection.tsx` — 1 красный
+  из 20; убрать `data-disabled` в `SettingRow` — 1 красный из 20. e2e на свежей Machine сравнивает
+  вычисленный стиль: у keep-awake рамка `dashed`, у доступа `solid`, цвет подписей разный. Мутант без
+  нового CSS-правила — этот e2e красный («Expected: "dashed", Received: "solid"»).
+- `linked-sleep.spec.ts`: после перезапуска проверяется `toBeEnabled()` до `aria-checked=false`.
+- `linked-machines.spec.ts`: «щелчок по тексту подписи ничего не переключает» — теперь по подписи
+  доступа (он активен), не по подписи неактивного keep-awake.
+- e2e обоих spec-ов: 11 из 11 зелёные, снимки пересняты.
+
+**Снимки** (Playwright, свежая Machine, окно Settings → Machines; пересняты в круге доработки):
 
 - [доступ выключен, светлая](../evidence/19-access-off-light.png),
   [тёмная](../evidence/19-access-off-dark.png): под «Linked machines can work with my Projects» —
-  вторичным текстом «Work already started from a Linked machine keeps running»; оба переключателя в
-  положении «выключено», keep-awake чуть бледнее (стиль `:disabled`). Разница с активным выключенным
-  переключателем доступа на снимке едва заметна — это существующий стиль `.w-setting-switch:disabled`,
-  Ticket его не менял.
+  вторичным текстом «Work already started from a Linked machine keeps running». Доступ: обычный
+  выключенный переключатель — залитая серая дорожка, белый (в тёмной — тёмный) бегунок с тенью, подпись
+  основным цветом. Keep-awake: подпись заметно светлее (в тёмной — темнее) подписи доступа,
+  переключатель — пунктирный контур без заливки с плоским серым бегунком. Разница видна в обеих темах.
 - [доступ включён, светлая](../evidence/19-access-on-light.png),
   [тёмная](../evidence/19-access-on-dark.png): оба переключателя включены (синие в светлой теме,
   салатовые в тёмной), строка-подсказка на месте.

@@ -112,6 +112,9 @@ test('the keep-awake switch is on on a fresh Machine and stays off across a rest
       await machineIdOf(second.window)
       const toggle = (await openMachinesSettings(second)).getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
       await expect(toggle).toBeVisible()
+      // Enabled: access stayed on across the restart, so "off" is the kept value, not the look of a
+      // switch disabled while access is off.
+      await expect(toggle).toBeEnabled()
       await expect(toggle).toHaveAttribute('aria-checked', 'false')
     } finally {
       await second.close()
