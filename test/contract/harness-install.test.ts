@@ -1027,6 +1027,8 @@ describe('a .mjs Claude Code (WORFY_CLAUDE in tests)', () => {
   it('runs under worfy\'s own Node on every system: ELECTRON_RUN_AS_NODE reaches it, and Electron starts no second app', async () => {
     // sb.env has no ELECTRON_RUN_AS_NODE, so only the installer can have set it. Without it Electron
     // would still run the script, as the main script of a second app (process.type "browser").
+    // `pnpm test` runs vitest in Electron (scripts/vitest-electron.mjs), so process.execPath, the
+    // file the stub starts from, is Electron there; under plain Node the `type` check cannot fail.
     const runtime = join(sb.root, 'stub', 'runtime.jsonl')
     const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { claude: join(sb.root, 'stub', 'claude-stub.mjs'), env: { ...sb.env, STUB_CLAUDE_RUNTIME: runtime } }).install(yes)
     expect(result.status.state).toMatchObject({ kind: 'installed', version: V1 })
