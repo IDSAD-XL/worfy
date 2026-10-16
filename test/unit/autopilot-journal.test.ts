@@ -220,13 +220,27 @@ describe('parseJournal', () => {
       expect(journalReason('rm -rf C:/Users/Ann/x', 'C:\\Users\\Ann\\')).toBe('rm -rf ~/x')
     })
 
-    it('replaces only at a path start: the start, after a space, a quote, =, : or (', () => {
-      expect(journalReason('/mnt/Users/ann/x and x/Users/ann', '/Users/ann')).toBe('/mnt/Users/ann/x and x/Users/ann')
+    it.each([',', '[', ';', '>', '"', "'", '`', '(', '=', ':', ' ', '\n', '|', '{', '<', '*'])('replaces the home after %j: punctuation is not part of a path', (before) => {
+      expect(journalReason(`rm${before}/Users/ann/x`, '/Users/ann')).toBe(`rm${before}~/x`)
+      expect(journalReason(`rm${before}c:/users/ann/x`, windows)).toBe(`rm${before}~/x`)
+    })
+
+    it('replaces the home at the start of the text', () => {
       expect(journalReason('/Users/ann/x', '/Users/ann')).toBe('~/x')
-      expect(journalReason('TARGET=/Users/ann/x', '/Users/ann')).toBe('TARGET=~/x')
-      expect(journalReason('target:/Users/ann/x', '/Users/ann')).toBe('target:~/x')
-      expect(journalReason('rm ("/Users/ann/x") or \'/Users/ann/y\' or `/Users/ann/z`', '/Users/ann')).toBe('rm ("~/x") or \'~/y\' or `~/z`')
-      expect(journalReason('rm (/Users/ann/x)', '/Users/ann')).toBe('rm (~/x)')
+      expect(journalReason('/c/Users/Ann/x', windows)).toBe('~/x')
+    })
+
+    it.each(['x', 'Z', '7', 'я', '.', '_', '-'])('keeps a path that goes on from a path name: after %j', (before) => {
+      expect(journalReason(`rm ${before}/Users/ann/x`, '/Users/ann')).toBe(`rm ${before}/Users/ann/x`)
+      expect(journalReason(`rm ${before}C:\\Users\\Ann\\x`, windows)).toBe(`rm ${before}C:\\Users\\Ann\\x`)
+    })
+
+    it('keeps /mnt/Users/ann: the home in the middle of another path, after a name or a separator', () => {
+      expect(journalReason('/mnt/Users/ann/x and x/Users/ann', '/Users/ann')).toBe('/mnt/Users/ann/x and x/Users/ann')
+      expect(journalReason('rm /mnt//Users/ann/x and x\\/Users/ann', '/Users/ann')).toBe('rm /mnt//Users/ann/x and x\\/Users/ann')
+      expect(journalReason('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann', windows)).toBe('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann')
+      // A doubled separator at a path start is the same path: the run of separators is the home's own.
+      expect(journalReason('rm //Users/ann/x', '/Users/ann')).toBe('rm ~/x')
     })
 
     it('keeps a folder whose name only goes on from the home\'s', () => {
