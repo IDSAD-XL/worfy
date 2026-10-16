@@ -331,6 +331,33 @@ last_line="$(printf '%s\n' "$ORDER" | grep -v '^$' | tail -n 1)"
 # The script the text names is in harness/bin.
 [ -x "$AGENTS/../bin/shortcut-ledger" ] && ok "implementer: bin/shortcut-ledger exists" || bad "implementer: bin/shortcut-ledger is missing"
 
+# --- 11. implementer: only its own e2e files (ticket worfy-throughput/03) -----------------------
+# Step 5 of section Order has a paragraph of its own on e2e tests, and the whole paragraph hangs on
+# the condition: a project whose profile has no `commands.e2e` gets no e2e rule. The implementer
+# runs the e2e files its ticket touches; the full suite is the orchestrator's gate full before the
+# merge; repeats and CPU load only on the ticket's demand; the lock comes from the profile's rules.
+STEP5="$(printf '%s\n' "$ORDER" | awk '/^5\. /{s=1} /^6\. /{exit} s')"
+E2E="$(printf '%s\n' "$STEP5" | awk 'BEGIN { RS = "" } /only[ \n]+the[ \n]+e2e[ \n]+files[ \n]+the[ \n]+ticket[ \n]+touches/ { print; exit }')"
+if [ -z "$E2E" ]; then
+    bad "implementer, step 5: no paragraph with 'only the e2e files the ticket touches'"
+else
+    ok "implementer, step 5: a paragraph of its own on e2e files"
+    E2E_FLAT="$(printf '%s\n' "$E2E" | tr '\n' ' ' | tr -s ' ' | sed -E 's/^ +//')"
+    case "$E2E_FLAT" in
+        'E2e tests, if the profile sets `commands.e2e`: '*) ok "implementer, step 5: the e2e paragraph opens with 'if the profile sets \`commands.e2e\`'" ;;
+        *) bad "implementer, step 5: the e2e paragraph does not open with its condition: [$E2E_FLAT]" ;;
+    esac
+    e2e() { if in_text "$E2E" "$2"; then ok "implementer, step 5, e2e: $1"; else bad "implementer, step 5, e2e: $1 — no '$2'"; fi; }
+    e2e "only the files the ticket adds, changes or names in its tests, with the exit code" \
+        'run only the e2e files the ticket touches — the ones it adds or changes and the ones its tests section names — with `<commands.e2e> <files>; echo "EXIT=$?"`.'
+    e2e "the whole suite is the orchestrator's gate full before the merge" \
+        'The whole e2e suite is not yours to run: the orchestrator runs it in `gate full` before the merge.'
+    e2e "repeats and CPU load only when the ticket asks" \
+        'Repeats (`--repeat-each`) and CPU load — only when the ticket'"'"'s list of what "done" means asks for them.'
+    e2e "the lock as the profile's rules say" 'The e2e lock, if the project has one, is described in the profile'"'"'s `rules.md`.'
+    e2e "no commands.e2e, no rule" 'A profile without `commands.e2e` has no rule here.'
+fi
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'
