@@ -22,6 +22,11 @@
 // to the new Session. Stop in Autopilot (worfy-week ticket 17, ADR-0050) gives the Orchestrator back
 // at once instead (giveBackNow): its halted Session's process closes, and with it every background
 // task and the turn the interrupt did not end.
+//
+// Every relaunch (worfy-week ticket 20, ADR-0064) starts the new Claude Code process only once the
+// old one has exited (Session.exited: SIGKILL past the limit), so two processes never continue one
+// SDK session. The new Session is live at once, `starting`, and holds what is sent to it meanwhile;
+// setUnattended and giveBackNow answer once its process has started.
 import type { AgentEvent } from '../../shared/agent/events'
 import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shared/agent/settings'
 import { findStatusBlock } from '../../shared/agent/status-block'
@@ -37,7 +42,7 @@ import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout
 import { placeNewNode } from '../layout/place'
 import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
-import type { EventSink, Session, SessionRegistry } from './session'
+import { EXIT_WAIT_MS, type EventSink, type Session, type SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
 
 /**
@@ -111,6 +116,11 @@ export interface OrchestratorDeps {
    * the turn the task-notification starts (default RETURN_GRACE_MS).
    */
   returnGraceMs?: number
+  /**
+   * How long a relaunch waits for the old Session's Claude Code process to exit before it sends
+   * SIGKILL (default EXIT_WAIT_MS, Session.exited).
+   */
+  exitWaitMs?: number
 }
 
 /** After the last background task of a Session waiting to be given back ended: the wait for its task-notification turn. */
@@ -222,8 +232,9 @@ export class Orchestrators {
    * attended again, continuing the same SDK session. Going unattended opens the Orchestrator first
    * and is refused while a turn runs — also an unattended turn left over from a stopped run — and
    * while messages wait in the queue. Going back to attended while a turn runs waits for the turn's
-   * end; the queue goes over to the attended Session. Answers the view; for an Orchestrator that is
-   * not open, going attended does nothing.
+   * end; the queue goes over to the attended Session. Answers the view, after a relaunch once the new
+   * Session's process has started (ADR-0064); for an Orchestrator that is not open, going attended
+   * does nothing.
    */
   async setUnattended(projectId: string, unattended: boolean): Promise<OrchestratorView | null> {
     if (!unattended) {
@@ -236,7 +247,7 @@ export class Orchestrators {
       } else if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) {
         entry.wanted = ATTENDED
       } else {
-        this.relaunch(entry, ATTENDED)
+        await this.relaunch(entry, ATTENDED)
       }
       return this.views.get(entry.nodeId) ?? null
     }
@@ -249,7 +260,9 @@ export class Orchestrators {
     if (liveTasksOf(entry) > 0 || entry.wanted !== null) throw new Error(ORCHESTRATOR_HAS_TASKS)
     if ((entry.run?.session?.queued().items.length ?? 0) > 0) throw new Error(ORCHESTRATOR_HAS_QUEUE)
     entry.wanted = null
-    if (!entry.launch.unattended) this.relaunch(entry, { unattended: true })
+    if (!entry.launch.unattended) await this.relaunch(entry, { unattended: true })
+    // The Project may have left the list while the old process was waited for.
+    if (this.entries.get(projectId) !== entry || entry.cancelled) throw new Error(`the Orchestrator of ${projectId} was stopped`)
     const view = this.views.get(entry.nodeId)
     if (view === undefined) throw new Error(`the Orchestrator of ${projectId} has no view`)
     return view
@@ -259,14 +272,15 @@ export class Orchestrators {
    * Stop in Autopilot (worfy-week ticket 17, ADR-0050): starts the Orchestrator's Session again
    * attended at once, without waiting for a turn or background tasks — the Session has been halted
    * (Session.halt), and closing its process ends whatever outlived the interrupt. The queue goes
-   * over held, as Session.halt left it. Answers the view; null for an Orchestrator that is not open.
+   * over held, as Session.halt left it. Answers the view once the new Session's process has started,
+   * after the old one exited (ADR-0064); null for an Orchestrator that is not open.
    */
   async giveBackNow(projectId: string): Promise<OrchestratorView | null> {
     const entry = this.entries.get(projectId)
     if (entry === undefined) return null
     await entry.ready
     if (this.entries.get(projectId) !== entry || entry.cancelled) return null
-    if (entry.launch.unattended) this.relaunch(entry, ATTENDED)
+    if (entry.launch.unattended) await this.relaunch(entry, ATTENDED)
     else entry.wanted = null
     return this.views.get(entry.nodeId) ?? null
   }
@@ -347,7 +361,8 @@ export class Orchestrators {
     this.launch(entry, resume, facts)
   }
 
-  private launch(entry: Entry, resume: string | undefined, facts: TranscriptFacts): void {
+  /** Starts the Orchestrator's Session; with `after`, its Claude Code process waits for `after` (relaunch). */
+  private launch(entry: Entry, resume: string | undefined, facts: TranscriptFacts, after?: Promise<void>): void {
     const run: Run = { current: true, resume, initSeen: false, session: null }
     entry.run = run
     // The view goes first: the registry reports `starting` before start() returns.
@@ -362,7 +377,9 @@ export class Orchestrators {
       statusBlock: facts.statusBlock,
     })
     try {
-      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, entry.launch)
+      // Marked as the Orchestrator for its autocompact window; the launch kept in the entry stays as it is.
+      const launch = { ...entry.launch, orchestrator: true }
+      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, launch, after)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
       run.current = false
@@ -451,28 +468,36 @@ export class Orchestrators {
   /**
    * Starts the Orchestrator's Session again with `launch`, continuing the saved SDK session. What
    * waits in the old Session's queue goes over to the new one, held as it was. The old Session's
-   * error is not carried: the new Session starts a new Claude Code process.
+   * error is not carried: the new Session starts a new Claude Code process — once the old one has
+   * exited (ADR-0064). The new Session is live at once and holds what is sent to it until then; a
+   * second relaunch meanwhile closes it before it started, so it waits for the same old process.
+   * Settles once the new process has started (or the new Session was closed first); never rejects.
    */
-  private relaunch(entry: Entry, launch: SessionLaunch): void {
+  private relaunch(entry: Entry, launch: SessionLaunch): Promise<void> {
     entry.wanted = null
     entry.launch = launch
     const old = entry.run
     const queue = old?.session?.handOverQueue() ?? { items: [], paused: false }
+    let oldExit: Promise<void> | undefined
     if (old) {
       old.current = false
       old.session?.close()
+      oldExit = old.session?.exited(this.deps.exitWaitMs ?? EXIT_WAIT_MS)
     }
     // A new Claude Code process reports its cost from zero.
     entry.cost.processEnded()
     const view = this.current(entry)
-    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock })
+    this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock }, oldExit)
     const next = entry.run
-    if (queue.items.length === 0 || next === null || next === old || next.session === null) return
-    try {
-      next.session.adoptQueue(queue)
-    } catch (error) {
-      console.warn(`[orchestrator] could not carry the queue of ${entry.projectId} over`, error)
+    if (next === null || next === old || next.session === null) return oldExit ?? Promise.resolve()
+    if (queue.items.length > 0) {
+      try {
+        next.session.adoptQueue(queue)
+      } catch (error) {
+        console.warn(`[orchestrator] could not carry the queue of ${entry.projectId} over`, error)
+      }
     }
+    return next.session.started()
   }
 
   /**
@@ -488,7 +513,7 @@ export class Orchestrators {
     const wanted = entry.wanted
     if (wanted === null || entry.run !== run || !run.current || entry.cancelled) return
     if (inTurn(this.current(entry).state) || liveTasksOf(entry) > 0) return
-    this.relaunch(entry, wanted)
+    void this.relaunch(entry, wanted)
   }
 
   private relaunchAfterGrace(entry: Entry, run: Run): void {

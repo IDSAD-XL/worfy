@@ -1,9 +1,8 @@
 import type { CSSProperties } from 'react'
 import type { LimitBar, LimitLevel } from '../../shared/agent/limits'
 
-// One Limits window drawn as a bar: the toolbar (src/renderer/shell/toolbar/LimitsMeter.tsx) and
-// the Session rail (src/renderer/session/rail/LimitsRail.tsx) both use it, so it lives here and
-// neither extension depends on the other.
+// One Limits window drawn as a bar in the toolbar (src/renderer/shell/toolbar/LimitsMeter.tsx).
+// The Limits are shown only there: the Session view's rail no longer repeats them.
 
 const FILL: Record<LimitLevel, string> = {
   normal: 'var(--text-secondary)',
@@ -12,8 +11,6 @@ const FILL: Record<LimitLevel, string> = {
 }
 
 const mono: CSSProperties = { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }
-
-export type LimitBarVariant = 'toolbar' | 'rail'
 
 /** The share as a bar; an empty track when the source gave no share. */
 function Meter({ bar, height }: { bar: LimitBar; height: number }) {
@@ -27,32 +24,10 @@ function Meter({ bar, height }: { bar: LimitBar; height: number }) {
 }
 
 /** One window: label, share (or status in words), bar, reset time and, when old, "as of". */
-export function LimitBarView({ bar, variant }: { bar: LimitBar; variant: LimitBarVariant }) {
+export function LimitBarView({ bar }: { bar: LimitBar }) {
   const valueColor = bar.level === 'blocked' ? 'var(--blocked-text)' : 'var(--text)'
   const note = [bar.resets, bar.asOf].filter((part) => part !== null).join(' · ')
   const common = { 'data-testid': `limit-${bar.window}`, 'data-level': bar.level }
-
-  if (variant === 'rail') {
-    return (
-      <div {...common}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, fontSize: 'var(--text-12)' }}>
-          <span style={{ color: 'var(--text-secondary)' }}>{bar.label}</span>
-          <span style={{ flex: 1 }} />
-          <span style={{ ...mono, fontWeight: 600, color: valueColor }} data-testid={`limit-${bar.window}-value`}>
-            {bar.value}
-          </span>
-          {note && (
-            <span style={{ ...mono, fontSize: 'var(--text-11)', color: 'var(--text-muted)' }} data-testid={`limit-${bar.window}-note`}>
-              · {note}
-            </span>
-          )}
-        </div>
-        <div style={{ marginTop: 6 }}>
-          <Meter bar={bar} height={6} />
-        </div>
-      </div>
-    )
-  }
 
   // The toolbar gives a bar 104 px (F-SPEC): the reset time and "as of" go on a line each, the
   // word in the UI font and the time in mono as in the F mockup, and the full note is the tooltip.

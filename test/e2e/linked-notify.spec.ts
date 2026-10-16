@@ -7,6 +7,10 @@
 // No system notification is shown: Notification.prototype.show in each main is replaced so that it
 // only records the instance, and the click is that instance's `click` event (src/main/notify.ts
 // listens to it with `on`). The windows lose focus by BrowserWindow.blur().
+//
+// Both worfy start without quiet windows (WORFY_QUIET_WINDOWS=0; src/main/quiet-windows.ts): in
+// quiet mode main shows no system notification at all, so no Notification would reach the recorder
+// and the spec would have nothing to check. This spec does take the focus of the Mac for a moment.
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -17,6 +21,8 @@ import { canvasReady, launchApp, linkThroughUi, machineIdOf, setProjectsAccess, 
 
 test.setTimeout(180_000)
 
+/** Turns quiet windows off for both worfy (see the top of the file). */
+const NORMAL_WINDOWS = { WORFY_QUIET_WINDOWS: '0' }
 const ALPHA = 'alpha-0000000a'
 const GAMMA = 'gamma-0000000b'
 /** What the fake agent answers every turn of test/fixtures/agent-scripts/turn.jsonl. */
@@ -85,10 +91,10 @@ test('a turn of a Session of A ends with no window focused: A and B record the n
   const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-13-notify-')))
   const aData = dataFolder(join(scratch, 'a-data'), { id: ALPHA, name: 'alpha', path: gitRepo(join(scratch, 'alpha')) })
   const bData = dataFolder(join(scratch, 'b-data'), { id: GAMMA, name: 'gamma', path: gitRepo(join(scratch, 'gamma')) })
-  const a = await launchApp({ env: { WORFY_DATA_DIR: aData } })
+  const a = await launchApp({ env: { WORFY_DATA_DIR: aData, ...NORMAL_WINDOWS } })
   let b: LaunchedApp | undefined
   try {
-    const onB = await launchApp({ env: { WORFY_DATA_DIR: bData } })
+    const onB = await launchApp({ env: { WORFY_DATA_DIR: bData, ...NORMAL_WINDOWS } })
     b = onB
     await canvasReady(a, { size: SIZE })
     await canvasReady(onB, { size: SIZE })

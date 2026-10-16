@@ -6,8 +6,8 @@
 //   export default function Binding(props: RailBlockProps) { … }   // null when it has nothing to show
 //
 // This file finds them itself (import.meta.glob), so adding a block never edits it or
-// SessionView.tsx. Tickets 15 (subagent tree), 16 (binding) and 22 (limits) add theirs; until
-// then the rail is empty and the Session view does not draw it.
+// SessionView.tsx. The blocks are the Binding and the Subagent tree; the Limits are not one of
+// them, they live in the toolbar only.
 import type { ComponentType } from 'react'
 import { collectExtensions } from '../../shell/registry'
 

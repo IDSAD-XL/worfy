@@ -1,0 +1,7 @@
+#!/bin/sh
+# The old Harness's epic-status taken away while it runs, as the move to the plugin takes it away
+# (test/contract/harness-script-wiring.test.ts): logs what it got to $CALLS, removes the link it was
+# started by, and fails.
+echo "$(basename "$0") MARK=${MARK-unset} WORFY_WIRING_LEAK=${WORFY_WIRING_LEAK-unset} HARNESS_HOME=${HARNESS_HOME-unset}" >> "$CALLS"
+rm -f "$0"
+exit 1

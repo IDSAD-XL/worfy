@@ -30,6 +30,21 @@ vi.mock('electron', () => {
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
 const { NOTIFY_INTERVAL_MS, Notifier, electronNotifyDeps, installNotifications, openNote } = await import('../../src/main/notify')
+const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
+const { app: electronApp } = await import('electron')
+
+/** Runs `body` with WORFY_QUIET_WINDOWS set to `value` (unset for undefined), then puts it back. */
+function withQuietWindows(value: string | undefined, body: () => void): void {
+  const before = process.env.WORFY_QUIET_WINDOWS
+  if (value === undefined) delete process.env.WORFY_QUIET_WINDOWS
+  else process.env.WORFY_QUIET_WINDOWS = value
+  try {
+    body()
+  } finally {
+    if (before === undefined) delete process.env.WORFY_QUIET_WINDOWS
+    else process.env.WORFY_QUIET_WINDOWS = before
+  }
+}
 const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
 type Note = Parameters<ConstructorParameters<typeof Notifier>[0]['show']>[0]
 
@@ -276,21 +291,37 @@ describe('the Machine of a Project and its Linked machines (worfy-link ticket 13
 describe('Electron notifications', () => {
   it('shows an Electron Notification only when no window has focus', () => {
     electron.shown.length = 0
-    const stop = installNotifications(
-      {
-        observe: (listener) => {
-          listener('s1', result())
-          electron.focused = {}
-          listener('s2', result())
-          electron.focused = null
-          return () => undefined
+    withQuietWindows(undefined, () => {
+      const stop = installNotifications(
+        {
+          observe: (listener) => {
+            listener('s1', result())
+            electron.focused = {}
+            listener('s2', result())
+            electron.focused = null
+            return () => undefined
+          },
         },
-      },
-      new Set(),
-    )
-    expect(electron.shown).toEqual([{ title: 'Session', body: 'All tests pass.' }])
-    stop()
+        new Set(),
+      )
+      expect(electron.shown).toEqual([{ title: 'Session', body: 'All tests pass.' }])
+      stop()
+    })
     expect(electronNotifyDeps.focused()).toBe(false)
+  })
+
+  it('with quiet windows (WORFY_QUIET_WINDOWS=1, e2e tests) shows no system notification, though no window has focus', () => {
+    electron.shown.length = 0
+    electron.focused = null
+    withQuietWindows('1', () => {
+      electronNotifyDeps.show({ title: 'alpha', body: 'Done', sessionId: 's1', projectRoot: null }, () => undefined)
+    })
+    expect(electron.shown).toEqual([])
+    // Any other value is the normal start: the notification shows.
+    withQuietWindows('0', () => {
+      electronNotifyDeps.show({ title: 'alpha', body: 'Done', sessionId: 's1', projectRoot: null }, () => undefined)
+    })
+    expect(electron.shown).toEqual([{ title: 'alpha', body: 'Done' }])
   })
 
   it('feeds the registry watchers’ live Sessions to the notifier until stopped', () => {
@@ -348,6 +379,7 @@ function fakeWindow(id: number, { loading = false, minimized = false, onSend = (
     isMinimized: () => minimized,
     restore: () => calls.push('restore'),
     show: () => calls.push('show'),
+    showInactive: () => calls.push('showInactive'),
     focus: () => calls.push('focus'),
     webContents: {
       id,
@@ -373,12 +405,35 @@ describe('a click on a notification', () => {
     const open = fakeWindow(1, { minimized: true })
     electron.windows = [open.window]
     const create = vi.fn()
-    openNote(note, pending, create)
+    vi.mocked(electronApp.focus).mockClear()
+    openNote(note, pending, create, NORMAL_WINDOWS)
     expect(create).not.toHaveBeenCalled()
     expect(open.calls).toEqual(['restore', 'show', 'focus'])
+    expect(electronApp.focus).toHaveBeenCalledWith({ steal: true })
     // The signal carries no Session: the overlay takes the note from main.
     expect(open.sent).toEqual([SIGNAL])
     expect(pending.take(1)).toEqual({ sessionId: 's1', projectRoot: null })
+    electron.windows = []
+  })
+
+  it('with quiet windows (e2e tests) shows the window inactive and takes no focus, and still hands it the note', () => {
+    const pending = new PendingOpens()
+    const open = fakeWindow(6, { minimized: true })
+    electron.windows = [open.window]
+    vi.mocked(electronApp.focus).mockClear()
+    openNote(note, pending, vi.fn() as never, quietWindows({ WORFY_QUIET_WINDOWS: '1' }, 'darwin'))
+    expect(open.calls).toEqual(['restore', 'showInactive'])
+    expect(electronApp.focus).not.toHaveBeenCalled()
+    expect(open.sent).toEqual([SIGNAL])
+    expect(pending.take(6)).toEqual({ sessionId: 's1', projectRoot: null })
+    electron.windows = []
+  })
+
+  it('reads quiet windows from WORFY_QUIET_WINDOWS by default', () => {
+    const open = fakeWindow(7)
+    electron.windows = [open.window]
+    withQuietWindows('1', () => openNote(note, new PendingOpens(), vi.fn() as never))
+    expect(open.calls).toEqual(['showInactive'])
     electron.windows = []
   })
 

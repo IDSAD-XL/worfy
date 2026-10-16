@@ -36,6 +36,13 @@
 // running turn is interrupted and waited for, HALT_TURN_MS at most. From then on the Session sends
 // nothing more into its process: what a person queues stays held, for the Session that replaces it.
 //
+// A Session knows when its Claude Code process has exited (worfy-week ticket 20, ADR-0064): the
+// query factory tells it of each process it starts (QueryRequest.spawned), and exited() settles once
+// none is left, killing with SIGKILL one that outlives EXIT_WAIT_MS. A Session may also be started
+// with its process held back until a promise settles (start(after)): the Orchestrator's relaunch
+// starts the new process only once the old one is gone, so two processes never write one transcript.
+// Until then the Session is `starting`, and what is sent to it waits in its queue.
+//
 // A Session runs on sonnet or a larger model, never on haiku (worfy-daily ticket 07,
 // isSelectableModel): the model list leaves haiku out, a saved haiku goes back to the default model,
 // and when the default model would be a haiku from the user's settings.json (user-model.ts) the
@@ -77,7 +84,7 @@ import {
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
 import { userContent } from './attachments'
 import { CommandCatalog, type CommandInfoLike } from './commands'
-import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler } from './permissions'
+import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type RefusalDetails } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
@@ -95,6 +102,18 @@ export interface ModelInfoLike {
   displayName?: string | undefined
   supportsEffort?: boolean | undefined
   supportedEffortLevels?: readonly string[] | undefined
+}
+
+/**
+ * A Claude Code process as far as a Session watches it: Node's ChildProcess has all of it. A process
+ * without a pid never started (spawn failed) and is not waited for.
+ */
+export interface ClaudeCodeProcess {
+  readonly pid?: number | undefined
+  readonly exitCode: number | null
+  readonly signalCode: NodeJS.Signals | null
+  kill(signal: NodeJS.Signals): boolean
+  once(event: 'exit', listener: () => void): unknown
 }
 
 /** The part of the SDK's Query a Session uses; fake-query.ts implements it too. */
@@ -135,6 +154,18 @@ export interface QueryRequest {
   canUseTool: CanUseToolHandler
   /** No person is at the Session (session-settings.ts): Claude Code must run in bypassPermissions. A Session always sets it. */
   unattended?: boolean | undefined
+  /**
+   * Told of each Claude Code process the query starts (app-registry.ts, through the SDK's
+   * spawnClaudeCodeProcess), so the Session can wait for its exit. A Session always sets it; a
+   * factory with no process of its own (the fake agent) never calls it.
+   */
+  spawned?: ((process: ClaudeCodeProcess) => void) | undefined
+  /**
+   * The Session is a Project's Orchestrator, Autopilot's included (SessionLaunch.orchestrator): its
+   * Claude Code gets the Orchestrator's autocompact window, any other Session the other one
+   * (app-registry.ts). A Session always sets it.
+   */
+  orchestrator?: boolean | undefined
 }
 
 /** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */
@@ -234,6 +265,40 @@ const STDERR_KEEP = 20
  */
 export const HALT_TURN_MS = 15_000
 
+/**
+ * How long exited() waits for a Claude Code process after the Session closed it, before it sends
+ * SIGKILL (ADR-0064). The SDK's close() ends stdin, sends SIGTERM 2 s later and SIGKILL 5 s after
+ * that (SDK 0.3.289): worfy's own SIGKILL comes after the SDK's, so the graceful path is not cut
+ * short, and ends a process the SDK's did not.
+ */
+export const EXIT_WAIT_MS = 7_500
+
+/** After SIGKILL: how long exited() still waits for the exit before it gives up on the process. */
+export const KILL_EXIT_MS = 2_000
+
+/** Whether a process has exited: by itself (an exit code) or by a signal. */
+const hasExited = (child: ClaudeCodeProcess): boolean => child.exitCode !== null || child.signalCode !== null
+
+/** Settles once `process` has exited; at once for one that already has. */
+const exitOf = (child: ClaudeCodeProcess): Promise<void> =>
+  new Promise((done) => {
+    if (hasExited(child)) done()
+    else child.once('exit', () => done())
+  })
+
+/** Settles with true once `work` settles, or with false after `ms`, whichever comes first. */
+async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const limit = new Promise<boolean>((done) => {
+    timer = setTimeout(() => done(false), ms)
+  })
+  try {
+    return await Promise.race([work.then(() => true), limit])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Whether a Session state is a running turn. */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
@@ -290,6 +355,14 @@ export class Session {
   private taskFold: TaskFold = emptyTaskFold()
   /** Claude Code processes started for this Session without an SDK session to resume. */
   private processes = 0
+  /** Claude Code processes of this Session that have not exited yet (ADR-0064). */
+  private readonly alive = new Set<ClaudeCodeProcess>()
+  /** Starts of Claude Code whose factory has not answered yet: a process may still come of them. */
+  private readonly pendingStarts = new Set<Promise<unknown>>()
+  /** Set while start(after) holds the process back: what is sent waits in the queue. */
+  private heldBack = false
+  /** Settles once the Session has started its process, or closed before it could (start()). */
+  private launched: Promise<void> = Promise.resolve()
   private liveTaskList: BackgroundTask[] = []
   /** The context usage last sent; null: none, or the last ask failed. */
   private contextValue: ContextUsage | null = null
@@ -324,7 +397,7 @@ export class Session {
     // lets the Orchestrator save the corrected picks.
     this.settingsValue = withSelectableModel(launchSettings(settings, launch))
     this.canUseTool = launch.unattended
-      ? unattendedCanUseTool((toolName, message) => this.refuseDialog('permission_request', toolName, message))
+      ? unattendedCanUseTool((toolName, message, details) => this.refuseDialog('permission_request', toolName, message, details))
       : this.permissions.canUseTool
   }
 
@@ -336,11 +409,11 @@ export class Session {
   /**
    * Tells the subscribers that this Session refused something that would have waited for a person
    * (a permission request, a Card's `session.ask`), and logs it: the record a check of an
-   * unattended run reads.
+   * unattended run reads. `details`: the Subagent that asked and Claude Code's reason, when given.
    */
-  refuseDialog(dialog: 'permission_request' | 'card_ask', subject: string, message: string): void {
+  refuseDialog(dialog: 'permission_request' | 'card_ask', subject: string, message: string, details: RefusalDetails = {}): void {
     console.warn(`[agent] unattended Session ${this.current} refused a ${dialog} (${subject})`)
-    this.emit({ type: 'refused_dialog', dialog, subject, message })
+    this.emit({ type: 'refused_dialog', dialog, subject, message, ...details })
   }
 
   get id(): string {
@@ -376,11 +449,59 @@ export class Session {
     return { settings: this.settings, queue: this.queue.snapshot() }
   }
 
-  /** Starts Claude Code; the Session is `starting` until accountInfo() answers. */
-  start(): void {
+  /**
+   * Starts Claude Code; the Session is `starting` until accountInfo() answers. With `after`, the
+   * process starts only once `after` settles (Orchestrators.relaunch: the old process has exited);
+   * meanwhile messages wait in the queue, and a Session closed before then starts no process.
+   */
+  start(after?: Promise<void>): void {
     this.emit({ type: 'state', state: 'starting', error: null })
     this.emit({ type: 'settings', settings: this.settings })
-    this.begin()
+    if (after === undefined) {
+      this.begin()
+      return
+    }
+    this.heldBack = true
+    this.launched = after
+      .catch((error: unknown) => console.warn(`[agent] waiting to start ${this.current} failed; starting now`, error))
+      .then(() => {
+        this.heldBack = false
+        // Messages that came meanwhile wait in the queue: they go once the process is idle, as at any start.
+        if (!this.closing) this.begin()
+      })
+  }
+
+  /** Settles once the Session has started its Claude Code process, or was closed before it did. */
+  started(): Promise<void> {
+    return this.launched
+  }
+
+  /**
+   * Settles once every Claude Code process of this Session has exited — for a closed Session, the
+   * moment its SDK session may be resumed by another process (ADR-0064). A process still held back
+   * (start(after)) is waited for first, then a start still in progress. A process alive `killAfterMs`
+   * after that gets SIGKILL and is waited for KILL_EXIT_MS more; one that outlives even that is left
+   * with a warning, so the caller is never held for good. Never rejects. Meant for a closed Session.
+   */
+  async exited(killAfterMs = EXIT_WAIT_MS): Promise<void> {
+    await this.launched
+    const deadline = Date.now() + killAfterMs
+    const left = (): number => Math.max(0, deadline - Date.now())
+    await within(Promise.allSettled([...this.pendingStarts]), left())
+    await within(Promise.all([...this.alive].map(exitOf)), left())
+    const survivors = [...this.alive]
+    if (survivors.length === 0) return
+    for (const child of survivors) {
+      console.warn(`[agent] Claude Code ${child.pid ?? ''} of ${this.current} did not exit ${killAfterMs} ms after the close; sending SIGKILL`)
+      try {
+        child.kill('SIGKILL')
+      } catch (error) {
+        console.warn(`[agent] could not kill Claude Code ${child.pid ?? ''} of ${this.current}`, error)
+      }
+    }
+    if (!(await within(Promise.all(survivors.map(exitOf)), KILL_EXIT_MS))) {
+      console.warn(`[agent] Claude Code of ${this.current} did not exit after SIGKILL; going on without it`)
+    }
   }
 
   /**
@@ -396,7 +517,7 @@ export class Session {
       this.queue.pause()
       return 'queued'
     }
-    if (this.stateValue === 'busy' || this.stateValue === 'needs_permission') {
+    if (this.stateValue === 'busy' || this.stateValue === 'needs_permission' || this.heldBack) {
       this.queue.add(text, attachments)
       return 'queued'
     }
@@ -600,8 +721,17 @@ export class Session {
       settings: this.querySettings(settings),
       canUseTool: this.canUseTool,
       unattended: this.launch.unattended,
+      spawned: (child) => this.watch(child),
+      orchestrator: this.launch.orchestrator === true,
     }
     void this.consume(run, request)
+  }
+
+  /** Keeps a started Claude Code process until it exits, for exited(). */
+  private watch(child: ClaudeCodeProcess): void {
+    if (child.pid === undefined || hasExited(child)) return
+    this.alive.add(child)
+    child.once('exit', () => this.alive.delete(child))
   }
 
   /**
@@ -677,7 +807,13 @@ export class Session {
   private async consume(run: Run, request: QueryRequest): Promise<void> {
     const isCurrent = () => this.run === run && !this.closing
     try {
-      const query = await this.factory(request)
+      const starting = this.factory(request)
+      this.pendingStarts.add(starting)
+      const forget = (): boolean => this.pendingStarts.delete(starting)
+      // Beside the await, not chained into it: the query is taken as soon as before (an Interrupt
+      // right after the send finds it).
+      starting.then(forget, forget)
+      const query = await starting
       if (!isCurrent()) {
         query.close()
         return
@@ -879,9 +1015,10 @@ export class SessionRegistry {
    * (isMainOnlyEvent) left out: those go to the observers alone. Resuming an SDK
    * session that a live Session already runs is refused: two Claude Code processes would write
    * one transcript, and both Sessions would send events under one id. `launch` is attended unless
-   * Autopilot starts the Session unattended (session-settings.ts).
+   * Autopilot starts the Session unattended (session-settings.ts). With `after`, the Session is live
+   * at once but starts its Claude Code process only once `after` settles (Session.start).
    */
-  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch): Session {
+  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>): Session {
     if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
       throw new Error(`Session ${resume} is already live`)
     }
@@ -912,7 +1049,7 @@ export class SessionRegistry {
       this.userEffort,
     )
     this.sessions.set(session.id, session)
-    session.start()
+    session.start(after)
     return session
   }
 

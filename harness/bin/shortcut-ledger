@@ -1,0 +1,192 @@
+#!/usr/bin/env node
+// shortcut-ledger — lists the `shortcut:` comments of a git work tree, one row per comment.
+//
+//   shortcut-ledger [<dir>]
+//
+// A `shortcut:` comment marks code that is simpler than it could be on purpose. Its form is
+// `shortcut: <limit>, <when to redo>`: what the simple code does not handle, then the condition
+// under which it has to be replaced. The list keeps such decisions from turning permanent unseen.
+//
+// What is read: the files git lists under <dir> (default: the current directory) — tracked files
+// and new files that .gitignore does not exclude; a file with a NUL byte is binary and skipped.
+// A comment counts when its text starts with `shortcut:`; the comment starts with `//`, `/*`, `#`
+// or `<!--` outside a quoted string, or it is a line inside a `/* … */` block. The file's extension
+// narrows the markers: a JavaScript, TypeScript, C-family or CSS file has no `#` comments, and a
+// shell, Python, Ruby or YAML file has no `//` ones. Text inside quotes ('…', "…", `…`) and the body
+// of a shell heredoc is not a comment: that is how a test keeps a sample comment in a string
+// without putting it into the list.
+//
+// Output, one row per comment, in the order of the paths; the path is relative to <dir>, with `/`:
+//
+//   <path>:<line>, <limit>, <when to redo>
+//   <path>:<line>, <text>, no-trigger
+//
+// The comment is cut at its first comma: the part before it is the limit, the rest the condition.
+// A comment with no comma or nothing after it names no condition and gets `no-trigger`; such a
+// comment decides nothing, and nobody will know when to redo the code under it. An empty text is
+// printed as `-`. The last line, on stderr, counts the rows: `<N> shortcut comments, <M> no-trigger`.
+//
+// Exit codes: 0 — the list is printed (an empty one too); 1 — git cannot list the files (git is
+// missing, <dir> is not inside a git work tree); 2 — usage error.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+
+const USAGE = `usage: shortcut-ledger [<dir>]
+  prints "<path>:<line>, <limit>, <when to redo>" for every shortcut: comment of the git work tree
+  under <dir> (default: the current directory); a comment with no condition ends in ", no-trigger"
+exit: 0 listed, 1 git cannot list the files, 2 usage error`
+
+const MARKER = "shortcut:"
+const SHELL_FILE = /\.(sh|bash|zsh)$/
+const SHELL_SHEBANG = /^#!.*\b(ba|z)?sh\b/
+// Languages whose comments start with `//` or `/*` only: `#` there is code (a private field, a CSS id).
+const SLASH_ONLY = /\.(c|cc|cpp|cs|css|cts|cjs|dart|go|h|hpp|java|js|jsx|kt|less|mjs|mts|rs|scala|scss|swift|ts|tsx)$/
+// Languages whose comments start with `#` only: `//` there is code (Python's floor division, a URL).
+const HASH_ONLY = /\.(bash|pl|py|r|rb|sh|toml|yaml|yml|zsh)$/
+// `<<WORD`, `<<-WORD`, `<<'WORD'`, `<<"WORD"`; not the here-string `<<<`.
+const HEREDOC = /(?<!<)<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/
+
+// The text after the `shortcut:` marker, or null when the comment is not a shortcut comment.
+// `/// shortcut:` and ` * shortcut:` count as well: the marker characters before it are dropped.
+const shortcutText = (comment) => {
+    const text = comment.replace(/^[\s/#*!]*/, "")
+    return text.startsWith(MARKER) ? text.slice(MARKER.length).trim() : null
+}
+
+// The text of a comment that `close` ends on this line, and whether the line leaves it open.
+const until = (rest, close) => {
+    const end = rest.indexOf(close)
+    return end < 0 ? { text: rest, open: true } : { text: rest.slice(0, end), open: false }
+}
+
+const QUOTES = ["'", '"', "`"]
+
+// shortcut: strings are tracked within one line and in shell heredocs only, redo when a multi-line string such as a JS template literal puts a false row into the ledger
+// The line with every character inside quotes turned into a space, the quotes themselves kept: a
+// marker found in it at some position is a marker of the code there, not of a string.
+const blankQuoted = (line) => {
+    let out = ""
+    let quote = null
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i]
+        if (quote && c === "\\" && i + 1 < line.length) {
+            out += "  "
+            i++
+        } else if (quote) {
+            out += c === quote ? c : " "
+            if (c === quote) quote = null
+        } else {
+            if (QUOTES.includes(c)) quote = c
+            out += c
+        }
+    }
+    return out
+}
+
+// The first comment of a line outside quotes: its text, where it starts, and whether it opens a
+// `/*` block that the line does not close. `#` starts a comment only at the start of a word, as in
+// a shell, so `${#list}` and a URL's `#anchor` are code. `lang` says which markers the file has:
+// `slash` — `//` and `/*`, `hash` — `#`, `any` — all of them and `<!--`.
+const commentOf = (line, code, lang) => {
+    const slash = lang !== "hash"
+    const hash = lang !== "slash"
+    for (let i = 0; i < code.length; i++) {
+        if (slash && code.startsWith("//", i)) return { at: i, text: line.slice(i + 2), opensBlock: false }
+        if (slash && code.startsWith("/*", i)) {
+            const { text, open } = until(line.slice(i + 2), "*/")
+            return { at: i, text, opensBlock: open }
+        }
+        if (lang === "any" && code.startsWith("<!--", i)) return { at: i, text: until(line.slice(i + 4), "-->").text, opensBlock: false }
+        if (hash && code[i] === "#" && (i === 0 || /\s/.test(code[i - 1]))) return { at: i, text: line.slice(i + 1), opensBlock: false }
+    }
+    return null
+}
+
+// The rows of one file: [line number, text after the marker].
+const scan = (name, content) => {
+    const lines = content.split("\n").map((l) => l.replace(/\r$/, ""))
+    const shell = SHELL_FILE.test(name) || SHELL_SHEBANG.test(lines[0] ?? "")
+    const lang = shell || HASH_ONLY.test(name) ? "hash" : SLASH_ONLY.test(name) ? "slash" : "any"
+    const found = []
+    let inBlock = false
+    let heredoc = null // { word, tabs }
+    lines.forEach((line, index) => {
+        if (heredoc) {
+            if ((heredoc.tabs ? line.replace(/^\t+/, "") : line) === heredoc.word) heredoc = null
+            return
+        }
+        let comment = null
+        if (inBlock) {
+            const { text, open } = until(line, "*/")
+            comment = { text }
+            inBlock = open
+        } else {
+            const code = blankQuoted(line)
+            comment = commentOf(line, code, lang)
+            inBlock = Boolean(comment?.opensBlock)
+            if (shell) {
+                // The operator itself must be code; its word may be quoted (`<<'EOF'`).
+                const start = HEREDOC.exec(comment ? line.slice(0, comment.at) : line)
+                if (start && code.startsWith("<<", start.index)) heredoc = { word: start[3], tabs: start[1] === "-" }
+            }
+        }
+        const text = comment ? shortcutText(comment.text) : null
+        if (text !== null) found.push([index + 1, text])
+    })
+    return found
+}
+
+// One row of the list; `noTrigger` — the comment names no condition.
+const row = (file, [line, text]) => {
+    const comma = text.indexOf(",")
+    const limit = comma < 0 ? text : text.slice(0, comma).trim()
+    const when = comma < 0 ? "" : text.slice(comma + 1).trim()
+    return when
+        ? { text: `${file}:${line}, ${limit}, ${when}`, noTrigger: false }
+        : { text: `${file}:${line}, ${limit || "-"}, no-trigger`, noTrigger: true }
+}
+
+// Returns the exit code; the process ends on its own, so a piped stdout is not cut short.
+const main = (argv) => {
+    if (argv.length === 1 && (argv[0] === "-h" || argv[0] === "--help")) {
+        process.stdout.write(USAGE + "\n")
+        return 0
+    }
+    if (argv.length > 1 || argv[0] === "") {
+        process.stderr.write(USAGE + "\n")
+        return 2
+    }
+    const dir = path.resolve(argv[0] ?? ".")
+    const git = spawnSync("git", ["-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+    })
+    if (git.error || git.status !== 0) {
+        const why = git.error ? git.error.message : git.stderr.trim()
+        process.stderr.write(`shortcut-ledger: git cannot list the files of ${dir}: ${why}\n`)
+        return 1
+    }
+    const files = [...new Set(git.stdout.split("\0").filter(Boolean))].sort()
+    const rows = []
+    for (const file of files) {
+        let content
+        try {
+            content = fs.readFileSync(path.join(dir, file))
+        } catch (e) {
+            // A tracked file deleted from the work tree, a submodule: nothing to read.
+            if (e.code !== "ENOENT" && e.code !== "EISDIR") process.stderr.write(`shortcut-ledger: skipped ${file}: ${e.message}\n`)
+            continue
+        }
+        if (content.includes(0)) continue
+        for (const hit of scan(file, content.toString("utf8"))) rows.push(row(file, hit))
+    }
+    if (rows.length) process.stdout.write(rows.map((r) => r.text).join("\n") + "\n")
+    const noTrigger = rows.filter((r) => r.noTrigger).length
+    process.stderr.write(`${rows.length} shortcut comments, ${noTrigger} no-trigger\n`)
+    return 0
+}
+
+process.exitCode = main(process.argv.slice(2))
