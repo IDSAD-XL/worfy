@@ -189,6 +189,42 @@ describe('palette commands', () => {
     expect(ids(context({ model: failed })).filter((id) => id.startsWith('ticket') || id.startsWith('ship') || id.startsWith('run') || id.startsWith('epic'))).toEqual([])
   })
 
+  describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
+    const HINT = 'Mini gives this Machine read-only access'
+    /** The commands that call a `write` channel of the Project's Machine. */
+    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+
+    it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
+      const commands = buildCommands(context({ readOnly: HINT }))
+      expect(commands.filter((command) => command.readOnly !== undefined).map((command) => command.id)).toEqual(WRITES)
+      expect(commands.filter((command) => command.readOnly !== undefined).every((command) => command.readOnly === HINT)).toBe(true)
+      expect(buildCommands(context({ readOnly: null })).filter((command) => command.readOnly !== undefined)).toEqual([])
+      expect(buildCommands(context()).filter((command) => command.readOnly !== undefined)).toEqual([])
+    })
+
+    it('their rows are inactive with the hint, a gated row too, and a click or Enter runs nothing', () => {
+      // A row the hint makes inactive asks main nothing: no gate hook runs, so no main process is needed.
+      const runs: string[] = []
+      const commands = buildCommands(context({ readOnly: HINT }))
+        .filter((command) => command.readOnly !== undefined)
+        .map((command) => ({ ...command, run: () => void runs.push(command.id) }))
+      Element.prototype.scrollIntoView = () => undefined
+      onTestFinished(() => {
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+      })
+      render(<PaletteBody commands={commands} empty="Nothing matches" onClose={() => undefined} />)
+      const rows = screen.getAllByRole('option')
+      expect(rows.map((row) => row.dataset['command']).sort()).toEqual([...WRITES].sort())
+      for (const row of rows) {
+        expect(row.getAttribute('aria-disabled')).toBe('true')
+        expect(row.getAttribute('title')).toBe(HINT)
+        fireEvent.click(row)
+      }
+      fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' })
+      expect(runs).toEqual([])
+    })
+  })
+
   describe('manual checks (Manual check group)', () => {
     const checked = (over: Partial<CommandContext> = {}): CommandContext => {
       const base = context()

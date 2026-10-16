@@ -1,17 +1,16 @@
 // The Canvas of a Linked machine that shares its Projects with this Machine read-only (worfy-link
 // ticket 25, ADR-0066): it can be looked at, panned and zoomed, and nothing on it changes.
 //
-// - Nodes do not move: React Flow's store gets `nodesDraggable: false` while the screen is
-//   read-only. A drag then picks up no Node, so nothing moves and nothing has to jump back; panning
-//   and zooming stay. Canvas.tsx sets no `nodesDraggable` of its own, so React Flow never puts its
-//   prop back over this one.
+// - Nodes do not move: Canvas.tsx gives React Flow `nodesDraggable` from the same level (worfy-link
+//   ticket 26). React Flow 12 draws each Node from that prop, not from its store, so a value written
+//   into the store from here left the Nodes draggable. Panning and zooming stay.
 // - The React Flow root carries READ_ONLY_ATTRIBUTE; projects/read-only.css keys the plain cursor on it.
 // - The notice at the top centre says why, with the same words as every inactive action.
 //
 // The resize handles (NodeResizeClamp.tsx), the Terminal (NodeChrome.tsx) and every operation sent
 // (useLayout.ts sendLayoutOp, history.ts) are stopped where they are made; this overlay is the look.
 import { useEffect, type CSSProperties } from 'react'
-import { Panel, useStore, useStoreApi } from '@xyflow/react'
+import { Panel, useStore } from '@xyflow/react'
 import { useReadOnly } from '../../projects/useProjects'
 
 export const order = 45
@@ -37,19 +36,14 @@ const NOTICE: CSSProperties = {
 
 export default function ReadOnlyCanvas() {
   const hint = useReadOnly()
-  const store = useStoreApi()
   const root = useStore((state) => state.domNode)
   const readOnly = hint !== null
 
   useEffect(() => {
     if (!readOnly) return
-    store.setState({ nodesDraggable: false })
     root?.setAttribute(READ_ONLY_ATTRIBUTE, '')
-    return () => {
-      store.setState({ nodesDraggable: true })
-      root?.removeAttribute(READ_ONLY_ATTRIBUTE)
-    }
-  }, [readOnly, root, store])
+    return () => root?.removeAttribute(READ_ONLY_ATTRIBUTE)
+  }, [readOnly, root])
 
   if (hint === null) return null
   return (

@@ -12,6 +12,9 @@
 // The unchecked "(вручную)" checks of every Ticket (shared/workflow/manual-checks.ts) are rows of
 // their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
+// On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
+// would change the Project — New …, Tidy up, Run wave, Ship ticket — carry the read-only hint and
+// their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
@@ -48,6 +51,8 @@ export interface PaletteCommand extends Rankable {
   gate?: CommandGate | undefined
   /** Shown only for a query: the palette opened with an empty field leaves it out (forQuery). */
   queryOnly?: boolean | undefined
+  /** Set on a read-only screen for a command that would change the Project: the row is inactive with this hint. */
+  readOnly?: string | undefined
 }
 
 /** A "New …" item of the Canvas menu (canvas/overlays/create-items.ts). */
@@ -66,6 +71,8 @@ export interface CommandContext {
   adrs: readonly AdrEntry[]
   tagFilter: TagFilter | null
   createItems: readonly PaletteCreateItem[]
+  /** The read-only hint of the window's screen (useReadOnly); null or absent — the Project can be changed. */
+  readOnly?: string | null | undefined
 }
 
 const nn = (num: number): string => String(num).padStart(2, '0')
@@ -91,15 +98,17 @@ function sessionTitle(node: LayoutNode, history: readonly HistorySession[]): str
   return sessionId === undefined ? 'New session' : `Session ${sessionId.slice(0, 8)}`
 }
 
-function actionCommands({ project, createItems }: CommandContext): PaletteCommand[] {
+function actionCommands({ project, createItems, readOnly }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
+  const hint = readOnly ?? undefined
   const commands: PaletteCommand[] = [
     {
       id: 'new:session',
       group: 'Action',
       title: 'New session',
       detail: "in the Project's root",
+      readOnly: hint,
       // The same call as "New session" in the sidebar (shell/sidebar/SessionsSection.tsx).
       run: async () => {
         const result = await invoke('sessions.new', { projectId })
@@ -115,6 +124,7 @@ function actionCommands({ project, createItems }: CommandContext): PaletteComman
       id: `new:${item.kind}`,
       group: 'Action',
       title: item.label,
+      readOnly: hint,
       run: () => {
         setView('canvas')
         createCanvasNode(projectId, item.kind)
@@ -128,6 +138,7 @@ function actionCommands({ project, createItems }: CommandContext): PaletteComman
     title: 'Tidy up',
     detail: 'lay out the Nodes without overlaps',
     keys: ['tidy', 'arrange', 'layout'],
+    readOnly: hint,
     // The Canvas lays the Nodes out (canvas/tidy.ts) through its LayoutOps: one step of ⌘Z.
     run: () => {
       setView('canvas')
@@ -138,9 +149,10 @@ function actionCommands({ project, createItems }: CommandContext): PaletteComman
   return commands
 }
 
-function workflowActionCommands({ project, model }: CommandContext): PaletteCommand[] {
+function workflowActionCommands({ project, model, readOnly }: CommandContext): PaletteCommand[] {
   if (!project || !model || model.error !== null) return []
   const projectId = project.id
+  const hint = readOnly ?? undefined
   const commands: PaletteCommand[] = []
   for (const epic of model.epics) {
     // Only where the Epic frame has the button (canvas/actions/gates.ts).
@@ -152,6 +164,7 @@ function workflowActionCommands({ project, model }: CommandContext): PaletteComm
       detail: epic.title ?? undefined,
       keys: [`run wave ${epic.epic}`],
       gate: { kind: 'run-wave', projectId, epic: epic.epic, tickets: model.tickets },
+      readOnly: hint,
       run: async () => {
         const result = await invoke('actions.runWave', { projectId, epic: epic.epic })
         return result.ok ? undefined : failureReason('actions.runWave', result.error)
@@ -169,6 +182,7 @@ function workflowActionCommands({ project, model }: CommandContext): PaletteComm
       detail: ticket.title,
       keys: [`ship ${ref}`, `ship ticket ${ref}`],
       gate: { kind: 'ship-ticket', projectId, ticket, tickets: model.tickets },
+      readOnly: hint,
       run: async () => {
         const result = await invoke('actions.shipTicket', { projectId, epic: ticket.epic, num: ticket.num })
         return result.ok ? undefined : failureReason('actions.shipTicket', result.error)

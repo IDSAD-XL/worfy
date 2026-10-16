@@ -6,11 +6,10 @@
 // The window is on Linked machine M (`?machine=` in its address). The read-only level comes the way
 // it comes in the app: `linked.state` from this Machine's main, the Machine's name from `link.state`.
 // Nothing here replaces useReadOnly(): a hook that always answered "full access" turns these red.
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
-import { ReactFlow, ReactFlowProvider, useStoreApi } from '@xyflow/react'
-import { useEffect } from 'react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
+import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LinkState } from '../../src/shared/ipc/link'
@@ -32,6 +31,36 @@ vi.mock('@xyflow/react', async (importOriginal) => {
     NodeResizer: () => {
       resizer.drawn += 1
       return null
+    },
+  }
+})
+
+// The Terminal Node's own component opens the shell (`terminal.open`) when it mounts; a stand-in
+// with the same kind and Canvas menu item counts the mounts instead, so a test sees whether a
+// screen mounted it at all. The registry (nodes/index.ts) finds it as it finds the real one.
+const terminal = vi.hoisted(() => ({ mounted: 0 }))
+vi.mock('../../src/renderer/canvas/nodes/TerminalNode', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/canvas/nodes/TerminalNode')>()
+  return {
+    ...actual,
+    // The registry reads it whether the file declares it or not; a mock throws on an export it lacks.
+    minimapColor: (actual as { minimapColor?: string }).minimapColor,
+    default: () => {
+      terminal.mounted += 1
+      return <div data-testid="terminal-node" />
+    },
+  }
+})
+
+// The Canvas holds a Node that asks to be dragged on its own (a Subagent's) through
+// lockedForReadOnly; the Nodes of a Layout never ask, so the test sees the level the Canvas hands it.
+const locked = vi.hoisted(() => ({ levels: [] as (string | null)[] }))
+vi.mock('../../src/renderer/canvas/read-only-nodes', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/renderer/canvas/read-only-nodes')>()
+  return {
+    lockedForReadOnly: (...args: Parameters<typeof actual.lockedForReadOnly>) => {
+      locked.levels.push(args[1])
+      return actual.lockedForReadOnly(...args)
     },
   }
 })
@@ -122,6 +151,8 @@ async function windowOn(machine: string | null, readOnly: boolean, onM: Record<s
 
 beforeEach(() => {
   resizer.drawn = 0
+  terminal.mounted = 0
+  locked.levels = []
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -260,50 +291,86 @@ describe('what sends stops before the call', () => {
   })
 })
 
-type FlowStore = ReturnType<typeof useStoreApi>
-
-/** Hands React Flow's store to the test. */
-function StoreProbe({ onStore }: { onStore: (store: FlowStore) => void }) {
-  const store = useStoreApi()
-  useEffect(() => {
-    onStore(store)
-  }, [onStore, store])
-  return null
+/**
+ * Gives every element a size, as canvas.test.tsx does: jsdom lays nothing out, and React Flow draws
+ * only the Nodes inside its pane (`onlyRenderVisibleElements`). Returns the function that undoes it.
+ */
+function sizeTheCanvas(): () => void {
+  const restore: (() => void)[] = []
+  for (const [name, value] of [
+    ['offsetWidth', 1200],
+    ['offsetHeight', 800],
+  ] as const) {
+    const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)
+    Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value })
+    restore.push(() => {
+      if (before) Object.defineProperty(HTMLElement.prototype, name, before)
+    })
+  }
+  return () => {
+    for (const undo of restore) undo()
+  }
 }
 
 describe('the Canvas', () => {
-  it('read-only: Nodes do not drag, the root is marked, the notice says why; Full access: as before', async () => {
+  it('read-only: the root is marked and the notice says why; Full access: neither', async () => {
     await windowOn(M, true)
     const { default: ReadOnlyCanvas, READ_ONLY_ATTRIBUTE } = await import('../../src/renderer/canvas/overlays/ReadOnlyCanvas')
-    let seen: FlowStore | undefined
     const view = render(
       <ReactFlowProvider>
         <ReactFlow nodes={[]} edges={[]}>
           <ReadOnlyCanvas />
-          <StoreProbe onStore={(store) => (seen = store)} />
         </ReactFlow>
       </ReactFlowProvider>,
     )
-    await waitFor(() => expect(seen?.getState().nodesDraggable).toBe(false))
+    await waitFor(() => expect(view.container.querySelector('.react-flow')?.hasAttribute(READ_ONLY_ATTRIBUTE)).toBe(true))
     expect(screen.getByTestId('canvas-read-only').textContent).toBe(HINT)
-    expect(view.container.querySelector('.react-flow')?.hasAttribute(READ_ONLY_ATTRIBUTE)).toBe(true)
     view.unmount()
 
     await windowOn(M, false)
     const full = await import('../../src/renderer/canvas/overlays/ReadOnlyCanvas')
-    let fullSeen: FlowStore | undefined
     const fullView = render(
       <ReactFlowProvider>
         <ReactFlow nodes={[]} edges={[]}>
           <full.default />
-          <StoreProbe onStore={(store) => (fullSeen = store)} />
         </ReactFlow>
       </ReactFlowProvider>,
     )
-    await waitFor(() => expect(fullSeen).toBeDefined())
-    expect(fullSeen?.getState().nodesDraggable).toBe(true)
     expect(screen.queryByTestId('canvas-read-only')).toBeNull()
     expect(fullView.container.querySelector('.react-flow')?.hasAttribute(full.READ_ONLY_ATTRIBUTE)).toBe(false)
+  })
+
+  it('read-only: a Node does not drag; once the level changes to Full access it drags again, and stops on the way back', async () => {
+    const restore = sizeTheCanvas()
+    try {
+      const note = { id: 'note-1', kind: 'note', x: 0, y: 0, w: 200, h: 100, hidden: false, locked: false, pinned: false, tags: [], data: { text: 'hi' } }
+      const { projects } = await windowOn(M, true, { 'layout.get': { projectId: PROJECT, revision: 1, layout: { nodes: [note], viewport: { x: 0, y: 0, zoom: 1 } } } })
+      const { Canvas } = await import('../../src/renderer/canvas/Canvas')
+      render(<Canvas projectId={PROJECT} />)
+      // React Flow marks the wrapper of a Node it lets the mouse drag with the class `draggable`.
+      const draggable = () => document.querySelector('.react-flow__node[data-id="note-1"]')?.classList.contains('draggable')
+      await waitFor(() => expect(draggable()).toBe(false))
+      expect(locked.levels.at(-1)).toBe(HINT)
+      act(() => projects.acceptLinkedState(linkedState(false, 2)))
+      await waitFor(() => expect(draggable()).toBe(true))
+      expect(locked.levels.at(-1)).toBeNull()
+      act(() => projects.acceptLinkedState(linkedState(true, 3)))
+      await waitFor(() => expect(draggable()).toBe(false))
+      expect(locked.levels.at(-1)).toBe(HINT)
+    } finally {
+      restore()
+    }
+  })
+
+  it('read-only: a Node that asks to be dragged on its own (a Subagent) does not drag either; Full access: the Nodes are as given', async () => {
+    const { lockedForReadOnly } = await import('../../src/renderer/canvas/read-only-nodes')
+    const nodes = [
+      { id: 'agent', position: { x: 0, y: 0 }, draggable: true, data: {} },
+      { id: 'ticket', position: { x: 0, y: 0 }, draggable: false, data: {} },
+      { id: 'note', position: { x: 0, y: 0 }, data: {} },
+    ] as unknown as Parameters<typeof lockedForReadOnly>[0]
+    expect(lockedForReadOnly(nodes, HINT).map((node) => node.draggable)).toEqual([false, false, undefined])
+    expect(lockedForReadOnly(nodes, null)).toBe(nodes)
   })
 
   it('read-only: no resize handles; Full access: the handles are there', async () => {
@@ -530,5 +597,122 @@ describe('the Session view, the sidebar and the Orchestrator', () => {
     expectInactive(button)
     fireEvent.click(button)
     expect(fake.sent).not.toContain('orchestrator.newConversation')
+  })
+})
+
+describe('the selection toolbar, the Command palette and Focus mode', () => {
+  const TAGGED = { id: 'note-1', kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: 'hi' }, hidden: false, locked: false, pinned: false, tags: ['plan'] } as unknown as LayoutNode
+
+  it('read-only: Pin, Add tag, removing a tag and Delete are inactive with the hint and send nothing; Full access: they act', async () => {
+    const draw = async (readOnly: boolean) => {
+      await windowOn(M, readOnly)
+      const toolbar = await import('../../src/renderer/canvas/overlays/SelectionToolbar')
+      const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
+      const apply = vi.fn(() => Promise.resolve())
+      render(
+        <ReactFlowProvider>
+          <LayoutOpsContext.Provider value={{ apply }}>
+            <toolbar.PinSection nodes={[TAGGED]} />
+            <toolbar.TagsSection nodes={[TAGGED]} />
+            <toolbar.DeleteSection nodes={[TAGGED]} />
+          </LayoutOpsContext.Provider>
+        </ReactFlowProvider>,
+      )
+      const buttons = {
+        pin: screen.getByRole('button', { name: 'Pin' }),
+        add: screen.getByRole('button', { name: 'Add tag' }),
+        remove: screen.getByRole('button', { name: 'Remove tag plan' }),
+        delete: screen.getByRole('button', { name: 'Delete' }),
+      }
+      return { apply, buttons }
+    }
+
+    const shown = await draw(true)
+    for (const button of [shown.buttons.pin, shown.buttons.add, shown.buttons.remove, shown.buttons.delete]) {
+      expectInactive(button)
+      fireEvent.click(button)
+    }
+    // Add tag opens no field, Delete shows no refusal: nothing was tried.
+    expect(screen.queryByRole('textbox', { name: 'New tag' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(shown.apply).not.toHaveBeenCalled()
+    expect(fake.sent.filter((channel) => channel.startsWith('trash.'))).toEqual([])
+    cleanup()
+
+    const full = await draw(false)
+    for (const button of [full.buttons.pin, full.buttons.add, full.buttons.remove, full.buttons.delete]) expect(button.getAttribute('aria-disabled')).toBeNull()
+    expect(full.buttons.pin.getAttribute('title')).toBe('Keep the selection at its place on the screen')
+    expect(full.buttons.delete.getAttribute('title')).toBe('Move to the trash (Delete)')
+    fireEvent.click(full.buttons.pin)
+    await waitFor(() => expect(full.apply).toHaveBeenCalledTimes(1))
+    fireEvent.click(full.buttons.remove)
+    await waitFor(() => expect(full.apply).toHaveBeenCalledTimes(2))
+    fireEvent.click(full.buttons.delete)
+    await waitFor(() => expect(fake.sent).toContain('trash.put'))
+    fireEvent.click(full.buttons.add)
+    expect(screen.getByRole('textbox', { name: 'New tag' })).toBeTruthy()
+  })
+
+  it('read-only: "New session" and "Tidy up" in the Command palette are inactive with the hint and run nothing; Full access: active', async () => {
+    // jsdom has no scrollIntoView; the palette calls it for the active row.
+    Element.prototype.scrollIntoView = () => undefined
+    const draw = async (readOnly: boolean) => {
+      await windowOn(M, readOnly)
+      const { CommandPalette } = await import('../../src/renderer/palette/CommandPalette')
+      render(<CommandPalette />)
+      fireEvent.click(screen.getByTestId('palette-trigger'))
+      const row = (id: string) => document.querySelector<HTMLElement>(`[data-command="${id}"]`)!
+      await waitFor(() => expect(row('new:session')).not.toBeNull())
+      return row
+    }
+    try {
+      const row = await draw(true)
+      for (const id of ['new:session', 'tidy-up']) {
+        expectInactive(row(id))
+        expect(within(row(id)).getByTestId('palette-option-note').textContent).toBe(HINT)
+      }
+      fireEvent.click(row('new:session'))
+      expect(screen.getByTestId('command-palette')).toBeTruthy()
+      expect(fake.sent).not.toContain('sessions.new')
+      // What only moves or shows something stays active.
+      expect(row('view:session').getAttribute('aria-disabled')).toBe('false')
+      cleanup()
+
+      const full = await draw(false)
+      expect(full('new:session').getAttribute('aria-disabled')).toBe('false')
+      expect(full('tidy-up').getAttribute('aria-disabled')).toBe('false')
+      fireEvent.click(full('new:session'))
+      await waitFor(() => expect(fake.sent).toContain('sessions.new'))
+    } finally {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+    }
+  })
+
+  it('read-only: Focus mode draws a Terminal as the stand-in and never mounts the Terminal, which opens the shell; Full access: the Terminal', async () => {
+    const tile = (): CanvasFlowNode => ({
+      id: 'term-1',
+      position: { x: 0, y: 0 },
+      data: { node: { id: 'term-1', kind: 'terminal', x: 0, y: 0, w: 560, h: 340, data: {}, tags: [], pinned: false, locked: false, hidden: false } as unknown as LayoutNode },
+    })
+    const draw = async (readOnly: boolean) => {
+      await windowOn(M, readOnly)
+      const { FocusMode } = await import('../../src/renderer/focus/FocusMode')
+      const { buildPreset } = await import('../../src/renderer/focus/split-tree')
+      render(
+        <ReactFlowProvider initialNodes={[tile()]}>
+          <FocusMode tree={buildPreset('columns', ['term-1'])!} onChange={() => undefined} onExit={() => undefined} />
+        </ReactFlowProvider>,
+      )
+    }
+    await draw(true)
+    expect(screen.getByTestId('terminal-node-read-only').textContent).toContain(HINT)
+    expect(terminal.mounted).toBe(0)
+    expect(fake.sent).not.toContain('terminal.open')
+    cleanup()
+
+    await draw(false)
+    expect(screen.getByTestId('terminal-node')).toBeTruthy()
+    expect(terminal.mounted).toBeGreaterThan(0)
+    expect(screen.queryByTestId('terminal-node-read-only')).toBeNull()
   })
 })
