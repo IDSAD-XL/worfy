@@ -15,6 +15,7 @@ import { EMPTY_AGENT_SIGNALS, resolveBinding, type BindingWorkflow } from '../..
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { copyClaudeHome } from './claude-home-fixture'
 
 const HOME = join(__dirname, '..', 'fixtures', 'claude-home')
 const DEMO = join(HOME, 'projects', '-Users-test-projects-demo')
@@ -263,7 +264,8 @@ describe('the bindings channels', () => {
   })
 
   it('signals reads a Session found among the Project folders, and not one outside them', async () => {
-    const registry = new ClaudeHomeRegistry({ home: HOME, listWorktrees: async () => [] })
+    // A copy whose folders under projects/ have the names the registry looks for on this system.
+    const registry = new ClaudeHomeRegistry({ home: await copyClaudeHome(join(scratch, 'claude')), listWorktrees: async () => [] })
     const invoke = await register(store(), registry)
     const found = await invoke('bindings.signals', { projectRoot: '/Users/test/projects/demo', sessionId: '55555555-5555-4555-8555-555555555555' })
     expect(found.ok).toBe(true)
@@ -280,7 +282,9 @@ describe('the bindings channels', () => {
       { projectRoot: 'relative/path', sessionId: '55555555-5555-4555-8555-555555555555' },
       { projectRoot: '/Users/test/projects/demo', sessionId: '../55555555' },
     ]) {
-      expect((await invoke('bindings.signals', input)).ok, JSON.stringify(input)).toBe(false)
+      const result = await invoke('bindings.signals', input)
+      expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(/bindings\.signals: invalid input/)
     }
   })
 

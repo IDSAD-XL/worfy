@@ -723,9 +723,15 @@ describe('cards IPC domain', () => {
   })
 
   it('refuses a Card id of the wrong type or shape, and an unknown Project', async () => {
-    for (const input of [{ projectId: PROJECT, cardId: 5 }, { projectId: PROJECT, cardId: '../c1' }, { projectId: PROJECT }, { projectId: 'nobody-ffffffff', cardId: 'c1' }]) {
+    for (const [input, reason] of [
+      [{ projectId: PROJECT, cardId: 5 }, /cards\.get: invalid input/],
+      [{ projectId: PROJECT, cardId: '../c1' }, /cards\.get: invalid input/],
+      [{ projectId: PROJECT }, /cards\.get: invalid input/],
+      [{ projectId: 'nobody-ffffffff', cardId: 'c1' }, /No Project with id nobody-ffffffff/],
+    ] as const) {
       const result = await call(input)
       expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(reason)
     }
   })
 

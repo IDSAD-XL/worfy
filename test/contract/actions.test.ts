@@ -63,7 +63,9 @@ describe('actions.shipTicket', () => {
       { epic: 'e', num: 7 },
       undefined,
     ]) {
-      expect((await invoke('actions.shipTicket', input)).ok, JSON.stringify(input)).toBe(false)
+      const result = await invoke('actions.shipTicket', input)
+      expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(/actions\.shipTicket: invalid input/)
     }
     expect(calls).toEqual([])
   })
@@ -94,7 +96,9 @@ describe('actions.runWave', () => {
   it('refuses a wrong type before the launcher runs', async () => {
     const { invoke, calls } = await register()
     for (const input of [{ projectId: 'p', epic: 7 }, { projectId: 'p', epic: 'a/b' }, { projectId: 'p' }]) {
-      expect((await invoke('actions.runWave', input)).ok, JSON.stringify(input)).toBe(false)
+      const result = await invoke('actions.runWave', input)
+      expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(/actions\.runWave: invalid input/)
     }
     expect(calls).toEqual([])
   })
@@ -111,7 +115,9 @@ describe('actions.launches', () => {
   it('refuses a wrong type before the launcher runs', async () => {
     const { invoke, calls } = await register()
     for (const input of [{ projectId: '' }, { projectId: 7 }, {}, undefined]) {
-      expect((await invoke('actions.launches', input)).ok, JSON.stringify(input)).toBe(false)
+      const result = await invoke('actions.launches', input)
+      expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(/actions\.launches: invalid input/)
     }
     expect(calls).toEqual([])
   })
