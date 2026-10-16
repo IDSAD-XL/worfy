@@ -250,17 +250,33 @@ export function clipLastText(answer: string): string {
   return clip(answer, LAST_TEXT_MAX)
 }
 
+/** Where a path may start in a reason: the start of the text, or after a space, a quote, `=`, `:` or `(`. */
+const PATH_START = String.raw`(^|[\s'"` + '`' + String.raw`=:(])`
+/** Any run of path separators, of either platform. */
+const SEPARATOR = String.raw`[\\/]+`
+/** What may not follow the home folder: more of a folder name (`/Users/ann2` is not `/Users/ann`). */
+const NAME_GOES_ON = String.raw`(?![\p{L}\p{N}_-])`
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 /**
  * Claude Code's reason for a permission request as `refused-dialog` keeps it: the home folder
  * (`home`, the user's) written as `~` wherever a path starts with it, then at most REASON_MAX
- * UTF-16 units. A folder whose name only goes on from the home's (`/Users/ann2` for `/Users/ann`)
- * stays as it is; a dot after the home (the end of a sentence) does not stop the replacement.
+ * UTF-16 units. The same rule on every platform: case is ignored and `\` and `/` are one
+ * separator, so `c:\users\ann`, `C:/Users/Ann` and the MSYS form `/c/Users/Ann` are all the home
+ * `C:\Users\Ann`, and `/Users/Ann` is the home `/Users/ann`. Only a path is replaced, one that
+ * starts the text or follows a space, a quote, `=`, `:` or `(` (`/mnt/Users/ann` stays); a folder
+ * whose name only goes on from the home's (`/Users/ann2`) stays; a dot after the home (the end of
+ * a sentence) does not stop the replacement.
  */
 export function journalReason(reason: string, home: string): string {
-  const root = home.replace(/[\\/]+$/, '')
-  if (root === '') return clip(reason, REASON_MAX)
-  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return clip(reason.replace(new RegExp(`${escaped}(?![\\p{L}\\p{N}_-])`, 'gu'), '~'), REASON_MAX)
+  const parts = home.split(/[\\/]+/).filter((part) => part !== '')
+  if (parts.length === 0) return clip(reason, REASON_MAX)
+  const drive = /^([A-Za-z]):$/.exec(parts[0] ?? '')
+  const rest = parts.slice(drive === null ? 0 : 1).map((part) => `${SEPARATOR}${escapeRegExp(part)}`).join('')
+  // `C:` or `/c` before a drive home's folders; a separator before any other home's.
+  const prefix = drive === null ? rest : `(?:${drive[1]}:|[\\\\/]${drive[1]})${rest}`
+  return clip(reason.replace(new RegExp(`${PATH_START}${prefix}${NAME_GOES_ON}`, 'giu'), '$1~'), REASON_MAX)
 }
 
 /** The fields every line shares; the writer fills them in. */
