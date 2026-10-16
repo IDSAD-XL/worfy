@@ -154,14 +154,16 @@ Test писал свои stub-скрипты `epic-status`, `profile`, `ticket` 
 шла дальше (`exec bin/epic-status 5274ms`, `exec bin/profile 5932ms` — уже после конца test-а, в
 журнале того же процесса). Правка: `scriptRun(root)` даёт каждому test-у свои `claudeHome`, `calls`,
 `asked()` и `source`; `source` замкнут на значения этого вызова, а не на переменные `describe`.
-Всё, что делает `beforeEach`, — функция `startRun(root)`. Test «a run that a test left going logs
-into that test's calls file, not into the next test's» зовёт её второй раз, как `beforeEach`
-следующего test-а, и только потом запускает run первого. Мутанты (раунд 2 после gate), каждый красный
-только в этом test-е, 21 из 22 зелёные, `expected true to be false` — строка ушла в файл вызовов
-следующего:
-- `source` берёт `CALLS` из переменной `describe`, которую ставит `startRun`;
-- `source` берёт `CALLS` из `run.calls` (переменная `describe` `run`);
-- `source` берёт `CALLS` из общей переменной, которую переписывает `scriptRun`.
+Test на протечку — пара соседних test-ов (узкий раунд по комментарию владельца в PR #372). Первый
+«a test leaves its run behind» кладёт свой run и свою папку в `leftover`. Второй «the run a test left
+behind still logs into that test's calls file…» идёт после настоящих hook-ов (новый `scratch`, новый
+run), спрашивает `source` первого и проверяет: `CALLS` — файл вызовов первого, не второго; `HOME` —
+папка первого. Запущенный один (`-t`), второй test красный (`expected undefined to be defined`), а не
+зелёный впустую. Мутанты, каждый красный только во втором test-е (exit 1, 1 failed | 22 passed):
+- A: переменная файла, которую ставит тело `beforeEach`, и `source` читает её;
+- C: `source` берёт `HOME` и `CALLS` из общего `scratch`, который переписывает `beforeEach` файла
+  (исходная ошибка);
+- общая переменная, которую переписывает `scriptRun`.
 
 ### 2. ENOTEMPTY в `harness-drift.test.ts` — причина не воспроизведена
 

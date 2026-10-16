@@ -10,7 +10,7 @@
 // Then what each run of a script gets: the environment asked on that run, the retry after a
 // Harness change included, nothing of worfy's own variables, and HARNESS_HOME of the Harness worfy
 // found. The scripts are stubs that print what they got, in a temporary Claude home.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -344,30 +344,31 @@ function scriptRun(root: string): ScriptRun {
 
 describe.skipIf(process.platform === 'win32')('what each run of a script gets', () => {
   let run: ScriptRun
-
-  /**
-   * All that beforeEach does to start a test's run under `root`. The leak test below calls it again
-   * as the next test's beforeEach would: whatever it sets, the next test's run sets anew.
-   */
-  function startRun(root: string): ScriptRun {
-    run = scriptRun(root)
-    return run
-  }
+  /** The run of the first of the two leak tests, and the folder it ran in; the second asks it. */
+  let leftover: { run: ScriptRun; root: string } | undefined
 
   beforeEach(() => {
-    startRun(scratch)
+    run = scriptRun(scratch)
   })
 
-  it('a run that a test left going logs into that test\'s calls file, not into the next test\'s', async () => {
-    // As a test cut off by its timeout leaves it: the next test's beforeEach has already started
-    // its run when the run of the cut-off one asks its source.
-    const { claudeHome, calls, source } = run
-    pluginHarness(claudeHome)
-    mkdirSync(join(scratch, 'next'))
-    const next = startRun(join(scratch, 'next'))
-    await epicStatusRunner(claudeHome, source)(scratch, null)
-    expect(existsSync(next.calls)).toBe(false)
-    expect(lines(calls)).toHaveLength(1)
+  // The two tests below go together, in this order. The first ends and leaves its run behind, as a
+  // test cut off by its timeout leaves its chain going; the second, after the real hooks gave it a
+  // new folder and a new run, asks the source of the first.
+  it('a test leaves its run behind (the first of two)', () => {
+    leftover = { run, root: scratch }
+    expect(run.asked()).toBe(0)
+  })
+
+  it("the run a test left behind still logs into that test's calls file, not into the next test's (the second of two)", async () => {
+    const left = leftover
+    // Run alone (-t, .only), the pair proves nothing: then this test fails rather than passes.
+    expect(left).toBeDefined()
+    if (left === undefined) return
+    expect(left.root).not.toBe(scratch)
+    const env = await left.run.source()
+    expect(env.CALLS).toBe(left.run.calls)
+    expect(env.CALLS).not.toBe(run.calls)
+    expect(env.HOME).toBe(left.root)
   })
 
   it("epic-status: the environment asked on each run, nothing of worfy's own, HARNESS_HOME of the plugin", async () => {
