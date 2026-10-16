@@ -1,6 +1,7 @@
 // The `link` domain's handlers (worfy-link tickets 01, 02 and 14; ADR-0052): `link.ping` for windows
 // and Linked machines, and for this Machine's windows the state of the link, "Link a machine",
-// linking, revoking, the access switch and the keep-awake switch.
+// linking, revoking, the access switch, the access level of each Linked machine (worfy-link ticket
+// 18) and the keep-awake switch.
 //
 // The state is built anew on every call and every change, from the app's link (service.ts,
 // appLink): nothing here keeps a copy of the Linked machines. What only the UI has is kept here:
@@ -23,6 +24,7 @@ import {
   linkRevoke,
   linkSetAccess,
   linkSetKeepAwake,
+  linkSetMachineAccess,
   linkState,
   parseLinkAddress,
   type LinkState,
@@ -172,6 +174,7 @@ function buildState(): LinkState {
   }
   const { service, discovery, sleep } = link
   const status = service.status()
+  const settings = service.settings.get()
   const pairing = openers.size > 0 ? service.pairingCode() : null
   scheduleExpiry(pairing?.expiresAt ?? null)
   return {
@@ -193,10 +196,11 @@ function buildState(): LinkState {
       name: machine.name,
       state: sleep.stateOf(machine),
       certificateChanged: machine.certificateChanged,
+      access: settings.machines[machine.id] ?? 'off',
     })),
     discovered: discovery === null || openers.size === 0 ? [] : discovery.list(),
-    projectsAccess: service.settings.get().projectsAccess,
-    keepAwake: service.settings.get().keepAwake,
+    projectsAccess: settings.projectsAccess,
+    keepAwake: settings.keepAwake,
   }
 }
 
@@ -268,6 +272,14 @@ export default [
   defineHandler(linkSetAccess, ({ projectsAccess }) => {
     const { service } = requireLink()
     service.settings.set({ projectsAccess })
+    return buildState()
+  }),
+
+  defineHandler(linkSetMachineAccess, ({ id, access }) => {
+    const { service } = requireLink()
+    // A level is kept only for a Machine linked now; revoking clears it (service.ts).
+    if (!service.isLinked(id)) throw new Error(`Machine ${id} is not linked`)
+    service.settings.setLevel(id, access)
     return buildState()
   }),
 

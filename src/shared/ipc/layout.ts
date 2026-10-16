@@ -13,13 +13,13 @@ const projectId = z.string().min(1)
  */
 export const screenIdSchema = z.string().min(1).max(100)
 
-export const layoutGet = invokeChannel('layout.get', z.object({ projectId }), layoutStateSchema, 'project')
+export const layoutGet = invokeChannel('layout.get', z.object({ projectId }), layoutStateSchema, 'project', 'read')
 
 /**
  * Applies one operation and answers with the Layout after it. A refused operation (a locked Node
  * to remove, an id that is not there) comes back as {ok:false} with the reason.
  */
-export const layoutApply = invokeChannel('layout.apply', z.object({ projectId, op: layoutOpSchema, screen: screenIdSchema.optional() }), layoutStateSchema, 'project')
+export const layoutApply = invokeChannel('layout.apply', z.object({ projectId, op: layoutOpSchema, screen: screenIdSchema.optional() }), layoutStateSchema, 'project', 'write')
 
 /**
  * One change of a Project's Layout as every window hears of it: the Layout after it, the operation
@@ -30,7 +30,7 @@ export const layoutChangeSchema = layoutStateSchema.extend({ screen: screenIdSch
 export type LayoutChangeEvent = z.output<typeof layoutChangeSchema>
 
 /** Sent to every window after any change of any Project's Layout, whoever made it. */
-export const layoutChanged = eventChannel('layout.changed', layoutChangeSchema, 'project')
+export const layoutChanged = eventChannel('layout.changed', layoutChangeSchema, 'project', 'read')
 
 declare module './channels' {
   interface IpcContract {

@@ -4,10 +4,11 @@
 // One Electron powerSaveBlocker of type 'prevent-app-suspension' — the system does not sleep, the
 // display may go dark: a Linked machine needs this Machine's Projects, not its screen. It is held
 // while all three hold:
-// - at least one Linked machine is connected, over a connection either side opened (an open
-//   connection has passed the token and certificate checks, service.ts);
-// - "Linked machines can work with my Projects" is on: without access a Linked machine has nothing
-//   to do here;
+// - at least one Linked machine with access is connected, over a connection either side opened (an
+//   open connection has passed the token and certificate checks, service.ts);
+// - access is on for it: "Linked machines can work with my Projects" is on and its own level is
+//   `read` or `all` (worfy-link ticket 18) — a Machine that only reads needs this one awake too;
+//   without access a Linked machine has nothing to do here;
 // - "Keep this computer awake while linked machines are connected" is on (settings.ts; on by default).
 // One blocker for all connections, not one each. It is released in the same turn any of the three
 // stops holding — the last connection closed, the Machine revoked, a switch turned off — and on
@@ -51,8 +52,8 @@ export class LinkKeepAwake {
 
   /** Whether the three conditions hold now. */
   wanted(): boolean {
-    const { projectsAccess, keepAwake } = this.service.settings.get()
-    return projectsAccess && keepAwake && this.service.linkedMachines().some((machine) => machine.connected)
+    const { keepAwake } = this.service.settings.get()
+    return keepAwake && this.service.linkedMachines().some((machine) => machine.connected && this.service.settings.levelOf(machine.id) !== 'off')
   }
 
   /** Releases the blocker and follows the service no more (the link stops). */

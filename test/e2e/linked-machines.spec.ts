@@ -15,6 +15,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   canvasReady,
   chooseByAddress,
+  chooseLevel,
   closeSettings,
   collapseMachines,
   expandMachines,
@@ -278,9 +279,9 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
 const STARTED_WORK_KEEPS_RUNNING = 'Work already started from a Linked machine keeps running'
 
 /** What link/settings.json of the data folder says, once worfy has written it (src/main/link/settings.ts). */
-function savedLinkSettings(dataDir: string): { projectsAccess: boolean; keepAwake?: boolean } | null {
+function savedLinkSettings(dataDir: string): { projectsAccess: boolean; machines?: Record<string, string>; keepAwake?: boolean } | null {
   const file = join(dataDir, 'link', 'settings.json')
-  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { projectsAccess: boolean; keepAwake?: boolean }) : null
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as { projectsAccess: boolean; machines?: Record<string, string>; keepAwake?: boolean }) : null
 }
 
 test('Settings → Machines: the access switch is off on a fresh Machine and stays on across a restart over the same data folder', async () => {
@@ -332,7 +333,7 @@ test('Settings → Machines: the access switch is off on a fresh Machine and sta
       await expect(dialog.getByText(STARTED_WORK_KEEPS_RUNNING, { exact: true })).toBeVisible()
       await snapshotThemes(first.window, 'settings-machines-access-on')
       // Written where the sidebar's switch wrote it.
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: true })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
       // Closing Settings loses nothing: open again, the switch is on. The sidebar still has no
       // switch, with its Machines section expanded too.
       await closeSettings(first.window)
@@ -435,14 +436,14 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
       await expect(access).toHaveAttribute('aria-checked', 'true')
       await expect(access).toBeFocused()
       await expect(error).toHaveCount(0)
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: true })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
       // Tab goes on to the next switch; Enter switches it off.
       await window.keyboard.press('Tab')
       await expect(keepAwake).toBeFocused()
       await window.keyboard.press('Enter')
       await expect(keepAwake).toHaveAttribute('aria-checked', 'false')
       await expect(keepAwake).toBeFocused()
-      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: false })
+      await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: false })
 
       // After a click on a label, Esc still closes Settings.
       await labels[0]!.click()
@@ -657,6 +658,76 @@ async function drag(launched: LaunchedApp, from: Locator, dx: number, dy: number
 }
 
 const screenText = async (node: Locator): Promise<string> => (await node.locator('.xterm-rows').innerText()).replace(/\u00a0/g, ' ')
+
+// ── The access level of each Linked machine (worfy-link ticket 18; ADR-0066) ────────────────────
+
+/**
+ * The light and dark snapshot of `window` (test-results/snapshots/18-<name>/); with
+ * WORFY_EVIDENCE=1 also the ticket's evidence `18-<name>-{light,dark}.png`, as evidence() does for 09.
+ */
+async function evidence18(window: Page, name: string): Promise<void> {
+  const shots = await snapshotThemes(window, `18-${name}`)
+  if (process.env.WORFY_EVIDENCE !== '1') return
+  await mkdir(EVIDENCE, { recursive: true })
+  await copyFile(shots.light, join(EVIDENCE, `18-${name}-light.png`))
+  await copyFile(shots.dark, join(EVIDENCE, `18-${name}-dark.png`))
+}
+
+test('Settings → Machines: a level per Linked machine; with Read only A sees the Projects of B and a change is refused; Full access lets it through', async () => {
+  const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-18-levels-')))
+  const bRepo = gitRepo(join(scratch, 'beta-repo'))
+  const aData = dataFolder(join(scratch, 'a-data'), [])
+  const bData = dataFolder(join(scratch, 'b-data'), [{ id: 'beta-repo-0000000b', name: 'beta-repo', path: bRepo }])
+  const a = await launchApp({ env: { WORFY_DATA_DIR: aData } })
+  let b: LaunchedApp | undefined
+  try {
+    b = await launchApp({ env: { WORFY_DATA_DIR: bData } })
+    await linkThroughUi(a.window, b.window)
+    const aId = await machineIdOf(a.window)
+    const bId = await machineIdOf(b.window)
+    const invokeOnB = (channel: string, input: unknown) =>
+      a.window.evaluate(([machine, name, value]) => (globalThis as unknown as { worfy: Bridge }).worfy.invoke('linked.invoke', { machine, channel: name, input: value }), [bId, channel, input] as const)
+
+    // On B: A has a row of its own, Off as a newly linked Machine, disabled while access is off.
+    const dialog = await openMachinesSettings(b)
+    const level = dialog.getByTestId(`link-machine-access-${aId}`)
+    const levelRow = dialog.getByTestId(`settings-machines-level-row-${aId}`)
+    await expect(level).toHaveAttribute('data-value', 'off')
+    await expect(level).toBeDisabled()
+    await expect(levelRow).toHaveAttribute('data-disabled', '')
+    await dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true }).click()
+    await expect(level).toBeEnabled()
+    await expect(levelRow).toContainText('Cannot see or change your Projects')
+    // The switch alone opens nothing: A's level is still Off.
+    await expect(group(a.window, bId)).toHaveAttribute('data-sharing', 'no')
+
+    await chooseLevel(b.window, level, 'read')
+    // Said plainly under the level: read only is still trust.
+    await expect(levelRow).toContainText('Read only still means trust: a Session transcript can show a secret')
+    await expect(levelRow).toContainText('not Terminal output')
+    await evidence18(b.window, 'settings-machines-read-only')
+    await expect.poll(() => savedLinkSettings(bData)).toStrictEqual({ version: 2, projectsAccess: true, machines: { [aId]: 'read' }, keepAwake: true })
+    await closeSettings(b.window)
+
+    // On A: the Project of B is listed; reading answers, a change is refused with the read-only text.
+    await expect(projectRow(a.window, bId, 'beta-repo-0000000b')).toContainText('beta-repo')
+    expect(await invokeOnB('layout.get', { projectId: 'beta-repo-0000000b' })).toMatchObject({ ok: true, value: { ok: true } })
+    const node = { op: 'create', node: { id: 'from-a', kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: 'from A' } } }
+    const refused = await invokeOnB('layout.apply', { projectId: 'beta-repo-0000000b', op: node })
+    expect(refused).toMatchObject({ ok: true, value: { ok: false, error: expect.stringMatching(/^Linked machines can only view the Projects of .+: access is read-only$/) } })
+
+    // Full access: the same change goes through.
+    const again = await openMachinesSettings(b)
+    await chooseLevel(b.window, again.getByTestId(`link-machine-access-${aId}`), 'all')
+    await evidence18(b.window, 'settings-machines-full-access')
+    await closeSettings(b.window)
+    await expect.poll(async () => ((await invokeOnB('layout.apply', { projectId: 'beta-repo-0000000b', op: node })) as { value?: { ok?: boolean } }).value?.ok).toBe(true)
+  } finally {
+    await a.close()
+    await b?.close()
+    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
 
 test('A opens a Project of B: its Canvas, Node moves, Session, Terminal and Autopilot go to B; B gone — "unreachable", B back — the Canvas again', async () => {
   test.setTimeout(240_000)

@@ -40,6 +40,11 @@ export const linkedMachineSchema = z.object({
   /** Whether it lets Linked machines work with its Projects; `unknown` until it said so. */
   sharing: z.enum(['yes', 'no', 'unknown']),
   /**
+   * It shares them read-only with this Machine (worfy-link ticket 18): a call of a `write` channel
+   * is refused there. Learned from its `projects-access` message, never from a refusal's text.
+   */
+  readOnly: z.boolean(),
+  /**
    * Changes whenever what a window sees of the Machine starts afresh: another connection carries
    * the calls (what the old one subscribed to is gone), or sharing came back on. A window showing
    * this Machine loads again then.

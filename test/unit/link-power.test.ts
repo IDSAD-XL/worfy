@@ -80,7 +80,12 @@ const starts = (type: string): number => electron.calls.filter((call) => call[0]
 
 /** Links `from` to `to` and opens one connection, dialled by `from`; resolves once both sides see it. */
 async function connect(from: Machine, to: Machine): Promise<void> {
-  if (!from.service.isLinked(to.service.machine.id)) await bench.link(from, to)
+  if (!from.service.isLinked(to.service.machine.id)) {
+    await bench.link(from, to)
+    // Each side gives the other full access: the switch "Linked machines can work with my Projects" decides.
+    from.service.settings.setLevel(to.service.machine.id, 'all')
+    to.service.settings.setLevel(from.service.machine.id, 'all')
+  }
   await from.service.connect(to.service.machine.id)
   await until(() => to.service.isConnected(from.service.machine.id) && from.service.isConnected(to.service.machine.id))
 }
@@ -176,6 +181,20 @@ describe('keep-awake while Linked machines are connected', () => {
     expect(awake.held).toBe(false)
   })
 
+  it('a Linked machine with read-only access counts; one whose own level is off does not (worfy-link ticket 18)', async () => {
+    const { a, awake } = await projectMachine()
+    const b = await bench.machine('b')
+    await connect(b, a)
+    const bId = b.service.machine.id
+    a.service.settings.setLevel(bId, 'read')
+    expect(awake.held).toBe(true)
+    a.service.settings.setLevel(bId, 'off')
+    expect(awake.held).toBe(false)
+    expect(electron.started.size).toBe(0)
+    a.service.settings.setLevel(bId, 'read')
+    expect(awake.held).toBe(true)
+  })
+
   it('a connection dialled by the Project machine itself counts too', async () => {
     const { a, awake } = await projectMachine()
     const b = await bench.machine('b')
@@ -226,10 +245,10 @@ describe('keep-awake while Linked machines are connected', () => {
 
   it('the keep-awake switch is on for a fresh data folder and survives a restart', async () => {
     const a = await bench.machine('a')
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
     a.service.settings.set({ keepAwake: false })
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: false })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: false })
   })
 
   it('its IPC channel is open to this Machine\'s windows only', () => {

@@ -38,7 +38,7 @@ export const projectsPickFolder = invokeChannel(
   'desktop',
 )
 
-export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema, 'project')
+export const projectsList = invokeChannel('projects.list', z.void(), projectsStateSchema, 'project', 'read')
 
 /** One folder of a browsed folder: its path in the form of the Machine's OS, as the Machine gave it. */
 export const browsedFolderSchema = z.object({
@@ -75,7 +75,7 @@ export type BrowseAnswer = z.output<typeof browseAnswerSchema>
  * a Terminal there. Paths are in the form of that Machine's OS; the screen goes on only by `path`
  * and `parent` of an answer and never parses or joins them. Only while access is on (`project`).
  */
-export const projectsBrowse = invokeChannel('projects.browse', z.object({ path: z.string().min(1).nullable() }), browseAnswerSchema, 'project')
+export const projectsBrowse = invokeChannel('projects.browse', z.object({ path: z.string().min(1).nullable() }), browseAnswerSchema, 'project', 'write')
 
 /**
  * Adds the git repository that contains `path` and makes it active. A subfolder or a linked
@@ -91,14 +91,15 @@ export const projectsAdd = invokeChannel(
     z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
   ]),
   'project',
+  'write',
 )
 
 export const projectsSelect = invokeChannel('projects.select', projectId, projectsStateSchema, 'local')
 
 /** Removes the Project from the list; its data folder stays. */
-export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema, 'project')
+export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema, 'project', 'write')
 
-export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsSchema, 'project')
+export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsSchema, 'project', 'read')
 
 /** Saves the settings; a template with an unknown placeholder fails the input schema. */
 export const projectsSettingsSet = invokeChannel(
@@ -106,13 +107,14 @@ export const projectsSettingsSet = invokeChannel(
   z.object({ id: z.string().min(1), settings: projectSettingsSchema }),
   projectSettingsSchema,
   'project',
+  'write',
 )
 
 /**
  * The default settings for the Harness found on the machine now (worfy-harness ticket 12): what
  * "Reset to default" puts into the fields. Main looks for the Harness on every call.
  */
-export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema, 'project')
+export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema, 'project', 'read')
 
 /**
  * A screen of a Linked machine shows Project `projectId` of this Machine (null: none any more;
@@ -126,13 +128,14 @@ export const projectsHold = invokeChannel(
   z.object({ screen: z.string().min(1).max(100), projectId: z.string().min(1).nullable() }),
   z.object({ projectId: z.string().nullable() }),
   'project',
+  'write',
 )
 
 /** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
-export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }), 'project')
+export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }), 'project', 'read')
 
 /** Sent to every window after any change of the list or of the active Project. */
-export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project')
+export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project', 'read')
 
 // ── connecting a Project (worfy-harness ticket 24) ─────────────────────────────
 //
@@ -199,6 +202,7 @@ export const projectsConnectInspect = invokeChannel(
     z.object({ status: z.literal('new'), folder: connectFolderSchema, harnessHome: z.string().min(1) }),
   ]),
   'project',
+  'write',
 )
 
 /**
@@ -220,13 +224,14 @@ export const projectsConnectDraft = invokeChannel(
     z.object({ status: z.literal('failed'), reason: z.string().min(1), issues: z.array(draftIssueSchema) }),
   ]),
   'project',
+  'write',
 )
 
 /** "Stop" of the dialog: ends the draft Session `draftId`; false when none runs under it. */
-export const projectsConnectStop = invokeChannel('projects.connect.stop', z.object({ draftId: z.string().min(1).max(100) }), z.object({ stopped: z.boolean() }), 'project')
+export const projectsConnectStop = invokeChannel('projects.connect.stop', z.object({ draftId: z.string().min(1).max(100) }), z.object({ stopped: z.boolean() }), 'project', 'write')
 
 /** Step 5: the problems of an edited draft (`bin/project-connect --check`); writes nothing. */
-export const projectsConnectCheck = invokeChannel('projects.connect.check', z.object({ draft: profileDraftSchema }), z.object({ issues: z.array(draftIssueSchema) }), 'project')
+export const projectsConnectCheck = invokeChannel('projects.connect.check', z.object({ draft: profileDraftSchema }), z.object({ issues: z.array(draftIssueSchema) }), 'project', 'write')
 
 /**
  * Step 6, "Connect": bin/project-connect writes the Profile and the gate registry entries, then the
@@ -243,10 +248,11 @@ export const projectsConnectWrite = invokeChannel(
     z.object({ status: z.literal('rejected'), reason: z.string().min(1) }),
   ]),
   'project',
+  'write',
 )
 
 /** The last action of a draft Session, sent to the window that asked for the draft. */
-export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'project')
+export const projectsConnectActivity = eventChannel('projects.connect.activity', z.object({ draftId: z.string(), text: z.string() }), 'project', 'read')
 
 // ── the GitHub account of a new Project (worfy-harness ticket 25) ─────────────────
 //
@@ -330,7 +336,7 @@ export function withGithubAccount(draft: ProfileDraft, choice: GithubChoice): Pr
 }
 
 /** The account step of the folder `root` (main inspects it again); reads gh, writes nothing. */
-export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'project')
+export const projectsConnectAccounts = invokeChannel('projects.connect.accounts', z.object({ root: z.string().min(1) }), githubAccountsStepSchema, 'project', 'write')
 
 const signInRef = { signInId: z.string().min(1).max(100) }
 const signInCells = z.number().int().positive().max(10_000)

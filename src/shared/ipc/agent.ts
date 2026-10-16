@@ -35,6 +35,7 @@ export const agentStart = invokeChannel(
   }),
   z.object({ sessionId }),
   'project',
+  'write',
 )
 
 export const agentSend = invokeChannel(
@@ -44,40 +45,41 @@ export const agentSend = invokeChannel(
     .refine((message) => message.text.trim() !== '' || message.attachments.length > 0, 'the message is empty'),
   z.void(),
   'project',
+  'write',
 )
 
 /** What main makes of each thing attached, in the order given: an attachment, or why it was refused. */
 const attachResults = z.object({ results: z.array(attachResultSchema) })
 
 /** Checks pasted and dropped things, and copies what needs copying (src/main/agent/attachments.ts). */
-export const agentAttach = invokeChannel('agent.attach', z.object({ sessionId, sources: z.array(attachmentSourceSchema).min(1).max(MAX_ATTACHMENTS) }), attachResults, 'project')
+export const agentAttach = invokeChannel('agent.attach', z.object({ sessionId, sources: z.array(attachmentSourceSchema).min(1).max(MAX_ATTACHMENTS) }), attachResults, 'project', 'write')
 
 /** "+": main's file dialog; no results when the user cancels it. */
 export const agentAttachPick = invokeChannel('agent.attachPick', z.object({ sessionId }), attachResults, 'desktop')
 
 /** The slash menu's rows: the slash commands and skills Claude Code reports for the Session. */
-export const agentCommands = invokeChannel('agent.commands', z.object({ sessionId }), z.object({ commands: z.array(slashCommandSchema) }), 'project')
+export const agentCommands = invokeChannel('agent.commands', z.object({ sessionId }), z.object({ commands: z.array(slashCommandSchema) }), 'project', 'read')
 
-export const agentInterrupt = invokeChannel('agent.interrupt', z.object({ sessionId }), z.object({ interrupted: z.boolean() }), 'project')
+export const agentInterrupt = invokeChannel('agent.interrupt', z.object({ sessionId }), z.object({ interrupted: z.boolean() }), 'project', 'write')
 
-export const agentClose = invokeChannel('agent.close', z.object({ sessionId }), z.void(), 'project')
+export const agentClose = invokeChannel('agent.close', z.object({ sessionId }), z.void(), 'project', 'write')
 
-export const agentList = invokeChannel('agent.list', z.void(), z.array(z.object({ sessionId, cwd: z.string(), state: sessionState })), 'project')
+export const agentList = invokeChannel('agent.list', z.void(), z.array(z.object({ sessionId, cwd: z.string(), state: sessionState })), 'project', 'read')
 
 /** The Session's settings and queue as they are now. */
-export const agentControls = invokeChannel('agent.controls', z.object({ sessionId }), z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema }), 'project')
+export const agentControls = invokeChannel('agent.controls', z.object({ sessionId }), z.object({ settings: sessionSettingsSchema, queue: queueSnapshotSchema }), 'project', 'read')
 
 /** Changes some of the model, effort and permission mode; answers the settings now in force. */
-export const agentConfigure = invokeChannel('agent.configure', z.object({ sessionId, change: settingsChangeSchema }), sessionSettingsSchema, 'project')
+export const agentConfigure = invokeChannel('agent.configure', z.object({ sessionId, change: settingsChangeSchema }), sessionSettingsSchema, 'project', 'write')
 
 /** The model picker's rows: supportedModels() of the live Session, or the model of its last system/init. */
-export const agentModels = invokeChannel('agent.models', z.object({ sessionId }), z.object({ models: z.array(modelOptionSchema) }), 'project')
+export const agentModels = invokeChannel('agent.models', z.object({ sessionId }), z.object({ models: z.array(modelOptionSchema) }), 'project', 'read')
 
 /** Takes a queued message out before it is sent; `removed` is false when it was no longer queued. */
-export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ sessionId, id: z.string().min(1) }), z.object({ removed: z.boolean() }), 'project')
+export const agentQueueRemove = invokeChannel('agent.queueRemove', z.object({ sessionId, id: z.string().min(1) }), z.object({ removed: z.boolean() }), 'project', 'write')
 
 /** "Send queued": a queue held by Interrupt goes again, starting now when no turn runs. */
-export const agentQueueSend = invokeChannel('agent.queueSend', z.object({ sessionId }), z.void(), 'project')
+export const agentQueueSend = invokeChannel('agent.queueSend', z.object({ sessionId }), z.void(), 'project', 'write')
 
 /**
  * Answers an open permission request: "Allow", "Always allow" (this tool, for the rest of this
@@ -89,9 +91,10 @@ export const agentPermission = invokeChannel(
   z.object({ sessionId, requestId: z.string().min(1), decision: permissionDecisionSchema }),
   z.object({ answered: z.boolean() }),
   'project',
+  'write',
 )
 
-export const agentEvent = eventChannel('agent.event', agentEventEnvelope, 'project')
+export const agentEvent = eventChannel('agent.event', agentEventEnvelope, 'project', 'read')
 
 declare module './channels' {
   interface IpcContract {
