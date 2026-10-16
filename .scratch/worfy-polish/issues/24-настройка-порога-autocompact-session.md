@@ -1,7 +1,7 @@
 # 24 — Настройка: на скольких токенах Session делает autocompact
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-16, [PR #376](https://github.com/IDSAD-XL/worfy/pull/376)
 Branch: worfy-polish/24
 Blocked by: 23
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Настройка: на скольких токенах происходит
@@ -87,8 +87,8 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
       от 380 000 до 400 000 (порог = окно минус запас на сводку до 20 000); смена значения у живой
       Session ничего не меняет до перезапуска; значения — в «Итог». Не проверено: шаг владельца.
 - [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (сделано); gate full — exit 0 и строка
-      `[gate] зелено (full)` (делает оркестратор перед merge); Linux CI зелёный (в PR).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный (в PR).
 
 ## Тесты
 
@@ -203,3 +203,13 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
 - **Не проверено:** порог на настоящем Claude Code (`autoCompactThreshold` 380 000–400 000 при
   окне 400K) и то, что живая Session не меняет порог до перезапуска, — шаг владельца на Stable
   copy.
+
+### Gate оркестратора (2026-10-16)
+
+- Wave 4 Epic-а под Autopilot: Ticket-ы 22 и 24 параллельно, общих файлов нет. Глубина — один verifier на круг; UI — снимки в обеих темах.
+- Гейт — два круга. Круг 1 — `REJECTED` ([комментарий в PR #376](https://github.com/IDSAD-XL/worfy/pull/376#issuecomment-6204320485)): [med] reader настроек по умолчанию заставлял `workflow-profile.test.ts` читать (и при ошибке переименовывать) `app-settings.json` настоящей папки данных, а в test-ах это папка Stable copy; [med] защита в `agent-autocompact.test.ts` ловила настоящий SDK уже после того, как `query()` запустил Claude Code. Круг 2 — `VERIFIED` на `629b0d67` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/376#issuecomment-6204676937)): у каждого файла contract test-ов своя `WORFY_DATA_DIR`, `dataRoot()` без неё бросает и роняет test; загрузчик SDK передаётся параметром `loadSdk`. Мутанты обоих кругов красные; настоящий `app-settings.json` не менялся.
+- Во время работы исполнителя contract test один раз запустил настоящий Claude Code из `node_modules` (гонка двух dynamic import замоканного SDK под vitest; HOME — несуществующий `/Users/tester`). Новых транскриптов в `~/.claude/projects` не найдено; после круга 2 test SDK не импортирует.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `a10a8e3`.
+- Consider, Dismissed — нет.
+- Noted (**решено без владельца, подтвердить**): 400K и 500K по умолчанию перекрывают `autoCompactWindow` из `~/.claude/settings.json` — `/autocompact` в Session worfy после перезапуска не действует, пока не выбран «Claude Code default»; в UI об этом не сказано.
+- Noted: `test/unit/agent-query-factory.test.ts` всё ещё импортирует SDK через загрузчик по умолчанию — кандидат на `loadSdk`; `canvas-tools.test.ts:103` удаляет `WORFY_DATA_DIR`, выданную setup-ом.
