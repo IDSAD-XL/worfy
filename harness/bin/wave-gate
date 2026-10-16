@@ -44,6 +44,16 @@
 //     branch must equal the checked tree of that prefix; the first mismatch stops: no further merges,
 //     the reason goes to the state file — then gate full on the main branch.
 //
+// The screen (macOS: a locked screen shows no Electron window, and every e2e fails on its first window):
+//   - when `ioreg` is in PATH, check asks `ioreg -n Root -d1` for "IOConsoleLocked" before each gate run;
+//     Yes — one line "screen locked: gate full waits", a poll every 30 s, no gate run and no e2e lock held
+//     until it is No. No `ioreg` in PATH (Linux, Windows) — no check;
+//   - a gate run that was red, whose output has the e2e message "the window was not shown within",
+//     while the screen was locked during the run, is not red: it is recorded as not verified ("screen
+//     locked") and run again after the unlock, at most SCREEN_TRIES runs; then check ends unverified;
+//   - when `caffeinate` is in PATH, check and merge each start `caffeinate -d -w <own pid>`: the display
+//     does not sleep while the command lives, and caffeinate ends with it, a SIGKILL included.
+//
 // The e2e lock has the semantics of the shared one-command lock of the project rules: mkdir; a lock
 // older than 30 min counts as abandoned and is removed; a heartbeat `touch -c` every 5 min while it is
 // held; released on exit and on error.
@@ -52,7 +62,7 @@
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
 //
 // Environment: WAVE_GATE_GATE — an executable used instead of `node <plugin>/hooks/gate.mjs` (it gets
-// the argument `full`); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
+// the argument `full`); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
 // lock timings (20, 1800, 300); WAVE_GATE_MAIN_LOCK_POLL_S, WAVE_GATE_MAIN_LOCK_STALE_S — the main
 // lock (30, 5400). Tests set them; the defaults are the project's.
 "use strict"
@@ -69,6 +79,9 @@ const seconds = (name, dflt) => {
 }
 const E2E = { poll: seconds("WAVE_GATE_LOCK_POLL_S", 20), stale: seconds("WAVE_GATE_LOCK_STALE_S", 1800), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
 const MAIN = { poll: seconds("WAVE_GATE_MAIN_LOCK_POLL_S", 30), stale: seconds("WAVE_GATE_MAIN_LOCK_STALE_S", 5400), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
+const SCREEN = { poll: seconds("WAVE_GATE_SCREEN_POLL_S", 30) }
+const SCREEN_TRIES = 3
+const NO_WINDOW = /the window was not shown within \d+ s/
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }
 
 class Fail extends Error {}
@@ -80,7 +93,7 @@ const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000))
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
 
 // --- what has to be undone on the way out ----------------------------------------------------
-const held = { locks: new Map(), child: null, pidFile: null, tree: null, repo: null }
+const held = { locks: new Map(), child: null, pidFile: null, tree: null, repo: null, awake: null }
 
 function git(args, cwd, { allowFail = false } = {}) {
     const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
@@ -179,6 +192,54 @@ function unlock(dir) {
     try {
         fs.rmdirSync(dir)
     } catch {}
+}
+
+// --- the screen ------------------------------------------------------------------------------------
+// true — locked; false — not locked, or no `ioreg` in PATH (spawn fails with ENOENT), or no answer.
+function screenLocked() {
+    const r = spawnSync("ioreg", ["-n", "Root", "-d1"], { encoding: "utf8", windowsHide: true, maxBuffer: 16 << 20 })
+    if (r.error || r.status !== 0) return false
+    return /"IOConsoleLocked"\s*=\s*Yes\b/.test(r.stdout || "")
+}
+async function screenWait() {
+    if (!screenLocked()) return
+    say("screen locked: gate full waits")
+    do {
+        await sleep(SCREEN.poll)
+    } while (screenLocked())
+}
+// Samples the screen during a gate run; stop() tells whether it was seen locked at any sample or at the end.
+function screenWatch() {
+    let seen = false
+    const t = setInterval(() => {
+        if (!seen && screenLocked()) seen = true
+    }, SCREEN.poll * 1000)
+    return {
+        stop() {
+            clearInterval(t)
+            return seen || screenLocked()
+        },
+    }
+}
+// caffeinate -d -w <own pid>: the display stays on while this command lives. -w makes caffeinate end with
+// it even when nothing below runs (SIGKILL); the kill on the way out only makes that immediate.
+function keepAwake() {
+    let child
+    try {
+        child = spawn("caffeinate", ["-d", "-w", String(process.pid)], { stdio: "ignore", windowsHide: true })
+    } catch {
+        return
+    }
+    child.on("error", () => {}) // no caffeinate in PATH: the command goes on without it
+    child.unref()
+    held.awake = child
+}
+function letSleep() {
+    if (held.awake && held.awake.exitCode === null && held.awake.signalCode === null)
+        try {
+            held.awake.kill()
+        } catch {}
+    held.awake = null
 }
 
 // --- the temporary worktree -----------------------------------------------------------------------
@@ -449,10 +510,18 @@ function squashAll(ctx) {
 }
 
 // One gate run on the first `size` PRs of the set; a finished run of the same role and size is not repeated.
+// A run the locked screen spoiled is run again after the unlock, SCREEN_TRIES runs in all.
 async function gateOn(ctx, size, role) {
-    const { st, dir } = ctx
-    const done = st.runs.find((r) => r.role === role && r.size === size && (r.outcome === "green" || r.outcome === "red"))
+    const done = ctx.st.runs.find((r) => r.role === role && r.size === size && (r.outcome === "green" || r.outcome === "red"))
     if (done) return done
+    for (let i = 1; ; i++) {
+        const rec = await gateOnce(ctx, size, role)
+        if (!rec.screen_locked || i >= SCREEN_TRIES) return rec
+        say(`screen locked during gate full: the run is not verified (the e2e got no window) — run again after the unlock (${i}/${SCREEN_TRIES})`)
+    }
+}
+async function gateOnce(ctx, size, role) {
+    const { st, dir } = ctx
     const commit = size === 0 ? st.base : st.prefixes[size - 1].commit
     // Ignored files go too (a build output of a bigger prefix must not reach a run of a smaller one);
     // node_modules stays, and prepare brings it to this tree.
@@ -472,16 +541,30 @@ async function gateOn(ctx, size, role) {
             return rec
         }
     }
-    if (st.e2e_lock) await lock(st.e2e_lock, E2E, "the e2e lock")
-    let g
+    let g, locked
     try {
+        // The screen is checked before the e2e lock is taken (a wait does not hold it) and again once it is
+        // held: waiting for the lock may take a whole gate run of another agent.
+        for (;;) {
+            await screenWait()
+            if (st.e2e_lock) await lock(st.e2e_lock, E2E, "the e2e lock")
+            if (!screenLocked()) break
+            if (st.e2e_lock) unlock(st.e2e_lock)
+        }
         const [cmd, args] = gateCommand()
         say(`gate full on ${size} PR(s) (${role}): #${rec.prs.join(" #")}`)
-        g = await run(cmd, args, { cwd: dir, env: { ...process.env, GATE_SCOPE: "all" } }, log)
+        const watch = screenWatch()
+        try {
+            g = await run(cmd, args, { cwd: dir, env: { ...process.env, GATE_SCOPE: "all" } }, log)
+        } finally {
+            locked = watch.stop()
+        }
     } finally {
         if (st.e2e_lock) unlock(st.e2e_lock)
     }
     Object.assign(rec, { outcome: verdict(g.code, g.text), exit: g.code })
+    if (rec.outcome === "red" && locked && NO_WINDOW.test(g.text))
+        Object.assign(rec, { outcome: "unverified", screen_locked: true, reason: "screen locked: the e2e got no window while the screen was locked" })
     if (rec.outcome === "red") Object.assign(rec, failures(g.text))
     st.runs.push(rec)
     save(ctx.file, st)
@@ -582,6 +665,7 @@ for (const [sig, n] of Object.entries(SIGNALS))
         // A signal is a broken-off run: the worktree stays for the resume, the locks go.
         if (held.child) held.child.kill(sig)
         release()
+        letSleep()
         process.stderr.write(`[wave-gate] stopped by ${sig}: the state file has every finished step; run the same command again to resume\n`)
         process.exit(128 + n)
     })
@@ -590,6 +674,7 @@ async function main() {
     const [cmd, file, ...rest] = process.argv.slice(2)
     if (!["check", "merge"].includes(cmd) || !file || rest.length) fail("usage: wave-gate check <state.json> | wave-gate merge <state.json>")
     const abs = path.resolve(file)
+    keepAwake()
     if (cmd === "merge") return merge(abs)
     try {
         return await check(abs)
@@ -609,6 +694,7 @@ main().then(
     (code) => {
         closeTree()
         release()
+        letSleep()
         process.exit(code)
     },
     (e) => {
@@ -616,6 +702,7 @@ main().then(
             closeTree()
         } catch {}
         release()
+        letSleep()
         process.stderr.write(`[wave-gate] error: ${e instanceof Fail ? e.message : e.stack || e}\n`)
         process.exit(1)
     }

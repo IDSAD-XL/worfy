@@ -1,7 +1,8 @@
 # 02 — Экран не гаснет, пока Orchestrator вливает PR вне Autopilot; заблокированный экран перед gate full — одна строка, а не красный e2e
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
+Branch: worfy-throughput/02
 Blocked by: 01
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»
 (Ticket сужен); ночь 2026-10-16 — мержи стояли около 5,5 h;
@@ -63,12 +64,12 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 
 ## Готово, когда
 
-- [ ] Test `wave-gate` со stub-ом `ioreg` в `PATH`: `IOConsoleLocked = Yes` — строка `screen locked`,
+- [x] Test `wave-gate` со stub-ом `ioreg` в `PATH`: `IOConsoleLocked = Yes` — строка `screen locked`,
       gate не запускается; `No` — gate идёт; `ioreg` в `PATH` нет — проверки нет, gate идёт.
-- [ ] Test: красный gate, в выводе которого `the window was not shown within 30 s` при заблокированном
+- [x] Test: красный gate, в выводе которого `the window was not shown within 30 s` при заблокированном
       экране (stub), — вердикт «не удалось проверить: экран заблокирован», не красный; прогон
       повторяется после разблокировки.
-- [ ] Test: `wave-gate check` и `wave-gate merge` со stub-ом `caffeinate` в `PATH` зовут его с
+- [x] Test: `wave-gate check` и `wave-gate merge` со stub-ом `caffeinate` в `PATH` зовут его с
       `-d -w <pid самой команды>`; после выхода команды процесса stub-а нет; без `caffeinate` в `PATH`
       команды идут без него.
 - [ ] (вручную) На Mac: во время `wave-gate check` `pmset -g assertions` показывает
@@ -77,7 +78,7 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
       Bash и gate full; код и строка вердикта — в «Итог». Пока `worfy-windows` 14 не `done` — правило
       «Последствий» ADR-0056 (`:73-77`).
 - [ ] (вручную, Orchestrator) правило в `rules.md` Profile-а — diff в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
       шаг Orchestrator-а перед merge; Linux CI зелёный.
 
 ## Тесты
@@ -109,3 +110,88 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
   экран, не проверено, поэтому на него не опираемся.
 
 ## Итог
+
+Сделано в ветке `worfy-throughput/02` (implementer, 2026-10-16).
+
+- **Проверка экрана перед каждым gate full** — `harness/bin/wave-gate`, функции `screenLocked`,
+  `screenWait`, `gateOnce`. `ioreg -n Root -d1`, поле `IOConsoleLocked`; `ioreg` нет в `PATH` (spawn
+  отвечает ENOENT) — проверки нет, ветки по `process.platform` нет. `Yes` — одна строка
+  `screen locked: gate full waits`, опрос раз в 30 s (`WAVE_GATE_SCREEN_POLL_S`), замок e2e при
+  ожидании не держится. Экран проверяется до замка e2e и ещё раз, когда замок взят: ожидание замка
+  может длиться целый gate full соседа; заблокирован — замок отдаётся, ожидание идёт снова.
+- **Экран заблокировался посреди gate full** — `screenWatch`: опрос во время прогона и проверка в его
+  конце. Красный прогон, в выводе которого `the window was not shown within <N> s`
+  (`test/e2e/helpers.ts:196`), при экране, заблокированном за время прогона, записывается в
+  `state.json` как `outcome: "unverified"`, `screen_locked: true`, `reason: "screen locked: …"` и
+  повторяется после разблокировки в том же `check`. Не больше трёх прогонов подряд (`SCREEN_TRIES`),
+  потом `check` кончается `STATUS=unverified`, exit 3; следующий `check` повторяет прогон (незаконченные
+  прогоны он и так отбрасывает). Другой красный при заблокированном экране и та же ошибка окна при
+  незаблокированном экране (нагрузка параллельных e2e) — красные, как раньше.
+- **`caffeinate`** — `keepAwake` / `letSleep`: `check` и `merge` на старте зовут
+  `caffeinate -d -w <process.pid>`; `caffeinate` нет в `PATH` — команды идут без него. На выходе, на
+  ошибке и на сигнале процесс ещё и снимается явно; при SIGKILL его заканчивает `-w`.
+- **Skill** `harness/skills/epic-wave/SKILL.md`, раздел «Gate before merge»: абзац об экране —
+  что делают команды, строка ожидания не ошибка, ручная проверка `IOConsoleLocked` перед gate full
+  вне `wave-gate`.
+- **Урок** `docs/lessons/agents.md`, «Ночной прогон Autopilot»: раздел переписан под формат уроков
+  (2–6 строк), добавлены `caffeinate` команд `wave-gate`, проверка перед gate full и ночь 2026-10-16.
+
+Test-ы — `harness/bin/tests/wave-gate.test.sh`, 111 проверок, exit 0. Stub-ы `ioreg` и `caffeinate`
+лежат в отдельной папке впереди `PATH` во всех test-ах, поэтому настоящие `/usr/sbin/ioreg` и
+`/usr/bin/caffeinate` не зовутся. Без них test идёт с `PATH` из ссылок на нужные инструменты, без
+`/usr/bin` и `/usr/sbin`. Новые test-ы: экран заблокирован до прогона (одна строка, gate не идёт, замок
+e2e свободен, `ioreg -n Root -d1` опрашивается); экран заблокировался, пока ждали замок e2e; экран не
+заблокирован; экран заблокировался посреди прогона и остался заблокирован; заблокировался и
+разблокировался посреди прогона; ошибка окна без блокировки — красный и flaky; другой красный при
+блокировке — красный; три прогона подряд под блокировкой — exit 3, следующий `check` зелёный;
+`caffeinate -d -w <pid команды>` у `check` и у `merge`; без `ioreg` и `caffeinate` в `PATH`; после
+выхода, ошибки, SIGTERM и SIGKILL процессов stub-а нет.
+
+Мутанты (копии скрипта в scratchpad, запуск через `BIN_DIR`), каждый краснит свой test:
+| мутант | красный test |
+| --- | --- |
+| не проверять экран (`screenLocked` всегда `false`) | `locked screen: one line …` и ещё 9 |
+| `ioreg` по `process.platform` (`/usr/sbin/ioreg` на darwin) | `locked screen: …` и ещё 9 |
+| падение первого окна при заблокированном экране — красный | `screen locked during the run: …` (3), `screen locked during every run` (2) |
+| `-w` с чужим pid (`process.ppid`) | `caffeinate: check/merge runs caffeinate -d -w <its own pid>`, `resume: no caffeinate left after a SIGKILL` |
+| без повторной проверки экрана после замка e2e | `locked screen after the e2e lock: …` |
+| без проверки экрана в конце прогона | `screen locked during the run: …` (3), `screen locked during every run` (2) |
+| без опроса экрана во время прогона | `screen locked and unlocked during the run: …` |
+
+Мутант «`return false` при `process.platform !== "darwin"`» на Mac не краснеет (здесь darwin); на Linux
+CI его краснят те же test-ы — локально не проверено.
+
+Проверки: `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (264 файла, 5541 test); shell test-ы
+`wave-gate`, `skill-blocks`, `epic-wave-ship-ticket`, `agents-text` — exit 0; gate fast — exit 0,
+`[gate] зелено (fast)`. gate full — шаг Orchestrator-а.
+
+**Решено без владельца, подтвердить:**
+1. Прогон, испорченный заблокированным экраном, повторяется в том же `check`, а не отдаётся
+   Orchestrator-у кодом 3: ночью повтор без хода агента. Предел — три прогона, потом exit 3.
+2. Испорченным считается только красный прогон с сообщением `the window was not shown within` при
+   экране, заблокированном за время прогона (опрос раз в 30 s и проверка в конце). Прочие красные при
+   блокировке остаются красными: повтор и бисекция их разберут.
+3. `caffeinate` снимается и явно на выходе — в дополнение к `-w`.
+4. Раздел урока переписан целиком, а не дополнен: с добавкой он выходил за 6 строк формата.
+
+**Правка `rules.md` Profile-а worfy** (шаг Orchestrator-а, `~/.claude/worfy-harness/projects/worfy/rules.md`),
+после пункта «e2e и gate full разных агентов — по одному, под общим замком»:
+
+```diff
++- **Перед любым gate full и e2e на Mac вне `wave-gate` — проверка экрана** (worfy-throughput/02).
++  Пока экран заблокирован, Electron не показывает окно, и каждый e2e падает на первом окне. Перед
++  прогоном, внутри той же команды Bash, перед командой замка:
++  `ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes' && { echo "экран заблокирован: жду"; while ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes'; do sleep 30; done; }`.
++  Прогон, упавший на первом окне («the window was not shown within 30 s»), пока экран был
++  заблокирован, — не красный: повторить после разблокировки. `wave-gate check` делает это сам и сам
++  держит экран (`caffeinate`). Это правило заменяет ручной цикл ожидания каждого агента.
+```
+
+Не проверено:
+- (вручную) `pmset -g assertions` во время `wave-gate check` на Mac — шаг владельца или Orchestrator-а:
+  настоящий `caffeinate` в test-ах и руками implementer-а не запускался.
+- (вручную) вердикт Windows по ADR-0056, пункт 2 — шаг владельца. Stub-ы test-а — bash-скрипты без
+  расширения; `wave-gate` зовёт `gh`, `ioreg`, `caffeinate` через `spawn` по имени, а на Windows так
+  bash-скрипт не находится (и stub `gh`, и stub gate Ticket-а 01 — тоже). Без `ioreg` и `caffeinate` на
+  Windows проверки экрана и `caffeinate` нет — это и ожидается.
+- (вручную) правка `rules.md` — шаг Orchestrator-а, diff выше.
