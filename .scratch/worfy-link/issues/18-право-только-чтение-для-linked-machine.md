@@ -1,7 +1,8 @@
 # 18 — Право «только чтение» для Linked machine до связи с чужой машиной
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
+Branch: worfy-link/18
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md:278`
 
@@ -180,8 +181,11 @@ Ticket-а 08.
 - `src/main/link/remote-calls.ts` — сообщение `projects-access`.
 - `src/main/link/service.ts`, `src/main/link/keep-awake.ts`, `src/main/link/notes.ts` — места, где
   читается `projectsAccess`.
-- `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/machines/useMachines.ts` —
-  переключатель на экране.
+- `src/renderer/settings/MachinesSection.tsx`, `src/renderer/settings/controls.tsx`,
+  `src/renderer/machines/useMachines.ts` — переключатель на экране (Settings → Machines; его перенёс
+  `worfy-ui` 05, PR #296, из `src/renderer/shell/sidebar/MachinesSection.tsx`).
+- `test/unit/machines-section.test.tsx`, e2e spec Settings → Machines — снимки уровней.
+- `.scratch/worfy-link/issues/25-*.md` — новый Ticket: скрытие действий записи (ответ 4).
 - `test/unit/link-access.test.ts`, `test/contract/link-access.test.ts`, `test/contract/ipc.test.ts`.
 - `docs/adr/` — новый ADR; `docs/design/F-SPEC.md`; `.scratch/worfy-link/spec.md`.
 
