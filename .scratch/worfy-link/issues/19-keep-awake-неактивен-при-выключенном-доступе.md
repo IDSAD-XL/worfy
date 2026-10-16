@@ -1,7 +1,7 @@
 # 19 — Переключатель «Keep this computer awake» неактивен, пока доступ к Project-ам выключен
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #397](https://github.com/IDSAD-XL/worfy/pull/397)
 Branch: worfy-link/19
 Blocked by: —
 Source: решение владельца 2026-10-12 («изменить») по пункту «решено без владельца» Ticket-а [14](14-машина-project-а-не-засыпает-статус-спит.md) (`:145-147`, долг ревью PR #167).
@@ -164,3 +164,9 @@ Source: решение владельца 2026-10-12 («изменить») по
   салатовые в тёмной), строка-подсказка на месте.
 - Подсказку `title` снимок страницы не показывает (это нативный tooltip); её проверяют unit- и
   e2e-test.
+
+**Долг** (ревью второго круга, PR #397, low):
+- Новый вид неактивного выключенного `SettingSwitch` (пунктирная рамка, `settings.css:156-167`) действует везде, в том числе на дочерние переключатели Terminal AI при выключенном Terminal AI. Подпись строки там не приглушается: `Row` в `src/renderer/settings/TerminalAiSection.tsx:55-57` не передаёт `disabled` в `SettingRow`. Снимка Terminal AI в этом виде нет.
+- ADR-0060, раздел «Последствия», называет место строки-подсказки `src/renderer/shell/sidebar/MachinesSection.tsx`; она в `src/renderer/settings/MachinesSection.tsx` (переключатели перенёс `worfy-ui` 05). Принятый ADR не правится.
+
+**Merge.** `wave-gate` назвал PR #397 виновником красного набора, но красен был typecheck в его дереве под `.git/` на любом коммите — Ticket `worfy-throughput` 07. PR влит старым путём: `GATE_SCOPE=all` gate full в своём worktree — зелёный (lint, typecheck, test, test:e2e, test:package), CI success, `2848a231`.
