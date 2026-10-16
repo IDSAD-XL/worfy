@@ -155,6 +155,7 @@ describe('the sidebar, hidden and shown', () => {
   const settings = (revision: number, visible: Partial<AppSettings['sidebar']['visible']> = {}): AppSettings => ({
     interfaceScale: 1,
     sidebar: { collapsed: {}, visible: { normal: true, focus: true, ...visible } },
+    autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
     revision,
   })
 

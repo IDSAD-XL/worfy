@@ -13,6 +13,7 @@ import type { SidebarSectionProps } from '../../src/renderer/shell/SidebarSectio
 const settings = (revision: number, collapsed: Record<string, boolean> = {}): AppSettings => ({
   interfaceScale: 1,
   sidebar: { collapsed, visible: { normal: true, focus: true } },
+  autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   revision,
 })
 

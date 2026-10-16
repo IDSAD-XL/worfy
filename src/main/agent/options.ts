@@ -40,6 +40,12 @@
 // Session's canUseTool; and it asks the policy tier to ignore every allow rule outside it
 // (`allowManagedPermissionRulesOnly`), so the user's own allow rules do not either — that key is
 // documented for the policy tier, but no real Claude Code run has confirmed it is kept.
+//
+// The autocompact window (worfy-polish ticket 24): a window in tokens goes as the flag settings of
+// the query (`settings: { autoCompactWindow }`, the `--settings` flag of Claude Code). Claude Code
+// takes CLAUDE_CODE_AUTO_COMPACT_WINDOW of the environment over it, and it over the user's
+// settings.json; it compacts a little below the window, keeping room for the summary. With no
+// window ("Claude Code default") no flag settings go at all.
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
@@ -152,6 +158,12 @@ export interface SessionOptionsInput {
   settingSources?: readonly SettingSource[] | undefined
   /** Only the policy tier may allow a tool: allow rules of every settings file are ignored. */
   permissionRulesFromPolicyOnly?: boolean | undefined
+  /**
+   * The autocompact window in tokens (worfy-polish ticket 24), passed as flag settings: above the
+   * user's settings.json, below the policy tier and below CLAUDE_CODE_AUTO_COMPACT_WINDOW of the
+   * environment. Absent or null — "Claude Code default" — passes no flag settings at all.
+   */
+  autoCompactWindow?: number | null | undefined
 }
 
 /** The options of the draft Session of a Project's connection; see the header. */
@@ -246,6 +258,8 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (settings.effort !== null) options.effort = settings.effort
   if (input.resume !== undefined) options.resume = input.resume
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
+  // Read by Claude Code once, when the process starts: a running Session keeps its window.
+  if (input.autoCompactWindow != null) options.settings = { autoCompactWindow: input.autoCompactWindow }
   if (input.stderr !== undefined) options.stderr = input.stderr
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat

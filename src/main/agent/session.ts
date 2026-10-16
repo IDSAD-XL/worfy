@@ -135,6 +135,12 @@ export interface QueryRequest {
   canUseTool: CanUseToolHandler
   /** No person is at the Session (session-settings.ts): Claude Code must run in bypassPermissions. A Session always sets it. */
   unattended?: boolean | undefined
+  /**
+   * The Session is a Project's Orchestrator, Autopilot's included (SessionLaunch.orchestrator): its
+   * Claude Code gets the Orchestrator's autocompact window, any other Session the other one
+   * (app-registry.ts). A Session always sets it.
+   */
+  orchestrator?: boolean | undefined
 }
 
 /** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */
@@ -600,6 +606,7 @@ export class Session {
       settings: this.querySettings(settings),
       canUseTool: this.canUseTool,
       unattended: this.launch.unattended,
+      orchestrator: this.launch.orchestrator === true,
     }
     void this.consume(run, request)
   }

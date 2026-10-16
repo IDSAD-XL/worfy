@@ -8,6 +8,11 @@
 //   name without the extension, as ShellExtension.id in src/renderer/shell/registry.ts); a section
 //   with no key keeps its own default;
 // - `sidebar.visible` — whether the sidebar is shown, apart for the normal view and the focus mode;
+// - `autoCompactWindow` — the autocompact window of a Session in tokens (worfy-polish ticket 24):
+//   `orchestrator` for a Project's Orchestrator, Autopilot's included, and its Subagents;
+//   `other` for every other Session of worfy. null — "Claude Code default": worfy passes nothing,
+//   the user's settings.json and Claude Code decide. Main reads it at every start of a Session's
+//   Claude Code (src/main/agent/app-registry.ts); a running process keeps the window it started with;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -29,6 +34,37 @@ export function clampScale(value: number): number {
   return Math.round(bounded * 10) / 10
 }
 
+/** The bounds of the autocompact window Claude Code takes (Settings.autoCompactWindow of the SDK), in tokens. */
+export const AUTO_COMPACT_WINDOW_MIN = 100_000
+export const AUTO_COMPACT_WINDOW_MAX = 1_000_000
+/** The step of the window in Settings: 10K. */
+export const AUTO_COMPACT_WINDOW_STEP = 10_000
+/**
+ * The windows of a Machine that never changed them (decision of the owner, 2026-10-15): 400K for
+ * the Orchestrator, which suits both it and the implementers that inherit it; 500K for the others.
+ */
+export const AUTO_COMPACT_WINDOW_DEFAULTS: Readonly<{ orchestrator: number; other: number }> = Object.freeze({ orchestrator: 400_000, other: 500_000 })
+
+/**
+ * Brings a window into AUTO_COMPACT_WINDOW_MIN–AUTO_COMPACT_WINDOW_MAX, rounded to the nearest
+ * step: 95 000 → 100 000, 404 999 → 400 000, 2 000 000 → 1 000 000. null stays null ("Claude Code
+ * default"); a value that is not a finite number becomes null too.
+ */
+export function clampAutoCompactWindow(value: number | null): number | null {
+  if (value === null || !Number.isFinite(value)) return null
+  const bounded = Math.min(AUTO_COMPACT_WINDOW_MAX, Math.max(AUTO_COMPACT_WINDOW_MIN, value))
+  return Math.round(bounded / AUTO_COMPACT_WINDOW_STEP) * AUTO_COMPACT_WINDOW_STEP
+}
+
+/** A window in tokens within the bounds and on a step, or null for "Claude Code default". */
+export const autoCompactWindowSchema = z
+  .number()
+  .int()
+  .min(AUTO_COMPACT_WINDOW_MIN)
+  .max(AUTO_COMPACT_WINDOW_MAX)
+  .multipleOf(AUTO_COMPACT_WINDOW_STEP)
+  .nullable()
+
 /**
  * A sidebar section id: a file name without the extension (`MachinesSection`). The pattern also
  * keeps keys such as `__proto__` out of the record a change is merged into.
@@ -49,14 +85,21 @@ export const appSettingsSchema = z.object({
     collapsed: z.record(sectionIdSchema, z.boolean()),
     visible: sidebarVisibilitySchema,
   }),
+  autoCompactWindow: z.object({
+    /** A Project's Orchestrator, attended or under Autopilot; its Subagents inherit the window. */
+    orchestrator: autoCompactWindowSchema,
+    /** Every other Session of worfy: those opened on the Canvas. */
+    other: autoCompactWindowSchema,
+  }),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
 
 /**
  * A change in parts: only the fields given change. `collapsed` and `visible` merge by key, so a
- * change to one section leaves the others as they are. `interfaceScale` may be any number; the
- * store brings it into range with clampScale.
+ * change to one section leaves the others as they are; so do the two windows of
+ * `autoCompactWindow`. `interfaceScale` may be any number; the store brings it into range with
+ * clampScale, and a window with clampAutoCompactWindow.
  */
 export const appSettingsPatchSchema = z.object({
   interfaceScale: z.number().optional(),
@@ -66,6 +109,12 @@ export const appSettingsPatchSchema = z.object({
       visible: sidebarVisibilitySchema.partial().optional(),
     })
     .optional(),
+  autoCompactWindow: z
+    .object({
+      orchestrator: z.number().nullable().optional(),
+      other: z.number().nullable().optional(),
+    })
+    .optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -73,10 +122,25 @@ export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   interfaceScale: INTERFACE_SCALE_DEFAULT,
   sidebar: Object.freeze({ collapsed: Object.freeze({}), visible: Object.freeze({ normal: true, focus: true }) }),
+  autoCompactWindow: AUTO_COMPACT_WINDOW_DEFAULTS,
   revision: 0,
 })
 
 /** A fresh copy of the defaults, safe to change. */
 export function defaultAppSettings(): AppSettings {
-  return { interfaceScale: INTERFACE_SCALE_DEFAULT, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, revision: 0 }
+  return {
+    interfaceScale: INTERFACE_SCALE_DEFAULT,
+    sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
+    autoCompactWindow: { ...AUTO_COMPACT_WINDOW_DEFAULTS },
+    revision: 0,
+  }
+}
+
+/**
+ * The autocompact window a Session's Claude Code is started with: the Orchestrator's for a
+ * Project's Orchestrator (Autopilot's included), the other one for any other Session; null — pass
+ * nothing.
+ */
+export function autoCompactWindowFor(settings: Pick<AppSettings, 'autoCompactWindow'>, orchestrator: boolean): number | null {
+  return orchestrator ? settings.autoCompactWindow.orchestrator : settings.autoCompactWindow.other
 }
