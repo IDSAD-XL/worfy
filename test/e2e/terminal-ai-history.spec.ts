@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow } from './helpers'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
 
 // The Suggestion of Terminal AI from the history of commands, in a Terminal Node of the built app
 // on a real zsh: a command that ran is offered again in grey when its start is typed, → and
@@ -13,12 +13,13 @@ import { launchApp, openSecondWindow } from './helpers'
 //
 // SHELL is the zsh of the machine and HOME a temporary folder with its own .zshrc, so no startup
 // file and no history of the machine running the tests is read, and none is written. The command
-// carries a mark of its own all the same.
+// carries a mark of its own all the same. Windows has no zsh: the test is skipped there.
+
+test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 const PROJECT = 'alpha-0000000a'
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 /** Where the screenshots of the grey text go when the run is asked for them (the evidence of the ticket). */
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
 
@@ -134,7 +135,7 @@ function typedColor(node: Locator): Promise<string> {
 test('a command that ran is suggested in grey from the history; → and Alt+→ take it; a second window shows the same grey text', async () => {
   // Unique to this run: nothing else in any history starts with it.
   const mark = `worfy-tai-${Date.now().toString(36)}-${process.pid}`
-  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: ZSH, HOME: home, skip_global_compinit: '1' } })
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: zshPath(), HOME: home, skip_global_compinit: '1' } })
   try {
     const { window } = launched
     const node = await newTerminal(window)

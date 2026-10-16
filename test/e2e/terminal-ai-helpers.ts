@@ -1,10 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { FakeAnswer, FakeLogEntry } from '../../src/main/terminal-ai/fake-backend'
+import { zshPath } from './zsh'
 
 // What the e2e tests of Terminal AI share: a Terminal Node on a real zsh that reads nothing of the
 // machine running the tests, what its screen shows, and the fake assist process.
@@ -15,8 +15,6 @@ import type { FakeAnswer, FakeLogEntry } from '../../src/main/terminal-ai/fake-b
 // file the test writes, and every request it got is one line of a log the test reads. Claude Code
 // is never started. A command a test types still carries a mark of its own.
 
-/** The zsh of the machine: /bin/zsh on macOS. */
-export const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 /** The Project of the sandbox. */
 export const TERMINAL_AI_PROJECT = 'alpha-0000000a'
 /** The prompt the sandbox's .zshrc sets, as the screen shows it. */
@@ -64,7 +62,7 @@ export function terminalAiSandbox(): TerminalAiSandbox {
     home,
     env: {
       WORFY_DATA_DIR: dataDir,
-      SHELL: ZSH,
+      SHELL: zshPath(),
       HOME: home,
       // Ubuntu's /etc/zsh/zshrc runs compinit unless this is set.
       skip_global_compinit: '1',
