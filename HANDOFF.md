@@ -16,7 +16,7 @@
 
 ## Ждёт владельца
 
-- `worfy-throughput`: 01 влит без вердикта Windows (ошибка) — gate full на ПК для 01, 02 (`wave-gate.test.sh` там красный до 06); затем Harness, Profile.
+- `worfy-throughput`: 01 влит без вердикта Windows (ошибка) — gate full на ПК для 01, 02 (`wave-gate.test.sh` там красный до 06); Harness в Stable copy — `0.3.0+4089c03e`, Profile (`merge_gate: "wave"`, `e2e_lock`) внесён 2026-10-16.
 - Приёмка E3 («Итог» `worfy-harness` 26) закрыта 2026-10-15: пункты 1–5 приняты, версия `0.3.0`. Ошибка в окне без `gate/config.json` принята.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
