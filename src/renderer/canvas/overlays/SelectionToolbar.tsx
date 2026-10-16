@@ -15,8 +15,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
-import { isOtherModifier, isPrimary, shortcutKey } from '../../platform'
+import { SHORTCUTS } from '../../../shared/shortcuts'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { isTextTarget, matches } from '../../shortcuts/match'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
 import {
@@ -54,12 +55,6 @@ async function applyAll(ops: LayoutOps, list: readonly Parameters<LayoutOps['app
   })
 }
 
-/** True while the element is a place to type: there ⌘Z, Delete and Backspace belong to the text. */
-function isTextTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return target.isContentEditable || target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]') !== null
-}
-
 /** Delete / Backspace, ⌘Z, ⇧⌘Z and Esc on the Canvas of `projectId`. */
 function useCanvasKeys(projectId: string | undefined): void {
   const flow = useReactFlow<CanvasFlowNode>()
@@ -76,13 +71,15 @@ function useCanvasKeys(projectId: string | undefined): void {
     }
     const selectedNodes = () => flow.getNodes().filter((node) => node.selected && !node.hidden)
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      // The other modifier (Ctrl on macOS, the Windows key on Windows) makes it another combination.
-      if (event.defaultPrevented || event.altKey || isOtherModifier(event) || isTextTarget(event.target)) return
+      // In a place to type ⌘Z, Delete and Backspace belong to the text. The other modifier (Ctrl on
+      // macOS, the Windows key on Windows) and Alt make another combination (matches).
+      if (event.defaultPrevented || isTextTarget(event.target)) return
       if (!onCanvas(event)) return
-      if (isPrimary(event) && shortcutKey(event) === 'z') {
+      const undo = matches(event, SHORTCUTS.undo)
+      if (undo || matches(event, SHORTCUTS.redo)) {
         event.preventDefault()
-        void (event.shiftKey ? historyOf(projectId).redo() : historyOf(projectId).undo())
-      } else if (!isPrimary(event) && !event.shiftKey && (event.key === 'Delete' || event.key === 'Backspace')) {
+        void (undo ? historyOf(projectId).undo() : historyOf(projectId).redo())
+      } else if (matches(event, SHORTCUTS.deleteSelection)) {
         const selected = selectedNodes()
         if (selected.length === 0) return
         event.preventDefault()

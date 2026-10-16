@@ -380,16 +380,18 @@ async function ipcOver(run: GhRunner, home: string, worktrees: (root: string) =>
 }
 
 describe('checks.get', () => {
+  // The schema refuses all but one; `main` has the shape of a branch, and the handler refuses it.
+  const INVALID = /checks\.get: invalid input/
   it.each([
-    [undefined],
-    [{ root: 'relative', branches: [] }],
-    [{ root: '/r' }],
-    [{ root: '/r', branches: 'demo/01' }],
-    [{ root: '/r', branches: ['main'] }],
-    [{ root: '/r', branches: ['--repo=evil/x'] }],
-    [{ root: '/r', branches: ['demo/01 --web'] }],
-    [{ root: '/r', branches: [42] }],
-  ])('refuses %j without running gh', async (input) => {
+    [undefined, INVALID],
+    [{ root: 'relative', branches: [] }, INVALID],
+    [{ root: '/r' }, INVALID],
+    [{ root: '/r', branches: 'demo/01' }, INVALID],
+    [{ root: '/r', branches: ['main'] }, /main is not the branch of a Ticket of this Project/],
+    [{ root: '/r', branches: ['--repo=evil/x'] }, INVALID],
+    [{ root: '/r', branches: ['demo/01 --web'] }, INVALID],
+    [{ root: '/r', branches: [42] }, INVALID],
+  ])('refuses %j without running gh', async (input, reason) => {
     let count = 0
     const call = await ipcOver(() => {
       count += 1
@@ -397,6 +399,7 @@ describe('checks.get', () => {
     }, await tempDir())
     const result = await call(input)
     expect(result.ok).toBe(false)
+    expect(!result.ok && result.error).toMatch(reason)
     expect(count).toBe(0)
   })
 

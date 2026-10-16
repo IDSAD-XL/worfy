@@ -345,6 +345,40 @@ Session на Windows-ПК, 2026-10-14. Windows 11 Pro 10.0.26200; `pnpm test` и
 
 **Не сделано и не проверено в срезе 2:** e2e на Mac гонит Session на Mac. Причины трёх групп e2e-падений из таблицы выше (рамки Epic-ов, `settings-health`, `pin-tags:179`) прочитаны по первой ошибке и запуском не подтверждены. `test/contract/terminal.test.ts` в двух запусках из четырёх на ПК закончился раньше времени: 4 test-а прошли, 40 остались без результата, файл при этом считался прошедшим; в двух других и в полных прогонах — 44 прошли, 3 пропущены. Причина не найдена; срез поменял в этом файле только комментарий. Проверка `grep` держится, только пока новый spec не напишет `Meta`: за время среза main дважды принёс новые e2e-файлы, один из них с `Meta+k`. Test-а, который ловил бы это в CI, срез не добавляет.
 
+### Срез 3a — Session-ы fixture находятся на Windows; test-ы отказа называют причину отказа
+
+Session на Windows-ПК, 2026-10-16. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/14-session-fixtures-2` от main `20aa1a9`, четыре commit-а. Первые два сделаны 2026-10-14 на ветке `worfy-windows/14-session-fixtures` (`6e3ef19`, от старого main `88769ca`, запушена, PR не было). Она не переносилась rebase-ом — для этого нужен был бы force push; оба commit-а перенесены cherry-pick-ом на новую ветку. Конфликт — одна строка `import` в `test/contract/claude-home-registry.test.ts`: main добавил `utimes` (#369), срез убрал `cp`. Меняются только файлы в `test/`. **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Причина (Part A).** Fixture Claude home называет папки под `projects/` по POSIX-путям (`-Users-test-projects-demo`). Registry разрешает корень Project-а и называет папку по результату. На Windows `/Users/test/projects/demo` — это `C:\Users\test\projects\demo`, папка — `C--Users-test-projects-demo`, и ни одна Session fixture там не находилась. Код прав, неправы test-ы.
+- **Что сделано (Part A, `c930328`).** `test/contract/claude-home-fixture.ts`: `copyClaudeHome()` копирует fixture и даёт каждой папке под `projects/` то имя, которое registry ищет на этой системе; `projectDir()` называет такую папку. На macOS и Linux имена — те же, что в fixture. Test-ы `claude-home-registry`, `claude-home-subagents`, `bindings` читают копии и называют папки через `projectDir()`. Test, которому нужно время старта процесса, на Windows спрашивает FILETIME своей командой PowerShell (у `ps` из Git Bash нет `-o`); проверки «нет `ps` в PATH» остаются для macOS и Linux.
+- **Что сделано (Part B, `7247e48`).** 13 test-ов отказа проверяли только `ok === false`. На Windows, пока URL окна собирался руками (срез 1), их вызов отклоняла проверка окна, и test проходил не по той причине. Теперь каждый ещё сверяет текст отказа: `actions` 3 («<канал>: invalid input»), `autopilot` 1 («autopilot.state: invalid output from the handler»), `card-protocol` 1 («cards.get: invalid input» и «No Project with id …»), `github-prs` 8 строк `checks.get` («checks.get: invalid input» и отказ обработчика для `main`).
+- **`7124f82`.** Test «sees a new, an appended, a rewritten and a removed transcript …» пришёл на main во время среза (#369) и собирал путь к папке fixture руками; на Windows он падал с `ENOENT` на `utime`. Теперь путь — через `projectDir(DEMO)`.
+
+| `pnpm test` на ПК | Test-ов | Прошли | Упали | Пропущены |
+|---|---|---|---|---|
+| main `20aa1a9` | 5505 | 4954 | 410 | 141 |
+| ветка `7247e48` (без `7124f82`) | 5505 | 4984 | 380 | 141 |
+
+| Файл | main: упали | ветка `7247e48`: упали |
+|---|---|---|
+| `claude-home-registry.test.ts` | 24 | 8 (после `7124f82`, файл отдельно: 7 из 71) |
+| `claude-home-subagents.test.ts` | 19 | 0 из 32 |
+| `bindings.test.ts` | 1 | 0 из 13 |
+| `actions`, `autopilot`, `card-protocol` | 0 | 0 |
+| `github-prs.test.ts` | 24 | 24 (подмена `gh` — срез 3b) |
+
+- **Перестали падать 40 test-ов:** `claude-home-registry` 16, `claude-home-subagents` 19, `bindings` 1 и ещё 4 в файлах, которые срез не трогал (`permission-card` 2, `canvas` 1, `canvas-actions` 1) — шум между прогонами.
+- **По именам на ветке падают и не падают на main 10 test-ов**, все в четырёх файлах, которые срез не трогал: `startup-failure` 4, `terminal-windows` 4, `critical-path` 1 (timeout 5 с), `terminal` 1. Эти четыре файла, запущенные отдельно на обеих сторонах: новых падений 0, на ветке падает на одно меньше (`startup-failure` 11 против 12). `terminal.test.ts` в этом отдельном запуске на ветке закончился раньше времени (7 прошли, 37 без результата, файл засчитан прошедшим — как дважды в срезе 2); ещё раз отдельно — 44 прошли, 3 пропущены, как на main.
+- **Мутант:** `test/app-url.ts` снова собирает URL руками (`` `file://${INDEX_HTML}` ``) — на ветке все 13 закреплённых test-ов падают; без мутанта все 13 проходят. До закрепления (2026-10-14, старое дерево) все 13 проходили и под мутантом.
+- **Ревью** — subagent этой Session, линза «корректность test-ов»: серьёзных находок нет; на macOS и Linux имена папок те же, что в fixture; ни одна проверка не ослаблена; путь Windows к времени старта процесса не проходит, если процесса нет или PowerShell упал (PowerShell для несуществующего процесса — exit 1). Две находки low и одна вне diff исправлены в `2e993da`: комментарий у `found(AGENTS, S7, S7)` обещал то, чего эта строка не показывает; пропущенный пробел; два отказа `bindings.signals` теперь тоже сверяют текст («bindings.signals: invalid input»). Этот test под мутантом URL падает раньше — на строке, где ему нужна найденная Session, — так что закрепление делает его только строже.
+- После `7124f82` и `2e993da`: `claude-home-registry.test.ts` отдельно — 7 упали, 64 прошли из 71 (все семь — наблюдение за Claude home, ниже); `bindings.test.ts` и `claude-home-subagents.test.ts` отдельно — 45 из 45. `pnpm lint`, `pnpm typecheck` на `2e993da` — exit 0.
+
+**Не сделано и не проверено в срезе 3a:** macOS и Linux — имена папок через `projectDir()` там совпадают с fixture по построению, запуском на Mac не проверено.
+
+**Вне скоупа, найдено попутно:**
+- **7 test-ов наблюдения за Claude home в `claude-home-registry.test.ts` падают из-за кода, а не test-а** — кандидат в отдельный Ticket. `src/main/claude-home/registry.ts:701-704`: фильтр `ignored` сравнивает путь с `this.home` строкой (`path === this.home`), а chokidar 5.0.0 на Windows отдаёт ему `C:/…/claude` с `/`. Сравнение ложно, `relative(projectsDir, home)` даёт `..`, и вся Claude home считается игнорируемой. Замер 2026-10-14 (`t14c/sessions/watch-debug.txt` на ПК): первые пути, которые получил `ignored`, — с `/`; изменений за 1,5 с — 0. В жизни это значит: на Windows список Session-ов не обновляется сам, пока его не запросят заново.
+- **Подмены #401 (`test/fixtures/harness-stub`, `workflow-stub`, `qmd-stub`, `gh`) на Windows не запускаются** (`workflow-reader`, `github-prs`, `harness-qmd`, `docs`): это bash-скрипты `#!/bin/sh` без расширения, а Node на Windows без shell запускает только `.exe` и `.com` — `spawnSync` даёт `ENOENT` (errno -4058) и по полному пути, и по имени в PATH (проба на ПК 2026-10-16). Кроме того, в рабочей копии они с CRLF (`git ls-files --eol`: `i/lf w/crlf attr/`): `.gitattributes` не задаёт `eol=lf` для `test/fixtures/**`. `symlinkSync` на этом ПК проходит — включён режим разработчика (`AllowDevelopmentWithoutDevLicense = 1`); без него Windows отказала бы с `EPERM`. Это предмет срезов 3b и 3c (подмены через Node: `gh-stub.mjs` уже есть в #401).
+
 ### Срез 3b — подмена `gh` идёт через Node
 
 Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/14-stand-ins` от main `eb96efe`, три commit-а и этот раздел. **На macOS и Linux с ПК ничего не запускалось.**

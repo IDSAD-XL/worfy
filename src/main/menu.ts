@@ -16,8 +16,19 @@
 // is: on the Canvas, in the Session view, in focus mode, in a text field. Which of the two saved
 // answers changes — the normal view's or focus mode's — only that window knows, so the item sends
 // it `menu.command` and the renderer does the rest (src/renderer/shell/sidebar-visibility.ts).
+//
+// Help ▸ Keyboard Shortcuts (Cmd/Ctrl+/) asks the window to open its Keyboard shortcuts window
+// (src/renderer/shortcuts/ShortcutsOverlay.tsx). Help has the `help` role: on macOS it gets the
+// system's search field. On Windows and Linux the item shows Ctrl+/ but does not take it: the
+// renderer catches the key outside a Terminal Node, where it stays with the shell (worfy-ui ticket
+// 11). Ctrl+B needs no such care: xterm.js cancels it in a terminal, and Electron hands the menu only
+// the presses the page did not cancel.
+//
+// Every accelerator comes from the registry of shortcuts (src/shared/shortcuts.ts), which the
+// labels and the Keyboard shortcuts window of the renderer read too.
 import { app, BrowserWindow, Menu, type BaseWindow, type MenuItem, type MenuItemConstructorOptions } from 'electron'
 import { menuCommand, type MenuCommand } from '../shared/ipc/menu'
+import { menuKeys, SHORTCUTS } from '../shared/shortcuts'
 import { emit } from './ipc/index'
 import { setViewState, viewState } from './ipc/view'
 import { canGrow, canShrink, interfaceScale, resetInterfaceScale, stepInterfaceScale } from './settings/interface-scale'
@@ -33,6 +44,8 @@ export const SCALE_SMALLER_MENU_ITEM_ID = 'view.scale.smaller'
 export const SCALE_ACTUAL_MENU_ITEM_ID = 'view.scale.actual'
 /** The id of View ▸ Toggle Sidebar (Cmd/Ctrl+B), for tests that click it. */
 export const SIDEBAR_MENU_ITEM_ID = 'view.sidebar'
+/** The id of Help ▸ Keyboard Shortcuts (Cmd/Ctrl+/), for tests that click it. */
+export const SHORTCUTS_MENU_ITEM_ID = 'help.shortcuts'
 
 /**
  * Tells one window's renderer to carry out `command`: the window the item was clicked for, else the
@@ -45,18 +58,18 @@ export function sendMenuCommand(command: MenuCommand, window: BaseWindow | undef
   emit(target.webContents, menuCommand, command)
 }
 
-function settingsItem(): MenuItemConstructorOptions {
-  return { id: SETTINGS_MENU_ITEM_ID, label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: (_item, window) => sendMenuCommand('settings', window) }
+function settingsItem(platform: NodeJS.Platform): MenuItemConstructorOptions {
+  return { id: SETTINGS_MENU_ITEM_ID, label: 'Settings…', ...menuKeys(SHORTCUTS.settings, platform), click: (_item, window) => sendMenuCommand('settings', window) }
 }
 
 /** The app menu of macOS: the items of Electron's appMenu role, with "Settings…" after About. */
-function appMenu(): MenuItemConstructorOptions {
+function appMenu(platform: NodeJS.Platform): MenuItemConstructorOptions {
   return {
     label: app.name,
     submenu: [
       { role: 'about' },
       { type: 'separator' },
-      settingsItem(),
+      settingsItem(platform),
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -70,19 +83,35 @@ function appMenu(): MenuItemConstructorOptions {
 }
 
 /** File outside macOS: the item of Electron's fileMenu role (quit), with "Settings…" first. */
-function fileMenu(): MenuItemConstructorOptions {
-  return { label: 'File', submenu: [settingsItem(), { type: 'separator' }, { role: 'quit' }] }
+function fileMenu(platform: NodeJS.Platform): MenuItemConstructorOptions {
+  return { label: 'File', submenu: [settingsItem(platform), { type: 'separator' }, { role: 'quit' }] }
+}
+
+/** Help with Electron's `help` role (the search field of macOS) and Keyboard Shortcuts in it. */
+function helpMenu(platform: NodeJS.Platform): MenuItemConstructorOptions {
+  return {
+    role: 'help',
+    label: 'Help',
+    submenu: [
+      {
+        id: SHORTCUTS_MENU_ITEM_ID,
+        label: 'Keyboard Shortcuts',
+        ...menuKeys(SHORTCUTS.shortcuts, platform),
+        click: (_item, window) => sendMenuCommand('shortcuts', window),
+      },
+    ],
+  }
 }
 
 /**
  * The three items of the interface scale at `scale`. An item with no step left to make is disabled:
  * Bigger at the largest scale, Smaller at the smallest.
  */
-function scaleItems(scale: number): MenuItemConstructorOptions[] {
+function scaleItems(scale: number, platform: NodeJS.Platform): MenuItemConstructorOptions[] {
   return [
-    { id: SCALE_ACTUAL_MENU_ITEM_ID, label: 'Actual size', accelerator: 'CmdOrCtrl+Alt+0', click: () => resetInterfaceScale() },
-    { id: SCALE_BIGGER_MENU_ITEM_ID, label: 'Bigger', accelerator: 'CmdOrCtrl+Alt+=', enabled: canGrow(scale), click: () => stepInterfaceScale(1) },
-    { id: SCALE_SMALLER_MENU_ITEM_ID, label: 'Smaller', accelerator: 'CmdOrCtrl+Alt+-', enabled: canShrink(scale), click: () => stepInterfaceScale(-1) },
+    { id: SCALE_ACTUAL_MENU_ITEM_ID, label: 'Actual size', ...menuKeys(SHORTCUTS.scaleActual, platform), click: () => resetInterfaceScale() },
+    { id: SCALE_BIGGER_MENU_ITEM_ID, label: 'Bigger', ...menuKeys(SHORTCUTS.scaleBigger, platform), enabled: canGrow(scale), click: () => stepInterfaceScale(1) },
+    { id: SCALE_SMALLER_MENU_ITEM_ID, label: 'Smaller', ...menuKeys(SHORTCUTS.scaleSmaller, platform), enabled: canShrink(scale), click: () => stepInterfaceScale(-1) },
   ]
 }
 
@@ -98,7 +127,7 @@ function syncScaleItems(scale: number): void {
 
 export function menuTemplate(onMinimap: (item: MenuItem) => void, platform: NodeJS.Platform = process.platform): MenuItemConstructorOptions[] {
   return [
-    ...(platform === 'darwin' ? [appMenu(), { role: 'fileMenu' } as const] : [fileMenu()]),
+    ...(platform === 'darwin' ? [appMenu(platform), { role: 'fileMenu' } as const] : [fileMenu(platform)]),
     { role: 'editMenu' },
     {
       label: 'View',
@@ -107,15 +136,16 @@ export function menuTemplate(onMinimap: (item: MenuItem) => void, platform: Node
         { role: 'forceReload' },
         { role: 'toggleDevTools' },
         { type: 'separator' },
-        ...scaleItems(interfaceScale()),
+        ...scaleItems(interfaceScale(), platform),
         { type: 'separator' },
         { role: 'togglefullscreen' },
         { type: 'separator' },
-        { id: SIDEBAR_MENU_ITEM_ID, label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: (_item, window) => sendMenuCommand('toggleSidebar', window) },
+        { id: SIDEBAR_MENU_ITEM_ID, label: 'Toggle Sidebar', ...menuKeys(SHORTCUTS.toggleSidebar, platform), click: (_item, window) => sendMenuCommand('toggleSidebar', window) },
         { id: MINIMAP_MENU_ITEM_ID, label: 'Show Minimap', type: 'checkbox', checked: viewState().minimap, click: onMinimap },
       ],
     },
     { role: 'windowMenu' },
+    helpMenu(platform),
   ]
 }
 

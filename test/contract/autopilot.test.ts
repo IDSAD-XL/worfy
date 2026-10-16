@@ -977,7 +977,7 @@ describe('the autopilot channels', () => {
 
   it('an answer outside the contract does not reach the renderer', async () => {
     const { invoke } = await register()
-    expect((await invoke('autopilot.state', { projectId: 'bad' })).ok).toBe(false)
+    expect(await invoke('autopilot.state', { projectId: 'bad' })).toEqual({ ok: false, error: 'autopilot.state: invalid output from the handler' })
   })
 
   it('autopilot.changed sends only the contract keys, and refuses a payload of the wrong type', () => {
