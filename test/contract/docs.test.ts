@@ -17,6 +17,8 @@ import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree, saveLayoutNow } from '../remove'
 
 const PROJECT_ID = 'repo-00000001'
+/** The canned Harness script: prints <link>.out (test/fixtures/harness-stub/canned). */
+const CANNED = join(import.meta.dirname, '..', 'fixtures', 'harness-stub', 'canned')
 
 const electron = vi.hoisted(() => ({ listeners: new Map<string, (() => void)[]>() }))
 
@@ -361,10 +363,12 @@ describe('a Silent Project (worfy-harness ticket 23)', () => {
     const bin = join(scratch, 'claude-home', 'bin')
     mkdirSync(bin, { recursive: true })
     const json = { mode: 'silent', _resolved: { mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'repo', path: repo }] } }
-    writeFileSync(join(scratch, 'profile.json'), JSON.stringify(json))
-    writeFileSync(join(bin, 'profile'), `#!/bin/sh\ncat '${join(scratch, 'profile.json')}'\n`)
-    writeFileSync(join(bin, 'ticket'), `#!/bin/sh\necho '${join(folder, '.scratch')}'\n`)
-    execFileSync('chmod', ['755', join(bin, 'profile'), join(bin, 'ticket')])
+    // Links to the canned Harness script, the answer next to each: a new executable file per test
+    // waits for the macOS check of new files, which times out under load (worfy-polish ticket 30).
+    for (const [name, out] of [['profile', JSON.stringify(json)], ['ticket', `${join(folder, '.scratch')}\n`]] as const) {
+      symlinkSync(CANNED, join(bin, name))
+      writeFileSync(join(bin, `${name}.out`), out)
+    }
   })
 
   it('lists and reads HANDOFF.md and the ADRs of the Workflow folder, not those of the repository', async () => {

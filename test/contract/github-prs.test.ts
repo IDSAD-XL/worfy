@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -466,31 +466,24 @@ describe('checks.get', () => {
 // ── the Project's GitHub account (worfy-week ticket 01, ADR-0020) ────────────
 //
 // gh runs with GH_TOKEN of the account the Project's Profile names (`github.account`), taken with
-// `gh auth token -u <account>`; the global gh account is never switched. Here `bin/profile` and
-// `gh` are shell stubs in a temporary folder: the gh stub records GH_TOKEN and its arguments, and
-// knows one logged-in account.
+// `gh auth token -u <account>`; the global gh account is never switched. Here `bin/profile` (a link
+// to the canned script, with its answer next to it in a temporary folder) and `gh` are shell stubs:
+// the gh stub records GH_TOKEN and its arguments, and knows one logged-in account.
 
 const ACCOUNT = 'IDSAD-XL'
 const TOKEN = 'gho_TestToken0123456789abcdef'
 const LIST = ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
 const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
 
-/** A gh that logs `<GH_TOKEN or <unset>>\t<arg>\t<arg>…` and is logged in only as GH_STUB_ACCOUNT, when GH_STUB_TOKEN is set. */
-const GH_ACCOUNT_STUB = `#!/bin/sh
-{ printf '%s' "\${GH_TOKEN-<unset>}"; for a in "$@"; do printf '\\t%s' "$a"; done; printf '\\n'; } >> "$GH_STUB_LOG"
-if [ "$1" = auth ] && [ "$2" = token ]; then
-  if [ "$3" = -u ] && [ "$4" = "$GH_STUB_ACCOUNT" ] && [ -n "$GH_STUB_TOKEN" ]; then printf '%s\\n' "$GH_STUB_TOKEN"; exit 0; fi
-  printf 'no oauth token found for github.com account %s\\n' "$4" >&2
-  exit 1
-fi
-if [ "$1" = pr ] && [ "$2" = list ]; then
-  if [ -n "$GH_STUB_LIST_EXIT" ]; then printf '%s' "$GH_STUB_LIST_STDERR" >&2; exit "$GH_STUB_LIST_EXIT"; fi
-  cat "$GH_STUB_DIR/prs.json"
-  exit 0
-fi
-printf 'gh stub: unsupported command: %s\\n' "$*" >&2
-exit 2
-`
+/**
+ * A gh that logs `<GH_TOKEN or <unset>>\t<arg>\t<arg>…` and is logged in only as GH_STUB_ACCOUNT,
+ * when GH_STUB_TOKEN is set. A file of test/fixtures, like `bin/profile` (CANNED): macOS checks every
+ * new executable file on its first run, one at a time for the whole machine, and a new script per
+ * test made the tests of a loaded full run time out at 15 s (worfy-polish ticket 30).
+ */
+const GH_ACCOUNT_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh-account')
+/** The canned Harness script: answers from the files next to its link (test/fixtures/harness-stub/canned). */
+const CANNED = join(import.meta.dirname, '..', 'fixtures', 'harness-stub', 'canned')
 
 interface GhCall {
   /** GH_TOKEN as gh saw it; null when it was not set. */
@@ -509,11 +502,14 @@ async function accountWorld(profile: ProfileAnswer, gh: { token?: string; shellT
   await mkdir(join(home, 'bin'), { recursive: true })
   const profileLog = join(dir, 'profile-calls.txt')
   if (profile !== 'no script') {
-    const script = `#!/bin/sh\nprintf '%s\\n' "$*" >> '${profileLog}'\nprintf '%s' '${profile.stdout ?? ''}'\nprintf '%s' '${profile.stderr ?? ''}' >&2\nexit ${profile.code}\n`
-    await writeFile(join(home, 'bin', 'profile'), script, { mode: 0o755 })
+    const script = join(home, 'bin', 'profile')
+    await symlink(CANNED, script)
+    await writeFile(`${script}.out`, profile.stdout ?? '')
+    await writeFile(`${script}.err`, profile.stderr ?? '')
+    await writeFile(`${script}.code`, String(profile.code))
+    await writeFile(`${script}.log`, profileLog)
   }
-  const command = join(dir, 'gh')
-  await writeFile(command, GH_ACCOUNT_STUB, { mode: 0o755 })
+  const command = GH_ACCOUNT_STUB
   await writeFile(join(dir, 'prs.json'), JSON.stringify([pull(1, 'demo/01')]))
   const ghLog = join(dir, 'gh-calls.txt')
   const env: Record<string, string> = { PATH: '/usr/bin:/bin', HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT }
@@ -547,7 +543,7 @@ describe("gh with the Project's GitHub account", () => {
     for (const call of lists) expect(call.token).toBe(TOKEN)
     // The token is asked of gh for the Profile's account, before any pr list, with no token of worfy's own.
     expect(calls[0]).toEqual({ token: null, args: ['auth', 'token', '-u', ACCOUNT] })
-    expect(await world.profileCalls()).toEqual([`-C ${world.root} --field github.account`])
+    expect(await world.profileCalls()).toEqual([`profile -C ${world.root} --field github.account in ${world.root}`])
     expect(world.logged).toEqual([])
   })
 

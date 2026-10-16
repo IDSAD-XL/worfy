@@ -1,0 +1,5 @@
+#!/bin/sh
+# epic-status of the Harness plugin (test/contract/workflow-reader.test.ts): logs the HARNESS_HOME
+# it was given to $STUB_HARNESS_ENV, then answers as ./epic-status does.
+printf '%s\n' "${HARNESS_HOME-unset}" >> "$STUB_HARNESS_ENV"
+ELECTRON_RUN_AS_NODE=1 exec "$WORKFLOW_STUB_NODE" "$WORKFLOW_STUB_JS" "$@"

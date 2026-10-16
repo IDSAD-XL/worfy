@@ -3,7 +3,7 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,65 +25,42 @@ const ownEnv = (): Promise<NodeJS.ProcessEnv> => Promise.resolve(process.env)
 
 // ── stub epic-status ──────────────────────────────────────────────────────────
 
-const STUB_JS = String.raw`
-const { execFileSync } = require('node:child_process')
-const { appendFileSync, existsSync, readdirSync, readFileSync } = require('node:fs')
-const { join } = require('node:path')
-const args = process.argv.slice(2)
-const ref = args.includes('--ref') ? args[args.indexOf('--ref') + 1] : null
-appendFileSync(process.env.STUB_LOG, (ref ?? '.') + '\n')
-if (process.env.STUB_DELAY_MS) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Number(process.env.STUB_DELAY_MS))
-const git = (...a) => execFileSync('git', a, { encoding: 'utf8' })
-let files
-if (ref) {
-  files = git('ls-tree', '-r', '--name-only', ref, '--', '.scratch').split('\n').filter(Boolean).map((p) => [p, () => git('show', ref + ':' + p)])
-} else {
-  // STUB_SCRATCH: the tickets root of a Silent Project, outside the repository (its Workflow folder).
-  const scratch = process.env.STUB_SCRATCH || '.scratch'
-  files = []
-  if (existsSync(scratch)) for (const epic of readdirSync(scratch)) {
-    for (const f of ['spec.md', 'map.md']) if (existsSync(join(scratch, epic, f))) files.push([join('.scratch', epic, f), () => ''])
-    const dir = join(scratch, epic, 'issues')
-    if (existsSync(dir)) for (const f of readdirSync(dir)) files.push([join('.scratch', epic, 'issues', f), () => readFileSync(join(dir, f), 'utf8')])
-  }
+/**
+ * The stand-ins of the Harness scripts are files in test/fixtures, the same in every test; a test
+ * only links them into its temporary homes. macOS checks every new executable file on its first run,
+ * one at a time for the whole machine, and a new script per test made the tests of a loaded full
+ * run time out at 15 s (worfy-polish ticket 30).
+ */
+const FIXTURES = join(__dirname, '..', 'fixtures')
+const WORKFLOW_STUB = join(FIXTURES, 'workflow-stub')
+const CANNED = join(FIXTURES, 'harness-stub', 'canned')
+// workflow-stub/epic-status runs epic-status.mjs with this test's Node.
+process.env.WORKFLOW_STUB_NODE = process.execPath
+process.env.WORKFLOW_STUB_JS = join(WORKFLOW_STUB, 'epic-status.mjs')
+
+/** Links `target` at `path`, replacing whatever link was there. */
+function link(target: string, path: string): void {
+  rmSync(path, { force: true })
+  symlinkSync(target, path)
 }
-const epics = new Map()
-const tickets = []
-for (const [path, read] of files) {
-  const parts = path.split('/')
-  const epic = parts[1]
-  if (!epics.has(epic)) epics.set(epic, { epic, hasSpec: false, hasMap: false })
-  if (parts.length === 3 && parts[2] === 'spec.md') epics.get(epic).hasSpec = true
-  if (parts.length !== 4 || parts[2] !== 'issues' || !parts[3].endsWith('.md')) continue
-  const m = /^(\d+)-(.*)\.md$/.exec(parts[3])
-  if (!m) continue
-  const text = read()
-  const last = (name) => { let v = null; for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$', 'i').exec(l); if (x) v = x[1] } return v }
-  const status = last('Status')
-  const blocked = last('Blocked by')
-  const word = (status ?? '').split(/\s/)[0]
-  const state = status === null ? 'none' : /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : /^blocked$/i.test(word) ? 'blocked' : 'open'
-  const nums = blocked && !/^[—-]$/.test(blocked.trim()) ? blocked.split(',').map((s) => Number(s.trim())) : []
-  // Branch: and Repo: as the Harness of Silent mode gives them; only when the Ticket has the line.
-  const lines = {}
-  for (const [key, name] of [['branch', 'Branch'], ['repo', 'Repo']]) { const v = last(name); if (v !== null) lines[key] = v }
-  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state,
-    blockedRaw: blocked, blockedNums: nums, blockedParsed: nums.every((n) => !Number.isNaN(n)), ...lines, ref: ref ?? '.', secret: 'not-for-the-renderer' })
+
+/**
+ * The canned Harness script (test/fixtures/harness-stub/canned) at `path`: prints `out`, exits with
+ * `code`, and logs each run to `log` when it is given.
+ */
+function canned(path: string, answer: { out: string; code: number; log?: string }): void {
+  link(CANNED, path)
+  writeFileSync(`${path}.out`, answer.out)
+  writeFileSync(`${path}.code`, String(answer.code))
+  if (answer.log === undefined) rmSync(`${path}.log`, { force: true })
+  else writeFileSync(`${path}.log`, answer.log)
 }
-if (process.env.STUB_MODE === 'fail') { process.stderr.write('stub broke on purpose\n'); process.exit(3) }
-if (process.env.STUB_MODE === 'garbage') { process.stdout.write('not json at all'); process.exit(0) }
-process.stdout.write(JSON.stringify({ ref: ref ?? 'main', epics: [...epics.values()], tickets, extra: { secret: 'not-for-the-renderer' } }))
-`
 
 /** A temporary Claude home whose bin/epic-status runs the stub with this test's Node. */
 function makeClaudeHome(dir: string): { home: string; log: string } {
   const home = join(dir, 'claude-home')
   mkdirSync(join(home, 'bin'), { recursive: true })
-  const js = join(home, 'stub.cjs')
-  writeFileSync(js, STUB_JS)
-  const script = join(home, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec '${process.execPath}' '${js}' "$@"\n`)
-  chmodSync(script, 0o755)
+  link(join(WORKFLOW_STUB, 'epic-status'), join(home, 'bin', 'epic-status'))
   const log = join(dir, 'stub-calls.log')
   writeFileSync(log, '')
   process.env.STUB_LOG = log
@@ -102,13 +79,10 @@ function makePluginHome(dir: string): { home: string; harnessHome: string; log: 
   mkdirSync(join(plugin, 'bin'), { recursive: true })
   mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
   writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'worfy', version: '0.2.0+abc' }))
-  const js = join(dir, 'stub.cjs')
-  writeFileSync(js, STUB_JS)
   const harnessEnv = join(dir, 'harness-env.log')
   writeFileSync(harnessEnv, '')
-  const script = join(plugin, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\nprintf '%s\\n' "\${HARNESS_HOME-unset}" >> '${harnessEnv}'\nELECTRON_RUN_AS_NODE=1 exec '${process.execPath}' '${js}' "$@"\n`)
-  chmodSync(script, 0o755)
+  process.env.STUB_HARNESS_ENV = harnessEnv
+  link(join(WORKFLOW_STUB, 'plugin-epic-status'), join(plugin, 'bin', 'epic-status'))
   const log = join(dir, 'stub-calls.log')
   writeFileSync(log, '')
   process.env.STUB_LOG = log
@@ -198,6 +172,7 @@ beforeEach(() => {
   delete process.env.STUB_MODE
   delete process.env.STUB_DELAY_MS
   delete process.env.STUB_SCRATCH
+  delete process.env.STUB_HARNESS_ENV
 })
 
 afterEach(async () => {
@@ -424,8 +399,7 @@ describe('workflow reader', () => {
     const { home, log, harnessEnv } = makePluginHome(dir)
     // The old epic-status: the move takes <home>/bin away while it runs, and it fails.
     mkdirSync(join(home, 'bin'))
-    writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\nrm -rf '${join(home, 'bin')}'\nexit 1\n`)
-    chmodSync(join(home, 'bin', 'epic-status'), 0o755)
+    link(join(WORKFLOW_STUB, 'bin-gone'), join(home, 'bin', 'epic-status'))
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(model.error).toBeNull()
     expect(model.tickets.map((t) => t.num)).toEqual([1, 2, 3, 4])
@@ -498,14 +472,8 @@ describe('workflow reader', () => {
 function stubHarness(home: string, profile: { code: number; json: unknown }, ticketsRoot: string | null): string {
   const log = join(home, '..', 'harness-calls.log')
   writeFileSync(log, '')
-  const answer = join(home, 'profile.json')
-  writeFileSync(answer, typeof profile.json === 'string' ? profile.json : JSON.stringify(profile.json))
-  const profileScript = join(home, 'bin', 'profile')
-  writeFileSync(profileScript, `#!/bin/sh\necho "profile $*" >> '${log}'\ncat '${answer}'\nexit ${profile.code}\n`)
-  chmodSync(profileScript, 0o755)
-  const ticketScript = join(home, 'bin', 'ticket')
-  writeFileSync(ticketScript, `#!/bin/sh\necho "ticket $* in $(pwd -P)" >> '${log}'\n${ticketsRoot === null ? 'exit 1' : `echo '${ticketsRoot}'`}\n`)
-  chmodSync(ticketScript, 0o755)
+  canned(join(home, 'bin', 'profile'), { out: typeof profile.json === 'string' ? profile.json : JSON.stringify(profile.json), code: profile.code, log })
+  canned(join(home, 'bin', 'ticket'), ticketsRoot === null ? { out: '', code: 1, log } : { out: `${ticketsRoot}\n`, code: 0, log })
   return log
 }
 
@@ -553,7 +521,7 @@ describe('workflow reader in Silent mode', () => {
     expect(model.branchErrors).toEqual([])
     // The worktree on demo/02 is there, and still no branch is read: in Silent mode the status lives in the Workflow folder only.
     expect(calls(log)).toEqual(['.'])
-    expect(calls(harnessLog)).toEqual([`profile -C ${repo} --json`, `ticket root in ${realpathSync(repo)}`])
+    expect(calls(harnessLog)).toEqual([`profile -C ${repo} --json in ${realpathSync(repo)}`, `ticket root in ${realpathSync(repo)}`])
   })
 
   it('a Ticket file edited in the Workflow folder comes as a new model through the watcher; refs are not read', async () => {
@@ -1074,12 +1042,9 @@ describe('workflow reader on an Auction-sized Project', () => {
     const { json, ticketCount } = generateScratch(repo)
     expect(ticketCount).toBe(682)
     expect(json.epics).toHaveLength(42)
-    const answer = join(dir, 'answer.json')
-    writeFileSync(answer, JSON.stringify(json))
     const home = join(dir, 'big-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
-    writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
-    chmodSync(join(home, 'bin', 'epic-status'), 0o755)
+    canned(join(home, 'bin', 'epic-status'), { out: JSON.stringify(json), code: 0 })
 
     // The script's own time (process start, cat) is not worfy's: measure it and take it out.
     const real = epicStatusRunner(home, ownEnv)
