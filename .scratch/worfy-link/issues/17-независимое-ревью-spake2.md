@@ -1,7 +1,7 @@
 # 17 — Независимое ревью реализации SPAKE2 до первого внешнего пользователя
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #396](https://github.com/IDSAD-XL/worfy/pull/396)
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/01-сервер-связи-machine-ов.md:287`
 
@@ -256,7 +256,7 @@ RFC, общую для этого семейства моделей, такое 
 - Лог неудачи у B (`service.ts:666`) пишет адрес и этот текст. Текст ошибки не из `PairingError`
   идёт через `messageOf`: это ошибка scrypt, хранилища секретов или файла. Кода, w, скаляров и
   токенов в них нет.
-- `link.pair` ловит все ошибки и отдаёт текст на экран своей Machine (`src/main/ipc/link.ts:247-257`).
+- `link.pair` ловит все ошибки и отдаёт текст на экран своей Machine (`src/main/ipc/link.ts:248-258`).
   Канал `local` (`src/shared/ipc/link.ts:155`): Linked machine его не вызывает. Код в ответе IPC — только
   `link.state`, тоже `local` (`:135`): B должна показать его на своём экране.
 - Test: каждый test `link-pairing.test.ts` после себя проверяет, что ни код, ни токен не попали в
