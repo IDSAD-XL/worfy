@@ -69,11 +69,11 @@ test-запусков один — `com.github.Electron`; test-ы убивают
 ## Ночной прогон Autopilot: Mac не заблокирован, крышка открыта
 
 Погасший экран macOS блокирует, Electron перестаёт показывать окно, и `gate full` ждёт человека
-(прогон 3 Autopilot 2026-10-06 держал только `prevent-app-suspension`). Прогон держит
-`prevent-display-sleep` (ADR-0034), но только пока идёт сам. Проверку набора и мержи вне прогона держат
-`wave-gate check` и `wave-gate merge` (`caffeinate -d -w <свой pid>`); между ними экран может погаснуть,
-и `check` перед gate full ждёт разблокировки строкой `screen locked: gate full waits`. Ручную блокировку
-и закрытую крышку не обходит никто: на ночь Mac разблокирован, крышка открыта (README, «Stable copy»).
+(прогон 3 Autopilot 2026-10-06 держал только `prevent-app-suspension`; e2e идут только локально —
+урок о CI в `ci-merge.md`). Прогон держит `prevent-display-sleep` (ADR-0034), но только пока идёт сам.
+Проверку набора и мержи вне прогона держат `wave-gate check` и `wave-gate merge`
+(`caffeinate -d -w <свой pid>`); между ними экран может погаснуть, и `check` перед gate full ждёт
+разблокировки строкой `screen locked: gate full waits`. Ручную блокировку и закрытую крышку не обходит никто: на ночь Mac разблокирован, крышка открыта (README, «Stable copy»).
 Код: `src/main/autopilot/power.ts`, `harness/bin/wave-gate`. Источник: worfy-daily/32, PR #70; ночь
 2026-10-16 — мержи вне прогона стояли с 04:39 до 10:09 (worfy-throughput/02).
 

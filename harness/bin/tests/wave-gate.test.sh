@@ -44,13 +44,20 @@ if [ -f "$GATE_DIR/kill$n" ]; then kill -"$(cat "$GATE_DIR/kill$n")" "$PPID"; sl
 [ -f "$GATE_DIR/sleep" ] && sleep "$(cat "$GATE_DIR/sleep")"
 [ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
 # $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
-# locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red the way an
-# e2e is when Electron shows no window. They are used once, unless $GATE_DIR/keep exists.
+# locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
+# script named in the file (test:e2e when empty) and prints what the real gate prints for it: the
+# "[gate] красно (full): <project>/<workspace>:<script> (прошло: …)" line and the last 40 lines of the script —
+# Playwright's list of failed tests, without the "window was not shown" message that scrolled out of them.
+# They are used once, unless $GATE_DIR/keep exists. $GATE_DIR/unitonce — red once in `test` alone.
 if [ -f "$GATE_DIR/lockfor" ]; then : >"$SCREEN_DIR/locked"; sleep "$(cat "$GATE_DIR/lockfor")"; rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"; fi
 if [ -f "$GATE_DIR/lockscreen" ]; then cp "$GATE_DIR/lockscreen" "$SCREEN_DIR/locked"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/lockscreen"; fi
-if [ -f "$GATE_DIR/window" ]; then [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
-  echo "[gate] красно (full): test:e2e (прошло: lint test)" >&2; echo " FAIL  test/e2e/launch.spec.ts > opens the window" >&2
-  echo "Error: the window was not shown within 30 s" >&2; exit 2; fi
+if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="${script:-test:e2e}"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
+  { echo "[gate] красно (full): worfy/.:$script (прошло: worfy/.:lint worfy/.:typecheck worfy/.:test)"
+    echo "The quality gate did not pass (profile: full, repository: worfy)."; echo "--- FAILED: worfy/.:$script"
+    for i in $(seq 1 36); do echo "  ✘  $i [electron] › test/e2e/spec$i.spec.ts:12:3 › case $i (30.2s)"; done
+    echo "  36 failed"; echo "  4 passed (19.8m)"; echo " ELIFECYCLE  Command failed with exit code 1."; } >&2; exit 2; fi
+if [ -f "$GATE_DIR/unitonce" ]; then rm -f "$GATE_DIR/unitonce"
+  echo "[gate] красно (full): worfy/.:test (прошло: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
 if [ -f "$GATE_DIR/code3" ]; then echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: stub" >&2; exit 3; fi
 if [ -f "$GATE_DIR/none" ]; then echo "[gate] ничего не прогналось (full): stub. Это не «зелено»."; exit 0; fi
 if [ -f "$GATE_DIR/redonce" ]; then rm -f "$GATE_DIR/redonce"
@@ -465,7 +472,7 @@ until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
 [ "$(gate_count)" = 1 ] && [ "$(q "$S" 's.runs.length')" = 1 ] && [ "$(q "$S" 's.runs[0].outcome')" = unverified ] \
     && [[ "$(q "$S" 's.runs[0].reason')" == "screen locked"* ]] && [ "$(q "$S" s.status)" = checking ] \
     && ok "screen locked during the run: the run is recorded not verified (screen locked), not red" || bad "screen locked during the run: runs $(q "$S" s.runs 2>&1) status $(q "$S" s.status 2>&1)"
-grep -q "screen locked during gate full" "$W/out" && [ ! -e "$L" ] && ok "screen locked during the run: said so, the e2e lock released while it waits" || bad "screen locked during the run: output $(cat "$W/out")"
+grep -q "screen locked during gate full" "$W/out" && [ ! -e "$L" ] && ! grep -q "window was not shown" "$(q "$S" 's.runs[0].log')" && ok "screen locked during the run: said so, the e2e lock released while it waits" || bad "screen locked during the run: output $(cat "$W/out")"
 rm -f "$SCREEN_DIR/locked"
 wait "$wg"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 2 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] \
@@ -477,18 +484,25 @@ echo 3 >"$GATE_DIR/lockfor"; touch "$GATE_DIR/window"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] && ! grep -q "gate full waits" "$W/out" \
     && ok "screen locked and unlocked during the run: not verified, run again at once, green" || bad "screen locked and unlocked during the run: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome)'): $(cat "$W/out")"
+# test:package (the packaged .app) also needs a window
+new_world screenpkg 1:a.txt
+S="$W/state.json"; state "$S" null 1
+echo 3 >"$GATE_DIR/lockfor"; echo test:package >"$GATE_DIR/window"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:unverified full:green" ] \
+    && ok "screen locked, test:package failed: not verified, run again" || bad "screen locked, test:package: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
 # the same failure with the screen unlocked is red (the e2e load case): the usual repeat
 new_world windowred 1:a.txt
 S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/window"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red retry:green" ] && [[ "$(q "$S" s.flaky)" == *"launch.spec.ts"* ]] \
-    && ok "no window, screen unlocked: red, repeated as flaky" || bad "no window, screen unlocked: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
-# a red that is not the window, with the screen locked, stays red
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red retry:green" ] && [[ "$(q "$S" s.flaky)" == *"spec1.spec.ts"* ]] \
+    && ok "e2e failed, screen unlocked: red, repeated as flaky" || bad "e2e failed, screen unlocked: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
+# only `test` failed (no e2e script), with the screen locked: red
 new_world screenred 1:a.txt
-S="$W/state.json"; state "$S" null 1; : >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/redonce"
+S="$W/state.json"; state "$S" null 1; : >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/unitonce"
 "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
 until_ok 10 grep -q "screen locked: gate full waits" "$W/out"
-[ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red" ] && ok "another failure under a locked screen: red" || bad "another failure under a locked screen: runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)' 2>&1)"
+[ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red" ] && ok "screen locked, only test failed: red" || bad "screen locked, only test failed: runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)' 2>&1)"
 rm -f "$SCREEN_DIR/locked"; wait "$wg"
 # the screen locks during every run: three tries, then not verified (exit 3); the next check runs it again
 new_world screenloop 1:a.txt

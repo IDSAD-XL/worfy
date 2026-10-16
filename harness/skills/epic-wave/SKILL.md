@@ -590,9 +590,9 @@ window. `wave-gate check` and `wave-gate merge` each keep the display awake whil
 (`caffeinate -d -w <own pid>`, when `caffeinate` is in PATH); between the commands — waiting for CI,
 reviews — nothing does outside an Autopilot run. Before each gate run `check` asks `ioreg` whether the
 screen is locked: locked — the line `screen locked: gate full waits`, and it waits for the unlock
-without holding the e2e lock. Leave it waiting: that is neither an error nor a red run. A run whose
-e2e got no window while the screen was locked is not red either: it runs again after the unlock (three
-runs at most, then `STATUS=unverified`). A gate full outside `wave-gate` (`"each"`, PRs merged the old
+without holding the e2e lock. Leave it waiting: that is neither an error nor a red run. A red run in
+which an e2e script (`test:e2e`, `test:package`) failed while the screen was locked is not red either:
+it runs again after the unlock (three runs at most, then `STATUS=unverified`). A gate full outside `wave-gate` (`"each"`, PRs merged the old
 way) on a Mac starts only after `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'` shows
 `No`; with `Yes`, wait for the unlock and do not count a run that failed meanwhile as red.
 

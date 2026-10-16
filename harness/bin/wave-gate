@@ -28,7 +28,8 @@
 //   - `GATE_SCOPE=all gate full` on the tree of the whole set, under the e2e lock. Green — status green.
 //     Red — the same tree once more: green now — status green with flaky (the failures of the first run);
 //     red again — bisection over the prefixes of the merge order: the shortest red prefix names the
-//     culprit, the prefix before it is green_prefix. At most 2 + ceil(log2 N) gate runs;
+//     culprit, the prefix before it is green_prefix. At most 2 + ceil(log2 N) finished gate runs; each of
+//     them may take up to SCREEN_TRIES runs when the screen locks (below), so at most 3 * (2 + ceil(log2 N));
 //   - "could not verify" (exit 3, 127, a signal, "nothing ran", the environment unavailable) — status
 //     unverified: not green, nothing is merged; the next check tries that run again;
 //   - every finished step is written to the state file at once. A check that was broken off (the
@@ -48,9 +49,11 @@
 //   - when `ioreg` is in PATH, check asks `ioreg -n Root -d1` for "IOConsoleLocked" before each gate run;
 //     Yes — one line "screen locked: gate full waits", a poll every 30 s, no gate run and no e2e lock held
 //     until it is No. No `ioreg` in PATH (Linux, Windows) — no check;
-//   - a gate run that was red, whose output has the e2e message "the window was not shown within",
-//     while the screen was locked during the run, is not red: it is recorded as not verified ("screen
-//     locked") and run again after the unlock, at most SCREEN_TRIES runs; then check ends unverified;
+//   - a red gate run whose failed scripts (the "[gate] красно (…): <labels>" line) include one that opens
+//     Electron windows — test:e2e or test:package — while the screen was locked during the run, is not red:
+//     it is recorded as not verified ("screen locked") and run again after the unlock, at most
+//     SCREEN_TRIES runs; then check ends unverified. The e2e message itself ("the window was not shown
+//     within 30 s") is not looked for: the gate keeps only the last 40 lines of a failed script;
 //   - when `caffeinate` is in PATH, check and merge each start `caffeinate -d -w <own pid>`: the display
 //     does not sleep while the command lives, and caffeinate ends with it, a SIGKILL included.
 //
@@ -81,7 +84,8 @@ const E2E = { poll: seconds("WAVE_GATE_LOCK_POLL_S", 20), stale: seconds("WAVE_G
 const MAIN = { poll: seconds("WAVE_GATE_MAIN_LOCK_POLL_S", 30), stale: seconds("WAVE_GATE_MAIN_LOCK_STALE_S", 5400), beat: seconds("WAVE_GATE_HEARTBEAT_S", 300) }
 const SCREEN = { poll: seconds("WAVE_GATE_SCREEN_POLL_S", 30) }
 const SCREEN_TRIES = 3
-const NO_WINDOW = /the window was not shown within \d+ s/
+// A gate label is "<project>/<workspace>:<script>"; these scripts start Electron and need a window.
+const WINDOW_SCRIPT = /(?:^|:)test:(?:e2e|package)$/
 const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }
 
 class Fail extends Error {}
@@ -517,7 +521,7 @@ async function gateOn(ctx, size, role) {
     for (let i = 1; ; i++) {
         const rec = await gateOnce(ctx, size, role)
         if (!rec.screen_locked || i >= SCREEN_TRIES) return rec
-        say(`screen locked during gate full: the run is not verified (the e2e got no window) — run again after the unlock (${i}/${SCREEN_TRIES})`)
+        say(`screen locked during gate full: the run is not verified (an e2e failed under the lock) — run again after the unlock (${i}/${SCREEN_TRIES})`)
     }
 }
 async function gateOnce(ctx, size, role) {
@@ -563,8 +567,8 @@ async function gateOnce(ctx, size, role) {
         if (st.e2e_lock) unlock(st.e2e_lock)
     }
     Object.assign(rec, { outcome: verdict(g.code, g.text), exit: g.code })
-    if (rec.outcome === "red" && locked && NO_WINDOW.test(g.text))
-        Object.assign(rec, { outcome: "unverified", screen_locked: true, reason: "screen locked: the e2e got no window while the screen was locked" })
+    if (rec.outcome === "red" && locked && failures(g.text).scripts.some((s) => WINDOW_SCRIPT.test(s)))
+        Object.assign(rec, { outcome: "unverified", screen_locked: true, reason: "screen locked: an e2e script failed while the screen was locked" })
     if (rec.outcome === "red") Object.assign(rec, failures(g.text))
     st.runs.push(rec)
     save(ctx.file, st)
