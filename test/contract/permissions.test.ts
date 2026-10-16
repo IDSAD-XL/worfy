@@ -600,6 +600,37 @@ describe('an unattended Session (Autopilot, worfy-daily ticket 02)', () => {
     expect(h.registry.get(id).state).toBe('idle')
   })
 
+  it('tells the model why Claude Code asked, and gives refused_dialog the Subagent and the reason', async () => {
+    const requests: QueryRequest[] = []
+    const h = await harness((request) => {
+      requests.push(request)
+      return 'turn'
+    })
+    await h.startUnattended()
+    const [request] = requests
+    const reason = 'rm -rf with a target that cannot be resolved; this requires explicit approval and cannot be auto-allowed by permission rules'
+    const options = { signal: new AbortController().signal, decisionReason: reason, agentID: 'agent-a1b2c3' }
+
+    const answer = await request?.canUseTool('Bash', { command: 'rm -rf "$TARGET"' }, options)
+    const message = `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; rewrite the command so this check does not fire`
+    expect(answer).toEqual({ behavior: 'deny', message })
+    expect(h.ofType('refused_dialog')).toEqual([{ type: 'refused_dialog', dialog: 'permission_request', subject: 'Bash', message, agent: 'agent-a1b2c3', reason }])
+  })
+
+  it('keeps the old refusal word for word when Claude Code gives no reason: no reason and no agent in refused_dialog', async () => {
+    const requests: QueryRequest[] = []
+    const h = await harness((request) => {
+      requests.push(request)
+      return 'turn'
+    })
+    await h.startUnattended()
+    const [request] = requests
+    // A blank reason is no reason; an agent without a reason is still named.
+    const answer = await request?.canUseTool('Bash', { command: 'rm -rf build' }, { signal: new AbortController().signal, decisionReason: '  ', agentID: 'agent-x' })
+    expect(answer).toEqual({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+    expect(h.ofType('refused_dialog')).toStrictEqual([{ type: 'refused_dialog', dialog: 'permission_request', subject: 'Bash', message: UNATTENDED_DENIED_MESSAGE, agent: 'agent-x' }])
+  })
+
   it('gives an ordinary Session the gate: its canUseTool waits for the user', async () => {
     const requests: QueryRequest[] = []
     const h = await harness((request) => {

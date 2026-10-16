@@ -74,13 +74,14 @@
 //
 // worfy still writes no Ticket status (ADR-0002): the agents do, through `ticket`.
 import { realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
 import { resolve } from 'node:path'
 import type { AutopilotWaveResult } from '../actions/launch'
 import { ticketNumber } from '../../shared/actions/render-template'
 import { messageLabel } from '../../shared/agent/attachments'
 import { isTaskEvent, type BackgroundTask } from '../../shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../shared/agent/events'
-import { clipLastText, type JournalEventFields } from '../../shared/autopilot/journal'
+import { clipLastText, journalReason, type JournalEventFields } from '../../shared/autopilot/journal'
 import { toMs, type LimitsHit } from '../../shared/autopilot/resume-at'
 import {
   BACKGROUND_STALL_MS,
@@ -237,6 +238,21 @@ export const END_READ_MS = 1000
 const journalTasks = (tasks: readonly BackgroundTask[]) => tasks.map((task) => ({ id: task.taskId, type: task.taskType, description: task.description }))
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/**
+ * The journal line of a dialog the run's Session refused: which request, the Subagent that asked
+ * and Claude Code's reason (journalReason: clipped, the home folder as `~`). The command it was
+ * asked for is not written, and is not in the event either.
+ */
+function refusedDialogLine(event: Extract<AgentEvent, { type: 'refused_dialog' }>, session: string | null): JournalEventFields {
+  return {
+    kind: 'refused-dialog',
+    session,
+    what: `${event.dialog} ${event.subject}`,
+    ...(event.agent === undefined ? {} : { agent: event.agent }),
+    ...(event.reason === undefined ? {} : { reason: journalReason(event.reason, homedir()) }),
+  }
+}
 
 /** Whether a Session state is a running turn: the Orchestrator is not given back during one (orchestrator.ts). */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
@@ -743,7 +759,7 @@ export class Autopilot {
         else if (event.state === 'closed') void run.enqueue(() => this.feed(run, { type: 'session-closed' }))
         return
       case 'refused_dialog':
-        void run.enqueue(() => this.write(run, { kind: 'refused-dialog', session: run.session?.id ?? null, what: `${event.dialog} ${event.subject}` }))
+        void run.enqueue(() => this.write(run, refusedDialogLine(event, run.session?.id ?? null)))
         return
       case 'background_tasks': {
         const tasks = event.tasks.map((task) => ({ ...task }))

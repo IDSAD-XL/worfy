@@ -78,8 +78,14 @@
 //   waiting-until  until             the run sleeps until this ISO time
 //   resumed                          the run continues after a wait
 //   session-error  session, message  a Session failed; session: its id or null
-//   refused-dialog session, what     a Session asked for a person (a permission or a question)
-//                                    and the run refused it without one; what: which request
+//   refused-dialog session, what,    a Session asked for a person (a permission or a question)
+//                  agent?, reason?   and the run refused it without one; what: which request;
+//                                    agent: the Subagent that asked (Claude Code's agentID), absent
+//                                    for the Session's own turn; reason: why Claude Code asked, its
+//                                    first REASON_MAX units with the home folder written as `~`
+//                                    (journalReason). The command itself is never written: it may
+//                                    hold tokens and personal paths. Lines written before
+//                                    worfy-polish ticket 26 have neither field
 //   human-input    source, what      a person stepped into the run; any such line is a defect
 //   background-tasks tasks           the live background tasks of the run's Orchestrator Session
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
@@ -195,6 +201,8 @@ const text = z.string().min(1)
 const wave = { wave: z.number().int().positive(), tickets: z.array(text) }
 /** How much of the Orchestrator's last answer `run-stopped` keeps. */
 export const LAST_TEXT_MAX = 1000
+/** How much of Claude Code's reason for a permission request `refused-dialog` keeps. */
+export const REASON_MAX = 200
 const skipped = z.array(z.object({ num: text, state: z.enum(['blocked', 'none']) }))
 const session = z.string().min(1).nullable()
 const tasks = z.array(z.object({ id: text, type: z.string().nullable(), description: z.string().nullable() }))
@@ -219,7 +227,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('waiting-until', { until: isoTime }),
   event('resumed', {}),
   event('session-error', { session, message: z.string() }),
-  event('refused-dialog', { session, what: text }),
+  event('refused-dialog', { session, what: text, agent: text.optional(), reason: text.max(REASON_MAX).optional() }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
@@ -229,15 +237,30 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
 ])
 export type JournalEvent = z.output<typeof journalEventSchema>
 
-/**
- * The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units (as the
- * format checks it), without half of a surrogate pair at the cut.
- */
-export function clipLastText(answer: string): string {
-  if (answer.length <= LAST_TEXT_MAX) return answer
-  const cut = answer.slice(0, LAST_TEXT_MAX)
+/** The start of a text: at most `max` UTF-16 units (as the format checks it), without half of a surrogate pair at the cut. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text
+  const cut = text.slice(0, max)
   const last = cut.charCodeAt(cut.length - 1)
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
+
+/** The start of an answer as `run-stopped` keeps it: at most LAST_TEXT_MAX UTF-16 units. */
+export function clipLastText(answer: string): string {
+  return clip(answer, LAST_TEXT_MAX)
+}
+
+/**
+ * Claude Code's reason for a permission request as `refused-dialog` keeps it: the home folder
+ * (`home`, the user's) written as `~` wherever a path starts with it, then at most REASON_MAX
+ * UTF-16 units. A folder whose name only goes on from the home's (`/Users/ann2` for `/Users/ann`)
+ * stays as it is; a dot after the home (the end of a sentence) does not stop the replacement.
+ */
+export function journalReason(reason: string, home: string): string {
+  const root = home.replace(/[\\/]+$/, '')
+  if (root === '') return clip(reason, REASON_MAX)
+  const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return clip(reason.replace(new RegExp(`${escaped}(?![\\p{L}\\p{N}_-])`, 'gu'), '~'), REASON_MAX)
 }
 
 /** The fields every line shares; the writer fills them in. */

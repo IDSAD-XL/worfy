@@ -4,9 +4,11 @@ import { describe, expect, it } from 'vitest'
 import {
   JOURNAL_EVENT_KINDS,
   LAST_TEXT_MAX,
+  REASON_MAX,
   clipLastText,
   formatJournalLine,
   isRunId,
+  journalReason,
   parseJournal,
   type JournalEvent,
 } from '../../src/shared/autopilot/journal'
@@ -160,6 +162,36 @@ describe('parseJournal', () => {
     const pair = `${'a'.repeat(LAST_TEXT_MAX - 1)}😀tail`
     expect(clipLastText(pair)).toBe('a'.repeat(LAST_TEXT_MAX - 1))
     expect(() => formatJournalLine({ ...stopped, lastText: clipLastText('я'.repeat(5000)) })).not.toThrow()
+  })
+
+  const refusedOld: JournalEvent = { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'permission_request Bash' }
+  const refusedNew: JournalEvent = { ...refusedOld, agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/x)' }
+
+  it('reads refused-dialog with the Subagent and the reason, and an old line without them as before', () => {
+    expect(parseJournal(line(started) + line(refusedOld) + line(refusedNew) + line(stopped))).toEqual({ events: [started, refusedOld, refusedNew, stopped], skipped: 0 })
+    expect(parseJournal(line(refusedOld)).events[0]).toStrictEqual(refusedOld)
+  })
+
+  it('skips refused-dialog with an empty agent or reason, or a reason over REASON_MAX, and counts it', () => {
+    for (const fields of [{ agent: '' }, { reason: '' }, { agent: 7 }, { reason: 'x'.repeat(REASON_MAX + 1) }]) {
+      expect(parseJournal(line(started) + line({ ...refusedOld, ...fields }) + line(stopped)), JSON.stringify(fields)).toEqual({ events: [started, stopped], skipped: 1 })
+    }
+    expect(parseJournal(line({ ...refusedOld, reason: 'x'.repeat(REASON_MAX) })).skipped).toBe(0)
+  })
+
+  it('journalReason writes the home folder as ~ and clips to REASON_MAX units without cutting a surrogate pair', () => {
+    expect(journalReason('cannot resolve /Users/someone/app and /Users/someone', '/Users/someone')).toBe('cannot resolve ~/app and ~')
+    expect(journalReason('a path in /Users/someone/', '/Users/someone/')).toBe('a path in ~/')
+    // Another user whose name starts with the same letters keeps the path.
+    expect(journalReason('/Users/someone2/app, /Users/someone_x and /Users/someoneé', '/Users/someone')).toBe('/Users/someone2/app, /Users/someone_x and /Users/someoneé')
+    expect(journalReason('it is in /Users/someone.', '/Users/someone')).toBe('it is in ~.')
+    expect(journalReason('in C:\\Users\\someone\\app', 'C:\\Users\\someone')).toBe('in ~\\app')
+    expect(journalReason('a (b) /', '')).toBe('a (b) /')
+    expect(journalReason('a (b) /', '/')).toBe('a (b) /')
+    expect(journalReason('a'.repeat(REASON_MAX + 5), '/h')).toBe('a'.repeat(REASON_MAX))
+    expect(journalReason(`/h/${'a'.repeat(REASON_MAX)}`, '/h')).toBe(`~/${'a'.repeat(REASON_MAX - 2)}`)
+    expect(journalReason(`${'a'.repeat(REASON_MAX - 1)}😀tail`, '/h')).toBe('a'.repeat(REASON_MAX - 1))
+    expect(() => formatJournalLine({ ...refusedOld, reason: journalReason('я'.repeat(500), '/h') })).not.toThrow()
   })
 
   it('ignores blank lines without counting them, including CRLF endings', () => {
