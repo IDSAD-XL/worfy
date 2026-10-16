@@ -292,6 +292,21 @@ for v in "${ATTR_BAD[@]}"; do
 done
 oldp legacysilent '{"schema":1,"name":"legacysilent","mode":"silent"}'
 oldp legacybad '{"schema":1,"name":"legacybad","attribution":"OFF"}'
+# The gate before a merge (worfy ADR-0065): workflow.merge_gate and workflow.e2e_lock, valid and broken values.
+GATE_PROFILES=(mgwave mgeach mgnull mgbad mgnum lockrel lockhome locknum lockempty)
+for n in "${GATE_PROFILES[@]}"; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+newp mgwave '{"schema":2,"name":"mgwave","mode":"full","workflow":{"merge_gate":"wave","e2e_lock":"/tmp/worfy-e2e.lock"}}'
+newp mgeach '{"schema":2,"name":"mgeach","mode":"full","workflow":{"merge_gate":"each","e2e_lock":null}}'
+newp mgnull '{"schema":2,"name":"mgnull","mode":"full","workflow":{"merge_gate":null}}'
+newp mgbad '{"schema":2,"name":"mgbad","mode":"full","workflow":{"merge_gate":"always"}}'
+newp mgnum '{"schema":2,"name":"mgnum","mode":"full","workflow":{"merge_gate":1}}'
+newp lockrel '{"schema":2,"name":"lockrel","mode":"full","workflow":{"e2e_lock":"tmp/e2e.lock"}}'
+newp lockhome '{"schema":2,"name":"lockhome","mode":"full","workflow":{"e2e_lock":"~/e2e.lock"}}'
+newp locknum '{"schema":2,"name":"locknum","mode":"full","workflow":{"e2e_lock":5}}'
+newp lockempty '{"schema":2,"name":"lockempty","mode":"full","workflow":{"e2e_lock":""}}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -335,6 +350,21 @@ eq "--field attribution: an explicit on in Silent mode wins" on "$P2" -C "$T/r/s
 eq "--field attribution: an explicit off in Full mode wins" off "$P2" -C "$T/r/fulloff" --field attribution
 eq "--json attribution absent, Full mode -> on" on "${attr_json[@]}" "$T/r/bare"
 eq "--json attribution absent (schema 1) -> on" on "${attr_json[@]}" "$T/r/legacy"
+# --- workflow.merge_gate and workflow.e2e_lock (worfy ADR-0065) ---------------------------------
+eq "--field workflow.merge_gate wave" wave "$P2" -C "$T/r/mgwave" --field workflow.merge_gate
+eq "--field workflow.merge_gate each" each "$P2" -C "$T/r/mgeach" --field workflow.merge_gate
+eq "--field workflow.merge_gate null" null "$P2" -C "$T/r/mgnull" --field workflow.merge_gate
+check "--field workflow.merge_gate absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field workflow.merge_gate
+fails_with "workflow.merge_gate \"always\" -> 1 with the reason" 1 'workflow.merge_gate is "each", "wave" or null, got "always"' "$P2" -C "$T/r/mgbad" --name
+fails_with "workflow.merge_gate 1 -> 1 with the reason" 1 "workflow.merge_gate" "$P2" -C "$T/r/mgnum" --field workflow
+eq "--field workflow.e2e_lock path" /tmp/worfy-e2e.lock "$P2" -C "$T/r/mgwave" --field workflow.e2e_lock
+eq "--field workflow.e2e_lock null" null "$P2" -C "$T/r/mgeach" --field workflow.e2e_lock
+check "--field workflow.e2e_lock absent -> 4" 4 "" "$P2" -C "$T/r/mgnull" --field workflow.e2e_lock
+eq "--field workflow.e2e_lock with ~/ is expanded" "$H/e2e.lock" "$P2" -C "$T/r/lockhome" --field workflow.e2e_lock
+fails_with "workflow.e2e_lock relative -> 1 with the reason" 1 "workflow.e2e_lock is an absolute path or null" "$P2" -C "$T/r/lockrel" --name
+fails_with "workflow.e2e_lock 5 -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/locknum" --name
+fails_with "workflow.e2e_lock empty -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/lockempty" --name
+eq "--json carries workflow.merge_gate" wave bash -c 'set -o pipefail; "$@" --json | jq -r .workflow.merge_gate' _ "$P2" -C "$T/r/mgwave"
 eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
 eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
 eq "--json attribution: an explicit off in Full mode wins" off "${attr_json[@]}" "$T/r/fulloff"

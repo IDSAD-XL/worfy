@@ -104,7 +104,9 @@
             "ticket_skill": { "type": ["string", "null"] },
             "implementer_steps": { "type": ["string", "null"] },
             "finish": { "enum": ["pr-green-ci", "local-green"] },
-            "merge": { "type": ["string", "null"] }
+            "merge": { "type": ["string", "null"] },
+            "merge_gate": { "enum": ["each", "wave", null], "description": "The gate before the merge of a PR with code: null or absent — none required; each — gate full on every PR after a rebase; wave — one gate full for the set of a wave's ready PRs (bin/wave-gate)." },
+            "e2e_lock": { "type": ["string", "null"], "description": "Absolute path of the e2e lock directory (~/ is expanded); null — no lock." }
           }
         },
         "numbering": { "type": ["object", "null"] },
