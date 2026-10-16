@@ -238,9 +238,28 @@ describe('parseJournal', () => {
     it('keeps /mnt/Users/ann: the home in the middle of another path, after a name or a separator', () => {
       expect(journalReason('/mnt/Users/ann/x and x/Users/ann', '/Users/ann')).toBe('/mnt/Users/ann/x and x/Users/ann')
       expect(journalReason('rm /mnt//Users/ann/x and x\\/Users/ann', '/Users/ann')).toBe('rm /mnt//Users/ann/x and x\\/Users/ann')
-      expect(journalReason('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann', windows)).toBe('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann')
       // A doubled separator at a path start is the same path: the run of separators is the home's own.
       expect(journalReason('rm //Users/ann/x', '/Users/ann')).toBe('rm ~/x')
+    })
+
+    it('replaces a drive home after a separator: the \\\\?\\ and \\\\.\\ prefixes, /C:\\ and file:///C:/', () => {
+      expect(journalReason('rm \\\\?\\C:\\Users\\Ann\\x', windows)).toBe('rm \\\\?\\~\\x')
+      expect(journalReason('rm \\\\.\\C:\\Users\\Ann\\x', windows)).toBe('rm \\\\.\\~\\x')
+      expect(journalReason('rm \\\\?\\c:\\users\\ann\\x', windows)).toBe('rm \\\\?\\~\\x')
+      expect(journalReason('rm /C:\\Users\\Ann\\x', windows)).toBe('rm /~\\x')
+      expect(journalReason('open file:///C:/Users/Ann/x', windows)).toBe('open file:///~/x')
+      expect(journalReason('rm x/C:\\Users\\Ann\\x and y\\c:/users/ann', windows)).toBe('rm x/~\\x and y\\~')
+    })
+
+    it('keeps a drive home that goes on from a path name, and an MSYS form after a separator or a name', () => {
+      expect(journalReason('rm x/c/Users/Ann and /mnt/c/Users/Ann/x', windows)).toBe('rm x/c/Users/Ann and /mnt/c/Users/Ann/x')
+      // A UNC server named c and a doubled separator before /c are not the MSYS form of the home.
+      expect(journalReason('rm \\\\c\\Users\\Ann and /mnt//c/Users/Ann', windows)).toBe('rm \\\\c\\Users\\Ann and /mnt//c/Users/Ann')
+      expect(journalReason('rm xC:\\Users\\Ann\\x and C:\\Users\\Ann2', windows)).toBe('rm xC:\\Users\\Ann\\x and C:\\Users\\Ann2')
+    })
+
+    it('keeps a home without a drive after a name or a separator: x/Users/ann, /System/Volumes/Data/Users/ann', () => {
+      expect(journalReason('rm x/Users/ann and /System/Volumes/Data/Users/ann/x', '/Users/ann')).toBe('rm x/Users/ann and /System/Volumes/Data/Users/ann/x')
     })
 
     it('keeps a folder whose name only goes on from the home\'s', () => {

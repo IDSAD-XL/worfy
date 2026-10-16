@@ -72,7 +72,7 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 
 /** What the model reads when an unattended Session refused a request Claude Code gave a reason for. */
 export const unattendedDeniedMessage = (reason: string): string =>
-  `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; rewrite the command so this check does not fire`
+  `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; follow the reason above: give a literal, resolvable target`
 
 /**
  * canUseTool of an unattended Session: refuses every call at once and tells `refused` the tool's

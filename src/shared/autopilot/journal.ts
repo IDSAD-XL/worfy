@@ -251,10 +251,16 @@ export function clipLastText(answer: string): string {
 }
 
 /**
- * Where a path may start in a reason: anywhere but right after a character of a path name — a
- * letter, a digit, `.`, `_`, `-` — or a separator. The start of the text counts.
+ * Where a path that starts with a separator (`/Users/ann`, the MSYS `/c/Users/Ann`) may start in a
+ * reason: anywhere but right after a character of a path name — a letter, a digit, `.`, `_`, `-` —
+ * or a separator. The start of the text counts.
  */
 const PATH_START = String.raw`(?<![\p{L}\p{N}._\\/-])`
+/**
+ * Where a drive path (`C:\Users\Ann`) may start: anywhere but right after a character of a path
+ * name. A separator before it does not stop it: `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:/…`.
+ */
+const DRIVE_START = String.raw`(?<![\p{L}\p{N}._-])`
 /** Any run of path separators, of either platform. */
 const SEPARATOR = String.raw`[\\/]+`
 /** What may not follow the home folder: more of a folder name (`/Users/ann2` is not `/Users/ann`). */
@@ -269,7 +275,8 @@ const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/
  * separator, so `c:\users\ann`, `C:/Users/Ann` and the MSYS form `/c/Users/Ann` are all the home
  * `C:\Users\Ann`, and `/Users/Ann` is the home `/Users/ann`. Only a path is replaced, one that
  * does not go on from a path name (PATH_START: `/mnt/Users/ann` and `x/Users/ann` stay, while
- * `,/Users/ann` or `[/Users/ann` is replaced); a folder
+ * `,/Users/ann` or `[/Users/ann` is replaced; DRIVE_START: `\\?\C:\Users\Ann` is replaced,
+ * `xC:\Users\Ann` stays); a folder
  * whose name only goes on from the home's (`/Users/ann2`) stays; a dot after the home (the end of
  * a sentence) does not stop the replacement.
  */
@@ -279,8 +286,8 @@ export function journalReason(reason: string, home: string): string {
   const drive = /^([A-Za-z]):$/.exec(parts[0] ?? '')
   const rest = parts.slice(drive === null ? 0 : 1).map((part) => `${SEPARATOR}${escapeRegExp(part)}`).join('')
   // `C:` or `/c` before a drive home's folders; a separator before any other home's.
-  const prefix = drive === null ? rest : `(?:${drive[1]}:|[\\\\/]${drive[1]})${rest}`
-  return clip(reason.replace(new RegExp(`${PATH_START}${prefix}${NAME_GOES_ON}`, 'giu'), '~'), REASON_MAX)
+  const prefix = drive === null ? `${PATH_START}${rest}` : `(?:${DRIVE_START}${drive[1]}:|${PATH_START}[\\\\/]${drive[1]})${rest}`
+  return clip(reason.replace(new RegExp(`${prefix}${NAME_GOES_ON}`, 'giu'), '~'), REASON_MAX)
 }
 
 /** The fields every line shares; the writer fills them in. */

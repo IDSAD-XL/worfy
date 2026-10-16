@@ -107,8 +107,10 @@ Autopilot — режим, в котором Wave-ы идут без челове
 
 - **Ответ модели.** `unattendedCanUseTool` (`src/main/agent/permissions.ts`) читает `decisionReason` и
   `agentID` третьего аргумента. Есть причина — ответ `UNATTENDED_DENIED_MESSAGE` + перевод строки +
-  `refused because: <reason>; rewrite the command so this check does not fire`. Нет причины (или она
-  пустая) — ответ прежний, слово в слово.
+  `refused because: <reason>; follow the reason above: give a literal, resolvable target`. Нет причины
+  (или она пустая) — ответ прежний, слово в слово. Текст после `;` — решение владельца в узком круге
+  (было «rewrite the command so this check does not fire» из Ticket-а); владелец может сменить его
+  отдельным PR.
 - **Событие.** `refused_dialog` получил необязательные `agent` и `reason` (`src/shared/agent/events.ts`);
   `Session.refuseDialog` передаёт их; `card_ask` их не имеет. В событии причина полная, без обрезки.
 - **Журнал.** `refused-dialog` получил необязательные `agent` (agentID как есть; имени Subagent-а нет —
@@ -117,8 +119,10 @@ Autopilot — режим, в котором Wave-ы идут без челове
   `REASON_MAX` = 200 UTF-16 units без половины суррогатной пары. Правило одно на все платформы
   (круг 2 ревью): регистр не важен, `\` и `/` — один разделитель, для домашней папки на диске
   принимается и форма MSYS (`/c/Users/Ann` для `C:\Users\Ann`); заменяется только путь, который не
-  продолжает имя пути: перед ним не буква, не цифра, не `.`, `_`, `-` и не разделитель (`/mnt/Users/ann`
-  и `x/Users/ann` остаются, `,/Users/ann`, `[/Users/ann`, `>/Users/ann` — заменяются). Команду журнал не пишет. Старые
+  продолжает имя пути: перед ним не буква, не цифра, не `.`, `_`, `-`; перед домом без диска и перед
+  формой MSYS `/c/…` — ещё и не разделитель (`/mnt/Users/ann`, `x/Users/ann`, `/mnt/c/Users/Ann`
+  остаются, `,/Users/ann`, `[/Users/ann`, `>/Users/ann` — заменяются). Перед формой `C:` разделитель
+  замене не мешает (узкий круг владельца): `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:/…` → `~`. Команду журнал не пишет. Старые
   строки без полей читаются как прежде; строка с `reason` длиннее 200 — не читается (как `narrow-round`
   с длинным `text`).
 - **Fake SDK.** Строка `permission` получила `bypassImmune` (спрашивать и в `bypassPermissions`),

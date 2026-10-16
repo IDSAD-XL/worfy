@@ -612,7 +612,7 @@ describe('an unattended Session (Autopilot, worfy-daily ticket 02)', () => {
     const options = { signal: new AbortController().signal, decisionReason: reason, agentID: 'agent-a1b2c3' }
 
     const answer = await request?.canUseTool('Bash', { command: 'rm -rf "$TARGET"' }, options)
-    const message = `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; rewrite the command so this check does not fire`
+    const message = `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; follow the reason above: give a literal, resolvable target`
     expect(answer).toEqual({ behavior: 'deny', message })
     expect(h.ofType('refused_dialog')).toEqual([{ type: 'refused_dialog', dialog: 'permission_request', subject: 'Bash', message, agent: 'agent-a1b2c3', reason }])
   })
