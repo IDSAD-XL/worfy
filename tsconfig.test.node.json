@@ -25,6 +25,7 @@
     "test/global-setup-contract.ts",
     "test/remove.ts",
     "test/setup-contract.ts",
+    "test/stale-leftovers.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts",

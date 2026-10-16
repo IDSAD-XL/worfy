@@ -1,9 +1,10 @@
-import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve, sep } from 'node:path'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import { buildVersion } from './scripts/build-version'
+import { removeTree } from './src/main/storage/remove'
 
 /**
  * Folders of harness/ that stay out of the copy the app carries: the Harness's own tests and its
@@ -32,7 +33,9 @@ function bundleHarness(): Plugin {
       const source = join(root, 'harness')
       // Taken before the copy: out/ is ignored by git, so the copy itself never makes the tree dirty.
       const version = buildVersion(root)
-      rmSync(target, { recursive: true, force: true })
+      // The removal of the application, as everywhere (test/unit/no-rmsync.test.ts): a link in the
+      // old copy goes as a link, also on Windows (worfy-windows tickets 23 and 51).
+      removeTree(target)
       cpSync(source, target, {
         recursive: true,
         filter: (path) => {
