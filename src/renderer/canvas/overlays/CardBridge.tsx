@@ -3,11 +3,13 @@
 // through main (`cardApi.*`; for a Project of a Linked machine its data and `session.ask` go to that
 // Machine, the dialog stays on this one) or, for the workflow, from what the window already reads
 // (useWorkflow, useChecks). The workflow is read only after a Card first asks for it. Draws nothing.
+// On a read-only screen (worfy-link ticket 25) a Card's writes — its data, `session.ask` — fail at
+// once with the read-only hint and are not sent; reading goes on.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { cardOriginOf, failedSnapshot, workflowSnapshot, type WorkflowSnapshot } from '../../../shared/cards/bridge'
 import type { IpcResult } from '../../../shared/ipc/channels'
 import { invoke } from '../../ipc'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { activeProject, readOnlyNow, useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { useChecks } from '../badges/use-checks'
 import { createCardBridge, setCurrentCardBridge, type CardBridge, type CardFrame } from '../card-bridge'
@@ -61,6 +63,12 @@ async function askThroughDialog(projectId: string, cardId: string, text: string)
   return { sent: unwrap(await invoke('cardApi.askFinish', { projectId, askId, send: true })).sent }
 }
 
+/** Throws the read-only hint on a read-only screen, so a Card's write fails before it is sent. */
+function refuseOnReadOnly(): void {
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) throw new Error(readOnly)
+}
+
 /** Reads the workflow and checks of a Project and reports each new snapshot. */
 function WorkflowFeed({ root, onSnapshot }: { root: string; onSnapshot: (snapshot: WorkflowSnapshot) => void }) {
   const { model, error } = useWorkflow(root)
@@ -101,9 +109,13 @@ export default function CardBridgeOverlay() {
       backend: {
         dataGet: async (cardId) => unwrap(await invoke('cardApi.dataGet', { projectId, cardId })).value,
         dataSet: async (cardId, value) => {
+          refuseOnReadOnly()
           unwrap(await invoke('cardApi.dataSet', { projectId, cardId, value }))
         },
-        ask: (cardId, text) => askThroughDialog(projectId, cardId, text),
+        ask: async (cardId, text) => {
+          refuseOnReadOnly()
+          return askThroughDialog(projectId, cardId, text)
+        },
         workflow: () => {
           if (snapshot.current?.root === root) return Promise.resolve(snapshot.current.value)
           setWantedRoot(root)

@@ -1,18 +1,22 @@
 import { useState } from 'react'
 import { invoke } from '../../ipc'
+import { writeAction } from '../../projects/read-only'
+import { useReadOnly } from '../../projects/useProjects'
 import { useSessionControls } from '../store'
 import type { ComposerItemProps } from './index'
 
 // The Session's message queue in the input field (ticket 19): a chip "N queued" opens the list,
 // where each message can be removed before it is sent. After Interrupt the queue is held and
 // "Send queued" lets it go. The queue itself lives in main (src/main/agent/queue.ts); this only
-// shows it and asks main to change it.
+// shows it and asks main to change it. On a read-only screen (worfy-link ticket 25) the list shows
+// and its actions are inactive.
 
 export const order = 20
 
 export default function Queue({ sessionId }: ComposerItemProps) {
   const { queue } = useSessionControls(sessionId)
   const [open, setOpen] = useState(false)
+  const readOnly = useReadOnly()
   if (sessionId === null || queue === null || queue.items.length === 0) return null
 
   const remove = (id: string) => {
@@ -39,7 +43,7 @@ export default function Queue({ sessionId }: ComposerItemProps) {
         {queue.items.length} queued
       </button>
       {queue.paused ? (
-        <button type="button" className="w-session__button" data-testid="queue-send" onClick={sendQueued}>
+        <button type="button" className="w-session__button" data-testid="queue-send" {...writeAction(readOnly, sendQueued)}>
           Send queued
         </button>
       ) : null}
@@ -50,7 +54,7 @@ export default function Queue({ sessionId }: ComposerItemProps) {
             {queue.items.map((item, index) => (
               <li key={item.id} className="w-queue__item" data-testid="queue-item">
                 <span className="w-queue__text w-mono">{item.text}</span>
-                <button type="button" className="w-queue__remove" aria-label={`Remove queued message ${index + 1}`} data-testid="queue-remove" onClick={() => remove(item.id)}>
+                <button type="button" className="w-queue__remove" aria-label={`Remove queued message ${index + 1}`} data-testid="queue-remove" {...writeAction(readOnly, () => remove(item.id))}>
                   ×
                 </button>
               </li>

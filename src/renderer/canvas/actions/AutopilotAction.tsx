@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { autopilotStatusLine, HARNESS_BEHIND_LABEL, harnessBehindTitle, type AutopilotState, type RunningElsewhereRefusal } from '../../../shared/ipc/autopilot'
 import { failureReason } from '../../../shared/ipc/channels'
 import { invoke, subscribe } from '../../ipc'
+import { useReadOnly } from '../../projects/useProjects'
 import type { SlotProps } from '../badges'
 import { ActionButton } from './action-button'
 import { ActionMenu } from './action-menu'
@@ -243,21 +244,32 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
   const line = mine && state !== undefined ? autopilotStatusLine(state) : null
   const refusal = useAutopilotStore((store) => store.elsewhere[projectId])
   const refused = refusal !== undefined && refusal.epic === epic.epic && !running ? refusal : undefined
+  // On a read-only screen (worfy-link ticket 25) starting and stopping are inactive; the state shows.
+  const readOnly = useReadOnly()
   if (!hasRunWave(epic.epic, tickets) && !(mine && running) && line === null && pending === undefined && refused === undefined) return null
 
   const button =
     pending !== undefined || (mine && stopping) ? (
       <ActionButton key="action-stop-autopilot" label="Stopping…" testId="action-stop-autopilot" enabled={false} title={pending === 'force' ? STOPPING_TITLE : stoppingTitle(epic.epic)} run={noRun} />
     ) : mine && running ? (
-      <ActionButton key="action-stop-autopilot" label="Stop autopilot" testId="action-stop-autopilot" enabled title={stopTitle(epic.epic)} run={() => stop(projectId, 'stop')} />
+      <ActionButton
+        key="action-stop-autopilot"
+        label="Stop autopilot"
+        testId="action-stop-autopilot"
+        enabled={readOnly === null}
+        title={readOnly ?? stopTitle(epic.epic)}
+        run={() => stop(projectId, 'stop')}
+      />
     ) : (
       <ActionButton
         key="action-autopilot"
         label="Autopilot"
         testId="action-autopilot"
-        enabled={!running && wave.enabled}
+        enabled={readOnly === null && !running && wave.enabled}
         title={
-          running
+          readOnly !== null
+            ? readOnly
+            : running
             ? `Autopilot is ${stopping ? 'stopping' : 'running'} Epic ${state?.epic ?? ''}`
             : wave.enabled
               ? `Run the Waves of ${epic.epic} one after another, without a person. ${DISPLAY_STAYS_ON}`
@@ -274,7 +286,15 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
         title="More Autopilot actions"
         testId="action-autopilot-more"
         menuLabel={`Autopilot over ${epic.epic}`}
-        items={[{ label: 'Force stop', title: forceStopTitle(epic.epic), testId: 'action-force-stop-autopilot', disabled: pending === 'force', run: () => stop(projectId, 'force') }]}
+        items={[
+          {
+            label: 'Force stop',
+            title: readOnly ?? forceStopTitle(epic.epic),
+            testId: 'action-force-stop-autopilot',
+            disabled: readOnly !== null || pending === 'force',
+            run: () => stop(projectId, 'force'),
+          },
+        ]}
       />
     ) : null
   // One structure in every state: a button that moved to another parent would be made anew and lose
@@ -332,7 +352,11 @@ function Autopilot({ projectId, epic, tickets }: Extract<SlotProps['subject'], {
             </span>
           )}
           {refused === undefined ? null : (
-            <StartAnyway enabled={wave.enabled} title={wave.enabled ? startAnywayTitle(epic.epic, refused.machine) : wave.reason} run={() => start(projectId, epic.epic, true)} />
+            <StartAnyway
+              enabled={readOnly === null && wave.enabled}
+              title={readOnly ?? (wave.enabled ? startAnywayTitle(epic.epic, refused.machine) : wave.reason)}
+              run={() => start(projectId, epic.epic, true)}
+            />
           )}
           {behind === null ? null : (
             <span className="w-chip w-chip--open" data-testid="autopilot-harness-behind" title={harnessBehindTitle(behind)}>

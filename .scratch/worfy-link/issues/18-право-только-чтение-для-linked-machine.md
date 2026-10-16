@@ -307,3 +307,15 @@ tooltip), снимком не снят.
 - Noted: служебная запись Layout у `docs.open` и `layout.get` при пометке `read` — решено без владельца, подтвердить (выше).
 - Не проверено: принимает ли сборка до этого Ticket-а новое поле `level` в сообщении `projects-access`.
 - Merge: первый gate full красный только на двух timeout `test/contract/workflow-reader.test.ts` (flaky под нагрузкой, `worfy-polish` 30; файл отдельно — 45/45), второй зелёный; `01479c7d`.
+
+## Решения владельца (2026-10-16)
+
+Все пункты «решено без владельца, подтвердить» подтверждены:
+- `docs.open`, `layout.get`, `actions.launches`, `autopilot.state`, `cards.get` — уровень `read`,
+  несмотря на служебную запись Layout и синхронизацию Node-а HANDOFF;
+- `projects.connect.accounts` и `projects.connect.check` — уровень `write`;
+- подписи «Off», «Read only», «Full access»; уровень в `link/settings.json`; повторное связывание
+  сбрасывает уровень в Off; файл версии 1 с `false` не даёт уровней; `link.setAccess` — «выключить
+  всем», уровень Machine — `link.setMachineAccess`;
+- `agent.event` и уведомления при Read only проверены unit-test-ами и `link-notify`; живая проверка на
+  двух Machine — в приёмке [16](16-приёмка-epic-а-worfy-link.md).

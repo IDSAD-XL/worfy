@@ -21,6 +21,7 @@
     "src/renderer/ipc.ts",
     "src/renderer/machines/machines-dot.ts",
     "src/renderer/platform.ts",
+    "src/renderer/projects/read-only-now.ts",
     "test/app-url.ts",
     "test/global-setup-contract.ts",
     "test/remove.ts",

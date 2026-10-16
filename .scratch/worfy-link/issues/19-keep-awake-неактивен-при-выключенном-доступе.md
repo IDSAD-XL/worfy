@@ -170,3 +170,10 @@ Source: решение владельца 2026-10-12 («изменить») по
 - ADR-0060, раздел «Последствия», называет место строки-подсказки `src/renderer/shell/sidebar/MachinesSection.tsx`; она в `src/renderer/settings/MachinesSection.tsx` (переключатели перенёс `worfy-ui` 05). Принятый ADR не правится.
 
 **Merge.** `wave-gate` назвал PR #397 виновником красного набора, но красен был typecheck в его дереве под `.git/` на любом коммите — Ticket `worfy-throughput` 07. PR влит старым путём: `GATE_SCOPE=all` gate full в своём worktree — зелёный (lint, typecheck, test, test:e2e, test:package), CI success, `2848a231`.
+
+## Решения владельца (2026-10-16)
+
+- Неактивный переключатель keep-awake показывает «выключено», а не сохранённое значение, с подсказкой
+  «Turn on "Linked machines can work with my Projects" first»: подтверждено.
+- «Как раньше» = «без этой Machine»: без запущенного link service оба переключателя неактивны, число
+  Linked machines не влияет — подтверждено.

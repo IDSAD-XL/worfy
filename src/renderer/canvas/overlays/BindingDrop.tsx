@@ -9,6 +9,9 @@
 // of the pointer from the window: the Canvas still saves the move of a Layout Node as for any drag
 // (Canvas.tsx), and the overlay moves it back right after. A Subagent's Node keeps no place of its
 // own: the Canvas puts it back on the drop (ADR-0037).
+//
+// On a read-only screen (worfy-link ticket 25) no Node is dragged (overlays/ReadOnlyCanvas.tsx), so
+// nothing is bound, and "Remove binding" is inactive, saying why.
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useReactFlow, useStoreApi, ViewportPortal, type InternalNode } from '@xyflow/react'
@@ -17,7 +20,8 @@ import type { BindingAgent } from '../../../shared/ipc/bindings'
 import { EPIC_FRAME_KIND, TICKET_KIND } from '../../../shared/layout/derived'
 import { agentOfNode, dropTargetAt, type DropCandidate } from '../../binding/drop'
 import { bindManually, manualOf, removeManualBinding, useManualBindings } from '../../binding/store'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import type { CanvasFlowNode } from '../nodes'
 import type { SubagentNodeData } from '../sources/subagents'
 import { applyLayoutOp } from '../useLayout'
@@ -91,6 +95,7 @@ function BindingDropFor({ projectId }: { projectId: string }) {
   const flow = useReactFlow<CanvasFlowNode>()
   const store = useStoreApi<CanvasFlowNode>()
   const manual = useManualBindings(projectId)
+  const readOnly = useReadOnly()
   const [hover, setHover] = useState<DropCandidate | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; agent: BindingAgent } | null>(null)
   const latest = useRef({ manual })
@@ -222,13 +227,13 @@ function BindingDropFor({ projectId }: { projectId: string }) {
                 type="button"
                 role="menuitem"
                 style={styles.item}
-                onClick={() => {
+                {...writeAction(readOnly, () => {
                   const { agent } = menu
                   setMenu(null)
                   void removeManualBinding(projectId, agent).then((error) => {
                     if (error !== undefined) console.error('bindings.remove failed:', error)
                   })
-                }}
+                })}
               >
                 Remove binding
               </button>

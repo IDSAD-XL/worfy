@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SettingsChange } from '../../../shared/agent/settings'
 import { invoke } from '../../ipc'
+import { useReadOnly } from '../../projects/useProjects'
 import { Select, SelectChevron, type SelectOption } from '../../theme/Select'
 import { useSessionControls } from '../store'
 import type { ComposerItemProps } from './index'
@@ -282,10 +283,12 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   const { settings } = useSessionControls(sessionId)
   const { models, refresh } = useModels(sessionId)
   const [error, setError] = useState<string | null>(null)
-  const disabled = sessionId === null || settings === null
+  // On a read-only screen (worfy-link ticket 25) the pickers show the settings and change nothing.
+  const readOnly = useReadOnly()
+  const disabled = sessionId === null || settings === null || readOnly !== null
 
   const configure = (change: SettingsChange) => {
-    if (sessionId === null) return
+    if (sessionId === null || readOnly !== null) return
     setError(null)
     void invoke('agent.configure', { sessionId, change }).then((result) => {
       if (!result.ok) setError(result.error)
@@ -316,7 +319,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
         aria-label="Model"
         data-testid="picker-model"
         prefix="Model"
-        title={modelOptions.find((option) => option.value === (model ?? DEFAULT_VALUE))?.label}
+        title={readOnly ?? modelOptions.find((option) => option.value === (model ?? DEFAULT_VALUE))?.label}
         mono
         disabled={disabled}
         value={model ?? DEFAULT_VALUE}
@@ -331,7 +334,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
         aria-label="Permission mode"
         data-testid="picker-permissions"
         prefix="Permissions"
-        title={MODE_LABELS[settings?.permissionMode ?? 'bypassPermissions']}
+        title={readOnly ?? MODE_LABELS[settings?.permissionMode ?? 'bypassPermissions']}
         disabled={disabled}
         value={settings?.permissionMode ?? 'bypassPermissions'}
         options={MODE_OPTIONS}

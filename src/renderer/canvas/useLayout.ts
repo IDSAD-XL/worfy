@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import type { Layout, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import { invoke, subscribe } from '../ipc'
+import { readOnlyNow } from '../projects/read-only-now'
 import { noteLayoutChange, type Group, type RecordOptions, type SendAnswer } from './history'
 
 interface LayoutsStore {
@@ -84,8 +85,12 @@ export async function applyLayoutOp(projectId: string, op: LayoutOpInput): Promi
 /**
  * Sends one operation, with the screen it comes from when it is a recorded gesture or its undo
  * (screen.ts); resolves to the error text when main refused it, else to the Layout's revision after it.
+ * On the screen of a Linked machine that shares its Projects read-only (worfy-link ticket 25) nothing
+ * is sent: the answer is the read-only hint, which main would refuse with anyway.
  */
 export async function sendLayoutOp(projectId: string, op: LayoutOpInput, screen?: string): Promise<SendAnswer> {
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) return readOnly
   const result = await invoke('layout.apply', screen === undefined ? { projectId, op } : { projectId, op, screen })
   if (result.ok) {
     acceptLayoutState(result.value)

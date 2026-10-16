@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
-import { readOrchestratorData } from '../../shared/ipc/orchestrator'
+import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
-import { useProjects } from '../projects/useProjects'
+import { writeAction } from '../projects/read-only'
+import { useProjects, useReadOnly } from '../projects/useProjects'
 import { StatusChip } from '../theme/primitives'
 import { formatCost, permissionLabel, STATE_CHIPS } from './format'
 import { promptHistory } from './history'
@@ -35,11 +36,15 @@ export interface SessionViewProps {
   projectName: string | undefined
 }
 
-/** The Node of the active Project's Orchestrator, from `orchestrator.open` (main opens it anyway). */
-function useOrchestratorNode(projectId: string | undefined): string | null {
+/**
+ * The Node of the active Project's Orchestrator, from `orchestrator.open` (main opens it anyway).
+ * Not on a read-only screen (worfy-link ticket 25): opening it there is a write; ReadOnlyOrchestrator
+ * finds its Node in the Layout instead.
+ */
+function useOrchestratorNode(projectId: string | undefined, readOnly: boolean): string | null {
   const [found, setFound] = useState<{ projectId: string; nodeId: string } | null>(null)
   useEffect(() => {
-    if (projectId === undefined) return
+    if (projectId === undefined || readOnly) return
     let current = true
     void invoke('orchestrator.open', { projectId }).then((result) => {
       if (!current) return
@@ -49,8 +54,25 @@ function useOrchestratorNode(projectId: string | undefined): string | null {
     return () => {
       current = false
     }
-  }, [projectId])
+  }, [projectId, readOnly])
   return found !== null && found.projectId === projectId ? found.nodeId : null
+}
+
+/**
+ * The Orchestrator of a Project on a read-only screen (worfy-link ticket 25): its Node as the Layout
+ * has it, shown as it runs there; nothing is started. Without one, the empty view says why.
+ */
+function ReadOnlyOrchestrator({ projectId, projectName, hint }: { projectId: string; projectName: string | undefined; hint: string }) {
+  const { state } = useLayout(projectId)
+  const node = state?.layout.nodes.find((each) => each.kind === ORCHESTRATOR_KIND)
+  if (node === undefined) {
+    return (
+      <div className="w-session__empty" data-testid="session-view-empty">
+        {state === undefined ? 'Loading…' : `No Orchestrator yet. ${hint}`}
+      </div>
+    )
+  }
+  return <SessionPanel projectId={projectId} projectName={projectName} nodeId={node.id} blocks={railBlocks} />
 }
 
 /** The Session's model and permission mode as its last system/init and system/status said. */
@@ -89,8 +111,10 @@ interface SessionPanelProps {
 }
 
 function Interrupt({ onClick, disabled, testId }: { onClick: () => void; disabled: boolean; testId: string }) {
+  // On a read-only screen (worfy-link ticket 25) it is inactive, saying why.
+  const readOnly = useReadOnly()
   return (
-    <button type="button" className="w-session__button" data-testid={testId} disabled={disabled} onClick={onClick}>
+    <button type="button" className="w-session__button" data-testid={testId} disabled={disabled} {...writeAction(readOnly, onClick)}>
       <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
         <rect x="3.5" y="3.5" width="9" height="9" rx="1.5" />
       </svg>
@@ -227,7 +251,8 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
 export function SessionView({ projectId, projectName }: SessionViewProps) {
   useEffect(ensureAgentEvents, [])
   const opened = useNavigation((store) => store.opened)
-  const orchestrator = useOrchestratorNode(projectId)
+  const readOnly = useReadOnly()
+  const orchestrator = useOrchestratorNode(projectId, readOnly !== null)
   const nodeId = opened !== null && opened.projectId === projectId ? opened.nodeId : orchestrator
 
   if (projectId === undefined) {
@@ -241,6 +266,7 @@ export function SessionView({ projectId, projectName }: SessionViewProps) {
     const { sessionId, agentId } = opened.external
     return <ExternalSessionPanel key={`${opened.nodeId}/${agentId ?? ''}`} projectId={projectId} nodeId={opened.nodeId} sessionId={sessionId} agentId={agentId} blocks={railBlocks} />
   }
+  if (nodeId === null && readOnly !== null) return <ReadOnlyOrchestrator projectId={projectId} projectName={projectName} hint={readOnly} />
   if (nodeId === null) {
     return (
       <div className="w-session__empty" data-testid="session-view-empty">

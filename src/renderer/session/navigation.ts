@@ -3,6 +3,7 @@
 // here; main.tsx hands the view to AppShell.
 import { create } from 'zustand'
 import { invoke } from '../ipc'
+import { readOnlyNow } from '../projects/read-only-now'
 import type { ShellView } from '../shell/Toolbar'
 
 /** The Node whose Session the Session view shows, and the Project it belongs to. */
@@ -42,6 +43,8 @@ export function openSession(opened: OpenedSession): void {
  */
 export async function openOrchestrator(projectId: string): Promise<string | undefined> {
   useNavigation.setState({ view: 'session', opened: null })
+  // A read-only screen (worfy-link ticket 25) only shows the Orchestrator: starting it is a write.
+  if (readOnlyNow() !== null) return undefined
   const result = await invoke('orchestrator.open', { projectId })
   return result.ok ? undefined : result.error
 }

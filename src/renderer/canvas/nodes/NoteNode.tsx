@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CanvasNodeProps } from './index'
+import { useReadOnly } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 
@@ -15,6 +16,8 @@ export const NOTE_SEND_DELAY_MS = 200
 
 export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
+  // On a read-only screen (worfy-link ticket 25) the note can be read, not edited.
+  const readOnly = useReadOnly()
   const text = typeof data.node.data.text === 'string' ? data.node.data.text : ''
   const textarea = useRef<HTMLTextAreaElement>(null)
   // What was typed and not yet sent to main; undefined when main has everything.
@@ -73,7 +76,9 @@ export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
         ref={textarea}
         className="w-note__text nodrag nowheel"
         aria-label="Note text"
-        placeholder="Write a note…"
+        placeholder={readOnly === null ? 'Write a note…' : ''}
+        readOnly={readOnly !== null}
+        title={readOnly ?? undefined}
         defaultValue={text}
         onChange={(event) => {
           unsent.current = event.target.value
