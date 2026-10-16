@@ -274,10 +274,11 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     writeFileSync(profile, `PATH='${tools}'; export PATH\n`)
     // The app's source holds what it captured last: take the shell without node now, as at a start from Finder.
     const capturing = Date.now()
-    const recaptured = await recaptureAgentEnv()
+    await recaptureAgentEnv()
     // A capture that fell back keeps the test above's, with node: the time and the shell's starts tell
     // a login shell over its time limit (src/main/agent/env.ts, SHELL_TIMEOUT_MS) from another cause.
-    const how = `recapture took ${Date.now() - capturing} ms, from ${recaptured.from}, the login shell started ${shellRuns()} times`
+    // Not `from`: after a fallback recaptureAgentEnv answers with the kept capture, and its `from`.
+    const how = `recapture took ${Date.now() - capturing} ms, the login shell started ${shellRuns()} times`
     expect(commandPath('node', (await harnessScriptEnv()).PATH ?? ''), how).toBeNull()
     // A retry step far longer than the test: only "Check again" can bring the Epic in time.
     const hub = new WorkflowHub({ claudeHome, env: harnessScriptEnv, layoutRetryMs: 60_000 })

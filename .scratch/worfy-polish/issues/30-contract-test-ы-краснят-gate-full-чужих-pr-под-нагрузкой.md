@@ -59,7 +59,7 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
 
 - [x] В `workflow-reader`, `github-prs`, `harness-qmd`, `docs`, `harness-script-env` test не пишет
       новых исполняемых файлов, или в «Итог» названа причина.
-- [x] Причины падений `harness-script-env` и `terminal-ai-zle` — в «Итог» с выводом красного прогона до
+- [ ] Причины падений `harness-script-env` и `terminal-ai-zle` — в «Итог» с выводом красного прогона до
       правки. Не воспроизвелось — так и записано, с числом прогонов.
 - [ ] Замер способом Ticket-а 20: два прогона `--project contract` разом под `yes > /dev/null` на
       половине ядер (load около 15). До правки — до первого красного; после — 0 красных в N прогонах,
@@ -146,15 +146,17 @@ link to one file:  median 2.5 ms,    max 3.4 ms
   `<tmp>/node-bin` — отсюда `expected '/private/var/folders/…' to be null`.
 - Мутант (в своём worktree, файл восстановлен из копии): `.profile` с `sleep 12` перед `PATH=…` —
   красный ровно с сообщением gate full:
-  `AssertionError: recapture took 10003 ms, from login-shell, the login shell started 1 times: expected '/private/var/folders/3c/vgccn1z92czdr…' to be null`.
+  `AssertionError: recapture took 10003 ms, the login shell started 1 times: expected '/private/var/folders/3c/vgccn1z92czdr…' to be null`.
 - Причина «shell не уложился» в gate full — первый запуск нового файла `login-shell` в очереди
   `XprotectService` (пункт 1 замера: до 4,9 s на файл при load 6; при load ~15 и нескольких test-файлах
   с новыми скриптами разом 10 s правдоподобны). Лечение — пункт 1. В test добавлено сообщение к
-  проверке: время `recaptureAgentEnv()`, `from` и число запусков shell. При следующем красном оно
-  разделит причины: «started 0 times» — exec ждал очередь, «started 1 times» и ≥ 10 000 ms — сам shell
-  медленный.
-- Не воспроизведено без нагрузки: 2 прогона файла после правки, оба зелёные (exit 0). Прогона под
-  нагрузкой не было (запрет брифа: рядом живой Autopilot).
+  проверке: время `recaptureAgentEnv()` и число запусков shell. При следующем красном оно разделит
+  причины: «started 0 times» — exec ждал очередь, «started 1 times» и ≥ 10 000 ms — сам shell
+  медленный. `from` в сообщение не входит: после `fallback` `recaptureAgentEnv` отдаёт прежний удачный
+  снимок с его `from` = `login-shell` (ревью PR #401).
+- Красного прогона до правки нет: файл на `origin/main` не запускался. 2 зелёных прогона после правки
+  о коде до правки ничего не говорят. Прогон под нагрузкой до и после правки идёт вместе с замером
+  (третий чекбокс «Готово, когда»), поэтому второй чекбокс не отмечен.
 
 ### 3. `terminal-ai-zle` — какой `run`, установлено чтением; почему — не установлено
 
