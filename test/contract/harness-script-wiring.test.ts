@@ -10,7 +10,7 @@
 // Then what each run of a script gets: the environment asked on that run, the retry after a
 // Harness change included, nothing of worfy's own variables, and HARNESS_HOME of the Harness worfy
 // found. The scripts are stubs that print what they got, in a temporary Claude home.
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -282,16 +282,20 @@ describe('every place of the app hands the scripts the source of src/main/harnes
 
 // ── what each run gets ───────────────────────────────────────────────────────
 
-/** Writes an executable `#!/bin/sh` script. */
-function script(path: string, body: string): void {
-  mkdirSync(join(path, '..'), { recursive: true })
-  writeFileSync(path, `#!/bin/sh\n${body}`)
-  chmodSync(path, 0o755)
-}
+/**
+ * The stand-ins of the Harness scripts (test/fixtures/harness-stub/): `answer` logs what it got to
+ * $CALLS and answers as the script it is linked as; `gone` logs, removes the link it was started
+ * by, and fails. Tests link them, never write a script: macOS checks each new executable file on
+ * its first run, a few hundred ms and one file at a time for the whole machine, and the copies
+ * each test used to write made these tests time out in a loaded full run.
+ */
+const STUBS = join(__dirname, '..', 'fixtures', 'harness-stub')
 
-/** What the stub scripts log about their environment: one line per run. */
-const RECORD = `echo "$(basename "$0") MARK=\${MARK-unset} ${LEAK}=\${${LEAK}-unset} HARNESS_HOME=\${HARNESS_HOME-unset}" >> "$CALLS"`
-const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
+/** Links the stand-in `stub` at `path`. */
+function linkStub(path: string, stub: 'answer' | 'gone'): void {
+  mkdirSync(join(path, '..'), { recursive: true })
+  symlinkSync(join(STUBS, stub), path)
+}
 
 /**
  * The Harness plugin in `<claudeHome>/worfy-harness/plugin` (src/main/harness/locate.ts): its
@@ -302,52 +306,95 @@ function pluginHarness(claudeHome: string): string {
   const plugin = join(harnessHome, 'plugin')
   mkdirSync(join(plugin, '.claude-plugin'), { recursive: true })
   writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), '{"name": "worfy", "version": "0.0.0+test"}\n')
-  script(join(plugin, 'bin', 'epic-status'), `${RECORD}\nprintf '%s' '${EPIC_JSON}'\n`)
-  script(join(plugin, 'bin', 'profile'), `${RECORD}\nprintf '%s' '{"_resolved":{"mode":"silent","workflow_folder":"${join(scratch, 'workflow')}","repos":[]}}'\n`)
-  script(join(plugin, 'bin', 'ticket'), `${RECORD}\necho '${join(scratch, 'workflow', '.scratch')}'\n`)
+  for (const name of ['epic-status', 'profile', 'ticket']) linkStub(join(plugin, 'bin', name), 'answer')
   return harnessHome
 }
 
 const lines = (calls: string): string[] => readFileSync(calls, 'utf8').trim().split('\n')
 
-describe.skipIf(process.platform === 'win32')('what each run of a script gets', () => {
-  let claudeHome: string
-  let calls: string
-  let asked: number
+/** What one test of the runs works with, fixed when the test starts. */
+interface ScriptRun {
+  claudeHome: string
+  /** The file the stubs log to. */
+  calls: string
+  /** How many times `source` was asked so far. */
+  asked(): number
   /** The login shell's environment as the app hands it: CALLS tells the stubs where to log. */
-  let source: HarnessScriptEnvSource
+  source: HarnessScriptEnvSource
+}
+
+/**
+ * A test's own Claude home, calls file and source under `root`. The source closes over these
+ * values, not over variables of the describe that the next test's beforeEach reassigns: a run that
+ * a test cut off by its timeout left going still logs into that test's calls file.
+ */
+function scriptRun(root: string): ScriptRun {
+  const calls = join(root, 'calls.txt')
+  let asked = 0
+  return {
+    claudeHome: join(root, 'claude-home'),
+    calls,
+    asked: () => asked,
+    source: () => {
+      asked += 1
+      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: root, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(root, 'workflow') })
+    },
+  }
+}
+
+describe.skipIf(process.platform === 'win32')('what each run of a script gets', { shuffle: false }, () => {
+  let run: ScriptRun
+  /** The run of the first of the two leak tests, and the folder it ran in; the second asks it. */
+  let leftover: { run: ScriptRun; root: string } | undefined
 
   beforeEach(() => {
-    claudeHome = join(scratch, 'claude-home')
-    calls = join(scratch, 'calls.txt')
-    asked = 0
-    source = () => {
-      asked += 1
-      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls })
-    }
+    run = scriptRun(scratch)
+  })
+
+  // The two tests below go together, in this order. The first ends and leaves its run behind, as a
+  // test cut off by its timeout leaves its chain going; the second, after the real hooks gave it a
+  // new folder and a new run, asks the source of the first.
+  it('a test leaves its run behind (the first of two)', () => {
+    leftover = { run, root: scratch }
+    expect(run.asked()).toBe(0)
+  })
+
+  it("the run a test left behind still logs into that test's calls file, not into the next test's (the second of two)", async () => {
+    const left = leftover
+    // Run alone (-t, .only), the pair proves nothing: then this test fails rather than passes.
+    expect(left).toBeDefined()
+    if (left === undefined) return
+    expect(left.root).not.toBe(scratch)
+    const env = await left.run.source()
+    expect(env.CALLS).toBe(left.run.calls)
+    expect(env.CALLS).not.toBe(run.calls)
+    expect(env.HOME).toBe(left.root)
   })
 
   it("epic-status: the environment asked on each run, nothing of worfy's own, HARNESS_HOME of the plugin", async () => {
+    const { claudeHome, calls, source, asked } = run
     const harnessHome = pluginHarness(claudeHome)
-    const run = epicStatusRunner(claudeHome, source)
-    await run(scratch, null)
-    await run(scratch, null)
-    expect(asked).toBe(2)
+    const runner = epicStatusRunner(claudeHome, source)
+    await runner(scratch, null)
+    await runner(scratch, null)
+    expect(asked()).toBe(2)
     expect(lines(calls)).toEqual([`epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`, `epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`])
   })
 
   it('epic-status: the run again after the Harness moved under it gets the same environment', async () => {
+    const { claudeHome, calls, source, asked } = run
     const harnessHome = pluginHarness(claudeHome)
     // The old Harness wins while it is there (ADR-0049); its epic-status is taken away while it
     // runs, as the move of ticket 14 takes it away, and fails.
-    script(join(claudeHome, 'bin', 'epic-status'), `${RECORD}\nrm -f "$0"\nexit 1\n`)
+    linkStub(join(claudeHome, 'bin', 'epic-status'), 'gone')
     const out = await epicStatusRunner(claudeHome, source)(scratch, null)
     expect(JSON.parse(out)).toMatchObject({ epics: [{ epic: 'demo' }] })
-    expect(asked).toBe(1)
+    expect(asked()).toBe(1)
     expect(lines(calls)).toEqual([`epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=unset`, `epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`])
   })
 
   it("profile and ticket of the layout: the environment handed, nothing of worfy's own", async () => {
+    const { claudeHome, calls, source } = run
     const harnessHome = pluginHarness(claudeHome)
     const layout = await readProjectLayout({ root: scratch, claudeHome, env: await source(), log: () => undefined })
     expect(layout).toMatchObject({ mode: 'silent', failed: false, ticketsRoot: join(scratch, 'workflow', '.scratch') })
@@ -355,22 +402,23 @@ describe.skipIf(process.platform === 'win32')('what each run of a script gets', 
   })
 
   it('the layout cache and the workflow read ask the source on each read', async () => {
+    const { claudeHome, source, asked } = run
     pluginHarness(claudeHome)
     let now = 0
     const cache = new LayoutCache({ claudeHome: () => claudeHome, env: source, ttlMs: 1000, now: () => now })
     await cache.get(scratch)
     await cache.get(scratch)
-    expect(asked).toBe(1)
+    expect(asked()).toBe(1)
     now = 2000
     await cache.get(scratch)
-    expect(asked).toBe(2)
-    asked = 0
+    expect(asked()).toBe(2)
     await readWorkflow({ root: scratch, claudeHome, env: source })
-    // Once for the layout, once for the run of epic-status.
-    expect(asked).toBe(2)
+    // Two asks more: one for the layout, one for the run of epic-status.
+    expect(asked()).toBe(4)
   })
 
   it('a HARNESS_HOME the user exports in the login shell does not win over the Harness home worfy found', async () => {
+    const { claudeHome, calls } = run
     const harnessHome = pluginHarness(claudeHome)
     const exported = (): Promise<HarnessScriptEnv> => Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls, HARNESS_HOME: join(scratch, 'elsewhere') })
     await epicStatusRunner(claudeHome, exported)(scratch, null)
@@ -383,18 +431,14 @@ describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh envi
   it('after exit code 127 the retry takes the login shell again; after another failure only when the held one fell back', async () => {
     const claudeHome = join(scratch, 'claude-home')
     const calls = join(scratch, 'calls.txt')
-    const harnessHome = pluginHarness(claudeHome)
+    pluginHarness(claudeHome)
     const exit = join(scratch, 'profile-exit')
     writeFileSync(exit, '127\n')
     // profile fails with the exit code in the file, as a profile without node or with a broken registry does.
-    script(
-      join(harnessHome, 'plugin', 'bin', 'profile'),
-      `${RECORD}\ncode=$(cat '${exit}')\nif [ "$code" != 0 ]; then echo 'env: node: No such file or directory' >&2; exit "$code"; fi\nprintf '%s' '{"_resolved":{"mode":"silent","workflow_folder":"${join(scratch, 'workflow')}","repos":[]}}'\n`,
-    )
     const requests: (string | null)[] = []
     const source: HarnessScriptEnvSource = (request) => {
       requests.push(request?.fresh ?? null)
-      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls })
+      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(scratch, 'workflow'), PROFILE_EXIT_FILE: exit })
     }
     const until = async (done: () => boolean): Promise<void> => {
       // Generous: the whole suite runs in parallel, and each retry starts a shell script.

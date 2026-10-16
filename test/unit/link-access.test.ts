@@ -4,13 +4,14 @@
 // channel without one fails `pnpm typecheck`; this test catches the rest — a mark slipped past the
 // type with `as`, or a value outside the four.
 import { describe, expect, it } from 'vitest'
-import { CHANNEL_ACCESS, type ChannelAccess } from '../../src/shared/ipc/channels'
+import { CHANNEL_ACCESS, CHANNEL_USE, type ChannelAccess } from '../../src/shared/ipc/channels'
 
 interface FoundChannel {
   file: string
   name: string
   kind: 'invoke' | 'event'
   access: unknown
+  use: unknown
 }
 
 /** Every channel object a module exports: anything with `kind` invoke/event and a string `name`. */
@@ -19,9 +20,9 @@ function channelsOf(modules: Record<string, Record<string, unknown>>): FoundChan
   for (const [file, exports] of Object.entries(modules)) {
     for (const value of Object.values(exports)) {
       if (typeof value !== 'object' || value === null) continue
-      const candidate = value as { kind?: unknown; name?: unknown; access?: unknown }
+      const candidate = value as { kind?: unknown; name?: unknown; access?: unknown; use?: unknown }
       if ((candidate.kind !== 'invoke' && candidate.kind !== 'event') || typeof candidate.name !== 'string') continue
-      found.push({ file, name: candidate.name, kind: candidate.kind, access: candidate.access })
+      found.push({ file, name: candidate.name, kind: candidate.kind, access: candidate.access, use: candidate.use })
     }
   }
   return found
@@ -148,5 +149,143 @@ describe('the initial marks', () => {
     for (const name of ['projects.list', 'layout.apply', 'layout.changed', 'agent.start', 'terminal.open', 'terminal.output', 'terminal.takeSize', 'terminal.started', 'autopilot.start', 'workflow.open', 'docs.open', 'claudeHome.sessions', 'bindings.get', 'cards.get', 'cardApi.dataGet', 'cardApi.dataSet', 'trash.put', 'projects.changed']) {
       expect(project, name).toContain(name)
     }
+  })
+})
+
+// worfy-link ticket 18 (ADR-0066): every `project` channel is marked `read` or `write`; a Linked
+// machine with read-only access reaches the `read` ones only. The mark is a required argument of a
+// `project` channel, so one without it fails `pnpm typecheck`. Both lists are named here: a new
+// `project` channel, or one whose mark changed, fails this test until it is decided on here.
+describe('the read-or-write mark of `project` channels', () => {
+  /** Changes nothing, starts or stops nothing, sends nothing into a Session or a Terminal. */
+  const READ_CALLS = [
+    'actions.launches',
+    'agent.commands',
+    'agent.controls',
+    'agent.list',
+    'agent.models',
+    'autopilot.state',
+    'bindings.get',
+    'bindings.signals',
+    'cardApi.dataGet',
+    'cards.file',
+    'cards.get',
+    // Read-only git and gh: the owner counts them as reading (answer 3).
+    'checks.get',
+    'checks.repos',
+    'claudeHome.close',
+    'claudeHome.live',
+    'claudeHome.search',
+    'claudeHome.sessions',
+    'claudeHome.subagentTranscript',
+    'claudeHome.subagents',
+    // Transcripts, Session events and notifications are reading (answer 2): they may show a secret.
+    'claudeHome.transcript',
+    'docs.close',
+    // Opening the watcher of a Project's docs lets main sync the HANDOFF Node with the file, as it
+    // does for its own active Project: the caller changes nothing.
+    'docs.open',
+    'docs.read',
+    'layout.get',
+    'orchestrator.view',
+    'projects.list',
+    'projects.settings.defaults',
+    'projects.settings.get',
+    'sessions.resumable',
+    'sessions.views',
+    'terminal.shells',
+    'terminalAi.fix.state',
+    'terminalAi.request.state',
+    'trash.list',
+    'workflow.close',
+    'workflow.open',
+  ]
+  const WRITE_CALLS = [
+    'actions.runWave',
+    'actions.shipTicket',
+    // Copies files to the Project machine's disk.
+    'agent.attach',
+    'agent.close',
+    'agent.configure',
+    'agent.interrupt',
+    'agent.permission',
+    'agent.queueRemove',
+    'agent.queueSend',
+    'agent.send',
+    'agent.start',
+    'autopilot.forceStop',
+    'autopilot.start',
+    'autopilot.stop',
+    'bindings.remove',
+    'bindings.set',
+    'cardApi.askFinish',
+    'cardApi.askPrepare',
+    'cardApi.dataSet',
+    'layout.apply',
+    // Starts the Orchestrator Session when there is none.
+    'orchestrator.open',
+    'orchestrator.newConversation',
+    'projects.add',
+    // Reads the folders of the whole disk, outside every Project.
+    'projects.browse',
+    // The steps of "Add project": accounts and check start gh and the Harness script for a write.
+    'projects.connect.accounts',
+    'projects.connect.check',
+    'projects.connect.draft',
+    // Adds a folder already connected to the Project list.
+    'projects.connect.inspect',
+    'projects.connect.stop',
+    'projects.connect.write',
+    'projects.hold',
+    'projects.remove',
+    'projects.settings.set',
+    'sessions.close',
+    'sessions.new',
+    'sessions.resume',
+    'sessions.start',
+    'terminal.close',
+    'terminal.input',
+    // Starts the shell when it does not run.
+    'terminal.open',
+    'terminal.resize',
+    'terminal.takeSize',
+    'terminalAi.fix.run',
+    'terminalAi.request',
+    'terminalAi.request.cancel',
+    'trash.put',
+    'trash.restore',
+  ]
+  /** Every event is reading but the output of a Terminal (answer 2). */
+  const WRITE_EVENTS = ['terminal.output']
+
+  const project = channels.filter((channel) => channel.access === 'project')
+  const named = (kind: 'invoke' | 'event', use: string): string[] =>
+    project
+      .filter((channel) => channel.kind === kind && channel.use === use)
+      .map((channel) => channel.name)
+      .sort()
+
+  it('every `project` channel is marked read or write; no other channel carries the mark', () => {
+    expect(project.length).toBeGreaterThanOrEqual(100)
+    expect(project.filter((channel) => !(CHANNEL_USE as readonly unknown[]).includes(channel.use)).map((channel) => `${channel.name}: ${JSON.stringify(channel.use) ?? 'no mark'}`)).toEqual([])
+    expect(channels.filter((channel) => channel.access !== 'project' && channel.use !== null).map((channel) => channel.name)).toEqual([])
+  })
+
+  it('a `project` channel named in neither list fails here, by name', () => {
+    const decided = new Set([...READ_CALLS, ...WRITE_CALLS])
+    expect(named('invoke', 'read').concat(named('invoke', 'write')).filter((name) => !decided.has(name))).toEqual([])
+  })
+
+  it('the `read` calls are exactly the ones named', () => {
+    expect(named('invoke', 'read')).toEqual([...READ_CALLS].sort())
+  })
+
+  it('the `write` calls are exactly the ones named, including those whose names sound like reading', () => {
+    expect(named('invoke', 'write')).toEqual([...WRITE_CALLS].sort())
+  })
+
+  it('every `project` event is `read` but Terminal output', () => {
+    expect(named('event', 'write')).toEqual(WRITE_EVENTS)
+    expect(named('event', 'read').length).toBe(project.filter((channel) => channel.kind === 'event').length - WRITE_EVENTS.length)
   })
 })

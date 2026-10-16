@@ -265,6 +265,99 @@ names Thermos, the file, the commit, the licence and what was taken :: Source: T
 names ponytail, the files, the commit, the licence and what was taken :: Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright (c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the first filter and the `shortcut:` comment.
 says what is reworded and what is taken as it is :: The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category names delete, merge and split. The third filter is this project's own rule.
 EOF
+# --- 10. implementer: the smallest complete change (ticket worfy-review/04) ---------------------
+# Step 4 of section Order: the order of options, the two rules before the edit, what is never cut,
+# the `shortcut:` comment and the script that lists such comments; the source and its licence
+# close the section. Sentences are looked up in the section with line breaks folded into spaces.
+ORDER="$(awk '/^## Order/{o=1; next} o && /^## /{exit} o' "$AGENTS/implementer.md")"
+im() { if in_text "$ORDER" "$2"; then ok "implementer, Order: $1"; else bad "implementer, Order: $1 — no '$2'"; fi; }
+im "step 4 is the smallest complete change, after the failing test" \
+    "4. Implementation inside the ticket's trail: the smallest change that does the whole ticket. It comes after step 3 — the failing test stays first — and it never drops an item of the ticket's list of what \"done\" means."
+im "before the edit: every place the change has to reach" \
+    '- Before the edit, list every place the change has to reach: callers, tests, fixtures, configuration, exports.'
+im "a bug: grep every caller, fix once in the shared code" \
+    '- For a bug, grep every caller of the function you change and fix the cause once, in the shared code.'
+im "the order of options is introduced" '- Then take the first of these options that solves the whole task:'
+# The six options are a nested list: indented, so the check of steps 1. to 6. above still sees only
+# the steps of Order. Each option is checked on its own line, in its place.
+options="$(printf '%s\n' "$ORDER" | grep -E '^ +[1-6]\. ' | sed -E 's/^ +//')"
+want_options='1. Nothing: the task does not need this code.
+2. Code the repository already has — a helper, a component, a pattern; use it the way the code around it does.
+3. The standard library or a feature of the platform.
+4. A dependency the project already installs; a new dependency for a few lines is not an option.
+5. One line that a reader understands at a glance.
+6. The least new code that works.'
+[ "$options" = "$want_options" ] && ok "implementer, Order: the six options of step 4, indented, in their order" \
+    || bad "implementer, Order: the six options:"$'\n'"$options"
+im "what is never cut" \
+    '- Never cut, whatever the size of the change: checks of input at a trust boundary, error handling that keeps data from being lost, security, accessibility, anything the ticket asks for.'
+im "the shortcut comment and its form" \
+    '- A simplification with a known limit gets a comment in the comment syntax of the language: `shortcut: <limit>, <when to redo>` — what the simple code does not handle, then the condition under which it has to be replaced.'
+im "a comment without the condition is incomplete" \
+    'A comment without the part after the comma is incomplete: nobody will know when to redo the code.'
+im "the script that lists the comments" \
+    '`${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger` lists the `shortcut:` comments of a work tree and marks the incomplete ones `no-trigger`.'
+im "the source: ponytail, the files, the commit and what was taken" \
+    'Source of step 4: ponytail, `skills/ponytail/SKILL.md` and `skills/ponytail-debt/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0) — the order of options, the list of places before the edit, the rule for a bug, what is never cut, the `shortcut:` comment and the `no-trigger` mark.'
+im "what is reworded and why the licence goes with it" \
+    'The rules are reworded; the marker `shortcut:` and the mark `no-trigger` are taken as they are. The order of options follows the source closely, so its licence goes with it — `LICENSE` of the source at that commit:'
+# The licence is the source's LICENSE at that commit, whole, as the last block of the section.
+licence="$(printf '%s\n' "$ORDER" | awk '/^```text$/{b=1; t=""; next} b && /^```$/{b=0; last=t; next} b{t = t $0 "\n"} END{printf "%s", last}')"
+MIT_PONYTAIL='MIT License
+
+Copyright (c) 2026 DietrichGebert
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.'
+[ "$licence" = "$MIT_PONYTAIL" ] && ok "implementer, Order: the full MIT licence of ponytail, with its copyright line" \
+    || bad "implementer, Order: the licence block is not the MIT licence of ponytail:"$'\n'"$licence"
+last_line="$(printf '%s\n' "$ORDER" | grep -v '^$' | tail -n 1)"
+[ "$last_line" = '```' ] && ok "implementer, Order: the licence closes the section" || bad "implementer, Order: the section ends with [$last_line], not the licence block"
+# The script the text names is in harness/bin.
+[ -x "$AGENTS/../bin/shortcut-ledger" ] && ok "implementer: bin/shortcut-ledger exists" || bad "implementer: bin/shortcut-ledger is missing"
+
+# --- 11. implementer: only its own e2e files (ticket worfy-throughput/03) -----------------------
+# Step 5 of section Order has a paragraph of its own on e2e tests, and the whole paragraph hangs on
+# the condition: a project whose profile has no `commands.e2e` gets no e2e rule. The implementer
+# runs the e2e files its ticket touches; the full suite is the orchestrator's gate full before the
+# merge; repeats and CPU load only on the ticket's demand; the lock comes from the profile's rules.
+STEP5="$(printf '%s\n' "$ORDER" | awk '/^5\. /{s=1} /^6\. /{exit} s')"
+E2E="$(printf '%s\n' "$STEP5" | awk 'BEGIN { RS = "" } /only[ \n]+the[ \n]+e2e[ \n]+files[ \n]+the[ \n]+ticket[ \n]+touches/ { print; exit }')"
+if [ -z "$E2E" ]; then
+    bad "implementer, step 5: no paragraph with 'only the e2e files the ticket touches'"
+else
+    ok "implementer, step 5: a paragraph of its own on e2e files"
+    E2E_FLAT="$(printf '%s\n' "$E2E" | tr '\n' ' ' | tr -s ' ' | sed -E 's/^ +//')"
+    case "$E2E_FLAT" in
+        'E2e tests, if the profile sets `commands.e2e`: '*) ok "implementer, step 5: the e2e paragraph opens with 'if the profile sets \`commands.e2e\`'" ;;
+        *) bad "implementer, step 5: the e2e paragraph does not open with its condition: [$E2E_FLAT]" ;;
+    esac
+    e2e() { if in_text "$E2E" "$2"; then ok "implementer, step 5, e2e: $1"; else bad "implementer, step 5, e2e: $1 — no '$2'"; fi; }
+    e2e "only the files the ticket adds, changes or names in its tests, with the exit code" \
+        'run only the e2e files the ticket touches — the ones it adds or changes and the ones its tests section names — with `<commands.e2e> <files>; echo "EXIT=$?"`.'
+    e2e "the whole suite is the orchestrator's gate full before the merge" \
+        'The whole e2e suite is not yours to run: the orchestrator runs it in `gate full` before the merge.'
+    e2e "repeats and CPU load only when the ticket asks" \
+        'Repeats (`--repeat-each`) and CPU load — only when the ticket'"'"'s list of what "done" means asks for them.'
+    e2e "the lock as the profile's rules say" 'The e2e lock, if the project has one, is described in the profile'"'"'s `rules.md`.'
+    e2e "no commands.e2e, no rule" 'A profile without `commands.e2e` has no rule here.'
+fi
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'

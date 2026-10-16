@@ -1,7 +1,7 @@
 # 22 — Убрать блок Limits из правой колонки Session view: он повторяет Limits в toolbar
 
 Type: task
-Status: open
+Status: done — 2026-10-16, [PR #375](https://github.com/IDSAD-XL/worfy/pull/375)
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В той же правой колонке убрать секцию
 лимитов: она дублирует то, что уже показано в шапке (header)». Блок добавил Ticket
@@ -46,13 +46,13 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
 
 ## Готово, когда
 
-- [ ] Test пункта 1 красный на main и зелёный с правкой.
-- [ ] `grep -rn "LimitsRail\|limits-rail" src test` — пусто (кроме `test/fixtures`, это копия старого
+- [x] Test пункта 1 красный на main и зелёный с правкой.
+- [x] `grep -rn "LimitsRail\|limits-rail" src test` — пусто (кроме `test/fixtures`, это копия старого
       Epic-а).
-- [ ] Limits в toolbar работают как раньше: test-ы `LimitsMeterView` зелёные без правок ожиданий.
-- [ ] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] Limits в toolbar работают как раньше: test-ы `LimitsMeterView` зелёные без правок ожиданий.
+- [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -83,4 +83,30 @@ Session живёт в ней (`src/renderer/shell/Toolbar.tsx:52-96`).
 
 ## Итог
 
-—
+- Блок Limits в rail Session view удалён: файла `src/renderer/session/rail/LimitsRail.tsx` больше
+  нет, rail находит только `BindingRail` и `SubagentsRail`. Limits видны только в toolbar.
+- `LimitBarView` потерял вариант `rail` и проп `variant` вместе с типом `LimitBarVariant`: других
+  вызовов, кроме toolbar, не осталось. Вид полос в toolbar не менялся. Решено без владельца,
+  подтверждено владельцем 2026-10-16.
+- Комментарии, которые называли блок, переписаны: `LimitBar.tsx`, `LimitsMeter.tsx`,
+  `useLimits.ts`, `BindingRail.tsx`, `SubagentsRail.tsx`, `rail/index.ts`.
+- Test: `test/unit/session-rail-discovery.test.tsx` — «has no Limits block» сравнивает весь
+  список блоков rail; на main красный (в списке есть `LimitsRail`), с правкой зелёный; мутант
+  «вернуть `LimitsRail.tsx`» — красный. Из `test/unit/limits-meter.test.tsx` ушёл блок
+  `LimitsRailView`; test-ы `LimitsMeterView` не менялись и зелёные.
+- e2e `limits.spec.ts` и `session-view.spec.ts` — зелёные. Снимки Session view сняты временным
+  spec-ом (в репозиторий не вошёл): rail — Binding и Subagents, Limits — в toolbar.
+  - светлая тема: [22-session-rail-no-limits-light.png](../evidence/22-session-rail-no-limits-light.png)
+  - тёмная тема: [22-session-rail-no-limits-dark.png](../evidence/22-session-rail-no-limits-dark.png)
+
+### Gate оркестратора (2026-10-16)
+
+- Wave 4 Epic-а под Autopilot: Ticket-ы 22 и 24 параллельно, общих файлов нет. Глубина — один verifier на круг; UI — снимки в обеих темах.
+- Гейт — один круг: `VERIFIED` на `35f6f5e` ([комментарий в PR #375](https://github.com/IDSAD-XL/worfy/pull/375#issuecomment-6203986752)). Verifier сам: gate fast не из кэша — код 0; e2e `limits` и `session-view` под замком — passed; свои мутанты (вернуть `LimitsRail.tsx`; тот же файл как `UsageRail.tsx`) — красные; снимки в обеих темах: в rail только Binding и Subagents, Limits в toolbar целы.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `c41b376`.
+- Act on, Dismissed — нет.
+- Consider: [low] у `Meter` остался параметр `height`, его всегда передают 4 (`LimitBar.tsx:16`, `:51`); объект `common` теперь раскрывается в одном месте (`:30`, `:38`).
+- Noted (**решено без владельца, подтверждено владельцем 2026-10-16**): проп `variant` и тип `LimitBarVariant` удалены целиком — других вызовов варианта rail нет.
+
+Решение владельца 2026-10-16: принято — проп `variant` и тип `LimitBarVariant`
+удалены целиком.

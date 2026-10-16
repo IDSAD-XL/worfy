@@ -10,7 +10,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { createPortal } from 'react-dom'
 import { useReactFlow, useStore } from '@xyflow/react'
 import '../../theme/primitives.css'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { nodeTypes, type NodeType } from '../nodes'
 import { useTidyUp } from '../tidy'
 import { createItems } from './create-items'
@@ -51,6 +52,8 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
   const container = useStore((state) => state.domNode)
   const [opened, setOpened] = useState<Opened>()
   const menu = useRef<HTMLDivElement>(null)
+  // On a read-only screen (worfy-link ticket 25) the menu opens with every item inactive, saying why.
+  const readOnly = useReadOnly()
 
   useEffect(() => {
     if (container === null || items.length === 0) return
@@ -110,7 +113,7 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
       }}
     >
       {items.map(({ label, type }) => (
-        <button key={type.kind} type="button" role="menuitem" className="w-row" onClick={() => create(type)}>
+        <button key={type.kind} type="button" role="menuitem" className="w-row" {...writeAction(readOnly, () => create(type))}>
           {label}
         </button>
       ))}
@@ -119,10 +122,10 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
         type="button"
         role="menuitem"
         className="w-row"
-        onClick={() => {
+        {...writeAction(readOnly, () => {
           close()
           void tidyUp()
-        }}
+        })}
       >
         Tidy up
       </button>

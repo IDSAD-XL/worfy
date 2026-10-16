@@ -1,10 +1,10 @@
 // The renderer's copy of the link state (worfy-link ticket 02): this Machine, its Linked machines,
-// "Link a machine" and the two switches. Main owns all of it (src/main/ipc/link.ts); this module
+// "Link a machine", the two switches and the access level of each Linked machine. Main owns all of it (src/main/ipc/link.ts); this module
 // keeps the latest state main sent, for the Machines section of the sidebar and the "Link a machine"
 // dialog. One subscription and one state call serve them all.
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import type { LinkState } from '../../shared/ipc/link'
+import type { AccessLevel, LinkState } from '../../shared/ipc/link'
 import { invoke, subscribe } from '../ipc'
 
 interface MachinesStore {
@@ -49,6 +49,19 @@ export function useMachines(): LinkState | undefined {
   return useMachinesStore((store) => store.state)
 }
 
+/** The name of Linked machine `id`; follows the link state only for an id, so a null costs no call. */
+export function useMachineName(id: string | null): string | undefined {
+  useEffect(() => {
+    if (id !== null) start()
+  }, [id])
+  return useMachinesStore((store) => (id === null ? undefined : store.state?.linked.find((machine) => machine.id === id)?.name))
+}
+
+/** The link state as the renderer has it now, outside React; undefined until main has answered once. */
+export function linkStateNow(): LinkState | undefined {
+  return useMachinesStore.getState().state
+}
+
 /** Calls a link channel that answers with the state, and takes the state; the error text otherwise. */
 async function change(call: Promise<{ ok: true; value: LinkState } | { ok: false; error: string }>): Promise<string | undefined> {
   const result = await call
@@ -61,6 +74,7 @@ export const openLinking = (): Promise<string | undefined> => change(invoke('lin
 export const closeLinking = (): Promise<string | undefined> => change(invoke('link.close'))
 export const revokeMachine = (id: string): Promise<string | undefined> => change(invoke('link.revoke', { id }))
 export const setProjectsAccess = (projectsAccess: boolean): Promise<string | undefined> => change(invoke('link.setAccess', { projectsAccess }))
+export const setMachineAccess = (id: string, access: AccessLevel): Promise<string | undefined> => change(invoke('link.setMachineAccess', { id, access }))
 export const setKeepAwake = (keepAwake: boolean): Promise<string | undefined> => change(invoke('link.setKeepAwake', { keepAwake }))
 
 /** Links with the worfy at `address`; the reason when it did not link. */

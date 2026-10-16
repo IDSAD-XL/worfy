@@ -9,9 +9,13 @@
 // RESIZING_ATTRIBUTE (worfy-week ticket 09). canvas.css turns mouse events off for every iframe on
 // the Canvas while the mark is there: a Card's page is on another origin, so a pointer that falls
 // onto its iframe would take the mouse events away from the window, and the resize would never end.
+//
+// On the Canvas of a Linked machine that shares its Projects read-only (worfy-link ticket 25) there
+// are no handles: a Node's size cannot change there.
 import { NodeResizer, useNodeId, useStoreApi, type NodeResizerProps, type OnResizeEnd, type OnResizeStart } from '@xyflow/react'
 import { useCallback, useEffect, useRef } from 'react'
 import { isParticipant } from '../../shared/layout/free-place'
+import { useReadOnly } from '../projects/useProjects'
 import type { CanvasFlowNode } from './nodes'
 import { resizeObstacles, stopEdges } from './snapping'
 
@@ -57,5 +61,7 @@ export function NodeResizeClamp({ onResizeStart, onResizeEnd, ...props }: NodeRe
     },
     [id, onResizeEnd, store, unmark],
   )
+  const readOnly = useReadOnly()
+  if (readOnly !== null) return null
   return <NodeResizer {...props} onResizeStart={onStart} onResizeEnd={onEnd} />
 }

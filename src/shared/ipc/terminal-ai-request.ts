@@ -26,10 +26,10 @@ export const terminalAiRequestStateSchema = z.object({
 export type TerminalAiRequestState = z.output<typeof terminalAiRequestStateSchema>
 
 /** The state of the panel of one Terminal; the calling client then gets `terminalAi.request.changed` for it. */
-export const terminalAiRequestState = invokeChannel('terminalAi.request.state', z.object(terminalRef), terminalAiRequestStateSchema, 'project')
+export const terminalAiRequestState = invokeChannel('terminalAi.request.state', z.object(terminalRef), terminalAiRequestStateSchema, 'project', 'read')
 
 /** The new state of the panel of a Terminal: its zsh connected or left, a command started or ended, Settings changed. */
-export const terminalAiRequestChanged = eventChannel('terminalAi.request.changed', z.object({ ...terminalRef, ...terminalAiRequestStateSchema.shape }), 'project')
+export const terminalAiRequestChanged = eventChannel('terminalAi.request.changed', z.object({ ...terminalRef, ...terminalAiRequestStateSchema.shape }), 'project', 'read')
 
 export const terminalAiRequestResultSchema = z.discriminatedUnion('ok', [
   /** The command is in the line of the shell; nothing ran. */
@@ -48,10 +48,11 @@ export const terminalAiRequest = invokeChannel(
   z.object({ ...terminalRef, text: z.string().trim().min(1).max(MAX_REQUEST_CHARS) }),
   terminalAiRequestResultSchema,
   'project',
+  'write',
 )
 
 /** The panel was closed while its request waited: the request is cancelled and nothing is put into the line. */
-export const terminalAiRequestCancel = invokeChannel('terminalAi.request.cancel', z.object(terminalRef), z.void(), 'project')
+export const terminalAiRequestCancel = invokeChannel('terminalAi.request.cancel', z.object(terminalRef), z.void(), 'project', 'write')
 
 declare module './channels' {
   interface IpcContract {

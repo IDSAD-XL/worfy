@@ -3,6 +3,7 @@ import { failureReason } from '../../../shared/ipc/channels'
 import { EPIC_FRAME_KIND, ticketNodeId } from '../../../shared/layout/derived'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { invoke } from '../../ipc'
+import { useReadOnly } from '../../projects/useProjects'
 import type { SlotProps } from '../badges'
 import { FRAME_GAP } from '../epic-layout'
 import type { CanvasFlowNode } from '../nodes'
@@ -58,14 +59,16 @@ function ShipTicket({ projectId, root, ticket }: Extract<SlotProps['subject'], {
   const { model } = useWorkflow(root)
   const state = useShipTicketState(projectId, ticket, model?.tickets ?? [ticket])
   const store = useCanvasStore()
+  // Inactive on a read-only screen (worfy-link ticket 25), with the reason.
+  const readOnly = useReadOnly()
   if (!hasShipTicket(ticket)) return null
   return (
     <ActionButton
       label="Ship ticket"
       testId="action-ship-ticket"
       primary
-      enabled={state.enabled}
-      title={state.enabled ? state.text : state.reason}
+      enabled={readOnly === null && state.enabled}
+      title={readOnly ?? (state.enabled ? state.text : state.reason)}
       run={async () => {
         const near = store ? shipTicketSpot(store.getState().nodeLookup.values(), ticket.epic, ticket.num) : undefined
         const result = await invoke('actions.shipTicket', { projectId, epic: ticket.epic, num: ticket.num, ...(near ? { near } : {}) })

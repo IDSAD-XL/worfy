@@ -578,3 +578,78 @@ describe('Open PR', () => {
     expect(container.querySelectorAll('button')).toHaveLength(0)
   })
 })
+
+describe('on the screen of a Linked machine that shares its Projects read-only (worfy-link ticket 25)', () => {
+  const MINI = '22222222-2222-4222-8222-222222222222'
+  const HINT = 'Mini gives this Machine read-only access'
+  let readOnly: boolean
+
+  // The window shows Mini: its `project` channels go through this Machine's main as `linked.invoke`
+  // (src/renderer/ipc.ts) and answer as above; main says Mini's level in `linked.state`.
+  beforeEach(() => {
+    readOnly = true
+    window.history.replaceState(null, '', `/?machine=${MINI}`)
+    const inner = (globalThis as unknown as { worfy: WorfyBridge }).worfy
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      ...inner,
+      invoke: (channel, input) => {
+        if (channel === 'linked.invoke') {
+          const call = input as { channel: string; input: unknown }
+          return inner.invoke(call.channel, call.input).then((value) => ({ ok: true, value }))
+        }
+        if (channel === 'linked.state') return Promise.resolve({ ok: true, value: { revision: 1, machines: [{ id: MINI, online: true, sharing: 'yes', readOnly, epoch: 1 }] } })
+        if (channel === 'link.state') return Promise.resolve({ ok: true, value: { revision: 1, machine: null, linked: [{ id: MINI, name: 'Mini', state: 'online', certificateChanged: false, access: 'all' }] } })
+        return inner.invoke(channel, input)
+      },
+    }
+  })
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('Ship ticket, Run wave and Autopilot are inactive and say why; a click sends nothing', async () => {
+    const { default: TicketActions } = await import('../../src/renderer/canvas/actions/TicketActions')
+    const { default: EpicActions } = await import('../../src/renderer/canvas/actions/EpicActions')
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(
+      <>
+        <TicketActions subject={ticketSubject(8)} />
+        <EpicActions subject={epicSubject()} />
+        <AutopilotAction subject={epicSubject()} />
+      </>,
+    )
+    for (const name of ['Ship ticket', 'Run wave', 'Autopilot']) {
+      const button = await screen.findByRole('button', { name })
+      await vi.waitFor(() => expect(button.getAttribute('title')).toBe(HINT))
+      expect(button.getAttribute('aria-disabled')).toBe('true')
+      fireEvent.click(button)
+    }
+    expect(calls.filter((call) => ['actions.shipTicket', 'actions.runWave', 'autopilot.start'].includes(call.channel))).toEqual([])
+  })
+
+  it('a running Autopilot shows, and Stop and Force stop are inactive', async () => {
+    autopilot = { ...autopilot, epic: 'demo', status: 'running', wave: 1 }
+    const { default: AutopilotAction } = await import('../../src/renderer/canvas/actions/AutopilotAction')
+    render(<AutopilotAction subject={epicSubject()} />)
+    const stop = await screen.findByRole('button', { name: 'Stop autopilot' })
+    await vi.waitFor(() => expect(stop.getAttribute('title')).toBe(HINT))
+    expect(stop.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(stop)
+    fireEvent.click(screen.getByTestId('action-autopilot-more'))
+    const force = await screen.findByRole('menuitem', { name: 'Force stop' })
+    expect(force.getAttribute('aria-disabled')).toBe('true')
+    expect(force.getAttribute('title')).toBe(HINT)
+    fireEvent.click(force)
+    expect(calls.filter((call) => call.channel === 'autopilot.stop' || call.channel === 'autopilot.forceStop')).toEqual([])
+  })
+
+  it('with Full access the same buttons are active and Ship ticket goes to the Machine', async () => {
+    readOnly = false
+    const button = await shipButton(8)
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    expect(button.getAttribute('title')).toBe('/ship-ticket demo 08')
+    fireEvent.click(button)
+    await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'actions.shipTicket')).toHaveLength(1))
+  })
+})

@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, typedColor, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS } from './zsh'
 
 // The Suggestion of Terminal AI from the model, in a Terminal Node of the built app on a real zsh:
 // a line the history of commands has nothing for is answered by the assist process after a pause,
@@ -9,6 +10,8 @@ import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, ter
 //
 // HOME is a temporary folder and SHELL the zsh of the machine (terminal-ai-helpers.ts): no startup
 // file and no history of the machine running the tests is read or written.
+
+test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
 
 let sandbox: TerminalAiSandbox
 

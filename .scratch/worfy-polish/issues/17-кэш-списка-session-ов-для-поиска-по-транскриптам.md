@@ -1,7 +1,7 @@
 # 17 — Поиск по транскриптам не перечитывает список Session-ов на каждый запрос: замер и кэш
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #369](https://github.com/IDSAD-XL/worfy/pull/369)
 Branch: worfy-polish/17
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а
@@ -60,8 +60,8 @@ Source: решение владельца 2026-10-15 по Gate Ticket-а
       выключен» краснит test «второй поиск не читает файлы».
 - [ ] Поиск на синтетике 2000 транскриптов: event loop main не стоит дольше 50 ms (или причина
       другого порога — в «Итог»).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -166,7 +166,7 @@ list` и `ps` для живых Session-ов, а не чтение транск�
 и 2 файлов выросли размер и mtime — это транскрипты Subagent-ов идущей Session-оркестратора
 (`f6ab7045…/subagents/`), их дописывает сам Claude Code; запись из скрипта запрещал `sandbox-exec`.
 
-Решено без владельца, подтвердить:
+Решено без владельца, подтверждено владельцем 2026-10-16:
 
 - Кэш списка — в `ClaudeHomeRegistry`, а не в `TranscriptSearch`: так быстрее и History.
 - Не больше 16 чтений истории сразу и разбор текста кусками по 1 МБ (порог 50 ms из Ticket-а).
@@ -176,3 +176,16 @@ list` и `ps` для живых Session-ов, а не чтение транск�
 на больших Project-ах повторный поиск редкого текста каждый раз читает ~64 МБ с диска.
 
 Не проверено: шаг «gate full» — оркестратора перед merge.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Gate — один круг: `VERIFIED` на `bf88e82` ([комментарий в PR #369](https://github.com/IDSAD-XL/worfy/pull/369#issuecomment-6198234021)). Verifier с временным HOME: gate fast из кэша, поэтому `pnpm lint`, `pnpm typecheck`, `pnpm test` — 0 (5346 test-ов); CI `check` passed, CLEAN; гонки (два параллельных списка, очистка во время чтения, разбор срезами, закрытие дескриптора) проверены по коду.
+- Merge: первый gate full красный — flaky `harness-script-wiring` и e2e `subagent-tree.spec.ts:473` (5 s timeout при load 8); spec отдельно 3×6 passed при load ~9, значит flaky; повтор: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `856c75a`.
+- Act on, Consider, Dismissed — нет.
+- Noted: [low] нет test-а, что `live` пересчитывается на каждый список (`registry.ts:661`) — мутант, запомнивший первый набор, проходит все test-ы; нет test-ов на удаление записей кэша удалённых файлов и на `setImmediate` между срезами.
+- Noted, вопрос владельцу: кэш текста в 32M символов (`search.ts:52`) меньше предела поиска 64 MB.
+
+Решение владельца 2026-10-16: решения без владельца приняты. Размер кэша текста не
+меняется: `CACHE_CHARS` — 32M символов (`src/main/claude-home/search.ts:47`) при бюджете поиска 64 MB
+(`SEARCH_LIMITS`, `:35`). Вернуться к нему, только если поиск по транскриптам станет заметно медленным.

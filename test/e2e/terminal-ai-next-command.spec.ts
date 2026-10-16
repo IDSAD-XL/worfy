@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS } from './zsh'
 import { shellCaughtUp } from './wait'
 
 // Next command of Terminal AI, in a Terminal Node of the built app on a real zsh: once a command is
@@ -10,6 +11,8 @@ import { shellCaughtUp } from './wait'
 //
 // HOME is a temporary folder and SHELL the zsh of the machine (terminal-ai-helpers.ts): no startup
 // file and no history of the machine running the tests is read or written.
+
+test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
 
 let sandbox: TerminalAiSandbox
 

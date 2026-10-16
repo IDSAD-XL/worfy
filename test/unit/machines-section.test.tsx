@@ -17,7 +17,7 @@ const THIS = '11111111-1111-4111-8111-111111111111'
 const MINI = '22222222-2222-4222-8222-222222222222'
 const ATTIC = '33333333-3333-4333-8333-333333333333'
 
-const machine = (id: string, name: string, state: LinkedMachineView['state'] = 'online', certificateChanged = false): LinkedMachineView => ({ id, name, state, certificateChanged })
+const machine = (id: string, name: string, state: LinkedMachineView['state'] = 'online', certificateChanged = false, access: LinkedMachineView['access'] = 'off'): LinkedMachineView => ({ id, name, state, certificateChanged, access })
 
 const linkState = (revision: number, change: Partial<LinkState> = {}): LinkState => ({
   revision,
@@ -37,6 +37,7 @@ const linkState = (revision: number, change: Partial<LinkState> = {}): LinkState
 const appSettings = (revision: number, collapsed: Record<string, boolean> = {}): AppSettings => ({
   interfaceScale: 1,
   sidebar: { collapsed, visible: { normal: true, focus: true } },
+  autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   revision,
 })
 
@@ -209,9 +210,9 @@ describe('Settings → Machines', () => {
   })
 
   it('shows the two switches as main has them, under the test ids the sidebar gave them', async () => {
-    await mountSettings(linkState(1))
+    await mountSettings(linkState(1, { projectsAccess: true }))
     expect(screen.getAllByRole('switch')).toHaveLength(2)
-    expect(access().getAttribute('aria-checked')).toBe('false')
+    expect(access().getAttribute('aria-checked')).toBe('true')
     expect(keepAwake().getAttribute('aria-checked')).toBe('true')
     expect(access().disabled).toBe(false)
     expect(keepAwake().disabled).toBe(false)
@@ -262,36 +263,36 @@ describe('Settings → Machines', () => {
     fireEvent.click(keepAwake())
     expect(main.calls).toStrictEqual([])
 
-    // The link service started: the switches work.
-    act(() => main.linkChanged(linkState(2)))
+    // The link service started with access on: the switches work.
+    act(() => main.linkChanged(linkState(2, { projectsAccess: true })))
     expect(access().disabled).toBe(false)
     expect(keepAwake().disabled).toBe(false)
   })
 
   it('a refusal of main is shown as it is, the switch stays, and the next change that works takes the message away', async () => {
-    await mountSettings(linkState(1))
+    await mountSettings(linkState(1, { projectsAccess: true }))
     fireEvent.click(access())
     const refusal = "link.setAccess: EACCES: permission denied, open '/Users/a/Library/Application Support/worfy/link/settings.json.tmp'"
     await act(async () => main.calls[0]!.answer({ ok: false, error: refusal }))
     const alert = screen.getByRole('alert')
     expect(alert.textContent).toBe(refusal)
     expect(alert.getAttribute('data-testid')).toBe('settings-machines-error')
-    expect(access().getAttribute('aria-checked')).toBe('false')
+    expect(access().getAttribute('aria-checked')).toBe('true')
 
     fireEvent.click(keepAwake())
     // Still shown while main has not answered the next change.
     expect(screen.getByRole('alert').textContent).toBe(refusal)
-    await act(async () => main.calls[1]!.answer({ ok: true, value: linkState(2, { keepAwake: false }) }))
+    await act(async () => main.calls[1]!.answer({ ok: true, value: linkState(2, { projectsAccess: true, keepAwake: false }) }))
     expect(screen.queryByRole('alert')).toBeNull()
     expect(keepAwake().getAttribute('aria-checked')).toBe('false')
   })
 
   it('answers out of order: the last click decides the message', async () => {
-    await mountSettings(linkState(1))
+    await mountSettings(linkState(1, { projectsAccess: true }))
     fireEvent.click(access())
     fireEvent.click(keepAwake())
     // The later click is answered first, and worked; then the earlier one is refused.
-    await act(async () => main.calls[1]!.answer({ ok: true, value: linkState(2, { keepAwake: false }) }))
+    await act(async () => main.calls[1]!.answer({ ok: true, value: linkState(2, { projectsAccess: true, keepAwake: false }) }))
     expect(screen.queryByRole('alert')).toBeNull()
     await act(async () => main.calls[0]!.answer({ ok: false, error: 'link.setAccess: late refusal' }))
     expect(screen.queryByRole('alert')).toBeNull()
@@ -301,26 +302,113 @@ describe('Settings → Machines', () => {
     fireEvent.click(access())
     fireEvent.click(keepAwake())
     await act(async () => main.calls[3]!.answer({ ok: false, error: 'link.setKeepAwake: refused' }))
-    await act(async () => main.calls[2]!.answer({ ok: true, value: linkState(3, { projectsAccess: true, keepAwake: false }) }))
+    await act(async () => main.calls[2]!.answer({ ok: true, value: linkState(3, { projectsAccess: false, keepAwake: false }) }))
     expect(screen.getByRole('alert').textContent).toBe('link.setKeepAwake: refused')
-    expect(access().getAttribute('aria-checked')).toBe('true')
+    expect(access().getAttribute('aria-checked')).toBe('false')
   })
 
   it('Settings closed before main answered: the change is kept and shown when the section opens again', async () => {
-    const { view, MachinesSection } = await mountSettings(linkState(1))
+    const { view, MachinesSection } = await mountSettings(linkState(1, { projectsAccess: true }))
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    fireEvent.click(access())
     fireEvent.click(keepAwake())
+    fireEvent.click(access())
     view.unmount()
-    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { projectsAccess: true }) }))
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { projectsAccess: true, keepAwake: false }) }))
     // A refusal that arrives after the section is gone changes nothing and breaks nothing.
-    await act(async () => main.calls[1]!.answer({ ok: false, error: 'link.setKeepAwake: refused' }))
+    await act(async () => main.calls[1]!.answer({ ok: false, error: 'link.setAccess: refused' }))
     expect(errors).not.toHaveBeenCalled()
 
     render(<MachinesSection />)
-    await waitFor(() => expect(access().getAttribute('aria-checked')).toBe('true'))
-    expect(keepAwake().getAttribute('aria-checked')).toBe('true')
+    await waitFor(() => expect(keepAwake().getAttribute('aria-checked')).toBe('false'))
+    expect(access().getAttribute('aria-checked')).toBe('true')
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  // Sleep is kept away only while access is on (src/main/link/keep-awake.ts, `wanted()`): with access
+  // off the keep-awake switch would promise what does not happen, so it is disabled and shows "off".
+  const KEEP_AWAKE_NEEDS_ACCESS = 'Turn on "Linked machines can work with my Projects" first'
+  const STARTED_WORK_KEEPS_RUNNING = 'Work already started from a Linked machine keeps running'
+
+  it('under the access switch: work already started from a Linked machine keeps running — with access off and on', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')] }))
+    const row = screen.getByTestId('settings-machines-access-row')
+    expect(within(row).getByText(STARTED_WORK_KEEPS_RUNNING)).toBeTruthy()
+    // One line, in this row only.
+    expect(screen.getAllByText(STARTED_WORK_KEEPS_RUNNING)).toHaveLength(1)
+    expect(within(screen.getByTestId('settings-machines-keep-awake-row')).queryByText(STARTED_WORK_KEEPS_RUNNING)).toBeNull()
+
+    act(() => main.linkChanged(linkState(2, { linked: [machine(MINI, 'Mini')], projectsAccess: true })))
+    expect(within(screen.getByTestId('settings-machines-access-row')).getByText(STARTED_WORK_KEEPS_RUNNING)).toBeTruthy()
+  })
+
+  it('access off, a Linked machine online: keep-awake is disabled, shows off, says why, and a click asks main for nothing', async () => {
+    // keepAwake is on in link/settings.json; sleep is not kept away while access is off.
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: false, keepAwake: true }))
+    expect(keepAwake().disabled).toBe(true)
+    expect(keepAwake().getAttribute('aria-checked')).toBe('false')
+    expect(keepAwake().getAttribute('title')).toBe(KEEP_AWAKE_NEEDS_ACCESS)
+    // The access switch itself works, and has no such hint.
+    expect(access().disabled).toBe(false)
+    expect(access().getAttribute('title')).toBeNull()
+    fireEvent.click(keepAwake())
+    expect(main.calls).toStrictEqual([])
+  })
+
+  // The row of a disabled switch is drawn dimmed (settings.css, `.w-setting-row[data-disabled]`): an
+  // "off" that cannot be switched must not look like an "off" that can.
+  it('the row of the disabled keep-awake switch is marked disabled, the access row is not; access on — neither', async () => {
+    const linked = [machine(MINI, 'Mini')]
+    await mountSettings(linkState(1, { linked, projectsAccess: false }))
+    const keepAwakeRow = () => screen.getByTestId('settings-machines-keep-awake-row')
+    const accessRow = () => screen.getByTestId('settings-machines-access-row')
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(true)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(false)
+
+    act(() => main.linkChanged(linkState(2, { linked, projectsAccess: true })))
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(false)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(false)
+
+    // Without this Machine both rows are disabled.
+    act(() => main.linkChanged(linkState(3, { machine: null, problem: 'the link service stopped' })))
+    expect(keepAwakeRow().hasAttribute('data-disabled')).toBe(true)
+    expect(accessRow().hasAttribute('data-disabled')).toBe(true)
+  })
+
+  it('access switched on: keep-awake works again and shows the value kept in main; switched off: kept, not reset', async () => {
+    const linked = [machine(MINI, 'Mini')]
+    await mountSettings(linkState(1, { linked, projectsAccess: false, keepAwake: true }))
+    fireEvent.click(access())
+    expect(linkCalls()).toStrictEqual([['link.setAccess', { projectsAccess: true }]])
+    // Disabled until main says access is on.
+    expect(keepAwake().disabled).toBe(true)
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { linked, projectsAccess: true, keepAwake: true }) }))
+    expect(keepAwake().disabled).toBe(false)
+    expect(keepAwake().getAttribute('aria-checked')).toBe('true')
+    expect(keepAwake().getAttribute('title')).toBeNull()
+
+    // Access off again, keep-awake still on in main: disabled and off, and nothing asks main to
+    // change keep-awake.
+    fireEvent.click(access())
+    await act(async () => main.calls[1]!.answer({ ok: true, value: linkState(3, { linked, projectsAccess: false, keepAwake: true }) }))
+    expect(keepAwake().disabled).toBe(true)
+    expect(keepAwake().getAttribute('aria-checked')).toBe('false')
+    expect(linkCalls()).toStrictEqual([
+      ['link.setAccess', { projectsAccess: true }],
+      ['link.setAccess', { projectsAccess: false }],
+    ])
+
+    // On once more: on, as it was kept.
+    act(() => main.linkChanged(linkState(4, { linked, projectsAccess: true, keepAwake: true })))
+    expect(keepAwake().disabled).toBe(false)
+    expect(keepAwake().getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(keepAwake())
+    expect(linkCalls()[2]).toStrictEqual(['link.setKeepAwake', { keepAwake: false }])
+  })
+
+  it('without this Machine keep-awake is disabled without the access hint: switching access on would not help', async () => {
+    await mountSettings(linkState(1, { machine: null, problem: 'the link service has not started yet', projectsAccess: true, keepAwake: true }))
+    expect(keepAwake().disabled).toBe(true)
+    expect(keepAwake().getAttribute('title')).toBeNull()
   })
 
   it('the sidebar and Settings read one state: access switched on in Settings while the sidebar shows the dot', async () => {
@@ -342,5 +430,66 @@ describe('Settings → Machines', () => {
     expect(dot()).toBeNull()
     // The switches are in Settings only.
     expect(within(region()).queryAllByRole('switch', { hidden: true })).toStrictEqual([])
+  })
+})
+
+// worfy-link ticket 18 (ADR-0066): the access level of each Linked machine, in Settings → Machines.
+describe('Settings → Machines: the level of each Linked machine', () => {
+  const level = (id: string) => screen.getByTestId(`link-machine-access-${id}`) as HTMLButtonElement
+  const row = (id: string) => screen.getByTestId(`settings-machines-level-row-${id}`)
+  const TRUST = 'Read only still means trust: a Session transcript can show a secret'
+
+  it('a row per Linked machine with its level and what the level means; read only says plainly it is still trust', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini', 'online', false, 'read'), machine(ATTIC, 'Attic', 'unavailable', false, 'all')], projectsAccess: true }))
+    expect(level(MINI).textContent).toContain('Read only')
+    expect(level(ATTIC).textContent).toContain('Full access')
+    expect(level(MINI).getAttribute('aria-label')).toBe('Access of Mini to my Projects')
+    expect(within(row(MINI)).getByText('Mini')).toBeTruthy()
+    expect(within(row(MINI)).getByText(new RegExp(TRUST))).toBeTruthy()
+    expect(within(row(MINI)).getByText(/not Terminal output/)).toBeTruthy()
+    expect(within(row(ATTIC)).queryByText(new RegExp(TRUST))).toBeNull()
+    expect(level(MINI).disabled).toBe(false)
+  })
+
+  it('a new Linked machine shows Off; choosing Read only calls link.setMachineAccess and shows what main answered', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: true }))
+    expect(level(MINI).textContent).toContain('Off')
+    expect(within(row(MINI)).getByText('Cannot see or change your Projects')).toBeTruthy()
+    fireEvent.click(level(MINI))
+    const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === 'read')
+    if (option === undefined) throw new Error('no option read')
+    fireEvent.click(option)
+    expect(linkCalls()).toStrictEqual([['link.setMachineAccess', { id: MINI, access: 'read' }]])
+    // Not changed until main says so.
+    expect(level(MINI).textContent).toContain('Off')
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { linked: [machine(MINI, 'Mini', 'online', false, 'read')], projectsAccess: true }) }))
+    expect(level(MINI).textContent).toContain('Read only')
+  })
+
+  it('access off for everyone: each row shows Off, is disabled and dimmed, and says why; the level kept in main shows again once access is on', async () => {
+    const linked = [machine(MINI, 'Mini', 'online', false, 'all')]
+    await mountSettings(linkState(1, { linked, projectsAccess: false }))
+    expect(level(MINI).textContent).toContain('Off')
+    expect(level(MINI).disabled).toBe(true)
+    expect(level(MINI).getAttribute('title')).toBe('Turn on "Linked machines can work with my Projects" first')
+    expect(row(MINI).hasAttribute('data-disabled')).toBe(true)
+    fireEvent.click(level(MINI))
+    expect(screen.queryAllByRole('option')).toStrictEqual([])
+    expect(main.calls).toStrictEqual([])
+
+    act(() => main.linkChanged(linkState(2, { linked, projectsAccess: true })))
+    expect(level(MINI).textContent).toContain('Full access')
+    expect(level(MINI).disabled).toBe(false)
+    expect(row(MINI).hasAttribute('data-disabled')).toBe(false)
+  })
+
+  it('a refusal of main is shown under the switches', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: true }))
+    fireEvent.click(level(MINI))
+    const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === 'all')
+    if (option === undefined) throw new Error('no option all')
+    fireEvent.click(option)
+    await act(async () => main.calls[0]!.answer({ ok: false, error: `link.setMachineAccess failed: Machine ${MINI} is not linked` }))
+    expect(screen.getByRole('alert').textContent).toContain('is not linked')
   })
 })

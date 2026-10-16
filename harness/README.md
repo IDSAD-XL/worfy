@@ -15,7 +15,7 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 | `hooks/rules/orchestrator.md`, `hooks/rules/common.md` | Global rules: the main session gets both parts, a subagent gets `common.md`; `hooks/inject-rules.sh` hands them over, `hooks/hooks.json` wires every hook (ticket 05) | `CLAUDE.md` |
 | `agents/` | Generic agents: `implementer`, `reviewer`, `scout` | `agents/` |
 | `skills/<name>/SKILL.md` | `epic-wave`, `ship-ticket`, `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks`; new in the plugin: `max-review` (a review of a whole branch before a risky merge) | `skills/` (`max-review` is new) |
-| `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`; notes in `ТИКЕТЫ.md` | `bin/` |
+| `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`, `wave-gate` (one gate full for the set of a wave's ready PRs, then their merge); notes in `ТИКЕТЫ.md` | `bin/` |
 | `hooks/` | `gate.mjs`, `gate-paths.mjs`, `gate-resolve.mjs`, `guard.mjs`, `session-start.sh`, `session-end.sh`, `stop.sh`; `gate.sh` is the launcher of the gate under its old name: it finds node and starts `gate.mjs`, and without node it answers "could not verify" itself — `hooks.json` calls it, and so do profiles moved from the old Harness (worfy-windows ticket 46 takes the name out of the profiles) | `hooks/` |
 | `bin/tests/`, `hooks/tests/` | Shell tests of the scripts and hooks | `bin/tests/`, `hooks/tests/` |
 | `profiles/README.md` | The contract of a project profile | `profiles/README.md` |

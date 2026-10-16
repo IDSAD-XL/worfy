@@ -1,6 +1,8 @@
 import { Fragment, useState, type CSSProperties } from 'react'
 import type { ORCHESTRATOR_HEIGHT, ORCHESTRATOR_KIND, ORCHESTRATOR_WIDTH } from '../../../shared/ipc/orchestrator'
 import { invoke } from '../../ipc'
+import { writeAction } from '../../projects/read-only'
+import { useReadOnly } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
 import { formatCost, STATE_CHIPS } from '../../session/format'
 import { StatusChip } from '../../theme/primitives'
@@ -82,6 +84,7 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
   const view = useOrchestratorView(id)
   const chip = STATE_CHIPS[view?.state ?? 'starting']
   const busy = view?.state === 'busy'
+  const readOnly = useReadOnly()
   const [problem, setProblem] = useState<string | null>(null)
 
   const newConversation = () => {
@@ -119,8 +122,7 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
           style={styles.tool}
           data-testid="orchestrator-new-conversation"
           disabled={!view || busy}
-          title={busy ? 'Interrupt the turn first' : 'Send this Session to the history and start a new one'}
-          onClick={newConversation}
+          {...writeAction(readOnly, newConversation, busy ? 'Interrupt the turn first' : 'Send this Session to the history and start a new one')}
         >
           New conversation
         </button>

@@ -1,0 +1,24 @@
+/* A write action on a read-only screen (read-only.ts): visibly inactive, the tooltip says why. */
+[data-read-only] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* The "Read only" mark beside a Machine's state, and the line that explains a read-only screen. */
+.w-read-only-chip {
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+.w-read-only-note {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-secondary);
+}
+
+/* A read-only Canvas (canvas/overlays/ReadOnlyCanvas.tsx): its Nodes do not move, so no grab cursor. */
+.react-flow[data-canvas-read-only] .react-flow__node {
+  cursor: default;
+}

@@ -5,10 +5,12 @@
 // own rules: the focus of its own worfy window, its own 10 s per Session, and the Focus mode
 // ("do not disturb") of its own OS, which applies by itself to a notification shown there.
 //
-// "Connected to the Project": the Linked machine has a connection to this Machine now, and this
-// Machine's switch "Linked machines can work with my Projects" is on — the Projects that machine
-// lists in its sidebar (worfy-link ticket 09). Without access a click could not open the Session
-// there, so no note goes out while the switch is off.
+// "Connected to the Project": the Linked machine has a connection to this Machine now, and its
+// access to this Machine's Projects is on — "Linked machines can work with my Projects" on and its
+// own level `read` or `all` (worfy-link ticket 18): the Projects that machine lists in its sidebar
+// (worfy-link ticket 09). Without access a click could not open the Session there, so no note goes
+// to a Machine whose access is off. Read-only access gets the notes: the owner counts them as
+// reading, as Session transcripts.
 //
 // The note is the service message `note` of the link (src/main/link/messages.ts), not an IPC
 // channel: it is not in the list of channels open to Linked machines (ipc-adapter.ts). It carries
@@ -54,12 +56,11 @@ export class LinkNotes implements NoteLink {
     })
   }
 
-  /** Sends `note` to every connected Linked machine while this Machine shares its Projects. */
+  /** Sends `note` to every connected Linked machine this Machine shares its Projects with. */
   send(note: SharedNote): void {
-    if (!this.service.settings.get().projectsAccess) return
     const payload = { title: note.title, body: note.body, sessionId: note.sessionId, projectRoot: note.projectRoot }
     for (const machine of this.service.linkedMachines()) {
-      if (!this.service.isConnected(machine.id)) continue
+      if (this.service.settings.levelOf(machine.id) === 'off' || !this.service.isConnected(machine.id)) continue
       try {
         this.service.sendMessage(machine.id, noteMessage, payload)
       } catch (error) {

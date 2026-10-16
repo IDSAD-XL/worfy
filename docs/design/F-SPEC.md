@@ -117,5 +117,28 @@ Describes what is built (worfy-harness tickets 19 and 30, question Q22 of the ep
 - **Keys**: the dialog takes the focus when it opens; Esc closes it (not while the move form is open over it).
 - **Themes**: only roles from the Tokens table (surface, surface raised, border, text, secondary text, muted, ready, working, blocked, primary); no colors of its own.
 
+## Settings → Machines
+Describes only what worfy-link ticket 18 (ADR-0066) needs: the access level of each Linked machine. Reference look in both themes: the e2e `test/e2e/linked-machines.spec.ts` shoots it as `18-settings-machines-read-only` and `18-settings-machines-full-access`, each `light` and `dark` (kept as `.scratch/worfy-link/evidence/18-*.png`).
+
+- **Rows, top to bottom**: the switch "Linked machines can work with my Projects" with its hint "Work already started from a Linked machine keeps running"; one row per Linked machine; the switch "Keep this computer awake while linked machines are connected". Every row is the shared Settings row (`SettingRow`): the label and its hint on the left, the control on the right.
+- **Row of a Linked machine**: the label is the Machine's name; the control is the shared Select, accessible name "Access of <Machine> to my Projects", with three options: "Off", "Read only", "Full access". The hint under the name says what the chosen level means:
+  - Off — "Cannot see or change your Projects";
+  - Read only — "Sees your Projects, Sessions and notifications, not Terminal output, and changes nothing. Read only still means trust: a Session transcript can show a secret";
+  - Full access — "Works with your Projects as you do: Sessions, Terminal, Autopilot".
+- **A newly linked Machine** shows Off.
+- **While the access switch is off**: every level row is disabled and dimmed (as the keep-awake row), shows Off whatever is kept for the Machine, and its Select has the tooltip `Turn on "Linked machines can work with my Projects" first`. Switched on again, each row shows the level kept for it.
+- **A choice** calls main; the field shows the new level once main answers. A refusal of main is shown under the rows in blocked text, as for the switches.
+- **Themes**: only roles from the Tokens table; no colors of its own.
+
+## Read-only screen of a Linked machine
+Describes only what worfy-link ticket 25 (ADR-0066) needs: the screen of a Linked machine that gives this Machine the level Read only. Reference look in both themes: the e2e `test/e2e/linked-read-only.spec.ts` shoots it as `25-sidebar-read-only` and `25-canvas-read-only`, each `light` and `dark` (kept as `.scratch/worfy-link/evidence/25-*.png`).
+
+- **The hint**, one text everywhere: "<Machine> gives this Machine read-only access", <Machine> being the name of the Machine of the Project.
+- **Write actions stay on screen, inactive**: dimmed to 50 % opacity, the `not-allowed` cursor, `aria-disabled="true"` (not `disabled`, so the tooltip shows), the hint as their tooltip; a click does nothing. This covers "New session", Interrupt, Close, Resume, Hide and Remove of a Session Node, Allow / Always allow / Deny of a permission request, "New conversation", Run wave, Ship ticket, Autopilot and its Stop and Force stop, the collapse button of an Epic frame, the items of the Canvas menu, Restore in the Trash, "Remove binding", "Remove from list" of a Project row, Resume in the Sessions history and Show where it would put a Node on the Canvas.
+- **Fields**: the message field of the Session view is off (as with no Session running) with the hint as its placeholder; the field of a Session Node and a note are read-only, the hint as their placeholder or tooltip; the model and permission pickers are off with the hint as their tooltip. Dialogs (Project settings, "Plan first epic") show the hint as a line of secondary text under the content; their main button is disabled.
+- **Canvas**: Nodes do not move or resize (no resize handles), panning and zooming work. The notice at the top centre of the Canvas — the surface with its border and the control shadow, secondary 12 px text, at most 640 px wide — shows the hint. A Terminal Node is drawn as its header ("Terminal") over the terminal colours, with the hint and "Terminal output is not shared with it." in the middle: its shell is not opened.
+- **Sidebar**: beside the green "Online" chip of the Machine, the chip "Read only" — the surface raised, its border, secondary text — with the hint as its tooltip. In "Add project" the Machine cannot be chosen and shows the hint as its reason.
+- **Themes**: only roles from the Tokens table; no colors of its own.
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.

@@ -27,7 +27,7 @@ const linkState = (linked: Linked[]): LinkState => ({
   addresses: [],
   bonjour: false,
   linking: { open: false, code: null, expiresAt: null, linked: null, failure: null },
-  linked: linked.map(({ id, name, state = 'online' }) => ({ id, name, state, certificateChanged: false })),
+  linked: linked.map(({ id, name, state = 'online' }) => ({ id, name, state, certificateChanged: false, access: 'all' as const })),
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
@@ -35,7 +35,7 @@ const linkState = (linked: Linked[]): LinkState => ({
 
 const linkedState = (linked: Linked[]): LinkedState => ({
   revision: 1,
-  machines: linked.map(({ id, state = 'online', sharing = 'yes' }) => ({ id, sharing, epoch: 1, online: state === 'online' })),
+  machines: linked.map(({ id, state = 'online', sharing = 'yes' }) => ({ id, sharing, readOnly: false, epoch: 1, online: state === 'online' })),
 })
 
 const own: ProjectsState = { projects: [{ id: 'studio-00000001', name: 'studio', path: '/repos/studio', branch: 'main' }], activeId: 'studio-00000001', revision: 1 }

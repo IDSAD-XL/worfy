@@ -37,6 +37,21 @@ export type ChannelAccess = (typeof CHANNEL_ACCESS)[number]
 /** The marks a Linked machine may reach at all; which of them it reaches now depends on the switch. */
 export const LINKED_MACHINE_ACCESS: readonly ChannelAccess[] = ['link', 'project']
 
+/**
+ * What a `project` channel does to the Projects of this Machine (worfy-link ticket 18; ADR-0066).
+ * Every `project` channel carries one, and only `project` channels do:
+ * - `read` — open to a Linked machine with read-only access. A call changes no file and no state
+ *   of a Project or of worfy, starts or stops no process and sends nothing into a Session or a
+ *   Terminal; subscribing to events and unsubscribing count as reading. An event is `read` when a
+ *   Linked machine with read-only access receives it.
+ * - `write` — everything else; open only with full access. `terminal.output` is a `write` event:
+ *   the output of a Terminal stays out of read-only access (the owner's decision).
+ * Read-only access still means trust: a transcript, a Session event or a notification may show a
+ * secret.
+ */
+export const CHANNEL_USE = ['read', 'write'] as const
+export type ChannelUse = (typeof CHANNEL_USE)[number]
+
 /** A request-response channel: the renderer sends `input`, main answers with `output`. */
 export interface InvokeChannel<N extends string = string, I extends z.ZodType = z.ZodType, O extends z.ZodType = z.ZodType> {
   readonly kind: 'invoke'
@@ -44,6 +59,8 @@ export interface InvokeChannel<N extends string = string, I extends z.ZodType = 
   readonly input: I
   readonly output: O
   readonly access: ChannelAccess
+  /** Read or write, for a `project` channel; null for every other mark. */
+  readonly use: ChannelUse | null
 }
 
 /** A stream of events that main pushes to the renderer. */
@@ -52,10 +69,14 @@ export interface EventChannel<N extends string = string, P extends z.ZodType = z
   readonly name: N
   readonly payload: P
   readonly access: ChannelAccess
+  /** Read or write, for a `project` channel; null for every other mark. */
+  readonly use: ChannelUse | null
 }
 
 /** The mark of every channel declared so far in this JavaScript realm, by name. */
 const declaredAccess = new Map<string, ChannelAccess>()
+/** The read-or-write mark of every `project` channel declared so far, by name. */
+const declaredUse = new Map<string, ChannelUse>()
 
 /**
  * The definition of every channel declared so far, by name: the first one declared; null for a
@@ -64,15 +85,19 @@ const declaredAccess = new Map<string, ChannelAccess>()
 const declaredChannels = new Map<string, InvokeChannel | EventChannel | null>()
 
 function declare<C extends InvokeChannel | EventChannel>(channel: C): C {
-  const { name, access } = channel
+  const { name, access, use } = channel
   const before = declaredAccess.get(name)
   // A name declared twice with two marks counts as closed: neither declaration may open the other.
-  declaredAccess.set(name, before === undefined || before === access ? access : 'local')
-  // The first declaration speaks for the name: a later one with the same mark and kind cannot swap
+  // Two read-or-write marks of one `project` name close it the same way.
+  const agrees = before === undefined || (before === access && declaredUse.get(name) === (use ?? undefined))
+  declaredAccess.set(name, agrees ? access : 'local')
+  if (agrees && use !== null) declaredUse.set(name, use)
+  else declaredUse.delete(name)
+  // The first declaration speaks for the name: a later one with the same marks and kind cannot swap
   // its schema for another; one with another mark or kind closes the name.
   const previous = declaredChannels.get(name)
   if (previous === undefined) declaredChannels.set(name, channel)
-  else if (previous !== null && (previous.kind !== channel.kind || previous.access !== access)) declaredChannels.set(name, null)
+  else if (previous !== null && (previous.kind !== channel.kind || previous.access !== access || previous.use !== use)) declaredChannels.set(name, null)
   return channel
 }
 
@@ -96,14 +121,30 @@ export function accessOf(name: string): ChannelAccess | undefined {
   return declaredAccess.get(name)
 }
 
-/** The access mark is required: a channel declared without one does not compile. */
-export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: ChannelAccess): InvokeChannel<N, I, O> {
-  return declare({ kind: 'invoke', name, input, output, access })
+/**
+ * The read-or-write mark of a declared `project` channel; undefined for any other mark, a name no
+ * loaded module declares, or one declared twice with two marks. Whoever lets a Linked machine with
+ * read-only access in (src/main/link/ipc-adapter.ts) treats undefined as write.
+ */
+export function useOf(name: string): ChannelUse | undefined {
+  return declaredUse.get(name)
 }
 
-/** The access mark is required: a channel declared without one does not compile. */
-export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: ChannelAccess): EventChannel<N, P> {
-  return declare({ kind: 'event', name, payload, access })
+/**
+ * The access mark is required: a channel declared without one does not compile. A `project`
+ * channel needs its read-or-write mark too, and no other channel takes one.
+ */
+export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: 'project', use: ChannelUse): InvokeChannel<N, I, O>
+export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: Exclude<ChannelAccess, 'project'>): InvokeChannel<N, I, O>
+export function invokeChannel<N extends string, I extends z.ZodType, O extends z.ZodType>(name: N, input: I, output: O, access: ChannelAccess, use?: ChannelUse): InvokeChannel<N, I, O> {
+  return declare({ kind: 'invoke', name, input, output, access, use: access === 'project' ? (use ?? 'write') : null })
+}
+
+/** The access mark is required, and the read-or-write mark of a `project` channel: see invokeChannel. */
+export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: 'project', use: ChannelUse): EventChannel<N, P>
+export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: Exclude<ChannelAccess, 'project'>): EventChannel<N, P>
+export function eventChannel<N extends string, P extends z.ZodType>(name: N, payload: P, access: ChannelAccess, use?: ChannelUse): EventChannel<N, P> {
+  return declare({ kind: 'event', name, payload, access, use: access === 'project' ? (use ?? 'write') : null })
 }
 
 /**

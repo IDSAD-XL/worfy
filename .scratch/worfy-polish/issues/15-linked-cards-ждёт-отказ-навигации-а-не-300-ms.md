@@ -1,7 +1,7 @@
 # 15 — e2e `linked-cards`: проверка «навигация не случилась» ждёт знак отказа, а не окно 300 ms
 
 Type: task
-Status: open
+Status: done — 2026-10-15, [PR #373](https://github.com/IDSAD-XL/worfy/pull/373)
 Blocked by: —
 Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 [05](05-waitfortimeout-в-e2e-на-ожидание-состояния.md) («Слабое место», решено без владельца,
@@ -48,13 +48,13 @@ e2e `test/e2e/linked-cards.spec.ts` проверяет Card с Linked machine B 
 
 ## Готово, когда
 
-- [ ] В `linked-cards.spec.ts` нет `waitForTimeout` в проверке навигации; `grep -n waitForTimeout
+- [x] В `linked-cards.spec.ts` нет `waitForTimeout` в проверке навигации; `grep -n waitForTimeout
       test/e2e/linked-cards.spec.ts` — пусто.
-- [ ] Мутант «main пропускает навигацию в другую Card B» краснит новый spec 5 из 5 под нагрузкой и 5
+- [x] Мутант «main пропускает навигацию в другую Card B» краснит новый spec 5 из 5 под нагрузкой и 5
       из 5 без неё; старый spec под нагрузкой — как получилось в пункте 1 (оба вывода в «Итог»).
-- [ ] Без мутанта spec зелёный: `--repeat-each=5` в покое и под нагрузкой.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] Без мутанта spec зелёный: `--repeat-each=5` в покое и под нагрузкой.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -79,4 +79,44 @@ e2e `test/e2e/linked-cards.spec.ts` проверяет Card с Linked machine B 
 
 ## Итог
 
-—
+Реализовано в ветке `worfy-polish/15` (PR — в отчёте исполнителя).
+
+- **Знак — вердикт main в `will-frame-navigate`.** В `linked-cards.spec.ts` перед циклом попыток
+  `recordNavigations(a.app)` ставит в main A свои слушатели на все web contents. Слушатель
+  `will-frame-navigate` стоит после слушателя приложения (тот ставится при создании web contents), поэтому
+  `details.defaultPrevented` — решение main: `true` — отказано, `false` — пропущено. Запись приходит при
+  обоих исходах, до загрузки цели. Test ждёт её через `expect.poll` (10 s), затем проверяет
+  `prevented === true` и что навигация не закончилась commit-ом (`did-frame-navigate`). Потом — прежние
+  проверки фреймов. `waitForTimeout` из spec-а убран, общий helper в `test/e2e/wait.ts` не понадобился.
+- **Вариант с `did-fail-provisional-load` (`-3`) не работает на Electron 44.5.1.** Проверено: при
+  отказе в `will-frame-navigate` навигация не начинается, и ни `did-fail-provisional-load`, ни
+  `did-frame-navigate` не приходят. Первая версия test-а ждала конец навигации и падала по таймауту
+  10 s 5 из 5 (запись `{"prevented": true}` без конца). Поэтому знак — сама запись вердикта (решено без
+  владельца, подтвердить).
+
+### Проверки
+
+Нагрузка — 9 процессов `yes > /dev/null` (половина из 18 ядер), только под замком `/tmp/worfy-e2e.lock`;
+после каждой серии убиты по PID, `pgrep -x yes` — пусто. Прогоны —
+`playwright test test/e2e/linked-cards.spec.ts --repeat-each=5` после `electron-vite build`.
+
+- **Пункт 1, старый spec с мутантом** (на копии `src/main/cards/protocol.ts` из `allowFrameNavigation`
+  убрано сравнение `cardId`: main пропускает навигацию в другую Card той же машины B; восстановлено с
+  `cmp`): в покое 5 failed из 5, под нагрузкой 5 failed из 5, все на проверке «фрейм с origin Card B
+  один» (`Expected length: 1, Received length: 0`). Ложный зелёный не воспроизвёлся: под этой нагрузкой
+  test шёл 3,8 s, как в покое, и навигация через link успевала за 300 ms.
+- **Новый spec с тем же мутантом:** в покое 5 failed из 5, под нагрузкой 5 failed из 5, все на проверке
+  вердикта: `worfy-card://c2.…/index.html: {"prevented":false}`, `Expected: true, Received: false`.
+- **Новый spec без мутанта:** в покое 5 passed (3,7–3,9 s), под нагрузкой 5 passed (3,6–6,6 s).
+- `pnpm lint && pnpm typecheck && pnpm test` (временный HOME) — exit 0, 257 файлов passed, 6 skipped.
+  gate fast — exit 0, `[gate] зелено (fast)`. gate full и Linux CI — у оркестратора и в PR.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Gate — один круг: `VERIFIED` на `91ae7dad`, PR только с test-ами ([комментарий в PR #373](https://github.com/IDSAD-XL/worfy/pull/373#issuecomment-6203280440)). Verifier сам: gate fast с временным HOME — код 0, зелено, не из кэша; `pnpm build` — 0; под замком e2e и под нагрузкой мутанты M1 (без сверки `cardId`), M2 (сверка `machineLabel` всегда `true`), M3 (`prependListener`) красные; без мутантов `--repeat-each=3` под нагрузкой — 3 passed; CI `check` passed, CLEAN.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `de6147f`.
+- Act on, Dismissed — нет.
+- Consider: [low] слушатель `did-fail-provisional-load` лишний (`linked-cards.spec.ts:169`, комментарии `:148`, `:155`): при отказе main он не срабатывает, а `:311` читает только `'committed'`.
+- Noted: test ждёт вердикт `will-frame-navigate` (`defaultPrevented`), а не отменённую загрузку — на Electron 44 она не приходит; пункт 2 Ticket-а оставил выбор исполнителю, решение владельца не нужно. Порядок слушателей ложного зелёного не даёт: неверный порядок (мутант M3) даёт только ложный красный.
+- Вне скоупа, кандидат: `card-runtime.spec.ts:170` ждёт то же окно 300 ms.

@@ -1,7 +1,8 @@
 # 18 — Право «только чтение» для Linked machine до связи с чужой машиной
 
 Type: task
-Status: open
+Status: done — 2026-10-16, [PR #399](https://github.com/IDSAD-XL/worfy/pull/399)
+Branch: worfy-link/18
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md:278`
 
@@ -133,30 +134,30 @@ Project-ам, доступ из интернета.
 
 ## Готово, когда
 
-- [ ] Ответы владельца на вопросы 1–5 записаны в этот Ticket до начала кода.
-- [ ] Unit `test/unit/link-access.test.ts`: у каждого канала `project` есть признак «чтение» или
+- [x] Ответы владельца на вопросы 1–5 записаны в этот Ticket до начала кода.
+- [x] Unit `test/unit/link-access.test.ts`: у каждого канала `project` есть признак «чтение» или
       «запись». Список каналов «чтение» записан в test-е поимённо: новый канал `project` без решения
       роняет test, сообщение называет канал.
-- [ ] Канал `project`, объявленный без признака, роняет `pnpm typecheck`. Проверено временной правкой,
+- [x] Канал `project`, объявленный без признака, роняет `pnpm typecheck`. Проверено временной правкой,
       вывод — в «Итог».
-- [ ] Contract `test/contract/link-access.test.ts`, две Machine на стенде `test/contract/link-bench.ts`,
+- [x] Contract `test/contract/link-access.test.ts`, две Machine на стенде `test/contract/link-bench.ts`,
       уровень «только чтение»: `projects.list` и `layout.get` отвечают.
-- [ ] Тот же test, тот же уровень: `layout.apply`, `terminal.open`, `agent.start`, `agent.permission`,
+- [x] Тот же test, тот же уровень: `layout.apply`, `terminal.open`, `agent.start`, `agent.permission`,
       `projects.add`, `autopilot.start` отклонены с новым текстом. Handler не вызван. Layout
       (расположение Node-ов на Canvas) и список Project-ов машины Project-а прежние. Ни один процесс
       не запущен.
-- [ ] Тот же test: отказ есть в логе с именем канала и Machine; входа вызова в логе нет.
-- [ ] Тот же test: событие `layout.changed` приходит Linked machine-у с правом «только чтение».
+- [x] Тот же test: отказ есть в логе с именем канала и Machine; входа вызова в логе нет.
+- [x] Тот же test: событие `layout.changed` приходит Linked machine-у с правом «только чтение».
       События, исключённые ответом на вопрос 2, не приходят.
-- [ ] Понижение «всё» → «только чтение» посреди работы: следующий вызов записи отклонён, `link.ping`
+- [x] Понижение «всё» → «только чтение» посреди работы: следующий вызов записи отклонён, `link.ping`
       отвечает.
-- [ ] Старый `link/settings.json` с `projectsAccess: true` читается как «всё», с `false` — как
+- [x] Старый `link/settings.json` с `projectsAccess: true` читается как «всё», с `false` — как
       «выключен». Нечитаемый файл — «выключен».
-- [ ] Уровни «выключен» и «всё» ведут себя как до этого Ticket-а: test-ы Ticket-а 08 зелёные, в них
+- [x] Уровни «выключен» и «всё» ведут себя как до этого Ticket-а: test-ы Ticket-а 08 зелёные, в них
       меняется только форма значения.
-- [ ] Test-ы краснеют на мутантах (намеренно испорченных копиях кода): проверка уровня в адаптере
+- [x] Test-ы краснеют на мутантах (намеренно испорченных копиях кода): проверка уровня в адаптере
       убрана; канал записи помечен чтением.
-- [ ] Новый ADR принят. `docs/design/F-SPEC.md` и `.scratch/worfy-link/spec.md`, раздел «Доступ»,
+- [x] Новый ADR принят. `docs/design/F-SPEC.md` и `.scratch/worfy-link/spec.md`, раздел «Доступ»,
       приведены к решению.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. `GATE_SCOPE=all gate.sh full` (полный прогон
       проверок проекта, включая e2e) — зелёный.
@@ -180,9 +181,141 @@ Ticket-а 08.
 - `src/main/link/remote-calls.ts` — сообщение `projects-access`.
 - `src/main/link/service.ts`, `src/main/link/keep-awake.ts`, `src/main/link/notes.ts` — места, где
   читается `projectsAccess`.
-- `src/renderer/shell/sidebar/MachinesSection.tsx`, `src/renderer/machines/useMachines.ts` —
-  переключатель на экране.
+- `src/renderer/settings/MachinesSection.tsx`, `src/renderer/settings/controls.tsx`,
+  `src/renderer/machines/useMachines.ts` — переключатель на экране (Settings → Machines; его перенёс
+  `worfy-ui` 05, PR #296, из `src/renderer/shell/sidebar/MachinesSection.tsx`).
+- `test/unit/machines-section.test.tsx`, e2e spec Settings → Machines — снимки уровней.
+- `.scratch/worfy-link/issues/25-*.md` — новый Ticket: скрытие действий записи (ответ 4).
 - `test/unit/link-access.test.ts`, `test/contract/link-access.test.ts`, `test/contract/ipc.test.ts`.
+- `src/shared/ipc/linked.ts` — `readOnly` в состоянии Linked machine-ов (экран узнаёт уровень).
+- Test-ы, где меняется только форма значения (`setAccess(true)` → уровень `all`, файл версии 2, пометка
+  `read`/`write` у test-каналов): `test/contract/{remote-calls,link-connections,projects,app-settings,ipc-renderer}.test.ts(x)`,
+  `test/contract/ipc-sample/shared/sample.ts`, `test/unit/{link-power,link-notify,use-projects,add-project-machine,markdown}.test.ts(x)`,
+  `test/e2e/helpers.ts` (`setProjectsAccess` даёт Full access связанным Machine-ам), `test/e2e/linked-machines.spec.ts`.
 - `docs/adr/` — новый ADR; `docs/design/F-SPEC.md`; `.scratch/worfy-link/spec.md`.
 
 ## Итог
+
+**Сделано (PR #399, ветка `worfy-link/18`).** Уровень доступа у каждой Linked machine (Off / Read only /
+Full access), пометка `read`/`write` у каждого канала `project`, отказ записи при Read only, ADR-0066,
+Ticket 25 (скрытие действий записи), F-SPEC «Settings → Machines», spec.md «Доступ».
+
+Как устроено:
+- `link/settings.json` версии 2: `{version: 2, projectsAccess, machines: {<id>: "read"|"all"}, keepAwake}`.
+  `projectsAccess` — общий переключатель («выключить всем», ответ 1), он остался boolean; уровень Machine
+  без записи — Off. `LinkSettings.levelOf(id)` = Off, пока переключатель выключен. Новая связь и повторное
+  связывание той же Machine — Off (`commitLink`); отзыв стирает уровень (`forget`).
+- Файл версии 1: `true` — Full access каждой Machine, связанной в момент чтения, `false` — никому;
+  файл сразу переписывается версией 2 (иначе Machine, связанная позже, при следующем запуске получила бы
+  Full access). Нечитаемый файл — выключено. Test-ы — `test/contract/link-connections.test.ts`,
+  describe «the access level of each Linked machine».
+- Пометка: `invokeChannel`/`eventChannel` с перегрузками — для `'project'` пятый (четвёртый у событий)
+  аргумент `ChannelUse` обязателен, у других пометок его нет. Канал, объявленный дважды с разными
+  пометками `read`/`write`, закрыт, как при двух пометках доступа.
+- Отказ: `LinkIpcAdapter.call`, после «access is off» и «not open»: «Linked machines can only view the
+  Projects of <Machine>: access is read-only», до разбора входа zod, handler не вызывается; лог —
+  `"<канал>" from Machine <id> (<имя>) refused: access is read-only`.
+- `LinkPeer.setAccess(level)`: Off — клиента нет; смена Read only ↔ Full access — старый клиент уничтожен,
+  создан новый. Клиент Read only не пересылает события `write` (`terminal.output`).
+- Сообщение `projects-access`: `{on, level}`. Сборка до Ticket-а 18 шлёт только `on` — читается как Full
+  access / Off; старая сборка игнорирует `level` (схема `z.object` без strict). Уровень на стороне
+  Linked machine-а — `readOnly` в `linked.state`; смена Read only ↔ Full access меняет `epoch`, экран
+  загружает Machine заново.
+- Новый канал `link.setMachineAccess` (`local`) задаёт уровень одной Machine; `link.setAccess` остался
+  переключателем. В состоянии связи у каждой Linked machine — `access`.
+
+Каналы (сверены handler-ы, scout-агент + чтение мест-исключений): `read` — 36 вызовов и 19 событий,
+`write` — 47 вызовов и `terminal.output`; списки поимённо — `test/unit/link-access.test.ts`. На main сейчас
+`project`: 83 вызова и 20 событий (в Ticket-е — 77 на `25efbbe`). Отличия от кандидатов Ticket-а:
+- добавлены в `read`: `claudeHome.search`, `terminalAi.fix.state`, `terminalAi.request.state` (их не было
+  в списке кандидатов; только читают и подписывают);
+- `docs.open` оставлен `read`, хотя при первом открытии наблюдателя main синхронизирует Node HANDOFF с
+  файлом (`syncHandoffNode`, `src/main/ipc/docs.ts`) — это запись main-а о собственном файле, как для
+  своего активного Project-а, а не правка вызывающего. **Решено без владельца, подтвердить.**
+- `layout.get` (однократный перевод старого layout), `actions.launches` (чистка закрытых в памяти),
+  `autopilot.state` (кэш в памяти, читающий git), `cards.get` (наблюдатель Card) — `read` по той же
+  причине. **Решено без владельца, подтвердить.**
+- `projects.connect.accounts` и `projects.connect.check` — `write`: шаги «Add project», запускают `gh` и
+  скрипт Harness, а «Add project» — запись целиком. **Решено без владельца, подтвердить.**
+- `agent.attach` (копирует файлы), `projects.hold`, `terminal.takeSize`, `terminalAi.request.cancel`,
+  `cardApi.askPrepare` — `write`.
+- `terminalAi.fix.changed`, `terminalAi.request.changed` — `read`: в них только флаги `available`/`busy`,
+  не текст Terminal.
+
+Пункт 5 — остальные места, где читается доступ, при Read only:
+- запрет сна (`keep-awake.ts`): держится, пока подключена Linked machine с Read only или Full access
+  (test — `test/unit/link-power.test.ts`, «a Linked machine with read-only access counts…»);
+- уведомления (`notes.ts`): уходят Read only и Full access, не Off (`test/unit/link-notify.test.ts`);
+- handler `link.setAccess`: только переключатель; уровень — `link.setMachineAccess`, оба `local`
+  (с Linked machine — «not open», test в contract `link-access`).
+
+Красный test первым: порядок нарушен — инфраструктура пометок писалась раньше test-а. Красный показан на
+мутанте «проверка уровня в адаптере убрана» (`if (false && sender.readOnly …)` в `ipc-adapter.ts`):
+`refuses the write calls…` упал так — `layout.apply: expected { ok: true, value: { layout: … } } to deeply
+equal { ok: false, error: 'Linked machines can only view the Projects of beta: access is read-only' }`, то
+есть Linked machine с Read only изменила Layout машины Project-а. Всего 5 test-ов красные (contract
+`link-access` и `remote-calls`).
+
+Мутанты (копии в scratchpad, восстановление `cp` + `cmp`):
+- проверка уровня в адаптере убрана — 5 красных (выше);
+- `layout.apply` помечен `read` — 5 красных: unit «the read calls are exactly the ones named» и «the write
+  calls…», contract «refuses the write calls…», «logs a refusal…», «a call that already runs…»;
+- фильтр событий клиента Read only убран — красный «a read-only project client passes on read events only»;
+- клиент не пересоздаётся при смене уровня — 3 красных (понижение посреди работы, `remote-calls` epoch).
+
+Typecheck без признака (временная правка `layoutGet` → `'project')`), `tsc --noEmit -p tsconfig.node.json`,
+EXIT=2:
+`src/shared/ipc/layout.ts(16,98): error TS2345: Argument of type '"project"' is not assignable to parameter
+of type '"link" | "desktop" | "local"'.`
+
+Понижение посреди работы (contract): Terminal, открытый окном B и A, — после Read only A не получает
+вывод, `terminal.input` от A — отказ, `link.ping` и `projects.list` отвечают. Terminal, открытый только с
+Linked machine, при понижении закрывается — исключение ADR-0060, пункт 4 (у test-а сначала было так и
+упало: `started: true` при повторном открытии; test переписан на Terminal, который держит окно B).
+
+Снимки (Playwright `page.screenshot()` в e2e `linked-machines.spec.ts`, под замком `/tmp/worfy-e2e.lock`,
+`WORFY_EVIDENCE=1`), каждый просмотрен:
+- [18-settings-machines-read-only-light](../evidence/18-settings-machines-read-only-light.png),
+  [dark](../evidence/18-settings-machines-read-only-dark.png): Settings → Machines на B; переключатель
+  включён; строка Linked machine (имя «Alexeys-MacBook-Pro (dev)» — обе копии на одном Mac) с Select
+  «Read only» справа, под именем три строки подсказки, включая «Read only still means trust: a Session
+  transcript can show a secret»; ниже keep-awake. Текст читается в обеих темах, Select выровнен по правому
+  краю, как переключатели; в тёмной теме акцент — зелёный.
+- [18-settings-machines-full-access-light](../evidence/18-settings-machines-full-access-light.png),
+  [dark](../evidence/18-settings-machines-full-access-dark.png): та же строка с «Full access», подсказка
+  в одну строку «Works with your Projects as you do: Sessions, Terminal, Autopilot».
+Вид неактивной строки (переключатель выключен) проверен в unit и e2e (`data-disabled`, `disabled`,
+tooltip), снимком не снят.
+
+Решено без владельца, подтвердить:
+- Подписи уровней в UI — «Off», «Read only», «Full access»; подсказки — как в F-SPEC.
+- Уровень хранится в `link/settings.json`, а не в записи Linked machine (`linked.json`).
+- Повторное связывание той же Machine сбрасывает её уровень в Off.
+- Файл версии 1 с `false` не даёт уровней никому: после включения переключателя каждой Machine уровень
+  выбирают заново.
+- `link.setAccess` не несёт три значения (как предполагал пункт 1 «Что делаем»): с ответом 1 он остался
+  переключателем «выключить всем», уровень Machine — отдельный канал `link.setMachineAccess`.
+- В «Готово, когда» нет проверки событий `agent.event` и уведомлений при Read only через стенд двух Machine:
+  уведомления проверены в `link-notify`, `agent.event` — unit-проверкой клиента (`LinkSender`).
+
+Проверки: `pnpm lint && pnpm typecheck && pnpm test` — EXIT=0 (264 файла, 5570 test-ов); e2e
+`linked-machines.spec.ts` — 9 passed; e2e `linked-sleep`, `linked-notify`, `linked-add-project`,
+`linked-cards`, `linked-system-actions`, `linked-autopilot` (пользуются `setProjectsAccess`) — 10 passed.
+`GATE_SCOPE=all gate full` — не проверено: шаг оркестратора перед merge.
+
+**Ревью и merge** (PR #399, VERIFIED в первом круге, depth low). Verifier сверил все 36 вызовов `read` с handler-ами; обхода проверки уровня нет.
+- Noted: служебная запись Layout у `docs.open` и `layout.get` при пометке `read` — решено без владельца, подтвердить (выше).
+- Не проверено: принимает ли сборка до этого Ticket-а новое поле `level` в сообщении `projects-access`.
+- Merge: первый gate full красный только на двух timeout `test/contract/workflow-reader.test.ts` (flaky под нагрузкой, `worfy-polish` 30; файл отдельно — 45/45), второй зелёный; `01479c7d`.
+
+## Решения владельца (2026-10-16)
+
+Все пункты «решено без владельца, подтвердить» подтверждены:
+- `docs.open`, `layout.get`, `actions.launches`, `autopilot.state`, `cards.get` — уровень `read`,
+  несмотря на служебную запись Layout и синхронизацию Node-а HANDOFF;
+- `projects.connect.accounts` и `projects.connect.check` — уровень `write`;
+- подписи «Off», «Read only», «Full access»; уровень в `link/settings.json`; повторное связывание
+  сбрасывает уровень в Off; файл версии 1 с `false` не даёт уровней; `link.setAccess` — «выключить
+  всем», уровень Machine — `link.setMachineAccess`;
+- `agent.event` и уведомления при Read only проверены unit-test-ами и `link-notify`; живая проверка на
+  двух Machine — в приёмке [16](16-приёмка-epic-а-worfy-link.md).

@@ -8,8 +8,8 @@ import { eventChannel, invokeChannel, type IpcResult, type WorfyBridge } from '.
 import { createIpcClient } from '../../src/renderer/ipc'
 
 // Test-only channels, added the same way a domain file adds its own.
-export const clientEcho = invokeChannel('client.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }), 'project')
-export const clientTicked = eventChannel('client.ticked', z.object({ n: z.number() }), 'project')
+export const clientEcho = invokeChannel('client.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }), 'project', 'write')
+export const clientTicked = eventChannel('client.ticked', z.object({ n: z.number() }), 'project', 'write')
 
 declare module '../../src/shared/ipc/channels' {
   interface IpcContract {
@@ -325,8 +325,8 @@ describe('what the renderer hears of Linked machines', () => {
     // Addresses: only this Machine's own, and those of worfy found by Bonjour, which are not linked.
     const ownOrFound = /^link\.\w+: (state\.)?(addresses|discovered\.(host|port))$/
     expect(heard.filter((key) => /address|host|port/i.test(key) && !ownOrFound.test(key))).toEqual([])
-    // A Linked machine is named by its id and name alone.
+    // A Linked machine is named by its id and name alone; its access level is this Machine's own setting.
     const linkedFields = new Set(heard.filter((key) => /^link\.\w+: (state\.)?linked\./.test(key)).map((key) => key.replace(/^.*linked\./, '')))
-    expect(linkedFields).toEqual(new Set(['certificateChanged', 'id', 'name', 'state']))
+    expect(linkedFields).toEqual(new Set(['access', 'certificateChanged', 'id', 'name', 'state']))
   })
 })

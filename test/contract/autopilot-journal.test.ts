@@ -200,6 +200,22 @@ describe('readRun', () => {
     expect(parsed?.skipped).toBe(1)
   })
 
+  it('writes refused-dialog with the Subagent and the reason, and reads an old line without them (worfy-polish ticket 26)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    await journal.append({ kind: 'refused-dialog', session: 'abc-123', what: 'permission_request Bash', agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/x)' })
+    const head = `"at":"2026-10-06T01:00:02Z","run":"${journal.run}","project":"${PROJECT}","epic":"${EPIC}"`
+    appendFileSync(journal.file, `{"kind":"refused-dialog",${head},"session":null,"what":"card_ask card-7"}\n`)
+
+    const parsed = await readRun(journal.run)
+    expect(parsed?.skipped).toBe(0)
+    expect(parsed?.events.slice(1)).toEqual([
+      expect.objectContaining({ kind: 'refused-dialog', session: 'abc-123', what: 'permission_request Bash', agent: 'agent-impl-07', reason: 'rm -rf with a target that cannot be resolved (~/x)' }),
+      expect.objectContaining({ kind: 'refused-dialog', session: null, what: 'card_ask card-7' }),
+    ])
+    expect(parsed?.events[2]).not.toHaveProperty('agent')
+    expect(parsed?.events[2]).not.toHaveProperty('reason')
+  })
+
   it('returns undefined for a run without a file and refuses a name that is not a run id', async () => {
     expect(await readRun('2026-10-06T01-00-00-000Z-000000')).toBeUndefined()
     mkdirSync(join(dataDir, 'autopilot'), { recursive: true })

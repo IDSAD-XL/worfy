@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Panel } from '@xyflow/react'
 import type { TrashEntry } from '../../../shared/ipc/trash'
 import { invoke, subscribe } from '../../ipc'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import './trash.css'
 
 export const order = 30
@@ -51,6 +52,8 @@ export default function TrashPopover() {
   const projectId = activeProject(useProjects())?.id
   const { entries } = useTrash(projectId)
   const [open, setOpen] = useState(false)
+  // On a read-only screen (worfy-link ticket 25) the trash can be looked through, not restored from.
+  const readOnly = useReadOnly()
   /** The time the popover was opened at: the entries' ages are counted from it. */
   const [openedAt, setOpenedAt] = useState(0)
   const [error, setError] = useState<string>()
@@ -100,7 +103,7 @@ export default function TrashPopover() {
                     {entry.title ?? entry.nodeId}
                   </span>
                   <span className="w-trash__time">{ago(entry.trashedAt, openedAt)}</span>
-                  <button type="button" className="w-trash__restore" onClick={() => restore(entry.label)}>
+                  <button type="button" className="w-trash__restore" {...writeAction(readOnly, () => restore(entry.label))}>
                     Restore
                   </button>
                 </li>

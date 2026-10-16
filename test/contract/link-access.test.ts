@@ -26,11 +26,14 @@ import { setViewState } from '../../src/main/ipc/view'
 import { workflowHub } from '../../src/main/ipc/workflow'
 import { BindingStore } from '../../src/main/layout/bindings'
 import { layoutStore } from '../../src/main/layout/store'
-import { LinkSender } from '../../src/main/link/ipc-adapter'
+import { LinkSender, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
+import { LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
 import { projectStore } from '../../src/main/projects/store'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
+import { autopilotStart } from '../../src/shared/ipc/autopilot'
 import { cardApiConfirm } from '../../src/shared/ipc/card-api'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import type { AccessLevel } from '../../src/shared/ipc/link'
 import { limitsChanged } from '../../src/shared/ipc/limits'
 import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
@@ -144,7 +147,7 @@ const claudeHomeSubscriptions = new ClaudeHomeSubscriptions(claudeHome, new Set(
 const bindings = new BindingStore((projectId) => join(dataDir, projectId))
 
 /** Stand-ins that count their calls: a Session that would start Claude, a dialog of a Card. */
-const calls = { agentStart: 0, trashList: 0 }
+const calls = { agentStart: 0, trashList: 0, autopilotStart: 0 }
 /** The folders the stand-in Session registry was asked to start Claude Code in. */
 const startedIn: string[] = []
 /** A Session registry that starts nothing: the real agent handlers run over it. */
@@ -210,6 +213,11 @@ const modules: Record<string, ModuleLoader> = {
         await electron.showMessageBox()
         return { send: false }
       }),
+      // Starting Autopilot would start an Orchestrator Session: this stand-in only counts.
+      defineHandler(autopilotStart, () => {
+        calls.autopilotStart += 1
+        throw new Error('the stand-in of autopilot.start ran')
+      }),
       defineHandler(trashList, async () => {
         calls.trashList += 1
         await holdTrashList
@@ -251,6 +259,7 @@ beforeEach(async () => {
   calls.agentStart = 0
   startedIn.length = 0
   calls.trashList = 0
+  calls.autopilotStart = 0
   claudeHomeWatchers.length = 0
   for (const spy of Object.values(electron)) spy.mockClear()
 })
@@ -283,8 +292,12 @@ async function callB(channel: string, input?: unknown): Promise<IpcResult<unknow
 const accessOff = { ok: false, error: 'Linked machines cannot work with the Projects of beta: access is off' }
 const notOpen = (channel: string): IpcResult<unknown> => ({ ok: false, error: `${channel}: not open to Linked machines` })
 
-function setAccess(on: boolean): void {
-  b.service.settings.set({ projectsAccess: on })
+/**
+ * B's access for A: `off` turns B's switch "Linked machines can work with my Projects" off, `read`
+ * and `all` turn it on with that level for A (worfy-link ticket 18).
+ */
+function setAccess(level: AccessLevel): void {
+  b.service.settings.set({ projectsAccess: level !== 'off', machines: { [a.service.machine.id]: level } })
 }
 
 /** B's clients made for the connection from A: "link:<A's id>/<n>". */
@@ -310,7 +323,7 @@ describe('access off (the default)', () => {
   it('refuses projects.list with "access is off"; link.ping answers', async () => {
     expect(b.service.settings.get().projectsAccess).toBe(false)
     expect(await callB('projects.list')).toEqual(accessOff)
-    expect(await callB('link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
+    expect(await callB('link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench' } })
     // The connection has no client among B's clients: no broadcast of B reaches A.
     expect(linkClientsOfB()).toEqual([])
   })
@@ -342,7 +355,7 @@ describe('access off (the default)', () => {
 
 describe('access on', () => {
   it('answers projects.list; layout.apply from A changes B\'s Layout, and A gets layout.changed', async () => {
-    setAccess(true)
+    setAccess('all')
     const list = await callB('projects.list')
     expect(list).toMatchObject({ ok: true, value: { projects: expect.arrayContaining([expect.objectContaining({ id: PROJECT })]) } })
 
@@ -354,20 +367,20 @@ describe('access on', () => {
   })
 
   it('the connection joins B\'s clients as "link:<A>/<n>" when access goes on, leaves when it goes off, and comes back under a new id', async () => {
-    setAccess(true)
+    setAccess('all')
     const first = linkClientsOfB()
     expect(first).toHaveLength(1)
     expect(first[0]).toMatch(new RegExp(`^link:${a.service.machine.id}/\\d+$`))
-    setAccess(false)
+    setAccess('off')
     expect(linkClientsOfB()).toEqual([])
-    setAccess(true)
+    setAccess('all')
     const second = linkClientsOfB()
     expect(second).toHaveLength(1)
     expect(second[0]).not.toBe(first[0])
   })
 
   it('still refuses the `desktop` and `local` channels: no dialog, no OS shell, the active Project stays', async () => {
-    setAccess(true)
+    setAccess('all')
     expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
     expect(await callB('cardApi.confirm', { cardTitle: 'Card', recipientLabel: 'the Orchestrator', message: 'hi?' })).toEqual(notOpen('cardApi.confirm'))
     expect(await callB('shell.openExternal', { url: 'https://example.com' })).toEqual(notOpen('shell.openExternal'))
@@ -390,7 +403,7 @@ describe('access on', () => {
   })
 
   it('B\'s `local` events stay on B: view.changed reaches B\'s other clients, not the connection', async () => {
-    setAccess(true)
+    setAccess('all')
     const watcher = { id: 'test:watcher', sent: [] as string[], send: (channel: string) => void watcher.sent.push(channel), isDestroyed: () => false, once: () => watcher }
     addClient(watcher)
     setViewState({ minimap: false })
@@ -406,7 +419,7 @@ describe('access on', () => {
   })
 
   it('handlers that read event.sender serve the connection: workflow, docs, claude-home, bindings and terminal answer ok, and A gets their events', async () => {
-    setAccess(true)
+    setAccess('all')
     expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
     expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
@@ -437,7 +450,7 @@ describe('access on', () => {
 
 describe('switching access off', () => {
   it('in the middle of a subscription: A stops getting terminal.output, the next terminal.input is refused, link.ping answers, the hubs let go', async () => {
-    setAccess(true)
+    setAccess('all')
     // A window of B keeps the shell open after A leaves it.
     const windowEvents: string[] = []
     const window = {
@@ -464,7 +477,7 @@ describe('switching access off', () => {
     await until(() => outputOfA().includes('before-2'))
     expect(outputOfA()).toContain('before-2')
 
-    setAccess(false)
+    setAccess('off')
     await until(() => workflowHub.roots.length === 0 && docsHub.projects.length === 0 && claudeHomeSubscriptions.size === 0)
     expect(workflowHub.roots).toEqual([])
     expect(docsHub.projects).toEqual([])
@@ -483,18 +496,161 @@ describe('switching access off', () => {
   }, 20_000)
 
   it('lets a call that already runs finish; the next one is refused', async () => {
-    setAccess(true)
+    setAccess('all')
     let release: () => void = () => undefined
     holdTrashList = new Promise((resolve) => {
       release = resolve
     })
     const running = callB('trash.list', { projectId: PROJECT })
     await until(() => calls.trashList === 1)
-    setAccess(false)
+    setAccess('off')
     release()
     expect(await running).toEqual({ ok: true, value: { entries: [] } })
     expect(await callB('trash.list', { projectId: PROJECT })).toEqual(accessOff)
     expect(calls.trashList).toBe(1)
+  })
+})
+
+// worfy-link ticket 18 (ADR-0066): B gives A read-only access. Each kind of channel: a `read` call
+// answers and a `write` call is refused before its input is parsed, no handler running; a `read`
+// event reaches A and Terminal output (a `write` event) does not.
+describe('read-only access', () => {
+  const readOnly = { ok: false, error: readOnlyRefusal('beta') }
+
+  it('answers the `read` calls: projects.list, layout.get, and the subscriptions of workflow, docs and claude-home', async () => {
+    setAccess('read')
+    expect(await callB('projects.list')).toMatchObject({ ok: true, value: { projects: expect.arrayContaining([expect.objectContaining({ id: PROJECT })]) } })
+    expect(await callB('layout.get', { projectId: PROJECT })).toMatchObject({ ok: true, value: { projectId: PROJECT } })
+    expect(await callB('workflow.open', { root: repo })).toMatchObject({ ok: true })
+    expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
+    expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
+    expect(await callB('link.ping')).toMatchObject({ ok: true })
+    // The connection is among B's clients, so B's broadcasts of `read` events reach A.
+    expect(linkClientsOfB()).toHaveLength(1)
+  })
+
+  it('refuses the `write` calls with the read-only text: no handler runs, the Layout and the Project list stay, no process starts', async () => {
+    setAccess('read')
+    const nodesBefore = JSON.stringify(layoutStore().get(PROJECT).layout.nodes)
+    const projectsBefore = projectStore()
+      .list()
+      .map((project) => project.id)
+    const fileBefore = readFileSync(join(dataDir, 'projects.json'), 'utf8')
+    for (const [channel, input] of [
+      ['layout.apply', { projectId: PROJECT, op: note('read-only-1') }],
+      ['terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }],
+      ['agent.start', { cwd: repo }],
+      ['agent.permission', { sessionId: 'session-1', requestId: 'r1', decision: { behavior: 'allow' } }],
+      ['projects.add', { path: second }],
+      ['autopilot.start', { projectId: PROJECT, epic: 'demo' }],
+      // Refused before the input is parsed: an input outside the schema gets the same answer.
+      ['layout.apply', { not: 'a layout op' }],
+    ] as const) {
+      expect(await callB(channel, input), channel).toEqual(readOnly)
+    }
+    expect(calls.agentStart).toBe(0)
+    expect(calls.autopilotStart).toBe(0)
+    expect(terminals.size).toBe(0)
+    expect(JSON.stringify(layoutStore().get(PROJECT).layout.nodes)).toBe(nodesBefore)
+    expect(
+      projectStore()
+        .list()
+        .map((project) => project.id),
+    ).toEqual(projectsBefore)
+    expect(readFileSync(join(dataDir, 'projects.json'), 'utf8')).toBe(fileBefore)
+    // `desktop` and `local` stay closed as before, with their own text.
+    expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
+    expect(await callB('link.setMachineAccess', { id: a.service.machine.id, access: 'all' })).toEqual(notOpen('link.setMachineAccess'))
+    expect(b.service.settings.levelOf(a.service.machine.id)).toBe('read')
+  })
+
+  it('logs a refusal with the channel and the Machine, never the input of the call', async () => {
+    setAccess('read')
+    const marker = 'input-marker-7f3a'
+    expect(await callB('layout.apply', { projectId: PROJECT, op: note(marker) })).toEqual(readOnly)
+    const captured = bench?.captured.join('\n') ?? ''
+    expect(captured).toContain(`"layout.apply" from Machine ${a.service.machine.id} (alpha) refused: access is read-only`)
+    expect(captured).not.toContain(marker)
+  })
+
+  it('A gets layout.changed of a change made on B\'s screen', async () => {
+    setAccess('read')
+    const window = { id: 7, send: () => undefined, isDestroyed: () => false, once: () => window }
+    const windowCall = await windowIpc(['./layout.ts'])
+    expect(await windowCall('layout.apply', { projectId: PROJECT, op: note('from-b-screen') }, window)).toMatchObject({ ok: true })
+    await until(() => channelsReceived().includes('layout.changed'))
+    expect(received.find((event) => event.channel === 'layout.changed')?.payload).toMatchObject({ projectId: PROJECT, op: { op: 'create' } })
+  })
+
+  it('lowered from all to read-only in the middle of work: the Terminal subscription goes, the next write is refused, link.ping answers', async () => {
+    setAccess('all')
+    const first = linkClientsOfB()
+    // A window of B keeps the shell open after A leaves it (a shell only a Linked machine held
+    // closes with it: ADR-0060, point 4).
+    const windowEvents: string[] = []
+    const window = {
+      id: 8,
+      send: (channel: string, payload: unknown) => {
+        if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) windowEvents.push((payload as { data: string }).data)
+      },
+      isDestroyed: () => false,
+      once: () => window,
+    }
+    const windowCall = await windowIpc()
+    expect(await windowCall('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }, window)).toMatchObject({ ok: true })
+    expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((3+4))\n' })).toMatchObject({ ok: true })
+    const outputOfA = (): string =>
+      received
+        .filter((event) => event.channel === 'terminal.output')
+        .map((event) => (event.payload as { data: string }).data)
+        .join('')
+    await until(() => outputOfA().includes('before-7'))
+    expect(outputOfA()).toContain('before-7')
+
+    setAccess('read')
+    // A fresh client: what the old one subscribed to is gone, and A subscribes again.
+    const second = linkClientsOfB()
+    expect(second).toHaveLength(1)
+    expect(second[0]).not.toBe(first[0])
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\n' })).toEqual(readOnly)
+    expect(await callB('link.ping')).toMatchObject({ ok: true })
+    expect(await callB('projects.list')).toMatchObject({ ok: true })
+
+    // The shell runs on for B's window; its output does not reach A any more.
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\n' }, window)).toMatchObject({ ok: true })
+    await until(() => windowEvents.join('').includes('after-9'))
+    expect(windowEvents.join('')).toContain('after-9')
+    expect(outputOfA()).not.toContain('after-9')
+    expect(windowEvents.join('')).not.toContain('sneaky')
+    expect(b.service.isConnected(a.service.machine.id)).toBe(true)
+  }, 20_000)
+
+  it('a call that already runs finishes when the level drops; raised back to all, a write answers again', async () => {
+    setAccess('all')
+    let release: () => void = () => undefined
+    holdTrashList = new Promise((resolve) => {
+      release = resolve
+    })
+    const running = callB('trash.list', { projectId: PROJECT })
+    await until(() => calls.trashList === 1)
+    setAccess('read')
+    release()
+    expect(await running).toEqual({ ok: true, value: { entries: [] } })
+    expect(await callB('layout.apply', { projectId: PROJECT, op: note('while-read') })).toEqual(readOnly)
+    setAccess('all')
+    expect(await callB('layout.apply', { projectId: PROJECT, op: note('all-again') })).toMatchObject({ ok: true })
+    expect(layoutStore().get(PROJECT).layout.nodes.map((node) => node.id)).toContain('all-again')
+    expect(layoutStore().get(PROJECT).layout.nodes.map((node) => node.id)).not.toContain('while-read')
+  })
+
+  it('the switch off turns read-only off too: "access is off"; another Linked machine\'s level does not open it for A', async () => {
+    setAccess('read')
+    b.service.settings.set({ projectsAccess: false })
+    expect(await callB('projects.list')).toEqual(accessOff)
+    b.service.settings.set({ projectsAccess: true, machines: { '99999999-9999-4999-8999-999999999999': 'all' } })
+    expect(await callB('projects.list')).toEqual(accessOff)
+    expect(linkClientsOfB()).toEqual([])
   })
 })
 
@@ -515,9 +671,19 @@ describe('the clients of a connection', () => {
     expect(pushed).toHaveLength(2)
   })
 
+  it('a read-only `project` client passes on `read` events only: Terminal output stays (worfy-link ticket 18)', () => {
+    const pushed: string[] = []
+    const local = () => ({ id: bId, name: 'beta', protocol: 1, build: 'x' })
+    const reader = new LinkSender(a.service.machine.id, 'project', (channel) => pushed.push(channel), local, true)
+    for (const channel of ['layout.changed', 'agent.event', 'terminal.output', 'terminal.exit', 'view.changed', 'nobody.declares.this']) {
+      reader.send(IPC_CHANNEL_PREFIX + channel, {})
+    }
+    expect(pushed).toEqual(['layout.changed', 'agent.event', 'terminal.exit'])
+  })
+
   it('refusals are logged with the channel and the Machine, never with a token or a code', async () => {
     expect(await callB('projects.list')).toEqual(accessOff)
-    setAccess(true)
+    setAccess('all')
     expect(await callB('projects.pickFolder')).toEqual(notOpen('projects.pickFolder'))
     const captured = bench?.captured.join('\n') ?? ''
     expect(captured).toContain(`"projects.list" from Machine ${a.service.machine.id} (alpha) refused: access is off`)
@@ -535,7 +701,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
   const outsideRefusal = /is outside the Projects of this Machine; a Linked machine works only inside them/
 
   it('agent.start in a folder outside every Project, or through a link out of one, is refused; inside it starts in the real folder', async () => {
-    setAccess(true)
+    setAccess('all')
     for (const cwd of ['/', env.scratch, outside, join(repo, 'out-link'), `${repo}/../outside`]) {
       const result = await callB('agent.start', { cwd })
       expect(result.ok, cwd).toBe(false)
@@ -552,7 +718,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
   })
 
   it('agent.attach by path reads nothing outside the Projects for A; inside it attaches; B\'s window attaches as before', async () => {
-    setAccess(true)
+    setAccess('all')
     const started = await callB('agent.start', { cwd: repo })
     const sessionId = (started as { ok: true; value: { sessionId: string } }).value.sessionId
     for (const path of [join(outside, 'secret.txt'), join(repo, 'out-link', 'secret.txt'), `${repo}/../outside/secret.txt`]) {
@@ -577,7 +743,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
   })
 
   it('a root outside the Projects is refused for A on workflow, claude-home, bindings and checks; inside it answers; B\'s window as before, except checks', async () => {
-    setAccess(true)
+    setAccess('all')
     const sessionId = '77777777-7777-4777-8777-777777777777'
     for (const [channel, input] of [
       ['workflow.open', { root: '/' }],
@@ -611,7 +777,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
   })
 
   it('projects.add and projects.remove from A leave B\'s active Project as it is; the active one is not removed; B\'s window switches as before', async () => {
-    setAccess(true)
+    setAccess('all')
     const activeInFile = (): unknown => (JSON.parse(readFileSync(join(dataDir, 'projects.json'), 'utf8')) as { activeId: unknown }).activeId
     expect(projectStore().active()?.id).toBe(PROJECT)
 

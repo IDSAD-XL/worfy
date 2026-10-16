@@ -185,10 +185,11 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     this.secrets = secrets
     this.store = new LinkedMachineStore(this.linkDir)
     this.warn = options.warn ?? ((message) => console.warn(message))
-    this.settings = new LinkSettings(this.linkDir, this.warn)
+    this.settings = new LinkSettings(this.linkDir, { warn: this.warn, linked: () => this.store.list().map((record) => record.id) })
     this.settings.on('changed', (value) => {
-      // Off: every connection's `project` client is destroyed now, and its subscriptions with it.
-      for (const peer of this.peers) peer.setAccess(value.projectsAccess)
+      // Off, or another level: the connection's `project` client is destroyed now, and its
+      // subscriptions with it; a level on makes a fresh one (ipc-adapter.ts, LinkPeer.setAccess).
+      for (const peer of this.peers) peer.setAccess(this.settings.levelOf(peer.machineId))
       this.emit('settings', value)
     })
     this.hostname = options.hostname ?? osHostname
@@ -513,6 +514,9 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       linkedAt: new Date((this.options.now ?? Date.now)()).toISOString(),
     }
     for (const connection of this.connections.get(record.id) ?? []) connection.close(CLOSE_UNLINKED, 'linked again')
+    // A new link starts with access off (worfy-link ticket 18), also when the Machine was linked
+    // before; when the old level cannot be cleared, nothing is linked.
+    this.settings.setLevel(record.id, 'off')
     this.store.put(record)
     this.certificateChanged.delete(record.id)
     this.updateReasons()
@@ -524,6 +528,12 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
     for (const connection of this.connections.get(machineId) ?? []) connection.close(by === 'this-machine' ? CLOSE_REVOKED : CLOSE_UNLINKED, 'unlinked')
     if (record === undefined) return
     this.store.remove(machineId)
+    try {
+      this.settings.setLevel(machineId, 'off')
+    } catch (error) {
+      // Linking it again resets the level before anything else (commitLink).
+      this.warn(`[link] the access level of Machine ${record.id} could not be cleared: ${messageOf(error)}`)
+    }
     this.secrets.delete(record.outgoingTokenKey)
     this.certificateChanged.delete(machineId)
     this.warn(`[link] Machine ${record.id} (${record.name}) is no longer linked (${by === 'this-machine' ? 'revoked on this Machine' : 'revoked by that Machine'})`)
@@ -553,7 +563,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       warn: this.warn,
     })
     this.peers.add(peer)
-    peer.setAccess(this.settings.get().projectsAccess)
+    peer.setAccess(this.settings.levelOf(record.id))
     let set = this.connections.get(record.id)
     if (set === undefined) {
       set = new Set()

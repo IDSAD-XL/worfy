@@ -5,6 +5,9 @@
 // checked to lie in the system temp directory, and isolateClaudeHome is called on plain objects and
 // folders of the test's own, not on process.env.
 //
+// worfy's data folder likewise (WORFY_DATA_DIR): a folder of the run's own for every test file, and
+// dataRoot() refuses the real one — the folder of the installed app — when a test has unset it.
+//
 // The setup module is imported only inside the tests that call it: importing it at the top would
 // itself set the variable, and a run without the setup file would pass here.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
@@ -12,11 +15,14 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { TestProject } from 'vitest/node'
 import { afterEach, beforeEach, describe, expect, inject, it } from 'vitest'
+import { dataRoot } from '../../src/main/storage/paths'
 import setupRun, { CONTRACT_HOMES_PREFIX } from '../global-setup-contract'
 import { removeTestTree } from '../remove'
 
 /** WORFY_CLAUDE_HOME as this file found it when it started, before any test changed it. */
 const AT_START = process.env.WORFY_CLAUDE_HOME
+/** WORFY_DATA_DIR as this file found it when it started. */
+const DATA_AT_START = process.env.WORFY_DATA_DIR
 
 const TEMP = realpathSync(tmpdir())
 
@@ -47,6 +53,84 @@ describe('the Claude home of a contract test file', () => {
     expect(dirname(root)).toBe(TEMP)
     expect(basename(root).startsWith(CONTRACT_HOMES_PREFIX)).toBe(true)
     expect(readdirSync(home)).toEqual([])
+  })
+})
+
+describe('the worfy data folder of a contract test file', () => {
+  it('is a temporary folder of its own in the folder of the run, and dataRoot() names it', () => {
+    expect(DATA_AT_START, 'WORFY_DATA_DIR is set for a contract test').toBeTruthy()
+    const dir = resolve(DATA_AT_START ?? '')
+    expect(basename(dir).startsWith('data-dir-')).toBe(true)
+    expect(dirname(dir)).toBe(inject('contractClaudeHomes'))
+    expect(dir.startsWith(TEMP + sep)).toBe(true)
+    expect(dataRoot()).toBe(dir)
+  })
+
+  it('dataRoot() with the process environment throws once a test unsets WORFY_DATA_DIR, and names the real folder only for an environment of the test\'s own', async () => {
+    const { REAL_DATA_FOLDER_REFUSED, takeRefusals } = await import('../setup-contract')
+    const kept = process.env.WORFY_DATA_DIR
+    try {
+      delete process.env.WORFY_DATA_DIR
+      expect(() => dataRoot()).toThrow(REAL_DATA_FOLDER_REFUSED)
+      expect(() => dataRoot(process.env, 'packaged')).toThrow(REAL_DATA_FOLDER_REFUSED)
+      process.env.WORFY_DATA_DIR = ''
+      // Caught, as the reader of the autocompact window catches it: still counted.
+      try {
+        dataRoot()
+      } catch {
+        // counted below
+      }
+    } finally {
+      process.env.WORFY_DATA_DIR = kept
+    }
+    // Taken here, or the hook of the setup file would fail this test for them.
+    expect(takeRefusals()).toBe(3)
+    expect(dataRoot({}, 'packaged', 'darwin')).toBe(join(homedir(), 'Library', 'Application Support', 'worfy'))
+  })
+})
+
+describe('failOnRefusals, run after every contract test', () => {
+  it('fails after a refusal the code under test swallowed, and passes again after that', async () => {
+    const { failOnRefusals, REAL_DATA_FOLDER_REFUSED } = await import('../setup-contract')
+    const kept = process.env.WORFY_DATA_DIR
+    try {
+      delete process.env.WORFY_DATA_DIR
+      try {
+        dataRoot()
+      } catch {
+        // swallowed, as a reader that falls back would
+      }
+    } finally {
+      process.env.WORFY_DATA_DIR = kept
+    }
+    expect(() => failOnRefusals()).toThrow(REAL_DATA_FOLDER_REFUSED)
+    expect(() => failOnRefusals()).not.toThrow()
+  })
+})
+
+describe('isolateDataDir', () => {
+  let root = ''
+  beforeEach(() => {
+    root = mkdtempSync(join(TEMP, 'worfy-isolation-root-'))
+  })
+  afterEach(() => {
+    removeTestTree(root)
+  })
+
+  it('gives an unset or empty variable a new empty folder, leaves a set one alone, and release removes the folder', async () => {
+    const { isolateDataDir } = await import('../setup-contract')
+    const env: Record<string, string | undefined> = { WORFY_DATA_DIR: '' }
+    const isolated = isolateDataDir(env, root)
+    expect(isolated).not.toBeNull()
+    const dir = isolated?.dir ?? ''
+    expect(dirname(dir)).toBe(root)
+    expect(env.WORFY_DATA_DIR).toBe(dir)
+    expect(readdirSync(dir)).toEqual([])
+    expect(isolateDataDir({ WORFY_DATA_DIR: '/given' }, root)).toBeNull()
+    writeFileSync(join(dir, 'app-settings.json'), '{}')
+    isolated?.release()
+    expect(existsSync(dir)).toBe(false)
+    expect('WORFY_DATA_DIR' in env).toBe(false)
   })
 })
 

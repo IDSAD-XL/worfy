@@ -1,9 +1,9 @@
 // qmd as part of the Harness (src/main/harness/qmd.ts, worfy-harness ticket 17): the install
 // through npm, the models with their size and the user's consent, node. `npm`, `node` and `qmd` are
-// stand-in shell scripts in a temporary folder, the only one on the PATH of the "login shell"
+// links to the stand-in shell scripts of test/fixtures/qmd-stub in a temporary folder, the only one on the PATH of the "login shell"
 // environment handed to the module; each writes its arguments and the variables it saw. HOME, the
 // Harness home and the Claude home are temporary too: nothing reaches the owner's folders.
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -29,35 +29,29 @@ let harnessHome: string
 let claudeHome: string
 let calls: string
 
-/** A stand-in command: a /bin/sh script that uses only shell built-ins, so the PATH needs nothing else. */
-function stub(name: string, body: string): void {
-  writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`)
-  chmodSync(join(bin, name), 0o755)
+/**
+ * The stand-in commands: /bin/sh scripts of test/fixtures/qmd-stub that use only shell built-ins, so
+ * the PATH needs nothing else. A test links one into `bin` and sets what it answers in `stubVars`,
+ * which go into the environment handed to the module. The scripts are the same files in every test:
+ * a new executable file per test waits for the macOS check of new files, which timed out under load
+ * (worfy-polish ticket 30).
+ */
+const STUBS = join(import.meta.dirname, '..', 'fixtures', 'qmd-stub')
+let stubVars: Record<string, string>
+function stub(name: string, vars: Record<string, string>): void {
+  rmSync(join(bin, name), { force: true })
+  symlinkSync(join(STUBS, name), join(bin, name))
+  Object.assign(stubVars, vars)
 }
-const nodeStub = (version: string): void => stub('node', `printf '%s\\n' '${version}'`)
+const nodeStub = (version: string): void => stub('node', { NODE_STUB_VERSION: version })
 const qmdStub = (version: string, pullCode = 0): void =>
-  stub(
-    'qmd',
-    [
-      `if [ "$1" = --version ]; then printf 'qmd %s (abc1234)\\n' '${version}'; exit 0; fi`,
-      `printf 'qmd %s emb=%s gen=%s mark=%s\\n' "$*" "$QMD_EMBED_MODEL" "\${QMD_GENERATE_MODEL:-unset}" "$LOGIN_MARK" >>"$CALLS"`,
-      `[ ${pullCode} -eq 0 ] || { printf 'first\\npull: network down\\n' >&2; exit ${pullCode}; }`,
-      // What qmd 2.8.3 prints per model; PULLED_GENERATE stands for a model pinned in index.yml.
-      `[ "$1" = pull ] || exit 0`,
-      `printf '\\033[1mPulling models\\033[0m\\n'`,
-      `printf '%s\\n' "- $QMD_EMBED_MODEL -> /cache/a.gguf (610 MB, cached/checked)"`,
-      `printf '%s\\n' "- \${PULLED_GENERATE:-\${QMD_GENERATE_MODEL:-${QMD_MODELS.generateDefault.uri}}} -> /cache/b.gguf (1 GB, refreshed)"`,
-      `printf '%s\\n' '- ${QMD_MODELS.rerank.uri} -> /cache/c.gguf (610 MB, cached/checked)'`,
-    ].join('\n'),
-  )
-const npmStub = (code = 0): void =>
-  stub(
-    'npm',
-    [
-      `printf 'npm %s mark=%s\\n' "$*" "$LOGIN_MARK" >>"$CALLS"`,
-      `[ ${code} -eq 0 ] || { printf 'npm warn something\\nnpm error code EACCES\\n' >&2; exit ${code}; }`,
-    ].join('\n'),
-  )
+  stub('qmd', {
+    QMD_STUB_VERSION: version,
+    QMD_STUB_PULL_CODE: String(pullCode),
+    QMD_STUB_GENERATE_DEFAULT: QMD_MODELS.generateDefault.uri,
+    QMD_STUB_RERANK: QMD_MODELS.rerank.uri,
+  })
+const npmStub = (code = 0): void => stub('npm', { NPM_STUB_CODE: String(code) })
 const callLines = (): string[] => {
   try {
     return readFileSync(calls, 'utf8').split('\n').filter(Boolean)
@@ -66,7 +60,7 @@ const callLines = (): string[] => {
   }
 }
 /** The login shell environment the module is handed: only the stand-ins on the PATH. */
-const env = (): Record<string, string> => ({ PATH: bin, HOME: home, LOGIN_MARK: 'login-shell', CALLS: calls })
+const env = (): Record<string, string> => ({ PATH: bin, HOME: home, LOGIN_MARK: 'login-shell', CALLS: calls, ...stubVars })
 const options = () => ({ harnessHome, claudeHome, env: env() })
 const profile = (dir: string, name: string, docs: string | null): void => {
   mkdirSync(join(dir, name), { recursive: true })
@@ -94,6 +88,7 @@ beforeEach(() => {
   harnessHome = join(home, '.claude', 'worfy-harness')
   claudeHome = join(home, '.claude')
   calls = join(root, 'calls.log')
+  stubVars = {}
   for (const dir of [bin, home, harnessHome]) mkdirSync(dir, { recursive: true })
 })
 afterEach(() => {
@@ -263,8 +258,7 @@ describe('setupCollections', () => {
   it('runs bin/qmd-collections <project> with the login shell environment and HARNESS_HOME', async () => {
     const scripts = join(root, 'harness-bin')
     mkdirSync(scripts)
-    writeFileSync(join(scripts, 'qmd-collections'), `#!/bin/sh\nprintf 'args=%s mark=%s hh=%s\\n' "$*" "$LOGIN_MARK" "$HARNESS_HOME"\nexit 0\n`)
-    chmodSync(join(scripts, 'qmd-collections'), 0o755)
+    symlinkSync(join(STUBS, 'qmd-collections'), join(scripts, 'qmd-collections'))
     const result = await setupCollections({ ...options(), binDir: scripts, project: 'worfy' })
     expect(result).toEqual({ code: 0, output: `args=worfy mark=login-shell hh=${harnessHome}\n` })
   })

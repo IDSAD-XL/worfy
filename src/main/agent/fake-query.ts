@@ -35,9 +35,14 @@
 //                                    An answer's `updatedPermissions` are applied as Claude Code would:
 //                                    localSettings / projectSettings write <cwd>/.claude/settings.local.json
 //                                    / settings.json, userSettings writes <settingsHome>/settings.json
-//                                    (FakeQueryOptions; not applied without it)
+//                                    (FakeQueryOptions; not applied without it).
+//                                    "decisionReason" and "agentID" go to canUseTool as Claude Code
+//                                    gives them: why it asks, which Subagent asks. With
+//                                    "bypassImmune":true it asks in bypassPermissions too, as Claude
+//                                    Code does for a few of its own checks (dangerousRemoval)
 // In SDK messages, "{{session}}" becomes the SDK session id (the id passed as `resume`, else the one
-// passed as `sessionId`, else a new uuid) and "{{cwd}}" the Session's cwd. After the last line the
+// passed as `sessionId`, else a new uuid), "{{cwd}}" the Session's cwd and "{{home}}" the user's
+// home folder (os.homedir()). After the last line the
 // script starts over, so one script serves any number of turns; it ends when the Session closes its
 // input.
 //
@@ -64,16 +69,18 @@
 // counting ambient ones — is recorded with their ids: Claude Code would kill them (ticket 29).
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SessionSettings } from '../../shared/agent/settings'
 import type { CommandInfoLike } from './commands'
-import type { PermissionAnswer } from './permissions'
+import type { PermissionAnswer, PermissionRequestOptions } from './permissions'
 import type { AccountInfoLike, ModelInfoLike, QueryFactory, QueryHandle, QueryRequest } from './session'
 import { removeFile } from '../storage/remove'
 
 /** What the fake agent was asked to do, in the order it happened. */
 export type FakeCall =
-  | { kind: 'start'; resume: string | null; settings: SessionSettings }
+  /** `orchestrator`: present, and true, only for the Session of a Project's Orchestrator (QueryRequest.orchestrator). */
+  | { kind: 'start'; resume: string | null; settings: SessionSettings; orchestrator?: true }
   /** `text`: the message's text blocks; `content`: the message content as sent, image blocks included. */
   | { kind: 'message'; text: string; content: unknown }
   | { kind: 'setModel'; model: string | null }
@@ -126,6 +133,11 @@ type Step =
       keepSignal: boolean
       /** Claude Code dies with this error while the request is open. */
       crash: string | null
+      /** Asked in bypassPermissions too. */
+      bypassImmune: boolean
+      /** canUseTool's decisionReason and agentID; null: not given. */
+      decisionReason: string | null
+      agentID: string | null
     }
 
 type Line = Step | { kind: 'config'; config: FakeConfig }
@@ -147,6 +159,9 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
     suggestions: Array.isArray(value.suggestions) ? (value.suggestions as unknown[]) : [],
     keepSignal: value.keepSignal === true,
     crash: typeof value.crash === 'string' ? value.crash : null,
+    bypassImmune: value.bypassImmune === true,
+    decisionReason: typeof value.decisionReason === 'string' ? value.decisionReason : null,
+    agentID: typeof value.agentID === 'string' ? value.agentID : null,
   }),
   account: (value) => ({ kind: 'config', config: { account: typeof value.error === 'string' ? { error: value.error } : { info: value.info as AccountInfoLike } } }),
   models: (value) => ({ kind: 'config', config: { models: value.models as ModelInfoLike[] } }),
@@ -158,7 +173,12 @@ function parseScript(path: string, session: string, cwd: string): Line[] {
     .split('\n')
     .filter((line) => line.trim() !== '')
     .map((text, index): Line => {
-      const value = JSON.parse(text.replaceAll('{{session}}', session).replaceAll('{{cwd}}', JSON.stringify(cwd).slice(1, -1))) as Record<string, unknown>
+      const value = JSON.parse(
+        text
+          .replaceAll('{{session}}', session)
+          .replaceAll('{{cwd}}', JSON.stringify(cwd).slice(1, -1))
+          .replaceAll('{{home}}', JSON.stringify(homedir()).slice(1, -1)),
+      ) as Record<string, unknown>
       if (value.fake === undefined) return { kind: 'message', message: value }
       const directive = typeof value.fake === 'string' && Object.hasOwn(DIRECTIVES, value.fake) ? DIRECTIVES[value.fake] : undefined
       if (directive === undefined) throw new Error(`${path}:${index + 1}: unknown directive ${JSON.stringify(value.fake)}`)
@@ -307,7 +327,7 @@ class FakeQuery implements QueryHandle {
     this.commands = config.commands ?? initCommands(this.steps)
     this.model = request.settings.model
     this.permissionMode = request.settings.permissionMode
-    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings } })
+    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings }, ...(request.orchestrator === true ? { orchestrator: true as const } : {}) })
   }
 
   accountInfo(): Promise<AccountInfoLike> {
@@ -388,14 +408,25 @@ class FakeQuery implements QueryHandle {
     return { ...message, ...(this.model !== null ? { model: this.model } : {}), permissionMode: this.permissionMode }
   }
 
-  /** A tool call of a `permission` line: what canUseTool answered, or null in bypassPermissions, where nothing is asked. */
+  /**
+   * A tool call of a `permission` line: what canUseTool answered, or null in bypassPermissions,
+   * where nothing is asked unless the line is `bypassImmune`.
+   */
   private async ask(line: Extract<Step, { kind: 'permission' }>): Promise<PermissionAnswer | null> {
-    if (this.permissionMode === 'bypassPermissions') return null
+    if (this.permissionMode === 'bypassPermissions' && !line.bypassImmune) return null
     const controller = new AbortController()
     if (!line.keepSignal && line.crash === null) this.requests.add(controller)
     const description = typeof line.input.description === 'string' ? line.input.description : undefined
+    const options: PermissionRequestOptions = {
+      signal: controller.signal,
+      suggestions: line.suggestions,
+      toolUseID: line.toolUseId,
+      description,
+      ...(line.decisionReason === null ? {} : { decisionReason: line.decisionReason }),
+      ...(line.agentID === null ? {} : { agentID: line.agentID }),
+    }
     const answer = this.request
-      .canUseTool(line.toolName, { ...line.input }, { signal: controller.signal, suggestions: line.suggestions, toolUseID: line.toolUseId, description })
+      .canUseTool(line.toolName, { ...line.input }, options)
       .then((result) => {
         this.record({ kind: 'permission', toolName: line.toolName, input: { ...line.input }, result: { ...result } })
         this.applyUpdates(result)

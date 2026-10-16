@@ -1,7 +1,7 @@
 # 23 — Заполненность контекста Session: кружок с процентом окна контекста
 
 Type: task
-Status: claimed — 2026-10-15
+Status: done — 2026-10-15, [PR #370](https://github.com/IDSAD-XL/worfy/pull/370)
 Branch: worfy-polish/23
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Заполненность контекста текущей Session —
@@ -64,8 +64,8 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
 - [ ] (вручную) Stable copy, живой Orchestrator: процент совпадает с `/context` той же Session (до
       1 п.п.); значение и снимок — в «Итог». Не проверено: шаг владельца.
 - [x] Снимки в светлой и тёмной теме — ссылки в «Итог».
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
-      `[gate] зелено (full)`; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+      `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
 
@@ -117,7 +117,7 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
   показывает 100 %, а `/context` — 84 %. Без порога или с выключенным autocompact кружок показывает
   `percentage` из SDK. Сверку с `/context` в «Готово, когда» поэтому надо читать как
   `/context`-токены, делённые на порог.
-- **Место — решено без владельца, подтвердить:** кружок стоит перед выбором модели (`order = 5`).
+- **Место — решено без владельца, подтверждено владельцем 2026-10-16:** кружок стоит перед выбором модели (`order = 5`).
   В широкой панели он сразу слева от «Model». В окне 1280×800 с открытыми sidebar и rail панель
   переносит выбор модели, effort и режима разрешений на вторую строку вместе с Send, а кружок
   остаётся справа на строке подсказки. Так он не отнимает ширину у выбора модели: «Bypass
@@ -127,7 +127,7 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
   место во всех состояниях кружка («нет данных», 10/75/95 %, «нет данных» после ошибки).
   Цена: в узком окне кружок не на одной строке с выбором модели. Есть промежуток ширин, где без
   кружка вся панель влезла бы в одну строку, а с ним выбор модели уходит на вторую.
-- **Цвет — решено без владельца, подтвердить:** пороги полос Limits (60 % и 85 %, токены
+- **Цвет — решено без владельца, подтверждено владельцем 2026-10-16:** пороги полос Limits (60 % и 85 %, токены
   `--text-secondary`, `--working-dot`, `--blocked-ring`) на доле от порога autocompact.
 - **Чего нет:** у Session view, открытого после события, значение берётся из store renderer-а;
   `agent.controls` его не отдаёт. После перезагрузки окна кружок пуст до следующего хода.
@@ -143,3 +143,20 @@ fake SDK (`src/main/agent/fake-query.ts`) — тоже.
   75 % — [светлая](../evidence/23-context-meter-75-light.png), [тёмная](../evidence/23-context-meter-75-dark.png);
   95 % — [светлая](../evidence/23-context-meter-95-light.png), [тёмная](../evidence/23-context-meter-95-dark.png).
 - Сверка процента с `/context` на Stable copy — шаг владельца, не сделана.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave 3 Epic-а под Autopilot: Ticket-ы 14, 16, 17, 18, 19, 21, 23, 25 параллельно, затем 20 и 15 (их «Готово, когда» требует прогонов под нагрузкой). Один verifier на круг, глубина около low; UI-Ticket-ы — снимки в обеих темах. Worktree — `.claude/worktrees/pol-<NN>`.
+- Круг 1: `REJECTED` на `be98bb9` ([комментарий в PR #370](https://github.com/IDSAD-XL/worfy/pull/370#issuecomment-6198666380)) — [med] кружок показывал долю окна autocompact (`usage.percentage`), а не порога autocompact (`ContextMeter.tsx:64-65`); владелец решил: 100 % — «сейчас компакт».
+- Круг 2: `VERIFIED` на `b26ae7f` ([комментарий в PR #370](https://github.com/IDSAD-XL/worfy/pull/370#issuecomment-6200274345)) — `totalTokens / autoCompactThreshold` с потолком 100 %; пять мутантов убиты; `pnpm test` — 0 (5385 passed); снимки в обеих темах.
+- Gate full перед merge на `5d387d05` красный: e2e `session-controls.spec.ts:327` — кружок в строке выбора модели обрезал «Bypass permissions» → `REJECTED` ([комментарий в PR #370](https://github.com/IDSAD-XL/worfy/pull/370#issuecomment-6200568495)). Круг 3: `VERIFIED` на `b09fe9c9` ([комментарий в PR #370](https://github.com/IDSAD-XL/worfy/pull/370#issuecomment-6201012942)) — `order = 5`, `session-controls` и `context-meter` под замком — 4/4.
+- Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `4d1ff70`.
+- Act on: [med] круга 1 и gate full исправлены.
+- Consider: [low] «no data» шире числа и сдвигает панель (`ContextMeter.tsx:98`); [low] место кружка в узкой колонке не проверено e2e.
+- Noted: вне diff — «Model» обрезается и в широкой колонке (`Pickers.tsx`). Dismissed — нет.
+- [low] debt: на ширинах 1400 и 1500–1560 px с sidebar и 1160 px без него кружок попадает в строку выбора модели и обрезает режим (полное значение — в title); комментарии «never takes width» (`ContextMeter.tsx:19-22`, `context-meter.spec.ts:16-19`) неточны; панель на части ширин выше на строку (71 px против 41 px при 1460–1520 px); строка комментария `ContextMeter.tsx:8` — около 170 символов.
+- **Решено без владельца, подтверждено владельцем 2026-10-16**: пункт «совпадает с `/context` до 1 п.п.» читается как токены `/context`, делённые на порог autocompact (100 % = сейчас компакт). Ручная сверка на Stable copy — шаг владельца, не сделана.
+
+Решение владельца 2026-10-16: принято. Context meter — токены, делённые на порог
+autocompact (100 % — «сейчас будет compaction»); сверка с `/context` читается так же. Место — перед
+выбором модели (`order = 5`). Цвет — пороги Limits 60 % и 85 %.

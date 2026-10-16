@@ -527,3 +527,78 @@ describe('a send while Resume is on its way', () => {
     expect(called('agent.send')).toEqual([])
   })
 })
+
+describe('on the screen of a Linked machine that shares its Projects read-only (worfy-link ticket 25)', () => {
+  const MINI = '22222222-2222-4222-8222-222222222222'
+  const HINT = 'Mini gives this Machine read-only access'
+  let readOnly: boolean
+
+  // The window shows Mini: its `project` channels go through this Machine's main as `linked.invoke`
+  // and answer as above; main says Mini's level in `linked.state`.
+  beforeEach(() => {
+    readOnly = true
+    window.history.replaceState(null, '', `/?machine=${MINI}&project=${PROJECT.id}`)
+    const inner = (globalThis as unknown as { worfy: WorfyBridge }).worfy
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = {
+      ...inner,
+      invoke: (channel, input) => {
+        if (channel === 'linked.invoke') {
+          const call = input as { channel: string; input: unknown }
+          return inner.invoke(call.channel, call.input).then((value) => ({ ok: true, value }))
+        }
+        if (channel === 'linked.state') return Promise.resolve({ ok: true, value: { revision: 1, machines: [{ id: MINI, online: true, sharing: 'yes', readOnly, epoch: 1 }] } })
+        if (channel === 'link.state') return Promise.resolve({ ok: true, value: { revision: 1, machine: null, linked: [{ id: MINI, name: 'Mini', state: 'online', certificateChanged: false, access: 'all' }] } })
+        if (channel === 'linked.open') return Promise.resolve({ ok: true, value: { projectId: PROJECT.id } })
+        return inner.invoke(channel, input)
+      },
+    }
+  })
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('a running Session: Close, Hide and Remove are inactive and say why; the field takes no message and no file', async () => {
+    const node = await mountRunning()
+    const close = screen.getByTestId('session-node-close')
+    await vi.waitFor(() => expect(close.getAttribute('title')).toBe(HINT))
+    for (const button of [close, screen.getByRole('button', { name: 'Hide' }), screen.getByTestId('session-node-remove')]) {
+      expect(button.getAttribute('aria-disabled')).toBe('true')
+      expect(button.getAttribute('title')).toBe(HINT)
+      fireEvent.click(button)
+    }
+    const field = screen.getByTestId('session-node-input') as HTMLInputElement
+    expect(field.readOnly).toBe(true)
+    expect(field.placeholder).toBe(HINT)
+    expect(screen.getByTestId('session-node-send').getAttribute('aria-disabled')).toBe('true')
+    await act(async () => {
+      fireEvent.submit(field.closest('form')!)
+    })
+    await drop(node, [text()])
+    expect(screen.getByTestId('session-node-error').textContent).toBe(HINT)
+    expect(calls.filter((call) => ['sessions.close', 'agent.send', 'agent.attach', 'sessions.start', 'layout.apply'].includes(call.channel))).toEqual([])
+  })
+
+  it('a finished Session: Resume is inactive and starts nothing', async () => {
+    views = []
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    const resume = screen.getByTestId('session-node-resume')
+    await vi.waitFor(() => expect(resume.getAttribute('title')).toBe(HINT))
+    expect(resume.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(resume)
+    expect(called('sessions.start')).toEqual([])
+  })
+
+  it('with Full access the running Session sends a message as before', async () => {
+    readOnly = false
+    await mountRunning()
+    const field = screen.getByTestId('session-node-input') as HTMLInputElement
+    await vi.waitFor(() => expect(screen.getByTestId('session-node-close').getAttribute('title')).toBe('Close the Session; the Node stays'))
+    expect(field.readOnly).toBe(false)
+    fireEvent.change(field, { target: { value: 'hello' } })
+    await act(async () => {
+      fireEvent.submit(field.closest('form')!)
+    })
+    await vi.waitFor(() => expect(called('agent.send')).toHaveLength(1))
+  })
+})

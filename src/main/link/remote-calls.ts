@@ -21,23 +21,31 @@
 // gone, and a window that shows the Machine loads again.
 //
 // Sharing. Whether a Linked machine lets this one work with its Projects is its switch "Linked
-// machines can work with my Projects", which only it knows. It says so in the service message
-// `projects-access` when a connection opens and whenever the switch changes; a call refused with
-// "access is off" says it too. Sharing coming back on changes the epoch as well: the Linked machine
-// made a new client for this one (worfy-link ticket 08), and the old subscriptions are gone.
+// machines can work with my Projects" and the level it set for this Machine (worfy-link ticket 18):
+// off, read-only or all, which only it knows. It says so in the service message `projects-access`
+// when a connection opens and whenever its settings change; a call refused with "access is off"
+// says it is off too (a Linked machine of an older build sends no level). The level comes from the
+// message only, never from the text of a refusal. Sharing coming back on, and a change between
+// read-only and all, change the epoch as well: the Linked machine made a new client for this one
+// (worfy-link ticket 08), and the old subscriptions are gone.
 //
 // Logs: no token, address or certificate of a Machine goes anywhere from here; the renderer gets
 // Machine ids alone (src/shared/ipc/linked.ts).
 import { EventEmitter } from 'node:events'
 import { z } from 'zod'
 import { accessOf, definitionOf, type IpcResult } from '../../shared/ipc/channels'
+import { accessLevelSchema, type AccessLevel } from '../../shared/ipc/link'
 import type { LinkedMachineInfo } from '../../shared/ipc/linked'
 import type { LinkConnection } from './connection'
 import { defineLinkMessage } from './messages'
 import { appLinkService, type LinkService } from './service'
 
-/** A Linked machine tells this one whether it shares its Projects (see the top of this file). */
-export const projectsAccessMessage = defineLinkMessage('projects-access', z.object({ on: z.boolean() }))
+/**
+ * A Linked machine tells this one whether it shares its Projects (see the top of this file): `on`
+ * for a build before worfy-link ticket 18, and `level` since; a build that knows only `on` ignores
+ * `level`, and one that gets no `level` reads `on` as all.
+ */
+export const projectsAccessMessage = defineLinkMessage('projects-access', z.object({ on: z.boolean(), level: accessLevelSchema.optional() }))
 
 /** Whether `channel` is called on the Machine of a Project: a `project` or `desktop` channel. */
 export function callsOnProjectMachine(channel: string): boolean {
@@ -65,6 +73,8 @@ export interface RemoteEvent {
 interface Tracked {
   connection: LinkConnection | undefined
   sharing: LinkedMachineInfo['sharing']
+  /** The level the Linked machine last said; null until it said one. */
+  level: AccessLevel | null
   epoch: number
 }
 
@@ -89,7 +99,7 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
   ) {
     super()
     this.warn = options.warn ?? ((message) => console.warn(message))
-    service.registerMessage(projectsAccessMessage, ({ on }, { machineId }) => this.setSharing(machineId, on ? 'yes' : 'no'))
+    service.registerMessage(projectsAccessMessage, ({ on, level }, { machineId }) => this.setLevel(machineId, level ?? (on ? 'all' : 'off')))
     service.on('connected', ({ id }) => {
       this.follow(id)
       this.tellAccess(id)
@@ -126,7 +136,13 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
   machines(): LinkedMachineInfo[] {
     return this.service.linkedMachines().map((machine) => {
       const tracked = this.track(machine.id)
-      return { id: machine.id, online: this.current(machine.id) !== undefined, sharing: tracked.sharing, epoch: tracked.epoch }
+      return {
+        id: machine.id,
+        online: this.current(machine.id) !== undefined,
+        sharing: tracked.sharing,
+        readOnly: tracked.sharing === 'yes' && tracked.level === 'read',
+        epoch: tracked.epoch,
+      }
     })
   }
 
@@ -165,7 +181,7 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
   private track(id: string): Tracked {
     let tracked = this.tracked.get(id)
     if (tracked === undefined) {
-      tracked = { connection: undefined, sharing: 'unknown', epoch: 0 }
+      tracked = { connection: undefined, sharing: 'unknown', level: null, epoch: 0 }
       this.tracked.set(id, tracked)
     }
     return tracked
@@ -200,13 +216,31 @@ export class RemoteCalls extends EventEmitter<RemoteCallsEvents> {
     // Back on after off: the Linked machine made a new client for this one; start afresh.
     if (tracked.sharing === 'no' && sharing === 'yes') tracked.epoch = ++this.epochs
     tracked.sharing = sharing
+    if (sharing === 'no') tracked.level = 'off'
     this.emit('changed')
   }
 
-  /** Tells Linked machine `id` whether this Machine shares its Projects. */
+  /** The level Linked machine `id` said it gives this one. */
+  private setLevel(id: string, level: AccessLevel): void {
+    if (!this.service.isLinked(id)) return
+    const tracked = this.track(id)
+    const before = tracked.level
+    if (before === level) return
+    tracked.level = level
+    // Read-only to all or back: the Linked machine made a new client for this one; start afresh.
+    // From off, setSharing below starts afresh itself.
+    if ((before === 'read' && level === 'all') || (before === 'all' && level === 'read')) tracked.epoch = ++this.epochs
+    if (level === 'off') this.setSharing(id, 'no')
+    else if (tracked.sharing !== 'yes') this.setSharing(id, 'yes')
+    // setSharing announces only when sharing itself changed.
+    else this.emit('changed')
+  }
+
+  /** Tells Linked machine `id` whether, and how far, this Machine shares its Projects with it. */
   private tellAccess(id: string): void {
+    const level = this.service.settings.levelOf(id)
     try {
-      this.service.sendMessage(id, projectsAccessMessage, { on: this.service.settings.get().projectsAccess })
+      this.service.sendMessage(id, projectsAccessMessage, { on: level !== 'off', level })
     } catch (error) {
       // Closed meanwhile: it hears it on the next connection.
       this.warn(`[link] could not tell Machine ${id} whether this one shares its Projects: ${error instanceof Error ? error.message : String(error)}`)

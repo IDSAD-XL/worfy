@@ -13,6 +13,7 @@ import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { electronNotifyDeps, installNotifications } from './notify'
+import { quietWindows } from './quiet-windows'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
@@ -73,12 +74,19 @@ function start(): void {
   // True once the startup below has created the first window.
   let started = false
 
-  // The second process quits; the running one comes to the front instead.
+  // WORFY_QUIET_WINDOWS=1, e2e tests only (quiet-windows.ts): worfy never comes to the front, has no
+  // Dock icon, and Chromium keeps painting its transparent window. Switches count only before ready,
+  // and the activation policy is set before anything can show the Dock icon.
+  const quiet = quietWindows()
+  for (const name of quiet.chromiumSwitches) app.commandLine.appendSwitch(name)
+  if (quiet.activationPolicy !== null) app.setActivationPolicy(quiet.activationPolicy)
+
+  // The second process quits; the running one comes to the front instead (not in quiet mode).
   app.on('second-instance', () => {
     const [window] = BrowserWindow.getAllWindows()
     if (window !== undefined) {
       if (window.isMinimized()) window.restore()
-      window.focus()
+      if (quiet.takesFocus) window.focus()
       return
     }
     // No window yet means startup is still on its way to the first one; after it, a start with

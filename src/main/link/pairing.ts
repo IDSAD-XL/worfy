@@ -13,8 +13,8 @@
 // new one; a code also expires (PAIRING_CODE_TTL_MS) and only one attempt runs at a time.
 //
 // The group arithmetic is @noble/curves (P-256, audited); the transcript, key schedule and
-// confirmation follow RFC 9382 sections 3.3 and 4 and are checked against its Appendix B test
-// vectors (test/contract/link-pairing.test.ts). Per RFC 9382 section 3.2 the protocol defines w:
+// confirmation follow RFC 9382 sections 3.3 and 4 and are checked against all four test vectors of
+// its Appendix B (test/contract/link-pairing.test.ts). Per RFC 9382 section 3.2 the protocol defines w:
 // scrypt (a memory-hard function) of the code, 64 bits longer than the group order, reduced mod p.
 import { createHash, createHmac, hkdfSync, randomBytes, randomInt, scrypt as scryptCallback, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
@@ -91,16 +91,35 @@ export interface Spake2FinishInput {
   aad: Uint8Array
 }
 
+const INVALID_SHARE = 'pairing: the other share is invalid'
+
+/**
+ * The other side's share as a point of the group. RFC 9382 section 6 encodes P-256 shares as
+ * uncompressed SEC1 points (65 bytes, 0x04 first); fromBytes alone would also take a compressed
+ * point, an encoding the protocol does not define. fromBytes rejects a point off the curve and a
+ * coordinate outside the field; the identity has no uncompressed encoding. Every refusal is the
+ * same error.
+ */
+function peerPoint(share: Uint8Array): CurvePoint {
+  if (share.length !== 65 || share[0] !== 0x04) throw new Error(INVALID_SHARE)
+  try {
+    const point = Point.fromBytes(share)
+    point.assertValidity()
+    return point
+  } catch {
+    throw new Error(INVALID_SHARE)
+  }
+}
+
 /** RFC 9382 sections 3.3 and 4: K, the transcript TT, Ke || Ka = Hash(TT), KcA || KcB, the confirmations. */
 export function spake2Finish({ role, w, secret, ownShare, peerShare, idA, idB, aad }: Spake2FinishInput): Spake2Result {
-  // fromBytes rejects a point that is not on the curve; the identity has no encoding at all.
-  const peer: CurvePoint = Point.fromBytes(peerShare)
-  peer.assertValidity()
+  const peer = peerPoint(peerShare)
   const unblind = role === 'A' ? SPAKE2_N : SPAKE2_M
   const shared = peer.subtract(unblind.multiply(w))
-  if (shared.is0()) throw new Error('pairing: the other share is invalid')
+  if (shared.is0()) throw new Error(INVALID_SHARE)
   const k = shared.multiply(secret)
-  if (k.is0()) throw new Error('pairing: the other share is invalid')
+  // A second guard: unreachable while shared is not the identity and secret is in [1, p).
+  if (k.is0()) throw new Error('pairing: the shared point K is the identity')
   const [pA, pB] = role === 'A' ? [ownShare, peerShare] : [peerShare, ownShare]
   const transcript = Buffer.concat([field(idA), field(idB), field(pA), field(pB), field(k.toBytes(false)), field(bytes32(w))])
   const digest = createHash('sha256').update(transcript).digest()
@@ -234,13 +253,17 @@ const base64 = z.string().regex(/^[A-Za-z0-9+/_=-]+$/).max(400)
 const helloSchema = helloMessage.schema
 export type Hello = z.output<typeof helloSchema>
 
+// Each side introduces itself (name, build, port, id) only after the other's confirmation held, so
+// a side without the code learns nothing about the other: A in pake3, after cB; B in pake4, after
+// cA. Each checks who the other claims to be (PairingSide.accept) before anything is stored. B
+// stores the link only once A accepted B (pake5), and A only once B stored it (pake6): A dials B
+// right after linking, and a token B has not stored yet would make A forget B.
 const pake1 = z.object({ t: z.literal('pake1'), pA: base64 })
-// B introduces itself with its share, A with its confirmation: each side checks who the other
-// claims to be (PairingSide.accept) only after the other's confirmation held, and before it hands
-// over a token or stores anything.
-const pake2 = z.object({ t: z.literal('pake2'), pB: base64, cB: base64, machine: helloSchema })
+const pake2 = z.object({ t: z.literal('pake2'), pB: base64, cB: base64 })
 const pake3 = z.object({ t: z.literal('pake3'), cA: base64, machine: helloSchema, token: base64 })
-const pake4 = z.object({ t: z.literal('pake4'), token: base64 })
+const pake4 = z.object({ t: z.literal('pake4'), machine: helloSchema, token: base64 })
+const pake5 = z.object({ t: z.literal('pake5') })
+const pake6 = z.object({ t: z.literal('pake6') })
 
 /** Close code of a pairing that failed; the reason is PAIRING_FAILED or a timeout. */
 export const PAIRING_CLOSE_FAILED = 4001
@@ -327,7 +350,8 @@ export interface PairingSide {
   serverFingerprint: string
   /**
    * Whether the other Machine, as it introduced itself, may be linked; throws a PairingError when
-   * not. Called once the other's key confirmation held, before any token goes out or is stored.
+   * not. Called once the other's key confirmation held and the other introduced itself, before
+   * anything is stored.
    */
   accept: (peer: Hello) => void
   /** Stores the link; called only after both confirmations held. Throwing aborts the pairing. */
@@ -370,13 +394,16 @@ export async function initiatePairing(ws: WebSocket, code: string, side: Pairing
     fail(ws)
   }
   if (!sameBytes(keys.confirmB, Buffer.from(second.cB, 'base64'))) fail(ws)
-  checkPeer(ws, side, second.machine)
 
-  // B knows the code and saw the same two certificates: the channel is B's, the token may go.
+  // B knows the code and saw the same two certificates: the channel is B's, the token may go. It
+  // opens nothing until A stores its hash (commit).
   const incomingToken = newToken()
   sendFrame(ws, { t: 'pake3', cA: keys.confirmA.toString('base64'), machine: side.local, token: incomingToken })
-  const last = await nextFrame(ws, pake4, timeout)
-  const result: PairingResult = { peer: second.machine, outgoingToken: last.token, incomingToken }
+  const fourth = await nextFrame(ws, pake4, timeout)
+  checkPeer(ws, side, fourth.machine)
+  sendFrame(ws, { t: 'pake5' })
+  await nextFrame(ws, pake6, timeout)
+  const result: PairingResult = { peer: fourth.machine, outgoingToken: fourth.token, incomingToken }
   side.commit(result)
   ws.close(1000, 'linked')
   return result
@@ -409,12 +436,15 @@ export async function respondToPairing(ws: WebSocket, takeCode: () => string | n
   } catch {
     fail(ws)
   }
-  sendFrame(ws, { t: 'pake2', pB: Buffer.from(pB).toString('base64'), cB: keys.confirmB.toString('base64'), machine: side.local })
+  sendFrame(ws, { t: 'pake2', pB: Buffer.from(pB).toString('base64'), cB: keys.confirmB.toString('base64') })
 
   const third = await nextFrame(ws, pake3, timeout)
   if (!sameBytes(keys.confirmA, Buffer.from(third.cA, 'base64'))) fail(ws)
   checkPeer(ws, side, third.machine)
+  // A knows the code: B introduces itself now. Its token opens nothing until B stores its hash.
   const incomingToken = newToken()
+  sendFrame(ws, { t: 'pake4', machine: side.local, token: incomingToken })
+  await nextFrame(ws, pake5, timeout)
   const result: PairingResult = { peer: third.machine, outgoingToken: third.token, incomingToken }
   try {
     side.commit(result)
@@ -422,6 +452,6 @@ export async function respondToPairing(ws: WebSocket, takeCode: () => string | n
     ws.close(PAIRING_CLOSE_FAILED, 'pairing failed')
     throw error
   }
-  sendFrame(ws, { t: 'pake4', token: incomingToken })
+  sendFrame(ws, { t: 'pake6' })
   return result
 }

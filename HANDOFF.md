@@ -1,38 +1,37 @@
-# Передача контекста — снимок на 2026-10-15 (UTC), main @ cf2eb22
+# Передача контекста — снимок на 2026-10-16 (UTC), main @ af4bf07
 
 ## Сейчас в работе
 
 - `worfy-harness` (E3: Harness владельца — plugin worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–26, 30, 32, 35, 37, `epic-status` — 30/48; 26 (приёмка E3) закрыт 2026-10-15, версия `0.3.0` (PR #323); 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36, 38–48.
-- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 18 из 20; 20 (relaunch ждёт выхода процесса) — PR #345 `VERIFIED` по Mac, ждёт Windows-ПК. 14 (перетаскивание без фризов) отложен владельцем; работа — в локальной ветке `wip/worfy-week-14`.
+- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 19 из 20 (20 — PR #345; долг `src/main/agent/session.ts` 1077 строк — `worfy-polish` 27). 14 (перетаскивание без фризов) отложен владельцем; работа — в локальной ветке `wip/worfy-week-14`.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
-- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)) начат, пока E3 ждёт: влиты 01–15, `epic-status` — 15/19; 11 — «Add project» на Linked machine (PR #196), вход в gh — только `local`. Осталась приёмка 16; 17 и 18 — до связи с чужой машиной.
+- `worfy-link` (Project одной Machine ведётся с другой по локальной сети; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–21, 25, `epic-status` — 21/26. Осталась приёмка 16; 22–24 — до связи с чужой машиной; 26 — после merge #328.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298), `epic-status` — 22/50; 46 закрыт — `gate.sh` остаётся (решение владельца 2026-10-14); на ПК — 14. Владелец, 2026-10-13: 03–07 не ждут закрытия E3; очередь ПК — в «Дальше».
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 (приёмка) — владелец.
-- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
-- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 7/8: влиты 01–03, 05–08; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; вопросы владельцу — «Итог» 07, 08.
-- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01, 04 (PR #342, #341); 02, 03 — отчёты (PR #339, #340). Решения — «Итог» 01, 04.
-- `worfy-polish` (мелкие исправления, стабильность test-ов, три фичи; [spec](.scratch/worfy-polish/spec.md)): 12/26 — влиты 01–11, 12 — отчёт (PR #338); 13 — PR #360 `VERIFIED` по Mac, ждёт Windows-ПК; 14–26 open (spec, Wave 3–5).
+- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 — приёмка 2026-10-17; открыты 11 (security: программа в Terminal-е пишет в соединение shell-а), 12 (flaky e2e `transcript-date`) и 13 (панель ⌘I шлёт строку shell-а, первая строка Terminal-а видна).
+- `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; открыт 15 (подписи Model и Permissions в composer-е скрываются, когда значение не помещается); 12 — приёмка.
+- `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
+- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–04 (02, 03 — отчёты, решения владельца — «Итог»). Открыты 05 (compatibility suite SDK), 06–09 (процесс 03 «сбой → инцидент → test»: уроки, `check-lessons`, skill `retro`).
+- `worfy-polish`: 26/31 — 01–26 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — PR #365 после `pnpm test` на Windows-ПК без новых падений); открыты 27 (разбить `session.ts`), 28 (заголовки Command palette), 29 (`autoCompactWindow`), 30 (flaky contract test-ы), 31 (иконка Electron у уведомлений).
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): влиты 01–03 (`wave-gate`, ADR-0065; вердикт Windows для 01, 02 — новых падений нет); 06 — stub-ы для Windows, 07 — дерево `wave-gate`; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 01–08 open, Autopilot после `worfy-link`.
 
 ## Ждёт владельца
 
+- `wave-gate` на Mac краснит typecheck в своём дереве: до `worfy-throughput` 07 — merge-once.
 - Приёмка E3 («Итог» `worfy-harness` 26) закрыта 2026-10-15: пункты 1–5 приняты, версия `0.3.0`. Ошибка в окне без `gate/config.json` принята.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
-- Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Время обращения обновлено, хватит до 2026-10-16; исправление — `worfy-harness` 36.
-- `worfy-link` 02: вручную — dev-сборка и Stable copy находят друг друга по Bonjour и связываются по коду; появился ли запрос Local Network и на каком шаге — [Ticket 02](.scratch/worfy-link/issues/02-link-a-machine-код-список-и-отзыв.md), «Итог».
-- Мусор на машине: удалить ли 13 папок транскриптов spike-а `~/.claude/projects/*worfy-harness-probe*` (`worfy-harness` 01) `~/.claude/worfy-harness/worktree-sessions/` (`worfy-harness` 11).
-- Мусор от проб `worfy-harness` 22: `~/.claude/projects/-private-tmp-worfy-harness-w10-impl-22-{probe-t0,p7-repo}/` и пустые `~/.claude/session-env/*` — удалить ли.
-- Реестр Gate и Profile worfy вне репозитория: в `root_if` записи `worfy` дописать `|^harness/|(^|/)HANDOFF\.md$` («Итог» `worfy-harness` 02); в `rules.md` убрать «скрипта проверки … пока нет».
-- Проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
+- Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Исправление — `worfy-harness` 36.
+- Приёмка `worfy-link` 16 (с Bonjour и запросом Local Network из 02) — после run Autopilot на 21–24; до связи вне LAN — ревьюер-человек SPAKE2 (решения владельца 2026-10-16 — в 16–20).
+- `worfy-link` 21, 25 — решено без владельца, подтвердить («Итог»): протокол связи 2 — сборки 1 и 2 не соединятся (21); ответы на вопросы 1–2 (25).
+- Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows` 12 (влит, PR #237): SmartScreen у скачанного установщика не проверен — его диалог закрывает человек: [Ticket 12](.scratch/worfy-windows/issues/12-сборка-nsis-и-stable-copy-на-windows.md).
 - `worfy-windows` 35 (влит, PR #287): пробный том на ПК отключает владелец, шаги — в «Итог» Ticket-а; test на настоящих папках (Ticket 45, пункт 1) ждёт его слова в чате Windows Session.
-- `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
-- `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); решения и долги — «Итог» 03–06, 09, 10, 13; 11 — gate full на Windows-ПК и решения в PR #328.
-- `worfy-terminal-ai`: решения без владельца — «Итог» 03–08, 10 (e2e `session-view` у полуночи).
+- `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13; 11 — gate full на Windows-ПК и решения в PR #328.
 
 ## Риски и долги
 
-- Gate full красный 2026-10-12 23:04 – 10-13 01:02 — `fseventsd` (102–116 % CPU, 4,2 ГБ, 32 дня); лечит `sudo killall fseventsd` (kickstart запрещён SIP) и перезапуск приложений с наблюдателями; признак — `docs.test.ts`, `claude-home-registry.test.ts` красные и на main; замеры — `worfy-windows` 26.
+- Test-ы с наблюдателем файлов (`docs.test.ts`, `claude-home-registry.test.ts`) красные и на main — перегружен `fseventsd`; лечит владелец: `sudo killall fseventsd` (замеры — `worfy-windows` 26).
 - Удаление вне Windows больше не стирает том, примонтированный в папку Card-а: отказ с `EXDEV` (PR #293). Не видна точка монтирования с `dev` её папки (Ticket 47). На Windows junction по GUID закрыт PR #287; junction отключённого тома `purge` не удаляет (45, замер 6).
 - Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
 - Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
@@ -51,6 +50,7 @@
 
 - `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
 - `worfy-windows`, очередь ПК (владелец, 2026-10-13): проверки 03 на ПК → 14 (прогон test-ов на Windows) → 05 → 04 → 13 → 30 → 06, 07 → 15; затем остатки 29, 32, 33, 36, 42, 43, 45, 49, 50 и 31, 34, 37, 40, 41; 38, 39, 47, 48 — Mac.
+- `worfy-windows` 54 (шесть файлов `test/contract` ищут zsh через `/bin/sh` при загрузке модуля; на Windows падают с 0 test-ов) — после 53 (PR #387), тем же способом.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
 - Ждут условия (проверит агент): упор в Limits (`worfy-daily` 05), наблюдатель касаний (`worfy-daily` 04), workflow-скрипт в Autopilot (`worfy-daily` 29, 17), бейджи у Ticket-а с открытым PR (`worfy-mvp` 17, `worfy-week` 01).
@@ -64,11 +64,11 @@
 
 - `worfy-mvp` (первая версия, 33/33) закрыт — [spec](.scratch/worfy-mvp/spec.md); где что в коде и долги — «Итог» его Ticket-ов.
 - `worfy-daily` (E2, Autopilot, 32/32) закрыт — [spec](.scratch/worfy-daily/spec.md); условия 3 и 4 готовности E2 ещё не выполнены (`docs/roadmap.md`, E2).
-- `worfy-week` (18/20; 14 отложен, 20 ждёт Windows-ПК) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
+- `worfy-week` (19/20; 14 открыт 2026-10-16, после worfy-link) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
 - Spec-и: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-review](.scratch/worfy-review/spec.md), [worfy-terminal-ai](.scratch/worfy-terminal-ai/spec.md), [worfy-ui](.scratch/worfy-ui/spec.md).
 - Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
-- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0062, номера 0025–0028 не используются. Следующий свободный — 0063.
+- Решения — [docs/adr/](docs/adr/): 0001–0024 и 0029–0067, номера 0025–0028 не используются.
 - Уроки — [docs/lessons/](docs/lessons/): `process.md`, `agents.md`, `ci-merge.md`, `testing.md`. Словарь терминов — [CONTEXT.md](CONTEXT.md). Дизайн — [F-SPEC](docs/design/F-SPEC.md).
 - Реестр Gate живёт вне репозитория (`~/.claude/gate/config.json`, после переноса — `$HARNESS_HOME/gate/`); что в нём для worfy — «Итог» `worfy-mvp` 32.
 - Прошлые снимки — `git log -p -- HANDOFF.md`; последний подробный, до сжатия 2026-10-08, — `git show 84684b5:HANDOFF.md`.

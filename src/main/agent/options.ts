@@ -40,10 +40,22 @@
 // Session's canUseTool; and it asks the policy tier to ignore every allow rule outside it
 // (`allowManagedPermissionRulesOnly`), so the user's own allow rules do not either — that key is
 // documented for the policy tier, but no real Claude Code run has confirmed it is kept.
+//
+// The autocompact window (worfy-polish ticket 24): a window in tokens goes as the flag settings of
+// the query (`settings: { autoCompactWindow }`, the `--settings` flag of Claude Code). Claude Code
+// takes CLAUDE_CODE_AUTO_COMPACT_WINDOW of the environment over it, and it over the user's
+// settings.json; it compacts a little below the window, keeping room for the summary. With no
+// window ("Claude Code default") no flag settings go at all.
+//
+// A Session's Claude Code process (worfy-week ticket 20, ADR-0064): with `spawned` given, worfy
+// starts the process itself through the SDK's `spawnClaudeCodeProcess`, the way the SDK's own spawn
+// does (watchedSpawn), and hands the process to the Session, which can then wait for its exit.
+import { spawn, type ChildProcess } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
-import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource } from '@anthropic-ai/claude-agent-sdk'
+import { StringDecoder } from 'node:string_decoder'
+import type { McpServerConfig, McpStdioServerConfig, Options, OutputFormat, SettingSource, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS, type SessionSettings } from '../../shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import type { HarnessKind } from '../../shared/projects/action-templates'
@@ -93,6 +105,76 @@ export function bundledClaudeBinary(runtime: RuntimeInfo): string | undefined {
   }
 }
 
+/** How long the SDK's own spawn waits, after the process exited, for its stderr to close (SDK 0.3.289). */
+const STDERR_DRAIN_MS = 200
+
+/** The event the process answers the SDK's `exit` with: the exit, once stderr is read to its end. */
+const EXIT_AFTER_STDERR = 'worfy-exit-after-stderr-drained'
+
+/**
+ * Starts Claude Code exactly as the SDK's own spawn does (ProcessTransport.spawnLocalProcess, SDK
+ * 0.3.289): the command, arguments, folder, environment and abort signal the SDK hands over, three
+ * pipes, `windowsHide`; stderr decoded as UTF-8 into `stderr`; and the exit reported to the SDK only
+ * once stderr has closed, 200 ms after the exit at most, so an exit error carries the whole stderr
+ * tail. `spawned` gets the process itself, whose own `exit` comes at the real exit (ADR-0064).
+ */
+export function watchedSpawn(spawned: (child: ChildProcess) => void, stderr?: (data: string) => void): (options: SpawnOptions) => SpawnedProcess {
+  return ({ command, args, cwd, env, signal }) => {
+    const child = spawn(command, args, { cwd, stdio: ['pipe', 'pipe', 'pipe'], signal, env, windowsHide: true })
+    spawned(child)
+    const decoder = new StringDecoder('utf8')
+    let stderrClosed = false
+    let exited = false
+    let delivered = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (delivered) return
+      const text = decoder.write(chunk)
+      if (text !== '') stderr?.(text)
+    })
+    child.stderr.on('error', (error) => console.warn('[agent] reading Claude Code stderr failed', error))
+    const deliver = (): void => {
+      if (delivered) return
+      delivered = true
+      clearTimeout(timer)
+      child.emit(EXIT_AFTER_STDERR, child.exitCode, child.signalCode)
+      const stream = child.stderr as typeof child.stderr & { unref?: () => void }
+      if (typeof stream.unref === 'function') stream.unref()
+      else stream.destroy()
+    }
+    child.stderr.once('close', () => {
+      const rest = decoder.end()
+      if (rest !== '') stderr?.(rest)
+      stderrClosed = true
+      if (exited) deliver()
+    })
+    child.once('exit', () => {
+      exited = true
+      if (stderrClosed) deliver()
+      else timer = setTimeout(deliver, STDERR_DRAIN_MS)
+    })
+    const name = (event: string): string => (event === 'exit' ? EXIT_AFTER_STDERR : event)
+    type Listener = (...args: unknown[]) => void
+    return {
+      stdin: child.stdin,
+      stdout: child.stdout,
+      get killed() {
+        return child.killed
+      },
+      get exitCode() {
+        return child.exitCode
+      },
+      get signalCode() {
+        return child.signalCode
+      },
+      kill: (killSignal: NodeJS.Signals) => child.kill(killSignal),
+      on: (event: string, listener: Listener) => void child.on(name(event), listener),
+      once: (event: string, listener: Listener) => void child.once(name(event), listener),
+      off: (event: string, listener: Listener) => void child.off(name(event), listener),
+    } as SpawnedProcess
+  }
+}
+
 /** The canvas a Session in a Project works with. */
 export interface CanvasAttachment {
   /** The `worfy-canvas` MCP server bound to the Project. */
@@ -119,6 +201,8 @@ export interface SessionOptionsInput {
   sessionId?: string | undefined
   /** Receives Claude Code's stderr, to explain a crash. */
   stderr?: ((data: string) => void) | undefined
+  /** Gets the Claude Code process once started: worfy then starts it itself (watchedSpawn, ADR-0064). */
+  spawned?: ((child: ChildProcess) => void) | undefined
   /** Absent when the Session's cwd is in no Project: it then runs without canvas tools. */
   canvas?: CanvasAttachment | null | undefined
   /** The model, effort and permission mode to start with; DEFAULT_SETTINGS when absent. */
@@ -152,6 +236,12 @@ export interface SessionOptionsInput {
   settingSources?: readonly SettingSource[] | undefined
   /** Only the policy tier may allow a tool: allow rules of every settings file are ignored. */
   permissionRulesFromPolicyOnly?: boolean | undefined
+  /**
+   * The autocompact window in tokens (worfy-polish ticket 24), passed as flag settings: above the
+   * user's settings.json, below the policy tier and below CLAUDE_CODE_AUTO_COMPACT_WINDOW of the
+   * environment. Absent or null — "Claude Code default" — passes no flag settings at all.
+   */
+  autoCompactWindow?: number | null | undefined
 }
 
 /** The options of the draft Session of a Project's connection; see the header. */
@@ -246,7 +336,10 @@ export function sessionOptions(input: SessionOptionsInput): Options {
   if (settings.effort !== null) options.effort = settings.effort
   if (input.resume !== undefined) options.resume = input.resume
   else if (input.sessionId !== undefined) options.sessionId = input.sessionId
+  // Read by Claude Code once, when the process starts: a running Session keeps its window.
+  if (input.autoCompactWindow != null) options.settings = { autoCompactWindow: input.autoCompactWindow }
   if (input.stderr !== undefined) options.stderr = input.stderr
+  if (input.spawned !== undefined) options.spawnClaudeCodeProcess = watchedSpawn(input.spawned, input.stderr)
   if (input.canUseTool !== undefined) options.canUseTool = input.canUseTool
   if (input.outputFormat !== undefined) options.outputFormat = input.outputFormat
   if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) options.disallowedTools = [...input.disallowedTools]

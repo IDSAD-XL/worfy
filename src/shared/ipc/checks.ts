@@ -133,6 +133,7 @@ export const checksGet = invokeChannel(
   z.object({ root: absolutePath, branches: z.array(branchNameSchema).max(500), project: absolutePath.optional() }),
   checksSnapshotSchema,
   'project',
+  'read',
 )
 
 /** One repository of a Project: `name` is what a Ticket's `Repo:` line says, `path` its root. */
@@ -151,7 +152,7 @@ export type ProjectRepos = z.infer<typeof projectReposSchema>
  * Project over several repositories gets its checks one repository at a time (ADR-0045). Open to a
  * Linked machine like `checks.get`: its Canvas shows the same badges.
  */
-export const checksRepos = invokeChannel('checks.repos', z.object({ root: absolutePath }), projectReposSchema, 'project')
+export const checksRepos = invokeChannel('checks.repos', z.object({ root: absolutePath }), projectReposSchema, 'project', 'read')
 
 declare module './channels' {
   interface IpcContract {

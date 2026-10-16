@@ -24,6 +24,10 @@
 // An unattended Session (worfy-daily ticket 02, session-settings.ts) runs in bypassPermissions and
 // is not expected to be asked at all. If Claude Code asks anyway, unattendedCanUseTool refuses at
 // once instead of the gate: no `permission_request`, no `needs_permission`, nothing waits for the UI.
+// Claude Code still asks in bypassPermissions for a few of its own checks (`rm -rf` with a target it
+// cannot resolve, for one). It says which in `decisionReason`, and the refusal hands that reason to
+// the model, so it can rewrite the command, and to the subscribers with the Subagent that asked
+// (`agentID`), so the run's journal says who asked and why.
 import { randomUUID } from 'node:crypto'
 import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
 
@@ -46,6 +50,16 @@ export interface PermissionRequestOptions {
   blockedPath?: string | undefined
   /** Claude Code says the request must not offer a lasting "don't ask again". */
   suppressAlwaysAllowRule?: boolean | undefined
+  /** Why Claude Code asks: which of its checks fired. */
+  decisionReason?: string | undefined
+  /** The Subagent that asks; absent for the Session's own turn. */
+  agentID?: string | undefined
+}
+
+/** Who asked and why, as an unattended refusal reports them; a field Claude Code did not give is absent. */
+export interface RefusalDetails {
+  agent?: string
+  reason?: string
 }
 
 /** The answer canUseTool gives Claude Code; a subset of the SDK's PermissionResult. */
@@ -54,14 +68,24 @@ export type PermissionAnswer = { behavior: 'allow'; updatedInput: Record<string,
 /** canUseTool as a Session hands it to the query (options.ts passes it to the SDK). */
 export type CanUseToolHandler = (toolName: string, input: Record<string, unknown>, options: PermissionRequestOptions) => Promise<PermissionAnswer>
 
+const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null)
+
+/** What the model reads when an unattended Session refused a request Claude Code gave a reason for. */
+export const unattendedDeniedMessage = (reason: string): string =>
+  `${UNATTENDED_DENIED_MESSAGE}\nrefused because: ${reason}; follow the reason above: give a literal, resolvable target`
+
 /**
  * canUseTool of an unattended Session: refuses every call at once and tells `refused` the tool's
- * name, so the Session can report the refusal to its subscribers.
+ * name, the message given and who asked and why, so the Session can report the refusal to its
+ * subscribers. Without a reason the message is UNATTENDED_DENIED_MESSAGE alone.
  */
-export function unattendedCanUseTool(refused: (toolName: string, message: string) => void): CanUseToolHandler {
-  return (toolName) => {
-    refused(toolName, UNATTENDED_DENIED_MESSAGE)
-    return Promise.resolve({ behavior: 'deny', message: UNATTENDED_DENIED_MESSAGE })
+export function unattendedCanUseTool(refused: (toolName: string, message: string, details: RefusalDetails) => void): CanUseToolHandler {
+  return (toolName, _input, options) => {
+    const reason = text(options.decisionReason)
+    const agent = text(options.agentID)
+    const message = reason === null ? UNATTENDED_DENIED_MESSAGE : unattendedDeniedMessage(reason)
+    refused(toolName, message, { ...(agent === null ? {} : { agent }), ...(reason === null ? {} : { reason }) })
+    return Promise.resolve({ behavior: 'deny', message })
   }
 }
 
@@ -73,8 +97,6 @@ interface Pending {
 }
 
 const CANCELLED: PermissionAnswer = { behavior: 'deny', message: CANCELLED_MESSAGE, interrupt: true }
-
-const text = (value: unknown): string | null => (typeof value === 'string' && value.trim() !== '' ? value : null)
 
 /** What a suggestion is and where it would write; for display only. */
 function suggestionSummaries(suggestions: readonly unknown[] | undefined): { type: string; destination: string | null }[] {
