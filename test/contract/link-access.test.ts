@@ -27,6 +27,7 @@ import { workflowHub } from '../../src/main/ipc/workflow'
 import { BindingStore } from '../../src/main/layout/bindings'
 import { layoutStore } from '../../src/main/layout/store'
 import { LinkSender, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
+import { LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
 import { projectStore } from '../../src/main/projects/store'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
 import { autopilotStart } from '../../src/shared/ipc/autopilot'
@@ -322,7 +323,7 @@ describe('access off (the default)', () => {
   it('refuses projects.list with "access is off"; link.ping answers', async () => {
     expect(b.service.settings.get().projectsAccess).toBe(false)
     expect(await callB('projects.list')).toEqual(accessOff)
-    expect(await callB('link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
+    expect(await callB('link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench' } })
     // The connection has no client among B's clients: no broadcast of B reaches A.
     expect(linkClientsOfB()).toEqual([])
   })
