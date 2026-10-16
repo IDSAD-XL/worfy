@@ -1,7 +1,7 @@
 # 20 — Два flaky contract test-а: timeout в `harness-script-wiring`, ENOTEMPTY в `harness-drift`
 
 Type: task
-Status: blocked — REJECTED дважды (PR #372): test на протечку состояния не ловит мутанты A и C; правка timeout подтверждена; узкий круг — по решению владельца
+Status: done — 2026-10-16, [PR #372](https://github.com/IDSAD-XL/worfy/pull/372)
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy-polish (разделы «Gate оркестратора
 (2026-10-15)»): [01](01-панель-выделения-не-закрывает-шапку-рамки-epic-а.md) — CI красный в
@@ -215,3 +215,11 @@ run), спрашивает `source` первого и проверяет: `CALLS
 - Consider (**решено без владельца, подтвердить**): причина ENOTEMPTY в `harness-drift` не найдена (около 290 прогонов, strace, LD_PRELOAD shim); правка `maintenance.auto=false` и `gc.auto=0` правдоподобна и безвредна; если ENOTEMPTY вернётся в CI — новый Ticket с логом прогона.
 - Noted: правка timeout подтверждена — XprotectService проверяет каждый новый исполняемый файл, по одному на машину (первый запуск нового скрипта 142–148 ms, symlink на уже запущенный 7–9 ms); stub-ы стали постоянными файлами в `test/fixtures/harness-stub`. Кандидаты с той же причиной timeout: `harness-qmd`, `docs`, `github-prs`, `workflow-reader`.
 - Dismissed — нет (`testTimeout` и пределы в файлах не подняты — проверено).
+
+### Gate оркестратора — узкий круг (2026-10-16)
+
+- Узкий круг — по слову владельца на ночь 2026-10-16 («добить все оставшиеся тикеты»). Скептик подтвердил находку круга 2: [med] test на протечку не ловит мутанты A и C ([комментарий `NARROW:`](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6206124470)).
+- Доработка (`d7c7cc4d`): хелпер `startRun` убран, вместо него пара соседних test-ов — первый оставляет свой run (`harness-script-wiring.test.ts:357`), второй после настоящих hook-ов сверяет `CALLS` и `HOME` первого (`:362`); запущенный один, второй test падает (`expect(left).toBeDefined()`).
+- Гейт узкого круга — `NARROW: VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6206446186)): мутанты A и C — каждый 1 красный test из 23; `--sequence.shuffle` seed 1–4 зелёные.
+- Merge: gate full на Mac зелёный (lint, typecheck, test, test:e2e, test:package), CI зелёный — `d20c379`.
+- [low] debt: при `--sequence.shuffle.tests` пара может упасть (громко, не ложной зеленью); закрепить порядок `{ shuffle: false }` у `describe` (`harness-script-wiring.test.ts:345`). Проект этот режим не использует.
