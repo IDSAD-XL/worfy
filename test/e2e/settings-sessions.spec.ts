@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
 
 // Settings → Sessions (worfy-polish ticket 24) against the built app: the autocompact window of the
 // Orchestrator and of the other Sessions — the defaults, a window of the user's own and "Claude
@@ -14,11 +14,11 @@ import { clickMenuItem } from './menu'
 // Settings window in each.
 //
 // SHELL is the zsh of the machine and HOME a temporary folder with its own startup files, so the
-// environment main captures for Sessions comes from them alone.
+// environment main captures for Sessions comes from them alone. Windows has no zsh: there the app
+// keeps its own shell, and the test of the login shell's variable is skipped.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 /** Where the screenshots of the section go when the run is asked for them (the evidence of the ticket). */
@@ -38,7 +38,7 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-const launch = (): Promise<LaunchedApp> => launchApp({ env: { SHELL: ZSH, HOME: home, skip_global_compinit: '1' } })
+const launch = (): Promise<LaunchedApp> => launchApp({ env: { ...(NO_ZSH ? {} : { SHELL: zshPath() }), HOME: home, skip_global_compinit: '1' } })
 
 /** Opens Settings → Sessions the way a person does: "Settings…" of the app menu, then the row of the section list. */
 async function openSessions(launched: Pick<LaunchedApp, 'app' | 'window'>): Promise<Locator> {
@@ -91,6 +91,7 @@ test('the windows: the defaults, a window of the user\'s own and "Claude Code de
 })
 
 test('names CLAUDE_CODE_AUTO_COMPACT_WINDOW when the login shell sets it', async () => {
+  test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
   writeFileSync(join(home, '.zshenv'), 'export CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000\n')
   const launched = await launch()
   try {
