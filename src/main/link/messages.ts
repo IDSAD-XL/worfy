@@ -9,8 +9,11 @@
 // and are not in the list of channels open to Linked machines (ipc-adapter.ts).
 import { z } from 'zod'
 
-/** The version of the link protocol; a peer that speaks another one is refused before the handshake. */
-export const LINK_PROTOCOL_VERSION = 1
+/**
+ * The version of the link protocol; a peer that speaks another one is refused before the handshake.
+ * 2: B introduces itself in the fourth pairing message, after A's key confirmation (pairing.ts).
+ */
+export const LINK_PROTOCOL_VERSION = 2
 
 /** The handshake header that carries the protocol version (an integer). */
 export const LINK_PROTOCOL_HEADER = 'x-worfy-link-protocol'

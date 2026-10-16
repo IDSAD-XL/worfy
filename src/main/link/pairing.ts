@@ -253,13 +253,17 @@ const base64 = z.string().regex(/^[A-Za-z0-9+/_=-]+$/).max(400)
 const helloSchema = helloMessage.schema
 export type Hello = z.output<typeof helloSchema>
 
+// Each side introduces itself (name, build, port, id) only after the other's confirmation held, so
+// a side without the code learns nothing about the other: A in pake3, after cB; B in pake4, after
+// cA. Each checks who the other claims to be (PairingSide.accept) before anything is stored. B
+// stores the link only once A accepted B (pake5), and A only once B stored it (pake6): A dials B
+// right after linking, and a token B has not stored yet would make A forget B.
 const pake1 = z.object({ t: z.literal('pake1'), pA: base64 })
-// B introduces itself with its share, A with its confirmation: each side checks who the other
-// claims to be (PairingSide.accept) only after the other's confirmation held, and before it hands
-// over a token or stores anything.
-const pake2 = z.object({ t: z.literal('pake2'), pB: base64, cB: base64, machine: helloSchema })
+const pake2 = z.object({ t: z.literal('pake2'), pB: base64, cB: base64 })
 const pake3 = z.object({ t: z.literal('pake3'), cA: base64, machine: helloSchema, token: base64 })
-const pake4 = z.object({ t: z.literal('pake4'), token: base64 })
+const pake4 = z.object({ t: z.literal('pake4'), machine: helloSchema, token: base64 })
+const pake5 = z.object({ t: z.literal('pake5') })
+const pake6 = z.object({ t: z.literal('pake6') })
 
 /** Close code of a pairing that failed; the reason is PAIRING_FAILED or a timeout. */
 export const PAIRING_CLOSE_FAILED = 4001
@@ -346,7 +350,8 @@ export interface PairingSide {
   serverFingerprint: string
   /**
    * Whether the other Machine, as it introduced itself, may be linked; throws a PairingError when
-   * not. Called once the other's key confirmation held, before any token goes out or is stored.
+   * not. Called once the other's key confirmation held and the other introduced itself, before
+   * anything is stored.
    */
   accept: (peer: Hello) => void
   /** Stores the link; called only after both confirmations held. Throwing aborts the pairing. */
@@ -389,13 +394,16 @@ export async function initiatePairing(ws: WebSocket, code: string, side: Pairing
     fail(ws)
   }
   if (!sameBytes(keys.confirmB, Buffer.from(second.cB, 'base64'))) fail(ws)
-  checkPeer(ws, side, second.machine)
 
-  // B knows the code and saw the same two certificates: the channel is B's, the token may go.
+  // B knows the code and saw the same two certificates: the channel is B's, the token may go. It
+  // opens nothing until A stores its hash (commit).
   const incomingToken = newToken()
   sendFrame(ws, { t: 'pake3', cA: keys.confirmA.toString('base64'), machine: side.local, token: incomingToken })
-  const last = await nextFrame(ws, pake4, timeout)
-  const result: PairingResult = { peer: second.machine, outgoingToken: last.token, incomingToken }
+  const fourth = await nextFrame(ws, pake4, timeout)
+  checkPeer(ws, side, fourth.machine)
+  sendFrame(ws, { t: 'pake5' })
+  await nextFrame(ws, pake6, timeout)
+  const result: PairingResult = { peer: fourth.machine, outgoingToken: fourth.token, incomingToken }
   side.commit(result)
   ws.close(1000, 'linked')
   return result
@@ -428,12 +436,15 @@ export async function respondToPairing(ws: WebSocket, takeCode: () => string | n
   } catch {
     fail(ws)
   }
-  sendFrame(ws, { t: 'pake2', pB: Buffer.from(pB).toString('base64'), cB: keys.confirmB.toString('base64'), machine: side.local })
+  sendFrame(ws, { t: 'pake2', pB: Buffer.from(pB).toString('base64'), cB: keys.confirmB.toString('base64') })
 
   const third = await nextFrame(ws, pake3, timeout)
   if (!sameBytes(keys.confirmA, Buffer.from(third.cA, 'base64'))) fail(ws)
   checkPeer(ws, side, third.machine)
+  // A knows the code: B introduces itself now. Its token opens nothing until B stores its hash.
   const incomingToken = newToken()
+  sendFrame(ws, { t: 'pake4', machine: side.local, token: incomingToken })
+  await nextFrame(ws, pake5, timeout)
   const result: PairingResult = { peer: third.machine, outgoingToken: third.token, incomingToken }
   try {
     side.commit(result)
@@ -441,6 +452,6 @@ export async function respondToPairing(ws: WebSocket, takeCode: () => string | n
     ws.close(PAIRING_CLOSE_FAILED, 'pairing failed')
     throw error
   }
-  sendFrame(ws, { t: 'pake4', token: incomingToken })
+  sendFrame(ws, { t: 'pake6' })
   return result
 }

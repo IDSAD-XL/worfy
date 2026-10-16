@@ -1,14 +1,15 @@
 // Pairing two Machines by a 6-digit code (worfy-link ticket 01; ADR-0052, point 4): what each side
 // stores, where the secrets live, the one-time code, and a machine in the middle. Every service
 // runs over its own temporary data folder on 127.0.0.1 (test/contract/link-bench.ts).
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import tls from 'node:tls'
 import { WebSocket } from 'ws'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { openLinkSocket } from '../../src/main/link/client'
+import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { fingerprintOf, generateCertificate } from '../../src/main/link/identity'
+import { CONNECT_PATH, LINK_PROTOCOL_VERSION, PAIR_PATH } from '../../src/main/link/messages'
 import { PAIRING_CLOSE_FAILED, PAIRING_CODE_TTL_MS, PAIRING_FAILED, PAIRING_MAX_FAILURES, SPAKE2_M, SPAKE2_N, spake2Finish, spake2Share } from '../../src/main/link/pairing'
 import { tokenHash } from '../../src/main/link/store'
 import { LinkBench, type BenchMachine } from './link-bench'
@@ -241,7 +242,7 @@ describe('linking two Machines by code', () => {
     // Both listen again over their folders (they have a Linked machine), and link.ping goes through.
     expect(b.service.status().listening).toBe(true)
     await a.service.connect(ids.b)
-    expect(await a.service.call(ids.b, 'link.ping')).toEqual({ ok: true, value: { id: ids.b, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
+    expect(await a.service.call(ids.b, 'link.ping')).toEqual({ ok: true, value: { id: ids.b, name: 'beta', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench' } })
   })
 
   it('keeps no code and no incoming token in plain text, only the token hash; secrets are 0600', async () => {
@@ -374,6 +375,68 @@ describe('a first pairing message with an invalid share', () => {
     expect(b.service.linkedMachines()).toEqual([])
     expect(bench.files(b).some((file) => file.path.endsWith('linked.json'))).toBe(false)
     expect(bench.files(b).some((file) => file.bytes.toString('utf8').includes('outgoing:'))).toBe(false)
+  })
+})
+
+describe('B introduces itself only after A proved the code', () => {
+  it('a side without the code gets pake2 with pB and cB only, and after a wrong cA nothing more', async () => {
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    await bench.codeOf(b)
+    const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+    const received: string[] = []
+    held.ws.on('message', (data: Buffer) => received.push(data.toString('utf8')))
+    const closed = new Promise<number>((resolve) => held.ws.once('close', (closeCode: number) => resolve(closeCode)))
+    // A valid share made with a guessed code: B answers it with its own share and confirmation.
+    held.ws.send(JSON.stringify({ t: 'pake1', pA: Buffer.from(spake2Share('A', 123456n, 987654321n)).toString('base64') }))
+    await expect.poll(() => received.length).toBe(1)
+    const second = JSON.parse(received[0] ?? '{}') as Record<string, unknown>
+    expect(second.t).toBe('pake2')
+    expect(Object.keys(second).sort()).toEqual(['cB', 'pB', 't'])
+
+    // A confirmation that cannot hold, with a well-formed introduction and token: B closes.
+    const machine = { id: randomUUID(), name: 'gamma', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench', port: 1 }
+    held.ws.send(JSON.stringify({ t: 'pake3', cA: randomBytes(32).toString('base64'), machine, token: randomBytes(32).toString('base64url') }))
+    expect(await closed).toBe(PAIRING_CLOSE_FAILED)
+    expect(received).toHaveLength(1)
+    for (const detail of [b.service.machine.id, '"beta"', '0.2.0+bench']) expect(received.join('\n')).not.toContain(detail)
+    expect(b.service.linkedMachines()).toEqual([])
+  })
+
+  it('a pairing carries B\'s details in pake4, after A\'s confirmation, and A\'s in pake3', async () => {
+    const a = await bench.machine('alpha')
+    const b = await bench.machine('beta')
+    const frames: string[] = []
+    const send = WebSocket.prototype.send
+    const sendSpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data: unknown, ...rest: unknown[]) {
+      if (typeof data === 'string' && data.startsWith('{"t":"pake')) frames.push(data)
+      return (send as (...args: unknown[]) => void).call(this, data, ...rest)
+    })
+    try {
+      await bench.link(a, b)
+    } finally {
+      sendSpy.mockRestore()
+    }
+    const kinds = frames.map((frame) => (JSON.parse(frame) as { t: string }).t)
+    expect(kinds).toEqual(['pake1', 'pake2', 'pake3', 'pake4', 'pake5', 'pake6'])
+    expect(frames.filter((frame) => frame.includes(b.service.machine.id)).map((frame) => (JSON.parse(frame) as { t: string }).t)).toEqual(['pake4'])
+    expect(frames.filter((frame) => frame.includes(a.service.machine.id)).map((frame) => (JSON.parse(frame) as { t: string }).t)).toEqual(['pake3'])
+  })
+
+  it(`refuses a worfy of link protocol 1, whose pake2 still carries B's details, by version and not as a wrong code`, async () => {
+    // The pairing frames changed with protocol 2: an older worfy would otherwise fail the schema of pake2.
+    expect(LINK_PROTOCOL_VERSION).toBe(2)
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    const code = await bench.codeOf(b)
+    const error = await rejection(
+      openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c), protocolVersion: 1 }),
+    )
+    expect((error as LinkConnectError).kind).toBe('protocol')
+    expect(error.message).toMatch(/speaks link protocol 2, the connecting worfy speaks 1/)
+    // The refusal comes before the attempt: the code is neither burnt nor counted.
+    expect(b.service.pairingCode()?.code).toBe(code)
+    expect(b.pairingFailures).toEqual([])
   })
 })
 
@@ -529,10 +592,41 @@ describe('round 2: a Machine id is bound to its certificate', () => {
     const impostor = await impostorOf(c)
 
     const code = await bench.codeOf(impostor)
-    const error = await rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(impostor), code }))
+    const frames: string[] = []
+    const send = WebSocket.prototype.send
+    const sendSpy = vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data: unknown, ...rest: unknown[]) {
+      if (typeof data === 'string' && data.startsWith('{"t":"pake')) frames.push(data)
+      return (send as (...args: unknown[]) => void).call(this, data, ...rest)
+    })
+    let error: Error
+    try {
+      error = await rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(impostor), code }))
+    } finally {
+      sendSpy.mockRestore()
+    }
     expect(error.message).toMatch(/already linked with another certificate/)
     await expect.poll(() => impostor.pairingFailures.length).toBe(1)
+    // A learns who B claims to be from pake4, after both confirmations, and refuses before it accepts.
+    const kinds = frames.map((frame) => JSON.parse(frame) as { t: string; token?: string })
+    expect(kinds.map((frame) => frame.t)).toEqual(['pake1', 'pake2', 'pake3', 'pake4'])
     expect(a.service.linkedMachines()).toEqual(before)
     expect(impostor.service.linkedMachines()).toEqual([])
+
+    // The token A handed over in pake3 was never stored by A: it opens nothing there.
+    const handedOver = kinds.find((frame) => frame.t === 'pake3')?.token ?? ''
+    expect(handedOver).not.toBe('')
+    expect(bench.files(a).some((file) => file.bytes.toString('utf8').includes(tokenHash(handedOver)))).toBe(false)
+    const entry = await rejection(
+      openLinkSocket({
+        host: '127.0.0.1',
+        port: bench.portOf(a),
+        path: CONNECT_PATH,
+        key: secretsOf(impostor)['machine-key'] ?? '',
+        certificate: certificateOf(impostor),
+        expectFingerprint: fingerprintOf(certificateOf(a)),
+        token: handedOver,
+      }),
+    )
+    expect((entry as LinkConnectError).kind).toBe('unauthorized')
   })
 })

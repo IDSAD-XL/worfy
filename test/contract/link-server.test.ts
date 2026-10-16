@@ -13,7 +13,7 @@ import { defineHandler, type HandlerModule } from '../../src/main/ipc/index'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { LinkConnection } from '../../src/main/link/connection'
 import { generateCertificate } from '../../src/main/link/identity'
-import { CONNECT_PATH, defineLinkMessage, LINK_MAX_PAYLOAD, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
+import { CONNECT_PATH, defineLinkMessage, LINK_MAX_PAYLOAD, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
 import { startLinkServer } from '../../src/main/link/server'
 import { projectsList } from '../../src/shared/ipc/projects'
 import { LinkBench, type BenchMachine } from './link-bench'
@@ -93,7 +93,7 @@ function upgrade(port: number, options: { headers?: Record<string, string>; clie
         'sec-websocket-version': '13',
         'sec-websocket-key': randomBytes(16).toString('base64'),
         host: `127.0.0.1:${port}`,
-        'x-worfy-link-protocol': '1',
+        'x-worfy-link-protocol': String(LINK_PROTOCOL_VERSION),
         ...options.headers,
       },
     })
@@ -209,14 +209,15 @@ describe('checks before the WebSocket handshake', () => {
 
   it('refuses another protocol version with a text naming both versions and the server build; the client passes it up as is', async () => {
     const { a, port, token } = await serverAndToken()
-    const answer = await upgrade(port, { client: a, headers: { authorization: `Bearer ${token}`, 'x-worfy-link-protocol': '2' } })
+    const other = LINK_PROTOCOL_VERSION + 1
+    const answer = await upgrade(port, { client: a, headers: { authorization: `Bearer ${token}`, 'x-worfy-link-protocol': String(other) } })
     expect(answer.status).toBe(400)
-    expect(answer.body).toMatch(/link protocol 1/)
-    expect(answer.body).toMatch(/speaks 2/)
+    expect(answer.body).toMatch(new RegExp(`link protocol ${LINK_PROTOCOL_VERSION},`))
+    expect(answer.body).toMatch(new RegExp(`speaks ${other}\\.`))
     expect(answer.body).toMatch(/0\.2\.0\+bench/)
 
     const error = await rejection(
-      openLinkSocket({ host: '127.0.0.1', port, path: '/link/connect', key: keyOf(a), certificate: certificateOf(a), expectFingerprint: a.service.linkedMachines()[0]?.fingerprint ?? '', token, protocolVersion: 2 }),
+      openLinkSocket({ host: '127.0.0.1', port, path: '/link/connect', key: keyOf(a), certificate: certificateOf(a), expectFingerprint: a.service.linkedMachines()[0]?.fingerprint ?? '', token, protocolVersion: other }),
     )
     expect((error as LinkConnectError).kind).toBe('protocol')
     expect(error.message).toBe(answer.body)
@@ -229,7 +230,7 @@ describe('IPC over the link', () => {
     const { a, b } = await linkedPair()
     const bId = b.service.machine.id
     await a.service.connect(bId)
-    expect(await a.service.call(bId, 'link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: 1, build: '0.2.0+bench' } })
+    expect(await a.service.call(bId, 'link.ping')).toEqual({ ok: true, value: { id: bId, name: 'beta', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench' } })
     projectsCalls.count = 0
     expect(await a.service.call(bId, 'projects.list')).toEqual({ ok: false, error: 'Linked machines cannot work with the Projects of beta: access is off' })
     expect(projectsCalls.count).toBe(0)
