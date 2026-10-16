@@ -1,7 +1,7 @@
 # 03 — Implementer гоняет только e2e своих spec-ов; весь `test:e2e` — в gate full перед мержем
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #385](https://github.com/IDSAD-XL/worfy/pull/385)
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»
 (Ticket записывает уже действующее правило); замер: `worfy-polish` 04 — 220 min до PR, 05 — 216 min,
@@ -114,3 +114,10 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
    `pnpm test:e2e` и `gate.sh full` — одной командой Bash с timeout 600000:
    `L=/tmp/worfy-e2e.lock; until mkdir "$L" 2>/dev/null; do m=$(stat -f %m "$L" 2>/dev/null) || continue; [ $(( $(date +%s) - m )) -gt 1800 ] && rmdir "$L"; sleep 20; done; ( while sleep 300; do touch -c "$L" 2>/dev/null || exit 0; done ) & HB=$!; trap 'kill $HB 2>/dev/null; rmdir "$L"' EXIT; <команда>`.
 ```
+
+### Gate оркестратора (2026-10-16)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01 и 03 параллельно; один verifier на круг.
+- Круг 1 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/385#issuecomment-6212080923)). Act on, Consider, Dismissed — нет. Noted: [low] test текста не ловит дописанное противоречие («run the whole e2e suite anyway») — проверять, что «whole e2e suite» стоит только во фразе с «not yours to run»; [low] «the orchestrator runs it in `gate full`» предполагает, что gate full Profile-а включает e2e (у worfy — да).
+- Merge: gate full на Mac красный 5 раз подряд и зелёный в шестой — `713b555`. Падали разные чужие test-ы, каждый зелёный отдельно: e2e `session-back.spec.ts:138`, `harness-install.spec.ts` (4), contract-таймауты `workflow-reader`, `github-prs`, `harness-qmd`, `harness-script-env`; Linux CI раз — `terminal-ai-zle` (Alt+→). Диф — только `.md`/`.sh`. Нагрузка ~5 от параллельных Session-ов; часть таймаутов — кандидаты из [worfy-polish 20](../../worfy-polish/issues/20-два-flaky-contract-test-а-harness.md) (XprotectService).
+- Правка `rules.md` Profile-а не внесена — шаг владельца, diff выше в «Итог».
