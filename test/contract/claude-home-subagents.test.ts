@@ -441,7 +441,8 @@ describe('claudeHome.subagentTranscript', () => {
     expect(await found(AGENTS, S7, 'a9999999999999999')).toBe(false)
     // A Subagent of another Session: its file exists, but not in the subagents/ of this Session.
     expect(await found(DEMO, S5, 'a3000000000000286')).toBe(false)
-    // The Session's own transcript is not a Subagent: no id leads out of subagents/.
+    // The Session's own id names no Subagent: the reader looks only for subagents/agent-<id>.jsonl.
+    // (Ids that would lead out of subagents/ are refused by the schema: "rejects %s with input %j".)
     expect(await found(AGENTS, S7, S7)).toBe(false)
   })
 })

@@ -15,7 +15,7 @@ import { join, resolve } from 'node:path'
 import { projectDirName } from '../../src/main/claude-home/registry'
 
 /** The fixture itself. Only read; its folders under projects/ have the names of macOS and Linux. */
-const CLAUDE_HOME_FIXTURE =join(import.meta.dirname, '..', 'fixtures', 'claude-home')
+const CLAUDE_HOME_FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'claude-home')
 
 /** The folder each Session of the fixture was started in: one per folder under projects/. */
 const FIXTURE_CWDS = [

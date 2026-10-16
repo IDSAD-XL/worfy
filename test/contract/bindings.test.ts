@@ -282,7 +282,9 @@ describe('the bindings channels', () => {
       { projectRoot: 'relative/path', sessionId: '55555555-5555-4555-8555-555555555555' },
       { projectRoot: '/Users/test/projects/demo', sessionId: '../55555555' },
     ]) {
-      expect((await invoke('bindings.signals', input)).ok, JSON.stringify(input)).toBe(false)
+      const result = await invoke('bindings.signals', input)
+      expect(result.ok, JSON.stringify(input)).toBe(false)
+      expect(!result.ok && result.error, JSON.stringify(input)).toMatch(/bindings\.signals: invalid input/)
     }
   })
 
