@@ -378,3 +378,48 @@ Session на Windows-ПК, 2026-10-16. Windows 11 Pro 10.0.26200; `pnpm test` и
 **Вне скоупа, найдено попутно:**
 - **7 test-ов наблюдения за Claude home в `claude-home-registry.test.ts` падают из-за кода, а не test-а** — кандидат в отдельный Ticket. `src/main/claude-home/registry.ts:701-704`: фильтр `ignored` сравнивает путь с `this.home` строкой (`path === this.home`), а chokidar 5.0.0 на Windows отдаёт ему `C:/…/claude` с `/`. Сравнение ложно, `relative(projectsDir, home)` даёт `..`, и вся Claude home считается игнорируемой. Замер 2026-10-14 (`t14c/sessions/watch-debug.txt` на ПК): первые пути, которые получил `ignored`, — с `/`; изменений за 1,5 с — 0. В жизни это значит: на Windows список Session-ов не обновляется сам, пока его не запросят заново.
 - **Подмены #401 (`test/fixtures/harness-stub`, `workflow-stub`, `qmd-stub`, `gh`) на Windows не запускаются** (`workflow-reader`, `github-prs`, `harness-qmd`, `docs`): это bash-скрипты `#!/bin/sh` без расширения, а Node на Windows без shell запускает только `.exe` и `.com` — `spawnSync` даёт `ENOENT` (errno -4058) и по полному пути, и по имени в PATH (проба на ПК 2026-10-16). Кроме того, в рабочей копии они с CRLF (`git ls-files --eol`: `i/lf w/crlf attr/`): `.gitattributes` не задаёт `eol=lf` для `test/fixtures/**`. `symlinkSync` на этом ПК проходит — включён режим разработчика (`AllowDevelopmentWithoutDevLicense = 1`); без него Windows отказала бы с `EPERM`. Это предмет срезов 3b и 3c (подмены через Node: `gh-stub.mjs` уже есть в #401).
+
+### Срез 3b — подмена `gh` идёт через Node
+
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/14-stand-ins` от main `eb96efe`, три commit-а и этот раздел. **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Подмена `gh` (`326328e`).** Это commit `ead8af1` с ветки `worfy-windows/14-stand-in-launcher` (запушена 2026-10-14, PR не было), перенесённый cherry-pick-ом без конфликтов. `src/main/program.ts` (новый): `programStart(override, usual)`. Подмена, которая кончается на `.mjs`, запускается как скрипт собственного Node worfy: файл — `process.execPath`, скрипт — первый аргумент, `ELECTRON_RUN_AS_NODE=1` — только в окружении этого дочернего процесса. Любая другая подмена запускается как есть. Без подмены `gh` запускается как раньше. Так на всех системах. `ghRunner` (`src/main/github/prs.ts`) запускает `gh` через неё; `GhProgram.command` (`src/main/github/accounts.ts`, `src/main/ipc/projects.ts`) — только подмена. В test-ах на Windows подмена — сам `gh-stub.mjs`, на macOS и Linux — обёртка `gh`, как раньше (`STUB_COMMAND` в `test/contract/gh-world.ts`, `GH_STUB` в `test/e2e/helpers.ts`).
+- **`faa0e1c`.**
+  - `test/fixtures/gh/gh-account` (`#!/bin/sh`, пришёл с #401) стал `gh-account.mjs` с теми же ответами и строками лога, на всех системах. PATH ему не нужен, как и раньше (test-ы зовут его с `PATH=/usr/bin:/bin`), и он по-прежнему один файл fixture, а не скрипт на test (worfy-polish Ticket 30).
+  - `github-accounts`: два test-а на настоящем pseudo-terminal на Windows пропущены. Вход идёт через `/bin/sh`, которого на Windows нет (node-pty: «File not found:»). Это дефект продукта; чинит его и снимает пропуск Ticket [50](50-sign-in-with-gh-на-windows.md).
+  - `github-prs`, «drops keys a handler adds beyond the contract»: обработчик приводит корень к абсолютному пути, ожидание — `resolve('/r')`: `/r` на macOS и Linux, `C:\r` на Windows.
+  - `github-prs`, «no account (…)»: начало строки лога сверяется как текст. В `RegExp` из корня обратные косые черты пути Windows читались как escape-последовательности.
+- **Ревью** — subagent этой Session, линза «корректность»: на macOS и Linux поведение не меняется, ни одна проверка не ослаблена; `gh-account.mjs` отвечает как скрипт `sh` во всех ветках. Одна находка low исправлена в `c89824e`: подмена `.mjs`, которой нет, давала ошибку Node «Cannot find module» вместо «gh not found (<путь>)» — исполняемый файл worfy есть всегда, и система об отсутствии не сообщает. Теперь `ghRunner` проверяет скрипт сам; test в `gh-stand-in.test.ts`.
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| main `eb96efe` | 1 | 5539 | 4987 | 411 | 141 |
+| ветка `c89824e` | 1 | 5556 | 5037 | 376 | 143 |
+
+| Файл | main: упало | ветка: упало |
+|---|---|---|
+| `github-accounts.test.ts` | 15 из 20 | 0 из 20, 2 пропущены (Ticket 50) |
+| `github-prs.test.ts` | 24 из 69 | 12 из 69 |
+| `projects-connect.test.ts` | 6 из 31 | 4 из 31 |
+| `gh-stand-in.test.ts` (новый) | — | 0 из 5 |
+| `program.test.ts` (новый) | — | 0 из 12 |
+
+- **Новых падений по именам нет.** На ветке и не на main упали 2 test-а, оба в файлах, которые срез не трогал: `critical-path` (timeout 5 с) и `terminal-windows` (`EBUSY` при удалении временной папки). Эти два файла отдельно на обеих сторонах: одинаково, 1 упал из 42 — один и тот же test `critical-path` «takes the journals folder … else the macOS data folder».
+- **Перестали падать 37 test-ов** (из них 2 теперь пропущены): `github-accounts` 15, `github-prs` 12, `projects-connect` 2 и ещё 8 в файлах, которые срез не трогал (`terminal-windows` 3, `check-handoff`, `critical-path`, `autopilot-background`, `startup-failure`, `terminal` по 1) — шум между прогонами.
+- `pnpm lint`, `pnpm typecheck` на `c89824e` — exit 0.
+
+**Что осталось красным и чьё:**
+- `github-prs` — 12 test-ов группы «gh with the Project's GitHub account»: им нужен `bin/profile` Claude home — stub `test/fixtures/harness-stub/canned` (`#!/bin/sh`), который worfy запускает напрямую. На Windows он не стартует, учётная запись не читается. Подмены скриптов Harness — Ticket [05](05-скрипты-bin-harness-на-node.md). `gh` в этих test-ах уже запускается: его вызовы видны в логе.
+- e2e `silent-project.spec.ts` пишет свой `gh` (`gh.cjs` и обёртку `sh`) и свои скрипты Harness `#!/bin/sh` (`epic-status` и другие). Одна подмена `gh` его на Windows не запустит; срез его не трогает — скрипты Harness, Ticket 05.
+- Вход «Sign in with gh» на Windows — Ticket 50.
+
+- **e2e `window.spec.ts`** (в нём два test-а с `GH_STUB`) на ПК, `electron-vite build` и Playwright: main `eb96efe` и ветка `c89824e` одинаково — exit 1, 4 прошли, 2 упали. Оба падения не о `gh`: «traffic lights sit inset» зовёт `getWindowButtonPosition`, которого на Windows нет, а «a moved or resized window is saved at once» падает на `EBUSY` при удалении папки данных. Test-ы с `GH_STUB` прошли на обеих сторонах; ответ `gh` им не нужен, так что запуск подмены они не доказывают — его доказывает `gh-stand-in.test.ts`.
+
+- **Ревью Session на Mac** (глубина high: корректность против main на macOS, безопасность `programStart` и `ELECTRON_RUN_AS_NODE`, мутанты `program.ts`): безопасность чистая — `WORFY_GH` и `command` берутся только из окружения main-процесса; из 25 мутантов выжили 9. Исправлено в `c297b5f`:
+  - `ELECTRON_RUN_AS_NODE=1` в дочернем процессе ничто не проверяло: без переменной Electron всё равно запускает `.mjs` — как главный скрипт второго приложения, с тем же ответом. `gh-stub.mjs` пишет в `GH_STUB_RUNTIME`, как его запустили (`runAsNode`, `process.type`), и `gh-stand-in.test.ts` ждёт `{"runAsNode":"1","type":null}`. Неверный комментарий об этом в test-е исправлен.
+  - `ghRunner` без `command` ничто не вызывало: test запускает `gh` из PATH (обёртка `test/fixtures/gh/gh`; на Windows пропущен — обёртку там не запустить) и test «gh not found (gh)» без `gh` в PATH (на всех системах).
+  - Относительный `.mjs` искался от корня Project-а, где идёт `gh`: `programStart` приводит его к абсолютному от папки worfy; путь, абсолютный в форме POSIX или Windows, не трогает.
+  - Значение `gh` по умолчанию у `signInRegistry`: test с подставленным spawn, который только записывает вызов.
+  - Мутанты на ПК после правки: без `...start.env` падают 3 test-а, без приведения пути — 2.
+  - **Не сделано:** у `appGh` (`src/main/ipc/projects.ts`) нет contract-test-а — кандидат на отдельный Ticket.
+**Не проверено:** `packaged.spec.ts` на Windows (собранное приложение — срез 5); на macOS и Linux `GH_STUB` — та же обёртка, что раньше.

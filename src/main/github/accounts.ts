@@ -207,7 +207,8 @@ export function signInCommand(gh: string): { file: string; args: string[] } {
 
 /** The app's gh: its executable and the environment it runs in. */
 export interface GhProgram {
-  command: string
+  /** The program WORFY_GH names in place of gh; without it, `gh` from the PATH of `env`. */
+  command?: string
   env: () => Promise<Record<string, string | undefined>>
 }
 
@@ -217,7 +218,7 @@ export interface GhProgram {
  * gh instead of the user's shell.
  */
 export function signInRegistry(gh: GhProgram, spawn: SpawnPty = (file, args, options) => spawnNodePty(file, args, options)): TerminalRegistry {
-  const command = signInCommand(gh.command)
+  const command = signInCommand(gh.command ?? 'gh')
   return new TerminalRegistry({
     env: async () => Object.fromEntries(Object.entries(await gh.env()).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     spawn: (_shell, _args, options) => spawn(command.file, command.args, options),

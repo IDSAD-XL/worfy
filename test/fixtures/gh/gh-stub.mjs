@@ -2,6 +2,10 @@
 //
 // - GH_STUB_LOG: a file; each call appends its arguments as one JSON line (never the environment,
 //   so GH_TOKEN stays out of it).
+// - GH_STUB_RUNTIME: a file; each call appends how it runs as one JSON line, `{"runAsNode", "type"}`:
+//   ELECTRON_RUN_AS_NODE and Electron's process.type, null when unset. Under worfy's own Node
+//   (src/main/program.ts) that is `{"runAsNode":"1","type":null}`. Without the variable Electron
+//   would still run the script, as the main script of a second app, and `type` would be "browser".
 // - GH_STUB_FAIL: when set, the call prints it to stderr and exits 1 (not logged in, no network).
 // - GH_STUB_DIR: a folder with the answers (test/contract/gh-world.ts writes them):
 //   - fail: when it exists, the call prints its text to stderr and exits 1, as GH_STUB_FAIL does;
@@ -31,6 +35,7 @@ import process from 'node:process'
 
 const args = process.argv.slice(2)
 if (process.env.GH_STUB_LOG) appendFileSync(process.env.GH_STUB_LOG, `${JSON.stringify(args)}\n`)
+if (process.env.GH_STUB_RUNTIME) appendFileSync(process.env.GH_STUB_RUNTIME, `${JSON.stringify({ runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, type: process.type ?? null })}\n`)
 if (process.env.GH_STUB_FAIL) {
   process.stderr.write(`${process.env.GH_STUB_FAIL}\n`)
   process.exit(1)

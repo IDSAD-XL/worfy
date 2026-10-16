@@ -29,7 +29,11 @@ export interface GhWorld {
   calls: () => string[][]
 }
 
-export const STUB_COMMAND = join(__dirname, '..', 'fixtures', 'gh', 'gh')
+/**
+ * The stand-in as WORFY_GH names it: the `gh` wrapper, a shell script; on Windows, which cannot
+ * start one, the Node script itself, which worfy runs under its own Node (src/main/program.ts).
+ */
+export const STUB_COMMAND = join(__dirname, '..', 'fixtures', 'gh', process.platform === 'win32' ? 'gh-stub.mjs' : 'gh')
 
 /** `gh auth status --json hosts` as gh 2.97 prints it. */
 export function authStatus(accounts: readonly StubAccount[]): { hosts: Record<string, unknown[]> } {

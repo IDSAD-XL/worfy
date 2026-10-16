@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
@@ -12,11 +12,10 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { STUB_COMMAND } from './gh-world'
 
-// Pull requests and CI from `gh` (ticket 17), against test/fixtures/gh/gh: a stub that records
-// its arguments and answers from a prs.json. Nothing here reaches GitHub.
-
-const GH_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh')
+// Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
+// it records its arguments and answers from a prs.json. Nothing here reaches GitHub.
 
 const temps: string[] = []
 afterEach(async () => {
@@ -60,7 +59,7 @@ async function stubGh(pulls: GhPull[], env: Record<string, string> = {}) {
   const dir = await tempDir()
   const log = join(dir, 'calls.jsonl')
   await writeFile(join(dir, 'prs.json'), JSON.stringify(pulls))
-  const run = ghRunner({ command: GH_STUB, env: async () => ({ ...process.env, GH_STUB_DIR: dir, GH_STUB_LOG: log, ...env }) })
+  const run = ghRunner({ command: STUB_COMMAND, env: async () => ({ ...process.env, GH_STUB_DIR: dir, GH_STUB_LOG: log, ...env }) })
   const calls = async (): Promise<string[][]> =>
     (await readFile(log, 'utf8').catch(() => ''))
       .split('\n')
@@ -459,9 +458,11 @@ describe('checks.get', () => {
     }, anyProject, fullScope)
     await registerIpc(ipc, { modules: { './checks.ts': async () => leaky }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
     const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}checks.get`)!({ senderFrame: { url: APP_URL } } as unknown as IpcMainInvokeEvent, { root: '/r', branches: [] })) as IpcResult<ChecksSnapshot>
+    // The handler resolves the root: `/r` on macOS and Linux, `C:\r` on Windows.
+    const root = resolve('/r')
     expect(result).toEqual({
       ok: true,
-      value: { root: '/r', worktrees: [{ path: '/r', branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } },
+      value: { root, worktrees: [{ path: root, branch: 'main', gate: { outcome: 'green', source: 'marker', at: null } }], pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } },
     })
   })
 })
@@ -482,9 +483,11 @@ const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', br
  * A gh that logs `<GH_TOKEN or <unset>>\t<arg>\t<arg>…` and is logged in only as GH_STUB_ACCOUNT,
  * when GH_STUB_TOKEN is set. A file of test/fixtures, like `bin/profile` (CANNED): macOS checks every
  * new executable file on its first run, one at a time for the whole machine, and a new script per
- * test made the tests of a loaded full run time out at 15 s (worfy-polish ticket 30).
+ * test made the tests of a loaded full run time out at 15 s (worfy-polish ticket 30). A `.mjs`
+ * script, which worfy starts under its own Node on every system (src/main/program.ts): Windows
+ * cannot start a `#!/bin/sh` one (worfy-windows ticket 14).
  */
-const GH_ACCOUNT_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh-account')
+const GH_ACCOUNT_STUB = join(import.meta.dirname, '..', 'fixtures', 'gh', 'gh-account.mjs')
 /** The canned Harness script: answers from the files next to its link (test/fixtures/harness-stub/canned). */
 const CANNED = join(import.meta.dirname, '..', 'fixtures', 'harness-stub', 'canned')
 
@@ -589,7 +592,9 @@ describe("gh with the Project's GitHub account", () => {
       { token: null, args: lookup('demo/02') },
     ])
     expect(world.logged).toHaveLength(1)
-    expect(world.logged[0]).toMatch(new RegExp(`^\\[profile\\] GitHub account for ${world.root}: none, gh runs with the login shell's own account, because `))
+    // The root as text, not as a pattern: on Windows its backslashes would read as escapes.
+    const start = `[profile] GitHub account for ${world.root}: none, gh runs with the login shell's own account, because `
+    expect(world.logged[0]?.slice(0, start.length)).toBe(start)
     expect(world.logged[0]).toMatch(reason)
 
     // The next read logs the same reason again only if it changed.
