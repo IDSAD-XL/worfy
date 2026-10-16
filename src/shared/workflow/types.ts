@@ -50,6 +50,15 @@ export const epicSchema = epicStatusEpicSchema.extend({
 })
 export type Epic = z.infer<typeof epicSchema>
 
+/** A "(вручную)" item of a Ticket's "Готово, когда" section: a check a person makes (manual-checks.ts). */
+export const manualCheckSchema = z.object({
+  /** The item's text without the checkbox and "(вручную)"; continuation lines joined with a space. */
+  text: z.string(),
+  /** True for `[x]`: the check was made and the Ticket file says so. */
+  checked: z.boolean(),
+})
+export type ManualCheck = z.infer<typeof manualCheckSchema>
+
 export const ticketSchema = epicStatusTicketSchema.extend({
   /** Paths in backticks from the list items of the "Где в коде" section, in file order. */
   files: z.array(z.string()),
@@ -60,6 +69,11 @@ export const ticketSchema = epicStatusTicketSchema.extend({
    * checkout: the Ticket was claimed in that branch and the change has not reached the checkout.
    */
   fromBranch: z.string().nullable(),
+  /**
+   * The "(вручную)" items of the "Готово, когда" section, in file order. Optional, and absent reads
+   * as none: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid.
+   */
+  manualChecks: z.array(manualCheckSchema).optional(),
 })
 export type Ticket = z.infer<typeof ticketSchema>
 

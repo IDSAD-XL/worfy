@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
+import { settled } from './wait'
 
 // The input field's pickers and message queue (ticket 19) against the built app, on the fake agent
 // with the script test/fixtures/agent-scripts/session-view.jsonl: turn 1 answers at once, turn 2
@@ -185,9 +186,11 @@ test('the pickers change the live Session and survive a restart; the queue sends
     await view.getByTestId('input-interrupt').click()
     await expect(view.getByTestId('session-state')).toHaveText('idle')
     await expect(view.getByTestId('queue-send')).toBeVisible()
-    await window.waitForTimeout(500)
-    expect(messages()).toEqual(['first', 'hold'])
+    // main decides on the next message in the same step that makes the Session idle: once the
+    // renderer has caught up with main, a message that went would show in the queue.
+    await settled(window)
     await expect(view.getByTestId('queue-chip')).toHaveText('2 queued')
+    expect(messages()).toEqual(['first', 'hold'])
 
     // Send queued: the first goes now (the script's turn 1 answers), the next after its result.
     await view.getByTestId('queue-send').click()

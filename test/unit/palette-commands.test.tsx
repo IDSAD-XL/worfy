@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, onTestFinished } from 'vitest'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
-import { buildCommands, type CommandContext } from '../../src/renderer/palette/commands'
+import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
+import { buildCommands, forQuery, type CommandContext } from '../../src/renderer/palette/commands'
 import { rankItems } from '../../src/renderer/find/search-index'
+import { epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
 import { useCanvasRequests } from '../../src/renderer/find/canvas-requests'
 import { setView, useNavigation } from '../../src/renderer/session/navigation'
 import { useFirstRun } from '../../src/renderer/shell/first-run-store'
@@ -81,6 +85,40 @@ describe('palette commands', () => {
     expect(session?.title).toBe('Fix the gate')
   })
 
+  it('has "Orchestrator" in Go to with a Project, found by "orchestrator" and "go to orchestrator", and picking it opens its Session view (worfy-polish/25)', async () => {
+    const withNode = context({ layoutNodes: [node('o1', 'orchestrator', { data: { sessionId: 'feedbeef00' } })] })
+    const row = buildCommands(withNode).find((command) => command.id === 'go-to:orchestrator')
+    expect(row).toMatchObject({ group: 'Go to', title: 'Orchestrator', detail: 'Session view' })
+    expect(rankItems(buildCommands(withNode), 'orchestrator')[0]?.id).toBe('go-to:orchestrator')
+    expect(rankItems(buildCommands(withNode), 'go to orchestrator')[0]?.id).toBe('go-to:orchestrator')
+    // The Orchestrator Node's own row, which centers the Canvas on it, stays.
+    expect(ids(withNode)).toContain('node:o1')
+    // From a Subagent's window over the Canvas: the Session view, with nothing opened — the active Project's Orchestrator.
+    useNavigation.setState({ view: 'canvas', opened: { nodeId: 'o1', projectId: 'p1', external: { sessionId: 'feedbeef00', agentId: 'a1' } } })
+    // It also asks main to open the Orchestrator, which starts one that does not run.
+    const asked: { channel: string; input: unknown }[] = []
+    const globals = globalThis as { worfy?: WorfyBridge }
+    globals.worfy = {
+      invoke: (channel: string, input: unknown) => {
+        asked.push({ channel, input })
+        return Promise.resolve({ ok: true, value: {} })
+      },
+      on: () => 1,
+      off: () => undefined,
+    } as unknown as WorfyBridge
+    onTestFinished(() => {
+      delete globals.worfy
+    })
+    expect(await row!.run()).toBeUndefined()
+    expect(useNavigation.getState()).toEqual({ view: 'session', opened: null })
+    expect(asked).toEqual([{ channel: 'orchestrator.open', input: { projectId: 'p1' } }])
+  })
+
+  it('has the Orchestrator row with no Orchestrator Node too, and none without a Project', () => {
+    expect(ids(context())).toContain('go-to:orchestrator')
+    expect(ids(context({ project: undefined }))).not.toContain('go-to:orchestrator')
+  })
+
   it('finds a Ticket by its number, an ADR by its number and a Card by its id', () => {
     const commands = buildCommands(context())
     expect(rankItems(commands, '07')[0]?.id).toBe('ticket:e/07')
@@ -141,5 +179,69 @@ describe('palette commands', () => {
   it('reads nothing of a workflow model that failed', () => {
     const failed = { ...context().model!, error: { code: 'failed' as const, message: 'no epic-status' } }
     expect(ids(context({ model: failed })).filter((id) => id.startsWith('ticket') || id.startsWith('ship') || id.startsWith('run') || id.startsWith('epic'))).toEqual([])
+  })
+
+  describe('manual checks (Manual check group)', () => {
+    const checked = (over: Partial<CommandContext> = {}): CommandContext => {
+      const base = context()
+      const tickets = base.model!.tickets.map((each) => {
+        if (each.epic === 'e' && each.num === 7) {
+          return {
+            ...each,
+            manualChecks: [
+              { text: 'Stable copy after the merge: the palette lists the checks', checked: false },
+              { text: 'Stable copy: the frame was drawn', checked: true },
+            ],
+          }
+        }
+        if (each.epic === 'finished') return { ...each, manualChecks: [{ text: 'dev build: ⌘Z undoes the move', checked: false }] }
+        return each
+      })
+      return context({ model: { ...base.model!, tickets }, ...over })
+    }
+
+    it('has a row per unchecked check of every Epic, "<epic> NN · <text>", and none for a checked one', () => {
+      const rows = buildCommands(checked()).filter((command) => command.group === 'Manual check')
+      expect(rows.map((row) => [row.id, row.title])).toEqual([
+        ['manual-check:e/07:0', 'e 07 · Stable copy after the merge: the palette lists the checks'],
+        ['manual-check:finished/02:0', 'finished 02 · dev build: ⌘Z undoes the move'],
+      ])
+      expect(rows.every((row) => row.queryOnly === true)).toBe(true)
+    })
+
+    it('the query «Stable» finds the unchecked check, not the checked one, and picking it centers the Ticket\'s Node', async () => {
+      useCanvasRequests.setState({ focus: null })
+      setView('session')
+      const found = rankItems(forQuery(buildCommands(checked()), 'Stable'), 'Stable').filter((command) => command.group === 'Manual check')
+      expect(found.map((command) => command.title)).toEqual(['e 07 · Stable copy after the merge: the palette lists the checks'])
+      expect(await found[0]!.run()).toBeUndefined()
+      expect(useCanvasRequests.getState().focus).toMatchObject({ projectId: 'p1', nodeId: ticketNodeId('e', 7), fallbackId: epicNodeId('e') })
+      expect(useNavigation.getState().view).toBe('canvas')
+    })
+
+    it('reads nothing from a failed model or a model without the field', () => {
+      const failed = checked().model!
+      expect(ids(checked({ model: { ...failed, error: { code: 'failed', message: 'no epic-status' } } })).filter((id) => id.startsWith('manual-check'))).toEqual([])
+      expect(ids(context()).filter((id) => id.startsWith('manual-check'))).toEqual([])
+    })
+
+    it('the palette opened with an empty field shows no Manual check row, even with a few commands; typing shows them', () => {
+      // Rows with a gate ask main for the Project's settings; no main process answers here.
+      const commands = buildCommands(checked({ layoutNodes: [], adrs: [], createItems: [], projects: [] })).filter((command) => command.gate === undefined)
+      expect(commands.length).toBeLessThan(50)
+      // jsdom has no scrollIntoView; the palette calls it for the active row.
+      Element.prototype.scrollIntoView = () => undefined
+      onTestFinished(() => {
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+      })
+      render(<PaletteBody commands={commands} empty="Nothing matches" onClose={() => undefined} />)
+      const rows = () => screen.queryAllByRole('option').map((option) => option.dataset['command'])
+      expect(rows().length).toBeGreaterThan(0)
+      expect(rows().filter((id) => id?.startsWith('manual-check'))).toEqual([])
+      expect(screen.queryAllByTestId('palette-group').map((group) => group.dataset['group'])).not.toContain('Manual check')
+      fireEvent.change(screen.getByRole('combobox'), { target: { value: 'stable' } })
+      expect(rows()).toContain('manual-check:e/07:0')
+      expect(screen.queryAllByTestId('palette-group').map((group) => group.dataset['group'])).toContain('Manual check')
+    })
   })
 })

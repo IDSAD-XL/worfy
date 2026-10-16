@@ -4,25 +4,41 @@
 // with an open blocker) stays in the list, inactive, with the reason as its tooltip — the same
 // reason the button on the Canvas shows. The ranked rows are shown in groups (groups.ts), each under
 // a heading with its name; ↑/↓ walk the rows across the groups.
+//
+// Below the commands, "In transcripts" lists the Project's Sessions whose conversation contains the
+// query (`claudeHome.search`, worfy-polish ticket 10): Sessions of worfy and those started in a
+// terminal or Claude Desktop alike. Picking one opens it in the Session view.
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
+import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-home'
 import type { ProjectView } from '../../shared/ipc/projects'
 import { useRunWaveState, useShipTicketState } from '../canvas/actions/gates'
 import { useLayout } from '../canvas/useLayout'
+import { sessionNodeId } from '../claude-home/session-nodes'
 import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
+import { invoke, readableReason } from '../ipc'
 import { isPrimary, isTerminalKey, label, shortcutKey, type KeyCombo } from '../platform'
 import { activeProject, useProjects } from '../projects/useProjects'
-import { useNavigation } from '../session/navigation'
+import { openSession, useNavigation } from '../session/navigation'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { buildCommands, type CommandGate, type PaletteCommand } from './commands'
-import { groupRows } from './groups'
+import { buildCommands, forQuery, type CommandGate, type PaletteCommand } from './commands'
+import { groupRows, type RowGroup } from './groups'
 
 /** Rows shown at most; the rest are reached by typing more. */
 const SHOWN = 50
+
+/** The pause after the last keystroke before the transcripts are searched. */
+export const TRANSCRIPT_SEARCH_DELAY_MS = 250
+
+/** The group of the transcript hits, after the groups of the commands. */
+export const TRANSCRIPTS_GROUP = 'In transcripts'
+
+/** Characters of a snippet shown before its match; the row cuts the rest at its end. */
+const SNIPPET_LEAD = 24
 
 /** ⌘K on macOS, Ctrl+K on Windows. */
 const PALETTE_KEYS: KeyCombo = { primary: true, key: 'K' }
@@ -94,9 +110,19 @@ const styles = {
   active: { background: 'var(--selected)' },
   inactive: { color: 'var(--text-muted)', cursor: 'default' },
   title: { flex: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // A row without a detail: its title has the whole row.
+  wholeTitle: { flex: 1, minWidth: 0, maxWidth: 'none' },
+  // A Manual check row: the check is a sentence that only makes sense in full, so its title wraps
+  // onto as many lines as it needs and the row grows with it.
+  wrappedRow: { height: 'auto', minHeight: 'var(--row-height)', padding: 'var(--space-1) var(--space-2)' },
+  wrappedTitle: { overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: '18px' },
+  // A transcript row: the Session's title leaves most of the row to the snippet.
+  sessionTitle: { maxWidth: '35%' },
   detail: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
   note: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-muted)' },
   message: { margin: 0, padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
+  // A line inside a group that is not a row: the state of the transcript search.
+  status: { padding: 'var(--space-1) var(--space-2)', fontSize: 'var(--text-12)', lineHeight: '16px', color: 'var(--text-muted)' },
   problem: { margin: 0, padding: 'var(--space-2) var(--space-3)', borderTop: '1px solid var(--border)', fontSize: 'var(--text-12)', color: 'var(--blocked-text)', background: 'var(--blocked-bg)' },
 } satisfies Record<string, CSSProperties>
 
@@ -111,6 +137,9 @@ function SearchIcon() {
 
 interface RowProps {
   command: PaletteCommand
+  /** A transcript hit: the detail is prose, not an id; `hint` is its tooltip. */
+  prose?: boolean | undefined
+  hint?: string | undefined
   id: string
   /** The first row of its group. */
   first: boolean
@@ -119,9 +148,22 @@ interface RowProps {
   onHover: () => void
 }
 
-function RowButton({ command, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
+/** The group whose rows wrap their title instead of cutting it. */
+const WRAPPED_GROUP = 'Manual check'
+
+function RowButton({ command, prose, hint, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
-  const tooltip = state === null ? undefined : state.enabled ? state.text : state.reason
+  // A row without an action state may have its title cut: the tooltip has it whole, unless the row
+  // brings its own (the snippet of a transcript hit).
+  const tooltip = state === null ? (hint ?? command.title) : state.enabled ? state.text : state.reason
+  const detail = command.detail ?? ''
+  const wrapped = !prose && command.group === WRAPPED_GROUP
+  const titleStyle: CSSProperties = {
+    ...styles.title,
+    ...(prose ? styles.sessionTitle : null),
+    ...(detail === '' ? styles.wholeTitle : null),
+    ...(wrapped ? styles.wrappedTitle : null),
+  }
   return (
     <li role="presentation">
       <button
@@ -136,17 +178,19 @@ function RowButton({ command, id, first, active, onPick, onHover, state }: RowPr
         data-active={active ? 'true' : 'false'}
         data-first={first ? 'true' : undefined}
         title={tooltip}
-        style={{ ...styles.row, ...(active ? styles.active : null), ...(enabled ? null : styles.inactive) }}
+        style={{ ...styles.row, ...(wrapped ? styles.wrappedRow : null), ...(active ? styles.active : null), ...(enabled ? null : styles.inactive) }}
         onMouseMove={onHover}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           if (enabled) onPick(command)
         }}
       >
-        <span style={styles.title}>{command.title}</span>
-        <span className="w-mono" style={styles.detail}>
-          {command.detail ?? ''}
-        </span>
+        <span style={titleStyle}>{command.title}</span>
+        {detail !== '' ? (
+          <span className={prose ? undefined : 'w-mono'} style={styles.detail}>
+            {detail}
+          </span>
+        ) : null}
         {state !== null && !state.enabled ? (
           <span style={styles.note} data-testid="palette-option-note">
             {state.reason}
@@ -172,10 +216,100 @@ function CommandRow(props: RowProps) {
   return gate.kind === 'ship-ticket' ? <ShipTicketRow {...props} gate={gate} /> : <RunWaveRow {...props} gate={gate} />
 }
 
+/** Where the palette searches transcripts: the Project of the palette. */
+export interface TranscriptSource {
+  projectId: string
+  projectRoot: string
+}
+
+/** The transcript search of the query in the field, as the palette shows it. */
+type TranscriptSearchState =
+  | { status: 'idle' }
+  | { status: 'searching' }
+  | { status: 'done'; hits: readonly TranscriptHit[]; limited: boolean }
+  | { status: 'failed'; reason: string }
+
+const IDLE: TranscriptSearchState = { status: 'idle' }
+const SEARCHING: TranscriptSearchState = { status: 'searching' }
+
+/** The query as main searches it: trimmed, inner whitespace collapsed. */
+const searchedText = (query: string): string => query.trim().replace(/\s+/g, ' ')
+
+/**
+ * Searches the transcripts of `source` for `query` once the query has stood still for
+ * TRANSCRIPT_SEARCH_DELAY_MS. Only the answer to the query in the field now is shown: an answer to
+ * an older query is dropped when it arrives, and one that arrived before is not shown for a new query.
+ */
+function useTranscriptSearch(source: TranscriptSource | undefined, query: string): TranscriptSearchState {
+  const root = source?.projectRoot
+  const wanted = searchedText(query)
+  const searched = root !== undefined && wanted.length >= TRANSCRIPT_SEARCH.minQuery && wanted.length <= TRANSCRIPT_SEARCH.maxQuery
+  const [answer, setAnswer] = useState<{ root: string; query: string; state: TranscriptSearchState } | null>(null)
+  useEffect(() => {
+    if (!searched) return
+    let current = true
+    const settle = (state: TranscriptSearchState) => {
+      if (current) setAnswer({ root, query: wanted, state })
+    }
+    const timer = setTimeout(() => {
+      invoke('claudeHome.search', { projectRoot: root, query: wanted }).then(
+        (result) => settle(result.ok ? { status: 'done', hits: result.value.hits, limited: result.value.limited } : { status: 'failed', reason: readableReason(result.error) }),
+        (error: unknown) => settle({ status: 'failed', reason: error instanceof Error ? error.message : String(error) }),
+      )
+    }, TRANSCRIPT_SEARCH_DELAY_MS)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [searched, root, wanted])
+  if (!searched) return IDLE
+  return answer !== null && answer.root === root && answer.query === wanted ? answer.state : SEARCHING
+}
+
+/** The part of `snippet` from a little before the match on, so the row shows the match. */
+function fromMatch(snippet: string, query: string): string {
+  const at = snippet.toLowerCase().indexOf(searchedText(query).toLowerCase())
+  if (at <= SNIPPET_LEAD) return snippet
+  return `…${snippet.slice(at - SNIPPET_LEAD).replace(/^\S*\s/, '')}`
+}
+
+const hitId = (sessionId: string): string => `transcript:${sessionId}`
+
+/** A row of a transcript hit: picking it opens the Session read from its file in the Session view. */
+function hitCommand(hit: TranscriptHit, source: TranscriptSource, query: string): PaletteCommand {
+  return {
+    id: hitId(hit.sessionId),
+    // The row stands in its own group (TRANSCRIPTS_GROUP), whatever this says; it is a "go to".
+    group: 'Go to',
+    title: hit.title ?? hit.sessionId.slice(0, 8),
+    detail: fromMatch(hit.snippet, query),
+    run: () => {
+      openSession({ nodeId: sessionNodeId(hit.sessionId), projectId: source.projectId, external: { sessionId: hit.sessionId } })
+      return undefined
+    },
+  }
+}
+
+/** The line under the transcript hits, or null when there is nothing to say. */
+function transcriptsNote(state: TranscriptSearchState): string | null {
+  switch (state.status) {
+    case 'searching':
+      return 'Searching…'
+    case 'failed':
+      return `Could not search the transcripts: ${state.reason}`
+    case 'done':
+      return state.limited ? 'Older transcripts were not searched' : null
+    case 'idle':
+      return null
+  }
+}
+
 interface BodyProps {
   commands: readonly PaletteCommand[]
   empty: string
   onClose: () => void
+  /** Where to search transcripts; none — the palette has no "In transcripts" group. */
+  transcripts?: TranscriptSource | undefined
 }
 
 interface PanelProps {
@@ -208,7 +342,8 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
       }),
     [project, projects, view, model, layout, history, docs, tagFilter, createItems],
   )
-  return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} />
+  const transcripts = useMemo(() => ({ projectId: project.id, projectRoot: project.path }), [project.id, project.path])
+  return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} transcripts={transcripts} />
 }
 
 /** Without a Project only the view commands are left. */
@@ -222,7 +357,7 @@ function EmptyPalette({ projects, onClose }: Omit<PanelProps, 'project'>) {
 }
 
 /** The field and the grouped list over `commands`; exported for the tests of the list. */
-export function PaletteBody({ commands, empty, onClose }: BodyProps) {
+export function PaletteBody({ commands, empty, onClose, transcripts }: BodyProps) {
   const listId = useId()
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLUListElement>(null)
@@ -232,10 +367,19 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
   const [running, setRunning] = useState(false)
 
   // Ranked and cut to SHOWN first, then grouped; `shown` is the rows in the order on screen, which
-  // is the order ↑/↓ walk and the index `picked` counts in.
-  const groups = useMemo(() => groupRows(rankItems(commands, query, SHOWN), (command) => command.group), [commands, query])
+  // is the order ↑/↓ walk and the index `picked` counts in. Rows for a query only (the manual
+  // checks) are left out while the field is empty.
+  const groups = useMemo(() => groupRows(rankItems(forQuery(commands, query), query, SHOWN), (command) => command.group), [commands, query])
   const shown = useMemo(() => groups.flatMap((group) => group.rows), [groups])
-  const current = Math.min(picked, Math.max(0, shown.length - 1))
+  // The transcript hits come after the commands, in a group of their own; `rows` is every row on screen.
+  const found = useTranscriptSearch(transcripts, query)
+  const hits = useMemo(() => (found.status === 'done' && transcripts !== undefined ? found.hits.map((hit) => hitCommand(hit, transcripts, query)) : []), [found, transcripts, query])
+  // The row shows the snippet from its match on; the tooltip has all of it.
+  const snippets = useMemo(() => new Map(found.status === 'done' ? found.hits.map((hit) => [hitId(hit.sessionId), hit.snippet]) : []), [found])
+  const note = transcriptsNote(found)
+  const listed = useMemo<RowGroup<PaletteCommand, string>[]>(() => (hits.length > 0 || note !== null ? [...groups, { name: TRANSCRIPTS_GROUP, rows: hits }] : groups), [groups, hits, note])
+  const rows = useMemo(() => [...shown, ...hits], [shown, hits])
+  const current = Math.min(picked, Math.max(0, rows.length - 1))
 
   useEffect(() => {
     input.current?.focus()
@@ -247,7 +391,7 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
     // The first row of a group brings its heading into view too, so the group's name is never cut off.
     if (row.dataset['first'] === 'true') row.closest('[role="group"]')?.querySelector('[data-testid="palette-group-heading"]')?.scrollIntoView({ block: 'nearest' })
     row.scrollIntoView({ block: 'nearest' })
-  }, [current, shown])
+  }, [current, rows])
 
   const pick = useCallback(
     (command: PaletteCommand) => {
@@ -274,9 +418,9 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
       onClose()
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      if (shown.length === 0) return
-      const step = event.key === 'ArrowDown' ? 1 : shown.length - 1
-      setPicked((current + step) % shown.length)
+      if (rows.length === 0) return
+      const step = event.key === 'ArrowDown' ? 1 : rows.length - 1
+      setPicked((current + step) % rows.length)
     } else if (event.key === 'Enter') {
       event.preventDefault()
       // The row decides: an inactive one ignores the click, as an inactive button does.
@@ -286,7 +430,7 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
 
   const optionId = (index: number) => `${listId}-${index}`
   // Where each group's rows start in `shown`.
-  const starts = groups.map((_, groupIndex) => groups.slice(0, groupIndex).reduce((sum, group) => sum + group.rows.length, 0))
+  const starts = listed.map((_, groupIndex) => listed.slice(0, groupIndex).reduce((sum, group) => sum + group.rows.length, 0))
 
   return createPortal(
     <>
@@ -299,7 +443,7 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
             role="combobox"
             aria-expanded="true"
             aria-controls={listId}
-            aria-activedescendant={shown.length > 0 ? optionId(current) : undefined}
+            aria-activedescendant={rows.length > 0 ? optionId(current) : undefined}
             aria-label="Search or run"
             placeholder="Search or run…"
             spellCheck={false}
@@ -317,11 +461,11 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
             esc
           </kbd>
         </div>
-        {shown.length === 0 ? (
+        {listed.length === 0 ? (
           <p style={styles.message}>{empty}</p>
         ) : (
           <ul ref={list} id={listId} role="listbox" aria-label="Commands" style={styles.list}>
-            {groups.map((group, groupIndex) => {
+            {listed.map((group, groupIndex) => {
               const headingId = `${listId}-group-${groupIndex}`
               const start = starts[groupIndex] ?? 0
               return (
@@ -333,20 +477,27 @@ export function PaletteBody({ commands, empty, onClose }: BodyProps) {
                     </li>
                     {group.rows.map((command, offset) => {
                       const index = start + offset
-                      return (
-                        <CommandRow
-                          key={command.id}
-                          id={optionId(index)}
-                          command={command}
-                          first={offset === 0}
-                          active={index === current}
-                          onPick={pick}
-                          onHover={() => {
-                            if (index !== current) setPicked(index)
-                          }}
-                        />
+                      const props: RowProps = {
+                        id: optionId(index),
+                        command,
+                        first: offset === 0,
+                        active: index === current,
+                        onPick: pick,
+                        onHover: () => {
+                          if (index !== current) setPicked(index)
+                        },
+                      }
+                      return group.name === TRANSCRIPTS_GROUP ? (
+                        <RowButton key={command.id} {...props} prose hint={snippets.get(command.id)} state={null} />
+                      ) : (
+                        <CommandRow key={command.id} {...props} />
                       )
                     })}
+                    {group.name === TRANSCRIPTS_GROUP && note !== null ? (
+                      <li role="presentation" style={styles.status} data-testid="palette-transcripts-note">
+                        {note}
+                      </li>
+                    ) : null}
                   </ul>
                 </li>
               )

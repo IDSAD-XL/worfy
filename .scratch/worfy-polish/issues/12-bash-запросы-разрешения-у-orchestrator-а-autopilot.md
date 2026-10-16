@@ -1,7 +1,7 @@
 # 12 — Запросы разрешения Bash, на которых Orchestrator Autopilot теряет ход: какие команды и что поправить
 
 Type: research
-Status: blocked — research: ведёт Session Orchestrator-а, итог — отчёт в `docs/research/`; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
+Status: done — 2026-10-15, [PR #338](https://github.com/IDSAD-XL/worfy/pull/338)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R1 и решение 2; журналы Autopilot на Mac владельца
 (`~/Library/Application Support/worfy/autopilot/*.jsonl`, только чтение);
@@ -59,6 +59,8 @@ Source: [spec.md](../spec.md), кандидат R1 и решение 2; журн
 ## Итог
 
 Отчёт: [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md).
+
+Решения владельца 2026-10-15 по «Предложениям» отчёта: 1 — Ticket [26](26-причина-и-subagent-в-отказе-разрешения-autopilot.md); 2 — `worfy-harness` 48 (правило в `harness/hooks/rules/common.md`); 3 (guard) — отложен: делать, только если правило будут нарушать; allowlist — не предлагается.
 
 **Команды.** Все четыре запроса пришли не от Orchestrator-а, а от его фоновых Subagent-ов. Claude
 Code передаёт их запросы разрешения в `canUseTool` Session-а Orchestrator-а. Пути ниже сокращены.

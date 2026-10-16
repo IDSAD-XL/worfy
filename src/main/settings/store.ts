@@ -1,8 +1,8 @@
 // The app settings of this Machine in app-settings.json of worfy's data folder (ADR-0005), read and
 // written through src/main/storage/json-file.ts: no file or an unreadable one (set aside as
 // `app-settings.json.unreadable-<time>`) gives the defaults, a field outside the schema is dropped,
-// an `interfaceScale` out of range is brought into it. A file of an older version that lacks a field
-// takes the default for that field.
+// an `interfaceScale` or an autocompact window out of range is brought into it. A file of an older
+// version that lacks a field takes the default for that field.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import {
   appSettingsSchema,
+  AUTO_COMPACT_WINDOW_DEFAULTS,
+  clampAutoCompactWindow,
   clampScale,
   defaultAppSettings,
   INTERFACE_SCALE_DEFAULT,
@@ -39,6 +41,12 @@ const appSettingsFileSchema = z.object({
         .default(() => ({ normal: true, focus: true })),
     })
     .default(() => defaultAppSettings().sidebar),
+  autoCompactWindow: z
+    .object({
+      orchestrator: z.number().nullable().transform(clampAutoCompactWindow).default(AUTO_COMPACT_WINDOW_DEFAULTS.orchestrator),
+      other: z.number().nullable().transform(clampAutoCompactWindow).default(AUTO_COMPACT_WINDOW_DEFAULTS.other),
+    })
+    .default(() => ({ ...AUTO_COMPACT_WINDOW_DEFAULTS })),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -46,8 +54,14 @@ function copy(settings: AppSettings): AppSettings {
   return {
     interfaceScale: settings.interfaceScale,
     sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
+    autoCompactWindow: { ...settings.autoCompactWindow },
     revision: settings.revision,
   }
+}
+
+/** A window of the patch brought into range; the current one when the patch leaves it out. */
+function windowAfter(current: number | null, patched: number | null | undefined): number | null {
+  return patched === undefined ? current : clampAutoCompactWindow(patched)
 }
 
 /** The settings after `patch`, with the revision unchanged. */
@@ -57,6 +71,10 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     sidebar: {
       collapsed: { ...current.sidebar.collapsed, ...patch.sidebar?.collapsed },
       visible: { ...current.sidebar.visible, ...patch.sidebar?.visible },
+    },
+    autoCompactWindow: {
+      orchestrator: windowAfter(current.autoCompactWindow.orchestrator, patch.autoCompactWindow?.orchestrator),
+      other: windowAfter(current.autoCompactWindow.other, patch.autoCompactWindow?.other),
     },
     revision: current.revision,
   }
@@ -72,6 +90,8 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
+    a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
+    a.autoCompactWindow.other === b.autoCompactWindow.other &&
     sameRecord(a.sidebar.collapsed, b.sidebar.collapsed)
   )
 }

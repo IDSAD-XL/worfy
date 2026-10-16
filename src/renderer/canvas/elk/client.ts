@@ -15,6 +15,8 @@
 import ELK from 'elkjs/lib/elk-api.js'
 import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url&no-inline'
 import { create } from 'zustand'
+import type { Ticket } from '../../../shared/workflow/types'
+import { doneOnlyInBranch } from '../../../shared/workflow/waves'
 import type { EpicLayout, LayoutTicket } from '../epic-layout'
 import { layoutEpicElk, type ElkEngine } from './layout'
 
@@ -63,13 +65,17 @@ export function setElkEngine(next: ElkEngine | null): void {
   useElkAnswers.setState({}, true)
 }
 
-/** The key of an Epic's layout inputs: what ELK's answer depends on. */
-export function elkKey(tickets: readonly LayoutTicket[], name: string): string {
+/**
+ * The key of an Epic's layout inputs: what ELK's answer depends on. A Ticket done only in its
+ * unmerged branch is not a closed blocker for the ready Wave (waves.ts), so the merge of that
+ * branch, which changes nothing but `fromBranch`, changes the key too.
+ */
+export function elkKey(tickets: readonly (LayoutTicket & Partial<Pick<Ticket, 'fromBranch'>>)[], name: string): string {
   return JSON.stringify([
     name,
     [...tickets]
       .sort((a, b) => a.num - b.num)
-      .map((t) => [t.num, t.state, t.blockedRaw, t.blockedNums, t.blockedParsed, t.files, t.filesListed]),
+      .map((t) => [t.num, t.state, doneOnlyInBranch(t), t.blockedRaw, t.blockedNums, t.blockedParsed, t.files, t.filesListed]),
   ])
 }
 

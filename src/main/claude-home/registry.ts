@@ -14,10 +14,11 @@
 //   in a folder that only starts like a subfolder of the Project is kept only when the cwd its
 //   first records name lies inside the Project.
 //
-// Nothing here writes: no cache, no marker files, no lock under the Claude home. The watcher only
-// reads directory listings.
+// Nothing here writes: no cache file, no marker files, no lock under the Claude home. The history
+// entries read from transcripts are kept in memory (HistoryCache). The watcher only reads directory
+// listings.
 import { execFile } from 'node:child_process'
-import { open, readdir, readFile } from 'node:fs/promises'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { watch, type FSWatcher } from 'chokidar'
@@ -372,7 +373,9 @@ function records(lines: readonly string[]): Record<string, unknown>[] {
 }
 
 /** The complete lines at the start and at the end of a transcript, without reading the middle. */
-async function headAndTail(path: string): Promise<{ head: Record<string, unknown>[]; tail: Record<string, unknown>[]; size: number; modifiedAt: number }> {
+async function headAndTail(
+  path: string,
+): Promise<{ head: Record<string, unknown>[]; tail: Record<string, unknown>[]; size: number; modifiedAt: number; mtimeMs: number }> {
   const file = await open(path, 'r')
   try {
     const stats = await file.stat()
@@ -387,7 +390,7 @@ async function headAndTail(path: string): Promise<{ head: Record<string, unknown
     const headLines = splitLines(head.subarray(0, head.lastIndexOf(0x0a) + 1))
     if (size <= headLength) {
       const all = records(headLines)
-      return { head: all, tail: all, size, modifiedAt: Math.trunc(stats.mtimeMs) }
+      return { head: all, tail: all, size, modifiedAt: Math.trunc(stats.mtimeMs), mtimeMs: stats.mtimeMs }
     }
     // Tail: one byte before the window tells whether it starts on a line; a partial first line is
     // dropped, and so is a last line still being written (splitLines keeps complete lines only).
@@ -395,7 +398,7 @@ async function headAndTail(path: string): Promise<{ head: Record<string, unknown
     const tail = await readRange(file, tailStart - 1, size - tailStart + 1)
     const firstBreak = tail.indexOf(0x0a)
     const tailLines = firstBreak === -1 ? [] : splitLines(tail.subarray(firstBreak + 1))
-    return { head: records(headLines), tail: records(tailLines), size, modifiedAt: Math.trunc(stats.mtimeMs) }
+    return { head: records(headLines), tail: records(tailLines), size, modifiedAt: Math.trunc(stats.mtimeMs), mtimeMs: stats.mtimeMs }
   } finally {
     await file.close()
   }
@@ -431,14 +434,46 @@ function firstPrompt(head: readonly Record<string, unknown>[]): string | undefin
   return undefined
 }
 
-async function historyEntry(path: string, sessionId: string, liveIds: ReadonlySet<string>): Promise<HistorySession | undefined> {
+/**
+ * Transcripts whose history entry is being read at once. Reading all of them in parallel brought
+ * the completions back in one batch: with 2000 transcripts the main process's event loop stood
+ * still for ~150 ms while their heads and tails were parsed. A few at a time, it gets a turn between them.
+ */
+const HISTORY_READS = 16
+
+/** `run` over `items`, at most `limit` at a time; the results in the order of `items`. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next
+      next += 1
+      results[index] = await run(items[index] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
+/** A Session of the history as its transcript tells it; whether it runs is decided per list. */
+type HistoryRecord = Omit<HistorySession, 'live'>
+
+/** A history entry, with the size and the modification time of the file when it was read. */
+interface ReadEntry {
+  size: number
+  mtimeMs: number
+  entry: HistoryRecord
+}
+
+async function historyEntry(path: string, sessionId: string): Promise<ReadEntry | undefined> {
   let read: Awaited<ReturnType<typeof headAndTail>>
   try {
     read = await headAndTail(path)
   } catch {
     return undefined // removed between the listing and the read
   }
-  const { head, tail, size, modifiedAt } = read
+  const { head, tail, size, modifiedAt, mtimeMs } = read
   const both = [...head, ...tail]
   const title =
     lastString(tail, 'custom-title', 'customTitle') ??
@@ -446,7 +481,7 @@ async function historyEntry(path: string, sessionId: string, liveIds: ReadonlySe
     lastString(tail, 'ai-title', 'aiTitle') ??
     lastString(head, 'ai-title', 'aiTitle') ??
     firstPrompt(head)
-  return dropUndefined<HistorySession>({
+  const entry = dropUndefined<HistoryRecord>({
     sessionId,
     title: title === undefined ? undefined : oneLine(title),
     firstAt: firstString(head, 'timestamp'),
@@ -456,8 +491,64 @@ async function historyEntry(path: string, sessionId: string, liveIds: ReadonlySe
     entrypoint: firstString(head, 'entrypoint'),
     size,
     modifiedAt,
-    live: liveIds.has(sessionId),
   })
+  return { size, mtimeMs, entry }
+}
+
+/**
+ * The history entries of transcripts already read, by folder and file name, in memory only. A list
+ * asks the file system for each file's size and modification time (`stat`) and reads the head and
+ * tail again only when either differs from the last read: a new, appended or rewritten transcript
+ * is seen by the very next list, without a watcher (a search of a Linked machine subscribes to no
+ * changes). Entries of files and folders that a listing no longer shows are dropped, so the cache
+ * holds no more than the transcripts that exist.
+ */
+class HistoryCache {
+  private readonly dirs = new Map<string, Map<string, ReadEntry>>()
+
+  /** Drops the folders that are not in `present`, the full listing of projects/. */
+  keepDirs(present: ReadonlySet<string>): void {
+    for (const dir of this.dirs.keys()) if (!present.has(dir)) this.dirs.delete(dir)
+  }
+
+  /** Drops the files of `dir` that are not in `names`, its listing. */
+  keepFiles(dir: string, names: ReadonlySet<string>): void {
+    const files = this.dirs.get(dir)
+    if (files === undefined) return
+    for (const name of files.keys()) if (!names.has(name)) files.delete(name)
+    if (files.size === 0) this.dirs.delete(dir)
+  }
+
+  /** The history entry of the transcript `name` in `dir`; undefined when the file is gone. */
+  async entry(dir: string, name: string, sessionId: string): Promise<HistoryRecord | undefined> {
+    const path = join(dir, name)
+    let now: { size: number; mtimeMs: number }
+    try {
+      now = await stat(path)
+    } catch {
+      this.drop(dir, name)
+      return undefined // removed since the listing
+    }
+    const known = this.dirs.get(dir)?.get(name)
+    if (known !== undefined && known.size === now.size && known.mtimeMs === now.mtimeMs) return known.entry
+    // Kept under the size and time of the read itself: a file that grew meanwhile is read once more.
+    const read = await historyEntry(path, sessionId)
+    if (read === undefined) {
+      this.drop(dir, name)
+      return undefined
+    }
+    let files = this.dirs.get(dir)
+    if (files === undefined) {
+      files = new Map()
+      this.dirs.set(dir, files)
+    }
+    files.set(name, read)
+    return read.entry
+  }
+
+  private drop(dir: string, name: string): void {
+    this.dirs.get(dir)?.delete(name)
+  }
 }
 
 /** The cwd a transcript was started in (first record that names one), or undefined. */
@@ -506,6 +597,7 @@ export class ClaudeHomeRegistry {
   readonly home: string
   private readonly listWorktrees: NonNullable<RegistryOptions['listWorktrees']>
   private readonly isAlive: NonNullable<RegistryOptions['isAlive']>
+  private readonly historyCache = new HistoryCache()
 
   constructor(options: RegistryOptions) {
     this.home = resolve(options.home)
@@ -535,6 +627,7 @@ export class ClaudeHomeRegistry {
    */
   async transcriptDirs(roots: readonly string[]): Promise<{ path: string; checkCwd: boolean }[]> {
     const entries = await listDir(this.projectsDir)
+    this.historyCache.keepDirs(new Set(entries.filter((entry) => entry.isDirectory).map((entry) => join(this.projectsDir, entry.name))))
     return entries
       .flatMap((entry) => {
         const match = entry.isDirectory ? dirMatch(entry.name, roots) : 'none'
@@ -550,22 +643,23 @@ export class ClaudeHomeRegistry {
     const liveIds = new Set(live.map((session) => session.sessionId))
     const files = (
       await Promise.all(
-        dirs.map(async ({ path: dir, checkCwd }) =>
-          (await listDir(dir)).flatMap((entry) => {
+        dirs.map(async ({ path: dir, checkCwd }) => {
+          const found = (await listDir(dir)).flatMap((entry) => {
             const match = entry.isFile ? TRANSCRIPT.exec(entry.name) : null
-            return match?.[1] ? [{ path: join(dir, entry.name), sessionId: match[1], checkCwd }] : []
-          }),
-        ),
+            return match?.[1] ? [{ dir, name: entry.name, sessionId: match[1], checkCwd }] : []
+          })
+          this.historyCache.keepFiles(dir, new Set(found.map((file) => file.name)))
+          return found
+        }),
       )
     ).flat()
     const history = (
-      await Promise.all(
-        files.map(async ({ path, sessionId, checkCwd }) => {
-          const entry = await historyEntry(path, sessionId, liveIds)
-          if (entry === undefined || !checkCwd) return entry
-          return entry.cwd !== undefined && inProject(entry.cwd, roots) ? entry : undefined
-        }),
-      )
+      await mapLimit(files, HISTORY_READS, async ({ dir, name, sessionId, checkCwd }): Promise<HistorySession | undefined> => {
+        const entry = await this.historyCache.entry(dir, name, sessionId)
+        if (entry === undefined) return undefined
+        if (checkCwd && (entry.cwd === undefined || !inProject(entry.cwd, roots))) return undefined
+        return { ...entry, live: liveIds.has(sessionId) }
+      })
     )
       .filter((entry): entry is HistorySession => entry !== undefined)
       .sort((a, b) => b.modifiedAt - a.modifiedAt || a.sessionId.localeCompare(b.sessionId))

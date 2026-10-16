@@ -57,6 +57,8 @@ const otherPairs = [
   ['--blocked-text', '--blocked-bg'],
   ['--done-text', '--done-bg'],
   ['--terminal-text', '--terminal-bg'],
+  // Colour 8 of the terminal palette (bright black): zsh draws the Terminal AI Suggestion in it.
+  ['--terminal-dim', '--terminal-bg'],
 ] as const
 
 describe('contrast helper', () => {
@@ -79,6 +81,15 @@ for (const [scheme, tokens] of [['light', light], ['dark', dark]] as const) {
     it.each([...textPairs, ...otherPairs])('%s on %s has contrast of at least 4.5:1', (foreground, background) => {
       const ratio = contrast(tokens[foreground] ?? '', tokens[background] ?? '')
       expect(ratio, `${foreground} ${tokens[foreground]} on ${background} ${tokens[background]}`).toBeGreaterThanOrEqual(4.5)
+    })
+
+    // A Suggestion has to read as a suggestion, not as typed text: colour 8 sits between the
+    // background and the text, and far enough from the text to tell the two apart.
+    it('--terminal-dim is clearly dimmer than --terminal-text', () => {
+      const [dim, text, ground] = [tokens['--terminal-dim'] ?? '', tokens['--terminal-text'] ?? '', tokens['--terminal-bg'] ?? '']
+      expect(luminance(dim), `${dim} between ${ground} and ${text}`).toBeLessThan(luminance(text))
+      expect(luminance(dim), `${dim} between ${ground} and ${text}`).toBeGreaterThan(luminance(ground))
+      expect(contrast(dim, text), `${dim} against ${text}`).toBeGreaterThanOrEqual(1.6)
     })
   })
 }

@@ -13,7 +13,7 @@ import type { RailBlockProps } from './index'
 // Binding made by hand can be removed here, as from the Node's menu on the Canvas; the automatic
 // one then applies again. "Show on Canvas" centers the Canvas on the Epic's frame.
 
-// First in the rail: before the Subagents (20) and the Limits.
+// First in the rail: before the Subagents (20).
 export const order = 10
 
 const styles = {

@@ -1,7 +1,7 @@
 # 03 — Contract test-ы не читают настоящий `~/.claude`: временный `WORFY_CLAUDE_HOME` по умолчанию
 
 Type: task
-Status: open
+Status: done — 2026-10-15, [PR #351](https://github.com/IDSAD-XL/worfy/pull/351)
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски и долги»: «[med] Contract test-ы читают
 настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23)»;
@@ -33,14 +33,14 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 
 ## Готово, когда
 
-- [ ] Прогон шага 1 (`HOME` во временной папке, `model: haiku`): `pnpm vitest run --project contract` —
-      exit 0; до правки — красный, число красных test-ов — в «Итог».
-- [ ] Test в `test/contract`: во время test-а `WORFY_CLAUDE_HOME` задан и не равен `~/.claude`
+- [x] Прогон шага 1 (`HOME` во временной папке, `model: haiku`): `pnpm vitest run --project contract` —
+      exit 0; до правки — тоже exit 0: посылка опровергнута, правка — защита на будущее (см. «Итог»).
+- [x] Test в `test/contract`: во время test-а `WORFY_CLAUDE_HOME` задан и не равен `~/.claude`
       (`os.homedir()`), и папка пустая, если test её не заполнял.
-- [ ] Test-ы отказа вне песочницы по-прежнему проверяют отказ (переменная снята у них явно).
-- [ ] Настоящий `~/.claude` не меняется: список файлов и время изменения `settings.json` до и после
+- [x] Test-ы отказа вне песочницы по-прежнему проверяют отказ (переменная снята у них явно).
+- [x] Настоящий `~/.claude` не меняется: список файлов и время изменения `settings.json` до и после
       прогона совпадают (команда и вывод — в «Итог»).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -55,6 +55,10 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 - `vitest.config.ts`
 - `test/setup-contract.ts`
 - `test/contract/claude-home-isolation.test.ts`
+- `test/global-setup-contract.ts` (дописан при работе: папка прогона, см. «Итог»)
+- `tsconfig.test.node.json` (дописан при работе: `tsc` проекта test-ов требует перечислить
+  `test/setup-contract.ts` и `test/global-setup-contract.ts`, их импортирует test изоляции —
+  ошибка TS6307 без этих строк)
 
 Только читать (не в списке, чтобы не давать ложных пересечений Wave):
 `test/contract/agent-controls.test.ts`, `src/main/claude-home/registry.ts`,
@@ -68,4 +72,77 @@ Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски �
 
 ## Итог
 
-—
+**Воспроизведение (шаг 1) на `origin/main` 12b46d8 красным не вышло.** `HOME` во временной папке,
+`.claude/settings.json` = `{"model":"haiku"}`, `.gitconfig` с `user.name` и `user.email`:
+`HOME=<tmp> node scripts/vitest-electron.mjs --project contract` — exit 0, 2278 passed, 41 skipped,
+0 failed. Десять красных test-ов из `HANDOFF.md` («Риски и долги») уже ушли: `orchestrator.test.ts` и
+`agent-controls.test.ts` сами ставят временный `WORFY_CLAUDE_HOME` (`worfy-daily` 23). Тот же прогон
+с `.claude` без прав на чтение (`chmod 000`): 2 красных, оба — timeout 15 с в
+`workflow-reader.test.ts` под нагрузкой машины, отдельным прогоном зелёные. Так что правка — защита
+на будущее: новый contract test, который забудет поставить переменную, не прочтёт `~/.claude`.
+
+**Что сделано.**
+- `test/setup-contract.ts` — `setupFiles` project-а `contract`: если `WORFY_CLAUDE_HOME` не задан
+  (пустая строка — как не задана, так же читает `claudeHome()`), ставит его на новую пустую папку
+  `claude-home-*` на файл test-ов; `afterAll` удаляет папку (`removeTestTree`) и снимает переменную,
+  если она ещё указывает на эту папку. Переменная ставится прямо в `process.env`, не через
+  `vi.stubEnv`: `vi.unstubAllEnvs()` в test-е возвращает эту папку, а не снятую переменную.
+- `test/global-setup-contract.ts` — `globalSetup` project-а `contract`: одна папка
+  `<tmpdir>/worfy-contract-claude-homes-*` на прогон (передаётся файлам через `provide`/`inject`),
+  папки файлов — внутри неё; по окончании прогона удаляется целиком. Нужна потому, что vitest не
+  запускает `afterAll` в файле, где все test-ы пропущены: первая версия без неё оставляла 6 пустых
+  папок на прогон — по одной от каждого такого файла (`cards-watch-links`, `docs-watch-root`,
+  `limits-watch-root`, `remote-guards-links`, `terminal-windows`, `workflow-watch-links`).
+  `process.once('exit')` в worker-е не сработал (проверено: папки остались). Папки прогона,
+  брошенные убитым прогоном, `vitest.config.ts` удаляет через час, как `worfy-glob-probe-*`.
+- `test/contract/claude-home-isolation.test.ts` — 6 test-ов: переменная задана в начале файла,
+  указывает на папку внутри папки прогона во временной папке системы, не на `~/.claude`, и папка
+  пустая; папка прогона удаляется вместе с папкой файла, у которого не было `afterAll`; каждый вызов
+  даёт свою папку; заданную переменную не трогает; пустая строка — как не задана; `release`
+  удаляет папку и снимает переменную только пока она указывает на неё. Test читает папку только
+  после проверки, что она во временной папке системы, и вызывает функции на своих объектах и
+  папках, не на `process.env` — настоящий `~/.claude` не читается и при провале.
+- Test-ы отказа вне песочницы: такой один — `harness-migrate.test.ts`, «the IPC of a dev build on the
+  real ~/.claude»; он уже снимает переменную сам (строки 610–611) и зелёный. Других не нашлось:
+  `grep -rn "WORFY_CLAUDE_HOME" test/contract` и сравнение прогонов до и после.
+
+**Мутанты** (в своём worktree, восстановление из копии с `cmp`), прогон
+`node scripts/vitest-electron.mjs --project contract test/contract/claude-home-isolation.test.ts`:
+- setup-файл не подключён (строка `setupFiles` убрана) — exit 1, красный «is a temporary folder of
+  its own, not ~/.claude…»;
+- папка общая (постоянное имя вместо `mkdtemp`) — exit 1, красный «gives each call a new empty
+  folder…»;
+- переменная ставится и поверх заданной (условие убрано) — exit 1, красный «leaves a folder the run
+  named as it is…»;
+- teardown папки прогона ничего не удаляет — exit 1, красный «is made in the temp directory, given to
+  the test files, and removed with every home in it at the end…».
+
+**Какие test-ы сменили поведение.** Полный `pnpm test` до правки (exit 1: 7 красных) и после
+(exit 1: 3 красных) сравнены по JSON-отчётам. Все расхождения — timeout 15 с под нагрузкой (load
+average 7–10, параллельно шли другие implementer-ы): `docs.test.ts`, `harness-script-wiring.test.ts`
+(2), `github-prs.test.ts` (2), `workflow-profile.test.ts`, `workflow-reader.test.ts` (3). Пять этих
+файлов отдельным прогоном: с правкой — 233 из 234 (timeout в `harness-script-wiring`), без —
+233 из 234 (timeout в `github-prs`); `harness-script-wiring.test.ts` один — 21 из 21 и с правкой
+(дважды), и без. Новые только 6 test-ов изоляции. На машине владельца (`model: opus[1m]`) ни один
+test поведение не сменил. После второго commit-а (папка прогона) полный прогон ещё раз (load
+average до 27): красные только timeout-ы в `docs.test.ts`, `github-prs.test.ts` (3) и
+`harness-script-wiring.test.ts` (timeout и следом лишняя строка в файле вызовов от прерванного
+test-а); эти три файла отдельно — 108 из 108 и с правкой, и без; gate fast — `[gate] зелено (fast)`.
+
+**Прогон шага 1 после правки:** exit 1 — 1 красный из 2324, timeout `workflow-reader.test.ts` под
+нагрузкой; этот файл отдельно под тем же `HOME` — exit 0, 44 из 44.
+
+**Настоящий `~/.claude` не изменился.** До и после всех прогонов:
+`stat -f '%m %N' ~/.claude/settings.json` → `1792033835 /Users/alexey/.claude/settings.json` оба раза;
+`diff <(ls -la ~/.claude | awk '{print $NF}') …` — без различий, exit 0.
+
+**Вне скоупа замечено:** project `jsdom` гоняет и `test/contract/**/*.test.tsx`, setup-файл у него
+свой (`test/setup-dom.ts`) — эти файлы переменную не получают.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `b7b5586` ([комментарий в PR #351](https://github.com/IDSAD-XL/worfy/pull/351#issuecomment-6189209631)). Verifier сам, всё с временным HOME: gate fast — код 0, `[gate] зелено (fast)`, не из кэша; на базе `12b46d8` project contract с `model: haiku` — код 0 (2278 passed): **посылка Ticket-а опровергнута**, правка — защита на будущее; на ветке — код 0, отличаются только 6 новых test-ов; мутанты (папки вне папки прогона, `release` всегда снимает переменную, `release` не удаляет папку, без `setupFiles`) — все красные; настоящий `~/.claude` не изменился. След расширен на `test/global-setup-contract.ts` и `tsconfig.test.node.json` — оправдано.
+- Мерж: база `056c32a`, head `ae74b08`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `cf8ebec`.
+- Act on, Consider, Dismissed — нет.
+- Noted ([low]): пункт шага 1 в «Готово, когда» обещал «до правки — красный» — переписан ниже по факту; в «Итог» «Новые только 5 test-ов» — их 6, исправлено. Не проверено: на Windows открытый дескриптор папки может дать EBUSY при удалении в конце файла — покажет gate Windows-ПК.

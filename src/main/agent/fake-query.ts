@@ -15,6 +15,12 @@
 //                                    the script stands, as Claude Code does while its background
 //                                    tasks run (worfy-daily ticket 29)
 //   {"fake":"stderr","text":"..."}   Claude Code writes this to its stderr
+//   {"fake":"context","usage":{...}} what getContextUsage() answers from here on: an object of the
+//                                    SDK's shape (totalTokens, rawMaxTokens, percentage,
+//                                    autoCompactThreshold, isAutoCompactEnabled, …; worfy-polish
+//                                    ticket 23). Before any such line getContextUsage() rejects, as
+//                                    a Claude Code with no usage to report
+//   {"fake":"context","error":"..."} getContextUsage() rejects with this message from here on
 //   {"fake":"crash","error":"..."}   Claude Code dies: the message iterator throws
 //   {"fake":"exit"}                  Claude Code exits quietly: the message iterator ends
 //   {"fake":"permission","toolName":"Bash","toolUseId":"toolu_…","input":{...},"suggestions":[...]}
@@ -50,6 +56,7 @@
 // reports what it gets to `record` (FakeQueryOptions): each user message whole — its text, and its
 // content as Claude Code got it, image blocks included (ticket 20) —, each control call
 // (setModel, setPermissionMode, applyFlagSettings for effort) and the settings it started with.
+// getContextUsage() is a read, not a control call, and is not recorded.
 // After setModel or setPermissionMode, its system/init messages carry the new model and mode, as
 // Claude Code's next turn does (ticket 06, question 6). Effort is not in system/init, here as in
 // Claude Code. Each answer canUseTool gave is recorded with the tool and its input. close() while
@@ -66,7 +73,8 @@ import { removeFile } from '../storage/remove'
 
 /** What the fake agent was asked to do, in the order it happened. */
 export type FakeCall =
-  | { kind: 'start'; resume: string | null; settings: SessionSettings }
+  /** `orchestrator`: present, and true, only for the Session of a Project's Orchestrator (QueryRequest.orchestrator). */
+  | { kind: 'start'; resume: string | null; settings: SessionSettings; orchestrator?: true }
   /** `text`: the message's text blocks; `content`: the message content as sent, image blocks included. */
   | { kind: 'message'; text: string; content: unknown }
   | { kind: 'setModel'; model: string | null }
@@ -89,6 +97,9 @@ const SUBSCRIPTION: AccountInfoLike = { apiProvider: 'firstParty', subscriptionT
 
 type Account = { info: AccountInfoLike } | { error: string }
 
+/** What getContextUsage() answers: the usage as the SDK gives it, or a rejection. */
+type ContextAnswer = { usage: unknown } | { error: string }
+
 /** What the head lines of a script set; absent fields keep the defaults. */
 interface FakeConfig {
   account?: Account
@@ -103,6 +114,7 @@ type Step =
   | { kind: 'wait_interrupt' }
   | { kind: 'wait_release'; name: string }
   | { kind: 'stderr'; text: string }
+  | { kind: 'context'; answer: ContextAnswer }
   | { kind: 'crash'; error: string }
   | { kind: 'exit' }
   | {
@@ -125,6 +137,7 @@ const DIRECTIVES: Record<string, (value: Record<string, unknown>) => Line> = {
   wait_interrupt: () => ({ kind: 'wait_interrupt' }),
   wait_release: (value) => ({ kind: 'wait_release', name: String(value.name ?? '') }),
   stderr: (value) => ({ kind: 'stderr', text: String(value.text ?? '') }),
+  context: (value) => ({ kind: 'context', answer: typeof value.error === 'string' ? { error: value.error } : { usage: value.usage } }),
   crash: (value) => ({ kind: 'crash', error: String(value.error ?? 'Claude Code crashed') }),
   exit: () => ({ kind: 'exit' }),
   permission: (value) => ({
@@ -274,6 +287,8 @@ class FakeQuery implements QueryHandle {
   private readonly requests = new Set<AbortController>()
   /** The file of this query's entry in the registry of live Sessions, while it stands there. */
   private registryEntry: string | null
+  /** What getContextUsage() answers, set by the last `context` line played. */
+  private context: ContextAnswer = { error: 'the fake agent has no context usage to report' }
 
   constructor(
     path: string,
@@ -293,7 +308,7 @@ class FakeQuery implements QueryHandle {
     this.commands = config.commands ?? initCommands(this.steps)
     this.model = request.settings.model
     this.permissionMode = request.settings.permissionMode
-    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings } })
+    record({ kind: 'start', resume: request.resume ?? null, settings: { ...request.settings }, ...(request.orchestrator === true ? { orchestrator: true as const } : {}) })
   }
 
   accountInfo(): Promise<AccountInfoLike> {
@@ -323,6 +338,12 @@ class FakeQuery implements QueryHandle {
 
   supportedCommands(): Promise<CommandInfoLike[]> {
     return Promise.resolve(this.commands.map((command) => ({ ...command })))
+  }
+
+  /** Answers what the last `context` line set, as it stood when called. */
+  getContextUsage(): Promise<unknown> {
+    const answer = this.context
+    return 'error' in answer ? Promise.reject(new Error(answer.error)) : Promise.resolve(structuredClone(answer.usage))
   }
 
   /** Reads the Session's input as messages arrive, like Claude Code reading its stdin. */
@@ -507,6 +528,9 @@ class FakeQuery implements QueryHandle {
             break
           case 'stderr':
             this.request.stderr(line.text)
+            break
+          case 'context':
+            this.context = line.answer
             break
           case 'crash':
             throw new Error(line.error)

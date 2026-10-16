@@ -12,7 +12,7 @@ Source: слово владельца 2026-10-15 ~06:50: «если законч
 [0005](../../docs/adr/0005-worfy-own-state-inventory.md),
 [0033](../../docs/adr/0033-autopilot-names-wave-tickets.md); Epic
 [worfy-reliability](../worfy-reliability/spec.md) — формат и соглашения.
-Ticket-ы: Epic `worfy-polish`, 12 Ticket-ов, нумерация с `01`. Шапка — тот же диалект, что у
+Ticket-ы: Epic `worfy-polish`, 26 Ticket-ов (13 добавлен 2026-10-15 днём, 14–26 — 2026-10-15 вечером по слову владельца), нумерация с `01`. Шапка — тот же диалект, что у
 worfy-reliability (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`,
 `ticket` и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -69,6 +69,17 @@ Epic готов, когда:
    (Ticket 11).
 5. Есть отчёт о запросах разрешения Bash, на которых Autopilot терял ход, с предложением правки
    (Ticket 12).
+6. e2e на Mac не забирают фокус и не видны владельцу: окно test-а показывается без активации, без
+   иконки в Dock и пропускает мышь (Ticket 13).
+7. Панель выделения не закрывает соседние Ticket-ы (14); палитра показывает полный текст ручной
+   проверки (16); «Ship ticket» не считает закрытым блокер, `done` только в невлитой ветке (18).
+8. Поиск по транскриптам не перечитывает список Session-ов на каждый запрос, замер на настоящем
+   `~/.claude` есть (17).
+9. `linked-cards` ждёт знак отказа навигации (15); причины двух flaky contract test-ов найдены и
+   устранены (20); e2e на Windows завершают сам worfy (19).
+10. Окно Session: Subagent-ы новые сверху, `done` свёрнуты (21); Limits только в toolbar (22);
+    кружок заполненности контекста (23); порог autocompact для Orchestrator-а и прочих Session-ов (24);
+    «назад» из окна Subagent-а и «Go to Orchestrator» в палитре (25).
 
 ## Решения владельца
 
@@ -82,6 +93,15 @@ Epic готов, когда:
    iTerm2. Если владелец не согласен, Ticket 02 откатывается одним revert-ом.
 2. **R1 — research.** Правка, скорее всего, в разрешениях Profile-а или Harness — это только по слову
    владельца.
+3. **Тихие окна e2e — Ticket 13.** Слово владельца 2026-10-15 ~13:10, уже не во сне: «А можно сделать
+   как-то так что бы запускаемые тесты не открывали окна на маке и не мешали мне им пользоваться?»,
+   затем «Да, заведи Ticket на тихие окна e2e в worfy-polish, пусть Autopilot возьмёт его следующим».
+4. **Ticket-ы 14–25 — слово владельца 2026-10-15 вечером**, в Session Orchestrator-а. 14–20 — его
+   ответы на вопросы по итогам Gate Wave-ов 1 и 2 (все решения без владельца подтверждены или
+   переведены в эти Ticket-ы). 21–25 — его замечания об окне Session; развилки он решил там же: группа
+   «Done (N)» свёрнута, кружок под полем ввода и считается от порога autocompact, «назад» ведёт к
+   родителю, «Go to Orchestrator» запускает Orchestrator, порог autocompact — две настройки
+   (Orchestrator 400K, прочие Session-ы 500K), действует с перезапуска Session.
 
 ## Не в этом Epic-е
 
@@ -106,8 +126,8 @@ Epic готов, когда:
 Epic-а»: сначала падающий test, только чтение чужих файлов, ручные пункты «(вручную)», Autopilot над
 worfy — только на Stable copy, без `gh auth switch`, мерж в main — по очереди. Отличия:
 
-- **Кто ведёт.** Autopilot может брать 01–11 (команда `/worfy:epic-wave tickets 01, 02, 03 of epic
-  worfy-polish`). 12 — research: его ведёт Session Orchestrator-а, итог — отчёт в `docs/research/`,
+- **Кто ведёт.** Autopilot может брать 01–11 и 13–26 (команда `/worfy:epic-wave tickets 14, 16, 18, 21, 25 of
+  epic worfy-polish`). 12 — research: его ведёт Session Orchestrator-а, итог — отчёт в `docs/research/`,
   который читает владелец. В команду Wave Autopilot 12 не входит.
 - **Конец Ticket-а** — `pr-green-ci`: PR, зелёный CI на Linux, gate full на Mac перед мержем, мерж —
   Orchestrator.
@@ -130,6 +150,13 @@ worfy — только на Stable copy, без `gh auth switch`, мерж в ma
 (маленькое, но про корректность Autopilot) и долги test-ов 06. Затем фичи: 08 (S–M), 09, 10, и 11.
 Зависимостей между Ticket-ами нет; 06 ждёт 04 только из-за общего файла `test/e2e/helpers.ts`.
 
+Ticket-ы 14–25 (добавлены 2026-10-15): сначала мелкие правки по итогам Gate — 14 (панель выделения),
+16 (текст ручной проверки в палитре), 18 («Ship ticket» и невлитая ветка), 17 (кэш списка Session-ов,
+начинается с замера). Затем окно Session по слову владельца: 21 (Subagent-ы в rail), затем 22 (убрать
+Limits из rail, общий файл с 21); 25 (назад из окна Subagent-а, «Go to Orchestrator»); 23 (кружок
+заполненности контекста), затем 24 (порог autocompact, ждёт 23). Стабильность test-ов — 15 и 20 —
+отдельно, без соседей (прогоны под нагрузкой). 19 — когда включён Windows-ПК.
+
 ## Волны
 
 Wave — Ticket-ы, которые можно брать параллельно: все блокеры закрыты, общих файлов в «Где в коде»
@@ -151,13 +178,45 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 10 | `src/main/claude-home/search.ts`, `src/main/ipc/claude-home.ts`, `src/shared/ipc/claude-home.ts`, `src/renderer/palette/CommandPalette.tsx`, `test/contract/claude-home-search.test.ts`, `test/unit/palette-transcripts.test.tsx`, `test/contract/claude-home-registry.test.ts` | 1 |
 | 11 | `src/main/ipc/checks.ts`, `src/shared/ipc/checks.ts`, `src/renderer/canvas/badges/use-checks.ts`, `test/contract/github-prs.test.ts`, `test/unit/checks-badges.test.tsx` | 1 |
 | 12 | `docs/research/2026-10-NN-bash-запросы-разрешения-autopilot.md` | 1 |
+| 13 | `src/main/quiet-windows.ts`, `src/main/window.ts`, `src/main/index.ts`, `playwright.config.ts`, `test/unit/quiet-windows.test.ts`, `test/e2e/quiet-windows.spec.ts` | 2 |
+| 14 | `src/renderer/canvas/pinning.ts`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `test/unit/pinning.test.tsx`, `test/e2e/selection-toolbar-frame.spec.ts` | 3 |
+| 15 | `test/e2e/linked-cards.spec.ts` | 3 |
+| 16 | `src/renderer/palette/CommandPalette.tsx`, `test/unit/palette-manual-check-row.test.tsx` | 3 |
+| 17 | `src/main/claude-home/search.ts`, `src/main/claude-home/registry.ts`, `test/contract/claude-home-search.test.ts`, `test/contract/claude-home-registry.test.ts` | 3 |
+| 18 | `src/shared/actions/render-template.ts`, `test/unit/launch.test.ts` | 3 |
+| 19 | `test/e2e/helpers.ts` | 3 |
+| 20 | `test/contract/harness-script-wiring.test.ts`, `test/contract/harness-drift.test.ts` | 3 |
+| 21 | `src/renderer/session/rail/SubagentsRail.tsx`, `test/unit/subagent-nodes.test.tsx`, `test/e2e/subagent-tree.spec.ts` | 3 |
+| 22 | `src/renderer/session/rail/LimitsRail.tsx`, `src/renderer/limits/LimitBar.tsx`, `src/renderer/limits/useLimits.ts`, `src/renderer/shell/toolbar/LimitsMeter.tsx`, `src/renderer/session/rail/BindingRail.tsx`, `src/renderer/session/rail/SubagentsRail.tsx`, `src/renderer/session/rail/index.ts`, `test/unit/limits-meter.test.tsx`, `test/unit/session-rail-discovery.test.tsx` | 4 |
+| 23 | `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/shared/agent/events.ts`, `src/renderer/session/composer/ContextMeter.tsx`, `test/contract/agent-context-usage.test.ts`, `test/unit/context-meter.test.tsx` | 3 |
+| 24 | `src/shared/settings/app-settings.ts`, `src/main/agent/options.ts`, `src/main/agent/session.ts`, `src/main/agent/orchestrator.ts`, `src/main/agent/fake-query.ts`, `src/renderer/settings/SessionsSection.tsx`, `test/contract/agent-autocompact.test.ts`, `test/unit/settings-sessions.test.tsx` | 4 |
+| 25 | `src/renderer/session/navigation.ts`, `src/renderer/session/ExternalSessionPanel.tsx`, `src/renderer/palette/commands.ts`, `test/unit/session-back.test.tsx`, `test/unit/palette-commands.test.tsx`, `test/e2e/session-back.spec.ts` | 3 |
+| 26 | `src/main/agent/permissions.ts`, `src/main/agent/session.ts`, `src/main/agent/fake-query.ts`, `src/shared/agent/events.ts`, `src/main/autopilot/run.ts`, `src/shared/autopilot/journal.ts`, `test/contract/permissions.test.ts`, `test/contract/autopilot.test.ts`, `test/unit/autopilot-journal.test.ts`, `test/contract/autopilot-journal.test.ts` | 5 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
 
 - **Wave 1 — 01–05 и 07–12.** Блокеров нет, общих файлов нет. Autopilot берёт из неё 01–05 и 07–11
   порциями (сначала 01–05); 12 ведёт Orchestrator.
-- **Wave 2 — 06.** Общий с 04 файл `test/e2e/helpers.ts`.
+- **Wave 2 — 06 и 13.** 06 — общий с 04 файл `test/e2e/helpers.ts`. 13 добавлен, когда Wave 1 уже шла:
+  блокеров и общих файлов у него нет, он берётся в первую Wave после текущей. `helpers.ts` он не
+  правит (env включается в `playwright.config.ts`), поэтому с 06 не пересекается.
+- **Wave 3 — 14–21, 23, 25.** Добавлены 2026-10-15 по итогам Gate Wave-ов 1 и 2 и по слову
+  владельца. Блокеров нет, общих файлов нет. Autopilot берёт их порциями:
+  - порция A — 14, 16, 18, 21, 25 (UI и правила, без нагрузки CPU);
+  - порция B — 17, 19, 23;
+  - порция C — 15 и 20 **без соседей**: их «Готово, когда» требует прогонов под нагрузкой CPU
+    (`yes > /dev/null`), а в Wave 1 такая нагрузка 04 и 05 краснила gate соседей (Gate Ticket-ов
+    04, 05).
+  19 — платформенный Ticket (ADR-0056, пункт 2): merge ждёт gate full на Windows-ПК, до того Status —
+  `blocked`, как у 13.
+- **Wave 4 — 22 и 24.** 22 — общий с 21 файл `src/renderer/session/rail/SubagentsRail.tsx` (только
+  комментарий). 24 ждёт 23 (`Blocked by: 23`) и делит с ним `src/main/agent/session.ts` и
+  `src/main/agent/fake-query.ts`.
+- **Wave 5 — 26.** Блокеров нет. С 23 (Wave 3) общие `src/main/agent/session.ts`,
+  `src/main/agent/fake-query.ts`, `src/shared/agent/events.ts` — значит, Wave 4; с 24 (Wave 4) общие
+  `src/main/agent/session.ts`, `src/main/agent/fake-query.ts` — значит, Wave 5. С 14–22 и 25 общих
+  файлов нет.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если исполнителю нужен файл вне своего списка (например,

@@ -9,6 +9,8 @@
 // stand for. "Ship ticket" and "Run wave" are the actions of ticket 23 (`actions.shipTicket`,
 // `actions.runWave`); when they exist and whether they are active is decided by the same code the
 // buttons use (canvas/actions/gates.ts), and main checks again.
+// The unchecked "(вручную)" checks of every Ticket (shared/workflow/manual-checks.ts) are rows of
+// their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
@@ -20,15 +22,15 @@ import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
-import { kindLabel, nodeTitle, type Rankable } from '../find/search-index'
+import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { invoke, windowMachine } from '../ipc'
 import { openProject } from '../projects/useProjects'
-import { setView } from '../session/navigation'
+import { openOrchestrator, setView } from '../session/navigation'
 import { openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
 
-export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project'
+export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
 /** An action of ticket 23 whose state the palette row works out, like the button on the Canvas. */
 export type CommandGate =
@@ -41,6 +43,8 @@ export interface PaletteCommand extends Rankable {
   /** Resolves to a reason when it failed (the palette shows it), to undefined when it worked. */
   run: () => Promise<string | undefined> | undefined
   gate?: CommandGate | undefined
+  /** Shown only for a query: the palette opened with an empty field leaves it out (forQuery). */
+  queryOnly?: boolean | undefined
 }
 
 /** A "New …" item of the Canvas menu (canvas/overlays/create-items.ts). */
@@ -257,7 +261,18 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
 function goToCommands({ project, model, layoutNodes, history, adrs }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
-  const commands: PaletteCommand[] = []
+  // The Orchestrator's Session view (worfy-polish ticket 25), whether it runs or not: picking the row
+  // starts an Orchestrator that does not run. Its Node's own row below centers the Canvas on it.
+  const commands: PaletteCommand[] = [
+    {
+      id: 'go-to:orchestrator',
+      group: 'Go to',
+      title: 'Orchestrator',
+      detail: 'Session view',
+      keys: ['orchestrator', 'go to orchestrator'],
+      run: () => openOrchestrator(projectId),
+    },
+  ]
   if (model && model.error === null) {
     for (const epic of model.epics) {
       commands.push({
@@ -324,9 +339,39 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
 }
 
 /**
+ * A row per unchecked "(вручную)" check of every Ticket of the Project: "<epic> NN · <text>".
+ * Picking it goes to the Ticket's Node, as the Ticket's own "Go to" row does. Rows only for a query:
+ * dozens of open checks would bury the other commands of the empty palette.
+ */
+function manualCheckCommands({ project, model }: CommandContext): PaletteCommand[] {
+  if (!project || !model || model.error !== null) return []
+  const projectId = project.id
+  const commands: PaletteCommand[] = []
+  for (const ticket of model.tickets) {
+    const ref = `${ticket.epic}/${nn(ticket.num)}`
+    ;(ticket.manualChecks ?? []).forEach((check, index) => {
+      if (check.checked) return
+      commands.push({
+        id: `manual-check:${ref}:${index}`,
+        group: 'Manual check',
+        title: `${ticket.epic} ${nn(ticket.num)} · ${check.text}`,
+        queryOnly: true,
+        run: () => goToNode(projectId, { id: ticketNodeId(ticket.epic, ticket.num), hidden: false }, epicNodeId(ticket.epic)),
+      })
+    })
+  }
+  return commands
+}
+
+/** The commands the palette ranks for `query`: with an empty field, those without `queryOnly`. */
+export function forQuery(commands: readonly PaletteCommand[], query: string): readonly PaletteCommand[] {
+  return normalizeQuery(query) === '' ? commands.filter((command) => command.queryOnly !== true) : commands
+}
+
+/**
  * Every command for the window as it is now. With an empty query the palette shows them in this
  * order: actions, the view, then the things to go to.
  */
 export function buildCommands(context: CommandContext): PaletteCommand[] {
-  return [...actionCommands(context), ...viewCommands(context), ...workflowActionCommands(context), ...goToCommands(context)]
+  return [...actionCommands(context), ...viewCommands(context), ...workflowActionCommands(context), ...goToCommands(context), ...manualCheckCommands(context)]
 }

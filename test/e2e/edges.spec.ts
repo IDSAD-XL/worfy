@@ -112,6 +112,25 @@ const drawn = (window: Page, focus: 'lit' | 'pale'): Promise<string[]> =>
     .locator(`[data-testid^="rf__edge-blocks:"] path.react-flow__edge-path[data-focus="${focus}"]`)
     .evaluateAll((paths) => paths.map((path) => path.getAttribute('id') ?? '').sort())
 
+/** The drawn line of an Edge. */
+const edgePath = (window: Page, id: string): Locator => window.locator(`[data-testid="rf__edge-${id}"] path.react-flow__edge-path`)
+
+/** The computed stroke colour of a line; empty while the path has no computed style yet. */
+const stroke = (path: Locator): Promise<string> =>
+  path.evaluate((element) => (globalThis as unknown as { getComputedStyle(e: object): { stroke: string } }).getComputedStyle(element).stroke)
+
+/** The pale Edges' colour token, `#rrggbb`; read until the stylesheet has set it. */
+async function paleToken(window: Page): Promise<string> {
+  const read = (): Promise<string> =>
+    window.evaluate(() => {
+      const page = globalThis as unknown as { getComputedStyle(e: object): { getPropertyValue(name: string): string }; document: { documentElement: object } }
+      return page.getComputedStyle(page.document.documentElement).getPropertyValue('--border-strong').trim()
+    })
+  let token = ''
+  await expect.poll(async () => (token = await read()), { message: 'the --border-strong token is set' }).toMatch(/^#[0-9a-f]{6}$/i)
+  return token
+}
+
 /** The pointer on the empty plane, at the Canvas's bottom-left corner, off every Node. */
 async function awayFromNodes(window: Page): Promise<void> {
   const pane = await window.locator('.react-flow').boundingBox()
@@ -185,16 +204,14 @@ test('Edges are thin and pale, those from done Tickets hidden; hovering a Ticket
 
     // Default: the Edges from done Tickets are not drawn; the others are pale, 1 px, in the pale token.
     await expect.poll(() => drawn(window, 'pale')).toEqual(waiting)
-    expect(await drawn(window, 'lit')).toEqual([])
-    const style = await window
-      .locator(`[data-testid="rf__edge-${waiting[0]}"] path.react-flow__edge-path`)
-      .evaluate((path) => {
-        const page = globalThis as unknown as { getComputedStyle(e: object): { strokeWidth: string; stroke: string }; document: { documentElement: object } }
-        const tokens = page.getComputedStyle(page.document.documentElement) as unknown as { getPropertyValue(name: string): string }
-        return { width: page.getComputedStyle(path).strokeWidth, stroke: page.getComputedStyle(path).stroke, token: tokens.getPropertyValue('--border-strong').trim() }
-      })
-    expect(style.width).toBe('1px')
-    expect(style.stroke).toBe(hexToRgb(style.token))
+    await expect.poll(() => drawn(window, 'lit')).toEqual([])
+    // The style is read until it is there: a path React Flow has just replaced has no computed
+    // style yet (an empty stroke width), and a single read caught that under load.
+    const token = await paleToken(window)
+    const paleStroke = hexToRgb(token)
+    const palePath = edgePath(window, waiting[0]!)
+    await expect(palePath).toHaveCSS('stroke-width', '1px')
+    await expect(palePath).toHaveCSS('stroke', paleStroke)
     const quiet = await snapshotThemes(window, 'edges-default')
     console.log(`edges by default: ${quiet.light} ${quiet.dark}`)
 
@@ -208,18 +225,21 @@ test('Edges are thin and pale, those from done Tickets hidden; hovering a Ticket
     test.info().annotations.push({ type: 'perf', description: `hoverToLit=${ms}ms` })
     expect(ms).toBeLessThanOrEqual(100)
     await expect.poll(() => drawn(window, 'lit')).toEqual(chainOf4)
-    expect(await drawn(window, 'pale')).toEqual(waiting.filter((id) => !chainOf4.includes(id)))
-    const lit = await window
-      .locator(`[data-testid="rf__edge-${edgeId(5, 8)}"] path.react-flow__edge-path`)
-      .evaluate((path) => (globalThis as unknown as { getComputedStyle(e: object): { stroke: string } }).getComputedStyle(path).stroke)
-    expect(lit).not.toBe(style.stroke)
+    await expect.poll(() => drawn(window, 'pale')).toEqual(waiting.filter((id) => !chainOf4.includes(id)))
+    // A lit line has a colour of its own: polled until the path has one, and it is not the pale one.
+    await expect
+      .poll(async () => {
+        const value = await stroke(edgePath(window, edgeId(5, 8)))
+        return { stroke: value, pale: value === paleStroke }
+      })
+      .toEqual({ stroke: expect.stringMatching(/^rgb/), pale: false })
     const hovered = await snapshotThemes(window, 'edges-chain')
     console.log(`edges, chain of 04: ${hovered.light} ${hovered.dark}`)
 
     // The pointer leaves: back to the default.
     await awayFromNodes(window)
     await expect.poll(() => drawn(window, 'lit')).toEqual([])
-    expect(await drawn(window, 'pale')).toEqual(waiting)
+    await expect.poll(() => drawn(window, 'pale')).toEqual(waiting)
 
     // A selected Ticket keeps its chain lit; hovering another adds that one's chain.
     await ticketNode(window, 4).click()
@@ -232,7 +252,7 @@ test('Edges are thin and pale, those from done Tickets hidden; hovering a Ticket
     // Clicking the empty plane clears the selection, and the chain with it.
     await window.mouse.click(...(await emptySpot(window)))
     await expect.poll(() => drawn(window, 'lit')).toEqual([])
-    expect(await drawn(window, 'pale')).toEqual(waiting)
+    await expect.poll(() => drawn(window, 'pale')).toEqual(waiting)
 
     // A closer look for the reviewer: Ticket 04 selected, zoomed in on it.
     await ticketNode(window, 4).click()

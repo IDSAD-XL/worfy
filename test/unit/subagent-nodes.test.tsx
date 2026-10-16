@@ -346,7 +346,9 @@ describe('status label', () => {
 describe('SubagentsList', () => {
   it('lists the tree with statuses, nested Subagents indented, and opens a row', () => {
     const onOpen = vi.fn()
-    render(<SubagentsList tree={tree7(RUNNING_AT)} now={Date.parse('2026-06-01T10:01:10.000Z')} onOpen={onOpen} />)
+    render(<SubagentsList tree={tree7(RUNNING_AT)} now={Date.parse('2026-06-01T10:01:10.000Z')} onOpen={onOpen} sessionKey="list-7777" />)
+    expect(screen.getAllByTestId('subagents-rail-row')).toHaveLength(2)
+    fireEvent.click(screen.getByTestId('subagents-rail-done'))
     const rows = screen.getAllByTestId('subagents-rail-row')
     expect(rows.map((row) => [row.dataset.subagentId, row.dataset.status, row.textContent])).toEqual([
       ['a3000000000000286', 'running', '•impl-08 · implementerrunning 1m 05s'],
@@ -361,7 +363,7 @@ describe('SubagentsList', () => {
   it('shows the types of the `worfy` plugin without the plugin, the full type in the tooltip', () => {
     const [first] = tree7(RUNNING_AT)
     const tree = [{ ...first!, subagentType: 'worfy:implementer', children: [] }, { ...first!, id: 'x', agentId: 'ax', name: null, subagentType: 'worfy:scout', children: [] }]
-    render(<SubagentsList tree={tree} now={Date.parse('2026-06-01T10:01:10.000Z')} onOpen={() => undefined} />)
+    render(<SubagentsList tree={tree} now={Date.parse('2026-06-01T10:01:10.000Z')} onOpen={() => undefined} sessionKey="list-types" />)
     const names = screen.getAllByTestId('subagents-rail-name')
     expect(names.map((name) => [name.textContent, name.title])).toEqual([
       ['impl-08 · implementer', 'worfy:implementer'],
@@ -370,11 +372,92 @@ describe('SubagentsList', () => {
   })
 
   it('says so when the Session has no Subagents', () => {
-    render(<SubagentsList tree={[]} now={0} onOpen={() => undefined} />)
+    render(<SubagentsList tree={[]} now={0} onOpen={() => undefined} sessionKey="list-empty" />)
     expect(screen.getByTestId('subagents-rail').textContent).toContain('No Subagents yet')
+    expect(screen.queryByTestId('subagents-rail-done')).toBeNull()
     expect(flattenSubagents([])).toEqual([])
   })
+
+  it('puts the newest first and folds the done ones into a closed "Done (N)" group', () => {
+    const tree = settled([
+      sub('old', 'done', 1000),
+      sub('mid', 'running', 2000),
+      sub('new', 'done', 3000, [sub('new-child', 'running', 3500)]),
+    ])
+    render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-fold" />)
+    expect(railIds()).toEqual(['mid'])
+    const group = screen.getByTestId('subagents-rail-done')
+    expect(group.tagName).toBe('BUTTON')
+    expect(group.textContent).toBe('Done (2)')
+    expect(group.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(group)
+    expect(group.getAttribute('aria-expanded')).toBe('true')
+    // Both done ones, newest first, each with its whole subtree under it.
+    expect(railIds()).toEqual(['mid', 'new', 'new-child', 'old'])
+    expect(document.getElementById(group.getAttribute('aria-controls')!)?.contains(screen.getAllByTestId('subagents-rail-row')[1]!)).toBe(true)
+    fireEvent.click(group)
+    expect(group.getAttribute('aria-expanded')).toBe('false')
+    expect(railIds()).toEqual(['mid'])
+  })
+
+  it('keeps running and error ones above the group, newest first on every level, the ones without a start last', () => {
+    const tree = settled([
+      sub('err', 'error', 1000),
+      sub('nostart', 'running', null),
+      sub('run', 'running', 2000, [sub('child-old', 'done', 2100), sub('child-nostart', 'running', null), sub('child-new', 'error', 2200)]),
+      sub('done', 'done', 4000),
+    ])
+    render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-order" />)
+    expect(railIds()).toEqual(['run', 'child-new', 'child-old', 'child-nostart', 'err', 'nostart'])
+    expect(screen.getByTestId('subagents-rail-done').textContent).toBe('Done (1)')
+  })
+
+  it('remembers the group open per Session while the window runs', () => {
+    const tree = settled([sub('a', 'done', 1000), sub('b', 'done', 2000)])
+    const view = render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-s1" />)
+    expect(railIds()).toEqual([])
+    expect(screen.getByTestId('subagents-rail').textContent).not.toContain('No Subagents yet')
+    fireEvent.click(screen.getByTestId('subagents-rail-done'))
+    expect(railIds()).toEqual(['b', 'a'])
+    view.rerender(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-s2" />)
+    expect(screen.getByTestId('subagents-rail-done').getAttribute('aria-expanded')).toBe('false')
+    expect(railIds()).toEqual([])
+    view.unmount()
+    render(<SubagentsList tree={tree} now={10_000} onOpen={() => undefined} sessionKey="list-s1" />)
+    expect(screen.getByTestId('subagents-rail-done').getAttribute('aria-expanded')).toBe('true')
+    expect(railIds()).toEqual(['b', 'a'])
+  })
 })
+
+/** A Subagent of a hand-made tree; `settled` gives the depths. */
+function sub(id: string, status: SubagentInfo['status'], startedAt: number | null, children: SubagentInfo[] = []): SubagentInfo {
+  return {
+    id,
+    agentId: id,
+    toolUseId: null,
+    parentAgentId: null,
+    name: id,
+    subagentType: null,
+    model: null,
+    description: null,
+    status,
+    background: true,
+    startedAt,
+    durationMs: null,
+    summary: null,
+    verdict: null,
+    depth: 1,
+    transcript: true,
+    children,
+  }
+}
+/** The tree in the order buildSubagentTree gives it: oldest first on each level, without a start last. */
+function settled(list: SubagentInfo[], depth = 1): SubagentInfo[] {
+  return [...list]
+    .sort((a, b) => (a.startedAt ?? Number.POSITIVE_INFINITY) - (b.startedAt ?? Number.POSITIVE_INFINITY))
+    .map((info) => ({ ...info, depth, children: settled(info.children, depth + 1) }))
+}
+const railIds = (): (string | undefined)[] => screen.queryAllByTestId('subagents-rail-row').map((row) => row.dataset.subagentId)
 
 describe('the Subagent row of a transcript', () => {
   it('shows the type of a `worfy` plugin Subagent without the plugin, the full type in the tooltip', () => {

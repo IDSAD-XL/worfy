@@ -231,4 +231,24 @@ describe('the palette list', () => {
     const gated = screen.getAllByTestId('palette-option').find((option) => option.dataset['command'] === 'ship-ticket:e/08')!
     expect(gated.getAttribute('aria-disabled')).toBe('true')
   })
+
+  it('shows 50 rows at most, cut by rank before grouping: the 5 better rows of a small group are not pushed out by a big one', () => {
+    // 60 commands for "deploy". Go to has the best row ("Deploy", an exact prefix) and 54 rows that
+    // only match a word inside the title; Action has 5 rows that start with the query, second best.
+    // Ranked and cut to 50: "Deploy", the 5 Action rows, 44 more of Go to. Grouped first and cut
+    // after, the 55 rows of Go to — the group of the best row, so the first — would fill all 50.
+    const goTo = [command('go:best', 'Go to', 'Deploy'), ...Array.from({ length: 54 }, (_, index) => command(`go:${index + 1}`, 'Go to', `Open deploy log ${String(index + 1).padStart(2, '0')}`))]
+    const action = Array.from({ length: 5 }, (_, index) => command(`action:${index + 1}`, 'Action', `Deploy now ${index + 1}`))
+    // Built with the Action rows last, so the order they were built in would leave them out too.
+    render(<PaletteBody commands={[...goTo, ...action]} empty="Nothing matches" onClose={() => undefined} />)
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'deploy' } })
+    const shown = options().map((option) => option.dataset['command'])
+    expect(shown).toHaveLength(50)
+    expect(shown).toEqual(expect.arrayContaining(['go:best', ...action.map((each) => each.id)]))
+    expect(screen.getAllByTestId('palette-group-heading').map((heading) => heading.textContent)).toEqual(['Go to', 'Action'])
+    expect(within(screen.getByRole('group', { name: 'Go to' })).getAllByRole('option')).toHaveLength(45)
+    // The last 10 rows of Go to by rank are the ones cut.
+    expect(shown).not.toContain('go:45')
+    expect(shown).toContain('go:44')
+  })
 })

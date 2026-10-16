@@ -1,4 +1,4 @@
-// The Limits for the toolbar and the Session rail: what main knows (`limits.open`), kept current
+// The Limits for the toolbar: what main knows (`limits.open`), kept current
 // through `limits.changed`, and a clock that redraws the bars so "as of" appears in time.
 import { useEffect, useState } from 'react'
 import { emptyLimits, type LimitsState } from '../../shared/agent/limits'

@@ -22,12 +22,13 @@ function removeStaleProbes(dir: string): void {
 removeStaleProbes(join(import.meta.dirname, 'src'))
 
 // test/unit/glob-probe.tsx builds its copies of src/ modules in temporary directories named
-// worfy-glob-probe-*, and a killed run leaves them behind. One older than an hour belongs to no
-// run still going (a whole run takes minutes), so it is deleted; younger ones may belong to a
+// worfy-glob-probe-*, and test/global-setup-contract.ts makes the folder of a run's Claude homes,
+// worfy-contract-claude-homes-*; a killed run leaves them behind. One older than an hour belongs to
+// no run still going (a whole run takes minutes), so it is deleted; younger ones may belong to a
 // run in another checkout and stay.
 const tempDir = realpathSync(tmpdir())
 for (const name of readdirSync(tempDir)) {
-  if (!name.startsWith('worfy-glob-probe-')) continue
+  if (!name.startsWith('worfy-glob-probe-') && !name.startsWith('worfy-contract-claude-homes-')) continue
   const path = join(tempDir, name)
   try {
     if (Date.now() - statSync(path).mtimeMs > 60 * 60 * 1000) rmSync(path, { recursive: true, force: true })
@@ -65,6 +66,11 @@ export default defineConfig({
           // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
           // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s.
           testTimeout: 15_000,
+          // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
+          // test reads the ~/.claude of the machine it runs on; the homes lie in one folder per run,
+          // removed at its end.
+          globalSetup: ['test/global-setup-contract.ts'],
+          setupFiles: ['test/setup-contract.ts'],
         },
       },
       {

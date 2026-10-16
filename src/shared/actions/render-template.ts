@@ -16,7 +16,7 @@
 // turning into an empty string: the agent would get a command with a hole in it.
 import { ACTION_LABELS, AUTOPILOT_TEMPLATE_HINT, isActionConfigured, namesWaveTickets, PLACEHOLDERS, unknownPlaceholders, type Action, type Placeholder } from '../projects/action-templates'
 import type { Ticket } from '../workflow/types'
-import { readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
+import { doneOnlyInBranch, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
 
 /** The values one action has; a placeholder without one cannot be rendered. */
 export type TemplateValues = Partial<Record<Placeholder, string>>
@@ -111,22 +111,32 @@ const STATE_REASONS: Readonly<Record<Exclude<Ticket['state'], 'open'>, string>> 
 
 type ShipTicket = Pick<Ticket, 'epic' | 'num' | 'slug' | 'state' | 'blockedNums' | 'blockedParsed' | 'blockedRaw'>
 
+/** A Ticket as a blocker of "Ship ticket". Absent or null `fromBranch`: the status comes from the checkout. */
+type BlockerTicket = Pick<Ticket, 'epic' | 'num' | 'state'> & Partial<Pick<Ticket, 'fromBranch'>>
+
 /** The reason on "Ship ticket" while a Session it launched for the Ticket is still live. */
 export const launchedHint = (num: number): string => `Ship ticket already started a Session for ${ticketNumber(num)}; close that Session to start another`
 
 /**
  * "Ship ticket": the Ticket is open, no Session launched for it is still live (`launched`, kept by
  * main: the Ticket stays open until the launched agent runs `ticket claim`), every Ticket that
- * blocks it is done, and the Project's template is set and renders. `tickets` are the Project's
- * Tickets (other Epics are ignored).
+ * blocks it is done in the checkout, and the Project's template is set and renders. `tickets` are
+ * the Project's Tickets (other Epics are ignored). A blocker done only in its unmerged worktree
+ * branch (`fromBranch`, ADR-0033) is still open, as for the Wave: the new Session starts from the
+ * main branch, which does not have the blocker's code yet. Without `fromBranch` a Ticket's status
+ * comes from the checkout.
  */
-export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly Pick<Ticket, 'epic' | 'num' | 'state'>[]; template: string; branch: string | null; launched?: boolean }): ActionState {
+export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly BlockerTicket[]; template: string; branch: string | null; launched?: boolean }): ActionState {
   const { ticket, tickets, template, branch, launched = false } = input
   if (ticket.state !== 'open') return { enabled: false, reason: STATE_REASONS[ticket.state] }
   if (launched) return { enabled: false, reason: launchedHint(ticket.num) }
   if (!ticket.blockedParsed) return { enabled: false, reason: `“Blocked by: ${ticket.blockedRaw ?? ''}” is not a list of tickets` }
-  const open = ticket.blockedNums.filter((num) => tickets.find((each) => each.epic === ticket.epic && each.num === num)?.state !== 'done')
-  if (open.length > 0) return { enabled: false, reason: `blocked by ${open.map(ticketNumber).join(', ')}` }
+  const open = ticket.blockedNums.flatMap((num) => {
+    const blocker = tickets.find((each) => each.epic === ticket.epic && each.num === num)
+    if (blocker && doneOnlyInBranch(blocker)) return [`${ticketNumber(num)} (done in branch ${blocker.fromBranch}, not merged)`]
+    return blocker?.state === 'done' ? [] : [ticketNumber(num)]
+  })
+  if (open.length > 0) return { enabled: false, reason: `blocked by ${open.join(', ')}` }
   if (!isActionConfigured(template)) return { enabled: false, reason: emptyTemplateHint('shipTicket') }
   const rendered = renderTemplate(template, ticketValues(ticket, branch), 'shipTicket')
   return rendered.ok ? { enabled: true, text: rendered.text } : { enabled: false, reason: rendered.error }

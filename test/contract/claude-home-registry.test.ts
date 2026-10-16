@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { appendFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -613,6 +613,36 @@ describe('Session history', () => {
     expect(entry).toMatchObject({ title: 'Big first prompt', firstAt: '2026-06-01T00:00:00.000Z', lastAt: '2026-06-02T00:00:00.000Z', gitBranch: 'feature' })
   })
 
+  it('sees a new, an appended, a rewritten and a removed transcript in the next list, and reads an unchanged one only once', async () => {
+    const home = await copyOfFixture()
+    const dir = join(home, 'projects', '-Users-test-projects-demo')
+    const s5 = join(dir, `${S5}.jsonl`)
+    const then = new Date('2026-06-01T00:00:00.000Z')
+    await utimes(s5, then, then)
+    const registry = new ClaudeHomeRegistry({ home, listWorktrees: noWorktrees, isAlive: alive() })
+    const titles = async () => new Map((await registry.sessions(DEMO)).history.map((entry) => [entry.sessionId, entry.title]))
+    expect((await titles()).get(S5)).toBe('Synthetic wave run')
+
+    // Other words of the same length, under the same size and modification time: not read again.
+    const text = await readFile(s5, 'utf8')
+    await writeFile(s5, text.replace('Synthetic wave run', 'Synthetic wove run'))
+    await utimes(s5, then, then)
+    await appendFile(join(dir, `${S1}.jsonl`), `${JSON.stringify({ type: 'custom-title', customTitle: 'Renamed after the first list' })}\n`)
+    await writeFile(join(dir, 'new-1.jsonl'), `${userLine('A Session started after the first list', DEMO, 'n1')}\n`)
+    await rm(join(dir, `${S2}.jsonl`))
+    const second = await titles()
+    expect(second.get(S5)).toBe('Synthetic wave run')
+    expect(second.get(S1)).toBe('Renamed after the first list')
+    expect(second.get('new-1')).toBe('A Session started after the first list')
+    expect(second.has(S2)).toBe(false)
+
+    // Only the modification time moved: read again.
+    const later = new Date('2026-06-02T00:00:00.000Z')
+    await utimes(s5, later, later)
+    const third = (await registry.sessions(DEMO)).history.find((entry) => entry.sessionId === S5)
+    expect(third).toMatchObject({ title: 'Synthetic wove run', modifiedAt: later.getTime() })
+  })
+
   it('builds the history index of an Auction-sized Project in at most one second', async () => {
     // Auction (ticket 09, "Объёмы"): 88 Sessions in the root and the rest in worktrees. Files are
     // larger than the head and tail windows, so the list has to skip their middles.
@@ -837,6 +867,7 @@ describe('claudeHome IPC channels', () => {
     expect([...handlers.keys()].sort()).toEqual([
       'worfy:claudeHome.close',
       'worfy:claudeHome.live',
+      'worfy:claudeHome.search',
       'worfy:claudeHome.sessions',
       'worfy:claudeHome.subagentTranscript',
       'worfy:claudeHome.subagents',
@@ -856,6 +887,9 @@ describe('claudeHome IPC channels', () => {
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: `${S1}/x` }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: S1, cursor: { offset: -1, fileId: null } }],
     ['claudeHome.transcript', { projectRoot: DEMO, sessionId: S1, maxBytes: 0 }],
+    ['claudeHome.search', { projectRoot: DEMO, query: 'ab' }],
+    ['claudeHome.search', { projectRoot: 'relative/path', query: 'synthetic' }],
+    ['claudeHome.search', { projectRoot: DEMO, query: 'x'.repeat(201) }],
   ])('rejects %s with input %j', async (channel, input) => {
     const { call } = await ipcOver(new ClaudeHomeRegistry({ home: FIXTURE, listWorktrees: noWorktrees, isAlive: alive() }))
     const result = await call(channel, input)

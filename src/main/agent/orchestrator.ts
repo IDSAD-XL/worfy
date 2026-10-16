@@ -377,7 +377,9 @@ export class Orchestrators {
       statusBlock: facts.statusBlock,
     })
     try {
-      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, entry.launch, after)
+      // Marked as the Orchestrator for its autocompact window; the launch kept in the entry stays as it is.
+      const launch = { ...entry.launch, orchestrator: true }
+      run.session = this.deps.registry.start(entry.path, resume, (sessionId, event) => this.onEvent(entry, run, sessionId, event), entry.settings, launch, after)
     } catch (error) {
       // E.g. the session is already live in another Session; the next open tries again.
       run.current = false

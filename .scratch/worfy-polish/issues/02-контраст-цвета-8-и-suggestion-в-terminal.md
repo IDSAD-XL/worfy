@@ -1,7 +1,8 @@
 # 02 — Цвет 8 Terminal-а и серый Suggestion Terminal AI: контраст ≥ 4,5:1 в обеих темах
 
 Type: task
-Status: open
+Status: done — 2026-10-15, [PR #347](https://github.com/IDSAD-XL/worfy/pull/347)
+Branch: worfy-polish/02
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Итог»
 [`worfy-terminal-ai` 03](../../worfy-terminal-ai/issues/03-zle-widget-socket-и-suggestion-из-истории.md),
@@ -31,13 +32,13 @@ Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Ито
 
 ## Готово, когда
 
-- [ ] `test/unit/contrast.test.ts`: `--terminal-dim` на `--terminal-bg` ≥ 4,5:1 в обеих темах, и тусклее
+- [x] `test/unit/contrast.test.ts`: `--terminal-dim` на `--terminal-bg` ≥ 4,5:1 в обеих темах, и тусклее
       `--terminal-text`.
-- [ ] Unit test: `themeOf` отдаёт `brightBlack` из токена текущей темы.
-- [ ] e2e `terminal-ai-suggest` зелёный; снимок Suggestion в светлой и тёмной теме — в «Итог».
-- [ ] (вручную) Stable copy: `ls --color` и `git log --oneline --decorate` в Terminal-е — цвет 8 читается
+- [x] Unit test: `themeOf` отдаёт `brightBlack` из токена текущей темы.
+- [x] e2e `terminal-ai-suggest` зелёный; снимок Suggestion в светлой и тёмной теме — в «Итог».
+- [ ] (вручную; не проверено: шаг владельца на Stable copy после влития) Stable copy: `ls --color` и `git log --oneline --decorate` в Terminal-е — цвет 8 читается
       в обеих темах.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`; Linux CI зелёный.
 
 ## Тесты
@@ -73,4 +74,54 @@ Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Ито
 
 ## Итог
 
-—
+Токен `--terminal-dim` (`src/renderer/theme/tokens.css`): `#8E8E93` в светлой теме, `#9C968D` в
+тёмной. `themeOf` (`src/renderer/canvas/nodes/TerminalNode.tsx`) отдаёт его xterm.js как
+`brightBlack` — цвет 8, которым zsh рисует Suggestion (`fg=8`, zsh-код не менялся). Строка
+«terminal node» в `docs/design/F-SPEC.md` называет цвет 8 обеих тем.
+
+| Тема | Фон | Цвет 8 был (`#555753`, по умолчанию xterm.js) | Цвет 8 стал | Цвет 8 к тексту |
+| --- | --- | --- | --- | --- |
+| светлая | `#1D1D1F` | 2,30:1 | `#8E8E93` — 5,16:1 | 2,60:1 |
+| тёмная | `#0B0A09` | 2,71:1 | `#9C968D` — 6,75:1 | 2,40:1 |
+
+Тёмной теме дан тёплый серый палитры Graphite (тот же, что `--text-muted`), а не `#8E8E93`
+из примера Ticket-а: к тёплому тексту `#ECE8E1` он ближе по тону. **Решено без владельца,
+подтвердить.**
+
+`themeOf` не вынесен в экспорт: правило ESLint `react-refresh/only-export-components` не даёт
+экспортировать функцию из файла компонента, а `terminal-views.ts` вне «Где в коде». Test проверяет
+`themeOf` через сам Node: подменный `Terminal` xterm.js хранит свои `options`, и видно и тему при
+создании, и тему после смены системной темы.
+
+Test-ы:
+- `test/unit/contrast.test.ts` — пара `--terminal-dim` / `--terminal-bg` ≥ 4,5:1 в обеих темах и
+  test «--terminal-dim is clearly dimmer than --terminal-text»: яркость цвета 8 между фоном и текстом,
+  контраст с текстом ≥ 1,6:1.
+- `test/unit/terminal-theme.test.tsx` (новый) — на странице настоящие токены одной темы, затем
+  другой: `brightBlack`, фон и текст xterm.js совпадают с токенами светлой и тёмной темы; смена
+  системной темы перекрашивает тот же Terminal (новый не создаётся) и обратно.
+
+Мутанты (на копиях, восстановлены с `cmp`): `brightBlack` не задан — красные три test-а
+`terminal-theme`; `brightBlack` из `--terminal-text` — те же три; `--terminal-dim` `#555753` в
+светлой или в тёмной теме — красная пара контраста своей темы; `--terminal-dim` равен
+`--terminal-text` — красный test «dimmer»; смена темы не обновляет `options.theme` — красный test
+смены темы.
+
+e2e `test/e2e/terminal-ai-suggest.spec.ts` на собранном приложении — код 0. Снимки Suggestion и
+строки цвета 8 (`printf '\e[90m…'`) после правки; цвет серых ячеек на экране — `rgb(142, 142, 147)`
+в светлой теме и `rgb(156, 150, 141)` в тёмной, до правки `rgb(85, 87, 83)` в обеих:
+
+![Suggestion, светлая тема](../evidence/02-suggest-light.png)
+![Suggestion, тёмная тема](../evidence/02-suggest-dark.png)
+
+Откат: если владелец решит иначе (spec, решение 1), revert squash-коммита этого PR возвращает цвет 8
+xterm.js по умолчанию.
+
+### Gate оркестратора (2026-10-15)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01–05, 07–11 параллельно, общих файлов в «Где в коде» нет; 06 и 12 в команду не входили. Worktree — `.claude/worktrees/pol-<NN>`: пути `04`, `10`, `11` заняты деревьями других Epic-ов. Нагрузку CPU (`yes > /dev/null`) по своему «Готово, когда» дают 04 и 05; оркестратор пустил их параллельно с остальными, и timeout-ы под этой нагрузкой краснили gate соседей — ошибка плана, не implementer-ов.
+- Гейт — один круг: `VERIFIED` на `8e52f35` ([комментарий в PR #347](https://github.com/IDSAD-XL/worfy/pull/347#issuecomment-6188442382)). Verifier сам: `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0, 5247 test-ов; test-ы Ticket-а — 62; `terminal-ai-suggest.spec.ts` под e2e-замком; мутанты (без `brightBlack`, тёмный `--terminal-dim` = цвет текста, светлый `#707075`) — все красные; контраст пересчитан: 5,16:1 и 6,75:1 к фону; живая смена темы перекрашивает тот же Terminal.
+- Мерж: два gate full красные не из-за diff — сначала timeout-ы в `test` (в т.ч. `harness-script-wiring`) и e2e производительности `epic-frame.spec.ts` (интерактивность ≤3 s), затем e2e `harness-install.spec.ts:137`, `:180` (диалог не показан за 5 s); load average за 15 мин до 23. Третья попытка: база `be68c08`, head `0c1481b`; `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `e342f02`.
+- Act on, Dismissed — нет.
+- Consider ([low]): `test/unit/terminal-theme.test.tsx:13` — `/// <reference types="node" />` даёт типы Node всему проекту `tsconfig.test.web.json`; комментарий `test/unit/glob-probe.tsx:15-18` («without Node's types») стал ложным. Граница renderer-а держится (`tsconfig.web.json`). Правка — читать `tokens.css` обходом из `glob-probe.tsx`.
+- Noted (**подтверждено владельцем 2026-10-15**): тёмный `--terminal-dim` — `#9C968D` (тёмный `--text-muted`); `#8E8E93` Ticket даёт лишь примером.

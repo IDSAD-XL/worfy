@@ -330,11 +330,15 @@ test('a Terminal running a program in the alternate screen gets no arrow keys fr
 
   await expectCanvasMoves(window, terminalScreen(window), -NOTCH)
   await expectCanvasMoves(window, terminalScreen(window), NOTCH)
-  await window.waitForTimeout(300)
-  expect(await terminalRows(window).innerText()).not.toMatch(/\^\[\[[AB]/)
 
+  // Typed once the Terminal is active, a mark reaches the program after anything the wheel sent it
+  // before: by the time cat echoes the mark, it has echoed every arrow key, and there is none.
   await clickOn(window, terminalScreen(window))
   await expectActive(window, 'term')
+  await window.keyboard.type('MARK')
+  await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toContain('MARK')
+  expect(await terminalRows(window).innerText()).not.toMatch(/\^\[\[[AB]/)
+
   await wheelOver(window, terminalScreen(window), -NOTCH)
   await expect.poll(() => terminalRows(window).innerText(), { timeout: 5_000 }).toMatch(/\^\[\[A/)
   await window.keyboard.press('Control+C')

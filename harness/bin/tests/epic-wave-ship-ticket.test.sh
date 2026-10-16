@@ -92,6 +92,71 @@ check "ship-ticket sections 0-11" test "$(nums "$ST")" = "## 0. ## 1. ## 2. ## 3
 sec8="$(awk '/^## 8\./{p=1; next} /^## /{p=0} p' "$ST")"
 check "ship-ticket step 8 holds the gh run watch block (agents cite it)" bash -c '[[ "$1" == *"gh run watch"* ]]' _ "$sec8"
 
+# 6a. ship-ticket step 5: the smallest complete change (ticket worfy-review/04). Step 4 — the failing
+# test first — stays word for word as it was, and step 5 keeps its first paragraph.
+st4="$(awk '/^## 4\./{p=1; next} /^## /{p=0} p' "$ST")"
+want4='
+```bash
+<F commands.test_one>        # placeholder <файл>
+```
+
+Make sure the test is red, and only then fix. What must be running for the tests —
+`F commands.requires`; pitfalls of a targeted run — `rules.md`.'
+check "ship-ticket step 4 (failing test first) is unchanged" test "$st4" = "$want4"
+st5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$ST")"
+in_st5() { printf '%s\n' "$st5" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$1"; }
+check "ship-ticket step 5 keeps its first paragraph" in_st5 \
+    'Along the files listed in the ticket (section `F tickets.trail_section`; worfy: `## Где в коде`). Going outside that list is a reason to say so, not to widen the change silently.'
+check "ship-ticket step 5: the smallest complete change, after the failing test" in_st5 \
+    "The change is the smallest one that does the whole ticket. It comes after step 4 — the failing test stays first — and it never drops an item of the ticket's list of what \"done\" means."
+check "ship-ticket step 5: before the edit, every place the change has to reach" in_st5 \
+    '- Before the edit, list every place the change has to reach: callers, tests, fixtures, configuration, exports.'
+check "ship-ticket step 5: a bug — grep every caller, fix once in the shared code" in_st5 \
+    '- For a bug, grep every caller of the function you change and fix the cause once, in the shared code.'
+check "ship-ticket step 5: the order of options is introduced" in_st5 '- Then take the first of these options that solves the whole task:'
+options5="$(printf '%s\n' "$st5" | grep -E '^ +[1-6]\. ' | sed -E 's/^ +//')"
+check "ship-ticket step 5: the six options, indented, in their order" test "$options5" = '1. Nothing: the task does not need this code.
+2. Code the repository already has — a helper, a component, a pattern; use it the way the code around it does.
+3. The standard library or a feature of the platform.
+4. A dependency the project already installs; a new dependency for a few lines is not an option.
+5. One line that a reader understands at a glance.
+6. The least new code that works.'
+check "ship-ticket step 5: what is never cut" in_st5 \
+    '- Never cut, whatever the size of the change: checks of input at a trust boundary, error handling that keeps data from being lost, security, accessibility, anything the ticket asks for.'
+check "ship-ticket step 5: the shortcut comment and its form" in_st5 \
+    '- A simplification with a known limit gets a comment in the comment syntax of the language: `shortcut: <limit>, <when to redo>` — what the simple code does not handle, then the condition under which it has to be replaced.'
+check "ship-ticket step 5: a comment without the condition is incomplete" in_st5 \
+    'A comment without the part after the comma is incomplete: nobody will know when to redo the code.'
+check "ship-ticket step 5: the script that lists the comments" in_st5 \
+    '`"${CLAUDE_PLUGIN_ROOT}/bin/shortcut-ledger"` lists the `shortcut:` comments of a work tree and marks the incomplete ones `no-trigger`.'
+check "ship-ticket step 5: the source — ponytail, the files, the commit, what was taken" in_st5 \
+    'Source: ponytail, `skills/ponytail/SKILL.md` and `skills/ponytail-debt/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0) — the order of options, the list of places before the edit, the rule for a bug, what is never cut, the `shortcut:` comment and the `no-trigger` mark.'
+check "ship-ticket step 5: what is reworded and why the licence goes with it" in_st5 \
+    'The rules are reworded; the marker `shortcut:` and the mark `no-trigger` are taken as they are. The order of options follows the source closely, so its licence goes with it — `LICENSE` of the source at that commit:'
+licence5="$(printf '%s\n' "$st5" | awk '/^```text$/{b=1; t=""; next} b && /^```$/{b=0; last=t; next} b{t = t $0 "\n"} END{printf "%s", last}')"
+check "ship-ticket step 5: the full MIT licence of ponytail, with its copyright line" test "$licence5" = 'MIT License
+
+Copyright (c) 2026 DietrichGebert
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.'
+check "ship-ticket step 5: the licence closes the step" test "$(printf '%s\n' "$st5" | grep -v '^$' | tail -n 1)" = '```'
+
 # 7. Brief labels, shared with the agents of ticket 07.
 brief="$(awk '/^```$/{if(inb){exit}; inb=1; next} inb' <(awk '/^## 2\./{p=1} /^## 3\./{p=0} p' "$EW"))"
 for label in 'Goal:' 'Repository:' 'Ticket: ' '; spec: ' 'Worktree:' 'Base:' 'Files:' 'Numbers:' \

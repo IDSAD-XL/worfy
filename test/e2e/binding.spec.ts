@@ -188,14 +188,17 @@ async function subagentEdge(window: Page, agentId: string): Promise<Locator> {
 /** Two boxes in the same place, to a pixel. */
 const near = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => Math.abs(a.x - b.x) <= 1 && Math.abs(a.y - b.y) <= 1
 
-/** Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. */
+/**
+ * Drags a Node by `handle` onto Ticket `num` and drops it there once the Ticket is outlined. The
+ * press waits until the handle is stable and takes the pointer (Playwright's hover), so it lands
+ * where the handle is now, not where its box was read a moment before.
+ */
 async function dropOnTicket(window: Page, handle: Locator, num: number): Promise<void> {
   // Start only once nothing on the Canvas moves (a fold just opened, a Node just sent back).
   await canvasReady({ window }, { visible: [handle] })
-  const from = await box(handle)
-  const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
-  await window.mouse.move(from.x + 10, from.y + from.height / 2)
+  await handle.hover()
   await window.mouse.down()
+  const to = await box(window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`))
   await window.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 20 })
   await expect(window.getByTestId('binding-drop-target')).toHaveAttribute('data-target', `${EPIC}/${String(num).padStart(2, '0')}`)
   await window.mouse.up()
@@ -229,6 +232,19 @@ async function openRail(window: Page, sessionId: string): Promise<Locator> {
   const rail = window.getByTestId('session-view').getByTestId('binding-rail')
   await expect(rail).toBeVisible()
   return rail
+}
+
+/**
+ * Waits until the Canvas is ready for the test: the window at its size, the Layout's viewport
+ * applied and the Epic read, its frame drawn, and nothing moving any more. The Canvas is at rest
+ * before the Epic is there (the Epic comes from `bin/epic-status`, a process of its own), so the
+ * frame is waited on inside the readiness wait, not by a later wait for one of its Ticket Nodes.
+ * At 1600 × 900 and the Layout's zoom, Ticket 12 lies well inside the Canvas (measured: its Node
+ * at x 807-885, y 258-318 of a Canvas 1360 × 848 wide), so nothing has to be scrolled to show it.
+ */
+async function epicReady(launched: LaunchedApp): Promise<void> {
+  const frame = launched.window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)
+  await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [frame] })
 }
 
 /** Back to the Canvas, with nothing selected: the selection toolbar of the Node just opened would cover its neighbours. */
@@ -283,7 +299,7 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
   let launched = await launch()
   try {
     let { window } = launched
-    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    await epicReady(launched)
     await expect(window.locator('[data-testid="ticket-node"][data-ticket="12"]')).toBeVisible()
     await expect(sessionTitle(window, CLAIM)).toBeVisible()
 
@@ -307,8 +323,15 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await expect(drawnLine(sessionEdge(window, WAVE))).toHaveAttribute('data-shape', 'orthogonal')
     for (const id of [CLAIM, FOLDER, SLUG]) await expect(drawnLine(sessionEdge(window, id))).toHaveCount(0)
     for (const agentId of [IMPLEMENTER, REVIEWER]) {
-      const running = (await subagentNode(window, agentId).getAttribute('data-status')) === 'running'
-      await expect(drawnLine(await subagentEdge(window, agentId))).toHaveCount(running ? 1 : 0)
+      const edge = await subagentEdge(window, agentId)
+      // The status and the line are read together, until they agree: one read of the status
+      // could be taken before the Node shows the status its line follows.
+      await expect
+        .poll(async () => {
+          const running = (await subagentNode(window, agentId).getAttribute('data-status')) === 'running'
+          return (await drawnLine(edge).count()) === (running ? 1 : 0)
+        }, { message: `Subagent ${agentId}: a line is drawn exactly while it runs` })
+        .toBe(true)
     }
     await window.screenshot({ path: test.info().outputPath('binding-automatic.png') })
     const quietShots = await snapshotThemes(window, 'binding-default')
@@ -348,13 +371,18 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
 
     // Drag the claiming Session's Node onto Ticket 12: bound by hand, and the Node goes back.
     const before = await layoutNode(window, `session:${CLAIM}`)
+    const shown = await box(sessionTitle(window, CLAIM))
     await dropOnTicket(window, sessionTitle(window, CLAIM), 12)
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
     await expect.poll(savedBindings).toEqual([{ sessionId: CLAIM, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 12 } }])
     await expect.poll(() => layoutNode(window, `session:${CLAIM}`)).toEqual(before)
+    // Back on the Canvas too, not only in the saved Layout: the window gets the move back after
+    // main has it, and the Subagents' tree is placed clear of the Node where the window shows it.
+    await expect.poll(async () => near(await box(sessionTitle(window, CLAIM)), shown)).toBe(true)
 
     // The same for a Subagent's Node: bound by hand under its own agentId, and back in its place.
     const implementer = subagentNode(window, IMPLEMENTER)
+    await canvasReady({ window }, { visible: [implementer] })
     const placed = await box(implementer)
     await dropOnTicket(window, implementer.getByTestId('subagent-name'), 12)
     await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
@@ -375,7 +403,7 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await launched.close()
     launched = await launch()
     window = launched.window
-    await canvasReady(launched, { size: { width: 1600, height: 900 } })
+    await epicReady(launched)
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
     await window.getByTestId('subagent-fold').first().click()
     await expect(await subagentEdge(window, IMPLEMENTER)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)

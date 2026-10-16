@@ -20,6 +20,7 @@ import type { AppSettings } from '../../src/shared/settings/app-settings'
 const settings = (revision: number, interfaceScale: number): AppSettings => ({
   interfaceScale,
   sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
+  autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   revision,
 })
 

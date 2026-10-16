@@ -533,9 +533,11 @@ test('Force stop during the Wave\'s turn: the button says Stopping… until the 
       'tasks-killed user-force-stop',
       'orchestrator-returned',
     ])
-    expect(closes(log)).toMatchObject([{ kind: 'close', backgroundTasks: ['task_impl_0001', 'task_impl_0002'] }])
-    expect(await power()).toEqual(['start prevent-display-sleep', 'stop'])
-    expect(messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
+    // Read until they are there: the fake agent's log and the keep-awake release come from main
+    // on their own steps, not with the journal line the poll above waited for.
+    await expect.poll(() => closes(log)).toMatchObject([{ kind: 'close', backgroundTasks: ['task_impl_0001', 'task_impl_0002'] }])
+    await expect.poll(power).toEqual(['start prevent-display-sleep', 'stop'])
+    await expect.poll(() => messages(log)).toEqual([`/epic-wave Ticket-ы 01, 02 эпика ${EPIC}`])
     await snapshots(window, header, 'stop-stopped')
   } finally {
     await launched.close()

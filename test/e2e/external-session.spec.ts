@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
+import { settled } from './wait'
 
 // Sessions started outside worfy (ticket 14), against the built app: a temporary WORFY_CLAUDE_HOME
 // stands in for ~/.claude. A `sleep` process plays the Claude Code process — the registry checks
@@ -16,6 +17,7 @@ const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, for
 const PROJECT = 'alpha-0000000a'
 const EXTERNAL = 'e0000000-0000-4000-8000-00000000e001'
 const OTHER = 'e0000000-0000-4000-8000-00000000e002'
+const LATER = 'e0000000-0000-4000-8000-00000000e003'
 
 type Bridge = { invoke(channel: string, input?: unknown): Promise<{ ok: boolean; value?: unknown; error?: string }> }
 
@@ -204,13 +206,15 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     // And one more external Session at the same moment: once its Node is there, the registry change was seen.
     write(join(transcriptDir(projectPath), `${OTHER}.jsonl`), prompt(OTHER, 'x1', 'other'))
     register(claudeProcess(), OTHER, { entrypoint: 'claude-desktop', status: 'idle', name: 'desktop-session' })
-    // From here on the test writes nothing under the Claude home.
+    // From here on the test writes nothing under the Claude home but one more Session, near the end.
     const other = window.locator(`[data-testid="session-node"][data-session-id="${OTHER}"]`)
     await expect(other).toBeVisible()
     await expect(other.getByTestId('session-node-source')).toHaveText('Claude desktop')
     await expect(other.getByTestId('session-node-status')).toHaveText('idle')
     await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('2 live')
-    await window.waitForTimeout(500)
+    // The same change brought both: a Node for worfy's own Session would have been sent along with
+    // the other one, and the renderer has caught up with main.
+    await settled(window)
     await expect(window.locator(`[data-testid="session-node"][data-session-id="${own}"]`)).toHaveCount(0)
     const kinds = await window.evaluate(async (projectId) => {
       const bridge = (globalThis as unknown as { worfy: Bridge }).worfy
@@ -238,9 +242,14 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     // Removing a Session Node leaves the Session alone, and the Node does not come back.
     await other.getByRole('button', { name: 'Remove' }).click()
     await expect(other).toHaveCount(0)
-    await window.waitForTimeout(2500)
+    // One more Session starts: its Node comes from a new look at all live Sessions, and that one
+    // would bring the removed Node back if anything did.
+    write(join(transcriptDir(projectPath), `${LATER}.jsonl`), prompt(LATER, 'l1', 'later'))
+    register(claudeProcess(), LATER, { entrypoint: 'claude-desktop', status: 'idle', name: 'later-session' })
+    await expect(window.locator(`[data-testid="session-node"][data-session-id="${LATER}"]`)).toBeVisible()
+    await settled(window)
     await expect(other).toHaveCount(0)
-    await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('2 live')
+    await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('3 live')
 
     // worfy wrote nothing under the Claude home during the whole run: only the files the test
     // wrote, with the sizes and times the test left them at.

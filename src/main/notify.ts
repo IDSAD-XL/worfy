@@ -39,6 +39,7 @@ import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
 import { emit } from './ipc/index'
 import { pendingOpens, type PendingOpens } from './notify-pending'
+import { quietWindows, type QuietWindows } from './quiet-windows'
 import { createMainWindow } from './window'
 
 export const NOTIFY_INTERVAL_MS = 10_000
@@ -247,16 +248,26 @@ function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void
  * one when none is open (macOS keeps the app running without windows). A note of a Linked
  * machine's Session keeps its Machine: the window's renderer opens it on that Machine.
  */
-export function openNote(note: Note, pending: PendingOpens = pendingOpens, createWindow: () => BrowserWindow = createMainWindow): void {
+export function openNote(
+  note: Note,
+  pending: PendingOpens = pendingOpens,
+  createWindow: () => BrowserWindow = createMainWindow,
+  quiet: QuietWindows = quietWindows(),
+): void {
   const existing = BrowserWindow.getAllWindows().find((each) => !each.isDestroyed())
   // A new window shows itself once its page is ready (window.ts).
   const window = existing ?? createWindow()
   if (existing !== undefined) {
     if (window.isMinimized()) window.restore()
-    window.show()
-    window.focus()
+    // Quiet windows (e2e tests only): on screen, but worfy takes neither the front nor the keyboard.
+    if (quiet.takesFocus) {
+      window.show()
+      window.focus()
+    } else {
+      window.showInactive()
+    }
   }
-  app.focus({ steal: true })
+  if (quiet.takesFocus) app.focus({ steal: true })
   // The note always waits in PendingOpens, and `notify.open` only tells a mounted overlay to take
   // it now. An overlay that is not mounted yet (a page still loading, or loaded but before the
   // Canvas) misses the signal and takes the note when it mounts. So the outcome does not depend on
@@ -269,6 +280,9 @@ export function openNote(note: Note, pending: PendingOpens = pendingOpens, creat
 export const electronNotifyDeps: NotifyDeps = {
   focused: () => BrowserWindow.getFocusedWindow() !== null,
   show: (note, onClick) => {
+    // Quiet windows (e2e tests only) never have the focus: without this, every finished turn of a
+    // test would put a banner on the screen.
+    if (!quietWindows().systemNotifications) return
     if (!Notification.isSupported()) return
     const notification = new Notification({ title: note.title, body: note.body })
     shown.add(notification)
