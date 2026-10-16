@@ -1,7 +1,7 @@
 # 26 — Отказ в разрешении у Autopilot: причина Claude Code в ответе модели, Subagent и причина в журнале
 
 Type: task
-Status: open
+Status: blocked — REJECTED дважды (PR #378): правило начала пути из брифа доработки вернуло утечку имени в \\?\C:\Users\…; узкий круг — по решению владельца
 Blocked by: —
 Source: решение владельца 2026-10-15 по отчёту
 [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md)
@@ -105,3 +105,14 @@ Autopilot — режим, в котором Wave-ы идут без челове
 ## Итог
 
 —
+
+### Gate оркестратора (2026-10-16)
+
+- Wave 5 Epic-а под Autopilot: только Ticket 26. Глубина — один verifier на круг.
+- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6205502510)): [med] `journalReason` заменял домашнюю папку только при точном совпадении — на Windows `c:\users\ann`, `C:/Users/Ann`, `/c/Users/Ann` оставляли имя в журнале. Бриф доработки: без ветки по `process.platform`, без учёта регистра, оба разделителя, форма `/c/`, замена только в начале пути.
+- Круг 2 — `REJECTED` по основанию (б) ([комментарий](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6206051366)): правило «перед домом не разделитель» из брифа оркестратора вернуло утечку имени в `\\?\C:\Users\Ann\…`, `\\.\C:\…`, `file:///C:\…`, которые круг 1 заменял. Пункт круга 1 исправлен. Предложение verifier-а: разделитель проверять только для формы `/c/…`, для `C:` достаточно «перед ним не буква, цифра, `.`, `_`, `-`»; test на `\\?\C:\…`.
+- Выведен из Wave: Ticket листовой, узкий круг — только по решению владельца. PR #378 открыт, worktree `pol-26` сохранён.
+- Consider: [low] текст для модели «rewrite the command so this check does not fire» (`permissions.ts:75`) взят из Ticket-а; verifier предлагает «follow the reason above: give a literal, resolvable target» — решение владельца.
+- Noted: причина Claude Code сама цитирует часть команды `rm` — до 200 символов попадают в журнал (выбор research-отчёта, **решено без владельца, подтвердить**). [low] debt: WSL `/mnt/c/Users/…` и `/cygdrive/c/…` не заменяются (и в круге 1); `/System/Volumes/Data/Users/…` на macOS; нет test-а на дом с символами regex (мутант без `escapeRegExp` проходит).
+- Dismissed — нет.
+
