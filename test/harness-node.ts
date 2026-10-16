@@ -48,6 +48,15 @@ export function withPath(env: Readonly<Record<string, string | undefined>>, dirs
 }
 
 /**
+ * A small environment for a Harness script, like the login shell's: PATH of `dirs` and `extra`. On
+ * Windows SystemRoot is kept too, which node needs to start there.
+ */
+export function scriptsEnv(dirs: readonly string[], extra: Readonly<Record<string, string>> = {}): Record<string, string> {
+  const systemRoot = process.platform === 'win32' ? process.env.SystemRoot : undefined
+  return { ...(systemRoot === undefined ? {} : { SystemRoot: systemRoot }), PATH: dirs.join(delimiter), ...extra }
+}
+
+/**
  * A Node script that prints the file at `path`. It runs whether node takes it for CommonJS or for an
  * ES module (a temporary folder has no package.json; the repository says `"type": "module"`): the
  * import is the dynamic one, which both have.
