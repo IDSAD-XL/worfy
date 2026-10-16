@@ -63,5 +63,11 @@ export function scriptsEnv(dirs: readonly string[], extra: Readonly<Record<strin
  */
 export const catScript = (path: string): string => `import('node:fs').then((fs) => process.stdout.write(fs.readFileSync(${JSON.stringify(path)}, 'utf8')))\n`
 
+/**
+ * A Node script whose `body` runs with `fs` (node:fs) in scope; like catScript, it runs as either
+ * kind of module.
+ */
+export const nodeScript = (body: string): string => `#!/usr/bin/env node\nimport('node:fs').then((fs) => {\n${body}\n})\n`
+
 /** A Node script that prints `text`; like catScript, it runs as either kind of module. */
 export const printScript = (text: string): string => `process.stdout.write(${JSON.stringify(text)})\n`

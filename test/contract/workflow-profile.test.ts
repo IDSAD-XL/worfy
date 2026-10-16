@@ -29,7 +29,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
-import { NODE_DIR, scriptsEnv } from '../harness-node'
+import { NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
@@ -139,12 +139,6 @@ function bareEnv(): Record<string, string> {
   mkdirSync(empty, { recursive: true })
   return scriptsEnv([empty], { HOME: scratch })
 }
-
-/**
- * A Node script stand-in: `body` runs with `fs` (node:fs) in scope. The dynamic import works whether
- * node takes the file for CommonJS or for an ES module.
- */
-const nodeScript = (body: string): string => `#!/usr/bin/env node\nimport('node:fs').then((fs) => {\n${body}\n})\n`
 
 /** The line a stand-in logs: its cwd, as `pwd -P` gives it, and its arguments. */
 const LOG_LINE = "`${fs.realpathSync(process.cwd())} ${process.argv.slice(2).join(' ')}"

@@ -9,6 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const electron = vi.hoisted(() => {
@@ -137,8 +138,17 @@ function stubProfile(answer: { code: number; workspace: string | null; old?: boo
   const json = join(scratch, 'profile-answer.json')
   writeFileSync(json, answer.code === 0 ? JSON.stringify({ _resolved: resolved }) : '')
   const script = join(claudeHome, 'bin', 'profile')
-  writeFileSync(script, `#!/bin/sh\necho "$*" >> '${calls}'\ncat '${json}'\nexit ${answer.code}\n`)
-  chmodSync(script, 0o755)
+  // A Node script: worfy runs the Harness scripts as `node <script>` (src/main/workflow/profile.ts).
+  writeFileSync(
+    script,
+    nodeScript(
+      [
+        `fs.appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n')`,
+        `process.stdout.write(fs.readFileSync(${JSON.stringify(json)}, 'utf8'))`,
+        `process.exitCode = ${answer.code}`,
+      ].join('\n'),
+    ),
+  )
   return calls
 }
 
