@@ -1,7 +1,7 @@
 # 04 — Implementer выбирает самое маленькое полное изменение и помечает упрощения комментарием `shortcut:`
 
 Type: task
-Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #332 VERIFIED по Mac, Windows-ПК выключен
+Status: done — 2026-10-16, [PR #332](https://github.com/IDSAD-XL/worfy/pull/332)
 Branch: worfy-review/04
 Blocked by: 02
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «минимальное изменение и shortcut» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), раздел о ponytail (skill, который просит агента делать самое маленькое полное изменение; команда `/ponytail-debt` собирает комментарии `shortcut:`); [spec.md](../spec.md)
@@ -151,3 +151,8 @@ Source: решение владельца 2026-10-09 («Хорошие идеи,
   `GATE_SCOPE=all node harness/hooks/gate.mjs fast` (Gate дерева) — код 0, строка
   `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck worfy/.:test`, не из кэша.
 - **Windows-ПК** — пункт открыт: PR платформенный (ADR-0056, пункт 2), что прогнать — в описании PR.
+
+### Merge (2026-10-16)
+
+- Windows-ПК (Session «Worfy тесты на ПК», 2026-10-16 02:03–02:50 MSK): gate full на слиянии head `667698d` с main — красный, как и main; новых падений `pnpm test` от этого PR нет (исключение ADR-0056 до `worfy-windows` 14); `harness/bin/tests/shortcut-ledger.test.sh` — 15/15 на Windows.
+- Mac: gate full на origin/main `ae6c1210` + head `667698d2` — exit 0, `[gate] зелено (full)` (lint, typecheck, test, test:e2e, test:package). Squash-merge `ffec21f9`.
