@@ -1,7 +1,7 @@
 # 03 — Implementer гоняет только e2e своих spec-ов; весь `test:e2e` — в gate full перед мержем
 
 Type: task
-Status: open
+Status: claimed — 2026-10-16
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»
 (Ticket записывает уже действующее правило); замер: `worfy-polish` 04 — 220 min до PR, 05 — 216 min,
@@ -51,11 +51,11 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 
 ## Готово, когда
 
-- [ ] `harness/agents/implementer.md` содержит правило пункта 1; `harness/bin/tests/agents-text.test.sh`
+- [x] `harness/agents/implementer.md` содержит правило пункта 1; `harness/bin/tests/agents-text.test.sh`
       проверяет его (фраза о `commands.e2e` и «only the e2e files the ticket touches»).
-- [ ] Правило не задевает Project без `commands.e2e`: test текста — абзац условный («if the profile
+- [x] Правило не задевает Project без `commands.e2e`: test текста — абзац условный («if the profile
       sets `commands.e2e`»).
-- [ ] (вручную, Orchestrator) правка `rules.md` Profile-а — diff в «Итог».
+- [ ] (вручную, Orchestrator) правка `rules.md` Profile-а — diff в «Итог». Не проверено: шаг оркестратора.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
       шаг Orchestrator-а перед merge; Linux CI зелёный.
 
@@ -81,3 +81,36 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
 - Ускорение самого `test:e2e`.
 
 ## Итог
+
+- `harness/agents/implementer.md`, шаг 5 раздела «Order»: отдельный абзац после кодов gate.
+  Открывается условием «E2e tests, if the profile sets `commands.e2e`»: implementer гоняет только
+  e2e-файлы, которые Ticket добавил, изменил или назвал в разделе тестов, командой
+  `<commands.e2e> <files>; echo "EXIT=$?"`. Весь набор e2e — `gate full` оркестратора перед мержем.
+  `--repeat-each` и нагрузка CPU — только по «Готово, когда» Ticket-а. Замок e2e — по `rules.md`
+  Profile-а. Последняя фраза: Profile без `commands.e2e` правила не получает.
+- `harness/bin/tests/agents-text.test.sh`, раздел 11: абзац ищется внутри шага 5 (между строками
+  `5.` и `6.`), должен быть отдельным абзацем и начинаться с условия; ещё пять фраз проверяются по
+  тексту абзаца. Красный до правки текста (`passed 132, failed 1`). Мутанты на копии `agents/`
+  через `AGENTS_DIR`: абзац удалён — `failed 1` («no paragraph with 'only the e2e files the ticket
+  touches'»); условие убрано — `failed 1` («does not open with its condition»); пустая строка
+  убрана, абзац слился с кодами gate — `failed 1`. С правкой — `passed 139, failed 0`.
+- Решено без владельца, подтвердить: правило стоит внутри шага 5 отдельным абзацем, а не новым
+  шагом — нумерация шагов 1–6 раздела «Order» закреплена test-ом и ссылками из skill-ов.
+- gate full — шаг оркестратора перед merge, implementer его не запускал.
+- Правка `~/.claude/worfy-harness/projects/worfy/rules.md` (шаг оркестратора после мержа; не внесена):
+
+```diff
+--- a/rules.md
++++ b/rules.md
+@@ -34,7 +34,9 @@
+   стоят в самом workflow: от 1 до 12 файлов из `test/unit/` и `test/contract/`, один job, 10 минут.
+   Остальные агенты — Orchestrator в Stable copy, implementer, reviewer — его не запускают. Запуск
+   не заменяет gate full на Windows-ПК владельца (ADR-0056).
+-- **e2e и gate full разных агентов — по одному, под общим замком.** Несколько Electron e2e сразу
++- **e2e и gate full разных агентов — по одному, под общим замком.** Implementer гоняет под замком
++  только свои spec-и (`pnpm test:e2e <файлы>`); весь `test:e2e` и `test:package` — gate full
++  Orchestrator-а перед мержем. Несколько Electron e2e сразу
+   мешают друг другу запуститься (`firstWindow` timeout; worfy-daily, волна 6). Каждый прогон
+   `pnpm test:e2e` и `gate.sh full` — одной командой Bash с timeout 600000:
+   `L=/tmp/worfy-e2e.lock; until mkdir "$L" 2>/dev/null; do m=$(stat -f %m "$L" 2>/dev/null) || continue; [ $(( $(date +%s) - m )) -gt 1800 ] && rmdir "$L"; sleep 20; done; ( while sleep 300; do touch -c "$L" 2>/dev/null || exit 0; done ) & HB=$!; trap 'kill $HB 2>/dev/null; rmdir "$L"' EXIT; <команда>`.
+```

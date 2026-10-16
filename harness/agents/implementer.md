@@ -170,6 +170,14 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
    with the line "ничего не прогналось" ("nothing ran") or "ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно"
    ("could not verify — environment unavailable") also goes into `not_verified`.
+
+   E2e tests, if the profile sets `commands.e2e`: run only the e2e files the ticket touches — the
+   ones it adds or changes and the ones its tests section names — with
+   `<commands.e2e> <files>; echo "EXIT=$?"`. The whole e2e suite is not yours to run: the
+   orchestrator runs it in `gate full` before the merge. Repeats (`--repeat-each`) and CPU load —
+   only when the ticket's list of what "done" means asks for them. The e2e lock, if the project
+   has one, is described in the profile's `rules.md`. A profile without `commands.e2e` has no rule
+   here.
 6. `workflow.finish: "pr-green-ci"` — a PR and green CI. First `gh pr view <N> --json mergeStateStatus`:
    with `DIRTY` CI does not start — rebase onto the base. Wait for CI with one long `gh run watch`
    command (the block is in skill `/worfy:ship-ticket`, step 8; Bash timeout 600000, if it did not
