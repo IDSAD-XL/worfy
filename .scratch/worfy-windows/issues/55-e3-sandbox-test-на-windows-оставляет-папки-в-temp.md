@@ -1,7 +1,7 @@
 # 55 — `test/contract/e3-sandbox.test.ts` на Windows оставляет в `%TEMP%` папки по 340 MB: песочница приёмки macOS там не поддерживается
 
 Type: task
-Status: open
+Status: done — 2026-10-16, [PR #390](https://github.com/IDSAD-XL/worfy/pull/390)
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», найдено при прогонах `pnpm test` ночью
 2026-10-16 (Ticket-ы 51 и 53): на диске C осталось 4.9 GB, в `%TEMP%` — 68 папок
@@ -88,3 +88,8 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 - **На macOS** прогон не меняется: `NOT_ON_WINDOWS` там `false`. Проверяет Session на Mac.
 - **В этом PR же** — Ticket 51 отмечен done (PR #389) и его «Итог» дописан пунктом Merge, по
   просьбе Session на Mac.
+- **Merge.** PR #390 влит 2026-10-16, squash `4089c03e`. Проверки Session на Mac:
+  - `gate full` на head `7051b9bf` (база `34aee14a`) — exit 0, `[gate] зелено (full)`. Три прогона
+    до него были красные только от нагрузки: каждый раз другие contract test-ы и один e2e, все
+    зелёные по отдельности; это теперь worfy-polish 30.
+  - Linux CI — зелёный.
