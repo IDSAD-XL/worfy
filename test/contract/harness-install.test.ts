@@ -96,6 +96,8 @@ function makeBundle(target: string, version: string, dependencies?: string[]): s
 // marketplace is a folder (the Harness copy: its name comes from marketplace.json) or `owner/repo`
 // (its name is the repository's). What a test can ask of it, each by the start of the command line,
 // several joined with `|`:
+//   STUB_CLAUDE_RUNTIME     a file: each call appends how it runs, {"runAsNode", "type"} (ELECTRON_RUN_AS_NODE
+//                           and Electron's process.type, null when unset)
 //   STUB_CLAUDE_FAIL        exit 3 before anything is recorded
 //   STUB_CLAUDE_FAIL_AFTER  record what the command asked, then exit 1 (an install that refuses but leaves its record)
 //   STUB_CLAUDE_NO_MARKETPLACE_LIST  `plugin marketplace list` is an unknown command
@@ -107,6 +109,7 @@ import { basename, isAbsolute, join } from 'node:path'
 const args = process.argv.slice(2)
 const line = args.join(' ')
 appendFileSync(process.env.STUB_CLAUDE_LOG, JSON.stringify({ args, HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }) + '\\n')
+if (process.env.STUB_CLAUDE_RUNTIME) appendFileSync(process.env.STUB_CLAUDE_RUNTIME, JSON.stringify({ runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, type: process.type ?? null }) + '\\n')
 const asked = (name) => (process.env[name] ?? '').split('|').some((prefix) => prefix !== '' && line.startsWith(prefix))
 const fail = (code) => {
   process.stderr.write('first line of noise\\nsecond line\\n' + line + ' failed: stub error\\n')
@@ -770,6 +773,13 @@ describe('errors', () => {
     expect(existsSync(sb.harnessHome)).toBe(false)
   })
 
+  it('a .mjs stand-in that is not there is "Claude Code not found" with its path, not the error of the Node that would run it', async () => {
+    const missing = join(sb.root, 'nowhere', 'claude.mjs')
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { claude: missing }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain(`Claude Code not found at ${missing} (ENOENT)`)
+  })
+
   it('a plugin Claude Code reports broken for another reason is an error of `install` with that reason, not a quiet success', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const reason = 'hooks/hooks.json: unexpected token'
@@ -1011,4 +1021,17 @@ describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of t
 
     for (const command of plans[0]!.commands) expect(run(command).status).toBe(0)
   }, 120_000)
+})
+
+describe('a .mjs Claude Code (WORFY_CLAUDE in tests)', () => {
+  it('runs under worfy\'s own Node on every system: ELECTRON_RUN_AS_NODE reaches it, and Electron starts no second app', async () => {
+    // sb.env has no ELECTRON_RUN_AS_NODE, so only the installer can have set it. Without it Electron
+    // would still run the script, as the main script of a second app (process.type "browser").
+    const runtime = join(sb.root, 'stub', 'runtime.jsonl')
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { claude: join(sb.root, 'stub', 'claude-stub.mjs'), env: { ...sb.env, STUB_CLAUDE_RUNTIME: runtime } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V1 })
+    const lines = readFileSync(runtime, 'utf8').split('\n').filter((line) => line !== '')
+    expect(lines.length).toBeGreaterThan(0)
+    expect(new Set(lines)).toEqual(new Set([JSON.stringify({ runAsNode: '1', type: null })]))
+  })
 })
