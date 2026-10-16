@@ -1,7 +1,7 @@
 # 02 — Экран не гаснет, пока Orchestrator вливает PR вне Autopilot; заблокированный экран перед gate full — одна строка, а не красный e2e
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #392](https://github.com/IDSAD-XL/worfy/pull/392)
 Branch: worfy-throughput/02
 Blocked by: 01
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»
@@ -74,10 +74,10 @@ Source: [spec.md](../spec.md), решение владельца 2026-10-16, п�
       команды идут без него.
 - [ ] (вручную) На Mac: во время `wave-gate check` `pmset -g assertions` показывает
       `PreventUserIdleDisplaySleep` от `caffeinate`, после выхода — нет. Вывод — в «Итог».
-- [ ] (вручную) Вердикт Windows по ADR-0056, пункт 2: на Windows-ПК — shell test-ы `wave-gate` через Git
+- [x] (вручную) Вердикт Windows по ADR-0056, пункт 2: на Windows-ПК — shell test-ы `wave-gate` через Git
       Bash и gate full; код и строка вердикта — в «Итог». Пока `worfy-windows` 14 не `done` — правило
       «Последствий» ADR-0056 (`:73-77`).
-- [ ] (вручную, Orchestrator) правило в `rules.md` Profile-а — diff в «Итог».
+- [x] (вручную, Orchestrator) правило в `rules.md` Profile-а — diff в «Итог».
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; shell test-ы Harness — exit 0; gate full —
       шаг Orchestrator-а перед merge; Linux CI зелёный.
 
@@ -223,3 +223,11 @@ CI его краснят те же test-ы — локально не прове�
 - Check «the real home changed» в `wave-gate.test.sh` изредка краснеет: 3 раза из примерно 15 прогонов,
   первый раз — ещё до правки скрипта. Снимки `~/.claude` каждые 3 s за два прогона (6 мин) изменений
   не показали. Причина не найдена.
+
+### Merge (2026-10-16)
+
+- Вердикт Windows-ПК (Session «Worfy тесты на ПК», [комментарий в PR #392](https://github.com/IDSAD-XL/worfy/pull/392#issuecomment-6218743860)): новых падений нет. `pnpm test` по именам: main `4089c03` — 413 failed, ветка `174e9f8` + main — 405; 4 падения только на ветке проходят отдельно. `wave-gate.test.sh` на Windows не запускается ни на ветке (23 ok / 89 FAIL), ни на main (18 / 68) — два механизма, оба в Ticket-е 06; логика экрана и `caffeinate` на Windows не проверена, 6 ok только на ветке тривиальные (ничего не запустилось).
+- Тот же прогон на main — вердикт задним числом для 01 (PR #384): новых падений от 01 нет.
+- Mac: merge origin/main в ветку (`1af824fe`, база `b33be1e3`), `GATE_SCOPE=all gate.sh full` — exit 0, `[gate] зелено (full)`; CI `check` — 0. Squash-merge `2f24d912`.
+- Правка `rules.md` Profile-а внесена 2026-10-16 (абзац «Перед любым gate full и e2e на Mac вне `wave-gate` — проверка экрана», сразу после правила замка e2e).
+- Не проверено: `pmset -g assertions` во время настоящего `wave-gate check` на Mac.

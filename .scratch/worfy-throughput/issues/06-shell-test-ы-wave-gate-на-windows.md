@@ -32,6 +32,10 @@ Source: решение владельца 2026-10-16 — вердикт Windows 
   `ioreg` и `caffeinate` есть только на macOS: на Windows их нет в PATH, и `wave-gate` их пропускает.
   Блок test-а «no ioreg and no caffeinate in PATH» (`:531-545`) это уже проверяет.
 
+- **Проверено на Windows-ПК 2026-10-16** (вердикт PR #392, Git Bash): `wave-gate.test.sh` — ветка 23 ok / 89 FAIL, main 18 / 68. Два механизма:
+  1. **Пути в `state.json` в POSIX-форме** (в первой версии этого Ticket-а его не было): test пишет `"repo"` и `e2e_lock` как `/tmp/tmp.xxx/…`; `wave-gate` (Node) на Windows ищет `C:\tmp\…`, отказывает `"repo" must be the absolute path of a checkout` (`harness/bin/wave-gate:126`), дальше — каскад. С `cygpath -m` для этих двух путей загрузка проходит.
+  2. **Stub без расширения не запускается**: `spawnSync` существующего bash-скрипта без расширения — ENOENT (errno -4058) и по полному пути, и по имени в PATH; gate stub — `unverified (exit -4058)`, 0 прогонов. С обходом пути 1: ветка 29 / 83, main 24 / 62.
+
 ## Что делаем
 
 Рекомендация: **stub-ы gate и `gh` — Node-скрипты (`.mjs`), и `wave-gate` запускает их через
@@ -80,6 +84,8 @@ Windows.
 - `harness/bin/wave-gate` — только override `gh` и запуск `.mjs` через `process.execPath`
 
 ## Вне скоупа
+
+- Кандидат отдельного Ticket-а `worfy-windows` (найдено на ПК 2026-10-16): `epic-status` под Git Bash не завершается, а `harness-scripts` по timeout-у убивает только bash — по 3 процесса `epic-status` на прогон остаются и занимают по ядру, их останавливали по pid.
 
 - Проверка экрана и `caffeinate` на Windows — их нет и не нужно (Ticket 02).
 - Другие shell test-ы Harness на Windows — Epic `worfy-windows`.
