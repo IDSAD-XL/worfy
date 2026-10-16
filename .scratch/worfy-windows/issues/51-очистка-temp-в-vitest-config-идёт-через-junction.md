@@ -99,4 +99,54 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-
 
 ## Итог
 
-—
+Сделано Session на Windows-ПК 2026-10-16, ветка `worfy-windows/51` от main `ed820a5`. Цифры ниже
+— с Windows-ПК; пункты «на Mac», Linux CI и job «Windows tests» проверяет Session на Mac.
+
+- **Очистка — функции в новом `test/stale-leftovers.ts`.** `removeStaleProbes(dir)` (файлы
+  `ZzVitestProbe*` в `src/`) и `removeStaleTempFolders(tempDir, now, staleAfterMs)` (папки
+  `worfy-glob-probe-*` и `worfy-contract-claude-homes-*` старше часа). `vitest.config.ts` зовёт обе
+  до `defineConfig`; test зовёт их на своей временной папке, настоящий `%TEMP%` не трогает.
+- **Выбор для пункта 2: `removeTree` из `src/main/storage/remove.ts`, импорт напрямую.** Не
+  `removeTestTree`: `test/remove.ts` ещё грузит Layout store (`saveLayoutNow`), и Vite сделал бы
+  каждый модуль за ним файлом конфига — 17 файлов `src/`, правка любого перезапускала бы vitest в
+  watch mode. Это замер review (`vite.loadConfigFromFile`). Сам модуль удаления импортирует только
+  `node:fs` и `node:path`.
+- **Выбор для пункта 3: вычисляемый импорт.** `glob-probe.tsx` грузит `test/remove.ts` так же, как
+  `node:fs`: `import(['..', 'remove'].join('/'))`, с одной сигнатурой `removeTestTree`. Vite решает
+  относительный путь от URL файла, на любой системе. Ошибка импорта случается до `mkdtempSync`:
+  `globProbe` падает, в `%TEMP%` ничего не остаётся. Сигнатура `rmSync` из описания `Fs` убрана.
+- **Сверх тикета: `electron.vite.config.ts`.** Поиск по файлам конфигурации в корне нашёл в нём
+  `rmSync(target, { recursive: true, force: true })` — удаление старой копии `out/harness` при сборке.
+  Пропусков в поиске нет, поэтому и там `removeTree`. Вне Windows это тот же вызов `rmSync` после
+  проверки на смонтированный том. `electron-vite build` дважды — exit 0, второй удалил старую копию
+  (файл-метка в `out/harness` пропал), версия в `plugin.json` записана.
+- **`no-rmsync.test.ts`:** пропуск `glob-probe.tsx` убран, ожидание — `[]`. Новый test: файлы
+  `*.config.*` в корне — по правилу `src/` (никакого `rmSync`); список файлов сравнивается целиком.
+- **`tsconfig.node.json` и `tsconfig.test.node.json`** перечисляют `test/stale-leftovers.ts`:
+  без этого `tsc` — TS6307.
+- **Числа:**
+
+  | Проверка | До правки | После |
+  |---|---|---|
+  | Test на текст (`no-rmsync`) с `vitest.config.ts`, `glob-probe.tsx`, `electron.vite.config.ts` с main | exit 1: 3 строки `glob-probe.tsx`, 5 строк в двух конфигах | exit 0 |
+  | Test на поведение (junction в старой папке) с очисткой через `rmSync(…, { recursive: true })` | exit 1: `expected [] to deeply equal [ 'keep.txt' ]` — папка за junction пуста | exit 0 |
+  | Опыт с `%TEMP%\worfy-glob-probe-zzexp` (junction и dir symlink), `pnpm test test/unit/contrast.test.ts` | — | exit 0; папки нет; за junction и за dir symlink по `keep.txt` |
+
+  - Test на поведение на ветке — функцией, с мутантом — тот же test с `rmSync` в функции: старой
+    функции на main нет.
+  - Test на поведение на Mac с dir symlink верен, но там не отличает правку от старого кода:
+    `rmSync` в Node вне Windows по symlink-у не идёт. Красный он только на Windows.
+  - **Мутанты, все — exit 1:** `catch` бросает дальше; порог 90 мин и 2 мин; префикс через
+    `includes`; префикс шире (`worfy-contract-claude-`); `ZzVitestProbe` через `includes`; два
+    регулярных выражения для имён конфигов уже; конфиг не зовёт очистку `%TEMP%`.
+  - **`pnpm test` на ветке (до merge main):** exit 1, 466 failed, 4867 passed, 84 skipped —
+    падения Windows, как на main. Сравнение по имени test-а с прогоном main `524abb3` на том же
+    ПК: 22 test-а падают только на ветке, почти все — timeout. Повтор их десяти файлов отдельно:
+    осталось два.
+    - `canvas.test.tsx` «maps each kind to its component…» — timeout 5 с. Отдельно на ветке
+      38 из 38; на main `ed820a5` отдельно — тот же timeout. Flaky, не от правки.
+    - `startup-failure.test.ts` — 11 падений и на ветке, и на main `ed820a5`, те же имена, два
+      прогона на каждой стороне.
+  - **После merge `origin/main` (`c53f8a8`):** install, `pnpm lint`, `pnpm typecheck` — exit 0;
+    `stale-leftovers`, `no-rmsync`, test-ы `glob-probe` (`canvas`, `session-rail-discovery`,
+    `shell-discovery`) и `e2e-no-spawn-on-load` — 94 из 94.

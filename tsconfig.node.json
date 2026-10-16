@@ -13,6 +13,7 @@
     "scripts/build-version.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "test/stale-leftovers.ts",
     "playwright.config.ts"
   ],
   "exclude": ["node_modules", "out", ".claude/worktrees/**", "**/*.tsx"]

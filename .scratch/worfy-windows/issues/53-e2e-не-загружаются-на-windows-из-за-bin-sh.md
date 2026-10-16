@@ -1,7 +1,7 @@
 # 53 — e2e на Windows не загружаются: `/bin/sh` при загрузке модуля в четырёх файлах `test/e2e`
 
 Type: task
-Status: open
+Status: done — 2026-10-16, [PR #387](https://github.com/IDSAD-XL/worfy/pull/387)
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-10-16: Playwright падает при загрузке spec-ов — `spawnSync /bin/sh ENOENT`. Код перечитан на Mac по main `9974e0e0`.
 
@@ -140,3 +140,11 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-
   На Windows-ПК vitest роняет их целиком: `spawnSync /bin/sh ENOENT`, 0 test-ов. Весь прогон
   vitest от этого не останавливается, в отличие от Playwright. Отдельный Ticket — решение
   Session на Mac.
+- **Merge.** PR #387 влит 2026-10-16, squash `614e2480`. Проверки Session на Mac:
+  - merge `origin/main` в ветку, затем `gate full` — exit 0, `[gate] зелено (full)`: lint,
+    typecheck, test, test:e2e, test:package.
+  - Linux CI: первый прогон красный на flaky `test/contract/terminal-ai-zle.test.ts:215`. Этот
+    файл PR не трогает, он уже в списке flaky worfy-polish 20. После rerun упавшего job-а — зелёный.
+  - Review на Mac (correctness, medium): blocker-ов нет. Четыре nit по статической проверке ушли в
+    [Ticket 54](54-contract-test-ы-terminal-ai-не-загружаются-на-windows-из-за-bin-sh.md). Там же шесть файлов `test/contract`
+    выше; Blocked by 53.

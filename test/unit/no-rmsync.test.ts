@@ -20,6 +20,9 @@
 // the Node of Electron, where a cleanup that called it failed its test at the first read-only file
 // — git writes its objects that way — and left the folder in %TEMP%. A test removes a folder with
 // removeTestTree of test/remove.ts.
+//
+// The configuration files at the root of the repository have the rule of src/ (worfy-windows ticket
+// 51): vitest.config.ts, under the same Node, removes old folders of other runs from %TEMP%.
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -151,14 +154,19 @@ describe('fs.rmSync with "recursive" in test/', () => {
       .map((file) => relative(REPO, file).replace(/\\/g, '/'))
       .filter((file) => !ITS_OWN_TESTS.includes(file))
       .flatMap((file) => recursiveUses(readFileSync(join(REPO, file), 'utf8')).map((use) => `${file}: ${use}`))
-    // The one file left is type-checked without the types of Node and cannot import the helper. Its
-    // folder holds copies and symlinks, no junction and no read-only file; the first line is the
-    // signature it gives to rmSync, the other two are its calls.
-    expect(found).toEqual([
-      'test/unit/glob-probe.tsx: rmSync(path: string, options: { recursive: true; force: true }): void',
-      'test/unit/glob-probe.tsx: fs.rmSync(root, { recursive: true, force: true })',
-      'test/unit/glob-probe.tsx: remove: () => fs.rmSync(root, { recursive: true, force: true }),',
-    ])
+    // No file is passed by (worfy-windows ticket 51). test/unit/glob-probe.tsx, type-checked without
+    // the types of Node, loads test/remove.ts through a computed specifier: its own folder holds a
+    // symlink to node_modules, and the cleanup of vitest.config.ts removes any old folder of its
+    // name, whatever is in it.
+    expect(found).toEqual([])
+  })
+
+  // worfy-windows ticket 51: vitest.config.ts removed the old folders of runs in %TEMP% with rmSync,
+  // outside test/, src/ and scripts/, where the search did not look.
+  it('is used in no configuration file at the root of the repository: they remove through test/stale-leftovers.ts', () => {
+    const configs = readdirSync(REPO).filter((name) => /\.config\.(ts|mts|cts|js|mjs|cjs)$/.test(name))
+    expect(configs.sort()).toEqual(['electron.vite.config.ts', 'eslint.config.js', 'playwright.acceptance.config.ts', 'playwright.config.ts', 'vitest.config.ts'])
+    expect(configs.flatMap((file) => uses(readFileSync(join(REPO, file), 'utf8')).map((use) => `${file}:${use}`))).toEqual([])
   })
 
   // Review round 1 of PR #293: test/unit/remove-tree-model.ts is passed by as a whole file above.

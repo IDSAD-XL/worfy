@@ -16,6 +16,11 @@
 // lists test/**/*.tsx. That project is type-checked without Node's types (the renderer has none),
 // so node:fs, node:os and node:process are loaded through computed specifiers and given the few
 // signatures used here.
+//
+// The tree is removed with removeTestTree of test/remove.ts, loaded the same way: it holds a
+// symlink to every entry of the repository, node_modules too, and under the Node of Electron on
+// Windows fs.rmSync with `recursive` goes through a junction and empties the folder behind it
+// (worfy-windows tickets 23 and 51). removeTestTree removes a link as a link.
 
 interface Fs {
   copyFileSync(from: string, to: string): void
@@ -23,12 +28,14 @@ interface Fs {
   mkdtempSync(prefix: string): string
   readdirSync(path: string): string[]
   realpathSync(path: string): string
-  rmSync(path: string, options: { recursive: true; force: true }): void
   symlinkSync(target: string, path: string): void
   writeFileSync(path: string, data: string): void
 }
 
 const nodeModule = async <T,>(name: string): Promise<T> => (await import(/* @vite-ignore */ ['node', name].join(':'))) as T
+
+/** test/remove.ts, relative to this file. */
+const testRemove = async (): Promise<{ removeTestTree(path: string): void }> => (await import(/* @vite-ignore */ ['..', 'remove'].join('/'))) as { removeTestTree(path: string): void }
 
 export interface GlobProbeOptions {
   /** The module whose glob is under test, relative to the repository root, e.g. 'src/renderer/shell/Sidebar.tsx'. */
@@ -49,6 +56,7 @@ export interface GlobProbe {
 /** vitest runs with the repository root as cwd. */
 export async function globProbe({ module, globDir, probes }: GlobProbeOptions): Promise<GlobProbe> {
   const fs = await nodeModule<Fs>('fs')
+  const { removeTestTree } = await testRemove()
   const { tmpdir } = await nodeModule<{ tmpdir(): string }>('os')
   const { cwd } = await nodeModule<{ cwd(): string }>('process')
   const repo = cwd()
@@ -73,11 +81,11 @@ export async function globProbe({ module, globDir, probes }: GlobProbeOptions): 
     fs.copyFileSync(`${repo}/${module}`, `${root}/${module}`)
     for (const [name, source] of Object.entries(probes)) fs.writeFileSync(`${root}/${globDir}/${name}`, source)
   } catch (error) {
-    fs.rmSync(root, { recursive: true, force: true })
+    removeTestTree(root)
     throw error
   }
   return {
     modulePath: `${root}/${module}`,
-    remove: () => fs.rmSync(root, { recursive: true, force: true }),
+    remove: () => removeTestTree(root),
   }
 }
