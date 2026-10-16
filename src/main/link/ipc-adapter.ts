@@ -12,22 +12,28 @@
 // Access (worfy-link ticket 08; ADR-0052, point 6). Every channel carries an access mark
 // (src/shared/ipc/channels.ts). Only `link` and `project` channels are registered here at all;
 // `desktop`, `local` and any name the adapter does not know answer {ok:false} "not open to Linked
-// machines" before the input is parsed, and no handler runs. `project` channels answer only while
-// "Linked machines can work with my Projects" is on; while it is off every call but a `link` one is
-// refused with "access is off".
+// machines" before the input is parsed, and no handler runs. `project` channels answer by the access
+// level of the calling Machine (worfy-link ticket 18; ADR-0066; settings.ts): `off` — every call but
+// a `link` one is refused with "access is off"; `read` — a `project` channel marked `write`
+// (src/shared/ipc/channels.ts, ChannelUse) is refused with "access is read-only", before its input is
+// parsed, and its handler never runs; `all` — every `project` channel answers.
 //
 // Who calls. Each connection has a LinkPeer with two clients without a window (src/main/clients.ts):
 // - `link` — the sender of `link` calls, always there; it hears `link` events only;
 // - `project` — the sender of `project` calls, made when access is switched on and added to main's
 //   clients, so the broadcasts of `project` events reach the Linked machine; switching access off
-//   destroys it, and every hub, Terminal and Session that held it lets go (its `destroyed`). A call
-//   already running finishes; the next one is refused. The connection itself stays.
+//   destroys it, and every hub, Terminal and Session that held it lets go (its `destroyed`). Any
+//   change of the level — `read` to `all` or back — destroys it too and makes a new one, so what the
+//   old one subscribed to is gone and the Linked machine subscribes again. A call already running
+//   finishes; the next one is checked by the new level. The connection itself stays.
 // A client sends on only the events of its own mark, looked up by name; a name no loaded module
 // declares is not sent. So `view.changed`, `notify.open`, `limits.changed` or `link.changed` never
-// leave over the connection, whoever broadcasts them.
+// leave over the connection, whoever broadcasts them. A read-only `project` client sends on only the
+// events marked `read`: `terminal.output` stays on this Machine.
 import { EventEmitter } from 'node:events'
 import type { IpcMainInvokeEvent } from 'electron'
-import { accessOf, IPC_CHANNEL_PREFIX, LINKED_MACHINE_ACCESS, type ChannelAccess, type InvokeChannel, type IpcResult } from '../../shared/ipc/channels'
+import { accessOf, IPC_CHANNEL_PREFIX, LINKED_MACHINE_ACCESS, useOf, type ChannelAccess, type ChannelUse, type InvokeChannel, type IpcResult } from '../../shared/ipc/channels'
+import type { AccessLevel } from '../../shared/ipc/link'
 import type { Client } from '../clients'
 import { registerIpc, type IpcMainLike, type ModuleLoader } from '../ipc/index'
 
@@ -49,6 +55,9 @@ export const notOpenRefusal = (channel: string): string => `${channel}: not open
 
 /** The refusal of every call but a `link` one while access is off. */
 export const accessOffRefusal = (machineName: string): string => `Linked machines cannot work with the Projects of ${machineName}: access is off`
+
+/** The refusal of a `write` channel while the calling Machine's access is read-only (worfy-link ticket 18). */
+export const readOnlyRefusal = (machineName: string): string => `Linked machines can only view the Projects of ${machineName}: access is read-only`
 
 /**
  * The ids of link clients follow the rule for clients without a window (src/main/clients.ts):
@@ -82,6 +91,8 @@ export class LinkSender extends EventEmitter implements Client {
     readonly hears: ChannelAccess,
     private readonly push: (channel: string, payload: unknown) => void,
     local: () => LocalMachine,
+    /** A `project` sender of a Machine with read-only access: it passes on `read` events only. */
+    readonly readOnly = false,
   ) {
     super()
     this.id = `link:${machineId}/${nextClientNumber++}`
@@ -93,6 +104,8 @@ export class LinkSender extends EventEmitter implements Client {
     const name = channel.startsWith(IPC_CHANNEL_PREFIX) ? channel.slice(IPC_CHANNEL_PREFIX.length) : channel
     // Unknown names are closed: only a channel declared with this sender's mark goes out.
     if (accessOf(name) !== this.hears) return
+    // Read-only: an event not marked `read` (Terminal output) stays here, as does an unknown mark.
+    if (this.readOnly && useOf(name) !== 'read') return
     this.push(name, args[0])
   }
 
@@ -140,15 +153,22 @@ export class LinkPeer {
     return this.project
   }
 
-  /** Follows the access switch: on makes a fresh `project` client, off destroys it. */
-  setAccess(on: boolean): void {
+  /**
+   * Follows the access level of this connection's Machine: `off` destroys the `project` client;
+   * `read` and `all` keep it while the level stays, and replace it with a fresh one when it changes.
+   */
+  setAccess(level: AccessLevel): void {
     if (this.closed) return
-    if (!on) {
+    if (level === 'off') {
       this.dropProject()
       return
     }
-    if (this.project !== null) return
-    const client = new LinkSender(this.options.machineId, 'project', this.options.push, this.options.local)
+    const readOnly = level === 'read'
+    if (this.project !== null) {
+      if (this.project.readOnly === readOnly) return
+      this.dropProject()
+    }
+    const client = new LinkSender(this.options.machineId, 'project', this.options.push, this.options.local, readOnly)
     this.project = client
     try {
       this.options.addClient?.(client)
@@ -181,10 +201,10 @@ type Listener = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
 /** An IpcMainLike that keeps the wrapped handlers and answers call frames with them. */
 export class LinkIpcAdapter implements IpcMainLike {
-  private readonly listeners = new Map<string, { listener: Listener; access: ChannelAccess }>()
+  private readonly listeners = new Map<string, { listener: Listener; access: ChannelAccess; use: ChannelUse | null }>()
 
   handle(channel: string, listener: Listener, definition: InvokeChannel): void {
-    this.listeners.set(channel, { listener, access: definition.access })
+    this.listeners.set(channel, { listener, access: definition.access, use: definition.use })
   }
 
   /** The channel names registered here, for tests. */
@@ -194,7 +214,8 @@ export class LinkIpcAdapter implements IpcMainLike {
 
   /**
    * Answers one call from `peer`'s Machine. A `link` channel runs always; anything else needs
-   * access on (else "access is off"), then a registered `project` channel (else "not open").
+   * access on (else "access is off"), then a registered `project` channel (else "not open"), then,
+   * with read-only access, a channel marked `read` (else "access is read-only").
    */
   async call(peer: LinkPeer, channel: string, input: unknown, machineName: string): Promise<IpcResult<unknown>> {
     const registered = this.listeners.get(IPC_CHANNEL_PREFIX + channel)
@@ -212,6 +233,11 @@ export class LinkIpcAdapter implements IpcMainLike {
       if (entry?.access !== 'project') {
         peer.refused(channel, 'not open to Linked machines')
         return { ok: false, error: notOpenRefusal(channel) }
+      }
+      // The level of the client the call came in on: one already running finishes by its own.
+      if (sender.readOnly && entry.use !== 'read') {
+        peer.refused(channel, 'access is read-only')
+        return { ok: false, error: readOnlyRefusal(machineName) }
       }
     }
     const event = { senderFrame: { url: linkFrameUrl(peer.machineId) }, sender } as unknown as IpcMainInvokeEvent

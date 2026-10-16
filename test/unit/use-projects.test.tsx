@@ -84,7 +84,7 @@ const linkState = (linked: { id: string; name: string; state?: 'online' | 'unava
   addresses: [],
   bonjour: false,
   linking: { open: false, code: null, expiresAt: null, linked: null, failure: null },
-  linked: linked.map(({ id, name, state = 'online' }) => ({ id, name, state, certificateChanged: false })),
+  linked: linked.map(({ id, name, state = 'online' }) => ({ id, name, state, certificateChanged: false, access: 'all' as const })),
   discovered: [],
   projectsAccess: false,
   keepAwake: true,
@@ -92,7 +92,7 @@ const linkState = (linked: { id: string; name: string; state?: 'online' | 'unava
 
 const linkedState = (machines: { id: string; sharing: 'yes' | 'no' | 'unknown'; epoch?: number; online?: boolean }[], revision = 1): LinkedState => ({
   revision,
-  machines: machines.map(({ id, sharing, epoch = 1, online = true }) => ({ id, sharing, epoch, online })),
+  machines: machines.map(({ id, sharing, epoch = 1, online = true }) => ({ id, sharing, readOnly: false, epoch, online })),
 })
 
 const listOf = (prefix: string, activeId: string | null = null): ProjectsState => ({

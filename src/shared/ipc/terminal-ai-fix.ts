@@ -25,10 +25,10 @@ export const terminalAiFixStateSchema = z.object({
 export type TerminalAiFixState = z.output<typeof terminalAiFixStateSchema>
 
 /** The state of the button of one Terminal; the calling client then gets `terminalAi.fix.changed` for it. */
-export const terminalAiFixState = invokeChannel('terminalAi.fix.state', z.object(terminalRef), terminalAiFixStateSchema, 'project')
+export const terminalAiFixState = invokeChannel('terminalAi.fix.state', z.object(terminalRef), terminalAiFixStateSchema, 'project', 'read')
 
 /** The new state of the button of a Terminal: a command failed or started, the zsh connected or left, Settings changed, a Fix landed. */
-export const terminalAiFixChanged = eventChannel('terminalAi.fix.changed', z.object({ ...terminalRef, ...terminalAiFixStateSchema.shape }), 'project')
+export const terminalAiFixChanged = eventChannel('terminalAi.fix.changed', z.object({ ...terminalRef, ...terminalAiFixStateSchema.shape }), 'project', 'read')
 
 export const terminalAiFixResultSchema = z.discriminatedUnion('ok', [
   /** The corrected command is in the line of the shell; nothing ran. */
@@ -39,7 +39,7 @@ export const terminalAiFixResultSchema = z.discriminatedUnion('ok', [
 export type TerminalAiFixResult = z.output<typeof terminalAiFixResultSchema>
 
 /** Asks the model to correct the failed command of the Terminal and puts the answer into the line of its shell. It never runs. */
-export const terminalAiFixRun = invokeChannel('terminalAi.fix.run', z.object(terminalRef), terminalAiFixResultSchema, 'project')
+export const terminalAiFixRun = invokeChannel('terminalAi.fix.run', z.object(terminalRef), terminalAiFixResultSchema, 'project', 'write')
 
 declare module './channels' {
   interface IpcContract {

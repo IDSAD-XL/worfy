@@ -30,10 +30,10 @@ export const cardInfoSchema = z.object({
 export type CardInfo = z.output<typeof cardInfoSchema>
 
 /** One Card of a Project. An unknown Project is refused; a Card without a folder comes back with exists: false. */
-export const cardsGet = invokeChannel('cards.get', z.object({ projectId, cardId: cardIdSchema }), cardInfoSchema, 'project')
+export const cardsGet = invokeChannel('cards.get', z.object({ projectId, cardId: cardIdSchema }), cardInfoSchema, 'project', 'read')
 
 /** Sent to every window after the files of a Card changed (written, removed, its folder created or deleted). */
-export const cardsChanged = eventChannel('cards.changed', cardInfoSchema, 'project')
+export const cardsChanged = eventChannel('cards.changed', cardInfoSchema, 'project', 'read')
 
 /** The largest Card file a Linked machine sends (413 above it): as large as a file worfy carries anywhere else. */
 export const CARD_FILE_LIMIT_BYTES = FILE_COPY_LIMIT_BYTES
@@ -83,6 +83,7 @@ export const cardsFile = invokeChannel(
   }),
   cardFileAnswerSchema,
   'project',
+  'read',
 )
 
 declare module './channels' {

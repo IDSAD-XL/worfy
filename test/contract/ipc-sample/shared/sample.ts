@@ -3,14 +3,14 @@
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from '../../../../src/shared/ipc/channels'
 
-export const sampleEcho = invokeChannel('sample.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }), 'project')
+export const sampleEcho = invokeChannel('sample.echo', z.object({ text: z.string() }), z.object({ echoed: z.string() }), 'project', 'write')
 
 // Returns whatever the test put in `reply`, so a test can make the handler break its own contract.
 export const sampleLeak = invokeChannel('sample.leak', z.object({ reply: z.unknown() }), z.object({ count: z.number() }), 'local')
 
 export const sampleFail = invokeChannel('sample.fail', z.void(), z.void(), 'desktop')
 
-export const sampleTicked = eventChannel('sample.ticked', z.object({ n: z.number().int() }), 'project')
+export const sampleTicked = eventChannel('sample.ticked', z.object({ n: z.number().int() }), 'project', 'write')
 
 declare module '../../../../src/shared/ipc/channels' {
   interface IpcContract {

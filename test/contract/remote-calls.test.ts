@@ -7,14 +7,14 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { ClientRegistry, type Client } from '../../src/main/clients'
 import { defineHandler, emit, type HandlerModule } from '../../src/main/ipc/index'
-import { RemoteCalls, type RemoteEvent } from '../../src/main/link/remote-calls'
+import { projectsAccessMessage, RemoteCalls, type RemoteEvent } from '../../src/main/link/remote-calls'
 import { definitionOf, eventChannel, invokeChannel } from '../../src/shared/ipc/channels'
 import { LinkBench, type BenchMachine } from './link-bench'
 
 // Test-only channels of B, as a domain file declares them.
-export const remoteEcho = invokeChannel('remote.echo', z.object({ text: z.string() }), z.object({ echoed: z.string(), by: z.string() }), 'project')
+export const remoteEcho = invokeChannel('remote.echo', z.object({ text: z.string() }), z.object({ echoed: z.string(), by: z.string() }), 'project', 'write')
 export const remoteHere = invokeChannel('remote.here', z.void(), z.object({ here: z.boolean() }), 'local')
-export const remoteTicked = eventChannel('remote.ticked', z.object({ n: z.number() }), 'project')
+export const remoteTicked = eventChannel('remote.ticked', z.object({ n: z.number() }), 'project', 'write')
 
 declare module '../../src/shared/ipc/channels' {
   interface IpcContract {
@@ -60,6 +60,8 @@ async function linkedPair(warn?: (message: string) => void): Promise<{ a: BenchM
   const a = await bench.machine('alpha')
   const b = await bench.machine('beta')
   await bench.link(a, b)
+  // B gives A full access: B's switch "Linked machines can work with my Projects" decides.
+  b.service.settings.setLevel(a.service.machine.id, 'all')
   return { a, b, calls: new RemoteCalls(a.service, warn === undefined ? {} : { warn }), callsOfB: new RemoteCalls(b.service), aId: a.service.machine.id, bId: b.service.machine.id }
 }
 
@@ -94,6 +96,44 @@ describe('calls on a Linked machine', () => {
     expect(infoOf()!.epoch).not.toBe(before.epoch)
     expect(await calls.call(bId, 'remote.echo', { text: 'hi' })).toMatchObject({ ok: true, value: { echoed: 'hi' } })
     expect(reached).toEqual(['remote.echo'])
+  })
+
+  it('read-only (worfy-link ticket 18): this side learns the level from the message, a write is refused there, and read-only to all starts a new epoch', async () => {
+    const { a, b, calls, aId, bId } = await linkedPair()
+    const infoOf = () => calls.machines().find((machine) => machine.id === bId)
+    b.service.settings.set({ projectsAccess: true, machines: { [aId]: 'read' } })
+    await a.service.connect(bId)
+    await until(calls, () => infoOf()?.sharing === 'yes' && infoOf()?.readOnly === true)
+    const before = infoOf()!
+    expect(await calls.call(bId, 'remote.echo', { text: 'hi' })).toEqual({ ok: false, error: 'Linked machines can only view the Projects of beta: access is read-only' })
+    expect(reached).toEqual([])
+    // The refusal's text changes nothing of what this side knows.
+    expect(infoOf()).toEqual(before)
+
+    b.service.settings.setLevel(aId, 'all')
+    await until(calls, () => infoOf()?.readOnly === false)
+    expect(infoOf()!.epoch).not.toBe(before.epoch)
+    expect(infoOf()!.sharing).toBe('yes')
+    expect(await calls.call(bId, 'remote.echo', { text: 'hi' })).toMatchObject({ ok: true, value: { echoed: 'hi' } })
+
+    const all = infoOf()!
+    b.service.settings.setLevel(aId, 'read')
+    await until(calls, () => infoOf()?.readOnly === true)
+    expect(infoOf()!.epoch).not.toBe(all.epoch)
+  })
+
+  it('a Linked machine of an older build says only `on`: on reads as all', async () => {
+    const { a, b, calls, callsOfB, aId, bId } = await linkedPair()
+    // B says nothing of its own; the message below is what a build before ticket 18 sends.
+    ;(callsOfB as unknown as { tellAccess: () => void }).tellAccess = () => undefined
+    b.service.settings.set({ projectsAccess: true })
+    await a.service.connect(bId)
+    b.service.sendMessage(aId, projectsAccessMessage, { on: true })
+    await until(calls, () => calls.machines().find((machine) => machine.id === bId)?.sharing === 'yes')
+    expect(calls.machines().find((machine) => machine.id === bId)).toMatchObject({ sharing: 'yes', readOnly: false })
+    b.service.sendMessage(aId, projectsAccessMessage, { on: false })
+    await until(calls, () => calls.machines().find((machine) => machine.id === bId)?.sharing === 'no')
+    expect(calls.machines().find((machine) => machine.id === bId)).toMatchObject({ sharing: 'no', readOnly: false })
   })
 
   it('a refusal "access is off" marks the Machine as not sharing, even without its message', async () => {
@@ -143,13 +183,13 @@ describe('calls on a Linked machine', () => {
 
 describe('definitionOf', () => {
   it('answers the first declaration of a name; a later one with the same mark cannot loosen it, one with another mark closes the name', () => {
-    const strict = invokeChannel('remote.twice', z.void(), z.object({ n: z.number() }), 'project')
-    invokeChannel('remote.twice', z.void(), z.unknown(), 'project')
+    const strict = invokeChannel('remote.twice', z.void(), z.object({ n: z.number() }), 'project', 'write')
+    invokeChannel('remote.twice', z.void(), z.unknown(), 'project', 'write')
     expect(definitionOf('remote.twice')).toBe(strict)
-    invokeChannel('remote.clash', z.void(), z.void(), 'project')
-    eventChannel('remote.clash', z.void(), 'project')
+    invokeChannel('remote.clash', z.void(), z.void(), 'project', 'write')
+    eventChannel('remote.clash', z.void(), 'project', 'write')
     expect(definitionOf('remote.clash')).toBeUndefined()
-    invokeChannel('remote.marks', z.void(), z.void(), 'project')
+    invokeChannel('remote.marks', z.void(), z.void(), 'project', 'write')
     invokeChannel('remote.marks', z.void(), z.void(), 'local')
     expect(definitionOf('remote.marks')).toBeUndefined()
     expect(definitionOf('no.such.channel')).toBeUndefined()

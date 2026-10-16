@@ -100,6 +100,7 @@ export const autopilotStart = invokeChannel(
   z.object({ projectId, epic: epicNameSchema, override: z.boolean().optional() }),
   autopilotStartAnswerSchema,
   'project',
+  'write',
 )
 
 /**
@@ -107,7 +108,7 @@ export const autopilotStart = invokeChannel(
  * the Orchestrator is told so, and the Tickets in work finish. Answers as soon as the run is
  * `stopping` or already stopped, not at its end; again while stopping, it only answers the state.
  */
-export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectId }), autopilotStateSchema, 'project')
+export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
 
 /**
  * Force stop (`user-force-stop`): interrupts the Orchestrator's turn and its background tasks and
@@ -115,13 +116,13 @@ export const autopilotStop = invokeChannel('autopilot.stop', z.object({ projectI
  * Answers its state once it has stopped — up to HALT_TURN_MS (src/main/agent/session.ts) after the
  * click.
  */
-export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object({ projectId }), autopilotStateSchema, 'project')
+export const autopilotForceStop = invokeChannel('autopilot.forceStop', z.object({ projectId }), autopilotStateSchema, 'project', 'write')
 
 /** The Project's run as it is now. */
-export const autopilotState = invokeChannel('autopilot.state', z.object({ projectId }), autopilotStateSchema, 'project')
+export const autopilotState = invokeChannel('autopilot.state', z.object({ projectId }), autopilotStateSchema, 'project', 'read')
 
 /** Sent to every window whenever a Project's run changes. */
-export const autopilotChanged = eventChannel('autopilot.changed', autopilotStateSchema, 'project')
+export const autopilotChanged = eventChannel('autopilot.changed', autopilotStateSchema, 'project', 'read')
 
 export interface StatusLineOptions {
   /** IANA time zone of the times shown; the system's when omitted. Tests pass a fixed one. */

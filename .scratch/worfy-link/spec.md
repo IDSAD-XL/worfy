@@ -79,7 +79,9 @@ Epic готов, когда:
   - `desktop` — нужен рабочий стол машины Project-а, Linked machine-у закрыт;
   - `local` — состояние машины экрана, Linked machine-у закрыт.
 
-  Канал без пометки не проходит `pnpm typecheck`.
+  Канал без пометки не проходит `pnpm typecheck`. Каждый канал `project` несёт второй признак —
+  `read` или `write` (Ticket 18, [ADR-0066](../../docs/adr/0066-read-only-access-for-a-linked-machine.md));
+  без него канал `project` тоже не проходит `pnpm typecheck`.
 - **Доступ** (ADR-0052, пункт 6). Переключатель «Linked machines can work with my Projects» у каждой
   Machine свой и по умолчанию выключен. Хранит его Ticket 02, применяет Ticket 08. Выключен — открыты
   только каналы `link`, и Linked machine не видит Project-ов этой Machine. Выключение сразу отписывает
@@ -87,6 +89,16 @@ Epic готов, когда:
   Session — и только: то, что Linked machine запустила раньше (Session-ы, Autopilot, очередь `agent.send`),
   продолжает работать, не останавливается и не ставится на паузу (решение владельца 2026-10-12, «Итог»
   Ticket-а 08).
+  - **Уровень у каждой Linked machine** (Ticket 18, ADR-0066): Off, Read only, Full access; у новой
+    связи — Off. Переключатель остаётся и выключает доступ всем: пока он выключен, уровень каждой
+    Linked machine — Off. Read only открывает только каналы `read`: вызов канала `write` получает
+    отказ «Linked machines can only view the Projects of <Machine>: access is read-only» до разбора
+    входа, handler не запускается. В «чтение» входят транскрипты, события Session и уведомления;
+    вывод Terminal — нет. Read only всё равно означает доверие: транскрипт может показать секрет.
+  - Смена уровня заменяет клиента соединения: подписки снимаются, экран подписывается заново.
+    Понижение уровня не останавливает запущенное раньше — правило ADR-0060.
+  - Linked machine узнаёт свой уровень из служебного сообщения `projects-access`, а не по тексту
+    отказа. Скрыть действия записи на её экране — Ticket 25.
 - **Реестр клиентов** (Ticket 03, `src/main/clients.ts`). Окно Electron и соединение Linked
   machine-а — одинаковые получатели событий: `id`, `send`, `isDestroyed`, событие `destroyed`.
   Рассылка «всем окнам» и подписки hub-ов идут по реестру, а не по `BrowserWindow.getAllWindows()`.

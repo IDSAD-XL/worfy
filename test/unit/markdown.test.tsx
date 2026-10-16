@@ -231,7 +231,7 @@ describe('Markdown: links in a window on a Linked machine', () => {
     addresses: [],
     bonjour: false,
     linking: { open: false, code: null, expiresAt: null, linked: null, failure: null },
-    linked: [{ id: M, name, state: 'online', certificateChanged: false }],
+    linked: [{ id: M, name, state: 'online', certificateChanged: false, access: 'all' }],
     discovered: [],
     projectsAccess: false,
     keepAwake: false,

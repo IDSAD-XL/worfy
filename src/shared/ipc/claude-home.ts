@@ -73,6 +73,7 @@ export const claudeHomeSessions = invokeChannel(
   z.object({ projectRoot: absolutePath }),
   z.object({ live: z.array(liveSessionSchema), history: z.array(historySessionSchema) }),
   'project',
+  'read',
 )
 
 /**
@@ -80,10 +81,10 @@ export const claudeHomeSessions = invokeChannel(
  * when the registry changed, and every few seconds while a Session is live, because a process
  * that died without removing its registry file changes no file. No subscription.
  */
-export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projectRoot: absolutePath }), z.object({ live: z.array(liveSessionSchema) }), 'project')
+export const claudeHomeLive = invokeChannel('claudeHome.live', z.object({ projectRoot: absolutePath }), z.object({ live: z.array(liveSessionSchema) }), 'project', 'read')
 
 /** Stops `claudeHome.changed` for this Project in the calling window. `closed` is false if it was not subscribed. */
-export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }), 'project')
+export const claudeHomeClose = invokeChannel('claudeHome.close', z.object({ projectRoot: absolutePath }), z.object({ closed: z.boolean() }), 'project', 'read')
 
 /**
  * Events of a Session's transcript after `cursor` (from the start without one). They are the
@@ -112,6 +113,7 @@ export const claudeHomeTranscript = invokeChannel(
     more: z.boolean(),
   }),
   'project',
+  'read',
 )
 
 /**
@@ -126,6 +128,7 @@ export const claudeHomeSubagents = invokeChannel(
   z.object({ projectRoot: absolutePath, sessionId: sessionIdSchema }),
   z.object({ found: z.boolean(), signals: z.array(subagentSignalSchema), files: z.array(subagentFileSchema) }),
   'project',
+  'read',
 )
 
 /**
@@ -137,6 +140,7 @@ export const claudeHomeSubagentTranscript = invokeChannel(
   claudeHomeTranscript.input.extend({ agentId: agentIdSchema }),
   claudeHomeTranscript.output,
   'project',
+  'read',
 )
 
 /** Bounds of `claudeHome.search`: query length, snippet length, Sessions per answer. */
@@ -172,6 +176,7 @@ export const claudeHomeSearch = invokeChannel(
   }),
   z.object({ hits: z.array(transcriptHitSchema).max(TRANSCRIPT_SEARCH.hits), limited: z.boolean() }),
   'project',
+  'read',
 )
 
 /**
@@ -182,6 +187,7 @@ export const claudeHomeChanged = eventChannel(
   'claudeHome.changed',
   z.object({ projectRoot: z.string(), sessions: z.boolean(), transcripts: z.array(z.string()) }),
   'project',
+  'read',
 )
 
 declare module './channels' {

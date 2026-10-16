@@ -117,5 +117,18 @@ Describes what is built (worfy-harness tickets 19 and 30, question Q22 of the ep
 - **Keys**: the dialog takes the focus when it opens; Esc closes it (not while the move form is open over it).
 - **Themes**: only roles from the Tokens table (surface, surface raised, border, text, secondary text, muted, ready, working, blocked, primary); no colors of its own.
 
+## Settings → Machines
+Describes only what worfy-link ticket 18 (ADR-0066) needs: the access level of each Linked machine. Reference look in both themes: the e2e `test/e2e/linked-machines.spec.ts` shoots it as `18-settings-machines-read-only` and `18-settings-machines-full-access`, each `light` and `dark` (kept as `.scratch/worfy-link/evidence/18-*.png`).
+
+- **Rows, top to bottom**: the switch "Linked machines can work with my Projects" with its hint "Work already started from a Linked machine keeps running"; one row per Linked machine; the switch "Keep this computer awake while linked machines are connected". Every row is the shared Settings row (`SettingRow`): the label and its hint on the left, the control on the right.
+- **Row of a Linked machine**: the label is the Machine's name; the control is the shared Select, accessible name "Access of <Machine> to my Projects", with three options: "Off", "Read only", "Full access". The hint under the name says what the chosen level means:
+  - Off — "Cannot see or change your Projects";
+  - Read only — "Sees your Projects, Sessions and notifications, not Terminal output, and changes nothing. Read only still means trust: a Session transcript can show a secret";
+  - Full access — "Works with your Projects as you do: Sessions, Terminal, Autopilot".
+- **A newly linked Machine** shows Off.
+- **While the access switch is off**: every level row is disabled and dimmed (as the keep-awake row), shows Off whatever is kept for the Machine, and its Select has the tooltip `Turn on "Linked machines can work with my Projects" first`. Switched on again, each row shows the level kept for it.
+- **A choice** calls main; the field shows the new level once main answers. A refusal of main is shown under the rows in blocked text, as for the switches.
+- **Themes**: only roles from the Tokens table; no colors of its own.
+
 ## Light/dark pairing rule
 Write the LIGHT file first. The DARK file must have the IDENTICAL markup structure, positions and copy — only token values differ (and light shadows removed in dark). Someone comparing the two should see the same screen in two appearances.
