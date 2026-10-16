@@ -17,7 +17,7 @@ const THIS = '11111111-1111-4111-8111-111111111111'
 const MINI = '22222222-2222-4222-8222-222222222222'
 const ATTIC = '33333333-3333-4333-8333-333333333333'
 
-const machine = (id: string, name: string, state: LinkedMachineView['state'] = 'online', certificateChanged = false): LinkedMachineView => ({ id, name, state, certificateChanged })
+const machine = (id: string, name: string, state: LinkedMachineView['state'] = 'online', certificateChanged = false, access: LinkedMachineView['access'] = 'off'): LinkedMachineView => ({ id, name, state, certificateChanged, access })
 
 const linkState = (revision: number, change: Partial<LinkState> = {}): LinkState => ({
   revision,
@@ -430,5 +430,66 @@ describe('Settings → Machines', () => {
     expect(dot()).toBeNull()
     // The switches are in Settings only.
     expect(within(region()).queryAllByRole('switch', { hidden: true })).toStrictEqual([])
+  })
+})
+
+// worfy-link ticket 18 (ADR-0066): the access level of each Linked machine, in Settings → Machines.
+describe('Settings → Machines: the level of each Linked machine', () => {
+  const level = (id: string) => screen.getByTestId(`link-machine-access-${id}`) as HTMLButtonElement
+  const row = (id: string) => screen.getByTestId(`settings-machines-level-row-${id}`)
+  const TRUST = 'Read only still means trust: a Session transcript can show a secret'
+
+  it('a row per Linked machine with its level and what the level means; read only says plainly it is still trust', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini', 'online', false, 'read'), machine(ATTIC, 'Attic', 'unavailable', false, 'all')], projectsAccess: true }))
+    expect(level(MINI).textContent).toContain('Read only')
+    expect(level(ATTIC).textContent).toContain('Full access')
+    expect(level(MINI).getAttribute('aria-label')).toBe('Access of Mini to my Projects')
+    expect(within(row(MINI)).getByText('Mini')).toBeTruthy()
+    expect(within(row(MINI)).getByText(new RegExp(TRUST))).toBeTruthy()
+    expect(within(row(MINI)).getByText(/not Terminal output/)).toBeTruthy()
+    expect(within(row(ATTIC)).queryByText(new RegExp(TRUST))).toBeNull()
+    expect(level(MINI).disabled).toBe(false)
+  })
+
+  it('a new Linked machine shows Off; choosing Read only calls link.setMachineAccess and shows what main answered', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: true }))
+    expect(level(MINI).textContent).toContain('Off')
+    expect(within(row(MINI)).getByText('Cannot see or change your Projects')).toBeTruthy()
+    fireEvent.click(level(MINI))
+    const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === 'read')
+    if (option === undefined) throw new Error('no option read')
+    fireEvent.click(option)
+    expect(linkCalls()).toStrictEqual([['link.setMachineAccess', { id: MINI, access: 'read' }]])
+    // Not changed until main says so.
+    expect(level(MINI).textContent).toContain('Off')
+    await act(async () => main.calls[0]!.answer({ ok: true, value: linkState(2, { linked: [machine(MINI, 'Mini', 'online', false, 'read')], projectsAccess: true }) }))
+    expect(level(MINI).textContent).toContain('Read only')
+  })
+
+  it('access off for everyone: each row shows Off, is disabled and dimmed, and says why; the level kept in main shows again once access is on', async () => {
+    const linked = [machine(MINI, 'Mini', 'online', false, 'all')]
+    await mountSettings(linkState(1, { linked, projectsAccess: false }))
+    expect(level(MINI).textContent).toContain('Off')
+    expect(level(MINI).disabled).toBe(true)
+    expect(level(MINI).getAttribute('title')).toBe('Turn on "Linked machines can work with my Projects" first')
+    expect(row(MINI).hasAttribute('data-disabled')).toBe(true)
+    fireEvent.click(level(MINI))
+    expect(screen.queryAllByRole('option')).toStrictEqual([])
+    expect(main.calls).toStrictEqual([])
+
+    act(() => main.linkChanged(linkState(2, { linked, projectsAccess: true })))
+    expect(level(MINI).textContent).toContain('Full access')
+    expect(level(MINI).disabled).toBe(false)
+    expect(row(MINI).hasAttribute('data-disabled')).toBe(false)
+  })
+
+  it('a refusal of main is shown under the switches', async () => {
+    await mountSettings(linkState(1, { linked: [machine(MINI, 'Mini')], projectsAccess: true }))
+    fireEvent.click(level(MINI))
+    const option = screen.getAllByRole('option').find((element) => element.getAttribute('data-value') === 'all')
+    if (option === undefined) throw new Error('no option all')
+    fireEvent.click(option)
+    await act(async () => main.calls[0]!.answer({ ok: false, error: `link.setMachineAccess failed: Machine ${MINI} is not linked` }))
+    expect(screen.getByRole('alert').textContent).toContain('is not linked')
   })
 })

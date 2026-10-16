@@ -394,7 +394,7 @@ describe('appSettings and a Linked machine', () => {
     expect(adapter.channels()).toEqual(['sample.echo'])
 
     const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
-    peer.setAccess(true)
+    peer.setAccess('all')
     const before = existsSync(settingsFile) ? readFileSync(settingsFile, 'utf8') : null
     expect(await adapter.call(peer, 'appSettings.set', { interfaceScale: 1.5 }, 'Beta')).toEqual({ ok: false, error: 'appSettings.set: not open to Linked machines' })
     expect(await adapter.call(peer, 'appSettings.get', undefined, 'Beta')).toEqual({ ok: false, error: 'appSettings.get: not open to Linked machines' })

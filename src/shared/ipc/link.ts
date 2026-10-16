@@ -70,6 +70,18 @@ export function formatLinkAddress({ host, port }: LinkAddress): string {
   return host.includes(':') ? `[${host}]:${port}` : `${host}:${port}`
 }
 
+// ---- access to the Projects of this Machine ---------------------------------------------------
+
+/**
+ * How far one Linked machine may work with the Projects of this Machine (worfy-link ticket 18;
+ * ADR-0066, which refines point 6 of ADR-0052): `off` — not at all; `read` — the `read` channels
+ * only (src/shared/ipc/channels.ts, ChannelUse); `all` — every `project` channel. A newly linked
+ * Machine starts `off`. Read-only still means trust: a transcript may show a secret.
+ */
+export const ACCESS_LEVELS = ['off', 'read', 'all'] as const
+export const accessLevelSchema = z.enum(ACCESS_LEVELS)
+export type AccessLevel = z.output<typeof accessLevelSchema>
+
 // ---- the state the UI shows ----------------------------------------------------------------------
 
 /** A Linked machine as the sidebar shows it. */
@@ -83,6 +95,11 @@ export const linkedMachineViewSchema = z.object({
   state: z.enum(['online', 'unavailable', 'sleeping']),
   /** The last connection met another certificate: the Machine has to be linked again. */
   certificateChanged: z.boolean(),
+  /**
+   * Its access to the Projects of this Machine as set for it (worfy-link ticket 18); it applies
+   * only while `projectsAccess` of the state is on.
+   */
+  access: accessLevelSchema,
 })
 export type LinkedMachineView = z.output<typeof linkedMachineViewSchema>
 
@@ -125,7 +142,10 @@ export const linkStateSchema = z.object({
   }),
   linked: z.array(linkedMachineViewSchema),
   discovered: z.array(discoveredMachineSchema),
-  /** "Linked machines can work with my Projects"; off by default (ADR-0052, point 6). */
+  /**
+   * "Linked machines can work with my Projects"; off by default (ADR-0052, point 6). Off turns
+   * access off for every Linked machine whatever its own level (ADR-0066).
+   */
   projectsAccess: z.boolean(),
   /** "Keep this computer awake while linked machines are connected"; on by default (worfy-link ticket 14). */
   keepAwake: z.boolean(),
@@ -158,8 +178,11 @@ export const linkPair = invokeChannel(
 /** Revokes Linked machine `id`; it loses the link at once when connected, else on its next connection. */
 export const linkRevoke = invokeChannel('link.revoke', z.object({ id: z.uuid() }), linkStateSchema, 'local')
 
-/** Sets "Linked machines can work with my Projects". */
+/** Sets "Linked machines can work with my Projects": off turns access off for every Linked machine. */
 export const linkSetAccess = invokeChannel('link.setAccess', z.object({ projectsAccess: z.boolean() }), linkStateSchema, 'local')
+
+/** Sets the access level of Linked machine `id` (worfy-link ticket 18). */
+export const linkSetMachineAccess = invokeChannel('link.setMachineAccess', z.object({ id: z.uuid(), access: accessLevelSchema }), linkStateSchema, 'local')
 
 /** Sets "Keep this computer awake while linked machines are connected". */
 export const linkSetKeepAwake = invokeChannel('link.setKeepAwake', z.object({ keepAwake: z.boolean() }), linkStateSchema, 'local')
@@ -176,6 +199,7 @@ declare module './channels' {
     'link.pair': typeof linkPair
     'link.revoke': typeof linkRevoke
     'link.setAccess': typeof linkSetAccess
+    'link.setMachineAccess': typeof linkSetMachineAccess
     'link.setKeepAwake': typeof linkSetKeepAwake
     'link.changed': typeof linkChanged
   }

@@ -92,7 +92,12 @@ const until = (check: () => boolean): Promise<void> =>
 
 /** Links `from` to `to` and opens one connection, dialled by `from`; resolves once both sides see it. */
 async function connect(from: Machine, to: Machine): Promise<void> {
-  if (!from.service.isLinked(to.service.machine.id)) await bench.link(from, to)
+  if (!from.service.isLinked(to.service.machine.id)) {
+    await bench.link(from, to)
+    // Each side gives the other full access: the switch "Linked machines can work with my Projects" decides.
+    from.service.settings.setLevel(to.service.machine.id, 'all')
+    to.service.settings.setLevel(from.service.machine.id, 'all')
+  }
   await from.service.connect(to.service.machine.id)
   await until(() => to.service.isConnected(from.service.machine.id) && from.service.isConnected(to.service.machine.id))
 }
@@ -204,6 +209,23 @@ describe('a note of a Session of the Project machine on a Linked machine', () =>
     await settled(b, c)
     expect(onC.shown).toEqual([])
     expect(onA.shown).toHaveLength(1)
+  })
+
+  it('B with read-only access gets the notes; B whose own level is off gets none (worfy-link ticket 18)', async () => {
+    const { a, b, bId } = await pair()
+    const onA = notifications(a)
+    const onB = notifications(b)
+    a.service.settings.setLevel(bId, 'read')
+    onA.event('s1', result('while read-only'))
+    await until(() => onB.shown.length === 1)
+    expect(onB.notes().map((note) => note.body)).toEqual(['while read-only'])
+
+    a.service.settings.setLevel(bId, 'off')
+    onA.wait(NOTIFY_INTERVAL_MS)
+    onA.event('s1', result('while off'))
+    expect(onA.notes().map((note) => note.body)).toEqual(['while read-only', 'while off'])
+    await settled(a, b)
+    expect(onB.shown).toHaveLength(1)
   })
 
   it('with the access switch off on A, B gets nothing; on again, the next note comes', async () => {

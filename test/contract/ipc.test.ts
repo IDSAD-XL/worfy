@@ -217,7 +217,7 @@ describe('the channel filter (worfy-link ticket 08)', () => {
       local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: '0.2.0+test' }),
       warn: (message) => warnings.push(message),
     })
-    peer.setAccess(true)
+    peer.setAccess('all')
     for (const [channel, input] of [
       ['sample.fail', undefined],
       ['sample.leak', { reply: { count: 1 } }],
@@ -247,9 +247,9 @@ describe('the channel filter (worfy-link ticket 08)', () => {
     expect(await adapter.call(peer, 'nobody.declares.this', undefined, 'beta')).toEqual(off)
     expect(await adapter.call(peer, 'link.ping', undefined, 'beta')).toMatchObject({ ok: true })
     // On, then off again: the `project` client is gone and the calls are refused once more.
-    peer.setAccess(true)
+    peer.setAccess('all')
     expect(await adapter.call(peer, 'sample.echo', { text: 'on' }, 'beta')).toEqual({ ok: true, value: { echoed: 'on' } })
-    peer.setAccess(false)
+    peer.setAccess('off')
     expect(await adapter.call(peer, 'sample.echo', { text: 'off' }, 'beta')).toEqual(off)
     expect(ran).toEqual(['link.ping', 'sample.echo on'])
   })
@@ -258,7 +258,7 @@ describe('the channel filter (worfy-link ticket 08)', () => {
     ran.length = 0
     const adapter = await createLinkIpc({ modules, isLinked: () => false })
     const peer = new LinkPeer({ machineId: MACHINE, describe: () => MACHINE, push: () => undefined, local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: 'x' }), warn: () => undefined })
-    peer.setAccess(true)
+    peer.setAccess('all')
     const result = await adapter.call(peer, 'sample.echo', { text: 'hi' }, 'beta')
     expect(!result.ok && result.error).toMatch(/untrusted/)
     expect(ran).toEqual([])
@@ -269,13 +269,13 @@ describe('a channel name declared twice with two marks (round 2)', () => {
   const MACHINE = randomUUID()
   const peer = () => {
     const made = new LinkPeer({ machineId: MACHINE, describe: () => MACHINE, push: () => undefined, local: () => ({ id: MACHINE, name: 'beta', protocol: 1, build: 'x' }), warn: () => undefined })
-    made.setAccess(true)
+    made.setAccess('all')
     return made
   }
   // Test-only channels outside the contract: their handlers are built by hand, defineHandler takes contract channels only.
 
   it('is not registered on the link adapter, though the definition in hand says `project`; the windows still get it', async () => {
-    const asProject = invokeChannel('sample.twice', z.void(), z.object({ ran: z.boolean() }), 'project')
+    const asProject = invokeChannel('sample.twice', z.void(), z.object({ ran: z.boolean() }), 'project', 'write')
     invokeChannel('sample.twice', z.void(), z.object({ ran: z.boolean() }), 'local')
     let ran = 0
     const twice: Record<string, () => Promise<HandlerModule>> = {
@@ -298,7 +298,7 @@ describe('a channel name declared twice with two marks (round 2)', () => {
   })
 
   it('declared again with another mark after the adapter registered it: the call is refused, the handler never runs', async () => {
-    const first = invokeChannel('sample.later', z.void(), z.object({ ran: z.boolean() }), 'project')
+    const first = invokeChannel('sample.later', z.void(), z.object({ ran: z.boolean() }), 'project', 'write')
     let ran = 0
     const later: Record<string, () => Promise<HandlerModule>> = {
       './later.ts': async () => [

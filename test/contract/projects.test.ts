@@ -544,7 +544,7 @@ async function linkedCaller(access: boolean): Promise<(channel: string, input?: 
     isLinked: (id) => id === LINKED,
   })
   const peer = new LinkPeer({ machineId: LINKED, describe: () => LINKED, push: () => undefined, local: () => ({ id: 'beta', name: 'Beta', protocol: 1, build: 'x' }), warn: () => undefined })
-  peer.setAccess(access)
+  peer.setAccess(access ? 'all' : 'off')
   return (channel, input) => adapter.call(peer, channel, input, 'Beta')
 }
 

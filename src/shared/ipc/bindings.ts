@@ -41,16 +41,16 @@ export const agentKey = (sessionId: string, agentId: string | null | undefined):
  * The Project's manual Bindings. The call also subscribes the calling window to `bindings.changed`
  * until the window is gone, so every later change reaches it, whoever made it.
  */
-export const bindingsGet = invokeChannel('bindings.get', z.object({ projectId }), manualBindingsSchema, 'project')
+export const bindingsGet = invokeChannel('bindings.get', z.object({ projectId }), manualBindingsSchema, 'project', 'read')
 
 /** Binds an agent by hand, replacing its manual Binding if it had one; answers with all of them. */
-export const bindingsSet = invokeChannel('bindings.set', bindingAgentSchema.extend({ projectId, target: bindingTargetSchema }), manualBindingsSchema, 'project')
+export const bindingsSet = invokeChannel('bindings.set', bindingAgentSchema.extend({ projectId, target: bindingTargetSchema }), manualBindingsSchema, 'project', 'write')
 
 /** Removes an agent's manual Binding ("Remove binding"): its automatic Binding applies again. */
-export const bindingsRemove = invokeChannel('bindings.remove', bindingAgentSchema.extend({ projectId }), manualBindingsSchema, 'project')
+export const bindingsRemove = invokeChannel('bindings.remove', bindingAgentSchema.extend({ projectId }), manualBindingsSchema, 'project', 'write')
 
 /** Sent to every subscribed window after a manual Binding of a Project changed. */
-export const bindingsChanged = eventChannel('bindings.changed', manualBindingsSchema, 'project')
+export const bindingsChanged = eventChannel('bindings.changed', manualBindingsSchema, 'project', 'read')
 
 /**
  * What a Session's transcript and its Subagents' transcripts (`<sessionId>/subagents/agent-*.jsonl`)
@@ -66,6 +66,7 @@ export const bindingsSignals = invokeChannel(
     subagents: z.array(z.object({ agentId: agentIdSchema, signals: agentSignalsSchema })),
   }),
   'project',
+  'read',
 )
 export type SessionBindingSignals = z.infer<typeof bindingsSignals.output>
 

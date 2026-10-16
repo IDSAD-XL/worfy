@@ -54,19 +54,19 @@ export type TrashEntry = z.output<typeof trashEntrySchema>
  * the user may not delete. `screen` is the screen whose recorded gesture or undo this is
  * (src/shared/ipc/layout.ts screenIdSchema); the Layout change carries it in `layout.changed`.
  */
-export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId, screen: screenIdSchema.optional() }), trashEntrySchema, 'project')
+export const trashPut = invokeChannel('trash.put', z.object({ projectId, nodeId, screen: screenIdSchema.optional() }), trashEntrySchema, 'project', 'write')
 
 /**
  * Puts an entry back: the Card's files and data, then the Node at its old place. Refused when its id
  * or Card id is taken again. `screen` as for trash.put.
  */
-export const trashRestore = invokeChannel('trash.restore', z.object({ projectId, label: trashLabelSchema, screen: screenIdSchema.optional() }), trashEntrySchema, 'project')
+export const trashRestore = invokeChannel('trash.restore', z.object({ projectId, label: trashLabelSchema, screen: screenIdSchema.optional() }), trashEntrySchema, 'project', 'write')
 
 /** The Project's trash, newest first. */
-export const trashList = invokeChannel('trash.list', z.object({ projectId }), z.object({ entries: z.array(trashEntrySchema) }), 'project')
+export const trashList = invokeChannel('trash.list', z.object({ projectId }), z.object({ entries: z.array(trashEntrySchema) }), 'project', 'read')
 
 /** Sent to every window after a Project's trash changed. */
-export const trashChanged = eventChannel('trash.changed', z.object({ projectId }), 'project')
+export const trashChanged = eventChannel('trash.changed', z.object({ projectId }), 'project', 'read')
 
 declare module './channels' {
   interface IpcContract {

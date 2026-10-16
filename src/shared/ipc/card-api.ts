@@ -11,7 +11,7 @@ import { invokeChannel } from './channels'
 const card = { projectId: z.string().min(1), cardId: cardIdSchema }
 
 /** The Card's data, or null when it has stored none. */
-export const cardApiDataGet = invokeChannel('cardApi.dataGet', z.object(card), z.object({ value: cardDataSchema }), 'project')
+export const cardApiDataGet = invokeChannel('cardApi.dataGet', z.object(card), z.object({ value: cardDataSchema }), 'project', 'read')
 
 /** Replaces the Card's data; `bytes` is the size of its compact JSON. */
 export const cardApiDataSet = invokeChannel(
@@ -19,6 +19,7 @@ export const cardApiDataSet = invokeChannel(
   z.object({ ...card, value: cardDataSchema }),
   z.object({ bytes: z.number().int().nonnegative() }),
   'project',
+  'write',
 )
 
 // `session.ask` (worfy-link ticket 10; ADR-0053): the Machine of the Project prepares the question
@@ -47,6 +48,7 @@ export const cardApiAskPrepare = invokeChannel(
   z.object({ ...card, text: askTextSchema }),
   cardPromptSchema.extend({ askId: z.uuid() }),
   'project',
+  'write',
 )
 
 /**
@@ -64,6 +66,7 @@ export const cardApiAskFinish = invokeChannel(
   z.object({ projectId: card.projectId, askId: z.uuid(), send: z.boolean() }),
   z.object({ sent: z.boolean(), recipient: z.enum(['session', 'orchestrator']).nullable() }),
   'project',
+  'write',
 )
 
 declare module './channels' {

@@ -147,24 +147,24 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
   it('is off for a fresh data folder, survives a restart over the same folder, and its change is announced', async () => {
     const a = await bench.machine('a')
     const file = join(a.dataDir, 'link', 'settings.json')
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
     expect(existsSync(file)).toBe(false)
 
     const events: unknown[] = []
     a.service.on('settings', (value) => events.push(value))
     a.service.settings.set({ projectsAccess: true })
     a.service.settings.set({ projectsAccess: true })
-    expect(events).toEqual([{ projectsAccess: true, keepAwake: true }])
-    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 1, projectsAccess: true, keepAwake: true })
+    expect(events).toEqual([{ projectsAccess: true, machines: {}, keepAwake: true }])
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: {}, keepAwake: true })
 
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: true, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: {}, keepAwake: true })
     const after: unknown[] = []
     a.service.on('settings', (value) => after.push(value))
     a.service.settings.set({ projectsAccess: false })
-    expect(after).toEqual([{ projectsAccess: false, keepAwake: true }])
+    expect(after).toEqual([{ projectsAccess: false, machines: {}, keepAwake: true }])
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
   })
 
   it('stays off when its file cannot be read', async () => {
@@ -173,7 +173,69 @@ describe('the access switch "Linked machines can work with my Projects"', () => 
     const file = join(a.dataDir, 'link', 'settings.json')
     writeFileSync(file, '{ not json')
     await bench.restart(a)
-    expect(a.service.settings.get()).toEqual({ projectsAccess: false, keepAwake: true })
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+  })
+})
+
+// worfy-link ticket 18 (ADR-0066): the level of each Linked machine, and the file of version 1.
+describe('the access level of each Linked machine', () => {
+  it('a file of version 1 with access on reads as "all" for the Machines linked then, and is written as version 2; one linked later is off', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const bId = b.service.machine.id
+    const file = join(a.dataDir, 'link', 'settings.json')
+    writeFileSync(file, JSON.stringify({ version: 1, projectsAccess: true, keepAwake: false }))
+    await bench.restart(a)
+    expect(a.service.settings.get()).toEqual({ projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false })
+    expect(a.service.settings.levelOf(bId)).toBe('all')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ version: 2, projectsAccess: true, machines: { [bId]: 'all' }, keepAwake: false })
+
+    const c = await bench.machine('c')
+    await bench.link(a, c)
+    await bench.restart(a)
+    expect(a.service.settings.levelOf(bId)).toBe('all')
+    expect(a.service.settings.levelOf(c.service.machine.id)).toBe('off')
+  })
+
+  it('a file of version 1 with access off reads as off for everyone; a file written before the keep-awake switch too', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    await bench.link(a, b)
+    const file = join(a.dataDir, 'link', 'settings.json')
+    writeFileSync(file, JSON.stringify({ version: 1, projectsAccess: false }))
+    await bench.restart(a)
+    expect(a.service.settings.get()).toEqual({ projectsAccess: false, machines: {}, keepAwake: true })
+    expect(a.service.settings.levelOf(b.service.machine.id)).toBe('off')
+    // On again, the switch alone gives nothing: the level of each Machine is its own.
+    a.service.settings.set({ projectsAccess: true })
+    expect(a.service.settings.levelOf(b.service.machine.id)).toBe('off')
+  })
+
+  it('a level is kept per Machine, applies only while the switch is on, survives a restart, and goes with a revoke; linked again it starts off', async () => {
+    const a = await bench.machine('a')
+    const b = await bench.machine('b')
+    const c = await bench.machine('c')
+    await bench.link(a, b)
+    await bench.link(a, c)
+    const bId = b.service.machine.id
+    const cId = c.service.machine.id
+    expect(a.service.settings.levelOf(bId)).toBe('off')
+    a.service.settings.set({ projectsAccess: true })
+    a.service.settings.setLevel(bId, 'read')
+    a.service.settings.setLevel(cId, 'all')
+    expect([a.service.settings.levelOf(bId), a.service.settings.levelOf(cId)]).toEqual(['read', 'all'])
+    a.service.settings.set({ projectsAccess: false })
+    expect([a.service.settings.levelOf(bId), a.service.settings.levelOf(cId)]).toEqual(['off', 'off'])
+    a.service.settings.set({ projectsAccess: true })
+    await bench.restart(a)
+    expect([a.service.settings.levelOf(bId), a.service.settings.levelOf(cId)]).toEqual(['read', 'all'])
+
+    a.service.revoke(cId)
+    expect(a.service.settings.get().machines).toEqual({ [bId]: 'read' })
+    await bench.link(a, b)
+    expect(a.service.settings.levelOf(bId)).toBe('off')
+    expect(a.service.settings.get().machines).toEqual({})
   })
 })
 
