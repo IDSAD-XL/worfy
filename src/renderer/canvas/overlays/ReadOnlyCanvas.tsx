@@ -2,8 +2,10 @@
 // ticket 25, ADR-0066): it can be looked at, panned and zoomed, and nothing on it changes.
 //
 // - Nodes do not move: Canvas.tsx gives React Flow `nodesDraggable` from the same level (worfy-link
-//   ticket 26). React Flow 12 draws each Node from that prop, not from its store, so a value written
-//   into the store from here left the Nodes draggable. Panning and zooming stay.
+//   ticket 26). React Flow 12 gives each Node its drag handler and `draggable` class from that prop,
+//   not from its store; a value written into the store from here only stopped the drag from moving
+//   a plain Node, and a Node with its own `draggable: true` (a Subagent) still moved. Panning and
+//   zooming stay.
 // - The React Flow root carries READ_ONLY_ATTRIBUTE; projects/read-only.css keys the plain cursor on it.
 // - The notice at the top centre says why, with the same words as every inactive action.
 //
