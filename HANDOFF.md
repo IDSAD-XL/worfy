@@ -1,4 +1,4 @@
-# Передача контекста — снимок на 2026-10-16 (UTC), main @ 524abb3
+# Передача контекста — снимок на 2026-10-16 (UTC), main @ e38d4a1
 
 ## Сейчас в работе
 
@@ -11,7 +11,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–10, 13; 11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) `VERIFIED` по Mac, ждёт Windows-ПК; 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 7/8: влиты 01–03, 05–08; 04 — [PR #332](https://github.com/IDSAD-XL/worfy/pull/332) `VERIFIED` по Mac, ждёт Windows-ПК; вопросы владельцу — «Итог» 07, 08.
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01, 04 (PR #342, #341); 02, 03 — отчёты (PR #339, #340). Решения — «Итог» 01, 04.
-- `worfy-polish`: 23/26 — влиты 01–18, 21–25 (12 — отчёт); 19 (#365) `VERIFIED`, ждёт Windows-ПК; 20 (#372), 26 (#378) — blocked (2× `REJECTED`).
+- `worfy-polish`: 25/26 — влиты 01–18, 20–26 (12 — отчёт; 20, 26 — узкий круг); 19 (#365) `VERIFIED`, ждёт Windows-ПК.
 
 ## Ждёт владельца
 
@@ -29,7 +29,7 @@
 - `worfy-link` 19: нужна ли строка-подсказка под переключателем доступа о том, что без него «Keep awake» не действует, — вопрос в Ticket-е.
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); решения и долги — «Итог» 03–06, 09, 10, 13; 11 — gate full на Windows-ПК и решения в PR #328.
 - `worfy-terminal-ai`: решения без владельца — «Итог» 03–08, 10 (e2e `session-view` у полуночи).
-- `worfy-polish`, подтвердить: 14 pinned; 16 tooltip; 20 `maintenance.auto=false`; 21 «Done (N)»; 22 без `variant`; 23 `/context` ÷ порог; 24 перекрывает settings.json. Вопросы: 17 кэш 32M < 64 MB; узкий круг 20, 26; текст отказа 26.
+- `worfy-polish`, подтвердить: 14 pinned; 16 tooltip; 20 `maintenance.auto=false`; 21 «Done (N)»; 22 без `variant`; 23 `/context` ÷ порог; 24 перекрывает settings.json. Вопросы: 17 кэш 32M < 64 MB; 26 текст отказа — взят verifier-а.
 
 ## Риски и долги
 
