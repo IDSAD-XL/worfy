@@ -1,7 +1,7 @@
 # 26 — Отказ в разрешении у Autopilot: причина Claude Code в ответе модели, Subagent и причина в журнале
 
 Type: task
-Status: blocked — REJECTED дважды (PR #378): правило начала пути из брифа доработки вернуло утечку имени в \\?\C:\Users\…; узкий круг — по решению владельца
+Status: done — 2026-10-16, [PR #378](https://github.com/IDSAD-XL/worfy/pull/378)
 Blocked by: —
 Source: решение владельца 2026-10-15 по отчёту
 [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md)
@@ -150,3 +150,12 @@ Autopilot — режим, в котором Wave-ы идут без челове
 - Consider: [low] текст для модели «rewrite the command so this check does not fire» (`permissions.ts:75`) взят из Ticket-а; verifier предлагает «follow the reason above: give a literal, resolvable target» — решение владельца.
 - Noted: причина Claude Code сама цитирует часть команды `rm` — до 200 символов попадают в журнал (выбор research-отчёта, **решено без владельца, подтвердить**). [low] debt: WSL `/mnt/c/Users/…` и `/cygdrive/c/…` не заменяются (и в круге 1); `/System/Volumes/Data/Users/…` на macOS; нет test-а на дом с символами regex (мутант без `escapeRegExp` проходит).
 - Dismissed — нет.
+
+### Gate оркестратора — узкий круг (2026-10-16)
+
+- Узкий круг — по слову владельца на ночь 2026-10-16. Скептик подтвердил находку круга 2 на уровне low: утечка имени в `\\?\C:\…`, `\\.\C:\…`, `/C:\…`, `file:///C:\…` ([комментарий `NARROW:`](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6206155413)).
+- Текст для модели после причины отказа — формулировка verifier-а «follow the reason above: give a literal, resolvable target» (`permissions.ts:75`): **решение владельца на ночь, он может сменить её отдельным PR**.
+- Доработка (`6ff2c7cb`): «перед домом не разделитель» (`PATH_START`) — только для дома без диска и формы `/c/…`; перед `C:` — `DRIVE_START`: не буква, цифра, `.`, `_`, `-` (`journal.ts:258`, `:263`, `:289`).
+- Гейт узкого круга — `NARROW: VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/378#issuecomment-6206489937)): `journalReason` кругов 1, 2 и head сравнён на 52 строках — утечки круга 2 закрыты, новой лишней замены нет; мутанты m1–m5 красные.
+- Merge: gate full на Mac зелёный (lint, typecheck, test, test:e2e, test:package), CI зелёный — `e38d4a1`.
+- [low] debt: `\c\Users\Ann` (один обратный слеш) заменяется лишний раз; `file:///Users/ann/x` даёт `file:~/x` (только вид строки). Оба — с круга 2.

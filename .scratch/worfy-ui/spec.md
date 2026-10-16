@@ -11,7 +11,7 @@ Source: просьбы владельца по интерфейсу 2026-10-09; 
 [worfy-windows](../worfy-windows/spec.md) — Ticket 11 (Ctrl вместо ⌘ на Windows); Epic
 [worfy-terminal-ai](../worfy-terminal-ai/spec.md) — раздел Settings → «Terminal AI» (его Ticket 08) и
 ⌘I в Terminal-е (его Ticket 06).
-Ticket-ы: Epic `worfy-ui`, 13 Ticket-ов (13 добавлен 2026-10-10), нумерация с `01`. Шапка — тот же диалект, что у worfy-link
+Ticket-ы: Epic `worfy-ui`, 14 Ticket-ов (13 добавлен 2026-10-10, 14 — 2026-10-16), нумерация с `01`. Шапка — тот же диалект, что у worfy-link
 и worfy-windows (`Type:` / `Status:` / `Blocked by:` / `Source:`), чтобы её читали `epic-status`,
 `ticket` и вычисление Wave в worfy (`src/shared/workflow/waves.ts`).
 
@@ -399,8 +399,9 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 09 | `src/renderer/session/composer/Pickers.tsx`, `src/renderer/session/session.css`, `test/unit/session-view.test.tsx`, `test/unit/effort-slider.test.tsx`, `test/e2e/own-sessions.spec.ts`, `test/e2e/permissions.spec.ts`, `test/e2e/session-controls.spec.ts` | 2 |
 | 10 | `src/renderer/focus/FocusMode.tsx`, `src/renderer/focus/focus.css`, `src/renderer/focus/focus-state.ts`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `src/renderer/canvas/sources/epics.ts`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/shell.css`, `src/renderer/shell/sidebar-visibility.ts`, `src/shared/ipc/menu.ts`, `src/main/menu.ts`, `test/unit/focus-mode.test.tsx`, `test/unit/shell.test.tsx`, `test/contract/view-menu.test.ts`, `test/e2e/focus.spec.ts`, `test/e2e/focus-sidebar.spec.ts` | 3 |
 | 11 | `src/shared/shortcuts.ts`, `src/renderer/shortcuts/match.ts`, `src/renderer/shortcuts/ShortcutsOverlay.tsx`, `src/renderer/shortcuts/shortcuts.css`, `src/renderer/settings/ShortcutsSection.tsx`, `src/shared/ipc/menu.ts`, `src/main/menu.ts`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/Toolbar.tsx`, `src/renderer/palette/CommandPalette.tsx`, `src/renderer/palette/commands.ts`, `src/renderer/find/CanvasFind.tsx`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`, `src/renderer/canvas/Canvas.tsx`, `src/renderer/focus/FocusMode.tsx`, `src/renderer/session/MessageInput.tsx`, `src/renderer/session/SlashMenu.tsx`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `test/unit/shortcuts.test.tsx`, `test/unit/shortcuts-overlay.test.tsx`, `test/contract/view-menu.test.ts`, `test/e2e/shortcuts.spec.ts` | 4 |
-| 12 | `test/e2e/worfy-ui-acceptance.spec.ts`, `docs/design/F-SPEC.md`, `.scratch/worfy-ui/spec.md`, `.scratch/worfy-ui/evidence/12-приёмка.md` | 5 |
+| 12 | `test/e2e/worfy-ui-acceptance.spec.ts`, `docs/design/F-SPEC.md`, `.scratch/worfy-ui/spec.md`, `.scratch/worfy-ui/evidence/12-приёмка.md` | 6 |
 | 13 | `src/renderer/settings/settings-window.ts`, `test/unit/settings-dialog.test.tsx`, `test/e2e/settings.spec.ts` | 4 |
+| 14 | `src/shared/shortcuts.ts`, `src/renderer/shortcuts/match.ts`, `src/renderer/platform.ts`, `src/renderer/session/ExternalSessionPanel.tsx`, `test/unit/shortcuts.test.tsx`, `test/e2e/shortcuts.spec.ts` | 5 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave. Ticket-ы 11 и 12
@@ -420,13 +421,19 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 4 — 11 и 13.** 11 ждёт 02, 03, 07 и 10 (Ticket 11 worfy-windows, которого он ждал по
   Status, влит 2026-10-10, PR #215). 13
   («Settings…» в режиме фокуса, решение владельца 2026-10-10) ждёт 10; общих файлов с 11 нет.
-- **Wave 5 — 12, один.** Ждёт все остальные Ticket-ы; в нём шаги владельца, Autopilot его не берёт.
+- **Wave 5 — 14, один.** Ждёт 11 (клавиша ⌘[ / Ctrl+[ окна Subagent-а уходит в реестр сочетаний,
+  который вводит 11; добавлен 2026-10-16). С 11 общие `src/shared/shortcuts.ts`,
+  `src/renderer/shortcuts/match.ts`, `test/unit/shortcuts.test.tsx` и `test/e2e/shortcuts.spec.ts` —
+  порядок держит блокер.
+- **Wave 6 — 12, один.** Ждёт все остальные Ticket-ы, 14 тоже; в нём шаги владельца, Autopilot его
+  не берёт.
 
 Сдвигов из-за общих файлов нет. Общие файлы между Wave-ами есть, и порядок их держат блокеры:
 `src/main/menu.ts`, `test/contract/view-menu.test.ts` и `AppShell.tsx` — 02 → 03 → 10 → 11;
 `FocusMode.tsx`, `focus.css` и `shell.css` — 03 → 10 (`FocusMode.tsx` — и → 11); `GeneralSection.tsx`
 — 02 → 03; `MachinesSection.tsx` боковой панели — 04 → 05; `commands.ts` и `CommandPalette.tsx` — 02
-и 07 → 11. Вычисление Wave в момент запуска (`readyWave`) идёт по номерам и берёт Ticket, только
+и 07 → 11; `src/shared/shortcuts.ts`, `match.ts`, `test/unit/shortcuts.test.tsx` и
+`test/e2e/shortcuts.spec.ts` — 11 → 14. Вычисление Wave в момент запуска (`readyWave`) идёт по номерам и берёт Ticket, только
 когда все его блокеры `done`.
 
 Таблица собрана скриптом из списков «Где в коде» Ticket-ов — тем же разбором, что `codeSection`
