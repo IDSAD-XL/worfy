@@ -1,7 +1,7 @@
 # 01 — Один gate full на все готовые PR Wave вместо rebase и gate full на каждый PR
 
 Type: task
-Status: claimed — 2026-10-16
+Status: done — 2026-10-16, [PR #384](https://github.com/IDSAD-XL/worfy/pull/384)
 Branch: worfy-throughput/01
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер критического пути (раздел
@@ -313,3 +313,11 @@ stub-ами gate и `gh`, плюс блоки skill-а под bash и zsh. `harn
 - [ ] (вручную) Вердикт Windows — не проверено: шаг владельца/оркестратора на Windows-ПК.
 - [ ] (вручную) Первая Wave после обновления Harness — не проверено: шаг оркестратора.
 - gate full — шаг Orchestrator-а перед merge (по старой схеме).
+
+### Gate оркестратора (2026-10-16)
+
+- Wave Epic-а под Autopilot: Ticket-ы 01 и 03 параллельно; один verifier на круг.
+- Круг 1 — `REJECTED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/384#issuecomment-6212347707)). Act on: [med] у проверки продолжения `merge` (k>0) нет test-а; [med] у `guardPid` нет test-а, pid-файл пишется не атомарно — оба перед разрушающими действиями. Consider: `headRefOid` вместо head вердикта (`epic-wave/SKILL.md:601-602`); `git clean` без `-x`. Noted: отказ `check` после начатого merge без test-а; верхняя граница брошенного замка не проверена. Dismissed — нет.
+- Круг 2 — `VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/384#issuecomment-6213100063)): продолжение сравнивает SHA с `merged[k-1].commit`, pid-файл — `wx`, `git clean -fdqx -e node_modules`. [low] debt: гонка двух `check` на пустом устаревшем pid-файле (сравнивать inode); ветка `link()` и «удалять только свой pid-файл» без test-а; переход дерево → SHA test-ом не различается; `headRefOid` вместо head вердикта.
+- Merge: gate full на Mac зелёный, Linux CI зелёный — `c53f8a8`. **Нарушение ADR-0056, пункт 2:** Ticket — платформенный PR (строка «Этот Ticket сам — платформенный PR»), а влит без вердикта Windows-ПК — оркестратор не сверил эту строку перед merge. `wave-gate` ни в одном Profile не включён (нет `workflow.merge_gate`). Вердикт Windows после merge и revert при красном — решение владельца.
+- Правка Profile-а вне репозитория (`profile.json`, `rules.md`) не внесена — шаг владельца, diff выше в «Итог».
