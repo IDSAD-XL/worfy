@@ -159,14 +159,14 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
   the summary.». Если в окружении login shell есть `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, вверху
   строка «Overridden by CLAUDE_CODE_AUTO_COMPACT_WINDOW in your shell (<значение>).». Значение
   приходит по новому каналу `sessionAutocompact.shellOverride` (`local`).
-- **Решено без владельца, подтвердить:**
+- **Решено без владельца, подтверждено владельцем 2026-10-16:**
   - вид ввода: выбор «Claude Code default» / «Custom» и рядом поле; при переключении на «Custom»
     берётся значение роли по умолчанию (400K или 500K);
   - текст вне пределов приводится к ним молча (50 → 100K, 1500 → 1M, 455 → 460K); текст, который не
     число, ничего не меняет, и поле снова показывает действующее значение;
   - пустая переменная `CLAUDE_CODE_AUTO_COMPACT_WINDOW=` считается отсутствующей;
   - черновая Session подключения Project-а (`draftSessionOptions`) окна не получает;
-  - значения по умолчанию действуют и у тех, кто настройку не открывал. Session-ы после обновления
+  - (**не принято владельцем 2026-10-16, follow-up — Ticket 29**) значения по умолчанию действуют и у тех, кто настройку не открывал. Session-ы после обновления
     worfy сжимаются у окна 400K/500K, а не у окна Claude Code по умолчанию, и flag settings
     перекрывают `autoCompactWindow` из `settings.json` пользователя.
 - **Test-ы.** `test/contract/agent-autocompact.test.ts` — цепочка Orchestrators → Session → `sdkQueryFactory` →
@@ -211,5 +211,10 @@ SDK (`settings`) worfy не передаёт. У живой Session worfy уже
 - Во время работы исполнителя contract test один раз запустил настоящий Claude Code из `node_modules` (гонка двух dynamic import замоканного SDK под vitest; HOME — несуществующий `/Users/tester`). Новых транскриптов в `~/.claude/projects` не найдено; после круга 2 test SDK не импортирует.
 - Merge: `GATE_SCOPE=all gate full` — код 0, не из кэша, `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `a10a8e3`.
 - Consider, Dismissed — нет.
-- Noted (**решено без владельца, подтвердить**): 400K и 500K по умолчанию перекрывают `autoCompactWindow` из `~/.claude/settings.json` — `/autocompact` в Session worfy после перезапуска не действует, пока не выбран «Claude Code default»; в UI об этом не сказано.
+- Noted (**решение владельца 2026-10-16: не принято, follow-up — Ticket 29**): 400K и 500K по умолчанию перекрывают `autoCompactWindow` из `~/.claude/settings.json` — `/autocompact` в Session worfy после перезапуска не действует, пока не выбран «Claude Code default»; в UI об этом не сказано.
 - Noted: `test/unit/agent-query-factory.test.ts` всё ещё импортирует SDK через загрузчик по умолчанию — кандидат на `loadSdk`; `canvas-tools.test.ts:103` удаляет `WORFY_DATA_DIR`, выданную setup-ом.
+
+Решение владельца 2026-10-16: решения без владельца приняты, кроме одного. 400K и
+500K по умолчанию не должны перекрывать `autoCompactWindow` из `~/.claude/settings.json`: если он там
+задан, worfy его уважает; свои значения по умолчанию worfy берёт, только когда там пусто; Settings
+показывает, откуда значение. Follow-up — Ticket [29](29-autocompactwindow-из-settings-json-claude-code.md).

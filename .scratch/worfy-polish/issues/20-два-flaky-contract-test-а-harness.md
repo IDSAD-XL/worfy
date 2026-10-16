@@ -186,7 +186,7 @@ run), спрашивает `source` первого и проверяет: `CALLS
   оставляет дерево). strace прогонов под конкуренцией: после начала уборки никакой другой процесс в
   папку не пишет. Отделившийся maintenance git 2.55 в этих репозиториях только читает и удаляет
   свой lock, файлов не создаёт. Чем мог появиться новый файл в CI — не установлено.
-- **Правка (решено без владельца, подтвердить).** Helper `git` test-а идёт с
+- **Правка (решено без владельца, подтверждено владельцем 2026-10-16).** Helper `git` test-а идёт с
   `-c maintenance.auto=false -c gc.auto=0` (как `test/unit/attachments.test.ts` после PR #33): к
   уборке у test-а не остаётся живых процессов git. С правкой и тем же shim-ом задержки lock в момент
   уборки не лежит ни разу (3 из 3 прогонов, 0 случаев). Test «a commit starts no background
@@ -212,7 +212,7 @@ run), спрашивает `source` первого и проверяет: `CALLS
 - Круг 2: `REJECTED` на `6a007c98` ([комментарий в PR #372](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6202757319)) — test ловит только переменную внутри `startRun` (мутант B); мутанты A (переменная файла, заданная в `beforeEach`) и C (`source` читает `scratch`) — 22/22 зелёные. `harness-drift.test.ts` исправлен: мутант D красный.
 - Merge: нет. По правилу Wave после второго REJECTED Ticket выведен из волны; вопрос владельцу об узком круге отклонён автоматически (Autopilot). PR #372 открыт, worktree `pol-20` сохранён.
 - Act on: [med] test на протечку — предложение verifier-а: настоящая пара test-ов (первый запускает run без await, второй после настоящих `beforeEach` ждёт его и проверяет, что в его `run.calls` ничего не пришло).
-- Consider (**решено без владельца, подтвердить**): причина ENOTEMPTY в `harness-drift` не найдена (около 290 прогонов, strace, LD_PRELOAD shim); правка `maintenance.auto=false` и `gc.auto=0` правдоподобна и безвредна; если ENOTEMPTY вернётся в CI — новый Ticket с логом прогона.
+- Consider (**решено без владельца, подтверждено владельцем 2026-10-16**): причина ENOTEMPTY в `harness-drift` не найдена (около 290 прогонов, strace, LD_PRELOAD shim); правка `maintenance.auto=false` и `gc.auto=0` правдоподобна и безвредна; если ENOTEMPTY вернётся в CI — новый Ticket с логом прогона.
 - Noted: правка timeout подтверждена — XprotectService проверяет каждый новый исполняемый файл, по одному на машину (первый запуск нового скрипта 142–148 ms, symlink на уже запущенный 7–9 ms); stub-ы стали постоянными файлами в `test/fixtures/harness-stub`. Кандидаты с той же причиной timeout: `harness-qmd`, `docs`, `github-prs`, `workflow-reader`.
 - Dismissed — нет (`testTimeout` и пределы в файлах не подняты — проверено).
 
@@ -223,3 +223,7 @@ run), спрашивает `source` первого и проверяет: `CALLS
 - Гейт узкого круга — `NARROW: VERIFIED` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/372#issuecomment-6206446186)): мутанты A и C — каждый 1 красный test из 23; `--sequence.shuffle` seed 1–4 зелёные.
 - Merge: gate full на Mac зелёный (lint, typecheck, test, test:e2e, test:package), CI зелёный — `d20c379`.
 - [low] debt: при `--sequence.shuffle.tests` пара может упасть (громко, не ложной зеленью); закрепить порядок `{ shuffle: false }` у `describe` (`harness-script-wiring.test.ts:345`). Проект этот режим не использует.
+
+Решение владельца 2026-10-16: принято. Helper `git` test-а остаётся с
+`maintenance.auto=false` и `gc.auto=0`. Если ENOTEMPTY в `harness-drift` вернётся в CI — новый Ticket
+с логом прогона.

@@ -97,7 +97,8 @@ gate 2026-10-14. В «Итог» — как падал.
   отправленной строки нет даты (`transcript-date` — 0). Раздел показывает дату, когда день строки
   не совпадает с сегодняшним; если полночь наступит между отправкой и проверкой (окно в несколько
   секунд), test покраснеет. Это e2e, его в этом Ticket-е не запускали, а правка без прогона — догадка.
-  Решено без владельца, подтвердить: оставить строкой здесь, не чинить в этом PR.
+  Решение владельца 2026-10-16: чинить отдельным Ticket-ом —
+  [12](12-flaky-e2e-transcript-date-около-полуночи.md).
 
 **Проверки.** `pnpm lint && pnpm typecheck && pnpm test` (с временным `HOME`) — exit 0, 5105 passed,
 66 skipped из 5171. gate fast — exit 0, «[gate] зелено (fast)»; `GATE_SCOPE=all` gate fast — exit 0,
@@ -109,6 +110,9 @@ gate 2026-10-14. В «Итог» — как падал.
 - Гейт — один круг, глубина medium (правка только в test-ах): `VERIFIED` на `871eceb` ([комментарий в PR #319](https://github.com/IDSAD-XL/worfy/pull/319#issuecomment-6179022984)). Verifier сам: gate fast — код 0, не из кэша; старый test при 23:30 местного в `Europe/Kyiv`, `America/New_York`, `Asia/Kolkata` — красный («until Thu 00:30»), новый при 23:30 и на настоящих часах — 28 из 28; мутант `.format(ms - 60_000)` — красный (старый regex его пропускал); перебор 418 часовых поясов — 2026-10-14 12:00 → 13:00 нигде не сдвигается переходом времени; других unit- и contract-test-ов с той же ошибкой нет.
 - Мерж: база main `1306056`, head `871eceb`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; CI зелёный, CLEAN; влит `2a19638`.
 - Act on, Dismissed — нет.
-- Consider ([low], на решение владельца): `test/e2e/session-view.spec.ts:95` — `transcript-date` с `toHaveCount(0)` краснеет, если полночь наступит между отправкой prompt-а и проверкой (окно в несколько секунд; `src/renderer/session/Transcript.tsx:71-75` сдвигает «сегодня» в полночь). Ticket велел чинить такое здесь же; не починено — e2e в этом Ticket-е не запускались. **Решено без владельца, подтвердить:** оставить или завести отдельный Ticket.
+- Consider ([low], на решение владельца): `test/e2e/session-view.spec.ts:95` — `transcript-date` с `toHaveCount(0)` краснеет, если полночь наступит между отправкой prompt-а и проверкой (окно в несколько секунд; `src/renderer/session/Transcript.tsx:71-75` сдвигает «сегодня» в полночь). Ticket велел чинить такое здесь же; не починено — e2e в этом Ticket-е не запускались. **Решение владельца 2026-10-16:** отдельный Ticket — [12](12-flaky-e2e-transcript-date-около-полуночи.md).
 - Noted ([low]): новый test держит местный часовой пояс раздела только в прогоне не в UTC — мутант `timeZone ?? 'UTC'` (`src/renderer/settings/TerminalAiSection.tsx:31`) в `TZ=UTC` (вероятный пояс CI) зелёный; старый regex его тоже не ловил.
 - Дата в строке Status — UTC: `bin/ticket` пишет её через `toISOString()`, Ticket взят в 00:17 по Киеву.
+
+Решение владельца 2026-10-16: flaky e2e `transcript-date` у полуночи чинится
+отдельным Ticket-ом — [12](12-flaky-e2e-transcript-date-около-полуночи.md).

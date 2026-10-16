@@ -168,7 +168,7 @@ in grey; → takes it»:
 - `test/contract/terminal-shell-integration.test.ts:438`: список `rc.d` в `ZDOTDIR` теперь сравнивается со
   списком `*.zsh` в `src/main/terminal/zsh/rc.d`, прочитанным в test-е. Изменена только эта строка.
 
-### Решено без владельца, подтвердить
+### Решено без владельца, подтверждено владельцем 2026-10-16
 
 1. **Первый пункт «Готово, когда» выполнен не целиком — оставлен `[ ]`.** Ответ `npm rundev` на набранное
    `npm run` показывается: серым `dev`.
@@ -245,5 +245,7 @@ in grey; → takes it»:
 - Wave Epic-а под Autopilot (Ticket-ы 04, 05, 06, 08); 04 шёл первым вместе с 08: он заложил общее для 05 и 06 — `src/main/terminal-ai/input.ts`, `test/e2e/terminal-ai-helpers.ts`, ожидание `rc.d` без имён файлов и test-ы Ticket-а 03, не зависящие от скриптов функций.
 - Гейт — два круга. Круг 1 — `REJECTED` на `2b5803f` ([комментарий в PR #310](https://github.com/IDSAD-XL/worfy/pull/310#issuecomment-6161497913)): Esc во время паузы не останавливал таймер — модель спрашивали и после того, как Esc скрыл серый текст, в режиме vi почти на каждой строке. Круг 2, только диф доработки `de97c01..a745a67`, — `VERIFIED; debt` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/310#issuecomment-6161913575)): обёртка `_worfy_assist_escape` в `20-suggest-ai.zsh`; три мутанта обёртки verifier-а красные; повторный `source` оставляет одну обёртку.
 - Мерж: база main `975de42` (с Ticket-ом 08), head `a745a67`; `GATE_SCOPE=all gate full` — один запуск под замком e2e, код 0, не из кэша, строка `[gate] зелено (full)` с `test:e2e` и `test:package`; предупреждение gate: `test/contract/terminal-ai-suggest.test.ts` — 1066 строк при пороге 1000; CI зелёный, CLEAN; влит `68f323c`.
-- **Решено без владельца, подтвердить:** первый пункт «Готово, когда» оставлен `[ ]` — ответ `npm rundev` на набранное `npm run` показывается серым `dev`: по двум строкам его не отличить от `ub` → `ubuntu bash` из второго пункта; правило — одна чистая функция `suggestionRest` в `src/main/terminal-ai/features/suggest.ts`.
+- **Решено без владельца, подтверждено владельцем 2026-10-16:** первый пункт «Готово, когда» оставлен `[ ]` — ответ `npm rundev` на набранное `npm run` показывается серым `dev`: по двум строкам его не отличить от `ub` → `ubuntu bash` из второго пункта; правило — одна чистая функция `suggestionRest` в `src/main/terminal-ai/features/suggest.ts`.
 - Долги (Noted, [low]): окно KEYTIMEOUT — при быстрой модели ответ мелькает серым после Esc (см. «Esc» выше); нет test-а на повторный `source` скрипта; test отмены (`test/contract/terminal-ai-suggest.test.ts:602-628`) не доказывает, что `cancel` шлёт сам набор — код держит test Ticket-а 03; `terminalAiInput` не знает, что последняя команда начиналась с пробела (`src/main/terminal/osc.ts:74-77`) — Ticket 05 решил это в скрипте zsh.
+
+Решение владельца 2026-10-16: все пункты «Решено без владельца» этого Ticket-а приняты пакетом.
