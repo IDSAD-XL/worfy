@@ -585,6 +585,17 @@ their CI is not run again before the merge: CI was green on the head, and each m
 push to the main branch. `wave-gate` takes the e2e lock (`F workflow.e2e_lock`) for each gate run
 and the main-branch lock for the merges itself: do not wrap it in the lock command above.
 
+The screen, on a Mac: a locked screen shows no Electron window, and every e2e fails on its first
+window. `wave-gate check` and `wave-gate merge` each keep the display awake while they run
+(`caffeinate -d -w <own pid>`, when `caffeinate` is in PATH); between the commands — waiting for CI,
+reviews — nothing does outside an Autopilot run. Before each gate run `check` asks `ioreg` whether the
+screen is locked: locked — the line `screen locked: gate full waits`, and it waits for the unlock
+without holding the e2e lock. Leave it waiting: that is neither an error nor a red run. A red run in
+which an e2e script (`test:e2e`, `test:package`) failed while the screen was locked is not red either:
+it runs again after the unlock (three runs at most, then `STATUS=unverified`). A gate full outside `wave-gate` (`"each"`, PRs merged the old
+way) on a Mac starts only after `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'` shows
+`No`; with `Yes`, wait for the unlock and do not count a run that failed meanwhile as red.
+
 The state file of the set — one file per set, a new set gets a new file. `<main lock>` is the path
 of the main-branch lock above:
 

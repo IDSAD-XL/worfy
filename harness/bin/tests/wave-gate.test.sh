@@ -43,6 +43,21 @@ mt() { node -e 'try{process.stdout.write(String(Math.floor(require("fs").statSyn
 if [ -f "$GATE_DIR/kill$n" ]; then kill -"$(cat "$GATE_DIR/kill$n")" "$PPID"; sleep 1; exit 0; fi
 [ -f "$GATE_DIR/sleep" ] && sleep "$(cat "$GATE_DIR/sleep")"
 [ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
+# $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
+# locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
+# script named in the file (test:e2e when empty) and prints what the real gate prints for it: the
+# "[gate] красно (full): <project>/<workspace>:<script> (прошло: …)" line and the last 40 lines of the script —
+# Playwright's list of failed tests, without the "window was not shown" message that scrolled out of them.
+# They are used once, unless $GATE_DIR/keep exists. $GATE_DIR/unitonce — red once in `test` alone.
+if [ -f "$GATE_DIR/lockfor" ]; then : >"$SCREEN_DIR/locked"; sleep "$(cat "$GATE_DIR/lockfor")"; rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"; fi
+if [ -f "$GATE_DIR/lockscreen" ]; then cp "$GATE_DIR/lockscreen" "$SCREEN_DIR/locked"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/lockscreen"; fi
+if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="${script:-test:e2e}"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
+  { echo "[gate] красно (full): worfy/.:$script (прошло: worfy/.:lint worfy/.:typecheck worfy/.:test)"
+    echo "The quality gate did not pass (profile: full, repository: worfy)."; echo "--- FAILED: worfy/.:$script"
+    for i in $(seq 1 36); do echo "  ✘  $i [electron] › test/e2e/spec$i.spec.ts:12:3 › case $i (30.2s)"; done
+    echo "  36 failed"; echo "  4 passed (19.8m)"; echo " ELIFECYCLE  Command failed with exit code 1."; } >&2; exit 2; fi
+if [ -f "$GATE_DIR/unitonce" ]; then rm -f "$GATE_DIR/unitonce"
+  echo "[gate] красно (full): worfy/.:test (прошло: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
 if [ -f "$GATE_DIR/code3" ]; then echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: stub" >&2; exit 3; fi
 if [ -f "$GATE_DIR/none" ]; then echo "[gate] ничего не прогналось (full): stub. Это не «зелено»."; exit 0; fi
 if [ -f "$GATE_DIR/redonce" ]; then rm -f "$GATE_DIR/redonce"
@@ -71,9 +86,34 @@ git clone -q "$GH_ORIGIN" "$w/c" && cd "$w/c" && git fetch -q origin "refs/pull/
 git commit -q --allow-empty -m "squash #$n" && git push -q origin HEAD:main
 EOF
 chmod +x "$STUBS/gate" "$STUBS/gh"
-export WAVE_GATE_GATE="$STUBS/gate" PATH="$STUBS:$PATH"
+# The screen stubs, in a folder of their own: every test finds them before the real /usr/sbin/ioreg and
+# /usr/bin/caffeinate, so no test reads the real screen state or holds the real display awake.
+# ioreg: `"IOConsoleLocked" = Yes` while $SCREEN_DIR/locked exists — always if the file is empty, the next
+# N answers if it holds N; each call is logged to $SCREEN_DIR/ioreg.log.
+# caffeinate: logs "<own pid> <args>" to $SCREEN_DIR/caf.log and, like the real one with -w, lives until
+# that pid is gone.
+POWER="$T/power"; mkdir -p "$POWER"
+cat >"$POWER/ioreg" <<'EOF'
+#!/usr/bin/env bash
+d="${SCREEN_DIR:-/nonexistent}"; echo "$*" >>"$d/ioreg.log" 2>/dev/null
+v=No
+if [ -f "$d/locked" ]; then
+  v=Yes; n="$(cat "$d/locked")"
+  if [ -n "$n" ]; then n=$((n - 1)); if [ "$n" -le 0 ]; then rm -f "$d/locked"; else echo "$n" >"$d/locked"; fi; fi
+fi
+printf '+-o Root  <class IORegistryEntry, id 0x100000100, retain 31>\n    {\n      "IOConsoleUsers" = ()\n      "IOConsoleLocked" = %s\n    }\n' "$v"
+EOF
+cat >"$POWER/caffeinate" <<'EOF'
+#!/usr/bin/env bash
+echo "$$ $*" >>"${SCREEN_DIR:-/nonexistent}/caf.log" 2>/dev/null
+w=""; while [ $# -gt 0 ]; do [ "$1" = -w ] && w=$2; shift; done
+[ -n "$w" ] || exit 0
+while kill -0 "$w" 2>/dev/null; do sleep 0.2; done
+EOF
+chmod +x "$POWER/ioreg" "$POWER/caffeinate"
+export WAVE_GATE_GATE="$STUBS/gate" PATH="$STUBS:$POWER:$PATH"
 # Fast lock timings for the tests; the defaults (20 s poll, 30 min stale, 5 min heartbeat) are checked below.
-export WAVE_GATE_LOCK_POLL_S=1
+export WAVE_GATE_LOCK_POLL_S=1 WAVE_GATE_SCREEN_POLL_S=1
 
 # --- a world: bare origin, PR refs, the orchestrator's clone ----------------------------
 # new_world <name> <spec>…: each spec is "<N>:<file>[=<content>]" — PR N forks off main and writes that file
@@ -95,7 +135,8 @@ new_world() {
         git -C "$W/seed" checkout -q main
     done
     git clone -q "$W/origin.git" "$W/repo"
-    export GATE_DIR="$W/gate" GH_ORIGIN="$W/origin.git" GH_LOG="$W/gh/log" GH_TMP="$W/gh"
+    mkdir -p "$W/screen"
+    export GATE_DIR="$W/gate" GH_ORIGIN="$W/origin.git" GH_LOG="$W/gh/log" GH_TMP="$W/gh" SCREEN_DIR="$W/screen"
     unset GATE_LOCK GH_EXTRA_AT
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
@@ -113,6 +154,11 @@ state() {
     printf '{"repo":"%s","branch":"main","e2e_lock":%s,"prepare":null,"prs":[%s]}\n' "$W/repo" "$lock" "$items" >"$f"
 }
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
+# until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
+until_ok() { local n=$(( $1 * 5 )); shift; while [ "$n" -gt 0 ]; do "$@" && return 0; sleep 0.2; n=$((n - 1)); done; return 1; }
+# caf_gone <caf.log>…: every stub caffeinate those logs name has ended (within 3 s)
+caf_alive() { local f p; for f in "$@"; do [ -f "$f" ] || continue; for p in $(awk '{print $1}' "$f"); do kill -0 "$p" 2>/dev/null && return 0; done; done; return 1; }
+caf_gone() { local n=15; while caf_alive "$@"; do n=$((n - 1)); [ "$n" -le 0 ] && return 1; sleep 0.2; done; return 0; }
 TMPW_OF() { echo "$(cd "$W/repo/.git" && pwd -P)/worfy-wave-gate"; }
 prefix_tree() { git -C "$W/seed" rev-parse "$1^{tree}"; }
 
@@ -223,6 +269,9 @@ after=$(gate_count)
 [ "$before" = 2 ] && [ "$after" = 5 ] && [ "$(q "$S" 's.runs.length')" = 4 ] && ok "resume: the finished run is not repeated ($before + $((after - before)) stub calls)" || bad "resume: stub calls $before then $after, runs $(q "$S" 's.runs.length')"
 grep -q "reus" "$W/out2" && ok "resume: the worktree of the broken run is reused" || bad "resume: no reuse in the output: $(head -5 "$W/out2")"
 [ ! -e "$(TMPW_OF)" ] && [ ! -e "$L" ] && ok "resume: worktree and stale lock gone after the end" || bad "resume: worktree or lock left"
+# the run killed with SIGKILL ran no exit handler: its caffeinate ends because of -w <its pid> alone
+[ "$(wc -l <"$SCREEN_DIR/caf.log" | tr -d ' ')" = 2 ] && caf_gone "$SCREEN_DIR/caf.log" \
+    && ok "resume: no caffeinate left after a SIGKILL of wave-gate" || bad "resume: caffeinate left: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
 # origin/main moved: the state is reset, the set is checked again
 new_world moved 1:a.txt 2:b.txt
 S="$W/state.json"; state "$S" null 1 2
@@ -362,6 +411,7 @@ S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
 echo TERM >"$GATE_DIR/kill1"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 143 ] && [ ! -e "$L" ] && ok "e2e lock: released when wave-gate is stopped (exit 143)" || bad "e2e lock on signal: exit $rc, lock $( [ -e "$L" ] && echo left || echo gone)"
+[ -s "$SCREEN_DIR/caf.log" ] && caf_gone "$SCREEN_DIR/caf.log" && ok "signal: no caffeinate left after SIGTERM" || bad "signal: caffeinate left or not started: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
 unset GATE_LOCK
 
 # --- an error in the middle of the squash merges: the worktree is removed ---------------------
@@ -377,6 +427,123 @@ printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[{"num
 [ "$rc" -eq 1 ] && [ "$(q "$S" s.status)" = error ] && ok "error while merging: exit 1, status error" || bad "error while merging: exit $rc status $(q "$S" s.status 2>&1): $(tail -3 "$W/out")"
 [ ! -e "$(TMPW_OF)" ] && ok "error while merging: the temporary worktree is removed" || bad "error while merging: worktree left"
 [ "$(gate_count)" = 0 ] && ok "error while merging: no gate run" || bad "error while merging: $(gate_count) runs"
+[ -s "$SCREEN_DIR/caf.log" ] && caf_gone "$SCREEN_DIR/caf.log" && ok "error while merging: no caffeinate left after the error" || bad "error while merging: caffeinate left or not started: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
+
+# --- the screen: a locked screen before a gate run -------------------------------------------
+new_world screenpre 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1
+: >"$SCREEN_DIR/locked"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 2
+[ "$(gate_count)" = 0 ] && kill -0 "$wg" 2>/dev/null && [ "$(grep -c 'screen locked' "$W/out")" = 1 ] \
+    && ok "locked screen: one line 'screen locked: gate full waits', the gate does not run" || bad "locked screen: $(gate_count) runs: $(cat "$W/out")"
+[ ! -e "$L" ] && ok "locked screen: the e2e lock is not held while it waits" || bad "locked screen: the e2e lock is held while waiting"
+grep -q "^-n Root -d1$" "$SCREEN_DIR/ioreg.log" && [ "$(wc -l <"$SCREEN_DIR/ioreg.log" | tr -d ' ')" -ge 3 ] \
+    && ok "locked screen: ioreg -n Root -d1, polled while it waits" || bad "locked screen: ioreg calls: $(cat "$SCREEN_DIR/ioreg.log" 2>/dev/null)"
+rm -f "$SCREEN_DIR/locked"
+wait "$wg"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && [ "$(q "$S" s.status)" = green ] && ok "locked screen: unlocked -> the gate runs, green" || bad "locked screen: after unlock exit $rc runs $(gate_count)"
+# the screen locks while the check waits for the e2e lock: the lock is given back and the check waits
+new_world screenlock 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1
+mkdir "$L"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 10 grep -q "waiting for the e2e lock" "$W/out"
+: >"$SCREEN_DIR/locked"; rmdir "$L"
+until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
+[ "$(gate_count)" = 0 ] && [ ! -e "$L" ] && ok "locked screen after the e2e lock: the lock is released, the gate waits" || bad "locked screen after the lock: $(gate_count) runs, lock $( [ -e "$L" ] && echo held || echo free): $(cat "$W/out")"
+rm -f "$SCREEN_DIR/locked"
+wait "$wg"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && ok "locked screen after the e2e lock: unlocked -> green" || bad "locked screen after the lock: exit $rc runs $(gate_count)"
+# an unlocked screen: ioreg is asked, the gate runs at once
+new_world screenno 1:a.txt
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && grep -q "^-n Root -d1$" "$SCREEN_DIR/ioreg.log" && ! grep -q "screen locked" "$W/out" \
+    && ok "unlocked screen: IOConsoleLocked = No -> the gate runs" || bad "unlocked screen: exit $rc runs $(gate_count): $(cat "$W/out")"
+
+# --- the screen locks during gate full ------------------------------------------------------------
+# the e2e did not get its window and the screen was locked: not red — not verified, repeated after unlock
+new_world screenmid 1:a.txt 2:b.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2
+: >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/window"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 10 grep -q "screen locked: gate full waits" "$W/out"; sleep 1
+[ "$(gate_count)" = 1 ] && [ "$(q "$S" 's.runs.length')" = 1 ] && [ "$(q "$S" 's.runs[0].outcome')" = unverified ] \
+    && [[ "$(q "$S" 's.runs[0].reason')" == "screen locked"* ]] && [ "$(q "$S" s.status)" = checking ] \
+    && ok "screen locked during the run: the run is recorded not verified (screen locked), not red" || bad "screen locked during the run: runs $(q "$S" s.runs 2>&1) status $(q "$S" s.status 2>&1)"
+grep -q "screen locked during gate full" "$W/out" && [ ! -e "$L" ] && ! grep -q "window was not shown" "$(q "$S" 's.runs[0].log')" && ok "screen locked during the run: said so, the e2e lock released while it waits" || bad "screen locked during the run: output $(cat "$W/out")"
+rm -f "$SCREEN_DIR/locked"
+wait "$wg"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 2 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] \
+    && [ "$(q "$S" '"flaky" in s')" = false ] && ok "screen locked during the run: repeated after unlock, green, not flaky" || bad "screen locked during the run: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome)') flaky $(q "$S" s.flaky 2>&1)"
+# the screen was locked in the middle of the run and unlocked before its end: seen by the poll during the run
+new_world screenblip 1:a.txt 2:b.txt
+S="$W/state.json"; state "$S" null 1 2
+echo 3 >"$GATE_DIR/lockfor"; touch "$GATE_DIR/window"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome).join(" ")')" = "full:2:unverified full:2:green" ] && ! grep -q "gate full waits" "$W/out" \
+    && ok "screen locked and unlocked during the run: not verified, run again at once, green" || bad "screen locked and unlocked during the run: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.size+":"+r.outcome)'): $(cat "$W/out")"
+# test:package (the packaged .app) also needs a window
+new_world screenpkg 1:a.txt
+S="$W/state.json"; state "$S" null 1
+echo 3 >"$GATE_DIR/lockfor"; echo test:package >"$GATE_DIR/window"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:unverified full:green" ] \
+    && ok "screen locked, test:package failed: not verified, run again" || bad "screen locked, test:package: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
+# the same failure with the screen unlocked is red (the e2e load case): the usual repeat
+new_world windowred 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/window"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red retry:green" ] && [[ "$(q "$S" s.flaky)" == *"spec1.spec.ts"* ]] \
+    && ok "e2e failed, screen unlocked: red, repeated as flaky" || bad "e2e failed, screen unlocked: exit $rc runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)')"
+# only `test` failed (no e2e script), with the screen locked: red
+new_world screenred 1:a.txt
+S="$W/state.json"; state "$S" null 1; : >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/unitonce"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+until_ok 10 grep -q "screen locked: gate full waits" "$W/out"
+[ "$(q "$S" 's.runs.map(r=>r.role+":"+r.outcome).join(" ")')" = "full:red" ] && ok "screen locked, only test failed: red" || bad "screen locked, only test failed: runs $(q "$S" 's.runs.map(r=>r.role+":"+r.outcome)' 2>&1)"
+rm -f "$SCREEN_DIR/locked"; wait "$wg"
+# the screen locks during every run: three tries, then not verified (exit 3); the next check runs it again
+new_world screenloop 1:a.txt
+S="$W/state.json"; state "$S" null 1
+echo 1 >"$GATE_DIR/lockscreen"; touch "$GATE_DIR/window" "$GATE_DIR/keep"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && [ "$(gate_count)" = 3 ] && [ "$(q "$S" 's.runs.filter(r=>r.outcome==="unverified").length')" = 3 ] \
+    && ok "screen locked during every run: 3 tries, then unverified, exit 3" || bad "screen locked every run: exit $rc status $(q "$S" s.status) runs $(gate_count)"
+rm -f "$GATE_DIR/lockscreen" "$GATE_DIR/window" "$GATE_DIR/keep" "$SCREEN_DIR/locked"
+"$WG" check "$S" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 4 ] && ok "screen locked every run: the next check runs it again, green" || bad "screen locked every run: next check exit $rc runs $(gate_count)"
+
+# --- caffeinate: the commands keep the display awake while they live -----------------------
+new_world caf 1:a.txt
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(awk '{$1=""; print substr($0,2)}' "$SCREEN_DIR/caf.log")" = "-d -w $wg" ] \
+    && ok "caffeinate: check runs caffeinate -d -w <its own pid>" || bad "caffeinate: check exit $rc, pid $wg, calls: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
+caf_gone "$SCREEN_DIR/caf.log" && ok "caffeinate: gone after check exits" || bad "caffeinate: left after check"
+mv "$SCREEN_DIR/caf.log" "$SCREEN_DIR/caf-check.log"
+"$WG" merge "$S" >"$W/mout" 2>&1 & wg=$!; wait "$wg"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(awk '{$1=""; print substr($0,2)}' "$SCREEN_DIR/caf.log")" = "-d -w $wg" ] \
+    && ok "caffeinate: merge runs caffeinate -d -w <its own pid>" || bad "caffeinate: merge exit $rc, pid $wg, calls: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
+caf_gone "$SCREEN_DIR/caf.log" && ok "caffeinate: gone after merge exits" || bad "caffeinate: left after merge"
+
+# --- no ioreg and no caffeinate in PATH: no screen check, no keep-awake -----------------------------
+# A PATH of links to the tools the script and the stubs need, without /usr/bin and /usr/sbin, where macOS keeps both.
+MINBIN="$T/minbin"; mkdir -p "$MINBIN"
+for c in node git bash sh env cat ls tr rm cp touch mkdir sleep mktemp awk; do p="$(command -v "$c")" && ln -s "$p" "$MINBIN/$c"; done
+new_world nopower 1:a.txt
+S="$W/state.json"; state "$S" null 1
+: >"$SCREEN_DIR/locked"
+if env PATH="$STUBS:$MINBIN" bash -c 'command -v ioreg || command -v caffeinate' >/dev/null 2>&1; then
+    bad "no ioreg: the minimal PATH still has ioreg or caffeinate"
+else
+    PATH="$STUBS:$MINBIN" "$WG" check "$S" >"$W/out" 2>&1; rc=$?
+    PATH="$STUBS:$MINBIN" "$WG" merge "$S" >"$W/mout" 2>&1; mrc=$?
+    [ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && ! grep -q "screen locked" "$W/out" && [ ! -e "$SCREEN_DIR/ioreg.log" ] \
+        && ok "no ioreg in PATH: no screen check, the gate runs" || bad "no ioreg: exit $rc runs $(gate_count): $(cat "$W/out")"
+    [ "$mrc" -eq 0 ] && [ ! -e "$SCREEN_DIR/caf.log" ] && ok "no caffeinate in PATH: check and merge run without it" || bad "no caffeinate: merge exit $mrc: $(cat "$W/mout")"
+fi
 
 # --- bad input ---------------------------------------------------------------------------
 new_world input 1:a.txt
@@ -410,6 +577,8 @@ for sh in bash zsh; do
     [[ "$got" == *"EXIT=0"* ]] && [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 " ] && ok "$sh: the merge block merges PR 1" || bad "$sh: the merge block: [$got]"
     unset GH_LABELS_3
 done
+
+caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
