@@ -2,12 +2,13 @@
 // Project that was just connected has an empty Canvas, and the panel says what to do next. "Plan
 // first epic" opens the Project's Orchestrator (`orchestrator.open`) and sends it nothing: the person
 // names the first goal. The panel shows only when the workflow was read without an error and has no
-// Epic; the first Epic takes it away.
+// Epic; the first Epic takes it away. On a read-only screen (worfy-link ticket 25) the button is
+// inactive and the line under it says why.
 //
 // Colours and sizes are the tokens of tokens.css (docs/design/F-SPEC.md): the surface with its
 // border and the node shadow (none in dark), secondary text, the primary action button.
 import { useState, type CSSProperties } from 'react'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { invoke } from '../../ipc'
 import { openSession } from '../../session/navigation'
 import { PrimaryButton } from '../../theme/primitives'
@@ -53,10 +54,12 @@ export interface FirstEpicPanelProps {
   onPlan: () => void
   busy?: boolean
   error?: string | null
+  /** The read-only hint (worfy-link ticket 25): the button is inactive and the hint shows under it. */
+  readOnly?: string | null
 }
 
 /** The panel itself, without the Project and the workflow behind it. */
-export function FirstEpicPanel({ onPlan, busy = false, error = null }: FirstEpicPanelProps) {
+export function FirstEpicPanel({ onPlan, busy = false, error = null, readOnly = null }: FirstEpicPanelProps) {
   return (
     <div style={styles.layer} className="nodrag nopan nowheel">
       <section style={styles.panel} role="region" aria-labelledby="first-epic-title" data-testid="first-epic">
@@ -64,9 +67,14 @@ export function FirstEpicPanel({ onPlan, busy = false, error = null }: FirstEpic
           No epics yet
         </h2>
         <p style={styles.text}>Tell the Orchestrator what you want to build, and it plans the first epic with you.</p>
-        <PrimaryButton onClick={onPlan} disabled={busy}>
+        <PrimaryButton onClick={onPlan} disabled={busy || readOnly !== null}>
           Plan first epic
         </PrimaryButton>
+        {readOnly !== null ? (
+          <p className="w-read-only-note" style={{ marginTop: 'var(--space-2)' }} data-testid="first-epic-read-only">
+            {readOnly}
+          </p>
+        ) : null}
         {error ? (
           <p role="alert" style={styles.error}>
             {error}
@@ -82,6 +90,7 @@ export default function FirstEpic() {
   const entry = useWorkflow(project?.path)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ projectId: string; text: string } | null>(null)
+  const readOnly = useReadOnly()
   if (!project || !noEpicsYet(entry)) return null
 
   const plan = async (): Promise<void> => {
@@ -93,5 +102,5 @@ export default function FirstEpic() {
     else setError({ projectId: project.id, text: result.error })
   }
 
-  return <FirstEpicPanel onPlan={() => void plan()} busy={busy} error={error?.projectId === project.id ? error.text : null} />
+  return <FirstEpicPanel onPlan={() => void plan()} busy={busy} error={error?.projectId === project.id ? error.text : null} readOnly={readOnly} />
 }

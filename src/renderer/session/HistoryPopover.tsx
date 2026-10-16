@@ -8,6 +8,8 @@ import { focusSessionNode } from '../claude-home/focus'
 import { externalSource, readSessionNodeData, SESSION_KIND, showSessionNodeOp, worfySessionIds, worfySessions } from '../claude-home/session-nodes'
 import { refreshClaudeHome, useClaudeHome } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
+import { writeAction } from '../projects/read-only'
+import { useReadOnly } from '../projects/useProjects'
 import { setView } from './navigation'
 import { ensureProject, useSessionNodeViews } from './node-sessions'
 
@@ -132,6 +134,9 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   const liveKey = (live ?? []).map((session) => `${session.sessionId}:${session.status}`).join(',')
   const verdicts = useVerdicts(project.id, rows, `${liveKey}|${history.length}`)
   const [problem, setProblem] = useState<{ sessionId: string; text: string } | null>(null)
+  // On a read-only screen (worfy-link ticket 25) Resume is inactive, and so is Show where it would
+  // put a Node on the Canvas; a Node already shown is only focused.
+  const readOnly = useReadOnly()
   // The history is read once per Project; Sessions that ended since then are read when it opens.
   useEffect(() => refreshClaudeHome(project.path), [project.path])
 
@@ -172,13 +177,15 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
           const title = session.title ?? `Session ${session.sessionId.slice(0, 8)}`
           const refused = verdict !== undefined && !verdict.resumable ? verdict.label : null
           const why = problem?.sessionId === session.sessionId ? problem.text : refused
+          const onCanvas = layout?.layout.nodes.find((node) => node.data.sessionId === session.sessionId)
+          const showWrites = onCanvas === undefined || onCanvas.hidden === true
           return (
             <li key={session.sessionId} style={styles.row} data-testid="history-session" data-session-id={session.sessionId}>
               <div style={styles.top}>
                 <span style={styles.title} title={title}>
                   {title}
                 </span>
-                <button type="button" style={styles.button} data-testid="history-show" onClick={() => void show(session)}>
+                <button type="button" style={styles.button} data-testid="history-show" {...writeAction(showWrites ? readOnly : null, () => void show(session))}>
                   Show
                 </button>
                 <button
@@ -186,8 +193,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
                   style={verdict?.resumable === true ? styles.button : { ...styles.button, opacity: 0.45, cursor: 'default' }}
                   data-testid="history-resume"
                   disabled={verdict === undefined || !verdict.resumable}
-                  title={refused ?? 'Continue this Session in worfy'}
-                  onClick={() => void resume(session)}
+                  {...writeAction(readOnly, () => void resume(session), refused ?? 'Continue this Session in worfy')}
                 >
                   Resume
                 </button>

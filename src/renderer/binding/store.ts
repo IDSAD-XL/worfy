@@ -16,6 +16,7 @@ import { resolveBinding, type Binding, type BindingTarget, type BindingWorkflow 
 import { agentKey, isLaunchBinding, type BindingAgent, type ManualBinding, type SessionBindingSignals } from '../../shared/ipc/bindings'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import { invoke, subscribe } from '../ipc'
+import { readOnlyNow } from '../projects/read-only-now'
 
 /** How often the signals of a live Session are asked again. */
 export const POLL_MS = 3000
@@ -73,6 +74,9 @@ export function useManualBindings(projectId: string | undefined): readonly Manua
 
 /** Binds an agent by hand; resolves to the error, or undefined when it worked. */
 export async function bindManually(projectId: string, agent: BindingAgent, target: BindingTarget): Promise<string | undefined> {
+  // A read-only screen (worfy-link ticket 25) sends nothing.
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) return readOnly
   const result = await invoke('bindings.set', { projectId, ...agent, target })
   if (!result.ok) return result.error
   setManual(projectId, result.value.bindings)
@@ -81,6 +85,8 @@ export async function bindManually(projectId: string, agent: BindingAgent, targe
 
 /** "Remove binding": the agent's automatic Binding applies again. */
 export async function removeManualBinding(projectId: string, agent: BindingAgent): Promise<string | undefined> {
+  const readOnly = readOnlyNow()
+  if (readOnly !== null) return readOnly
   const result = await invoke('bindings.remove', { projectId, ...agent })
   if (!result.ok) return result.error
   setManual(projectId, result.value.bindings)

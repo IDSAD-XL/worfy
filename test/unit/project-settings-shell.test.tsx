@@ -12,6 +12,8 @@ const main = vi.hoisted(() => ({
   calls: [] as { machine: string | null | undefined; channel: string; input: unknown }[],
   /** When set, answers terminal.shells instead of `answers`. */
   shells: undefined as (() => Promise<Answer>) | undefined,
+  /** The read-only hint by Machine ('' — this Machine), as useReadOnly() answers it (worfy-link ticket 25). */
+  readOnly: {} as Record<string, string>,
 }))
 const answer = (machine: string | null | undefined, channel: string, input: unknown): Promise<Answer> => {
   main.calls.push({ machine, channel, input })
@@ -21,6 +23,10 @@ const answer = (machine: string | null | undefined, channel: string, input: unkn
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input?: unknown) => answer(undefined, channel, input),
   invokeOn: (machine: string | null, channel: string, input?: unknown) => answer(machine, channel, input),
+  windowMachine: () => null,
+}))
+vi.mock('../../src/renderer/projects/useProjects', () => ({
+  useReadOnly: (machine: string | null) => main.readOnly[machine ?? ''] ?? null,
 }))
 
 const TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '' }
@@ -66,6 +72,7 @@ const chooseShell = (label: string): void => {
 beforeEach(() => {
   main.calls.length = 0
   main.shells = undefined
+  main.readOnly = {}
   main.answers = {
     'projects.settings.get': { ok: true, value: { actionTemplates: TEMPLATES } },
     'projects.settings.set': { ok: true, value: { actionTemplates: TEMPLATES } },
@@ -213,5 +220,30 @@ describe('the shell of the Terminals in Project settings', () => {
     await open({ machine: 'machine-m' })
     expect(main.calls.filter((call) => call.channel === 'terminal.shells')).toEqual([{ machine: 'machine-m', channel: 'terminal.shells', input: undefined }])
     expect(screen.getByLabelText('Terminal shell')).toBeTruthy()
+  })
+
+  it('on a Linked machine that shares the Project read-only, shows the settings with the reason and saves nothing (worfy-link ticket 25)', async () => {
+    main.readOnly = { 'mini-machine': 'Mini gives this Machine read-only access' }
+    main.answers['terminal.shells'] = { ok: true, value: [] }
+    await open({ machine: 'mini-machine' })
+    expect(screen.getByTestId('project-settings-read-only').textContent).toBe('Mini gives this Machine read-only access')
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true)
+    // Enter in a template field saves as well; not here.
+    const field = screen.getAllByRole('textbox')[0]!
+    fireEvent.change(field, { target: { value: '/ship-ticket {epic} {NN} now' } })
+    await act(async () => {
+      fireEvent.keyDown(field, { key: 'Enter' })
+    })
+    await save()
+    expect(saved()).toBeUndefined()
+  })
+
+  it('a Linked machine with Full access saves as before, though another one is read-only', async () => {
+    main.readOnly = { 'other-machine': 'Other gives this Machine read-only access' }
+    main.answers['terminal.shells'] = { ok: true, value: [] }
+    await open({ machine: 'mini-machine' })
+    expect(screen.queryByTestId('project-settings-read-only')).toBeNull()
+    await save()
+    expect(saved()).toEqual({ id: PROJECT.id, settings: { actionTemplates: TEMPLATES } })
   })
 })

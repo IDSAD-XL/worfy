@@ -13,11 +13,13 @@ const state = vi.hoisted(() => ({
   invoke: vi.fn(),
   openSession: vi.fn(),
   asked: [] as (string | undefined)[],
+  readOnly: null as string | null,
 }))
 
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useProjects: () => null,
   activeProject: () => state.project,
+  useReadOnly: () => state.readOnly,
 }))
 vi.mock('../../src/renderer/workflow/useWorkflow', () => ({
   useWorkflow: (root: string | undefined) => {
@@ -39,6 +41,7 @@ beforeEach(() => {
   state.invoke.mockReset()
   state.openSession.mockReset()
   state.asked = []
+  state.readOnly = null
 })
 
 afterEach(cleanup)
@@ -85,5 +88,16 @@ describe('the "No epics yet" panel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Plan first epic' }))
     expect((await screen.findByRole('alert')).textContent).toBe('no Orchestrator')
     expect(state.openSession).not.toHaveBeenCalled()
+  })
+
+  it('on a read-only screen the button is inactive, the reason is under it, and nothing is opened (worfy-link ticket 25)', async () => {
+    state.readOnly = 'Mini gives this Machine read-only access'
+    render(<FirstEpic />)
+    const button = screen.getByRole('button', { name: 'Plan first epic' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByTestId('first-epic-read-only').textContent).toBe('Mini gives this Machine read-only access')
+    fireEvent.click(button)
+    await Promise.resolve()
+    expect(state.invoke).not.toHaveBeenCalled()
   })
 })

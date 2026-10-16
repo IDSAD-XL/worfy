@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import type { AgentEvent, PermissionDecision } from '../../shared/agent/events'
 import { invoke } from '../ipc'
+import { writeAction } from '../projects/read-only'
+import { useReadOnly } from '../projects/useProjects'
 import { useSessionLog } from './store'
 
 // A permission request in the transcript (ticket 21, BRIEF.md Screen 2): the tool, its input — a
@@ -50,6 +52,8 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
   const resolution = useResolution(sessionId, request.requestId)
   const [sending, setSending] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // On a read-only screen (worfy-link ticket 25) the request shows; answering it is inactive.
+  const readOnly = useReadOnly()
   const description = request.description ?? request.title
   const bash = request.toolName === 'Bash'
 
@@ -87,15 +91,18 @@ export function PermissionCard({ request, sessionId }: PermissionCardProps) {
           {open ? (
             <div className="w-permission__actions">
               {/* The primary action's look (theme/primitives.tsx, PrimaryButton), with a test id. */}
-              <button type="button" className="w-primary" data-testid="permission-allow" disabled={sending} onClick={() => void answer('allow')}>
+              <button type="button" className="w-primary" data-testid="permission-allow" disabled={sending} {...writeAction(readOnly, () => void answer('allow'))}>
                 Allow
               </button>
               {request.alwaysAllow ? (
-                <button type="button" className="w-permission__button" data-testid="permission-always-allow" disabled={sending} onClick={() => void answer('always_allow')} title={`Allow ${request.toolName} until this Session ends`}>
+                <button type="button" className="w-permission__button" data-testid="permission-always-allow"
+                  disabled={sending}
+                  {...writeAction(readOnly, () => void answer('always_allow'), `Allow ${request.toolName} until this Session ends`)}
+                >
                   Always allow
                 </button>
               ) : null}
-              <button type="button" className="w-permission__button w-permission__button--deny" data-testid="permission-deny" disabled={sending} onClick={() => void answer('deny')}>
+              <button type="button" className="w-permission__button w-permission__button--deny" data-testid="permission-deny" disabled={sending} {...writeAction(readOnly, () => void answer('deny'))}>
                 Deny
               </button>
             </div>

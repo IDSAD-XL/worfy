@@ -1,4 +1,6 @@
 import { memo, useEffect, useRef } from 'react'
+import { writeAction } from '../../projects/read-only'
+import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
 import { PROGRESS_SEGMENTS, TICKET_HEIGHT, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
 import { saveEpicChange, setDoneStack, type EpicFrameData } from '../sources/epics'
@@ -59,6 +61,8 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
   const { projectId, root, epic, tickets, layout, progress, collapsed, doneExpanded, saved } = frame
   const subject: SlotSubject = { kind: 'epic', projectId, root, epic, tickets }
   const ops = useLayoutOps()
+  // Collapsing is saved in the Layout: inactive on a read-only screen (worfy-link ticket 25).
+  const readOnly = useReadOnly()
   // A step of the ⌘Z history; the done stack below is not (it is not in the Layout, like the
   // viewport). A collapsed frame shows no stack, so its stack is folded with it.
   const toggleCollapsed = () => {
@@ -105,7 +109,7 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
           className="w-epic__button nodrag"
           aria-label={collapsed ? `Expand epic ${epic.epic}` : `Collapse epic ${epic.epic}`}
           aria-expanded={!collapsed}
-          onClick={toggleCollapsed}
+          {...writeAction(readOnly, toggleCollapsed)}
         >
           {chevron(collapsed ? 'right' : 'down')}
         </button>

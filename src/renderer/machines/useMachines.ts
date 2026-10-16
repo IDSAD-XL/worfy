@@ -49,6 +49,19 @@ export function useMachines(): LinkState | undefined {
   return useMachinesStore((store) => store.state)
 }
 
+/** The name of Linked machine `id`; follows the link state only for an id, so a null costs no call. */
+export function useMachineName(id: string | null): string | undefined {
+  useEffect(() => {
+    if (id !== null) start()
+  }, [id])
+  return useMachinesStore((store) => (id === null ? undefined : store.state?.linked.find((machine) => machine.id === id)?.name))
+}
+
+/** The link state as the renderer has it now, outside React; undefined until main has answered once. */
+export function linkStateNow(): LinkState | undefined {
+  return useMachinesStore.getState().state
+}
+
 /** Calls a link channel that answers with the state, and takes the state; the error text otherwise. */
 async function change(call: Promise<{ ok: true; value: LinkState } | { ok: false; error: string }>): Promise<string | undefined> {
   const result = await call

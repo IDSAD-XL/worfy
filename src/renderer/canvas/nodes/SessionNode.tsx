@@ -14,7 +14,8 @@ import {
 } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { checkFiles, readFiles, roomFor, takeAttached } from '../../session/attach-files'
 import { STATE_CHIPS } from '../../session/format'
 import { AttachmentChips, type Chip } from '../../session/MessageInput'
@@ -205,6 +206,8 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   // A resumed Session: the answer from before Resume, until the live Session brings one.
   const pastAnswer = usePastAnswer(project.path, running && liveAnswer === null ? view.sdkSessionId : null)
   const answer = liveAnswer ?? pastAnswer
+  // On a read-only screen (worfy-link ticket 25) every action that writes is inactive, with the reason.
+  const readOnly = useReadOnly()
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const [chips, setChips] = useState<Chip[]>([])
@@ -245,7 +248,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
     event.preventDefault()
     const text = draft.trim()
     const attached = chipsNow.current
-    if (sendingNow.current !== null || (text === '' && attached.length === 0)) return
+    if (readOnly !== null || sendingNow.current !== null || (text === '' && attached.length === 0)) return
     // The message leaves the field at once, as in the Session view's field: what is typed, dropped
     // or removed while it is on its way (Resume can take a while) belongs to the next message.
     sendingNow.current = attached
@@ -276,6 +279,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
 
   /** Dropped files: read here; the Session started if it is not running; checked in main. */
   const attachDropped = async (files: readonly File[]): Promise<void> => {
+    if (readOnly !== null) return setProblem(readOnly)
     setProblem(null)
     const read = await readFiles(files, 'dropped', room())
     // Nothing to attach: no reason to start the Session.
@@ -350,7 +354,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
         </span>
         <span className="nodrag" style={styles.tools}>
           {busy ? (
-            <button type="button" style={styles.tool} data-testid="session-node-interrupt" onClick={() => act(() => invoke('agent.interrupt', { sessionId: view.sessionId }))}>
+            <button type="button" style={styles.tool} data-testid="session-node-interrupt" {...writeAction(readOnly, () => act(() => invoke('agent.interrupt', { sessionId: view.sessionId })))}>
               Interrupt
             </button>
           ) : null}
@@ -360,17 +364,21 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
               style={styles.tool}
               data-testid="session-node-close"
               disabled={busy}
-              title={busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays'}
-              onClick={() => act(() => invoke('sessions.close', { nodeId: id }))}
+              {...writeAction(readOnly, () => act(() => invoke('sessions.close', { nodeId: id })), busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays')}
             >
               Close
             </button>
           ) : saved !== undefined ? (
-            <button type="button" style={styles.tool} data-testid="session-node-resume" title="Continue this Session in worfy" onClick={() => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id }))}>
+            <button
+              type="button"
+              style={styles.tool}
+              data-testid="session-node-resume"
+              {...writeAction(readOnly, () => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id })), 'Continue this Session in worfy')}
+            >
               Resume
             </button>
           ) : null}
-          <button type="button" style={styles.tool} title="Hide the Node; the Session goes on" onClick={() => void ops.apply({ op: 'hide', id, hidden: true })}>
+          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), 'Hide the Node; the Session goes on')}>
             Hide
           </button>
           <button
@@ -378,8 +386,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
             style={styles.tool}
             data-testid="session-node-remove"
             disabled={running}
-            title={running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays'}
-            onClick={() => void ops.apply({ op: 'remove', id })}
+            {...writeAction(readOnly, () => void ops.apply({ op: 'remove', id }), running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays')}
           >
             Remove
           </button>
@@ -421,11 +428,19 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
           style={styles.input}
           data-testid="session-node-input"
           aria-label="Message to the Session"
-          placeholder={running ? 'Message the Session' : saved === undefined ? 'Start the Session' : 'Resume with a message'}
+          placeholder={readOnly ?? (running ? 'Message the Session' : saved === undefined ? 'Start the Session' : 'Resume with a message')}
+          readOnly={readOnly !== null}
+          title={readOnly ?? undefined}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <button type="submit" style={styles.tool} data-testid="session-node-send" disabled={draft.trim() === '' && chips.length === 0}>
+        <button
+          type="submit"
+          style={styles.tool}
+          data-testid="session-node-send"
+          disabled={readOnly === null && draft.trim() === '' && chips.length === 0}
+          {...(readOnly === null ? {} : { 'aria-disabled': 'true' as const, 'data-read-only': '', title: readOnly })}
+        >
           Send
         </button>
       </form>
@@ -435,6 +450,7 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
 
 function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const ops = useLayoutOps()
+  const readOnly = useReadOnly()
   const worfy = readWorfySessionNodeData(data.node.data)
   const info = readSessionNodeData(data.node.data)
   const project = activeProject(useProjects())
@@ -483,10 +499,10 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
           <StatusChip status={chip.status} label={chip.label} />
         </span>
         <span className="nodrag" style={styles.tools}>
-          <button type="button" style={styles.tool} title={`Hide the Node; ${leaves}`} onClick={() => void ops.apply({ op: 'hide', id, hidden: true })}>
+          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), `Hide the Node; ${leaves}`)}>
             Hide
           </button>
-          <button type="button" style={styles.tool} title={`Remove the Node; ${leaves}`} onClick={() => void ops.apply({ op: 'remove', id })}>
+          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'remove', id }), `Remove the Node; ${leaves}`)}>
             Remove
           </button>
         </span>

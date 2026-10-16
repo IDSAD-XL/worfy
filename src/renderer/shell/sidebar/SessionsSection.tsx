@@ -6,7 +6,8 @@ import { focusSessionNode } from '../../claude-home/focus'
 import { sessionNodeId, sessionRow, worfySessionIds, worfySessions } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke, readableReason } from '../../ipc'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { HistoryPopover } from '../../session/HistoryPopover'
 import { setView } from '../../session/navigation'
 import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
@@ -82,6 +83,8 @@ function Sessions({ project }: { project: ProjectView }) {
   const worfyIds = useMemo(() => worfySessionIds(nodes ?? [], [...worfy.keys()]), [nodes, worfy])
   const [historyOpen, setHistoryOpen] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // On a read-only screen (worfy-link ticket 25) "New session" is inactive, saying why.
+  const readOnly = useReadOnly()
 
   const newSession = async () => {
     setProblem(null)
@@ -150,7 +153,7 @@ function Sessions({ project }: { project: ProjectView }) {
       }
       trailing={
         <>
-          <button type="button" style={styles.action} data-testid="sidebar-new-session" title="A new Session in the Project's root" onClick={() => void newSession()}>
+          <button type="button" style={styles.action} data-testid="sidebar-new-session" {...writeAction(readOnly, () => void newSession(), "A new Session in the Project's root")}>
             New session
           </button>
           <button type="button" style={styles.action} data-testid="sidebar-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen((open) => !open)}>
