@@ -565,7 +565,81 @@ The orchestrator's scratchpad works when all waves run from one session. Differe
 different scratchpads, and locks there do not see each other — then use the repository's shared
 path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
 
-1. Ordinary PRs with code — one after another, as `VERIFIED` verdicts arrive.
+**Gate before merge** (`pr-green-ci`). What the project requires before a PR with code is merged
+is `F workflow.merge_gate`:
+
+- absent or `null` — the Harness requires no gate before the merge (the project's `rules.md` may);
+- `"each"` — every PR on its own: rebase onto the fresh main branch, `GATE_SCOPE=all` gate full on
+  its branch (exit code 0 and the line `[gate] зелено (…)`), CI again on the new head, the merge;
+  then the next PR;
+- `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate` (worfy
+  ADR-0065), as below.
+
+The set is the wave's PRs with `VERIFIED` and green CI on their head, in merge order. Mark the
+platform PRs — those the project's rules send to another platform's verdict (worfy: ADR-0056,
+item 2). They and the PRs with the label `needs-mac-gate` stay out of the set, and so do the PRs
+`wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a red set): each of them
+is merged the old way, as with `"each"`, plus the other platform's verdict for a platform PR. A PR
+that becomes ready after `check` started waits for the next set. PRs of the set are not rebased and
+their CI is not run again before the merge: CI was green on the head, and each merge runs CI on the
+push to the main branch. `wave-gate` takes the e2e lock (`F workflow.e2e_lock`) for each gate run
+and the main-branch lock for the merges itself: do not wrap it in the lock command above.
+
+The state file of the set — one file per set, a new set gets a new file. `<main lock>` is the path
+of the main-branch lock above:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
+PRS=(<PR numbers in merge order>)              # VERIFIED, CI green on the head
+PLATFORM=(<platform PR numbers>)               # none: PLATFORM=()
+node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
+const fs = require("fs"), { execFileSync } = require("child_process")
+const [file, repo, branch, lock, prepare, mainLock, count, ...rest] = process.argv.slice(2)
+const platform = rest.slice(+count), val = (v) => (v === "" || v === "null" ? null : v)
+const prs = rest.slice(0, +count).map((n) => {
+  const p = JSON.parse(execFileSync("gh", ["pr", "view", n, "--json", "number,headRefOid,labels"], { cwd: repo, encoding: "utf8" }))
+  return { number: p.number, head: p.headRefOid, labels: p.labels.map((l) => l.name), platform: platform.includes(n) }
+})
+fs.writeFileSync(file, JSON.stringify({ repo, branch, e2e_lock: val(lock), prepare: val(prepare), main_lock: mainLock, prs }, null, 2) + "\n")
+NODE
+echo "EXIT=$?"
+```
+
+The check runs up to 2+⌈log₂ N⌉ gate full runs of about 12 min each, more than one Bash call
+holds: run it with `run_in_background: true` and read its output when it ends. After a session
+break, run the same block again: it goes on from the state file without repeating a finished gate
+run; when the main branch has moved meanwhile, it checks the set again.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/wave-gate" check <state file>; echo "EXIT=$?"
+```
+
+- `EXIT=0` (`STATUS=green`) — merge the set. `flaky` in the state file — the first run was red and
+  the repeat green: the failing tests go into the wave report as a flaky test. `STATUS=empty` — all
+  PRs are out of the set.
+- `EXIT=2` (`STATUS=red`) — red twice; the bisection named `culprit`. Merge `green_prefix` (the
+  merge block does exactly that); the culprit goes back to its implementer as a rework round with
+  the log of its run (`runs[].log`); the PRs after it go into the next set.
+- `EXIT=3` (`STATUS=unverified`) — could not verify: nothing is merged. Fix the cause named in the
+  log of the last run and run the same check again.
+- `EXIT=1` — an error, the message says which; the temporary worktree is removed. Nothing is merged.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/bin/wave-gate" merge <state file>; echo "EXIT=$?"
+```
+
+`EXIT=0` — merged, the main branch has exactly the checked tree after each PR. `EXIT=4` — stopped:
+`merge.stopped` in the state file names the PR and the reason (`base moved` before the first merge
+— nothing merged, check again with a new state file; a tree mismatch or a failed `gh pr merge` — the
+PRs after it are not merged). After a stop, run gate full on the main branch (the project's lock
+command); the PRs not merged go into a new set.
+Red CI on the main branch after the set's merges: no new merges. Open a revert of the squash commit
+of the first red push run (`git revert <sha>` on a branch, a PR); the revert PR goes the old way,
+outside any set, with its own gate full, and the ticket of the reverted PR gets a rework round.
+
+1. Ordinary PRs with code — with `merge_gate: "wave"` as a set (above); otherwise one after another,
+   as `VERIFIED` verdicts arrive.
 2. PRs touching paths from `F serial_merge.paths` (migrations, deploy changes) — one at a time, by
    the rule `F serial_merge.rule`. No field — "the profile requires no serial merge".
 3. Production check — once, after the last code merge. Only if `F deploy` exists; if not —

@@ -305,6 +305,23 @@ function commonParent() {
 }
 const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(process.env.HOME, p.slice(1)) : p)
 
+// The gate before a merge (worfy ADR-0065): workflow.merge_gate is "each" (gate full on every PR after a rebase),
+// "wave" (one gate full for the set of a wave's ready PRs, bin/wave-gate) or null / absent (none required);
+// workflow.e2e_lock is the path of the e2e lock directory or null / absent (no lock). Any other value is a broken
+// profile: a guessed one would decide whether a PR is merged without its gate, or two e2e runs share the screen.
+// `~/` in e2e_lock is expanded; a relative path would depend on the directory a script runs from.
+const MERGE_GATES = ["each", "wave"]
+if (profile.workflow !== null && typeof profile.workflow === "object") {
+    const wf = profile.workflow
+    if (wf.merge_gate !== undefined && wf.merge_gate !== null && !MERGE_GATES.includes(wf.merge_gate))
+        die(1, `${pjPath}: workflow.merge_gate is "each", "wave" or null, got ${JSON.stringify(wf.merge_gate)} — broken profile`)
+    if (wf.e2e_lock !== undefined && wf.e2e_lock !== null) {
+        const lock = typeof wf.e2e_lock === "string" ? expandHome(wf.e2e_lock.trim()) : ""
+        if (!lock || !path.isAbsolute(lock)) die(1, `${pjPath}: workflow.e2e_lock is an absolute path or null, got ${JSON.stringify(wf.e2e_lock)} — broken profile`)
+        wf.e2e_lock = lock
+    }
+}
+
 // The Workflow folder — where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live
 // (profiles/README.md, "Workflow folder"). Full mode: the root of the current working tree (they travel in the
 // branch). Silent mode: workflow.folder; without it — the folder above the repositories of a project of several

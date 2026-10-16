@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -6,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
 
 // Settings → "Terminal AI" against the built app:
 // - the switches reach a zsh that is already running: with "Suggestion" off, and with "Terminal AI"
@@ -17,12 +17,12 @@ import { clickMenuItem } from './menu'
 //
 // SHELL is the zsh of the machine and HOME a temporary folder with its own .zshrc, so no startup
 // file and no history of the machine running the tests is read, and none is written. The command
-// carries a mark of its own all the same.
+// carries a mark of its own all the same. Windows has no zsh: there the app keeps its own shell,
+// the section's tests run, and the one that needs a running zsh is skipped.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 
 const PROJECT = 'alpha-0000000a'
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'
 /** Where the screenshots of the section go when the run is asked for them (the evidence of the ticket). */
@@ -54,7 +54,7 @@ test.afterEach(async () => {
   await removeDir(scratch)
 })
 
-const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, SHELL: ZSH, HOME: home, skip_global_compinit: '1' } })
+const launch = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, ...(NO_ZSH ? {} : { SHELL: zshPath() }), HOME: home, skip_global_compinit: '1' } })
 
 function invokeIn<T>(window: Page, channel: string, input: unknown): Promise<{ ok: boolean; value: T }> {
   return window.evaluate(
@@ -216,6 +216,7 @@ async function inBothThemes(window: Page, dialog: Locator, shot: string, kinds: 
 }
 
 test('Suggestion off, and Terminal AI off, take the grey text from a zsh that is already running; on again brings it back', async () => {
+  test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
   // Unique to this run: nothing else in any history starts with it.
   const mark = `worfy-tai-${Date.now().toString(36)}-${process.pid}`
   const rest = `${mark.slice('wo'.length)} second third`

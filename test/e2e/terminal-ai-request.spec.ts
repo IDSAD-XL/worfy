@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { TERMINAL_AI_PROMPT, editedLine, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS } from './zsh'
 import { shellCaughtUp } from './wait'
 
 // Command request of Terminal AI from the ⌘I panel, in a Terminal Node of the built app on a real
@@ -15,6 +16,8 @@ import { shellCaughtUp } from './wait'
 
 /** Where the screenshots of the panel go when the run asks for them (the evidence of the ticket). */
 const EVIDENCE_DIR = process.env.WORFY_EVIDENCE_DIR
+
+test.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
 
 let sandbox: TerminalAiSandbox
 

@@ -398,6 +398,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 09 | `.scratch/worfy-terminal-ai/spec.md`, `.scratch/worfy-terminal-ai/evidence/09-live-проверка.md` | 5 |
 | 11 | `src/main/terminal/zsh/rc.d/10-assist.zsh`, `src/main/terminal-ai/socket.ts`, `test/contract/terminal-ai-zle.test.ts` | 6 |
 | 12 | `test/e2e/session-view.spec.ts` | 6 |
+| 13 | `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`, `src/main/terminal-ai/features/command-request.ts`, `test/unit/terminal-ai-request.test.tsx`, `test/contract/terminal-ai-request.test.ts`, `test/e2e/terminal-ai-request.spec.ts` | 6 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -418,6 +419,10 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   «Итог» Ticket-а 03, пункт 9) и 12 (flaky e2e `transcript-date` у полуночи; «Итог» Ticket-а 10).
   Блокеров нет, общих файлов между ними и с 09 нет. 09 (приёмка) их не ждёт: `Blocked by` 09 не
   менялся; Orchestrator берёт 11 до приёмки, если она ещё не прошла.
+  13 (панель ⌘I шлёт модели текущую строку shell-а из буфера xterm и не закрывает первую строку
+  Terminal-а; решение владельца 2026-10-16 по Consider Ticket-а 06) добавлен в ту же Wave: блокеров нет,
+  общих файлов с 11 и 12 нет; 09 его, как 11 и 12, не ждёт. С открытым PR #328 (`worfy-ui` 11) общие
+  `TerminalNode.tsx` и `TerminalAiRequest.tsx` — сверка перед claim.
 
 Сдвиги из-за общих файлов:
 
