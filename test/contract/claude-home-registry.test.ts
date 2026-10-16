@@ -632,7 +632,7 @@ describe('Session history', () => {
 
   it('sees a new, an appended, a rewritten and a removed transcript in the next list, and reads an unchanged one only once', async () => {
     const home = await copyOfFixture()
-    const dir = join(home, 'projects', '-Users-test-projects-demo')
+    const dir = join(home, 'projects', projectDir(DEMO))
     const s5 = join(dir, `${S5}.jsonl`)
     const then = new Date('2026-06-01T00:00:00.000Z')
     await utimes(s5, then, then)
