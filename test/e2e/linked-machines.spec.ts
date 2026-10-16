@@ -274,6 +274,9 @@ test('revoking from A, then from B: the row goes on both within 5 s, and linking
   }
 })
 
+/** The line under the access switch of Settings → Machines (ADR-0060). */
+const STARTED_WORK_KEEPS_RUNNING = 'Work already started from a Linked machine keeps running'
+
 /** What link/settings.json of the data folder says, once worfy has written it (src/main/link/settings.ts). */
 function savedLinkSettings(dataDir: string): { projectsAccess: boolean; keepAwake?: boolean } | null {
   const file = join(dataDir, 'link', 'settings.json')
@@ -297,19 +300,37 @@ test('Settings → Machines: the access switch is off on a fresh Machine and sta
       const access = dialog.getByRole('switch', { name: PROJECTS_ACCESS_LABEL, exact: true })
       const keepAwake = dialog.getByRole('switch', { name: KEEP_AWAKE_LABEL, exact: true })
       await expect(dialog.getByRole('switch')).toHaveCount(2)
-      for (const toggle of [access, keepAwake]) {
-        await expect(toggle).toBeVisible()
-        await expect(toggle).toBeEnabled()
-      }
-      // As a fresh Machine has them: access off, keep-awake on. Both labels are on screen.
+      for (const toggle of [access, keepAwake]) await expect(toggle).toBeVisible()
+      // As a fresh Machine has them: access off, keep-awake on in link/settings.json. With access off
+      // sleep is not kept away, so keep-awake is disabled, shows off and says why. Both labels and
+      // the line under the access switch are on screen.
+      await expect(access).toBeEnabled()
       await expect(access).toHaveAttribute('aria-checked', 'false')
-      await expect(keepAwake).toHaveAttribute('aria-checked', 'true')
+      await expect(keepAwake).toBeDisabled()
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'false')
+      await expect(keepAwake).toHaveAttribute('title', `Turn on "${PROJECTS_ACCESS_LABEL}" first`)
       await expect(dialog.getByText(PROJECTS_ACCESS_LABEL, { exact: true })).toBeVisible()
       await expect(dialog.getByText(KEEP_AWAKE_LABEL, { exact: true })).toBeVisible()
+      await expect(dialog.getByTestId('settings-machines-access-row').getByText(STARTED_WORK_KEEPS_RUNNING, { exact: true })).toBeVisible()
+      // Drawn unlike the enabled "off" of access: a dashed outline without a fill, and a dimmed label.
+      const look = (locator: Locator) =>
+        locator.evaluate((node) => {
+          const style = (globalThis as unknown as { getComputedStyle: (n: unknown) => { borderTopStyle: string; color: string } }).getComputedStyle(node)
+          return { borderTopStyle: style.borderTopStyle, color: style.color }
+        })
+      expect((await look(keepAwake)).borderTopStyle).toBe('dashed')
+      expect((await look(access)).borderTopStyle).toBe('solid')
+      expect((await look(dialog.getByText(KEEP_AWAKE_LABEL, { exact: true }))).color).not.toBe((await look(dialog.getByText(PROJECTS_ACCESS_LABEL, { exact: true }))).color)
       await snapshotThemes(first.window, 'settings-machines')
 
       await access.click()
       await expect(access).toHaveAttribute('aria-checked', 'true')
+      // Access on: keep-awake works and shows the value kept, on; the line stays.
+      await expect(keepAwake).toBeEnabled()
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'true')
+      await expect(keepAwake).not.toHaveAttribute('title')
+      await expect(dialog.getByText(STARTED_WORK_KEEPS_RUNNING, { exact: true })).toBeVisible()
+      await snapshotThemes(first.window, 'settings-machines-access-on')
       // Written where the sidebar's switch wrote it.
       await expect.poll(() => savedLinkSettings(dataDir)).toStrictEqual({ version: 1, projectsAccess: true, keepAwake: true })
       // Closing Settings loses nothing: open again, the switch is on. The sidebar still has no
@@ -397,9 +418,14 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
 
       // A click on the text of a label switches nothing, and leaves the keyboard in the window:
       // Tab goes to a control of Settings.
-      await labels[1]!.click()
-      await expect(keepAwake).toHaveAttribute('aria-checked', 'true')
+      // The label of the access switch: that switch is enabled, so a switch here would be a click
+      // that went through the label (keep-awake is disabled while access is off).
+      await expect(access).toBeEnabled()
+      await labels[0]!.click()
       await expect(access).toHaveAttribute('aria-checked', 'false')
+      expect(savedLinkSettings(dataDir)?.projectsAccess ?? false).toBe(false)
+      // Access is off: keep-awake shows off, although link/settings.json keeps it on.
+      await expect(keepAwake).toHaveAttribute('aria-checked', 'false')
       await window.keyboard.press('Tab')
       await expect(dialog.locator(':focus')).toHaveCount(1)
       // Space on the switch: main can write again, so it switches, the message goes, and the focus
