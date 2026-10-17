@@ -1,7 +1,8 @@
 # 50 — «Sign in with gh» на Windows: pseudo-terminal запускает `/bin/sh`, а голый `gh` node-pty не находит
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T22:30Z
+Branch: worfy-windows/50
 Blocked by: —
 Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-ПК, 2026-10-14: дефект продукта найден при подмене `gh` в test-ах и вынесен из PR подмены в свой Ticket. Черновой commit — `29c4159` на ветке `worfy-windows/14-gh-stand-in` (не для merge). Код перечитан на Mac по main `1c1beadd`; node-pty — 1.1.0 из `node_modules`.
 
@@ -90,4 +91,29 @@ Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-П�
 
 ## Итог
 
-—
+Ветка `worfy-windows/50`, Mac, от main `90c5e724`.
+
+- **Команда.** `signInCommand(gh, platform, env, exists)` (`src/main/github/accounts.ts`): вне Windows —
+  прежняя `/bin/sh -c 'exec "$0" auth login' <gh>`; на `win32` — сама программа с `auth login`.
+  Полный путь (`C:\…`, `\\…`) из `WORFY_GH` идёт как есть, иначе `findOnPath(gh, env)`. Не нашёлся —
+  ошибка «gh was not found in the Path: install GitHub CLI or add its folder to the Path, then
+  restart worfy»; её текст окно входа показывает вместо «File not found:» из node-pty.
+- **Окружение поиска.** `signInRegistry` выбирает команду в `spawn` каждого входа, по `options.env` —
+  тому окружению, которое получает pseudo-terminal (`terminalEnv` от `agentEnv()`), а не по `Path`
+  процесса worfy. Третий необязательный параметр `{ platform, exists }` — для test-ов; `platform`
+  передаётся и в `TerminalRegistry` (по умолчанию тот же `process.platform`, поведение не меняется).
+  `src/main/ipc/projects.ts` не тронут.
+- **Решение по двум test-ам на настоящем pseudo-terminal** (`test/contract/github-accounts.test.ts`,
+  «gh auth login in a real pseudo-terminal…» и «closing a sign-in…»): на Windows остаются пропущенными
+  (`it.skipIf(process.platform === 'win32')`), причина записана в комментарии. Подмена `gh` на Windows —
+  `gh-stub.mjs`: node-pty запускает только `.exe`, а под `process.execPath` скрипт не получает терминала
+  (исполняемый файл Electron — программа GUI). Команду на Windows покрывают unit-test-ы над подменённым
+  pty, сам вход — проверка владельца на установленной сборке.
+- **Test-ы** (`test/contract/github-accounts.test.ts`, describe «"Sign in with gh"»): команда для
+  `darwin` и `linux`; на `win32` — полный путь из `findOnPath`, без `/bin/sh`; `WORFY_GH` с полным путём
+  как есть; `gh` нет в `Path` — ошибка с понятным текстом; система по умолчанию из `process.platform`
+  (подменён); registry на `win32` запускает найденный `gh.exe`, а без него ничего не запускает и
+  отвечает причиной. Мутанты: `/bin/sh` на `win32` — 6 test-ов красные; голое `gh` вместо полного
+  пути — 5 красных.
+- **Ждёт Windows:** ручной вход на Windows-ПК (первый пункт «Готово, когда») и ручной job
+  «Windows tests» против main.

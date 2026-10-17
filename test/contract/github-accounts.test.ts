@@ -230,7 +230,69 @@ describe('what worfy never does with gh', () => {
 
 describe('"Sign in with gh"', () => {
   it('runs the app\'s gh with exactly auth login: /bin/sh execs it, so the process is gh itself', () => {
-    expect(signInCommand('/opt/stub/gh')).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', '/opt/stub/gh'] })
+    for (const platform of ['darwin', 'linux'] as const) {
+      expect(signInCommand('/opt/stub/gh', platform)).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', '/opt/stub/gh'] })
+      expect(signInCommand('gh', platform)).toEqual({ file: '/bin/sh', args: ['-c', 'exec "$0" auth login', 'gh'] })
+    }
+  })
+
+  // Windows has no /bin/sh, and node-pty there looks a bare name up only in worfy's own Path,
+  // without adding .exe: the pseudo-terminal starts gh.exe by its full path, found in the Path the
+  // pseudo-terminal gets.
+  const WIN_PATH = { Path: 'C:\\Windows\\system32;tools;C:\\Program Files\\GitHub CLI' }
+  const ghExe = 'C:\\Program Files\\GitHub CLI\\gh.exe'
+  const onlyGhExe = (path: string) => path === ghExe
+
+  it('on Windows runs gh.exe of the Path by its full path with auth login, without /bin/sh', () => {
+    expect(signInCommand('gh', 'win32', WIN_PATH, onlyGhExe)).toEqual({ file: ghExe, args: ['auth', 'login'] })
+  })
+
+  it('on Windows a WORFY_GH with a full path is started as it is', () => {
+    expect(signInCommand('D:\\stub\\gh.exe', 'win32', {}, () => false)).toEqual({ file: 'D:\\stub\\gh.exe', args: ['auth', 'login'] })
+  })
+
+  it('on Windows without gh in the Path the sign-in fails with a reason a person can act on', () => {
+    expect(() => signInCommand('gh', 'win32', WIN_PATH, () => false)).toThrow('gh was not found in the Path')
+  })
+
+  it('takes the system from process.platform when none is given', () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    try {
+      expect(signInCommand('gh', undefined, WIN_PATH, onlyGhExe)).toEqual({ file: ghExe, args: ['auth', 'login'] })
+    } finally {
+      if (platform !== undefined) Object.defineProperty(process, 'platform', platform)
+    }
+  })
+
+  it('on Windows the pseudo-terminal starts gh.exe found in the Path of the environment it gets', async () => {
+    let started: string[] | undefined
+    const registry = signInRegistry(
+      { env: () => Promise.resolve(WIN_PATH) },
+      (file, args) => {
+        started = [file, ...args]
+        throw new Error('not started in this test')
+      },
+      { platform: 'win32', exists: onlyGhExe },
+    )
+    await Promise.resolve(registry.open('w0', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: () => undefined, exit: () => undefined, started: () => undefined })).catch(() => undefined)
+    expect(started).toEqual([ghExe, 'auth', 'login'])
+    await registry.closeAll()
+  })
+
+  it('on Windows without gh in the Path nothing is started and the sign-in answers why', async () => {
+    let started = false
+    const registry = signInRegistry(
+      { env: () => Promise.resolve(WIN_PATH) },
+      () => {
+        started = true
+        throw new Error('File not found: ')
+      },
+      { platform: 'win32', exists: () => false },
+    )
+    await expect(registry.open('w1', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: () => undefined, exit: () => undefined, started: () => undefined })).rejects.toThrow('gh was not found in the Path')
+    expect(started).toBe(false)
+    await registry.closeAll()
   })
 
   it('without WORFY_GH the sign-in runs `gh` itself (nothing is started here: the spawn only records)', async () => {
@@ -244,9 +306,11 @@ describe('"Sign in with gh"', () => {
     await registry.closeAll()
   })
 
-  // The two tests below start the sign-in in a real pseudo-terminal through /bin/sh, which Windows
-  // does not have: node-pty answers "File not found:". The product has the same defect there;
-  // worfy-windows ticket 50 fixes it and runs these tests on Windows.
+  // The two tests below start the gh stand-in in a real pseudo-terminal. They do not run on
+  // Windows: the stand-in there is gh-stub.mjs, which node-pty cannot start (it starts .exe files
+  // only), and running it under process.execPath gives it no terminal (the Electron executable is a
+  // GUI program). On Windows the command is covered by the tests above, and the sign-in itself by
+  // the owner's check of the installed build.
   it.skipIf(process.platform === 'win32')('gh auth login in a real pseudo-terminal: worfy types nothing, the user\'s Enter signs in, the exit ends it and the new account is there', async () => {
     const gh = ghWorld(join(scratch, 'gh'), { accounts: [ALICE], login: { login: 'carol', token: 'gho_carol_SECRET_0004' } })
     const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, ...gh.env }) })
