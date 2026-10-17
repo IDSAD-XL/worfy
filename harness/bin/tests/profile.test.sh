@@ -131,7 +131,7 @@ T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 # A path as profile prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 # The same inside a JSON string: each backslash doubled (a no-op where there are none).
-json_printed() { local p b='\'; p="$(printed "$1")"; printf '%s' "${p//"$b"/"$b$b"}"; }
+json_printed() { printed "$1" | sed 's/\\/\\\\/g'; }
 trap 'rm -rf "$T" /tmp/profile-test-err.$$' EXIT
 mkdir -p "$T/repo/sub" "$T/profiles/demo" "$T/plain" "$T/repo2"
 git -C "$T/repo" init -q -b main
@@ -330,6 +330,18 @@ exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H"
 EOF
 chmod +x "$T/p2"
 P2="$T/p2"
+# The same as a node script: ticket starts it with its own node (process.execPath), so it runs on Windows
+# too, where node cannot start a shell script. Paths in node's spelling, escaped for a JS string.
+cat >"$T/p2node" <<EOF
+#!/usr/bin/env node
+const env = { ...process.env, HOME: "$(json_printed "$H")", USERPROFILE: "$(json_printed "$H")", HARNESS_HOME: "$(json_printed "$HH")" }
+delete env.CLAUDE_GATE_CONFIG
+delete env.CLAUDE_PROFILES_DIR
+const r = require("child_process").spawnSync(process.execPath, ["$(json_printed "$PROFILE")", ...process.argv.slice(2)], { env, stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+chmod +x "$T/p2node"
+P2NODE="$T/p2node"
 snapshot() { find "$H" "$HH" | LC_ALL=C sort && find "$H" "$HH" -type f -exec cksum {} + | LC_ALL=C sort; }
 before="$(snapshot)"
 eq() { # $1 name, $2 expected stdout exactly, then the command (exit code must be 0)
@@ -448,11 +460,21 @@ eq "full: _resolved.repos of one repository" '[{"name":"both","gate_key":"both"}
 check "silent summary names the mode and the Workflow folder" 0 "mode: silent   workflow folder: $(printed "$H/wf")" "$P2" -C "$T/r/home"
 check "full summary has no mode line" 0 "" bash -c '! "$@" | grep -q "^mode: "' _ "$P2" -C "$T/r/both"
 # The relative tickets.root of a Silent profile is taken from the Workflow folder (bin/ticket applies the rule).
-# ticket reads the profile next to it in the environment $P2 sets: node cannot start a shell script on Windows.
-eq "silent: a relative tickets.root is taken from the Workflow folder" "$(printed "$H/wf/.scratch")" \
-    env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
-eq "full: a relative tickets.root is still taken from the working tree" "$(printed "$(cd "$T/r/both" && pwd -P)/.scratch")" \
-    env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
+# ticket itself keeps the real HOME: only the profile it reads sees the sandbox. A shell script as
+# CLAUDE_PROFILE_BIN cannot start on Windows (node runs no #! line there), so that form is POSIX-only.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) echo "skip tickets.root through a shell-script profile: node on Windows cannot start a shell script" ;;
+    *)
+        eq "silent: a relative tickets.root is taken from the Workflow folder" "$(printed "$H/wf/.scratch")" \
+            env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
+        eq "full: a relative tickets.root is still taken from the working tree" "$(printed "$(cd "$T/r/both" && pwd -P)/.scratch")" \
+            env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
+        ;;
+esac
+eq "silent: a relative tickets.root is taken from the Workflow folder (node profile script)" "$(printed "$H/wf/.scratch")" \
+    env CLAUDE_PROFILE_BIN="$P2NODE" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
+eq "full: a relative tickets.root is still taken from the working tree (node profile script)" "$(printed "$(cd "$T/r/both" && pwd -P)/.scratch")" \
+    env CLAUDE_PROFILE_BIN="$P2NODE" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
 
 after="$(snapshot)"
 check "profile writes nothing into HOME or HARNESS_HOME" 0 "" test "$before" = "$after"
