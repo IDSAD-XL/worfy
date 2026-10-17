@@ -1,7 +1,8 @@
 # 13 — Панель ⌘I: текущая строка shell-а уходит модели, первая строка Terminal-а остаётся видна
 
 Type: task
-Status: claimed 2026-10-17T14:09Z
+Status: done 2026-10-17T16:32Z
+PR: #441
 Branch: worfy-terminal-ai/13
 Blocked by: —
 Source: решение владельца 2026-10-16 по двум пунктам Consider [low] из
@@ -188,3 +189,16 @@ Gate fast — в отчёте implementer-а. Gate full и Linux CI (batch по�
 [busy светлая](../evidence/13-request-panel-busy-light.png), [busy тёмная](../evidence/13-request-panel-busy-dark.png).
 
 Ручных пунктов в Ticket-е нет.
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/441#issuecomment-6235339490)); редакция секретов строки — на
+стороне main (`src/main/terminal-ai/assist.ts:447`); снимки проверяющего в обеих темах. Вне следа, с согласия
+оркестратора: `src/renderer/canvas/nodes/terminal-line.ts` и строка-заглушка `parser` в двух unit test-ах.
+`GATE_SCOPE=all` gate full зелёный со второго прогона (первый — таймауты `e3-sandbox.test.ts` вне diff под
+нагрузкой); влит — `3f6cc2d4`.
+Долги (low):
+- `src/renderer/canvas/nodes/terminal-line.ts:58` — ветка dim (`cell.isDim()`) без test-а: мутант без неё зелёный.
+- `src/renderer/canvas/nodes/terminal-line.ts:105` — «правый prompt только на первом ряду строки» без test-а:
+  перенесённая строка, у которой второй ряд кончается у края после 5+ пробелов, потеряла бы хвост.
+- `src/renderer/canvas/nodes/TerminalNode.tsx:141` — панель закрывает ряды 2–5: prompt на 2-м ряду не виден под
+  панелью (снимок `13-request-panel-light.png`); Ticket требовал только первый ряд.

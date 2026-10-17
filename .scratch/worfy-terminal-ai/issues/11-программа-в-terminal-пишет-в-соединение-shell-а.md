@@ -1,7 +1,8 @@
 # 11 — Security: программа, запущенная в Terminal-е, может писать в соединение shell-а от его имени
 
 Type: task
-Status: claimed 2026-10-17T14:15Z
+Status: done 2026-10-17T16:32Z
+PR: #443
 Branch: worfy-terminal-ai/11
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен», кроме двух рисков — им Ticket-ы):
@@ -212,3 +213,20 @@ listen — красный test удалённого файла; `revoke` без 
   
   Пока идёт prompt, такие программы могут писать в соединение. После следующей строки их копия
   мертва.
+
+Ревью и merge (2026-10-17): гейт глубины low. Круг 1 — `REJECTED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/443#issuecomment-6235597447)): (1) [med] долгий процесс,
+запущенный на prompt-е, держал копию descriptor-а, и следующий hello получал отказ «in use» — Terminal AI
+выключался; (2) [med] связь закрывалась в `preexec`, позже `zshaddhistory`. Доработка: сообщение `bye`
+(`protocol.ts` — след расширен оркестратором), закрытие в `zle-line-finish`. Круг 2 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/443#issuecomment-6236065687)). `GATE_SCOPE=all` gate full
+зелёный с третьего прогона: первый — e2e `subagent-tree.spec.ts:440` (отдельно 6/6), второй — таймаут 5 s в
+`test/unit/install-stable-functions.test.ts:453` (отдельно 43/43), оба вне diff, под нагрузкой. Влит — `f3e77687`.
+Долги (low):
+- `src/main/terminal/zsh/rc.d/20-suggest-ai.zsh:68` — подоболочка таймера Suggest AI (`<(...)`) наследует descriptor
+  связи, пока идёт prompt; `bye` её закрывает, наш код в копию не пишет. Закрывать `$__worfy_assist_fd` внутри.
+- `src/main/terminal/zsh/zshenv.zsh:13-14` — под `allexport` из `/etc/zshenv` токен виден программам
+  `.zshenv`/`.zprofile`/`.zshrc`; было и до правки, но токен теперь многоразовый. `typeset -g +x` при присваивании.
+- Связь по-прежнему держат программы widget-ов и `zle -F` на prompt-е (fzf, atuin) — дыра пункта 1(а); вопрос
+  владельцу и отдельный Ticket.
+- `test/contract/terminal-ai-zle.test.ts` — 1272 строки, gate предупреждает о файле больше 1000 строк.
