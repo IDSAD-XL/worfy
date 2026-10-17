@@ -1,7 +1,7 @@
 # 11 — Реестр сочетаний клавиш и окно Keyboard shortcuts
 
 Type: task
-Status: blocked — ждёт gate full на Windows-ПК (ADR-0056, пункт 2): PR #328 VERIFIED по Mac, Windows-ПК выключен
+Status: done — 2026-10-17, [PR #328](https://github.com/IDSAD-XL/worfy/pull/328)
 Blocked by: 02, 03, 07, 10
 Source: решения владельца 2026-10-09: 6 (Ctrl на Windows — в Ticket-е 11 worfy-windows, здесь не повторяется), 7 (центральный реестр сочетаний — один источник для подписей обработчиков и для окна; окно с подписями своей системы открывают Cmd/Ctrl+/, «?» вне текстового поля, пункт палитры «Keyboard shortcuts» и Settings → Shortcuts; Ticket реестра ждёт worfy-windows 11), 8 (Cmd/Ctrl+B — везде) ([spec.md](../spec.md), «Как устроено», «Сочетания клавиш»; «Пересечения», worfy-windows 11 и worfy-terminal-ai 06; риски 5 и 8); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-windows 11](../../worfy-windows/issues/11-окно-меню-уведомления-и-ctrl-на-windows.md); [worfy-terminal-ai 06](../../worfy-terminal-ai/issues/06-command-request.md) (⌘I в Terminal-е)
 
@@ -253,3 +253,7 @@ PowerShell).
 
 
 Наблюдение до начала работы (Windows-ПК, 2026-10-14, [ответ в PR #297](https://github.com/IDSAD-XL/worfy/pull/297#issuecomment-6158507320)): в Terminal Node при русской раскладке `Ctrl+B` дал shell букву «и» (код клавиши `KeyB`), а не управляющий символ Ctrl+B. Панель при этом не переключилась, как и требует spec. При английской раскладке не проверено.
+
+## Merge
+
+[PR #328](https://github.com/IDSAD-XL/worfy/pull/328) влит 2026-10-16 как `5be99b31`. Windows-ПК: новых падений по имени против main нет (`pnpm test`), ручные проверки реальными клавишами — 28/28. `Ctrl+B` при русской раскладке в Terminal шлёт `^B` и на main, и в PR; буква `и` — отображение PSReadLine, не то, что прислал xterm. Mac: `GATE_SCOPE=all` gate full exit 0 на head `2303d230` поверх main `c66f0174`, CI зелёный.
