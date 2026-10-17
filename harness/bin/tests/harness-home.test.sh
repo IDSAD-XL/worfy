@@ -38,15 +38,18 @@ tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").
 
 # preflight (run below, also from a copy of harness/) asks gh for the open PRs: a stub named gh first on PATH
 # answers instead, logging its arguments to $GH_STUB_LOG and refusing (exit 1), as a real gh refuses in the fixture
-# repository, which has no GitHub remote. preflight starts gh from bash (through perl), which finds the stub on
-# every OS; on Windows a refusing gh.exe next to it covers node's own lookup. The guard stops the test before any
+# repository, which has no GitHub remote. preflight is a node script and starts gh itself: on macOS and Linux node
+# finds the stub on PATH; on Windows node's lookup takes gh.exe only, so $PREFLIGHT_GH names a node stand-in that
+# runs the stub, and a refusing gh.exe next to the stub covers a bare lookup. The guard stops the test before any
 # check if another gh could be started.
 . "$(dirname "$0")/gh-stand-in.sh"
+unset PREFLIGHT_GH
 mkdir -p "$TP/stubs"
 printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
 chmod +x "$TP/stubs/gh"; refusing_gh_exe "$TP/stubs/gh"
 export PATH="$TP/stubs:$PATH" GH_STUB_LOG="$TP/gh-stub.log"
-gh_guard - "$TP/stubs/gh" ""
+if on_windows; then node_stand_in "$TP/stubs/gh" "$TP/stubs/gh.mjs"; export PREFLIGHT_GH="$TP/stubs/gh.mjs"; fi
+gh_guard PREFLIGHT_GH "$TP/stubs/gh" "$TP/stubs/gh.mjs"
 
 # Runs a command with the home folder $1 and none of the overrides the calling session may have
 # set. HOME is the home folder for bash and for node on macOS and Linux, USERPROFILE for node on
@@ -219,7 +222,7 @@ c() { clean "$H4" "$@"; }
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-start.sh" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-end.sh" >/dev/null 2>&1)
 (c zsh "$COPY/bin/qmd-sync-main" --describe tp >/dev/null 2>&1)
-(cd "$R" && c bash "$COPY/bin/preflight" --epic e1 </dev/null >/dev/null 2>&1)
+(cd "$R" && c node "$COPY/bin/preflight" --epic e1 </dev/null >/dev/null 2>&1)
 # qmd-refresh asks qmd-sync-main --describe for each collection with an `update:` line; qmd is a stub.
 mkdir -p "$T/fakebin" && printf '#!/bin/sh\nexit 0\n' >"$T/fakebin/qmd" && chmod +x "$T/fakebin/qmd"
 printf 'collections:\n  tp-main:\n    path: %s\n    update: /nowhere/qmd-sync-main tp\n' "$T/mirror" >"$T/index.yml"
@@ -277,13 +280,13 @@ for sub in "claim:Status: claimed 20" "block:Status: blocked 20" "done:Status: d
     check "ticket $verb writes '${line}…'" [ "${last#"$line"}" != "$last" ]
 done
 git -C "$R" checkout -q -- .scratch
-out="$(cd "$R" && clean "$H1" bash "$HARNESS/bin/preflight" --epic e1 </dev/null 2>&1)"
+out="$(cd "$R" && clean "$H1" node "$HARNESS/bin/preflight" --epic e1 </dev/null 2>&1)"
 lastline="$(printf '%s\n' "$out" | tail -n 1)"
 check "preflight ends with GO or BLOCKED: …" go_or_blocked "$lastline"
 # preflight reads the lines of `worktree-lock status` (section 1 left a lock of session s1 in H1).
-out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s9 bash "$HARNESS/bin/preflight" --no-fetch </dev/null 2>&1)"
+out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s9 node "$HARNESS/bin/preflight" --no-fetch </dev/null 2>&1)"
 check "preflight sees another live session through worktree-lock status" [ "${out#*lock: another live session s1}" != "$out" ]
-out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s1 bash "$HARNESS/bin/preflight" --no-fetch </dev/null 2>&1)"
+out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s1 node "$HARNESS/bin/preflight" --no-fetch </dev/null 2>&1)"
 check "preflight sees its own session holding the lock" [ "${out#*lock: held by this session}" != "$out" ]
 # preflight's gh calls (the copy's run in section 4 and the three above) reached the stub, each a PR list
 stub_calls() { [ "$(grep -c . "$GH_STUB_LOG" 2>/dev/null)" -ge 1 ] && ! grep -qvE '^(pr list |api user)' "$GH_STUB_LOG"; }
