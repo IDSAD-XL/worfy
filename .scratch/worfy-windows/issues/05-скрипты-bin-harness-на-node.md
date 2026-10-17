@@ -258,3 +258,24 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnp
 
 **Не сделано в этом срезе:** пункт «Готово, когда» «те же пять test-ов — exit 0 в Git Bash на Windows-ПК» выполнен для `epic-status.test.sh` и `harness-home.test.sh`. `profile.test.sh` (79 падений, тот же набор, что на main) и `tickets-root.test.sh` (14 падений; на main 20 и зависания) красные из-за написания путей в fixture-ах: `/tmp/…` в `match` реестра, `ticket` печатает `C:\…`. `silent-mode.test.sh` — 3 падения из `harness/hooks/worktree-create.sh` (`pwd -P` даёт `/tmp/…`; hooks переписывает Ticket 04).
 **Не проверено:** всё на macOS и Linux — test-характеристика на bash-версии (экранирование обратной косой в awk macOS), сверка старой и новой версий на живых данных Mac (раздел Mac checks PR).
+
+#### Срез 05a, раунд 2 — ревью Session на Mac и шапка Ticket-а из worfy-pipeline/01
+
+- **Ревью Session на Mac** (глубина high, раунд 1): безопасность чистая — порт закрыл две старые дыры bash-версии (`--ref '--output=…'` писал произвольный файл через `git archive`; symlink-Ticket в ветке читал `/etc/hosts`). На настоящем репозитории 147 запусков (13 Epic-ов × 49 наборов флагов × 3 локали): 138 байт в байт, остальные 9 — `--json --ref`, где bash отдавал имена в NFD через bsdtar; вывод в NFC — исправление. `epic-board` — 1,9 с вместо 11,1 с. Исправлено:
+  - **Блокер:** `test/contract/harness-script-env.test.ts:162-167` ждал exit 3 и «node is not on PATH» — запасной ветки bash без node больше нет, `epic-status` без node — exit 127 (`env: node: …`). На main зелёный, на ветке на Mac и Linux красный; на Windows этот describe пропущен, поэтому сверка по именам на ПК его не видела. Теперь ждёт 127, пустой stdout и stderr с `node` (`1ae25e2`).
+  - `epic-status`: фильтр `parts[1] !== "issues"` получил test — `--ref` с файлом `evidence/01-x.md` (`f0a0140`); корень с именем `..t` внутри репозитория больше не отвергается (`rel === ".."` или начало `".." + path.sep`, `f0a0140`).
+  - `silent-check`: случай с папкой Workflow под домашней папкой, в форме `~/…` (`8eb8e8f`). Он нашёл дефект Windows: Profile отдаёт `C:\…`, а `os.homedir()` — `C:/…`, и форма `~/…` не добавлялась; теперь обе стороны идут через `path.resolve`.
+  - `profile`: домашняя папка, общий родитель репозиториев Profile, не становится workspace (`ed8535c`).
+  - Каждый новый test падает на своём мутанте и проходит на исправлении.
+  - Вопрос «ищет ли Windows `explorer.exe` и `git` сначала в рабочей папке»: на ПК проверено копией `node.exe` под этими именами — Node 24 на Windows рабочую папку не смотрит, только PATH. Без правок.
+- **Шапка Ticket-а (worfy-pipeline/01, #421)** влита в main раньше этого PR (решение Session на Mac): она правила bash-`epic-status`. Ветка слила `origin/worfy-pipeline/01` (`e5b895e`) и main `05c63c8` (`1549ce9`); чтение шапки перенесено в Node-версию (`dfd072f`): первая строка `Status` — `statusRaw`, `state` берётся из неё, только если она одна в файле и в новой форме, иначе `none` и `statusError` «old header»; `statusAt`, `statusError`, `blockedReason`, `waits`, `pr` — в порядке ключей bash; строки шапки считаются вне кода и до первого `## ` после `Status`; строка «Этап» дописывает «N with an old header — run ticket migrate». `epic-status.test.sh` (47 проверок): fixture-ы старой шапки теперь `none` с «old header», ожидания строк «Этап» и JSON сверены с bash-версией #421 на том же fixture-е (30 запусков одинаковы; `--ref` — через копию из `git archive`); новый Epic `hdr` — 12 Ticket-ов под новые правила. Мутанты порта (граница `## `, `nstatus === 1`, счётчик старых шапок) — красные.
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| main `05c63c8` | 1 | 5656 | 5207 | 305 | 144 |
+| ветка `1549ce9` | 1 | 5657 | 5210 | 303 | 144 |
+
+- **Новых падений по именам нет.** На ветке и не на main упал один test — `link-server` «closes a pairing socket that sends more than 65536 bytes with 1009» (1006 вместо 1009); он же падает на main, когда `link-server.test.ts` идёт отдельно. Перестали падать 3: `harness-scripts` (`epic-status.test.sh`), `harness-install`, `startup-failure` — последние два в файлах, которые срез не трогает.
+- `harness-scripts.test.ts`: main 19 упало из 32 → ветка 18 из 33. `workflow-reader.test.ts` — 31 на обеих сторонах (stub-ы `#!/bin/sh`, их переводит срез 05b).
+- Скрипты Harness в Git Bash: `ticket-header.test.sh` 44/0, `epic-status.test.sh` 47/0, `harness-home.test.sh` 41/0 — exit 0; `silent-mode.test.sh` 85/3 (3 — `worktree-create.sh`, Ticket 04), `profile.test.sh` 92/79 и `tickets-root.test.sh` 12/14 — пути fixture-ов, срез 05c. На main `silent-mode.test.sh` и `tickets-root.test.sh` на ПК зависают (bash-`epic-status` в цикле на пути `C:\`); на ветке доходят до конца.
+- `pnpm lint`, `pnpm typecheck` на `1549ce9` — exit 0.
