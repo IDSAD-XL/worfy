@@ -1,7 +1,8 @@
 # 08 — Batch CI на `main`: один CI run на Wave, переключается полем профиля `workflow.ci`
 
 Type: task
-Status: claimed 2026-10-17T09:32Z
+Status: done 2026-10-17T14:07Z
+PR: #433
 Blocked by: —
 Source: решение владельца 2026-10-17 (около 09:20 UTC), после остановки GitHub Actions по billing в
 05:38 UTC того же дня; [ADR-0068](../../../docs/adr/0068-batch-ci-on-main-once-per-wave.md).
@@ -121,6 +122,8 @@ PR #433, ветка `worfy-throughput/08`. Платформенный PR (ADR-00
 `harness/bin/profile` и `harness/bin/wave-gate` — до merge нужен вердикт Windows-ПК, метка
 `needs-mac-gate`.
 
+Влит на gate full Mac 2026-10-17 (решение владельца: batch CI, ADR-0068).
+
 - `bin/profile`: `workflow.ci` — `pr` | `batch` | `null`, поля нет или `null` → `pr` (как
   `attribution`); другое значение — exit 1; `ci_batch_run` не строка — exit 1; `batch` без непустого
   `ci_batch_run` — exit 1. Profile без объекта `workflow` даёт exit 4 на `--field workflow.ci` — это
@@ -211,3 +214,16 @@ Test-ы: `bash harness/bin/tests/profile.test.sh` — exit 0 (229 проверо
 
 После merge этого PR на `main` CI не запустится сам (push-триггера нет): первый batch CI run —
 `gh workflow run ci.yml --ref main -f job=check` от orchestrator-а.
+
+**Переход выполнен 2026-10-17** — все четыре шага порядка выше:
+
+1. Merge — пока не шёл ни один Autopilot run.
+2. Stable copy пересобрана из `9d79f7e`, живой Harness обновлён до `0.3.0+9d79f7e3`.
+3. В live Profile — `workflow.ci: "batch"` и `ci_batch_run`, в `rules.md` — текст выше.
+4. Первый batch CI run запущен вручную:
+   https://github.com/IDSAD-XL/worfy/actions/runs/39039285413.
+
+**Не сделано — находка ревью `low`:** с `batch` тексты `harness/agents/implementer.md:189-191`,
+`harness/skills/epic-wave/SKILL.md:288-291` и `harness/skills/overnight-fix-loop/SKILL.md:271-276`
+не говорят, что делать с `mergeable == UNKNOWN`; нужно «спросить ещё раз через минуту», как в
+`harness/skills/ship-ticket/SKILL.md:507`. Ticket [09](09-mergeable-unknown-в-текстах-batch-ci.md).

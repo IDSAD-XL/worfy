@@ -1,7 +1,8 @@
 # 02 — Отметки агентов, привязанные к SHA: `bin/ticket mark`, поле `workflow.pipeline`, владелец замка e2e
 
 Type: task
-Status: claimed 2026-10-17T06:43Z
+Status: done 2026-10-17T14:07Z
+PR: #428
 Branch: worfy-pipeline/02
 Blocked by: —
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 4, 5, 9 ([spec.md](../spec.md),
@@ -164,3 +165,5 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 Проверки (коды выхода — в отчёте implementer-а): `ticket-mark.test.sh`, `profile.test.sh`,
 `wave-gate.test.sh`, `skill-blocks.test.sh`, `epic-wave-ship-ticket.test.sh`, `pnpm lint`,
 `pnpm typecheck`, `pnpm test`, gate fast — exit 0. gate full и вердикт Windows — шаги Orchestrator-а.
+
+Влит на gate full Mac 2026-10-17 (решение владельца: batch CI, ADR-0068).
