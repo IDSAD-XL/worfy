@@ -90,4 +90,4 @@ Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-П�
 
 ## Итог
 
-—
+На ПК владельца GitHub CLI 2.89.0 из MSI (WinGet) в C:\Program Files\GitHub CLI\gh.exe; проверку входа (настоящий gh auth login) делает владелец.

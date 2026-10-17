@@ -228,10 +228,10 @@ harness-home.test.sh и не ждёт этот Ticket: worfy не постави
 
 **Не проверено:** всё на macOS и Linux (в том числе `birthtimeMs` там); ручные проверки владельца — упакованная сборка на Mac и Session Claude Code с plugin `worfy` на ПК.
 
-### Mac review and merge (PR #453, squash `9d21c3d6`, 2026-10-18)
+### Ревью и merge на Mac (PR #453, squash `9d21c3d6`, 2026-10-18)
 
-- Mac review, round 1, depth high: approved, no code findings ([review](https://github.com/IDSAD-XL/worfy/pull/453#issuecomment-6242822528)). Correctness against main and security found nothing. The Stop hook started from a repo subfolder now holds a red turn; on main it did not.
-- The three `harness-migrate.test.ts` cases the PC could not run pass on the Mac.
-- Mutation testing: 10 of 14 mutants killed. The four survivors are test gaps, not code defects. They go to Ticket 56.
-- Mac `gate full` green. The Windows PC found no new failures by name against main `90c5e72`.
-- Still not checked: Linux, and the owner's manual checks (packaged build on the Mac, a Claude Code Session with the `worfy` plugin on the PC).
+- Ревью на Mac, круг 1, глубина high: одобрено, находок в коде нет ([ревью](https://github.com/IDSAD-XL/worfy/pull/453#issuecomment-6242822528)). Линзы «верность относительно main» и «безопасность» ничего не нашли. Stop hook, запущенный из подпапки репозитория, теперь держит ход при красном gate; на main не держал.
+- Три случая `harness-migrate.test.ts`, которые ПК не смог прогнать, на Mac проходят.
+- Mutation testing: убиты 10 мутантов из 14. Четыре выживших — пробелы в test-ах, не дефекты кода; они ушли в Ticket 56.
+- gate full на Mac зелёный. Windows-ПК: по именам ни одного нового падения относительно main `90c5e72`.
+- Не проверено: Linux и ручные проверки владельца (упакованная сборка на Mac, Session Claude Code с plugin `worfy` на ПК).

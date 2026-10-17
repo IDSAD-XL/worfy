@@ -86,7 +86,7 @@ worfy of link protocol 1…». Цена: уже связанные Machine-ы с
 `/link/connect`, пока обе не обновятся. Версия общая для всего протокола связи. В обнаружении
 Bonjour Machine старой сборки помечается несовместимой.
 
-Owner accepted these decisions on 2026-10-18.
+Владелец принял эти решения 2026-10-18.
 
 **Test-ы** (`test/contract/link-pairing.test.ts`):
 
