@@ -18,6 +18,9 @@ export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 # Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
 # and the profiles' paths must be in it. TP is the same folder for PATH, where C:/… cannot stand.
 T="$(mktemp -d)"; TP="$(cd "$T" && pwd -P)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# A path as profile prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere; preflight
+# prints the Workflow folder that way and joins its ADR directory with /.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 trap 'rm -rf "$T"' EXIT
 . "$(dirname "$0")/real-home.sh"
 REAL_HOME="$HOME"
@@ -146,7 +149,7 @@ printf '{"repos":[{"key":"s","match":"%s","profile":"s","pm":"npm"}]}\n' "$T/reg
 touch "$T/wf/docs/adr/0001-a.md" "$T/wf/docs/adr/0007-b.md"
 mkdir -p "$T/reg/docs/adr" && touch "$T/reg/docs/adr/0042-in-repo.md"   # a decoy: Silent mode does not count the repository
 out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"ADR: Silent mode, highest 0007 in the Workflow folder ($T/wf/docs/adr) → next free 0008"* ]] \
+[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"ADR: Silent mode, highest 0007 in the Workflow folder ($(printed "$T/wf")/docs/adr) → next free 0008"* ]] \
     && ok "silent: ADR numbers from the Workflow folder -> next free 0008, GO" || bad "silent ADR: exit $rc, out: ${out:0:600}"
 touch "$T/wf/docs/adr/0007-c.md"
 out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
