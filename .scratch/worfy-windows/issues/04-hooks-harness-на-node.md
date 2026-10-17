@@ -1,7 +1,8 @@
 # 04 — Hooks Harness на Node; `hooks.json` зовёт каждый скрипт через `node`
 
 Type: task
-Status: open
+Status: done 2026-10-17T23:21Z
+PR: #453
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness, которые зовут hooks и worfy, — на Node; bash только в test-ах) ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) — правила через hooks `SessionStart` и `SubagentStart`; evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -226,3 +227,11 @@ harness-home.test.sh и не ждёт этот Ticket: worfy не постави
 - `pnpm lint`, `pnpm typecheck` — exit 0. Полный `pnpm test` (Electron Node 24.21.0): main `90c5e72` — exit 1, 253 failed / 5392 passed / 151 skipped; ветка `6f8899e` — exit 1, 238 / 5408 / 151. По именам: ни одного нового падающего test-а; 4 случая, прошедшие на main, упали на ветке под нагрузкой (`check-lessons`, `critical-path` «refuses wrong arguments», 2 в `harness-install`) — отдельно, два прогона подряд, проходят; 19 случаев, падавших на main, на ветке проходят.
 
 **Не проверено:** всё на macOS и Linux (в том числе `birthtimeMs` там); ручные проверки владельца — упакованная сборка на Mac и Session Claude Code с plugin `worfy` на ПК.
+
+### Ревью и merge на Mac (PR #453, squash `9d21c3d6`, 2026-10-18)
+
+- Ревью на Mac, круг 1, глубина high: одобрено, находок в коде нет ([ревью](https://github.com/IDSAD-XL/worfy/pull/453#issuecomment-6242822528)). Линзы «верность относительно main» и «безопасность» ничего не нашли. Stop hook, запущенный из подпапки репозитория, теперь держит ход при красном gate; на main не держал.
+- Три случая `harness-migrate.test.ts`, которые ПК не смог прогнать, на Mac проходят.
+- Mutation testing: убиты 10 мутантов из 14. Четыре выживших — пробелы в test-ах, не дефекты кода; они ушли в Ticket 56.
+- gate full на Mac зелёный. Windows-ПК: по именам ни одного нового падения относительно main `90c5e72`.
+- Не проверено: Linux и ручные проверки владельца (упакованная сборка на Mac, Session Claude Code с plugin `worfy` на ПК).

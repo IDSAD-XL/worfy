@@ -1,7 +1,8 @@
 # 50 — «Sign in with gh» на Windows: pseudo-terminal запускает `/bin/sh`, а голый `gh` node-pty не находит
 
 Type: task
-Status: claimed 2026-10-17T22:30Z
+Status: done 2026-10-17T23:37Z
+PR: #455
 Branch: worfy-windows/50
 Blocked by: —
 Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-ПК, 2026-10-14: дефект продукта найден при подмене `gh` в test-ах и вынесен из PR подмены в свой Ticket. Черновой commit — `29c4159` на ветке `worfy-windows/14-gh-stand-in` (не для merge). Код перечитан на Mac по main `1c1beadd`; node-pty — 1.1.0 из `node_modules`.
@@ -117,3 +118,5 @@ Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-П�
   пути — 5 красных.
 - **Ждёт Windows:** ручной вход на Windows-ПК (первый пункт «Готово, когда») и ручной job
   «Windows tests» против main.
+- **Windows verdict** на `df986687`: новых падений по имени test-ов нет (PR #455, комментарий 6243016965). Merge в main — `b07527f3`, gate full на Mac зелёный.
+- На ПК владельца GitHub CLI 2.89.0 из MSI (WinGet) в C:\Program Files\GitHub CLI\gh.exe; проверку входа (настоящий gh auth login) делает владелец.
