@@ -7,7 +7,7 @@
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, `epic-status` — 25/26. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298) и срезы 05a–05c (#420, #434, #437), `epic-status` — 25/55; на ПК — 05d (stand-in `gh` для `wave-gate.test.sh`) и 14; 46 закрыт — `gate.sh` остаётся. Очередь ПК — в «Дальше».
-- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10–13 (11 — связь shell-а закрыта на время команды, `bye`; 12 — `transcript-date` у полуночи; 13 — панель ⌘I шлёт строку shell-а); 09 — приёмка. Долги — «Итог» 11–13.
+- `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10–14 (14 — test-ы zle на Linux: dash и fd > 9; 11 — связь shell-а закрыта на время команды, `bye`; 12 — `transcript-date` у полуночи; 13 — панель ⌘I шлёт строку shell-а); 09 — приёмка. Долги — «Итог» 11–13.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13 (11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328)); открыт 15 (подписи Model и Permissions в composer-е скрываются, когда значение не помещается); 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 30/31 — 01–29 и 31 (иконка у уведомлений, #425) влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на Windows-ПК). Открыт 30 (flaky contract test-ы).
@@ -23,7 +23,6 @@
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов; до связи вне LAN — ревьюер-человек SPAKE2 (решения 2026-10-16 — в 16–20).
 - `worfy-link` — решено без владельца, подтвердить: «Итог» Ticket-ов 21 (протокол 2), 22, 24, 25, 26.
 - `worfy-polish` — решено без владельца, подтвердить («Итог»): `inTurn`, `messageOf` и цикл импорта (27); окно автокомпакта, 1–4 (29).
-- `blocked`: CI на main красный после Wave `worfy-terminal-ai` 11–13 — test `terminal-ai-zle.test.ts:849`, [run](https://github.com/IDSAD-XL/worfy/actions/runs/39049858638); Ticket 14.
 - `worfy-terminal-ai` 11: связь с main у программ widget-ов и `zle -F` на prompt-е (fzf, atuin) — нужен ли отдельный Ticket («Итог» 11).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).

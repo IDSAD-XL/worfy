@@ -1,7 +1,8 @@
 # 14 — Test «a program a widget started at the prompt keeps a copy of the descriptor» красный на Linux CI
 
 Type: task
-Status: claimed 2026-10-17T17:03Z
+Status: done 2026-10-17T17:40Z
+PR: #447
 Branch: worfy-terminal-ai/14
 Blocked by: —
 Source: batch CI run на main после Wave 11–13 — https://github.com/IDSAD-XL/worfy/actions/runs/39049858638
@@ -83,3 +84,10 @@ Dash на перенаправлении в descriptor с номером бол�
 Не проверено: зелёный batch CI run на Linux — его запускает оркестратор после merge Wave. Весь test-файл
 в Linux-контейнере не прогонялся (нужна сборка Electron и `node-pty` под Linux); в контейнере проверен только
 механизм dash.
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга, находок нет
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/447#issuecomment-6237366887)). Проверяющий сам подтвердил
+механизм на Mac (`/bin/dash` при открытом fd 11 — «Bad fd number», exit 2; `/bin/zsh -fc` пишет в fd 11) и то,
+что test-ы перебора descriptor-ов не ослабли: мутант без закрытия связи в preexec и zle-line-finish — 9 из 49 красные,
+среди них `:692` и `:711`. `GATE_SCOPE=all` gate full — зелёный с первого прогона; влит — `883cda40`. Batch CI run
+на main после merge — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39053866654.
