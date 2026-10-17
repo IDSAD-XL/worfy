@@ -22,6 +22,12 @@ import { removeTestTree } from '../remove'
 
 /** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
 const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
+/**
+ * Runs a script as a program the shell starts: a zsh without startup files. Not /bin/sh: dash, which
+ * is /bin/sh on Linux, stops the whole script with "Bad fd number" at a redirect to a descriptor above
+ * 9, and the shell holds its connection above 9.
+ */
+const PROGRAM = `${ZSH} -fc`
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
@@ -298,10 +304,9 @@ const widgetScript = (body: string) => ['__test_widget() {', body, '}', 'zle -N 
 
 /**
  * A program that looks at every descriptor from 3 to 255 it was given: `open:<n>` for one that is
- * open, `socket:<n>` for one that is a socket, then `checked`. Above 9 `open:` says little: bash,
- * which is /bin/sh on macOS, keeps a copy of the descriptor it redirects there itself.
+ * open, `socket:<n>` for one that is a socket, then `checked`.
  */
-const DESCRIPTORS = `/bin/sh -c 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
+const DESCRIPTORS = `${PROGRAM} 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
 
 /** A message with an id the shell never asked under: the shell drops it, and main sends it only while it holds a connection. */
 const STALE = { type: 'show', id: 99_999, text: ' STALE' } as const
@@ -696,7 +701,7 @@ describe('the connection while a command runs', () => {
   it('an ask a program writes into every descriptor it was given does not reach main', async () => {
     const { t, feature, askAbout, probeOn } = await withAskingScript()
     const written = await t.run(
-      `/bin/sh -c 'n=3; while [ $n -le 255 ]; do (printf "ask\\t999\\t${PROBE}\\tworfy-leaked-ask\\n" >&$n) 2>/dev/null; n=$((n + 1)); done; echo written'`,
+      `${PROGRAM} 'n=3; while [ $n -le 255 ]; do (printf "ask\\t999\\t${PROBE}\\tworfy-leaked-ask\\n" >&$n) 2>/dev/null; n=$((n + 1)); done; echo written'`,
     )
     expect(written).toContain('written')
     await probeOn()
@@ -854,7 +859,7 @@ describe('the connection while a command runs', () => {
       {},
       widgetScript(
         [
-          `  /bin/sh -c "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
+          `  ${PROGRAM} "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
           `  print -r -- $! >| ${pidFile}`,
         ].join('\n'),
       ),
