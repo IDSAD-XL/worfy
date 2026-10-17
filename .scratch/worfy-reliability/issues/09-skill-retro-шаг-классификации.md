@@ -1,7 +1,8 @@
 # 09 — Skill `retro`: шаг «классифицировать сбой» (В3, Harness)
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T10:43Z
+Branch: worfy-reliability/09
 Blocked by: 06
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md)
 («Итог», пункт 3: сначала В1 и В2, затем В3): кандидат 5 раздела «Follow-up Ticket-ы» документа
@@ -63,4 +64,28 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Итог
 
-—
+- `harness/skills/retro/SKILL.md`: новый шаг 3 «Classify» между «Filter hard» (2) и «Check for
+  duplicates» (4); дальше шаги перенумерованы (5–8). Класс — по классам из `<path>/README.md` или
+  `rules.md` Profile-а, по корневой причине и с подтверждением; без подтверждения — «cause not
+  found», класс не угадывается. Вывод — проверка (test, hook, eval case, `file:line`) или
+  `no lesson: <reason>`.
+- «Filter hard» больше не отсеивает «environment hiccups»: сбой идёт в шаг 3. Сбой окружения
+  записывается в раздел рисков Project-а (тот, что называет README уроков или `rules.md`, обычно в
+  файле состояния из `docs.handoff.path`); раздела нет — спросить пользователя; повторился — ещё и
+  урок «how to recognize». «Check for duplicates» для такого сбоя читает и раздел рисков.
+- «Write the entry»: в режиме репозитория — строка проверки под меткой из README Project-а (у worfy
+  — `Проверка:`), с выводом шага 3; в режиме Profile-а — поле `**Check:**`. Слово `Проверка:` в
+  skill не попало: shell test `harness/bin/tests/harness-home.test.sh` (раздел 6) не пускает
+  кириллицу в текст skill-ов вне списка разрешённых строк.
+- Пример `Auction: docs/lessons/<topic>.md` заменён на `<path>/<topic>.md` — в тексте нет путей
+  worfy.
+- Test: `test/contract/harness-retro-skill.test.ts` (6 test-ов). На тексте skill-а с `origin/main`
+  cc8d382e — exit 1, 5 из 6 красные; с правкой — exit 0. Мутанты: Classify после «Check for
+  duplicates» — красный test порядка; «environment hiccups» снова в «Filter hard» и `HANDOFF.md` в
+  тексте — красные 2 test-а; без строки проверки в «Write the entry» — красный 1 test.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (274 файла); `GATE_SCOPE=all` gate fast —
+  exit 0, `[gate] зелено (fast)`. Первый полный `pnpm test` под нагрузкой соседних агентов
+  (load average 10) дал красные timeout-ы в test-ах, не связанных с правкой; они зелёные отдельно и
+  в повторном полном прогоне.
+- После мержа — `pnpm install:stable` (Orchestrator) и ручной пункт «первый `retro` на настоящем
+  сбое».
