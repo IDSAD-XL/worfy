@@ -1,5 +1,5 @@
-// The stub epic-status of test/contract/workflow-reader.test.ts, run by ./epic-status with the
-// test's Node. It reads Tickets the way the real script does for those tests' simple files: from the
+// The stub epic-status of test/contract/workflow-reader.test.ts, imported by ./epic-status, which
+// node runs. It reads Tickets the way the real script does for those tests' simple files: from the
 // working tree, or from a branch for `--ref`. The header is the one-fact-per-line format of
 // harness/bin/TICKETS.md: `Status: <word> [<time>]`, `Blocked reason:`, `Waits:`, `PR: #N`; any other
 // Status line is an old header, state none. STUB_LOG, STUB_DELAY_MS, STUB_SCRATCH and STUB_MODE
@@ -29,14 +29,16 @@ if (ref) {
 const epics = new Map()
 const tickets = []
 for (const [path, read] of files) {
-  const parts = path.split('/')
+  // join() gives backslashes on Windows, git gives slashes.
+  const parts = path.split(/[\\/]/)
   const epic = parts[1]
   if (!epics.has(epic)) epics.set(epic, { epic, hasSpec: false, hasMap: false })
   if (parts.length === 3 && parts[2] === 'spec.md') epics.get(epic).hasSpec = true
   if (parts.length !== 4 || parts[2] !== 'issues' || !parts[3].endsWith('.md')) continue
   const m = /^(\d+)-(.*)\.md$/.exec(parts[3])
   if (!m) continue
-  const text = read()
+  // The real script cuts a \r at the end of a line: a checkout on Windows has CRLF, `git show` gives LF.
+  const text = read().replace(/\r\n/g, '\n')
   const last = (name) => { let v = null; for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$', 'i').exec(l); if (x) v = x[1] } return v }
   const first = (name) => { for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$').exec(l); if (x) return x[1].trim() } return null }
   const line = text.split('\n').find((l) => /^\**status\**\s*:/i.test(l)) ?? null

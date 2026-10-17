@@ -289,7 +289,7 @@ test.describe('first-run screen', () => {
   // worfy-harness ticket 37: the row runs the Harness's own `profile --help` the way the Epics read
   // runs the Harness scripts. The app gets the PATH of Finder, which has no node; node, when there
   // is one, is only on the PATH of the login shell.
-  test('Harness scripts: the app PATH has no node and the login shell has — OK; the login shell has none either — Failed with exit code 127', async () => {
+  test('Harness scripts: the app PATH has no node and the login shell has — OK; the login shell has none either — Failed: node not found in PATH', async () => {
     const pluginDir = join(claudeHome, 'worfy-harness', 'plugin')
     cpSync(join(repoRoot, 'out', 'harness'), pluginDir, { recursive: true })
     writeFileSync(join(state, 'marketplace'), `${pluginDir}\n`)
@@ -318,8 +318,8 @@ test.describe('first-run screen', () => {
       const dialog = await screen(launched.window)
       const scripts = row(dialog, 'harness-scripts')
       await expect(scripts).toHaveAttribute('data-status', 'fail')
-      // The detail itself names node — the script's stderr, not only the fixed hint below it.
-      await expect(scripts).toContainText(/profile --help: exit code 127: env: node: No such file or directory/)
+      // The detail itself names node, not only the fixed hint below it: worfy finds no node to run the script with.
+      await expect(scripts).toContainText('profile --help: node not found in PATH')
       await expect(scripts).toContainText('worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell')
       await keep(launched.window, 'first-run-harness-scripts-no-node')
     } finally {

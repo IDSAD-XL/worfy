@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // The groups of the command palette (⌘K) in the built app on the fake agent. The rows are ranked
 // first and grouped after: a group stands where its best row stands, and each group has a heading
@@ -81,7 +82,7 @@ test('⌘K shows the commands in groups under headings, each group where its bes
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

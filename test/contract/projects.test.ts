@@ -9,6 +9,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { loginProfileWithNode, nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const electron = vi.hoisted(() => {
@@ -137,8 +138,17 @@ function stubProfile(answer: { code: number; workspace: string | null; old?: boo
   const json = join(scratch, 'profile-answer.json')
   writeFileSync(json, answer.code === 0 ? JSON.stringify({ _resolved: resolved }) : '')
   const script = join(claudeHome, 'bin', 'profile')
-  writeFileSync(script, `#!/bin/sh\necho "$*" >> '${calls}'\ncat '${json}'\nexit ${answer.code}\n`)
-  chmodSync(script, 0o755)
+  // A Node script: worfy runs the Harness scripts as `node <script>` (src/main/workflow/profile.ts).
+  writeFileSync(
+    script,
+    nodeScript(
+      [
+        `fs.appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(' ') + '\\n')`,
+        `process.stdout.write(fs.readFileSync(${JSON.stringify(json)}, 'utf8'))`,
+        `process.exitCode = ${answer.code}`,
+      ].join('\n'),
+    ),
+  )
   return calls
 }
 
@@ -680,9 +690,11 @@ describe('from a Linked machine (the link adapter)', () => {
   })
 
   it('projects.connect.inspect of a folder the Harness knows adds it without switching the active Project for a Linked machine', async () => {
-    // No login shell of the person running the test: the scripts' environment comes from /bin/sh with an empty HOME.
+    // No login shell of the person running the test: the scripts' environment comes from /bin/sh with
+    // a HOME of its own, whose .profile only puts node on PATH, for the Node stub of profile.
     const home = join(scratch, 'home')
     mkdirSync(home)
+    loginProfileWithNode(home)
     vi.stubEnv('HOME', home)
     vi.stubEnv('SHELL', '/bin/sh')
     await start()

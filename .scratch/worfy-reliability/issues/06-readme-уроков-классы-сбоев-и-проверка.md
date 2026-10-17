@@ -1,7 +1,8 @@
 # 06 — README уроков: классы сбоев, запись «Инцидент» и строка `Проверка:` (В1)
 
 Type: task
-Status: claimed 2026-10-17T08:37Z
+Status: done 2026-10-17T10:38Z
+PR: #430
 Branch: worfy-reliability/06
 Blocked by: —
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md)
@@ -83,3 +84,10 @@ PR [#430](https://github.com/IDSAD-XL/worfy/pull/430), ветка `worfy-reliabi
 - Проверка: `GATE_SCOPE=all` gate fast — exit 0, `[gate] зелено (fast): worfy/.:lint
   worfy/.:typecheck worfy/.:test`. Без `GATE_SCOPE=all` gate отвечает «ничего не прогналось»:
   документы не затрагивают проверяемые пакеты.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/430#issuecomment-6231981410)); два low (пример на
+Windows-test, неполные правила формы) исправлены до merge вместе с путями `harness/bin/tests/…` и
+хвостом ` — <пояснение>`, согласованными с Ticket-ом 07. PR только с документами — merge `ed5f85f3`
+вручную. Долг: `docs/research/2026-10-15-сбой-инцидент-test.md:80` (форма «урока нет») и `:138`, `:175`
+(test на строке 372, не 355) устарели.

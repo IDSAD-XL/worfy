@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { expandMachines, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // The sidebar's sections against the built app, over a Project in a temporary git repository with
 // long lists: 12 Epics and 20 ADRs. Each section collapses by its heading and stays collapsed after
@@ -68,7 +69,7 @@ test.beforeEach(() => {
     }),
   )
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

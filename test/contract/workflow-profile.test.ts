@@ -3,8 +3,9 @@
 // for every way of not getting one. With a stand-in runner for each exit code, then with a stub
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
 // Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -29,6 +30,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
+import { hasSh, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
@@ -124,24 +126,28 @@ function snapshot(dir: string): Record<string, string> {
   return out
 }
 
-/** The interpreter of the stub script, found only through the login shell's PATH, like node in nvm. */
-const INTERPRETER = 'worfy-profile-node'
-
 /**
- * The login shell environment (src/main/agent/env.ts): its PATH has the folder with the stub
- * script's interpreter, which neither the system PATH nor this test process's PATH has.
+ * The login shell environment (src/main/agent/env.ts): its PATH has node. worfy runs the script as
+ * `node <script>` with the node of this PATH (src/main/workflow/profile.ts, harnessScriptCommand).
  */
 function loginEnv(): Record<string, string> {
-  const shellBin = join(scratch, 'login-shell-bin')
-  mkdirSync(shellBin, { recursive: true })
-  if (!existsSync(join(shellBin, INTERPRETER))) symlinkSync('/bin/sh', join(shellBin, INTERPRETER))
-  return { PATH: `${shellBin}:/usr/bin:/bin:/usr/sbin:/sbin`, HOME: scratch }
+  return scriptsEnv([NODE_DIR], { HOME: scratch })
 }
+
+/** The environment of an app started from Finder, as far as node goes: a PATH without it. */
+function bareEnv(): Record<string, string> {
+  const empty = join(scratch, 'no-node-here')
+  mkdirSync(empty, { recursive: true })
+  return scriptsEnv([empty], { HOME: scratch })
+}
+
+/** The line a stand-in logs: its cwd, as `pwd -P` gives it, and its arguments. */
+const LOG_LINE = "`${fs.realpathSync(process.cwd())} ${process.argv.slice(2).join(' ')}"
 
 /**
  * A Claude home whose `bin/profile` prints `stdout`, `stderr` and exits with `code`; it logs its
- * cwd and args to a file outside the home. Like the real `#!/usr/bin/env node` script, it starts
- * only when PATH has its interpreter (loginEnv); with worfy's own PATH it exits with 127.
+ * cwd and args to a file outside the home. Like the real script, it is run by the node of the PATH
+ * it is handed (loginEnv); with a PATH without node it is not run at all.
  */
 function stubHome(code: number, stdout: string, stderr = ''): { home: string; calls: string } {
   const home = join(scratch, 'claude-home')
@@ -151,8 +157,17 @@ function stubHome(code: number, stdout: string, stderr = ''): { home: string; ca
   const out = join(scratch, 'stdout.txt')
   const calls = join(scratch, 'calls.txt')
   writeFileSync(out, stdout)
-  writeFileSync(join(home, 'bin', 'profile'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $*" >> '${calls}'\ncat '${out}'\nprintf '%s' '${stderr}' >&2\nexit ${code}\n`)
-  chmodSync(join(home, 'bin', 'profile'), 0o755)
+  writeFileSync(
+    join(home, 'bin', 'profile'),
+    nodeScript(
+      [
+        `fs.appendFileSync(${JSON.stringify(calls)}, ${LOG_LINE}\\n\`)`,
+        `process.stdout.write(fs.readFileSync(${JSON.stringify(out)}, 'utf8'))`,
+        `process.stderr.write(${JSON.stringify(stderr)})`,
+        `process.exitCode = ${code}`,
+      ].join('\n'),
+    ),
+  )
   return { home, calls }
 }
 
@@ -175,8 +190,15 @@ function pluginHome(stdout: string): { home: string; harnessHome: string; calls:
   const out = join(scratch, 'stdout.txt')
   const calls = join(scratch, 'calls.txt')
   writeFileSync(out, stdout)
-  writeFileSync(join(plugin, 'bin', 'profile'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $* HARNESS_HOME=\${HARNESS_HOME-unset}" >> '${calls}'\ncat '${out}'\n`)
-  chmodSync(join(plugin, 'bin', 'profile'), 0o755)
+  writeFileSync(
+    join(plugin, 'bin', 'profile'),
+    nodeScript(
+      [
+        `fs.appendFileSync(${JSON.stringify(calls)}, ${LOG_LINE} HARNESS_HOME=\${process.env.HARNESS_HOME ?? 'unset'}\\n\`)`,
+        `process.stdout.write(fs.readFileSync(${JSON.stringify(out)}, 'utf8'))`,
+      ].join('\n'),
+    ),
+  )
   return { home, harnessHome, calls }
 }
 
@@ -230,34 +252,96 @@ describe('readMcpAllowlist with the real runner', () => {
   it('the runner tells its own kill at the time limit from a signal it did not send', async () => {
     const home = join(scratch, 'signal-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
-    const script = (text: string): void => {
-      writeFileSync(join(home, 'bin', 'profile'), text)
-      chmodSync(join(home, 'bin', 'profile'), 0o755)
-    }
+    const script = (body: string): void => writeFileSync(join(home, 'bin', 'profile'), nodeScript(body))
     const root = projectRoot()
     // The first start of a new script can take a few hundred ms on macOS: only the slow script gets a short limit.
     const run = (limitMs = 10_000): Promise<ProfileRun> => harnessScriptRunner(home, loginEnv(), 'profile', limitMs)(root, [])
-    script('#!/bin/sh\nexec /bin/sleep 5\n')
-    const slow = await run(300)
+    script('setTimeout(() => undefined, 5000)')
+    const slow = await run(1000)
     expect(slow).toMatchObject({ code: null })
     expect(slow.signal ?? null).toBeNull()
-    script('#!/bin/sh\necho crashed >&2\nkill -SEGV $$\n')
+    // Windows has no signals a process can send itself: there the kill below ends it with an exit code.
+    if (process.platform === 'win32') return
+    // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
+    script("fs.writeSync(2, 'crashed\\n')\nprocess.kill(process.pid, 'SIGSEGV')")
     expect(await run()).toMatchObject({ code: null, signal: 'SIGSEGV', stderr: 'crashed\n' })
     // The runner's own signal at the limit is SIGTERM: the same signal sent by something else is still a signal.
-    script('#!/bin/sh\nkill -TERM $$\n')
+    script("process.kill(process.pid, 'SIGTERM')")
     expect(await run()).toMatchObject({ code: null, signal: 'SIGTERM' })
   })
 
   it("runs the script with the environment it is given, not worfy's own: from Finder the system PATH has no node", async () => {
-    const { home } = stubHome(0, '["github"]\n')
+    const { home, calls } = stubHome(0, '["github"]\n')
     const root = projectRoot()
-    expect(process.env.PATH ?? '').not.toContain('login-shell-bin')
     const withShell = await readMcpAllowlist({ root, claudeHome: home, env: loginEnv(), log })
     expect(withShell).toEqual({ servers: ['github'], source: 'profile', reason: null })
-    // The same script with the bare PATH of an app started from Finder: env cannot find the interpreter.
-    const bare = await readMcpAllowlist({ root, claudeHome: home, env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }, log })
+    // The same script with a PATH without node, as an app started from Finder has: not run, though
+    // this test process's own PATH has node.
+    const bare = await readMcpAllowlist({ root, claudeHome: home, env: bareEnv(), log })
     expect(bare).toMatchObject({ servers: ['plugin_worfy_qmd', 'worfy-canvas'], source: 'default' })
-    expect(bare.reason).toMatch(/failed with exit code 127/)
+    expect(bare.reason).toBe('the profile script could not be run: node not found in PATH')
+    expect(readFileSync(calls, 'utf8').trim().split('\n')).toHaveLength(1)
+  })
+
+  // worfy-windows ticket 05: the script runs as `node <script>`; a missing file is told before node runs.
+  it('a Harness whose profile script is missing: the "no profile script" refusal, not node\'s exit code 1, with or without node', async () => {
+    const { home, harnessHome } = pluginHome('[]\n')
+    unlinkSync(join(harnessHome, 'plugin', 'bin', 'profile'))
+    const root = projectRoot()
+    const script = join(harnessHome, 'plugin', 'bin', 'profile')
+    for (const env of [loginEnv(), bareEnv()]) {
+      const read = await readResolvedProfile({ root, claudeHome: home, env, log })
+      expect(read).toEqual({ ok: false, reason: `there is no profile script at ${script}`, miss: 'none' })
+      await expect(profileRunner(home, env)(root, [])).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  })
+
+  /**
+   * A Claude home whose bin/profile is an older Harness's: a shell script that prints `["github"]`
+   * when called as readMcpAllowlist calls it, `-C <root> --field mcp.allowed`; any other arguments
+   * fail with exit code 2 and say so, so a start that loses them gets the default list.
+   */
+  function bashProfileHome(): { home: string; script: string } {
+    const home = join(scratch, 'bash-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const script = join(home, 'bin', 'profile')
+    const expected = `[ "$#" -eq 4 ] && [ "$1" = -C ] && [ -n "$2" ] && [ "$3" = --field ] && [ "$4" = ${MCP_ALLOWED_FIELD} ]`
+    writeFileSync(script, `#!/bin/sh\nif ! { ${expected}; }; then echo "profile stand-in: unexpected arguments: $*" >&2; exit 2; fi\necho '["github"]'\n`)
+    chmodSync(script, 0o755)
+    return { home, script }
+  }
+
+  // The stand-in itself, run by sh wherever there is one (on Windows, Git Bash's): it answers only
+  // to readMcpAllowlist's arguments, so the case below proves they reach the script.
+  it.skipIf(!hasSh())("the older Harness's stand-in profile answers only to the arguments worfy passes", () => {
+    const { script } = bashProfileHome()
+    const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync('sh', [script, ...args], { encoding: 'utf8' })
+    const ok = run(['-C', scratch, '--field', MCP_ALLOWED_FIELD])
+    expect(ok.status).toBe(0)
+    expect(String(ok.stdout)).toBe('["github"]\n')
+    for (const args of [[], ['--field', MCP_ALLOWED_FIELD], ['-C', scratch, '--field', 'github.account'], ['-C', scratch, '--json']]) {
+      const refused = run(args)
+      expect(refused.status).toBe(2)
+      expect(String(refused.stderr)).toContain('profile stand-in: unexpected arguments')
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')("an older Harness's shell profile is started by itself, not by node, which could not read it", async () => {
+    const { home } = bashProfileHome()
+    const list = await readMcpAllowlist({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(list).toEqual({ servers: ['github'], source: 'profile', reason: null })
+  })
+
+  it.skipIf(process.platform !== 'win32')("on Windows an older Harness's shell profile is not run: a failed call that says to update the Harness", async () => {
+    const { home, script } = bashProfileHome()
+    const read = await readResolvedProfile({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(read).toEqual({ ok: false, reason: `the profile script could not be run: this Harness's profile is not a Node script — update the Harness (${script})`, miss: 'failed', environment: false })
+  })
+
+  it('no node on the PATH: a failed call that points at the environment, so the login shell is asked again', async () => {
+    const { home } = stubHome(0, '{}')
+    const read = await readResolvedProfile({ root: projectRoot(), claudeHome: home, env: bareEnv(), log })
+    expect(read).toEqual({ ok: false, reason: 'the profile script could not be run: node not found in PATH', miss: 'failed', environment: true })
   })
 })
 
@@ -577,8 +661,10 @@ describe('readProjectLayout with the real scripts', () => {
     const json = { mode: 'silent', _resolved: { mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'project', path: root }] } }
     const { home, calls } = stubHome(0, JSON.stringify(json))
     const ticketCalls = join(scratch, 'ticket-calls.txt')
-    writeFileSync(join(home, 'bin', 'ticket'), `#!/usr/bin/env ${INTERPRETER}\necho "$(pwd -P) $*" >> '${ticketCalls}'\necho '${join(folder, '.scratch')}'\n`)
-    chmodSync(join(home, 'bin', 'ticket'), 0o755)
+    writeFileSync(
+      join(home, 'bin', 'ticket'),
+      nodeScript([`fs.appendFileSync(${JSON.stringify(ticketCalls)}, ${LOG_LINE}\\n\`)`, `process.stdout.write(${JSON.stringify(`${join(folder, '.scratch')}\n`)})`].join('\n')),
+    )
     const before = { home: snapshot(home), root: snapshot(root), folder: snapshot(folder) }
 
     const layout = await readProjectLayout({ root, claudeHome: home, env: loginEnv(), log })
@@ -594,19 +680,19 @@ describe('readProjectLayout with the real scripts', () => {
 describe('a failed profile call in the workflow model', () => {
   const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
 
-  it.skipIf(process.platform === 'win32')('readWorkflow: the script finds no interpreter (exit code 127) — an empty model with the reason, and epic-status is not run', async () => {
+  it('readWorkflow: no node on the PATH of the environment — an empty model with the reason, and epic-status is not run', async () => {
     const root = projectRoot()
     const { home } = stubHome(0, JSON.stringify({ _resolved: { mode: 'full', workflow_folder: root, repos: [] } }))
     const runs: string[] = []
     const run = (cwd: string): Promise<string> => (runs.push(cwd), Promise.resolve(EPIC_JSON))
-    // The system PATH only: the stub's interpreter, like node from Finder, is not on it.
-    const env = (): Promise<Record<string, string>> => Promise.resolve({ PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: scratch })
+    // A PATH without node, as worfy from Finder has.
+    const env = (): Promise<Record<string, string>> => Promise.resolve(bareEnv())
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { model } = await readWorkflow({ root, claudeHome: home, env }, run)
     warn.mockRestore()
     expect(model).toMatchObject({ root, epics: [], tickets: [], branchErrors: [] })
     expect(model.error?.code).toBe('failed')
-    expect(model.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: .*worfy-profile-node/)
+    expect(model.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script could not be run: node not found in PATH/)
     expect(runs).toEqual([])
   })
 

@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { nodeScript } from '../harness-node'
 
 // A Silent Project and a Project over two repositories in the built app (worfy-harness ticket 23;
 // ADR-0042, ADR-0045). The Harness is stubbed in a temporary WORFY_CLAUDE_HOME: `bin/profile --json`
@@ -99,14 +100,20 @@ function stubHarness(claudeHome: string, resolved: unknown, ticketsRoot: string,
   writeFileSync(log, '')
   writeFileSync(join(scratch, 'profile.json'), JSON.stringify({ name: 'stub', mode: 'silent', _resolved: resolved }))
   writeFileSync(join(scratch, 'epic-status.json'), JSON.stringify(epicStatus))
+  // Node scripts: worfy runs the Harness scripts as `node <script>`. `args`, `has` and `cat` are set by the lines below.
   const scripts: Record<string, string> = {
-    profile: `case "$*" in *--json*) cat '${join(scratch, 'profile.json')}' ;; *) exit 4 ;; esac`,
-    ticket: `echo '${ticketsRoot}'`,
-    'epic-status': `case "$*" in *--ref*) echo 'in Silent mode the status does not live in branches' >&2; exit 3 ;; esac\ncat '${join(scratch, 'epic-status.json')}'`,
+    profile: `if (has('--json')) cat(${JSON.stringify(join(scratch, 'profile.json'))})\nelse process.exitCode = 4`,
+    ticket: `process.stdout.write(${JSON.stringify(`${ticketsRoot}\n`)})`,
+    'epic-status': `if (has('--ref')) {\n  process.stderr.write('in Silent mode the status does not live in branches\\n')\n  process.exitCode = 3\n} else cat(${JSON.stringify(join(scratch, 'epic-status.json'))})`,
   }
   for (const [name, body] of Object.entries(scripts)) {
-    writeFileSync(join(bin, name), `#!/bin/sh\necho "${name} $* in $(pwd -P)" >> '${log}'\n${body}\n`)
-    chmodSync(join(bin, name), 0o755)
+    const setup = [
+      'const args = process.argv.slice(2)',
+      'const has = (flag) => args.some((arg) => arg.includes(flag))',
+      "const cat = (file) => process.stdout.write(fs.readFileSync(file, 'utf8'))",
+      `fs.appendFileSync(${JSON.stringify(log)}, \`${name} \${args.join(' ')} in \${fs.realpathSync(process.cwd())}\\n\`)`,
+    ]
+    writeFileSync(join(bin, name), nodeScript([...setup, body].join('\n')))
   }
   return log
 }

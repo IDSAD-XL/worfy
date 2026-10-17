@@ -22,6 +22,7 @@ import { harnessScriptRunner } from '../../src/main/workflow/profile'
 import { epicStatusRunner, readWorkflow } from '../../src/main/workflow/reader'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
+import { NODE_DIR } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 /** The login shell environment the stand-in source answers with. */
@@ -30,6 +31,12 @@ const SOURCE: HarnessScriptEnvSource = () => Promise.resolve(LOGIN)
 const MODEL: WorkflowModel = { root: '/r', epics: [], tickets: [], error: null, branchErrors: [] }
 /** A variable of worfy's own process only: no script may see it. */
 const LEAK = 'WORFY_WIRING_LEAK'
+/**
+ * The PATH of a login shell's environment the runs below hand the stubs: the system folders and the
+ * folder of node, nothing of worfy's own PATH. The stubs are Node scripts, started as `node <script>`
+ * with the node on this PATH (src/main/workflow/profile.ts, harnessScriptCommand).
+ */
+const LOGIN_PATH = [NODE_DIR, '/usr/bin', '/bin'].join(':')
 
 const MOCKED = [
   'electron',
@@ -337,7 +344,7 @@ function scriptRun(root: string): ScriptRun {
     asked: () => asked,
     source: () => {
       asked += 1
-      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: root, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(root, 'workflow') })
+      return Promise.resolve({ PATH: LOGIN_PATH, HOME: root, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(root, 'workflow') })
     },
   }
 }
@@ -420,7 +427,7 @@ describe.skipIf(process.platform === 'win32')('what each run of a script gets', 
   it('a HARNESS_HOME the user exports in the login shell does not win over the Harness home worfy found', async () => {
     const { claudeHome, calls } = run
     const harnessHome = pluginHarness(claudeHome)
-    const exported = (): Promise<HarnessScriptEnv> => Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls, HARNESS_HOME: join(scratch, 'elsewhere') })
+    const exported = (): Promise<HarnessScriptEnv> => Promise.resolve({ PATH: LOGIN_PATH, HOME: scratch, MARK: 'login-shell', CALLS: calls, HARNESS_HOME: join(scratch, 'elsewhere') })
     await epicStatusRunner(claudeHome, exported)(scratch, null)
     await harnessScriptRunner(claudeHome, await exported(), 'profile')(scratch, ['--help'])
     expect(lines(calls)).toEqual([`epic-status MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`, `profile MARK=login-shell ${LEAK}=unset HARNESS_HOME=${harnessHome}`])
@@ -438,7 +445,7 @@ describe.skipIf(process.platform === 'win32')('the watcher asks for a fresh envi
     const requests: (string | null)[] = []
     const source: HarnessScriptEnvSource = (request) => {
       requests.push(request?.fresh ?? null)
-      return Promise.resolve({ PATH: '/usr/bin:/bin', HOME: scratch, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(scratch, 'workflow'), PROFILE_EXIT_FILE: exit })
+      return Promise.resolve({ PATH: LOGIN_PATH, HOME: scratch, MARK: 'login-shell', CALLS: calls, WORKFLOW: join(scratch, 'workflow'), PROFILE_EXIT_FILE: exit })
     }
     const until = async (done: () => boolean): Promise<void> => {
       // Generous: the whole suite runs in parallel, and each retry starts a shell script.

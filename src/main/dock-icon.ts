@@ -1,11 +1,12 @@
 // The Dock icon and the About window of a dev run (ticket 31, worfy-week ticket 12). `pnpm dev`
-// runs Electron.app from node_modules, whose bundle is Electron's: its icon, its name, its version.
-// worfy sets its own Dock icon, build/icon.png (drawn by `pnpm icons`), through app.dock.setIcon,
+// runs Electron from a copy of Electron.app named worfy, with worfy's icon (scripts/dev-bundle.ts,
+// worfy-polish ticket 31), but the version in that bundle is Electron's, and a dev run started some
+// other way (`electron .`, or when that copy could not be made) runs Electron.app itself. So worfy
+// still sets its own Dock icon, build/icon.png (drawn by `pnpm icons`), through app.dock.setIcon,
 // and gives the About window worfy's name and version from package.json through
-// app.setAboutPanelOptions. The About window of a dev run still shows the Electron icon: on macOS
-// setAboutPanelOptions takes no icon (`iconPath` is for Linux and Windows) and the panel takes the
-// picture from the bundle, which setIcon does not change. Notifications of a dev run keep the
-// Electron icon for the same reason. A packaged app gets its icon, name and version from the bundle
+// app.setAboutPanelOptions. On macOS setAboutPanelOptions takes no icon (`iconPath` is for Linux
+// and Windows): the panel and the notifications take the picture from the bundle, which setIcon
+// does not change. A packaged app gets its icon, name and version from the bundle
 // (electron-builder's mac.icon and package.json), so this does nothing there.
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'

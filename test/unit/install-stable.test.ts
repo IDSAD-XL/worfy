@@ -16,7 +16,7 @@ import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync,
 import { basename, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
-import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
+import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
 // The script itself. Its build is a stand-in folder that has what the script looks for on either
 // system, and every folder it may write to is a temporary one.
@@ -63,6 +63,30 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(metadata.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
       expect(result.stdout).toContain(`install-stable: installed ${target} (commit ${head().slice(0, 7)}`)
       expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+    }, 60_000)
+
+    // Notification Center keeps the icon Launch Services gave it for dev.worfy.app; the first copies
+    // carried Electron's icon. Each install registers its copy again, with the time of the install.
+    it.runIf(process.platform === 'darwin')('registers the new copy with Launch Services, with the time of the install rather than of the build, every install', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const built = new Date('2026-01-02T03:04:05Z')
+      utimesSync(build, built, built)
+      const before = Date.now() - 1000
+      expect(run([target]).status).toBe(0)
+      expect(registrations()).toEqual([`-f ${target}`])
+      expect(statSync(target).mtimeMs).toBeGreaterThanOrEqual(before)
+      expect(run([target]).status).toBe(0)
+      expect(registrations()).toEqual([`-f ${target}`, `-f ${target}`])
+    }, 60_000)
+
+    it.runIf(process.platform === 'darwin')('a registration that Launch Services refuses is named, and the copy stays installed', () => {
+      const target = targetIn('apps', 'worfy-stable')
+      const result = run([target], { WORFY_STABLE_LSREGISTER: '/usr/bin/false' })
+      expect(result.status).toBe(0)
+      expect(result.stdout).toContain(`install-stable: installed ${target}`)
+      expect(result.stdout).toContain(`install-stable: Launch Services could not be told about ${target} (/usr/bin/false -f ${target} exited with 1): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
+      expect(readFileSync(join(target, 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
+      expect(existsSync(join(dir, 'apps', 'worfy-stable.json'))).toBe(true)
     }, 60_000)
 
     it('replaces an earlier copy: a file that the new build does not have is gone, and nothing is left next to the target', () => {

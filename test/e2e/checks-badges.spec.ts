@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { launchApp } from './helpers'
+import { catScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
 // what the gate and Claude Code leave behind: gate/config.json, a red marker for the worktree of
@@ -150,7 +151,7 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
       ],
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   // The gate: this repository is `worfy`; the worktree of Ticket 07 is red by its marker, and the
@@ -323,7 +324,7 @@ test('gh missing: «gh unavailable» on the Tickets in work, and the app goes on
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   const answer = join(claudeHome, 'epic-status.json')
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [ticketJson(8, 'claimed — 2026-10-05', 'work'), ticketJson(9, 'open', 'open')] }))
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))

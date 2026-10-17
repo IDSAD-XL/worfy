@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { GH_STUB, launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { catScript } from '../harness-node'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
@@ -138,8 +139,13 @@ function standInApp(dir: string): string {
   return app
 }
 
+/**
+ * Runs a script over a stand-in app. Its registration with Launch Services (install-stable on macOS)
+ * runs /usr/bin/true instead of lsregister: the stand-in is no app, and every `pnpm test:e2e` would
+ * otherwise leave a record of a deleted temporary copy in the Launch Services of the Mac.
+ */
 function runScript(script: string, args: string[], env: Record<string, string>): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
-  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
+  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, WORFY_STABLE_LSREGISTER: '/usr/bin/true', ...env } })
 }
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
@@ -238,7 +244,7 @@ function epicStatusHome(dir: string): string {
       tickets: [{ epic: HARNESS_EPIC, num: 1, slug: 'ticket-1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }],
     }),
   )
-  writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(home, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(home, 'bin', 'epic-status'), 0o755)
   return home
 }

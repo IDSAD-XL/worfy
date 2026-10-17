@@ -10,6 +10,7 @@ import { LIVE_SESSION_WIDTH } from '../../src/shared/ipc/sessions'
 import { onThePlane } from '../../src/shared/layout/derived'
 import { launchApp } from './helpers'
 import { settled } from './wait'
+import { catScript } from '../harness-node'
 
 // "Ship ticket", "Run wave" and "Open PR" (ticket 23) in the built app on the fake agent, which
 // records every message it gets (WORFY_AGENT_LOG) and never calls the model. The Project is a git
@@ -134,7 +135,7 @@ function makeProject(nodes: unknown[] = [], viewport = { x: 20, y: 20, zoom: 0.7
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   // GitHub: a PR on worfy-mvp/10 at github.com, and one on worfy-mvp/11 somewhere else.

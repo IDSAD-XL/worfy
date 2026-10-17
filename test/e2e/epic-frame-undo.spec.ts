@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { settled } from './wait'
+import { catScript } from '../harness-node'
 
 // ⌘Z and ⇧⌘Z over an Epic frame in the built app (worfy-week ticket 08): dragging a frame by its
 // header and its collapse button are steps of the user's history, like any other gesture on the
@@ -48,7 +49,7 @@ test.beforeEach(() => {
   const answer = join(claudeHome, 'epic-status.json')
   writeFileSync(answer, JSON.stringify(EPIC_STATUS))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   const repo = join(scratch, 'demo')

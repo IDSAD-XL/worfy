@@ -22,6 +22,14 @@
 //   ticket migrate [--epic E] [-n]      move every ticket of the tickets root from the old spellings
 //                                       into the header above, once (see "migrate" below)
 //   ticket root                         print the tickets root (the directory of epics) and exit
+//   ticket mark <epic> <NN> <kind> <verdict> --sha <sha>
+//                                       an agent's mark bound to a commit (worfy ADR-0067): kind — review or
+//                                       check/<name>, verdict — pending, success, failure or skipped, sha — the
+//                                       full SHA. Full mode — a GitHub commit status on that SHA (context — the
+//                                       kind); Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json
+//                                       and nothing on GitHub (see "mark" below). Usage errors — exit 2.
+//   ticket mark --contexts              print the contexts of the marks (review, check/*, deploy), one per line:
+//                                       CI checks filter them out
 //
 // Tickets root (the directory holding <epic>/issues/): --root <dir>, otherwise
 // the tickets.root field of the project's profile (bin/profile next to this script), otherwise, as before,
@@ -52,6 +60,8 @@ const die = (msg) => {
 const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [--branch B] [--repo R] [--waits W] [-n] [--root <dir>]
        ticket migrate [--epic E] [-n] [--root <dir>]
        ticket root [--root <dir>]
+       ticket mark <epic> <NN> <review|check/<name>> <pending|success|failure|skipped> --sha <full sha> [--root <dir>]
+       ticket mark --contexts
        ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
        ticket done disputes/03 --pr 42
        ticket block disputes 04 "waits for ADR-0045" --waits owner`
@@ -73,6 +83,8 @@ let branchArg = null
 let repoArg = null
 let waitsArg = null
 let epicArg = null
+let shaArg = null
+let contextsArg = false
 const positional = []
 const valueOf = (flag, v) => {
     if (v === undefined || v === "" || v.startsWith("-")) die(`${flag} needs a value`)
@@ -100,12 +112,16 @@ for (let i = 0; i < argv.length; i++) {
     else if (a.startsWith("--waits=")) waitsArg = valueOf("--waits", a.slice(8))
     else if (a === "--epic") epicArg = valueOf("--epic", argv[++i])
     else if (a.startsWith("--epic=")) epicArg = valueOf("--epic", a.slice(7))
+    // --sha is checked by mark itself: a missing or short one is a usage error, exit 2.
+    else if (a === "--sha") shaArg = argv[++i] ?? ""
+    else if (a.startsWith("--sha=")) shaArg = a.slice(6)
+    else if (a === "--contexts") contextsArg = true
     else if (a.startsWith("-")) die(`unknown flag: ${a}\n${USAGE}`)
     else positional.push(a)
 }
 
 const [cmd, ...where] = positional
-if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root"].includes(cmd)) die(USAGE)
+if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root", "mark"].includes(cmd)) die(USAGE)
 if (waitsArg !== null) {
     // One line of the header: no line breaks, no surrounding spaces.
     waitsArg = waitsArg.trim()
@@ -113,6 +129,36 @@ if (waitsArg !== null) {
     if (cmd !== "block") die(`--waits goes only with block, not with ${cmd}`)
 }
 if (epicArg !== null && cmd !== "migrate") die(`--epic goes only with migrate, not with ${cmd}`)
+if ((shaArg !== null || contextsArg) && cmd !== "mark") die(`--sha and --contexts go only with mark, not with ${cmd}`)
+// --- mark: the arguments ------------------------------------------------------
+// The contexts of the marks on GitHub. The agents' kinds are review and check/<name>; deploy is set by the
+// project's deploy script (worfy: scripts/install-stable.mjs). CI checks leave all three out: they are not CI.
+const MARK_CONTEXTS = ["review", "check/*", "deploy"]
+const MARK_VERDICTS = ["pending", "success", "failure", "skipped"]
+const MARK_KIND = /^(review|check\/[a-z0-9][a-z0-9-]*)$/
+const MARK_SHA = /^([0-9a-f]{40}|[0-9a-f]{64})$/
+function markUsage() {
+    const usage = (msg) => {
+        process.stderr.write(`ticket mark: ${msg}\n${USAGE}\n`)
+        process.exit(2)
+    }
+    if (contextsArg) {
+        if (where.length || shaArg !== null) usage("--contexts takes no other arguments")
+        console.log(MARK_CONTEXTS.join("\n"))
+        process.exit(0)
+    }
+    const rest = where[0]?.includes("/") ? [...where[0].split("/"), ...where.slice(1)] : [...where]
+    if (rest.length !== 4) usage(`expected <epic> <NN> <kind> <verdict>, got ${rest.length} argument(s): ${rest.join(" ")}`)
+    const [epic, num, kind, verdict] = rest
+    if (!MARK_KIND.test(kind)) usage(`kind is review or check/<name> (lower case letters, digits, dashes), got "${kind}"`)
+    if (!MARK_VERDICTS.includes(verdict)) usage(`verdict is ${MARK_VERDICTS.join(", ")}, got "${verdict}"`)
+    if (shaArg === null || shaArg === "") usage("--sha <full commit SHA> is required: a mark is bound to a commit")
+    if (!MARK_SHA.test(shaArg)) usage(`--sha needs the full commit SHA in lower case (git rev-parse HEAD), got "${shaArg}"`)
+    // The rest of the script finds the ticket by these two.
+    where.splice(0, where.length, epic, num)
+    return { kind, verdict, sha: shaArg }
+}
+const markArgs = cmd === "mark" ? markUsage() : null
 
 // --- tickets root -----------------------------------------------------------
 // The profile is always asked, not only outside git: Atakama's tickets live in a common
@@ -164,7 +210,8 @@ function ticketsRoot() {
     // An explicit --root is taken from process.cwd() for every command: `ticket root --root ../x` (epic-status
     // calls it) and `ticket claim --root ../x` must point to the same directory. It needs no profile — unless
     // --repo has to be checked against the project's repositories.
-    if (rootArg !== null && repoArg === null) return path.resolve(process.cwd(), rootArg)
+    // mark reads the mode and the repositories of the project from the profile, also with --root.
+    if (rootArg !== null && repoArg === null && cmd !== "mark") return path.resolve(process.cwd(), rootArg)
     try {
         prof = JSON.parse(
             execScriptSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
@@ -355,6 +402,8 @@ const viaLink = target !== file
 const doc = readTicket(target)
 const { lines } = doc
 const sh = shape(lines)
+
+if (cmd === "mark") mark()
 
 if (cmd === "show") {
     if (sh.first === -1) die(`${matches[0]}: no Status line`)
@@ -624,4 +673,139 @@ function diff(a, b) {
     }
     flush()
     return out
+}
+
+// --- mark -----------------------------------------------------------------------
+// One interface, two stores by the project's mode (worfy ADR-0067, item 2). Both are bound to the SHA: a new
+// commit makes a mark stale, and whoever reads it (worfy, the skills) compares the SHA with the head of the branch.
+//   Full mode   — a commit status: gh api -X POST repos/<owner>/<repo>/statuses/<sha>, context = the kind,
+//                 state = the verdict (skipped → success with the description "skipped"); the description names
+//                 no ticket and no epic. The repository is the ticket's `Repo:` line (a project of several
+//                 repositories, ADR-0045), otherwise the git repository ticket runs in; its origin must be on
+//                 GitHub. gh runs with the session's environment: the plugin's session hook sets GH_TOKEN of
+//                 the profile's github.account.
+//   Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json: {epic, num, marks: [{kind, verdict, sha,
+//                 at}]}, each mark appended at the end. Written through a temporary file and rename, under a lock
+//                 directory next to it, so two marks at once do not lose one. Nothing goes to GitHub or into the
+//                 repository: the repository of a Silent project keeps no trace of the workflow.
+function mark() {
+    if (!prof) die(`ticket mark needs the project profile: ${process.cwd()} is not in a registered project (bin/profile)`)
+    const nn = matches[0].match(/^(\d+)-/)[1]
+    if (prof._resolved?.mode === "silent") markLocal(nn)
+    else markGitHub()
+    process.exit(0)
+}
+
+function markGitHub() {
+    const { kind, verdict, sha } = markArgs
+    const REPO_LINE = /^\*{0,2}Repo\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*/i
+    const line = lines.slice(0, sh.end).find((l, i) => !sh.code[i] && REPO_LINE.test(l))
+    const repoName = line ? line.replace(REPO_LINE, "").replace(/\*+[ \t]*$/, "").trim() : null
+    const repos = Array.isArray(prof._resolved?.repos) ? prof._resolved.repos : []
+    const top = git(["rev-parse", "--show-toplevel"])
+    let dir
+    if (repoName) {
+        const found = repos.find((r) => r.name === repoName)
+        if (!found) die(`${rel(target)}: Repo: ${repoName} is not a repository of the project (${repos.map((r) => r.name).join(", ") || "none"})`)
+        dir = found.path
+    } else if (top) dir = top
+    else if (repos.length === 1) dir = repos[0].path
+    else die(`${rel(target)} has no Repo: line and ${process.cwd()} is not a git repository: name the repository in the ticket (ticket claim --repo) or run mark from it`)
+    let url = ""
+    try {
+        url = execFileSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
+    } catch {
+        die(`${dir} has no origin: a commit status needs a repository on GitHub`)
+    }
+    const m = url.match(/^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/)
+    if (!m) die(`origin of ${dir} is not on GitHub (${url}): a commit status needs a repository on GitHub`)
+    const [, owner, name] = m
+    const state = verdict === "skipped" ? "success" : verdict
+    const args = ["api", "-X", "POST", `repos/${owner}/${name}/statuses/${sha}`, "-f", `state=${state}`, "-f", `context=${kind}`, "-f", `description=${verdict}`]
+    try {
+        execFileSync("gh", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+    } catch (e) {
+        if (e.code === "ENOENT") die("gh is not in PATH: a commit status is set with gh api")
+        const why = String(e.stderr || e.message || "").trim().split("\n")[0]
+        die(`gh api repos/${owner}/${name}/statuses/${sha} failed (exit ${e.status}): ${why}`)
+    }
+    console.log(`mark: ${kind} ${verdict} on ${sha.slice(0, 7)} — commit status of ${owner}/${name}`)
+}
+
+function markLocal(nn) {
+    const { kind, verdict, sha } = markArgs
+    const home = process.env.HARNESS_HOME || path.join(os.homedir(), ".claude", "worfy-harness")
+    const dir = path.join(home, "runs", prof._resolved.name, "marks")
+    const store = path.join(dir, `${epic}-${nn}.json`)
+    const lock = `${store}.lock`
+    try {
+        fs.mkdirSync(dir, { recursive: true })
+    } catch (e) {
+        die(`could not create ${dir}: ${e.message}`)
+    }
+    // The lock: a directory, as the other locks of the Harness. A mark takes milliseconds, so one older than
+    // a minute was left by a mark that was killed; waiting for a live one ends after 10 s.
+    const deadline = Date.now() + 10_000
+    for (;;) {
+        try {
+            fs.mkdirSync(lock)
+            break
+        } catch (e) {
+            if (e.code !== "EEXIST") die(`could not take the lock ${lock}: ${e.message}`)
+        }
+        let age
+        try {
+            age = Date.now() - fs.statSync(lock).mtimeMs
+        } catch {
+            continue // released between mkdir and stat
+        }
+        if (age > 60_000) {
+            try {
+                fs.rmdirSync(lock)
+            } catch {
+                /* another mark took it over first */
+            }
+            continue
+        }
+        if (Date.now() > deadline) die(`${lock} is held by another mark for more than 10 s; if no mark is running, remove it`)
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100)
+    }
+    // process.exit skips finally blocks: every refusal below releases the lock itself.
+    const fail = (msg) => {
+        try {
+            fs.rmdirSync(lock)
+        } catch {
+            /* already gone */
+        }
+        die(msg)
+    }
+    let doc = { epic, num: nn, marks: [] }
+    if (fs.existsSync(store)) {
+        try {
+            doc = JSON.parse(fs.readFileSync(store, "utf8"))
+        } catch (e) {
+            fail(`${store} is not valid JSON (${e.message}): the marks in it are left as they are — fix or remove the file`)
+        }
+        if (doc === null || typeof doc !== "object" || !Array.isArray(doc.marks))
+            fail(`${store} has no "marks" list: the file is left as it is — fix or remove it`)
+    }
+    doc.marks.push({ kind, verdict, sha, at: new Date().toISOString() })
+    const tmp = `${store}.${process.pid}.tmp`
+    try {
+        fs.writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n")
+        fs.renameSync(tmp, store)
+    } catch (e) {
+        try {
+            fs.unlinkSync(tmp)
+        } catch {
+            /* the temporary file may not exist */
+        }
+        fail(`could not write ${store}: ${e.message}`)
+    }
+    try {
+        fs.rmdirSync(lock)
+    } catch {
+        /* already gone */
+    }
+    console.log(`mark: ${kind} ${verdict} on ${sha.slice(0, 7)} — ${store}`)
 }

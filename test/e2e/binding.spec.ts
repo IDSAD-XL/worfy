@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // Bindings of Sessions and Subagents to Tickets and Epics (ticket 16), against the built app:
 // Sessions whose transcripts the test writes into a temporary WORFY_CLAUDE_HOME the way Claude Code
@@ -112,7 +113,7 @@ function makeProject(): void {
     }),
   )
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 }
 

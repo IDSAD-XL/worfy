@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // The selection toolbar (Pin, Tags, Delete) over an Epic frame in the built app, at zoom 1 and 0.6:
 // above a Ticket of the frame's top row it would cover the frame's header and the column labels,
@@ -85,7 +86,7 @@ test.beforeEach(() => {
   const answerFile = join(claudeHome, 'epic-status.json')
   writeFileSync(answerFile, JSON.stringify(answer))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answerFile}'\n`)
+  writeFileSync(script, catScript(answerFile))
   chmodSync(script, 0o755)
 
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })

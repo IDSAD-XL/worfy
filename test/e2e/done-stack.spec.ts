@@ -9,6 +9,7 @@ import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
+import { catScript } from '../harness-node'
 
 // worfy-week ticket 11 (ADR-0039): opening the done stack of an Epic frame does not move the open
 // columns. The Epic follows notifications-telegram of Auction: more done Tickets than open ones,
@@ -74,7 +75,7 @@ function makeFixture(): { dataDir: string; claudeHome: string } {
   const answerFile = join(scratch, 'epic-status.json')
   writeFileSync(answerFile, JSON.stringify(answer))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answerFile}'\n`)
+  writeFileSync(script, catScript(answerFile))
   chmodSync(script, 0o755)
   return { dataDir, claudeHome }
 }

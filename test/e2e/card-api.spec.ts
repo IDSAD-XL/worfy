@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Frame, type Page } from '@playwright/test'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { catScript } from '../harness-node'
 
 // The Card API (ticket 26) against the built app: a Card fixture uses window.worfy — its own data
 // survives a restart, `session.ask` goes through the confirmation dialog (replaced in main by the
@@ -57,7 +58,7 @@ test.beforeEach(() => {
   // epic-status answers with the fixture's own snapshot of the worfy-mvp Epic.
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${join(FIXTURE, 'epic-status.json')}'\n`)
+  writeFileSync(script, catScript(join(FIXTURE, 'epic-status.json')))
   chmodSync(script, 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

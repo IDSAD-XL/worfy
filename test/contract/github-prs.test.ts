@@ -1,10 +1,11 @@
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, ciOf, ghRunner, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
 import { appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -12,6 +13,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { NODE_DIR, scriptsEnv } from '../harness-node'
 import { STUB_COMMAND } from './gh-world'
 
 // Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
@@ -84,6 +86,22 @@ describe('ciOf', () => {
     [[{ __typename: 'StatusContext', state: 'SUCCESS' }], 'passing'],
   ])('%j → %s', (rollup, expected) => {
     expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected)
+  })
+
+  // The agents' marks (ADR-0067) are commit statuses too, but they are not CI: review, check/<name>, deploy.
+  const green = { __typename: 'CheckRun', name: 'unit', status: 'COMPLETED', conclusion: 'SUCCESS' }
+  const status = (context: string, state: string) => ({ __typename: 'StatusContext', context, state })
+  it.each([
+    [[green, status('review', 'FAILURE')], 'passing'], [[green, status('review', 'PENDING')], 'passing'],
+    [[green, status('check/windows', 'FAILURE')], 'passing'], [[green, status('deploy', 'ERROR')], 'passing'],
+    [[status('review', 'SUCCESS')], null], [[green, status('ci/lint', 'FAILURE')], 'failing'],
+    [[green, status('reviewers', 'PENDING')], 'running'], [[green, status('check', 'FAILURE')], 'failing'],
+    [[{ __typename: 'CheckRun', name: 'review', status: 'COMPLETED', conclusion: 'FAILURE' }], 'failing'],
+  ])('with marks: %j → %s', (rollup, expected) => expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected))
+
+  it('leaves out the same contexts `ticket mark --contexts` prints', () => {
+    const run = spawnSync(process.execPath, [join(__dirname, '..', '..', 'harness', 'bin', 'ticket'), 'mark', '--contexts'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    expect([run.status, run.stdout.trim().split('\n')]).toEqual([0, [...MARK_CONTEXTS]])
   })
 })
 
@@ -518,7 +536,8 @@ async function accountWorld(profile: ProfileAnswer, gh: { token?: string; shellT
   const command = GH_ACCOUNT_STUB
   await writeFile(join(dir, 'prs.json'), JSON.stringify([pull(1, 'demo/01')]))
   const ghLog = join(dir, 'gh-calls.txt')
-  const env: Record<string, string> = { PATH: '/usr/bin:/bin', HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT }
+  // The login shell's PATH as far as the profile script goes: node is on it (worfy runs the script as `node <script>`).
+  const env: Record<string, string> = scriptsEnv([NODE_DIR, '/usr/bin', '/bin'], { HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT })
   if (gh.token !== undefined) env.GH_STUB_TOKEN = gh.token
   if (gh.shellToken !== undefined) env.GH_TOKEN = gh.shellToken
   const logged: string[] = []
