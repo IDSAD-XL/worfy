@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.sh\" orchestrator",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs\" orchestrator",
             "timeout": 10
           }
         ]
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.sh\" common",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs\" common",
             "timeout": 10
           }
         ]
@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
             "timeout": 15
           }
         ]
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.mjs\"",
             "timeout": 10
           }
         ]
@@ -42,7 +42,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" claim",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" claim",
             "timeout": 10
           }
         ]
@@ -53,7 +53,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.sh\" common",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs\" common",
             "timeout": 10
           }
         ]
@@ -86,7 +86,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/stop.sh\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs\"",
             "timeout": 10
           }
         ]
@@ -95,7 +95,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" beat",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" beat",
             "timeout": 5
           }
         ]
@@ -115,7 +115,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/session-end.sh\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-end.mjs\"",
             "timeout": 10
           }
         ]
@@ -124,7 +124,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" release",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/worktree-lock\" release",
             "timeout": 5
           }
         ]
@@ -136,7 +136,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard.mjs\"",
             "timeout": 10
           }
         ]

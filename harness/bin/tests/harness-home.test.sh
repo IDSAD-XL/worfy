@@ -107,7 +107,7 @@ profile_dir() { # $1 = home
     # tickets.epic_status as a schema 1 profile writes it: preflight reads it as its neighbour.
     echo '{"schema":1,"name":"tp","worktree":{"base":"origin/main"},"tickets":{"epic_status":"~/.claude/bin/epic-status"}}' >"$1/.claude/profiles/tp/profile.json"
 }
-gate_runs() { # $1 = home, rest = extra env; runs the gate in three profiles and stop.sh once
+gate_runs() { # $1 = home, rest = extra env; runs the gate in three profiles and the Stop hook once
     local home="$1"; shift
     for p in p_ok p_red p_env; do
         (cd "$R" && printf '{"session_id":"s1"}' | clean "$home" env "$@" GATE_SCOPE=all node "$HARNESS/hooks/gate.mjs" "$p" >/dev/null 2>&1)
@@ -128,8 +128,8 @@ H1="$T/h1"; HH1="$H1/.claude/worfy-harness"
 registry "$HH1/gate/config.json"; profile_dir "$H1"
 gate_runs "$H1"
 check "default: gate state (cache, stop-blocks, red, unverified) in \$HOME/.claude/worfy-harness/gate/state" state_ok "$HH1/gate/state"
-out="$(cd "$R" && printf '{"session_id":"s1"}' | clean "$H1" bash "$HARNESS/hooks/stop.sh" 2>&1)"; rc=$?
-check "default: stop.sh reads the red marker from the new place (exit 2)" [ "$rc" -eq 2 ]
+out="$(cd "$R" && printf '{"session_id":"s1"}' | clean "$H1" node "$HARNESS/hooks/stop.mjs" 2>&1)"; rc=$?
+check "default: stop.mjs reads the red marker from the new place (exit 2)" [ "$rc" -eq 2 ]
 (cd "$R" && printf '{"session_id":"s1","cwd":"%s"}' "$R" | clean "$H1" node "$HARNESS/bin/worktree-lock" claim >/dev/null 2>&1)
 check "default: worktree-lock claim -> lock in \$HOME/.claude/worfy-harness/worktree-sessions" [ "$(lock_files "$HH1/worktree-sessions")" = 1 ]
 (cd "$R" && clean "$H1" node "$HARNESS/bin/epic-board" --no-open >/dev/null 2>&1)
@@ -177,8 +177,8 @@ out="$(clean "$H3" node "$HARNESS/bin/profile" -C "$R" --name 2>&1)"; rc=$?
 check "legacy registry, HARNESS_HOME unset: profile finds the project (exit 0)" rc_out 0 tp
 gate_runs "$H3" HARNESS_HOME="$HH3"
 check "legacy registry: gate state goes to \$HARNESS_HOME/gate/state" state_ok "$HH3/gate/state"
-out="$(cd "$R" && printf '{"session_id":"s3"}' | clean "$H3" env HARNESS_HOME="$HH3" bash "$HARNESS/hooks/stop.sh" 2>&1)"; rc=$?
-check "legacy registry: stop.sh resolves the project through the legacy registry (exit 2)" [ "$rc" -eq 2 ]
+out="$(cd "$R" && printf '{"session_id":"s3"}' | clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/hooks/stop.mjs" 2>&1)"; rc=$?
+check "legacy registry: stop.mjs resolves the project through the legacy registry (exit 2)" [ "$rc" -eq 2 ]
 (cd "$R" && printf '{"session_id":"s3","cwd":"%s"}' "$R" | clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/worktree-lock" claim >/dev/null 2>&1)
 (cd "$R" && clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/epic-board" --no-open >/dev/null 2>&1)
 if [ "$WIN" -eq 1 ] && ! command -v zsh >/dev/null 2>&1; then
@@ -203,13 +203,12 @@ check "both registries: gate-resolve.mjs reads \$HARNESS_HOME/gate/config.json" 
 H4="$T/h4"; TRAP="$T/trap.log"
 registry "$H4/.claude/worfy-harness/gate/config.json"; profile_dir "$H4"
 mkdir -p "$H4/.claude/bin" "$H4/.claude/hooks"
-for f in bin/profile bin/ticket bin/epic-status bin/epic-board bin/preflight bin/worktree-lock bin/qmd-sync-main \
-         hooks/stop.sh; do
+for f in bin/profile bin/ticket bin/epic-status bin/epic-board bin/preflight bin/worktree-lock bin/qmd-sync-main; do
     printf '#!/bin/sh\necho "%s $*" >>"%s"\nexit 1\n' "$f" "$TRAP" >"$H4/.claude/$f"
     chmod +x "$H4/.claude/$f"
 done
-# gate.mjs and gate-resolve.mjs are run as `node <file>`: their traps are JavaScript.
-for f in hooks/gate.mjs hooks/gate-resolve.mjs; do
+# The gate and the hooks are run as `node <file>`: their traps are JavaScript.
+for f in hooks/gate.mjs hooks/gate-resolve.mjs hooks/stop.mjs hooks/session-start.mjs hooks/session-end.mjs; do
     printf 'import fs from "node:fs"\nfs.appendFileSync(%s, "%s " + process.argv.slice(2).join(" ") + "\\n")\nprocess.exit(1)\n' \
         "\"$TRAP\"" "$f" >"$H4/.claude/$f"
 done
@@ -219,8 +218,8 @@ c() { clean "$H4" "$@"; }
 (cd "$R" && c node "$COPY/bin/epic-status" >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/epic-status" --json >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/epic-board" --no-open --out "$T/eb.html" >/dev/null 2>&1)
-(cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-start.sh" >/dev/null 2>&1)
-(cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-end.sh" >/dev/null 2>&1)
+(cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-start.mjs" >/dev/null 2>&1)
+(cd "$R" && printf '{"cwd":"%s"}' "$R" | c node "$COPY/hooks/session-end.mjs" >/dev/null 2>&1)
 (c zsh "$COPY/bin/qmd-sync-main" --describe tp >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/preflight" --epic e1 </dev/null >/dev/null 2>&1)
 # qmd-refresh asks qmd-sync-main --describe for each collection with an `update:` line; qmd is a stub.
@@ -229,7 +228,7 @@ printf 'collections:\n  tp-main:\n    path: %s\n    update: /nowhere/qmd-sync-ma
 (c env PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index.yml" zsh "$COPY/bin/qmd-refresh" --wait --force >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/profile" --name >/dev/null 2>&1)
 (cd "$R" && printf '{"session_id":"s4"}' | c node "$COPY/hooks/gate.mjs" p_red >/dev/null 2>&1)
-(cd "$R" && printf '{"session_id":"s4"}' | c bash "$COPY/hooks/stop.sh" >/dev/null 2>&1)
+(cd "$R" && printf '{"session_id":"s4"}' | c node "$COPY/hooks/stop.mjs" >/dev/null 2>&1)
 check "copy: no script called \$HOME/.claude/bin or \$HOME/.claude/hooks" [ ! -e "$TRAP" ]
 [ -e "$TRAP" ] && sed 's/^/     /' "$TRAP"
 mkdir -p "$T/links"; ln -s "$COPY/bin/profile" "$T/links/profile"; ln -s "$COPY/bin/epic-status" "$T/links/epic-status"
@@ -306,7 +305,7 @@ FILES=(
     skills/continuous-audit/SKILL.md skills/tickets-to-tasks/SKILL.md
     bin/profile bin/ticket bin/epic-status bin/preflight bin/worktree-lock bin/epic-board
     bin/qmd-mcp bin/qmd-refresh bin/qmd-sync-main bin/TICKETS.md
-    hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.sh hooks/session-start.sh hooks/session-end.sh
+    hooks/gate.mjs hooks/gate-paths.mjs hooks/gate-resolve.mjs hooks/guard.mjs hooks/stop.mjs hooks/session-start.mjs hooks/session-end.mjs
     bin/tests/preflight.test.sh bin/tests/profile.test.sh bin/tests/qmd.test.sh bin/tests/skill-blocks.test.sh
     bin/tests/tickets-root.test.sh
     hooks/tests/gate-notverified.test.sh hooks/tests/gate-unregistered.test.sh hooks/tests/session-hooks.test.sh

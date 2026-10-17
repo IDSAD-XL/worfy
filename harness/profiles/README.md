@@ -37,7 +37,7 @@ $HARNESS_HOME/projects/<name>/
 ```
 
 There is no profile in the project's repository and no PR with a profile. `rules.md` is mixed into a
-session only by the Harness (`hooks/session-start.sh`, from the folder `_resolved.dir`), never
+session only by the Harness (`hooks/session-start.mjs`, from the folder `_resolved.dir`), never
 through the repository's `.claude/rules/`.
 
 Not `~/.claude/projects/` — that is where Claude Code keeps transcripts.
@@ -159,16 +159,16 @@ the way the project really runs them.
 | `numbering.adr` | `{dir, check}` \| null | the ADR directory and the check that numbers are unique | orchestrator, reviewer, ship-ticket, epic-wave |
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | how migrations are created and what sets their order | implementer, reviewer, ship-ticket, epic-wave |
 | `deploy` | object \| null | `how` — how it deploys; `ci_run_check` — the command that checks the CI run by commit (`$sha` — the merge commit's SHA); `production_check` + `production_expect` — a request to the live address and the expected answer (requirements for the command — below the table); `smoke`, `auth` — explanations; `env` — names of environment variables without which the production checks cannot run (names, not values). `null` — the project does not deploy | orchestrator, ship-ticket, epic-wave |
-| `github.account` | string \| null | the `gh` account that opens PRs and runs git commands against origin: the plugin's `SessionStart` hook (`hooks/gh-token-env.sh`) appends `export GH_TOKEN="$(gh auth token -u <account> 2>/dev/null)"` to `CLAUDE_ENV_FILE`, so every Bash command of the session and its agents runs as this account; the global account is not switched; no login under it — the session gets one line of context instead; absent — `gh` runs as the active account | hooks/gh-token-env.sh, overnight-fix-loop, ship-ticket, epic-wave |
+| `github.account` | string \| null | the `gh` account that opens PRs and runs git commands against origin: the plugin's `SessionStart` hook (`hooks/gh-token-env.mjs`) appends `export GH_TOKEN="$(gh auth token -u <account> 2>/dev/null)"` to `CLAUDE_ENV_FILE`, so every Bash command of the session and its agents runs as this account; the global account is not switched; no login under it — the session gets one line of context instead; absent — `gh` runs as the active account | hooks/gh-token-env.mjs, overnight-fix-loop, ship-ticket, epic-wave |
 | `serial_merge.paths` | strings | PRs that touch these paths are merged one at a time | epic-wave |
 | `serial_merge.rule` | string | when the next one may be merged | epic-wave |
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | the project's glossary | all agents |
 | `docs.handoff` | `{path, kind, check}` \| null | the project's state file and the check of its form | orchestrator, ship-ticket, epic-wave; implementer does not edit it |
 | `docs.adr_dir` | path \| null | the ADR directory; implementer does not edit it | implementer, reviewer |
-| `lessons` | `"repo:<path>"` \| `"profile"` | where lessons are written: into the repository or into the profile's `lessons/` | retro, ship-ticket, epic-wave, hooks/session-start.sh |
-| `session.inject_rules` | bool | `true` — `hooks/session-start.sh` mixes into every session of the project `rules.md` (without the sources section), the lessons index with `lessons: "profile"` and the map of the active epic (`state/active-epic` → `epics/<epic>/map.md`); the text of each section is at most 20000 bytes (`CLAUDE_SESSION_SECTION_CAP`), a longer one is cut with the line "… truncated, full text: <path>". No field or `false` — the session starts empty | hooks/session-start.sh |
-| `session.rules_heading` | string | the heading under which `rules.md` is mixed in | hooks/session-start.sh |
-| `session.retro_reminder_after` | number \| absent | present — `hooks/session-end.sh` writes every session into `state/pending-retro.log`, and session-start reminds about `/retro` when there are at least this many lines | hooks/session-start.sh, session-end.sh, retro |
+| `lessons` | `"repo:<path>"` \| `"profile"` | where lessons are written: into the repository or into the profile's `lessons/` | retro, ship-ticket, epic-wave, hooks/session-start.mjs |
+| `session.inject_rules` | bool | `true` — `hooks/session-start.mjs` mixes into every session of the project `rules.md` (without the sources section), the lessons index with `lessons: "profile"` and the map of the active epic (`state/active-epic` → `epics/<epic>/map.md`); the text of each section is at most 20000 bytes (`CLAUDE_SESSION_SECTION_CAP`), a longer one is cut with the line "… truncated, full text: <path>". No field or `false` — the session starts empty | hooks/session-start.mjs |
+| `session.rules_heading` | string | the heading under which `rules.md` is mixed in | hooks/session-start.mjs |
+| `session.retro_reminder_after` | number \| absent | present — `hooks/session-end.mjs` writes every session into `state/pending-retro.log`, and session-start reminds about `/retro` when there are at least this many lines | hooks/session-start.mjs, session-end.mjs, retro |
 | `tasks.tool` | path | what scans tickets and keeps the ticket → task link (`scan`, `link`, `map`) | tickets-to-tasks |
 | `tasks.list_id` | template | the epic's `CLAUDE_CODE_TASK_LIST_ID`, `<slug>` — the epic name | tickets-to-tasks |
 | `tasks.scan_root` | path | where to look for `.scratch/<epic>/issues/` without an explicit directory | tickets-to-tasks (through `tasks.tool`) |
@@ -327,11 +327,11 @@ stays as it is. `bin/profile` prints the fields as written; `bin/ticket`, `bin/e
   `git checkout -b`, `git switch -c`, `git branch <name>`, `git worktree add -b`, and `gh pr
   create|edit|comment|review|merge` (`--title`, `--body`, `--body-file`, `--subject`). Commits in the
   Workflow folder itself are not checked: it is not one of the project's repositories.
-- **Session context.** `hooks/session-start.sh` tells every session of a Silent project where the
+- **Session context.** `hooks/session-start.mjs` tells every session of a Silent project where the
   Workflow folder is and that the repository gets no traces, whatever `session.inject_rules` says.
 
 **`attribution: off`** (any mode): commits and PRs of the project carry no Claude attribution lines
-(`Co-Authored-By: Claude …`, `Generated with [Claude Code]`). `hooks/session-start.sh` says so in every
+(`Co-Authored-By: Claude …`, `Generated with [Claude Code]`). `hooks/session-start.mjs` says so in every
 session of the project, and the guard refuses the commands above when their text carries such a line.
 `on` — as before.
 
@@ -342,7 +342,7 @@ them. `null` reads as "not set"; a value that is neither `"on"` nor `"off"` (`""
 `false`) is a broken profile, exit 1, as a wrong `mode` is.
 
 `bin/profile` resolves the value: `--field attribution`, `--json` and the summary print it, and
-`bin/silent-check`, the guard, `hooks/session-start.sh` and the skills read it from there and know
+`bin/silent-check`, the guard, `hooks/session-start.mjs` and the skills read it from there and know
 no default of their own. The rule "Silent — `off`, Full — `on`" is written in four places:
 
 - `bin/profile` — a profile without the field;
@@ -439,7 +439,7 @@ ticket and the brief, they are listed under a separate heading
 
 At the end — a `## Sources` section (in the existing Russian profiles `## Источники`): where the
 facts come from (file and line), for whoever maintains the profile, so that on a mismatch it is
-clear what to check. It is not an instruction to the agent; `hooks/session-start.sh` leaves it out.
+clear what to check. It is not an instruction to the agent; `hooks/session-start.mjs` leaves it out.
 
 ## New project
 

@@ -243,7 +243,7 @@ gh pr create --base overnight/<date> --title "overnight(<имя>): <what was har
   --body-file <scratchpad>/overnight/<имя>/PR.md
 ```
 
-`GH_TOKEN` of `F github.account` is set by the plugin's `SessionStart` hook (`hooks/gh-token-env.sh`) for every
+`GH_TOKEN` of `F github.account` is set by the plugin's `SessionStart` hook (`hooks/gh-token-env.mjs`) for every
 Bash command of the session and of its agents; do not switch the global `gh` account. If `gh` answers "Could not
 resolve to a Repository", compare `gh auth status` with `F github.account` and say so in the answer.
 In the body: the tests as a list, "mutations: before X of N → after Y of N", the gate exit code, the 1f reviewer's verdict.

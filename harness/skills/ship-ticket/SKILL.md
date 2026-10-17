@@ -129,7 +129,7 @@ checkout is, and with `pr-green-ci` also `gh pr list --state open`. Put the line
 `git log -1 --format='%h %s' <base>` into the briefs as the base.
 
 **GitHub account** — `F github.account`. `GH_TOKEN` of that account is set by the plugin's
-`SessionStart` hook (`hooks/gh-token-env.sh`) for every Bash command of the session and of its
+`SessionStart` hook (`hooks/gh-token-env.mjs`) for every Bash command of the session and of its
 agents; do not switch the global account without the owner's permission: other sessions use it.
 If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with
 `F github.account` and say so in the report.

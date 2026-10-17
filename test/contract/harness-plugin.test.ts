@@ -80,7 +80,7 @@ describe('harness/ holds only the Harness', () => {
     ['machine state', /(^|\/)(settings\.json|gate\/.*|profiles\/(worfy|auction|atakama)\/.*)$/],
     ['synced skills', /^skills\/synced\//],
     // Claude Code loads a CLAUDE.md under harness/ into sessions that edit harness/: the global
-    // rules reach sessions through hooks/inject-rules.sh and hooks/rules/*.md instead (ticket 05).
+    // rules reach sessions through hooks/inject-rules.mjs and hooks/rules/*.md instead (ticket 05).
     ['CLAUDE.md', /(^|\/)CLAUDE\.md$/],
   ]
 
