@@ -1,7 +1,8 @@
 # 31 — Системные уведомления приходят с иконкой Electron вместо знака worfy
 
 Type: task
-Status: claimed — 2026-10-17
+Status: done 2026-10-17T14:07Z
+PR: #425
 Blocked by: —
 Source: замечание владельца 2026-10-17 («вылазит дефолт иконка электрона, а должна ворфи»), во время
 grilling-а о Pipeline; [worfy-daily 31](../../worfy-daily/issues/31-иконка-приложения.md), «Итог».
@@ -104,6 +105,8 @@ app, и test не меняет базу Launch Services машины. Блок `
 
 Это **платформенный PR** (ADR-0056, packaging): merge ждёт Windows-ПК. На Windows и Linux шаг не
 выполняется (`registerCommand` → `null`).
+
+Влит на gate full Mac 2026-10-17 (решение владельца: batch CI, ADR-0068).
 
 Что нужно владельцу, если после `pnpm install:stable` с этим PR баннер Stable copy всё ещё с
 иконкой Electron (агенту запрещено: `sudo`, `killall`, чистка кэшей):
