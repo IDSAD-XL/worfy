@@ -184,8 +184,11 @@ tk claim ep 11 >/dev/null 2>&1
 [ "$(sed -n 4p "$E/11-none.md")" = 'Blocked by: —' ] && grep -Eqx "Status: claimed $NOW" "$E/11-none.md" \
     && ok "claim on a file without Status inserts the plain line into the header" || { bad "claim 11:"; cat "$E/11-none.md"; }
 tk claim ep 10 >/dev/null 2>&1
-printf '\357\273\277# 10 — CRLF and BOM\r\n\r\nStatus: claimed X\r\nPR: #27\r\nBlocked by: —\r\n' >"$T/w10"
-sed -E "s/^Status: claimed $NOW/Status: claimed X/" "$E/10-crlf.md" | cmp -s - "$T/w10" && ok "claim keeps BOM and CRLF" || bad "10-crlf after claim: $(od -c "$E/10-crlf.md" | head -6)"
+# No sed on the CRLF file: Git Bash sed drops \r. Take the written time with grep -ao, build the expected
+# bytes with printf and compare them with the file itself, so a lost BOM or any lost \r fails the check.
+at10="$(LC_ALL=C grep -aoE "^Status: claimed $NOW" "$E/10-crlf.md" | LC_ALL=C grep -aoE "$NOW" | head -1)"
+printf '\357\273\277# 10 — CRLF and BOM\r\n\r\nStatus: claimed %s\r\nPR: #27\r\nBlocked by: —\r\n' "$at10" >"$T/w10"
+[ -n "$at10" ] && cmp -s "$E/10-crlf.md" "$T/w10" && ok "claim keeps BOM and CRLF" || bad "10-crlf after claim: $(od -c "$E/10-crlf.md" | head -6)"
 out="$(tk show ep 09 2>&1)"
 [[ "$out" == "09-new.md:4  Status: blocked "*"Blocked reason: another reason"* ]] && ok "show prints the status lines" || bad "show: $out"
 

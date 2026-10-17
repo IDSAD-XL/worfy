@@ -177,9 +177,10 @@ if (cmd === "root") {
     console.log(scratch)
     process.exit(0)
 }
-// Paths in the output are relative to the directory above the tickets root: ".scratch/<epic>/issues/…".
+// Paths in the output are relative to the directory above the tickets root: ".scratch/<epic>/issues/…",
+// always with forward slashes, so the output reads the same on Windows as on macOS and Linux.
 const root = path.dirname(scratch)
-const rel = (p) => path.relative(root, p)
+const rel = (p) => path.relative(root, p).split(path.sep).join("/")
 
 // --- the header format --------------------------------------------------------
 // The reader of the same format is the awk program of epic-status; the two must agree line for line.
