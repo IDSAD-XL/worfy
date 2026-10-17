@@ -226,5 +226,35 @@ Ticket 23 (worfy читает Silent Project) тоже меняет `src/main/wo
 `src/main/workflow/profile.ts` и их contract test-ы — общие файлы с этим Ticket-ом.
 
 ## Итог
+### Срез 05a — скрипты Harness: `epic-status` на Node, домашняя папка, соседи через `process.execPath`
 
-Заполняется при закрытии.
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/05-harness-scripts` от main `4500799`, слит main `3b50717`. Пункты 1–4 «Что делаем»; пункты 5 и 7 (worfy зовёт скрипты через `node`, stub-ы test-ов) — срез 05b. **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Test-характеристика (`a7ce0fb`)** — `harness/bin/tests/epic-status.test.sh`, 42 проверки, отдельным commit-ом до переписывания: срез `--json` целиком байт в байт; все написания `Status` и пять `state`; побеждает последнее вхождение; ограждения ```` ``` ```` и `~~~`; CRLF; кавычка, обратная косая и управляющий символ; десять написаний `Blocked by`; `Branch` и `Repo`; файл без номера — не Ticket; Epic-и с точкой в начале пропускаются; Epic со `spec.md`, с `map.md` и без них; все формы строки «Этап»; `--ref` существующей ветки, ветки без `.scratch`, корня, которого нет в рабочем дереве, несуществующего ref, корня вне git, корня репозитория, в режиме Silent; случаи exit 2; код выхода `ticket root` передаётся; `CLAUDE_TICKET_BIN`. На bash-версии на ПК совпадают все случаи, кроме 7, которые bash на Windows не проходит: четыре `--ref` — «could not be resolved» (путь `C:/` против `/c/`), три с отсутствующим корнем — бесконечный цикл `${anc%/*}` на пути `C:\`.
+- **`epic-status` на Node (`2f28533`).** CommonJS, имя без расширения, `#!/usr/bin/env node`. `--ref` читает дерево ветки через `git ls-tree -r -z` и один `git cat-file --batch`, без `tar` и временной папки; путь корня внутри репозитория — после `fs.realpathSync.native` с обеих сторон. `--root` разбирается на месте; без него — `ticket root` через `process.execPath`. Запасной ветки «нет node» больше нет: `tickets-root.test.sh`, раздел 8, теперь ждёт отказа без node.
+- **`os.homedir()` вместо `HOME` (`3ef73ab`)** в `profile`, `worktree-lock`, `silent-check`; `grep -n 'process.env.HOME'` по ним — exit 1. На Windows скрипт берёт `USERPROFILE`, поэтому `profile.test.sh` задаёт его рядом с `HOME`.
+- **Соседи — через `process.execPath` и путь (`0fff5dc`)**: `ticket` → `profile`, `epic-board` → `ticket root` и `epic-status`, `profile` → `gate-resolve.mjs`, `silent-check` → `profile` и `ticket`. Существование файла проверяется до запуска, ответы прежние.
+- **`epic-board` (`5681b14`)** открывает страницу командой системы: `open` на macOS, `explorer.exe` на Windows, `xdg-open` на Linux; `--no-open` — как прежде.
+- **`harness-home.test.sh` (`d5955d2`)**: новый случай — копия `harness/` без бита исполнения у файлов `bin`; `node <копия>/bin/ticket root`, `epic-status --json`, `epic-board --no-open` — exit 0. На main на ПК он красный: `epic-status` — exit 1 (node не выполняет файл bash), `epic-board` — exit 2 (`spawnSync ticket ENOENT`).
+- **Старая и новая версии на этом репозитории (ПК):** без аргументов и `worfy-windows` — одинаковые байты и коды выхода. `--json` отличается ровно двумя запятыми: на Windows старая версия отдаёт невалидный JSON — `xargs` делит список файлов на три запуска awk, и счётчик запятых каждый раз начинается заново; с этими запятыми выводы совпадают байт в байт. `--json --ref origin/main`: старая версия на Windows — exit 3 (пути `C:/` и `/c/`); новая совпадает со старой, запущенной на копии `origin/main` из `git archive`, кроме метки ref и тех же запятых.
+- **Проверки на ПК из «Готово, когда»:** `node harness/bin/epic-board --no-open --out <файл>` — exit 0, 13 Epic-ов. `node harness/bin/silent-check -C "$(mktemp -d)" hello`: с пустым временным реестром Gate — exit 0; с настоящим `HOME` — exit 2, потому что на ПК нет реестра Gate (`~/.claude/worfy-harness/gate/config.json`, ENOENT); на main — exit 2, `spawnSync …\profile ENOENT`.
+- **Ревью** — subagent этой Session, линза «корректность» с упором на macOS и Linux: high и medium нет; правила разбора, ключи и компактность JSON, флаги, коды выхода и тексты ошибок совпадают со старой версией, на fixture-ах без symlink — байт в байт, включая `--ref` с пробелами и кириллицей. Low:
+  - `epic-status --json | head` печатал stack trace на `EPIPE` (bash выходил молча по SIGPIPE) — исправлено в `937a7aa`: на прошлой голове exit 1 и trace, теперь exit 0 и пустой stderr.
+  - Порядок файлов и Epic-ов — всегда байтовый. bash-glob следовал `LC_COLLATE`: в `en_US.UTF-8` на Linux смешанный регистр и кириллица шли иначе (`alpha Beta Gamma`, `ёлка` раньше `Яблоко`); в C и C.UTF-8 — как сейчас. Выбран байтовый порядок; шапка скрипта говорит об этом (`937a7aa`).
+  - `--ref` читает только обычные файлы: symlink-и Ticket-ов, папок Epic-ов, `spec.md` в ветке не видны (`git archive` их распаковывал). Рабочее дерево symlink-и по-прежнему проходит. Записано в шапке как сужение.
+  - На Linux имя файла не в UTF-8 теряется (`readdirSync` без `encoding: "buffer"`); macOS (APFS) не затронут. Не правилось.
+  - Вопрос для Mac: путь корня с й или ё в NFD на диске против путей git в NFC (`core.precomposeunicode`) — не даст ли `--ref` пустой срез с exit 0.
+  - Сам reviewer запускал старую bash-версию под WSL — вопреки правилу «без WSL» на этом ПК; его выводы о Linux сделаны там.
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| main `3b50717` | 1 | 5623 | 5176 | 303 | 144 |
+| ветка `937a7aa` | 1 | 5624 | 5178 | 302 | 144 |
+
+- **Новых падений по именам нет.** На ветке упали 2 test-а, которые на main прошли: timeout 5 с в `canvas.test.tsx` и `linked-read-only.test.tsx` — файлы срез не трогал; отдельно на обеих сторонах — 64 из 64 прошли.
+- `harness-scripts.test.ts` (test-ы `harness/**/tests/*.test.sh` под `pnpm test`): main 19 упало из 31 → ветка 18 из 32. `epic-status.test.sh` (новый) и `harness-home.test.sh` — зелёные.
+- `pnpm lint`, `pnpm typecheck` на `937a7aa` — exit 0.
+- На Windows пропущены, со строкой `skip <причина>`: три проверки через symlink в `harness-home.test.sh` (без режима разработчика `ln -s` в Git Bash делает копию), проверка `qmd-sync-main` (скрипт zsh) и запуск локального финиша под zsh в `silent-mode.test.sh` (в Git Bash нет zsh).
+
+**Не сделано в этом срезе:** пункт «Готово, когда» «те же пять test-ов — exit 0 в Git Bash на Windows-ПК» выполнен для `epic-status.test.sh` и `harness-home.test.sh`. `profile.test.sh` (79 падений, тот же набор, что на main) и `tickets-root.test.sh` (14 падений; на main 20 и зависания) красные из-за написания путей в fixture-ах: `/tmp/…` в `match` реестра, `ticket` печатает `C:\…`. `silent-mode.test.sh` — 3 падения из `harness/hooks/worktree-create.sh` (`pwd -P` даёт `/tmp/…`; hooks переписывает Ticket 04).
+**Не проверено:** всё на macOS и Linux — test-характеристика на bash-версии (экранирование обратной косой в awk macOS), сверка старой и новой версий на живых данных Mac (раздел Mac checks PR).
