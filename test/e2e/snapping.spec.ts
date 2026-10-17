@@ -370,3 +370,109 @@ test('a drag over an Auction-sized Canvas for 2 s keeps the frame rate', async (
     await launched.close()
   }
 })
+
+/**
+ * 250 Layout Nodes in 20 columns 360 × 280 apart, each moved up to 20 off its place, every other
+ * one a Card and the rest Notes (the Canvas of worfy-week ticket 14's measurement), from canvas
+ * (800, 480) on.
+ */
+function scatteredGrid(): (ReturnType<typeof noteNode> | ReturnType<typeof cardNode>)[] {
+  let state = 7
+  const off = () => {
+    state = (state * 1103515245 + 12345) % 2147483648
+    return Math.round((state / 2147483648) * 40 - 20)
+  }
+  return Array.from({ length: 250 }, (_, index) => {
+    const x = 800 + (index % 20) * 360 + off()
+    const y = 480 + Math.floor(index / 20) * 280 + off()
+    return index % 2 === 0 ? cardNode(`grid-${index}`, x, y) : noteNode(`grid-${index}`, x, y)
+  })
+}
+
+test('a group of 10 Notes and a Card dragged over 250 Layout Nodes for 2 s makes no long task', async () => {
+  // Two rows of five Notes and a Card right of them, above the grid.
+  const group = [...Array.from({ length: 10 }, (_, index) => noteNode(`g${index}`, 820 + (index % 5) * (220 + GAP), 80 + Math.floor(index / 5) * (120 + GAP))), cardNode('gc', 820 + 5 * (220 + GAP), 80)]
+  // At zoom 0.5 the window shows canvas x from 800 on, and the drag reaches the middle rows of the grid.
+  makeProject([...group, ...scatteredGrid()], { x: -400, y: 0, zoom: 0.5 })
+  const enforce = process.env.WORFY_PERF === '1'
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [nodeElement(window, 'g0'), nodeElement(window, 'gc'), nodeElement(window, 'g9')] })
+    // A selection box from the empty Canvas above-left of the group to below-right of it, short of the grid.
+    const first = await box(nodeElement(window, 'g0'))
+    const card = await box(nodeElement(window, 'gc'))
+    const last = await box(nodeElement(window, 'g9'))
+    await window.mouse.move(first.x - 10, first.y - 10)
+    await window.mouse.down()
+    await window.mouse.move(card.x + card.width + 10, last.y + last.height + 10, { steps: 10 })
+    await window.mouse.up()
+    await expect(window.locator('.react-flow__node.selected')).toHaveCount(11)
+
+    const from = await startDrag(window, header(window, 'g0'))
+    await window.evaluate(() => {
+      const { requestAnimationFrame, performance } = globalThis as unknown as PageGlobals
+      const w = globalThis as unknown as {
+        __frames: number[]
+        __long: number[]
+        __stop: boolean
+        PerformanceObserver: new (callback: (list: { getEntries(): { duration: number }[] }) => void) => { observe(options: { type: string }): void; disconnect(): void }
+        __observer: { disconnect(): void }
+      }
+      w.__frames = []
+      w.__long = []
+      w.__stop = false
+      const observer = new w.PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) w.__long.push(entry.duration)
+      })
+      observer.observe({ type: 'longtask' })
+      w.__observer = observer
+      let last = performance.now()
+      const tick = (now: number) => {
+        w.__frames.push(now - last)
+        last = now
+        if (!w.__stop) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    // Over the middle rows of the grid and back along a sine wave for 2 s: 1300 ± 400 canvas units down.
+    const until = Date.now() + 2_000
+    let step = 0
+    while (Date.now() < until) {
+      const t = step / 30
+      await window.mouse.move(from.x + 400 + 400 * Math.sin(t), from.y + 650 + 200 * Math.sin(t * 1.3))
+      step += 1
+    }
+    const { frames, long } = await window.evaluate(() => {
+      const w = globalThis as unknown as { __frames: number[]; __long: number[]; __stop: boolean; __observer: { disconnect(): void } }
+      w.__stop = true
+      w.__observer.disconnect()
+      return { frames: w.__frames.slice(1), long: w.__long }
+    })
+    await window.mouse.up()
+    const sorted = [...frames].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)] ?? Infinity
+    const fps = Math.round((1000 / median) * 10) / 10
+    const longest = Math.round(Math.max(...frames))
+    const longTasks = long.map(Math.round)
+    console.log(`group drag 2 s over 250 Nodes: ${frames.length} frames, ${step} moves, median ${fps} fps, longest frame ${longest} ms, long tasks ${longTasks.length} [${longTasks.join(', ')}] ms`)
+    test.info().annotations.push({ type: 'perf', description: `groupDragLongTasks=${longTasks.length} groupDragLongestFrame=${longest}ms groupDragMedianFps=${fps}` })
+
+    // Main still keeps every Node on the plane NODE_GAP clear of the others after the drop (ADR-0038).
+    await expect.poll(async () => (await byId(window, 'g0')).y, { message: 'the group is saved where it landed' }).toBeGreaterThan(80 + GAP)
+    const nodes = await layoutOf(window)
+    // Closer than the gap on both axes, with the rounding slack of src/shared/layout/free-place.ts.
+    const near = GAP - 1e-6
+    const crowded = nodes.flatMap((a, index) =>
+      nodes.slice(index + 1).filter((b) => a.x < b.x + b.w + near && b.x < a.x + a.w + near && a.y < b.y + b.h + near && b.y < a.y + a.h + near).map((b) => `${a.id}/${b.id}`),
+    )
+    expect(crowded).toEqual([])
+    // Frame times depend on the machine: CI only prints them, WORFY_PERF=1 on the developer's Mac checks them.
+    if (enforce) {
+      expect(longTasks).toEqual([])
+      expect(longest).toBeLessThanOrEqual(50)
+    }
+  } finally {
+    await launched.close()
+  }
+})
