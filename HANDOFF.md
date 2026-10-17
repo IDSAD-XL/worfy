@@ -23,6 +23,7 @@
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов; до связи вне LAN — ревьюер-человек SPAKE2 (решения 2026-10-16 — в 16–20).
 - `worfy-link` — решено без владельца, подтвердить: «Итог» Ticket-ов 21 (протокол 2), 22, 24, 25, 26.
 - `worfy-polish` — решено без владельца, подтвердить («Итог»): `inTurn`, `messageOf` и цикл импорта (27); окно автокомпакта, 1–4 (29).
+- `blocked`: CI на main красный после Wave `worfy-terminal-ai` 11–13 — test `terminal-ai-zle.test.ts:849`, [run](https://github.com/IDSAD-XL/worfy/actions/runs/39049858638); Ticket 14.
 - `worfy-terminal-ai` 11: связь с main у программ widget-ов и `zle -F` на prompt-е (fzf, atuin) — нужен ли отдельный Ticket («Итог» 11).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
