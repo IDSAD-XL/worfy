@@ -2,7 +2,10 @@
 // written through src/main/storage/json-file.ts: no file or an unreadable one (set aside as
 // `app-settings.json.unreadable-<time>`) gives the defaults, a field outside the schema is dropped,
 // an `interfaceScale` or an autocompact window out of range is brought into it. A file of an older
-// version that lacks a field takes the default for that field.
+// version that lacks a field takes the default for that field. Which autocompact window the person
+// chose is kept apart from worfy's default (`autoCompactWindowChosen`, worfy-polish ticket 29): a
+// window named by a change is chosen, even at the default value; one not chosen stays at worfy's
+// default, and the mark is written only while a window is chosen.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -13,12 +16,15 @@ import { z } from 'zod'
 import {
   appSettingsSchema,
   AUTO_COMPACT_WINDOW_DEFAULTS,
+  AUTO_COMPACT_WINDOW_WORFY_DEFAULT,
+  autoCompactWindowChosen,
   clampAutoCompactWindow,
   clampScale,
   defaultAppSettings,
   INTERFACE_SCALE_DEFAULT,
   sectionIdSchema,
   type AppSettings,
+  type AutoCompactRole,
   type AppSettingsPatch,
 } from '../../shared/settings/app-settings'
 import { readJsonFile, writeJsonFile, type ReadOptions } from '../storage/json-file'
@@ -47,21 +53,51 @@ const appSettingsFileSchema = z.object({
       other: z.number().nullable().transform(clampAutoCompactWindow).default(AUTO_COMPACT_WINDOW_DEFAULTS.other),
     })
     .default(() => ({ ...AUTO_COMPACT_WINDOW_DEFAULTS })),
+  autoCompactWindowChosen: z.object({ orchestrator: z.boolean().default(false), other: z.boolean().default(false) }).optional(),
   revision: z.number().int().nonnegative().default(0),
 })
+
+/** One window and whether the person chose it. */
+interface RoleWindow {
+  window: number | null
+  chosen: boolean
+}
+
+/**
+ * The two windows as the store holds them: one not chosen at worfy's default, the mark only while a
+ * window is chosen. A file whose mark says "not chosen" for a window off the default — edited by
+ * hand — keeps that window, as chosen.
+ */
+function windows(orchestrator: RoleWindow, other: RoleWindow): Pick<AppSettings, 'autoCompactWindow' | 'autoCompactWindowChosen'> {
+  const windowOf = (role: AutoCompactRole, each: RoleWindow): number | null => (each.chosen ? each.window : AUTO_COMPACT_WINDOW_DEFAULTS[role])
+  return {
+    autoCompactWindow: { orchestrator: windowOf('orchestrator', orchestrator), other: windowOf('other', other) },
+    ...(orchestrator.chosen || other.chosen ? { autoCompactWindowChosen: { orchestrator: orchestrator.chosen, other: other.chosen } } : {}),
+  }
+}
+
+/** The window of `role` as `settings` hold it. */
+function roleWindow(settings: Pick<AppSettings, 'autoCompactWindow' | 'autoCompactWindowChosen'>, role: AutoCompactRole): RoleWindow {
+  return { window: settings.autoCompactWindow[role], chosen: autoCompactWindowChosen(settings, role) }
+}
 
 function copy(settings: AppSettings): AppSettings {
   return {
     interfaceScale: settings.interfaceScale,
     sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
-    autoCompactWindow: { ...settings.autoCompactWindow },
+    ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
     revision: settings.revision,
   }
 }
 
-/** A window of the patch brought into range; the current one when the patch leaves it out. */
-function windowAfter(current: number | null, patched: number | null | undefined): number | null {
-  return patched === undefined ? current : clampAutoCompactWindow(patched)
+/**
+ * A window of the patch brought into range and chosen; worfy's default, not chosen, for
+ * AUTO_COMPACT_WINDOW_WORFY_DEFAULT; the current one when the patch leaves it out.
+ */
+function windowAfter(current: AppSettings, role: AutoCompactRole, patched: number | null | typeof AUTO_COMPACT_WINDOW_WORFY_DEFAULT | undefined): RoleWindow {
+  if (patched === undefined) return roleWindow(current, role)
+  if (patched === AUTO_COMPACT_WINDOW_WORFY_DEFAULT) return { window: AUTO_COMPACT_WINDOW_DEFAULTS[role], chosen: false }
+  return { window: clampAutoCompactWindow(patched), chosen: true }
 }
 
 /** The settings after `patch`, with the revision unchanged. */
@@ -72,10 +108,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
       collapsed: { ...current.sidebar.collapsed, ...patch.sidebar?.collapsed },
       visible: { ...current.sidebar.visible, ...patch.sidebar?.visible },
     },
-    autoCompactWindow: {
-      orchestrator: windowAfter(current.autoCompactWindow.orchestrator, patch.autoCompactWindow?.orchestrator),
-      other: windowAfter(current.autoCompactWindow.other, patch.autoCompactWindow?.other),
-    },
+    ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
     revision: current.revision,
   }
 }
@@ -92,6 +125,8 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
+    autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&
+    autoCompactWindowChosen(a, 'other') === autoCompactWindowChosen(b, 'other') &&
     sameRecord(a.sidebar.collapsed, b.sidebar.collapsed)
   )
 }
@@ -121,7 +156,9 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
       console.warn(`worfy: ${this.file} could not be read, the app settings start from the defaults: ${error instanceof Error ? error.message : String(error)}`)
     }
     // Parsed once more with the state schema: what the store holds is exactly what the channels send.
-    this.value = stored === undefined ? defaultAppSettings() : appSettingsSchema.parse(stored)
+    // copy() brings the windows to the form a write leaves them in, so a file written before the mark
+    // existed reads as the same state it is next written as.
+    this.value = stored === undefined ? defaultAppSettings() : copy(appSettingsSchema.parse(stored))
     return this.value
   }
 

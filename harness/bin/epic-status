@@ -20,8 +20,13 @@
 // `ticket root` when the root could not be determined.
 //
 // Source of truth: <tickets root>/<epic>/issues/NN-slug.md.
-// Fields are written both in the ticket's header and in its footer, in two spellings — "**Status:** done"
-// and "Status: done" — so the LAST occurrence across the whole file is taken.
+// The header carries one fact per line (TICKETS.md, "Header"); bin/ticket writes it, and this is its reader:
+//   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
+//   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
+//                                                   heading after Status), outside code
+// --json gives them as statusAt, blockedReason, waits, pr. Any other Status line — "**Status:**", a tail after
+// the word, a second Status line in the footer — is the old header: state none and statusError "old header",
+// not a guess; `ticket migrate` moves it.
 //
 // This script replaced a bash one (ADR-0055) and keeps its output byte for byte: the tests in
 // tests/epic-status.test.sh were written against the bash version. Where the bash one depended on
@@ -187,13 +192,15 @@ function refTree(entries, gitDir) {
 
 // --- parse -------------------------------------------------------------------------------
 // One ticket file → its fields. The rules (the bash version kept them in one awk program):
-//   the LAST Status / Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped;
+//   the FIRST Status line in any spelling is statusRaw; the state comes from it only when it is the only
+//   Status line of the file and has the new form, otherwise the state is none (with statusError "old header"
+//   when there was a Status line); the first Blocked reason / Waits / PR line of the header;
+//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped;
 //   a trailing \r is stripped; the title is the first line when it starts with #.
 // The patterns with non-ASCII words are written as text and turned into bytes (B), like the text they match.
 const re = (source, flags) => new RegExp(B(source), flags)
-const DONE = re(String.raw`^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$`)
-const WORK = /^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/
-const BLOK = re(String.raw`^(blocked|Blocked|заблокирован|Заблокирован)$`)
+// The Status line of the new format.
+const NEW_STATUS = /^Status: (open|claimed|blocked|done)( [0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}Z)?)?[ \t]*$/
 // Words people use to write "no blockers". An empty list of numbers and "did not understand" are
 // different things, and blockedParsed tells them apart, not the length of the list.
 const NONE = re(String.raw`^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n/a|N/A|-|—|–)$`)
@@ -219,6 +226,13 @@ function parse(epic, file, text) {
     let branchV = ""
     let repo = ""
     let fence = false
+    let sline = ""
+    let nstatus = 0
+    let hdr = true
+    let reason = null // null: no such line in the header yet; the first one wins
+    let waits = null
+    let prl = null
+    const after = (l, name) => l.slice(name.length).replace(/^[ \t]*/, "").replace(/[ \t]+$/, "")
     lines.forEach((raw, n) => {
         const l = raw.replace(/\r$/, "")
         if (n === 0 && l.startsWith("#")) title = l.replace(/^#[ \t]*/, "")
@@ -227,17 +241,40 @@ function parse(epic, file, text) {
             return
         }
         if (fence) return // "Status: done" in a code example is not a ticket field
+        // The header ends at the first "## " heading after the Status line: a "PR: <url>" line of a result
+        // section is not the header's.
+        if (nstatus > 0 && l.startsWith("## ")) hdr = false
+        if (hdr && reason === null && l.startsWith("Blocked reason:")) reason = after(l, "Blocked reason:")
+        if (hdr && waits === null && l.startsWith("Waits:")) waits = after(l, "Waits:")
+        if (hdr && prl === null && l.startsWith("PR:")) prl = after(l, "PR:")
         const m = FIELD.exec(l.toLowerCase())
         if (!m) return
         const v = l.replace(VALUE, "")
-        if (m[1] === "status") status = v
-        else if (m[1] === "blocked by") blocked = v
+        if (m[1] === "status") {
+            if (nstatus++ === 0) {
+                sline = l
+                status = v
+            }
+        } else if (m[1] === "blocked by") blocked = v
         else if (m[1] === "branch") branchV = v
         else repo = v
     })
 
-    const w = status.replace(/\*/g, "").replace(/^[ \t]+/, "").replace(/[ \t].*$/s, "").replace(/[.,;:()]/g, "")
-    const state = status === "" ? "none" : DONE.test(w) ? "done" : WORK.test(w) ? "work" : BLOK.test(w) ? "blocked" : "open"
+    let state = "none"
+    let at = ""
+    let serr = ""
+    let rs = ""
+    let wt = ""
+    let pr = ""
+    if (nstatus === 1 && NEW_STATUS.test(sline)) {
+        const w = sline.slice("Status: ".length)
+        const word = w.replace(/[ \t].*$/s, "")
+        if (w.includes(" ")) at = w.replace(/^[a-z]+ /, "").replace(/[ \t]+$/, "")
+        state = word === "claimed" ? "work" : word
+        rs = reason ?? ""
+        wt = waits ?? ""
+        if (prl !== null && /^#[0-9]+$/.test(prl)) pr = String(Number(prl.slice(1)))
+    } else if (nstatus > 0) serr = "old header"
 
     // bn: the numbers as the line reads them (also when the parse failed); bp: the parse succeeded.
     let bn = []
@@ -265,7 +302,7 @@ function parse(epic, file, text) {
     }
     // Branch and Repo are one word each: bold markers and surrounding backticks are not part of the value.
     const word = (x) => x.replace(/\*|`/g, "").replace(/^[ \t]+/, "").replace(/[ \t]+$/, "")
-    return { epic, num: String(Number(num)), slug, title, status, state, blocked, bn, bp, branch: word(branchV), repo: word(repo) }
+    return { epic, num: String(Number(num)), slug, title, status, state, at, serr, rs, wt, pr, blocked, bn, bp, branch: word(branchV), repo: word(repo) }
 }
 
 function rows(tree, only) {
@@ -287,6 +324,9 @@ function rows(tree, only) {
 const ticketJson = (t, ref) =>
     `{"epic":${jstr(t.epic)},"num":${t.num},"slug":${jstr(t.slug)},"title":${jstr(t.title)},` +
     `"statusRaw":${t.status === "" ? "null" : jstr(t.status)},"state":"${t.state}",` +
+    `"statusAt":${t.at === "" ? "null" : jstr(t.at)},"statusError":${t.serr === "" ? "null" : jstr(t.serr)},` +
+    `"blockedReason":${t.rs === "" ? "null" : jstr(t.rs)},"waits":${t.wt === "" ? "null" : jstr(t.wt)},` +
+    `"pr":${t.pr === "" ? "null" : t.pr},` +
     `"blockedRaw":${t.blocked === "" ? "null" : jstr(t.blocked)},"blockedNums":[${t.bp ? t.bn.join(",") : ""}],` +
     `"blockedParsed":${t.bp},"branch":${t.branch === "" ? "null" : jstr(t.branch)},` +
     `"repo":${t.repo === "" ? "null" : jstr(t.repo)},"ref":${jstr(ref)}}`
@@ -317,6 +357,7 @@ function lineFor(parent, epic, where) {
     let ndone = 0
     let working = false
     let nostatus = 0
+    let oldhdr = 0
     let cur = null
     const states = new Map() // num → state of the LAST ticket with that number
     for (const t of tickets) {
@@ -326,7 +367,10 @@ function lineFor(parent, epic, where) {
             continue
         }
         if (t.state === "work" || t.state === "blocked") working = true
-        if (t.state === "none") nostatus++
+        if (t.state === "none") {
+            if (t.serr !== "") oldhdr++
+            else nostatus++
+        }
         if (cur === null) cur = t
     }
     const total = tickets.length
@@ -342,6 +386,7 @@ function lineFor(parent, epic, where) {
         if (cur.state === "blocked") line += `${DOT}blocked`
     }
     if (nostatus > 0) line += `${DOT}${nostatus} without Status`
+    if (oldhdr > 0) line += `${DOT}${oldhdr} with an old header ${B("—")} run ticket migrate`
     out(line + "\n")
 }
 
@@ -442,7 +487,8 @@ function main() {
             const topReal = real(scratchGit)
             const ancReal = real(anc)
             let rel = path.relative(topReal, ancReal)
-            if (rel.startsWith("..") || path.isAbsolute(rel))
+            // path.relative uses path.sep (\ on Windows); a directory named "..t" is inside the repository.
+            if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
                 fail(3, `epic-status: tickets root ${scratch} could not be resolved relative to ${scratchGit}`)
             if (anc !== scratch) rel = path.join(rel, path.relative(anc, scratch))
             rel = rel.split(path.sep).join("/")

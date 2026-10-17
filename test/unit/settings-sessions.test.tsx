@@ -2,7 +2,9 @@
 // autocompact window of the Orchestrator and of the other Sessions, over the real renderer IPC
 // client and a fake preload of this Machine. The field takes thousands of tokens and keeps them in
 // 100K–1M on a step of 10K; "Claude Code default" passes null; a line names
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW when the shell sets it. What reaches Claude Code is checked in
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW when the shell sets it. Under each role a line names where the
+// window comes from (worfy-polish ticket 29): the person's own value, "Claude Code default", the
+// user's ~/.claude/settings.json, or worfy's default. What reaches Claude Code is checked in
 // test/contract/agent-autocompact.test.ts.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -21,13 +23,18 @@ interface FakeMain {
   sets: { input: unknown; answer: (result: IpcResult<unknown>) => void }[]
 }
 
-/** This Machine's preload: `appSettings.get` answers `state`, `sessionAutocompact.shellOverride` answers `shell`. */
-function preload(state: AppSettings, shell: string | null = null): FakeMain {
+/**
+ * This Machine's preload: `appSettings.get` answers `state`, `sessionAutocompact.shellOverride`
+ * answers `shell`; `sessionAutocompact.userSettings` answers `userWindow`, or is refused when it is
+ * undefined, as by a main that has no such channel.
+ */
+function preload(state: AppSettings, shell: string | null = null, userWindow?: number | null): FakeMain {
   const main: FakeMain = { sets: [] }
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
       if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: state } as never)
       if (channel === 'sessionAutocompact.shellOverride') return Promise.resolve({ ok: true, value: { value: shell } } as never)
+      if (channel === 'sessionAutocompact.userSettings' && userWindow !== undefined) return Promise.resolve({ ok: true, value: { value: userWindow } } as never)
       if (channel === 'appSettings.set') return new Promise((resolve) => main.sets.push({ input, answer: resolve as (result: IpcResult<unknown>) => void }))
       return Promise.resolve({ ok: false, error: `no ${channel} here` } as never)
     },
@@ -153,5 +160,56 @@ describe('Settings → Sessions', () => {
     expect(screen.getByTestId('settings-autocompact-orchestrator-row').textContent).not.toContain('Applies after restarting the Session.')
     // The field shows the window in force again.
     expect(field('orchestrator').value).toBe('400')
+  })
+
+  describe('where each window comes from', () => {
+    const source = (role: 'orchestrator' | 'other'): string | null => screen.getByTestId(`settings-autocompact-${role}-source`).textContent
+
+    async function mountWith(state: AppSettings, userWindow: number | null): Promise<FakeMain> {
+      const main = preload(state, null, userWindow)
+      const section = await import('../../src/renderer/settings/SessionsSection')
+      render(<section.default />)
+      return main
+    }
+
+    it('a window in ~/.claude/settings.json and nothing chosen in worfy: "From ~/.claude/settings.json", shown as "Claude Code default" with no field', async () => {
+      await mountWith(settings(1), 300_000)
+      await waitFor(() => expect(source('orchestrator')).toBe('From ~/.claude/settings.json (300K)'))
+      expect(source('other')).toBe('From ~/.claude/settings.json (300K)')
+      expect(mode('Orchestrator').textContent).toContain('Claude Code default')
+      expect(screen.queryByTestId('settings-autocompact-orchestrator')).toBeNull()
+      expect(screen.queryByTestId('settings-autocompact-other')).toBeNull()
+    })
+
+    it('no window there and nothing chosen: "worfy default" with its value, in the field too', async () => {
+      await mountWith(settings(1), null)
+      await waitFor(() => expect(source('orchestrator')).toBe('worfy default (400K)'))
+      expect(source('other')).toBe('worfy default (500K)')
+      expect(field('orchestrator').value).toBe('400')
+      expect(mode('Orchestrator').textContent).toContain('Custom')
+    })
+
+    it('a window the person chose wins over settings.json: their own value, or "Claude Code default"', async () => {
+      await mountWith(settings(1, { orchestrator: 450_000, other: null }), 300_000)
+      await waitFor(() => expect(source('orchestrator')).toBe('Custom (450K)'))
+      expect(source('other')).toBe('Claude Code default')
+      expect(field('orchestrator').value).toBe('450')
+    })
+
+    it('"Custom" at worfy\'s default value, marked chosen, stays "Custom" over settings.json', async () => {
+      await mountWith({ ...settings(1), autoCompactWindowChosen: { orchestrator: true, other: false } }, 300_000)
+      await waitFor(() => expect(source('orchestrator')).toBe('Custom (400K)'))
+      expect(source('other')).toBe('From ~/.claude/settings.json (300K)')
+    })
+
+    it('"Custom" chosen over a window of settings.json asks for the role\'s worfy default, and the line follows the answer', async () => {
+      const main = await mountWith(settings(1), 300_000)
+      await waitFor(() => expect(source('other')).toBe('From ~/.claude/settings.json (300K)'))
+      choose('Other Sessions', 'Custom')
+      expect(main.sets.map((each) => each.input)).toEqual([{ autoCompactWindow: { other: 500_000 } }])
+      await act(async () => main.sets[0]!.answer({ ok: true, value: { ...settings(2), autoCompactWindowChosen: { orchestrator: false, other: true } } }))
+      expect(source('other')).toBe('Custom (500K)')
+      expect(field('other').value).toBe('500')
+    })
   })
 })

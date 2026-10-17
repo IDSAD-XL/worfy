@@ -20,7 +20,8 @@ import { catScript } from '../harness-node'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
-// real script does. Projects are written into projects.json up front.
+// real script does: the one-fact-per-line header of harness/bin/TICKETS.md (`Status: <word> [<time>]`,
+// `Blocked reason:`, `Waits:`, `PR: #N`). Projects are written into projects.json up front.
 
 /** The page's DOM, typed for this file: the e2e typecheck has no DOM library. */
 interface PageGlobals {
@@ -62,12 +63,17 @@ for (const [path, read] of files) {
   if (!m) continue
   const text = read()
   const last = (name) => { let v = null; for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$', 'i').exec(l); if (x) v = x[1] } return v }
-  const status = last('Status')
+  const first = (name) => { for (const l of text.split('\n')) { const x = new RegExp('^' + name + ':\\s*(.*)$').exec(l); if (x) return x[1].trim() } return null }
+  const line = text.split('\n').find((l) => /^\**status\**\s*:/i.test(l)) ?? null
+  const status = line === null ? null : line.replace(/^[^:]*:\s*/, '')
+  const fmt = line === null ? null : /^Status: (open|claimed|blocked|done)(?: (\S+))?$/.exec(line)
+  const state = fmt === null ? 'none' : fmt[1] === 'claimed' ? 'work' : fmt[1]
+  const pr = fmt && /^#(\d+)$/.exec(first('PR') ?? '')
+  const facts = { statusAt: fmt?.[2] ?? null, statusError: line !== null && fmt === null ? 'old header' : null,
+    blockedReason: fmt ? first('Blocked reason') : null, waits: fmt ? first('Waits') : null, pr: pr ? Number(pr[1]) : null }
   const blocked = last('Blocked by')
-  const word = (status ?? '').split(/\s/)[0]
-  const state = status === null ? 'none' : /^done$/i.test(word) ? 'done' : /^claimed$/i.test(word) ? 'work' : /^blocked$/i.test(word) ? 'blocked' : 'open'
   const nums = blocked && !/^[—-]$/.test(blocked.trim()) ? blocked.split(',').map((s) => Number(s.trim())) : []
-  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state,
+  tickets.push({ epic, num: Number(m[1]), slug: m[2], title: (text.split('\n')[0] || '').replace(/^#\s*/, ''), statusRaw: status, state, ...facts,
     blockedRaw: blocked, blockedNums: nums.filter((n) => !Number.isNaN(n)), blockedParsed: nums.every((n) => !Number.isNaN(n)) })
 }
 process.stdout.write(JSON.stringify({ ref: ref ?? 'main', epics: [...epics.values()], tickets }))
@@ -125,6 +131,9 @@ function ticketText(num: number, status: string, blocked: string): string {
   const nn = String(num).padStart(2, '0')
   return [`# ${nn} — Ticket ${num}`, '', 'Type: task', `Status: ${status}`, `Blocked by: ${blocked}`, '', '## Что делаем', '', 'text', ''].join('\n')
 }
+
+/** The Status value of a blocked Ticket with its reason on the next header line, as `ticket block` writes them. */
+const blockedWith = (reason: string): string => `blocked 2026-10-17T09:41Z\nBlocked reason: ${reason}`
 
 /** Rewrites the Status line of a Ticket file, as `ticket claim` / `ticket done` do. */
 function setStatus(file: string, status: string): void {
@@ -316,7 +325,7 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
       observer.observe(page.document.body, { attributes: true, childList: true, subtree: true })
     })
     const started = Date.now()
-    setStatus(first, 'claimed — 2026-10-05')
+    setStatus(first, 'claimed 2026-10-05T09:41Z')
     await expect(ticketNode(window, 1)).toHaveAttribute('data-state', 'work', { timeout: 5_000 })
     const shownAt = await window.evaluate(() => (globalThis as unknown as { claimedAt?: number }).claimedAt)
     expect(shownAt).toBeDefined()
@@ -582,8 +591,8 @@ test('state chips use the F tokens in both themes and always carry a label; the 
     mkdirSync(issues, { recursive: true })
     writeFileSync(join(dir, 'demo', 'spec.md'), '# demo: a small Epic\n')
     writeFileSync(join(issues, '01-t1.md'), ticketText(1, 'done', '—'))
-    writeFileSync(join(issues, '02-t2.md'), ticketText(2, 'claimed — 2026-10-05', '01'))
-    writeFileSync(join(issues, '03-t3.md'), ticketText(3, 'blocked — needs Stripe test keys', '01'))
+    writeFileSync(join(issues, '02-t2.md'), ticketText(2, 'claimed 2026-10-05T09:41Z', '01'))
+    writeFileSync(join(issues, '03-t3.md'), ticketText(3, blockedWith('needs Stripe test keys'), '01'))
     writeFileSync(join(issues, '04-t4.md'), ticketText(4, 'open', '02, 03'))
     writeFileSync(join(issues, '05-t5.md'), ticketText(5, 'open', 'after the release'))
   })
@@ -812,7 +821,7 @@ test('long names: Ticket title, frame title, done stack and the sidebar name sho
     for (let num = 1; num <= 33; num += 1) writeFileSync(join(issues, `${String(num).padStart(2, '0')}-done-${num}.md`), ticketText(num, 'done', '—'))
     const done = Array.from({ length: 33 }, (_, i) => String(i + 1).padStart(2, '0')).join(', ')
     writeFileSync(join(issues, '40-long.md'), ticketText(40, 'open', '—').replace('# 40 — Ticket 40', `# 40 — ${LONG_TICKET_TITLE}`))
-    writeFileSync(join(issues, '41-blocked.md'), ticketText(41, 'blocked — waits for the owner to answer which payment provider the platform uses in production', '—'))
+    writeFileSync(join(issues, '41-blocked.md'), ticketText(41, blockedWith('waits for the owner to answer which payment provider the platform uses in production'), '—'))
     writeFileSync(join(issues, '42-many.md'), ticketText(42, 'open', done))
   })
   const launched = await launch()
@@ -894,12 +903,13 @@ function generateAuction(dir: string): { json: string; biggest: string } {
       // A wide tree: each Ticket is blocked by the one at half its number.
       const blockers = num > 1 ? [Math.floor(num / 2)] : []
       const state = states[num % states.length]!
-      const statusRaw = state === 'work' ? 'claimed — 2026-10-05' : state === 'blocked' ? 'blocked — waiting for review' : state
+      const statusRaw = state === 'work' ? 'claimed 2026-10-05T09:41Z' : state === 'blocked' ? 'blocked 2026-10-05T09:41Z' : state
+      const blockedReason = state === 'blocked' ? 'waiting for review' : null
       const blockedRaw = blockers.length ? blockers.map((b) => String(b).padStart(2, '0')).join(', ') : '—'
       const slug = `generated-${num}`
-      const text = [`# ${String(num).padStart(2, '0')} — Generated ticket ${num}`, '', `Status: ${statusRaw}`, `Blocked by: ${blockedRaw}`, '', '## Где в коде', '', `- \`src/${epic}/m${num}.ts\``, ''].join('\n')
+      const text = [`# ${String(num).padStart(2, '0')} — Generated ticket ${num}`, '', `Status: ${statusRaw}`, ...(blockedReason ? [`Blocked reason: ${blockedReason}`] : []), `Blocked by: ${blockedRaw}`, '', '## Где в коде', '', `- \`src/${epic}/m${num}.ts\``, ''].join('\n')
       writeFileSync(join(issues, `${String(num).padStart(2, '0')}-${slug}.md`), text)
-      answer.tickets.push({ epic, num, slug, title: `Generated ticket ${num}`, statusRaw, state, blockedRaw, blockedNums: blockers, blockedParsed: true })
+      answer.tickets.push({ epic, num, slug, title: `Generated ticket ${num}`, statusRaw, state, blockedReason, blockedRaw, blockedNums: blockers, blockedParsed: true })
     }
   })
   return { json: JSON.stringify(answer), biggest: 'epic-01' }

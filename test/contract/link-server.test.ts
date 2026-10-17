@@ -3,6 +3,7 @@
 // server listens, and service messages. Services run over temporary data folders on 127.0.0.1
 // (test/contract/link-bench.ts).
 import { randomBytes, randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { createServer as createHttpsServer, request } from 'node:https'
 import { connect as netConnect } from 'node:net'
 import tls from 'node:tls'
@@ -13,8 +14,10 @@ import { defineHandler, type HandlerModule } from '../../src/main/ipc/index'
 import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { LinkConnection } from '../../src/main/link/connection'
 import { generateCertificate } from '../../src/main/link/identity'
+import { localMachineOf } from '../../src/main/link/ipc-adapter'
 import { CONNECT_PATH, defineLinkMessage, LINK_MAX_PAYLOAD, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
 import { startLinkServer } from '../../src/main/link/server'
+import { linkPing } from '../../src/shared/ipc/link'
 import { projectsList } from '../../src/shared/ipc/projects'
 import { LinkBench, type BenchMachine } from './link-bench'
 
@@ -236,6 +239,49 @@ describe('IPC over the link', () => {
     expect(projectsCalls.count).toBe(0)
     // And the other way round, over the same connection.
     expect(await b.service.call(a.service.machine.id, 'link.ping')).toEqual({ ok: true, value: expect.objectContaining({ id: a.service.machine.id, name: 'alpha' }) })
+  })
+
+  it(`answers a call whose answer is over ${LINK_MAX_PAYLOAD} bytes with an error; the next call on the same connection passes`, async () => {
+    // 'é' is one UTF-16 unit but two UTF-8 bytes: the name is under the limit in string length and
+    // over it in the bytes the receiver counts. Built once, about 8 MB.
+    const huge = 'é'.repeat(LINK_MAX_PAYLOAD / 2 + 1)
+    let answers = 0
+    const bigPing: HandlerModule = [
+      defineHandler(linkPing, (_input, { event }) => {
+        const machine = localMachineOf(event)
+        if (machine === undefined) throw new Error('not a link call')
+        answers += 1
+        return answers === 1 ? { ...machine, name: huge } : machine
+      }),
+    ]
+    newBench({ ipcModules: { './link.ts': () => Promise.resolve(bigPing) } })
+    const { a, b } = await linkedPair()
+    const bId = b.service.machine.id
+    await a.service.connect(bId)
+    const connection = a.service.connectionTo(bId)
+    expect(await a.service.call(bId, 'link.ping')).toEqual({ ok: false, error: 'link.ping: the answer is too large to send over the link' })
+    expect(await a.service.call(bId, 'link.ping')).toEqual({ ok: true, value: expect.objectContaining({ id: bId, name: 'beta' }) })
+    expect(a.service.connectionTo(bId)).toBe(connection)
+    expect(connection?.isOpen).toBe(true)
+    expect(answers).toBe(2)
+  })
+
+  it(`sends an answer of exactly ${LINK_MAX_PAYLOAD} bytes as it is, and one byte more as an error that fits`, () => {
+    const sent: string[] = []
+    const ws = Object.assign(new EventEmitter(), { OPEN: 1, readyState: 1, send: (text: string) => sent.push(text), ping: () => undefined })
+    const warnings: string[] = []
+    const connection = new LinkConnection(ws as unknown as WebSocket, randomUUID(), 'in', { pingIntervalMs: 60_000, warn: (message) => warnings.push(message) })
+    const frameBytes = (value: string): number => Buffer.byteLength(JSON.stringify({ t: 'result', id: 7, result: { ok: true, value } }))
+    const room = LINK_MAX_PAYLOAD - frameBytes('')
+    const exact = 'é'.repeat(Math.floor(room / 2)) + 'a'.repeat(room % 2)
+    expect(frameBytes(exact)).toBe(LINK_MAX_PAYLOAD)
+    connection.answer(7, 'link.ping', { ok: true, value: exact })
+    connection.answer(7, 'link.ping', { ok: true, value: `${exact}a` })
+    expect(sent).toHaveLength(2)
+    expect(Buffer.byteLength(sent[0] ?? '')).toBe(LINK_MAX_PAYLOAD)
+    expect(JSON.parse(sent[1] ?? '')).toEqual({ t: 'result', id: 7, result: { ok: false, error: 'link.ping: the answer is too large to send over the link' } })
+    expect(warnings).toEqual([expect.stringContaining(`the answer to link.ping is ${LINK_MAX_PAYLOAD + 1} bytes`)])
+    ws.emit('close', 1000)
   })
 })
 

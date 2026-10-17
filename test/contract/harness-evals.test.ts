@@ -175,7 +175,7 @@ describe('harness/evals: reviewer-intended-breakage is the diff the case describ
     const ticketDiff = git('diff', 'origin/main...HEAD', '--', '.scratch/demo/issues/01-alpha.md')
     expect(ticketDiff.split('\n').filter((line) => /^[+-][^+-]/.test(line))).toEqual([
       '-Status: open',
-      '+Status: claimed — 2026-10-01',
+      '+Status: claimed 2026-10-01T09:00Z',
     ])
     expect(ticket).toContain('`percent(2, 3)` —\n  `66.7`')
     expect(readFileSync(join(work, 'src', 'report.mjs'), 'utf8')).toContain("total === 0 ? '—'")

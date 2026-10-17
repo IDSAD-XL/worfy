@@ -13,6 +13,12 @@
 //   `other` for every other Session of worfy. null — "Claude Code default": worfy passes nothing,
 //   the user's settings.json and Claude Code decide. Main reads it at every start of a Session's
 //   Claude Code (src/main/agent/app-registry.ts); a running process keeps the window it started with;
+// - `autoCompactWindowChosen` — which of the two windows the person chose in Settings (worfy-polish
+//   ticket 29). A window not chosen is worfy's default and gives way to `autoCompactWindow` of the
+//   user's ~/.claude/settings.json (autoCompactWindowSource). A window off worfy's default counts as
+//   chosen with or without the mark, so a file written before the mark existed keeps its choices; the
+//   mark is what tells "Custom" at the default value from the default itself. Absent while neither is
+//   chosen;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -56,6 +62,12 @@ export function clampAutoCompactWindow(value: number | null): number | null {
   return Math.round(bounded / AUTO_COMPACT_WINDOW_STEP) * AUTO_COMPACT_WINDOW_STEP
 }
 
+/** Which window: a Project's Orchestrator, or any other Session. */
+export type AutoCompactRole = 'orchestrator' | 'other'
+
+/** In a change, takes a window back to worfy's default, not chosen: settings.json wins over it again. */
+export const AUTO_COMPACT_WINDOW_WORFY_DEFAULT = 'worfy-default'
+
 /** A window in tokens within the bounds and on a step, or null for "Claude Code default". */
 export const autoCompactWindowSchema = z
   .number()
@@ -91,6 +103,8 @@ export const appSettingsSchema = z.object({
     /** Every other Session of worfy: those opened on the Canvas. */
     other: autoCompactWindowSchema,
   }),
+  /** Which window the person chose; absent while neither is (see autoCompactWindowChosen). */
+  autoCompactWindowChosen: z.object({ orchestrator: z.boolean(), other: z.boolean() }).optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -99,7 +113,8 @@ export type AppSettings = z.output<typeof appSettingsSchema>
  * A change in parts: only the fields given change. `collapsed` and `visible` merge by key, so a
  * change to one section leaves the others as they are; so do the two windows of
  * `autoCompactWindow`. `interfaceScale` may be any number; the store brings it into range with
- * clampScale, and a window with clampAutoCompactWindow.
+ * clampScale, and a window with clampAutoCompactWindow. A window given — a number or null — is the
+ * person's choice; AUTO_COMPACT_WINDOW_WORFY_DEFAULT takes it back to worfy's default, not chosen.
  */
 export const appSettingsPatchSchema = z.object({
   interfaceScale: z.number().optional(),
@@ -111,8 +126,8 @@ export const appSettingsPatchSchema = z.object({
     .optional(),
   autoCompactWindow: z
     .object({
-      orchestrator: z.number().nullable().optional(),
-      other: z.number().nullable().optional(),
+      orchestrator: z.union([z.number(), z.literal(AUTO_COMPACT_WINDOW_WORFY_DEFAULT)]).nullable().optional(),
+      other: z.union([z.number(), z.literal(AUTO_COMPACT_WINDOW_WORFY_DEFAULT)]).nullable().optional(),
     })
     .optional(),
 })
@@ -136,11 +151,47 @@ export function defaultAppSettings(): AppSettings {
   }
 }
 
+type WindowSettings = Pick<AppSettings, 'autoCompactWindow' | 'autoCompactWindowChosen'>
+
+/**
+ * Whether the person chose the window of `role` in Settings: marked so, or off worfy's default —
+ * which only a choice can make it.
+ */
+export function autoCompactWindowChosen(settings: WindowSettings, role: AutoCompactRole): boolean {
+  return settings.autoCompactWindowChosen?.[role] === true || settings.autoCompactWindow[role] !== AUTO_COMPACT_WINDOW_DEFAULTS[role]
+}
+
+/** Where the window of a role comes from, as Settings → Sessions names it. */
+export type AutoCompactWindowSource =
+  /** The person chose "Custom": worfy passes this window. */
+  | { kind: 'custom'; window: number }
+  /** The person chose "Claude Code default": worfy passes nothing. */
+  | { kind: 'claude-code-default' }
+  /** Nothing chosen, and the user's ~/.claude/settings.json has a window: worfy passes nothing, Claude Code takes that one. */
+  | { kind: 'user-settings'; window: number }
+  /** Nothing chosen and nothing in settings.json: worfy passes its own default. */
+  | { kind: 'worfy-default'; window: number }
+
+/**
+ * The source of the window of `role`, in this order: the person's choice in Settings, then
+ * `userWindow` — `autoCompactWindow` of the user's ~/.claude/settings.json, null when it has none —
+ * then worfy's default.
+ */
+export function autoCompactWindowSource(settings: WindowSettings, role: AutoCompactRole, userWindow: number | null): AutoCompactWindowSource {
+  if (autoCompactWindowChosen(settings, role)) {
+    const window = settings.autoCompactWindow[role]
+    return window === null ? { kind: 'claude-code-default' } : { kind: 'custom', window }
+  }
+  if (userWindow !== null) return { kind: 'user-settings', window: userWindow }
+  return { kind: 'worfy-default', window: AUTO_COMPACT_WINDOW_DEFAULTS[role] }
+}
+
 /**
  * The autocompact window a Session's Claude Code is started with: the Orchestrator's for a
- * Project's Orchestrator (Autopilot's included), the other one for any other Session; null — pass
- * nothing.
+ * Project's Orchestrator (Autopilot's included), the other one for any other Session, by
+ * autoCompactWindowSource; null — pass nothing.
  */
-export function autoCompactWindowFor(settings: Pick<AppSettings, 'autoCompactWindow'>, orchestrator: boolean): number | null {
-  return orchestrator ? settings.autoCompactWindow.orchestrator : settings.autoCompactWindow.other
+export function autoCompactWindowFor(settings: WindowSettings, orchestrator: boolean, userWindow: number | null): number | null {
+  const source = autoCompactWindowSource(settings, orchestrator ? 'orchestrator' : 'other', userWindow)
+  return source.kind === 'custom' || source.kind === 'worfy-default' ? source.window : null
 }

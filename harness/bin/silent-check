@@ -158,9 +158,13 @@ if (silent) {
         try {
             forms.add(fs.realpathSync(wf))
         } catch {}
-        const home = os.homedir()
-        for (const f of [...forms])
-            if (home && (f.startsWith(home + "/") || f.startsWith(home + path.sep))) forms.add("~" + f.slice(home.length))
+        // Windows: the profile gives C:\…, git and the shell print C:/…; HOME may be spelled either way.
+        if (path.sep === "\\") for (const f of [...forms]) forms.add(f.split("\\").join("/"))
+        const home = os.homedir() ? path.resolve(os.homedir()) : ""
+        for (const f of [...forms]) {
+            const r = path.resolve(f)
+            if (home && r.startsWith(home + path.sep)) forms.add("~" + r.slice(home.length).split(path.sep).join("/"))
+        }
         for (const f of forms) rules.push(["Workflow folder path", new RegExp(esc(f), "g"), true])
     }
     rules.push([".scratch", /\.scratch(?![\p{L}\p{N}_])/gu, true])

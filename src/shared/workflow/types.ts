@@ -4,7 +4,7 @@
 // it never owns it). In Silent mode both come from the Workflow folder (ADR-0042).
 import { z } from 'zod'
 
-/** Ticket state as epic-status classifies the raw `Status:` value. */
+/** Ticket state as epic-status reads the `Status:` line; `none` — no line, or an old header (`statusError`). */
 export const ticketStateSchema = z.enum(['open', 'work', 'blocked', 'done', 'none'])
 export type TicketState = z.infer<typeof ticketStateSchema>
 
@@ -23,6 +23,20 @@ export const epicStatusTicketSchema = z.object({
   title: z.string(),
   statusRaw: z.string().nullable(),
   state: ticketStateSchema,
+  /*
+   * The header facts beside Status, one per line (harness/bin/TICKETS.md, "Header"). Optional, and absent
+   * reads as null: an older Harness and a Linked machine's older worfy do not send them.
+   */
+  /** The time of the `Status:` line: `2026-10-17T09:41Z`, or a date alone for a migrated Ticket; null without one. */
+  statusAt: z.string().nullable().optional(),
+  /** Why `state` is `none` although the file has a Status line: "old header" until `ticket migrate` runs. */
+  statusError: z.string().nullable().optional(),
+  /** The `Blocked reason:` line. */
+  blockedReason: z.string().nullable().optional(),
+  /** The `Waits:` line: owner, team, agent or a Machine name. */
+  waits: z.string().nullable().optional(),
+  /** The number of the `PR: #N` line. */
+  pr: z.number().int().positive().nullable().optional(),
   blockedRaw: z.string().nullable(),
   blockedNums: z.array(z.number().int().nonnegative()),
   blockedParsed: z.boolean(),
@@ -65,7 +79,7 @@ export const ticketSchema = epicStatusTicketSchema.extend({
   /** False when the Ticket has no "Где в коде" section at all ("files not listed"). */
   filesListed: z.boolean(),
   /**
-   * Set when `state` and `statusRaw` come from a worktree branch rather than the Project's
+   * Set when `state`, `statusRaw` and the header facts beside them come from a worktree branch rather than the Project's
    * checkout: the Ticket was claimed in that branch and the change has not reached the checkout.
    */
   fromBranch: z.string().nullable(),

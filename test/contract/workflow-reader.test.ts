@@ -129,7 +129,7 @@ function makeRepo(dir: string): string {
   const issues = join(repo, '.scratch', 'demo', 'issues')
   mkdirSync(issues, { recursive: true })
   writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo epic: a small one\n\ntext\n')
-  writeFileSync(join(issues, '01-first.md'), ticketText(1, 'done — 2026-10-01', '—', ['src/a.ts']))
+  writeFileSync(join(issues, '01-first.md'), ticketText(1, 'done 2026-10-01', '—', ['src/a.ts']))
   writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', ['src/b.ts', 'src/shared.ts']))
   writeFileSync(join(issues, '03-third.md'), ticketText(3, 'open', '01', ['src/shared.ts']))
   writeFileSync(join(issues, '04-fourth.md'), ticketText(4, 'open', '—', null))
@@ -144,7 +144,7 @@ function claimInWorktree(repo: string, branch: string, folder: string, ticketFil
   const path = join(repo, '.claude', 'worktrees', folder)
   git(repo, 'worktree', 'add', '-q', '-b', branch, path, 'main')
   const file = join(path, '.scratch', 'demo', 'issues', ticketFile)
-  writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-05'))
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed 2026-10-05'))
   git(path, 'commit', '-qam', `claim ${branch}`)
   return path
 }
@@ -227,7 +227,7 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'slug', 'state', 'statusRaw', 'title'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'waits'].sort(),
     )
   })
 
@@ -235,7 +235,7 @@ describe('workflow reader', () => {
     const repo = makeRepo(dir)
     const issues = join(repo, '.scratch', 'demo', 'issues')
     const done = (items: string[]) => ['', '## Готово, когда', '', ...items, ''].join('\n')
-    writeFileSync(join(issues, '01-first.md'), ticketText(1, 'done — 2026-10-01', '—', ['src/a.ts']) + done(['- [ ] `pnpm test` exit 0', '- [x] (вручную) Stable copy: the frame is drawn.', '- [ ] (вручную) Stable copy after the merge:', '      the palette lists this check.']))
+    writeFileSync(join(issues, '01-first.md'), ticketText(1, 'done 2026-10-01', '—', ['src/a.ts']) + done(['- [ ] `pnpm test` exit 0', '- [x] (вручную) Stable copy: the frame is drawn.', '- [ ] (вручную) Stable copy after the merge:', '      the palette lists this check.']))
     writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', ['src/b.ts']) + done(['- [ ] (вручную) dev build: ⌘Z undoes the move.']))
     const { home } = makeClaudeHome(dir)
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
@@ -255,14 +255,14 @@ describe('workflow reader', () => {
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
 
     const before = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
-    expect(ticketOf(before, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-05', fromBranch: 'demo/02' })
+    expect(ticketOf(before, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed 2026-10-05', fromBranch: 'demo/02' })
     expect(ticketOf(before, 3)).toMatchObject({ state: 'open', fromBranch: null })
     // The checkout itself still says open: the claim lives in the branch only.
     expect(readFileSync(join(repo, '.scratch/demo/issues/02-second.md'), 'utf8')).toMatch(/^Status: open$/m)
 
     git(repo, 'merge', '-q', '--ff-only', 'demo/02')
     const after = (await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model
-    expect(ticketOf(after, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-05', fromBranch: null })
+    expect(ticketOf(after, 2)).toMatchObject({ state: 'work', statusRaw: 'claimed 2026-10-05', fromBranch: null })
   })
 
   it('does not let a branch left over after the merge override a Ticket done in the checkout', async () => {
@@ -270,7 +270,7 @@ describe('workflow reader', () => {
     const { home } = makeClaudeHome(dir)
     claimInWorktree(repo, 'demo/02', '02', '02-second.md')
     const file = join(repo, '.scratch/demo/issues/02-second.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: done — 2026-10-06'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: done 2026-10-06'))
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
     expect(ticketOf(model, 2)).toMatchObject({ state: 'done', fromBranch: null })
   })
@@ -281,9 +281,9 @@ describe('workflow reader', () => {
     // The branch's worktree is made from main and leaves the Ticket file alone: Status open, as on its base.
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/03', join(repo, '.claude', 'worktrees', '03'), 'main')
     const file = join(repo, '.scratch/demo/issues/03-third.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — rejected by review'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked 2026-10-06\nBlocked reason: rejected by review'))
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
-    expect(ticketOf(model, 3)).toMatchObject({ state: 'blocked', statusRaw: 'blocked — rejected by review', fromBranch: null })
+    expect(ticketOf(model, 3)).toMatchObject({ state: 'blocked', statusRaw: 'blocked 2026-10-06', blockedReason: 'rejected by review', fromBranch: null })
   })
 
   it('does not let a branch say claimed or done over blocked in the checkout: a Ticket sent back for rework stays blocked (ticket 30)', async () => {
@@ -292,14 +292,14 @@ describe('workflow reader', () => {
     const path = join(repo, '.claude', 'worktrees', '03')
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/03', path, 'main')
     const file = join(repo, '.scratch/demo/issues/03-third.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — rejected by review'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked 2026-10-06\nBlocked reason: rejected by review'))
     const branchFile = join(path, '.scratch/demo/issues/03-third.md')
-    for (const status of ['claimed — 2026-10-06', 'done — 2026-10-06']) {
+    for (const status of ['claimed 2026-10-06', 'done 2026-10-06']) {
       writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, `Status: ${status}`))
       git(path, 'commit', '-qam', `03: ${status}`)
       expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 3), status).toMatchObject({
         state: 'blocked',
-        statusRaw: 'blocked — rejected by review',
+        statusRaw: 'blocked 2026-10-06', blockedReason: 'rejected by review',
         fromBranch: null,
       })
     }
@@ -311,14 +311,22 @@ describe('workflow reader', () => {
     const path = join(repo, '.claude', 'worktrees', '04')
     git(repo, 'worktree', 'add', '-q', '-b', 'demo/04', path, 'main')
     const file = join(repo, '.scratch/demo/issues/04-fourth.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-06'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed 2026-10-06'))
     // The branch still says open, from its base: the checkout's claim stands.
-    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({ state: 'work', statusRaw: 'claimed — 2026-10-06', fromBranch: null })
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({ state: 'work', statusRaw: 'claimed 2026-10-06', fromBranch: null })
     // The branch blocks the Ticket: that is news the checkout does not have yet.
     const branchFile = join(path, '.scratch/demo/issues/04-fourth.md')
-    writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waits for the owner'))
+    writeFileSync(branchFile, readFileSync(branchFile, 'utf8').replace(/^Status: .*$/m, 'Status: blocked 2026-10-07\nBlocked reason: waits for the owner\nWaits: owner'))
     git(path, 'commit', '-qam', 'block 04')
-    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({ state: 'blocked', fromBranch: 'demo/04' })
+    // The reason, Waits and the time come with the branch's state, not from the checkout's claim.
+    expect(ticketOf((await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })).model, 4)).toMatchObject({
+      state: 'blocked',
+      statusRaw: 'blocked 2026-10-07',
+      statusAt: '2026-10-07',
+      blockedReason: 'waits for the owner',
+      waits: 'owner',
+      fromBranch: 'demo/04',
+    })
   })
 
   it('understands the older <epic>/<NN>-<slug> branches and skips branches that name no Ticket', async () => {
@@ -573,7 +581,7 @@ function makeSilent(base: string): { repo: string; folder: string; scratch: stri
   const issues = join(scratch, 'demo', 'issues')
   mkdirSync(issues, { recursive: true })
   writeFileSync(join(scratch, 'demo', 'spec.md'), '# Silent epic: tickets outside the repository\n')
-  writeFileSync(join(issues, '01-first.md'), ticketText(1, 'claimed — 2026-10-09', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nBranch: fix/first\nRepo: silent-repo'))
+  writeFileSync(join(issues, '01-first.md'), ticketText(1, 'claimed 2026-10-09', '—', ['src/a.ts']).replace('Type: task', 'Type: task\nBranch: fix/first\nRepo: silent-repo'))
   writeFileSync(join(issues, '02-second.md'), ticketText(2, 'open', '01', ['src/b.ts', 'src/c.ts']))
   return { repo, folder, scratch }
 }
@@ -612,7 +620,7 @@ describe('workflow reader in Silent mode', () => {
     expect(ticketOf(watcher.current, 2)?.state).toBe('open')
 
     const file = join(scratch, 'demo', 'issues', '02-second.md')
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting').replace('`src/c.ts`', '`src/d.ts`'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting').replace('`src/c.ts`', '`src/d.ts`'))
     const { delta } = await nextDelta(deltas, (d) => d.tickets.length > 0)
     expect(delta.tickets.map((t) => [t.num, t.state, t.files, t.fromBranch])).toEqual([[2, 'blocked', ['src/b.ts', 'src/d.ts'], null]])
 
@@ -699,7 +707,7 @@ describe('workflow watcher', () => {
 
     const file = join(repo, '.scratch/demo/issues/03-third.md')
     const savedAt = performance.now()
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting'))
     const { delta, at } = await nextDelta(deltas, (d) => d.tickets.length > 0)
 
     expect(at - savedAt).toBeLessThanOrEqual(1500)
@@ -804,7 +812,7 @@ describe('workflow watcher', () => {
     expect(added.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['demo', 1, 'open']])
     await watcher.idle()
 
-    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked — waiting'))
+    writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: blocked\nBlocked reason: waiting'))
     const edited = await nextDelta(deltas, (d) => d.tickets.length > 0)
     expect(edited.delta.tickets.map((t) => [t.num, t.state])).toEqual([[1, 'blocked']])
 
@@ -869,7 +877,7 @@ describe('workflow watcher', () => {
     const racing: EpicStatusRunner = async (cwd, ref) => {
       const out = await real(cwd, ref)
       if (ref === null && !savedAt) {
-        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-05'))
+        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed 2026-10-05'))
         savedAt = performance.now()
         await new Promise((done) => setTimeout(done, 100))
       }
@@ -901,7 +909,7 @@ describe('workflow watcher', () => {
       const out = await real(cwd, ref)
       if (ref === null && !saved) {
         saved = true
-        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed — 2026-10-05'))
+        writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, 'Status: claimed 2026-10-05'))
         await new Promise((done) => setTimeout(done, 1000))
       }
       return out
@@ -1013,7 +1021,7 @@ describe('workflow watcher', () => {
     const file = join(repo, '.scratch/demo/issues/03-third.md')
     const original = readFileSync(file, 'utf8')
     for (let i = 0; i < 15; i += 1) {
-      writeFileSync(file, original.replace(/^Status: .*$/m, `Status: blocked — save ${i}`))
+      writeFileSync(file, original.replace(/^Status: .*$/m, `Status: blocked\nBlocked reason: save ${i}`))
       await new Promise((done) => setTimeout(done, 200))
     }
     // Before max-wait every save restarted the 300 ms quiet period, and nothing was read until

@@ -4,7 +4,7 @@
 import { EventEmitter } from 'node:events'
 import type WebSocket from 'ws'
 import type { IpcResult } from '../../shared/ipc/channels'
-import { frameSchema, type Frame } from './messages'
+import { frameSchema, LINK_MAX_PAYLOAD, type Frame } from './messages'
 
 /** How often a connection pings; a connection without a pong by the next ping is dropped. */
 export const PING_INTERVAL_MS = 15_000
@@ -27,6 +27,7 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
   private readonly heartbeat: NodeJS.Timeout
   private alive = true
   private closed = false
+  private readonly warn: (message: string) => void
 
   constructor(
     private readonly ws: WebSocket,
@@ -37,6 +38,7 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
     options: { pingIntervalMs?: number; warn: (message: string) => void },
   ) {
     super()
+    this.warn = options.warn
     ws.on('message', (data) => {
       // Once either side started closing (a revoke, linking again), nothing more is acted on.
       if (ws.readyState !== ws.OPEN) return
@@ -85,6 +87,24 @@ export class LinkConnection extends EventEmitter<LinkConnectionEvents> {
   send(frame: Frame): void {
     if (!this.isOpen) return
     this.ws.send(JSON.stringify(frame))
+  }
+
+  /**
+   * Answers call `id` of `channel` with its result. The receiver closes a connection that sends it
+   * a message over LINK_MAX_PAYLOAD bytes (code 1009), which would break every call on it; a result
+   * that large goes out as an error of this one call instead, and the connection stays.
+   */
+  answer(id: number, channel: string, result: IpcResult<unknown>): void {
+    if (!this.isOpen) return
+    const text = JSON.stringify({ t: 'result', id, result } satisfies Frame)
+    // The receiver counts the UTF-8 bytes of a text message, not its UTF-16 length.
+    const bytes = Buffer.byteLength(text)
+    if (bytes <= LINK_MAX_PAYLOAD) {
+      this.ws.send(text)
+      return
+    }
+    this.warn(`[link] the answer to ${channel} is ${bytes} bytes, more than the ${LINK_MAX_PAYLOAD} a link connection carries; Machine ${this.machineId} gets an error instead`)
+    this.send({ t: 'result', id, result: { ok: false, error: `${channel}: the answer is too large to send over the link` } })
   }
 
   /** Calls an IPC channel on the other Machine; resolves with its IpcResult, never rejects. */

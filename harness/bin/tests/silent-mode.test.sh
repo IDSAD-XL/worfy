@@ -83,13 +83,23 @@ printf '{"schema":2,"name":"fp","mode":"full","attribution":"on","tickets":{"roo
 # --- 1. ticket claim --branch writes into the Workflow folder ---------------------------
 out="$(cd "$R" && "$BIN/ticket" claim checkout-flow 05 --branch fix/x 2>&1)"; rc=$?
 f="$WF/.scratch/checkout-flow/issues/05-withdraw.md"
-if [ "$rc" -eq 0 ] && grep -q "^Status: claimed — $(date -u +%F)" "$f" && grep -qx 'Branch: fix/x' "$f"; then
+if [ "$rc" -eq 0 ] && grep -Eqx "Status: claimed $(date -u +%F)T[0-9]{2}:[0-9]{2}Z" "$f" && grep -qx 'Branch: fix/x' "$f"; then
     ok "ticket claim --branch from the repository writes Status and Branch into the Workflow folder"
 else
     bad "ticket claim --branch: exit $rc, out: ${out:0:300}; file: $(tr '\n' '|' <"$f")"
 fi
 [ -z "$(git -C "$R" status --porcelain)" ] && [ ! -e "$R/.scratch" ] \
     && ok "claim leaves the repository clean" || bad "claim touched the repository: $(git -C "$R" status --porcelain)"
+
+# ticket migrate from the repository moves the tickets of the Workflow folder, not of the repository.
+mkdir -p "$WF/.scratch/migr/issues"
+printf '# 01 — Old\n\nStatus: blocked — waits for the keys; Autopilot does not take it\nBlocked by: —\n' >"$WF/.scratch/migr/issues/01-old.md"
+out="$(cd "$R" && "$BIN/ticket" migrate --epic migr 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ "$(sed -n 3,4p "$WF/.scratch/migr/issues/01-old.md")" = "$(printf 'Status: blocked\nBlocked reason: waits for the keys; Autopilot does not take it')" ] \
+   && [[ "$out" == *"blocked without Waits: 1"* ]] && [ -z "$(git -C "$R" status --porcelain)" ] && [ ! -e "$R/.scratch" ]; then
+    ok "ticket migrate in Silent mode writes into the Workflow folder, the repository stays clean"
+else bad "migrate in Silent mode: exit $rc, out: ${out:0:300}; file: $(tr '\n' '|' <"$WF/.scratch/migr/issues/01-old.md")"; fi
+rm -r "$WF/.scratch/migr"
 
 # A worktree of the repository: the status still goes into the one ticket file in the Workflow folder.
 git -C "$R" worktree add -q -b fix/other "$T/side" main 2>/dev/null
@@ -151,6 +161,14 @@ out="$("$SC" -C "$FR" "Ticket 05, ADR-0042, .scratch/, HANDOFF, Co-Authored-By: 
     || bad "silent-check full: exit $rc, out: ${out:0:200}"
 out="$("$SC" -C "$WF" "Ticket 05" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "silent-check in the Workflow folder (not a project repository) checks nothing" || bad "silent-check in WF: exit $rc, out: ${out:0:200}"
+# A Workflow folder under the home folder is also a trace in its ~/… spelling. WF above is not under
+# HOME, so only this case reaches that form.
+cp "$HARNESS_HOME/projects/sp/profile.json" "$T/sp-profile-wf.json"; mkdir -p "$HOME/hwf"
+jq --arg f "$HOME/hwf" '.workflow.folder = $f' "$T/sp-profile-wf.json" >"$HARNESS_HOME/projects/sp/profile.json"
+out="$("$SC" -C "$R" "see ~/hwf/notes.md" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *'Workflow folder path "~/hwf"'* ]] && ok "silent-check finds the ~/… spelling of a Workflow folder under HOME" \
+    || bad "silent-check ~/ Workflow folder: exit $rc, out: ${out:0:200}"
+cp "$T/sp-profile-wf.json" "$HARNESS_HOME/projects/sp/profile.json"
 printf '{"schema":2,"name":"fp","mode":"full","attribution":"off"}\n' >"$HARNESS_HOME/projects/fp/profile.json"
 out="$("$SC" -C "$FR" "Ticket 05 and HANDOFF" 2>&1)"; rc1=$?
 out2="$("$SC" -C "$FR" $'Fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>' 2>&1)"; rc2=$?
@@ -321,7 +339,7 @@ out="$(single fix/same)"
 git -C "$R" checkout -q main
 cp "$T/profile.saved" "$P"
 out="$(cd "$R" && "$BIN/ticket" done checkout-flow 05 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && grep -qx "Status: done — $(date -u +%F)" "$f" && ok "ticket done without --pr writes Status: done with no PR" \
+[ "$rc" -eq 0 ] && grep -Eqx "Status: done $(date -u +%F)T[0-9]{2}:[0-9]{2}Z" "$f" && ! grep -q '^PR:' "$f" && ok "ticket done without --pr writes Status: done with no PR" \
     || bad "ticket done: exit $rc, out: ${out:0:200}"
 [ -z "$(git -C "$R" status --porcelain)" ] && ok "the repository has no workflow files after the run" || bad "repository dirty: $(git -C "$R" status --porcelain)"
 
@@ -471,7 +489,7 @@ out="$(wcommit "$(line "$o2" TREE)" "$(line "$o2" TEMPORARY)")"
 [[ "$out" == *"EXIT=0"* ]] && [ ! -e "$(line "$o2" TREE)" ] && ok "wave documents: nothing to commit — EXIT=0, the temporary tree removed" || bad "wave documents, empty run: ${out:0:300}"
 out="$(wavedocs 03)"
 if [[ "$out" == *"EXIT=0"* && "$out" != *"TEMPORARY=no"* ]] && [ "$(git -C "$FR" log -1 --format=%s main)" = "wave documents" ] \
-   && git -C "$FR" show main:.scratch/ep/issues/03-t.md | grep -q '^Status: blocked — removed from the wave' \
+   && git -C "$FR" show main:.scratch/ep/issues/03-t.md | grep -qx 'Blocked reason: removed from the wave' \
    && [ "$(git -C "$FR" worktree list | grep -c "/main ")" = 0 ]; then
     ok "wave documents, main checked out nowhere: one commit on main in a temporary worktree, removed after"
 else bad "wave documents (temporary tree): ${out:0:400}"; fi
