@@ -1,7 +1,8 @@
 # 03 — Gate на Node; worfy читает вердикт Gate на обеих системах
 
 Type: task
-Status: done — 2026-10-14, [PR #298](https://github.com/IDSAD-XL/worfy/pull/298)
+Status: done 2026-10-14
+PR: #298
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness, которые зовут hooks и worfy, — на Node; bash только в test-ах), Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR) ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) — файл вердикта без языка; evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 

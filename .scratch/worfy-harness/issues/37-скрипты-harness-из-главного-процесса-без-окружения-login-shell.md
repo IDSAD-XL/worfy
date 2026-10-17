@@ -1,7 +1,8 @@
 # 37 — worfy, запущенный из Finder, не показывает Epic-и Silent Project-а: скрипты Harness из main process идут без окружения login shell, а сбой не виден в окне
 
 Type: task
-Status: done — 2026-10-14, [PR #311](https://github.com/IDSAD-XL/worfy/pull/311)
+Status: done 2026-10-14
+PR: #311
 Blocked by:
 Source: приёмочный прогон 2026-10-14 под вторым пользователем macOS (приёмка E3, пункт 5, Ticket [26](26-приёмка-e3.md)); отчёт прогона — [../evidence/26-пункт-5-отчёт-2026-10-14.md](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 1 (блокер). Утверждения отчёта о коде сделаны по собранному `app.asar`; здесь они сверены с исходниками на main `ff61b06f` (2026-10-14).
 

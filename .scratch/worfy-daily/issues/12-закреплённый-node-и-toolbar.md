@@ -1,7 +1,8 @@
 # 12 — Закреплённый Node: не под миникартой, toolbar выделения не поверх
 
 Type: task
-Status: done — 2026-10-06, [PR #52](https://github.com/IDSAD-XL/worfy/pull/52)
+Status: done 2026-10-06
+PR: #52
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; [ADR-0013](../../../docs/adr/0013-pinned-node-screen-coordinates.md) — экранные координаты закреплённого Node-а; Ticket 29 worfy-mvp
 

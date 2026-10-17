@@ -1,7 +1,8 @@
 # 04 — Версия worfy и Harness: `0.2.0+<SHA>` в сборке, копия Harness в `.app`, версия в UI
 
 Type: task
-Status: done — 2026-10-07, [PR #111](https://github.com/IDSAD-XL/worfy/pull/111)
+Status: done 2026-10-07
+PR: #111
 Blocked by: 02
 Source: решения владельца 2026-10-07 (Q1, Q12); [spec.md](../spec.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0019](../../../docs/adr/0019-harness-claude-code-plugin.md); [ADR-0008](../../../docs/adr/0008-claude-code-native-binary-path.md)
 

@@ -1,7 +1,8 @@
 # 01 — Reviewer проверяет поломку локальной сборки и утечки feature flag; Orchestrator сортирует находки на четыре группы
 
 Type: task
-Status: done — 2026-10-10, [PR #220](https://github.com/IDSAD-XL/worfy/pull/220)
+Status: done 2026-10-10
+PR: #220
 Blocked by: —
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункты «проверки Thermos» и «группы находок» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), разделы о Thermos (plugin Cursor с двумя review-skills) и о skill `interrogate` из pstack (ревью несколькими моделями); [spec.md](../spec.md)
 

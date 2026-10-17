@@ -1,7 +1,8 @@
 # 07 — «Tidy up»: Node-ы пользователя раскладываются без перекрытий, один ⌘Z отменяет
 
 Type: task
-Status: done — 2026-10-07, [PR #90](https://github.com/IDSAD-XL/worfy/pull/90)
+Status: done 2026-10-07
+PR: #90
 Blocked by: 03, 04
 Source: решения владельца 2026-10-07, вопросы 19, 25 и 28 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 

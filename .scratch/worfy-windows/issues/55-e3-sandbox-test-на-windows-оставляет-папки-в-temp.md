@@ -1,7 +1,8 @@
 # 55 — `test/contract/e3-sandbox.test.ts` на Windows оставляет в `%TEMP%` папки по 340 MB: песочница приёмки macOS там не поддерживается
 
 Type: task
-Status: done — 2026-10-16, [PR #390](https://github.com/IDSAD-XL/worfy/pull/390)
+Status: done 2026-10-16
+PR: #390
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», найдено при прогонах `pnpm test` ночью
 2026-10-16 (Ticket-ы 51 и 53): на диске C осталось 4.9 GB, в `%TEMP%` — 68 папок

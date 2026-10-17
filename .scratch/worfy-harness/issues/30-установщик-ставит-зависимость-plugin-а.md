@@ -1,7 +1,8 @@
 # 30 — Установщик сам ставит зависимость plugin-а `worfy` (`mattpocock-skills`) и не оставляет Harness установленным наполовину
 
 Type: task
-Status: done — 2026-10-10, [PR #216](https://github.com/IDSAD-XL/worfy/pull/216)
+Status: done 2026-10-10
+PR: #216
 Blocked by:
 Source: решение владельца 2026-10-10 по приёмке E3 (Ticket 26, пункт 1 — песочница с пустым `~/.claude`), вариант а: зависимость ставит сам установщик, в том же диалоге согласия, как qmd с согласия; находка того же прогона — после отказа `claude plugin install` plugin `worfy` записан и включён; [Ticket 13](13-установщик-harness-из-app.md) (установщик; «решено без владельца»: worfy зависимость не ставит); [Ticket 19](19-экран-первого-запуска.md) (экран первого запуска); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md), пункт 7 (что установщик пишет в `~/.claude`); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md), пункт 5 (plugin объявляет зависимость); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md), пункт 4 (скачивание — с согласия); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (команды `claude plugin`); [spec.md](../spec.md)
 

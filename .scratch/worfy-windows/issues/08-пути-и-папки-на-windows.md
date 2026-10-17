@@ -1,7 +1,8 @@
 # 08 — Пути и папки на Windows: данные worfy, ~/.claude, мост Limits
 
 Type: task
-Status: done — 2026-10-10, [PR #200](https://github.com/IDSAD-XL/worfy/pull/200)
+Status: done 2026-10-10
+PR: #200
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q1 (полный порт), Q19 (скрипты, которые зовут hooks и worfy, — на Node), Q24 (Windows 10 21H2+ и 11, x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md) (раздельные папки данных dev и packaged); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 

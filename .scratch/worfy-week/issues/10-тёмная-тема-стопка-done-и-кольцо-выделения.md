@@ -1,7 +1,8 @@
 # 10 — Тёмная тема: стопка done со второй карточкой, кольцо акцента у выделенного Node-а и Ticket-а
 
 Type: task
-Status: done — 2026-10-07, [PR #96](https://github.com/IDSAD-XL/worfy/pull/96)
+Status: done 2026-10-07
+PR: #96
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M7 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket 11 `worfy-daily`, подраздел [«Ручная проверка 2026-10-07»](../../worfy-daily/issues/11-заголовки-и-chip-ы-без-обрезки.md#ручная-проверка-2026-10-07); [F-SPEC.md](../../../docs/design/F-SPEC.md), «Light/dark pairing rule»; макет `docs/design/F-canvas-dark.dc.html:205-207`; HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 

@@ -1,7 +1,8 @@
 # 28 — Заголовки Command palette — не больше 3 строк, полный текст в tooltip только у обрезанных строк
 
 Type: task
-Status: done — 2026-10-17, [PR #423](https://github.com/IDSAD-XL/worfy/pull/423)
+Status: done 2026-10-17
+PR: #423
 Branch: worfy-polish/28
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») — follow-up Ticket-а

@@ -1,7 +1,8 @@
 # 11 — `checks.get` знает, какой Project спрашивает: бейджи Gate, PR, CI у репозитория, который ещё и отдельный Project
 
 Type: task
-Status: done — 2026-10-15, [PR #350](https://github.com/IDSAD-XL/worfy/pull/350)
+Status: done 2026-10-15
+PR: #350
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R8 (формулировка scout-а «Project по первому совпадению пути
 вместо длинного префикса» не подтвердилась; верный долг — ниже); «Итог»

@@ -1,7 +1,8 @@
 # 08 — Остальные пять skills, скрипты `bin/` и `hooks/` по-английски; состояние Harness — в `~/.claude/worfy-harness/`
 
 Type: task
-Status: done — 2026-10-07, [PR #112](https://github.com/IDSAD-XL/worfy/pull/112)
+Status: done 2026-10-07
+PR: #112
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q4, Q6, Q34, Q2, Q15 и Q32; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине, plugin `worfy`), [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (qmd в plugin — граница с Ticket-ом 17); [spec.md](../spec.md)
 

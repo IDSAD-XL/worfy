@@ -1,7 +1,8 @@
 # 08 — Файл или картинку можно бросить прямо на Узел Session-а
 
 Type: task
-Status: done — 2026-10-15, [PR #352](https://github.com/IDSAD-XL/worfy/pull/352)
+Status: done 2026-10-15
+PR: #352
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U2; «Итог»
 [`worfy-mvp` 20](../../worfy-mvp/issues/20-поле-ввода-slash-и-вложения.md): «Перетаскивание на Узел не

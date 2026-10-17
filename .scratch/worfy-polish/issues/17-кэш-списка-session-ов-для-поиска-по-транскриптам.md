@@ -1,7 +1,8 @@
 # 17 — Поиск по транскриптам не перечитывает список Session-ов на каждый запрос: замер и кэш
 
 Type: task
-Status: done — 2026-10-15, [PR #369](https://github.com/IDSAD-XL/worfy/pull/369)
+Status: done 2026-10-15
+PR: #369
 Branch: worfy-polish/17
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а

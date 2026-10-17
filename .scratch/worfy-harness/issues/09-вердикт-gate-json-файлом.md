@@ -1,7 +1,8 @@
 # 09 — Gate пишет вердикт JSON-файлом, worfy читает его, а не слово «зелено»
 
 Type: task
-Status: done — 2026-10-07, [PR #114](https://github.com/IDSAD-XL/worfy/pull/114)
+Status: done 2026-10-07
+PR: #114
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q6 (Harness на английском; машинные строки — английские константы или JSON, старые русские читаются) и «Машинный контракт Gate» (Gate пишет вердикт JSON-файлом, worfy читает его); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, язык из Profile, машинный контракт без языка); [spec.md](../spec.md)
 

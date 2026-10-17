@@ -1,7 +1,8 @@
 # 06 — Snapping при перетаскивании: сетка 8 px, направляющие, контур места, куда встанет Node
 
 Type: task
-Status: done — 2026-10-07, [PR #91](https://github.com/IDSAD-XL/worfy/pull/91)
+Status: done 2026-10-07
+PR: #91
 Blocked by: 04
 Source: решения владельца 2026-10-07, вопросы 18, 22 и 23 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 

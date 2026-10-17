@@ -1,7 +1,8 @@
 # 03 — Стабильная копия worfy.app вне репозитория
 
 Type: task
-Status: done — 2026-10-06, [PR #37](https://github.com/IDSAD-XL/worfy/pull/37)
+Status: done 2026-10-06
+PR: #37
 Blocked by: —
 Source: [spec.md](../spec.md), тема A, риски 5 и 6; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) — папка данных worfy; Ticket 32 worfy-mvp (сборка `.app`)
 

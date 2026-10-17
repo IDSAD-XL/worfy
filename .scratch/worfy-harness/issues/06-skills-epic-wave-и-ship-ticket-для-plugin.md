@@ -1,7 +1,8 @@
 # 06 — Skills `epic-wave` и `ship-ticket` по-английски, с путями plugin, префиксом `worfy:` и новой командой Autopilot
 
 Type: task
-Status: done — 2026-10-07, [PR #110](https://github.com/IDSAD-XL/worfy/pull/110)
+Status: done 2026-10-07
+PR: #110
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2, Q11 и Q32; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском; формат команды Autopilot задаёт этот Ticket), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`), [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) (Autopilot называет Ticket-ы Wave); [spec.md](../spec.md)
 

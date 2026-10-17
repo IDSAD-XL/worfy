@@ -1,7 +1,8 @@
 # 21 — Вызов `powershell.exe` из worfy на Windows стоит секунды, когда текст скрипта новый
 
 Type: task
-Status: done — 2026-10-13, [PR #269](https://github.com/IDSAD-XL/worfy/pull/269)
+Status: done 2026-10-13
+PR: #269
 Blocked by: —
 Source: замеры Session на Windows-ПК, 2026-10-12, в работе над Ticket-ом [10](10-terminal-на-powershell.md) (Terminal на PowerShell, PR #239); долг «скрипт идёт через `-EncodedCommand`» в «Итог» Ticket-а [09](09-окружение-агента-на-windows.md) (окружение агента на Windows). Делается после Ticket-а [20](20-chokidar-не-идёт-по-ссылке-на-unc.md) (watcher-ы chokidar и ссылка на share). Делает Session на Windows-ПК; проверяет и вливает Session на Mac, как у Ticket-а 20.
 

@@ -1,7 +1,8 @@
 # 22 — Silent mode в Harness: файлы workflow в Workflow folder, без следов в ветках, коммитах и PR
 
 Type: task
-Status: done — 2026-10-09, [PR #150](https://github.com/IDSAD-XL/worfy/pull/150)
+Status: done 2026-10-09
+PR: #150
 Branch: worfy-harness/22
 Blocked by: 16
 Source: решения владельца 2026-10-07, Q11' (б), Q17, Q23–Q30; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode, Workflow folder, worktree вне репозитория, `attribution`; заменяет ADR-0020); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — всегда Silent mode, финиш без прав — локальный); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние Harness на машине — `~/.claude/worfy-harness/`); [spec.md](../spec.md)

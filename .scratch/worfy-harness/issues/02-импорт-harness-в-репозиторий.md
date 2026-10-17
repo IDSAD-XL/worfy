@@ -1,7 +1,8 @@
 # 02 — Импорт Harness из `~/.claude` в `harness/` с историей git; test-ы скриптов Harness в CI
 
 Type: task
-Status: done — 2026-10-07, [PR #105](https://github.com/IDSAD-XL/worfy/pull/105)
+Status: done 2026-10-07
+PR: #105
 Blocked by: —
 Source: решения владельца 2026-10-07 (Q2, Q3, Q13, Q19, Q33); [spec.md](../spec.md); [ADR-0019](../../../docs/adr/0019-harness-claude-code-plugin.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md)
 

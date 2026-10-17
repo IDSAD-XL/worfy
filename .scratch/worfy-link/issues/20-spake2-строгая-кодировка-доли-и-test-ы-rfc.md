@@ -1,7 +1,8 @@
 # 20 — SPAKE2: строгая кодировка доли и test-ы по всем векторам RFC 9382
 
 Type: task
-Status: done — 2026-10-16, [PR #400](https://github.com/IDSAD-XL/worfy/pull/400)
+Status: done 2026-10-16
+PR: #400
 Branch: worfy-link/20
 Blocked by: —
 Source: независимое ревью SPAKE2, Ticket [17](17-независимое-ревью-spake2.md), находки Н1 (med) и Н2 (low)

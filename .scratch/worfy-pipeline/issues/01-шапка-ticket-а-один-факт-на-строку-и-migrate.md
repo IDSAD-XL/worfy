@@ -1,7 +1,8 @@
 # 01 — Шапка Ticket-а: один факт на строку, `bin/ticket migrate`
 
 Type: task
-Status: claimed 2026-10-17
+Status: done 2026-10-17T05:50Z
+PR: #421
 Branch: worfy-pipeline/01
 Blocked by: —
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 3, 6 ([spec.md](../spec.md), «Решения
@@ -146,3 +147,9 @@ worfy-link 16, worfy-terminal-ai 09, worfy-throughput 04 и 05, worfy-ui 12. З�
 
 Не проверено: вердикт Windows (gate full на ПК) — шаг оркестратора; миграция worfy (пункт 6) — шаг
 оркестратора после merge.
+
+## Merge
+
+[PR #421](https://github.com/IDSAD-XL/worfy/pull/421) влит 2026-10-17 как `05c63c83`. Mac: `GATE_SCOPE=all` gate full exit 0 на head `a6a9943e` поверх main `65049210`, CI зелёный. Windows-ПК на `80389bf`: новых падений по имени против main нет; три падения `ticket-header.test.sh` на Windows (обратная косая черта в путях `migrate`, `sed` из Git Bash срезал `\r`) исправлены коммитом `80389bf`. Проверка «migrate in Silent mode» в `silent-mode.test.sh` на Windows красная по той же причине, что и проверки claim и block на main (путь корня), — это `worfy-windows` 05.
+
+Шаг 6 (миграция worfy) — отдельный PR: `ticket migrate` перенёс 235 Ticket-ов, 70 уже были в новом формате; `Waits:` выставлен пяти `blocked` (link 16, terminal-ai 09, ui 12 — owner; throughput 04, 05 — agent). `epic-status --json` до и после: `state` 305 Ticket-ов совпал (кроме этого Ticket-а, `work` → `done`), `statusError` — 0; установленный Harness со старым разбором читает перенесённые файлы так же.
