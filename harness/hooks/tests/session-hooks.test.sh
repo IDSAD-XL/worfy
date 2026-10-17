@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
-# Tests of hooks/session-start.sh and hooks/session-end.sh.
+# Tests of hooks/session-start.mjs and hooks/session-end.mjs.
 # Run: bash harness/hooks/tests/session-hooks.test.sh; exit code 0 means everything passed.
 #
 # The registry is the live one (read only; this test looks for it at $HOME/.claude/gate/config.json,
 # the legacy place the hooks fall back to when $HARNESS_HOME/gate/config.json is missing), the profiles
 # are a copy of ~/.claude/profiles in a temporary directory (CLAUDE_PROFILES_DIR), so the real
-# state/pending-retro.log is not touched. Plus a synthetic registry for edge cases.
+# state/pending-retro.log is not touched. Plus a synthetic registry for edge cases, run with a
+# temporary home folder. JSON is read with node, not jq: Git Bash on Windows has no jq.
 set -u
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
+# /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+# A path as node prints it: C:\… on Windows, unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 # The hooks and bin/profile under test are the copies next to this test (harness/); BIN_DIR and
 # HOOKS_DIR point it at another copy. Checks on live repositories need the live registry too.
-HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
+HARNESS="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })"
 BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
-START="$HOOKS/session-start.sh"
-END="$HOOKS/session-end.sh"
+START="$HOOKS/session-start.mjs"
+END="$HOOKS/session-end.mjs"
 export CLAUDE_PROFILE_BIN="$BIN/profile" CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 LIVE_GATE="$HOME/.claude/gate/config.json"
 ATAKAMA="$HOME/Work/Atakama"
@@ -22,7 +28,7 @@ pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 . "$HARNESS/bin/tests/real-home.sh"
 home_before="$(real_home_snapshot "$HOME" "$T")"
@@ -39,9 +45,17 @@ export CLAUDE_PROFILES_DIR="$T/profiles"
 run() {
     local payload='{"session_id":"t-1","hook_event_name":"X"}'
     [ -n "$3" ] && payload="{\"session_id\":\"t-1\",\"cwd\":\"$3\",\"hook_event_name\":\"X\"}"
-    (cd "$2" && printf '%s' "$payload" | bash "$1")
+    (cd "$2" && printf '%s' "$payload" | node "$1")
 }
-ctx() { jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
+# A field of the hook output on stdin ("" when it is not JSON or has no such field).
+field() {
+    node -e '
+let o
+try { o = JSON.parse(require("fs").readFileSync(0, "utf8")) } catch { process.exit(0) }
+const v = (o && o.hookSpecificOutput || {})[process.argv[1]]
+if (typeof v === "string") process.stdout.write(v + "\n")' "$1" 2>/dev/null
+}
+ctx() { field additionalContext; }
 
 LOG="$T/profiles/atakama/state/pending-retro.log"
 
@@ -49,7 +63,7 @@ if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
     R="$ATAKAMA/Atakama-Browser-Server"
     out="$(run "$START" "$R" "$R")"; rc=$?
     c="$(printf '%s' "$out" | ctx)"
-    [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | jq -r .hookSpecificOutput.hookEventName)" = SessionStart ] \
+    [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | field hookEventName)" = SessionStart ] \
         && ok "atakama repo: SessionStart JSON, exit 0" || bad "atakama repo: rc=$rc out=${out:0:120}"
     [[ "$c" == *"## Personal working rules (Alexey only — never commit these to the repos)"* ]] \
         && ok "atakama repo: rules.md under profile heading" || bad "atakama repo: rules heading missing"
@@ -143,6 +157,12 @@ after="$(find "$T/profiles" -name pending-retro.log -exec cat {} + 2>/dev/null |
     || bad "unregistered end: rc=$rc before=$before after=$after"
 
 # --- synthetic registry: a profile without the session field, a broken profile -------------
+# From here on the home folder is a temporary one: the hooks shorten a path under it to ~, and the
+# temporary directory may lie under the real home (on Windows it does). HOME is the home folder of
+# node on macOS and Linux, USERPROFILE on Windows: both are set.
+REAL_HOME="$HOME"
+mkdir -p "$T/home"
+export HOME="$T/home" USERPROFILE="$T/home"
 mkdir -p "$T/syn/p1" "$T/syn/p2" "$T/sp/quiet" "$T/sp/broken"
 git -C "$T/syn/p1" init -q; git -C "$T/syn/p2" init -q
 echo '{"schema":1,"name":"quiet","lessons":"profile"}' >"$T/sp/quiet/profile.json"
@@ -181,7 +201,7 @@ echo '{"schema":2,"name":"fulloff","mode":"full","attribution":"off"}' >"$T/sp/f
 printf '{"repos":[{"key":"s","match":"%s","profile":"silent"},{"key":"f","match":"%s","profile":"fullon"},{"key":"o","match":"%s","profile":"fulloff"}]}\n' \
     "$T/syn/s1" "$T/syn/f1" "$T/syn/f2" >"$T/syn4.json"
 c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
-if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project works in Silent mode"* && "$c" == *"Workflow folder $T/wf"* ]] \
+if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project works in Silent mode"* && "$c" == *"Workflow folder $(printed "$T/wf"),"* ]] \
    && [[ "$c" == *"no epic names, ticket or ADR numbers"* && "$c" == *"Attribution is off for this project"* ]]; then
     ok "silent + attribution off: the mode and attribution lines are mixed in without inject_rules"
 else bad "silent session context: [$c]"; fi
@@ -202,7 +222,39 @@ c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" 
 [[ "$c" == *"This project works in Silent mode"* && "$c" != *"Attribution is off"* ]] \
     && ok "silent with an explicit attribution on: the mode lines without the attribution line" || bad "silent, explicit on: [$c]"
 
-home_after="$(real_home_snapshot "$HOME" "$T")"
+# --- the home folder, cwd from the hook JSON, Windows paths (worfy-windows ticket 04) --------------
+# A Workflow folder under the home folder is shown as ~/…, with / after the ~ on every system. The
+# home folder is os.homedir(): on Windows that is USERPROFILE, so there HOME points elsewhere and
+# must not count; on macOS and Linux os.homedir() is HOME, and both name the same folder.
+if [ "$WIN" -eq 1 ]; then tilde_home="$T/home"; else tilde_home="$T"; fi
+c="$(HOME="$tilde_home" USERPROFILE="$T" CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
+[[ "$c" == *"Workflow folder ~/wf,"* ]] && ok "Workflow folder under the home folder (os.homedir()) is shown as ~/wf" \
+    || bad "Workflow folder under the home folder: $(printf '%s' "$c" | grep -o 'Workflow folder [^,]*')"
+
+# cwd from the hook JSON wins over $PWD (the hook runs in a folder outside the registry).
+c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/plain" "$T/syn/s1" | ctx)"
+[[ "$c" == *"This project works in Silent mode"* ]] && ok "synthetic: cwd from the hook JSON wins over PWD" || bad "synthetic: cwd from the JSON ignored: [$c]"
+
+# Claude Code on Windows sends cwd as C:\… with backslashes and gives CLAUDE_PLUGIN_ROOT as C:/…;
+# bin/profile is the one next to the hooks (no CLAUDE_PROFILE_BIN), run from a folder outside the
+# registry, so only the cwd of the JSON can find the project.
+if [ "$WIN" -eq 1 ] && [ -z "${BIN_DIR:-}" ]; then
+    wcwd="$(cygpath -w "$T/syn/s1")"; wjson="${wcwd//\\/\\\\}"
+    c="$(cd "$T/plain" && printf '{"session_id":"t-1","cwd":"%s","hook_event_name":"SessionStart"}' "$wjson" \
+        | env -u CLAUDE_PROFILE_BIN CLAUDE_PLUGIN_ROOT="$HARNESS" CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" node "$START" | ctx)"
+    [[ "$c" == *"This project works in Silent mode"* ]] && ok "windows: cwd C:\\… with backslashes finds the project" \
+        || bad "windows: cwd $wcwd not used: [$c]"
+    wcwd3="$(cygpath -w "$T/syn/p3")"; : >"$T/sp/remind/state/pending-retro.log"
+    (cd "$T/plain" && printf '{"session_id":"t-1","cwd":"%s","hook_event_name":"SessionEnd"}' "${wcwd3//\\/\\\\}" \
+        | env -u CLAUDE_PROFILE_BIN CLAUDE_PLUGIN_ROOT="$HARNESS" CLAUDE_GATE_CONFIG="$T/syn3.json" CLAUDE_PROFILES_DIR="$T/sp" node "$END")
+    last="$(tail -n 1 "$T/sp/remind/state/pending-retro.log" 2>/dev/null)"
+    [ "${last#*$'\t'}" = "$wcwd3" ] && ok "windows: session-end writes the cwd C:\\… as the hook got it" \
+        || bad "windows: session-end log line: [$last]"
+else
+    echo "skip windows paths: not Git Bash on Windows, or BIN_DIR names another bin/profile"
+fi
+
+home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \
     || bad "the real home changed: $(diff <(printf '%s\n' "$home_before") <(printf '%s\n' "$home_after") | head -5)"
 

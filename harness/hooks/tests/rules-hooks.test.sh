@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
 # Tests of the Harness rules that reach a session through hooks (ticket worfy-harness/05, ADR-0041):
-# the parts in hooks/rules/, hooks/inject-rules.sh and the hook wiring in hooks/hooks.json.
+# the parts in hooks/rules/, hooks/inject-rules.mjs and the hook wiring in hooks/hooks.json.
 # Run: bash harness/hooks/tests/rules-hooks.test.sh; exit code 0 means every check passed.
 #
 # Everything is found next to this file (harness/); nothing under $HOME is read or written.
+# JSON is read with node, not jq: Git Bash on Windows has no jq (worfy-windows ticket 04).
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd -P)"
+# The plugin folder as node prints it: C:/… in Git Bash on Windows (`pwd -W`), the same path elsewhere.
+HARNESS_N="$(cd "$HARNESS" && { pwd -W 2>/dev/null || pwd -P; })"
 HOOKS="$HARNESS/hooks"
 RULES="$HOOKS/rules"
-INJECT="$HOOKS/inject-rules.sh"
+INJECT="$HOOKS/inject-rules.mjs"
+# Git Bash hands a native program a variable that looks like a POSIX path in Windows spelling
+# (/opt/x becomes C:/Program Files/Git/opt/x). Claude Code itself gives CLAUDE_PLUGIN_ROOT as C:/…;
+# the plain roots below must reach node as they are written.
+export MSYS2_ENV_CONV_EXCL=CLAUDE_PLUGIN_ROOT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -21,7 +28,16 @@ LIMIT=10000
 # A plugin root as long as a real install path is likely to get; the parts must fit with it.
 LONG_ROOT="/Users/someone-with-a-long-name/.claude/plugins/cache/worfy-local-marketplace/worfy/10.20.30-build.12345"
 
-chars() { jq -Rs 'length' <"$1"; }
+# Characters (code points, as Claude Code counts a string), of a file or of stdin.
+chars() { node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))' <"${1:-/dev/stdin}"; }
+# A field of the hook output in $T/out ("" when it is not JSON or has no such field).
+out_field() {
+    node -e '
+let o
+try { o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")) } catch { process.exit(0) }
+const v = (o && o.hookSpecificOutput || {})[process.argv[2]]
+if (typeof v === "string") process.stdout.write(v + "\n")' "$T/out" "$1" 2>/dev/null
+}
 
 # --- 1. The parts: size and label --------------------------------------------------------------
 
@@ -53,17 +69,22 @@ for f in ${parts[@]+"${parts[@]}"}; do
     fi
 done
 
-# --- 2. inject-rules.sh: output for SessionStart and SubagentStart ----------------------------
+# --- 2. inject-rules.mjs: output for SessionStart and SubagentStart ---------------------------
 
-[ -x "$INJECT" ] && ok "inject-rules.sh is executable" || bad "inject-rules.sh missing or not executable"
+[ -f "$INJECT" ] && ok "inject-rules.mjs exists" || bad "inject-rules.mjs missing"
+# The bash hooks are gone (worfy-windows ticket 04); only the gate launcher gate.sh and the
+# unregistered worktree-create.sh stay.
+for old in inject-rules session-start session-end stop gh-token-env; do
+    [ ! -e "$HOOKS/$old.sh" ] && ok "bash hook $old removed" || bad "bash hook $old still there"
+done
 
 # $1 part, $2 stdin, then env assignments; stdout -> $T/out, stderr -> $T/err, sets rc
 run_inject() {
     local part="$1" input="$2"; shift 2
-    (printf '%s' "$input" | env "$@" bash "$INJECT" "$part" >"$T/out" 2>"$T/err"); rc=$?
+    (printf '%s' "$input" | env "$@" node "$INJECT" "$part" >"$T/out" 2>"$T/err"); rc=$?
 }
-ctx() { jq -r '.hookSpecificOutput.additionalContext // empty' <"$T/out" 2>/dev/null; }
-event() { jq -r '.hookSpecificOutput.hookEventName // empty' <"$T/out" 2>/dev/null; }
+ctx() { out_field additionalContext; }
+event() { out_field hookEventName; }
 
 for ev in SessionStart SubagentStart; do
     for part in orchestrator common; do
@@ -87,21 +108,29 @@ done
 # The parts still fit when the plugin root is a long install path.
 for part in orchestrator common; do
     run_inject "$part" '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
-    n="$(ctx | jq -Rs 'length')"
+    n="$(ctx | chars)"
     [ "$n" -le "$LIMIT" ] && ok "$part: $n characters with a long plugin root" || bad "$part: $n characters > $LIMIT with a long plugin root"
 done
+
+# The plugin root goes in literally: a Windows path (Claude Code spells it C:/…) and characters a
+# replacement pattern would read ($&, $1) arrive as they are.
+WROOT='C:/Users/x/plugin $& $1'
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$WROOT"
+c="$(ctx)"
+[ "$rc" -eq 0 ] && [[ "$c" == *"node \"$WROOT/hooks/gate.mjs\" fast"* ]] \
+    && ok "plugin root C:/… with \$& and \$1: substituted literally" || bad "plugin root not substituted literally: rc=$rc"
 
 # --- 3. Plugin root from the script's own path; failures stay quiet ----------------------------
 
 run_inject common '{"hook_event_name":"SubagentStart"}' -u CLAUDE_PLUGIN_ROOT
 c="$(ctx)"
-[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.mjs"* ]] && [[ "$c" != *'${CLAUDE_PLUGIN_ROOT}'* ]] \
-    && ok "no env: plugin root is the folder above hooks/ ($HARNESS)" \
+[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS_N/hooks/gate.mjs"* ]] && [[ "$c" != *'${CLAUDE_PLUGIN_ROOT}'* ]] \
+    && ok "no env: plugin root is the folder above hooks/ ($HARNESS_N)" \
     || bad "no env: rc=$rc, plugin root not substituted from the script path"
 
 run_inject common '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT=
 c="$(ctx)"
-[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS/hooks/gate.mjs"* ]] \
+[ "$rc" -eq 0 ] && [[ "$c" == *"$HARNESS_N/hooks/gate.mjs"* ]] \
     && ok "empty env: treated as unset" || bad "empty env: rc=$rc, plugin root not from the script path"
 
 # $1 description: exit 0, no additionalContext, exactly one line on stderr
@@ -224,8 +253,10 @@ done
 # --- 6. Machine-read strings and Cyrillic --------------------------------------------------------
 
 # The status block lines as worfy parses them: LINE in src/shared/agent/status-block.ts.
+# The dashes are an alternation, not a bracket: in the C locale (Git Bash without LANG) grep reads a
+# bracket byte by byte and a multibyte dash never matches.
 for label in Этап Сейчас Дальше Жду; do
-    grep -qE "^[[:space:]]*[—–-][[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null \
+    grep -qE "^[[:space:]]*(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null \
         && ok "orchestrator.md: status line '— $label:'" || bad "orchestrator.md: no status line '— $label:'"
 done
 for p in '[gate] зелено (…)' 'ничего не прогналось' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'; do
@@ -236,8 +267,10 @@ done
 # section on writing in Russian.
 ALLOWED='["Этап","Сейчас","Дальше","Жду","[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ","«ручка»","«проба»","«выкат»","«заглушка»","«задеплоить»","«прогнать»","«деплой»"]'
 for f in ${parts[@]+"${parts[@]}"}; do
-    left="$(jq -Rrs --argjson a "$ALLOWED" \
-        'reduce $a[] as $s (.; split($s) | join("")) | [scan("[Ѐ-ӿ]+")] | unique | join(" ")' <"$f")"
+    left="$(node -e '
+let s = require("fs").readFileSync(0, "utf8")
+for (const a of JSON.parse(process.argv[1])) s = s.split(a).join("")
+process.stdout.write([...new Set(s.match(/[Ѐ-ӿ]+/g) || [])].sort().join(" "))' "$ALLOWED" <"$f")"
     [ -z "$left" ] && ok "$(basename "$f"): Cyrillic only in allowed strings" || bad "$(basename "$f"): Cyrillic outside allowed strings: $left"
 done
 
@@ -253,42 +286,77 @@ fi
 # --- 7. hooks.json ------------------------------------------------------------------------------
 
 HJ="$HOOKS/hooks.json"
-if jq -e .hooks "$HJ" >/dev/null 2>&1; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
+# hj <what>: lines read from hooks.json. "valid" prints ok when it is JSON with an object .hooks;
+# "hooks" prints event|matcher|command|timeout per hook; "types" the hook types, unique, joined by
+# commas; "commands" the commands, unique.
+hj() {
+    node -e '
+const [file, what] = process.argv.slice(1)
+let h
+try { h = JSON.parse(require("fs").readFileSync(file, "utf8")).hooks } catch { process.exit(1) }
+if (!h || typeof h !== "object") process.exit(1)
+const all = []
+for (const [e, groups] of Object.entries(h)) for (const g of groups) for (const k of g.hooks) all.push([e, g.matcher ?? "", k])
+const uniq = (a) => [...new Set(a)].sort()
+const out = {
+    valid: () => ["ok"],
+    hooks: () => all.map(([e, m, k]) => `${e}|${m}|${k.command}|${k.timeout}`),
+    types: () => [uniq(all.map(([, , k]) => k.type)).join(",")],
+    commands: () => uniq(all.map(([, , k]) => k.command)),
+    inject: () => all.filter(([, , k]) => k.command.includes("inject-rules.mjs")).map(([e, , k]) => `${e}|${k.command}`),
+}[what]()
+for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
+}
+if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
 # with the qmd server of the plugin (worfy-harness ticket 17). No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
-# worfy-harness ticket 24 (owner decision 2026-10-09). The two gate hooks call the launcher gate.sh, not
-# `node …/gate.mjs`: without node only the launcher can say so (worfy-windows ticket 03).
+# worfy-harness ticket 24 (owner decision 2026-10-09). Every Node script runs as an explicit
+# `node "${CLAUDE_PLUGIN_ROOT}/…"` (ADR-0055 item 2, worfy-windows ticket 04): Windows starts no
+# script by its #! line. Two exceptions: the gate hooks call the launcher gate.sh, because without
+# node only the launcher can say so (worfy-windows ticket 03); qmd-refresh is a zsh script until
+# worfy-windows ticket 15.
 # One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
+N='node "${CLAUDE_PLUGIN_ROOT}'
 # Read outside $(…): macOS bash 3.2 cannot parse a here-document with an odd number of quotes
 # inside a command substitution.
 IFS= read -r -d '' hooks_expected <<EOF
-SessionStart||$R/hooks/session-start.sh"|15
-SessionStart||$R/bin/worktree-lock" claim|10
-SessionStart||$R/hooks/inject-rules.sh" orchestrator|10
-SessionStart||$R/hooks/inject-rules.sh" common|10
-SessionStart||$R/hooks/gh-token-env.sh"|10
-SubagentStart||$R/hooks/inject-rules.sh" common|10
+SessionStart||$N/hooks/session-start.mjs"|15
+SessionStart||$N/bin/worktree-lock" claim|10
+SessionStart||$N/hooks/inject-rules.mjs" orchestrator|10
+SessionStart||$N/hooks/inject-rules.mjs" common|10
+SessionStart||$N/hooks/gh-token-env.mjs"|10
+SubagentStart||$N/hooks/inject-rules.mjs" common|10
 TaskCompleted||$R/hooks/gate.sh" fast|900
 TeammateIdle||$R/hooks/gate.sh" fast|900
-Stop||$R/hooks/stop.sh"|10
-Stop||$R/bin/worktree-lock" beat|5
+Stop||$N/hooks/stop.mjs"|10
+Stop||$N/bin/worktree-lock" beat|5
 Stop||$R/bin/qmd-refresh" --quiet|15
-SessionEnd||$R/hooks/session-end.sh"|10
-SessionEnd||$R/bin/worktree-lock" release|5
-PreToolUse|Bash|$R/hooks/guard.mjs"|10
+SessionEnd||$N/hooks/session-end.mjs"|10
+SessionEnd||$N/bin/worktree-lock" release|5
+PreToolUse|Bash|$N/hooks/guard.mjs"|10
 EOF
 expected="$(printf '%s' "$hooks_expected" | sort)"
-actual="$(jq -r '.hooks | to_entries[] | .key as $e | .value[] | (.matcher // "") as $m
-    | .hooks[] | "\($e)|\($m)|\(.command)|\(.timeout)"' "$HJ" 2>/dev/null | sort)"
+actual="$(hj hooks | sort)"
 if [ "$actual" = "$expected" ]; then
     ok "hooks.json: events, matchers, commands and timeouts as expected"
 else
     bad "hooks.json differs: $(diff <(echo "$expected") <(echo "$actual") | grep '^[<>]' | tr '\n' ' ')"
 fi
-types="$(jq -r '[.hooks[][] | .hooks[] | .type] | unique | join(",")' "$HJ" 2>/dev/null)"
+types="$(hj types)"
 [ "$types" = command ] && ok "hooks.json: every hook is a command" || bad "hooks.json: hook types '$types'"
+# A command that names a Node script (a .mjs file, or bin/worktree-lock, which has no extension)
+# starts with `node `: Windows does not start a script by its #! line.
+while IFS= read -r cmd; do
+    case "$cmd" in
+        *.mjs\"* | */bin/worktree-lock\"*)
+            case "$cmd" in
+                'node "${CLAUDE_PLUGIN_ROOT}/'*) ok "runs through node: $cmd" ;;
+                *) bad "a Node script without node: $cmd" ;;
+            esac ;;
+    esac
+done < <(hj commands)
 if grep -q 'bin/qmd-refresh.* --quiet' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs qmd-refresh --quiet"; else bad "hooks.json: no qmd-refresh"; fi
 
 # Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable. A command
@@ -302,16 +370,19 @@ while IFS= read -r cmd; do
     else
         [ -x "$HARNESS$path" ] && ok "executable: $path" || bad "not executable or missing: $path"
     fi
-done < <(jq -r '[.hooks[][] | .hooks[] | .command] | unique[]' "$HJ" 2>/dev/null)
+done < <(hj commands)
 
 # The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part.
+# On Windows Claude Code gives ${CLAUDE_PLUGIN_ROOT} as C:/…; elsewhere it is the plain path.
+n=0
 while IFS='|' read -r ev cmd; do
-    out="$(printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS" sh -c "$cmd" 2>/dev/null)"
+    n=$((n + 1))
+    printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" sh -c "$cmd" >"$T/out" 2>/dev/null
     part="${cmd##* }"
-    first="$(printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null | head -n 1)"
+    first="$(ctx | head -n 1)"
     [ "$first" = "# worfy Harness — $part rules" ] && ok "hooks.json $ev runs $part" || bad "hooks.json $ev '$cmd': got '$first'"
-done < <(jq -r '.hooks | to_entries[] | .key as $e | .value[] | .hooks[] | select(.command | contains("inject-rules.sh"))
-    | "\($e)|\(.command)"' "$HJ" 2>/dev/null)
+done < <(hj inject)
+[ "$n" -eq 3 ] && ok "hooks.json: three inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 3"
 
 # --- 8. The old rules file is gone --------------------------------------------------------------
 

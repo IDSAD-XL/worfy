@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests of the gate's code 3 ("could not verify") and its delivery through stop.sh:
+# Tests of the gate's code 3 ("could not verify") and its delivery through the Stop hook stop.mjs:
 #   - a broken or missing registry: the resolver exits non-zero, the gate with code 3
-#     «резолвер … завершился» (the resolver exited), not «не зарегистрирован» (not registered); stop.sh still holds the turn
+#     «резолвер … завершился» (the resolver exited), not «не зарегистрирован» (not registered); stop.mjs still holds the turn
 #     on the red marker of a registered project;
 #   - the resolver crashed: code 3, not 0;
-#   - the stop.sh message is said at most once per session per repository;
+#   - the stop.mjs message is said at most once per session per repository;
 #   - a marker is delivered only to its own session and its own tree; a marker without a session
 #     ("anon") only if it is newer than the start of the session.
 # Run: bash harness/hooks/tests/gate-notverified.test.sh; exit code 0 means everything passed.
@@ -14,7 +14,7 @@ set -u
 # /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
 HOOKS="${HOOKS_DIR:-$(cd "$(dirname "$0")/.." && { pwd -W 2>/dev/null || pwd; })}"   # the hooks next to this test (harness/hooks)
 GATE="$HOOKS/gate.mjs"
-STOP="$HOOKS/stop.sh"
+STOP="$HOOKS/stop.mjs"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 unset CLAUDE_CODE_SESSION_ID
 T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
@@ -58,23 +58,23 @@ check "gate: broken config -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: резо�
     bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* && "$1" != *"не зарегистрирован"* ]]' _ "$out"
 
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
-out="$(cd "$T/reg" && sp s1 | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1 | node "$STOP" 2>&1)"; rc=$?
 check "stop: broken config + red marker -> still blocks (exit 2)" [ "$rc" -eq 2 ]
 check "stop: broken config + red marker -> red message" bash -c '[[ "$1" == *"The quality gate is red"* ]]' _ "$out"
 check "stop: broken config + red marker -> block message names the gate-3 reason" \
     bash -c '[[ "$1" == *"Also:"*"резолвер"* ]]' _ "$out"
-out="$(cd "$T/reg" && sp s1 | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1 | node "$STOP" 2>&1)"; rc=$?
 check "stop: gate-3 reason already said in this session -> not repeated" \
     bash -c '[ "$2" -eq 2 ] && [[ "$1" != *"Also:"* ]]' _ "$out" "$rc"
 rm -f "$RED" "$T/state/stop-blocks/"*
 
 (cd "$T/reg" && sp s1b | node "$GATE" fast >/dev/null 2>&1)
-out="$(cd "$T/reg" && sp s1b | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1b | node "$STOP" 2>&1)"; rc=$?
 check "stop: broken config, no red -> exit 0, says 'not verified' once" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *additionalContext* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 check "stop: additionalContext output is valid JSON" node -e 'JSON.parse(process.argv[1])' "$out"
 echo "Profile fast, repository t. Could not verify: docker" >"$T/state/unverified-t-$(tag "$T/reg")"
-out="$(cd "$T/reg" && sp s1u | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1u | node "$STOP" 2>&1)"; rc=$?
 check "stop: broken config + unverified marker of this tree -> said once, exit 0" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"could not verify the work"* ]]' _ "$out" "$rc"
 rm -f "$T/state/unverified-t-"*
@@ -82,21 +82,21 @@ rm -f "$T/state/unverified-t-"*
 # Red and a code-3 marker together: the turn is held, the code-3 reason is in the same message.
 (cd "$T/reg" && sp s1r | node "$GATE" fast >/dev/null 2>&1)
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
-out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1r | node "$STOP" 2>&1)"; rc=$?
 check "stop: red + gate-3 marker -> blocks and names the gate-3 reason" \
     bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"The quality gate is red"* && "$1" == *"резолвер"* ]]' _ "$out" "$rc"
-(cd "$T/reg" && sp s1r | bash "$STOP" >/dev/null 2>&1)
-out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
+(cd "$T/reg" && sp s1r | node "$STOP" >/dev/null 2>&1)
+out="$(cd "$T/reg" && sp s1r | node "$STOP" 2>&1)"; rc=$?
 check "stop: red past MAX_BLOCKS -> exit 0 with 'still red'" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"still red"* ]]' _ "$out" "$rc"
-out="$(cd "$T/reg" && sp s1r | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$T/reg" && sp s1r | node "$STOP" 2>&1)"; rc=$?
 check "stop: red past MAX_BLOCKS again -> silent (once per session)" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 rm -f "$RED" "$T/state/stop-blocks/"*
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 
 # --- 10. No node / the resolver crashed -------------------------------------------
 # gate.mjs is a Node script and cannot say "node not found": the launcher gate.sh says it, with
-# code 3, and leaves the marker that stop.sh delivers. NONODE is a PATH with git and the tools
+# code 3, and leaves the marker that stop.mjs delivers. NONODE is a PATH with git and the tools
 # gate.sh needs, and no node: the folders of Git Bash on Windows, elsewhere a folder of links to
 # the tools. gate.sh looks for node in /opt/homebrew/bin and /usr/local/bin itself: with node
 # there, "no node" cannot be simulated (gate-shim.test.sh has a way round it).
@@ -119,22 +119,15 @@ check "gate: node missing -> exit 3 (not 0)" [ "$rc" -eq 3 ]
 check "gate: node missing -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден'" \
     bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]]' _ "$out"
 check "gate: node missing -> marker of this tree and session" [ -s "$T/state/nokey-broken-$(tag "$T/reg")-s10" ]
-# stop.sh needs more tools than gate.sh: the system folders, as before; in Git Bash git and
-# shasum (a perl script) live in folders of their own.
-if [ "$WIN" -eq 1 ]; then stop_path="$NONODE:/usr/bin/core_perl"; else stop_path=/usr/bin:/bin; fi
-out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH="$stop_path" bash "$STOP" 2>&1)"; rc=$?
-check "stop without node: gate's node-missing marker -> exit 0, says 'not verified'" \
+# The Stop hook delivers that marker in the next turn, once node is there again.
+out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" node "$STOP" 2>&1)"; rc=$?
+check "stop: gate's node-missing marker -> exit 0, says 'not verified'" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 rm -f "$T/state/stop-blocks/"*
 fi
-# What stays without node is stop.sh, still bash: it holds the turn on the red marker.
-# stop.sh adds /opt/homebrew/bin itself: if node is there, "no node" cannot be simulated.
-if [ -x /opt/homebrew/bin/node ]; then echo "skip node-missing check: /opt/homebrew/bin/node exists"; else
-date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
-out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH=/usr/bin:/bin bash "$STOP" 2>&1)"; rc=$?
-check "stop without node + red marker -> blocks (exit 2)" [ "$rc" -eq 2 ]
-rm -f "$RED" "$T/state/stop-blocks/"*
-fi
+# The Stop hook itself is a Node script now (worfy-windows ticket 04), run as `node …/stop.mjs`:
+# without node Claude Code cannot start it and shows the hook error without holding the turn, as
+# with the gate. There is no "stop without node" case any more.
 
 printf '#!/usr/bin/env node\nthrow new Error("boom")\n' >"$T/crash.mjs"
 out="$(cd "$T/reg" && sp s10b | CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast 2>&1)"; rc=$?
@@ -144,26 +137,26 @@ check "gate: resolver crash -> exit 3 + 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'
 # --- 3. At most one message per session per repository ---------------------------
 U="$T/unreg"; UM="$T/state/nokey-unregistered-$(tag "$U")"
 (cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
-out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$U" && sp s3 | node "$STOP" 2>&1)"; rc=$?
 check "stop: first notice in session -> said" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 (cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
 check "gate: second run writes marker again" [ -s "$UM-s3" ]
-out="$(cd "$U" && sp s3 | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$U" && sp s3 | node "$STOP" 2>&1)"; rc=$?
 check "stop: second gate run, same session -> silent exit 0 (once per session)" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "stop: silent run still consumes the marker" [ ! -e "$UM-s3" ]
 
 # --- 4. A marker goes only to its own session and its own tree --------------------
 (cd "$U" && sp sA | node "$GATE" fast >/dev/null 2>&1)
-out="$(cd "$U" && sp sB | bash "$STOP" 2>&1)"; rc=$?
+out="$(cd "$U" && sp sB | node "$STOP" 2>&1)"; rc=$?
 check "stop in session B: marker of session A not delivered" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "marker of session A left for A" [ -s "$UM-sA" ]
-out="$(cd "$U" && sp sA | bash "$STOP" 2>&1)"
+out="$(cd "$U" && sp sA | node "$STOP" 2>&1)"
 check "stop in session A: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 
 (cd "$T/unreg-wt" && sp sW | node "$GATE" fast >/dev/null 2>&1)
-out="$(cd "$U" && sp sW | bash "$STOP" 2>&1)"
+out="$(cd "$U" && sp sW | node "$STOP" 2>&1)"
 check "stop in main tree: marker of another worktree not delivered" bash -c '[ -z "$1" ]' _ "$out"
-out="$(cd "$T/unreg-wt" && sp sW | bash "$STOP" 2>&1)"
+out="$(cd "$T/unreg-wt" && sp sW | node "$STOP" 2>&1)"
 check "stop in that worktree: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
 
 # Without a session (run from a terminal): an anon marker, taken only by a session that started earlier.
@@ -172,11 +165,18 @@ AM="$UM-anon"
 check "gate without session -> anon marker" [ -s "$AM" ]
 touch -t 202001010000 "$AM"
 : >"$T/new.jsonl"
-out="$(cd "$U" && sp sNew "$T/new.jsonl" | bash "$STOP" 2>&1)"
+out="$(cd "$U" && sp sNew "$T/new.jsonl" | node "$STOP" 2>&1)"
 check "stop: anon marker older than session start -> not delivered" bash -c '[ -z "$1" ] && [ -e "$2" ]' _ "$out" "$AM"
 touch "$AM"
-out="$(cd "$U" && sp sNew "$T/new.jsonl" | bash "$STOP" 2>&1)"
+out="$(cd "$U" && sp sNew "$T/new.jsonl" | node "$STOP" 2>&1)"
 check "stop: anon marker newer than session start -> delivered" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
+# A birth time of 0 (the file system does not know it) is no session start: an anon marker is not
+# taken then. No file system here reports 0, so the rule is checked on the function stop.mjs uses.
+check "stop: birth time 0 -> no session start; a known birth time -> whole seconds; not a file -> none" node -e '
+import(require("node:url").pathToFileURL(process.argv[1]).href).then(({ sessionStart }) => {
+    const st = (birthtimeMs, file = true) => ({ birthtimeMs, isFile: () => file })
+    process.exit(sessionStart(st(0)) === null && sessionStart(st(1500.7)) === 1 && sessionStart(st(1500, false)) === null ? 0 : 1)
+})' "$STOP"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
