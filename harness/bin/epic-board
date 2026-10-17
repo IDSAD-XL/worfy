@@ -12,7 +12,7 @@
 // In Silent mode (profile mode "silent") the status lives in the Workflow folder and in no branch: the page is
 // built from that folder alone, with no branch marks.
 'use strict';
-const { execFileSync, execFile } = require('child_process');
+const { execFileSync, execFile, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -71,6 +71,20 @@ function execScriptSync(file, args, options) {
 function execScript(file, args, options, callback) {
   if (!fs.existsSync(file)) return callback(missing(file, args), '');
   execFile(process.execPath, [file, ...args], options, callback);
+}
+
+// The page opens with the system's own command: open on macOS, explorer.exe on Windows, xdg-open
+// elsewhere. explorer.exe gets the path with no shell in between (nothing to quote) and answers 1 even
+// when it opened the file, so its exit code is not read; neither is xdg-open's.
+function openPage(file) {
+  if (process.platform === 'darwin') return execFileSync('open', [file]);
+  const [cmd, args] = process.platform === 'win32' ? ['explorer.exe', [path.resolve(file)]] : ['xdg-open', [file]];
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+  child.on('error', e => {
+    process.stderr.write(`epic-board: the page was not opened (${cmd}): ${e.message}\n`);
+    process.exitCode = 1;
+  });
+  child.unref();
 }
 // The tickets root is the same for all branches — we ask for it once (the project's profile, otherwise
 // <git top-level>/.scratch) and pass it to every epic-status, instead of resolving the profile
@@ -379,5 +393,5 @@ document.getElementById('collapse').onclick = () => all(false);
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, page(model, refs, elapsed));
   process.stderr.write(`epic-board: ${model.epics.length} epics → ${OUT} (${elapsed} s)\n`);
-  if (!NO_OPEN) execFileSync('open', [OUT]);
+  if (!NO_OPEN) openPage(OUT);
 })().catch(e => { process.stderr.write('epic-board: ' + (e.stack || e) + '\n'); process.exit(1); });
