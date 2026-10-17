@@ -134,7 +134,9 @@ Rules that keep it honest:
 **Ticket status moves through `${CLAUDE_PLUGIN_ROOT}/bin/ticket`** when the project keeps tickets
 (`tickets.path`) — `claim` when picking one up, `block <reason>` when it stalls,
 `done <epic> <NN>` once the work is finished the way `workflow.finish` says, with `--pr <N>` when
-it ends in a green PR. It writes one canonical Status line in the spelling the file already uses.
+it ends in a green PR, and `block <reason> --waits <owner|team|agent|machine>` when the ticket waits for
+someone. It writes the header one fact per line (`Status: <word> <time>`, `Blocked reason:`, `Waits:`,
+`PR:` — `bin/TICKETS.md`); a ticket with the old header is moved once with `ticket migrate`.
 No tickets in the profile — no ticket CLI; say where the status was recorded instead.
 
 **A task is not finished until the project's state file is updated.** The profile's

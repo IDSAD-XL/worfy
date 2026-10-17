@@ -53,7 +53,7 @@ got="$(cd "$WS/Repo-A/src" && "$TICKET" root 2>&1)"; rc=$?
 got="$(cd "$WS/Repo-A/src" && "$TICKET" show ep 01 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$got" = "01-first.md:3  Status: open" ] && ok "ticket show inside repo reads workspace ticket" || bad "ticket show: exit $rc, got: $got"
 got="$(cd "$WS/Repo-B" && "$TICKET" claim ep/01 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q '^Status: claimed — ' "$WS/.scratch/ep/issues/01-first.md" \
+if [ "$rc" -eq 0 ] && grep -q '^Status: claimed 20' "$WS/.scratch/ep/issues/01-first.md" \
    && grep -q '^Status: claimed$' "$WS/Repo-A/.scratch/ep/issues/01-decoy.md" && [[ "$got" == ".scratch/ep/issues/01-first.md:3"* ]]; then
     ok "ticket claim from second repo writes the workspace file only"
 else bad "ticket claim: exit $rc, got: $got"; fi

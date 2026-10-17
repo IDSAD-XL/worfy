@@ -58,10 +58,22 @@ export interface TicketWorktree {
   head: string
 }
 
+/** The Status line and the header facts beside it: a branch's status of its Ticket carries all of them. */
+type StatusFacts = Pick<Ticket, 'state' | 'statusRaw' | 'statusAt' | 'statusError' | 'blockedReason' | 'waits' | 'pr'>
+const statusFacts = (t: StatusFacts): StatusFacts => ({
+  state: t.state,
+  statusRaw: t.statusRaw,
+  statusAt: t.statusAt ?? null,
+  statusError: t.statusError ?? null,
+  blockedReason: t.blockedReason ?? null,
+  waits: t.waits ?? null,
+  pr: t.pr ?? null,
+})
+
 /** What one branch said about its own Ticket, kept between reads keyed by branch name. */
 export interface BranchSnapshot {
   head: string
-  ticket: Pick<Ticket, 'epic' | 'num' | 'state' | 'statusRaw'> | null
+  ticket: (Pick<Ticket, 'epic' | 'num'> & StatusFacts) | null
   error: string | null
 }
 export type BranchCache = Map<string, BranchSnapshot>
@@ -376,7 +388,7 @@ export async function readBranches(
       try {
         const snapshot = parseEpicStatus(await run(root, worktree.branch))
         const own = snapshot.tickets.find((ticket) => ticket.epic === ref.epic && ticket.num === ref.num)
-        const ticket = own ? { epic: own.epic, num: own.num, state: own.state, statusRaw: own.statusRaw } : null
+        const ticket = own ? { epic: own.epic, num: own.num, ...statusFacts(own) } : null
         return [worktree.branch, { head: worktree.head, ticket, error: null }]
       } catch (error) {
         return [worktree.branch, { head: worktree.head, ticket: null, error: errorOf(error).message }]
@@ -400,9 +412,9 @@ function branchOverrides(checkout: Ticket['state'], branch: Ticket['state']): bo
 }
 
 /**
- * Lays the branch statuses over the checkout. A branch's Ticket takes the branch's `state` and
- * `statusRaw` and gets `fromBranch` when branchOverrides says so and the checkout does not already
- * say the same (the claim was merged).
+ * Lays the branch statuses over the checkout. A branch's Ticket takes the branch's `state`,
+ * `statusRaw` and the header facts beside them (a blocked reason, Waits, PR) and gets `fromBranch`
+ * when branchOverrides says so and the checkout does not already say the same (the claim was merged).
  */
 export function applyBranches(checkout: CheckoutModel, branches: BranchCache): WorkflowModel {
   const overrides = new Map<string, { branch: string; snapshot: BranchSnapshot }>()
@@ -415,7 +427,7 @@ export function applyBranches(checkout: CheckoutModel, branches: BranchCache): W
     const override = overrides.get(ticketKey(ticket))
     const fromBranch = override?.snapshot.ticket
     if (!override || !fromBranch || !branchOverrides(ticket.state, fromBranch.state) || fromBranch.statusRaw === ticket.statusRaw) return ticket
-    return { ...ticket, state: fromBranch.state, statusRaw: fromBranch.statusRaw, fromBranch: override.branch }
+    return { ...ticket, ...statusFacts(fromBranch), fromBranch: override.branch }
   })
   return { ...checkout, tickets, branchErrors }
 }

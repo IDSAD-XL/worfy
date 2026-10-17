@@ -81,7 +81,7 @@ Read it once, before the plan.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>              # what is done, what is free
-"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>       # writes Status in the spelling the file already uses
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>       # writes `Status: claimed <time>`; an old header — exit 1, run `ticket migrate` first
 ```
 
 If the project keeps no tickets in this form (`F tickets.path` is `null` or `ticket` refuses) — say

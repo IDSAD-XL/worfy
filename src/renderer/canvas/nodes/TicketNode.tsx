@@ -6,7 +6,7 @@ import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
-import { blockedReason, ticketFile, ticketTitle, type AttentionReason } from '../epic-layout'
+import { ticketFile, ticketTitle, type AttentionReason } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
 import type { CanvasNodeProps } from './index'
 import '../epic-frame.css'
@@ -108,7 +108,9 @@ function TicketNode({ data }: CanvasNodeProps) {
   const node = data.node.data as TicketNodeData
   const { projectId, root, ticket, placed } = node
   const subject: SlotSubject = { kind: 'ticket', projectId, root, ticket }
-  const reason = ticket.state === 'blocked' ? blockedReason(ticket.statusRaw) : null
+  const reason = ticket.state === 'blocked' ? (ticket.blockedReason ?? null) : null
+  // The tooltip shows the Status line with the reason, as the single old line `blocked — <reason>` did.
+  const status = ticket.statusRaw === null ? null : reason ? `${ticket.statusRaw} — ${reason}` : ticket.statusRaw
   const stateLabel = ticket.state === 'work' ? 'claimed' : ticket.state === 'none' ? 'no status' : ticket.state
   const title = ticketTitle(ticket)
 
@@ -134,7 +136,7 @@ function TicketNode({ data }: CanvasNodeProps) {
       data-ticket={ticket.num}
       data-state={ticket.state}
       data-ready={placed.ready ? 'true' : undefined}
-      title={ticket.fromBranch ? `${ticket.statusRaw ?? ''} (in ${ticket.fromBranch})` : (ticket.statusRaw ?? undefined)}
+      title={ticket.fromBranch ? `${status ?? ''} (in ${ticket.fromBranch})` : (status ?? undefined)}
       onDoubleClick={open}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className="w-ticket__handle" />
