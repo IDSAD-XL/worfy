@@ -1,7 +1,8 @@
 # 09 — Skill `retro`: шаг «классифицировать сбой» (В3, Harness)
 
 Type: task
-Status: claimed 2026-10-17T10:43Z
+Status: done 2026-10-17T11:45Z
+PR: #438
 Branch: worfy-reliability/09
 Blocked by: 06
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md)
@@ -89,3 +90,18 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
   в повторном полном прогоне.
 - После мержа — `pnpm install:stable` (Orchestrator) и ручной пункт «первый `retro` на настоящем
   сбое».
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/438#issuecomment-6233367071)): test красный на тексте
+skill-а с `cc8d382e`, два мутанта проверяющего красные; пункт 3 выполнен меткой из README Project-а.
+`GATE_SCOPE=all` gate full — exit 0, `[gate] зелено (full)` на `4750f8d9`; Linux CI зелёный; влит — `aded94dd`.
+Долги (low):
+- `SKILL.md:70-73` — вывод шага 3: проверка или `no lesson`, а формат Profile-а (`none: <reason>`) и README
+  worfy допускают урок без проверки; обобщаемый урок, причину которого кодом не проверить, может уйти в
+  `no lesson`. Нужен третий вариант — урок без проверки, с причиной.
+- `SKILL.md:77-78` — раздел рисков «обычно в файле состояния (`docs.handoff.path`)»: в режиме Profile-а это
+  может быть файл командного репозитория, а skill запрещает туда писать (`:27-28`). У нынешних Profile-ов
+  конфликта нет.
+- `SKILL.md:58,61-63` — «Skip one-off slips» рядом с «a failure … is not skipped»: разовая ошибка, которую
+  поправил пользователь, подходит под оба правила.
+- `pnpm install:stable` — не сделан: шаг Orchestrator-а вне прогона Autopilot; до него Stable copy со старым skill-ом.
