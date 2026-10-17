@@ -11,11 +11,14 @@
 # field \ is \\, a line feed \n, a TAB \t, a carriage return \r (src/main/terminal-ai/protocol.ts).
 #
 # zsh cannot keep a descriptor it opened from the programs it starts, so the link lives only while
-# zsh edits a line: it closes before every command (preexec) and opens again, with a new hello, when
-# the next prompt starts the line editor. The token for the hello stays in a shell variable that is
-# not exported, so no program the shell starts sees it.
+# zsh edits a line. When the line editor is done with a line (zle-line-finish: before zshaddhistory,
+# preexec and the command) the shell says bye and closes the link; worfy closes the connection on
+# its side too, so a copy of the descriptor that a program started at the prompt still holds is
+# dead as well. preexec does the same, for a command that did not come from the line editor. When
+# the next prompt starts the line editor, the link opens again with a new hello. The token for the
+# hello stays in a shell variable that is not exported, so no program the shell starts sees it.
 #
-#   to worfy:    hello <token> · ask <id> <feature> <line> · cancel <id>
+#   to worfy:    hello <token> · ask <id> <feature> <line> · cancel <id> · bye
 #   from worfy:  show <id> <text> · status <id> <text> · insert <text> · config <features>
 #
 # A message <kind> from worfy goes to the function _worfy_assist_on_<kind>, with its fields decoded.
@@ -145,11 +148,21 @@ _worfy_assist_connect() {
   builtin zle -F -w $__worfy_assist_fd _worfy_assist_receive
 }
 
-# preexec: the command, and every program it starts, gets no link. The ask that is open is given up first.
+# Gives the link up: the ask that is open is cancelled, worfy hears bye and closes the connection
+# for every copy of the descriptor, then the shell closes its own.
+_worfy_assist_close() {
+  builtin emulate -L zsh
+  [[ -n $__worfy_assist_fd ]] || builtin return 0
+  _worfy_assist_cancel
+  _worfy_assist_send bye
+  _worfy_assist_disconnect
+}
+
+# preexec: the command, and every program it starts, gets no link. The line editor gave it up
+# already for a line it read (_worfy_assist_line_finish); this is for any other command.
 _worfy_assist_preexec() {
   builtin emulate -L zsh
-  _worfy_assist_cancel
-  _worfy_assist_disconnect
+  _worfy_assist_close
 }
 
 # Sends one message: its kind, then its fields, escaped. Fails without a link.
@@ -321,11 +334,15 @@ _worfy_assist_line_init() {
 }
 builtin zle -N _worfy_assist_line_init
 
-# Enter (or Ctrl+C): the grey text is not part of the line that stays on the screen.
+# Enter (or Ctrl+C): the grey text is not part of the line that stays on the screen. The link goes
+# now: zshaddhistory and preexec run after this, and what they start would inherit it. A line that
+# continues (PS2) opens it again at once.
 _worfy_assist_line_finish() {
   builtin emulate -L zsh
   _worfy_assist_cancel
   _worfy_assist_hide
+  [[ $CONTEXT == (start|cont) ]] && _worfy_assist_close
+  builtin return 0
 }
 builtin zle -N _worfy_assist_line_finish
 

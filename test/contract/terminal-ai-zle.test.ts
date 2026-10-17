@@ -15,6 +15,7 @@ import { SYSTEM_PATH, type Env } from '../../src/main/agent/env'
 import type { ShellEvent } from '../../src/main/terminal/osc'
 import { spawnShellPty, TerminalRegistry, type SpawnPty, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath, type AssistDoor } from '../../src/main/terminal/shell-integration'
+import { encodeMessage, parseShellMessage } from '../../src/main/terminal-ai/protocol'
 import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
@@ -39,6 +40,8 @@ const registries: TerminalRegistry[] = []
 const integrations: ShellIntegration[] = []
 const links: ShellLink[] = []
 const sockets: Socket[] = []
+/** Programs a test's widget left running in the background. */
+const holders: number[] = []
 const folders: string[] = []
 
 beforeEach(async () => {
@@ -51,6 +54,13 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks()
   for (const socket of sockets.splice(0)) socket.destroy()
+  for (const pid of holders.splice(0)) {
+    try {
+      process.kill(pid)
+    } catch {
+      // Gone already.
+    }
+  }
   await Promise.all(registries.splice(0).map((registry) => registry.closeAll()))
   for (const link of links.splice(0)) link.closeSync()
   for (const integration of integrations.splice(0)) integration.disposeSync()
@@ -803,6 +813,108 @@ describe('the connection while a command runs', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo after-vared'))
   })
 
+  it('a program zshaddhistory starts finds no connection to the socket: the line editor gave the link up before it', async () => {
+    const started = start()
+    const file = join(root, 'addhistory.txt')
+    // zsh 5.9 runs zle-line-finish, then zshaddhistory, then preexec and its hooks, then the command.
+    await testScript(started.integration, `zshaddhistory() { ${DESCRIPTORS} >| ${file}; builtin return 0 }`)
+    const t = await started.open()
+    await t.connected()
+    await t.run('echo worfy-history-hook')
+    const found = readFileSync(file, 'utf8')
+    expect(found).toContain('checked')
+    expect(found).not.toMatch(/socket:\d/)
+    // A command over three lines: the link opens again for each next line (PS2) and goes after the last.
+    removeTestTree(file)
+    expect(await t.run('if true; then\recho worfy-three-lines\rfi')).toContain('worfy-three-lines')
+    const three = readFileSync(file, 'utf8')
+    expect(three).toContain('checked')
+    expect(three).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo after-history-hook' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo after-history-hook'))
+  })
+
+  it('with zle-line-finish taken over by another widget, preexec still gives the link up before the command', async () => {
+    const started = start()
+    await testScript(started.integration, '__test_finish() { : }\nzle -N zle-line-finish __test_finish')
+    const t = await started.open()
+    await t.connected()
+    const found = await t.run(DESCRIPTORS)
+    expect(found).toContain('checked')
+    expect(found).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo finish-replaced' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo finish-replaced'))
+  })
+
+  it('a program a widget started at the prompt keeps a copy of the descriptor: after the next command the shell is connected again, and the copy reaches main no more', async () => {
+    const pidFile = join(root, 'holder.pid')
+    const wroteFile = join(root, 'holder.wrote')
+    // The program waits, writes an ask into its copy of the connection (a closed one does not kill it), and stays.
+    const { t, link, feature, probeOn, askAbout } = await withAskingScript(
+      {},
+      widgetScript(
+        [
+          `  /bin/sh -c "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
+          `  print -r -- $! >| ${pidFile}`,
+        ].join('\n'),
+      ),
+    )
+    t.type(WIDGET_KEY)
+    await vi.waitFor(() => expect(existsSync(pidFile) && readFileSync(pidFile, 'utf8')).toMatch(/^\d+\n$/), WAIT)
+    holders.push(Number(readFileSync(pidFile, 'utf8')))
+
+    await t.run('true')
+    // The ask of the program comes after the command: else this test proves nothing.
+    expect(existsSync(wroteFile)).toBe(false)
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo past-the-holder' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo past-the-holder'))
+    await vi.waitFor(() => expect(existsSync(wroteFile)).toBe(true), WAIT)
+    await probeOn()
+    t.type('\x15echo zz')
+    await askAbout('echo zz')
+    expect(feature.lines()).not.toContain('worfy-holder-ask')
+    expect(feature.asks.map((each) => each.ask.id)).not.toContain(998)
+  })
+
+  it('bye frees the token at once and closes the connection; what came after it on that connection does not count', async () => {
+    expect(parseShellMessage('bye')).toEqual({ type: 'bye' })
+    expect(encodeMessage({ type: 'bye' })).toBe('bye')
+    expect(parseShellMessage('bye\tnow')).toBeNull()
+    const feature = recordingFeature(PROBE)
+    const { link, integration } = start({ features: { [`./features/${PROBE}.ts`]: feature.loader } })
+    const admission = await link.admit('played', await integration.prepare())
+    const first = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(first.received()).toMatch(/^config\t/), WAIT)
+    first.socket.write(`ask\t3\t${PROBE}\tbefore bye\n`)
+    await vi.waitFor(() => expect(feature.lines()).toEqual(['before bye']), WAIT)
+    // bye gives the open ask up, as a cancel does, and the ask behind it in the same chunk is not read.
+    first.socket.write(`bye\nask\t4\t${PROBE}\tafter bye\n`)
+    await first.untilClosed()
+    await vi.waitFor(() => expect(feature.asks[0]?.ask.signal.aborted).toBe(true), WAIT)
+    expect(link.connected('played')).toBe(true)
+    const second = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(second.received()).toMatch(/^config\t/), WAIT)
+    expect(second.closed()).toBe(false)
+    expect(feature.lines()).toEqual(['before bye'])
+  })
+
+  it('the hello of a new connection is taken once the old one ended, before main could close the old one', async () => {
+    const { link, integration } = start()
+    const admission = await link.admit('played', await integration.prepare())
+    const old = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(old.received()).toMatch(/^config\t/), WAIT)
+    // The old connection reads no more, and main writes more than the socket holds: main's own end of
+    // it waits behind that, so its `close` cannot come while the test runs.
+    old.socket.pause()
+    const note = { type: 'status', id: 0, text: 'x'.repeat(60_000) } as const
+    for (let sent = 0; sent < 5; sent++) expect(link.push('played', note)).toBe(true)
+    old.socket.end()
+    const next = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(next.received()).toMatch(/^config\t/), WAIT)
+    expect(next.closed()).toBe(false)
+    expect(old.closed()).toBe(false)
+  })
+
   it('the file of the socket was removed: a shell that ran a command is connected again after it', async () => {
     const { open, integration, link } = start()
     const t = await open()
@@ -1090,12 +1202,12 @@ describe('what does not leak and where the widget is not', () => {
     expect(await t.run('')).toContain('worfy-ins-42\r\n')
   })
 
-  it('the socket closed: the Suggestion from history goes on and zsh prints no error, also when it writes to the closed socket first', async () => {
+  it('the socket closed: the Suggestion from history goes on and zsh prints no error, also when it asks with no socket to connect to', async () => {
     const feature = recordingFeature()
     const started = start({ features: { './features/suggest.ts': feature.loader } })
     const dir = await started.integration.prepare()
     await mkdir(join(dir, 'rc.d'), { recursive: true })
-    // Asks at the start of every line, before zsh has looked at the socket: the write meets a closed socket.
+    // Asks at the start of every line: once the socket is gone, the ask finds no link to write to.
     await writeFile(
       join(dir, 'rc.d', '20-test.zsh'),
       '__test_ask_at_once() { _worfy_assist_ask suggest "at-line-init"; __test_asked=$? }\nzle -N __test_ask_at_once\nadd-zle-hook-widget line-init __test_ask_at_once\n',

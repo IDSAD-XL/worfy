@@ -8,9 +8,11 @@
 // their connections.
 //
 // Every shell gets its own token in its environment. The first message of a connection must be
-// `hello` with a token that is alive and not in use; any other connection is closed. A shell closes
-// its connection before every command it runs, so the programs it starts do not inherit it, and says
-// hello with the same token again at the next prompt (rc.d/10-assist.zsh). From its first hello
+// `hello` with a token that is alive and not in use; any other connection is closed. Before every
+// command it runs a shell says `bye` and closes its connection, so the programs it starts do not
+// inherit it; main closes the connection on its side as well, since a program started at the prompt
+// may hold a copy of the descriptor. The shell says hello with the same token again at the next
+// prompt (rc.d/10-assist.zsh). From its first hello
 // until its token dies the shell counts as connected, also while a command runs; main has nothing
 // to write to then, and an ask its connection carried is given up. A token dies with its shell
 // (revoke), and its connection is closed with it. Neither a token nor a line a shell sent is ever
@@ -27,8 +29,8 @@ export const HELLO_TIMEOUT_MS = 5000
 /** Messages a shell has not read yet (it reads only while it waits for a key); past this, new ones are dropped. */
 export const MAX_UNREAD_BYTES = 256 * 1024
 
-/** What a connected shell sends after its hello. */
-export type ShellRequest = Exclude<ShellMessage, { type: 'hello' }>
+/** What a connected shell sends after its hello, for the features; `bye` stays in this file. */
+export type ShellRequest = Exclude<ShellMessage, { type: 'hello' } | { type: 'bye' }>
 
 export interface AssistSocketHandlers {
   /** The shell of `terminal` said hello with its token: the first time, and again after every command. */
@@ -199,6 +201,20 @@ export class AssistSocket {
     let warned = false
     const hello = setTimeout(() => connection.destroy(), this.helloTimeoutMs)
 
+    // The shell is done with its connection: it said bye (before a command), or the connection
+    // ended — it broke, the shell closed it without a bye, or main closed it. The token says hello
+    // again; the ask that was open is given up, as a cancel gives it up. On the end of the stream,
+    // not on `close`: that comes a turn of the event loop later, and the hello of the next prompt
+    // may be read before it.
+    const release = (): void => {
+      if (shell === null || shell.connection !== connection) return
+      shell.connection = null
+      const { terminal, asked } = shell
+      shell.asked = 0
+      if (asked !== 0) this.call('cancel', terminal, () => this.options.message?.(terminal, { type: 'cancel', id: asked }))
+      this.relisten()
+    }
+
     const read = (line: string): void => {
       const message = parseShellMessage(line)
       if (shell === null) {
@@ -222,23 +238,18 @@ export class AssistSocket {
         warned = true
         return
       }
+      if (message.type === 'bye') {
+        // A program the shell started at the prompt may hold a copy of the descriptor, and then the
+        // shell closing its own gives main no end: main closes the connection for every copy, and
+        // nothing read after the bye counts.
+        release()
+        connection.destroy()
+        return
+      }
       if (message.type === 'ask') shell.asked = message.id
       else if (message.id === shell.asked) shell.asked = 0
       const { terminal } = shell
       this.call(message.type, terminal, () => this.options.message?.(terminal, message))
-    }
-
-    // The shell closed its connection: before a command, when it broke, or when main closed it. The
-    // token says hello again; the ask that was open is given up, as a cancel gives it up. On the
-    // end of the stream, not on `close`: that comes a turn of the event loop later, and the hello of
-    // the next prompt may be read before it.
-    const release = (): void => {
-      if (shell === null || shell.connection !== connection) return
-      shell.connection = null
-      const { terminal, asked } = shell
-      shell.asked = 0
-      if (asked !== 0) this.call('cancel', terminal, () => this.options.message?.(terminal, { type: 'cancel', id: asked }))
-      this.relisten()
     }
 
     connection.on('data', (chunk: Buffer) => {
