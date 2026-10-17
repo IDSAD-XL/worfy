@@ -79,12 +79,12 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 ## Готово, когда
 
-- [ ] `head -1 harness/bin/preflight` — `#!/usr/bin/env node`; `grep -nE 'perl|jq ' harness/bin/preflight` — exit 1.
-- [ ] `preflight.test.sh` запускает скрипт как `node "$PF"`; прежние 9 случаев не менялись и зелёные.
-- [ ] `preflight.test.sh`, новый случай — тайм-аут: fixture на node запускает внука (`setInterval`) и пишет его pid в файл. Тайм-аут 1 s возвращает 124 не позже чем через 3 s, а `process.kill(<pid внука>, 0)` после этого бросает `ESRCH`.
-- [ ] `preflight.test.sh`, новые случаи — чистые функции на входах из шапки (`:31-34`): `adrScan` по `0001-a.md 0001-b.md` — `highest 0001 · duplicates 0001`; `adrCollisions` по двум веткам с номером `0098` — `0098: origin/a, origin/b`; `migLast` по `{"entries":[{"idx":"0077"}]}` — `77`; вывод `worktree-lock status` с `holds … ← this` и чужим `also …` — разобран, как в `check_lock`.
-- [ ] Сверка на Mac, worktree worfy: `git worktree add --detach "$T/old" origin/main`, затем из worktree worfy `bash "$T/old/harness/bin/preflight" --no-fetch --epic worfy-windows` и `node harness/bin/preflight --no-fetch --epic worfy-windows` — вывод совпадает построчно, коды выхода равны (через раздел Mac checks PR, Q33).
-- [ ] `bash harness/bin/tests/preflight.test.sh` и `bash harness/bin/tests/harness-home.test.sh` — exit 0 на Mac и в `pnpm test`.
+- [x] `head -1 harness/bin/preflight` — `#!/usr/bin/env node`; `grep -nE 'perl|jq ' harness/bin/preflight` — exit 1.
+- [x] `preflight.test.sh` запускает скрипт как `node "$PF"`; прежние 9 случаев не менялись и зелёные.
+- [x] `preflight.test.sh`, новый случай — тайм-аут: fixture на node запускает внука (`setInterval`) и пишет его pid в файл. Тайм-аут 1 s возвращает 124 не позже чем через 3 s, а `process.kill(<pid внука>, 0)` после этого бросает `ESRCH`.
+- [x] `preflight.test.sh`, новые случаи — чистые функции на входах из шапки (`:31-34`): `adrScan` по `0001-a.md 0001-b.md` — `highest 0001 · duplicates 0001`; `adrCollisions` по двум веткам с номером `0098` — `0098: origin/a, origin/b`; `migLast` по `{"entries":[{"idx":"0077"}]}` — `77`; вывод `worktree-lock status` с `holds … ← this` и чужим `also …` — разобран, как в `check_lock`.
+- [x] Сверка на Mac, worktree worfy: `git worktree add --detach "$T/old" origin/main`, затем из worktree worfy `bash "$T/old/harness/bin/preflight" --no-fetch --epic worfy-windows` и `node harness/bin/preflight --no-fetch --epic worfy-windows` — вывод совпадает построчно, коды выхода равны (через раздел Mac checks PR, Q33).
+- [x] `bash harness/bin/tests/preflight.test.sh` и `bash harness/bin/tests/harness-home.test.sh` — exit 0 на Mac и в `pnpm test`.
 - [ ] Те же два test-а — exit 0 в Git Bash на Windows-ПК; случай тайм-аута проходит и там (внук погашен через `taskkill /T`).
 - [ ] Windows-ПК, worktree worfy, Git Bash: `node harness/bin/preflight --epic worfy-windows; echo EXIT=$?` — с настоящим `git fetch`; последняя строка `GO` или `BLOCKED: …` с настоящими причинами, exit 0 или 1, не больше 20 строк. Вывод — в Итог.
 - [ ] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
@@ -114,4 +114,50 @@ Wave.
 
 ## Итог
 
-Заполняется при закрытии.
+Session на Mac (implementer), 2026-10-18. macOS 25.6, bash 3.2.57, Node 24.19.0. Ветка `worfy-windows/06` от main
+`7f8f46eb`. На Windows ничего не запускалось: пункты Windows-ПК и gate full на Mac открыты.
+
+- **`harness/bin/preflight` на Node**: CommonJS, имя без расширения, `#!/usr/bin/env node`;
+  `grep -nE 'perl|jq ' harness/bin/preflight` — exit 1. Флаги, строки, тексты причин `BLOCKED`, предупреждения и
+  коды выхода прежние. `withTimeout` запускает ребёнка асинхронно в своей группе процессов (`detached`), по
+  тайм-ауту — TERM группе, через 0.5 s KILL; на Windows — `taskkill /PID <pid> /T /F` с `windowsHide`. Нет
+  программы — код 127 без вывода, как у perl (`gh unavailable: ` с пустой причиной, как раньше). Ctrl+C, TERM и
+  HUP самого `preflight` гасят дерево ребёнка и дают 130, 143, 129. JSON (журнал миграций, ответ `gh pr list`,
+  Profile) читает сам скрипт; строки «jq not found — migrations not checked» нет. Вывод детей — байты: не-UTF-8
+  проходит без изменений, тема коммита режется по code point. Соседи — через `process.execPath`; файл, чей `#!`
+  называет другой интерпретатор, — по `#!` (на Windows через `bash`). `epic-status` проверяется на существование
+  вместо `-x`, текст причины прежний. `PREFLIGHT_GH` — gh test-а (stand-in), по тому же правилу. `check_main`
+  сравнивает пути после `path.resolve`. Экспорт для `require`: `withTimeout`, `adrScan`, `adrCollisions`,
+  `migLast`, `lockReport`, `cutChars`, `decode`, `encode`; `main` — только при прямом запуске.
+- **Как падал новый test на main:** `require` bash-файла — `SyntaxError: Invalid or unexpected token` на строке
+  `# preflight — …`; `preflight.test.sh` на bash-версии — exit 1, passed 1, failed 25.
+- **Test-ы:** `preflight.test.sh` — `node "$PF"`, прежние 13 проверок без изменений и зелёные; новые: тайм-аут
+  (внук на `setInterval`, 124 за ≤3 s, затем `ESRCH`; отсутствие внука ждётся до 1 s — время на reaping), нет
+  программы (127), TERM и INT во время `epic-status` (143 и 130, внук погашен, вердикта нет; на Windows — `skip`),
+  `adrScan`, `adrCollisions`, `migLast`, `lockReport` (три случая), `cutChars`, байты не-UTF-8. На Windows gh
+  test-а — node stand-in через `PREFLIGHT_GH`, под `gh_guard`; то же в `harness-home.test.sh`.
+- **Mutation testing:** `process.kill(child.pid)` вместо группы — случай тайм-аута красный (`124 in time alive`);
+  выход по сигналу без гашения детей — оба случая сигнала красные (внук жив).
+
+| Test, Mac | main `90c5e724` | ветка |
+|---|---|---|
+| `bash harness/bin/tests/preflight.test.sh` | exit 0, passed 15 | exit 0, passed 29 |
+| `bash harness/bin/tests/harness-home.test.sh` | exit 0, passed 46 | exit 0, passed 46 |
+| `pnpm lint && pnpm typecheck && pnpm test` | — | exit 0; 280 файлов, 5898 passed, 70 skipped |
+| `gate.mjs fast` | — | exit 0, `[gate] зелено (fast)` |
+
+- **Сверка старой и новой версии на Mac (байт в байт stdout, stderr и код выхода):** в worktree worfy
+  `bash <копия origin/main>/harness/bin/preflight --no-fetch --epic worfy-windows` и
+  `node harness/bin/preflight --no-fetch --epic worfy-windows` — exit 0 и 0, 15 строк, `IDENTICAL` (gh — stub с
+  постоянным списком PR). На fixture-ах `preflight.test.sh` — 13 запусков из 13 одинаковы. Отдельный набор из 68
+  сценариев (ADR в ветках и коллизии, миграции, ответы gh — ошибка, мусор, пусто, объект, странные элементы,
+  нет gh; аккаунт gh; fetch и его сбой; отстающий, опережающий и разошедшийся main; detached HEAD; замок —
+  чужой, свой, без id, нечитаемый реестр, сбой, неразобранный вывод; `epic-status` — нет файла, сбой, пусто,
+  много Epic-ов, зависание 20 s; Silent mode; тема с кириллицей и эмодзи и тема не в UTF-8; флаги) — 68 из 68
+  одинаковы.
+- **Настоящий gh — 0 вызовов:** оба test-а с логирующим `gh` первым в PATH до stub-а — лог пуст.
+- **Отличия от bash-версии:** `profile --json`, который вернул exit 0 и не JSON, — причина теперь текст
+  `SyntaxError` (bash печатал первую строку stack trace node, `<anonymous_script>:1`). stdin детей — пустой (bash
+  отдавал свой); ребёнок — в новой session (`setsid`, так делает `detached` в Node), а не только в своей группе: у него нет
+  управляющего терминала, и `ssh` в `git fetch` не спросит пароль с терминала (при perl фоновая группа ждала бы
+  до тайм-аута 60 s). Это следствие из устройства, не проверялось.

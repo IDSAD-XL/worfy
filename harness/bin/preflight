@@ -687,10 +687,11 @@ function checkMigrations() {
     if (taken) warn(`migration number ${taken} — ${hint}`)
 }
 
-// A value inside a jq string interpolation \(…): a string as it is, anything else as compact JSON.
-const jqText = (v) => (typeof v === "string" ? v : v === undefined ? "null" : JSON.stringify(v))
-// jq's `length`: of an array, an object's keys, a string's characters, |number|, 0 for null; booleans fail.
-function jqLength(v) {
+// The answer is read as the bash version's JSON filter read it, so odd answers print the same lines.
+// A value in a PR line: a string as it is, anything else as compact JSON.
+const jsonText = (v) => (typeof v === "string" ? v : v === undefined ? "null" : JSON.stringify(v))
+// The count: of an array, an object's keys, a string's characters, |number|, 0 for null; a boolean is not parsed.
+function jsonLength(v) {
     if (Array.isArray(v)) return v.length
     if (v === null) return 0
     if (typeof v === "object") return Object.keys(v).length
@@ -709,7 +710,7 @@ async function checkPrs() {
     let n
     try {
         v = JSON.parse(json)
-        n = jqLength(v)
+        n = jsonLength(v)
     } catch {
         n = null
     }
@@ -717,9 +718,9 @@ async function checkPrs() {
     say(`open PRs: ${n}`)
     if (Array.isArray(v))
         for (const pr of v.slice(0, 4)) {
-            if (pr !== null && (typeof pr !== "object" || Array.isArray(pr))) break // jq stops at an element it cannot index
+            if (pr !== null && (typeof pr !== "object" || Array.isArray(pr))) break // the old filter stopped at an element it could not index
             const x = pr || {}
-            say(`  #${jqText(x.number)} ${jqText(x.headRefName)} ${jqText(x.mergeStateStatus)}`)
+            say(`  #${jsonText(x.number)} ${jsonText(x.headRefName)} ${jsonText(x.mergeStateStatus)}`)
         }
     if (Number.isInteger(n) && n > 4) say(`  … and ${n - 4} more`)
 }
