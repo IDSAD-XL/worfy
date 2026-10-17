@@ -1,7 +1,8 @@
 # 05 — Compatibility suite: worfy против версий Claude Code и Agent SDK
 
 Type: task
-Status: claimed 2026-10-17T08:56Z
+Status: done 2026-10-17T10:38Z
+PR: #431
 Branch: worfy-reliability/05
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен»): идея P0 из draft
@@ -171,3 +172,11 @@ Query methods:
 `Проверка: test/contract/sdk-compat.test.ts — версия SDK в package.json, установленный пакет и
 claude_code_version снятых сообщений сверяются с test/fixtures/sdk-messages/manifest.json; формы
 старой и новой версии — node scripts/sdk-compat.mjs diff.`
+
+**Ревью и merge (2026-10-17).** Круг 1 — `REJECTED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/431#issuecomment-6232128767)): проверка типов `Query`
+пропускала суженный параметр метода (bivariance). Круг 2 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/431#issuecomment-6232245409)): кортежи параметров
+сравниваются по методам. Первый gate full красный на `test/e2e/terminal.spec.ts:351` (flaky test под
+нагрузкой, load 6–10), повтор зелёный, merge `f93dfca0`. Пункт 5 сделан документным PR: урок
+`docs/lessons/agents.md` про обновление SDK получил `Проверка: test/contract/sdk-compat.test.ts:60`.

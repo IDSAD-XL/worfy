@@ -148,6 +148,5 @@ PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skil
 ≥ 2.1.299 и в том же PR снимать `test/fixtures/sdk-messages/` заново (`scripts/spikes/sdk-probe.ts`;
 проверка — `claude_code_version` в их `system/init`). Spike зовёт настоящую модель и пишет в `~/.claude`.
 Код: `src/main/agent/fake-query.ts`.
-Проверка: проверки нет: ни один test не сверяет `claude_code_version` в `test/fixtures/sdk-messages/` с
-версией SDK в `package.json`.
+Проверка: test/contract/sdk-compat.test.ts:60 — SDK в `package.json` поднят без нового манифеста fixtures — test красный
 Источник: worfy-reliability/01; PR #325, идея A.

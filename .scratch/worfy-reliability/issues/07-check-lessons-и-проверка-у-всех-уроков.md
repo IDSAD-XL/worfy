@@ -1,7 +1,8 @@
 # 07 — `scripts/check-lessons.mjs` и строка `Проверка:` у всех уроков (В2)
 
 Type: task
-Status: claimed 2026-10-17T08:51Z
+Status: done 2026-10-17T10:38Z
+PR: #432
 Branch: worfy-reliability/07
 Blocked by: —
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md)
@@ -124,3 +125,12 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
   скоупа этого Ticket-а.
 - **Не проверено:** CI на GitHub. Jobs аккаунта отклоняются из-за billing, CI на PR падает, не начавшись.
   Gate full — за оркестратором перед мержем.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/432#issuecomment-6232281817)). Первый gate full красный
+на `test/e2e/harness-install.spec.ts:238` (flaky test под нагрузкой), повтор на том же head зелёный,
+merge `448169bb`. Долг (low): `harness/evals/` проверяется только префиксом, без папки кейса
+(`scripts/check-lessons.mjs:27`, `:90`); место строки перед `Источник:` скрипт не проверяет (`:69`);
+PR только с уроками не запускает CI (`.github/workflows/ci.yml:11`, `:14`, `paths-ignore: docs/**`).
+Устаревшие уроки вне диффа: `docs/lessons/agents.md:22` (ручные проверки GUI против eval
+`no-os-screen-capture`), `docs/lessons/testing.md:44`, `:48` (`loadWasAborted` → `loadEndedAsReplaced`).
