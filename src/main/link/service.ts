@@ -603,7 +603,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
           (adapter) => adapter.call(peer, frame.channel, frame.input, this.identity.name),
           (error: unknown): IpcResult<unknown> => ({ ok: false, error: `${frame.channel}: IPC over the link is unavailable (${messageOf(error)})` }),
         )
-        connection.send({ t: 'result', id: frame.id, result })
+        connection.answer(frame.id, frame.channel, result)
         return
       }
       case 'event':
