@@ -101,6 +101,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - `test/fixtures/workflow-stub/epic-status.mjs`, `test/contract/scratch-gen.ts` (stub `epic-status` для contract test-ов — новый формат)
 - `test/fixtures/critical-path/project/.scratch/demo-epic/issues/*.md` (фикстуры `critical-path` — перенесены `ticket migrate`)
 - `test/unit/epic-canvas.test.tsx` (test причины на Card)
+- `test/e2e/epic-frame.spec.ts` (добавлено в круге 2: его stub `epic-status` и фикстуры Ticket-ов — новый формат; остальные e2e отдают готовый ответ `epic-status`, и их результат от формата шапки не зависит)
 - `harness/bin/tests/tickets-root.test.sh`, `harness/bin/tests/silent-mode.test.sh`, `harness/bin/tests/harness-home.test.sh` (ждали старую строку `Status:`; `migrate` в Silent mode)
 - `harness/skills/ship-ticket/SKILL.md`, `harness/hooks/rules/orchestrator.md` (тексты о «спеллинге файла»)
 - `harness/evals/lib/demo-project.sh`, `harness/evals/reviewer-intended-breakage/scaffold.sh`, `harness/evals/reviewer-simplification/scaffold.sh`, `test/contract/harness-evals.test.ts` (scaffold-ы eval-ов писали `claimed — дата`)

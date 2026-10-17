@@ -50,6 +50,8 @@ printf '%s\n' '# 09 — already new' '' 'Type: task' 'Status: open' 'Blocked by:
 printf '\357\273\277# 10 — CRLF and BOM\r\n\r\nStatus: Выкачено 2026-08-23, PR #27\r\nBlocked by: —\r\n' >"$E/10-crlf.md"
 printf '%s\n' '# 11 — no Status' '' 'Type: task' 'Blocked by: —' >"$E/11-none.md"
 # New format; the only PR: line is in the result section, so the ticket has no PR.
+# A blocked line with a date before the reason: the date is the Status time, not part of the reason.
+printf '%s\n' '# 13 — blocked with a date' '' 'Status: blocked — 2026-10-12, waits for the API keys' 'Blocked by: —' >"$E/13-blocked-date.md"
 printf '%s\n' '# 12 — body PR' '' 'Status: done 2026-10-01' 'Blocked by: —' '' '## Итог' '' 'PR: #99' >"$E/12-body-pr.md"
 # Refusals live in their own epic, so the run over ep stays clean.
 printf '%s\n' '# 01 — unknown word' '' 'Status: draft' >"$R/odd/issues/01-draft.md"
@@ -59,7 +61,7 @@ printf '%s\n' '# 04 — a note on claimed' '' 'Status: claimed — 2026-10-01, w
 cp -R "$R" "$T/orig"
 
 # The state the old reader gave every fixture (last Status line, the word classified) — the migration keeps it.
-STATES='1:open 2:done 3:work 4:blocked 5:done 6:blocked 7:done 8:work 9:open 10:done 11:none 12:done'
+STATES='1:open 2:done 3:work 4:blocked 5:done 6:blocked 7:done 8:work 9:open 10:done 11:none 12:done 13:blocked'
 
 # ── 1. epic-status reads only the new format ──────────────────────────────────────────────────────
 got="$(json)"; rc=$?
@@ -70,7 +72,7 @@ if [ "$rc" -eq 0 ] && [ "$(field "$got" 1 state)" = none ] && [ "$(field "$got" 
     ok "epic-status: an old header (also a new Status line with an old footer) is state none with statusError 'old header', not a guess"
 else bad "epic-status on old headers: exit $rc, got: ${got:0:400}"; fi
 got="$("$STATUS" ep --root "$R" 2>&1)"
-[[ "$got" == *"9 with an old header — run ticket migrate"* ]] && ok "epic-status line counts old headers" || bad "epic-status line: $got"
+[[ "$got" == *"10 with an old header — run ticket migrate"* ]] && ok "epic-status line counts old headers" || bad "epic-status line: $got"
 
 # ── 2. the writers refuse an old header ───────────────────────────────────────────────────────────
 for c in "claim ep 01" "open ep 04" "done ep 05 --pr 3" "block ep 08 reason"; do
@@ -91,7 +93,7 @@ else bad "migrate refusal: exit $rc, $out"; fi
 # ── 4. migrate -n prints the diff and writes nothing ──────────────────────────────────────────────
 out="$(tk migrate --epic ep -n 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && [[ "$out" == *"-**Status:** open"*"+Status: open"* ]] && [[ "$out" == *"+PR: #412"* ]] \
-   && [[ "$out" == *"9 files to change"* ]] && diff -r "$T/orig" "$R" >/dev/null; then
+   && [[ "$out" == *"10 files to change"* ]] && diff -r "$T/orig" "$R" >/dev/null; then
     ok "migrate -n: diff printed, no file touched"
 else bad "migrate -n: exit $rc, $out"; fi
 
@@ -111,6 +113,7 @@ want 05-pr.md '# 05 — PR link' '' 'Type: task' 'Status: done 2026-10-15' 'PR: 
 want 06-semicolon.md '# 06 — reason with a semicolon' '' 'Type: task' 'Status: blocked' \
     'Blocked reason: приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки 26 и 16 — не в Autopilot); Autopilot не берёт' 'Blocked by: 01–15'
 want 07-note.md '# 07 — done with a note' '' 'Type: research' 'Status: done 2026-10-16' 'PR: #339' 'Blocked by: —'
+want 13-blocked-date.md '# 13 — blocked with a date' '' 'Status: blocked 2026-10-12' 'Blocked reason: waits for the API keys' 'Blocked by: —'
 want 08-claimed.md '# 08 — claimed' '' 'Status: claimed 2026-10-16' 'Blocked by: —' '' '```bash' 'Status: done' '```'
 cmp -s "$T/orig/ep/issues/09-new.md" "$E/09-new.md" && ok "a file in the new format is skipped" || bad "09-new.md changed"
 cmp -s "$T/orig/ep/issues/11-none.md" "$E/11-none.md" && ok "a file without Status is skipped" || bad "11-none.md changed"
@@ -131,7 +134,8 @@ for p in $STATES; do [ "$(field "$got" "${p%%:*}" state)" = "${p#*:}" ] || { sam
 if [ "$(field "$got" 6 blockedReason)" = 'приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки 26 и 16 — не в Autopilot); Autopilot не берёт' ] \
    && [ "$(field "$got" 5 pr)" = 412 ] && [ "$(field "$got" 5 statusAt)" = 2026-10-15 ] && [ "$(field "$got" 10 pr)" = 27 ] \
    && [ "$(field "$got" 4 waits)" = null ] && [ "$(field "$got" 9 statusAt)" = null ] && [ "$(field "$got" 9 pr)" = null ] \
-   && [ "$(field "$got" 2 statusRaw)" = "done 2026-08-27" ] && [ "$(field "$got" 1 statusError)" = null ] && [ "$(field "$got" 12 pr)" = null ]; then
+   && [ "$(field "$got" 2 statusRaw)" = "done 2026-08-27" ] && [ "$(field "$got" 1 statusError)" = null ] && [ "$(field "$got" 12 pr)" = null ] \
+   && [ "$(field "$got" 13 statusAt)" = 2026-10-12 ] && [ "$(field "$got" 13 blockedReason)" = "waits for the API keys" ]; then
     ok "epic-status: blockedReason, pr, statusAt; a body 'PR:' line is not the header's"
 else bad "epic-status fields: ${got:0:600}"; fi
 
