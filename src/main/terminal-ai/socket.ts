@@ -8,9 +8,15 @@
 // their connections.
 //
 // Every shell gets its own token in its environment. The first message of a connection must be
-// `hello` with a token that is alive and not in use; any other connection is closed. A token dies
-// with its shell (revoke), and its connection is closed with it. Neither a token nor a line a shell
-// sent is ever logged or put into an error.
+// `hello` with a token that is alive and not in use; any other connection is closed. Before every
+// command it runs a shell says `bye` and closes its connection, so the programs it starts do not
+// inherit it; main closes the connection on its side as well, since a program started at the prompt
+// may hold a copy of the descriptor. The shell says hello with the same token again at the next
+// prompt (rc.d/10-assist.zsh). From its first hello
+// until its token dies the shell counts as connected, also while a command runs; main has nothing
+// to write to then, and an ask its connection carried is given up. A token dies with its shell
+// (revoke), and its connection is closed with it. Neither a token nor a line a shell sent is ever
+// logged or put into an error.
 import { randomBytes } from 'node:crypto'
 import { unlinkSync } from 'node:fs'
 import { chmod, lstat, unlink } from 'node:fs/promises'
@@ -23,14 +29,14 @@ export const HELLO_TIMEOUT_MS = 5000
 /** Messages a shell has not read yet (it reads only while it waits for a key); past this, new ones are dropped. */
 export const MAX_UNREAD_BYTES = 256 * 1024
 
-/** What a connected shell sends after its hello. */
-export type ShellRequest = Exclude<ShellMessage, { type: 'hello' }>
+/** What a connected shell sends after its hello, for the features; `bye` stays in this file. */
+export type ShellRequest = Exclude<ShellMessage, { type: 'hello' } | { type: 'bye' }>
 
 export interface AssistSocketHandlers {
-  /** The shell of `terminal` said hello with its token. */
+  /** The shell of `terminal` said hello with its token: the first time, and again after every command. */
   connected?: (terminal: string) => void
   message?: (terminal: string, message: ShellRequest) => void
-  /** The connection of the shell of `terminal` is closed. */
+  /** The shell of `terminal` is gone: its token died, or the socket closed. */
   disconnected?: (terminal: string) => void
 }
 
@@ -42,7 +48,10 @@ export interface AssistSocketOptions extends AssistSocketHandlers {
 interface Admitted {
   /** The key of the shell's Terminal in the registry. */
   terminal: string
+  /** The connection the shell holds now; null before its hello and while it runs a command. */
   connection: Socket | null
+  /** The id of the ask that is open over the connection; 0 without one. */
+  asked: number
 }
 
 async function isSocket(path: string): Promise<boolean> {
@@ -59,11 +68,13 @@ export const errorName = (error: unknown): string => (error instanceof Error ? e
 export class AssistSocket {
   /** By token. */
   private readonly admitted = new Map<string, Admitted>()
-  /** The connected shell of each Terminal. */
+  /** The connected shell of each Terminal: it said hello, and its token is alive. */
   private readonly byTerminal = new Map<string, Admitted>()
   private readonly connections = new Set<Socket>()
   private server: Server | null = null
   private path: string | null = null
+  /** The folder of the socket file. */
+  private dir: string | null = null
   /** One listen at a time: two Terminals starting at once make one server. */
   private opening: Promise<unknown> = Promise.resolve()
   private closed = false
@@ -113,13 +124,14 @@ export class AssistSocket {
     }
     this.server = server
     this.path = path
+    this.dir = dir
     return path
   }
 
   /** A new token for a shell of the Terminal `terminal`; the shell says hello with it. */
   issue(terminal: string): string {
     const token = randomBytes(16).toString('hex')
-    this.admitted.set(token, { terminal, connection: null })
+    this.admitted.set(token, { terminal, connection: null, asked: 0 })
     return token
   }
 
@@ -128,7 +140,14 @@ export class AssistSocket {
     const shell = this.admitted.get(token)
     if (shell === undefined) return
     this.admitted.delete(token)
-    shell.connection?.destroy()
+    const { connection, terminal } = shell
+    shell.connection = null
+    shell.asked = 0
+    connection?.destroy()
+    // A shell of the same Terminal started after it may be connected already.
+    if (this.byTerminal.get(terminal) !== shell) return
+    this.byTerminal.delete(terminal)
+    this.call('disconnected', terminal, () => this.options.disconnected?.(terminal))
   }
 
   /** True while the shell of `terminal` is connected. */
@@ -156,6 +175,9 @@ export class AssistSocket {
     this.closed = true
     for (const connection of [...this.connections]) connection.destroy()
     this.admitted.clear()
+    const gone = [...this.byTerminal.keys()]
+    this.byTerminal.clear()
+    for (const terminal of gone) this.call('disconnected', terminal, () => this.options.disconnected?.(terminal))
     const { server, path } = this
     this.server = null
     this.path = null
@@ -179,6 +201,20 @@ export class AssistSocket {
     let warned = false
     const hello = setTimeout(() => connection.destroy(), this.helloTimeoutMs)
 
+    // The shell is done with its connection: it said bye (before a command), or the connection
+    // ended — it broke, the shell closed it without a bye, or main closed it. The token says hello
+    // again; the ask that was open is given up, as a cancel gives it up. On the end of the stream,
+    // not on `close`: that comes a turn of the event loop later, and the hello of the next prompt
+    // may be read before it.
+    const release = (): void => {
+      if (shell === null || shell.connection !== connection) return
+      shell.connection = null
+      const { terminal, asked } = shell
+      shell.asked = 0
+      if (asked !== 0) this.call('cancel', terminal, () => this.options.message?.(terminal, { type: 'cancel', id: asked }))
+      this.relisten()
+    }
+
     const read = (line: string): void => {
       const message = parseShellMessage(line)
       if (shell === null) {
@@ -191,6 +227,7 @@ export class AssistSocket {
         clearTimeout(hello)
         shell = admitted
         admitted.connection = connection
+        admitted.asked = 0
         this.byTerminal.set(admitted.terminal, admitted)
         this.call('connected', admitted.terminal, () => this.options.connected?.(admitted.terminal))
         return
@@ -201,6 +238,16 @@ export class AssistSocket {
         warned = true
         return
       }
+      if (message.type === 'bye') {
+        // A program the shell started at the prompt may hold a copy of the descriptor, and then the
+        // shell closing its own gives main no end: main closes the connection for every copy, and
+        // nothing read after the bye counts.
+        release()
+        connection.destroy()
+        return
+      }
+      if (message.type === 'ask') shell.asked = message.id
+      else if (message.id === shell.asked) shell.asked = 0
       const { terminal } = shell
       this.call(message.type, terminal, () => this.options.message?.(terminal, message))
     }
@@ -218,17 +265,26 @@ export class AssistSocket {
       }
       if (unread.length > MAX_LINE_BYTES) connection.destroy()
     })
+    connection.on('end', release)
     // A shell that was killed resets the connection; `close` follows.
     connection.on('error', () => undefined)
     connection.on('close', () => {
       clearTimeout(hello)
       this.connections.delete(connection)
-      if (shell === null || shell.connection !== connection) return
-      shell.connection = null
-      if (this.byTerminal.get(shell.terminal) === shell) this.byTerminal.delete(shell.terminal)
-      const { terminal } = shell
-      this.call('disconnected', terminal, () => this.options.disconnected?.(terminal))
+      release()
     })
+  }
+
+  /**
+   * The shells connect anew after every command: when macOS removed the socket file, main listens
+   * on it again, so they still find it. A folder that is gone stays gone until the next Terminal.
+   */
+  private relisten(): void {
+    const { dir, path } = this
+    if (this.closed || dir === null || path === null) return
+    void isSocket(path)
+      .then((found) => (found ? undefined : this.listen(dir)))
+      .catch((error: unknown) => console.warn(`[terminal-ai] the socket could not be made again: ${errorName(error)}`))
   }
 
   /** A handler that throws does not take the connection with it. */

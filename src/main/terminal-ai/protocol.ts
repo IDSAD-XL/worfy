@@ -8,6 +8,8 @@
 //   shell → main   hello <token>                 the first message of a connection
 //                  ask <id> <feature> <line>     asks for a feature about the line being edited
 //                  cancel <id>                   the ask is no longer wanted
+//                  bye                           the shell closes the connection (before a command);
+//                                                main closes it too, for every copy of the descriptor
 //   main → shell   show <id> <text>              grey text after the line (a Suggestion), for that ask
 //                  status <id> <text>            a short grey note instead; id 0 is about no ask
 //                  insert <text>                 the line becomes the text; nothing is run
@@ -27,6 +29,7 @@ export type ShellMessage =
   | { type: 'hello'; token: string }
   | { type: 'ask'; id: number; feature: string; line: string }
   | { type: 'cancel'; id: number }
+  | { type: 'bye' }
 
 export type MainMessage =
   | { type: 'show'; id: number; text: string }
@@ -59,6 +62,8 @@ function fieldsOf(message: ShellMessage | MainMessage): string[] {
       return [String(message.id), message.feature, message.line]
     case 'cancel':
       return [String(message.id)]
+    case 'bye':
+      return []
     case 'show':
     case 'status':
       return [String(message.id), message.text]
@@ -104,6 +109,8 @@ export function parseShellMessage(line: string): ShellMessage | null {
       const id = idOf(fields[0], 1)
       return fields.length === 1 && id !== null ? { type, id } : null
     }
+    case 'bye':
+      return fields.length === 0 ? { type } : null
     default:
       return null
   }
