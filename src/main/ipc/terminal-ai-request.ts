@@ -8,7 +8,8 @@
 // (the events of the shell integration), the settings change.
 //
 // A request goes to the assist service as the line `# …` does (requestCommand of
-// src/main/terminal-ai/features/command-request.ts), and the command of the answer goes to the
+// src/main/terminal-ai/features/command-request.ts), with the line the panel read off the screen of
+// the Terminal, and the command of the answer goes to the
 // shell as `insert`: it lands in the line and never runs. One request per Terminal: a new one, the
 // panel closing (`terminalAi.request.cancel`) and the client going cancel the one before. Neither the
 // words, nor the line, nor the answer reach the log or an error.
@@ -106,7 +107,7 @@ export function terminalAiRequestHandlers(deps: TerminalAiRequestDeps): HandlerM
       }
       return state
     }),
-    defineHandler(terminalAiRequest, async ({ projectId, nodeId, text }, { event }) => {
+    defineHandler(terminalAiRequest, async ({ projectId, nodeId, text, line }, { event }) => {
       const key = terminalKey(projectId, nodeId)
       const link = deps.link()
       // Only the name of the problem: the words stay out of the error and of the log.
@@ -117,7 +118,7 @@ export function terminalAiRequestHandlers(deps: TerminalAiRequestDeps): HandlerM
       inFlight.set(key, { abort, client })
       if (client !== undefined) watch(client)
       try {
-        const answer = await requestCommand({ shellState: (terminal) => deps.registry().shellState(terminal), assist: deps.assist }, key, text, abort.signal)
+        const answer = await requestCommand({ shellState: (terminal) => deps.registry().shellState(terminal), assist: deps.assist }, key, text, line, abort.signal)
         if (answer === null) return { ok: false, message: NOT_READY }
         if (!answer.ok) return { ok: false, message: refusalText(answer) ?? 'Cancelled' }
         if (abort.signal.aborted) return { ok: false, message: 'Cancelled' }

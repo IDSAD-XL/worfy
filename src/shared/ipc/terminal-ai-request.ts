@@ -7,6 +7,7 @@
 // access is on, it works as the line `# …` does, and the Machine of the Terminal asks the model on
 // its own subscription and within its own Limits (owner's decision 8(a)).
 import { z } from 'zod'
+import { MAX_FIELD_CHARS } from '../terminal-ai/context'
 import { eventChannel, invokeChannel } from './channels'
 
 const terminalRef = {
@@ -42,10 +43,16 @@ export type TerminalAiRequestResult = z.output<typeof terminalAiRequestResultSch
 /**
  * Asks the model for a command for `text` and puts it into the line of the Terminal's shell. It
  * never runs. Fails (an error, the model not asked) for a Terminal whose zsh is not connected.
+ *
+ * `line` is what is typed in the line of the shell when the panel asks, as the screen of the
+ * Terminal shows it (src/renderer/canvas/nodes/terminal-line.ts): it goes into the context of the
+ * request, redacted, and not at all when it starts with a space (prepareContext of
+ * src/shared/terminal-ai/context.ts). The screen may be forged by a program that prints the mark of
+ * the end of the prompt: that changes only this text of the context. Absent — an empty line.
  */
 export const terminalAiRequest = invokeChannel(
   'terminalAi.request',
-  z.object({ ...terminalRef, text: z.string().trim().min(1).max(MAX_REQUEST_CHARS) }),
+  z.object({ ...terminalRef, text: z.string().trim().min(1).max(MAX_REQUEST_CHARS), line: z.string().max(MAX_FIELD_CHARS).default('') }),
   terminalAiRequestResultSchema,
   'project',
   'write',

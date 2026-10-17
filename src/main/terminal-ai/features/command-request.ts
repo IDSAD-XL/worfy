@@ -13,8 +13,9 @@
 // dropped there). A refusal is a grey `status` with its reason.
 //
 // The model gets the words, the folder, the last commands, the branch and the exit code
-// (src/main/terminal-ai/input.ts); the line itself is the request, so the line in the context is
-// empty. Nothing here writes a log line: the words, the line and the answer stay out of the log.
+// (src/main/terminal-ai/input.ts), and the line typed in the shell: for `# …` the line itself is the
+// request, so the line in the context is empty; the panel sends what is typed in the line while it
+// is open. Nothing here writes a log line: the words, the line and the answer stay out of the log.
 import type { AssistAnswer, AssistService } from '../assist'
 import { terminalAiInput } from '../input'
 import type { ShellState } from '../../terminal/osc'
@@ -35,11 +36,12 @@ export interface RequestContext {
 
 /**
  * Asks the assist service for a command for `words`, with what the shell integration knows of the
- * Terminal. Null when the shell has not told its folder yet: then nothing is asked.
+ * Terminal and `line`, the line typed in the shell. Null when the shell has not told its folder yet:
+ * then nothing is asked.
  */
-export async function requestCommand(context: RequestContext, terminal: string, words: string, signal?: AbortSignal): Promise<AssistAnswer | null> {
+export async function requestCommand(context: RequestContext, terminal: string, words: string, line: string, signal?: AbortSignal): Promise<AssistAnswer | null> {
   const state = context.shellState(terminal)
-  const input = state === null ? null : terminalAiInput(state, '', { request: words })
+  const input = state === null ? null : terminalAiInput(state, line, { request: words })
   if (input === null) return null
   return (await context.assist()).request('request', input, signal)
 }
@@ -84,7 +86,8 @@ const commandRequest: ShellFeature = {
   async ask(ask, reply, context) {
     const words = requestWords(ask.line)
     if (words === null) return
-    const answer = await requestCommand(context, ask.terminal, words, ask.signal)
+    // The line `# …` is the request itself: no line goes with it.
+    const answer = await requestCommand(context, ask.terminal, words, '', ask.signal)
     if (answer === null) {
       reply.status(NOT_READY)
       return

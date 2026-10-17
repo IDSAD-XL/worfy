@@ -26,6 +26,7 @@ const terminals = vi.hoisted(() => ({ made: [] as { options: { theme?: ITheme } 
 vi.mock('@xterm/xterm', () => {
   class Terminal {
     cols = 80
+    readonly parser = { registerOscHandler: () => ({ dispose: () => undefined }) }
     rows = 24
     options: { theme?: ITheme }
     constructor(options: { theme?: ITheme }) {
