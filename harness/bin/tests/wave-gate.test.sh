@@ -76,6 +76,12 @@ if [ "$1 $2" = "pr view" ]; then
   for x in ${!l:-}; do labels="$labels$sep{\"name\":\"$x\"}"; sep=","; done
   printf '{"number":%s,"headRefOid":"%s","labels":[%s]}\n' "$n" "$(git -C "$GH_ORIGIN" rev-parse "refs/pull/$n/head")" "$labels"; exit 0
 fi
+# `pr checks` is red ("no checks reported", exit 1): with workflow.ci "batch" a PR has no CI run on its head.
+[ "$1 $2" = "pr checks" ] && { echo "no checks reported on the 'pr' branch" >&2; exit 1; }
+# `workflow run …` (the batch CI dispatch): exit $GH_DISPATCH_RC (0), prints $GH_RUN_URL when it is set.
+# `run list …` prints $GH_RUNS (a file with the JSON list), or [] without it.
+if [ "$1 $2" = "workflow run" ]; then [ -n "${GH_RUN_URL:-}" ] && echo "$GH_RUN_URL"; exit "${GH_DISPATCH_RC:-0}"; fi
+if [ "$1 $2" = "run list" ]; then if [ -n "${GH_RUNS:-}" ] && [ -f "$GH_RUNS" ]; then cat "$GH_RUNS"; else echo "[]"; fi; exit 0; fi
 [ "$1 $2" = "pr merge" ] || { echo "stub gh: unexpected $*" >&2; exit 1; }
 n=$3; sha=""; shift 3
 while [ $# -gt 0 ]; do [ "$1" = "--match-head-commit" ] && sha=$2; shift; done
@@ -137,7 +143,7 @@ new_world() {
     git clone -q "$W/origin.git" "$W/repo"
     mkdir -p "$W/screen"
     export GATE_DIR="$W/gate" GH_ORIGIN="$W/origin.git" GH_LOG="$W/gh/log" GH_TMP="$W/gh" SCREEN_DIR="$W/screen"
-    unset GATE_LOCK GH_EXTRA_AT
+    unset GATE_LOCK GH_EXTRA_AT GH_RUN_URL GH_RUNS GH_DISPATCH_RC
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
 # state <file> <lock or null> <pr>…: each pr is "<N>[,platform][,label=<name>]"
@@ -545,6 +551,78 @@ else
     [ "$mrc" -eq 0 ] && [ ! -e "$SCREEN_DIR/caf.log" ] && ok "no caffeinate in PATH: check and merge run without it" || bad "no caffeinate: merge exit $mrc: $(cat "$W/mout")"
 fi
 
+# --- workflow.ci "batch" (ADR-0068): no CI on the PR head; one CI run on main after the wave -------------
+# A PR whose checks are red (the stub `gh pr checks` exits 1) is merged in the set: wave-gate never asks for
+# checks or mergeStateStatus.
+new_world batch 1:a.txt 2:b.txt
+S="$W/state.json"; state "$S" null 1 2
+"$WG" check "$S" >"$W/out" 2>&1 && "$WG" merge "$S" >>"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 2 " ] \
+    && ok "batch: PRs without green checks are merged in the set" || bad "batch: exit $rc: $(tail -3 "$W/out")"
+! grep -qE '^(pr checks|run |workflow run)|mergeStateStatus' "$GH_LOG" \
+    && ok "batch: check and merge ask for no checks, no run, no mergeStateStatus and dispatch nothing" || bad "batch: gh calls: $(cat "$GH_LOG")"
+# ci_state <file> <ci> <run or null>: the wave CI state file the skill block writes
+ci_state() { local run="$3"; [ "$run" = null ] || run="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$run")"
+    printf '{"repo":"%s","branch":"main","ci":"%s","ci_batch_run":%s}\n' "$W/repo" "$2" "$run" >"$1"; }
+dispatches() { grep -c '^workflow run' "$GH_LOG"; }
+TIP="$(git -C "$W/origin.git" rev-parse main)"
+C="$W/ci.json"; ci_state "$C" batch 'gh workflow run ci.yml --ref $ref -f job=check'
+export GH_RUN_URL="https://github.com/o/r/actions/runs/4242"
+"$WG" ci "$C" >"$W/cout" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = 1 ] && grep -qx 'workflow run ci.yml --ref main -f job=check' "$GH_LOG" \
+    && ok "batch ci: one dispatch for main, \$ref is the branch" || bad "batch ci: exit $rc: $(cat "$W/cout") gh: $(grep 'workflow run' "$GH_LOG")"
+[ "$(q "$C" 's.ci_run.run_id+" "+s.ci_run.url+" "+s.ci_run.commit')" = "4242 $GH_RUN_URL $TIP" ] && [ -n "$(q "$C" s.ci_run.dispatched_at)" ] \
+    && ok "batch ci: the run id, its URL and the commit of main are recorded" || bad "batch ci: ci_run $(q "$C" s.ci_run 2>&1)"
+grep -q "CI_RUN=4242 $GH_RUN_URL" "$W/cout" && ok "batch ci: prints CI_RUN=<id> <url>" || bad "batch ci: output $(cat "$W/cout")"
+"$WG" ci "$C" >"$W/cout2" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = 1 ] && grep -q "CI_RUN=4242" "$W/cout2" \
+    && ok "batch ci: a second call dispatches nothing more" || bad "batch ci: second call exit $rc, dispatches $(dispatches)"
+# workflow.ci "pr": nothing is dispatched
+P="$W/ci-pr.json"; ci_state "$P" pr null
+"$WG" ci "$P" >"$W/pout" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = 1 ] && grep -q "CI=skipped" "$W/pout" && [ "$(q "$P" 's.ci_run===undefined')" = true ] \
+    && ok "pr ci: nothing is dispatched, CI=skipped" || bad "pr ci: exit $rc: $(cat "$W/pout")"
+# no URL in the dispatch output: the run is found by the commit of main; not found yet — exit 3, and a second
+# call finds it without a second dispatch
+unset GH_RUN_URL
+export WAVE_GATE_CI_POLL_S=0.1 WAVE_GATE_CI_TRIES=2
+D="$W/ci-find.json"; ci_state "$D" batch 'gh workflow run ci.yml --ref $ref -f job=check'
+before=$(dispatches)
+"$WG" ci "$D" >"$W/dout" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(dispatches)" = $((before + 1)) ] && [ "$(q "$D" 's.ci_run.run_id===undefined')" = true ] \
+    && grep -q -- "--commit $TIP --event workflow_dispatch" "$GH_LOG" && grep -q -- "--workflow ci.yml" "$GH_LOG" \
+    && ok "batch ci: run not found -> exit 3, looked up by the commit of main and the workflow" || bad "batch ci: not found exit $rc: $(cat "$W/dout") gh: $(grep 'run list' "$GH_LOG")"
+printf '[{"databaseId":7,"url":"https://github.com/o/r/actions/runs/7","createdAt":"2000-01-01T00:00:00Z"},{"databaseId":9,"url":"https://github.com/o/r/actions/runs/9","createdAt":"%s"}]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$W/runs.json"
+export GH_RUNS="$W/runs.json"
+"$WG" ci "$D" >"$W/dout2" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = $((before + 1)) ] && [ "$(q "$D" 's.ci_run.run_id')" = 9 ] \
+    && ok "batch ci: the second call finds the run created after the dispatch, without a second dispatch" || bad "batch ci: find exit $rc run $(q "$D" s.ci_run 2>&1): $(cat "$W/dout2")"
+unset GH_RUNS
+# a failed dispatch: exit 1, nothing recorded as dispatched, the next call dispatches again
+F1="$W/ci-fail.json"; ci_state "$F1" batch 'gh workflow run ci.yml --ref $ref -f job=check'
+export GH_DISPATCH_RC=1 GH_RUN_URL="https://github.com/o/r/actions/runs/11"
+before=$(dispatches)
+"$WG" ci "$F1" >"$W/fout" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && [ "$(q "$F1" 's.ci_run.dispatched_at===undefined && s.ci_run.status==="dispatch failed"')" = true ] \
+    && ok "batch ci: a failed dispatch -> exit 1, not recorded as dispatched" || bad "batch ci: failed dispatch exit $rc: $(cat "$W/fout") $(q "$F1" s.ci_run 2>&1)"
+export GH_DISPATCH_RC=0
+"$WG" ci "$F1" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = $((before + 2)) ] && [ "$(q "$F1" s.ci_run.run_id)" = 11 ] \
+    && ok "batch ci: after a failed dispatch the next call dispatches" || bad "batch ci: retry exit $rc"
+unset GH_RUN_URL GH_DISPATCH_RC WAVE_GATE_CI_POLL_S WAVE_GATE_CI_TRIES
+# bad input: batch without a command, an unknown mode, a merge of the set still in progress
+B="$W/ci-bad.json"; ci_state "$B" batch null
+"$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q "ci_batch_run" "$W/bout" && ok "batch ci: batch without ci_batch_run -> exit 1 naming it" || bad "batch ci: no command exit $rc $(cat "$W/bout")"
+ci_state "$B" nightly null
+"$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q '"ci"' "$W/bout" && ok "ci: an unknown mode -> exit 1" || bad "ci: unknown mode exit $rc $(cat "$W/bout")"
+node -e 'const fs=require("fs"),f=process.argv[1],s=JSON.parse(fs.readFileSync(f,"utf8"));s.ci="batch";s.ci_batch_run="gh workflow run ci.yml --ref $ref";s.merge={merged:[],status:"pending"};fs.writeFileSync(f,JSON.stringify(s))' "$B"
+before=$(dispatches)
+"$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q "merge" "$W/bout" && [ "$(dispatches)" = "$before" ] \
+    && ok "batch ci: a merge still in progress -> exit 1, nothing dispatched" || bad "batch ci: pending merge exit $rc $(cat "$W/bout")"
+
 # --- bad input ---------------------------------------------------------------------------
 new_world input 1:a.txt
 S="$W/state.json"; printf '{"repo":"%s","branch":"main","prs":[]}\n' "$W/repo" >"$S"
@@ -558,8 +636,8 @@ block() { # $1 = a string that identifies the ```bash block; prints it without t
     awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL" \
         | grep -v '^F() { "\${CLAUDE_PLUGIN_ROOT}/bin/profile"'
 }
-BI="$(block 'PLATFORM=(')"; BC="$(block 'wave-gate" check')"; BM="$(block 'wave-gate" merge')"
-[ -n "$BI" ] && [ -n "$BC" ] && [ -n "$BM" ] && ok "skill blocks: the set, check and merge blocks are in $SKILL" || bad "skill blocks: not found in $SKILL"
+BI="$(block 'PLATFORM=(')"; BC="$(block 'wave-gate" check')"; BM="$(block 'wave-gate" merge')"; BCI="$(block 'wave-gate" ci')"
+[ -n "$BI" ] && [ -n "$BC" ] && [ -n "$BM" ] && [ -n "$BCI" ] && ok "skill blocks: the set, check, merge and batch CI blocks are in $SKILL" || bad "skill blocks: not found in $SKILL"
 for sh in bash zsh; do
     new_world "skill-$sh" 1:a.txt 2:b.txt 3:c.txt
     export GH_LABELS_3="needs-mac-gate other"
@@ -576,6 +654,18 @@ for sh in bash zsh; do
     got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$(sub "$BM")" 2>&1)"
     [[ "$got" == *"EXIT=0"* ]] && [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 " ] && ok "$sh: the merge block merges PR 1" || bad "$sh: the merge block: [$got]"
     unset GH_LABELS_3
+    # The batch CI block: the profile says batch — one dispatch for main, also when the block runs twice;
+    # the profile has no workflow.ci (F exits 4) — nothing is dispatched.
+    BATCH="F() { case \"\$1\" in workflow.ci) echo batch ;; workflow.ci_batch_run) echo 'gh workflow run ci.yml --ref \$ref -f job=check' ;; *) return 4 ;; esac; }"
+    export GH_RUN_URL="https://github.com/o/r/actions/runs/77"
+    got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$BATCH"$'\n'"$(sub "$BCI" | sed "s#<CI file>#$W/ci.json#")" 2>&1)"
+    got2="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$BATCH"$'\n'"$(sub "$BCI" | sed "s#<CI file>#$W/ci.json#")" 2>&1)"
+    [[ "$got" == *"EXIT=0"* ]] && [[ "$got2" == *"CI_RUN=77"* ]] && [ "$(grep -c '^workflow run ci.yml --ref main -f job=check$' "$GH_LOG")" = 1 ] \
+        && ok "$sh: the batch CI block dispatches once for main, run twice" || bad "$sh: the batch CI block: [$got] [$got2] $(grep 'workflow run' "$GH_LOG")"
+    got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$STUB"$'\n'"$(sub "$BCI" | sed "s#<CI file>#$W/ci-pr.json#")" 2>&1)"
+    [[ "$got" == *"CI=skipped"* ]] && [[ "$got" == *"EXIT=0"* ]] && [ "$(grep -c '^workflow run' "$GH_LOG")" = 1 ] && [ "$(q "$W/ci-pr.json" s.ci)" = pr ] \
+        && ok "$sh: the batch CI block without workflow.ci dispatches nothing" || bad "$sh: the CI block with pr: [$got]"
+    unset GH_RUN_URL
 done
 
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"

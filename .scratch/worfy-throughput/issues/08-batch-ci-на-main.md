@@ -69,15 +69,15 @@ Source: решение владельца 2026-10-17 (около 09:20 UTC), п�
 
 ## Готово, когда
 
-- [ ] `profile --field workflow.ci`: поля нет — `pr`; `pr`; `batch`; другое значение — exit 1 с
+- [x] `profile --field workflow.ci`: поля нет — `pr`; `pr`; `batch`; другое значение — exit 1 с
   причиной; `batch` без `ci_batch_run` — exit 1.
-- [ ] `wave-gate`: PR, у которого `gh pr checks` красный, вливается в наборе; `wave-gate ci` с
+- [x] `wave-gate`: PR, у которого `gh pr checks` красный, вливается в наборе; `wave-gate ci` с
   `batch` запускает dispatch один раз (второй вызов — ни одного нового), с `pr` — ни одного.
-- [ ] Contract test: у `ci.yml` нет триггеров `pull_request` и `push`; `full-macos` идёт только при
+- [x] Contract test: у `ci.yml` нет триггеров `pull_request` и `push`; `full-macos` идёт только при
   `job == 'full-macos'`, `check` — при `job == 'check'`; input `job` по умолчанию `check`.
-- [ ] Тексты Harness с `batch` не ждут CI на PR, с `pr` — как были.
-- [ ] ADR-0068 принят.
-- [ ] «Итог» содержит строки для live Profile и текст для `rules.md`.
+- [x] Тексты Harness с `batch` не ждут CI на PR, с `pr` — как были.
+- [x] ADR-0068 принят.
+- [x] «Итог» содержит строки для live Profile и текст для `rules.md`.
 - [ ] Платформенный PR: Harness-скрипт — вердикт Windows-ПК до merge (ADR-0056, пункт 2).
 
 ## Тесты
@@ -110,5 +110,85 @@ Source: решение владельца 2026-10-17 (около 09:20 UTC), п�
   «CI» Wave — batch CI run, записанный `wave-gate ci` (поле `ci_run` state file: `run_id`, `url`,
   `commit`). Красный batch CI run — красная Stage Wave, не Ticket-а.
 - `worfy-windows` и workflow «Windows tests» (`windows-tests.yml`) — без изменений.
+- Production check проекта с `batch` и `deploy` (overnight-fix-loop, раздел 3, ищет push run на
+  main): у worfy `deploy` нет; текст говорит «не проверено», механики нет.
 
 ## Итог
+
+PR #433, ветка `worfy-throughput/08`. Платформенный PR (ADR-0056, пункт 2): меняются
+`harness/bin/profile` и `harness/bin/wave-gate` — до merge нужен вердикт Windows-ПК, метка
+`needs-mac-gate`.
+
+- `bin/profile`: `workflow.ci` — `pr` | `batch` | `null`, поля нет или `null` → `pr` (как
+  `attribution`); другое значение — exit 1; `ci_batch_run` не строка — exit 1; `batch` без непустого
+  `ci_batch_run` — exit 1. Profile без объекта `workflow` даёт exit 4 на `--field workflow.ci` — это
+  читается как `pr`.
+- `bin/wave-gate ci <файл>`: свой файл `{repo, branch, ci, ci_batch_run}`; с `pr` — `CI=skipped`,
+  ничего не запускает; с `batch` — fetch, один dispatch с `$ref` = ветка, поиск CI run (URL из
+  вывода `gh workflow run`, иначе `gh run list --commit <tip> --event workflow_dispatch --workflow
+  <имя>`), запись `ci_run` в файл. Повторный вызов не запускает второй dispatch. Коды: 0 — найден,
+  3 — запущен, ещё не виден, 1 — ошибка или упавший dispatch (не записан как запущенный).
+- `check` и `merge` не смотрят на checks и `mergeStateStatus` — так было и раньше; теперь это
+  закреплено test-ом (stub `gh pr checks` красный, набор вливается).
+- `ci.yml`: только `workflow_dispatch` с input `job` (`check` | `full-macos`), concurrency
+  `${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}` с `cancel-in-progress: true`.
+- Тексты: implementer (шаг 6), ship-ticket (шаги 8–9 и поля в начале), epic-wave (поле в начале,
+  verifier, ожидание CI, «Gate before merge», новый раздел «Batch CI on the main branch» с block-ом,
+  ожиданием и правилом красного CI run, decision log, отчёт), overnight-fix-loop (1h, раздел 2,
+  production check), `harness/README.md`, `profiles/README.md`, `draft.schema.json`.
+  `skills/max-review` CI не ждёт и не менялся.
+
+Test-ы: `bash harness/bin/tests/profile.test.sh` — exit 0 (229 проверок);
+`bash harness/bin/tests/wave-gate.test.sh` — exit 0 (130), включая block skill-а под bash и zsh;
+`pnpm test test/contract/ci-workflow.test.ts` — exit 0. Mutant «dispatch без проверки
+`dispatched_at`» — 7 красных проверок `wave-gate.test.sh`.
+
+**Строки для live Profile** (`~/.claude/worfy-harness/projects/worfy/profile.json`) — применить
+вместе с обновлением Harness из этого PR, не раньше: старые skill-ы ждут CI на PR, а после merge
+`ci.yml` на PR не запускается. В объект `workflow`:
+
+```json
+"ci": "batch",
+"ci_batch_run": "gh workflow run ci.yml --ref $ref -f job=check"
+```
+
+И заменить в том же файле:
+
+```json
+"implementer_steps": "шаги 1–8: claim → свежий origin/main → номера ADR → красный тест → реализация → голая проверка с кодом выхода → PR (CI на PR нет: workflow.ci batch, ADR-0068)",
+```
+
+а в `stack` строку про CI —
+`"CI: GitHub Actions на ubuntu-latest (lint, typecheck, unit) — один dispatch на main после Wave (workflow.ci batch, ADR-0068); e2e и .app — локально, gate full перед мержем"`.
+
+**Текст для `rules.md`** (`~/.claude/worfy-harness/projects/worfy/rules.md`, раздел «Команды
+существуют только после тикета 01»). Пункт «CI на GitHub — дешёвый job…» заменить на:
+
+```markdown
+- CI на GitHub — дешёвый job на `ubuntu-latest`: lint, typecheck, unit и contract test-ы. С
+  2026-10-17 (решение владельца, ADR-0068, `workflow.ci: "batch"`) он не gate перед merge PR и не
+  запускается на PR и на push: один CI run на `main` на Wave, после того как Wave влита, —
+  `wave-gate ci` запускает `gh workflow run ci.yml --ref main -f job=check`
+  (`workflow.ci_batch_run`). Orchestrator ждёт результат до отчёта Wave. Красный CI run — без
+  revert: Autopilot run останавливается после Wave, сбой — новый Ticket или строка `blocked`,
+  исправление вперёд. «НЕТ RUN» и старые красные checks у PR — не красный CI: PR вливается по gate,
+  когда `mergeable` — `MERGEABLE`. Комментария «CI skipped: docs-only change» больше не нужно: CI
+  нет ни у какого PR, финиш PR только с документами — локальный gate fast с кодом 0.
+```
+
+В пункте «Gate перед мержем PR с кодом» последнее предложение заменить на:
+
+```markdown
+  e2e и собранный `.app` проверяются только здесь, и это единственный gate перед merge: CI на
+  Linux идёт уже после Wave (ADR-0068). Полный прогон на macOS в GitHub — только вручную
+  (Actions → CI → Run workflow, job `full-macos`), агенты его не запускают; dispatch Wave — всегда
+  `job=check`.
+```
+
+Пункт «Единственное исключение из правила о платных прогонах — workflow «Windows tests»» начать
+так: «Исключения из правила о платных прогонах — batch CI run Wave (`wave-gate ci`, запускает
+только Orchestrator, один раз после merge Wave, ADR-0068) и workflow «Windows tests»…», дальше
+без изменений.
+
+После merge этого PR на `main` CI не запустится сам (push-триггера нет): первый batch CI run —
+`gh workflow run ci.yml --ref main -f job=check` от orchestrator-а.

@@ -314,6 +314,7 @@ const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(os.homedi
 // profile: a guessed one would decide whether a PR is merged without its gate, or two e2e runs share the screen.
 // `~/` in e2e_lock is expanded; a relative path would depend on the directory a script runs from.
 const MERGE_GATES = ["each", "wave"]
+const CI_MODES = ["pr", "batch"]
 if (profile.workflow !== null && typeof profile.workflow === "object") {
     const wf = profile.workflow
     if (wf.merge_gate !== undefined && wf.merge_gate !== null && !MERGE_GATES.includes(wf.merge_gate))
@@ -323,6 +324,15 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
         if (!lock || !path.isAbsolute(lock)) die(1, `${pjPath}: workflow.e2e_lock is an absolute path or null, got ${JSON.stringify(wf.e2e_lock)} — broken profile`)
         wf.e2e_lock = lock
     }
+    // Where GitHub CI runs (worfy ADR-0068): workflow.ci is "pr" (on every PR head — the default, absent or
+    // null resolves to it) or "batch" (once on the main branch per wave, with workflow.ci_batch_run, a command
+    // where $ref is the branch). A guessed value would decide whether a PR is merged without its CI run.
+    if (wf.ci === undefined || wf.ci === null) wf.ci = "pr"
+    else if (!CI_MODES.includes(wf.ci)) die(1, `${pjPath}: workflow.ci is "pr", "batch" or null, got ${JSON.stringify(wf.ci)} — broken profile`)
+    if (wf.ci_batch_run !== undefined && wf.ci_batch_run !== null && typeof wf.ci_batch_run !== "string")
+        die(1, `${pjPath}: workflow.ci_batch_run is a command string or null, got ${JSON.stringify(wf.ci_batch_run)} — broken profile`)
+    if (wf.ci === "batch" && !(typeof wf.ci_batch_run === "string" && wf.ci_batch_run.trim()))
+        die(1, `${pjPath}: workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch — broken profile`)
 }
 
 // The Workflow folder — where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live

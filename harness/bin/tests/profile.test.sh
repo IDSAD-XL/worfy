@@ -304,7 +304,7 @@ done
 oldp legacysilent '{"schema":1,"name":"legacysilent","mode":"silent"}'
 oldp legacybad '{"schema":1,"name":"legacybad","attribution":"OFF"}'
 # The gate before a merge (worfy ADR-0065): workflow.merge_gate and workflow.e2e_lock, valid and broken values.
-GATE_PROFILES=(mgwave mgeach mgnull mgbad mgnum lockrel lockhome locknum lockempty)
+GATE_PROFILES=(mgwave mgeach mgnull mgbad mgnum lockrel lockhome locknum lockempty cipr cibatch cinull cibad cinorun cirunnum cirunempty)
 for n in "${GATE_PROFILES[@]}"; do
     git -C "$T/r" init -q -b main "$n"
     jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
@@ -318,6 +318,14 @@ newp lockrel '{"schema":2,"name":"lockrel","mode":"full","workflow":{"e2e_lock":
 newp lockhome '{"schema":2,"name":"lockhome","mode":"full","workflow":{"e2e_lock":"~/e2e.lock"}}'
 newp locknum '{"schema":2,"name":"locknum","mode":"full","workflow":{"e2e_lock":5}}'
 newp lockempty '{"schema":2,"name":"lockempty","mode":"full","workflow":{"e2e_lock":""}}'
+# Where GitHub CI runs (worfy-throughput 08, ADR-0068): workflow.ci and workflow.ci_batch_run.
+newp cipr '{"schema":2,"name":"cipr","mode":"full","workflow":{"ci":"pr"}}'
+newp cibatch '{"schema":2,"name":"cibatch","mode":"full","workflow":{"ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref -f job=check"}}'
+newp cinull '{"schema":2,"name":"cinull","mode":"full","workflow":{"ci":null}}'
+newp cibad '{"schema":2,"name":"cibad","mode":"full","workflow":{"ci":"nightly"}}'
+newp cinorun '{"schema":2,"name":"cinorun","mode":"full","workflow":{"ci":"batch"}}'
+newp cirunnum '{"schema":2,"name":"cirunnum","mode":"full","workflow":{"ci":"pr","ci_batch_run":5}}'
+newp cirunempty '{"schema":2,"name":"cirunempty","mode":"full","workflow":{"ci":"batch","ci_batch_run":"  "}}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -376,6 +384,18 @@ fails_with "workflow.e2e_lock relative -> 1 with the reason" 1 "workflow.e2e_loc
 fails_with "workflow.e2e_lock 5 -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/locknum" --name
 fails_with "workflow.e2e_lock empty -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/lockempty" --name
 eq "--json carries workflow.merge_gate" wave bash -c 'set -o pipefail; "$@" --json | jq -r .workflow.merge_gate' _ "$P2" -C "$T/r/mgwave"
+# --- workflow.ci and workflow.ci_batch_run (worfy-throughput 08, ADR-0068) -----------------------
+eq "--field workflow.ci absent -> pr" pr "$P2" -C "$T/r/mgwave" --field workflow.ci
+eq "--field workflow.ci null -> pr" pr "$P2" -C "$T/r/cinull" --field workflow.ci
+eq "--field workflow.ci pr" pr "$P2" -C "$T/r/cipr" --field workflow.ci
+eq "--field workflow.ci batch" batch "$P2" -C "$T/r/cibatch" --field workflow.ci
+eq "--field workflow.ci_batch_run as written" 'gh workflow run ci.yml --ref $ref -f job=check' "$P2" -C "$T/r/cibatch" --field workflow.ci_batch_run
+eq "--json carries the resolved workflow.ci" pr bash -c 'set -o pipefail; "$@" --json | jq -r .workflow.ci' _ "$P2" -C "$T/r/mgwave"
+check "--field workflow.ci_batch_run absent -> 4" 4 "" "$P2" -C "$T/r/cipr" --field workflow.ci_batch_run
+fails_with "workflow.ci \"nightly\" -> 1 with the reason" 1 'workflow.ci is "pr", "batch" or null, got "nightly"' "$P2" -C "$T/r/cibad" --name
+fails_with "workflow.ci batch without ci_batch_run -> 1 with the reason" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cinorun" --name
+fails_with "workflow.ci batch with a blank ci_batch_run -> 1" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cirunempty" --name
+fails_with "workflow.ci_batch_run 5 -> 1 with the reason" 1 'workflow.ci_batch_run is a command string or null' "$P2" -C "$T/r/cirunnum" --name
 eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
 eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
 eq "--json attribution: an explicit off in Full mode wins" off "${attr_json[@]}" "$T/r/fulloff"

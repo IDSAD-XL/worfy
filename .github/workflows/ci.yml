@@ -3,26 +3,30 @@ name: CI
 # CI is the cheap check: lint, typecheck and unit/contract tests on Linux.
 # e2e tests and the packaged .app run on the owner's Mac before merge (gate full), because a
 # macOS runner minute costs ten times a Linux one and e2e plus packaging took 6.5 of 8.7 minutes.
-# The full macOS run stays available by hand: Actions → CI → Run workflow.
-# Docs-only changes skip CI: Markdown at the root, docs/ and .scratch/. Markdown under src/ and test/
-# is code (src/main/mcp/agent-instructions.md, test fixtures) and still runs it.
+# CI is not a merge gate for a PR (ADR-0068): it runs only when dispatched, once on main after a
+# Wave is merged (`gh workflow run ci.yml --ref main -f job=check`, the profile's
+# workflow.ci_batch_run). There is no pull_request, push or schedule trigger.
+# The full macOS run stays available by hand: Actions → CI → Run workflow, job full-macos.
 on:
-  pull_request:
-    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
-  push:
-    branches: [main]
-    paths-ignore: ['*.md', 'docs/**', '.scratch/**']
   workflow_dispatch:
+    inputs:
+      job:
+        description: check — lint, typecheck, unit on Linux; full-macos — the full run on macOS
+        type: choice
+        default: check
+        options:
+          - check
+          - full-macos
 
-# A new push to the same pull request cancels the run still going for the previous one.
-# A push to main gets a group of its own (the run id), so every merge keeps its own result.
+# A newer dispatch of the same job on the same branch cancels the run still going for the older one:
+# only the newest commit of main matters.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}
+  cancel-in-progress: true
 
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch'
+    if: inputs.job == 'check'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -58,7 +62,7 @@ jobs:
           fi
 
   full-macos:
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.job == 'full-macos'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7

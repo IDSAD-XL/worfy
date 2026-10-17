@@ -182,7 +182,12 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    with `DIRTY` CI does not start — rebase onto the base. Wait for CI with one long `gh run watch`
    command (the block is in skill `/worfy:ship-ticket`, step 8; Bash timeout 600000, if it did not
    finish — repeat it), not by frequent polling: your turns are limited. The result — `gh pr checks <N>`
-   without a pipe. `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
+   without a pipe. With `workflow.ci: "batch"` (worfy ADR-0068) GitHub CI does not run on a PR: the
+   PR and the green step 5 are the finish. Do not wait for CI and do not read `gh pr checks`; check
+   `gh pr view <N> --json mergeable` instead — `CONFLICTING` means rebase onto the base, `MERGEABLE`
+   is done. Say "CI: batch, runs on main after the Wave" in the report. With `"pr"` (or no field)
+   CI is waited for as above.
+   `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
    branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
    yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
    tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.
