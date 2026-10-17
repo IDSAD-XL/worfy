@@ -308,12 +308,12 @@ describe('"Sign in with gh"', () => {
     await registry.closeAll()
   })
 
-  it('without WORFY_GH the sign-in runs `gh` itself (nothing is started here: the spawn only records)', async () => {
+  it('without WORFY_GH the sign-in runs `gh` itself on macOS and Linux (nothing is started here: the spawn only records)', async () => {
     let started: string[] | undefined
     const registry = signInRegistry({ env: () => Promise.resolve({}) }, (file, args) => {
       started = [file, ...args]
       throw new Error('not started in this test')
-    })
+    }, { platform: 'darwin' })
     await Promise.resolve(registry.open('s0', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: () => undefined, exit: () => undefined, started: () => undefined })).catch(() => undefined)
     expect(started).toEqual(['/bin/sh', '-c', 'exec "$0" auth login', 'gh'])
     await registry.closeAll()
