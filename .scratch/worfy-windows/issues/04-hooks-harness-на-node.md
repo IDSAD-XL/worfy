@@ -64,6 +64,15 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
   `harness/bin/tests/silent-mode.test.sh:215-243` и проверки текста в
   `harness/bin/tests/epic-wave-ship-ticket.test.sh:172`, `:213-214`. Удалять его или оставить, решается,
   когда дойдёт до worktree вне репозитория.
+- **`worktree-create.sh` на Windows** (срез 05c Ticket-а 05, PR #437; Git Bash, main `9337e77`). В
+  `silent-mode.test.sh` падают 3 случая: «WorktreeCreate outside», «hook tree», «WorktreeCreate
+  default». Это дефект скрипта, не fixture-а: строка 65, `[ "${root#/}" != "$root" ]`, считает
+  абсолютным только путь от `/`, и `worktree.root` вида `C:\…`, который `profile` печатает на
+  Windows, считается относительным — дерево ложится внутрь репозитория; строки 56 и 89 (`pwd -P`)
+  печатают путь POSIX `/tmp/…/.claude/worktrees/<имя>`, которым родной Claude Code на Windows не
+  воспользуется. Test не менялся: fixture с `/tmp/…` спрятал бы дефект. Решение владельца
+  2026-10-13 (пункт 7 «Что делаем»: скрипт не портируется) это не меняет; факты — для того, кто
+  будет решать судьбу скрипта.
 - **PR #150 правил и файлы этого Ticket-а:** `session-start.sh`, `guard.mjs`,
   `harness/hooks/tests/rules-hooks.test.sh`, `session-hooks.test.sh`,
   `harness/bin/tests/harness-home.test.sh`, `harness/profiles/README.md`, `harness/skills/retro/SKILL.md`

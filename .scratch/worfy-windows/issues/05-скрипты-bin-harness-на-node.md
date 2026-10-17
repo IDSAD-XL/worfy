@@ -380,3 +380,64 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ве
 - Части после #428 (worfy-pipeline 02): `ticket-mark.test.sh`, проверки `workflow.pipeline` в `profile.test.sh`, проверки держателя e2e lock в `wave-gate.test.sh` (POSIX `repo` в `state.json`) — отдельным срезом, когда #428 будет в main.
 
 **Не проверено:** всё на macOS и Linux, в том числе случаи с shell-stub-ом (на Windows пропущены) и `json_printed()` на настоящем bash 3.2. То, что строки там не изменились, выведено из кода: нет `cygpath`, `pwd -W` не срабатывает и уступает `pwd -P`, `MSYS` не читается, удвоение обратных косых в строке без них ничего не меняет.
+
+### Срез 05d — stand-in `gh` на Windows и fixture-ы test-ов #428/#433
+
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ветка `worfy-windows/05-gh-stand-in`, начата от main `4dbae79`, до push перенесена на main `b2ae59d` (там уже #433 — batch CI, worfy-throughput 08, и #437 — срез 05c). **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Зачем.** В вердикте по #433 нашлось: на Windows `wave-gate.test.sh` доходил до **настоящего `gh`**. Stub `gh` — файл `#!/bin/sh` без расширения; Node на Windows его не запускает, и поиск по PATH находил `gh.exe`. В одном прогоне настоящий `gh` выполнил `gh workflow run ci.yml --ref main -f job=check` и отказал только потому, что у временного репозитория нет remote на GitHub. GitHub Actions не запускались.
+- **Stand-in и guard — первым commit-ом (`0967c27`).**
+  - `harness/bin/tests/gh-stand-in.sh` (новый): на Windows test пишет stand-in на Node (`.mjs`, который запускает тот же bash-stub) и указывает на него переменную скрипта. Guard останавливает test до первой проверки, если `gh` для bash — не stub, а для node — не stub и не stand-in; `GH_CONFIG_DIR` пустой, токены сняты.
+  - `harness/bin/wave-gate`: помощник `program(override, usual)` — override на `.mjs` идёт через `process.execPath`, любой другой как есть. `WAVE_GATE_GH` — для каждого вызова `gh` (`gh pr merge`, `gh run list` из #433); `WAVE_GATE_GATE` принимает и `.mjs`. Команда batch CI из профиля (`ci_batch_run`) идёт через shell, поэтому при `WAVE_GATE_GH` ведущий `gh` в ней заменяется stand-in-ом (`ghShell`, `962f82b`). Без переменных всё как на main.
+  - `harness/bin/ticket`: `TICKET_GH` — программа вместо `gh` из PATH для `ticket mark` (commit status через `gh api`), через уже существующий `execScriptSync`. Без переменной — `gh` из PATH, как раньше.
+  - `ticket-mark.test.sh` и `skill-blocks.test.sh` тоже получили stand-in и guard: когда fixture-ы `ticket-mark` заработали, `ticket mark` в режиме Full тоже дошёл бы до настоящего `gh`.
+- **Fixture-ы в написании Node** (`b64b845`, `2c27e27`, `fbcab7e`, `857783e`, `962f82b`, `92f597d`): `repo` в `state.json` и файлах batch CI `wave-gate`, `match` в реестре и папка Workflow в `ticket-mark`, путь в сообщении `workflow.pipeline` в `profile.test.sh` (через `printed()` из 05c); stub gate — через stand-in на Node; pid держателя e2e lock на Windows — pid, который записал stand-in.
+- **`real-home.sh` (`1e7c348`).** Папки, куда пишут живые Session-ы (`worktree-sessions/`, `gate/state/`, `profiles/*/state/`), сверялись регулярными выражениями только с `/`, а Node на Windows даёт `\` — любая другая Session на ПК давала «the real home changed». Теперь путь сверяется в виде с `/`; при несовпадении `ticket-mark`, `wave-gate` и `profile` печатают до 10 различающихся строк. На macOS и Linux ничего не меняется.
+- **Ревью** — subagent этой Session, линзы «безопасность» (Windows первым) и «корректность на macOS/Linux»: high и medium нет. Исправлено в `f6481e5`:
+  - low: проверка команды CI на Windows смотрела только на начало (`gh …`), а заменяется только ведущий `gh` — `gh a && gh b` дошёл бы вторым `gh` до настоящего. Теперь отказ для `&&`, `|`, `;`, перевода строки, `` ` ``, `$(` и второго слова `gh`;
+  - low: проверка блока set из SKILL.md ловила только `"gh"` в двойных кавычках; теперь любое слово `gh`, кроме stand-in-а;
+  - low (без правки): commit-ы `0967c27`…`857783e` по отдельности не закрывают вызовы `gh` из #433 — их закрывает `962f82b`. Bisect `wave-gate.test.sh` на Windows по этому отрезку не делать.
+  - **Нарушение при ревью:** проба reviewer-а 14 раз запустила настоящий `gh.exe` (в бриф-е разрешён только `--version`): каждый раз — только справка `gh run`, в GitHub API ничего не ушло.
+
+| Shell test, Git Bash | main `b2ae59d` | ветка `1e7c348` |
+|---|---|---|
+| `wave-gate.test.sh` | exit 1, 30 ok / 120 FAIL | exit 1, 120 ok / 30 FAIL |
+| `ticket-mark.test.sh` | exit 1, 23 / 18 | exit 1, 40 / 1 |
+| `profile.test.sh` | exit 1, 208 / 2 | exit 0, 210 / 0 |
+| `skill-blocks.test.sh` | exit 1, 5 / 40 | exit 1, 5 / 40 |
+
+- Сверка по именам: ни один случай, проходящий на main, на ветке не падает. Все 19 случаев batch CI («batch ci: …», «pr ci», «ci: unknown mode», «merge refused») и проверка блока batch CI в bash на Windows проходят.
+- Ни одного процесса `gh.exe` за прогоны с настоящим `gh` в PATH (опрос каждые 200 мс).
+- **Мутанты:** guard — поддельный `gh.exe` первым в PATH, `WAVE_GATE_GH` снят, `TICKET_GH` снят: каждый раз exit 1 со строкой REFUSED до первой проверки; держатель pid = `process.ppid` — «e2e lock holder» красный; без `--squash` — «green set: gh pr merge --squash» красный; `context=x<kind>` в `ticket` — 4 случая «full:» красные; без `--ref` в dispatch — 2 случая batch CI красные.
+- **Осталось падать (причины вне среза):** `wave-gate` 30 — 4 случая сигналов (Node на Windows не получает сигнал POSIX), 17 — stub-ы `ioreg`/`caffeinate` без расширения (`wave-gate.test.sh:100-117`), 2 — `ln -s` в Git Bash копирует `git.exe` без его DLL, 7 — нет zsh; `ticket-mark` 1 («full: no gh») — тот же `git.exe`; `skill-blocks` 40 — пути Silent fixture-а («no epic pay-flow») и CR в выводе, как на main.
+- Тот же класс stub-ов без расширения, которые запускает скрипт на Node, есть ещё в `project-connect.test.sh` (`qmd`), `qmd-collections.test.sh`, `qmd.test.sh`, `decision-log.test.sh`, `harness-home.test.sh`, `silent-mode.test.sh` — запускает ли их Node, не проверено.
+- `real-home`: проверка проходит во всех трёх test-ах. Один прогон `wave-gate` упал на 4 строках `~/.claude/skills/synced/…` — синхронизация skill-ов приложения раз в 10 минут, не test; `skills/synced` в список не добавлен.
+- **К срезу 05b после ревью Mac:** gate full на Mac падал на `snapping.spec.ts:175` (1 из 30): stand-in на Node отвечал раньше нажатия, и панель «No epics yet» лежала над Card. Ответ по умолчанию в `snapping.spec.ts` — одна Epic без Ticket-ов (`c999115`, PR #434).
+
+**Не проверено:** всё на macOS и Linux; guard-ы раунда ревью проверены вызовом функций на образцах строк, не мутантом полного test-а.
+
+### Срез 05d, раунд 2 — ревью Mac (PR #444)
+
+Ревью первого раунда на Mac (глубина high: корректность на macOS, безопасность, мутанты): корректность и безопасность — ничего; без переменных скрипты на macOS байт в байт как main, ни один test не дошёл до настоящего `gh`. Изменения запрошены по одному medium; low-ы исправлены в том же раунде (`9341072`, `8e3e5ed`, `88aed26`, `2bb8e23`).
+
+- **medium: у guard-а не было своего test-а** (`gh-stand-in.sh:43`, `:66`; мутанты «принять любой `gh` из PATH shell-а» и «принять любой `gh`, который запустит node» выживали). Новый `harness/bin/tests/gh-stand-in.test.sh` идёт на любой ОС: поддельный `gh` первым в PATH — exit 1, строка REFUSED с его путём, файл-метка не записан; неверный `WAVE_GATE_GH`; неверный `TICKET_GH`; допустимые настройки; без переменной; guard снимает учётные данные. 12 ok / 0 FAIL.
+- **low: переопределения проверялись только на Windows** (6 мутантов выживали на macOS). Новый `harness/bin/tests/gh-override.test.sh` со stub-ами, которые пишут свои аргументы в журнал: `.mjs` идёт через node (dispatch и поиск run), `gh` после пробелов в начале тоже заменяется, обычная программа запускается как есть, `ghx …`/`xgh …` не трогаются. 7 ok / 0 FAIL; случай «без переменной» (stub с именем `gh` первым в PATH под guard-ом) на Windows пропущен — Node не запускает shell-stub. `TICKET_GH` на `.mjs` для `ticket mark` в режиме Full — в `ticket-mark.test.sh` на любой ОС.
+- **low: нет test-а снимка real home.** Новый `harness/bin/tests/real-home.test.sh`: запись в изменчивые папки без метки и с меткой (пути с `/` и `\`), запись в остальные части, предел 10 строк у `real_home_diff`. 14 ok / 0 FAIL.
+- **low: `TICKET_GH` на несуществующий файл давал «gh is not in PATH».** Теперь «TICKET_GH names a program that is not there: <путь>»; без `TICKET_GH` текст прежний. Test в `ticket-mark.test.sh`.
+- **low: `~/.claude/skills/synced/` — изменчивая папка** (`real-home.sh`): Claude Code переписывает её примерно раз в 10 минут, и «real home unchanged» мигал и на Mac.
+- **Мутанты на ПК, все 8 красные:** guard без проверки shell (2 FAIL) и без проверки node (3); `.mjs` как обычная программа (3); обычная программа через node (2); без замены в `ghShell` (5); регулярное выражение без границы слова (1); `ticket` без `TICKET_GH` (10 в `ticket-mark`); голый `gh` в поиске run (2).
+
+| Shell test, Git Bash | main `b2ae59d` | ветка `2bb8e23` |
+|---|---|---|
+| `gh-stand-in.test.sh` (новый) | — | exit 0, 12 ok / 0 FAIL |
+| `gh-override.test.sh` (новый) | — | exit 0, 7 ok / 0 FAIL, 1 skip |
+| `real-home.test.sh` (новый) | — | exit 0, 14 ok / 0 FAIL |
+| `ticket-mark.test.sh` | exit 1, 23 / 18 | exit 1, 42 / 1 |
+| `wave-gate.test.sh` | exit 1, 30 / 120 | exit 1, 120 / 30 |
+| `profile.test.sh` | exit 1, 208 / 2 | exit 0, 210 / 0 |
+
+- Сверка по именам: ни один случай, проходящий на main, на ветке не падает. Оставшиеся падения — те же, что в первом раунде (сигналы, `ioreg`/`caffeinate`, `git.exe` в минимальном PATH, zsh).
+- `test/contract/harness-scripts.test.ts` находит три новых файла, и они проходят. На Windows `profile`, `silent-mode` и `wave-gate` не укладываются в предел 120 с на файл (`harness-scripts.test.ts:22`) — вопрос скорости ПК; `profile` отдельно проходит.
+- Ни один test и ни одна проба этого раунда не запускали настоящий `gh`.
+
+**Не проверено:** всё на macOS и Linux, в том числе случаи «без переменной» в `gh-stand-in.test.sh` и `gh-override.test.sh` (на ПК проверены только чтением).

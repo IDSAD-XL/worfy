@@ -463,7 +463,7 @@ for spec in "${PL_BAD[@]}"; do
     n="${spec%%|*}"; reason="${spec##*|}"
     fails_with "workflow.pipeline ($n) -> 1: $reason" 1 "$reason" "$P2" -C "$T/r/$n" --name
 done
-fails_with "a broken workflow.pipeline names the profile and says broken profile" 1 "$HH/projects/pldup/profile.json: workflow.pipeline" "$P2" -C "$T/r/pldup" --name
+fails_with "a broken workflow.pipeline names the profile and says broken profile" 1 "$(printed "$HH/projects/pldup/profile.json"): workflow.pipeline" "$P2" -C "$T/r/pldup" --name
 fails_with "a broken workflow.pipeline: broken profile" 1 "— broken profile" "$P2" -C "$T/r/plfirst" --name
 eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
 eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
@@ -557,6 +557,7 @@ fi
 
 home_after="$(real_home_snapshot "$REAL_HOME")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" 0 "" test "$home_before" = "$home_after"
+[ "$home_before" = "$home_after" ] || real_home_diff "$home_before" "$home_after"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

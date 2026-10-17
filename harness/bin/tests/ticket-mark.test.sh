@@ -32,6 +32,11 @@ echo '{"state":"ok"}'
 EOF
 chmod +x "$STUBS/gh"
 export PATH="$STUBS:$PATH" GH_LOG="$T/gh.log"
+# On Windows node runs the stub through a node stand-in named by $TICKET_GH; the guard stops the test
+# before anything runs if any gh it can start is not the stub.
+. "$HERE/gh-stand-in.sh"
+if on_windows; then node_stand_in "$STUBS/gh" "$STUBS/gh.mjs"; export TICKET_GH="$STUBS/gh.mjs"; fi
+gh_guard TICKET_GH "$STUBS/gh" "$STUBS/gh.mjs"
 
 # --- the machine: HOME, HARNESS_HOME, the registry and the profiles -------------------------------------
 H="$T/home" HH="$T/hh"
@@ -47,11 +52,14 @@ repo "$T/r/local" "$T/elsewhere.git"
 repo "$T/r/multi/front" "https://github.com/acme/front"
 repo "$T/r/multi/back" "ssh://git@github.com/acme/back.git"
 repo "$T/r/plain" ""
+# Paths written into files node reads are in node's spelling: C:/… in Git Bash on Windows (pwd -W), where node
+# reads /tmp/… as C:\tmp\…; the same as $T elsewhere.
+TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 printf '{"repos":[%s]}\n' "$(printf '{"key":"shop","match":"%s","profile":"shop"},{"key":"quiet","match":"%s","profile":"quiet"},{"key":"local","match":"%s","profile":"local"},{"key":"front","match":"%s","profile":"multi"},{"key":"back","match":"%s","profile":"multi"}' \
-    "$T/r/shop" "$T/r/quiet" "$T/r/local" "$T/r/multi/front" "$T/r/multi/back")" >"$HH/gate/config.json"
+    "$TN/r/shop" "$TN/r/quiet" "$TN/r/local" "$TN/r/multi/front" "$TN/r/multi/back")" >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
 newp shop '{"schema":2,"name":"shop","mode":"full"}'
-newp quiet "{\"schema\":2,\"name\":\"quiet\",\"mode\":\"silent\",\"workflow\":{\"folder\":\"$T/wf\"}}"
+newp quiet "{\"schema\":2,\"name\":\"quiet\",\"mode\":\"silent\",\"workflow\":{\"folder\":\"$TN/wf\"}}"
 newp local '{"schema":2,"name":"local","mode":"full"}'
 newp multi '{"schema":2,"name":"multi","mode":"full"}'
 
@@ -102,9 +110,19 @@ tk "$T/r/local" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && [ "$(calls)" = "$n" ] && grep -q "not on GitHub" "$T/out" && ok "full: origin not on GitHub -> exit 1, no gh" || bad "full: local origin: exit $rc $(cat "$T/out")"
 GH_FAIL=1 tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && grep -q "HTTP 422" "$T/out" && ok "full: gh fails -> exit 1 with its message" || bad "full: gh fails: exit $rc $(cat "$T/out")"
+# TICKET_GH on every OS: a node script named there runs for a Full mark, with gh's arguments; a missing one is
+# named in the refusal (not "gh is not in PATH")
+printf '%s\n' 'import { appendFileSync } from "node:fs"' 'appendFileSync(process.env.OVR_LOG, process.argv.slice(2).join(" | ") + "\n")' >"$T/log-gh.mjs"
+n="$(calls)"
+OVR_LOG="$T/ovr.log" TICKET_GH="$T/log-gh.mjs" tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^api | -X | POST | repos/acme/shop/statuses/$SHA | " "$T/ovr.log" 2>/dev/null && [ "$(calls)" = "$n" ] \
+    && ok "full: TICKET_GH names a node script -> it runs with gh's arguments, not gh" || bad "full: TICKET_GH: exit $rc log [$(cat "$T/ovr.log" 2>/dev/null)] $(cat "$T/out")"
+TICKET_GH="$T/no-such-gh" tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
+[ "$rc" -eq 1 ] && grep -q "TICKET_GH names a program that is not there: .*no-such-gh" "$T/out" && ! grep -q "not in PATH" "$T/out" \
+    && ok "full: TICKET_GH naming a missing program -> exit 1 naming it" || bad "full: missing TICKET_GH: exit $rc $(cat "$T/out")"
 MINBIN="$T/minbin"; mkdir -p "$MINBIN"
 for c in node git; do ln -s "$(command -v "$c")" "$MINBIN/$c"; done
-(cd "$T/r/shop" && env PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
+(cd "$T/r/shop" && env -u TICKET_GH PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "gh" "$T/out" && ok "full: no gh in PATH -> exit 1 naming gh" || bad "full: no gh: exit $rc $(cat "$T/out")"
 
 # --- Silent mode: a local JSON file, never gh ---------------------------------------------------------------
@@ -170,7 +188,7 @@ tk "$T/r/plain" mark shopfront 02 review success --sha "$SHA" --root "$T/r/shop/
 [ "$rc" -eq 2 ] && ok "--contexts with arguments -> exit 2" || bad "--contexts with arguments: exit $rc"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
-[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
+[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

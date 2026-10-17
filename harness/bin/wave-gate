@@ -84,7 +84,8 @@
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
 //
 // Environment: WAVE_GATE_GATE — an executable used instead of `node <plugin>/hooks/gate.mjs` (it gets
-// the argument `full`); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
+// the argument `full`); WAVE_GATE_GH — an executable used instead of `gh` from PATH, also for a leading `gh` of the
+// ci_batch_run command; a `.mjs` file in either runs with this node (Windows cannot start a shell script); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
 // lock timings (20, 1800, 300); WAVE_GATE_MAIN_LOCK_POLL_S, WAVE_GATE_MAIN_LOCK_STALE_S — the main
 // lock (30, 5400). Tests set them; the defaults are the project's.
 "use strict"
@@ -417,8 +418,25 @@ function run(cmd, args, opts, logFile) {
     })
 }
 
+// [file, args] of a program a test may stand in for: `usual` without an override, a `.mjs` override with this
+// node, any other override as it is.
+function program(override, usual) {
+    if (!override) return [usual, []]
+    if (override.endsWith(".mjs")) return [process.execPath, [override]]
+    return [override, []]
+}
+// A shell command whose first word is gh, with that word run as WAVE_GATE_GH (quoted for sh and cmd.exe);
+// any other command, or no WAVE_GATE_GH, as it is.
+function ghShell(command) {
+    if (!process.env.WAVE_GATE_GH || !/^\s*gh(\s|$)/.test(command)) return command
+    const [file, args] = program(process.env.WAVE_GATE_GH, "gh")
+    return [file, ...args].map((a) => `"${a}"`).join(" ") + command.replace(/^\s*gh/, "")
+}
 function gateCommand() {
-    if (process.env.WAVE_GATE_GATE) return [process.env.WAVE_GATE_GATE, ["full"]]
+    if (process.env.WAVE_GATE_GATE) {
+        const [file, args] = program(process.env.WAVE_GATE_GATE)
+        return [file, [...args, "full"]]
+    }
     return [process.execPath, [GATE_SCRIPT, "full"]]
 }
 function verdict(code, text) {
@@ -678,7 +696,8 @@ async function merge(file) {
             const n = list[i]
             const pr = st.prs.find((p) => p.number === n)
             say(`gh pr merge ${n} --squash --match-head-commit ${pr.head}`)
-            const r = spawnSync("gh", ["pr", "merge", String(n), "--squash", "--match-head-commit", pr.head], { cwd: repo, encoding: "utf8", windowsHide: true })
+            const [gh, ghArgs] = program(process.env.WAVE_GATE_GH, "gh")
+            const r = spawnSync(gh, [...ghArgs, "pr", "merge", String(n), "--squash", "--match-head-commit", pr.head], { cwd: repo, encoding: "utf8", windowsHide: true })
             if (r.error || r.status !== 0) return stop(n, `gh pr merge failed (exit ${r.status ?? r.error.message}): ${(r.stderr || "").trim().split("\n")[0]}`)
             const sha = fetch()
             const tree = out(["rev-parse", `${sha}^{tree}`], repo)
@@ -730,7 +749,8 @@ async function findRun(st, text) {
     const tries = seconds("WAVE_GATE_CI_TRIES", 12)
     for (let i = 0; i < tries; i++) {
         if (i) await sleep(seconds("WAVE_GATE_CI_POLL_S", 5))
-        const r = spawnSync("gh", args, { cwd: st.repo, encoding: "utf8", windowsHide: true })
+        const [gh, ghArgs] = program(process.env.WAVE_GATE_GH, "gh")
+        const r = spawnSync(gh, [...ghArgs, ...args], { cwd: st.repo, encoding: "utf8", windowsHide: true })
         if (r.error || r.status !== 0) continue
         let runs
         try {
@@ -771,7 +791,7 @@ async function ci(file) {
         }
         const command = st.ci_batch_run.split("${ref}").join(st.branch).split("$ref").join(st.branch)
         say(`dispatch: ${command}`)
-        const r = spawnSync(command, { cwd: st.repo, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 })
+        const r = spawnSync(ghShell(command), { cwd: st.repo, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 })
         if (r.error || r.status !== 0) {
             st.ci_run = { status: "dispatch failed", command, commit, exit: r.status ?? null, error: ((r.stderr || "") + (r.error ? r.error.message : "")).trim().split("\n")[0], at: now(), superseded }
             save(file, st)
