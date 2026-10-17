@@ -26,8 +26,8 @@ import { gateConfigFile, isSameOrInside } from "./gate-paths.mjs"
 const CFG = gateConfigFile()
 
 // An unreadable or broken registry is not "the project is not registered". There used to be
-// `exit 0` with empty output here, and the gate and stop.sh took a registered project for
-// someone else's: the gate answered "not registered", and stop.sh did not notice the red marker.
+// `exit 0` with empty output here, and the gate and stop.mjs took a registered project for
+// someone else's: the gate answered "not registered", and stop.mjs did not notice the red marker.
 // Now it is code 4 and the reason on stderr; the callers treat this as "could not verify".
 let cfg
 try {

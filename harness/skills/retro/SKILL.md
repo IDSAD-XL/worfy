@@ -32,7 +32,7 @@ session sits elsewhere:
   | `<dir>/lessons/lessons.md` | Full log: one dated entry per lesson, with the evidence |
   | `<dir>/lessons/lessons-index.md` | One line per lesson; loaded at session start when the profile has `session.inject_rules: true` |
   | `<dir>/rules.md` | Rules that are now permanent and should always apply |
-  | `<dir>/state/pending-retro.log` | Sessions that ended without a retro (written by `hooks/session-end.sh`) |
+  | `<dir>/state/pending-retro.log` | Sessions that ended without a retro (written by `hooks/session-end.mjs`) |
 
 - `lessons: "repo:<path>"` — lessons live in the repo at `<path>`, in files
   `<path>/<topic>.md` grouped by topic, not by ticket. Follow

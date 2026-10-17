@@ -93,7 +93,7 @@ the base the checkout is; the briefs' base is then `git log -1 --format='%h %s' 
 with `files` is needed separately: files under `F numbering.adr.dir` in other PRs are taken numbers.
 
 The GitHub account is `F github.account`. `GH_TOKEN` of that account is set by the plugin's
-`SessionStart` hook (`hooks/gh-token-env.sh`) for every Bash command of the session and of its
+`SessionStart` hook (`hooks/gh-token-env.mjs`) for every Bash command of the session and of its
 agents, the agents of workflow scripts included;
 do not switch the global account without the owner's permission: other sessions use it.
 If `gh` answers "Could not resolve to a Repository", compare `gh auth status` with

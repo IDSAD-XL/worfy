@@ -30,7 +30,7 @@
 //       names the reason: the project is not registered in gate/config.json; the registry
 //       cannot be read or the resolver crashed; node was not found (that one is said by
 //       gate.sh, see "Without node" below). The code does not block hooks
-//       (only 2 blocks). The gate leaves a marker per tree and session; stop.sh
+//       (only 2 blocks). The gate leaves a marker per tree and session; stop.mjs
 //       tells the model about it at most once per session per repository
 //       (through additionalContext — that costs the model an extra turn, hence only once)
 //       and does not hold the turn. Agents put code 3 into not_verified, skills do not merge on it.
@@ -43,7 +43,7 @@
 // Every run inside a git worktree overwrites <state>/verdict-<tag>.json (the same folder and tag as
 // the markers) with the outcome of that run; worfy reads it instead of the «[gate] …» line. A
 // directory outside git leaves no file. The markers, the «[gate] …» lines and the exit codes stay
-// as they are: stop.sh, skills and agents read them. The file is one JSON object:
+// as they are: stop.mjs, skills and agents read them. The file is one JSON object:
 //   version  — 1;
 //   outcome  — "green" | "red" | "unverified" | "none" (none = nothing ran, which is not green);
 //   profile  — the profile argument ("fast" | "full");
@@ -119,7 +119,7 @@ const CONFIG = gateConfigFile()
 process.env.CLAUDE_GATE_CONFIG = CONFIG // the resolver reads the same registry
 const STATE = gateStateDir()
 const CACHE = path.join(STATE, "cache")
-const BLOCKS = path.join(STATE, "stop-blocks") // stop.sh counters and "once" files
+const BLOCKS = path.join(STATE, "stop-blocks") // stop.mjs counters and "once" files
 const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(HERE, "gate-resolve.mjs")
 const GIT_OUTPUT_MAX = 1024 ** 3
 
@@ -304,8 +304,8 @@ function removeOld(dir, mine) {
 }
 
 // "Could not verify" without a project key: code 3, the line «[gate] ПРОВЕРИТЬ НЕ
-// УДАЛОСЬ: …» and a marker for stop.sh. The marker is per tree and per session
-// (nokey-<kind>-<tree>-<session>); with no session it is "anon", and stop.sh takes such a
+// УДАЛОСЬ: …» and a marker for stop.mjs. The marker is per tree and per session
+// (nokey-<kind>-<tree>-<session>); with no session it is "anon", and stop.mjs takes such a
 // marker only if it is newer than the start of its own session.
 //   kind — unregistered | broken, text — what follows «ПРОВЕРИТЬ НЕ УДАЛОСЬ: »,
 //   explain — an explanation for the model. Both go into the marker: "<text>. <explain>".
