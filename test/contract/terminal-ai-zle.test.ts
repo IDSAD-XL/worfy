@@ -5,7 +5,7 @@
 // HOME and the user's files are in a temporary folder: the real ~/.zshrc and ~/.zsh_history of the
 // machine running the tests are never read or written.
 import { execFileSync } from 'node:child_process'
-import { existsSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { createConnection, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -273,20 +273,48 @@ const ASKING_SCRIPT = [
   '__worfy_assist_line_hooks+=(__test_ask_when_silent)',
 ].join('\n')
 
-async function withAskingScript(options: StartOptions = {}) {
+/** Puts the tests' own script into rc.d/ of the integration's folder, after 10-assist.zsh. */
+async function testScript(integration: ShellIntegration, script: string) {
+  const dir = await integration.prepare()
+  await mkdir(join(dir, 'rc.d'), { recursive: true })
+  await writeFile(join(dir, 'rc.d', '20-test.zsh'), `${script}\n`)
+}
+
+/** Ctrl+X z: a key of the tests' own script; zsh runs its widget while it waits for a key, as it runs any widget. */
+const WIDGET_KEY = '\x18z'
+
+/** A widget of the tests' own script on WIDGET_KEY that runs `body`. */
+const widgetScript = (body: string) => ['__test_widget() {', body, '}', 'zle -N __test_widget', "bindkey '^Xz' __test_widget"].join('\n')
+
+/**
+ * A program that looks at every descriptor from 3 to 255 it was given: `open:<n>` for one that is
+ * open, `socket:<n>` for one that is a socket, then `checked`. Above 9 `open:` says little: bash,
+ * which is /bin/sh on macOS, keeps a copy of the descriptor it redirects there itself.
+ */
+const DESCRIPTORS = `/bin/sh -c 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
+
+/** A message with an id the shell never asked under: the shell drops it, and main sends it only while it holds a connection. */
+const STALE = { type: 'show', id: 99_999, text: ' STALE' } as const
+
+async function withAskingScript(options: StartOptions = {}, more = '') {
   const feature = recordingFeature(PROBE)
   // Of the real features only the Suggestion from history is on: their own scripts, which are in
   // this shell too, ask nothing and cancel no ask of the test's script.
   const settings = settingsSource({ suggestionAsksModel: false, nextCommand: false, commandRequest: false, fix: false })
   const started = start({ features: { [`./features/${PROBE}.ts`]: feature.loader }, settings, ...options })
-  const dir = await started.integration.prepare()
-  await mkdir(join(dir, 'rc.d'), { recursive: true })
-  await writeFile(join(dir, 'rc.d', '20-test.zsh'), `${ASKING_SCRIPT}\n`)
+  await testScript(started.integration, `${ASKING_SCRIPT}\n${more}`)
   const t = await started.open()
   await t.connected()
-  // The settings name the probe to the shell, as they name a real feature that is on. The `config`
-  // of the greeting went out when the shell said hello: this one is read after it.
-  expect(started.link.push(KEY, { type: 'config', features: [HISTORY_FEATURE, PROBE] })).toBe(true)
+  /**
+   * The settings name the probe to the shell, as they name a real feature that is on. The `config`
+   * of the greeting went out when the shell said hello: this one is read after it. The shell says
+   * hello again after every command, and the greeting names the real features alone.
+   */
+  const probeOn = async () => {
+    await vi.waitFor(() => expect(started.link.push(KEY, STALE)).toBe(true), WAIT)
+    expect(started.link.push(KEY, { type: 'config', features: [HISTORY_FEATURE, PROBE] })).toBe(true)
+  }
+  await probeOn()
   /** The ask about `line`, once main has it. */
   const askAbout = async (line: string) => {
     await vi.waitFor(() => expect(feature.lines()).toContain(line), WAIT)
@@ -294,7 +322,7 @@ async function withAskingScript(options: StartOptions = {}) {
     if (found === undefined) throw new Error('unreachable')
     return found
   }
-  return { ...started, feature, t, askAbout }
+  return { ...started, feature, t, askAbout, probeOn }
 }
 
 describe('the Suggestion from the history of commands', () => {
@@ -641,6 +669,153 @@ describe('the socket', () => {
   })
 })
 
+describe('the connection while a command runs', () => {
+  it('a program the shell starts finds no connection to the socket on any descriptor', async () => {
+    const { open, link } = start()
+    const t = await open()
+    await t.connected()
+    const found = await t.run(`${DESCRIPTORS}; (${DESCRIPTORS}) & wait`)
+    expect(found.match(/checked/g)).toHaveLength(2)
+    expect(found).not.toMatch(/socket:\d|open:[3-9]\r/)
+    // The shell is connected again at the prompt after it.
+    expect(link.connected(KEY)).toBe(true)
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo linked-again' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo linked-again'))
+  })
+
+  it('an ask a program writes into every descriptor it was given does not reach main', async () => {
+    const { t, feature, askAbout, probeOn } = await withAskingScript()
+    const written = await t.run(
+      `/bin/sh -c 'n=3; while [ $n -le 255 ]; do (printf "ask\\t999\\t${PROBE}\\tworfy-leaked-ask\\n" >&$n) 2>/dev/null; n=$((n + 1)); done; echo written'`,
+    )
+    expect(written).toContain('written')
+    await probeOn()
+    // The shell's own asks still reach main, after the ones the program could have sent.
+    t.type('echo zz')
+    await askAbout('echo zz')
+    expect(feature.lines()).not.toContain('worfy-leaked-ask')
+    expect(feature.asks.map((each) => each.ask.id)).not.toContain(999)
+  })
+
+  it('the shell closes its connection while a command runs and says hello again at the next prompt, after every command', async () => {
+    const { open, link } = start()
+    const hellos: boolean[] = []
+    link.onConnection((key, connected) => {
+      if (key === KEY) hellos.push(connected)
+    })
+    const t = await open()
+    await t.connected()
+    await vi.waitFor(() => expect(hellos).toEqual([true]), WAIT)
+
+    t.type('sleep 1\r')
+    await vi.waitFor(() => expect(t.state()?.commandRunning).toBe(true), WAIT)
+    // Main has no connection to write to while the command runs; the shell counts as connected all the same.
+    await vi.waitFor(() => expect(link.push(KEY, STALE)).toBe(false), WAIT)
+    expect(link.connected(KEY)).toBe(true)
+    await vi.waitFor(() => expect(hellos).toEqual([true, true]), WAIT)
+
+    // Commands one after another, builtins among them: each next prompt says hello again.
+    for (let index = 0; index < 20; index++) await t.run(index % 2 === 0 ? 'true' : ':')
+    await vi.waitFor(() => expect(hellos).toEqual(Array<boolean>(22).fill(true)), WAIT)
+    expect(link.push(KEY, { type: 'insert', text: 'echo after-twenty' })).toBe(true)
+    expect(await t.redrawn()).toMatch(lineAlone('echo after-twenty'))
+    // `exit` closes the connection as any command does; the shell is gone only when its token dies.
+    t.type('\x15')
+    await t.exit()
+    await vi.waitFor(() => expect(hellos).toEqual([...Array<boolean>(22).fill(true), false]), WAIT)
+    expect(link.connected(KEY)).toBe(false)
+  })
+
+  it('the token says hello again once its connection is closed; while that one is open, a second hello is refused', async () => {
+    const { open, integration, link, envs } = start()
+    const t = await open()
+    await t.connected()
+    const path = socketPath(integration.path ?? '')
+    const token = envs[0]?.WORFY_ASSIST_TOKEN ?? ''
+    // At the prompt the shell holds its connection: the token opens no second one.
+    await stranger(path, `hello\t${token}`).untilClosed()
+
+    // While a command runs the shell holds none: the same token opens one again.
+    t.type('sleep 1.5\r')
+    await vi.waitFor(() => expect(link.push(KEY, STALE)).toBe(false), WAIT)
+    const again = stranger(path, `hello\t${token}`)
+    await vi.waitFor(() => expect(again.received()).toMatch(/^config\t/), WAIT)
+    expect(again.closed()).toBe(false)
+    // And while that one is open, a second one is refused.
+    const third = stranger(path, `hello\t${token}`)
+    await third.untilClosed()
+    expect(third.received()).toBe('')
+    again.socket.end()
+    await again.untilClosed()
+
+    await vi.waitFor(() => expect(t.state()).toMatchObject({ commandRunning: false, awaitingInput: true }), WAIT)
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo shell-again' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo shell-again'))
+  })
+
+  it('a connection that closes gives the ask it had open up: its answer is dropped in main, also once the token is connected again', async () => {
+    const feature = recordingFeature(PROBE)
+    const { link, integration } = start({ features: { [`./features/${PROBE}.ts`]: feature.loader } })
+    // A shell played by the test: it sees exactly what main sends.
+    const admission = await link.admit('played', await integration.prepare())
+    const shell = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(shell.received()).toMatch(/^config\t/), WAIT)
+    shell.socket.write(`ask\t7\t${PROBE}\tbefore the command\n`)
+    await vi.waitFor(() => expect(feature.lines()).toEqual(['before the command']), WAIT)
+    const [before] = feature.asks
+    if (before === undefined) throw new Error('unreachable')
+
+    // The shell closes its connection, as before a command, without a cancel.
+    shell.socket.end()
+    await vi.waitFor(() => expect(before.ask.signal.aborted).toBe(true), WAIT)
+    expect(before.reply.show(' LATE')).toBe(false)
+    expect(link.connected('played')).toBe(true)
+
+    const back = stranger(admission.socket, `hello\t${admission.token}`)
+    await vi.waitFor(() => expect(back.received()).toMatch(/^config\t/), WAIT)
+    expect(before.reply.insert('LATE')).toBe(false)
+    expect(before.reply.status('LATE')).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(back.received()).not.toContain('LATE')
+    expect(back.closed()).toBe(false)
+    // The token dies with its shell: so does the connection, and the Terminal counts as gone.
+    link.revoke(admission.token)
+    await back.untilClosed()
+    expect(link.connected('played')).toBe(false)
+  })
+
+  it('the line editor inside a command (vared) does not open the connection: what the command starts after it finds none', async () => {
+    const { open, link } = start()
+    const t = await open()
+    await t.connected()
+    t.type(`vared -c __test_typed; print -r -- "typed:$__test_typed"; ${DESCRIPTORS}\r`)
+    await vi.waitFor(() => expect(t.state()?.commandRunning).toBe(true), WAIT)
+    await t.settle()
+    expect(link.push(KEY, STALE)).toBe(false)
+    const finished = t.events().filter((event) => event.type === 'command-finished').length
+    t.type('in-vared\r')
+    await vi.waitFor(() => expect(t.events().filter((event) => event.type === 'command-finished')).toHaveLength(finished + 1), WAIT)
+    const found = t.state()?.lastOutput ?? ''
+    expect(found).toContain('typed:in-vared')
+    expect(found).toContain('checked')
+    expect(found).not.toMatch(/socket:\d/)
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo after-vared' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo after-vared'))
+  })
+
+  it('the file of the socket was removed: a shell that ran a command is connected again after it', async () => {
+    const { open, integration, link } = start()
+    const t = await open()
+    await t.connected()
+    const path = socketPath(integration.path ?? '')
+    unlinkSync(path)
+    await t.run('sleep 0.5')
+    expect(statSync(path).isSocket()).toBe(true)
+    await vi.waitFor(() => expect(link.push(KEY, { type: 'insert', text: 'echo file-back' })).toBe(true), WAIT)
+    expect(await t.redrawn()).toMatch(lineAlone('echo file-back'))
+  })
+})
+
 describe('the messages of main', () => {
   it('insert replaces the line and runs nothing: main writes nothing into the pty, Enter is the user\'s', async () => {
     const { open, link, written } = start()
@@ -809,6 +984,19 @@ describe('the settings', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo wo'))
   })
 
+  it('the same config again (main sends one after every hello) keeps the open ask; a changed one gives it up', async () => {
+    const { t, link, askAbout } = await withAskingScript()
+    t.type('echo zz')
+    const open = await askAbout('echo zz')
+    expect(link.push(KEY, { type: 'config', features: [PROBE, HISTORY_FEATURE] })).toBe(true)
+    await t.settle(300)
+    expect(open.ask.signal.aborted).toBe(false)
+    expect(open.reply.show(' kept')).toBe(true)
+    expect(await t.redrawn()).toMatch(lineWithGrey('echo zz', ' kept'))
+    expect(link.push(KEY, { type: 'config', features: [PROBE] })).toBe(true)
+    await vi.waitFor(() => expect(open.ask.signal.aborted).toBe(true), WAIT)
+  })
+
   it('a config goes to every connected shell, once per change of the features', async () => {
     const settings = settingsSource()
     const { open, integration, link } = start({ settings })
@@ -841,24 +1029,28 @@ describe('what does not leak and where the widget is not', () => {
     expect(env).not.toMatch(/__worfy_/)
     expect(env).not.toContain(token)
     expect(env).not.toContain(socketPath(integration.path ?? 'no folder'))
-    // Nor does the shell keep them in a variable once it has said hello.
-    const variables = await t.run('typeset -p | grep -c -e __worfy_assist_token -e __worfy_assist_socket; print -r -- "token:${__worfy_assist_token-gone}"')
-    expect(variables).toContain('token:gone')
+    // The shell keeps the token to say hello again after every command, in a variable it does not export.
+    const kinds = await t.run('print -r -- "kinds:${(t)__worfy_assist_token}:${(t)__worfy_assist_socket}:${(t)__worfy_assist_fd}"')
+    expect(kinds).toContain('kinds:scalar:scalar:scalar')
     expect(shown(t.text())).not.toContain(token)
   })
 
-  it('the connection is not on a descriptor programs use by convention: what the shell starts finds 3 to 9 closed', async () => {
-    const { open } = start()
-    const t = await open()
+  it('the connection is not on a descriptor programs use by convention: what a widget starts at the prompt finds 3 to 9 closed', async () => {
+    const started = start()
+    const file = join(root, 'descriptors.txt')
+    // zsh has no way to keep a descriptor it opened from the programs it starts. A command finds the
+    // connection closed (the tests above); a program a widget starts while zsh waits for a key gets
+    // it, above 9, where zsh keeps its own.
+    await testScript(started.integration, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${DESCRIPTORS} } >| ${file}`))
+    const t = await started.open()
     await t.connected()
-    // zsh has no way to keep a descriptor it opened from the programs it starts; the connection is
-    // above 9, where zsh keeps its own.
-    const fds = await t.run(
-      `print -r -- "shell-fd:$__worfy_assist_fd"; /bin/sh -c 'for n in 3 4 5 6 7 8 9; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; done; echo checked'`,
-    )
-    expect(Number(/shell-fd:(\d+)/.exec(fds)?.[1])).toBeGreaterThanOrEqual(10)
-    expect(fds).toContain('checked')
-    expect(fds).not.toMatch(/open:\d/)
+    t.type(WIDGET_KEY)
+    await vi.waitFor(() => expect(existsSync(file) && readFileSync(file, 'utf8')).toContain('checked'), WAIT)
+    const fds = readFileSync(file, 'utf8')
+    const fd = Number(/shell-fd:(\d+)/.exec(fds)?.[1])
+    expect(fd).toBeGreaterThanOrEqual(10)
+    expect(fds).not.toMatch(/open:[3-9]\n/)
+    expect(fds).toContain(`socket:${fd}`)
   })
 
   it('a zsh started in the Terminal has no widget and no socket', async () => {
@@ -938,7 +1130,10 @@ describe('what does not leak and where the widget is not', () => {
     for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
       vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void logged.push(args))
     }
-    const { t, envs, integration, askAbout, link } = await withAskingScript({ helloTimeoutMs: 300 })
+    const { t, envs, integration, askAbout, link } = await withAskingScript(
+      { helloTimeoutMs: 300 },
+      widgetScript('  print -r -u $__worfy_assist_fd -- "garbage worfy-line-marker"'),
+    )
     const token = envs[0]?.WORFY_ASSIST_TOKEN ?? ''
     const nonce = envs[0]?.WORFY_SHELL_NONCE ?? ''
     expect(token).toMatch(/^[0-9a-f]{32}$/)
@@ -951,8 +1146,8 @@ describe('what does not leak and where the widget is not', () => {
     await stranger(path, `hello\t${'f'.repeat(32)}`).untilClosed()
     await stranger(path, `hello\t${token}`).untilClosed()
     await stranger(path, `worfy-line-marker ${token}`).untilClosed()
-    // The shell itself sends a line that is no message.
-    await t.run(`\x15print -r -u $__worfy_assist_fd -- "garbage worfy-line-marker"`)
+    // The shell itself sends a line that is no message (a widget: it holds the connection at the prompt).
+    t.type(`\x15${WIDGET_KEY}`)
     await vi.waitFor(() => expect(logged.flat().join(' ')).toContain('sent a line that is not a message'), WAIT)
     await t.exit()
     await vi.waitFor(() => expect(link.connected(KEY)).toBe(false), WAIT)

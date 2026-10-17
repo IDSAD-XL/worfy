@@ -10,6 +10,11 @@
 # `zle -F` while zsh waits for a key. One message is one line, its fields separated by TAB; in a
 # field \ is \\, a line feed \n, a TAB \t, a carriage return \r (src/main/terminal-ai/protocol.ts).
 #
+# zsh cannot keep a descriptor it opened from the programs it starts, so the link lives only while
+# zsh edits a line: it closes before every command (preexec) and opens again, with a new hello, when
+# the next prompt starts the line editor. The token for the hello stays in a shell variable that is
+# not exported, so no program the shell starts sees it.
+#
 #   to worfy:    hello <token> · ask <id> <feature> <line> · cancel <id>
 #   from worfy:  show <id> <text> · status <id> <text> · insert <text> · config <features>
 #
@@ -32,7 +37,7 @@
 # Without the socket, or once it is closed, the Suggestion from history goes on and the rest is
 # silent: nothing is ever printed into the Terminal.
 
-# Only where a line is edited. The token goes from the shell's variables either way.
+# Only where a line is edited. Elsewhere the token goes from the shell's variables.
 if ! [[ -o interactive && -o zle ]] || ! builtin autoload -Uz +X add-zle-hook-widget 2>/dev/null; then
   builtin unset __worfy_assist_socket __worfy_assist_token
   builtin return 0
@@ -40,7 +45,7 @@ fi
 
 # Not exported even under the user's `setopt allexport`: zshrc.zsh takes the export off every
 # __worfy_ variable once rc.d/ is read, and every function here runs under `emulate -L zsh`.
-builtin typeset -g __worfy_assist_fd=''         # the link; empty without one
+builtin typeset -g __worfy_assist_fd=''         # the link; empty without one, and while a command runs
 builtin typeset -g __worfy_assist_inbox=''      # what came over the link and is not a whole line yet
 builtin typeset -gi __worfy_assist_id=0         # the id of the last ask
 builtin typeset -gi __worfy_assist_asked=0      # the id of the ask that is open; 0 without one
@@ -109,7 +114,7 @@ _worfy_assist_enabled() {
 
 # ---- the link -----------------------------------------------------------------------------------
 
-# Closes the link; from then on only the Suggestion from history works.
+# Closes the link; until it opens again only the Suggestion from history works.
 _worfy_assist_disconnect() {
   builtin emulate -L zsh
   builtin local fd=$__worfy_assist_fd
@@ -117,9 +122,34 @@ _worfy_assist_disconnect() {
   __worfy_assist_fd='' __worfy_assist_inbox='' __worfy_assist_asked=0
   builtin zle -F $fd 2>/dev/null
   { builtin exec {fd}>&- } 2>/dev/null
-  # A note of worfy's ("asking Claude…") would wait for an answer that cannot come.
-  [[ $__worfy_assist_kind == status ]] && _worfy_assist_hide
+  # A note of worfy's ("asking Claude…") would wait for an answer that cannot come. Only from a
+  # widget: elsewhere the grey text is not there.
+  builtin zle && [[ $__worfy_assist_kind == status ]] && _worfy_assist_hide
   builtin return 0
+}
+
+# Opens the link and says hello, unless it is open; fails without a socket or a token.
+_worfy_assist_connect() {
+  builtin emulate -L zsh
+  [[ -z $__worfy_assist_fd ]] || builtin return 0
+  [[ -n $__worfy_assist_socket && -n $__worfy_assist_token ]] || builtin return 1
+  builtin local REPLY low
+  builtin zsocket $__worfy_assist_socket 2>/dev/null || builtin return 1
+  # zsocket takes the lowest free descriptor (3): programs use those numbers by convention, and a
+  # program a widget starts inherits what the shell holds. The connection moves to one zsh picks
+  # above 9.
+  low=$REPLY
+  { builtin exec {__worfy_assist_fd}<&$low } 2>/dev/null || __worfy_assist_fd=''
+  { builtin exec {low}<&- } 2>/dev/null
+  _worfy_assist_send hello $__worfy_assist_token || builtin return 1
+  builtin zle -F -w $__worfy_assist_fd _worfy_assist_receive
+}
+
+# preexec: the command, and every program it starts, gets no link. The ask that is open is given up first.
+_worfy_assist_preexec() {
+  builtin emulate -L zsh
+  _worfy_assist_cancel
+  _worfy_assist_disconnect
 }
 
 # Sends one message: its kind, then its fields, escaped. Fails without a link.
@@ -217,15 +247,19 @@ _worfy_assist_on_insert() {
   _worfy_assist_changed
 }
 
-# config <features>: the features the settings have on, separated by spaces.
+# config <features>: the features the settings have on, separated by spaces. worfy sends it after
+# every hello, so after every command as well.
 _worfy_assist_on_config() {
   builtin emulate -L zsh -o extended_glob
-  builtin local name
+  builtin local name before="${(okj: :)__worfy_assist_features}"
+  builtin local -i configured=$__worfy_assist_configured
   __worfy_assist_features=()
   for name in ${=1}; do
     [[ $name == [a-z][a-z0-9-]# ]] && __worfy_assist_features[$name]=1
   done
   __worfy_assist_configured=1
+  # The same settings again: the ask that is open (Next command's, at a new prompt) stays open.
+  (( configured )) && [[ ${(okj: :)__worfy_assist_features} == "$before" ]] && builtin return 0
   # A Suggestion that was just turned off goes away now, one that was turned on shows.
   _worfy_assist_changed
 }
@@ -274,10 +308,12 @@ _worfy_assist_pre_redraw() {
 }
 builtin zle -N _worfy_assist_pre_redraw
 
-# A new prompt: nothing of the line before it holds. The line hooks hear of the new, empty line
-# here, before the first key.
+# A new prompt: nothing of the line before it holds. The link opens again, unless the line editor
+# runs inside a command (vared, select). The line hooks hear of the new, empty line here, before the
+# first key.
 _worfy_assist_line_init() {
   builtin emulate -L zsh
+  [[ $CONTEXT == (start|cont) ]] && _worfy_assist_connect
   _worfy_assist_cancel
   _worfy_assist_hide
   __worfy_assist_line='' __worfy_assist_seen=0
@@ -383,17 +419,14 @@ _worfy_assist_escape() {
   add-zle-hook-widget line-pre-redraw _worfy_assist_pre_redraw
   add-zle-hook-widget line-finish _worfy_assist_line_finish
 
-  # The link: the socket and this shell's token came in the environment (zshenv.zsh took them out).
-  builtin local socket=$__worfy_assist_socket token=$__worfy_assist_token REPLY
-  builtin unset __worfy_assist_socket __worfy_assist_token
-  [[ -n $socket && -n $token ]] || builtin return 0
-  builtin zmodload zsh/net/socket zsh/system 2>/dev/null || builtin return 0
-  builtin zsocket $socket 2>/dev/null || builtin return 0
-  # zsocket takes the lowest free descriptor (3): programs use those numbers by convention, and what
-  # the shell starts inherits the descriptors it holds. The connection moves to one zsh picks above 9.
-  builtin local low=$REPLY
-  { builtin exec {__worfy_assist_fd}<&$low } 2>/dev/null || __worfy_assist_fd=''
-  { builtin exec {low}<&- } 2>/dev/null
-  _worfy_assist_send hello $token || builtin return 0
-  builtin zle -F -w $__worfy_assist_fd _worfy_assist_receive
+  # The link: the socket and this shell's token came in the environment (zshenv.zsh took them out
+  # into variables that are not exported). It opens at the first prompt, not here: the user's
+  # .zlogin runs after this file, and what it starts would inherit it.
+  if [[ -n $__worfy_assist_socket && -n $__worfy_assist_token ]] && builtin zmodload zsh/net/socket zsh/system 2>/dev/null; then
+    builtin typeset -g +x __worfy_assist_socket __worfy_assist_token
+    # First of the preexec hooks: the ones before it would start their programs with the link.
+    preexec_functions=(_worfy_assist_preexec ${preexec_functions:#_worfy_assist_preexec})
+  else
+    builtin unset __worfy_assist_socket __worfy_assist_token
+  fi
 }
