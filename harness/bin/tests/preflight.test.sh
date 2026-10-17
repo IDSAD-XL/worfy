@@ -15,7 +15,9 @@ BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 PF="$BIN/preflight"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
+# and the profiles' paths must be in it. TP is the same folder for PATH, where C:/… cannot stand.
+T="$(mktemp -d)"; TP="$(cd "$T" && pwd -P)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 . "$(dirname "$0")/real-home.sh"
 REAL_HOME="$HOME"
