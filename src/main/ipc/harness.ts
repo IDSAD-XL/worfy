@@ -2,7 +2,8 @@
 // with the user's consent in a native dialog. The installer is src/main/harness/install.ts.
 //
 // The Claude Code binary is the SDK's (bundledClaudeBinary), or WORFY_CLAUDE when set: tests point
-// it at a stub, as WORFY_GH points `gh` at one (src/main/ipc/checks.ts). With WORFY_CLAUDE_HOME (a
+// it at a stub, as WORFY_GH points `gh` at one (src/main/ipc/checks.ts); a stub that is a `.mjs` runs
+// under worfy's own Node on every system (src/main/program.ts). With WORFY_CLAUDE_HOME (a
 // sandbox) `claude` gets CLAUDE_CONFIG_DIR and HOME inside the same folder (claudeCommandEnv), so
 // worfy and Claude Code see one ~/.claude; without it the user's environment is left as it is.
 import { app, BrowserWindow, dialog } from 'electron'
