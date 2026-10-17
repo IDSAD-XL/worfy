@@ -3,7 +3,8 @@
 #   on_windows                        true in Git Bash (or Cygwin) on Windows
 #   node_path <path>                  the path as node reads it: C:/… in Git Bash on Windows, unchanged elsewhere
 #   node_stand_in <stub> <file.mjs>   writes <file.mjs>, a node script that runs the shell stub <stub> with bash
-#                                     and exits with its code. Node on Windows cannot start an extensionless
+#                                     and exits with its code; with $STAND_IN_PARENTS set it appends the pid of
+#                                     its parent there, as node sees it. Node on Windows cannot start an extensionless
 #                                     shell script, and its PATH lookup takes gh.com or gh.exe only, so a stub
 #                                     on PATH loses to the real gh there; the script under test is pointed at
 #                                     the .mjs through its own variable instead.
@@ -22,8 +23,11 @@ node_stand_in() {
     stub="$(node_path "$1")"
     cat >"$2" <<EOF
 #!/usr/bin/env node
-// A stand-in written by gh-stand-in.sh: runs the shell stub with bash and exits with its code.
+// A stand-in written by gh-stand-in.sh: runs the shell stub with bash and exits with its code. With
+// \$STAND_IN_PARENTS set, appends to that file the pid of the program that started it (one line a run).
 import { spawnSync } from "node:child_process"
+import { appendFileSync } from "node:fs"
+if (process.env.STAND_IN_PARENTS) appendFileSync(process.env.STAND_IN_PARENTS, process.ppid + "\\n")
 const r = spawnSync("$bash_bin", ["$stub", ...process.argv.slice(2)], { stdio: "inherit" })
 process.exit(r.status ?? 1)
 EOF

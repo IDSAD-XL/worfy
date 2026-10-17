@@ -15,6 +15,10 @@ WG="$BIN/wave-gate"
 SKILL="${SKILL_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+# A path under $T as node reads it, for the state file: C:/… in Git Bash on Windows (pwd -W), where node reads
+# /tmp/… as C:\tmp\…; unchanged elsewhere.
+TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+tn() { case "$1" in "$T"/*) printf '%s' "$TN${1#"$T"}" ;; *) printf '%s' "$1" ;; esac; }
 . "$HERE/real-home.sh"
 home_before="$(real_home_snapshot "$HOME" "$T")"
 pass=0 fail=0
@@ -171,8 +175,8 @@ state() {
         [[ "$p" == *,label=* ]] && labels="\"${p##*,label=}\""
         items="$items$sep{\"number\":$n,\"head\":\"$(head_of "$n")\",\"labels\":[$labels],\"platform\":$plat}"; sep=","
     done
-    [ "$lock" = null ] || lock="\"$lock\""
-    printf '{"repo":"%s","branch":"main","e2e_lock":%s,"prepare":null,"prs":[%s]}\n' "$W/repo" "$lock" "$items" >"$f"
+    [ "$lock" = null ] || lock="\"$(tn "$lock")\""
+    printf '{"repo":"%s","branch":"main","e2e_lock":%s,"prepare":null,"prs":[%s]}\n' "$(tn "$W/repo")" "$lock" "$items" >"$f"
 }
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
 # until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
@@ -353,13 +357,15 @@ PIDF() { echo "$(cd "$W/repo/.git" && pwd -P)/worfy-wave-gate.pid"; }
 new_world pidlive 1:a.txt
 S="$W/state.json"; state "$S" null 1
 git -C "$W/repo" worktree add -q --detach "$(TMPW_OF)" origin/main && echo mine >"$(TMPW_OF)/marker"
-sleep 60 & sp=$!
+sleep 60 & sp=$! job=$!
+# the pid node sees: in Git Bash the Windows pid of sleep, once it has started
+if on_windows; then until_ok 5 grep -q sleep "/proc/$sp/exename"; sp="$(cat "/proc/$sp/winpid")"; fi
 echo "$sp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "another wave-gate check runs in this repository (pid $sp" "$W/out" && ok "pid: a live check's pid -> exit 1 naming it" || bad "pid live: exit $rc: $(tail -3 "$W/out")"
 [ "$(cat "$(TMPW_OF)/marker" 2>/dev/null)" = mine ] && git -C "$W/repo" worktree list | grep -q worfy-wave-gate && [ "$(gate_count)" = 0 ] && [ "$(cat "$(PIDF)")" = "$sp" ] \
     && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
-kill "$sp"; wait "$sp" 2>/dev/null
+kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
 # a dead pid: stale, taken over
 sleep 0 & dp=$!; wait "$dp"
@@ -409,7 +415,9 @@ wait "$wg"; rc=$?
 # the holder of the lock: holder.json with the numbers of the set while the gate runs, gone with the lock
 new_world holder 1:a.txt 2:b.txt 3:c.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
-"$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+STAND_IN_PARENTS="$GATE_DIR/parents" "$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+# wave-gate's pid as node sees it: in Git Bash its Windows pid, which the gate stand-in recorded as its parent
+on_windows && wg="$(head -n 1 "$GATE_DIR/parents" 2>/dev/null)"
 h="$GATE_DIR/holder.1.json"
 [ "$rc" -eq 0 ] && [ -f "$h" ] && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+s.pid')" = "1,2,3 gate-full $wg" ] \
     && ok "e2e lock: holder.json names the set (prs 1,2,3), gate-full and the pid of wave-gate while the gate runs" || bad "e2e lock holder: exit $rc, holder $(cat "$h" 2>/dev/null)"
@@ -468,7 +476,7 @@ tree=$(printf '100644 blob %s\tbroken.txt\n' "$blob" | git -C "$W/repo" mktree)
 c2=$(git -C "$W/repo" commit-tree "$tree" -p "$(git -C "$W/repo" rev-parse origin/main)" -m broken)
 rm -f "$W/repo/.git/objects/${tree:0:2}/${tree:2}"
 S="$W/state.json"
-printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[{"number":1,"head":"%s"},{"number":2,"head":"%s"}]}\n' "$W/repo" "$(head_of 1)" "$c2" >"$S"
+printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[{"number":1,"head":"%s"},{"number":2,"head":"%s"}]}\n' "$(tn "$W/repo")" "$(head_of 1)" "$c2" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && [ "$(q "$S" s.status)" = error ] && ok "error while merging: exit 1, status error" || bad "error while merging: exit $rc status $(q "$S" s.status 2>&1): $(tail -3 "$W/out")"
 [ ! -e "$(TMPW_OF)" ] && ok "error while merging: the temporary worktree is removed" || bad "error while merging: worktree left"
@@ -713,7 +721,7 @@ unset GH_MERGE_FAIL_AT
 
 # --- bad input ---------------------------------------------------------------------------
 new_world input 1:a.txt
-S="$W/state.json"; printf '{"repo":"%s","branch":"main","prs":[]}\n' "$W/repo" >"$S"
+S="$W/state.json"; printf '{"repo":"%s","branch":"main","prs":[]}\n' "$(tn "$W/repo")" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "e2e_lock" "$W/out" && ok "input: e2e_lock missing -> exit 1 naming it" || bad "input: exit $rc $(cat "$W/out")"
 "$WG" >/dev/null 2>&1; rc=$?
@@ -729,13 +737,23 @@ BI="$(block 'PLATFORM=(')"; BC="$(block 'wave-gate" check')"; BM="$(block 'wave-
 for sh in bash zsh; do
     new_world "skill-$sh" 1:a.txt 2:b.txt 3:c.txt
     export GH_LABELS_3="needs-mac-gate other"
-    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$W/e2e.lock' ;; commands.prepare_tree) echo 'echo prepared >prepared.txt' ;; *) return 4 ;; esac; }"
-    sub() { local b="$1"; b="${b//<repo>/$W/repo}"; b="${b//<main branch>/main}"; b="${b//<state file>/$W/state.json}"
-            b="${b//<main lock>/$W/main.lock}"; b="${b//<PR numbers in merge order>/1 2 3}"; b="${b//<platform PR numbers>/2}"; printf '%s' "$b"; }
-    got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$STUB"$'\n'"$(sub "$BI")" 2>&1)"
+    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$(tn "$W/e2e.lock")' ;; commands.prepare_tree) echo 'echo prepared >prepared.txt' ;; *) return 4 ;; esac; }"
+    # The paths the blocks hand to node in node's spelling. On Windows the set block's node, which runs gh by
+    # name and would find the real gh.exe, runs the gh stand-in instead.
+    sub() { local b="$1" ghpat='execFileSync("gh", ['
+            b="${b//<repo>/$(tn "$W/repo")}"; b="${b//<main branch>/main}"; b="${b//<state file>/$W/state.json}"
+            b="${b//<main lock>/$(tn "$W/main.lock")}"; b="${b//<PR numbers in merge order>/1 2 3}"; b="${b//<platform PR numbers>/2}"
+            if on_windows; then b="${b//"$ghpat"/execFileSync(process.execPath, [\"$(node_path "$STUBS/gh.mjs")\", }"; fi
+            printf '%s' "$b"; }
+    # On Windows node's gh by name is the real gh.exe: a block that still runs it is not run.
+    if on_windows && [[ "$(sub "$BI")" == *'"gh"'* ]]; then
+        bad "$sh: the set block still runs gh by name: on Windows that is the real gh, the block is not run"
+    else
+        got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$STUB"$'\n'"$(sub "$BI")" 2>&1)"
+    fi
     S="$W/state.json"
     [ -f "$S" ] && [ "$(q "$S" 's.prs.map(p=>p.number+":"+p.platform+":"+p.labels.join("+")+":"+(p.head.length)).join(" ")')" = "1:false::40 2:true::40 3:false:needs-mac-gate+other:40" ] \
-        && [ "$(q "$S" 's.repo+" "+s.branch+" "+s.e2e_lock+" "+s.prepare+" "+s.main_lock')" = "$W/repo main $W/e2e.lock echo prepared >prepared.txt $W/main.lock" ] \
+        && [ "$(q "$S" 's.repo+" "+s.branch+" "+s.e2e_lock+" "+s.prepare+" "+s.main_lock')" = "$(tn "$W/repo") main $(tn "$W/e2e.lock") echo prepared >prepared.txt $(tn "$W/main.lock")" ] \
         && ok "$sh: the set block writes the state file" || bad "$sh: the set block: [$got] $(cat "$S" 2>/dev/null)"
     got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$(sub "$BC")" 2>&1)"
     [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$S" s.set)" = "[1]" ] && grep -q "prepared.txt" "$GATE_DIR/log" && ok "$sh: the check block: green set of PR 1, prepare ran" || bad "$sh: the check block: [$got]"
