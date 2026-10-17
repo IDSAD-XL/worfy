@@ -1,7 +1,7 @@
 // The workflow reader and watcher against a temporary git repository with worktrees, and a stub
 // `bin/epic-status` in a temporary WORFY_CLAUDE_HOME. The stub reads Tickets the way the real
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
@@ -14,7 +14,7 @@ import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } f
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
-import { NODE_DIR, withPath } from '../harness-node'
+import { NODE_DIR, SH, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 
 /**
@@ -399,17 +399,39 @@ describe('workflow reader', () => {
     }
   })
 
-  /** An older Harness in <dir>/claude-home/bin: its epic-status is a bash script that prints Epic `demo`. */
+  /**
+   * An older Harness in <dir>/claude-home/bin: its epic-status is a bash script that prints Epic
+   * `demo` when called as worfy calls it, `--json` or `--json --ref <branch>`; any other arguments
+   * fail with exit code 2 and say so, so a start that loses them does not read the Epics.
+   */
   function bashHarness(): { home: string; script: string } {
     const home = join(dir, 'claude-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
     const answer = join(dir, 'bash-answer.json')
     writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] }))
     const script = join(home, 'bin', 'epic-status')
-    writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+    const expected = '[ "$#" -eq 1 ] && [ "$1" = --json ] || { [ "$#" -eq 3 ] && [ "$1" = --json ] && [ "$2" = --ref ] && [ -n "$3" ]; }'
+    writeFileSync(script, `#!/bin/sh\nif ! { ${expected}; }; then echo "epic-status stand-in: unexpected arguments: $*" >&2; exit 2; fi\ncat '${answer}'\n`)
     chmodSync(script, 0o755)
     return { home, script }
   }
+
+  // The stand-in itself, run by sh wherever there is one (on Windows, Git Bash's): it answers only
+  // to worfy's arguments, so the case below proves they reach the script.
+  it.skipIf(!SH)("the older Harness's stand-in answers only to the arguments worfy passes", () => {
+    const { script } = bashHarness()
+    const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync('sh', [script, ...args], { encoding: 'utf8' })
+    for (const args of [['--json'], ['--json', '--ref', 'demo/02']]) {
+      const ok = run(args)
+      expect(ok.status).toBe(0)
+      expect(JSON.parse(String(ok.stdout))).toMatchObject({ epics: [{ epic: 'demo' }] })
+    }
+    for (const args of [[], ['--ref', 'demo/02'], ['--json', '--ref'], ['--json', 'extra']]) {
+      const refused = run(args)
+      expect(refused.status).toBe(2)
+      expect(String(refused.stderr)).toContain('epic-status stand-in: unexpected arguments')
+    }
+  })
 
   // An older Harness (the old <claude home>/bin, or a plugin not updated yet) still has the bash epic-status.
   it.skipIf(process.platform === 'win32')("an older Harness's bash epic-status is started by itself, not by node, which could not read it", async () => {
@@ -418,6 +440,8 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(model.error).toBeNull()
     expect(model.epics.map((epic) => epic.epic)).toEqual(['demo'])
+    // A branch's read passes `--ref <branch>` too.
+    expect(JSON.parse(await epicStatusRunner(home, ownEnv)(repo, 'demo/02'))).toMatchObject({ epics: [{ epic: 'demo' }] })
   })
 
   it.skipIf(process.platform !== 'win32')("on Windows an older Harness's bash epic-status is not run, and the reason says to update the Harness", async () => {

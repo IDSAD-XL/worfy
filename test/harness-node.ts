@@ -6,6 +6,7 @@
 // has that node's folder on its PATH. The tests themselves run under Electron's Node
 // (scripts/vitest-electron.mjs), whose process.execPath is Electron, not node: the node here is the
 // one on this process's PATH.
+import { spawnSync } from 'node:child_process'
 import { statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import process from 'node:process'
@@ -35,6 +36,13 @@ export const NODE = findNode()
 
 /** The folder of NODE, for the PATH of a scripts' environment. */
 export const NODE_DIR = dirname(NODE)
+
+/**
+ * Whether `sh` starts from this process's PATH: always on macOS and Linux, on Windows when Git Bash's
+ * folder is on it. The stand-ins of an older Harness are `#!/bin/sh` scripts; a test that runs one
+ * through `sh` runs wherever this is true.
+ */
+export const SH = spawnSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0
 
 /**
  * Gives the temporary home folder `home` a `.profile` that puts NODE_DIR first on PATH. A test that

@@ -3,6 +3,7 @@
 // for every way of not getting one. With a stand-in runner for each exit code, then with a stub
 // `bin/profile` in a temporary Claude home, which must stay as it was, like the Project's folder.
 // Last, how the Session factory (src/main/agent/app-registry.ts) hands the list to Claude Code.
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -29,7 +30,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
-import { NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
+import { NODE_DIR, nodeScript, scriptsEnv, SH } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
@@ -295,15 +296,35 @@ describe('readMcpAllowlist with the real runner', () => {
     }
   })
 
-  /** A Claude home whose bin/profile is an older Harness's: a shell script that prints `["github"]`. */
+  /**
+   * A Claude home whose bin/profile is an older Harness's: a shell script that prints `["github"]`
+   * when called as readMcpAllowlist calls it, `-C <root> --field mcp.allowed`; any other arguments
+   * fail with exit code 2 and say so, so a start that loses them gets the default list.
+   */
   function bashProfileHome(): { home: string; script: string } {
     const home = join(scratch, 'bash-home')
     mkdirSync(join(home, 'bin'), { recursive: true })
     const script = join(home, 'bin', 'profile')
-    writeFileSync(script, `#!/bin/sh\necho '["github"]'\n`)
+    const expected = `[ "$#" -eq 4 ] && [ "$1" = -C ] && [ -n "$2" ] && [ "$3" = --field ] && [ "$4" = ${MCP_ALLOWED_FIELD} ]`
+    writeFileSync(script, `#!/bin/sh\nif ! { ${expected}; }; then echo "profile stand-in: unexpected arguments: $*" >&2; exit 2; fi\necho '["github"]'\n`)
     chmodSync(script, 0o755)
     return { home, script }
   }
+
+  // The stand-in itself, run by sh wherever there is one (on Windows, Git Bash's): it answers only
+  // to readMcpAllowlist's arguments, so the case below proves they reach the script.
+  it.skipIf(!SH)("the older Harness's stand-in profile answers only to the arguments worfy passes", () => {
+    const { script } = bashProfileHome()
+    const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync('sh', [script, ...args], { encoding: 'utf8' })
+    const ok = run(['-C', scratch, '--field', MCP_ALLOWED_FIELD])
+    expect(ok.status).toBe(0)
+    expect(String(ok.stdout)).toBe('["github"]\n')
+    for (const args of [[], ['--field', MCP_ALLOWED_FIELD], ['-C', scratch, '--field', 'github.account'], ['-C', scratch, '--json']]) {
+      const refused = run(args)
+      expect(refused.status).toBe(2)
+      expect(String(refused.stderr)).toContain('profile stand-in: unexpected arguments')
+    }
+  })
 
   it.skipIf(process.platform === 'win32')("an older Harness's shell profile is started by itself, not by node, which could not read it", async () => {
     const { home } = bashProfileHome()
