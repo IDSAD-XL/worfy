@@ -127,7 +127,7 @@ function snapshot(dir: string): Record<string, string> {
 
 /**
  * The login shell environment (src/main/agent/env.ts): its PATH has node. worfy runs the script as
- * `node <script>` with the node of this PATH (src/main/workflow/profile.ts, harnessScriptNode).
+ * `node <script>` with the node of this PATH (src/main/workflow/profile.ts, harnessScriptCommand).
  */
 function loginEnv(): Record<string, string> {
   return scriptsEnv([NODE_DIR], { HOME: scratch })
@@ -293,6 +293,28 @@ describe('readMcpAllowlist with the real runner', () => {
       expect(read).toEqual({ ok: false, reason: `there is no profile script at ${script}`, miss: 'none' })
       await expect(profileRunner(home, env)(root, [])).rejects.toMatchObject({ code: 'ENOENT' })
     }
+  })
+
+  /** A Claude home whose bin/profile is an older Harness's: a shell script that prints `["github"]`. */
+  function bashProfileHome(): { home: string; script: string } {
+    const home = join(scratch, 'bash-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const script = join(home, 'bin', 'profile')
+    writeFileSync(script, `#!/bin/sh\necho '["github"]'\n`)
+    chmodSync(script, 0o755)
+    return { home, script }
+  }
+
+  it.skipIf(process.platform === 'win32')("an older Harness's shell profile is started by itself, not by node, which could not read it", async () => {
+    const { home } = bashProfileHome()
+    const list = await readMcpAllowlist({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(list).toEqual({ servers: ['github'], source: 'profile', reason: null })
+  })
+
+  it.skipIf(process.platform !== 'win32')("on Windows an older Harness's shell profile is not run: a failed call that says to update the Harness", async () => {
+    const { home, script } = bashProfileHome()
+    const read = await readResolvedProfile({ root: projectRoot(), claudeHome: home, env: loginEnv(), log })
+    expect(read).toEqual({ ok: false, reason: `the profile script could not be run: this Harness's profile is not a Node script — update the Harness (${script})`, miss: 'failed', environment: false })
   })
 
   it('no node on the PATH: a failed call that points at the environment, so the login shell is asked again', async () => {

@@ -3,7 +3,7 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -389,6 +389,35 @@ describe('workflow reader', () => {
     } finally {
       restore()
     }
+  })
+
+  /** An older Harness in <dir>/claude-home/bin: its epic-status is a bash script that prints Epic `demo`. */
+  function bashHarness(): { home: string; script: string } {
+    const home = join(dir, 'claude-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const answer = join(dir, 'bash-answer.json')
+    writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] }))
+    const script = join(home, 'bin', 'epic-status')
+    writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+    chmodSync(script, 0o755)
+    return { home, script }
+  }
+
+  // An older Harness (the old <claude home>/bin, or a plugin not updated yet) still has the bash epic-status.
+  it.skipIf(process.platform === 'win32')("an older Harness's bash epic-status is started by itself, not by node, which could not read it", async () => {
+    const repo = makeRepo(dir)
+    const { home } = bashHarness()
+    const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
+    expect(model.error).toBeNull()
+    expect(model.epics.map((epic) => epic.epic)).toEqual(['demo'])
+  })
+
+  it.skipIf(process.platform !== 'win32')("on Windows an older Harness's bash epic-status is not run, and the reason says to update the Harness", async () => {
+    const repo = makeRepo(dir)
+    const { home, script } = bashHarness()
+    const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
+    expect(model.epics).toEqual([])
+    expect(model.error).toEqual({ code: 'failed', message: `this Harness's epic-status is not a Node script — update the Harness (${script})` })
   })
 
   it('says node is not on the PATH, not that epic-status is missing, when the environment has no node', async () => {

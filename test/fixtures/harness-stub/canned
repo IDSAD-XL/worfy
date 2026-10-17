@@ -7,7 +7,7 @@
 //   <link>.log  — the path of a file to log each run to, as "<name> <arguments> in <cwd>".
 //
 // worfy starts the Harness scripts as `node <script>` (src/main/workflow/profile.ts,
-// harnessScriptNode), so this is a Node script: node reads it as an ES module here, in the repository's
+// harnessScriptCommand), so this is a Node script: node reads it as an ES module here, in the repository's
 // `"type": "module"` scope, and also as a copy outside the repository, where it finds the `import` lines.
 import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
 import { basename } from 'node:path'

@@ -1,7 +1,7 @@
 // The node that runs the tests' stand-ins of the Harness scripts, and the text of the simplest ones.
 //
 // worfy starts `epic-status`, `profile` and `ticket` as `node <script>`, with the node on the PATH of
-// the environment it hands them (src/main/workflow/profile.ts, harnessScriptNode; ADR-0055 item 2).
+// the environment it hands them (src/main/workflow/profile.ts, harnessScriptCommand; ADR-0055 item 2).
 // So a stand-in is a Node script, never a `#!/bin/sh` one, and an environment a test hands a reader
 // has that node's folder on its PATH. The tests themselves run under Electron's Node
 // (scripts/vitest-electron.mjs), whose process.execPath is Electron, not node: the node here is the

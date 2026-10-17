@@ -2,6 +2,6 @@
 // A stand-in for the Harness's epic-status (test/contract/workflow-reader.test.ts): runs
 // epic-status.mjs next to this file. The test links it as <Claude home>/bin/epic-status and sets
 // the STUB_* variables epic-status.mjs reads in the scripts' environment. worfy starts the Harness
-// scripts as `node <script>` (src/main/workflow/profile.ts, harnessScriptNode), so this is a Node
+// scripts as `node <script>` (src/main/workflow/profile.ts, harnessScriptCommand), so this is a Node
 // script; node resolves the link, and the import below is found next to this file.
 import './epic-status.mjs'

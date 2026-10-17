@@ -3,7 +3,7 @@
 // the tests link it under those names. It logs what it got to $CALLS and answers as the real script of
 // its name would; the answers take the Workflow folder from $WORKFLOW.
 //
-// worfy starts the Harness scripts as `node <script>` (src/main/workflow/profile.ts, harnessScriptNode),
+// worfy starts the Harness scripts as `node <script>` (src/main/workflow/profile.ts, harnessScriptCommand),
 // so this is a Node script; the name it answers for is that of the link it was started by.
 import { appendFileSync, readFileSync } from 'node:fs'
 import { basename } from 'node:path'
