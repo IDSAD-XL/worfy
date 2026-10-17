@@ -21,7 +21,7 @@ export type ShortcutGroup = (typeof SHORTCUT_GROUPS)[number]
  * Where an entry acts. Two entries of one place never share keys, and no entry shares the keys of an
  * `app` one, which acts everywhere in the window.
  */
-export type ShortcutScope = 'app' | 'canvas' | 'focus mode' | 'find bar' | 'composer' | 'slash menu' | 'terminal'
+export type ShortcutScope = 'app' | 'canvas' | 'focus mode' | 'find bar' | 'session view' | 'composer' | 'slash menu' | 'terminal'
 
 export interface ShortcutKeys {
   /** ⌘ on macOS, Ctrl elsewhere. */
@@ -97,7 +97,9 @@ export const SHORTCUTS = {
   findPrevious: { id: 'find.previous', title: 'Previous match', group: 'Find', scope: 'find bar', keys: { shift: true, key: 'Enter', macKey: 'Enter' } },
   findClose: { id: 'find.close', title: 'Close the find bar', group: 'Find', scope: 'find bar', keys: { key: 'Escape', name: 'Esc' } },
 
-  // Session: the field of a Session and its slash menu.
+  // Session: the window of a Subagent, the field of a Session and its slash menu.
+  // While the Session view shows a Subagent: back to the Subagent or the Session that started it.
+  back: { id: 'session.back', title: 'Back to what started the Subagent', group: 'Session', scope: 'session view', keys: primary('[') },
   send: { id: 'session.send', title: 'Send the message', group: 'Session', scope: 'composer', keys: { key: 'Enter' } },
   newLine: { id: 'session.new-line', title: 'New line', group: 'Session', scope: 'composer', keys: { shift: true, key: 'Enter' } },
   interrupt: { id: 'session.interrupt', title: 'Interrupt the turn', group: 'Session', scope: 'composer', keys: { key: 'Escape', name: 'Esc' } },

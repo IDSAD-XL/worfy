@@ -1,13 +1,14 @@
 import { useEffect, type CSSProperties } from 'react'
 import { subagentTypeLabel } from '../../shared/agent/subagent-type'
+import { SHORTCUTS } from '../../shared/shortcuts'
 import { flattenSubagents } from '../../shared/transcript/subagents'
 import { readSessionNodeData, sessionStatus } from '../claude-home/session-nodes'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
 import { useSubagentTree } from '../claude-home/subagents'
 import { useClaudeHome, useSessionTranscript } from '../claude-home/useClaudeHome'
-import { isPrimary, label } from '../platform'
 import { useProjects } from '../projects/useProjects'
+import { ariaKeys, label, matches } from '../shortcuts/match'
 import { StatusChip, type Status } from '../theme/primitives'
 import { openSession, subagentParent, subagentSession, useNavigation, type OpenedSession } from './navigation'
 import { isRunning, useSessionNodeView } from './node-sessions'
@@ -39,17 +40,13 @@ export interface ExternalSessionPanelProps {
   blocks?: readonly RailBlock[]
 }
 
-/** The arrow's key: ⌘[ on macOS, Ctrl+[ elsewhere; by its place too, for a layout that has another character there. */
-const BACK_KEY = { primary: true, key: '[' } as const
-const isBackKey = (event: KeyboardEvent): boolean => isPrimary(event) && !event.shiftKey && (event.key === '[' || (event.code === 'BracketLeft' && !event.altKey))
-
 function BackArrow({ to, name }: { to: OpenedSession; name: string }) {
   const view = useNavigation((store) => store.view)
   useEffect(() => {
     // The panel stays mounted under the Canvas: the key belongs to the Session view only while it is shown.
     if (view !== 'session') return
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !isBackKey(event)) return
+      if (event.defaultPrevented || !matches(event, SHORTCUTS.back)) return
       event.preventDefault()
       openSession(to)
     }
@@ -58,7 +55,7 @@ function BackArrow({ to, name }: { to: OpenedSession; name: string }) {
   }, [view, to])
   const text = `Back to ${name}`
   return (
-    <button type="button" className="w-session__button" style={styles.back} aria-label={text} title={`${text} (${label(BACK_KEY)})`} data-testid="session-back" onClick={() => openSession(to)}>
+    <button type="button" className="w-session__button" style={styles.back} aria-label={text} title={`${text} (${label(SHORTCUTS.back)})`} aria-keyshortcuts={ariaKeys(SHORTCUTS.back)} data-testid="session-back" onClick={() => openSession(to)}>
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M13 8H3.5M7.5 3.5L3 8l4.5 4.5" />
       </svg>
