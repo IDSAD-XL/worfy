@@ -151,6 +151,14 @@ out="$("$SC" -C "$FR" "Ticket 05, ADR-0042, .scratch/, HANDOFF, Co-Authored-By: 
     || bad "silent-check full: exit $rc, out: ${out:0:200}"
 out="$("$SC" -C "$WF" "Ticket 05" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "silent-check in the Workflow folder (not a project repository) checks nothing" || bad "silent-check in WF: exit $rc, out: ${out:0:200}"
+# A Workflow folder under the home folder is also a trace in its ~/… spelling. WF above is not under
+# HOME, so only this case reaches that form.
+cp "$HARNESS_HOME/projects/sp/profile.json" "$T/sp-profile-wf.json"; mkdir -p "$HOME/hwf"
+jq --arg f "$HOME/hwf" '.workflow.folder = $f' "$T/sp-profile-wf.json" >"$HARNESS_HOME/projects/sp/profile.json"
+out="$("$SC" -C "$R" "see ~/hwf/notes.md" 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *'Workflow folder path "~/hwf"'* ]] && ok "silent-check finds the ~/… spelling of a Workflow folder under HOME" \
+    || bad "silent-check ~/ Workflow folder: exit $rc, out: ${out:0:200}"
+cp "$T/sp-profile-wf.json" "$HARNESS_HOME/projects/sp/profile.json"
 printf '{"schema":2,"name":"fp","mode":"full","attribution":"off"}\n' >"$HARNESS_HOME/projects/fp/profile.json"
 out="$("$SC" -C "$FR" "Ticket 05 and HANDOFF" 2>&1)"; rc1=$?
 out2="$("$SC" -C "$FR" $'Fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>' 2>&1)"; rc2=$?
