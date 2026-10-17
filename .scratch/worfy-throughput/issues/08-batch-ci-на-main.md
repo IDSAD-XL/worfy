@@ -103,8 +103,10 @@ Source: решение владельца 2026-10-17 (около 09:20 UTC), п�
 ## Вне скоупа
 
 - Live Profile и `rules.md` worfy — их меняет orchestrator по строкам из «Итог».
-- `worfy-pipeline` 02 (открытый PR #428: Stage «CI» в Pipeline, agent marks, «CI without marks») —
-  файлы #428 этот PR не трогает. Что 02/03 должны сделать для Project с `workflow.ci: "batch"`:
+- `worfy-pipeline` 02 (PR #428, влит в main до этого PR: Stage «CI» в Pipeline, agent marks, «CI
+  without marks»). Merge с main сохранил оба смысла: с `batch` проверка «CI without marks» на PR
+  пропускается, `CI=none` ожидаем, agent marks (`review`, `check/<name>`, `deploy`) ставятся и
+  читаются как раньше. Что pipeline 03 и приложение должны сделать для Project с `workflow.ci: "batch"`:
   Stage «CI» — на Wave, а не на Ticket. CI run на head PR не будет, поэтому «CI without marks» для
   Ticket-а такого Project не значит «CI не прошёл»: Stage Ticket-а читает merge и gate Wave, а Stage
   «CI» Wave — batch CI run, записанный `wave-gate ci` (поле `ci_run` state file: `run_id`, `url`,

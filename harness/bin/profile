@@ -3,7 +3,7 @@
 //
 //   profile                     summary: name, paths, profile.json and rules.md (this is what agents read)
 //   profile --json              profile.json + a _resolved block (name, profile directory, root, checkout,
-//                               mode, workflow_folder, repos)
+//                               mode, workflow_folder, repos, pipeline)
 //   profile --field a.b.c       one field (a string as is, anything else as JSON); _resolved.* too
 //   profile --rules             only rules.md
 //   profile --dir               only the profile directory
@@ -335,6 +335,52 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
         die(1, `${pjPath}: workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch — broken profile`)
 }
 
+// The Pipeline of the project (worfy ADR-0067): the Stages a ticket goes through, built from a fixed catalogue
+// of kinds. Each kind has its predicate in code (worfy and the Harness check the same thing); the profile only
+// picks kinds, orders them, renames them (label) and sets when a ticket counts as stuck (stuck_after). check is
+// an agent's mark with a name (check/<name>), deploy may name the GitHub Deployment environment. Rules: queued
+// first, done last, each kind once (check — once per name), gate-merge and awaiting-merge not together. A
+// broken one is a broken profile: a guessed Pipeline would show a ticket on a Stage it is not on. No field (or
+// null) — the default Pipeline; either way the result is _resolved.pipeline, workflow.pipeline stays as written.
+const STAGE_KINDS = ["queued", "implementing", "ci", "agent-review", "human-review", "check", "gate-merge", "awaiting-merge", "deploy", "closing", "done"]
+const DEFAULT_PIPELINE = ["queued", "implementing", "ci", "agent-review", "gate-merge", "closing", "done"].map((kind) => ({ kind }))
+const STAGE_FIELDS = ["kind", "name", "label", "stuck_after", "environment"]
+function pipelineOf(wf) {
+    const pl = wf !== null && typeof wf === "object" ? wf.pipeline : undefined
+    if (pl === undefined || pl === null) return DEFAULT_PIPELINE
+    const broken = (msg) => die(1, `${pjPath}: workflow.pipeline${msg} — broken profile`)
+    if (!Array.isArray(pl)) broken(` is a list of Stages, got ${JSON.stringify(pl)}`)
+    if (pl.length === 0) broken(" is a list of Stage kinds, got an empty list")
+    const seen = new Set()
+    pl.forEach((st, i) => {
+        const at = `[${i}]`
+        if (st === null || typeof st !== "object" || Array.isArray(st)) broken(`${at} is an object {kind, name?, label?, stuck_after?, environment?}, got ${JSON.stringify(st)}`)
+        const extra = Object.keys(st).find((k) => !STAGE_FIELDS.includes(k))
+        if (extra !== undefined) broken(`${at} has an unknown field ${JSON.stringify(extra)} (fields: ${STAGE_FIELDS.join(", ")})`)
+        if (!STAGE_KINDS.includes(st.kind)) broken(`${at}.kind ${JSON.stringify(st.kind)} is not a Stage kind (${STAGE_KINDS.join(", ")})`)
+        if (st.kind === "check") {
+            if (st.name === undefined) broken(`${at}: check needs a name — the mark check/<name> it waits for`)
+            if (typeof st.name !== "string" || !/^[a-z0-9][a-z0-9-]*$/.test(st.name))
+                broken(`${at}.name is lower case letters, digits and dashes, got ${JSON.stringify(st.name)}`)
+        } else if (st.name !== undefined) broken(`${at}: name is only for check, not for ${st.kind}`)
+        if (st.environment !== undefined) {
+            if (st.kind !== "deploy") broken(`${at}: environment is only for deploy, not for ${st.kind}`)
+            if (typeof st.environment !== "string" || !st.environment.trim()) broken(`${at}.environment is a GitHub environment name, got ${JSON.stringify(st.environment)}`)
+        }
+        if (st.label !== undefined && (typeof st.label !== "string" || !st.label.trim())) broken(`${at}.label is a non-empty string, got ${JSON.stringify(st.label)}`)
+        if (st.stuck_after !== undefined && (typeof st.stuck_after !== "string" || !/^[1-9]\d*[hm]$/.test(st.stuck_after)))
+            broken(`${at}.stuck_after is "<number>h" or "<number>m", got ${JSON.stringify(st.stuck_after)}`)
+        const key = st.kind === "check" ? `check "${st.name}"` : `"${st.kind}"`
+        if (seen.has(key)) broken(`: ${key} more than once`)
+        seen.add(key)
+    })
+    if (pl[0].kind !== "queued") broken(`: the first Stage is queued, got ${JSON.stringify(pl[0].kind)}`)
+    if (pl[pl.length - 1].kind !== "done") broken(`: the last Stage is done, got ${JSON.stringify(pl[pl.length - 1].kind)}`)
+    if (seen.has('"gate-merge"') && seen.has('"awaiting-merge"')) broken(": gate-merge and awaiting-merge do not go together (an agent merges, or a human does)")
+    return pl
+}
+const pipeline = pipelineOf(profile.workflow)
+
 // The Workflow folder — where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live
 // (profiles/README.md, "Workflow folder"). Full mode: the root of the current working tree (they travel in the
 // branch). Silent mode: workflow.folder; without it — the folder above the repositories of a project of several
@@ -363,6 +409,7 @@ const resolved = {
     mode: profile.mode,
     workflow_folder: workflowFolder,
     repos,
+    pipeline,
 }
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")

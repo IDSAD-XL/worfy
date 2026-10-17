@@ -1,7 +1,9 @@
 # 08 — Урок «как распознать перегруженный `fseventsd`» в `docs/lessons/agents.md`
 
 Type: task
-Status: open
+Status: done 2026-10-17T11:45Z
+PR: #436
+Branch: worfy-reliability/08
 Blocked by: —
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md):
 кандидат 3 раздела «Follow-up Ticket-ы» и разбор 1 («`fseventsd` краснил gate full») документа
@@ -34,10 +36,10 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Готово, когда
 
-- [ ] Урок в `docs/lessons/agents.md` в формате `docs/lessons/README.md`, со строкой `Проверка:`.
-- [ ] Если Ticket 07 влит — `node scripts/check-lessons.mjs` exit 0.
-- [ ] `node scripts/check-handoff.mjs` — exit 0.
-- [ ] gate fast — exit 0 и строка `[gate] зелено (fast)`, комментарий в PR (PR только с документами).
+- [x] Урок в `docs/lessons/agents.md` в формате `docs/lessons/README.md`, со строкой `Проверка:`.
+- [x] Если Ticket 07 влит — `node scripts/check-lessons.mjs` exit 0.
+- [x] `node scripts/check-handoff.mjs` — exit 0.
+- [x] gate fast — exit 0 и строка `[gate] зелено (fast)`, комментарий в PR (PR только с документами).
 
 ## Тесты
 
@@ -59,4 +61,24 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Итог
 
-—
+- Урок «Test-ы наблюдателя файлов красные и на чистом main — сначала проверить `fseventsd` в `top`» —
+  `docs/lessons/agents.md`, после трёх уроков о ложно-красном e2e (таймаут первого окна). Признак, лечение
+  владельцем (`sudo killall fseventsd`), повтор того же commit-а перед классом «временный сбой машины».
+- `Проверка: test/unit/no-rmsync.test.ts:152` — test «is called by no test: the folder of a test goes with
+  removeTestTree». Он ловит одну причину утечки папок (rmSync с `recursive`, падавший на Windows); утечку
+  по другой причине — позднюю запись Layout в `canvas-tools.test.ts` на Mac (`worfy-windows` 26) — не ловит,
+  это сказано в самой строке.
+- `HANDOFF.md`, «Риски и долги», первая строка — ссылка на урок вместо файлов test-ов, команды и замеров.
+- `node scripts/check-lessons.mjs` — exit 0 (35 уроков, 20 со ссылкой); `node scripts/check-handoff.mjs` —
+  exit 0 (75 строк, 15177 байт).
+- Gate fast на `9b3a9d7e`: первый прогон красный — `test/contract/e3-sandbox.test.ts`, три test-а по таймауту
+  скрипта, load average 13,9 (параллельные e2e других агентов); файл отдельно — 57 из 57 зелёные; второй
+  прогон — exit 0, `[gate] зелено (fast)`. Причина таймаутов не доказана; diff — только документы.
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга, находок нет
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/436#issuecomment-6233193550)). Gate fast проверяющего на
+`a787ba7c` — exit 0 с первого прогона при load average 6,7: красный прогон исполнителя на том же commit-е не
+повторился. PR только с документами — CI нет; влит вручную под замком main — `550db528`.
+Долг: `docs/research/2026-10-15-сбой-инцидент-test.md:44` и `:104` ещё ссылаются на `HANDOFF.md:35` за признаком
+и лечением — они теперь в уроке. У старых уроков `agents.md` строка `Проверка:` перенесена на вторую строку
+файла; `check-lessons` этого не ловит.

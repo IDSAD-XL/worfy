@@ -175,4 +175,6 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
   )
 }
 
-export default memo(EpicFrameNode)
+// Drawn again only for new data, not for a new place on each mouse move of a drag: the frame
+// draws nothing from its place or its selection (React Flow's own wrapper draws the selection ring).
+export default memo(EpicFrameNode, (before, after) => before.data === after.data)

@@ -357,6 +357,25 @@ in the ticket file), the two lines follow the verdict and its group lines: they 
 line, and neither starts with `REJECTED` or `gate:`, so the counts of rounds and worfy's reading of
 a PR's verdict stay as they are.
 
+**The review mark.** The verdict is bound to the commit the reviewers saw (ADR-0067): before the
+round starts, mark that commit `review pending`; when its verdict is written down, mark the same
+commit `review success` (`VERIFIED`) or `review failure` (`REJECTED`). A new commit has no mark,
+so a push after the verdict sends the ticket back to review. In Full mode the mark is a commit
+status on GitHub, so the commit must be pushed first; with `local-green` in Full mode there is no
+mark — the `gate:` commit stays the record. In Silent mode the mark is a file in the Harness home,
+never on GitHub. The comment, the commit or the line in the ticket file stays as well: the rounds
+are counted by them.
+
+```bash
+sha=$(git -C <worktree> rev-parse HEAD)                      # the commit the reviewers' worktrees are on
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> review pending --sha "$sha"); echo "EXIT=$?"
+# when the verdict is written down, on the same $sha:
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> review success --sha "$sha"); echo "EXIT=$?"   # REJECTED: review failure
+```
+
+A mark that fails (`EXIT=1`) changes no verdict: say so in the report and set it again on the same
+SHA.
+
 **`parallel: worktrees`.** Every reviewer has its own worktree; the orchestrator creates it before
 the start:
 
@@ -443,8 +462,17 @@ result section in the Workflow folder. With `F attribution` `off` there is no at
 
 ```bash
 gh pr create --fill
-gh pr checks <N>                    # a separate command, no pipe
 gh pr view <N> --json mergeStateStatus
+```
+
+CI is the PR's checks without the agents' marks: `review`, `check/<name>` and `deploy` are commit
+statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints their names), and a
+`review` failure is a verdict, not red CI. Only commit statuses are left out (an empty
+`workflow`): a GitHub Actions job named `deploy` is CI. `CI=pass` is green; `CI=fail`,
+`CI=pending` and `CI=none` (no CI run yet) are not:
+
+```bash
+gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
 ```
 
 On a conflict with the base branch the checks do not turn red, they **disappear** ("no checks
@@ -473,7 +501,8 @@ docs-only change". What the project's CI does not run, and so what must run loca
 merge, — the profile's `rules.md`.
 
 **`F workflow.ci` is `batch`** — skip the CI wait of this step: GitHub CI does not run on the PR,
-and `NO RUN` or old red checks are not a reason to hold it. The finish is the PR plus a local gate
+and `NO RUN`, `CI=none` or old red checks are not a reason to hold it; the agents' marks (`review`,
+`check/<name>`, `deploy`) are still set and read as above. The finish is the PR plus a local gate
 fast with exit code 0 (step 6). Instead of `mergeStateStatus` and `gh pr checks` look at
 `mergeable`: `CONFLICTING` — rebase onto the base; `MERGEABLE` — done; `UNKNOWN` — GitHub is still
 computing it, ask again in a minute.
@@ -686,6 +715,8 @@ gh pr view <N> --json comments --jq '[.comments[].body | select(test("^(VERIFIED
 A wave keeps its own count of rounds (`/worfy:epic-wave`, section 3): one rework round and the
 narrow round, without this limit.
 
+Each round marks the PR's head (`gh pr view <N> --json headRefOid`) `review pending` before it
+starts and `review success` or `review failure` with its verdict, as step 7 says ("The review mark").
 The verdict is a PR comment, written as in `/worfy:epic-wave`, section 3: the first line
 `VERIFIED` or `REJECTED: <Act on>`, then the lines of the other groups, then the two report lines
 of step 7:

@@ -269,13 +269,46 @@ that ran someone else's `mut.sh` hung for three hours. The report is a claim; th
 cd <implementer worktree>                                     # the worktree from <F worktree.implementer> or <repo>
 git diff --name-only <base>...HEAD                            # compare with files_changed
 node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"  # green: see below
-gh pr checks <N>                                              # pr-green-ci only; a separate command, no pipe
 gh pr view <N> --json mergeStateStatus,headRefOid             # pr-green-ci only
 ```
 
-With `F workflow.ci` `batch` the verifier skips `gh pr checks`: the PR has no CI run, and no checks
-or old red checks are not a finding. It runs `gh pr view <N> --json mergeable,headRefOid` instead;
-`CONFLICTING` goes back to the implementer for a rebase, like `DIRTY`.
+CI of the PR (`pr-green-ci` only) is its checks without the agents' marks: `review`, `check/<name>`
+and `deploy` are commit statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints
+their names), and a `review` failure is a verdict, not red CI. Only commit statuses are left out
+(an empty `workflow`): a GitHub Actions job named `deploy` is CI. `CI=pass` is green; `CI=fail`,
+`CI=pending` and `CI=none` (no CI run yet) are not:
+
+```bash
+gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
+```
+
+A non-zero `EXIT` with "no checks reported" is `CI=none`: GitHub has created no CI run (a `DIRTY` PR
+gets none; `mergeStateStatus` above says which).
+
+With `F workflow.ci` `batch` the verifier skips this CI check: the PR has no CI run, so `CI=none`
+is expected, and old red checks are not a finding either. It runs
+`gh pr view <N> --json mergeable,headRefOid` instead; `CONFLICTING` goes back to the implementer
+for a rebase, like `DIRTY`. The review mark below is set as usual: it is a commit status, not CI.
+
+**The review mark.** The verdict is bound to the commit it was given on (ADR-0067): before the
+verifier starts, the orchestrator marks the head commit `review pending`; the recorded verdict marks
+the same commit — `review success` for `VERIFIED` and `NARROW: VERIFIED`, `review failure` for
+`REJECTED`, `NARROW: <findings>` and `NARROW: REJECTED`. A push after the verdict leaves the mark on
+the old commit: the new head has none, and the ticket is back on review. In Full mode the mark is a
+commit status of the PR (`pr-green-ci`); with `local-green` in Full mode the commit is not on
+GitHub, so there is no mark — the `gate:` commit below stays the record. In Silent mode the mark is a
+file in the Harness home, never on GitHub. The comment, the commit and the line below stay: the
+rounds are counted by them, and people read them.
+
+```bash
+sha=$(git -C <implementer worktree> rev-parse HEAD)          # pr-green-ci: the headRefOid above, the same commit
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> review pending --sha "$sha"); echo "EXIT=$?"
+# when the verdict is recorded, on the same $sha:
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> review success --sha "$sha"); echo "EXIT=$?"   # REJECTED: review failure
+```
+
+A mark that fails (`EXIT=1`: no network, `gh` refused) changes no verdict: say it in the wave report
+and set it again later on the same SHA.
 
 The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast): …` in the output:
 exit code 0 without it means «ничего не прогналось» (nothing ran) or «окружение недоступно» (the
@@ -617,6 +650,29 @@ which an e2e script (`test:e2e`, `test:package`) failed while the screen was loc
 it runs again after the unlock (three runs at most, then `STATUS=unverified`). A gate full outside `wave-gate` (`"each"`, PRs merged the old
 way) on a Mac starts only after `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'` shows
 `No`; with `Yes`, wait for the unlock and do not count a run that failed meanwhile as red.
+
+That gate full of one PR (`"each"`, and a PR merged the old way) runs under the e2e lock
+(`F workflow.e2e_lock`) with the lock's semantics unchanged — older than 30 min is abandoned, a
+heartbeat `touch -c` every 5 min — and, like `wave-gate`, says who holds it: `holder.json` in the
+lock directory names the PR, `gate-full`, the shell's pid and the start time; it goes with the
+lock. One Bash call with timeout 600000 (if it ended while waiting for the lock, run it again):
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+L=$(F workflow.e2e_lock); [ "$L" = null ] && L=                # no lock in the profile — none taken
+ioreg -n Root -d1 2>/dev/null | grep -q '"IOConsoleLocked" = Yes' && { echo "screen locked: waiting"; while ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes'; do sleep 30; done; }
+if [ -n "$L" ]; then
+  until mkdir "$L" 2>/dev/null; do
+    m=$(stat -c %Y "$L" 2>/dev/null || stat -f %m "$L" 2>/dev/null) || continue   # released between mkdir and stat
+    if [ $(( $(date +%s) - m )) -gt 1800 ]; then rm -f "$L/holder.json"; rmdir "$L"; fi   # older than 30 min — abandoned
+    sleep 20
+  done
+  printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
+  ( while sleep 300; do touch -c "$L" 2>/dev/null || exit 0; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open
+  trap 'pkill -P $HB 2>/dev/null; kill $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # only our holder.json
+fi
+(cd <PR worktree> && GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null); echo "EXIT=$?"
+```
 
 The state file of the set — one file per set, a new set gets a new file. `<main lock>` is the path
 of the main-branch lock above:

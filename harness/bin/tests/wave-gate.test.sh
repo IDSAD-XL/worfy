@@ -4,7 +4,8 @@
 # plays the orchestrator's checkout, a stub gate (counts its runs, red on a marker file, "red once",
 # code 3, "nothing ran") and a stub gh (`pr merge` squash-merges into the bare origin itself, `pr view`
 # answers from refs/pull). No network, no real gate, no real gh, no real /tmp/worfy-e2e.lock.
-# Below — the wave-gate blocks of skills/epic-wave/SKILL.md, cut out of the file and run under bash and zsh.
+# Below — the wave-gate blocks of skills/epic-wave/SKILL.md, and its gate full block of one PR with holder.json in the
+# e2e lock, cut out of the file and run under bash and zsh.
 # Run: bash harness/bin/tests/wave-gate.test.sh; exit code 0 — everything passed.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -29,10 +30,13 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # "<n> <tree> <files of the tree>". A file RED in the tree — red, with a failing test line; $GATE_DIR/redonce —
 # red on the first run only; $GATE_DIR/code3 — exit 3; $GATE_DIR/none — "nothing ran"; $GATE_DIR/kill<n> — the n-th run
 # kills wave-gate (its parent) with that file's signal; $GATE_DIR/sleep — seconds to sleep; $GATE_DIR/lockwatch —
-# records the mtime of $GATE_LOCK at the start and at the end of the run.
+# records the mtime of $GATE_LOCK at the start and at the end of the run; the holder.json of $GATE_LOCK during the
+# run is copied to $GATE_DIR/holder.<n>.json; $GATE_DIR/takeover — a script run first, as another agent would.
 cat >"$STUBS/gate" <<'EOF'
 #!/usr/bin/env bash
 n=$(( $(cat "$GATE_DIR/count" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$GATE_DIR/count"
+[ -n "${GATE_LOCK:-}" ] && [ -f "$GATE_LOCK/holder.json" ] && cp "$GATE_LOCK/holder.json" "$GATE_DIR/holder.$n.json"
+[ -f "$GATE_DIR/takeover" ] && bash "$GATE_DIR/takeover"
 echo "$n $(git rev-parse HEAD^{tree}) $(ls | tr '\n' ' ') scope=${GATE_SCOPE:-} arg=$1 lock=$([ -n "${GATE_LOCK:-}" ] && [ -d "$GATE_LOCK" ] && echo held || echo none)" >>"$GATE_DIR/log"
 if [ -f "$GATE_DIR/artifacts" ]; then  # what an earlier run left in the tree; then leave a build output and node_modules
   echo "$n leftover=$([ -e build-out/leftover ] && echo yes || echo no) nm=$([ -e node_modules/keep ] && echo kept || echo none)" >>"$GATE_DIR/artifacts.log"
@@ -393,12 +397,37 @@ rmdir "$L"; wait "$toucher" 2>/dev/null
 wait "$wg"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && ok "e2e lock: taken after release, the gate runs under it" || bad "e2e lock: exit $rc runs $(gate_count) $(cat "$GATE_DIR/log")"
 [ ! -e "$L" ] && ok "e2e lock: released after the run" || bad "e2e lock: left after the run"
-# stale: older than 30 minutes (the default) — removed and taken
+# the holder of the lock: holder.json with the numbers of the set while the gate runs, gone with the lock
+new_world holder 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!; wait "$wg"; rc=$?
+h="$GATE_DIR/holder.1.json"
+[ "$rc" -eq 0 ] && [ -f "$h" ] && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+s.pid')" = "1,2,3 gate-full $wg" ] \
+    && ok "e2e lock: holder.json names the set (prs 1,2,3), gate-full and the pid of wave-gate while the gate runs" || bad "e2e lock holder: exit $rc, holder $(cat "$h" 2>/dev/null)"
+[ "$(q "$h" '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(s.since)')" = true ] && ok "e2e lock: holder.json has since (ISO 8601 UTC)" || bad "e2e lock holder: since $(q "$h" s.since 2>&1)"
+[ ! -e "$L" ] && ok "e2e lock: holder.json goes with the lock when it is released" || bad "e2e lock holder: left $(ls -A "$L" 2>/dev/null)"
+# a red set: each run of the bisection names the PRs it checks
+new_world holderbis 1:a.txt 2:RED 3:c.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1 2 3; export GATE_LOCK="$L"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+got="$(for f in "$GATE_DIR"/holder.*.json; do q "$f" 's.prs.join(",")'; echo; done | sort -u | tr '\n' ' ')"
+[ "$rc" -eq 2 ] && [[ " $got" == *" 1,2,3 "* ]] && [[ " $got" == *" 1 "* || " $got" == *" 1,2 "* ]] && [ ! -e "$L" ] \
+    && ok "e2e lock: each run of the bisection names its own prefix in holder.json ($got)" || bad "e2e lock holder bisection: exit $rc [$got]"
+# stale: older than 30 minutes (the default) — removed with the holder.json of whoever left it, and taken
 new_world stale 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
-mkdir "$L"; touch -t 202001010000 "$L"
+mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"2020-01-01T00:00:00Z"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "lock=held" "$GATE_DIR/log" && [ ! -e "$L" ] && ok "e2e lock: a lock older than 30 min is taken over and released" || bad "e2e lock stale: exit $rc $(tail -3 "$W/out")"
+[ "$(q "$GATE_DIR/holder.1.json" 's.prs.join(",")' 2>&1)" = 1 ] && ok "e2e lock: the abandoned holder.json is replaced by ours" || bad "e2e lock stale holder: $(cat "$GATE_DIR/holder.1.json" 2>/dev/null)"
+# ours was removed as abandoned during the run and another agent holds the lock now: on release its holder.json
+# and its lock stay
+new_world foreign 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+printf '%s\n' "rm -f '$L/holder.json'; rmdir '$L'; mkdir '$L'; echo '{\"prs\":[7],\"what\":\"gate-full\",\"pid\":1,\"since\":\"x\"}' >'$L/holder.json'" >"$GATE_DIR/takeover"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 7 ] && ok "e2e lock: on release, a lock someone else holds now keeps its holder.json and stays" || bad "e2e lock foreign: exit $rc, lock [$(ls -A "$L" 2>&1)]"
+rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null; rm -f "$GATE_DIR/takeover"
 new_world young 1:a.txt
 S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
 mkdir "$L"; touch -t "$(date -r $(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S 2>/dev/null || date -d @$(( $(date +%s) - 1500 )) +%Y%m%d%H%M.%S)" "$L"
@@ -716,6 +745,28 @@ for sh in bash zsh; do
     [[ "$got" == *"CI=skipped"* ]] && [[ "$got" == *"EXIT=0"* ]] && [ "$(grep -c '^workflow run' "$GH_LOG")" = 1 ] && [ "$(q "$W/ci-pr.json" s.ci)" = pr ] \
         && ok "$sh: the batch CI block without workflow.ci dispatches nothing" || bad "$sh: the CI block with pr: [$got]"
     unset GH_RUN_URL
+done
+
+# The gate full of one PR ("each"): the e2e lock with holder.json naming that PR, under bash and zsh.
+BE="$(block 'printf '"'"'{"prs":[%s],"what":"gate-full"')"
+[ -n "$BE" ] && ok "skill blocks: the one-PR gate full block is in $SKILL" || bad "skill blocks: the one-PR gate full block not found in $SKILL"
+for sh in bash zsh; do
+    new_world "each-$sh" 1:a.txt
+    L="$W/e2e.lock"; export GATE_LOCK="$L"
+    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
+    b="${BE//<N>/5}"; b="${b//<PR worktree>/$W/repo}"; b="${b//<repo>/$W/repo}"
+    b="${b//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    h="$GATE_DIR/holder.1.json"
+    [[ "$got" == *"EXIT=0"* ]] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+(typeof s.pid)')" = "5 gate-full number" ] \
+        && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block: [$got] holder $(cat "$h" 2>/dev/null)"
+    [ ! -e "$L" ] && ok "$sh: the one-PR gate full block: the lock and its holder.json are gone after it" || bad "$sh: the one-PR block left [$(ls -A "$L" 2>&1)]"
+    # an abandoned lock with someone's holder.json is taken over
+    mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$GATE_DIR/holder.2.json" 's.prs.join(",")' 2>&1)" = 5 ] && [ ! -e "$L" ] \
+        && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock: [$got]"
+    unset GATE_LOCK
 done
 
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"

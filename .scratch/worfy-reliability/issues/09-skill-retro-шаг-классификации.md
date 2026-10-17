@@ -1,7 +1,9 @@
 # 09 — Skill `retro`: шаг «классифицировать сбой» (В3, Harness)
 
 Type: task
-Status: open
+Status: done 2026-10-17T11:45Z
+PR: #438
+Branch: worfy-reliability/09
 Blocked by: 06
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md)
 («Итог», пункт 3: сначала В1 и В2, затем В3): кандидат 5 раздела «Follow-up Ticket-ы» документа
@@ -63,4 +65,43 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Итог
 
-—
+- `harness/skills/retro/SKILL.md`: новый шаг 3 «Classify» между «Filter hard» (2) и «Check for
+  duplicates» (4); дальше шаги перенумерованы (5–8). Класс — по классам из `<path>/README.md` или
+  `rules.md` Profile-а, по корневой причине и с подтверждением; без подтверждения — «cause not
+  found», класс не угадывается. Вывод — проверка (test, hook, eval case, `file:line`) или
+  `no lesson: <reason>`.
+- «Filter hard» больше не отсеивает «environment hiccups»: сбой идёт в шаг 3. Сбой окружения
+  записывается в раздел рисков Project-а (тот, что называет README уроков или `rules.md`, обычно в
+  файле состояния из `docs.handoff.path`); раздела нет — спросить пользователя; повторился — ещё и
+  урок «how to recognize». «Check for duplicates» для такого сбоя читает и раздел рисков.
+- «Write the entry»: в режиме репозитория — строка проверки под меткой из README Project-а (у worfy
+  — `Проверка:`), с выводом шага 3; в режиме Profile-а — поле `**Check:**`. Слово `Проверка:` в
+  skill не попало: shell test `harness/bin/tests/harness-home.test.sh` (раздел 6) не пускает
+  кириллицу в текст skill-ов вне списка разрешённых строк.
+- Пример `Auction: docs/lessons/<topic>.md` заменён на `<path>/<topic>.md` — в тексте нет путей
+  worfy.
+- Test: `test/contract/harness-retro-skill.test.ts` (6 test-ов). На тексте skill-а с `origin/main`
+  cc8d382e — exit 1, 5 из 6 красные; с правкой — exit 0. Мутанты: Classify после «Check for
+  duplicates» — красный test порядка; «environment hiccups» снова в «Filter hard» и `HANDOFF.md` в
+  тексте — красные 2 test-а; без строки проверки в «Write the entry» — красный 1 test.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (274 файла); `GATE_SCOPE=all` gate fast —
+  exit 0, `[gate] зелено (fast)`. Первый полный `pnpm test` под нагрузкой соседних агентов
+  (load average 10) дал красные timeout-ы в test-ах, не связанных с правкой; они зелёные отдельно и
+  в повторном полном прогоне.
+- После мержа — `pnpm install:stable` (Orchestrator) и ручной пункт «первый `retro` на настоящем
+  сбое».
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/438#issuecomment-6233367071)): test красный на тексте
+skill-а с `cc8d382e`, два мутанта проверяющего красные; пункт 3 выполнен меткой из README Project-а.
+`GATE_SCOPE=all` gate full — exit 0, `[gate] зелено (full)` на `4750f8d9`; Linux CI зелёный; влит — `aded94dd`.
+Долги (low):
+- `SKILL.md:70-73` — вывод шага 3: проверка или `no lesson`, а формат Profile-а (`none: <reason>`) и README
+  worfy допускают урок без проверки; обобщаемый урок, причину которого кодом не проверить, может уйти в
+  `no lesson`. Нужен третий вариант — урок без проверки, с причиной.
+- `SKILL.md:77-78` — раздел рисков «обычно в файле состояния (`docs.handoff.path`)»: в режиме Profile-а это
+  может быть файл командного репозитория, а skill запрещает туда писать (`:27-28`). У нынешних Profile-ов
+  конфликта нет.
+- `SKILL.md:58,61-63` — «Skip one-off slips» рядом с «a failure … is not skipped»: разовая ошибка, которую
+  поправил пользователь, подходит под оба правила.
+- `pnpm install:stable` — не сделан: шаг Orchestrator-а вне прогона Autopilot; до него Stable copy со старым skill-ом.

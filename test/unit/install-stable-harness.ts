@@ -3,7 +3,7 @@
 // cases that run the script. It is not a test file. The tests were split in two for worfy-windows
 // ticket 28: the gate warns about a file longer than 1000 lines.
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, realpathSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -33,11 +33,13 @@ interface InstallStable {
     options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void; removeFolder?: (path: string) => void },
   ) => string
   stamp: (ms: number) => string
+  registerCommand: (platform: string, target: string, env: Env) => { command: string; args: string[] } | null
+  LSREGISTER: string
   REMOVE_ROUNDS: number
 }
 export const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, REMOVE_ROUNDS } = (await import(
+export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, registerCommand, LSREGISTER, REMOVE_ROUNDS } = (await import(
   pathToFileURL(SCRIPT).href
 )) as InstallStable
 
@@ -52,6 +54,18 @@ export let build: string
 // Vitest runs in Electron, whose fs reads a file named app.asar as a folder; here it is a plain file.
 const electron = process as { noAsar?: boolean }
 let noAsar: boolean | undefined
+let lsregister: string | undefined
+/** The folder of the stand-in of Launch Services' tool and of its log: not in `dir`, whose list the tests check. */
+let tool: string
+/**
+ * What the stand-in of Launch Services' tool was asked, one line of arguments per call; it is the
+ * program the script registers a copy with (WORFY_STABLE_LSREGISTER) off Windows: the stand-in
+ * build is no app, and a test does not change what Launch Services knows of this Mac.
+ */
+export const registrations = (): string[] => {
+  const log = join(tool, 'lsregister.log')
+  return existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter((line) => line !== '') : []
+}
 /** The junctions a test made. */
 export const links: string[] = []
 export const junction = (to: string, at: string): void => {
@@ -72,6 +86,13 @@ export function useStandInBuild(): void {
     writeFileSync(join(build, 'worfy.exe'), 'not a real program')
     writeFileSync(join(build, 'Contents', 'Info.plist'), 'not a real plist')
     writeFileSync(join(build, 'resources', 'app.asar'), 'not a real archive')
+    lsregister = process.env.WORFY_STABLE_LSREGISTER
+    tool = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-install-stable-lsregister-')))
+    if (!WINDOWS) {
+      const stub = join(tool, 'lsregister')
+      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${join(tool, 'lsregister.log')}'\n`, { mode: 0o755 })
+      process.env.WORFY_STABLE_LSREGISTER = stub
+    }
   })
 
   afterEach(() => {
@@ -84,7 +105,10 @@ export function useStandInBuild(): void {
       }
     }
     removeTestTree(dir)
+    removeTestTree(tool)
     electron.noAsar = noAsar
+    if (lsregister === undefined) delete process.env.WORFY_STABLE_LSREGISTER
+    else process.env.WORFY_STABLE_LSREGISTER = lsregister
   })
 }
 

@@ -2,8 +2,12 @@
 // the swap of the copies over a stand-in of the file system. None of these cases runs the script.
 // They were moved out of install-stable.test.ts for worfy-windows ticket 28 (the gate warns about a
 // file longer than 1000 lines); what the two files share is in install-stable-harness.ts.
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { buildCommand, builtApp, checkTarget, defaultTarget, installerDir, leftoverName, leftovers, metadataPath, notACopy, runningCopies, stamp, swapIn, WIN_HOME, type Files } from './install-stable-harness'
+import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -210,6 +214,25 @@ describe('what the script replaces and writes', () => {
   })
 })
 
+describe('the registration of the copy with Launch Services', () => {
+  const target = '/Users/dev/Applications/worfy-stable.app'
+
+  it('on macOS is `lsregister -f <copy>`, so Notification Center takes the icon of the copy just installed', () => {
+    expect(registerCommand('darwin', target, {})).toEqual({ command: LSREGISTER, args: ['-f', target] })
+    expect(LSREGISTER).toBe('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
+  })
+
+  it('runs the program WORFY_STABLE_LSREGISTER names instead, and the tool when the variable is empty', () => {
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toEqual({ command: '/tmp/stand-in', args: ['-f', target] })
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '' })).toEqual({ command: LSREGISTER, args: ['-f', target] })
+  })
+
+  it('is no step on Windows and Linux, which have no Launch Services', () => {
+    expect(registerCommand('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable', { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toBeNull()
+    expect(registerCommand('linux', '/home/dev/worfy-stable.app', {})).toBeNull()
+  })
+})
+
 describe('the build the script copies', () => {
   it('is made by pnpm package; on Windows through a shell, since pnpm is pnpm.cmd there', () => {
     // One text for the shell: arguments next to a shell are joined without quoting, and Node 24 warns about them.
@@ -294,5 +317,154 @@ describe('the swap of the copies', () => {
     expect(() => swapIn(PATHS, d.files)).toThrow('the new copy could not be put at T (EXDEV: cross-device link)')
     expect(() => swapIn(PATHS, d.files)).not.toThrow(/back in place/)
     expect(d.moves).toEqual(['T.installing-7 -> T', 'T.installing-7 -> T'])
+  })
+})
+
+// The deploy mark (ADR-0067, the Deploy Stage): after an install, the commit status `deploy: success` on the
+// installed commit — in Full mode, for a copy built here from a clean tree, with origin on GitHub. The programs
+// it runs are given as a stand-in: no test reaches gh or GitHub.
+interface Run {
+  status: number | null
+  stdout: string
+  stderr: string
+  error?: { code?: string; message: string }
+}
+type Exec = (command: string, args: string[], options: { env?: Env }) => Run
+interface DeployMark {
+  markDeploy: (facts: { repo: string; commit: string; dirty: boolean; prebuilt: boolean; env: Env }, exec?: Exec) => string | null
+  installStable: (
+    argv: string[],
+    options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; mark?: (facts: { repo: string; commit: string; dirty: boolean; prebuilt: boolean; env: Env }) => string },
+  ) => string
+}
+const { markDeploy, installStable: install } = (await import(pathToFileURL(join(REPO, 'scripts', 'install-stable.mjs')).href)) as DeployMark
+
+const COMMIT = 'a'.repeat(40)
+const ok = (stdout = ''): Run => ({ status: 0, stdout, stderr: '' })
+const PROFILE_FULL = JSON.stringify({ github: { account: 'IDSAD-XL' }, _resolved: { mode: 'full' } })
+
+/** A stand-in for spawnSync that answers each program by its name and records every call. */
+function stand(answers: { profile?: Run; origin?: Run; token?: Run; api?: Run } = {}) {
+  const calls: { command: string; args: string[]; env?: Env }[] = []
+  const exec: Exec = (command, args, options) => {
+    calls.push({ command, args, env: options.env })
+    if (args.some((arg) => arg.endsWith(join('harness', 'bin', 'profile')))) return answers.profile ?? ok(PROFILE_FULL)
+    if (command === 'git') return answers.origin ?? ok('https://github.com/IDSAD-XL/worfy.git\n')
+    if (args[0] === 'auth') return answers.token ?? ok('gho_secret\n')
+    if (args[0] === 'api') return answers.api ?? ok('{}')
+    return { status: 1, stdout: '', stderr: `unexpected ${command}` }
+  }
+  return { exec, calls, gh: () => calls.filter((call) => call.command === 'gh') }
+}
+const facts = (extra: Partial<{ dirty: boolean; prebuilt: boolean; env: Env }> = {}) => ({ repo: '/r/worfy', commit: COMMIT, dirty: false, prebuilt: false, env: {}, ...extra })
+
+describe('the deploy mark', () => {
+  it('sets the commit status deploy: success on the installed commit of the GitHub origin, as the account of the profile', () => {
+    const s = stand()
+    const line = markDeploy(facts({ env: { PATH: '/bin' } }), s.exec)
+    expect(line).toBe('install-stable: deploy mark: deploy success on aaaaaaa (IDSAD-XL/worfy)')
+    expect(s.calls[0]).toMatchObject({ command: process.execPath, args: [join('/r/worfy', 'harness', 'bin', 'profile'), '-C', '/r/worfy', '--json'] })
+    expect(s.calls[1]).toMatchObject({ command: 'git', args: ['-C', '/r/worfy', 'remote', 'get-url', 'origin'] })
+    expect(s.gh().map((call) => call.args)).toEqual([
+      ['auth', 'token', '-u', 'IDSAD-XL'],
+      ['api', '-X', 'POST', `repos/IDSAD-XL/worfy/statuses/${COMMIT}`, '-f', 'state=success', '-f', 'context=deploy', '-f', 'description=installed as the stable copy'],
+    ])
+    expect(s.gh()[1]!.env).toMatchObject({ PATH: '/bin', GH_TOKEN: 'gho_secret' })
+    expect(line).not.toContain('gho_secret')
+  })
+
+  it('keeps a GH_TOKEN the environment already has, and reads origin in its ssh spelling', () => {
+    const s = stand({ origin: ok('git@github.com:IDSAD-XL/worfy.git\n') })
+    expect(markDeploy(facts({ env: { GH_TOKEN: 'given' } }), s.exec)).toContain('deploy success on aaaaaaa (IDSAD-XL/worfy)')
+    expect(s.gh().map((call) => call.args[0])).toEqual(['api'])
+    expect(s.gh()[0]!.env?.GH_TOKEN).toBe('given')
+  })
+
+  it('takes WORFY_STABLE_GH for gh', () => {
+    const s = stand()
+    markDeploy(facts({ env: { WORFY_STABLE_GH: '/stub/gh', GH_TOKEN: 'given' } }), s.exec)
+    expect(s.calls.at(-1)!.command).toBe('/stub/gh')
+  })
+
+  it.each([
+    ['without gh', { token: { status: null, stdout: '', stderr: '', error: { code: 'ENOENT', message: 'spawnSync gh ENOENT' } } }, 'install-stable: deploy mark skipped: gh is not installed'],
+    ['when gh api fails', { api: { status: 1, stdout: '', stderr: 'HTTP 403: Resource not accessible\nmore' } }, 'install-stable: deploy mark skipped: gh api repos/IDSAD-XL/worfy/statuses/ failed (exit 1): HTTP 403: Resource not accessible'],
+  ])('%s says "deploy mark skipped" and does not throw: the install matters more', (_name, answers, line) => {
+    const s = stand(answers)
+    expect(markDeploy(facts(), s.exec)?.replace(COMMIT, '')).toBe(line)
+  })
+
+  it.each([
+    ['uncommitted changes', facts({ dirty: true }), {}, 'the tree has uncommitted changes, so the copy is not commit aaaaaaa'],
+    ['no profile', facts(), { profile: { status: 3, stdout: '', stderr: 'profile: /r/worfy is not in a registered project\n' } }, 'no project profile (profile: /r/worfy is not in a registered project)'],
+    ['Silent mode', facts(), { profile: ok(JSON.stringify({ _resolved: { mode: 'silent' } })) }, 'the project is in Silent mode: its marks stay off GitHub'],
+    ['origin not on GitHub', facts(), { origin: ok('https://gitlab.com/a/b.git\n') }, 'origin is not on GitHub'],
+    ['no origin', facts(), { origin: { status: 2, stdout: '', stderr: 'error: No such remote' } }, 'origin is not on GitHub'],
+  ])('is skipped with %s, and gh is never run', (_name, given, answers, why) => {
+    const s = stand(answers)
+    expect(markDeploy(given, s.exec)).toBe(`install-stable: deploy mark skipped: ${why}`)
+    expect(s.gh()).toEqual([])
+  })
+
+  it('with a prebuilt app (the tests\' path) runs nothing and says nothing; with uncommitted changes runs nothing', () => {
+    const s = stand()
+    expect(markDeploy(facts({ prebuilt: true }), s.exec)).toBeNull()
+    markDeploy(facts({ dirty: true }), s.exec)
+    expect(s.calls).toEqual([])
+  })
+})
+
+// A whole install with a build step of the test, as `pnpm install:stable` runs: the mark comes after the copy is
+// at the target and its metadata file is written, and a mark that throws does not fail the install.
+// Not on Linux: there the copy step runs ditto, which only macOS has (the whole installs of install-stable.test.ts skip Linux too).
+describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', () => {
+  useStandInBuild()
+  const repoWithBuild = () => {
+    const repo = join(dir, 'repo')
+    mkdirSync(repo)
+    writeFileSync(join(repo, 'README.md'), 'a repository\n')
+    writeFileSync(join(repo, '.gitignore'), 'dist/\n')
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=worfy test', '-c', 'user.email=test@worfy.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' })
+    git('init', '-q')
+    git('add', '.')
+    git('commit', '-q', '-m', 'a repository')
+    const build = (): void => {
+      const app = WINDOWS ? join(repo, 'dist', 'win-unpacked') : join(repo, 'dist', 'mac-arm64', 'worfy.app', 'Contents')
+      mkdirSync(app, { recursive: true })
+      writeFileSync(join(app, WINDOWS ? 'worfy.exe' : 'Info.plist'), 'not a real build')
+    }
+    return { repo, build, head: git('rev-parse', 'HEAD').trim() }
+  }
+
+  it('is set once, on the installed commit, after the copy and its metadata are in place', () => {
+    const { repo, build, head } = repoWithBuild()
+    const target = targetIn('apps', 'worfy-stable')
+    const seen: { commit: string; dirty: boolean; prebuilt: boolean; copied: boolean; metadata: boolean }[] = []
+    const mark = (given: { commit: string; dirty: boolean; prebuilt: boolean }) => {
+      seen.push({ commit: given.commit, dirty: given.dirty, prebuilt: given.prebuilt, copied: existsSync(target), metadata: existsSync(metadataPath(process.platform, target)) })
+      return 'install-stable: deploy mark: stand-in'
+    }
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark })
+    expect(seen).toEqual([{ commit: head, dirty: false, prebuilt: false, copied: true, metadata: true }])
+    expect(out).toContain(`install-stable: installed ${target} (commit ${head.slice(0, 7)})`)
+    expect(out.split('\n').at(-1)).toBe('install-stable: deploy mark: stand-in')
+  })
+
+  it('a mark that throws leaves the install done, with the line "deploy mark skipped"', () => {
+    const { repo, build } = repoWithBuild()
+    const target = targetIn('apps', 'worfy-stable')
+    const mark = (): string => {
+      throw new Error('no network')
+    }
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: '' }, repo, build, mark })
+    expect(out).toContain(`install-stable: installed ${target}`)
+    expect(out).toContain('install-stable: deploy mark skipped: no network')
+    expect(existsSync(target)).toBe(true)
+  })
+
+  it('with the real mark and a prebuilt app, as every other test installs, runs no gh and adds no line', () => {
+    const target = targetIn('apps', 'worfy-stable')
+    const out = install([target], { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: build, WORFY_STABLE_GH: join(dir, 'no-such-gh') }, repo: REPO })
+    expect(out.split('\n')).toEqual([expect.stringContaining(`install-stable: installed ${target} (commit `)])
   })
 })

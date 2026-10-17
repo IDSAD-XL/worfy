@@ -6,6 +6,16 @@ JSON на строку, в том порядке, в каком их отдал 
 0.3.289, Claude Code 2.1.289 (нативный бинарник из пакета SDK), Electron 44.5.1, Node 24.21.0,
 macOS arm64, вход по подписке.
 
+`manifest.json` — с чем сняты эти сообщения: версия SDK (`sdk`), Claude Code внутри него
+(`claudeCode`) и методы `Query` из `sdk.d.ts` (`queryMethods`). Contract test
+`test/contract/sdk-compat.test.ts` сверяет его с `package.json`, с установленным пакетом SDK и с
+`claude_code_version` каждого `system/init` здесь, а сценарии fake SDK (`test/fixtures/agent-scripts/`)
+— с формами сообщений отсюда. Поднял SDK — в PR обновления снять сообщения новой версии в отдельную
+папку (`sdk-probe.ts --fixtures <папка>`: платный прогон, только по слову владельца), положить туда
+её манифест (`node scripts/sdk-compat.mjs manifest > <папка>/manifest.json`), сравнить формы
+(`node scripts/sdk-compat.mjs diff test/fixtures/sdk-messages <папка>`; код 1 — есть разница, она
+напечатана) и заменить этой папкой здешние файлы.
+
 | Файл | Что внутри |
 | --- | --- |
 | `init.jsonl` | Сессия с `settingSources: user + project + local` и MCP-серверами пользователя: `system/init`, SessionStart hooks, `commands_changed`, `rate_limit_event`, partial-события; ход 1 — ответ модели, ход 2 — синтетический ответ «Prompt is too long» и `status: compacting`: к ходу 2 подключились MCP-серверы, и контекст перерос окно haiku. В конце — `probe_error`: итератор SDK бросает исключение, если последний `result` сессии был ошибкой. |

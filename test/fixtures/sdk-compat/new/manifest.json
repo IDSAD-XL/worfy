@@ -1,0 +1,10 @@
+{
+  "sdk": "0.3.300",
+  "claudeCode": "2.1.300",
+  "queryMethods": {
+    "close": "close(): void;",
+    "interrupt": "interrupt(): Promise<SDKControlInterruptResponse | undefined>;",
+    "setModel": "setModel(model: string): Promise<void>;",
+    "stopTask": "stopTask(taskId: string): Promise<void>;"
+  }
+}

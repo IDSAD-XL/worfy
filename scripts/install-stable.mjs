@@ -11,6 +11,9 @@
 // to install. Writes the commit and the build time next to the copy,
 // in <target>.json: nothing is written inside the copy afterwards, since that would break the
 // ad-hoc signature of a .app. Refuses with a non-zero exit code while the copy is running.
+// Last, the installed commit gets the GitHub commit status `deploy: success` (markDeploy): Full mode, a copy
+// built here from a clean tree, origin on GitHub; otherwise — gh missing too — one line "deploy mark skipped"
+// (a prebuilt app, the tests' path: no line).
 //
 //   macOS    the target is a path ending in .app, by default ~/Applications/worfy-stable.app;
 //            the build is dist/mac*/worfy.app, copied with ditto.
@@ -23,11 +26,16 @@
 // WORFY_STABLE_PREBUILT=<path to a built app> skips the build and copies that app instead; the e2e
 // tests use it to install the app they have already packaged into a temporary folder.
 //
+// On macOS the new copy is then registered with Launch Services (`lsregister -f`), so Notification
+// Center and the Dock take its icon, not one they keep for the bundle id from an earlier worfy.
+// WORFY_STABLE_LSREGISTER=<program> runs another program in its place: the unit tests use it, since
+// their stand-in build is no app.
+//
 // One file with no import of its own: a test copies it alone into another repository. The parts
 // that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, posix, win32 } from 'node:path'
 import process from 'node:process'
@@ -37,6 +45,8 @@ import { fileURLToPath } from 'node:url'
 const APP = 'worfy'
 /** How long the list of processes may take on Windows. */
 const LISTING_TIMEOUT_MS = 30_000
+/** How long the registration with Launch Services may take on macOS. */
+const REGISTER_TIMEOUT_MS = 30_000
 /** The largest number a process can have: Linux gives out pids up to 2^22, Windows and macOS stay far below. */
 const MAX_PID = 4_194_304
 /** How often and how long a step of the file system is tried again on Windows when a file is busy. */
@@ -243,6 +253,15 @@ export function swapIn({ staging, target, aside }, files) {
   return had ? aside : null
 }
 
+/** Launch Services' own tool: it registers a bundle, and with it the bundle's icon. */
+export const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
+
+/** The command that registers the installed copy with Launch Services; null off macOS, which has none. */
+export function registerCommand(platform, target, env) {
+  if (platform !== 'darwin') return null
+  return { command: env.WORFY_STABLE_LSREGISTER || LSREGISTER, args: ['-f', target] }
+}
+
 /** A time as the metadata file writes it: UTC, to the second. */
 export function stamp(ms) {
   return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace('.000Z', 'Z')
@@ -253,6 +272,55 @@ function run(command, args, options = {}) {
   if (result.error) fail(`could not run ${command}: ${result.error.code === 'ETIMEDOUT' ? `no answer in ${options.timeout} ms` : result.error.message}`)
   if (result.status !== 0) fail(`${command} ${args.join(' ')} exited with ${result.status}${result.stderr ? `:\n${result.stderr}` : ''}`)
   return result.stdout ?? ''
+}
+
+/** How long each program of the deploy mark may take: a mark that hangs must not hold the install. */
+const MARK_TIMEOUT_MS = 30_000
+const GITHUB_ORIGIN = /^(?:https?:\/\/(?:[^@/]+@)?github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([^/]+)\/([^/]+?)(?:\.git)?\/?$/
+
+/**
+ * Marks the installed commit as deployed: the commit status `deploy: success` on GitHub, which the Deploy
+ * Stage of the board waits for (ADR-0067). Only in Full mode (the profile of the repository, through its own
+ * harness/bin/profile), only for a copy built here from a clean tree — a prebuilt app or uncommitted changes
+ * are not the commit — and only when origin is on GitHub. gh runs as the profile's github.account when the
+ * environment has no GH_TOKEN; WORFY_STABLE_GH names another gh. The install matters more than the mark: every
+ * reason not to set it, a missing gh among them, is the line "deploy mark skipped: …", never an error. A prebuilt
+ * app gives no line at all (null): that path is the tests' (WORFY_STABLE_PREBUILT), and it was never a deploy.
+ * `exec` runs a program the way spawnSync does; the tests give a stand-in.
+ */
+export function markDeploy({ repo, commit, dirty, prebuilt, env }, exec = spawnSync) {
+  const skipped = (why) => `install-stable: deploy mark skipped: ${why}`
+  if (prebuilt) return null
+  if (dirty) return skipped(`the tree has uncommitted changes, so the copy is not commit ${commit.slice(0, 7)}`)
+  const call = (command, args, callEnv = env) => exec(command, args, { encoding: 'utf8', timeout: MARK_TIMEOUT_MS, env: callEnv })
+  const said = (result) => (result.error?.message ?? String(result.stderr ?? '').trim().split('\n')[0]) || `exit ${result.status}`
+  const profile = call(process.execPath, [join(repo, 'harness', 'bin', 'profile'), '-C', repo, '--json'])
+  if (profile.error || profile.status !== 0) return skipped(`no project profile (${said(profile)})`)
+  let found
+  try {
+    found = JSON.parse(profile.stdout)
+  } catch {
+    return skipped('the project profile is not JSON')
+  }
+  if (found?._resolved?.mode !== 'full') return skipped('the project is in Silent mode: its marks stay off GitHub')
+  const origin = call('git', ['-C', repo, 'remote', 'get-url', 'origin'])
+  const github = origin.status === 0 ? GITHUB_ORIGIN.exec(String(origin.stdout).trim()) : null
+  if (github === null) return skipped('origin is not on GitHub')
+  const [, owner, name] = github
+  const gh = env.WORFY_STABLE_GH || 'gh'
+  const ghEnv = { ...env }
+  const account = found.github?.account
+  if (!ghEnv.GH_TOKEN && typeof account === 'string' && account) {
+    const token = call(gh, ['auth', 'token', '-u', account], ghEnv)
+    if (token.error?.code === 'ENOENT') return skipped('gh is not installed')
+    // Without a token of that account gh goes as its active account; a refusal then says so below.
+    if (token.status === 0 && String(token.stdout).trim()) ghEnv.GH_TOKEN = String(token.stdout).trim()
+  }
+  const api = `repos/${owner}/${name}/statuses/${commit}`
+  const set = call(gh, ['api', '-X', 'POST', api, '-f', 'state=success', '-f', 'context=deploy', '-f', 'description=installed as the stable copy'], ghEnv)
+  if (set.error?.code === 'ENOENT') return skipped('gh is not installed')
+  if (set.error || set.status !== 0) return skipped(`gh api ${api} failed (exit ${set.status}): ${said(set)}`)
+  return `install-stable: deploy mark: deploy success on ${commit.slice(0, 7)} (${owner}/${name})`
 }
 
 function processListing(platform) {
@@ -491,7 +559,7 @@ function plainFile(path) {
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
@@ -642,6 +710,20 @@ export function installStable(argv, { platform = process.platform, env = process
         notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
       }
     }
+    // Notification Center shows the icon of the bundle that Launch Services has for the bundle id,
+    // and keeps it: the first copies of dev.worfy.app had Electron's icon. The copy is registered
+    // anew, and its modification time is now, not the build's (ditto keeps that one), so a cache
+    // that knows the bundle by its time reads the icon again. Nothing inside the copy is written.
+    const registration = registerCommand(platform, logical, env)
+    if (registration !== null) {
+      try {
+        const now = new Date()
+        utimesSync(logical, now, now)
+        run(registration.command, registration.args, { timeout: REGISTER_TIMEOUT_MS })
+      } catch (error) {
+        notes.push(`Launch Services could not be told about ${logical} (${why(error)}): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
+      }
+    }
     try {
       writeFileSync(metadata, `${JSON.stringify({ commit, dirty, builtAt, installedAt, source }, null, 2)}\n`)
     } catch (error) {
@@ -649,7 +731,14 @@ export function installStable(argv, { platform = process.platform, env = process
       fail(`the copy is installed at ${logical}, but ${metadata} could not be written (${why(error)}): ${old}`)
     }
     const note = notes.map((each) => `\ninstall-stable: ${each}`).join('')
-    return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}`
+    // Last, once the copy and its file are in place: the mark says this commit is what the copy runs.
+    let marked
+    try {
+      marked = mark({ repo, commit, dirty, prebuilt: Boolean(env.WORFY_STABLE_PREBUILT), env })
+    } catch (error) {
+      marked = `install-stable: deploy mark skipped: ${why(error)}`
+    }
+    return `install-stable: installed ${logical} (commit ${commit.slice(0, 7)}${dirty ? ', uncommitted changes' : ''}), details in ${metadata}${note}${marked ? `\n${marked}` : ''}`
   } catch (error) {
     // The notes are not lost with the run: they name what it left on the disk, and what it cleared.
     for (const each of notes) process.stderr.write(`install-stable: ${each}\n`)
