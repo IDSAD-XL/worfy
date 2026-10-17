@@ -104,8 +104,14 @@ WAVE_GATE_GATE="$L/gate.mjs" WAVE_GATE_GH="$L/log.mjs" "$WG" merge "$T/m.json" >
 [ "$rc" -eq 0 ] && log_has "$OVR_LOG" "pr merge 7 --squash --match-head-commit $HEAD7" \
     && ok ".mjs override: the merge runs the .mjs with node: pr merge <N> --squash --match-head-commit <head>" \
     || bad "merge: check exit $rc, merge exit $mrc, log [$(cat "$OVR_LOG")] check $(tail -n 3 "$T/out") merge $(tail -n 3 "$T/mout")"
-# none of the cases above reached the refusing gh: every gh call went to the override
-[ ! -s "$REFUSED_LOG" ] && ok "no case started gh itself: the refusing stub was never run" || bad "the refusing gh stub ran: [$(cat "$REFUSED_LOG")]"
+# none of the cases above reached the refusing gh: every gh call went to the override. On Windows node would start
+# the gh.exe copy of false, which logs nothing, so the check cannot see it there: skipped (a case that reached it
+# fails its own log check instead).
+if on_windows; then
+    echo "skip no case started gh itself: on Windows node starts the refusing gh.exe (a copy of false), which writes no log"
+else
+    [ ! -s "$REFUSED_LOG" ] && ok "no case started gh itself: the refusing stub was never run" || bad "the refusing gh stub ran: [$(cat "$REFUSED_LOG")]"
+fi
 
 # 4. no WAVE_GATE_GH: gh from PATH, here a logging stub first on PATH (the guard checks node would start it)
 if on_windows; then
