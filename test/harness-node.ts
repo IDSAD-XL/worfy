@@ -6,7 +6,7 @@
 // has that node's folder on its PATH. The tests themselves run under Electron's Node
 // (scripts/vitest-electron.mjs), whose process.execPath is Electron, not node: the node here is the
 // one on this process's PATH.
-import { statSync } from 'node:fs'
+import { statSync, writeFileSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import process from 'node:process'
 
@@ -35,6 +35,18 @@ export const NODE = findNode()
 
 /** The folder of NODE, for the PATH of a scripts' environment. */
 export const NODE_DIR = dirname(NODE)
+
+/**
+ * Gives the temporary home folder `home` a `.profile` that puts NODE_DIR first on PATH. A test that
+ * starts the app with `SHELL=/bin/sh` and that HOME gets its scripts' environment from `/bin/sh -ilc`
+ * (src/main/agent/env.ts, captureLoginShellEnv), which reads /etc/profile and then `$HOME/.profile`
+ * (bash run as sh on macOS, dash on Linux): without this the login shell's PATH has no node, and the
+ * stand-ins are not run.
+ */
+export function loginProfileWithNode(home: string): void {
+  const quoted = `'${NODE_DIR.replaceAll("'", `'\\''`)}'`
+  writeFileSync(join(home, '.profile'), `PATH=${quoted}:"$PATH"\nexport PATH\n`)
+}
 
 /**
  * `env` with its PATH replaced by `dirs`, every spelling of the key dropped first: on Windows `Path`

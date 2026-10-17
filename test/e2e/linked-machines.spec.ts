@@ -33,7 +33,7 @@ import {
   type LaunchedApp,
 } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { catScript } from '../harness-node'
+import { catScript, loginProfileWithNode } from '../harness-node'
 
 test.setTimeout(120_000)
 
@@ -620,6 +620,8 @@ function prepareB(scratch: string, shared: string) {
   )
   const home = join(scratch, 'b-home')
   mkdirSync(home, { recursive: true })
+  // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
+  loginProfileWithNode(home)
   return {
     dataDir,
     env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', SHELL: '/bin/sh', HOME: home },

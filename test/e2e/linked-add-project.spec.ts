@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { printScript, profileJsonScript } from '../harness-node'
+import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
 
 test.setTimeout(240_000)
 
@@ -120,6 +120,8 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   mkdirSync(join(bHome, 'locked'), { recursive: true })
   chmodSync(join(bHome, 'locked'), 0o000)
   writeFileSync(join(bHome, 'todo.txt'), 'a file, not listed\n')
+  // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
+  loginProfileWithNode(bHome)
 
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'a-claude')) } })
   let b: LaunchedApp | undefined
