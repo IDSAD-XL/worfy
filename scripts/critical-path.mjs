@@ -8,8 +8,8 @@
 //     header of src/shared/autopilot/journal.ts): wave-started gives the moment a Ticket was
 //     started, limits-hit / waiting-until → resumed the Limits waits, narrow-round the narrow fix
 //     rounds, session-error and run-stopped the stops of the run while the Ticket's Wave was open;
-//   - the Ticket files of a Project, `<root>/.scratch/<epic>/issues/NN-*.md`: their Status line
-//     (`done — <date>, [PR #N]`, `claimed — <date>`);
+//   - the Ticket files of a Project, `<root>/.scratch/<epic>/issues/NN-*.md`: their header, one fact
+//     per line (harness/bin/TICKETS.md): `Status: <word> <time>` and `PR: #N`;
 //   - the PRs, from `gh` or from a JSON file of the same shape (`--prs`): opening, the CI checks
 //     and the workflow runs of the branch, the Gate verdicts in comments (`VERIFIED`, `REJECTED`,
 //     `NARROW: …`), the first commit, the merge.
@@ -272,7 +272,11 @@ function walkJournals(journal) {
   return { tickets, epics }
 }
 
-/** The Status of each Ticket file of an Epic under a Project root: state, date, PR number. */
+/**
+ * The Status of each Ticket file of an Epic under a Project root: state, date, PR number. Only the header
+ * format bin/ticket writes is read: the first `Status:` line, and `PR: #N` above the first `## ` heading
+ * (a `PR: <url>` line of the result section is not the Ticket's PR). An old Status line gives no state.
+ */
 function readTicketFiles(root, epic) {
   const files = new Map()
   if (root === undefined || !NAME.test(epic)) return files
@@ -281,11 +285,14 @@ function readTicketFiles(root, epic) {
   for (const name of readdirSync(dir).sort()) {
     const num = /^([0-9]+)-.*\.md$/.exec(name)?.[1]
     if (num === undefined) continue
-    const status = /^Status:\s*(.*)$/m.exec(readFileSync(join(dir, name), 'utf8'))?.[1] ?? ''
+    const text = readFileSync(join(dir, name), 'utf8')
+    const line = /^Status:.*$/m.exec(text)?.[0] ?? ''
+    const status = /^Status: (open|claimed|blocked|done)(?: (\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}Z)?)?[ \t]*\r?$/.exec(line)
+    const header = text.split(/^## /m)[0] ?? ''
     files.set(num, {
-      state: /^([a-z-]+)/.exec(status)?.[1] ?? '',
-      date: /(\d{4}-\d{2}-\d{2})/.exec(status)?.[1] ?? null,
-      pr: Number(/PR #(\d+)/.exec(status)?.[1]) || null,
+      state: status?.[1] ?? '',
+      date: status?.[2] ?? null,
+      pr: Number(/^PR: #(\d+)[ \t]*\r?$/m.exec(header)?.[1]) || null,
     })
   }
   return files

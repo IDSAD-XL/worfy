@@ -103,7 +103,7 @@ git fetch -q origin
 
 # --- demo/01: the implementer's change ----------------------------------------------------
 git checkout -q -b demo/01
-sed -i.bak 's/^Status: open$/Status: claimed — 2026-10-01/' .scratch/demo/issues/01-alpha.md
+sed -i.bak 's/^Status: open$/Status: claimed 2026-10-01T09:00Z/' .scratch/demo/issues/01-alpha.md
 rm .scratch/demo/issues/01-alpha.md.bak
 cat >src/export.mjs <<'EOF'
 import { formatDuration } from './duration.mjs'
