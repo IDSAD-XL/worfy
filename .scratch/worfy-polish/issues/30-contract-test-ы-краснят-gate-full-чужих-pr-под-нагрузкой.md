@@ -1,7 +1,8 @@
 # 30 — Contract test-ы с timeout-ом под нагрузкой краснят gate full чужих PR: постоянные stub-ы вместо новых исполняемых файлов
 
 Type: task
-Status: claimed 2026-10-16
+Status: blocked 2026-10-17T22:21Z
+Blocked reason: замер под нагрузкой после #401: пять файлов Ticket-а — 0 красных в 12 прогонах, но --project contract — 5 красных из 12 от wave-gate.test.sh (предел 120 s в harness-scripts.test.ts); нужен новый Ticket и повтор замера
 Branch: worfy-polish/30
 Blocked by: —
 Source: решение владельца 2026-10-16 — открыть Ticket и поставить первым в следующую Wave; «Итог»
@@ -59,7 +60,7 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
 
 - [x] В `workflow-reader`, `github-prs`, `harness-qmd`, `docs`, `harness-script-env` test не пишет
       новых исполняемых файлов, или в «Итог» названа причина.
-- [ ] Причины падений `harness-script-env` и `terminal-ai-zle` — в «Итог» с выводом красного прогона до
+- [x] Причины падений `harness-script-env` и `terminal-ai-zle` — в «Итог» с выводом красного прогона до
       правки. Не воспроизвелось — так и записано, с числом прогонов.
 - [ ] Замер способом Ticket-а 20: два прогона `--project contract` разом под `yes > /dev/null` на
       половине ядер (load около 15). До правки — до первого красного; после — 0 красных в N прогонах,
@@ -67,7 +68,7 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
 - [ ] Мутанты, где они что-то значат: stub снова пишется в каждом test-е; без `{ shuffle: false }` пара
       краснеет при `--sequence.shuffle.tests`, с ним — зелёная.
 - [x] `testTimeout` в `vitest.config.ts`, `WAIT` и пределы в файлах не подняты.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Linux CI зелёный. gate full — шаг
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Linux CI зелёный. gate full — шаг
       Orchestrator-а перед merge.
 
 ## Тесты
@@ -96,8 +97,9 @@ Source: решение владельца 2026-10-16 — открыть Ticket �
 
 ## Итог
 
-PR — ветка `worfy-polish/30`. Замер под нагрузкой и gate full — за Orchestrator-ом (ниже, «Что не
-сделано»).
+PR #401 (squash `20aa1a9a`, 2026-10-16), Linux CI `check` — success. Замер под нагрузкой — раздел 5
+(2026-10-17/18): пять файлов Ticket-а после правки — 0 красных в 12 прогонах, но `--project contract`
+целиком краснеет по другой причине (`wave-gate.test.sh`), поэтому Ticket — `blocked`.
 
 ### 1. Постоянные stub-ы вместо нового исполняемого файла в каждом test-е
 
@@ -154,9 +156,10 @@ link to one file:  median 2.5 ms,    max 3.4 ms
   причины: «started 0 times» — exec ждал очередь, «started 1 times» и ≥ 10 000 ms — сам shell
   медленный. `from` в сообщение не входит: после `fallback` `recaptureAgentEnv` отдаёт прежний удачный
   снимок с его `from` = `login-shell` (ревью PR #401).
-- Красного прогона до правки нет: файл на `origin/main` не запускался. 2 зелёных прогона после правки
-  о коде до правки ничего не говорят. Прогон под нагрузкой до и после правки идёт вместе с замером
-  (третий чекбокс «Готово, когда»), поэтому второй чекбокс не отмечен.
+- Красного прогона до правки нет и в замере (раздел 5): 4 прогона `--project contract` до правки под
+  нагрузкой — `harness-script-env` зелёный в каждом (самый долгий test 6,2 s); после правки — 12 из 12
+  зелёные (2,5 s). Не воспроизвелось, причина в gate full 2026-10-16 остаётся выводом из чтения кода
+  и мутанта выше.
 
 ### 3. `terminal-ai-zle` — какой `run`, установлено чтением; почему — не установлено
 
@@ -168,7 +171,8 @@ link to one file:  median 2.5 ms,    max 3.4 ms
   (`line-init` hook-и `rc.d/10-assist.zsh`, `30-next-command.zsh`) и рисует PS1 с B. Что из этого
   ждало 10 s в Linux CI (2 vCPU, параллельные test-файлы) — не установлено. `XprotectService` тут ни при
   чём (Linux), исполняемых файлов test не пишет.
-- Не воспроизведено: 3 прогона файла без нагрузки, 36/36 зелёные, exit 0 каждый (25–27 s).
+- Не воспроизведено: 3 прогона файла без нагрузки, 36/36 зелёные, exit 0 каждый (25–27 s). В замере
+  (раздел 5) — 4 прогона до правки и 12 после под нагрузкой, все зелёные (файл 26–27 s до, 41–45 s после).
 
 ### 4. `{ shuffle: false }` и мутанты
 
@@ -178,13 +182,80 @@ link to one file:  median 2.5 ms,    max 3.4 ms
   (seed 1–4 — зелёные: порядок пары совпал случайно). После правки seed 5–9 — exit 0, 23/23.
 - Мутант «stub снова пишется в каждом test-е» без нагрузки ничего не значит: test зелёный и с ним.
   Его проверяет только замер ниже.
+- Повтор 2026-10-18 на `origin/main` `90c5e724` (без нагрузки, файл восстановлен из копии): без
+  `{ shuffle: false }` seed 1–10 — exit 1 у seed 5, 6, 7, 10 (`FAIL … the run a test left behind still
+  logs into that test's calls file, not into the next test's (the second of two)`), у остальных exit 0;
+  с ним seed 1–10 — exit 0, 23/23 каждый. Мутант убит.
+
+### 5. Замер под нагрузкой (2026-10-17/18, Orchestrator)
+
+Способ — «Команды замера» ниже. «До» — detached worktree на `66499375` (`20aa1a9a^`, main перед
+#401), «после» — на `origin/main` `90c5e724`; `pnpm install --frozen-lockfile` в каждом (exit 0). Круг —
+два прогона `--project contract` разом под 9 `yes > /dev/null` (18 ядер). Фазы — одна за другой; перед
+каждой 5-минутный load ниже 3 (2,93; 2,98; 2,96), после каждой `pgrep -x yes` пуст. Других агентов и
+Autopilot на машине не было. Load — `vm.loadavg` в конце прогона `a`.
+
+| Фаза | Круг | a | b | load (1/5/15 мин) | Что красное |
+| --- | --- | --- | --- | --- | --- |
+| до | 1 | 0 | 0 | 12,67 / 10,33 / 7,18 | — |
+| до | 2 | 1 | 1 | 13,35 / 12,92 / 9,40 | оба: `docs` «follows edits in the Workflow folder and writes nothing there or in the repository» — `Test timed out in 15000ms` |
+| после | 1 | 0 | 0 | 12,77 / 10,79 / 8,16 | — |
+| после | 2 | 0 | 0 | 13,07 / 13,71 / 10,63 | — |
+| после | 3 | 1 | 1 | 12,80 / 14,14 / 12,13 | оба: `harness-scripts` > `bin/tests/wave-gate.test.sh` — `spawnSync bash ETIMEDOUT` |
+| после | 4 | 1 | 1 | 12,55 / 14,09 / 12,98 | оба: то же |
+| после | 5 | 0 | 0 | 12,64 / 14,47 / 13,80 | — |
+| после | 6 | 0 | 1 | 13,29 / 14,97 / 14,52 | b: то же |
+
+- **До:** первый красный — круг 2, значит N ≥ 6. Первый запуск «до» не в счёте: прогон `a` не начался —
+  два прогона разом скачивали бинарник Electron в свежем worktree (`failed to create directory …
+  Electron.app/…/sv.lproj: File exists (os error 17)`); после этого Electron поставлен заранее в обоих
+  деревьях.
+- **После:** 6 кругов, 12 прогонов, 5 красных — все в одном test-е вне Ticket-а:
+  `test/contract/harness-scripts.test.ts` гоняет `harness/bin/tests/wave-gate.test.sh` с пределом
+  `FILE_TIMEOUT_MS` = 120 000 (`:22`). Под нагрузкой он идёт 118,7–120 s и упирается в предел; до правки
+  — 68 s. После `66499375` в файл добавлено 252 строки, убрано 19 (#428, #433, #444). Ticket 30 его не трогал.
+- **Пять файлов Ticket-а после правки — 0 красных в 12 прогонах.** Самый долгий test файла, до → после:
+
+| Файл | До, ms | После, ms | Время файла, s, до → после |
+| --- | --- | --- | --- |
+| `docs` | 15 112 (timeout) | 1 931 | 45–49 → 10–12 |
+| `github-prs` | 13 678 | 2 380 | 115 → 5–8 |
+| `harness-qmd` | 13 501 | 3 361 | 67–71 → 0–9 |
+| `workflow-reader` | 8 873 | 6 279 | 151–154 → 30–36 |
+| `harness-script-env` | 6 163 | 2 479 | 10–11 → 5–9 |
+| `terminal-ai-zle` | 1 952 | 4 836 | 26–27 → 41–45 |
+
+- **Самые долгие test-ы по всем прогонам** (максимум каждого):
+  - до: `wave-gate.test.sh` 68 646 ms; `harness-home.test.sh` 53 148; `gate-verdict.test.sh` 30 912;
+    `silent-mode.test.sh` 24 080; `profile.test.sh` 19 532; `project-connect.test.sh` 19 115;
+    `decision-log.test.sh` 15 382; `docs` «follows edits in the Workflow folder…» 15 112; `github-prs`
+    «gh sees from worfy only `auth token -u <account>`…» 13 678; `docs` «lists and reads HANDOFF.md…»
+    13 589.
+  - после: `wave-gate.test.sh` 120 006 (timeout); `harness-home.test.sh` 33 469; `gate-verdict.test.sh`
+    31 216; `gh-override.test.sh` 26 592; `silent-mode.test.sh` 23 978; `profile.test.sh` 22 537;
+    `decision-log.test.sh` 13 939; `project-connect.test.sh` 12 095; `guard-silent.test.sh` 11 449;
+    `harness-migrate` «node restore.mjs, a separate process…» 10 894.
+  - Все `*.test.sh` — test-ы `harness-scripts.test.ts` («exits 0 with an empty HOME»).
+- **Мутант «stub снова пишется в каждом test-е» — выжил.** В дереве «после» пять файлов вместо symlink
+  писали в каждом test-е новый исполняемый файл с уникальной строкой-комментарием (`bin-gone` остался
+  ссылкой: он удаляет папку своей ссылки); без нагрузки файлы зелёные (exit 0). Под нагрузкой 3 круга
+  (load в конце 13,29 / 13,46 / 15,03): 4 прогона exit 0, 2 — exit 1 только от `wave-gate.test.sh`;
+  пять файлов — 0 красных в 6 прогонах. Заметно дороже стал только `harness-qmd` (время файла 33–46 s,
+  самый долгий test 8,6 s). Файлы восстановлены из копии, сравнение `diff -rq` пустое. Вывод: на этой
+  машине 2026-10-18 новый исполняемый файл на test к timeout-у не приводит; почему `docs`,
+  `github-prs`, `workflow-reader` после правки быстрее в разы, а с мутантом — нет, замер не
+  устанавливает. Вероятная часть ответа: `profile`, `ticket`, `epic-status` worfy запускает как
+  `node <script>`, если первая строка файла называет node (`harnessScriptCommand`,
+  `src/main/workflow/profile.ts:189`): новый stub `canned` — Node-скрипт, файл читается node, а не
+  запускается сам, и проверка нового исполняемого файла macOS к нему, вероятно, не относится. Не
+  проверено.
 
 ### Что не сделано
 
-- **Замер (чекбокс не отмечен)** — отложен Orchestrator-у на тихое окно: рядом шёл Autopilot Epic-а
-  `worfy-link`, нагрузка краснит его gate. Команды — в отчёте PR и ниже.
-- Мутант «stub в каждом test-е» под нагрузкой — часть того же замера.
-- `pnpm lint`, `pnpm typecheck`, `pnpm test` локально — в отчёте PR; Linux CI — в PR.
+- **Замер «после — 0 красных» не выполнен:** 5 красных из 12, причина — `wave-gate.test.sh` против
+  предела 120 s в `harness-scripts.test.ts`, вне следа Ticket-а. Нужен новый Ticket (ускорить
+  `wave-gate.test.sh` или разбить его) и повтор замера после него. Пока его нет, Ticket — `blocked`.
+- Мутант «stub в каждом test-е» выжил (раздел 5): test-ы Ticket-а его не ловят ни без нагрузки, ни под ней.
 
 Команды замера. «До» — в worktree на `origin/main` до merge-а этого PR (`git worktree add --detach
 <путь> origin/main`, `pnpm install --frozen-lockfile`), «после» — в worktree ветки; только когда других
