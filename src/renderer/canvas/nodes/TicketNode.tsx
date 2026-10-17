@@ -187,4 +187,6 @@ function TicketNode({ data }: CanvasNodeProps) {
   )
 }
 
-export default memo(TicketNode)
+// Drawn again only for new data: dragging the frame gives every Ticket a new place on each mouse
+// move, and the Ticket draws nothing from it. React Flow's own wrapper draws the selection ring.
+export default memo(TicketNode, (before, after) => before.data === after.data)
