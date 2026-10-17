@@ -1,7 +1,8 @@
 # 02 — Отметки агентов, привязанные к SHA: `bin/ticket mark`, поле `workflow.pipeline`, владелец замка e2e
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T06:43Z
+Branch: worfy-pipeline/02
 Blocked by: —
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 4, 5, 9 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md);
@@ -66,25 +67,27 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Готово, когда
 
-- [ ] `bash harness/bin/tests/ticket-mark.test.sh` — exit 0: Full mode зовёт stub `gh api … statuses/<sha>`
+- [x] `bash harness/bin/tests/ticket-mark.test.sh` — exit 0: Full mode зовёт stub `gh api … statuses/<sha>`
       с нужными `context` и `state`; Silent mode пишет JSON и ни разу не зовёт `gh`; без `--sha` —
       exit 2; неизвестный `kind` или `verdict` — exit 2.
-- [ ] `bash harness/bin/tests/profile.test.sh` — exit 0: Pipeline по умолчанию в `_resolved.pipeline`;
+- [x] `bash harness/bin/tests/profile.test.sh` — exit 0: Pipeline по умолчанию в `_resolved.pipeline`;
       каждое нарушение пункта 6 — exit 1 с причиной.
-- [ ] `bash harness/bin/tests/wave-gate.test.sh` — exit 0: `holder.json` с номерами набора есть, пока
+- [x] `bash harness/bin/tests/wave-gate.test.sh` — exit 0: `holder.json` с номерами набора есть, пока
       идёт stub gate, и пропадает со снятием замка.
-- [ ] `pnpm test test/contract/github-prs.test.ts` — exit 0: `ciOf` с `review: FAILURE` и зелёными
+- [x] `pnpm test test/contract/github-prs.test.ts` — exit 0: `ciOf` с `review: FAILURE` и зелёными
       check run-ами — `passing`.
-- [ ] `pnpm test test/unit/install-stable-functions.test.ts` — exit 0: отметка `deploy` ставится после
+- [x] `pnpm test test/unit/install-stable-functions.test.ts` — exit 0: отметка `deploy` ставится после
       установки; без `gh` установка не падает.
-- [ ] `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/skill-blocks.test.sh` —
+- [x] `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/skill-blocks.test.sh` —
       exit 0 (блоки skills с `bin/ticket mark` и фильтром CI).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] Платформенный PR (ADR-0056, пункт 2): вердикт Windows — gate full на ПК, код 0 и
-      `[gate] зелено (full)`.
+      `[gate] зелено (full)`. Не проверено: шаг Orchestrator-а (запрос на ПК) перед merge.
+- [ ] (вручную, Orchestrator со словом владельца, до установки Harness с этим PR) rules.md:46: `rmdir "$L"` →
+      `rm -f "$L/holder.json"; rmdir "$L"`. Не проверено: шаг Orchestrator-а.
 - [ ] (вручную, Orchestrator после мержа и `pnpm install:stable`) первый PR следующей Wave показывает
       `review` в списке check-ов GitHub; `profile.json` worfy получает `workflow.pipeline` (Check
-      «windows», Deploy); diff — в «Итог».
+      «windows», Deploy); diff — в «Итог». Не проверено: шаг Orchestrator-а после merge.
 
 ## Тесты
 
@@ -111,4 +114,53 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-pipeline/02`. Что сделано, по пунктам «Что делаем»:
+
+1. **`bin/ticket mark`** (`harness/bin/ticket`, функции `markUsage`, `mark`, `markGitHub`, `markLocal`).
+   `kind` — `review` или `check/<name>` (строчные буквы, цифры, дефис), `verdict` — `pending`, `success`,
+   `failure`, `skipped`, `--sha` — полный SHA в нижнем регистре (40 или 64 знака). Ошибка аргументов — exit 2
+   до чтения Profile-а; `deploy` как `kind` отвергается: его ставит скрипт деплоя.
+   - Full mode: `gh api -X POST repos/<owner>/<repo>/statuses/<sha> -f state=… -f context=<kind>
+     -f description=<verdict>` (`skipped` → `state=success`, `description=skipped`). Репозиторий — строка
+     `Repo:` Ticket-а (имя из `_resolved.repos`), иначе git-репозиторий, где запущен `ticket`, иначе
+     единственный репозиторий Project-а; `origin` не на GitHub, нет `gh`, отказ `gh` — exit 1 с причиной.
+     `gh` идёт с окружением Session (GH_TOKEN ставит hook плагина).
+   - Silent mode: `<HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json`, `num` — цифры из имени файла
+     Ticket-а (`"02"`), отметка дописывается в конец `marks`; запись через временный файл и rename под
+     замком-папкой `<файл>.lock` (живой замок ждём до 10 s, старше минуты — снимаем). Битый файл
+     отметок не перезаписывается: exit 1. `gh` не вызывается.
+   - `ticket mark --contexts` печатает `review`, `check/*`, `deploy`.
+2. **CI без отметок.** `ciOf` (`src/main/github/prs.ts`) пропускает commit status с context из
+   `MARK_CONTEXTS`; контрактный test сверяет список с выводом `ticket mark --contexts`. Если остались
+   только отметки — CI `null` (нет CI). В skills (`epic-wave`, раздел 3; `ship-ticket`, шаг 8) и в
+   `agents/implementer.md` вместо голого `gh pr checks <N>` — одна команда
+   `gh pr checks <N> --json name,bucket,workflow --jq …`, печатает `CI=pass|fail|pending|none`.
+   Исключаются только commit status-ы (пустой `workflow`): job GitHub Actions с именем `deploy` или
+   `review` — это CI (круг ревью 1, находка о красном job `deploy`, дававшем `CI=pass`).
+3. **Отметки ревью в skills.** `epic-wave`, раздел 3, и `ship-ticket`, шаг 7 и «Review of a PR another
+   session wrote»: `review pending` на head SHA до ревью, `review success|failure` на том же SHA с
+   вердиктом. Комментарий PR, commit `gate:` и строка в файле Ticket-а остались. В Full mode с
+   `local-green` отметки нет: коммит не на GitHub.
+4. **Владелец замка e2e.** `wave-gate` после `mkdir` пишет `holder.json`
+   (`{"prs","what":"gate-full","pid","since"}`), при снятии удаляет только свой файл (по `pid`), брошенный
+   замок снимается вместе с чужим `holder.json`. В `epic-wave`, раздел 4, новый блок gate full одного PR
+   (путь `"each"`) с тем же `holder.json`; heartbeat в нём не держит вывод команды открытым.
+   Цена: one-liner замка из `rules.md` Profile-а worfy (строка 46, файл вне репозитория) снимает
+   брошенный замок через `rmdir "$L"`, а папка с `holder.json` не пустая — после убитого (SIGKILL)
+   `wave-gate` такой замок не снимается, и очередь ждёт. Правка `rules.md` — ручной пункт «Готово,
+   когда» до установки Harness с этим PR. Способа со стороны кода, при котором `holder.json` лежит в
+   папке замка и `rmdir` пустой папки срабатывает, нет: `wave-gate` убирает файл сам на выходе и на
+   SIGTERM/SIGINT, остаётся только SIGKILL и обрыв машины.
+5. **Отметка деплоя.** `scripts/install-stable.mjs`, `markDeploy`: после установки и записи
+   `<target>.json` — `deploy: success` на поставленный коммит. Только Full mode (Profile репозитория через
+   его `harness/bin/profile`), только сборка здесь из чистого дерева, только `origin` на GitHub; `gh` — как
+   `github.account` Profile-а, если в окружении нет GH_TOKEN. Любая причина не ставить отметку, в том числе
+   нет `gh`, — строка `deploy mark skipped: …`, установка не падает. С `WORFY_STABLE_PREBUILT` (путь
+   test-ов) отметки и строки нет.
+6. **`workflow.pipeline`** — проверка в `bin/profile`, схема в `profiles/draft.schema.json`, строка
+   таблицы и `_resolved.pipeline` в `profiles/README.md`. Без поля или с `null` —
+   `_resolved.pipeline` = `queued, implementing, ci, agent-review, gate-merge, closing, done`.
+
+Проверки (коды выхода — в отчёте implementer-а): `ticket-mark.test.sh`, `profile.test.sh`,
+`wave-gate.test.sh`, `skill-blocks.test.sh`, `epic-wave-ship-ticket.test.sh`, `pnpm lint`,
+`pnpm typecheck`, `pnpm test`, gate fast — exit 0. gate full и вердикт Windows — шаги Orchestrator-а.
