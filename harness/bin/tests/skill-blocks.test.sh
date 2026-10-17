@@ -185,6 +185,13 @@ EOF
 chmod +x "$GHS/gh"
 GH_LOG="$T/gh.log"; : >"$GH_LOG"
 MENV=(env -u GH_TOKEN -u GITHUB_TOKEN PATH="$GHS:$PATH" GH_LOG="$GH_LOG")
+# ticket runs gh by name from node, which on Windows finds the real gh.exe, not the stub: there a mark that went
+# to GitHub would run the stub through a node stand-in ($TICKET_GH). The guard stops the test if any gh the
+# blocks can start is not the stub; GH_CONFIG_DIR is empty, so a real gh reached anyway has no credentials.
+. "$(dirname "$0")/gh-stand-in.sh"
+if on_windows; then node_stand_in "$GHS/gh" "$GHS/gh.mjs"; MENV+=(TICKET_GH="$GHS/gh.mjs"); fi
+MENV+=(GH_CONFIG_DIR="$T/gh-config")
+( PATH="$GHS:$PATH"; on_windows && export TICKET_GH="$GHS/gh.mjs"; gh_guard TICKET_GH "$GHS/gh" "$GHS/gh.mjs" ) || exit 1
 # The review mark: the blocks of both skills, with the real ticket and a Silent project — the marks go to
 # $HARNESS_HOME/runs/sp/marks/pay-flow-02.json, gh is never called.
 HEAD_SHA="$(git -C "$SR" rev-parse HEAD)"
