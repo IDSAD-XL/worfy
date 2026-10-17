@@ -28,6 +28,17 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# preflight asks gh for the open PRs (and, for a github.com origin, the active account): a stub named gh first on
+# PATH answers instead, logging its arguments to $GH_STUB_LOG and refusing (exit 1), as a real gh refuses in these
+# repositories whose origin is a local folder; the PR line stays "gh unavailable: …". preflight starts gh from bash
+# (through perl), which finds the stub on every OS; on Windows a refusing gh.exe next to it covers node's own
+# lookup. The guard stops the test before any check if another gh could be started.
+. "$(dirname "$0")/gh-stand-in.sh"
+mkdir -p "$TP/stubs"
+printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
+chmod +x "$TP/stubs/gh"; refusing_gh_exe "$TP/stubs/gh"
+export PATH="$TP/stubs:$PATH" GH_STUB_LOG="$TP/gh-stub.log"
+gh_guard - "$TP/stubs/gh" ""
 
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 mkdir -p "$T/nogit" "$T/unreg" "$T/reg" "$T/profiles/t"
@@ -147,6 +158,11 @@ rm -rf "$T/reg/docs"
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$err" == *"profile unreadable"* ]] && ok "broken profile -> exit 2" || bad "broken profile: exit $rc, err: ${err:0:200}"
+
+# preflight's gh calls reached the stub: at least one, each a PR list (or the account query)
+calls="$(grep -c . "$GH_STUB_LOG" 2>/dev/null)"
+[ "${calls:-0}" -ge 1 ] && ! grep -qvE '^(pr list |api user)' "$GH_STUB_LOG" \
+    && ok "preflight's gh calls went to the stub (gh pr list)" || bad "gh stub log: ${calls:-0} calls [$(head -n 3 "$GH_STUB_LOG" 2>/dev/null)]"
 
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \
