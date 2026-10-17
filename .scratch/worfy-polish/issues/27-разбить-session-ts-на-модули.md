@@ -114,6 +114,8 @@ Source: решение владельца 2026-10-16 («со всем согла
   `QueryRequest.orchestrator`; поле объявлено в `session/types.ts`, заполняется в `Session.begin()`
   (`session.ts`). Имена не менялись.
 
+Owner accepted these decisions on 2026-10-18.
+
 **Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED` без находок
 ([вердикт](https://github.com/IDSAD-XL/worfy/pull/422#issuecomment-6229565623)); gate full на Mac
 зелёный, merge `8bf48ed2`.

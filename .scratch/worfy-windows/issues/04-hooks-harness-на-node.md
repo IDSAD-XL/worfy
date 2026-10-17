@@ -1,7 +1,8 @@
 # 04 — Hooks Harness на Node; `hooks.json` зовёт каждый скрипт через `node`
 
 Type: task
-Status: open
+Status: done 2026-10-17T23:21Z
+PR: #453
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness, которые зовут hooks и worfy, — на Node; bash только в test-ах) ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) — правила через hooks `SessionStart` и `SubagentStart`; evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -226,3 +227,11 @@ harness-home.test.sh и не ждёт этот Ticket: worfy не постави
 - `pnpm lint`, `pnpm typecheck` — exit 0. Полный `pnpm test` (Electron Node 24.21.0): main `90c5e72` — exit 1, 253 failed / 5392 passed / 151 skipped; ветка `6f8899e` — exit 1, 238 / 5408 / 151. По именам: ни одного нового падающего test-а; 4 случая, прошедшие на main, упали на ветке под нагрузкой (`check-lessons`, `critical-path` «refuses wrong arguments», 2 в `harness-install`) — отдельно, два прогона подряд, проходят; 19 случаев, падавших на main, на ветке проходят.
 
 **Не проверено:** всё на macOS и Linux (в том числе `birthtimeMs` там); ручные проверки владельца — упакованная сборка на Mac и Session Claude Code с plugin `worfy` на ПК.
+
+### Mac review and merge (PR #453, squash `9d21c3d6`, 2026-10-18)
+
+- Mac review, round 1, depth high: approved, no code findings ([review](https://github.com/IDSAD-XL/worfy/pull/453#issuecomment-6242822528)). Correctness against main and security found nothing. The Stop hook started from a repo subfolder now holds a red turn; on main it did not.
+- The three `harness-migrate.test.ts` cases the PC could not run pass on the Mac.
+- Mutation testing: 10 of 14 mutants killed. The four survivors are test gaps, not code defects. They go to Ticket 56.
+- Mac `gate full` green. The Windows PC found no new failures by name against main `90c5e72`.
+- Still not checked: Linux, and the owner's manual checks (packaged build on the Mac, a Claude Code Session with the `worfy` plugin on the PC).
