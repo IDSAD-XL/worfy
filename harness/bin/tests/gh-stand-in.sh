@@ -19,8 +19,11 @@
 #                                     `false` refusing_gh_exe writes; without it the variable must be set there).
 #                                     <variable> "-" — the script under test has no such variable (it starts gh
 #                                     from the shell; the node check still covers the node scripts it runs).
-#                                     It also takes the credentials away (an empty GH_CONFIG_DIR, no tokens): a
-#                                     real gh reached anyway could not act on GitHub.
+#                                     It also keeps every usable credential away from gh: GH_TOKEN is a fixed
+#                                     invalid value (gh reads it before hosts.yml and before the OS keyring, where
+#                                     gh 2.24+ keeps its token), GITHUB_TOKEN, GH_ENTERPRISE_TOKEN and
+#                                     GITHUB_ENTERPRISE_TOKEN are unset, GH_CONFIG_DIR is an empty folder. A real
+#                                     gh reached anyway gets no credential that GitHub accepts.
 on_windows() { command -v cygpath >/dev/null 2>&1; }
 # has_gh_word <text>: true when <text> names gh as a word — a command gh, "gh", 'gh', a path …/gh, gh.exe.
 has_gh_word() { local re='(^|[^[:alnum:]_.-])gh([^[:alnum:]_-]|$)'; [[ $1 =~ $re ]]; }
@@ -43,7 +46,8 @@ EOF
 refusing_gh_exe() { if on_windows; then cp "$(type -P false)" "$1.exe"; fi; }
 gh_guard() {
     local var="$1" stub="$2" stand_in="$3" sh_gh node_gh
-    unset GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+    unset GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN
+    export GH_TOKEN=worfy-test-no-token
     mkdir -p "$T/gh-config" && export GH_CONFIG_DIR="$T/gh-config"
     sh_gh="$(command -v gh)"
     if [ "$sh_gh" != "$stub" ]; then
