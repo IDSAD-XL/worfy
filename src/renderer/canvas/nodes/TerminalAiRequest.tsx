@@ -10,7 +10,8 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 // what the command should do; Enter asks the model (the Machine of the Terminal asks, on its
 // subscription), and the command lands in the line of the shell — it never runs, Enter in the
 // terminal stays the user's. Esc closes the panel; either way the focus goes back to the terminal.
-// While a command runs in the Terminal the panel says so and sends nothing.
+// While a command runs in the Terminal the panel says so and sends nothing. With the words goes the
+// line typed in the shell as the Terminal reads it when Enter is pressed (terminal-line.ts).
 
 const BUSY_TEXT = 'Terminal is busy'
 
@@ -18,11 +19,15 @@ interface TerminalAiRequestProps {
   projectId: string
   nodeId: string
   busy: boolean
+  /** How far below the top of the screen the panel hangs, in CSS pixels: under its first row. Undefined — the place of TerminalNode.css. */
+  top?: number | undefined
+  /** The line typed in the shell now. */
+  line: () => string
   /** The panel is done: the answer is in the line, or the user closed it. The focus goes back to the terminal. */
   onClose: () => void
 }
 
-export default function TerminalAiRequest({ projectId, nodeId, busy, onClose }: TerminalAiRequestProps) {
+export default function TerminalAiRequest({ projectId, nodeId, busy, top, line, onClose }: TerminalAiRequestProps) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -50,7 +55,7 @@ export default function TerminalAiRequest({ projectId, nodeId, busy, onClose }: 
     setSending(true)
     setMessage(null)
     pending.current = true
-    const result = await invoke('terminalAi.request', { projectId, nodeId, text: words })
+    const result = await invoke('terminalAi.request', { projectId, nodeId, text: words, line: line() })
     pending.current = false
     setSending(false)
     if (result.ok && result.value.ok) onClose()
@@ -79,7 +84,13 @@ export default function TerminalAiRequest({ projectId, nodeId, busy, onClose }: 
   // The outer box has no height: the panel hangs from it over the screen (TerminalNode.css).
   return (
     <div className="w-terminal-request">
-      <div className="w-terminal-request__panel nodrag nowheel nopan nokey" role="dialog" aria-label="Command request" data-testid="terminal-ai-request">
+      <div
+        className="w-terminal-request__panel nodrag nowheel nopan nokey"
+        role="dialog"
+        aria-label="Command request"
+        data-testid="terminal-ai-request"
+        style={top === undefined ? undefined : { top }}
+      >
         <div className="w-terminal-request__row">
           <span className="w-terminal-request__key" aria-hidden="true">
             {label(SHORTCUTS.terminalRequest)}

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 
 // The Session view against the built app, on the fake agent: the script
@@ -59,6 +59,42 @@ async function results(window: Page): Promise<number> {
   return recorded.filter((envelope) => envelope.event.type === 'result').length
 }
 
+/** The window's clock: the one the transcript stamps a live row with and tells today by. */
+const windowNow = (window: Page): Promise<number> => window.evaluate(() => Date.now())
+
+const two = (value: number): string => String(value).padStart(2, '0')
+const clock = (at: number): string => `${two(new Date(at).getHours())}:${two(new Date(at).getMinutes())}`
+const sameLocalDay = (a: number, b: number): boolean => new Date(a).toDateString() === new Date(b).toDateString()
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** The date the transcript puts before the clock of a row of another day: `Oct 4`, `Dec 31 '25` in another year. */
+function dateLabel(at: number, today: number): string {
+  const when = new Date(at)
+  const day = `${MONTHS[when.getMonth()] ?? ''} ${when.getDate()}`
+  return when.getFullYear() === new Date(today).getFullYear() ? day : `${day} '${String(when.getFullYear()).slice(-2)}`
+}
+
+/**
+ * Checks the time a live row shows (ticket 14): HH:MM of the window's clock, taken between the send
+ * and the check, seconds in the tooltip, and a date only when the local day has turned since the
+ * row arrived. A row of today has no date; a row of yesterday, when midnight passed between the
+ * send and the check, shows the date it arrived on.
+ */
+async function expectLiveRowTime(window: Page, row: Locator, sentFrom: number): Promise<void> {
+  const shown = await row.getByTestId('transcript-clock').textContent()
+  // The date as the row shows it, read before the clock it is checked against.
+  const dates = await row.getByTestId('transcript-date').count()
+  const checkedAt = await windowNow(window)
+  const at = Date.parse((await row.getByTestId('transcript-time').getAttribute('datetime')) ?? '')
+  expect(at).toBeGreaterThanOrEqual(sentFrom)
+  expect(at).toBeLessThanOrEqual(checkedAt)
+  expect([clock(sentFrom), clock(checkedAt)]).toContain(shown)
+  if (sameLocalDay(at, checkedAt)) expect(dates).toBe(0)
+  // The transcript dates the row on its own timer for midnight, which may fire a moment after the check.
+  else await expect(row.getByTestId('transcript-date')).toHaveText(dateLabel(at, checkedAt))
+  await expect(row.getByTestId('transcript-time')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+}
+
 test('the Session view: opened from the Orchestrator Node, a turn, an interrupted turn, and the prompt history', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
   try {
@@ -83,17 +119,13 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     // Turn 1: Return sends; busy, then the answer as markdown, then idle with the cost in the header.
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
     await field.fill('first prompt')
-    const sentFrom = Date.now()
+    const sentFrom = await windowNow(window)
     await field.press('Enter')
     await expect(field).toHaveValue('')
     const firstPrompt = view.getByTestId('transcript-prompt').first()
     await expect(firstPrompt).toContainText('first prompt')
-    // A live row shows when it arrived (ticket 14): HH:MM of this machine's clock, seconds in the tooltip.
-    const clock = (at: number) => `${String(new Date(at).getHours()).padStart(2, '0')}:${String(new Date(at).getMinutes()).padStart(2, '0')}`
-    const shown = await firstPrompt.getByTestId('transcript-clock').textContent()
-    expect([clock(sentFrom), clock(Date.now())]).toContain(shown)
-    await expect(firstPrompt.getByTestId('transcript-date')).toHaveCount(0)
-    await expect(firstPrompt.getByTestId('transcript-time')).toHaveAttribute('title', /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+    // A live row shows when it arrived.
+    await expectLiveRowTime(window, firstPrompt, sentFrom)
     const answer = view.getByTestId('transcript-text').first()
     await expect(answer.locator('table td').first()).toHaveText('33')
     // The answer keeps its time in the tooltip of its label, as the F mockups draw it.
@@ -181,6 +213,39 @@ test('the Session view: opened from the Orchestrator Node, a turn, an interrupte
     await expect(view.getByTestId('transcript-turn-done')).toHaveCount(2)
     await expect(view.getByTestId('transcript-turn-done').last()).toBeInViewport()
     await expect.poll(() => transcript.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThan(24)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a prompt sent just before local midnight shows its date once the day has turned', async () => {
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view' } })
+  try {
+    const { window } = launched
+    // The window's clock a minute before the coming local midnight. The transcript is mounted with
+    // the window, so the window reloads on that clock: its timer for midnight runs on it too.
+    const midnight = new Date()
+    midnight.setHours(24, 0, 0, 0)
+    await window.clock.install({ time: midnight.getTime() - 60_000 })
+    await window.reload()
+    const node = window.getByTestId('orchestrator-node')
+    await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
+    await node.locator('.w-orchestrator__header').dblclick()
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
+
+    const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
+    await field.fill('first prompt')
+    const sentFrom = await windowNow(window)
+    await field.press('Enter')
+    const firstPrompt = view.getByTestId('transcript-prompt').first()
+    await expect(firstPrompt).toContainText('first prompt')
+    await expect(firstPrompt.getByTestId('transcript-clock')).toHaveText('23:59')
+    // Midnight passes between the send and the check.
+    await window.clock.fastForward(60_000)
+    expect(sameLocalDay(sentFrom, await windowNow(window))).toBe(false)
+    await expectLiveRowTime(window, firstPrompt, sentFrom)
+    await expect(firstPrompt.getByTestId('transcript-date')).toHaveCount(1)
   } finally {
     await launched.close()
   }

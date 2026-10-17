@@ -3,13 +3,17 @@
 // panel only where main says it is available, Ctrl+I and ⌘I elsewhere go to xterm.js, Esc closes,
 // a busy Terminal sends nothing, and the answer closes the panel and gives the focus back.
 //
-// xterm.js does not run in jsdom: the Terminal here is a fake that keeps the key handler the Node
-// gives it, the way xterm.js asks it about every key. The look in both themes and the real keys are
-// checked against the built app (test/e2e/terminal-ai-request.spec.ts).
+// xterm.js does not draw in jsdom: the Terminal here is a fake that keeps the key handler the Node
+// gives it, the way xterm.js asks it about every key. Its buffer and its parser are those of a real
+// xterm.js that draws nothing, so the line the panel sends is read off a real buffer
+// (src/renderer/canvas/nodes/terminal-line.ts, tested on its own below). The look in both themes, the
+// place of the panel and the real keys are checked against the built app
+// (test/e2e/terminal-ai-request.spec.ts).
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { TerminalAiRequestState } from '../../src/shared/ipc/terminal-ai-request'
+import { MAX_FIELD_CHARS } from '../../src/shared/terminal-ai/context'
 
 const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
@@ -18,17 +22,28 @@ const NODE = 'terminal-node-1'
 interface FakeXterm {
   keyHandler: ((event: KeyboardEvent) => boolean) | null
   focused: number
+  /** Writes output as the shell would; resolves once xterm.js has parsed it. */
+  output: (data: string) => Promise<void>
 }
 const xterms = vi.hoisted(() => [] as FakeXterm[])
 
-vi.mock('@xterm/xterm', () => {
+vi.mock('@xterm/xterm', async () => {
+  const real = await vi.importActual<typeof import('@xterm/xterm')>('@xterm/xterm')
   class Terminal {
-    readonly fake: FakeXterm = { keyHandler: null, focused: 0 }
-    cols = 80
+    readonly core = new real.Terminal({ cols: 80, rows: 24, allowProposedApi: true })
+    readonly fake: FakeXterm = { keyHandler: null, focused: 0, output: (data) => new Promise((resolve) => this.core.write(data, resolve)) }
     rows = 24
     options: Record<string, unknown> = {}
+    readonly parser = this.core.parser
+    readonly buffer = this.core.buffer
+    get cols() {
+      return this.core.cols
+    }
     constructor() {
       xterms.push(this.fake)
+    }
+    registerMarker(offset?: number) {
+      return this.core.registerMarker(offset)
     }
     attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
       this.fake.keyHandler = handler
@@ -40,7 +55,9 @@ vi.mock('@xterm/xterm', () => {
     focus() {
       this.fake.focused++
     }
-    dispose() {}
+    dispose() {
+      this.core.dispose()
+    }
     onData() {
       return { dispose: () => undefined }
     }
@@ -234,7 +251,8 @@ describe('the panel', () => {
     fireEvent.change(field, { target: { value: '  list big files ' } })
     fireEvent.keyDown(field, { key: 'Enter' })
     const [request] = callsOf(main, 'terminalAi.request')
-    expect(request?.input).toEqual({ projectId: PROJECT, nodeId: NODE, text: 'list big files' })
+    // No prompt on the screen: no line.
+    expect(request?.input).toEqual({ projectId: PROJECT, nodeId: NODE, text: 'list big files', line: '' })
     expect(screen.getByRole('status').textContent).toBe('Asking Claude…')
     const focusedBefore = xterm.focused
     await answer(request, { ok: true, value: { ok: true } })
@@ -281,5 +299,134 @@ describe('the panel', () => {
     fireEvent.keyDown(field, { key: 'Escape' })
     expect(panel()).toBeNull()
     expect(callsOf(main, 'terminalAi.request.cancel').map((call) => call.input)).toEqual([{ projectId: PROJECT, nodeId: NODE }])
+  })
+})
+
+/** The marks of the zsh integration (src/main/terminal/zsh/integration.zsh), with a nonce. */
+const A = '\x1b]633;A;n0nce\x07'
+const B = '\x1b]633;B;n0nce\x07'
+const C = '\x1b]633;C;n0nce\x07'
+const PROMPT = `${A}e2e% ${B}`
+/** Grey as zsh draws `fg=8`, and back. */
+const GREY = (text: string) => `\x1b[90m${text}\x1b[39m`
+/** The cursor `n` cells left. */
+const LEFT = (n: number) => `\x1b[${n}D`
+
+describe('the line the panel sends', () => {
+  it('is what is typed after the prompt, as the Terminal reads it when Enter is pressed', async () => {
+    const { main, press, xterm } = await terminalNode({ available: true, busy: false })
+    await act(() => xterm.output(`${PROMPT}git status --short`))
+    press(META_I)
+    const field = screen.getByRole('textbox', { name: 'Describe the command' })
+    fireEvent.change(field, { target: { value: 'only the changed files' } })
+    // Read at Enter, not at ⌘I.
+    await act(() => xterm.output(' -uno'))
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(callsOf(main, 'terminalAi.request')[0]?.input).toEqual({ projectId: PROJECT, nodeId: NODE, text: 'only the changed files', line: 'git status --short -uno' })
+  })
+
+  it('a grey Suggestion after the line stays out of it', async () => {
+    const { main, press, xterm } = await terminalNode({ available: true, busy: false })
+    // zsh draws POSTDISPLAY after the line and puts the cursor back at the end of the line.
+    await act(() => xterm.output(`${PROMPT}git st${GREY('atus --short')}${LEFT(12)}`))
+    press(META_I)
+    const field = screen.getByRole('textbox', { name: 'Describe the command' })
+    fireEvent.change(field, { target: { value: 'what changed' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(callsOf(main, 'terminalAi.request')[0]?.input).toMatchObject({ line: 'git st' })
+  })
+})
+
+describe('terminal-line: the line typed after the prompt, read off the buffer', async () => {
+  const real = await vi.importActual<typeof import('@xterm/xterm')>('@xterm/xterm')
+  const { watchTypedLine, lineWithinLimit, RIGHT_PROMPT_GAP } = await import('../../src/renderer/canvas/nodes/terminal-line')
+
+  /** A terminal `cols` wide that drew `output`, and the line it reads. */
+  async function lineAfter(output: string, cols = 40): Promise<string> {
+    const terminal = new real.Terminal({ cols, rows: 10, allowProposedApi: true })
+    const watch = watchTypedLine(terminal)
+    await new Promise<void>((resolve) => terminal.write(output, resolve))
+    const line = watch.line()
+    watch.dispose()
+    terminal.dispose()
+    return line
+  }
+
+  it('without the prompt; empty when nothing is typed', async () => {
+    expect(await lineAfter(`${PROMPT}git status --short`)).toBe('git status --short')
+    expect(await lineAfter(PROMPT)).toBe('')
+    // A prompt of several rows: the line starts at the mark, at the end of the last.
+    expect(await lineAfter(`${A}~/work on main\r\ne2e% ${B}ls -la`)).toBe('ls -la')
+  })
+
+  it('no mark of a prompt, a command started, a new prompt: an empty line until the next mark', async () => {
+    expect(await lineAfter('e2e% git status')).toBe('')
+    expect(await lineAfter(`${PROMPT}sleep 5\r\n${C}output of it`)).toBe('')
+    expect(await lineAfter(`${PROMPT}ls\r\n${C}a b\r\n${A}e2e% `)).toBe('')
+    expect(await lineAfter(`${PROMPT}ls\r\n${C}a b\r\n${PROMPT}echo next`)).toBe('echo next')
+  })
+
+  it('a line longer than the row, wrapped onto the next rows, is one line', async () => {
+    const long = `echo ${'x'.repeat(30)} ${'y'.repeat(20)}`
+    expect(long.length + 'e2e% '.length).toBeGreaterThan(40)
+    expect(await lineAfter(`${PROMPT}${long}`)).toBe(long)
+    // As zsh draws it: the row full to its last cell, then a line feed of its own, so xterm.js does not mark the next row wrapped.
+    const head = long.slice(0, 40 - 'e2e% '.length)
+    expect(await lineAfter(`${PROMPT}${head}\r\n${long.slice(head.length)}`)).toBe(long)
+    // A prompt that fills its row: the line starts on the next.
+    expect(await lineAfter(`${A}${'p'.repeat(40)}${B}ls`)).toBe('ls')
+    expect(await lineAfter(`${A}${'p'.repeat(40)}${B}\r\nls`)).toBe('ls')
+    // The row under the line that is not wrapped from it (a list of completions) is not the line.
+    expect(await lineAfter(`${PROMPT}git ch\r\ncheckout  cherry-pick\x1b[A\x1b[12G`)).toBe('git ch')
+  })
+
+  it('grey text after the line stays out: the Suggestion and a grey note; grey text typed before the cursor stays', async () => {
+    expect(await lineAfter(`${PROMPT}git st${GREY('atus --short')}${LEFT(12)}`)).toBe('git st')
+    expect(await lineAfter(`${PROMPT}ls${GREY('  Asking Claude…')}${LEFT(16)}`)).toBe('ls')
+    // A Suggestion that wraps onto the next row; the cursor back after `echo`.
+    expect(await lineAfter(`${PROMPT}echo${GREY(' ' + 'z'.repeat(40))}\x1b[A\x1b[10G`)).toBe('echo')
+    // Highlighting of the user's that paints typed text grey: the cursor is after it, so it is typed.
+    expect(await lineAfter(`${PROMPT}${GREY('# note')}`)).toBe('# note')
+  })
+
+  it('a right prompt at the edge of the row stays out; text typed with spaces stays in', async () => {
+    // zsh draws RPROMPT at the edge, `indent` cells from it, and puts the cursor back after the line.
+    const right = (typed: string, rprompt: string, indent = 1, cols = 40) => `${PROMPT}${typed}\x1b[${cols - indent - rprompt.length + 1}G${rprompt}\x1b[${'e2e% '.length + typed.length + 1}G`
+    expect(await lineAfter(right('git log', '[main] 14:20'))).toBe('git log')
+    expect(await lineAfter(right('git log', '%', 0))).toBe('git log')
+    // The cursor moved left into the line: the text right of it is still typed.
+    expect(await lineAfter(`${right('git log --oneline', 'rp')}${LEFT(10)}`)).toBe('git log --oneline')
+    // Text after a gap that does not reach the edge is typed.
+    expect(await lineAfter(`${PROMPT}echo a${' '.repeat(RIGHT_PROMPT_GAP + 2)}b`)).toBe(`echo a${' '.repeat(RIGHT_PROMPT_GAP + 2)}b`)
+    // A gap shorter than RIGHT_PROMPT_GAP up to the edge is typed too.
+    const typed = `echo ${'w'.repeat(24)}${' '.repeat(RIGHT_PROMPT_GAP - 1)}e`
+    expect(typed.length + 'e2e% '.length).toBe(39)
+    expect(await lineAfter(`${PROMPT}${typed}`)).toBe(typed)
+    // A gap at the edge, but the line wraps on: typed.
+    const wrapped = `echo a${' '.repeat(28)}b${'c'.repeat(10)}`
+    expect(await lineAfter(`${PROMPT}${wrapped}`)).toBe(wrapped)
+  })
+
+  it('a line with a space at its start keeps it: the context drops such a line (prepareContext)', async () => {
+    expect(await lineAfter(`${PROMPT} export TOKEN=abc`)).toBe(' export TOKEN=abc')
+  })
+
+  it('a line on the screen longer than the channel takes comes cut to it', async () => {
+    const line = `echo ${Array.from({ length: 250 }, () => 'w'.repeat(9)).join(' ')}`
+    expect(line.length).toBeGreaterThan(MAX_FIELD_CHARS)
+    const read = await lineAfter(`${PROMPT}${line}`, 200)
+    expect(read.length).toBeLessThanOrEqual(MAX_FIELD_CHARS)
+    expect(line.startsWith(read)).toBe(true)
+  })
+
+  it('a line longer than the channel takes is cut before the word the cut falls in', () => {
+    const word = 'w'.repeat(10)
+    const line = Array.from({ length: 300 }, () => word).join(' ')
+    const cut = lineWithinLimit(line)
+    expect(cut.length).toBeLessThanOrEqual(MAX_FIELD_CHARS)
+    expect(cut.length).toBeGreaterThan(MAX_FIELD_CHARS - word.length - 1)
+    expect(cut.trimEnd().split(' ').every((part) => part === word)).toBe(true)
+    expect(line.startsWith(cut)).toBe(true)
+    expect(lineWithinLimit('short')).toBe('short')
   })
 })

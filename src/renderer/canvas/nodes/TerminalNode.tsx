@@ -9,6 +9,7 @@ import { matches } from '../../shortcuts/match'
 import type { CanvasNodeProps } from './index'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { watchTypedLine, type TypedLineWatch } from './terminal-line'
 import { unscaleMouse } from './terminal-mouse'
 import { addView, isLastView, type ShellView } from './terminal-views'
 import TerminalAiRequest from './TerminalAiRequest'
@@ -44,7 +45,9 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 //
 // ⌘I in a Terminal whose zsh is connected to Terminal AI opens the Command request panel over the
 // screen (TerminalAiRequest.tsx); xterm.js does not get the key then. Ctrl+I, and ⌘I in any other
-// Terminal, go to the shell as before.
+// Terminal, go to the shell as before. The panel sends the line typed in the shell with its words,
+// read off this screen (terminal-line.ts), and hangs below the first row of the screen, so that row
+// stays readable: in a fresh Terminal it is the prompt, and while a command runs, that command.
 //
 // After a command that failed, "Fix" in the header asks Claude for the corrected command
 // (src/main/ipc/terminal-ai-fix.ts): main says when the button is there, the answer lands in the
@@ -127,6 +130,22 @@ function useRequestState(projectId: string | undefined, nodeId: string, setOpen:
   return answered?.key === key ? answered.state : REQUEST_UNAVAILABLE
 }
 
+/** Between the first row of the screen and the Command request panel under it, in CSS pixels. */
+const REQUEST_GAP = 4
+
+/**
+ * Where the Command request panel goes, from the top of the screen: under the first row of xterm.js,
+ * in CSS pixels of the Node (the Canvas scales it). Undefined while the screen has no rows to measure:
+ * then the panel keeps its place from TerminalNode.css.
+ */
+function belowFirstRow(screen: HTMLElement): number | undefined {
+  const row = screen.querySelector('.xterm-rows > div')
+  const box = screen.getBoundingClientRect()
+  if (row === null || screen.offsetHeight === 0 || box.height === 0) return undefined
+  const scale = box.height / screen.offsetHeight
+  return Math.ceil((row.getBoundingClientRect().bottom - box.top) / scale) + REQUEST_GAP
+}
+
 /** How long the reason of a refused Fix stays in the header. */
 const FIX_NOTE_MS = 4000
 
@@ -201,6 +220,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
   // screen or in another view (a new run attaches to it).
   const [run, setRun] = useState({ count: 0, restart: false })
   const [requestOpen, setRequestOpen] = useState(false)
+  const [requestTop, setRequestTop] = useState<number | undefined>(undefined)
   const request = useRequestState(projectId, id, setRequestOpen)
   // Read by the key handler of xterm.js, which is set up once per shell view.
   const requestAvailable = useRef(request.available)
@@ -208,6 +228,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     requestAvailable.current = request.available
   }, [request.available])
   const xterm = useRef<Terminal | null>(null)
+  const typedLine = useRef<TypedLineWatch | null>(null)
   // The corrected command is in the line: the focus goes to the terminal, where Enter runs it.
   const fix = useFix(projectId, id, () => xterm.current?.focus())
 
@@ -224,11 +245,17 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
+    // Before any output: the replay holds the mark of the prompt that waits now.
+    const line = watchTypedLine(terminal)
+    typedLine.current = line
     // ⌘I opens the Command request panel instead of reaching the shell: keydown, keypress and keyup alike.
     terminal.attachCustomKeyEventHandler((event) => {
       if (!opensRequestPanel(event, requestAvailable.current)) return true
       event.preventDefault()
-      if (event.type === 'keydown') setRequestOpen(true)
+      if (event.type === 'keydown') {
+        setRequestTop(belowFirstRow(element))
+        setRequestOpen(true)
+      }
       return false
     })
     terminal.open(element)
@@ -353,6 +380,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       removeView()
       scheme.removeEventListener('change', onScheme)
       if (xterm.current === terminal) xterm.current = null
+      if (typedLine.current === line) typedLine.current = null
+      line.dispose()
       terminal.dispose()
     }
   }, [projectId, id, run])
@@ -431,7 +460,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
           The terminal could not start: {status.message}
         </div>
       ) : null}
-      {requestOpen && request.available && projectId !== undefined ? <TerminalAiRequest projectId={projectId} nodeId={id} busy={request.busy} onClose={closeRequest} /> : null}
+      {requestOpen && request.available && projectId !== undefined ? (
+        <TerminalAiRequest projectId={projectId} nodeId={id} busy={request.busy} top={requestTop} line={() => typedLine.current?.line() ?? ''} onClose={closeRequest} />
+      ) : null}
       <div ref={host} className="w-terminal__screen nodrag nowheel nopan nokey" data-testid="terminal-screen" />
     </div>
   )

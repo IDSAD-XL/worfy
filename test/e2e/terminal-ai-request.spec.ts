@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
-import { TERMINAL_AI_PROMPT, editedLine, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
+import { TERMINAL_AI_PROMPT, editedLine, greyText, openTerminal, screenText, terminalAiSandbox, type TerminalAiSandbox } from './terminal-ai-helpers'
 import { NO_ZSH, NO_ZSH_ON_WINDOWS } from './zsh'
 import { shellCaughtUp } from './wait'
 
@@ -163,3 +163,190 @@ test('Esc closes the panel without asking, and the focus is back in the terminal
     await launched.close()
   }
 })
+
+/** Opens the panel with ⌘I from the terminal, once main has said the zsh of this Terminal is connected. */
+async function openPanel(window: Page, node: Locator, panel: Locator): Promise<void> {
+  await expect(async () => {
+    await node.getByTestId('terminal-screen').click()
+    await window.keyboard.press('Meta+I')
+    await expect(panel).toBeVisible({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
+}
+
+/** The requests of Command request that reached the fake, in the order they ended. */
+const commandRequests = (sandbox: TerminalAiSandbox) => sandbox.requests().filter((entry) => entry.feature === 'request')
+
+test('the line typed in the shell goes to the model with the words: without the prompt and the grey Suggestion, wrapped rows as one line, a secret redacted, a line with a space at its start not at all', async () => {
+  test.setTimeout(120_000)
+  const mark = `worfy-tai-${Date.now().toString(36)}-${process.pid}`
+  const answer = `echo ${mark}-answer`
+  sandbox.answers([{ feature: 'request', match: mark, answer: `\`${answer}\``, delayMs: 100 }])
+  const launched = await launchApp({ env: sandbox.env })
+  try {
+    const { window } = launched
+    const node = await openTerminal(window)
+    const panel = node.getByRole('dialog', { name: 'Command request' })
+    const field = panel.getByRole('textbox', { name: 'Describe the command' })
+
+    /** Types `line` (no Enter), asks from the panel, and returns the line of the context the fake got; the line of the shell is empty again after. */
+    const contextLineOf = async (line: string, ready?: () => Promise<void>): Promise<string> => {
+      const before = commandRequests(sandbox).length
+      await node.getByTestId('terminal-screen').click()
+      await window.keyboard.type(line)
+      // All of it is on the screen: its start after the prompt, and its end.
+      await expect.poll(() => editedLine(node), { timeout: 10_000 }).toContain(`${TERMINAL_AI_PROMPT}${line.slice(0, 20)}`)
+      await expect.poll(() => screenText(node), { timeout: 10_000 }).toContain(line.slice(-20))
+      await ready?.()
+      await openPanel(window, node, panel)
+      await field.fill(`complete ${mark}`)
+      await window.keyboard.press('Enter')
+      await expect(panel).toBeHidden({ timeout: 15_000 })
+      await expect.poll(() => commandRequests(sandbox).length, { timeout: 10_000 }).toBe(before + 1)
+      // The answer is in the line; Ctrl+U takes the whole line away for the next one.
+      await expect.poll(() => screenText(node), { timeout: 10_000 }).toContain(answer)
+      await window.keyboard.press('Control+U')
+      await expect.poll(() => editedLine(node), { timeout: 10_000 }).toBe(TERMINAL_AI_PROMPT.trimEnd())
+      return commandRequests(sandbox).at(-1)?.context.line ?? '<none>'
+    }
+
+    // Typed, without Enter.
+    expect(await contextLineOf('git status --short')).toBe('git status --short')
+
+    // A grey Suggestion from the history after the typed text: not typed, not sent.
+    await node.getByTestId('terminal-screen').click()
+    await window.keyboard.type(`echo ${mark} second third`)
+    await window.keyboard.press('Enter')
+    await expect.poll(async () => [...(await screenText(node)).matchAll(new RegExp(`^${mark} second third$`, 'gm'))].length, { timeout: 10_000 }).toBe(1)
+    const rest = `${mark.slice('wo'.length)} second third`
+    expect(await contextLineOf('echo wo', () => expect.poll(async () => (await greyText(node)).text, { timeout: 10_000 }).toBe(rest))).toBe('echo wo')
+
+    // Longer than the row: the screen wraps it onto the next row, the context gets it whole.
+    const long = `echo ${'abcdefghij'.repeat(16)}`
+    expect(await contextLineOf(long)).toBe(long)
+    // It was wrapped on the screen: no row holds all of it.
+    expect((await screenText(node)).split('\n').some((row) => row.includes(long))).toBe(false)
+
+    // A secret: redacted before it leaves main.
+    expect(await contextLineOf('export GITHUB_TOKEN=s3cr3t-value-0123')).toBe('export GITHUB_TOKEN=[redacted]')
+    // A line with a space at its start stays out of the model, as it stays out of the history.
+    expect(await contextLineOf(' echo private-line')).toBe('')
+    expect(JSON.stringify(sandbox.requests())).not.toContain('s3cr3t')
+    expect(JSON.stringify(sandbox.requests())).not.toContain('private-line')
+  } finally {
+    await launched.close()
+  }
+})
+
+interface PanelPlace {
+  rowBottom: number
+  panelTop: number
+  rowText: string
+  /** What is drawn over the first character of the first row is not the panel. */
+  rowCovered: boolean
+  rows: number
+}
+
+/** Where the open panel is against the first row of the screen of xterm.js, and how many rows the screen has. */
+function panelPlace(node: Locator): Promise<PanelPlace> {
+  return node.evaluate((root) => {
+    interface Box {
+      top: number
+      bottom: number
+      left: number
+      height: number
+    }
+    interface El {
+      textContent: string | null
+      getBoundingClientRect(): Box
+      contains(other: unknown): boolean
+      querySelector(selector: string): El | null
+      querySelectorAll(selector: string): { length: number }
+      ownerDocument: { elementFromPoint(x: number, y: number): unknown }
+    }
+    const node = root as unknown as El
+    const row = node.querySelector('.xterm-rows > div')
+    const panel = node.querySelector('[data-testid="terminal-ai-request"]')
+    if (row === null || panel === null) throw new Error('no first row or no panel')
+    const rowBox = row.getBoundingClientRect()
+    const hit = node.ownerDocument.elementFromPoint(rowBox.left + 3, rowBox.top + rowBox.height / 2)
+    return {
+      rowBottom: rowBox.bottom,
+      panelTop: panel.getBoundingClientRect().top,
+      rowText: (row.textContent ?? '').replace(/\u00a0/g, ' '),
+      rowCovered: panel.contains(hit),
+      rows: node.querySelectorAll('.xterm-rows > div').length,
+    }
+  })
+}
+
+/** The size of the pty as `stty size` reports it in the shell. */
+async function sttySize(window: Page, node: Locator, tag: string): Promise<string> {
+  await node.getByTestId('terminal-screen').click()
+  // The output differs from the echoed command line (`$(…)`), so the pattern matches only the output.
+  await window.keyboard.type(`echo "${tag}=$(stty size | tr ' ' x)"`)
+  await window.keyboard.press('Enter')
+  const pattern = new RegExp(`^${tag}=(\\d+x\\d+)$`, 'm')
+  await expect.poll(async () => pattern.test(await screenText(node)), { timeout: 10_000 }).toBe(true)
+  return pattern.exec(await screenText(node))?.[1] ?? ''
+}
+
+test('the open panel hangs under the first row of the screen, also while a command runs; opening and closing it do not change the size of the pty', async () => {
+  sandbox.answers([])
+  const launched = await launchApp({ env: sandbox.env })
+  try {
+    const { window } = launched
+    const node = await openTerminal(window)
+    const panel = node.getByRole('dialog', { name: 'Command request' })
+
+    // A command runs; it is the first row of the screen.
+    const mark = `worfy-tai-${Date.now().toString(36)}`
+    await node.getByTestId('terminal-screen').click()
+    await window.keyboard.type(`sleep 30; : ${mark}`)
+    await window.keyboard.press('Enter')
+    await openPanel(window, node, panel)
+    await expect(panel.getByRole('status')).toHaveText('Terminal is busy', { timeout: 10_000 })
+    const busy = await panelPlace(node)
+    expect(busy.rowText).toContain(`${TERMINAL_AI_PROMPT}sleep 30; : ${mark}`)
+    expect(busy.panelTop).toBeGreaterThanOrEqual(busy.rowBottom)
+    expect(busy.rowCovered).toBe(false)
+    if (EVIDENCE_DIR !== undefined) {
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        await node.screenshot({ path: join(EVIDENCE_DIR, `13-request-panel-busy-${scheme}.png`) })
+      }
+      await window.emulateMedia({ colorScheme: null })
+    }
+    await window.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await window.keyboard.press('Control+C')
+
+    // At the prompt: the size before, the panel open, the size after.
+    const before = await sttySize(window, node, 'before')
+    const rowsBefore = (await screenRows(node)).rows
+    await window.keyboard.type('echo typed')
+    await openPanel(window, node, panel)
+    const open = await panelPlace(node)
+    expect(open.panelTop).toBeGreaterThanOrEqual(open.rowBottom)
+    expect(open.rowCovered).toBe(false)
+    expect(open.rows).toBe(rowsBefore)
+    if (EVIDENCE_DIR !== undefined) {
+      for (const scheme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: scheme })
+        await node.screenshot({ path: join(EVIDENCE_DIR, `13-request-panel-${scheme}.png`) })
+      }
+      await window.emulateMedia({ colorScheme: null })
+    }
+    await window.keyboard.press('Escape')
+    await expect(panel).toBeHidden()
+    await window.keyboard.press('Control+U')
+    expect(await sttySize(window, node, 'after')).toBe(before)
+    expect((await screenRows(node)).rows).toBe(rowsBefore)
+  } finally {
+    await launched.close()
+  }
+})
+
+/** How many rows the screen of xterm.js has, with no panel open. */
+function screenRows(node: Locator): Promise<{ rows: number }> {
+  return node.locator('.xterm-rows').evaluate((rows) => ({ rows: (rows as unknown as { children: { length: number } }).children.length }))
+}

@@ -29,6 +29,7 @@ import { featureModules, ShellLink, type FeatureLoader, type ShellAsk, type Shel
 import { TerminalAiSettingsStore } from '../../src/main/terminal-ai/settings'
 import type { LimitWindowState } from '../../src/shared/agent/limits'
 import { accessOf, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
+import { MAX_FIELD_CHARS } from '../../src/shared/terminal-ai/context'
 import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -755,6 +756,28 @@ describe('the channels of the ⌘I panel', () => {
     expect(existsSync(join(root, MARK_FILE))).toBe(false)
     expect(p.written).toEqual(p.t.typed)
     expect(p.requests()).toMatchObject([{ feature: 'request', model: 'sonnet', context: { request: WORDS, line: '', cwd: root } }])
+  })
+
+  it('the line the panel read off the screen goes into the context, redacted; a line with a space at its start does not', async () => {
+    const p = await panel()
+    p.answers(answering())
+    const ask = (line: string) => p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS, line })
+    expect(await ask('git status --short')).toEqual({ ok: true, value: { ok: true } })
+    expect(await ask('export GITHUB_TOKEN=s3cr3t-value-0123')).toEqual({ ok: true, value: { ok: true } })
+    expect(await ask(' export GITHUB_TOKEN=s3cr3t-value-0123')).toEqual({ ok: true, value: { ok: true } })
+    const lines = p.requests().map((entry) => entry.context.line)
+    expect(lines).toEqual(['git status --short', 'export GITHUB_TOKEN=[redacted]', ''])
+    expect(JSON.stringify(p.requests())).not.toContain('s3cr3t')
+    expect(p.requests().every((entry) => entry.context.request === WORDS)).toBe(true)
+  })
+
+  it('a line longer than MAX_FIELD_CHARS is refused by the channel, and the model is not asked', async () => {
+    const p = await panel()
+    p.answers(answering())
+    const result = await p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS, line: 'x'.repeat(MAX_FIELD_CHARS + 1) })
+    expect(result.ok).toBe(false)
+    expect(await p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS, line: 'x'.repeat(MAX_FIELD_CHARS) })).toEqual({ ok: true, value: { ok: true } })
+    expect(p.requests().map((entry) => entry.context.line.length)).toEqual([MAX_FIELD_CHARS])
   })
 
   it('a request to a Terminal without the integration fails, and the model is not asked', async () => {
