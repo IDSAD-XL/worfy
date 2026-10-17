@@ -53,7 +53,7 @@ grilling-а о Pipeline; [worfy-daily 31](../../worfy-daily/issues/31-иконк
 - [ ] Уведомление `pnpm dev` — со знаком worfy и именем worfy, или в «Итог» названа причина, почему нет.
   не проверено: сам баннер не снят (см. «Итог»); bundle `pnpm dev`, его имя и иконка в Launch Services — проверены.
 - [x] e2e-прогон не показывает системных уведомлений с иконкой Electron.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Linux CI зелёный.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; Linux CI зелёный (PR #425, job `check`).
 
 ## Итог
 
