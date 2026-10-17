@@ -1,7 +1,8 @@
 # 12 — Flaky e2e `transcript-date` в `session-view.spec.ts`: красный, если полночь наступила между отправкой и проверкой
 
 Type: task
-Status: claimed 2026-10-17T14:10Z
+Status: done 2026-10-17T16:32Z
+PR: #442
 Branch: worfy-terminal-ai/12
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен», кроме двух рисков — им Ticket-ы):
@@ -97,3 +98,11 @@ load average 4,20 до старта, 7,28 через 20 s, 8,67 в конце п
 **Проверки.** `pnpm lint`, `pnpm typecheck` — exit 0. Gate fast: первый прогон красный по timeout в
 `harness-scripts.test.ts` под той же нагрузкой (load average 4,13 → 4,73); после rebase на `b2ae59d8`
 повтор — exit 0, `[gate] зелено (fast)`. Gate full — за оркестратором перед merge.
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/442#issuecomment-6235742053)); мутант проверяющего (таймер
+полуночи `Transcript.tsx:75` на час позже) краснит test границы дня. `GATE_SCOPE=all` gate full — зелёный с
+первого прогона; влит — `a18aa831`.
+Долг (low): `test/e2e/session-view.spec.ts:86-93` — в ветке «тот же день» дата читается один раз `count()`; строка,
+штампованная сразу после настоящей полуночи до срабатывания таймера, несколько миллисекунд показывает дату —
+ждать `toHaveCount(0)` с повторами. Вывод по чтению кода, test-ом не показан.
