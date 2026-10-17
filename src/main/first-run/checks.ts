@@ -35,7 +35,7 @@ import type { AccountInfoLike } from '../agent/session'
 import { DEPENDENCY_MARKETPLACE_SOURCE } from '../harness/install'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
-import { environmentExit, harnessScriptRunner, HARNESS_SCRIPT_TIMEOUT_MS, scriptFailureDetail } from '../workflow/profile'
+import { environmentExit, harnessScriptRunner, HarnessScriptStartError, HARNESS_SCRIPT_TIMEOUT_MS, NODE_NOT_FOUND, scriptFailureDetail } from '../workflow/profile'
 import { hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { MIN_NODE_MAJOR, modelPlan, NODE_INSTALL_HINT, profileDocsLanguages, QMD_VERSION, qmdState, type QmdHomes } from '../harness/qmd'
 import type { HarnessStatus } from '../../shared/ipc/harness'
@@ -368,7 +368,9 @@ async function harnessScripts(deps: CheckDeps): Promise<Row> {
     if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
     return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : HARNESS_SCRIPT_HINTS.crash)
   } catch (error) {
-    // The file is there, so this is not a missing script: worfy cannot start it (EACCES, a bad interpreter line).
+    // The script runs as `node <script>` (harnessScriptNode): no node on the scripts' PATH is said as such.
+    if (error instanceof HarnessScriptStartError && error.code === 'NODE_NOT_FOUND') return row('fail', `profile --help: ${NODE_NOT_FOUND}`, HARNESS_SCRIPT_HINTS.node)
+    // The file was there a moment ago, so this is not a missing script: node could not be started for it.
     return row('fail', `profile could not be started: ${error instanceof Error ? error.message : String(error)}`, HARNESS_SCRIPT_HINTS.start)
   }
 }
