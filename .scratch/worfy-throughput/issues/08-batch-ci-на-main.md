@@ -126,12 +126,20 @@ PR #433, ветка `worfy-throughput/08`. Платформенный PR (ADR-00
 - `bin/wave-gate ci <файл>`: свой файл `{repo, branch, ci, ci_batch_run}`; с `pr` — `CI=skipped`,
   ничего не запускает; с `batch` — fetch, один dispatch с `$ref` = ветка, поиск CI run (URL из
   вывода `gh workflow run`, иначе `gh run list --commit <tip> --event workflow_dispatch --workflow
-  <имя>`), запись `ci_run` в файл. Повторный вызов не запускает второй dispatch. Коды: 0 — найден,
-  3 — запущен, ещё не виден, 1 — ошибка или упавший dispatch (не записан как запущенный).
+  <имя>`), запись `ci_run` в файл. Повторный вызов, пока `main` на записанном commit, не запускает
+  второй dispatch; если `main` сдвинулся (файл следующей Wave, merge после dispatch), — новый
+  dispatch для нового tip, старый run уходит в `ci_run.superseded`. Поиск run-а — не больше шести
+  вызовов, потом `CI_RUN=not-verified`. Коды: 0 — найден, 3 — запущен, ещё не виден
+  (`CI_RUN=not-found`) или не виден после шести вызовов (`CI_RUN=not-verified`), 1 — ошибка или
+  упавший dispatch (не записан как запущенный). Файл CI — один на Wave:
+  `wave-ci-<эпик>-<номер Wave>.json`.
 - `check` и `merge` не смотрят на checks и `mergeStateStatus` — так было и раньше; теперь это
-  закреплено test-ом (stub `gh pr checks` красный, набор вливается).
+  закреплено test-ом (stub `gh pr checks` красный, набор вливается). Отказ `gh pr merge` теперь тоже
+  под test-ом: PR не попадает в `merge.merged`, merge останавливается.
 - `ci.yml`: только `workflow_dispatch` с input `job` (`check` | `full-macos`), concurrency
-  `${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}` с `cancel-in-progress: true`.
+  `${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}` с `cancel-in-progress: false`: идущий
+  batch CI run не отменяется. Ожидающий run GitHub отменяет при новом dispatch; epic-wave считает
+  такой `cancelled` вытесненным, если есть более новый run на `main`, и ждёт его.
 - Тексты: implementer (шаг 6), ship-ticket (шаги 8–9 и поля в начале), epic-wave (поле в начале,
   verifier, ожидание CI, «Gate before merge», новый раздел «Batch CI on the main branch» с block-ом,
   ожиданием и правилом красного CI run, decision log, отчёт), overnight-fix-loop (1h, раздел 2,
@@ -139,13 +147,22 @@ PR #433, ветка `worfy-throughput/08`. Платформенный PR (ADR-00
   `skills/max-review` CI не ждёт и не менялся.
 
 Test-ы: `bash harness/bin/tests/profile.test.sh` — exit 0 (229 проверок);
-`bash harness/bin/tests/wave-gate.test.sh` — exit 0 (130), включая block skill-а под bash и zsh;
+`bash harness/bin/tests/wave-gate.test.sh` — exit 0 (137), включая block skill-а под bash и zsh;
 `pnpm test test/contract/ci-workflow.test.ts` — exit 0. Mutant «dispatch без проверки
-`dispatched_at`» — 7 красных проверок `wave-gate.test.sh`.
+`dispatched_at`» — 7 красных проверок `wave-gate.test.sh`; mutant «записанный dispatch без
+сравнения commit» — 2 красных.
 
-**Строки для live Profile** (`~/.claude/worfy-harness/projects/worfy/profile.json`) — применить
-вместе с обновлением Harness из этого PR, не раньше: старые skill-ы ждут CI на PR, а после merge
-`ci.yml` на PR не запускается. В объект `workflow`:
+**Порядок перехода.** Правка `ci.yml` действует на все PR сразу, в момент merge; поле Profile-а —
+только когда его прочтёт обновлённый Harness. До шага 3 worfy в режиме `pr` ждал бы CI run на PR,
+который больше не придёт.
+
+1. Merge этого PR — только пока не идёт ни один Autopilot run.
+2. Сразу после merge — обновить живой Harness (`~/.claude/worfy-harness/plugin`) из `main`.
+3. Добавить в live Profile строки ниже (`"ci": "batch"`, `ci_batch_run`) и текст для `rules.md`.
+4. Первый batch CI run — вручную: `gh workflow run ci.yml --ref main -f job=check`.
+
+**Строки для live Profile** (`~/.claude/worfy-harness/projects/worfy/profile.json`) — шаг 3 порядка
+выше. В объект `workflow`:
 
 ```json
 "ci": "batch",

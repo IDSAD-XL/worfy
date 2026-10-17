@@ -38,6 +38,15 @@ job-ы: кончился бюджет Actions. При этом gate перед m
 - Около одного CI run-а на Wave вместо 2–8 на PR плюс один на merge.
 - Тексты Harness с `workflow.ci: "batch"` не ждут CI на PR; PR вливается, когда `mergeable` —
   `MERGEABLE`, даже если старые checks красные или checks нет.
+- Переход нельзя растянуть во времени. Правка `ci.yml` действует на все PR сразу, в момент merge, а
+  поле Profile-а — только когда его прочтёт обновлённый Harness. Пока Profile говорит `pr`, Harness
+  ждёт CI run на PR, который больше не придёт. Порядок: merge PR этого решения, пока не идёт ни один
+  Autopilot run; сразу обновить живой Harness; добавить в Profile `"ci": "batch"` и
+  `ci_batch_run`; первый batch CI run на `main` запустить вручную.
+- Batch CI run-ы одного job на `main` идут по одному и не отменяют идущий (`cancel-in-progress:
+  false`): иначе CI run одной Wave, отменённый dispatch-ем следующей, читался бы как красный.
+  Ожидающий run GitHub всё же отменяет при новом dispatch; такой `cancelled` при более новом run
+  считается вытесненным, а не красным.
 
 ## Considered Options
 

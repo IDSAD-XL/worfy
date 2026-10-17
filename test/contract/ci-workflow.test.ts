@@ -63,9 +63,10 @@ describe('ci.yml: dispatched only, the macOS job only on request', () => {
     expect(value(under(jobs, '  full-macos:'), 'runs-on')).toBe('macos-latest')
   })
 
-  it('lets a newer dispatch of the same job on the same branch cancel the older one', () => {
+  it('runs dispatches of the same job on the same branch one at a time, never cancelling a running one', () => {
+    // A cancelled run of an earlier Wave would read as a red CI run and stop the Autopilot run.
     const group = under(code(), 'concurrency:')
     expect(value(group, 'group')).toBe('${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}')
-    expect(value(group, 'cancel-in-progress')).toBe('true')
+    expect(value(group, 'cancel-in-progress')).toBe('false')
   })
 })

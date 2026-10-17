@@ -18,11 +18,12 @@ on:
           - check
           - full-macos
 
-# A newer dispatch of the same job on the same branch cancels the run still going for the older one:
-# only the newest commit of main matters.
+# Dispatches of the same job on the same branch go one at a time: a running batch run is never
+# cancelled, so every Wave gets its own result. GitHub keeps at most one waiting run per group and
+# cancels an older waiting one when a newer one arrives; the newer run checks a newer commit of main.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.job }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   check:

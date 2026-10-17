@@ -84,6 +84,8 @@ if [ "$1 $2" = "workflow run" ]; then [ -n "${GH_RUN_URL:-}" ] && echo "$GH_RUN_
 if [ "$1 $2" = "run list" ]; then if [ -n "${GH_RUNS:-}" ] && [ -f "$GH_RUNS" ]; then cat "$GH_RUNS"; else echo "[]"; fi; exit 0; fi
 [ "$1 $2" = "pr merge" ] || { echo "stub gh: unexpected $*" >&2; exit 1; }
 n=$3; sha=""; shift 3
+# GH_MERGE_FAIL_AT=<N>: the merge of PR N is refused, as GitHub refuses a PR it cannot merge.
+[ "${GH_MERGE_FAIL_AT:-}" = "$n" ] && { echo "stub gh: Pull request #$n is not mergeable" >&2; exit 1; }
 while [ $# -gt 0 ]; do [ "$1" = "--match-head-commit" ] && sha=$2; shift; done
 [ "$sha" = "$(git -C "$GH_ORIGIN" rev-parse "refs/pull/$n/head")" ] || { echo "head mismatch" >&2; exit 1; }
 w=$(mktemp -d "$GH_TMP/m.XXXXXX")
@@ -143,7 +145,7 @@ new_world() {
     git clone -q "$W/origin.git" "$W/repo"
     mkdir -p "$W/screen"
     export GATE_DIR="$W/gate" GH_ORIGIN="$W/origin.git" GH_LOG="$W/gh/log" GH_TMP="$W/gh" SCREEN_DIR="$W/screen"
-    unset GATE_LOCK GH_EXTRA_AT GH_RUN_URL GH_RUNS GH_DISPATCH_RC
+    unset GATE_LOCK GH_EXTRA_AT GH_RUN_URL GH_RUNS GH_DISPATCH_RC GH_MERGE_FAIL_AT
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
 # state <file> <lock or null> <pr>…: each pr is "<N>[,platform][,label=<name>]"
@@ -622,6 +624,54 @@ before=$(dispatches)
 "$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "merge" "$W/bout" && [ "$(dispatches)" = "$before" ] \
     && ok "batch ci: a merge still in progress -> exit 1, nothing dispatched" || bad "batch ci: pending merge exit $rc $(cat "$W/bout")"
+# A branch name that is not a plain one never reaches the shell: exit 1, no dispatch.
+printf '{"repo":"%s","branch":"main;x","ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref"}\n' "$W/repo" >"$B"
+before=$(dispatches)
+"$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q '"branch"' "$W/bout" && [ "$(dispatches)" = "$before" ] \
+    && ok "batch ci: branch \"main;x\" -> exit 1, nothing dispatched" || bad "batch ci: branch main;x exit $rc $(cat "$W/bout")"
+# Only a run created before the dispatch is listed on that commit: it is not this dispatch's run -> exit 3.
+export WAVE_GATE_CI_POLL_S=0.1 WAVE_GATE_CI_TRIES=1
+printf '[{"databaseId":7,"url":"https://github.com/o/r/actions/runs/7","createdAt":"2000-01-01T00:00:00Z"}]\n' >"$W/old-runs.json"
+export GH_RUNS="$W/old-runs.json"
+E="$W/ci-old.json"; ci_state "$E" batch 'gh workflow run ci.yml --ref $ref -f job=check'
+"$WG" ci "$E" >"$W/eout" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && grep -q "CI_RUN=not-found" "$W/eout" && [ "$(q "$E" 's.ci_run.run_id===undefined')" = true ] \
+    && ok "batch ci: only a run older than the dispatch is listed -> exit 3, not taken" || bad "batch ci: old run exit $rc run $(q "$E" s.ci_run 2>&1)"
+# The lookups are capped: the 6th call that finds no run makes it "not verified"; a later call neither looks nor dispatches.
+for i in 2 3 4 5 6; do "$WG" ci "$E" >"$W/eout" 2>&1; rc=$?; done
+before=$(dispatches)
+"$WG" ci "$E" >"$W/eout2" 2>&1; rc2=$?
+[ "$rc" -eq 3 ] && grep -q "CI_RUN=not-verified" "$W/eout" && [ "$(q "$E" 's.ci_run.status+" "+s.ci_run.lookups')" = "not verified 6" ] \
+    && [ "$rc2" -eq 3 ] && grep -q "CI_RUN=not-verified" "$W/eout2" && [ "$(dispatches)" = "$before" ] \
+    && ok "batch ci: after 6 calls without a listed run -> not verified, no further lookup or dispatch" || bad "batch ci: cap exit $rc/$rc2: $(cat "$W/eout") $(q "$E" s.ci_run 2>&1)"
+unset GH_RUNS WAVE_GATE_CI_POLL_S WAVE_GATE_CI_TRIES
+# The next wave reuses the file after main moved: a new dispatch for the new tip, the old run kept as superseded.
+# The checkout is on another branch: $ref is still the file's branch, not the checked-out one.
+git clone -q "$W/origin.git" "$W/next" && echo next >"$W/next/next.txt" && git -C "$W/next" add -A && git -C "$W/next" commit -q -m "next wave" && git -C "$W/next" push -q origin HEAD:main
+git -C "$W/repo" checkout -q -b elsewhere
+TIP2="$(git -C "$W/origin.git" rev-parse main)"
+export GH_RUN_URL="https://github.com/o/r/actions/runs/5000"
+before=$(dispatches); refs=$(grep -c '^workflow run ci.yml --ref main -f job=check$' "$GH_LOG")
+"$WG" ci "$C" >"$W/nout" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = $((before + 1)) ] && [ "$(grep -c '^workflow run ci.yml --ref main -f job=check$' "$GH_LOG")" = $((refs + 1)) ] \
+    && [ "$(q "$C" 's.ci_run.run_id+" "+s.ci_run.commit+" "+s.ci_run.superseded.map(x=>x.run_id+":"+x.commit).join(",")')" = "5000 $TIP2 4242:$TIP" ] \
+    && ok "batch ci: main moved since the recorded run -> a new dispatch for main's new tip, the old run superseded" || bad "batch ci: next wave exit $rc: $(cat "$W/nout") $(q "$C" s.ci_run 2>&1)"
+"$WG" ci "$C" >/dev/null 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(dispatches)" = $((before + 1)) ] && ok "batch ci: on the same new tip no further dispatch" || bad "batch ci: repeat on the new tip exit $rc, dispatches $(dispatches)"
+git -C "$W/repo" checkout -q main
+unset GH_RUN_URL
+
+# --- a refused gh pr merge: the PR is not recorded as merged, the merge stops ----------------
+new_world mfail 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; state "$S" null 1 2 3
+"$WG" check "$S" >"$W/out" 2>&1
+export GH_MERGE_FAIL_AT=2
+"$WG" merge "$S" >"$W/mout" 2>&1; rc=$?
+[ "$rc" -eq 4 ] && [ "$(q "$S" 's.merge.merged.map(m=>m.number).join(" ")')" = 1 ] && [ "$(q "$S" 's.merge.status+" "+s.merge.stopped.number')" = "stopped 2" ] \
+    && grep -q "gh pr merge failed" "$S" && ok "merge refused by gh: exit 4, only PR 1 recorded as merged, stopped at 2" || bad "merge refused: exit $rc $(q "$S" s.merge 2>&1)"
+[ "$(git -C "$W/origin.git" log --format=%s main | head -n 1)" = "squash #1" ] && ok "merge refused by gh: main ends at PR 1" || bad "merge refused: main $(git -C "$W/origin.git" log --format=%s -1 main)"
+unset GH_MERGE_FAIL_AT
 
 # --- bad input ---------------------------------------------------------------------------
 new_world input 1:a.txt

@@ -678,12 +678,17 @@ main branch, after the last code merge of the wave — the set's `wave-gate merg
 set merged the old way, or the last `"each"` merge — and before the documents PR or commit (item 4;
 it changes no code, and it goes on while the CI run does). Even when `wave-gate merge` stopped
 (`EXIT=4`), what it merged gets the CI run. A wave that merged no code gets none. One CI file per
-wave; the block does not overwrite an existing one, so after a session break the same block finds
-the dispatch recorded and does not start a second CI run:
+wave, named by the epic and the wave's number like the state file of the set; the block does not
+overwrite an existing one, so after a session break the same block finds the dispatch recorded and
+does not start a second CI run while the main branch is still at the recorded commit. When the main
+branch has moved since (a file reused by a later wave, a merge after the dispatch), `wave-gate ci`
+dispatches anew for the new tip and keeps the old run under `ci_run.superseded`. So once the
+documents PR or commit of the wave is merged, do not run the block again: read the recorded run
+(`jq -r '.ci_run.run_id' <CI file>`) for the wait below.
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-C=<CI file>                                    # e.g. <orchestrator scratchpad>/wave-ci-<epic>.json, one per wave
+C=<CI file>                                    # e.g. <orchestrator scratchpad>/wave-ci-<epic>-<wave number>.json
 node - "$C" <repo> <main branch> "$(F workflow.ci)" "$(F workflow.ci_batch_run)" <<'NODE'
 const fs = require("fs")
 const [file, repo, branch, ci, run] = process.argv.slice(2)
@@ -697,7 +702,10 @@ NODE
   the decision log (section 1; `'batch CI run dispatched for <main branch> <commit>'`, evidence — the
   URL). `CI=skipped` — the profile says `pr`.
 - `EXIT=3` (`CI_RUN=not-found`) — dispatched, but GitHub does not list the run yet: run the same
-  block again in a minute; it does not dispatch a second time.
+  block again in a minute; it does not dispatch a second time. `wave-gate ci` counts these calls:
+  after six without a listed run it answers `CI_RUN=not-verified` (still `EXIT=3`), and so does
+  every later call — the CI run of the wave is not verified, with the reason in `ci_run.reason`;
+  handle it as a not verified run below.
 - `EXIT=1` — an error or a failed dispatch (the message says which; nothing is recorded as
   dispatched): fix the cause and run the block again.
 
@@ -711,9 +719,26 @@ set -o pipefail; gh run watch "$id" --exit-status --compact --interval 30 | tail
 gh run view "$id" --json status,conclusion,url,jobs --jq '{status, conclusion, url, failed: [.jobs[] | select(.conclusion == "failure") | .name]}'
 ```
 
-`conclusion` `success` — the wave is green on the main branch; the report says so with the URL. Any
-other result of a `completed` run (`failure`, `cancelled`, `timed_out`) is red; a run still not
-`completed` after six calls is not verified. Neither is reverted — the fix goes forward:
+`conclusion` `success` — the wave is green on the main branch; the report says so with the URL.
+
+`cancelled` is not red by itself. Runs of one job on the main branch go one at a time (`ci.yml`
+does not cancel a running one), but GitHub cancels a waiting run when a newer dispatch arrives — a
+parallel wave, or the owner's run by hand. So look for a newer run of the same workflow on the main
+branch (`<workflow>` — the name after `gh workflow run` in `F workflow.ci_batch_run`):
+
+```bash
+gh run list --branch <main branch> --event workflow_dispatch --workflow <workflow> --limit 5 --json databaseId,url,createdAt,headSha,status,conclusion
+```
+
+A run created after the cancelled one exists — the cancelled run is superseded, not red: its commit
+is in the newer run's commit. Write a decision-log row (`'batch CI run <id> superseded by <newer id>'`)
+and wait for the newer run with the same block and the same rules. No newer run — the cancelled run
+(cancelled by hand) is not verified.
+
+Any other result of a `completed` run (`failure`, `timed_out`, `startup_failure`) is red; a run
+still not `completed` after six calls, a cancelled run with no newer one, and `CI_RUN=not-verified`
+are not verified. A not verified CI run stops the Autopilot run after the wave the same way as a red
+one, with the reason instead of failing jobs. Neither is reverted — the fix goes forward:
 
 - the failing jobs are in `failed`; the failing tests —
   `set -o pipefail; gh run view "$id" --log-failed | grep -E ' FAIL |✘|×' | head -n 20; echo "EXIT=$?"`
