@@ -8,12 +8,13 @@
 # CLAUDE.md, settings.json — with its size and mtime. A test takes it before and after its run and
 # compares the two: a file created, deleted or rewritten there is a write into the real home.
 #
-# Live sessions keep writing into three folders while a test runs: worktree-sessions/ (the
-# worktree lock), gate/state/ (gate markers and verdicts) and profiles/*/state/ (the retro log). Their
+# Live sessions keep writing into four folders while a test runs: worktree-sessions/ (the
+# worktree lock), gate/state/ (gate markers and verdicts), profiles/*/state/ (the retro log) and
+# skills/synced/ (Claude Code rewrites its synced skills about every 10 minutes). Their
 # files are not listed by mtime; instead, with <marker> (the test's temporary directory) the
 # snapshot lists every file there whose contents name the marker — a lock or a verdict of the test's
 # own temporary repository. Claude Code's own folders (projects/, todos/, shell-snapshots/ and the
-# rest) are not looked at: other sessions change them all the time. The three folders are matched on
+# rest) are not looked at: other sessions change them all the time. The four folders are matched on
 # the path with / as the separator, so they are volatile on Windows too, where node joins paths with \;
 # the marker is looked for as given and with that separator.
 #
@@ -24,7 +25,7 @@ real_home_snapshot() {
 const fs = require("fs"), path = require("path")
 const [home, marker] = process.argv.slice(2)
 const claude = path.join(home, ".claude")
-const VOLATILE = [/\/worktree-sessions(\/|$)/, /\/gate\/state(\/|$)/, /\/profiles\/[^/]+\/state(\/|$)/]
+const VOLATILE = [/\/worktree-sessions(\/|$)/, /\/gate\/state(\/|$)/, /\/profiles\/[^/]+\/state(\/|$)/, /\/skills\/synced(\/|$)/]
 const marks = marker ? [...new Set([marker, marker.split("/").join(path.sep)])] : []
 const out = []
 const walk = (p) => {
