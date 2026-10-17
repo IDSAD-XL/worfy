@@ -25,7 +25,9 @@ printf '#!/usr/bin/env node\nprocess.exit(3)\n' >"$T/stub/profile-unregistered"
 printf '#!/usr/bin/env node\nprocess.stdout.write(process.argv.slice(2).join(" ") === "--field _resolved.mode" ? "silent\\n" : "{}\\n")\n' >"$T/stub/profile-silent"
 printf '#!/usr/bin/env node\nprocess.stderr.write("ticket stub: no root here\\n")\nprocess.exit(1)\n' >"$T/stub/ticket-broken"
 chmod +x "$T/stub/"*
-export CLAUDE_TICKET_BIN="$HARNESS/bin/ticket" CLAUDE_PROFILE_BIN="$T/stub/profile-unregistered"
+# The ticket script is the one next to epic-status (no CLAUDE_TICKET_BIN), as in a real run.
+unset CLAUDE_TICKET_BIN
+export CLAUDE_PROFILE_BIN="$T/stub/profile-unregistered"
 export CLAUDE_GATE_CONFIG="$T/no-registry.json" CLAUDE_PROFILES_DIR="$T/no-profiles"
 unset CLAUDE_GATE_STATE CLAUDE_PLUGIN_ROOT
 
@@ -213,6 +215,10 @@ run fin --root
 fails "--root without a value after the epic -> exit 2" 2 "--root without a value"
 out="$(cd "$R" && CLAUDE_TICKET_BIN="$T/stub/ticket-broken" "$STATUS" 2>"$T/err")"; rc=$?; err="$(cat "$T/err")"
 fails "ticket root fails -> its exit code and its words" 1 "ticket stub: no root here"
+# CLAUDE_TICKET_BIN is asked even with --root: this stub ignores --root and names the root outside git.
+printf '#!/usr/bin/env node\nconsole.log(%s)\n' "\"$NG\"" >"$T/stub/ticket-elsewhere"; chmod +x "$T/stub/ticket-elsewhere"
+out="$(cd "$R" && CLAUDE_TICKET_BIN="$T/stub/ticket-elsewhere" "$STATUS" --root "$S" solo 2>"$T/err")"; rc=$?; err="$(cat "$T/err")"
+is "CLAUDE_TICKET_BIN: the root comes from the given ticket script" 0 '/to-tickets · solo 0/1 · ticket 01 — Solo'
 
 # --- 4. --ref: the tree of a branch ----------------------------------------------------------
 run --json --ref old --root "$S"

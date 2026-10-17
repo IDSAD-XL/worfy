@@ -197,8 +197,8 @@ done
 COPY="$T/copy/harness"; mkdir -p "$T/copy" && cp -R "$HARNESS" "$COPY"
 c() { clean "$H4" "$@"; }
 (cd "$R" && c node "$COPY/bin/ticket" root >/dev/null 2>&1)
-(cd "$R" && c bash "$COPY/bin/epic-status" >/dev/null 2>&1)
-(cd "$R" && c bash "$COPY/bin/epic-status" --json >/dev/null 2>&1)
+(cd "$R" && c node "$COPY/bin/epic-status" >/dev/null 2>&1)
+(cd "$R" && c node "$COPY/bin/epic-status" --json >/dev/null 2>&1)
 (cd "$R" && c node "$COPY/bin/epic-board" --no-open --out "$T/eb.html" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-start.sh" >/dev/null 2>&1)
 (cd "$R" && printf '{"cwd":"%s"}' "$R" | c bash "$COPY/hooks/session-end.sh" >/dev/null 2>&1)
@@ -227,7 +227,7 @@ check "copy through a symlink: nothing called the trap" [ ! -e "$TRAP" ]
 # The expected JSON was printed by epic-status at the branch base (origin/main 31bc642) on this fixture;
 # worfy-harness ticket 22 added the branch and repo of every ticket (null: no Branch:/Repo: line).
 want='{"ref":"main","epics":[{"epic":"e1","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"e1","num":1,"slug":"first","title":"01 — First","statusRaw":"done","state":"done","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":2,"slug":"second","title":"02 — Second","statusRaw":"open","state":"open","blockedRaw":"01","blockedNums":[1],"blockedParsed":true,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":3,"slug":"third","title":"03 — Third","statusRaw":"Выкачено 2026-08-23, PR #27","state":"done","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"}]}'
-got="$(cd "$R" && clean "$H1" bash "$HARNESS/bin/epic-status" --json 2>&1)"
+got="$(cd "$R" && clean "$H1" node "$HARNESS/bin/epic-status" --json 2>&1)"
 check "epic-status --json: same JSON as at the branch base" [ "$got" = "$want" ]
 [ "$got" = "$want" ] || echo "     got: $got"
 for sub in "claim:Status: claimed — " "block:Status: blocked — waits" "done:Status: done — "; do

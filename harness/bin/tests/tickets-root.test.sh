@@ -126,11 +126,11 @@ printf '{broken' >"$CLAUDE_GATE_CONFIG"
 got="$(cd "$WS/Repo-A" && "$TICKET" show ep 01 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$got" == *"--root"* ]] && ok "broken registry -> ticket exit 1, names --root" || bad "broken registry: exit $rc, got: $got"
 
-# 8. No node on PATH (worfy-harness ticket 37). Without --root the tickets root comes from `ticket root`,
-# which is node: epic-status refuses with exit 3 and names node and PATH, in each of its three forms,
-# instead of reading <git top-level>/.scratch — for a Silent project that answer is an empty list.
-# With --root it needs no node and answers as before. PATH is a folder of links to the tools
-# epic-status runs, without node: PATH=/usr/bin:/bin would not do, node may live in /usr/bin.
+# 8. No node on PATH (worfy-harness ticket 37). epic-status is a Node script (ADR-0055): started by its
+# #! line with no node on PATH it does not start at all — a non-zero exit, nothing on stdout, node named
+# on stderr — in each of its forms, --root included. It never answers from <git top-level>/.scratch:
+# for a Silent project that answer is an empty list. PATH is a folder of links to the tools a shell
+# needs here, without node: PATH=/usr/bin:/bin would not do, node may live in /usr/bin.
 NN="$T/no-node-bin"; mkdir -p "$NN"
 for t in bash git awk sed tr xargs realpath dirname head mktemp rm printf cat; do
     p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$NN/$t"
@@ -138,17 +138,13 @@ done
 mkdir -p "$T/nonode"; git -C "$T/nonode" init -q -b main && git -C "$T/nonode" commit -q --allow-empty -m init
 mk "$T/nonode/.scratch" nn 01-only open
 if PATH="$NN" command -v node >/dev/null 2>&1; then bad "no-node PATH has node: $(PATH="$NN" command -v node)"; else
-    for form in "--json" "" "--json --ref main"; do
+    for form in "--json" "" "--json --ref main" "--json --root .scratch"; do
         # shellcheck disable=SC2086 # the form is split on purpose
         out="$(cd "$T/nonode" && PATH="$NN" "$STATUS" $form 2>"$T/nn-err")"; rc=$?
-        if [ "$rc" -eq 3 ] && [ -z "$out" ] && grep -q 'node' "$T/nn-err" && grep -q 'PATH' "$T/nn-err"; then
-            ok "no node, no --root: epic-status ${form:-(line)} -> exit 3, names node and PATH"
+        if [ "$rc" -ne 0 ] && [ -z "$out" ] && grep -q 'node' "$T/nn-err"; then
+            ok "no node: epic-status ${form:-(line)} -> exit $rc, nothing on stdout, names node"
         else bad "no node: epic-status ${form:-(line)}: exit $rc, out: ${out:0:200}, err: $(head -c 300 "$T/nn-err")"; fi
     done
-    out="$(cd "$T/nonode" && PATH="$NN" "$STATUS" --json --root "$T/nonode/.scratch" 2>"$T/nn-err")"; rc=$?
-    [ "$rc" -eq 0 ] && [ "$(printf '%s' "$out" | jq -r '[.tickets[].slug]|join(",")')" = "only" ] \
-        && ok "no node, --root given: epic-status --json -> exit 0, the tickets of that root" \
-        || bad "no node with --root: exit $rc, out: ${out:0:200}, err: $(head -c 300 "$T/nn-err")"
 fi
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
