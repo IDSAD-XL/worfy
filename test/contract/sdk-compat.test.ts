@@ -256,13 +256,46 @@ const HANDLE_METHODS = [
   'getContextUsage',
 ] as const satisfies readonly (keyof QueryHandle)[]
 
+type HandleMethod = Exclude<keyof QueryHandle, typeof Symbol.asyncIterator>
+type Handle = Required<QueryHandle>
+/** A query as far as QueryHandle reaches: one that lacks a method of it does not satisfy this. */
+type QueryLike = Record<HandleMethod, (...args: never) => unknown>
+
+/**
+ * The methods of QueryHandle whose arguments, as worfy passes them, query Q does not take. Parameter
+ * tuples are compared one way — unlike method parameters, which TypeScript compares both ways, so
+ * a parameter the SDK narrowed would still fit a whole-method comparison.
+ */
+type ArgumentMismatch<Q extends QueryLike> = {
+  [K in HandleMethod]: Parameters<Handle[K]> extends Parameters<Q[K]> ? never : K
+}[HandleMethod]
+
+/** The methods of QueryHandle whose result from query Q is not what worfy reads. */
+type ResultMismatch<Q extends QueryLike> = {
+  [K in HandleMethod]: ReturnType<Q[K]> extends ReturnType<Handle[K]> ? never : K
+}[HandleMethod]
+
+/** The SDK's Query with one method changed, as a new SDK version might have it. */
+type QueryWith<K extends HandleMethod, F> = Omit<Query, K> & Record<K, F>
+
 describe('the SDK Query against worfy’s QueryHandle', () => {
-  it('has every method of QueryHandle with a signature worfy can call (tsc)', () => {
-    // Pick<> fails when Query lost a method of QueryHandle; toExtend when one changed so that the
-    // SDK's query no longer fits worfy's handle. Required<>: the optional methods too.
-    expectTypeOf<Pick<Query, keyof QueryHandle>>().toExtend<Required<QueryHandle>>()
-    expectTypeOf<(typeof HANDLE_METHODS)[number]>().toEqualTypeOf<Exclude<keyof QueryHandle, typeof Symbol.asyncIterator>>()
+  it('has every method of QueryHandle, taking the arguments worfy passes and giving what worfy reads (tsc)', () => {
+    // QueryLike fails when Query lost a method of QueryHandle, the two mismatches when one changed.
+    expectTypeOf<ArgumentMismatch<Query>>().toBeNever()
+    expectTypeOf<ResultMismatch<Query>>().toBeNever()
+    // The whole query fits worfy's handle, the async iterator included. Required<>: the optional methods too.
+    expectTypeOf<Pick<Query, keyof QueryHandle>>().toExtend<Handle>()
+    expectTypeOf<(typeof HANDLE_METHODS)[number]>().toEqualTypeOf<HandleMethod>()
     // The manifest of the captured messages lists them as well.
     expect(HANDLE_METHODS.filter((name) => !Object.hasOwn(manifest.queryMethods, name))).toEqual([])
+  })
+
+  it('refuses a Query that narrowed a parameter, made one required, changed a result or lost a method (tsc)', () => {
+    expectTypeOf<ArgumentMismatch<QueryWith<'setPermissionMode', (mode: 'default') => Promise<void>>>>().toEqualTypeOf<'setPermissionMode'>()
+    expectTypeOf<ArgumentMismatch<QueryWith<'setModel', (model: string) => Promise<void>>>>().toEqualTypeOf<'setModel'>()
+    expectTypeOf<ArgumentMismatch<QueryWith<'getContextUsage', (opts?: { detail?: 'full' }) => Promise<unknown>>>>().toEqualTypeOf<'getContextUsage'>()
+    expectTypeOf<ResultMismatch<QueryWith<'supportedModels', () => Promise<string[]>>>>().toEqualTypeOf<'supportedModels'>()
+    // @ts-expect-error a Query without getContextUsage is no QueryLike
+    expectTypeOf<ArgumentMismatch<Omit<Query, 'getContextUsage'>>>().toBeNever()
   })
 })

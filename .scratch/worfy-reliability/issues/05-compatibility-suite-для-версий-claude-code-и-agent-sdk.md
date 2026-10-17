@@ -113,9 +113,17 @@ and fail-closed regression tests» (`docs/research/2026-10-15-frontier-ai-runtim
   `system/task_progress`, `task_started.subagent_type` и `spawn_depth`, `task_notification.usage`,
   `result/success.structured_output`, `assistant.parent_tool_use_id` строкой (Subagent-ов и
   compaction в снятых сообщениях нет). Отдельный test падает, если исключение больше не нужно.
-- **Методы `Query`** — describe «the SDK Query against worfy’s QueryHandle»:
-  `expectTypeOf<Pick<Query, keyof QueryHandle>>().toExtend<Required<QueryHandle>>()` — `pnpm typecheck`
-  (проект `tsconfig.test.node.json`). `src/` не тронут. `QueryHandle` теперь в
+- **Методы `Query`** — describe «the SDK Query against worfy’s QueryHandle», проверка типов, её
+  делает `pnpm typecheck` (проект `tsconfig.test.node.json`). Для каждого метода `QueryHandle`:
+  кортеж параметров `Parameters<Required<QueryHandle>[K]>` должен подходить к `Parameters<Query[K]>`
+  (`ArgumentMismatch`), результат `Query[K]` — к результату `QueryHandle` (`ResultMismatch`); метода нет
+  в `Query` — `Query` не проходит ограничение `QueryLike`. Сравнение целых методов
+  (`Pick<Query, keyof QueryHandle>` против `Required<QueryHandle>`) осталось, но одно его мало:
+  параметры методов TypeScript сравнивает в обе стороны, и сужение параметра в новом SDK
+  (`setPermissionMode` только с `'default'`, обязательный `setModel(model: string)`) его проходило
+  (круг 1 ревью, находка med). Кортежи сравниваются в одну сторону. Второй test того же describe
+  держит эти случаи постоянными: `Query` с суженным параметром, с обязательным параметром, с другим
+  результатом и без метода — красные для проверки. `src/` не тронут. `QueryHandle` теперь в
   `src/main/agent/session/types.ts` (worfy-polish 27 разделил `session.ts`).
 - **Сравнение N и N+1** — `scripts/sdk-compat.mjs diff <старая> <новая>`: новые и пропавшие виды
   сообщений, ключи и их типы (только у видов, которые есть в обеих папках), методы `Query` и версии
@@ -149,9 +157,12 @@ Query methods:
 | `claudeCode` манифеста 2.1.299 | красные 2 test-а: установленный пакет и `system/init` |
 | `sdk` манифеста 0.3.300 | красные 2 test-а: `package.json` и установленный пакет |
 | `turn.jsonl:2` с ключом `invented_key` | красный: `turn.jsonl:2: system/init invented_key — no captured system/init has this key` |
-| `QueryHandle.setModel(model?: number)` | `tsc` exit 2, в том числе `sdk-compat.test.ts(263)` |
-| у `QueryHandle` метод `rewindAll()`, которого нет в SDK | `tsc` exit 2: `keyof QueryHandle` does not satisfy `keyof Query` |
-| в test-е `Query` без `getContextUsage` / с другим `setPermissionMode` (как у нового SDK) | `tsc` exit 2 на строке 263 |
+| M1: в проверке `Query` с `setPermissionMode(mode: 'default')` | `tsc` exit 2, `sdk-compat.test.ts(284)`; до круга 2 — exit 0 |
+| M4: в проверке `Query` с обязательным `setModel(model: string)` | `tsc` exit 2, `sdk-compat.test.ts(284)`; до круга 2 — exit 0 |
+| `QueryHandle.setModel(model?: number)` | `tsc` exit 2, в том числе `sdk-compat.test.ts(284, 287)` |
+| у `QueryHandle` метод `rewindAll()`, которого нет в SDK | `tsc` exit 2: `Type 'Query' does not satisfy the constraint 'QueryLike'`, `keyof QueryHandle` does not satisfy `keyof Query` |
+| `ArgumentMismatch` сравнивает кортежи в обратную сторону | `tsc` exit 2: строка 284 и постоянные случаи 294, 295 |
+| `ResultMismatch` всегда `never` | `tsc` exit 2: постоянный случай 297 (`supportedModels`) |
 | `shapeOf` без `*` для ключей-данных | красные 3 unit test-а |
 
 Ни одного запуска настоящего Claude Code или SDK: test-ы и скрипт читают файлы.
