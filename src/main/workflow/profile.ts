@@ -21,7 +21,7 @@ import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
-import { isAbsolutePath } from '../../shared/paths'
+import { isAbsolutePath, isWindowsAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
 
@@ -122,14 +122,17 @@ function searchPath(env: HarnessScriptEnv): string | undefined {
 
 /**
  * The node on the PATH of `env`, the first one in PATH order, or null. Relative entries of PATH are
- * skipped: they would name a folder of the Project the script runs in.
+ * skipped: they would name a folder of the Project the script runs in. On Windows so is `\tools`
+ * (the root of the current drive): the check here would look on worfy's drive, the start in the
+ * script's working folder on another (the same rule as findOnPath in src/main/agent/env.ts).
  */
 export async function nodeOnPath(env: HarnessScriptEnv): Promise<string | null> {
   const windows = process.platform === 'win32'
   const name = windows ? 'node.exe' : 'node'
+  const absolute = windows ? isWindowsAbsolutePath : isAbsolute
   for (const entry of (searchPath(env) ?? '').split(delimiter)) {
     const dir = windows ? entry.trim().replace(/^"(.*)"$/u, '$1') : entry
-    if (!isAbsolute(dir)) continue
+    if (!absolute(dir)) continue
     const candidate = join(dir, name)
     try {
       if (!(await stat(candidate)).isFile()) continue
@@ -145,16 +148,23 @@ export async function nodeOnPath(env: HarnessScriptEnv): Promise<string | null> 
 /** How many bytes of a script are read for its `#!` line. */
 const FIRST_LINE_BYTES = 256
 
-/** The first line of the file at `path`, or '' when it cannot be read. */
-async function firstLine(path: string): Promise<string> {
+/** U+FEFF, which an editor may put before the `#!` of a file it saves as UTF-8. */
+const BYTE_ORDER_MARK = 0xfeff
+
+/**
+ * The first line of the file at `path`, a UTF-8 byte order mark before it dropped, or null when the
+ * file cannot be read.
+ */
+async function firstLine(path: string): Promise<string | null> {
   let file: FileHandle | undefined
   try {
     file = await open(path, 'r')
     const buffer = Buffer.alloc(FIRST_LINE_BYTES)
     const { bytesRead } = await file.read(buffer, 0, FIRST_LINE_BYTES, 0)
-    return buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)[0] ?? ''
+    const line = buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)[0] ?? ''
+    return line.charCodeAt(0) === BYTE_ORDER_MARK ? line.slice(1) : line
   } catch {
-    return ''
+    return null
   } finally {
     await file?.close().catch(() => undefined)
   }
@@ -183,7 +193,10 @@ export async function harnessScriptCommand(script: string, args: readonly string
   )
   if (!isScript) throw new HarnessScriptStartError('ENOENT', `no Harness script at ${script}`)
   const shebang = await firstLine(script)
-  if (shebang.startsWith('#!') && !/\bnode\b/u.test(shebang)) {
+  // Not readable by worfy: on macOS and Linux it is started by itself, as before scripts were Node,
+  // and the system says whether it may run; on Windows node is the only way, and says why it fails.
+  if (shebang === null && process.platform !== 'win32') return { file: script, args: [...args] }
+  if (shebang !== null && shebang.startsWith('#!') && !/\bnode\b/u.test(shebang)) {
     if (process.platform === 'win32') throw new HarnessScriptStartError('NOT_NODE', `this Harness's ${basename(script)} is not a Node script — update the Harness (${script})`)
     return { file: script, args: [...args] }
   }
