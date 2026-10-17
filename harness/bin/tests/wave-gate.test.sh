@@ -609,9 +609,12 @@ S="$W/state.json"; state "$S" null 1 2
     && ok "batch: PRs without green checks are merged in the set" || bad "batch: exit $rc: $(tail -3 "$W/out")"
 ! grep -qE '^(pr checks|run |workflow run)|mergeStateStatus' "$GH_LOG" \
     && ok "batch: check and merge ask for no checks, no run, no mergeStateStatus and dispatch nothing" || bad "batch: gh calls: $(cat "$GH_LOG")"
-# ci_state <file> <ci> <run or null>: the wave CI state file the skill block writes
-ci_state() { local run="$3"; [ "$run" = null ] || run="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$run")"
-    printf '{"repo":"%s","branch":"main","ci":"%s","ci_batch_run":%s}\n' "$W/repo" "$2" "$run" >"$1"; }
+# ci_state <file> <ci> <run or null>: the wave CI state file the skill block writes. On Windows wave-gate runs
+# only a leading gh of the command as the stand-in: any other command would reach the real gh, so it stops the test.
+ci_state() { local run="$3"
+    if on_windows && [ "$run" != null ] && [[ "$run" != "gh "* ]]; then echo "REFUSED: ci_batch_run [$run] does not start with gh: on Windows it would reach the real gh" >&2; exit 1; fi
+    [ "$run" = null ] || run="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$run")"
+    printf '{"repo":"%s","branch":"main","ci":"%s","ci_batch_run":%s}\n' "$(tn "$W/repo")" "$2" "$run" >"$1"; }
 dispatches() { grep -c '^workflow run' "$GH_LOG"; }
 TIP="$(git -C "$W/origin.git" rev-parse main)"
 C="$W/ci.json"; ci_state "$C" batch 'gh workflow run ci.yml --ref $ref -f job=check'
@@ -671,7 +674,7 @@ before=$(dispatches)
 [ "$rc" -eq 1 ] && grep -q "merge" "$W/bout" && [ "$(dispatches)" = "$before" ] \
     && ok "batch ci: a merge still in progress -> exit 1, nothing dispatched" || bad "batch ci: pending merge exit $rc $(cat "$W/bout")"
 # A branch name that is not a plain one never reaches the shell: exit 1, no dispatch.
-printf '{"repo":"%s","branch":"main;x","ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref"}\n' "$W/repo" >"$B"
+printf '{"repo":"%s","branch":"main;x","ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref"}\n' "$(tn "$W/repo")" >"$B"
 before=$(dispatches)
 "$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q '"branch"' "$W/bout" && [ "$(dispatches)" = "$before" ] \
