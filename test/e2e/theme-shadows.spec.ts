@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 /**
  * The shadow tokens inside comma-separated box-shadow lists: the second card of the done stack
@@ -112,7 +113,7 @@ function makeFixture(): { dataDir: string; claudeHome: string } {
   const answerFile = join(scratch, 'epic-status.json')
   writeFileSync(answerFile, JSON.stringify(answer))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answerFile}'\n`)
+  writeFileSync(script, catScript(answerFile))
   chmodSync(script, 0o755)
 
   const dataDir = join(scratch, 'data')

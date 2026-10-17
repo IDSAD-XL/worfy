@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
+import { catScript } from '../harness-node'
 
 // Sessions started from worfy (ticket 18), against the built app on the fake agent: "New session"
 // makes a new live Node and two of them answer side by side; "New conversation" sends the
@@ -353,7 +354,7 @@ test('New session with an Epic frame on the Canvas: the new Node and the frame d
   const answer = join(claudeHome, 'epic-status.json')
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [1, 2, 3].map(ticket) }))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'turn' } })

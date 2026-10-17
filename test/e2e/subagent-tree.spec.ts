@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, marksOf, repoRoot, startTimeline } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
+import { catScript } from '../harness-node'
 
 // The Subagent tree of a Session (ticket 15), against the built app:
 // - the Orchestrator on the fake agent (test/fixtures/agent-scripts/subagents.jsonl) starts a
@@ -191,7 +192,7 @@ test('an Epic frame keeps clear of the Subagent Nodes right of the Orchestrator 
   const ticket = { epic: 'demo', num: 1, slug: 't1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [ticket] }))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'subagents' } })

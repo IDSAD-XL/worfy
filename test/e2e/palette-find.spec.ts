@@ -6,6 +6,7 @@ import { join, relative } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // The command palette (⌘K) and the search over the Canvas (⌘F), ticket 31, in the built app on the
 // fake agent. The Project is a git repository with the Epic `worfy-mvp`; `epic-status` is a script
@@ -131,7 +132,7 @@ test('⌘K goes to a Ticket and runs commands as the buttons do; ⌘F finds word
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   mkdirSync(join(dataDir, PROJECT, 'cards', 'c1'), { recursive: true })

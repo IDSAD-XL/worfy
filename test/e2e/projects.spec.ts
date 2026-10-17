@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { launchApp, type LaunchedApp } from './helpers'
+import { printScript, profileJsonScript } from '../harness-node'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
@@ -55,13 +56,13 @@ const PLUGIN_WAVE = '/worfy:epic-wave tickets {tickets} of epic {epic}'
 const LEGACY_SHIP = '/ship-ticket {epic} {NN}'
 const LEGACY_WAVE = '/epic-wave Ticket-ы {tickets} эпика {epic}'
 /** An `epic-status` stub that answers with no Epics, so the sidebar reads the Project without an error. */
-const NO_EPICS = `#!/bin/sh\necho '{"ref":"main","epics":[],"tickets":[]}'\n`
+const NO_EPICS = printScript('{"ref":"main","epics":[],"tickets":[]}\n')
 /**
  * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
  * "Add project" then puts a repository into the list at once, without the dialog that connects a
  * new one (worfy-harness ticket 24).
  */
-const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
 
 /** Puts the stub `bin/profile` where worfy looks for the scripts when there is no Harness: <Claude home>/bin. */
 function harnessKnowsEverything(claudeHome: string): void {

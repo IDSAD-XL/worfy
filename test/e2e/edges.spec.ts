@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { epicStatusSchema } from '../../src/shared/workflow/types'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // "Blocked by" Edges on the built app (worfy-week ticket 05), over the worfy-mvp Epic of the
 // fixtures with Tickets 01 and 02 done: by default every Edge is thin and pale and the Edges from
@@ -68,7 +69,7 @@ function makeProject(): Map<number, number[]> {
   const answer = join(scratch, 'epic-status.json')
   writeFileSync(answer, JSON.stringify({ ...snapshot, tickets }))
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   mkdirSync(join(dataDir, PROJECT_ID), { recursive: true })

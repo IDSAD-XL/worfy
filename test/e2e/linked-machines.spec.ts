@@ -33,6 +33,7 @@ import {
   type LaunchedApp,
 } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 test.setTimeout(120_000)
 
@@ -599,7 +600,7 @@ function prepareB(scratch: string, shared: string) {
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   const dataDir = dataFolder(join(scratch, 'b-data'), [
     { id: BETA, name: 'beta', path: realpathSync(repo) },

@@ -8,6 +8,7 @@ import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
 import { ORCHESTRATOR_WIDTH } from '../../src/shared/ipc/orchestrator'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // Nodes never overlap (ADR-0038) against the built app: main corrects the operation a drop sends,
 // a drag of several Nodes is one operation and one step of ⌘Z, a saved Layout with overlapping
@@ -228,7 +229,7 @@ test('an Epic frame whose saved offset puts it on a Card is drawn next to the Ca
       tickets: [{ epic: 'demo', num: 1, slug: 't1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }],
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   // main puts the Orchestrator at (40, 40), so the frames' column starts right of it (ADR-0032).

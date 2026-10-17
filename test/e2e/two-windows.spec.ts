@@ -6,13 +6,14 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { epicStatusSchema } from '../../src/shared/workflow/types'
 import { launchApp, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
+import { catScript, profileJsonScript } from '../harness-node'
 
 /**
  * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
  * "Add project" then puts a repository into the list at once, without the dialog that connects a
  * new one (worfy-harness ticket 24).
  */
-const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
 
 // worfy-link ticket 03 against the built app: two windows of one worfy are two clients of main
 // (src/main/clients.ts). What one window changes in the shared state — the Layout, the View menu,
@@ -59,7 +60,7 @@ test.beforeEach(() => {
   answer = join(scratch, 'epic-status.json')
   cpSync(join(FIXTURE, 'epic-status.json'), answer)
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
   writeFileSync(join(claudeHome, 'bin', 'profile'), KNOWS_ALL, { mode: 0o755 })
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

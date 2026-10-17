@@ -9,6 +9,7 @@ import { SELF_PROJECT_MESSAGE, STOP_TEXT } from '../../src/main/autopilot/run'
 import { RESUME_MARGIN_MS } from '../../src/shared/autopilot/resume-at'
 import { autopilotStatusLine } from '../../src/shared/ipc/autopilot'
 import { launchApp, repoRoot } from './helpers'
+import { catScript } from '../harness-node'
 
 // The hints' phrase (DISPLAY_STAYS_ON in src/renderer/canvas/actions/AutopilotAction.tsx), written
 // out: the renderer module is not loaded into the Playwright process.
@@ -187,7 +188,7 @@ function prepare() {
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

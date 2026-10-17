@@ -7,6 +7,7 @@ import { expect, test, type ElectronApplication, type Locator, type Page } from 
 import { canvasReady, launchApp, openSecondWindow, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // Focus mode next to the sidebar, against the built app: the layer covers the main area of the
 // window and the sidebar keeps working; the palette and the sidebar's menus open above the layer;
@@ -74,7 +75,7 @@ test.beforeEach(() => {
     }),
   )
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

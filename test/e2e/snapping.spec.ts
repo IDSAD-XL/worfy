@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // Snapping while a Node is dragged or resized (worfy-week ticket 06) against the built app: the
 // guide shows during a drag and goes out on the drop, the outline of the landing place is where the
@@ -72,7 +73,7 @@ function makeProject(nodes: unknown[], viewport: { x: number; y: number; zoom: n
   const file = join(scratch, 'epic-status.json')
   writeFileSync(file, answer)
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${file}'\n`)
+  writeFileSync(script, catScript(file))
   chmodSync(script, 0o755)
 }
 

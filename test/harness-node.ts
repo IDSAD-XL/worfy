@@ -71,3 +71,10 @@ export const nodeScript = (body: string): string => `#!/usr/bin/env node\nimport
 
 /** A Node script that prints `text`; like catScript, it runs as either kind of module. */
 export const printScript = (text: string): string => `process.stdout.write(${JSON.stringify(text)})\n`
+
+/**
+ * A Node stand-in of `profile` that knows every folder: `--json` prints `json` and a line end; any
+ * other call (`--field …`) exits with 4, a field the Profile does not have.
+ */
+export const profileJsonScript = (json: string): string =>
+  `if (process.argv.slice(2).some((arg) => arg.includes('--json'))) process.stdout.write(${JSON.stringify(`${json}\n`)})\nelse process.exitCode = 4\n`

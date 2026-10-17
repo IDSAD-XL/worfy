@@ -3,6 +3,7 @@ import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, r
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
 import ELK from 'elkjs/lib/elk.bundled.js'
@@ -15,6 +16,7 @@ import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { settled } from './wait'
+import { catScript } from '../harness-node'
 
 // Epic frames on the Canvas of the built app, over Projects in temporary git repositories and a
 // stub `bin/epic-status` in a temporary WORFY_CLAUDE_HOME that reads the Ticket files the way the
@@ -88,8 +90,9 @@ function makeClaudeHome(answer?: string, delay = 0): void {
   const js = join(claudeHome, 'stub.cjs')
   writeFileSync(js, STUB_JS)
   const script = join(claudeHome, 'bin', 'epic-status')
-  const wait = delay ? `sleep ${delay}\n` : ''
-  writeFileSync(script, answer === undefined ? `#!/bin/sh\n${wait}exec '${process.execPath}' '${js}' "$@"\n` : `#!/bin/sh\n${wait}cat '${answer}'\n`)
+  // A Node script: worfy runs the Harness scripts as `node <script>`. The stub gets the same arguments.
+  const run = answer === undefined ? `import(${JSON.stringify(pathToFileURL(js).href)})` : catScript(answer).trim()
+  writeFileSync(script, delay ? `setTimeout(() => ${run}, ${delay * 1000})\n` : `${run}\n`)
   chmodSync(script, 0o755)
 }
 

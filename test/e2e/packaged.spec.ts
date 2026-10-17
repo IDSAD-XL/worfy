@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
 import { GH_STUB, launchApp, type LaunchedApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
+import { catScript } from '../harness-node'
 
 // The packaged tests drive the stable copy of worfy.app that scripts/install-stable.mjs installs:
 // into a temporary folder from the dist/ build of `pnpm test:package`, or the copy named by
@@ -238,7 +239,7 @@ function epicStatusHome(dir: string): string {
       tickets: [{ epic: HARNESS_EPIC, num: 1, slug: 'ticket-1', title: '01 — Ticket 1', statusRaw: 'open', state: 'open', blockedRaw: '—', blockedNums: [], blockedParsed: true }],
     }),
   )
-  writeFileSync(join(home, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(home, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(home, 'bin', 'epic-status'), 0o755)
   return home
 }
