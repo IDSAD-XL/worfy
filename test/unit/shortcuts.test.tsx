@@ -176,9 +176,18 @@ describe('matches', () => {
       expect(matches(press({ key: '[', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(false)
       expect(matches(press({ key: 'х', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(false)
     }
-    // Another letter on another key, and a Latin letter on the key of [ (German ü), stay what they are.
+    // An accented Latin letter on the key of [ is read by the place too: German ü, Nordic å.
+    for (const platform of PLATFORMS) {
+      expect(matches(primary(platform, { key: 'ü', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      expect(matches(primary(platform, { key: 'å', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      expect(matches(primary(platform, { key: 'Ü', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(primary(platform, { key: 'ü', code: 'BracketLeft', altKey: true }), SHORTCUTS.back, platform)).toBe(false)
+    }
+    // A letter a–z there stays the letter (BÉPO has z on the key of [), and another letter on another key is no [.
+    expect(matches(primary('mac', { key: 'z', code: 'BracketLeft' }), SHORTCUTS.back, 'mac')).toBe(false)
+    expect(matches(primary('mac', { key: 'z', code: 'BracketLeft' }), SHORTCUTS.undo, 'mac')).toBe(true)
     expect(matches(primary('mac', { key: 'ъ', code: 'BracketRight' }), SHORTCUTS.back, 'mac')).toBe(false)
-    expect(matches(primary('mac', { key: 'ü', code: 'BracketLeft' }), SHORTCUTS.back, 'mac')).toBe(false)
+    expect(matches(primary('mac', { key: 'ü', code: 'BracketRight' }), SHORTCUTS.back, 'mac')).toBe(false)
     // While the input method composes, the key is not read by its place.
     expect(matches(primary('mac', { key: 'х', code: 'BracketLeft', isComposing: true }), SHORTCUTS.back, 'mac')).toBe(false)
   })
