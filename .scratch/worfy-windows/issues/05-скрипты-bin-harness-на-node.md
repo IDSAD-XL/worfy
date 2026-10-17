@@ -279,3 +279,36 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnp
 - `harness-scripts.test.ts`: main 19 упало из 32 → ветка 18 из 33. `workflow-reader.test.ts` — 31 на обеих сторонах (stub-ы `#!/bin/sh`, их переводит срез 05b).
 - Скрипты Harness в Git Bash: `ticket-header.test.sh` 44/0, `epic-status.test.sh` 47/0, `harness-home.test.sh` 41/0 — exit 0; `silent-mode.test.sh` 85/3 (3 — `worktree-create.sh`, Ticket 04), `profile.test.sh` 92/79 и `tickets-root.test.sh` 12/14 — пути fixture-ов, срез 05c. На main `silent-mode.test.sh` и `tickets-root.test.sh` на ПК зависают (bash-`epic-status` в цикле на пути `C:\`); на ветке доходят до конца.
 - `pnpm lint`, `pnpm typecheck` на `1549ce9` — exit 0.
+
+### Срез 05c — shell-test-ы Harness на Windows: пути в fixture-ах
+
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ветка `worfy-windows/05-test-fixtures` от main `9337e77`. Только test-ы: код скриптов Harness не менялся. **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Причина падений на Windows.** Fixture-ы писали пути в виде Git Bash (`/tmp/tmp.X/…`): `match` в реестре, `tickets.root` и `workflow.folder` в `profile.json`, ожидаемые строки. Скрипты на Node видят тот же каталог как `C:\Users\…\Temp\tmp.X\…`. Поэтому `profile` отвечал exit 3 «not in a registered project», а `/tmp/…` в `profile.json` Node понимал как `C:\tmp\…`.
+- **Что сделано (`43a2b41`, `0911e8b`, `da0c3a1`).**
+  - Временный каталог `T` берётся через `pwd -W || pwd -P`, как в `silent-mode.test.sh`: в Git Bash это `C:/…`, на macOS и Linux `-W` нет, и строка прежняя.
+  - Ожидаемые пути идут через помощник `printed()`: `cygpath -w`, где он есть, иначе путь без изменений. Для путей внутри JSON — `json_printed()` (обратная косая удваивается). Помощник `nat()` из среза 05a убран: при `T` вида `C:/…` он ничего не менял.
+  - Fixture схемы 1 с `<HOME>/.claude/bin/` записан в написании ОС.
+  - Два случая `tickets.root` в `profile.test.sh` идут через shell-stub `$P2` в `CLAUDE_PROFILE_BIN`. На Windows Node не запускает shell-скрипт, и `ticket` молча переходил к `<git top-level>/.scratch`. Эти два случая остались как есть, но только на macOS и Linux; на Windows — строка `skip`. Добавлены два таких же случая со stub-ом на Node (`#!/usr/bin/env node`, запускает `$PROFILE` с HOME песочницы), они идут везде (`da0c3a1`).
+- **Ревью** — subagent этой Session, линза «корректность», macOS и Linux в первую очередь. Строки ожидаемых значений на macOS и Linux не изменились. Найдено и исправлено в `da0c3a1`:
+  - medium: первая версия заменила shell-stub прямым запуском `bin/ticket` с HOME песочницы. Так пропали проверка ветки «profile — не скрипт Node» (`bin/ticket:143`) и разделение окружений: на main `ticket` шёл с настоящим HOME, и только `profile` видел HOME песочницы. Мутант «`ticket` сам раскрывает `~/` в `workflow.folder` через `os.homedir()`»: на первой версии зелёный, на `da0c3a1` красный. Мутант ветки Node (`bin/ticket:144`) — 2 случая красные. Мутант ветки shell-скрипта (`:143`) на Windows проверить нельзя: её случаи там пропущены;
+  - low: `CLAUDE_PROFILE_BIN` теперь задан явно во всех четырёх запусках `ticket`;
+  - low: `json_printed()` полагался на снятие кавычек в замене `${//}`, которого нет в bash 3.2 (macOS `/bin/bash`); теперь `sed`. Проверено под `shopt -s compat42`: прежний вариант давал `C:"\"a"\"b`, новый — `C:\\a\\b`.
+  - Symlink в `tickets-root.test.sh` создаётся с `MSYS=winsymlinks:nativestrict`: без прав на symlink Git Bash раньше молча копировал каталог, и случай «--root через symlink» проверял не symlink. Теперь он падает явно. macOS переменную не читает.
+
+| Shell test, Git Bash | main `9337e77` | ветка |
+|---|---|---|
+| `profile.test.sh` | exit 1, 92 ok / 79 FAIL | exit 0, 171 ok / 0 FAIL |
+| `tickets-root.test.sh` | exit 1, 12 ok / 14 FAIL | exit 0, 26 ok / 0 FAIL |
+| `silent-mode.test.sh` (не менялся) | exit 1, 85 ok / 3 FAIL | то же |
+
+- Сверка по именам: ни один случай, проходящий на main, на ветке не падает.
+- **Мутанты** (скрипт портится, прогон, возврат): без префикса `<HOME>/.claude/bin/` в `LEGACY_BIN` (`bin/profile`) — 2 случая красные; без строки относительного корня Silent в `bin/ticket` — 1; `bin/ticket` игнорирует `tickets.root` — 9 случаев `tickets-root`; `--root` от `launchDir()` вместо `process.cwd()` — случай с symlink красный. Один мутант (абсолютный `tickets.root` игнорируется) выжил как эквивалентный: `path.resolve(top, абсолютный)` и так даёт абсолютный путь.
+- **3 случая `silent-mode` — дефект hook-а, не fixture.** `harness/hooks/worktree-create.sh` (не зарегистрирован, оставлен для ticket-а 24 worfy-harness):
+  - строка 65, `[ "${root#/}" != "$root" ]`, считает абсолютным только путь от `/`; `worktree.root` вида `C:\…`, который `profile` печатает на Windows, считается относительным — падает «WorktreeCreate outside», а за ним «hook tree» (дерево ложится внутрь репозитория);
+  - строки 56 и 89 (`pwd -P`) печатают путь POSIX `/tmp/…/.claude/worktrees/<имя>`, которым родной Claude Code на Windows не воспользуется — падает «WorktreeCreate default».
+  - Test не менялся: путь `/tmp/…` в fixture-е сделал бы его зелёным и спрятал дефект.
+- **Замечено, вне среза:** `bin/ticket:143-160` — на Windows `CLAUDE_PROFILE_BIN`, который не запускается (shell-скрипт), даёт ENOENT, и `ticket` молча берёт `<git top-level>/.scratch` даже в Silent-проекте (переменную ставят только test-ы); `bin/profile:271-276` — пути скриптов Harness на Windows с разными разделителями (`C:\…\harness\bin/ticket`); `bin/profile:277` — путь схемы 1 `<HOME>/.claude/bin/` с прямыми косыми (`C:/…`) на Windows не распознаётся, только с обратными.
+- Части после #428 (worfy-pipeline 02): `ticket-mark.test.sh`, проверки `workflow.pipeline` в `profile.test.sh`, проверки держателя e2e lock в `wave-gate.test.sh` (POSIX `repo` в `state.json`) — отдельным срезом, когда #428 будет в main.
+
+**Не проверено:** всё на macOS и Linux, в том числе случаи с shell-stub-ом (на Windows пропущены) и `json_printed()` на настоящем bash 3.2. То, что строки там не изменились, выведено из кода: нет `cygpath`, `pwd -W` не срабатывает и уступает `pwd -P`, `MSYS` не читается, удвоение обратных косых в строке без них ничего не меняет.
