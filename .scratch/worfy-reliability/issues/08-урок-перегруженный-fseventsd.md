@@ -38,7 +38,7 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 - [x] Урок в `docs/lessons/agents.md` в формате `docs/lessons/README.md`, со строкой `Проверка:`.
 - [x] Если Ticket 07 влит — `node scripts/check-lessons.mjs` exit 0.
 - [x] `node scripts/check-handoff.mjs` — exit 0.
-- [ ] gate fast — exit 0 и строка `[gate] зелено (fast)`, комментарий в PR (PR только с документами).
+- [x] gate fast — exit 0 и строка `[gate] зелено (fast)`, комментарий в PR (PR только с документами).
 
 ## Тесты
 
@@ -69,4 +69,7 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
   это сказано в самой строке.
 - `HANDOFF.md`, «Риски и долги», первая строка — ссылка на урок вместо файлов test-ов, команды и замеров.
 - `node scripts/check-lessons.mjs` — exit 0 (35 уроков, 20 со ссылкой); `node scripts/check-handoff.mjs` —
-  exit 0 (75 строк, 15177 байт). Gate fast — в комментарии PR.
+  exit 0 (75 строк, 15177 байт).
+- Gate fast на `9b3a9d7e`: первый прогон красный — `test/contract/e3-sandbox.test.ts`, три test-а по таймауту
+  скрипта, load average 13,9 (параллельные e2e других агентов); файл отдельно — 57 из 57 зелёные; второй
+  прогон — exit 0, `[gate] зелено (fast)`. Причина таймаутов не доказана; diff — только документы.
