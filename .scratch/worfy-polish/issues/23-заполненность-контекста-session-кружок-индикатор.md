@@ -1,7 +1,8 @@
 # 23 — Заполненность контекста Session: кружок с процентом окна контекста
 
 Type: task
-Status: done — 2026-10-15, [PR #370](https://github.com/IDSAD-XL/worfy/pull/370)
+Status: done 2026-10-15
+PR: #370
 Branch: worfy-polish/23
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Заполненность контекста текущей Session —

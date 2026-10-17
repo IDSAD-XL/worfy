@@ -1,7 +1,8 @@
 # 04 — Проекты: добавить git-репозиторий и переключаться между ними в sidebar
 
 Type: task
-Status: done — 2026-10-05, [PR #7](https://github.com/IDSAD-XL/worfy/pull/7)
+Status: done 2026-10-05
+PR: #7
 Blocked by: 02, 03
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Проект»; [spec.md](../spec.md), раздел «Как устроено», абзац «Собственное состояние worfy»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), список Проектов и настройки worfy; [spec.md](../spec.md), риск 12 (шаблоны действий на проект)
 

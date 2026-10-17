@@ -1,7 +1,8 @@
 # 15 — Мост Limits лежит в `.app`, а не в dev-checkout
 
 Type: task
-Status: done — 2026-10-08, [PR #134](https://github.com/IDSAD-XL/worfy/pull/134)
+Status: done 2026-10-08
+PR: #134
 Blocked by: 13
 Source: решения владельца 2026-10-07, Q19 (мост Limits: скрипт из `.app`, запись `statusLine` меняется с согласия в форме переноса), Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (worfy пишет в `~/.claude` только установщиком и переносом, с согласия); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца); [ADR-0023](../../../docs/adr/0023-separate-data-roots-packaged-and-dev.md) (папки данных dev и packaged); [spec.md](../spec.md)
 

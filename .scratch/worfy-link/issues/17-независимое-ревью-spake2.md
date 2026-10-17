@@ -1,7 +1,8 @@
 # 17 — Независимое ревью реализации SPAKE2 до первого внешнего пользователя
 
 Type: task
-Status: done — 2026-10-16, [PR #396](https://github.com/IDSAD-XL/worfy/pull/396)
+Status: done 2026-10-16
+PR: #396
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/01-сервер-связи-machine-ов.md:287`
 

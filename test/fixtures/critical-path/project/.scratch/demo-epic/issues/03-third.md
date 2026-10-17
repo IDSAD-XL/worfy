@@ -1,4 +1,5 @@
 # 03 — third
 
 Type: task
-Status: blocked — waits for the owner
+Status: blocked
+Blocked reason: waits for the owner

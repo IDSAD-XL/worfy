@@ -1,7 +1,8 @@
 # 15 — Открытую стопку done видно, как свернуть: кнопка Collapse на месте Expand, Esc
 
 Type: task
-Status: done — 2026-10-07, [PR #127](https://github.com/IDSAD-XL/worfy/pull/127)
+Status: done 2026-10-07
+PR: #127
 Blocked by: —
 Source: замечание владельца 2026-10-07 («я развернул done ноды, но при этом непонятно как свернуть их обратно»); Ticket [08](08-undo-перетаскивания-и-сворачивания-рамки-epic-а.md) (стопка — не шаг ⌘Z); [spec.md](../spec.md), этап 3
 

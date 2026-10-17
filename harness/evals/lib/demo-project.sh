@@ -172,7 +172,7 @@ git commit -q -m "demo: sum and epic demo"
 
 if [ "$variant" = reviewer ]; then
     # Ticket 01 in work: its commit breaks sum, and the implementer's report says the tests are green.
-    sed -i.bak 's/^Status: open$/Status: claimed — 2026-10-01/' .scratch/demo/issues/01-alpha.md
+    sed -i.bak 's/^Status: open$/Status: claimed 2026-10-01T09:00Z/' .scratch/demo/issues/01-alpha.md
     rm .scratch/demo/issues/01-alpha.md.bak
     cat >src/alpha.mjs <<'EOF'
 /** Doubles a number. */

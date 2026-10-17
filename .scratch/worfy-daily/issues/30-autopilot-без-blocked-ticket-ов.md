@@ -1,7 +1,8 @@
 # 30 — Autopilot не берёт в Wave Ticket-ы не в `open` и называет Orchestrator-у Ticket-ы Wave
 
 Type: task
-Status: done — 2026-10-06, [PR #59](https://github.com/IDSAD-XL/worfy/pull/59)
+Status: done 2026-10-06
+PR: #59
 Blocked by: —
 Source: второй настоящий прогон Autopilot 2026-10-06 (стабильная копия `~/Applications/worfy-stable.app`, собрана из main 9fcdaff): журнал прогона `~/Library/Application Support/worfy/autopilot/2026-10-06T12-14-04-168Z-c924e5.jsonl`, транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`; [spec.md](../spec.md), тема A; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md), пункт 5; Ticket 04
 

@@ -1,7 +1,8 @@
 # 20 — Поле ввода: slash-команды и skills с автодополнением, файлы и картинки во вложениях
 
 Type: task
-Status: done — 2026-10-05, [PR #29](https://github.com/IDSAD-XL/worfy/pull/29)
+Status: done 2026-10-05
+PR: #29
 Blocked by: 19
 Source: [BRIEF.md](../../../docs/design/BRIEF.md), Screen 2 (slash autocomplete); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), вложения; [F-SPEC.md](../../../docs/design/F-SPEC.md), «macOS popovers (slash autocomplete)»
 

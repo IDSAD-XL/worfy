@@ -1,7 +1,8 @@
 # 18 — Обычный Stop в Autopilot — graceful: новых Ticket-ов не брать; Force stop — в меню «⋯»
 
 Type: task
-Status: done — 2026-10-07, [PR #129](https://github.com/IDSAD-XL/worfy/pull/129)
+Status: done 2026-10-07
+PR: #129
 Blocked by: 17
 Source: ответ владельца 2026-10-07 на решения по умолчанию Ticket-а [17](17-stop-в-autopilot-прерывает-orchestrator.md) («17 верно, но давай обычный стоп автопилота сделаем graceful, т.е не брать новые тикеты, и на карточке в троеточие спрятать пункт force stop»); [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md), пункты 5–6; [spec.md](../spec.md), этап 3
 

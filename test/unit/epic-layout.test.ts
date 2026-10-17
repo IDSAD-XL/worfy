@@ -4,7 +4,6 @@ import { placeNear } from '../../src/shared/canvas/tools'
 import { freePlace, NODE_GAP } from '../../src/shared/layout/free-place'
 import type { Ticket } from '../../src/shared/workflow/types'
 import {
-  blockedReason,
   COLUMN_GAP,
   defaultCollapsed,
   EDGE_CORNER_RADIUS,
@@ -367,7 +366,7 @@ describe('layoutEpic by ELK', () => {
 
   it('marks the ready Wave on its Tickets, not by their place', async () => {
     const tickets = [
-      ticket(1, { state: 'work', statusRaw: 'claimed — 2026-10-05', files: ['src/shared.ts'] }),
+      ticket(1, { state: 'work', statusRaw: 'claimed 2026-10-05', files: ['src/shared.ts'] }),
       // Shares a file with the Ticket in work: waits, though nothing blocks it.
       ticket(2, { files: ['src/shared.ts'] }),
       ticket(3),
@@ -608,7 +607,7 @@ describe('progressOf', () => {
     const tickets = [
       ...[1, 2, 3, 4, 5, 6].map((n) => ticket(n, done)),
       ticket(7, { state: 'work', statusRaw: 'claimed' }),
-      ticket(8, { state: 'blocked', statusRaw: 'blocked — keys' }),
+      ticket(8, { state: 'blocked', statusRaw: 'blocked 2026-10-17T09:41Z', blockedReason: 'keys' }),
       ...[9, 10, 11, 12].map((n) => ticket(n)),
     ]
     const progress = progressOf(tickets)
@@ -623,13 +622,6 @@ describe('progressOf', () => {
 })
 
 describe('Ticket text helpers', () => {
-  it('takes the reason out of a blocked Status line', () => {
-    expect(blockedReason('blocked — needs Stripe test keys')).toBe('needs Stripe test keys')
-    expect(blockedReason('Blocked: waiting for the owner')).toBe('waiting for the owner')
-    expect(blockedReason('blocked')).toBeNull()
-    expect(blockedReason(null)).toBeNull()
-  })
-
   it('drops the leading number from a title and names the Ticket file', () => {
     expect(ticketTitle({ num: 7, title: '07 — Rate-limit the bid endpoint' })).toBe('Rate-limit the bid endpoint')
     expect(ticketTitle({ num: 11, title: 'Эпик рамкой на Холсте' })).toBe('Эпик рамкой на Холсте')

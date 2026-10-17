@@ -1,7 +1,8 @@
 # 02 — Цвет 8 Terminal-а и серый Suggestion Terminal AI: контраст ≥ 4,5:1 в обеих темах
 
 Type: task
-Status: done — 2026-10-15, [PR #347](https://github.com/IDSAD-XL/worfy/pull/347)
+Status: done 2026-10-15
+PR: #347
 Branch: worfy-polish/02
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U6 и решение 1; «Итог»

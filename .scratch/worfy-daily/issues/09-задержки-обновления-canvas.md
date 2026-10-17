@@ -1,7 +1,8 @@
 # 09 — Задержка workflow.changed и двойное чтение истории
 
 Type: task
-Status: done — 2026-10-06, [PR #46](https://github.com/IDSAD-XL/worfy/pull/46)
+Status: done 2026-10-06
+PR: #46
 Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B; Ticket-ы 10 и 14 worfy-mvp
 

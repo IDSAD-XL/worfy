@@ -794,6 +794,31 @@ describe('ready Tickets', () => {
   })
 })
 
+describe('the blocked reason on a Ticket', () => {
+  const nodeOf = (t: Ticket) => buildEpicNodes(freshProject(), '/repo', model([t], ['a']), layoutWith(), {}).find((n) => n.type === 'ticket')!
+  const show = (t: Ticket) =>
+    render(
+      <ReactFlowProvider>
+        <TicketNode {...({ id: ticketNodeId('a', t.num), data: nodeOf(t).data, selected: false } as unknown as CanvasNodeProps)} />
+      </ReactFlowProvider>,
+    )
+
+  it('shows the Blocked reason line of the header, and the tooltip names it after the Status line', () => {
+    show(ticket('a', 1, { state: 'blocked', statusRaw: 'blocked 2026-10-17T09:41Z', blockedReason: 'needs Stripe test keys; Autopilot не берёт' }))
+    expect(screen.getByText('needs Stripe test keys; Autopilot не берёт').className).toBe('w-ticket__reason')
+    expect(screen.getByTestId('ticket-node').title).toBe('blocked 2026-10-17T09:41Z — needs Stripe test keys; Autopilot не берёт')
+  })
+
+  it('shows no reason without the line, and none on a Ticket that is not blocked', () => {
+    const { container, unmount } = show(ticket('a', 1, { state: 'blocked', statusRaw: 'blocked — an old header tail' }))
+    expect(container.querySelector('.w-ticket__reason')).toBeNull()
+    unmount()
+    const open = show(ticket('a', 2, { state: 'open', statusRaw: 'open', blockedReason: 'stale' }))
+    expect(open.container.querySelector('.w-ticket__reason')).toBeNull()
+    expect(screen.getByTestId('ticket-node').title).toBe('open')
+  })
+})
+
 describe('the repository chip of a Ticket (worfy-harness ticket 23)', () => {
   let reposCalls: string[]
   /** A bridge whose checks.repos names `repos` for every root; everything else answers empty. */

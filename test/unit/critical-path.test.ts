@@ -166,6 +166,17 @@ describe('critical-path: durations of each step', () => {
     expect(claimed).toMatchObject({ start: '', start_source: '', claim_to_pr_s: '', claim_to_pr_why: 'claim date only (2026-10-07), no time' })
   })
 
+  it('reads only the header bin/ticket writes: an old Status line gives no state, a PR: line of the result section is not the PR', () => {
+    const m = machine()
+    const issues = join(m.root, '.scratch', 'demo-epic', 'issues')
+    writeFileSync(join(issues, '05-claimed.md'), '# 05 — claimed only\n\nType: task\nStatus: claimed — 2026-10-07\n')
+    writeFileSync(join(issues, '01-first.md'), '# 01 — first\n\nType: task\nStatus: done 2026-10-06\n\n## Итог\n\nPR: #14\n')
+    const rows = csvRows(['--journals', join(m.data, 'autopilot'), '--root', m.root, '--epic', 'demo-epic', '--prs', m.prs])
+    expect(rowOf(rows, 'demo-epic', '05')).toMatchObject({ status: '', claim_to_pr_why: 'no wave-started, no PR commits, no claim date' })
+    // Without the header's PR the branch name finds #11; the result section's #14 is not taken.
+    expect(rowOf(rows, 'demo-epic', '01')).toMatchObject({ status: 'done', pr: '11' })
+  })
+
   it('prints an empty cell as a dash with its reason in Markdown', () => {
     const { status, stdout } = run(DEMO)
     expect(status).toBe(0)

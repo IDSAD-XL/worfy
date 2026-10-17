@@ -1,7 +1,8 @@
 # 19 — Test-ы, зависящие от порядка файлов, и временные файлы test-ов в src
 
 Type: task
-Status: done — 2026-10-06, [PR #77](https://github.com/IDSAD-XL/worfy/pull/77)
+Status: done 2026-10-06
+PR: #77
 Blocked by: 17
 Source: [spec.md](../spec.md), тема E; HANDOFF worfy-mvp, «Риски и долги» (Ticket 28 worfy-mvp)
 

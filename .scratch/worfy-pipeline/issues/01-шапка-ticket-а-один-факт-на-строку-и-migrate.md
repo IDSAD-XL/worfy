@@ -1,7 +1,9 @@
 # 01 — Шапка Ticket-а: один факт на строку, `bin/ticket migrate`
 
 Type: task
-Status: open
+Status: done 2026-10-17T05:50Z
+PR: #421
+Branch: worfy-pipeline/01
 Blocked by: —
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 3, 6 ([spec.md](../spec.md), «Решения
 владельца»); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md),
@@ -62,16 +64,16 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Готово, когда
 
-- [ ] `bash harness/bin/tests/ticket-header.test.sh` — exit 0: `claim`, `open`, `done --pr`, `block --waits`
+- [x] `bash harness/bin/tests/ticket-header.test.sh` — exit 0: `claim`, `open`, `done --pr`, `block --waits`
       пишут формат пункта 1; `migrate` переносит фикстуры всех спеллингов (`**Status:**`, подвал,
       `in-progress`, `заблокирован`, ссылка на PR, причина с `;`) и отказывается на непонятной строке.
-- [ ] Тот же test: `epic-status --json` на перенесённой фикстуре — `state` каждого Ticket-а тот же,
+- [x] Тот же test: `epic-status --json` на перенесённой фикстуре — `state` каждого Ticket-а тот же,
       что до миграции; `blockedReason`, `waits`, `pr` заполнены.
-- [ ] `bash harness/bin/tests/tickets-root.test.sh` и `bash harness/bin/tests/silent-mode.test.sh` —
+- [x] `bash harness/bin/tests/tickets-root.test.sh` и `bash harness/bin/tests/silent-mode.test.sh` —
       exit 0 (`migrate` в Silent mode пишет в Workflow folder).
-- [ ] `pnpm test test/unit/epic-layout.test.ts test/unit/critical-path.test.ts` и
+- [x] `pnpm test test/unit/epic-layout.test.ts test/unit/critical-path.test.ts` и
       `pnpm test test/contract/workflow-reader.test.ts` — exit 0.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] Платформенный PR (ADR-0056, пункт 2): вердикт Windows — gate full на ПК, код 0 и
       `[gate] зелено (full)`.
 - [ ] (вручную, Orchestrator после мержа) PR миграции worfy: `epic-status --json` до и после —
@@ -96,7 +98,58 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - `test/unit/critical-path.test.ts`
 - `test/unit/epic-layout.test.ts`
 - `test/contract/workflow-reader.test.ts`
+- `src/main/workflow/reader.ts` (добавлено при claim: переносит из ветки статус вместе с `blockedReason`, `waits`, `pr`)
+- `test/fixtures/workflow-stub/epic-status.mjs`, `test/contract/scratch-gen.ts` (stub `epic-status` для contract test-ов — новый формат)
+- `test/fixtures/critical-path/project/.scratch/demo-epic/issues/*.md` (фикстуры `critical-path` — перенесены `ticket migrate`)
+- `test/unit/epic-canvas.test.tsx` (test причины на Card)
+- `test/e2e/epic-frame.spec.ts` (добавлено в круге 2: его stub `epic-status` и фикстуры Ticket-ов — новый формат; остальные e2e отдают готовый ответ `epic-status`, и их результат от формата шапки не зависит)
+- `harness/bin/tests/tickets-root.test.sh`, `harness/bin/tests/silent-mode.test.sh`, `harness/bin/tests/harness-home.test.sh` (ждали старую строку `Status:`; `migrate` в Silent mode)
+- `harness/skills/ship-ticket/SKILL.md`, `harness/hooks/rules/orchestrator.md` (тексты о «спеллинге файла»)
+- `harness/evals/lib/demo-project.sh`, `harness/evals/reviewer-intended-breakage/scaffold.sh`, `harness/evals/reviewer-simplification/scaffold.sh`, `test/contract/harness-evals.test.ts` (scaffold-ы eval-ов писали `claimed — дата`)
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-pipeline/01`. Что сделано:
+
+- `harness/bin/ticket` пишет только новый формат: `Status: <слово> <время>` (UTC до минут, `open` тоже с
+  временем), `Blocked reason:`, `Waits:`, `PR: #N` сразу под `Status:`. `claim`, `open`, `done` снимают
+  `Blocked reason:` и `Waits:`; `PR:` остаётся, `done --pr` его заменяет. На файле со старой шапкой любая
+  запись — exit 1 «run ticket migrate first». `ticket migrate [--epic E] [-n]` — как в пункте 3.
+- `harness/bin/epic-status` читает только новый формат; в `--json` — `statusAt`, `statusError`,
+  `blockedReason`, `waits`, `pr`; в строке `Этап` — «N with an old header — run ticket migrate».
+- worfy: Card берёт причину из `blockedReason`; `blockedReason()` удалена; tooltip Card — `Status` и через
+  « — » причина, как раньше одна строка `blocked — <причина>`. Reader переносит из ветки весь статус (ADR-0033
+  не тронут: ветка по-прежнему не перекрывает `blocked` и `done` checkout-а). `critical-path.mjs` читает
+  `Status:` и `PR:` шапки.
+
+`ticket migrate -n` на настоящем `.scratch` (2026-10-17, дерево ветки; шапка этого Ticket-а уже перенесена
+им же): 232 файла к переносу, 73 уже в новом формате, 0 без Status, 0 отказов. `blocked` без `Waits:` — 5:
+worfy-link 16, worfy-terminal-ai 09, worfy-throughput 04 и 05, worfy-ui 12. Заметки, которые `migrate`
+выбросит из строк `done` (в «Итог» этих Ticket-ов то же самое): worfy-reliability 02 и 03 — «отчёт — [PR #…]»
+и «решение владельца — в «Итог»». На копии дерева: `epic-status --json` до (версия с main) и после
+`migrate` — `state` всех 305 Ticket-ов совпал, `statusError` — 0, `pr` — у 224, причина всех 5 `blocked`
+совпала с текстом, который Card показывала раньше.
+
+Решено без владельца, подтвердить:
+
+- Читатель принимает `Status: <слово>` без времени для всех четырёх слов (`statusAt: null`), не только для
+  `open`: так `Status: done` из шаблонов и test-ов не становится `none`. Пишет `ticket` всегда со временем.
+- Вторая строка `Status:` в файле (старый подвал) — тоже старая шапка, и для `epic-status`, и для `ticket`.
+- `migrate` — всё или ничего: при любом отказе не пишет ни одного файла. Подвал с другим словом, чем шапка, —
+  отказ (старый читатель брал последнюю строку, и выбор шапки сменил бы `state`).
+- Заметка в строке `done` выбрасывается и печатается («note dropped: …»); заметка в `claimed` или `open` —
+  отказ.
+- `ticket block <epic> <NN> --waits <кто>` без причины на уже `blocked` Ticket-е ставит только `Waits:`,
+  причину и время не трогает — это шаг 6 после `migrate`. `block` с новой причиной без `--waits` снимает
+  старый `Waits:`.
+- `epic-status --json` отдаёт и `statusError` (причину `state: none`), кроме четырёх полей из пункта 4.
+- `PR:` пишется без ссылки (`PR: #412`), как в пункте 1; ссылка на GitHub из строки Status уходит.
+
+Не проверено: вердикт Windows (gate full на ПК) — шаг оркестратора; миграция worfy (пункт 6) — шаг
+оркестратора после merge.
+
+## Merge
+
+[PR #421](https://github.com/IDSAD-XL/worfy/pull/421) влит 2026-10-17 как `05c63c83`. Mac: `GATE_SCOPE=all` gate full exit 0 на head `a6a9943e` поверх main `65049210`, CI зелёный. Windows-ПК на `80389bf`: новых падений по имени против main нет; три падения `ticket-header.test.sh` на Windows (обратная косая черта в путях `migrate`, `sed` из Git Bash срезал `\r`) исправлены коммитом `80389bf`. Проверка «migrate in Silent mode» в `silent-mode.test.sh` на Windows красная по той же причине, что и проверки claim и block на main (путь корня), — это `worfy-windows` 05.
+
+Шаг 6 (миграция worfy) — отдельный PR: `ticket migrate` перенёс 235 Ticket-ов, 70 уже были в новом формате; `Waits:` выставлен пяти `blocked` (link 16, terminal-ai 09, ui 12 — owner; throughput 04, 05 — agent). `epic-status --json` до и после: `state` 305 Ticket-ов совпал (кроме этого Ticket-а, `work` → `done`), `statusError` — 0; установленный Harness со старым разбором читает перенесённые файлы так же.

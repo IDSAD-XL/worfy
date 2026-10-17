@@ -1,7 +1,8 @@
 # 13 — Установщик: worfy ставит Harness своей версии как plugin `worfy`
 
 Type: task
-Status: done — 2026-10-07, [PR #132](https://github.com/IDSAD-XL/worfy/pull/132)
+Status: done 2026-10-07
+PR: #132
 Blocked by: 04, 12
 Source: решения владельца 2026-10-07, Q1, Q2, Q4, Q12, Q22, Q8; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness: копия `harness/` из `.app` в `~/.claude/worfy-harness/plugin/`, локальный marketplace, plugin `worfy` в области пользователя, версия `<semver>+<SHA>`); ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`; итог spike Ticket-а 01: установка plugin встроенным `claude`); [spec.md](../spec.md)
 

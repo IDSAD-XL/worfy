@@ -1,7 +1,8 @@
 # 01 — Журнал прогона Autopilot
 
 Type: task
-Status: done — 2026-10-06, [PR #35](https://github.com/IDSAD-XL/worfy/pull/35)
+Status: done 2026-10-06
+PR: #35
 Blocked by: —
 Source: [spec.md](../spec.md), тема A; [CONTEXT.md](../../../CONTEXT.md), термин Autopilot; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) — собственное состояние worfy
 

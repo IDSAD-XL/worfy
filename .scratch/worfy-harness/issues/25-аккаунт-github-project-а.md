@@ -1,7 +1,8 @@
 # 25 — Аккаунт GitHub Project-а при подключении: выбор из `gh auth status`, `gh auth login` в Terminal, запись в Profile
 
 Type: task
-Status: done — 2026-10-09, [PR #191](https://github.com/IDSAD-XL/worfy/pull/191)
+Status: done 2026-10-09
+PR: #191
 Branch: worfy-harness/25
 Blocked by: 24
 Source: решения владельца 2026-10-07, вопросы Q11', Q21, Q22, Q30; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — нет прав на `origin` — локальный финиш; Ticket 01 Epic-а `worfy-week` — аккаунт из Profile для своих вызовов `gh` worfy; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3

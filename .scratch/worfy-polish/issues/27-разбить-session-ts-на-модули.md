@@ -1,7 +1,8 @@
 # 27 — Разбить `src/main/agent/session.ts` на связные модули, без изменения поведения
 
 Type: task
-Status: done — 2026-10-17, [PR #422](https://github.com/IDSAD-XL/worfy/pull/422)
+Status: done 2026-10-17
+PR: #422
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») по долгу из `HANDOFF.md` («Сейчас в работе»,
 `worfy-week`: «долг: `src/main/agent/session.ts` 1077 строк»); файл перерос 1000 строк в

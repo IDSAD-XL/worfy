@@ -1,7 +1,8 @@
 # 04 — Session живёт на Machine Project-а и не зависит от окна
 
 Type: task
-Status: done — 2026-10-08, [PR #156](https://github.com/IDSAD-XL/worfy/pull/156)
+Status: done 2026-10-08
+PR: #156
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q14 (Session, запущенная с другой Machine, живёт на Machine Project-а и не закрывается с окном) и Q2 (обе Machine работают одновременно, общее состояние живое) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 2 и 3); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) (пункт 4 — Session живёт на Machine Project-а; последствие про `agent.start`)
 

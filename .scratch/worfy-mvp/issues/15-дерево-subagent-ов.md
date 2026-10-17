@@ -1,7 +1,8 @@
 # 15 — Дерево Subagent-ов у Сессии: тип, модель, статус, итог; сделанные сворачиваются
 
 Type: task
-Status: done — 2026-10-05, [PR #26](https://github.com/IDSAD-XL/worfy/pull/26)
+Status: done 2026-10-05
+PR: #26
 Blocked by: 14
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «Subagent»; [BRIEF.md](../../../docs/design/BRIEF.md), Screen 1 пункт 2 и Screen 2 «Subagent tree»; «Итог» тикета 09
 

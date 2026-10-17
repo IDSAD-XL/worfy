@@ -1,7 +1,8 @@
 # 03 — Contract test-ы не читают настоящий `~/.claude`: временный `WORFY_CLAUDE_HOME` по умолчанию
 
 Type: task
-Status: done — 2026-10-15, [PR #351](https://github.com/IDSAD-XL/worfy/pull/351)
+Status: done 2026-10-15
+PR: #351
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R6; `HANDOFF.md`, «Риски и долги»: «[med] Contract test-ы читают
 настоящий `~/.claude/settings.json`: если там `model: haiku`, падают 10 test-ов (`worfy-daily` 07 и 23)»;

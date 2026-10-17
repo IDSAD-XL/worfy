@@ -1,7 +1,8 @@
 # 03 — ZLE widget и socket до main: Suggestion из истории, → / Option+→ / Esc, вставка в строку
 
 Type: task
-Status: done — 2026-10-14, [PR #306](https://github.com/IDSAD-XL/worfy/pull/306)
+Status: done 2026-10-14
+PR: #306
 Blocked by: 01, 02
 Source: решения владельца 2026-10-09: пункт 1(a) (Suggestion — серый текст, сразу из истории команд, локально и без модели; → принимает целиком, Option/Alt+→ — по слову, Esc скрывает), пункт 4 (ZLE widget как zsh-autosuggestions: `POSTDISPLAY`, асинхронно через `zle -F`, socket `zmodload zsh/net/socket; zsocket` до main, socket 0600 и nonce в окружении; shell рисует и принимает серый текст сам — его видит каждое окно), пункт 3 (строка с пробелом в начале — без модели) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), Considered Options — почему не ghost text поверх xterm; [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — один shell на нескольких экранах
 

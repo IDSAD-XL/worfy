@@ -1,7 +1,8 @@
 # 05 — Machines: точка состояния у заголовка, свёрнута по умолчанию, переключатели — в Settings → Machines
 
 Type: task
-Status: done — 2026-10-13, [PR #296](https://github.com/IDSAD-XL/worfy/pull/296)
+Status: done 2026-10-13
+PR: #296
 Blocked by: 02, 04
 Source: решения владельца 2026-10-09: 1 (Machines свёрнута по умолчанию; зелёная точка с лёгкой пульсацией, когда хотя бы одна Linked machine в сети — `online` без `certificateChanged`; нет — точки нет; сменился сертификат — статичная янтарная точка; tooltip (`title`) и `aria-label`; `prefers-reduced-motion`; два переключателя — в Settings → Machines, в секции остаются список и «Link a machine…»; перечислить e2e и шаги приёмки worfy-link 16, которые меняются), 2 (раздел Machines окна Settings) ([spec.md](../spec.md), «Как устроено», «Точка Machines»; риск 6; «Пересечения», worfy-link 16); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (доступ «Linked machines can work with my Projects»)
 

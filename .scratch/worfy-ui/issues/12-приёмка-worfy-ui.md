@@ -1,7 +1,9 @@
 # 12 — Приёмка Epic-а worfy-ui по «Готово, когда»
 
 Type: task
-Status: blocked — в Ticket-е шаги владельца: ручные проверки ускорителей меню на Stable copy и просмотр снимков; Autopilot его не берёт. Orchestrator ставит `open`, когда 01–11 влиты и владелец за Mac-ом
+Status: blocked
+Blocked reason: в Ticket-е шаги владельца: ручные проверки ускорителей меню на Stable copy и просмотр снимков; Autopilot его не берёт. Orchestrator ставит `open`, когда 01–11 влиты и владелец за Mac-ом
+Waits: owner
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08, 09, 10, 11, 13, 14, 15
 Source: «Готово, когда» Epic-а worfy-ui ([spec.md](../spec.md), «Цель»; подтверждено владельцем 2026-10-09); решения владельца 2026-10-09, 1–9 ([spec.md](../spec.md), «Решения владельца»); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) (проверка на Windows-ПК); [roadmap.md](../../../docs/roadmap.md), раздел «worfy-ui — интерфейс и настройки»
 

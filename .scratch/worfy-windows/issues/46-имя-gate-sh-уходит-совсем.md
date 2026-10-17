@@ -1,7 +1,7 @@
 # 46 — Имя `gate.sh` уходит совсем: перенос пишет `node … gate.mjs`, установщик правит перенесённые Profile-ы, shim удаляется
 
 Type: task
-Status: done — 2026-10-14
+Status: done 2026-10-14
 Blocked by: 03
 Source: решение владельца 2026-10-13 («пока пусть Б»: `gate.sh` пока остаётся файлом из двух строк, который запускает `gate.mjs`; полное удаление имени — отдельным Ticket-ом после приёмки E3); [Ticket 03](03-gate-на-node.md) (Gate на Node), «Что делаем», пункты 1, 8 и 9; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункты 1 и 4; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md), пункты 5 и 7 — что установщик пишет на машине; [Ticket 26 Epic-а `worfy-harness`](../../worfy-harness/issues/26-приёмка-e3.md) — приёмка E3
 

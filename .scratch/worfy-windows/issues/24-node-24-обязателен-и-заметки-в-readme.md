@@ -1,7 +1,8 @@
 # 24 — Node 24 обязателен для разработки на обеих машинах; README: версия Node и закрытие Terminal на Windows
 
 Type: task
-Status: done — 2026-10-12, [PR #256](https://github.com/IDSAD-XL/worfy/pull/256)
+Status: done 2026-10-12
+PR: #256
 Blocked by: 10
 Source: решения владельца 2026-10-12: (1) Node 24 обязателен для разработки и на Mac, и на Windows-ПК; (2) закрытие Terminal Node на Windows завершает все процессы под его оболочкой — поведение остаётся, в README о нём заметка. Заметка описывает код PR #239 (Ticket [10](10-terminal-на-powershell.md) — Terminal на PowerShell, влит 2026-10-12); блокер отсюда. Делает агент-implementer на Mac. Установка Node 24 на ПК — шаг владельца.
 

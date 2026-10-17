@@ -16,8 +16,13 @@
 #   three repositories) — refusal with exit 3, not an empty answer.
 #
 # Source of truth: <tickets root>/<epic>/issues/NN-slug.md.
-# Fields are written both in the ticket's header and in its footer, in two spellings — "**Status:** done"
-# and "Status: done" — so the LAST occurrence across the whole file is taken.
+# The header carries one fact per line (TICKETS.md, "Header"); bin/ticket writes it, and this is its reader:
+#   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
+#   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
+#                                                   heading after Status), outside code
+# --json gives them as statusAt, blockedReason, waits, pr. Any other Status line — "**Status:**", a tail after
+# the word, a second Status line in the footer — is the old header: state none and statusError "old header",
+# not a guess; `ticket migrate` moves it.
 #
 # The whole parse lives in one awk program below — not out of love for awk, but because
 # there must be exactly as many readers of the format as there are formats. The human
@@ -85,13 +90,12 @@ where=''  # the branch goes into the line only for a single epic; in the full li
 
 # ── parse ─────────────────────────────────────────────────────────────────────
 # One awk pass over all tickets of the tree. The output is TSV, one line per ticket:
-#   epic  num  slug  title  statusRaw  state  blockedRaw  blockedNums  blockedParsed
+#   epic  num  slug  title  statusRaw  state  blockedRaw  blockedNums  blockedParsed  statusError
 # The separator is \037, not a tab: for bash a tab is whitespace, and an empty field would collapse in read.
 # String fields arrive already escaped for JSON.
 read -r -d '' AWK_ROWS <<'AWK' || true
-function isdone(w) { return w ~ /^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$/ }
-function iswork(w) { return w ~ /^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/ }
-function isblok(w) { return w ~ /^(blocked|Blocked|заблокирован|Заблокирован)$/ }
+# The Status line of the new format. No {n} intervals: older awk builds do not support them.
+function isnew(x) { return x ~ /^Status: (open|claimed|blocked|done)( [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]Z)?)?[ \t]*$/ }
 # Words people use to write "no blockers". An empty list of numbers and "did not understand" are
 # different things, and blockedParsed tells them apart, not the length of the list.
 function isnone(x) { return x ~ /^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n\/a|N\/A|-|—|–)$/ }
@@ -102,14 +106,16 @@ function clean(x)  { gsub(/[\001-\037\177]/," ",x); return x }
 function esc(x)    { x=clean(x); gsub(/\\/,"\\\\",x); gsub(/"/,"\\\"",x); return x }
 function jstr(x)   { return "\"" esc(x) "\"" }
 
-function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
+function emit(  w,st,at,serr,rs,wt,pn,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
   if (file == "" || !ok) { file=""; return }
-  w = status; gsub(/\*/,"",w); sub(/^[ \t]+/,"",w); sub(/[ \t].*$/,"",w); gsub(/[.,;:()]/,"",w)
-  if      (status == "") st="none"
-  else if (isdone(w))    st="done"
-  else if (iswork(w))    st="work"
-  else if (isblok(w))    st="blocked"
-  else                   st="open"
+  st="none"; at=""; serr=""; rs=""; wt=""; pn=""
+  if (nstatus == 1 && isnew(sline)) {
+    w = sline; sub(/^Status: /,"",w); at = w; sub(/[ \t].*$/,"",w)
+    if (at ~ / /) { sub(/^[a-z]+ /,"",at); sub(/[ \t]+$/,"",at) } else at=""
+    st = (w == "claimed") ? "work" : w
+    rs = reason; wt = waits
+    if (prl ~ /^#[0-9]+$/) { pn = prl; sub(/^#/,"",pn) }
+  } else if (nstatus > 0) serr="old header"
 
   bn=""; bp=0
   if (blocked != "") {
@@ -141,13 +147,15 @@ function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
     # surrounding backticks are not part of the value.
     br = branch; gsub(/\*|`/,"",br); sub(/^[ \t]+/,"",br); sub(/[ \t]+$/,"",br)
     rp = repo;   gsub(/\*|`/,"",rp); sub(/^[ \t]+/,"",rp); sub(/[ \t]+$/,"",rp)
-    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"branch\":%s,\"repo\":%s,\"ref\":%s}",
+    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"statusAt\":%s,\"statusError\":%s,\"blockedReason\":%s,\"waits\":%s,\"pr\":%s,\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"branch\":%s,\"repo\":%s,\"ref\":%s}",
       (nemit++ ? "," : ""), jstr(epic), num+0, jstr(slug), jstr(title),
       (status == "" ? "null" : jstr(status)), st,
+      (at == "" ? "null" : jstr(at)), (serr == "" ? "null" : jstr(serr)),
+      (rs == "" ? "null" : jstr(rs)), (wt == "" ? "null" : jstr(wt)), (pn == "" ? "null" : pn+0),
       (blocked == "" ? "null" : jstr(blocked)), (bp ? bn : ""), (bp ? "true" : "false"),
       (br == "" ? "null" : jstr(br)), (rp == "" ? "null" : jstr(rp)), jstr(ref)
   } else {
-    printf "%s\037%d\037%s\037%s\037%s\037%s\037%s\037%s\037%d\n", clean(epic), num+0, clean(slug), clean(title), clean(status), st, clean(blocked), bn, bp
+    printf "%s\037%d\037%s\037%s\037%s\037%s\037%s\037%s\037%d\037%s\n", clean(epic), num+0, clean(slug), clean(title), clean(status), st, clean(blocked), bn, bp, serr
   }
   file=""
 }
@@ -155,6 +163,7 @@ function emit(  w,st,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
 FNR==1 {
   emit()
   file=FILENAME; title=""; status=""; blocked=""; branch=""; repo=""; fence=0
+  sline=""; nstatus=0; hdr=1; reason=""; waits=""; prl=""; gotr=0; gotw=0; gotp=0
   base=file; sub(/.*\//,"",base)
   epic=file; sub(/\/issues\/[^\/]*$/,"",epic); sub(/.*\//,"",epic)
   num=base;  sub(/-.*/,"",num)
@@ -168,8 +177,14 @@ FNR==1 {
   l=$0; sub(/\r$/,"",l)
   if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; next }
   if (fence) next   # "Status: done" in a code example is not a ticket field
+  # The header ends at the first "## " heading after the Status line: a "PR: <url>" line of a result section
+  # is not the header's.
+  if (nstatus > 0 && l ~ /^## /) hdr=0
+  if (hdr && !gotr && l ~ /^Blocked reason:/) { gotr=1; v=l; sub(/^Blocked reason:[ \t]*/,"",v); sub(/[ \t]+$/,"",v); reason=v }
+  if (hdr && !gotw && l ~ /^Waits:/)          { gotw=1; v=l; sub(/^Waits:[ \t]*/,"",v);          sub(/[ \t]+$/,"",v); waits=v }
+  if (hdr && !gotp && l ~ /^PR:/)             { gotp=1; v=l; sub(/^PR:[ \t]*/,"",v);             sub(/[ \t]+$/,"",v); prl=v }
   low=tolower(l)
-  if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v }
+  if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { if (!nstatus++) { sline=l; v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v } }
   else if (low ~ /^\*?\*?blocked by[ \t]*\*?\*?[ \t]*:/) { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); blocked=v }
   else if (low ~ /^\*?\*?branch[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); branch=v }
   else if (low ~ /^\*?\*?repo[ \t]*\*?\*?[ \t]*:/)       { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); repo=v }
@@ -198,18 +213,18 @@ rows() {  # <.scratch dir> [epic] [mode] [ref] → TSV or JSON objects
 # ── human line ────────────────────────────────────────────────────────────────
 line_for() {
   local dir=$1 epic=${1##*/}
-  local total=0 ndone=0 working=0 nostatus=0 curnum='' curtitle='' curstate='' curbn=''
-  local n num slug title sraw st braw bn bp
+  local total=0 ndone=0 working=0 nostatus=0 oldhdr=0 curnum='' curtitle='' curstate='' curbn=''
+  local n num slug title sraw st braw bn bp serr
   local states='' line
 
-  while IFS=$'\037' read -r n num slug title sraw st braw bn bp; do
+  while IFS=$'\037' read -r n num slug title sraw st braw bn bp serr; do
     [ -n "$n" ] || continue
     total=$((total + 1))
     states="$states $num:$st"
     case $st in
       done) ndone=$((ndone + 1)); continue ;;
       work|blocked) working=1 ;;
-      none) nostatus=$((nostatus + 1)) ;;
+      none) if [ -n "$serr" ]; then oldhdr=$((oldhdr + 1)); else nostatus=$((nostatus + 1)); fi ;;
     esac
     [ -z "$curnum" ] && { curnum=$num; curtitle=$title; curstate=$st; curbn=$bn; }
   done < <(rows "${dir%/*}" "$epic")
@@ -250,6 +265,7 @@ line_for() {
   fi
 
   [ "$nostatus" -gt 0 ] && printf ' · %d without Status' "$nostatus"
+  [ "$oldhdr" -gt 0 ] && printf ' · %d with an old header — run ticket migrate' "$oldhdr"
   printf '\n'
 }
 

@@ -1,7 +1,8 @@
 # 19 — Ссылка на `\\host\share\…` в HANDOFF, ADR, Card-ах и Ticket-ах: та же проверка `leadsToRemote` до обращения к файлу
 
 Type: task
-Status: done — 2026-10-12, [PR #233](https://github.com/IDSAD-XL/worfy/pull/233)
+Status: done 2026-10-12
+PR: #233
 Blocked by: 18
 Source: решение владельца 2026-10-10; первый круг ревью PR #228 (Ticket [18](18-symlink-на-unc-до-realpath.md)) на Mac — [комментарий](https://github.com/IDSAD-XL/worfy/pull/228#issuecomment-6098109819), раздел «Same class, outside this PR — a separate ticket». Делает Session на Windows-ПК сразу после 18; дальше по порядку — 12, 10.
 

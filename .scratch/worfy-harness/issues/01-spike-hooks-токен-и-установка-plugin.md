@@ -1,7 +1,8 @@
 # 01 — Spike: hooks у Subagent-ов workflow-скриптов, `GH_TOKEN` через `CLAUDE_ENV_FILE`, установка plugin и имя его MCP-сервера → ADR-0048
 
 Type: research
-Status: done — 2026-10-07, [PR #106](https://github.com/IDSAD-XL/worfy/pull/106)
+Status: done 2026-10-07
+PR: #106
 Blocked by: —
 Source: решения владельца 2026-10-07 (Q1, Q2, Q8, Q9, Q12, Q15, Q21; «Факты spike»); [spec.md](../spec.md); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md); [ADR-0035](../../../docs/adr/0035-workflow-script-subagents-in-tree.md); [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md)
 
