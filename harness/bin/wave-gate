@@ -84,7 +84,8 @@
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
 //
 // Environment: WAVE_GATE_GATE — an executable used instead of `node <plugin>/hooks/gate.mjs` (it gets
-// the argument `full`); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
+// the argument `full`); WAVE_GATE_GH — an executable used instead of `gh` from PATH, a `.mjs` file runs with
+// this node (Windows cannot start a shell script); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
 // lock timings (20, 1800, 300); WAVE_GATE_MAIN_LOCK_POLL_S, WAVE_GATE_MAIN_LOCK_STALE_S — the main
 // lock (30, 5400). Tests set them; the defaults are the project's.
 "use strict"
@@ -417,6 +418,13 @@ function run(cmd, args, opts, logFile) {
     })
 }
 
+// [file, args] of a program a test may stand in for: `usual` without an override, a `.mjs` override with this
+// node, any other override as it is.
+function program(override, usual) {
+    if (!override) return [usual, []]
+    if (override.endsWith(".mjs")) return [process.execPath, [override]]
+    return [override, []]
+}
 function gateCommand() {
     if (process.env.WAVE_GATE_GATE) return [process.env.WAVE_GATE_GATE, ["full"]]
     return [process.execPath, [GATE_SCRIPT, "full"]]
@@ -678,7 +686,8 @@ async function merge(file) {
             const n = list[i]
             const pr = st.prs.find((p) => p.number === n)
             say(`gh pr merge ${n} --squash --match-head-commit ${pr.head}`)
-            const r = spawnSync("gh", ["pr", "merge", String(n), "--squash", "--match-head-commit", pr.head], { cwd: repo, encoding: "utf8", windowsHide: true })
+            const [gh, ghArgs] = program(process.env.WAVE_GATE_GH, "gh")
+            const r = spawnSync(gh, [...ghArgs, "pr", "merge", String(n), "--squash", "--match-head-commit", pr.head], { cwd: repo, encoding: "utf8", windowsHide: true })
             if (r.error || r.status !== 0) return stop(n, `gh pr merge failed (exit ${r.status ?? r.error.message}): ${(r.stderr || "").trim().split("\n")[0]}`)
             const sha = fetch()
             const tree = out(["rev-parse", `${sha}^{tree}`], repo)

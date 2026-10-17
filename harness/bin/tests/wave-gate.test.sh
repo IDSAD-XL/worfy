@@ -124,6 +124,12 @@ while kill -0 "$w" 2>/dev/null; do sleep 0.2; done
 EOF
 chmod +x "$POWER/ioreg" "$POWER/caffeinate"
 export WAVE_GATE_GATE="$STUBS/gate" PATH="$STUBS:$POWER:$PATH"
+# On Windows node cannot start the shell stubs, and its PATH lookup finds the real gh.exe: wave-gate runs gh
+# through a node stand-in named by $WAVE_GATE_GH there. The guard stops the test before anything runs if any
+# gh it can start is not the stub.
+. "$HERE/gh-stand-in.sh"
+if on_windows; then node_stand_in "$STUBS/gh" "$STUBS/gh.mjs"; export WAVE_GATE_GH="$STUBS/gh.mjs"; fi
+gh_guard WAVE_GATE_GH "$STUBS/gh" "$STUBS/gh.mjs"
 # Fast lock timings for the tests; the defaults (20 s poll, 30 min stale, 5 min heartbeat) are checked below.
 export WAVE_GATE_LOCK_POLL_S=1 WAVE_GATE_SCREEN_POLL_S=1
 
