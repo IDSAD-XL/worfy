@@ -1,349 +1,556 @@
-#!/usr/bin/env bash
-# epic-status [epic] — one ready-made «Этап» (stage) line for the status block:
-#   <workflow stage> · <epic> <done>/<total> · <branch> · ticket <NN> [· waits for NN]
-# Without an argument — one line per epic of the repository.
-#
-# epic-status --json [--ref <ref>] — the same parse, machine-readable, one object per ticket.
-#   Without --ref the working tree is read; with --ref — the branch's tree. Walking branches and merging
-#   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
-#   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
-#   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
-#   --ref in a Silent project (profile mode "silent") is exit 3: there the status does not live in branches.
-#
-# epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
-#   comes from `ticket root`: the profile's tickets.root field, otherwise <git top-level>/.scratch, as before.
-#   --ref reads the root from git; a root outside a git repository (Atakama: a common directory above
-#   three repositories) — refusal with exit 3, not an empty answer.
-#
-# Source of truth: <tickets root>/<epic>/issues/NN-slug.md.
-# The header carries one fact per line (TICKETS.md, "Header"); bin/ticket writes it, and this is its reader:
-#   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
-#   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
-#                                                   heading after Status), outside code
-# --json gives them as statusAt, blockedReason, waits, pr. Any other Status line — "**Status:**", a tail after
-# the word, a second Status line in the footer — is the old header: state none and statusError "old header",
-# not a guess; `ticket migrate` moves it.
-#
-# The whole parse lives in one awk program below — not out of love for awk, but because
-# there must be exactly as many readers of the format as there are formats. The human
-# line and --json are fed from the very same TSV lines.
-set -u
+#!/usr/bin/env node
+// epic-status [epic] — one ready-made «Этап» (stage) line for the status block:
+//   <workflow stage> · <epic> <done>/<total> · <branch> · ticket <NN> [· waits for NN]
+// Without an argument — one line per epic of the repository.
+//
+// epic-status --json [--ref <ref>] — the same parse, machine-readable, one object per ticket.
+//   Without --ref the working tree is read; with --ref — the branch's tree. Walking branches and merging
+//   their truth is epic-board's job: here lives the reader of ONE tree and nothing more.
+//   Every ticket carries branch and repo — the values of its `Branch:` and `Repo:` lines (null without one):
+//   in Silent mode the branch name says nothing about the ticket, so the ticket names its branch.
+//   --ref in a Silent project (profile mode "silent") is exit 3: there the status does not live in branches.
+//
+// epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
+//   comes from `ticket root`: the profile's tickets.root field, otherwise <git top-level>/.scratch, as before.
+//   --ref reads the root from git; a root outside a git repository (Atakama: a common directory above
+//   three repositories) — refusal with exit 3, not an empty answer.
+//
+// Exit codes: 0 — answered; 1 — no such epic, or a ticket could not be read; 2 — bad arguments;
+// 3 — --ref could not be read (no such ref, root outside git, Silent mode); the exit code of
+// `ticket root` when the root could not be determined.
+//
+// Source of truth: <tickets root>/<epic>/issues/NN-slug.md.
+// The header carries one fact per line (TICKETS.md, "Header"); bin/ticket writes it, and this is its reader:
+//   Status: <open|claimed|blocked|done> [<time>]   the first Status line outside code, the only one in the file
+//   Blocked reason: / Waits: / PR: #<N>             the first of each in the header (up to the first "## "
+//                                                   heading after Status), outside code
+// --json gives them as statusAt, blockedReason, waits, pr. Any other Status line — "**Status:**", a tail after
+// the word, a second Status line in the footer — is the old header: state none and statusError "old header",
+// not a guess; `ticket migrate` moves it.
+//
+// This script replaced a bash one (ADR-0055) and keeps its output byte for byte: the tests in
+// tests/epic-status.test.sh were written against the bash version. Where the bash one depended on
+// the machine, one answer was chosen: files and Epics come in byte order, as the bash glob gave them
+// in the C locale (a UTF-8 locale on Linux sorted mixed case and Cyrillic differently), and --ref
+// reads regular files only (git archive also extracted symlinks). Text is handled as bytes — a
+// "latin1" string holds one byte per character — so a name or title that is not valid UTF-8 comes out
+// as it went in, the way awk passed it through.
+"use strict"
 
-export LC_CTYPE=${LC_CTYPE:-${LANG:-en_US.UTF-8}}
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
 
-JSON=0; JSON_REF=''; ROOT_ARG=''
-while [ $# -gt 0 ]; do
-  case $1 in
-    --json) JSON=1; shift ;;
-    --ref)  [ $# -ge 2 ] || { echo 'epic-status: --ref without a value' >&2; exit 2; }
-            JSON_REF=$2; shift 2 ;;
-    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root without a value' >&2; exit 2; }
-            ROOT_ARG=$2; shift 2 ;;
-    --)     shift; break ;;
-    *)      break ;;
-  esac
-done
-# --root is accepted after the epic name too (`epic-status <epic> --root X`), as with ticket;
-# --json and --ref — only before it: `epic-status <epic> --json` prints the line, as before.
-rest=()
-while [ $# -gt 0 ]; do
-  case $1 in
-    --root) [ $# -ge 2 ] && [ -n "$2" ] || { echo 'epic-status: --root without a value' >&2; exit 2; }
-            ROOT_ARG=$2; shift 2 ;;
-    *)      rest+=("$1"); shift ;;
-  esac
-done
-set -- ${rest[@]+"${rest[@]}"}
-[ "$JSON" = 1 ] || [ -z "$JSON_REF" ] || { echo 'epic-status: --ref only together with --json' >&2; exit 2; }
-
-# The tickets root — one reader for everyone: `ticket root` (profile, --root, git top-level).
-# Without node only --root is read as given. Without node and without --root — exit 3 with the
-# reason: guessing <git top-level>/.scratch answered a Silent project, whose tickets live in its
-# Workflow folder, with an empty list as if it had none (worfy-harness ticket 37).
-# ticket is the script next to this one (the folder of its real file, not of a symlink).
-TICKET="${CLAUDE_TICKET_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)/ticket}"
-if command -v node >/dev/null 2>&1; then
-  scratch=$("$TICKET" root ${ROOT_ARG:+--root "$ROOT_ARG"}) || exit $?
-elif [ -n "$ROOT_ARG" ]; then
-  case $ROOT_ARG in /*) scratch=$ROOT_ARG ;; *) scratch=$(pwd -P)/$ROOT_ARG ;; esac
-else
-  echo "epic-status: node is not on PATH ($PATH): the tickets root comes from \`ticket root\`, which needs node — put node on PATH, or give the root with --root <dir>" >&2
-  exit 3
-fi
-scratch=${scratch%/}; [ -n "$scratch" ] || scratch=/
-
-# The git repository holding the tickets root (the closest existing
-# ancestor: the directory may be missing in the working tree but present in the branch). Empty — outside git.
-anc=$scratch
-while [ ! -d "$anc" ] && [ "$anc" != / ] && [ -n "$anc" ]; do anc=${anc%/*}; [ -n "$anc" ] || anc=/; done
-scratch_git=$(git -C "$anc" rev-parse --show-toplevel 2>/dev/null) || scratch_git=''
-
-# The tickets' state lives in the branch (.scratch is tracked by git), and a repository
-# has several trees — without the branch name the «Этап» line is ambiguous. The branch is that of the
-# tree holding the tickets, not of the one where the command runs; outside git there is no branch.
-branch=''
-if [ -n "$scratch_git" ]; then
-  branch=$(git -C "$scratch_git" rev-parse --abbrev-ref HEAD 2>/dev/null)
-  [ "$branch" = HEAD ] && branch=$(git -C "$scratch_git" rev-parse --short HEAD 2>/dev/null)
-fi
-where=''  # the branch goes into the line only for a single epic; in the full list — as a heading
-
-# ── parse ─────────────────────────────────────────────────────────────────────
-# One awk pass over all tickets of the tree. The output is TSV, one line per ticket:
-#   epic  num  slug  title  statusRaw  state  blockedRaw  blockedNums  blockedParsed  statusError
-# The separator is \037, not a tab: for bash a tab is whitespace, and an empty field would collapse in read.
-# String fields arrive already escaped for JSON.
-read -r -d '' AWK_ROWS <<'AWK' || true
-# The Status line of the new format. No {n} intervals: older awk builds do not support them.
-function isnew(x) { return x ~ /^Status: (open|claimed|blocked|done)( [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9](T[0-9][0-9]:[0-9][0-9]Z)?)?[ \t]*$/ }
-# Words people use to write "no blockers". An empty list of numbers and "did not understand" are
-# different things, and blockedParsed tells them apart, not the length of the list.
-function isnone(x) { return x ~ /^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n\/a|N\/A|-|—|–)$/ }
-# Control characters are ALWAYS stripped: raw, they break both TSV and JSON.
-function clean(x)  { gsub(/[\001-\037\177]/," ",x); return x }
-# JSON escaping only in json mode. It used to go into TSV too, and TSV is read by
-# the human line — so a title with a quote printed as Test \"quote\".
-function esc(x)    { x=clean(x); gsub(/\\/,"\\\\",x); gsub(/"/,"\\\"",x); return x }
-function jstr(x)   { return "\"" esc(x) "\"" }
-
-function emit(  w,st,at,serr,rs,wt,pn,v,hd,cnt,arr,i,tok,n,okall,bn,bp,br,rp) {
-  if (file == "" || !ok) { file=""; return }
-  st="none"; at=""; serr=""; rs=""; wt=""; pn=""
-  if (nstatus == 1 && isnew(sline)) {
-    w = sline; sub(/^Status: /,"",w); at = w; sub(/[ \t].*$/,"",w)
-    if (at ~ / /) { sub(/^[a-z]+ /,"",at); sub(/[ \t]+$/,"",at) } else at=""
-    st = (w == "claimed") ? "work" : w
-    rs = reason; wt = waits
-    if (prl ~ /^#[0-9]+$/) { pn = prl; sub(/^#/,"",pn) }
-  } else if (nstatus > 0) serr="old header"
-
-  bn=""; bp=0
-  if (blocked != "") {
-    v = blocked; gsub(/\*/,"",v); sub(/^[ \t]+/,"",v); sub(/[ \t.]+$/,"",v)
-    # "None — can start immediately" is still "no blockers": the negation is at the head
-    # of the value, an explanation follows. The head runs up to the first dash, bracket, dot or comma.
-    hd = v; sub(/[ \t]*(—|–|\(|\.|,|-).*$/,"",hd); sub(/[ \t]+$/,"",hd)
-    if (isnone(v) || isnone(hd)) { bp=1 }
-    else {
-      # Separators: comma, semicolon and the Russian conjunction «и» ("and"). Splitting by comma only,
-      # «Blocked by: 01 и 02» was ONE item with a leading digit — the parse
-      # was declared successful, the second blocker was silently lost, and the ticket came out
-      # unblocked. A quietly wrong answer is worse than a refusal to parse.
-      gsub(/[;]|[ \t]+и[ \t]+/,",",v)
-      okall=1; cnt=split(v,arr,",")
-      for (i=1;i<=cnt;i++) {
-        tok=arr[i]; sub(/^[ \t]+/,"",tok)
-        if (tok == "") continue
-        # A blocker is the leading digits of a list item: «08 — все перекладки» ("08 — all the moves") counts,
-        # «Пакет юристу» ("package for the lawyer") does not, and it breaks the parse of the whole value.
-        if (tok ~ /^[0-9]+/) { n=tok; sub(/[^0-9].*$/,"",n); bn = bn (bn==""?"":",") (n+0) }
-        else okall=0
-      }
-      bp = (okall && bn != "") ? 1 : 0
+// Bytes as a string: the UTF-8 bytes of `s`, one per character.
+const B = (s) => Buffer.from(s, "utf8").toString("latin1")
+// The output is collected and written once at the end, and the script ends by running out of work,
+// not by process.exit(): on macOS a write to a pipe is asynchronous, and exit() could cut it short.
+const chunks = []
+const out = (s) => chunks.push(Buffer.from(s, "latin1"))
+class Exit {
+    constructor(code) {
+        this.code = code
     }
-  }
-  if (mode == "json") {
-    # Branch and Repo are one word each (a branch name, a repository folder name): bold markers and
-    # surrounding backticks are not part of the value.
-    br = branch; gsub(/\*|`/,"",br); sub(/^[ \t]+/,"",br); sub(/[ \t]+$/,"",br)
-    rp = repo;   gsub(/\*|`/,"",rp); sub(/^[ \t]+/,"",rp); sub(/[ \t]+$/,"",rp)
-    printf "%s{\"epic\":%s,\"num\":%d,\"slug\":%s,\"title\":%s,\"statusRaw\":%s,\"state\":\"%s\",\"statusAt\":%s,\"statusError\":%s,\"blockedReason\":%s,\"waits\":%s,\"pr\":%s,\"blockedRaw\":%s,\"blockedNums\":[%s],\"blockedParsed\":%s,\"branch\":%s,\"repo\":%s,\"ref\":%s}",
-      (nemit++ ? "," : ""), jstr(epic), num+0, jstr(slug), jstr(title),
-      (status == "" ? "null" : jstr(status)), st,
-      (at == "" ? "null" : jstr(at)), (serr == "" ? "null" : jstr(serr)),
-      (rs == "" ? "null" : jstr(rs)), (wt == "" ? "null" : jstr(wt)), (pn == "" ? "null" : pn+0),
-      (blocked == "" ? "null" : jstr(blocked)), (bp ? bn : ""), (bp ? "true" : "false"),
-      (br == "" ? "null" : jstr(br)), (rp == "" ? "null" : jstr(rp)), jstr(ref)
-  } else {
-    printf "%s\037%d\037%s\037%s\037%s\037%s\037%s\037%s\037%d\037%s\n", clean(epic), num+0, clean(slug), clean(title), clean(status), st, clean(blocked), bn, bp, serr
-  }
-  file=""
+}
+const finish = (code) => {
+    throw new Exit(code)
+}
+const fail = (code, msg) => {
+    process.stderr.write(msg + "\n")
+    finish(code)
 }
 
-FNR==1 {
-  emit()
-  file=FILENAME; title=""; status=""; blocked=""; branch=""; repo=""; fence=0
-  sline=""; nstatus=0; hdr=1; reason=""; waits=""; prl=""; gotr=0; gotw=0; gotp=0
-  base=file; sub(/.*\//,"",base)
-  epic=file; sub(/\/issues\/[^\/]*$/,"",epic); sub(/.*\//,"",epic)
-  num=base;  sub(/-.*/,"",num)
-  slug=base; sub(/\.md$/,"",slug); sub(/^[^-]*-/,"",slug)
-  ok = (num ~ /^[0-9]+$/)   # a file without a leading number is not a ticket
-  if (slug == base) slug=num
-  l=$0; sub(/\r$/,"",l)
-  if (l ~ /^#[ \t]*/) { t=l; sub(/^#[ \t]*/,"",t); title=t }
+// --- sibling scripts -----------------------------------------------------------------
+// The scripts next to this one: the folder of its real file, not of a symlink to it.
+const BIN = path.dirname(fs.realpathSync(__filename))
+// A Node script is started with the node running this one: Windows does not start an extensionless
+// file by its #! line. Anything else (a shell stub of a test) is started by its #! line, as before.
+function scriptCommand(file, args) {
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: let node report it */
+    }
+    return head.startsWith("#!") && !/\bnode\b/.test(head) ? [file, args] : [process.execPath, [file, ...args]]
 }
-{
-  l=$0; sub(/\r$/,"",l)
-  if (l ~ /^[ \t]*(```|~~~)/) { fence = !fence; next }
-  if (fence) next   # "Status: done" in a code example is not a ticket field
-  # The header ends at the first "## " heading after the Status line: a "PR: <url>" line of a result section
-  # is not the header's.
-  if (nstatus > 0 && l ~ /^## /) hdr=0
-  if (hdr && !gotr && l ~ /^Blocked reason:/) { gotr=1; v=l; sub(/^Blocked reason:[ \t]*/,"",v); sub(/[ \t]+$/,"",v); reason=v }
-  if (hdr && !gotw && l ~ /^Waits:/)          { gotw=1; v=l; sub(/^Waits:[ \t]*/,"",v);          sub(/[ \t]+$/,"",v); waits=v }
-  if (hdr && !gotp && l ~ /^PR:/)             { gotp=1; v=l; sub(/^PR:[ \t]*/,"",v);             sub(/[ \t]+$/,"",v); prl=v }
-  low=tolower(l)
-  if      (low ~ /^\*?\*?status[ \t]*\*?\*?[ \t]*:/)     { if (!nstatus++) { sline=l; v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); status=v } }
-  else if (low ~ /^\*?\*?blocked by[ \t]*\*?\*?[ \t]*:/) { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); blocked=v }
-  else if (low ~ /^\*?\*?branch[ \t]*\*?\*?[ \t]*:/)     { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); branch=v }
-  else if (low ~ /^\*?\*?repo[ \t]*\*?\*?[ \t]*:/)       { v=l; sub(/^\*?\*?[^:]*:\*?\*?[ \t]*/,"",v); repo=v }
+const isFile = (p) => {
+    try {
+        return fs.statSync(p).isFile()
+    } catch {
+        return false
+    }
 }
-END { emit() }
-AWK
+const isDir = (p) => {
+    try {
+        return fs.statSync(p).isDirectory()
+    } catch {
+        return false
+    }
+}
+// What a shell's $(…) keeps of a command's output: everything but the trailing newlines.
+const chomp = (s) => s.replace(/\n+$/, "")
 
-rows() {  # <.scratch dir> [epic] [mode] [ref] → TSV or JSON objects
-  local sc=$1 only=${2:-} mode=${3:-tsv} ref=${4:-} f n=0 rc
-  [ -d "$sc" ] || return 0
-  # The quotes around $sc are required: without them a space in the repository path split the glob
-  # into words, and all tickets vanished silently — "no tickets" with a live directory.
-  if [ -n "$only" ]; then set -- "$sc/$only/issues"/*.md; else set -- "$sc"/*/issues/*.md; fi
-  for f; do [ -f "$f" ] && n=$((n + 1)); done
-  [ "$n" -gt 0 ] || return 0
-  # A NUL-separated list: a file name with a newline does not break the parse, and xargs
-  # saves us from ARG_MAX when branches are merged.
-  { for f; do [ -f "$f" ] && printf '%s\0' "$f"; done; } \
-    | xargs -0 awk -v mode="$mode" -v ref="$ref" "$AWK_ROWS"
-  rc=$?
-  [ "$rc" = 0 ] || { echo "epic-status: parse failed (exit $rc)" >&2; return "$rc"; }
+const git = (cwd, args) => {
+    const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 })
+    return { ok: !r.error && r.status === 0, stdout: r.error ? "" : chomp(r.stdout || "") }
 }
 
-[ "$JSON" = 1 ] || [ -d "$scratch" ] || { echo "outside tickets (no $scratch)"; exit 0; }
+// --- a tree to read ----------------------------------------------------------------------
+// The working tree and a branch's tree answer the same three questions. Names are byte strings.
+// Order is the order of the old shell glob in the C locale: byte order of the path below the root.
+const byteOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0) // byte strings compare byte by byte
 
-# ── human line ────────────────────────────────────────────────────────────────
-line_for() {
-  local dir=$1 epic=${1##*/}
-  local total=0 ndone=0 working=0 nostatus=0 oldhdr=0 curnum='' curtitle='' curstate='' curbn=''
-  local n num slug title sraw st braw bn bp serr
-  local states='' line
-
-  while IFS=$'\037' read -r n num slug title sraw st braw bn bp serr; do
-    [ -n "$n" ] || continue
-    total=$((total + 1))
-    states="$states $num:$st"
-    case $st in
-      done) ndone=$((ndone + 1)); continue ;;
-      work|blocked) working=1 ;;
-      none) if [ -n "$serr" ]; then oldhdr=$((oldhdr + 1)); else nostatus=$((nostatus + 1)); fi ;;
-    esac
-    [ -z "$curnum" ] && { curnum=$num; curtitle=$title; curstate=$st; curbn=$bn; }
-  done < <(rows "${dir%/*}" "$epic")
-
-  local stage
-  if [ "$total" -eq 0 ]; then
-    if   [ -f "$dir/spec.md" ]; then stage='/to-spec'
-    elif [ -f "$dir/map.md" ];  then stage='/wayfinder'
-    else stage='—'; fi
-    printf '%s · %s%s — no tickets\n' "$stage" "$epic" "$where"
-    return
-  fi
-
-  if   [ "$ndone" -eq "$total" ];                  then stage='closed'
-  elif [ "$working" -eq 1 ] || [ "$ndone" -gt 0 ]; then stage='/implement'
-  else                                                  stage='/to-tickets'; fi
-
-  printf '%s · %s %d/%d%s' "$stage" "$epic" "$ndone" "$total" "$where"
-
-  if [ -n "$curnum" ]; then
-    local cur pad waiting='' tok bst
-    cur=$curtitle
-    pad=$(printf '%02d' "$curnum")
-    case $cur in "$pad"*|"$curnum"*) ;; *) cur="$pad — $cur" ;; esac
-    printf ' · ticket %s' "$cur"
-
-    local IFS=','
-    for tok in $curbn; do
-      unset IFS
-      bst=''
-      case " $states " in *" $tok:"*) bst=${states##* $tok:}; bst=${bst%% *} ;; esac
-      [ -n "$bst" ] && [ "$bst" != done ] && waiting="$waiting $(printf '%02d' "$tok")"
-      local IFS=','
-    done
-    unset IFS
-    [ -n "$waiting" ] && printf ' · waits for%s' "$waiting"
-    [ "$curstate" = blocked ] && printf ' · blocked'
-  fi
-
-  [ "$nostatus" -gt 0 ] && printf ' · %d without Status' "$nostatus"
-  [ "$oldhdr" -gt 0 ] && printf ' · %d with an old header — run ticket migrate' "$oldhdr"
-  printf '\n'
+function diskTree(root) {
+    const names = (dir) => {
+        try {
+            return fs.readdirSync(dir).filter((n) => !n.startsWith("."))
+        } catch {
+            return []
+        }
+    }
+    const epicDirs = () => names(root).filter((n) => isDir(path.join(root, n)))
+    return {
+        exists: isDir(root),
+        // `<root>/*/`: the directories, sorted as `<name>/`.
+        epics: () =>
+            epicDirs()
+                .map((n) => B(n))
+                .sort((a, b) => byteOrder(a + "/", b + "/")),
+        hasFile: (epic, name) => isFile(path.join(root, Buffer.from(epic, "latin1").toString("utf8"), name)),
+        // `<root>/<epic>/issues/*.md` (one epic) or `<root>/*/issues/*.md` (all): regular files.
+        tickets(only) {
+            const list = []
+            for (const e of only === null ? epicDirs() : [Buffer.from(only, "latin1").toString("utf8")]) {
+                const dir = path.join(root, e, "issues")
+                for (const f of names(dir))
+                    if (f.endsWith(".md") && isFile(path.join(dir, f)))
+                        list.push({ epic: B(e), file: B(f), read: () => fs.readFileSync(path.join(dir, f)).toString("latin1") })
+            }
+            return list.sort((a, b) => byteOrder(a.epic + "/issues/" + a.file, b.epic + "/issues/" + b.file))
+        },
+    }
 }
 
-# ── machine-readable slice ────────────────────────────────────────────────────
-jstr() {  # only for the ref label; awk escapes the ticket fields
-  printf '"%s"' "$(printf '%s' "${1:-}" | tr -d '\r\n' | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+// A branch's tree, from one `git ls-tree -r -z` and one `git cat-file --batch`: no extraction, no
+// temporary directory. entries: [path below the root (byte string), object id].
+function refTree(entries, gitDir) {
+    const files = new Map(entries)
+    const epicSet = new Set()
+    for (const [p] of entries) {
+        const slash = p.indexOf("/")
+        if (slash > 0 && !p.startsWith(".")) epicSet.add(p.slice(0, slash))
+    }
+    let blobs = null
+    const load = (ids) => {
+        // One process for all the tickets of the tree.
+        const r = spawnSync("git", ["-C", gitDir, "cat-file", "--batch"], {
+            input: ids.join("\n") + "\n",
+            stdio: ["pipe", "pipe", "ignore"],
+            maxBuffer: 1 << 30,
+        })
+        if (r.error || r.status !== 0) fail(1, `epic-status: parse failed (git cat-file exit ${r.status ?? r.error.code})`)
+        const map = new Map()
+        let pos = 0
+        const buf = r.stdout
+        while (pos < buf.length) {
+            const nl = buf.indexOf(10, pos)
+            const [oid, type, size] = buf.toString("latin1", pos, nl).split(" ")
+            if (type === "missing" || size === undefined) fail(1, `epic-status: parse failed (object ${oid} missing)`)
+            const start = nl + 1
+            map.set(oid, buf.toString("latin1", start, start + Number(size)))
+            pos = start + Number(size) + 1
+        }
+        return map
+    }
+    return {
+        exists: entries.length > 0,
+        epics: () => [...epicSet].sort((a, b) => byteOrder(a + "/", b + "/")),
+        hasFile: (epic, name) => files.has(epic + "/" + B(name)),
+        tickets(only) {
+            const list = []
+            for (const [p, oid] of entries) {
+                const parts = p.split("/")
+                if (parts.length !== 3 || parts[1] !== "issues") continue
+                const [e, , f] = parts
+                if (e.startsWith(".") || f.startsWith(".") || !f.endsWith(".md")) continue
+                if (only !== null && e !== only) continue
+                list.push({ epic: e, file: f, oid })
+            }
+            list.sort((a, b) => byteOrder(a.epic + "/issues/" + a.file, b.epic + "/issues/" + b.file))
+            if (list.length && blobs === null) blobs = load([...new Set(list.map((t) => t.oid))])
+            return list.map((t) => ({ epic: t.epic, file: t.file, read: () => blobs.get(t.oid) }))
+        },
+    }
 }
 
-json_dump() {  # <.scratch dir> <ref label>
-  local sc=$1 ref=$2 first d epic
-  printf '{"ref":%s,"epics":[' "$(jstr "$ref")"
-  first=1
-  for d in "$sc"/*/; do
-    [ -d "$d" ] || continue
-    epic=${d%/}; epic=${epic##*/}
-    [ "$first" = 1 ] || printf ','; first=0
-    printf '{"epic":%s,"hasSpec":%s,"hasMap":%s}' "$(jstr "$epic")" \
-      "$([ -f "${d}spec.md" ] && printf true || printf false)" \
-      "$([ -f "${d}map.md" ]  && printf true || printf false)"
-  done
-  printf '],"tickets":['
-  rows "$sc" '' json "$ref" || return 1
-  printf ']}\n'
+// --- parse -------------------------------------------------------------------------------
+// One ticket file → its fields. The rules (the bash version kept them in one awk program):
+//   the FIRST Status line in any spelling is statusRaw; the state comes from it only when it is the only
+//   Status line of the file and has the new form, otherwise the state is none (with statusError "old header"
+//   when there was a Status line); the first Blocked reason / Waits / PR line of the header;
+//   the LAST Blocked by / Branch / Repo line wins; lines inside ``` and ~~~ fences are skipped;
+//   a trailing \r is stripped; the title is the first line when it starts with #.
+// The patterns with non-ASCII words are written as text and turned into bytes (B), like the text they match.
+const re = (source, flags) => new RegExp(B(source), flags)
+// The Status line of the new format.
+const NEW_STATUS = /^Status: (open|claimed|blocked|done)( [0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}Z)?)?[ \t]*$/
+// Words people use to write "no blockers". An empty list of numbers and "did not understand" are
+// different things, and blockedParsed tells them apart, not the length of the list.
+const NONE = re(String.raw`^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n/a|N/A|-|—|–)$`)
+const HEAD_CUT = re(String.raw`[ \t]*(—|–|\(|\.|,|-).*$`, "s")
+const AND = re(String.raw`;|[ \t]+и[ \t]+`, "g")
+// Control characters are ALWAYS stripped: raw, they break both the line and JSON.
+const clean = (x) => x.replace(/[\x01-\x1f\x7f]/g, " ")
+const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
+const FIELD = /^\*?\*?(status|blocked by|branch|repo)[ \t]*\*?\*?[ \t]*:/
+const VALUE = /^\*?\*?[^:]*:\*?\*?[ \t]*/
+
+function parse(epic, file, text) {
+    // A file without a leading number is not a ticket; an empty file never reached awk's first line.
+    const num = file.replace(/-.*/s, "")
+    if (!/^[0-9]+$/.test(num) || text === "") return null
+    let slug = file.replace(/\.md$/, "").replace(/^[^-]*-/, "")
+    if (slug === file) slug = num
+    const lines = text.split("\n")
+    if (lines[lines.length - 1] === "") lines.pop()
+    let title = ""
+    let status = ""
+    let blocked = ""
+    let branchV = ""
+    let repo = ""
+    let fence = false
+    let sline = ""
+    let nstatus = 0
+    let hdr = true
+    let reason = null // null: no such line in the header yet; the first one wins
+    let waits = null
+    let prl = null
+    const after = (l, name) => l.slice(name.length).replace(/^[ \t]*/, "").replace(/[ \t]+$/, "")
+    lines.forEach((raw, n) => {
+        const l = raw.replace(/\r$/, "")
+        if (n === 0 && l.startsWith("#")) title = l.replace(/^#[ \t]*/, "")
+        if (/^[ \t]*(```|~~~)/.test(l)) {
+            fence = !fence
+            return
+        }
+        if (fence) return // "Status: done" in a code example is not a ticket field
+        // The header ends at the first "## " heading after the Status line: a "PR: <url>" line of a result
+        // section is not the header's.
+        if (nstatus > 0 && l.startsWith("## ")) hdr = false
+        if (hdr && reason === null && l.startsWith("Blocked reason:")) reason = after(l, "Blocked reason:")
+        if (hdr && waits === null && l.startsWith("Waits:")) waits = after(l, "Waits:")
+        if (hdr && prl === null && l.startsWith("PR:")) prl = after(l, "PR:")
+        const m = FIELD.exec(l.toLowerCase())
+        if (!m) return
+        const v = l.replace(VALUE, "")
+        if (m[1] === "status") {
+            if (nstatus++ === 0) {
+                sline = l
+                status = v
+            }
+        } else if (m[1] === "blocked by") blocked = v
+        else if (m[1] === "branch") branchV = v
+        else repo = v
+    })
+
+    let state = "none"
+    let at = ""
+    let serr = ""
+    let rs = ""
+    let wt = ""
+    let pr = ""
+    if (nstatus === 1 && NEW_STATUS.test(sline)) {
+        const w = sline.slice("Status: ".length)
+        const word = w.replace(/[ \t].*$/s, "")
+        if (w.includes(" ")) at = w.replace(/^[a-z]+ /, "").replace(/[ \t]+$/, "")
+        state = word === "claimed" ? "work" : word
+        rs = reason ?? ""
+        wt = waits ?? ""
+        if (prl !== null && /^#[0-9]+$/.test(prl)) pr = String(Number(prl.slice(1)))
+    } else if (nstatus > 0) serr = "old header"
+
+    // bn: the numbers as the line reads them (also when the parse failed); bp: the parse succeeded.
+    let bn = []
+    let bp = false
+    if (blocked !== "") {
+        const v = blocked.replace(/\*/g, "").replace(/^[ \t]+/, "").replace(/[ \t.]+$/, "")
+        // "None — can start immediately" is still "no blockers": the negation is at the head
+        // of the value, an explanation follows. The head runs up to the first dash, bracket, dot or comma.
+        const hd = v.replace(HEAD_CUT, "").replace(/[ \t]+$/, "")
+        if (NONE.test(v) || NONE.test(hd)) bp = true
+        else {
+            // Separators: comma, semicolon and the Russian conjunction «и» ("and"). A blocker is the
+            // leading digits of a list item: «08 — все перекладки» counts, «Пакет юристу» does not, and
+            // it breaks the parse of the whole value — a quietly wrong answer is worse than a refusal.
+            let okAll = true
+            for (let tok of v.replace(AND, ",").split(",")) {
+                tok = tok.replace(/^[ \t]+/, "")
+                if (tok === "") continue
+                const d = /^[0-9]+/.exec(tok)
+                if (d) bn.push(String(Number(d[0])))
+                else okAll = false
+            }
+            bp = okAll && bn.length > 0
+        }
+    }
+    // Branch and Repo are one word each: bold markers and surrounding backticks are not part of the value.
+    const word = (x) => x.replace(/\*|`/g, "").replace(/^[ \t]+/, "").replace(/[ \t]+$/, "")
+    return { epic, num: String(Number(num)), slug, title, status, state, at, serr, rs, wt, pr, blocked, bn, bp, branch: word(branchV), repo: word(repo) }
 }
 
-if [ "$JSON" = 1 ]; then
-  src=$scratch
-  if [ -n "$JSON_REF" ]; then
-    # Silent mode: the status is written straight into the Workflow folder and lives in no branch, so a
-    # branch's tree has nothing to say about it. The profile is the one ticket reads (next to this script).
-    # Not registered or no profile — Full mode, as before.
-    PROFILE_BIN="${CLAUDE_PROFILE_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" && pwd -P)/profile}"
-    if command -v node >/dev/null 2>&1 && [ "$("$PROFILE_BIN" --field _resolved.mode 2>/dev/null)" = silent ]; then
-      echo "epic-status: in Silent mode the status does not live in branches; without --ref the Workflow folder is read ($scratch)" >&2
-      exit 3
-    fi
-    # A root outside git: the branch has nothing to show, and an empty answer would read as "the branch
-    # has no tickets". These are different things — refusal.
-    if [ -z "$scratch_git" ]; then
-      echo "epic-status: --ref reads tickets from git, but the tickets root $scratch is not in a git repository; without --ref the directory itself is read" >&2
-      exit 3
-    fi
-    # The root's path inside the repository. git gives the path without symlinks — we compare the same way.
-    anc_real=$(cd "$anc" && pwd -P)
-    rel=${anc_real#"$scratch_git"}; rel=${rel#/}
-    [ "$anc" = "$scratch" ] || rel=${rel:+$rel/}${scratch#"$anc"/}
-    case $anc_real in "$scratch_git"|"$scratch_git"/*) ;; *)
-      echo "epic-status: tickets root $scratch could not be resolved relative to $scratch_git" >&2; exit 3 ;; esac
-    [ -n "$rel" ] || { echo "epic-status: tickets root is the repository root $scratch_git — --ref is not supported" >&2; exit 3; }
-    # One extraction per branch instead of git show per file.
-    tmp=$(mktemp -d) || exit 1
-    trap 'rm -rf "$tmp"' EXIT INT TERM   # without INT/TERM the directory survived an interruption
-    # A silent failure here is indistinguishable from "the branch has no tickets", and these are different answers:
-    # the first is a broken tool, the second a fact about the branch.
-    # Through a pipeline the exit code of git archive is lost: tar on empty input succeeds,
-    # and a broken ref would look like "a branch without tickets".
-    if ! git -C "$scratch_git" archive "$JSON_REF" "$rel" > "$tmp/tree.tar" 2>/dev/null; then
-      if ! git -C "$scratch_git" rev-parse --verify --quiet "$JSON_REF^{commit}" >/dev/null 2>&1; then
-        echo "epic-status: no such ref: $JSON_REF" >&2; exit 3
-      fi
-      : # the ref exists, it has no .scratch — a legitimate empty answer
-    else
-      tar -x -C "$tmp" -f "$tmp/tree.tar" 2>/dev/null || {
-        echo "epic-status: could not extract the tree of $JSON_REF" >&2; exit 3; }
-    fi
-    rm -f "$tmp/tree.tar"
-    src=$tmp/$rel
-  fi
-  json_dump "$src" "${JSON_REF:-${branch:-.}}" || exit 1
-  exit 0
-fi
+function rows(tree, only) {
+    if (!tree.exists) return []
+    const list = []
+    for (const t of tree.tickets(only)) {
+        let text
+        try {
+            text = t.read()
+        } catch (e) {
+            fail(1, `epic-status: parse failed (${e.message})`)
+        }
+        const r = parse(t.epic, t.file, text)
+        if (r) list.push(r)
+    }
+    return list
+}
 
-if [ $# -gt 0 ]; then
-  where=${branch:+ · $branch}
-  epic=$1; epic=${epic%%/}; epic=${epic##*/}
-  [ -d "$scratch/$epic" ] || { echo "no epic \"${epic}\" in ${scratch}"; exit 1; }
-  line_for "$scratch/$epic"
-else
-  [ -n "$branch" ] && echo "${branch}:"
-  for d in "$scratch"/*/; do [ -d "$d" ] && line_for "${d%/}"; done
-fi
+const ticketJson = (t, ref) =>
+    `{"epic":${jstr(t.epic)},"num":${t.num},"slug":${jstr(t.slug)},"title":${jstr(t.title)},` +
+    `"statusRaw":${t.status === "" ? "null" : jstr(t.status)},"state":"${t.state}",` +
+    `"statusAt":${t.at === "" ? "null" : jstr(t.at)},"statusError":${t.serr === "" ? "null" : jstr(t.serr)},` +
+    `"blockedReason":${t.rs === "" ? "null" : jstr(t.rs)},"waits":${t.wt === "" ? "null" : jstr(t.wt)},` +
+    `"pr":${t.pr === "" ? "null" : t.pr},` +
+    `"blockedRaw":${t.blocked === "" ? "null" : jstr(t.blocked)},"blockedNums":[${t.bp ? t.bn.join(",") : ""}],` +
+    `"blockedParsed":${t.bp},"branch":${t.branch === "" ? "null" : jstr(t.branch)},` +
+    `"repo":${t.repo === "" ? "null" : jstr(t.repo)},"ref":${jstr(ref)}}`
+
+// A name of the old shell's own JSON (the ref label, an epic in the epics list): \r and \n dropped,
+// backslash and quote escaped, no other cleaning. The ticket fields are cleaned instead (jstr).
+const jsonRaw = (x) => '"' + x.replace(/[\r\n]/g, "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
+
+function jsonDump(tree, ref) {
+    const label = jsonRaw(ref)
+    const epics = tree.exists ? tree.epics() : []
+    const e = epics.map((n) => `{"epic":${jsonRaw(n)},"hasSpec":${tree.hasFile(n, "spec.md")},"hasMap":${tree.hasFile(n, "map.md")}}`)
+    const t = rows(tree, null).map((r) => ticketJson(r, ref))
+    out(`{"ref":${label},"epics":[${e.join(",")}],"tickets":[${t.join(",")}]}\n`)
+}
+
+// --- the «Этап» line ---------------------------------------------------------------------
+const pad2 = (n) => (n.length < 2 ? "0" + n : n)
+function lineFor(parent, epic, where) {
+    const tree = diskTree(parent)
+    const tickets = rows(tree, epic === "" ? null : epic)
+    const dir = parent + "/" + Buffer.from(epic, "latin1").toString("utf8")
+    const DOT = B(" · ")
+    if (tickets.length === 0) {
+        const stage = isFile(dir + "/spec.md") ? "/to-spec" : isFile(dir + "/map.md") ? "/wayfinder" : "—"
+        return out(`${B(stage)}${DOT}${epic}${where} ${B("—")} no tickets\n`)
+    }
+    let ndone = 0
+    let working = false
+    let nostatus = 0
+    let oldhdr = 0
+    let cur = null
+    const states = new Map() // num → state of the LAST ticket with that number
+    for (const t of tickets) {
+        states.set(t.num, t.state)
+        if (t.state === "done") {
+            ndone++
+            continue
+        }
+        if (t.state === "work" || t.state === "blocked") working = true
+        if (t.state === "none") {
+            if (t.serr !== "") oldhdr++
+            else nostatus++
+        }
+        if (cur === null) cur = t
+    }
+    const total = tickets.length
+    const stage = ndone === total ? "closed" : working || ndone > 0 ? "/implement" : "/to-tickets"
+    let line = `${stage}${DOT}${epic} ${ndone}/${total}${where}`
+    if (cur !== null) {
+        let title = clean(cur.title)
+        const pad = pad2(cur.num)
+        if (!title.startsWith(pad) && !title.startsWith(cur.num)) title = `${pad} ${B("—")} ${title}`
+        line += `${DOT}ticket ${title}`
+        const waiting = cur.bn.filter((n) => states.has(n) && states.get(n) !== "done").map(pad2)
+        if (waiting.length) line += `${DOT}waits for ${waiting.join(" ")}`
+        if (cur.state === "blocked") line += `${DOT}blocked`
+    }
+    if (nostatus > 0) line += `${DOT}${nostatus} without Status`
+    if (oldhdr > 0) line += `${DOT}${oldhdr} with an old header ${B("—")} run ticket migrate`
+    out(line + "\n")
+}
+
+// --- main ------------------------------------------------------------------------------
+function main() {
+    // --- arguments ---------------------------------------------------------------------
+    let JSON_MODE = false
+    let JSON_REF = ""
+    let ROOT_ARG = ""
+    const argv = process.argv.slice(2)
+    let i = 0
+    for (; i < argv.length; i++) {
+        const a = argv[i]
+        if (a === "--json") JSON_MODE = true
+        else if (a === "--ref") {
+            if (i + 1 >= argv.length) fail(2, "epic-status: --ref without a value")
+            JSON_REF = argv[++i]
+        } else if (a === "--root") {
+            if (i + 1 >= argv.length || argv[i + 1] === "") fail(2, "epic-status: --root without a value")
+            ROOT_ARG = argv[++i]
+        } else if (a === "--") {
+            i++
+            break
+        } else break
+    }
+    // --root is accepted after the epic name too (`epic-status <epic> --root X`), as with ticket;
+    // --json and --ref — only before it: `epic-status <epic> --json` prints the line, as before.
+    const rest = []
+    for (; i < argv.length; i++) {
+        if (argv[i] === "--root") {
+            if (i + 1 >= argv.length || argv[i + 1] === "") fail(2, "epic-status: --root without a value")
+            ROOT_ARG = argv[++i]
+        } else rest.push(argv[i])
+    }
+    if (!JSON_MODE && JSON_REF !== "") fail(2, "epic-status: --ref only together with --json")
+
+    // --- tickets root ----------------------------------------------------------------------
+    // One reader for everyone: `ticket root` (profile, --root, git top-level). An explicit --root is
+    // resolved here, the way `ticket root --root` resolves it, without a second process.
+    // CLAUDE_TICKET_BIN (tests) replaces the ticket script and is always asked.
+    let scratch
+    const TICKET_OVERRIDE = process.env.CLAUDE_TICKET_BIN
+    if (ROOT_ARG !== "" && !TICKET_OVERRIDE) scratch = path.resolve(process.cwd(), ROOT_ARG)
+    else {
+        const TICKET = TICKET_OVERRIDE || path.join(BIN, "ticket")
+        if (!isFile(TICKET)) fail(127, `epic-status: ${TICKET}: No such file or directory`)
+        const [cmd, args] = scriptCommand(TICKET, ["root", ...(ROOT_ARG !== "" ? ["--root", ROOT_ARG] : [])])
+        const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["inherit", "pipe", "inherit"], maxBuffer: 1 << 26 })
+        if (r.error) fail(126, `epic-status: ${TICKET}: ${r.error.message}`)
+        if (r.status !== 0) finish(r.status ?? 1) // ticket has said why on stderr
+        scratch = chomp(r.stdout)
+    }
+    if (scratch.endsWith("/")) scratch = scratch.slice(0, -1)
+    if (scratch === "") scratch = "/"
+
+    // The git repository holding the tickets root (the closest existing ancestor: the directory may be
+    // missing in the working tree but present in the branch). Empty — outside git.
+    let anc = scratch
+    while (!isDir(anc) && path.dirname(anc) !== anc) anc = path.dirname(anc)
+    const top = git(anc, ["rev-parse", "--show-toplevel"])
+    const scratchGit = top.ok ? top.stdout : ""
+
+    // The tickets' state lives in the branch (.scratch is tracked by git), and a repository has several
+    // trees — without the branch name the «Этап» line is ambiguous. The branch is that of the tree holding
+    // the tickets, not of the one where the command runs; outside git there is no branch.
+    let branch = ""
+    if (scratchGit) {
+        branch = git(scratchGit, ["rev-parse", "--abbrev-ref", "HEAD"]).stdout
+        if (branch === "HEAD") branch = git(scratchGit, ["rev-parse", "--short", "HEAD"]).stdout
+    }
+
+    // --- --json ------------------------------------------------------------------------------
+    if (JSON_MODE) {
+        let tree = diskTree(scratch)
+        if (JSON_REF !== "") {
+            // Silent mode: the status is written straight into the Workflow folder and lives in no branch, so
+            // a branch's tree has nothing to say about it. Not registered or no profile — Full mode, as before.
+            const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+            if (isFile(PROFILE)) {
+                const [cmd, args] = scriptCommand(PROFILE, ["--field", "_resolved.mode"])
+                const r = spawnSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] })
+                if (!r.error && chomp(r.stdout || "") === "silent")
+                    fail(3, `epic-status: in Silent mode the status does not live in branches; without --ref the Workflow folder is read (${scratch})`)
+            }
+            // A root outside git: the branch has nothing to show, and an empty answer would read as "the
+            // branch has no tickets". These are different things — refusal.
+            if (!scratchGit)
+                fail(3, `epic-status: --ref reads tickets from git, but the tickets root ${scratch} is not in a git repository; without --ref the directory itself is read`)
+            // The root's path inside the repository. git prints C:/… on Windows and a path without symlinks
+            // everywhere: both sides are compared after realpath.
+            const real = (p) => {
+                try {
+                    return fs.realpathSync.native(p)
+                } catch {
+                    return p
+                }
+            }
+            const topReal = real(scratchGit)
+            const ancReal = real(anc)
+            let rel = path.relative(topReal, ancReal)
+            // path.relative uses path.sep (\ on Windows); a directory named "..t" is inside the repository.
+            if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
+                fail(3, `epic-status: tickets root ${scratch} could not be resolved relative to ${scratchGit}`)
+            if (anc !== scratch) rel = path.join(rel, path.relative(anc, scratch))
+            rel = rel.split(path.sep).join("/")
+            if (rel === "") fail(3, `epic-status: tickets root is the repository root ${scratchGit} — --ref is not supported`)
+            // A silent failure here is indistinguishable from "the branch has no tickets", and these are
+            // different answers: the first is a broken tool, the second a fact about the branch.
+            const ls = spawnSync("git", ["-C", scratchGit, "ls-tree", "-r", "-z", JSON_REF, "--", rel], {
+                stdio: ["ignore", "pipe", "ignore"],
+                maxBuffer: 1 << 28,
+            })
+            let entries = []
+            if (ls.error || ls.status !== 0) {
+                if (!git(scratchGit, ["rev-parse", "--verify", "--quiet", `${JSON_REF}^{commit}`]).ok)
+                    fail(3, `epic-status: no such ref: ${JSON_REF}`)
+                // the ref exists, it has no tickets root — a legitimate empty answer
+            } else {
+                const prefix = B(rel) + "/"
+                for (const rec of ls.stdout.toString("latin1").split("\0")) {
+                    // <mode> SP <type> SP <object> TAB <path>; symlinks and submodules are not tickets
+                    const tab = rec.indexOf("\t")
+                    if (tab < 0) continue
+                    const [mode, type, oid] = rec.slice(0, tab).split(" ")
+                    const p = rec.slice(tab + 1)
+                    if (type !== "blob" || mode === "120000" || !p.startsWith(prefix)) continue
+                    entries.push([p.slice(prefix.length), oid])
+                }
+            }
+            tree = refTree(entries, scratchGit)
+        }
+        jsonDump(tree, B(JSON_REF || branch || "."))
+        finish(0)
+    }
+
+    // --- the line ----------------------------------------------------------------------------
+    if (!isDir(scratch)) {
+        out(B(`outside tickets (no ${scratch})`) + "\n")
+        finish(0)
+    }
+    if (rest.length > 0) {
+        let epic = rest[0]
+        if (epic.endsWith("/")) epic = epic.slice(0, -1)
+        epic = epic.slice(epic.lastIndexOf("/") + 1)
+        if (!isDir(scratch + "/" + epic)) {
+            out(B(`no epic "${epic}" in ${scratch}`) + "\n")
+            finish(1)
+        }
+        lineFor(scratch, B(epic), branch ? B(" · " + branch) : "")
+    } else {
+        if (branch) out(B(branch + ":") + "\n")
+        for (const epic of diskTree(scratch).epics()) lineFor(scratch, epic, "")
+    }
+}
+
+try {
+    main()
+} catch (e) {
+    if (!(e instanceof Exit)) throw e
+    process.exitCode = e.code
+}
+// A reader that stops early (`epic-status --json | head`) closes the pipe: bash ended quietly on
+// SIGPIPE, and so does this, instead of a stack trace for EPIPE.
+process.stdout.on("error", (e) => {
+    if (e.code !== "EPIPE") throw e
+})
+if (chunks.length) process.stdout.write(Buffer.concat(chunks))

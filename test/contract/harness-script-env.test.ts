@@ -5,9 +5,9 @@
 // node. The environment handed to the readers has node. The scripts are the real `epic-status`,
 // `ticket` and `profile` of harness/bin, installed as the plugin in a temporary Claude home, and the
 // Project is Silent: its Tickets are in the Workflow folder, outside the repository. A reader that
-// ran a script with `process.env` would find no node: `epic-status` then refuses with exit code 3
-// (before slice 2 of the ticket it read `<repository>/.scratch` and answered with no Epics), and
-// `profile` exits with 127, which the layout reads as a failed call.
+// ran a script with `process.env` would find no node: `epic-status` and `profile`, both Node scripts,
+// then exit with 127 (an older bash `epic-status` read `<repository>/.scratch` and answered with no
+// Epics), which the layout reads as a failed call.
 //
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
@@ -160,11 +160,13 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     expect(commandPath('node', process.env.PATH ?? '')).toBeNull()
     expect(commandPath('bash', process.env.PATH ?? '')).not.toBeNull()
     expect(commandPath('node', withNode.PATH ?? '')).not.toBeNull()
-    // Without node `epic-status` refuses with exit code 3 and names node (slice 2 of the ticket);
-    // before, it answered with no Epics and exit code 0, which is what worfy showed from Finder.
+    // `epic-status` is a Node script (ADR-0055): without node its #! line (`/usr/bin/env node`) cannot
+    // start it — exit code 127, nothing on stdout, node named on stderr. It never answers with no Epics
+    // and exit code 0, which is what worfy showed from Finder. script-env.ts re-captures the
+    // environment on 127 and 126.
     const bare = spawnSync(join(harnessHome, 'plugin', 'bin', 'epic-status'), ['--json'], { cwd: repo, env: { ...withNode, PATH: tools, HARNESS_HOME: harnessHome }, encoding: 'utf8' })
-    expect({ status: bare.status, stdout: bare.stdout }).toEqual({ status: 3, stdout: '' })
-    expect(bare.stderr).toMatch(/node is not on PATH/)
+    expect({ status: bare.status, stdout: bare.stdout }).toEqual({ status: 127, stdout: '' })
+    expect(bare.stderr).toMatch(/node/)
   })
 
   it('readWorkflow: the model has the Epic and the Ticket of the Silent Project', async () => {

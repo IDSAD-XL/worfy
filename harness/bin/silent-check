@@ -30,12 +30,34 @@
 "use strict"
 
 const fs = require("node:fs")
+const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const TICKET = process.env.CLAUDE_TICKET_BIN || path.join(BIN, "ticket")
+// A sibling script runs with the node running this one: Windows does not start an extensionless file
+// by its #! line. Anything else (a shell stub of a test) runs by its #! line, as before. A missing file
+// fails with ENOENT before anything starts, as a missing program did.
+function execScriptSync(file, args, options) {
+    if (!fs.existsSync(file))
+        throw Object.assign(new Error(`spawnSync ${file} ENOENT`), { code: "ENOENT", path: file, spawnargs: args })
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: node reports it */
+    }
+    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return execFileSync(file, args, options)
+    return execFileSync(process.execPath, [file, ...args], options)
+}
 
 const USAGE = `usage: silent-check [-C <dir>] [--file <path>|-] [--diff <rev>] [--cached] [--untracked] [<text>...]
 exit: 0 clean or nothing to check, 1 traces found, 2 usage or profile error`
@@ -81,7 +103,7 @@ try {
 // --- the project -----------------------------------------------------------------
 let prof
 try {
-    prof = JSON.parse(execFileSync(PROFILE, ["-C", dir, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }))
+    prof = JSON.parse(execScriptSync(PROFILE, ["-C", dir, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }))
 } catch (e) {
     if (e.status === 3) {
         process.stdout.write("silent-check: not a registered project — nothing to check\n")
@@ -109,7 +131,7 @@ const rules = [] // [kind, RegExp with the g flag, also in the added lines of a 
 if (silent) {
     let root
     try {
-        root = execFileSync(TICKET, ["root"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
+        root = execScriptSync(TICKET, ["root"], { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim()
     } catch (e) {
         die(2, `tickets root not read (exit ${e.status ?? e.code}): ${String(e.stderr || e.message).split("\n")[0]}`)
     }
@@ -136,8 +158,13 @@ if (silent) {
         try {
             forms.add(fs.realpathSync(wf))
         } catch {}
-        const home = process.env.HOME
-        for (const f of [...forms]) if (home && f.startsWith(home + "/")) forms.add("~" + f.slice(home.length))
+        // Windows: the profile gives C:\…, git and the shell print C:/…; HOME may be spelled either way.
+        if (path.sep === "\\") for (const f of [...forms]) forms.add(f.split("\\").join("/"))
+        const home = os.homedir() ? path.resolve(os.homedir()) : ""
+        for (const f of [...forms]) {
+            const r = path.resolve(f)
+            if (home && r.startsWith(home + path.sep)) forms.add("~" + r.slice(home.length).split(path.sep).join("/"))
+        }
         for (const f of forms) rules.push(["Workflow folder path", new RegExp(esc(f), "g"), true])
     }
     rules.push([".scratch", /\.scratch(?![\p{L}\p{N}_])/gu, true])
