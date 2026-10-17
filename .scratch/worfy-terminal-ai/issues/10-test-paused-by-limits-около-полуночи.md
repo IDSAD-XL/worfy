@@ -1,7 +1,8 @@
 # 10 — Unit test «Paused by Limits» красный каждый день с 23:00 до 24:00
 
 Type: task
-Status: done — 2026-10-14, [PR #319](https://github.com/IDSAD-XL/worfy/pull/319)
+Status: done 2026-10-14
+PR: #319
 Branch: worfy-terminal-ai/10
 Blocked by: —
 Source: проверка инструментов 2026-10-14 в 23:51 — gate fast на main `c49267f`: lint и typecheck зелёные, в vitest 1 test красный из 5171; test пришёл с [Ticket 08](08-settings-terminal-ai.md) ([PR #309](https://github.com/IDSAD-XL/worfy/pull/309))

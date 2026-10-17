@@ -1,7 +1,8 @@
 # 26 — Отказ в разрешении у Autopilot: причина Claude Code в ответе модели, Subagent и причина в журнале
 
 Type: task
-Status: done — 2026-10-16, [PR #378](https://github.com/IDSAD-XL/worfy/pull/378)
+Status: done 2026-10-16
+PR: #378
 Blocked by: —
 Source: решение владельца 2026-10-15 по отчёту
 [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md)

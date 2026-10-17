@@ -1,7 +1,8 @@
 # 26 — Test-ы на Windows оставляют папки в `%TEMP%` и падают: `afterEach` удаляет через `rmSync`
 
 Type: task
-Status: done — 2026-10-13, [PR #276](https://github.com/IDSAD-XL/worfy/pull/276)
+Status: done 2026-10-13
+PR: #276
 Blocked by: 23
 Source: замеры Session на Windows-ПК 2026-10-12, переданы Session на Mac сообщениями; все числа ниже — её
 

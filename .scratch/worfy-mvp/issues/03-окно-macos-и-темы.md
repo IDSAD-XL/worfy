@@ -1,7 +1,8 @@
 # 03 — Окно macOS с sidebar и toolbar, светлая и тёмная тема по системной настройке
 
 Type: task
-Status: done — 2026-10-05, [PR #4](https://github.com/IDSAD-XL/worfy/pull/4)
+Status: done 2026-10-05
+PR: #4
 Blocked by: 01
 Source: [F-SPEC.md](../../../docs/design/F-SPEC.md), разделы «Typography», «Shape», «Tokens»; макеты `docs/design/F-canvas-light.dc.html`, `F-canvas-dark.dc.html`; [BRIEF.md](../../../docs/design/BRIEF.md)
 

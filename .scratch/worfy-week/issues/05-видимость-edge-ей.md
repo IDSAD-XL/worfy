@@ -1,7 +1,8 @@
 # 05 — Edge-и тонкие и бледные: цепочка Ticket-а — при наведении, Binding — только у живых агентов
 
 Type: task
-Status: done — 2026-10-07, [PR #87](https://github.com/IDSAD-XL/worfy/pull/87)
+Status: done 2026-10-07
+PR: #87
 Blocked by: 03
 Source: решения владельца 2026-10-07, вопросы 14, 15 и 20 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 

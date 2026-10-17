@@ -1,7 +1,8 @@
 # 01 — Один gate full на все готовые PR Wave вместо rebase и gate full на каждый PR
 
 Type: task
-Status: done — 2026-10-16, [PR #384](https://github.com/IDSAD-XL/worfy/pull/384)
+Status: done 2026-10-16
+PR: #384
 Branch: worfy-throughput/01
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер критического пути (раздел

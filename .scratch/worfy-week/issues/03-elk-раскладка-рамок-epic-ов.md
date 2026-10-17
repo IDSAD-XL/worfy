@@ -1,7 +1,8 @@
 # 03 — Рамку Epic-а раскладывает ELK: Edge-и Blocked by идут по коридорам, порядок без пересечений
 
 Type: task
-Status: done — 2026-10-07, [PR #85](https://github.com/IDSAD-XL/worfy/pull/85)
+Status: done 2026-10-07
+PR: #85
 Blocked by: —
 Source: решения владельца 2026-10-07, вопросы 14–17, 28 и 29 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); [spec.md](../spec.md), этап 2
 

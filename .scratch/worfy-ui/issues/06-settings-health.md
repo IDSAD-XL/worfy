@@ -1,7 +1,8 @@
 # 06 — Settings → Health: проверки First run в окне Settings
 
 Type: task
-Status: done — 2026-10-14, [PR #292](https://github.com/IDSAD-XL/worfy/pull/292)
+Status: done 2026-10-14
+PR: #292
 Blocked by: 02
 Source: решение владельца 2026-10-09: 2 (раздел Health окна Settings — проверки First run; First run при первом запуске остаётся) ([spec.md](../spec.md), «Решения владельца», пункт 2; «Пересечения», worfy-windows 13 и 15); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (каналы `firstRun.*` — `local`)
 

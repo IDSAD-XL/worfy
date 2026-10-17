@@ -1,7 +1,8 @@
 # 10 — Модель workflow Проекта: Эпики и Тикеты из epic-status, уровни зависимостей и готовая Волна
 
 Type: task
-Status: done — 2026-10-05, [PR #9](https://github.com/IDSAD-XL/worfy/pull/9)
+Status: done 2026-10-05
+PR: #9
 Blocked by: 02
 Source: [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md); [CONTEXT.md](../../../CONTEXT.md), термины «Эпик», «Тикет», «Волна»; [spec.md](../spec.md), раздел «Волны»
 

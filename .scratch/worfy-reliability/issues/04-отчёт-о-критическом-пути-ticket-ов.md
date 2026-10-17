@@ -1,7 +1,8 @@
 # 04 — Отчёт о критическом пути Ticket-ов: claim → PR → CI → Gate → merge по уже записанным событиям
 
 Type: task
-Status: done — 2026-10-15, [PR #341](https://github.com/IDSAD-XL/worfy/pull/341)
+Status: done 2026-10-15
+PR: #341
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея F); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «F. P2: measure the critical path

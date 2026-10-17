@@ -1,7 +1,8 @@
 # 10 — Палитра ищет текст и в транскриптах Session-ов, запущенных вне worfy
 
 Type: task
-Status: done — 2026-10-15, [PR #355](https://github.com/IDSAD-XL/worfy/pull/355)
+Status: done 2026-10-15
+PR: #355
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U3; «Итог» [`worfy-mvp` 31](../../worfy-mvp/issues/31-палитра-и-поиск.md):
 «Не сделано: транскрипты Сессий, запущенных вне worfy (их события читает `useSessionTranscript` в

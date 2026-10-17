@@ -1,7 +1,8 @@
 # 19 — First run: «Check again» снимает запись о неудаче действия, когда проверка строки уже проходит
 
 Type: task
-Status: done — 2026-10-15, [PR #344](https://github.com/IDSAD-XL/worfy/pull/344)
+Status: done 2026-10-15
+PR: #344
 Branch: worfy-week/19
 Blocked by: —
 Source: наблюдение владельца 2026-10-10 во время прогона Autopilot для пункта 3 приёмки E3 (`worfy-harness` 26): окно «First run» открылось само с «1 failed: qmd collections — The last attempt failed: …/.claude/bin/qmd-sync-main: No such file», хотя сама проверка проходила. Уровень — low.

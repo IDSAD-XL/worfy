@@ -1,7 +1,8 @@
 # 01 — Каркас репозитория: пустое приложение собирается, тестируется и проходит gate.sh fast
 
 Type: task
-Status: done — 2026-10-05, [PR #1](https://github.com/IDSAD-XL/worfy/pull/1)
+Status: done 2026-10-05
+PR: #1
 Blocked by: —
 Source: [spec.md](../spec.md), разделы «Как устроено» и «Соглашения для тикетов этого эпика»; [ADR-0004](../../../docs/adr/0004-stack-electron-ts-react-flow-agent-sdk.md)
 

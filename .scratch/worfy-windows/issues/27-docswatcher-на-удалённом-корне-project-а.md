@@ -1,7 +1,8 @@
 # 27 — DocsWatcher на Windows: удалённый корень Project-а даёт 87 тысяч событий в секунду и занимает ядро
 
 Type: task
-Status: done — 2026-10-13, [PR #281](https://github.com/IDSAD-XL/worfy/pull/281)
+Status: done 2026-10-13
+PR: #281
 Blocked by: 20
 Source: замер Session на Windows-ПК 2026-10-13 (проба под Node 24.21.0 из Electron 44.5.1; вывод — `%TEMP%\worfy-01\probe-docs-removed.out` на ПК)
 

@@ -1,7 +1,8 @@
 # 04 — Implementer выбирает самое маленькое полное изменение и помечает упрощения комментарием `shortcut:`
 
 Type: task
-Status: done — 2026-10-16, [PR #332](https://github.com/IDSAD-XL/worfy/pull/332)
+Status: done 2026-10-16
+PR: #332
 Branch: worfy-review/04
 Blocked by: 02
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «минимальное изменение и shortcut» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), раздел о ponytail (skill, который просит агента делать самое маленькое полное изменение; команда `/ponytail-debt` собирает комментарии `shortcut:`); [spec.md](../spec.md)

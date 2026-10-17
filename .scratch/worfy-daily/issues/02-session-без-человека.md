@@ -1,7 +1,8 @@
 # 02 — Session без человека: bypassPermissions насквозь и ни одного диалога
 
 Type: task
-Status: done — 2026-10-06, [PR #36](https://github.com/IDSAD-XL/worfy/pull/36)
+Status: done 2026-10-06
+PR: #36
 Blocked by: —
 Source: [spec.md](../spec.md), тема A, риск 7; [CONTEXT.md](../../../CONTEXT.md), термин Autopilot; Ticket 21 worfy-mvp (разрешения)
 

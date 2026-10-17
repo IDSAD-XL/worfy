@@ -1,7 +1,8 @@
 # 05 — Правила Harness приходят через hooks `SessionStart` и `SubagentStart`: по-английски, частями до 10 000 символов
 
 Type: task
-Status: done — 2026-10-07, [PR #109](https://github.com/IDSAD-XL/worfy/pull/109)
+Status: done 2026-10-07
+PR: #109
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q9, Q6, Q34 и Q32; [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила через hooks), [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`); [spec.md](../spec.md)
 

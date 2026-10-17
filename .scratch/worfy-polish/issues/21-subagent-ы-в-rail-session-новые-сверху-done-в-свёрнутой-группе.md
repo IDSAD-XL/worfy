@@ -1,7 +1,8 @@
 # 21 — Subagent-ы в правой колонке Session view: новые сверху, `done` — в свёрнутой группе «Done (N)»
 
 Type: task
-Status: done — 2026-10-15, [PR #364](https://github.com/IDSAD-XL/worfy/pull/364)
+Status: done 2026-10-15
+PR: #364
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В окне Session (у Orchestrator-а) справа
 список subagents. При большом числе он становится огромным. Нужно: subagents со статусом done прятать

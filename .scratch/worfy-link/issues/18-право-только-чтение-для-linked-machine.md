@@ -1,7 +1,8 @@
 # 18 — Право «только чтение» для Linked machine до связи с чужой машиной
 
 Type: task
-Status: done — 2026-10-16, [PR #399](https://github.com/IDSAD-XL/worfy/pull/399)
+Status: done 2026-10-16
+PR: #399
 Branch: worfy-link/18
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-link/issues/08-доступ-linked-machine-к-project-ам.md:278`

@@ -1,7 +1,8 @@
 # 07 — Готовая Wave не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: done — 2026-10-15, [PR #349](https://github.com/IDSAD-XL/worfy/pull/349)
+Status: done 2026-10-15
+PR: #349
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R9; `HANDOFF.md`, «Дальше» — «Кандидаты в Ticket-ы: `done` с
 невлитой ветки, `reader.ts:329` (`worfy-harness` 22)»; «Итог»

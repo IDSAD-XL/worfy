@@ -1,7 +1,8 @@
 # 07 — ⌘Z отменяет только свои правки
 
 Type: task
-Status: done — 2026-10-08, [PR #157](https://github.com/IDSAD-XL/worfy/pull/157)
+Status: done 2026-10-08
+PR: #157
 Blocked by: 03
 Source: решения владельца 2026-10-07: Q15 (⌘Z — только свои правки; если тот же Node после шага правил другой экран, шаг пропускается с подсказкой); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0016](../../../docs/adr/0016-trash-folder-per-entry-undo-in-renderer.md) — корзина как папка, undo в renderer
 

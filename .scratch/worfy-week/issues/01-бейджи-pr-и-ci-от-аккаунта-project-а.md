@@ -1,7 +1,8 @@
 # 01 — Бейджи PR и CI идут от аккаунта GitHub Project-а
 
 Type: task
-Status: done — 2026-10-07, [PR #81](https://github.com/IDSAD-XL/worfy/pull/81)
+Status: done 2026-10-07
+PR: #81
 Blocked by: —
 Source: решение владельца 2026-10-07 (вопросы 3 и 4); HANDOFF 2026-10-06, «Ждёт владельца», пункт [med] о бейджах «gh unavailable»; ревью Ticket-а 17 `worfy-daily`; [ADR-0020](../../../docs/adr/0020-profile-shared-and-personal-parts.md); [spec.md](../spec.md), этап 1
 

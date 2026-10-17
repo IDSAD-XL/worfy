@@ -1,7 +1,8 @@
 # 15 — Один Autopilot на Epic и origin на все Linked machine-ы
 
 Type: task
-Status: done — 2026-10-09, [PR #168](https://github.com/IDSAD-XL/worfy/pull/168)
+Status: done 2026-10-09
+PR: #168
 Blocked by: 08
 Source: решения владельца 2026-10-07: Q13 (второй Autopilot на тот же Epic с тем же `origin` на другой Machine не стартует, обход — явный) и Q9 (у Project ровно одна Machine; один репозиторий на двух Machine — два Project-а) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 

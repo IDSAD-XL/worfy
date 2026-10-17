@@ -1,7 +1,8 @@
 # 21 — Сведения о Machine B уходят только после подтверждения ключа
 
 Type: task
-Status: done — 2026-10-16, [PR #403](https://github.com/IDSAD-XL/worfy/pull/403)
+Status: done 2026-10-16
+PR: #403
 Blocked by: —
 Source: долг ревьюера PR #154 (`.scratch/worfy-link/issues/01-сервер-связи-machine-ов.md:370`), подтверждён
 независимым ревью SPAKE2, Ticket [17](17-независимое-ревью-spake2.md), находка Н3 (low)

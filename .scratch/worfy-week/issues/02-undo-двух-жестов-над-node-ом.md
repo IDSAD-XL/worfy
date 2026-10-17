@@ -1,7 +1,8 @@
 # 02 — ⌘Z после двух жестов над одним Node возвращает его на исходное место
 
 Type: task
-Status: done — 2026-10-07, [PR #82](https://github.com/IDSAD-XL/worfy/pull/82)
+Status: done 2026-10-07
+PR: #82
 Blocked by: —
 Source: решение владельца 2026-10-07 (вопросы 3 и 4); ревью [PR #76](https://github.com/IDSAD-XL/worfy/pull/76) (`worfy-daily` 20, «Итог», «Кандидат в Ticket — дефект»); HANDOFF 2026-10-06, «Ждёт владельца»; [spec.md](../spec.md), этап 1
 

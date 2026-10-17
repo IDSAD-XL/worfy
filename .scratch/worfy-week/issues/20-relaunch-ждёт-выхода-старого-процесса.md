@@ -1,7 +1,8 @@
 # 20 — Relaunch Orchestrator-а ждёт выхода старого процесса Claude Code; по таймауту — SIGKILL
 
 Type: task
-Status: done — 2026-10-16, [PR #345](https://github.com/IDSAD-XL/worfy/pull/345)
+Status: done 2026-10-16
+PR: #345
 Branch: worfy-week/20
 Blocked by: —
 Source: решение владельца 2026-10-12; `.scratch/worfy-week/issues/17-stop-в-autopilot-прерывает-orchestrator.md:214`

@@ -1,7 +1,8 @@
 # 22 — Убрать блок Limits из правой колонки Session view: он повторяет Limits в toolbar
 
 Type: task
-Status: done — 2026-10-16, [PR #375](https://github.com/IDSAD-XL/worfy/pull/375)
+Status: done 2026-10-16
+PR: #375
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «В той же правой колонке убрать секцию
 лимитов: она дублирует то, что уже показано в шапке (header)». Блок добавил Ticket

@@ -1,7 +1,8 @@
 # 18 — «Ship ticket» не считает блокер закрытым, пока его `done` только в невлитой ветке
 
 Type: task
-Status: done — 2026-10-15, [PR #368](https://github.com/IDSAD-XL/worfy/pull/368)
+Status: done 2026-10-15
+PR: #368
 Blocked by: —
 Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 [07](07-wave-не-берёт-блокер-done-только-в-невлитой-ветке.md) («Не сделано здесь: «Ship ticket»

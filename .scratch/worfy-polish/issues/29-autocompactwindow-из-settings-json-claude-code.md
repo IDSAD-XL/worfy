@@ -1,7 +1,8 @@
 # 29 — `autoCompactWindow` из `~/.claude/settings.json` главнее значений worfy по умолчанию
 
 Type: task
-Status: done — 2026-10-17, [PR #424](https://github.com/IDSAD-XL/worfy/pull/424)
+Status: done 2026-10-17
+PR: #424
 Branch: worfy-polish/29
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») — follow-up Ticket-а
