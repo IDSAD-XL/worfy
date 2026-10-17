@@ -3,7 +3,7 @@
 // They were moved out of install-stable.test.ts for worfy-windows ticket 28 (the gate warns about a
 // file longer than 1000 lines); what the two files share is in install-stable-harness.ts.
 import { describe, expect, it } from 'vitest'
-import { buildCommand, builtApp, checkTarget, defaultTarget, installerDir, leftoverName, leftovers, metadataPath, notACopy, runningCopies, stamp, swapIn, WIN_HOME, type Files } from './install-stable-harness'
+import { buildCommand, builtApp, checkTarget, defaultTarget, installerDir, leftoverName, leftovers, LSREGISTER, metadataPath, notACopy, registerCommand, runningCopies, stamp, swapIn, WIN_HOME, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -207,6 +207,25 @@ describe('what the script replaces and writes', () => {
   it('writes a time in UTC to the second, as the metadata file always had it', () => {
     expect(stamp(Date.UTC(2026, 9, 10, 18, 5, 9, 987))).toBe('2026-10-10T18:05:09Z')
     expect(stamp(0)).toBe('1970-01-01T00:00:00Z')
+  })
+})
+
+describe('the registration of the copy with Launch Services', () => {
+  const target = '/Users/dev/Applications/worfy-stable.app'
+
+  it('on macOS is `lsregister -f <copy>`, so Notification Center takes the icon of the copy just installed', () => {
+    expect(registerCommand('darwin', target, {})).toEqual({ command: LSREGISTER, args: ['-f', target] })
+    expect(LSREGISTER).toBe('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
+  })
+
+  it('runs the program WORFY_STABLE_LSREGISTER names instead, and the tool when the variable is empty', () => {
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toEqual({ command: '/tmp/stand-in', args: ['-f', target] })
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '' })).toEqual({ command: LSREGISTER, args: ['-f', target] })
+  })
+
+  it('is no step on Windows and Linux, which have no Launch Services', () => {
+    expect(registerCommand('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable', { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toBeNull()
+    expect(registerCommand('linux', '/home/dev/worfy-stable.app', {})).toBeNull()
   })
 })
 

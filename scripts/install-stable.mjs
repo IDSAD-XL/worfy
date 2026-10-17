@@ -23,11 +23,16 @@
 // WORFY_STABLE_PREBUILT=<path to a built app> skips the build and copies that app instead; the e2e
 // tests use it to install the app they have already packaged into a temporary folder.
 //
+// On macOS the new copy is then registered with Launch Services (`lsregister -f`), so Notification
+// Center and the Dock take its icon, not one they keep for the bundle id from an earlier worfy.
+// WORFY_STABLE_LSREGISTER=<program> runs another program in its place: the unit tests use it, since
+// their stand-in build is no app.
+//
 // One file with no import of its own: a test copies it alone into another repository. The parts
 // that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, posix, win32 } from 'node:path'
 import process from 'node:process'
@@ -37,6 +42,8 @@ import { fileURLToPath } from 'node:url'
 const APP = 'worfy'
 /** How long the list of processes may take on Windows. */
 const LISTING_TIMEOUT_MS = 30_000
+/** How long the registration with Launch Services may take on macOS. */
+const REGISTER_TIMEOUT_MS = 30_000
 /** The largest number a process can have: Linux gives out pids up to 2^22, Windows and macOS stay far below. */
 const MAX_PID = 4_194_304
 /** How often and how long a step of the file system is tried again on Windows when a file is busy. */
@@ -241,6 +248,15 @@ export function swapIn({ staging, target, aside }, files) {
     fail(`the new copy could not be put at ${target} (${reason(error)}); the copy that was there is back in place`)
   }
   return had ? aside : null
+}
+
+/** Launch Services' own tool: it registers a bundle, and with it the bundle's icon. */
+export const LSREGISTER = '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
+
+/** The command that registers the installed copy with Launch Services; null off macOS, which has none. */
+export function registerCommand(platform, target, env) {
+  if (platform !== 'darwin') return null
+  return { command: env.WORFY_STABLE_LSREGISTER || LSREGISTER, args: ['-f', target] }
 }
 
 /** A time as the metadata file writes it: UTC, to the second. */
@@ -640,6 +656,20 @@ export function installStable(argv, { platform = process.platform, env = process
         remove(earlier)
       } catch (error) {
         notes.push(`the earlier copy could not be removed and is left at ${earlier} (${why(error)}); the next run removes it`)
+      }
+    }
+    // Notification Center shows the icon of the bundle that Launch Services has for the bundle id,
+    // and keeps it: the first copies of dev.worfy.app had Electron's icon. The copy is registered
+    // anew, and its modification time is now, not the build's (ditto keeps that one), so a cache
+    // that knows the bundle by its time reads the icon again. Nothing inside the copy is written.
+    const registration = registerCommand(platform, logical, env)
+    if (registration !== null) {
+      try {
+        const now = new Date()
+        utimesSync(logical, now, now)
+        run(registration.command, registration.args, { timeout: REGISTER_TIMEOUT_MS })
+      } catch (error) {
+        notes.push(`Launch Services could not be told about ${logical} (${why(error)}): notifications and the Dock may keep the icon of an earlier worfy until it is registered`)
       }
     }
     try {

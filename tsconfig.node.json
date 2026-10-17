@@ -11,6 +11,7 @@
     "src/shared/**/*.ts",
     "src/card-runtime/**/*.ts",
     "scripts/build-version.ts",
+    "scripts/dev-bundle.ts",
     "electron.vite.config.ts",
     "vitest.config.ts",
     "test/stale-leftovers.ts",

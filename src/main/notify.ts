@@ -29,8 +29,11 @@
 // the Machine of the Project does nothing.
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
-// (test/unit/notify.test.ts, test/unit/link-notify.test.ts). An unsigned build from `pnpm dev` may show "Electron" or nothing
-// (spec, risk 9); the packaged .app shows "worfy".
+// (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
+// a notification from the bundle of the process, so a Notification sets no icon of its own: `icon`
+// would add a second picture, not replace the app's. The packaged .app shows "worfy"; `pnpm dev`
+// on macOS runs a bundle named worfy with worfy's icon (scripts/dev-bundle.ts), and e2e runs show
+// no system notification at all (quiet windows).
 import { basename } from 'node:path'
 import { app, BrowserWindow, Notification } from 'electron'
 import type { AgentEvent } from '../shared/agent/events'
