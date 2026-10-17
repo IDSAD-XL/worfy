@@ -1,7 +1,8 @@
 # 12 — Запросы разрешения Bash, на которых Orchestrator Autopilot теряет ход: какие команды и что поправить
 
 Type: research
-Status: done — 2026-10-15, [PR #338](https://github.com/IDSAD-XL/worfy/pull/338)
+Status: done 2026-10-15
+PR: #338
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R1 и решение 2; журналы Autopilot на Mac владельца
 (`~/Library/Application Support/worfy/autopilot/*.jsonl`, только чтение);

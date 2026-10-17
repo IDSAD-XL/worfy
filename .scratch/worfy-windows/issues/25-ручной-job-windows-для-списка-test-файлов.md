@@ -1,7 +1,8 @@
 # 25 — Ручной job в CI: заданный список test-файлов на `windows-latest`
 
 Type: task
-Status: done — 2026-10-12, [PR #254](https://github.com/IDSAD-XL/worfy/pull/254)
+Status: done 2026-10-12
+PR: #254
 Blocked by: —
 Source: решение владельца 2026-10-12: вынести вперёд малую часть Ticket-а [14](14-gate-full-на-windows.md) (gate full на Windows, с ручным job-ом «Windows» в CI). Условие владельца: большие test-ы не должны попасть на runner. Делает агент-implementer на Mac.
 

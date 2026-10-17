@@ -1,7 +1,8 @@
 # 21 — Пометка «Harness в main новее, чем в Stable copy» в worfy и в журнале прогона Autopilot
 
 Type: task
-Status: done — 2026-10-08, [PR #141](https://github.com/IDSAD-XL/worfy/pull/141)
+Status: done 2026-10-08
+PR: #141
 Blocked by: 12
 Source: решения владельца 2026-10-07, Q14 и Q12; [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (развитие Harness: урок — PR в `harness/`, во время Autopilot Stable copy не пересобирается); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness, версия `<semver>+<SHA>`); [spec.md](../spec.md)
 

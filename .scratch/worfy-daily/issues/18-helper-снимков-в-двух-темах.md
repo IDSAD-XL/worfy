@@ -1,7 +1,8 @@
 # 18 — Helper снимков в двух темах
 
 Type: task
-Status: done — 2026-10-06, [PR #75](https://github.com/IDSAD-XL/worfy/pull/75)
+Status: done 2026-10-06
+PR: #75
 Blocked by: 17
 Source: [spec.md](../spec.md), тема F; [F-SPEC.md](../../../docs/design/F-SPEC.md)
 

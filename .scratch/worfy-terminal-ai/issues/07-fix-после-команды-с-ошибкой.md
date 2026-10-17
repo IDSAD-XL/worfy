@@ -1,7 +1,8 @@
 # 07 — Fix: кнопка после команды с ошибкой, Sonnet вставляет исправленную команду, не запуская её
 
 Type: task
-Status: done — 2026-10-14, [PR #316](https://github.com/IDSAD-XL/worfy/pull/316)
+Status: done 2026-10-14
+PR: #316
 Branch: worfy-terminal-ai/07
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(d) (кнопка «Fix» после команды с кодом выхода не 0; Sonnet получает команду и ~50 последних строк вывода, возвращает исправленную; она вставляется и не запускается), пункт 2 (функция по требованию доступна до `rejected`), пункт 3 (хвост вывода — только для Fix; redaction до отправки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункты 5–6; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`, [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6

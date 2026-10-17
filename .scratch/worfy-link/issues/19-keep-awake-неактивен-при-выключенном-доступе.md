@@ -1,7 +1,8 @@
 # 19 — Переключатель «Keep this computer awake» неактивен, пока доступ к Project-ам выключен
 
 Type: task
-Status: done — 2026-10-16, [PR #397](https://github.com/IDSAD-XL/worfy/pull/397)
+Status: done 2026-10-16
+PR: #397
 Branch: worfy-link/19
 Blocked by: —
 Source: решение владельца 2026-10-12 («изменить») по пункту «решено без владельца» Ticket-а [14](14-машина-project-а-не-засыпает-статус-спит.md) (`:145-147`, долг ревью PR #167).

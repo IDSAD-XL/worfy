@@ -1,7 +1,8 @@
 # 02 — Assist-процесс в main: тёплый Claude Code на подписке, модели по функции, Limits, redaction, Settings, fake для test-ов
 
 Type: task
-Status: done — 2026-10-10, [PR #205](https://github.com/IDSAD-XL/worfy/pull/205)
+Status: done 2026-10-10
+PR: #205
 Blocked by: —
 Source: решения владельца 2026-10-09: пункт 5 (один общий тёплый процесс Claude Code на все Terminal-ы: Agent SDK на подписке, `settingSources: []`, без MCP и tools, `persistSession: false`, без thinking у Haiku, `title`; старт с первого запроса, выгрузка после ~10 минут простоя; каждый запрос самостоятельный), пункт 2 (Limits: автоматические функции выключаются сами выше 80 % окна 5 часов и при `allowed_warning`/`rejected`, по требованию — до `rejected`; запросы кормят Limits; всё выключается в Settings), пункт 3 (что уходит в модель, redaction), пункт 7 (test-ы без расхода подписки) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md) — свой процесс Claude Code для Terminal AI; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34` (Ticket 08 Epic-а worfy-link); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md)
 

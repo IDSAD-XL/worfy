@@ -1,7 +1,8 @@
 # 06 — Command request: строка `# …` + Enter и панель Cmd+I вставляют команду, не запуская её
 
 Type: task
-Status: done — 2026-10-14, [PR #314](https://github.com/IDSAD-XL/worfy/pull/314)
+Status: done 2026-10-14
+PR: #314
 Branch: worfy-terminal-ai/06
 Blocked by: 02, 03
 Source: решения владельца 2026-10-09: пункт 1(c) (строка, которая начинается с `# `, и Enter, или Cmd/Ctrl+I — маленькая панель над Terminal-ом; Sonnet возвращает команду, она вставляется в строку и никогда не запускается сама), пункт 2 (функция по требованию доступна до `rejected`), пункт 3 (контекст, redaction), пункт 4 (сначала zsh) ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md), пункт 6 — ничего не запускается само; пометки доступа каналов — `src/shared/ipc/channels.ts:20-34`, [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6

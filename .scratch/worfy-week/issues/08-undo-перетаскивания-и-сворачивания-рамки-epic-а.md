@@ -1,7 +1,8 @@
 # 08 — ⌘Z после перетаскивания рамки Epic-а возвращает рамку; сворачивание рамки тоже отменяется
 
 Type: task
-Status: done — 2026-10-07, [PR #98](https://github.com/IDSAD-XL/worfy/pull/98)
+Status: done 2026-10-07
+PR: #98
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M21 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket [03](03-elk-раскладка-рамок-epic-ов.md), подраздел [«Ручная проверка 2026-10-07»](03-elk-раскладка-рамок-epic-ов.md#ручная-проверка-2026-10-07); HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 

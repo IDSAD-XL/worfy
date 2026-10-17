@@ -1,7 +1,8 @@
 # 23 — Рекурсивный `fs.rmSync` под Node 24 из Electron на Windows идёт через junction и опустошает папку за ним
 
 Type: task
-Status: done — 2026-10-13, [PR #257](https://github.com/IDSAD-XL/worfy/pull/257)
+Status: done 2026-10-13
+PR: #257
 Blocked by: 12
 Source: замеры Session на Windows-ПК, 2026-10-12: скрипты `probe-rm-junction.cjs` и `probe-rm2.cjs`, их текст и вывод — в [комментарии к PR #237](https://github.com/IDSAD-XL/worfy/pull/237#issuecomment-6127158859); владелец согласился завести Ticket 2026-10-12. Порядок: после PR #237 (Ticket [12](12-сборка-nsis-и-stable-copy-на-windows.md) — сборка NSIS и Stable copy; блокер отсюда: обход `removeTree` берётся из его скрипта) и до Ticket-а [20](20-chokidar-не-идёт-по-ссылке-на-unc.md) (watcher-ы chokidar и ссылка на share): оба правят `src/main/layout/trash.ts` и `src/main/mcp/canvas-server.ts`. Делает Session на Windows-ПК; проверяет и вливает Session на Mac.
 

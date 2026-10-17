@@ -1,7 +1,8 @@
 # 09 — Composer: effort — ползунок, Model и Permission mode — Select
 
 Type: task
-Status: done — 2026-10-13, [PR #291](https://github.com/IDSAD-XL/worfy/pull/291)
+Status: done 2026-10-13
+PR: #291
 Blocked by: 08
 Source: решение владельца 2026-10-09: 4 (effort — ползунок, как в приложении Claude Code, с уровнями выбранной модели; Model и Permission mode — стилизованные списки на общем Select; макет — `docs/design/F-session-dark.dc.html:177-179`) ([spec.md](../spec.md), «Как устроено», «Select»)
 

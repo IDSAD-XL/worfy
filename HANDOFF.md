@@ -13,7 +13,7 @@
 - `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–04 (02, 03 — отчёты, решения владельца — «Итог»). Открыты 05 (compatibility suite SDK), 06–09 (процесс 03 «сбой → инцидент → test»: уроки, `check-lessons`, skill `retro`).
 - `worfy-polish`: 29/31 — 01–29 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на Windows-ПК). 31 (иконка у уведомлений) — PR #425 `VERIFIED`, ждёт вердикта Windows-ПК. Открыт 30 (flaky contract test-ы).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): влиты 01–03 (`wave-gate`, ADR-0065; вердикт Windows для 01, 02 — новых падений нет); 06 — stub-ы для Windows, 07 — дерево `wave-gate`; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
-- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 01–08 open, Autopilot после `worfy-link`.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): влит 01 (#421, новая шапка; Ticket-ы перенесены `ticket migrate`), 1/8; 02 и 07 — платформенные, ждут Windows-ПК.
 
 ## Ждёт владельца
 
@@ -22,7 +22,7 @@
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
 - Песочница приёмки лежит в `$TMPDIR`: macOS каждую ночь в 03:35 удаляет файлы без обращений три дня; 2026-10-13 пропала метка. Исправление — `worfy-harness` 36.
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов; до связи вне LAN — ревьюер-человек SPAKE2 (решения 2026-10-16 — в 16–20).
-- `worfy-link` — решено без владельца, подтвердить («Итог»): протокол 2, сборки 1 и 2 несовместимы (21); в LAN нет предела попыток между открытиями окна (22); вопросы 1–2 (25); перетаскивание — prop Canvas (26); большие события — без проверки размера (24).
+- `worfy-link` — решено без владельца, подтвердить: «Итог» Ticket-ов 21 (протокол 2), 22, 24, 25, 26.
 - `worfy-polish` — решено без владельца, подтвердить («Итог»): `inTurn`, `messageOf` и цикл импорта (27); окно автокомпакта, 1–4 (29).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).

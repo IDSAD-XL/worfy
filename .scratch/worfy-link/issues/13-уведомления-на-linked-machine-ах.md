@@ -1,7 +1,8 @@
 # 13 — Уведомления на Linked machine-ах и «не беспокоить» на каждой
 
 Type: task
-Status: done — 2026-10-09, [PR #183](https://github.com/IDSAD-XL/worfy/pull/183)
+Status: done 2026-10-09
+PR: #183
 Branch: worfy-link/13
 Blocked by: 09
 Source: решения владельца 2026-10-07: Q16 (уведомления — Machine Project-а и подключённым Linked machine; «не беспокоить» на каждой) и Q6 (уведомления — в другом worfy, не в браузере) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)

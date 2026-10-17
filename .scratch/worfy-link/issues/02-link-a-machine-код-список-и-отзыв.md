@@ -1,7 +1,8 @@
 # 02 — «Link a machine»: поиск по Bonjour или адресу, код на экране, список Linked machine-ов, отзыв, переключатель доступа
 
 Type: task
-Status: done — 2026-10-08, [PR #158](https://github.com/IDSAD-XL/worfy/pull/158)
+Status: done 2026-10-08
+PR: #158
 Blocked by: 01
 Source: решения владельца 2026-10-07: Q4 (доступ выключен по умолчанию, код связи, токен устройства, отзыв), Q7 (host и client — роли соединения), Q10 (слева Project-ы всех Linked machine по Machine с состоянием «в сети», «спит», «недоступна»), Q11 («Link a machine»: Bonjour или адрес, код из 6 цифр, переключатель доступа по умолчанию выключен, отзыв с любой стороны) и Q12 (первая проверка — dev-сборка и Stable copy на одном Mac) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 1 и 5); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (пункты 4, 6, 9; последствие про запрос Local Network)
 

@@ -1,7 +1,8 @@
 # 01 — Проверка фактов порта на живой Windows и правка Ticket-ов Epic-а
 
 Type: task
-Status: done — 2026-10-09, [PR #172](https://github.com/IDSAD-XL/worfy/pull/172)
+Status: done 2026-10-09
+PR: #172
 Blocked by: —
 Source: решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q12 (Epic-и worfy-link и worfy-windows идут параллельно, мерж в main по очереди), Q18 (Git for Windows обязателен), Q21 (qmd на Windows — последним Ticket-ом порта, до того grep), Q22 (неподписанный установщик NSIS до E4 — Epic-а подписи и внешних пользователей; если включён Smart App Control — вопрос подписи сразу), Q24 (Windows 10 21H2+ и 11, только x64), Q25 (Session на Mac и Session на Windows общаются через репозиторий) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»
 

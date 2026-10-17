@@ -1,7 +1,8 @@
 # 11 — Окно, меню, уведомления и Ctrl вместо ⌘ на Windows
 
 Type: task
-Status: done — 2026-10-10, [PR #215](https://github.com/IDSAD-XL/worfy/pull/215)
+Status: done 2026-10-10
+PR: #215
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q1 (полный порт worfy под Windows), Q24 (Windows 10 21H2+ и 11, x64) ([spec.md](../spec.md)); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port» (пункт 1; «Последствия» — окно, меню, хоткеи и `AppUserModelId`); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (preload не знает каналов)
 

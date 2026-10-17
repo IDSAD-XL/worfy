@@ -1,7 +1,8 @@
 # 19 — e2e на Windows: helper завершает сам worfy, а не только `cmd.exe` над ним
 
 Type: task
-Status: done — 2026-10-16, [PR #365](https://github.com/IDSAD-XL/worfy/pull/365)
+Status: done 2026-10-16
+PR: #365
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-а
 [04](04-три-нестабильных-e2e-ждут-состояние.md) (раздел «Gate оркестратора (2026-10-15)», Noted

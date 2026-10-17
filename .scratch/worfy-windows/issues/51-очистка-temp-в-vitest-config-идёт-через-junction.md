@@ -1,7 +1,8 @@
 # 51 — Очистка старых папок `%TEMP%` в `vitest.config.ts` и в `glob-probe.tsx` идёт через junction и опустошает папку за ним
 
 Type: task
-Status: done — 2026-10-16, [PR #389](https://github.com/IDSAD-XL/worfy/pull/389)
+Status: done 2026-10-16
+PR: #389
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-10-16: опыт с поддельной старой папкой `worfy-glob-probe-zzexp` (ниже); вопрос возник при разборе Ticket-а [52](52-из-node_modules-соседних-worktree-пропадают-пакеты.md). Код перечитан на Mac по main `9974e0e0`.
 

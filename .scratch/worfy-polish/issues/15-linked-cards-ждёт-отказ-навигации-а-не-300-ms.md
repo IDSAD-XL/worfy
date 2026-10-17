@@ -1,7 +1,8 @@
 # 15 — e2e `linked-cards`: проверка «навигация не случилась» ждёт знак отказа, а не окно 300 ms
 
 Type: task
-Status: done — 2026-10-15, [PR #373](https://github.com/IDSAD-XL/worfy/pull/373)
+Status: done 2026-10-15
+PR: #373
 Blocked by: —
 Source: решение владельца 2026-10-15 по «Итог» Ticket-а
 [05](05-waitfortimeout-в-e2e-на-ожидание-состояния.md) («Слабое место», решено без владельца,

@@ -1,7 +1,8 @@
 # 09 — Неотмеченные ручные проверки «(вручную)» всех Ticket-ов — в палитре
 
 Type: task
-Status: done — 2026-10-15, [PR #353](https://github.com/IDSAD-XL/worfy/pull/353)
+Status: done 2026-10-15
+PR: #353
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U12; `HANDOFF.md`, «Дальше»: «Ручные проверки на Stable copy
 одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, … Шаги — пункты

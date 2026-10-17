@@ -1,7 +1,9 @@
 # 04 — Вердикт Windows без ручного разбора: порядок Ticket-ов `worfy-windows` 53, 51, 14 и запись worfy в реестре Gate на ПК
 
 Type: task
-Status: blocked — research: ведёт Session Orchestrator-а вместе с Session на Windows-ПК, итог — в «Итог»; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
+Status: blocked
+Blocked reason: research: ведёт Session Orchestrator-а вместе с Session на Windows-ПК, итог — в «Итог»; Autopilot не берёт (spec, «Соглашения», «Кто ведёт»)
+Waits: agent
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1; замер: `worfy-polish` 13 ждал
 9 h (gate full на Windows-ПК); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md),

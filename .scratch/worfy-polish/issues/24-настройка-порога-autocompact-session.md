@@ -1,7 +1,8 @@
 # 24 — Настройка: на скольких токенах Session делает autocompact
 
 Type: task
-Status: done — 2026-10-16, [PR #376](https://github.com/IDSAD-XL/worfy/pull/376)
+Status: done 2026-10-16
+PR: #376
 Branch: worfy-polish/24
 Blocked by: 23
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Настройка: на скольких токенах происходит

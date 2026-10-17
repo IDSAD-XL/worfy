@@ -1,7 +1,8 @@
 # 11 — Profile schema 2 целиком на машине: `mode`, `language.docs`, `attribution`, `mcp.allowed`, без путей Harness
 
 Type: task
-Status: done — 2026-10-07, [PR #115](https://github.com/IDSAD-XL/worfy/pull/115)
+Status: done 2026-10-07
+PR: #115
 Blocked by: 06, 07, 08
 Source: решения владельца 2026-10-07: Q11' и Q10 (Profile целиком на машине, правила Project-а подмешивает только Harness; заменяет ADR-0020), Q11 (поля без путей Harness, schema 1 читается на время перехода, `mcp.allowed` — в контракт, новые поля `mode`, `language.docs`, `attribution`), Q4 (состояние Harness — `~/.claude/worfy-harness/`), Q6 (`language.docs`), Q23 и Q28 (`mode`: Full mode и Silent mode), Q25 (`attribution`); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Profile на машине, Full mode и Silent mode); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, язык документов из Profile); [ADR-0021](../../../docs/adr/0021-mcp-servers-allowlist-in-profile.md) (список MCP-серверов агентов в Profile); [spec.md](../spec.md)
 

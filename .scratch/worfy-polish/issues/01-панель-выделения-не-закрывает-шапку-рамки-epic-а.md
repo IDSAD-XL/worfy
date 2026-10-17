@@ -1,7 +1,8 @@
 # 01 — Панель выделения не закрывает шапку рамки Epic-а и подписи колонок
 
 Type: task
-Status: done — 2026-10-15, [PR #348](https://github.com/IDSAD-XL/worfy/pull/348)
+Status: done 2026-10-15
+PR: #348
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат U4; «Итог» [`worfy-week` 10](../../worfy-week/issues/10-тёмная-тема-стопка-done-и-кольцо-выделения.md),
 абзац «Долг» (ревью заметило: панель выделения закрывает шапку рамки Epic-а и подпись «Done 2»);

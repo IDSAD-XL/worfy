@@ -1,7 +1,8 @@
 # 18 — `GH_TOKEN` аккаунта Project-а выдаёт hook `SessionStart`, skills без ручного `export`
 
 Type: task
-Status: done — 2026-10-08, [PR #147](https://github.com/IDSAD-XL/worfy/pull/147)
+Status: done 2026-10-08
+PR: #147
 Blocked by: 01, 16
 Source: решение владельца 2026-10-07, вопрос Q21 ([spec.md](../spec.md)); ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (работает ли `GH_TOKEN` через `CLAUDE_ENV_FILE`; файл заводит Ticket 01); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) — hooks plugin `SessionStart`
 

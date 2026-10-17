@@ -1,7 +1,8 @@
 # 14 — Machine Project-а не засыпает, пока подключены Linked machine-ы; статус «спит»
 
 Type: task
-Status: done — 2026-10-09, [PR #167](https://github.com/IDSAD-XL/worfy/pull/167)
+Status: done 2026-10-09
+PR: #167
 Blocked by: 02
 Source: решения владельца 2026-10-07: Q5 (пока подключена Linked machine, Machine Project-а не засыпает; переключатель) и Q17 (уснувшая Machine — статус «спит», Wake-on-LAN позже) ([spec.md](../spec.md)); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md)
 

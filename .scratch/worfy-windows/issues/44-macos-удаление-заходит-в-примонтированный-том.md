@@ -1,7 +1,8 @@
 # 44 — macOS: удаление папки стирает файлы тома, примонтированного внутри неё
 
 Type: task
-Status: done — 2026-10-13, [PR #293](https://github.com/IDSAD-XL/worfy/pull/293)
+Status: done 2026-10-13
+PR: #293
 Blocked by: —
 Source: замер Session на Mac 2026-10-13 — тот же вопрос, что в [Ticket-е 35](35-removetree-и-junction-на-том-по-guid.md), для macOS; поводом стал замер Session на Windows-ПК по Ticket-у 35 в тот же день (он записан в «Итоге» Ticket-а 35, PR #287)
 

@@ -1,7 +1,8 @@
 # 20 — Ссылка на `\\host\share\…` в Tickets root и в папке Card-ов: watcher-ы chokidar не обращаются по ней; та же проверка в корзине, MCP-сервере холста и выборе папки
 
 Type: task
-Status: done — 2026-10-13, [PR #274](https://github.com/IDSAD-XL/worfy/pull/274)
+Status: done 2026-10-13
+PR: #274
 Blocked by: 10
 Source: ревью PR #233 (Ticket [19](19-leadstoremote-в-docs-cards-и-workflow.md) — проверка `leadsToRemote` в HANDOFF, ADR, Card-ах и Ticket-ах) на Mac, 2026-10-10; «Итог» Ticket-а 19, пункт «Другие места того же класса». Делает Session на Windows-ПК после Ticket-а 10 (Terminal на PowerShell); проверяет и вливает Session на Mac, как у Ticket-ов 18 и 19.
 

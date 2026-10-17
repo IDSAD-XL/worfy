@@ -1,7 +1,8 @@
 # 02 — Окно Settings: диалог с разделами, «Settings…» в меню и Cmd/Ctrl+,
 
 Type: task
-Status: done — 2026-10-10, [PR #209](https://github.com/IDSAD-XL/worfy/pull/209)
+Status: done 2026-10-10
+PR: #209
 Branch: worfy-ui/02
 Blocked by: —
 Source: решение владельца 2026-10-09: 2 (Settings — модальный диалог внутри приложения; открывается по Cmd/Ctrl+, и пунктом меню «Settings…»; слева разделы, справа содержимое; разделы General, Health, Shortcuts, Machines; разделы других Epic-ов подключаются) ([spec.md](../spec.md), «Как устроено», «Окно Settings» и «Меню → окно»); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md), пункт 6 (каналы `local`); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md), пункт 2 (платформенный PR); [worfy-terminal-ai 08](../../worfy-terminal-ai/issues/08-settings-terminal-ai.md) — раздел «Terminal AI» ждёт этот Ticket и Ticket 08 (Select)

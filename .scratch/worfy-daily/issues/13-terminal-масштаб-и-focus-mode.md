@@ -1,7 +1,8 @@
 # 13 — Terminal: выделение мышью при масштабе и размер pty после focus mode
 
 Type: task
-Status: done — 2026-10-06, [PR #49](https://github.com/IDSAD-XL/worfy/pull/49)
+Status: done 2026-10-06
+PR: #49
 Blocked by: 06, 07, 08, 09
 Source: [spec.md](../spec.md), тема C; Ticket-ы 27 и 28 worfy-mvp (Terminal, focus mode)
 

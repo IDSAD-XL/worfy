@@ -1,7 +1,8 @@
 # 12 — Узел HANDOFF и список ADR: живой markdown из репозитория, только для чтения
 
 Type: task
-Status: done — 2026-10-05, [PR #23](https://github.com/IDSAD-XL/worfy/pull/23)
+Status: done 2026-10-05
+PR: #23
 Blocked by: 05, 33
 Source: [CONTEXT.md](../../../CONTEXT.md), термин «HANDOFF»; [BRIEF.md](../../../docs/design/BRIEF.md), Screen 1 пункт 4 и sidebar «ADR»
 

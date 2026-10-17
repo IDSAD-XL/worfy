@@ -1,7 +1,8 @@
 # 02 — Застрявшие Ticket-ы: помог бы свежий агент с короткой записью попыток (разбор журналов, без запусков)
 
 Type: research
-Status: done — 2026-10-16, отчёт — [PR #339](https://github.com/IDSAD-XL/worfy/pull/339), решение владельца — в «Итог»
+Status: done 2026-10-16
+PR: #339
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея B); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «B. P1 experiment: Memento-style
