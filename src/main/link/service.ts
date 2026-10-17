@@ -497,9 +497,12 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   /**
    * Stores a finished pairing: the token this side presents first, then the record that names it.
-   * Linking a Machine again closes its connections: they were opened with the old tokens.
+   * Linking a Machine again closes its connections: they were opened with the old tokens. The id
+   * is checked again first: another attempt with the same id and another certificate may have
+   * been stored while this one waited on the network since its own check.
    */
   private commitLink(result: PairingResult, fingerprint: string, address: string, port: number | null): LinkedMachineRecord {
+    this.checkPeerId(result.peer.id, fingerprint)
     if (port === null) throw new PairingError('the other Machine did not say which port it listens on; nothing was linked')
     const key = outgoingTokenKey(result.peer.id)
     this.secrets.set(key, result.outgoingToken)

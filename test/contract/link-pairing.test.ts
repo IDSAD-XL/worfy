@@ -776,4 +776,131 @@ describe('round 2: a Machine id is bound to its certificate', () => {
     )
     expect((entry as LinkConnectError).kind).toBe('unauthorized')
   })
+
+  /**
+   * Holds back the pairing frames of the kinds passed to hold() (until pass()), whichever bench socket sends
+   * them, in the order they were sent, and the close of a socket that has a frame held;
+   * release(t, i) sends the i-th held frame of kind t, then that socket's close. Lets a test put
+   * two attempts between their check of the peer and their commit at once.
+   */
+  function frameGate(): {
+    hold: (t: string) => void
+    pass: (t: string) => void
+    held: (t: string) => number
+    release: (t: string, index: number) => void
+    restore: () => void
+  } {
+    const send = WebSocket.prototype.send as (...args: unknown[]) => void
+    const close = WebSocket.prototype.close as (...args: unknown[]) => void
+    const holding = new Set<string>()
+    const queues = new Map<string, { ws: WebSocket; args: unknown[] }[]>()
+    const waiting = new Map<WebSocket, unknown[] | null>()
+    const spies = [
+      vi.spyOn(WebSocket.prototype, 'send').mockImplementation(function (this: WebSocket, data: unknown, ...rest: unknown[]) {
+        const kind = typeof data === 'string' ? /^\{"t":"(pake\d)"/.exec(data)?.[1] : undefined
+        if (kind !== undefined && holding.has(kind)) {
+          queues.get(kind)?.push({ ws: this, args: [data, ...rest] })
+          waiting.set(this, null)
+          return
+        }
+        send.call(this, data, ...rest)
+      }),
+      vi.spyOn(WebSocket.prototype, 'close').mockImplementation(function (this: WebSocket, ...args: unknown[]) {
+        if (waiting.has(this)) waiting.set(this, args)
+        else close.call(this, ...args)
+      }),
+    ]
+    return {
+      hold: (t) => {
+        holding.add(t)
+        if (!queues.has(t)) queues.set(t, [])
+      },
+      pass: (t) => holding.delete(t),
+      held: (t) => queues.get(t)?.length ?? 0,
+      release: (t, index) => {
+        const frame = queues.get(t)?.[index]
+        if (frame === undefined) throw new Error(`no held ${t} frame #${index}`)
+        send.call(frame.ws, ...frame.args)
+        const closed = waiting.get(frame.ws)
+        waiting.delete(frame.ws)
+        if (closed !== null && closed !== undefined) close.call(frame.ws, ...closed)
+      },
+      restore: () => {
+        for (const spy of spies) spy.mockRestore()
+      },
+    }
+  }
+
+  const linkedFile = (machine: BenchMachine): unknown => linkFile<unknown>(machine, 'linked.json')
+
+  it('A refuses the second of two pair() calls at once with one id and different certificates, and keeps the first link', async () => {
+    const a = await bench.machine('alpha')
+    const c = await bench.machine('gamma')
+    const impostor = await impostorOf(c)
+    // A checks the peer on pake4 and commits on pake6: holding every pake6 puts both attempts
+    // past the check and before the commit.
+    const frames = frameGate()
+    frames.hold('pake6')
+    let second: Promise<Error> | undefined
+    try {
+      const codeOfC = await bench.codeOf(c)
+      const first = a.service.pair({ host: '127.0.0.1', port: bench.portOf(c), code: codeOfC })
+      await expect.poll(() => frames.held('pake6')).toBe(1)
+      const codeOfImpostor = await bench.codeOf(impostor)
+      second = rejection(a.service.pair({ host: '127.0.0.1', port: bench.portOf(impostor), code: codeOfImpostor }))
+      await expect.poll(() => frames.held('pake6')).toBe(2)
+
+      frames.release('pake6', 0)
+      const linked = await first
+      expect(linked).toMatchObject({ id: c.service.machine.id, fingerprint: fingerprintOf(certificateOf(c)) })
+      const record = linkedFile(a)
+      const secrets = secretsOf(a)
+
+      frames.release('pake6', 1)
+      const error = await second
+      expect(error.message).toMatch(/already linked with another certificate/)
+      expect(linkedFile(a)).toEqual(record)
+      expect(secretsOf(a)).toEqual(secrets)
+      expect(a.service.linkedMachines()).toEqual([expect.objectContaining({ id: c.service.machine.id, fingerprint: fingerprintOf(certificateOf(c)) })])
+    } finally {
+      frames.restore()
+      await second?.catch(() => undefined)
+    }
+  })
+
+  it('A, answering as B, refuses a peer with the id it is linking at the same time under another certificate', async () => {
+    const a = await bench.machine('alpha')
+    const c = await bench.machine('gamma')
+    const impostor = await impostorOf(c)
+    // A as the initiator checks C on pake4 and commits on pake6; A as the responder checks the
+    // impostor on pake3 and commits on pake5. pake5 is held only once A has sent its own to C.
+    const frames = frameGate()
+    frames.hold('pake6')
+    let answered: Promise<Error> | undefined
+    try {
+      const codeOfC = await bench.codeOf(c)
+      const first = a.service.pair({ host: '127.0.0.1', port: bench.portOf(c), code: codeOfC })
+      await expect.poll(() => frames.held('pake6')).toBe(1)
+      frames.hold('pake5')
+      const codeOfA = await bench.codeOf(a)
+      answered = rejection(impostor.service.pair({ host: '127.0.0.1', port: bench.portOf(a), code: codeOfA }))
+      await expect.poll(() => frames.held('pake5')).toBe(1)
+
+      frames.release('pake6', 0)
+      frames.pass('pake6')
+      expect(await first).toMatchObject({ id: c.service.machine.id, fingerprint: fingerprintOf(certificateOf(c)) })
+      const record = linkedFile(a)
+      const secrets = secretsOf(a)
+
+      frames.release('pake5', 0)
+      expect((await answered).message).toBe(PAIRING_FAILED)
+      await expect.poll(() => a.pairingFailures.some((message) => message.includes('already linked with another certificate'))).toBe(true)
+      expect(linkedFile(a)).toEqual(record)
+      expect(secretsOf(a)).toEqual(secrets)
+      expect(a.service.linkedMachines()).toEqual([expect.objectContaining({ id: c.service.machine.id, fingerprint: fingerprintOf(certificateOf(c)) })])
+    } finally {
+      frames.restore()
+      await answered?.catch(() => undefined)
+    }
+  })
 })
