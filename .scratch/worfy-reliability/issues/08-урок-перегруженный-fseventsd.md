@@ -1,7 +1,8 @@
 # 08 — Урок «как распознать перегруженный `fseventsd`» в `docs/lessons/agents.md`
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T10:43Z
+Branch: worfy-reliability/08
 Blocked by: —
 Source: решение владельца 2026-10-16 по Ticket-у [03](03-сбой-инцидент-и-регрессионный-test-предложение-процесса.md):
 кандидат 3 раздела «Follow-up Ticket-ы» и разбор 1 («`fseventsd` краснил gate full») документа
@@ -34,9 +35,9 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Готово, когда
 
-- [ ] Урок в `docs/lessons/agents.md` в формате `docs/lessons/README.md`, со строкой `Проверка:`.
-- [ ] Если Ticket 07 влит — `node scripts/check-lessons.mjs` exit 0.
-- [ ] `node scripts/check-handoff.mjs` — exit 0.
+- [x] Урок в `docs/lessons/agents.md` в формате `docs/lessons/README.md`, со строкой `Проверка:`.
+- [x] Если Ticket 07 влит — `node scripts/check-lessons.mjs` exit 0.
+- [x] `node scripts/check-handoff.mjs` — exit 0.
 - [ ] gate fast — exit 0 и строка `[gate] зелено (fast)`, комментарий в PR (PR только с документами).
 
 ## Тесты
@@ -59,4 +60,13 @@ Source: решение владельца 2026-10-16 по Ticket-у [03](03-сб
 
 ## Итог
 
-—
+- Урок «Test-ы наблюдателя файлов красные и на чистом main — сначала проверить `fseventsd` в `top`» —
+  `docs/lessons/agents.md`, после трёх уроков о ложно-красном e2e (таймаут первого окна). Признак, лечение
+  владельцем (`sudo killall fseventsd`), повтор того же commit-а перед классом «временный сбой машины».
+- `Проверка: test/unit/no-rmsync.test.ts:152` — test «is called by no test: the folder of a test goes with
+  removeTestTree». Он ловит одну причину утечки папок (rmSync с `recursive`, падавший на Windows); утечку
+  по другой причине — позднюю запись Layout в `canvas-tools.test.ts` на Mac (`worfy-windows` 26) — не ловит,
+  это сказано в самой строке.
+- `HANDOFF.md`, «Риски и долги», первая строка — ссылка на урок вместо файлов test-ов, команды и замеров.
+- `node scripts/check-lessons.mjs` — exit 0 (35 уроков, 20 со ссылкой); `node scripts/check-handoff.mjs` —
+  exit 0 (75 строк, 15177 байт). Gate fast — в комментарии PR.
