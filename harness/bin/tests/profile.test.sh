@@ -224,6 +224,17 @@ rm -rf "$T/ws/.git"
 # the resolver does not find a match with a trailing slash; the workspace does not mask that — exit 3, as before
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
+# The home folder is never a workspace: with two repositories of one profile right under HOME, a
+# directory in HOME is not that project. Paths in node's spelling (C:/… in Git Bash on Windows), so
+# that the case runs there too; USERPROFILE with HOME, which node reads on Windows.
+nat() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
+mkdir -p "$T/hw/a" "$T/hw/b" "$T/hw/notes" "$T/hw-other"
+for d in a b; do git -C "$T/hw/$d" init -q -b main; done
+printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$(nat "$T/hw/a")" "$(nat "$T/hw/b")" >"$T/hw.json"
+check "common parent of a profile's repos, not HOME -> workspace" 0 "multi" \
+    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw-other" USERPROFILE="$(nat "$T/hw-other")" "$PROFILE" -C "$(nat "$T/hw/notes")" --name
+check "common parent of a profile's repos is HOME -> 3, not a workspace" 3 "" \
+    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw" USERPROFILE="$(nat "$T/hw")" "$PROFILE" -C "$(nat "$T/hw/notes")" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
 
 # --- schema 2 and the profile's place on the machine ---------------------------------
