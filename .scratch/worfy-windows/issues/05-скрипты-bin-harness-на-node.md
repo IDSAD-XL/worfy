@@ -320,3 +320,30 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnp
 - Ночью на ПК оставались зависшие процессы `bash` от test-ов `silent-mode` на main (bash-`epic-status` в цикле на пути вида `C:\…`): 27, затем ещё 9. Они давали timeout-ы в полных прогонах; остановлены, после каждого прогона теперь чистятся. Поэтому сомнительные файлы прогнаны отдельно.
 
 **Не проверено:** всё на macOS и Linux, в том числе случаи «старый Harness запускается сам» и `harness-script-env.test.ts` (на Windows пропущены); `packaged.spec.ts`.
+
+### Срез 05b, раунд 2 — ревью Mac (PR #434)
+
+Session на Windows-ПК, 2026-10-17. Ревью первого раунда на Mac (глубина high: корректность на macOS, безопасность, мутанты) — изменения запрошены. Код приложения на macOS не регрессировал, но 7 test-ов на Mac красные там, где main зелёный: stub-ы стали скриптами Node, а эти test-ы запускают их с PATH без node. На Windows эти test-ы пропущены, поэтому вердикт с ПК их не видел. Исправлено в `1b563bd`, `a224925`, `4e5e6d8`, `f4ed6ee`, `e59dfae`.
+
+- **Блокеры (high), одна причина.**
+  - `harness-script-wiring.test.ts` (`:340`, `:423`, `:441`): PATH `/usr/bin:/bin` теперь с папкой node впереди (`LOGIN_PATH`) — по-прежнему PATH как у login shell, без PATH самого worfy.
+  - `projects.test.ts:697-704` и e2e машины B (`linked-add-project.spec.ts`, `linked-read-only.spec.ts`, `linked-machines.spec.ts`): окружение скриптов worfy снимает через `$SHELL -ilc` (`src/main/agent/env.ts`); при `SHELL=/bin/sh` и временном HOME login shell читает `/etc/profile`, потом `$HOME/.profile`. Помощник `loginProfileWithNode(home)` (`test/harness-node.ts`) пишет `.profile`, который ставит папку node первой в PATH. Так путь «скрипт через node» остаётся под test-ом; stub-ы `#!/bin/sh` вне Windows не понадобились.
+- **medium: аргументы старого Harness.** Stub-ы `#!/bin/sh` в `workflow-reader.test.ts` и `workflow-profile.test.ts` отвечают только на аргументы worfy (`--json`, `--json --ref <x>`; `-C <корень> --field mcp.allowed`), иначе exit 2 «unexpected arguments». Новые test-ы запускают каждый stub через `sh`; на Windows — когда `sh` есть в PATH (Git Bash).
+- **low.**
+  - `profile.ts`: BOM UTF-8 перед `#!` отбрасывается; файл, который нельзя прочитать, на macOS и Linux запускается сам (система скажет, можно ли), на Windows — через node, и node объясняет отказ.
+  - `nodeOnPath` на Windows берёт только полные пути: `\tools`, `/tools`, `C:tools` пропускаются (`isWindowsAbsolutePath` из `src/shared/paths.ts`, то же правило, что у `findOnPath`). Иначе проверка смотрела бы на диск worfy, а запуск шёл бы на диске рабочей папки скрипта.
+  - Новый `test/contract/harness-script-command.test.ts`: порядок PATH, относительная запись, запись от корня диска (Windows), папка с именем node, нет бита исполнения; папка на месте скрипта, нет строки `#!`, BOM с node и с bash, аргументы старого Harness, нечитаемый файл; `runEpicStatus`: рабочей папки нет, EACCES — `not-found`.
+- **Мутанты на ПК** (`harness-script-command.test.ts`, каждый с возвратом файла): убиты — обратный порядок PATH, относительные записи не пропускаются, `isAbsolute` на Windows, без `isFile`, папка принята за скрипт, без проверки `#!`, BOM не отбрасывается, `reader.ts:156` `not-found` → `failed`. Выжили, потому что их случаи на Windows пропущены: без `X_OK`, нечитаемый файл отдан node, `args: []` у старого Harness — проверены только чтением.
+- **Найдено на ПК при полном прогоне:** `test/harness-node.ts` в первой версии раунда спрашивал `spawnSync('sh')` при загрузке модуля, а его загружают e2e-spec-и — `e2e-no-spawn-on-load.test.ts` падал (на любой ОС). Теперь `hasSh()` спрашивает при первом вызове (`e59dfae`).
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| main `00078fa` | 1 | 5657 | 5206 | 307 | 144 |
+| ветка `f4ed6ee` | 1 | 5680 | 5259 | 273 | 148 |
+
+- В полном прогоне 26 имён упали только на ветке, почти все — timeout-ы: пять зависших `bash` от прогона #428 в `wt428` (bash-`epic-status` в цикле) крутились с 11:55. Остановлены. 14 этих файлов прогнаны отдельно на обеих сторонах: осталось 3 имени. `e2e-no-spawn-on-load` — настоящий, исправлен в `e59dfae` и после него зелёный; `startup-failure` «ignores an ELECTRON_RENDERER_URL that is not a URL» падает и в полном прогоне main; `shell-discovery` «Sidebar renders a section file…» — отдельно по два раза на обеих сторонах зелёный.
+- **Новых падений по именам нет** (на `e59dfae`: `e2e-no-spawn-on-load`, `workflow-profile`, `workflow-reader`, `shell-discovery` отдельно — ни одного имени, которое на main проходит). Перестали падать 60: `workflow-reader` 29, `workflow-profile` 17, `github-prs` 10, `docs` 3, `projects` 1.
+- e2e трёх изменённых spec-ов `linked-*` на ПК, 14:55–14:57: 6 упало, 6 прошли — те же имена, что на main `501e92a` и на ветке до раунда; новых падений нет. На Windows они падают по своим причинам; то, что машина B видит Epic, на ПК не проверить.
+- `pnpm lint`, `pnpm typecheck` на `e59dfae` — exit 0.
+
+**Не проверено:** блокеры раунда и случаи, пропущенные на Windows (`X_OK`, нечитаемый файл, аргументы старого Harness через сам runner, `harness-script-wiring` с минимальным PATH, машина B в e2e), — только на macOS и Linux; на ПК проверены чтением.
