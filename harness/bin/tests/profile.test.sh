@@ -463,7 +463,9 @@ for spec in "${PL_BAD[@]}"; do
     n="${spec%%|*}"; reason="${spec##*|}"
     fails_with "workflow.pipeline ($n) -> 1: $reason" 1 "$reason" "$P2" -C "$T/r/$n" --name
 done
-fails_with "a broken workflow.pipeline names the profile and says broken profile" 1 "$HH/projects/pldup/profile.json: workflow.pipeline" "$P2" -C "$T/r/pldup" --name
+# the profile's path as profile prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere
+PLDUP="$HH/projects/pldup/profile.json"; PLDUP="$(cygpath -w "$PLDUP" 2>/dev/null || printf '%s' "$PLDUP")"
+fails_with "a broken workflow.pipeline names the profile and says broken profile" 1 "$PLDUP: workflow.pipeline" "$P2" -C "$T/r/pldup" --name
 fails_with "a broken workflow.pipeline: broken profile" 1 "— broken profile" "$P2" -C "$T/r/plfirst" --name
 eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
 eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
