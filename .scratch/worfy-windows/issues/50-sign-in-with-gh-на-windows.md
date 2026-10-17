@@ -1,7 +1,8 @@
 # 50 — «Sign in with gh» на Windows: pseudo-terminal запускает `/bin/sh`, а голый `gh` node-pty не находит
 
 Type: task
-Status: claimed 2026-10-17T22:30Z
+Status: done 2026-10-17T23:37Z
+PR: #455
 Branch: worfy-windows/50
 Blocked by: —
 Source: срез 3 Ticket-а [14](14-gate-full-на-windows.md) на Windows-ПК, 2026-10-14: дефект продукта найден при подмене `gh` в test-ах и вынесен из PR подмены в свой Ticket. Черновой commit — `29c4159` на ветке `worfy-windows/14-gh-stand-in` (не для merge). Код перечитан на Mac по main `1c1beadd`; node-pty — 1.1.0 из `node_modules`.

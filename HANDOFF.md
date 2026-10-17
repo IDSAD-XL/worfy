@@ -6,7 +6,7 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, `epic-status` — 25/26. Осталась приёмка 16.
-- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–04, 08–12, 18–28, 35, 44 (PR #172–#453) и срезы 05a–05e (#420–#451), `epic-status` — 26/56; 04 (hooks на Node) — #453. Новый 56 — test-ы на четыре пробела mutation testing в hooks. Очередь — в «Дальше».
+- `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–04, 08–12, 18–28, 35, 44, 50 (PR #172–#455) и срезы 05a–05e (#420–#451), `epic-status` — 27/56; 04 (hooks на Node) — #453, 50 (gh.exe на Windows) — #455. Новый 56 — test-ы на четыре пробела mutation testing в hooks. Очередь — в «Дальше».
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10–14 (14 — test-ы zle на Linux: dash и fd > 9; 11 — связь shell-а закрыта на время команды, `bye`; 12 — `transcript-date` у полуночи; 13 — панель ⌘I шлёт строку shell-а); 09 — приёмка. Долги — «Итог» 11–13.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15 (11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328); 14 — ⌘[ в реестре сочетаний, #449; 15 — подписи composer-а, #450); остался 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
@@ -49,7 +49,7 @@
 ## Дальше
 
 - `worfy-harness` 28 (git и `HARNESS_HOME` в прогонах eval) открывает платную часть 27; 29 — карта «кейс eval → файлы правил» и правило частоты eval.
-- `worfy-windows`, очередь (2026-10-18): ПК — 13 после merge 07, затем 30; Mac — 50 на ревью (#455), 06 в работе, затем 07, затем 17; 56 — без места в очереди. Потом 14, остаток 05, 15; затем 29, 32, 33, 36, 42, 43, 45, 49 и 31, 34, 37, 40, 41; 38, 39, 47, 48 — Mac.
+- `worfy-windows`, очередь (2026-10-18): ПК — 13 после merge 07, затем 30; Mac — 50 done (#455), 06 на ревью (#456), 07 в работе, затем 17; 56 — без места в очереди. Потом 14, остаток 05, 15; затем 29, 32, 33, 36, 42, 43, 45, 49 и 31, 34, 37, 40, 41; 38, 39, 47, 48 — Mac.
 - `worfy-windows` 54 (шесть файлов `test/contract` ищут zsh через `/bin/sh` при загрузке модуля; на Windows падают с 0 test-ов) — после 53 (PR #387), тем же способом.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
