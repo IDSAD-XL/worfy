@@ -609,10 +609,18 @@ S="$W/state.json"; state "$S" null 1 2
     && ok "batch: PRs without green checks are merged in the set" || bad "batch: exit $rc: $(tail -3 "$W/out")"
 ! grep -qE '^(pr checks|run |workflow run)|mergeStateStatus' "$GH_LOG" \
     && ok "batch: check and merge ask for no checks, no run, no mergeStateStatus and dispatch nothing" || bad "batch: gh calls: $(cat "$GH_LOG")"
-# ci_state <file> <ci> <run or null>: the wave CI state file the skill block writes. On Windows wave-gate runs
-# only a leading gh of the command as the stand-in: any other command would reach the real gh, so it stops the test.
+# ci_guard <command>: on Windows wave-gate runs only a leading gh of a ci_batch_run command as the stand-in, through
+# cmd.exe. A command that does not start with gh, chains another command (&, |, ;, a newline, ` or $( ) or names
+# gh again would reach the real gh there, so it stops the test. Every command a CI state file gets passes it.
+ci_guard() {
+    on_windows || return 0
+    if [[ "$1" != "gh "* ]] || [[ "$1" == *[\&\|\;\`$'\n']* || "$1" == *'$('* ]] || has_gh_word "${1#gh }"; then
+        echo "REFUSED: ci_batch_run [$1] is not one gh command: on Windows it would reach the real gh" >&2; exit 1
+    fi
+}
+# ci_state <file> <ci> <run or null>: the wave CI state file the skill block writes, its command through ci_guard.
 ci_state() { local run="$3"
-    if on_windows && [ "$run" != null ] && [[ "$run" != "gh "* ]]; then echo "REFUSED: ci_batch_run [$run] does not start with gh: on Windows it would reach the real gh" >&2; exit 1; fi
+    [ "$run" = null ] || ci_guard "$run"
     [ "$run" = null ] || run="$(node -e 'process.stdout.write(JSON.stringify(process.argv[1]))' "$run")"
     printf '{"repo":"%s","branch":"main","ci":"%s","ci_batch_run":%s}\n' "$(tn "$W/repo")" "$2" "$run" >"$1"; }
 dispatches() { grep -c '^workflow run' "$GH_LOG"; }
@@ -668,13 +676,15 @@ B="$W/ci-bad.json"; ci_state "$B" batch null
 ci_state "$B" nightly null
 "$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q '"ci"' "$W/bout" && ok "ci: an unknown mode -> exit 1" || bad "ci: unknown mode exit $rc $(cat "$W/bout")"
-node -e 'const fs=require("fs"),f=process.argv[1],s=JSON.parse(fs.readFileSync(f,"utf8"));s.ci="batch";s.ci_batch_run="gh workflow run ci.yml --ref $ref";s.merge={merged:[],status:"pending"};fs.writeFileSync(f,JSON.stringify(s))' "$B"
+run='gh workflow run ci.yml --ref $ref'; ci_guard "$run"
+node -e 'const fs=require("fs"),f=process.argv[1],s=JSON.parse(fs.readFileSync(f,"utf8"));s.ci="batch";s.ci_batch_run=process.argv[2];s.merge={merged:[],status:"pending"};fs.writeFileSync(f,JSON.stringify(s))' "$B" "$run"
 before=$(dispatches)
 "$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "merge" "$W/bout" && [ "$(dispatches)" = "$before" ] \
     && ok "batch ci: a merge still in progress -> exit 1, nothing dispatched" || bad "batch ci: pending merge exit $rc $(cat "$W/bout")"
 # A branch name that is not a plain one never reaches the shell: exit 1, no dispatch.
-printf '{"repo":"%s","branch":"main;x","ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref"}\n' "$(tn "$W/repo")" >"$B"
+ci_guard "$run"
+printf '{"repo":"%s","branch":"main;x","ci":"batch","ci_batch_run":"%s"}\n' "$(tn "$W/repo")" "$run" >"$B"
 before=$(dispatches)
 "$WG" ci "$B" >"$W/bout" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q '"branch"' "$W/bout" && [ "$(dispatches)" = "$before" ] \
@@ -748,8 +758,9 @@ for sh in bash zsh; do
             b="${b//<main lock>/$(tn "$W/main.lock")}"; b="${b//<PR numbers in merge order>/1 2 3}"; b="${b//<platform PR numbers>/2}"
             if on_windows; then b="${b//"$ghpat"/execFileSync(process.execPath, [\"$(node_path "$STUBS/gh.mjs")\", }"; fi
             printf '%s' "$b"; }
-    # On Windows node's gh by name is the real gh.exe: a block that still runs it is not run.
-    if on_windows && [[ "$(sub "$BI")" == *'"gh"'* ]]; then
+    # On Windows node's gh by name is the real gh.exe: a block that still names gh, other than the stand-in, is
+    # not run.
+    if on_windows && blk="$(sub "$BI")" && has_gh_word "${blk//"$(node_path "$STUBS/gh.mjs")"/}"; then
         bad "$sh: the set block still runs gh by name: on Windows that is the real gh, the block is not run"
     else
         got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$STUB"$'\n'"$(sub "$BI")" 2>&1)"
@@ -765,7 +776,8 @@ for sh in bash zsh; do
     unset GH_LABELS_3
     # The batch CI block: the profile says batch — one dispatch for main, also when the block runs twice;
     # the profile has no workflow.ci (F exits 4) — nothing is dispatched.
-    BATCH="F() { case \"\$1\" in workflow.ci) echo batch ;; workflow.ci_batch_run) echo 'gh workflow run ci.yml --ref \$ref -f job=check' ;; *) return 4 ;; esac; }"
+    BATCH_RUN='gh workflow run ci.yml --ref $ref -f job=check'; ci_guard "$BATCH_RUN"
+    BATCH="F() { case \"\$1\" in workflow.ci) echo batch ;; workflow.ci_batch_run) echo '$BATCH_RUN' ;; *) return 4 ;; esac; }"
     export GH_RUN_URL="https://github.com/o/r/actions/runs/77"
     got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$BATCH"$'\n'"$(sub "$BCI" | sed "s#<CI file>#$W/ci.json#")" 2>&1)"
     got2="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$BATCH"$'\n'"$(sub "$BCI" | sed "s#<CI file>#$W/ci.json#")" 2>&1)"

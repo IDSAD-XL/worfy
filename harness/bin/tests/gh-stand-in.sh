@@ -1,6 +1,7 @@
 # Sourced by the Harness shell tests that stub gh for a Node script under test (wave-gate, ticket).
 #
 #   on_windows                        true in Git Bash (or Cygwin) on Windows
+#   has_gh_word <text>                true when <text> names gh as a word (a command, a quoted name, a path)
 #   node_path <path>                  the path as node reads it: C:/… in Git Bash on Windows, unchanged elsewhere
 #   node_stand_in <stub> <file.mjs>   writes <file.mjs>, a node script that runs the shell stub <stub> with bash
 #                                     and exits with its code; with $STAND_IN_PARENTS set it appends the pid of
@@ -16,6 +17,8 @@
 #                                     (an empty GH_CONFIG_DIR, no tokens): a real gh reached anyway could not
 #                                     act on GitHub.
 on_windows() { command -v cygpath >/dev/null 2>&1; }
+# has_gh_word <text>: true when <text> names gh as a word — a command gh, "gh", 'gh', a path …/gh, gh.exe.
+has_gh_word() { local re='(^|[^[:alnum:]_.-])gh([^[:alnum:]_-]|$)'; [[ $1 =~ $re ]]; }
 node_path() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
 node_stand_in() {
     local bash_bin stub
