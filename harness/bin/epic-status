@@ -24,7 +24,10 @@
 // and "Status: done" — so the LAST occurrence across the whole file is taken.
 //
 // This script replaced a bash one (ADR-0055) and keeps its output byte for byte: the tests in
-// tests/epic-status.test.sh were written against the bash version. Text is handled as bytes — a
+// tests/epic-status.test.sh were written against the bash version. Where the bash one depended on
+// the machine, one answer was chosen: files and Epics come in byte order, as the bash glob gave them
+// in the C locale (a UTF-8 locale on Linux sorted mixed case and Cyrillic differently), and --ref
+// reads regular files only (git archive also extracted symlinks). Text is handled as bytes — a
 // "latin1" string holds one byte per character — so a name or title that is not valid UTF-8 comes out
 // as it went in, the way awk passed it through.
 "use strict"
@@ -499,4 +502,9 @@ try {
     if (!(e instanceof Exit)) throw e
     process.exitCode = e.code
 }
+// A reader that stops early (`epic-status --json | head`) closes the pipe: bash ended quietly on
+// SIGPIPE, and so does this, instead of a stack trace for EPIPE.
+process.stdout.on("error", (e) => {
+    if (e.code !== "EPIPE") throw e
+})
 if (chunks.length) process.stdout.write(Buffer.concat(chunks))
