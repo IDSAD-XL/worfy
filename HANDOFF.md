@@ -3,17 +3,17 @@
 ## Сейчас в работе
 
 - `worfy-harness` (E3: Harness владельца — plugin worfy; [spec](.scratch/worfy-harness/spec.md)): влиты 01–26, 30, 32, 35, 37, `epic-status` — 30/48; 26 (приёмка E3) закрыт 2026-10-15, версия `0.3.0` (PR #323); 27 (платная часть eval) ждёт 28; 29 — после 27 и 28; открыты 31, 33, 34, 36, 38–48.
-- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 19 из 20 (20 — PR #345). 14 (перетаскивание без фризов) отложен владельцем; работа — в локальной ветке `wip/worfy-week-14`.
+- `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26, `epic-status` — 25/26. Осталась приёмка 16.
 - `worfy-windows` (полный порт под Windows; spec, ADR 0054–0057, 0062, 0063): влиты 01–03, 08–12, 18–28, 35, 44 (PR #172–#298), `epic-status` — 22/50; 46 закрыт — `gate.sh` остаётся (решение владельца 2026-10-14); на ПК — 14. Владелец, 2026-10-13: 03–07 не ждут закрытия E3; очередь ПК — в «Дальше».
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10; 09 — приёмка 2026-10-17; открыты 11 (security: программа в Terminal-е пишет в соединение shell-а), 12 (flaky e2e `transcript-date`) и 13 (панель ⌘I шлёт строку shell-а, первая строка Terminal-а видна).
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13 (11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328)); открыт 15 (подписи Model и Permissions в composer-е скрываются, когда значение не помещается); 12 — приёмка.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
-- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–04 (02, 03 — отчёты, решения владельца — «Итог»). Открыты 05 (compatibility suite SDK), 06–09 (процесс 03 «сбой → инцидент → test»: уроки, `check-lessons`, skill `retro`).
+- `worfy-reliability` (надёжность Autopilot и уроки из сбоев; [spec](.scratch/worfy-reliability/spec.md)): влиты 01–07 (02, 03 — отчёты; 05 — compatibility suite SDK, 06 — классы сбоев в README уроков, 07 — `check-lessons` в `pnpm lint`). Открыты 08 (урок про `fseventsd`), 09 (skill `retro`).
 - `worfy-polish`: 29/31 — 01–29 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на Windows-ПК). 31 (иконка у уведомлений) — PR #425 `VERIFIED`, ждёт вердикта Windows-ПК. Открыт 30 (flaky contract test-ы).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): влиты 01–03 (`wave-gate`, ADR-0065; вердикт Windows для 01, 02 — новых падений нет); 06 — stub-ы для Windows, 07 — дерево `wave-gate`; 04 (порядок `worfy-windows` 53 → 51 → 14 → 30) и 05 (замер) — Session Orchestrator-а.
-- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): влит 01 (#421, новая шапка; Ticket-ы перенесены `ticket migrate`), 1/8; 02 и 07 — платформенные, ждут Windows-ПК.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): влит 01 (#421, новая шапка, `ticket migrate`), 1/8. 02 (отметки на SHA) — PR #428 `VERIFIED`: ждёт Windows-ПК; до установки Harness — слово владельца на `rules.md:46` (замок e2e, «Итог» 02).
 
 ## Ждёт владельца
 
@@ -65,7 +65,7 @@
 
 - `worfy-mvp` (первая версия, 33/33) закрыт — [spec](.scratch/worfy-mvp/spec.md); где что в коде и долги — «Итог» его Ticket-ов.
 - `worfy-daily` (E2, Autopilot, 32/32) закрыт — [spec](.scratch/worfy-daily/spec.md); условия 3 и 4 готовности E2 ещё не выполнены (`docs/roadmap.md`, E2).
-- `worfy-week` (19/20; 14 открыт 2026-10-16, после worfy-link) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
+- `worfy-week` (20/20) — [spec](.scratch/worfy-week/spec.md); условия готовности на 2026-10-08 — «Итог» Ticket-а 12.
 - Spec-и: [worfy-harness](.scratch/worfy-harness/spec.md), [worfy-link](.scratch/worfy-link/spec.md), [worfy-windows](.scratch/worfy-windows/spec.md), [worfy-review](.scratch/worfy-review/spec.md), [worfy-terminal-ai](.scratch/worfy-terminal-ai/spec.md), [worfy-ui](.scratch/worfy-ui/spec.md).
 - Этапы E1–E4 — [roadmap](docs/roadmap.md).
 - Исследования внешних проектов — [docs/research/](docs/research/).
