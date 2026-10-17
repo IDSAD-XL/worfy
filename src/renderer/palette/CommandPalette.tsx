@@ -9,7 +9,7 @@
 // Below the commands, "In transcripts" lists the Project's Sessions whose conversation contains the
 // query (`claudeHome.search`, worfy-polish ticket 10): Sessions of worfy and those started in a
 // terminal or Claude Desktop alike. Picking one opens it in the Session view.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { ActionState } from '../../shared/actions/render-template'
 import { TRANSCRIPT_SEARCH, type TranscriptHit } from '../../shared/ipc/claude-home'
@@ -41,6 +41,9 @@ export const TRANSCRIPTS_GROUP = 'In transcripts'
 
 /** Characters of a snippet shown before its match; the row cuts the rest at its end. */
 const SNIPPET_LEAD = 24
+
+/** Lines of a wrapped title before it is cut with "…", as the title of a Ticket on the Canvas (TICKET_TITLE_LINES). */
+const WRAPPED_TITLE_LINES = 3
 
 const styles = {
   // The toolbar's CSS draws the field (.w-toolbar__palette-hint); a button only needs its own font reset.
@@ -111,10 +114,17 @@ const styles = {
   title: { flex: 'none', maxWidth: '60%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // A row without a detail: its title has the whole row.
   wholeTitle: { flex: 1, minWidth: 0, maxWidth: 'none' },
-  // A Manual check row: the check is a sentence that only makes sense in full, so its title wraps
-  // onto as many lines as it needs and the row grows with it.
+  // A Manual check row: the check is a sentence, so its title wraps onto up to WRAPPED_TITLE_LINES
+  // lines, the last cut with "…", and the row grows with them; the tooltip has the rest.
   wrappedRow: { height: 'auto', minHeight: 'var(--row-height)', padding: 'var(--space-1) var(--space-2)' },
-  wrappedTitle: { overflow: 'visible', textOverflow: 'clip', whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: '18px' },
+  wrappedTitle: {
+    display: '-webkit-box',
+    WebkitLineClamp: WRAPPED_TITLE_LINES,
+    WebkitBoxOrient: 'vertical',
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere',
+    lineHeight: '18px',
+  },
   // A transcript row: the Session's title leaves most of the row to the snippet.
   sessionTitle: { maxWidth: '35%' },
   detail: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--text-12)', color: 'var(--text-muted)' },
@@ -147,16 +157,38 @@ interface RowProps {
   onHover: () => void
 }
 
-/** The group whose rows wrap their title instead of cutting it. */
+/** The group whose rows wrap their title onto WRAPPED_TITLE_LINES lines instead of cutting it at one. */
 const WRAPPED_GROUP = 'Manual check'
+
+/**
+ * Whether the text of the element is cut on screen: a wrapped title has more lines than it shows, a
+ * one-line title is wider than its box. Worked out again whenever the element changes size — the
+ * window, the panel or the list getting narrower or wider — and when its text changes.
+ */
+function useCut<T extends HTMLElement>(text: string, wrapped: boolean) {
+  const ref = useRef<T>(null)
+  const [cut, setCut] = useState(false)
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (element === null) return
+    const measure = () => setCut(wrapped ? element.scrollHeight > element.clientHeight : element.scrollWidth > element.clientWidth)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [text, wrapped])
+  return [ref, cut] as const
+}
 
 function RowButton({ command, prose, hint, id, first, active, onPick, onHover, state }: RowProps & { state: ActionState | null }) {
   const enabled = state === null || state.enabled
-  // A row without an action state may have its title cut: the tooltip has it whole, unless the row
-  // brings its own (the snippet of a transcript hit).
-  const tooltip = state === null ? (hint ?? command.title) : state.enabled ? state.text : state.reason
   const detail = command.detail ?? ''
   const wrapped = !prose && command.group === WRAPPED_GROUP
+  const [titleRef, cut] = useCut<HTMLSpanElement>(command.title, wrapped)
+  // A row without an action state has its title whole in the tooltip while the title is cut on
+  // screen, unless the row brings its own tooltip (the snippet of a transcript hit).
+  const tooltip = state === null ? (hint ?? (cut ? command.title : undefined)) : state.enabled ? state.text : state.reason
   const titleStyle: CSSProperties = {
     ...styles.title,
     ...(prose ? styles.sessionTitle : null),
@@ -184,7 +216,9 @@ function RowButton({ command, prose, hint, id, first, active, onPick, onHover, s
           if (enabled) onPick(command)
         }}
       >
-        <span style={titleStyle}>{command.title}</span>
+        <span ref={titleRef} style={titleStyle}>
+          {command.title}
+        </span>
         {detail !== '' ? (
           <span className={prose ? undefined : 'w-mono'} style={styles.detail}>
             {detail}
