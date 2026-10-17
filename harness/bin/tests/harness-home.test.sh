@@ -166,8 +166,12 @@ out="$(cd "$R" && printf '{"session_id":"s3"}' | clean "$H3" env HARNESS_HOME="$
 check "legacy registry: stop.sh resolves the project through the legacy registry (exit 2)" [ "$rc" -eq 2 ]
 (cd "$R" && printf '{"session_id":"s3","cwd":"%s"}' "$R" | clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/worktree-lock" claim >/dev/null 2>&1)
 (cd "$R" && clean "$H3" env HARNESS_HOME="$HH3" node "$HARNESS/bin/epic-board" --no-open >/dev/null 2>&1)
-out="$(clean "$H3" env HARNESS_HOME="$HH3" zsh "$HARNESS/bin/qmd-sync-main" --describe tp 2>&1)"; rc=$?
-check "legacy registry: qmd-sync-main --describe finds the profile (exit 0)" [ "$rc" -eq 0 ]
+if [ "$WIN" -eq 1 ] && ! command -v zsh >/dev/null 2>&1; then
+    echo "skip legacy registry: qmd-sync-main is a zsh script, and Git Bash on Windows has no zsh"
+else
+    out="$(clean "$H3" env HARNESS_HOME="$HH3" zsh "$HARNESS/bin/qmd-sync-main" --describe tp 2>&1)"; rc=$?
+    check "legacy registry: qmd-sync-main --describe finds the profile (exit 0)" [ "$rc" -eq 0 ]
+fi
 after="$(snapshot "$H3")"
 check "legacy registry: nothing under \$HOME/.claude outside worfy-harness changed" [ "$before" = "$after" ]
 check "legacy registry: no \$HOME/.claude/worktree-sessions or state" absent "$H3/.claude/worktree-sessions" "$H3/.claude/state"
@@ -214,14 +218,35 @@ printf 'collections:\n  tp-main:\n    path: %s\n    update: /nowhere/qmd-sync-ma
 check "copy: no script called \$HOME/.claude/bin or \$HOME/.claude/hooks" [ ! -e "$TRAP" ]
 [ -e "$TRAP" ] && sed 's/^/     /' "$TRAP"
 mkdir -p "$T/links"; ln -s "$COPY/bin/profile" "$T/links/profile"; ln -s "$COPY/bin/epic-status" "$T/links/epic-status"
-out="$(cd "$R" && c "$T/links/profile" --name 2>&1)"; rc=$?
-check "copy through a symlink: profile finds gate-resolve.mjs next to its real file" rc_out 0 tp
 ln -s "$COPY/hooks/gate.mjs" "$T/links/gate.mjs"
-out="$(cd "$R" && c env GATE_SCOPE=all node "$T/links/gate.mjs" p_ok </dev/null 2>&1)"; rc=$?
-check "copy through a symlink: gate.mjs finds gate-paths.mjs and gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] зелено}" != "$out" ]
-out="$(cd "$R" && c "$T/links/epic-status" --json 2>&1)"; rc=$?
-check "copy through a symlink: epic-status finds ticket next to its real file" [ "$rc" -eq 0 ]
+# Git Bash on Windows without developer mode makes a copy for `ln -s` (or fails with EPERM): a
+# copy has no neighbours, so these three checks say nothing there.
+if [ "$WIN" -eq 1 ] && [ ! -L "$T/links/profile" ]; then
+    echo "skip copy through a symlink: no symlinks in Git Bash on Windows without developer mode (ln -s made a copy)"
+else
+    out="$(cd "$R" && c "$T/links/profile" --name 2>&1)"; rc=$?
+    check "copy through a symlink: profile finds gate-resolve.mjs next to its real file" rc_out 0 tp
+    out="$(cd "$R" && c env GATE_SCOPE=all node "$T/links/gate.mjs" p_ok </dev/null 2>&1)"; rc=$?
+    check "copy through a symlink: gate.mjs finds gate-paths.mjs and gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] зелено}" != "$out" ]
+    out="$(cd "$R" && c "$T/links/epic-status" --json 2>&1)"; rc=$?
+    check "copy through a symlink: epic-status finds ticket next to its real file" [ "$rc" -eq 0 ]
+fi
 check "copy through a symlink: nothing called the trap" [ ! -e "$TRAP" ]
+
+# --- 4b. Neighbours are started through node, not by their #! line ------------------------
+# A copy of harness/ whose bin files are not executable. A script that started a neighbour by its
+# path got EACCES here on macOS and Linux, the way an extensionless file gets ENOENT on Windows.
+NX="$T/noexec/harness"; mkdir -p "$T/noexec" && cp -R "$HARNESS" "$NX"
+find "$NX/bin" -maxdepth 1 -type f -exec chmod -x {} +
+out="$(cd "$R" && clean "$H1" node "$NX/bin/ticket" root 2>&1)"; rc=$?
+check "bin not executable: node ticket root (exit 0)" [ "$rc" -eq 0 ]
+[ "$rc" -eq 0 ] || echo "     exit $rc: ${out:0:300}"
+out="$(cd "$R" && clean "$H1" node "$NX/bin/epic-status" --json 2>&1)"; rc=$?
+check "bin not executable: node epic-status --json (exit 0)" [ "$rc" -eq 0 -a "${out#\{\"ref\":\"main\"}" != "$out" ]
+[ "$rc" -eq 0 ] || echo "     exit $rc: ${out:0:300}"
+out="$(cd "$R" && clean "$H1" node "$NX/bin/epic-board" --no-open --out "$T/noexec.html" 2>&1)"; rc=$?
+check "bin not executable: node epic-board --no-open (exit 0, page written)" [ "$rc" -eq 0 -a -s "$T/noexec.html" ]
+[ "$rc" -eq 0 ] || echo "     exit $rc: ${out:0:300}"
 
 # --- 5. Machine output is unchanged ------------------------------------------------------
 # The expected JSON was printed by epic-status at the branch base (origin/main 31bc642) on this fixture;
