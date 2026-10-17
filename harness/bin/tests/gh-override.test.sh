@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Tests of the gh override of wave-gate, on every OS: WAVE_GATE_GH set to a .mjs file runs it with node, set to
 # any other program runs that program as given; both for the run lookup (gh run list) and for a leading gh of
-# the ci_batch_run dispatch, while a dispatch that starts with another word (ghx, xgh) runs as written. Without
-# the variable wave-gate starts gh from PATH: checked with a logging stub named gh first on PATH where node can
-# start a shell script (not on Windows, where it would find a gh.exe instead: that case is skipped there).
-# Every program the cases start is a logging stub; the real gh is never started.
+# the ci_batch_run dispatch, while a dispatch that starts with another word (ghx, xgh) runs as written; and for
+# `gh pr merge` of a checked set. Without the variable wave-gate starts gh from PATH: checked with a logging stub
+# named gh first on PATH where node can start a shell script (not on Windows, where it would find a gh.exe
+# instead: that case is skipped there). Every program the cases start is a logging stub; a refusing gh is first on
+# PATH behind gh_guard, so a case where the override were not used reaches no real gh.
 # Run: bash harness/bin/tests/gh-override.test.sh; exit code 0 — everything passed.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -43,6 +44,14 @@ for w in ghx xgh; do
 done
 for w in workflow run; do printf 'echo "%s $*" >>"$PLAIN_LOG"\n' "$w" >"$T/repo/$w"; done
 export PATH="$L:$PATH" OVR_LOG="$T/ovr.log" WORD_LOG="$T/word.log" PLAIN_LOG="$T/plain.log"
+# A refusing gh first on PATH, for any case where wave-gate would start gh itself instead of the override: a shell
+# stub that logs to $REFUSED_LOG and exits 1, and on Windows a copy of false as gh.exe next to it, which node's own
+# lookup of a bare gh finds there. The guard stops the test before any case if another gh could be started.
+STUBS="$T/stubs"; mkdir -p "$STUBS"
+printf '#!/usr/bin/env bash\necho "$*" >>"$REFUSED_LOG"\necho "refusing gh stub: the override was not used" >&2\nexit 1\n' >"$STUBS/gh"
+chmod +x "$STUBS/gh"; refusing_gh_exe "$STUBS/gh"
+export PATH="$STUBS:$PATH" REFUSED_LOG="$T/refused.log"
+gh_guard WAVE_GATE_GH "$STUBS/gh" ""
 
 # 1. WAVE_GATE_GH = a .mjs file: the dispatch and the run lookup both run it with node
 ci_file "$T/c1.json" 'gh workflow run ci.yml --ref $ref -f job=check'
@@ -73,6 +82,30 @@ for w in ghx xgh; do
     log_has "$WORD_LOG" "$w workflow run ci.yml --ref main" && ! log_has "$OVR_LOG" "workflow run" \
         && ok "a dispatch starting with $w runs $w, not the override" || bad "$w: exit $rc word [$(cat "$WORD_LOG")] override [$(cat "$OVR_LOG")] out $(cat "$T/out")"
 done
+
+# 3b. merge: after a green check of a set of one PR, `gh pr merge` runs the .mjs with node, with the PR's number,
+# --squash and its head. The .mjs only logs, so the main branch does not move and merge stops on the tree
+# mismatch: only the call is checked here (wave-gate.test.sh checks the merge itself with the stub gh). The gate is
+# a .mjs that reports green. ioreg and caffeinate are stubs where wave-gate would start them (macOS): no real
+# screen state is read, the display is not held awake.
+if ! on_windows; then
+    printf '#!/usr/bin/env bash\necho "\\"IOConsoleLocked\\" = No"\n' >"$STUBS/ioreg"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$STUBS/caffeinate"; chmod +x "$STUBS/ioreg" "$STUBS/caffeinate"
+fi
+printf '%s\n' 'process.stdout.write("[gate] зелено (full): stub\n")' >"$L/gate.mjs"
+git -C "$T/repo" checkout -q -b pr7 && echo seven >"$T/repo/seven.txt" && git -C "$T/repo" add -A && git -C "$T/repo" commit -q -m "pr 7" \
+    && git -C "$T/repo" push -q origin "HEAD:refs/pull/7/head" && git -C "$T/repo" checkout -q main
+HEAD7="$(git -C "$T/repo" rev-parse pr7)"
+node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ repo: process.argv[2], branch: "main", e2e_lock: null, prepare: null,
+    prs: [{ number: 7, head: process.argv[3], labels: [], platform: false }] }))' "$T/m.json" "$(node_path "$T/repo")" "$HEAD7"
+WAVE_GATE_GATE="$L/gate.mjs" "$WG" check "$T/m.json" >"$T/out" 2>&1; rc=$?
+: >"$OVR_LOG"
+WAVE_GATE_GATE="$L/gate.mjs" WAVE_GATE_GH="$L/log.mjs" "$WG" merge "$T/m.json" >"$T/mout" 2>&1; mrc=$?
+[ "$rc" -eq 0 ] && log_has "$OVR_LOG" "pr merge 7 --squash --match-head-commit $HEAD7" \
+    && ok ".mjs override: the merge runs the .mjs with node: pr merge <N> --squash --match-head-commit <head>" \
+    || bad "merge: check exit $rc, merge exit $mrc, log [$(cat "$OVR_LOG")] check $(tail -n 3 "$T/out") merge $(tail -n 3 "$T/mout")"
+# none of the cases above reached the refusing gh: every gh call went to the override
+[ ! -s "$REFUSED_LOG" ] && ok "no case started gh itself: the refusing stub was never run" || bad "the refusing gh stub ran: [$(cat "$REFUSED_LOG")]"
 
 # 4. no WAVE_GATE_GH: gh from PATH, here a logging stub first on PATH (the guard checks node would start it)
 if on_windows; then
