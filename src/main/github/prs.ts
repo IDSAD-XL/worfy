@@ -15,12 +15,18 @@
 // is never switched. The token lives only in the environment of the gh child processes of that
 // read; it is not kept between reads, logged or put into an answer.
 //
-// Read-only: the only gh commands ever run are `gh pr list` and `gh auth token -u <account>`.
+// Read-only: the only gh commands a read runs are `gh pr list` and `gh auth token -u <account>`;
+// `gh()` lends the same account to the other read-only calls of the Stage (src/main/github/deployments.ts).
 // Nothing is written to GitHub, to the Project, to the gh config or to the Claude home.
+//
+// Besides what the badges show, each PR keeps what its Stage needs (src/shared/workflow/pipeline.ts):
+// the head SHA, `reviewDecision`, the merge commit and time, its CI checks one by one, and the
+// agents' marks among its commit statuses. An older gh that does not give a field leaves it null.
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { z } from 'zod'
 import { NARROW_TEXT_MAX, type CiState, type GhStatus, type NarrowState, type PullRequest } from '../../shared/ipc/checks'
+import type { CheckFact } from '../../shared/workflow/pipeline'
 import { programStart } from '../program'
 
 export const BASE_INTERVAL_MS = 60_000
@@ -30,7 +36,7 @@ export const LIST_LIMIT = 100
 /** Branch searches started in one read, so a Project with many branches does not burst gh. */
 export const SEARCHES_PER_READ = 10
 
-const FIELDS = 'number,headRefName,state,url,statusCheckRollup,comments'
+export const FIELDS = 'number,headRefName,state,url,statusCheckRollup,comments,headRefOid,reviewDecision,mergeCommit,mergedAt'
 
 /** Variables a gh call gets on top of the runner's environment, e.g. GH_TOKEN of the Project's account. */
 export type GhEnv = Readonly<Record<string, string>>
@@ -126,9 +132,12 @@ const checkSchema = z
   .object({
     __typename: z.string().optional(),
     context: z.string().nullish(),
+    name: z.string().nullish(),
     status: z.string().nullish(),
     conclusion: z.string().nullish(),
     state: z.string().nullish(),
+    startedAt: z.string().nullish().catch(null),
+    completedAt: z.string().nullish().catch(null),
   })
   .loose()
 
@@ -142,6 +151,10 @@ const ghPullSchema = z
     url: z.string(),
     statusCheckRollup: z.array(checkSchema).nullish().catch(null),
     comments: z.array(commentSchema).nullish().catch(null),
+    headRefOid: z.string().nullish().catch(null),
+    reviewDecision: z.string().nullish().catch(null),
+    mergeCommit: z.object({ oid: z.string() }).loose().nullish().catch(null),
+    mergedAt: z.string().nullish().catch(null),
   })
   .loose()
 
@@ -234,11 +247,63 @@ export function narrowOf(comments: readonly { body: string; createdAt?: string |
   return narrowRoundsOf(comments).at(-1) ?? null
 }
 
+/** A commit status of the head commit whose context is an agent's mark (`review`, `check/<name>`, `deploy`). */
+export interface MarkStatus {
+  context: string
+  /** GitHub's state: SUCCESS, FAILURE, ERROR, PENDING, EXPECTED. */
+  state: string
+  /** When it was set: gh gives the status's createdAt as `startedAt`. */
+  at: string | null
+}
+
+/**
+ * A PR as the tracker keeps it: what the badges show (PullRequest, src/shared/ipc/checks.ts) and
+ * what the Stage needs. `checks.get` sends only the PullRequest fields: its output schema drops the rest.
+ */
+export interface TrackedPull extends PullRequest {
+  /** `headRefOid`. */
+  headSha: string | null
+  /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED; null when the PR has none or gh did not say. */
+  reviewDecision: string | null
+  /** The oid of `mergeCommit`. */
+  mergeCommit: string | null
+  mergedAt: string | null
+  /** The CI checks, the agents' marks left out. */
+  checks: CheckFact[]
+  /** The agents' marks among the commit statuses of the head commit. */
+  markStatuses: MarkStatus[]
+}
+
+type GhCheck = z.infer<typeof checkSchema>
+
+/** A commit status of a mark context: a status with a state and no check run status. */
+const isMarkStatus = (check: GhCheck): boolean => check.state != null && check.status == null && isMark(check.context)
+
+/** Each CI check of a rollup in three states; the agents' marks are left out, as in ciOf. */
+export function checksOf(rollup: readonly GhCheck[] | null | undefined): CheckFact[] {
+  return (rollup ?? [])
+    .filter((check) => !isMarkStatus(check))
+    .map((check): CheckFact => {
+      const isStatus = check.state != null && check.status == null
+      const name = check.name ?? check.context ?? ''
+      const startedAt = check.startedAt ?? null
+      if (isStatus) {
+        const state = FAILED.has(check.state!) ? 'failure' : PENDING_STATES.has(check.state!) ? 'pending' : 'success'
+        return { name, state, startedAt, completedAt: state === 'pending' ? null : startedAt }
+      }
+      if (check.status !== 'COMPLETED') return { name, state: 'pending', startedAt, completedAt: null }
+      return { name, state: check.conclusion != null && FAILED.has(check.conclusion) ? 'failure' : 'success', startedAt, completedAt: check.completedAt ?? null }
+    })
+}
+
+/** gh prints a time the PR has not got as null, or as the zero time of Go. */
+const realTime = (time: string | null | undefined): string | null => (time == null || time === '' || time.startsWith('0001-') ? null : time)
+
 /** Parses the JSON of `gh pr list --json …`; entries that are not PRs are dropped one by one. */
-export function parsePrList(stdout: string): PullRequest[] {
+export function parsePrList(stdout: string): TrackedPull[] {
   const raw: unknown = JSON.parse(stdout)
   if (!Array.isArray(raw)) throw new Error('gh pr list did not print a list')
-  const result: PullRequest[] = []
+  const result: TrackedPull[] = []
   for (const item of raw) {
     const parsed = ghPullSchema.safeParse(item)
     if (!parsed.success) continue
@@ -252,6 +317,12 @@ export function parsePrList(stdout: string): PullRequest[] {
       ci: ciOf(pull.statusCheckRollup),
       verdict: verdictOf(pull.comments),
       ...(narrow.length > 0 ? { narrow } : {}),
+      headSha: pull.headRefOid || null,
+      reviewDecision: pull.reviewDecision || null,
+      mergeCommit: pull.mergeCommit?.oid || null,
+      mergedAt: realTime(pull.mergedAt),
+      checks: checksOf(pull.statusCheckRollup),
+      markStatuses: (pull.statusCheckRollup ?? []).filter(isMarkStatus).map((check) => ({ context: check.context!, state: check.state!, at: check.startedAt ?? null })),
     })
   }
   return result
@@ -270,7 +341,7 @@ export interface PrTrackerOptions {
 }
 
 export interface PrRead {
-  pulls: PullRequest[]
+  pulls: TrackedPull[]
   gh: GhStatus
 }
 
@@ -279,9 +350,9 @@ interface ProjectState {
   listedAt: number
   intervalMs: number
   error: string | null
-  listed: PullRequest[]
+  listed: TrackedPull[]
   /** Results of `--head <branch>` by branch. */
-  searched: Map<string, { at: number; pulls: PullRequest[] }>
+  searched: Map<string, { at: number; pulls: TrackedPull[] }>
   running: Promise<PrRead> | null
 }
 
@@ -313,6 +384,16 @@ export class PrTracker {
       current.running = null
     })
     return current.running
+  }
+
+  /**
+   * Runs another read-only gh command in `root` as the Project's account, as a read does (accountAuth):
+   * the Deployments and deploy marks of the Stage (src/main/github/deployments.ts). It does not touch
+   * the interval of the PR reads.
+   */
+  async gh(root: string, args: readonly string[]): Promise<string> {
+    const env = this.options.auth ? await this.options.auth(root) : {}
+    return this.options.run(args, root, env)
   }
 
   private fail(state: ProjectState, error: unknown): void {

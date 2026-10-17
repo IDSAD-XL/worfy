@@ -188,6 +188,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'docs.read',
     'layout.get',
     'orchestrator.view',
+    // Read-only git and gh, the marks files and the e2e lock, as checks.get; subscribing and leaving count as reading.
+    'pipeline.close',
+    'pipeline.get',
     'projects.list',
     'projects.settings.defaults',
     'projects.settings.get',
