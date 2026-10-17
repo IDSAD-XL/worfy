@@ -6,6 +6,8 @@
 и чужие скрипты оттуда не запускать: ревьюер запустил чужой `mut.sh` и висел три часа. Никаких
 watch-режимов: vitest — только `vitest run` (`pnpm test` уже так), иначе процесс не завершится и
 агент встанет.
+Проверка: harness/bin/tests/epic-wave-ship-ticket.test.sh:189 — текст правила о чужих скриптах в skill-е
+ship-ticket; запрет watch-режима vitest ничем не проверяется.
 Источник: ночной прогон worfy-mvp 2026-10-05/06.
 
 ## Исполнитель первым делом входит в свой worktree
@@ -13,6 +15,8 @@ watch-режимов: vitest — только `vitest run` (`pnpm test` уже �
 Hook инструментов Edit и Write пускает только в дерево Session. Агент, запущенный из worktree
 Orchestrator-а, не может править файлы в `.claude/worktrees/<NN>`, пока не сделает `EnterWorktree`
 с `path` своего worktree. Без этого агенты обходили hook правками через python и sed в Bash.
+Проверка: проверки нет: hook на Edit и Write стоит в Claude Code, а не в репозитории, и текст правила
+о входе в worktree ни один test не сверяет.
 Источник: worfy-mvp/02, worfy-mvp/10.
 
 ## Ручные проверки GUI агент может делать сам — по одному и только в окне приложения
@@ -21,6 +25,8 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 один такой агент за раз; клавиши — только во фронтальный процесс приложения и только после
 проверки, что он фронтальный; снимки — только окна приложения, не всего экрана; системные
 настройки не трогать. Без этих прав пункт остаётся `[ ]` со строкой «не проверено: …».
+Проверка: проверки нет: правила ручной проверки GUI ни один test не сверяет; eval `no-os-screen-capture`
+проверяет обратное — что агент вообще не снимает экран средствами ОС.
 Источник: ночной прогон worfy-mvp 2026-10-05/06.
 
 ## Настоящий Claude Code в test-е пишет в `~/.claude`
@@ -33,6 +39,8 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 поднимает Orchestrator на настоящем Claude Code. Снимки и любые прогоны приложения в Ticket-е —
 только через `launchApp` (`test/e2e/helpers.ts:111`): fake-агент, временные `WORFY_DATA_DIR` и
 `WORFY_CLAUDE_HOME`, фикстуры вместо настоящих Project-ов (worfy-daily/11, PR #64).
+Проверка: harness/bin/tests/agents-text.test.sh:100 — общее правило агентов «запись в `~/.claude` только
+с разрешения брифа»; изоляцию `launchApp` test не сторожит.
 Источник: ночной прогон worfy-mvp 2026-10-05/06.
 
 ## Таймаут `firstWindow` при параллельных e2e — это нагрузка, а не красный test
@@ -42,6 +50,8 @@ Orchestrator-а, не может править файлы в `.claude/worktrees
 (`firstWindow` timeout), хотя код ни при чём. Такой таймаут сначала повторить в одиночку, потом
 чинить. Копия `Electron.app` в `/tmp` ради изоляции тоже замедляет первый запуск — не делать её.
 Правило и путь общего замка для e2e и `gate full` — `rules.md` Profile-а worfy.
+Проверка: harness/bin/tests/wave-gate.test.sh:383 — gate full `wave-gate` ждёт чужой живой замок e2e;
+e2e агента без замка не ловит никто.
 Источник: worfy-daily Wave 6.
 
 ## Заблокированный экран macOS — одна из причин таймаута первого окна в e2e
@@ -51,6 +61,8 @@ shown within 30 s» (`test/e2e/helpers.ts:167`) — даже на чистом m
 test, хотя код ни при чём. Вторая известная причина того же таймаута — параллельные e2e (урок
 выше). Перед e2e и `gate full` проверить `ioreg -n Root -d1 | grep -o '"IOConsoleLocked" = [A-Za-z]*'`:
 при `Yes` прогон не запускать, а уже упавший — не считать красным и повторить после разблокировки.
+Проверка: harness/bin/tests/wave-gate.test.sh:438 — при `IOConsoleLocked = Yes` `wave-gate check` не
+запускает gate и пишет одну строку «screen locked»; ручной прогон e2e эту проверку не делает.
 Источник: worfy-daily/11, PR #64 (при доработке экран был заблокирован, `launch.spec.ts` падал на main).
 
 ## Окно macOS «восстановить окна?» — третья причина таймаута первого окна, сразу во всех e2e
@@ -64,6 +76,8 @@ test-запусков один — `com.github.Electron`; test-ы убивают
 Каждый запуск приложения в test-е передаёт `NO_WINDOW_RESTORE` (`-ApplePersistenceIgnoreState YES`,
 `test/e2e/helpers.ts`), новый способ запуска — тоже. Если `firstWindow` падает у всех test-ов сразу,
 сначала запустить пустое приложение Electron и снять `sample` главного потока.
+Проверка: проверки нет: что `launchApp` передаёт `NO_WINDOW_RESTORE`, test не проверяет; без флага
+краснеют только живые e2e, и то когда macOS накопит состояние.
 Источник: PR #179.
 
 ## Ночной прогон Autopilot: Mac не заблокирован, крышка открыта
@@ -74,8 +88,10 @@ test-запусков один — `com.github.Electron`; test-ы убивают
 Проверку набора и мержи вне прогона держат `wave-gate check` и `wave-gate merge`
 (`caffeinate -d -w <свой pid>`); между ними экран может погаснуть, и `check` перед gate full ждёт
 разблокировки строкой `screen locked: gate full waits`. Ручную блокировку и закрытую крышку не обходит никто: на ночь Mac разблокирован, крышка открыта (README, «Stable copy»).
-Код: `src/main/autopilot/power.ts`, `harness/bin/wave-gate`. Источник: worfy-daily/32, PR #70; ночь
-2026-10-16 — мержи вне прогона стояли с 04:39 до 10:09 (worfy-throughput/02).
+Код: `src/main/autopilot/power.ts`, `harness/bin/wave-gate`.
+Проверка: harness/bin/tests/wave-gate.test.sh:522 — `wave-gate check` держит `caffeinate -d -w <свой pid>`;
+`merge` — тот же блок test-а, `prevent-display-sleep` прогона — `test/unit/autopilot-power.test.ts`.
+Источник: worfy-daily/32, PR #70; ночь 2026-10-16 — мержи вне прогона стояли с 04:39 до 10:09 (worfy-throughput/02).
 
 ## Конец хода Orchestrator-а — не конец Wave: Subagent-ы Wave живут как background task-и
 
@@ -84,7 +100,9 @@ Skill `/epic-wave` запускает implementer-ов Subagent-ами с `run_i
 `no-progress`, Session Orchestrator-а закрылась, и с процессом Claude Code погибли четыре Subagent-а.
 Кто смотрит на Session извне, судит о конце её работы по живым background task-ам (событие SDK
 `system/background_tasks_changed`), а не по `result` хода или `idle`. Правило — ADR-0029.
-Код: `src/shared/agent/background-tasks.ts`, `src/main/autopilot/run.ts`. Источник: worfy-daily/29, PR #41.
+Код: `src/shared/agent/background-tasks.ts`, `src/main/autopilot/run.ts`.
+Проверка: test/contract/autopilot-background.test.ts:334 — Wave не кончается, пока живы background task-и.
+Источник: worfy-daily/29, PR #41.
 
 ## В Session без человека любой диалог — отказ: удалять только буквальный путь, владельца не спрашивать
 
@@ -105,6 +123,8 @@ Skill `/epic-wave` запускает implementer-ов Subagent-ами с `run_i
 Без Autopilot отказа нет, и хуже: карточка разрешения в worfy ждёт человека. 2026-10-08 круг
 `worfy-harness` 22 стоял 50 минут на `rm -rf "$M/$name"` исполнителя, пока карточку не отклонили; после
 отказа он сам перешёл на `mktemp -d`. Кто следит за Session, следит и за карточками разрешения.
+Проверка: проверки нет: текст правила агентов о `rm -rf` и `mktemp -d` test не сверяет, а отказа hook-а
+на маску или переменную в пути в репозитории нет — его даёт открытый `worfy-harness` 48.
 Источник: PR #150.
 
 ## Worktree и ветку влитого Ticket-а удалять сразу после мержа
@@ -114,7 +134,10 @@ Status ветки живого worktree на checkout, пока в checkout-е �
 что старая ветка в живом дереве — ложный сигнал «в работе». Правило: влит PR Ticket-а или документный
 PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skills/epic-wave/SKILL.md`,
 «4. Мерж по политике», «Уборка после мержа»).
-Код: `applyBranches` в `src/main/workflow/reader.ts`. Источник: worfy-daily Wave 6; коммит `~/.claude` ec8412c.
+Код: `applyBranches` в `src/main/workflow/reader.ts`.
+Проверка: проверки нет: уборку после мержа делает по тексту skill `epic-wave`, test-а на неё нет;
+`test/contract/workflow-reader.test.ts` сторожит только то, что оставшаяся ветка не перекрывает `done`.
+Источник: worfy-daily Wave 6; коммит `~/.claude` ec8412c.
 
 ## Agent SDK поднимать только до сборки с Claude Code 2.1.299 или новее и в том же PR заново снимать fixtures
 
@@ -124,4 +147,7 @@ PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skil
 Поэтому `@anthropic-ai/claude-agent-sdk` (`package.json`) поднимать только до сборки с Claude Code
 ≥ 2.1.299 и в том же PR снимать `test/fixtures/sdk-messages/` заново (`scripts/spikes/sdk-probe.ts`;
 проверка — `claude_code_version` в их `system/init`). Spike зовёт настоящую модель и пишет в `~/.claude`.
-Код: `src/main/agent/fake-query.ts`. Источник: worfy-reliability/01; PR #325, идея A.
+Код: `src/main/agent/fake-query.ts`.
+Проверка: проверки нет: ни один test не сверяет `claude_code_version` в `test/fixtures/sdk-messages/` с
+версией SDK в `package.json`.
+Источник: worfy-reliability/01; PR #325, идея A.
