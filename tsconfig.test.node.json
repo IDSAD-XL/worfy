@@ -25,6 +25,7 @@
     "src/renderer/projects/read-only-now.ts",
     "test/app-url.ts",
     "test/global-setup-contract.ts",
+    "test/harness-node.ts",
     "test/remove.ts",
     "test/setup-contract.ts",
     "test/stale-leftovers.ts",

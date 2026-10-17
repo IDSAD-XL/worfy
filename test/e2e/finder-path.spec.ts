@@ -126,8 +126,8 @@ test('started with the PATH of Finder and no node in the login shell either, the
     expect(await launched.app.evaluate(() => process.env.PATH)).toBe(SYSTEM_PATH)
     expect(() => execFileSync('/bin/sh', ['-c', 'command -v node'], { env: { PATH: SYSTEM_PATH }, stdio: 'ignore' })).toThrow()
 
-    // `profile` exits 127: where the workflow lives is unknown, and the window says so.
-    const reason = window.getByText(/^worfy could not ask the Harness where the workflow of this Project lives: .*exit code 127: .*node/)
+    // worfy finds no node to run `profile` with: where the workflow lives is unknown, and the window says so.
+    const reason = window.getByText(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script could not be run: node not found in PATH/)
     await expect(reason).toBeVisible({ timeout: 20_000 })
     await expect(window.getByText('No epics in .scratch/')).toHaveCount(0)
     await expect(window.getByTestId('sidebar-epic')).toHaveCount(0)

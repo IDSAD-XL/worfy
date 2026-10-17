@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { runningElsewhere, STOP_TEXT } from '../../src/main/autopilot/run'
 import { launchLinkedPair, openSecondWindow, repoRoot, type LaunchedApp } from './helpers'
+import { catScript } from '../harness-node'
 
 // One Autopilot per Epic and origin across the Linked machines (worfy-link ticket 15, ADR-0053,
 // Q13), in two built worfy linked through "Link a machine" (launchLinkedPair, worfy-link ticket 02)
@@ -90,7 +91,7 @@ function prepare(fixture: string, machine: string) {
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
 
   mkdirSync(join(dataDir, PROJECT), { recursive: true })

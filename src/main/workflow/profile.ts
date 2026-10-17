@@ -16,10 +16,12 @@
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
 import { execFile } from 'node:child_process'
-import { join } from 'node:path'
+import { constants } from 'node:fs'
+import { access, open, stat, type FileHandle } from 'node:fs/promises'
+import { basename, delimiter, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
-import { isAbsolutePath } from '../../shared/paths'
+import { isAbsolutePath, isWindowsAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
 
@@ -92,10 +94,121 @@ export function scriptFailureDetail(stderr: string): string {
  */
 export const environmentExit = (code: number | null): boolean => code === 127 || code === 126
 
+// ── starting a Harness script with node ──────────────────────────────────────
+
+/** What worfy says when the scripts' environment has no node on its PATH. */
+export const NODE_NOT_FOUND = 'node not found in PATH'
+
+/**
+ * Why a Harness script was not started; nothing was run. `ENOENT`: there is no file at the script's
+ * path. `NODE_NOT_FOUND`: the PATH of the environment it was to run with has no node. `NOT_NODE`:
+ * on Windows, a script of an older Harness that is not a Node script (harnessScriptCommand).
+ */
+export class HarnessScriptStartError extends Error {
+  constructor(
+    readonly code: 'ENOENT' | 'NODE_NOT_FOUND' | 'NOT_NODE',
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
+/** The PATH of `env`. On Windows the variable may be spelled in any case: a plain environment has `Path`. */
+function searchPath(env: HarnessScriptEnv): string | undefined {
+  if (env.PATH !== undefined || process.platform !== 'win32') return env.PATH
+  const key = Object.keys(env).find((name) => name.toUpperCase() === 'PATH' && env[name] !== undefined)
+  return key === undefined ? undefined : env[key]
+}
+
+/**
+ * The node on the PATH of `env`, the first one in PATH order, or null. Relative entries of PATH are
+ * skipped: they would name a folder of the Project the script runs in. On Windows so is `\tools`
+ * (the root of the current drive): the check here would look on worfy's drive, the start in the
+ * script's working folder on another (the same rule as findOnPath in src/main/agent/env.ts).
+ */
+export async function nodeOnPath(env: HarnessScriptEnv): Promise<string | null> {
+  const windows = process.platform === 'win32'
+  const name = windows ? 'node.exe' : 'node'
+  const absolute = windows ? isWindowsAbsolutePath : isAbsolute
+  for (const entry of (searchPath(env) ?? '').split(delimiter)) {
+    const dir = windows ? entry.trim().replace(/^"(.*)"$/u, '$1') : entry
+    if (!absolute(dir)) continue
+    const candidate = join(dir, name)
+    try {
+      if (!(await stat(candidate)).isFile()) continue
+      if (!windows) await access(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      // Not there, or not executable: the next entry.
+    }
+  }
+  return null
+}
+
+/** How many bytes of a script are read for its `#!` line. */
+const FIRST_LINE_BYTES = 256
+
+/** U+FEFF, which an editor may put before the `#!` of a file it saves as UTF-8. */
+const BYTE_ORDER_MARK = 0xfeff
+
+/**
+ * The first line of the file at `path`, a UTF-8 byte order mark before it dropped, or null when the
+ * file cannot be read.
+ */
+async function firstLine(path: string): Promise<string | null> {
+  let file: FileHandle | undefined
+  try {
+    file = await open(path, 'r')
+    const buffer = Buffer.alloc(FIRST_LINE_BYTES)
+    const { bytesRead } = await file.read(buffer, 0, FIRST_LINE_BYTES, 0)
+    const line = buffer.toString('utf8', 0, bytesRead).split(/\r?\n/u)[0] ?? ''
+    return line.charCodeAt(0) === BYTE_ORDER_MARK ? line.slice(1) : line
+  } catch {
+    return null
+  } finally {
+    await file?.close().catch(() => undefined)
+  }
+}
+
+/** The program and arguments that start a Harness script. */
+export interface HarnessScriptCommand {
+  file: string
+  args: string[]
+}
+
+/**
+ * How the Harness script `script` is started with `args` and `env` (ADR-0055 item 2). A Node script
+ * runs as `node <script>`, node from the PATH of `env`, never by its `#!` line, which Windows does
+ * not read. A script whose `#!` line names another interpreter is a Harness from before its scripts
+ * were Node (the old `<claude home>/bin`, or a plugin not yet updated: epic-status was bash): on
+ * macOS and Linux it is started by itself, as before; on Windows it cannot be, and the error says
+ * to update the Harness. Checked before anything starts, in this order: a missing script is told
+ * from a missing node, and neither is left to node's own exit code 1, which would read as a script
+ * that failed. Every runner of a Harness script starts it through this.
+ */
+export async function harnessScriptCommand(script: string, args: readonly string[], env: HarnessScriptEnv): Promise<HarnessScriptCommand> {
+  const isScript = await stat(script).then(
+    (stats) => stats.isFile(),
+    () => false,
+  )
+  if (!isScript) throw new HarnessScriptStartError('ENOENT', `no Harness script at ${script}`)
+  const shebang = await firstLine(script)
+  // Not readable by worfy: on macOS and Linux it is started by itself, as before scripts were Node,
+  // and the system says whether it may run; on Windows node is the only way, and says why it fails.
+  if (shebang === null && process.platform !== 'win32') return { file: script, args: [...args] }
+  if (shebang !== null && shebang.startsWith('#!') && !/\bnode\b/u.test(shebang)) {
+    if (process.platform === 'win32') throw new HarnessScriptStartError('NOT_NODE', `this Harness's ${basename(script)} is not a Node script — update the Harness (${script})`)
+    return { file: script, args: [...args] }
+  }
+  const node = await nodeOnPath(env)
+  if (node === null) throw new HarnessScriptStartError('NODE_NOT_FOUND', `${NODE_NOT_FOUND}: ${script} is not run`)
+  return { file: node, args: [script, ...args] }
+}
+
 /**
  * The default runner: the real script as a child process, with a timeout and a size cap. `env` is
- * the user's login shell environment (src/main/agent/env.ts): the script is `#!/usr/bin/env node`,
- * and an app started from Finder has only the system PATH, where there is no node.
+ * the user's login shell environment (src/main/agent/env.ts): the script is run by the node on its
+ * PATH, and an app started from Finder has only the system PATH, where there is no node.
  */
 export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunner {
   return harnessScriptRunner(claudeHome, env, 'profile')
@@ -103,15 +216,19 @@ export function profileRunner(claudeHome: string, env: ProfileEnv): ProfileRunne
 
 /**
  * A runner of another read-only script of the same Harness (`ticket root`, src/main/workflow/folder.ts),
- * with the same timeout, size cap and exit-code rules as `profile`.
+ * with the same timeout, size cap and exit-code rules as `profile`. It rejects with a
+ * HarnessScriptStartError when the script or node is missing (or, on Windows, the script is not Node),
+ * and with the start error otherwise.
  */
 export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: 'profile' | 'ticket', timeoutMs = HARNESS_SCRIPT_TIMEOUT_MS): ProfileRunner {
-  return (cwd, args) =>
-    new Promise((resolvePromise, reject) => {
-      // Looked for on every run; the plugin's script gets HARNESS_HOME, where its Profiles are.
-      const harness = locateHarness(harnessHomes(claudeHome))
-      const script = join(harness.binDir, name)
-      execFile(script, [...args], { cwd, env: scriptEnv(harness, env), maxBuffer: MAX_OUTPUT, timeout: timeoutMs, encoding: 'utf8' }, (error, stdout, stderr) => {
+  return async (cwd, args) => {
+    // Looked for on every run; the plugin's script gets HARNESS_HOME, where its Profiles are.
+    const harness = locateHarness(harnessHomes(claudeHome))
+    const script = join(harness.binDir, name)
+    const runEnv = scriptEnv(harness, env)
+    const command = await harnessScriptCommand(script, args, runEnv)
+    return new Promise((resolvePromise, reject) => {
+      execFile(command.file, command.args, { cwd, env: runEnv, maxBuffer: MAX_OUTPUT, timeout: timeoutMs, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (!error) return resolvePromise({ code: 0, stdout, stderr })
         const code = (error as NodeJS.ErrnoException).code
         // A number is the script's exit code; a string is a failure to start it (ENOENT, EACCES…).
@@ -122,6 +239,7 @@ export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: '
         reject(error)
       })
     })
+  }
 }
 
 /** The MCP servers a Session in the Project gets, and where the list came from. */
@@ -152,16 +270,17 @@ export type ReadMcpAllowlistOptions = ReadProfileOptions
 
 /**
  * Why `profile` gave no answer. `none`: the folder has no Profile — exit code 3, or no script
- * (worfy-harness ticket 37). `failed`: the call itself failed — any other exit code (127: no node;
- * 1: a broken registry or profile.json), a timeout, a signal, a script that could not be started.
+ * (worfy-harness ticket 37). `failed`: the call itself failed — no node on the PATH, any other exit
+ * code (127 from an older bash Harness's `env node`; 1: a broken registry or profile.json), a
+ * timeout, a signal, a script that could not be started.
  */
 export type ProfileMiss = 'none' | 'failed'
 
 /**
  * No answer: why, of which kind, and — for a failed call — whether it points at the environment
- * the script ran with (`environmentExit`: exit code 127 or 126 only). A script that could not be
- * started (EACCES: no execute bit; output over the size cap) is a file problem, not one a new
- * login shell can fix.
+ * the script ran with: no node on its PATH, or exit code 127 or 126 (`environmentExit`). A script
+ * that could not be started otherwise (node failed to start, an older Harness's script on Windows,
+ * output over the size cap) is a file problem, not one a new login shell can fix.
  */
 export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
 
@@ -186,6 +305,9 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
     if (code === 'ENOENT') return none(`there is no profile script at ${profilePath(options.claudeHome)}`)
+    // The script is there, the environment has no node: a login shell captured again may have it.
+    if (code === 'NODE_NOT_FOUND') return failed(`the profile script could not be run: ${NODE_NOT_FOUND}`, true)
+    if (code === 'NOT_NODE') return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
     return failed(`the profile script could not be run: ${error instanceof Error ? error.message : String(error)}`)
   }
 

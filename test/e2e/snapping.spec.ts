@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript } from '../harness-node'
 
 // Snapping while a Node is dragged or resized (worfy-week ticket 06) against the built app: the
 // guide shows during a drag and goes out on the drop, the outline of the landing place is where the
@@ -54,12 +55,15 @@ function git(cwd: string, ...args: string[]): string {
 
 /**
  * The only and active Project, a git repository whose `.scratch` `fill` writes, with the saved
- * `nodes`; the Claude home's bin/epic-status prints `answer` (an empty workflow without one).
+ * `nodes`; the Claude home's bin/epic-status prints `answer`, without one an Epic with no Tickets.
+ * Not an empty workflow: with no Epic the "No epics yet" panel (FirstEpic.tsx) lies over the middle
+ * of the Canvas, and once the answer comes before a press, the press lands on the panel. The Epic's
+ * frame is stacked from x = 0, clear of every Node (epic-layout.ts, stackFrames).
  */
 function makeProject(nodes: unknown[], viewport: { x: number; y: number; zoom: number } = VIEWPORT, fill?: (scratchDir: string) => string): void {
   const repo = join(scratch, 'demo')
   mkdirSync(join(repo, '.scratch'), { recursive: true })
-  const answer = fill?.(join(repo, '.scratch')) ?? JSON.stringify({ ref: 'main', epics: [], tickets: [] })
+  const answer = fill?.(join(repo, '.scratch')) ?? JSON.stringify({ ref: 'main', epics: [{ epic: 'empty', hasSpec: false, hasMap: false }], tickets: [] })
   git(repo, 'init', '-q')
   git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
   git(repo, 'add', '.')
@@ -72,7 +76,7 @@ function makeProject(nodes: unknown[], viewport: { x: number; y: number; zoom: n
   const file = join(scratch, 'epic-status.json')
   writeFileSync(file, answer)
   const script = join(claudeHome, 'bin', 'epic-status')
-  writeFileSync(script, `#!/bin/sh\ncat '${file}'\n`)
+  writeFileSync(script, catScript(file))
   chmodSync(script, 0o755)
 }
 

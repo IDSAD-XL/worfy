@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { profileJsonScript } from '../harness-node'
 
 /**
  * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
  * "Add project" then puts a repository into the list at once, without the dialog that connects a
  * new one (worfy-harness ticket 24).
  */
-const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
 
 // worfy's own Sessions (worfy-daily ticket 24) against the built app, on the fake agent. With
 // WORFY_AGENT_REGISTRY=1 the fake agent writes its entry to <WORFY_CLAUDE_HOME>/sessions as soon as

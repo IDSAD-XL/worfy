@@ -1,10 +1,7 @@
-#!/bin/sh
-# A stand-in for the Harness's epic-status (test/contract/workflow-reader.test.ts): runs
-# epic-status.mjs next to this file with the test's own Node. The test links it as
-# <Claude home>/bin/epic-status and sets WORKFLOW_STUB_NODE and WORKFLOW_STUB_JS in the scripts'
-# environment, together with the STUB_* variables epic-status.mjs reads.
-#
-# The script is the same file in every test, and only links to it are new: macOS checks every new
-# executable file on its first run, one at a time for the whole machine, and a new script per test
-# made the tests of a loaded full run time out.
-ELECTRON_RUN_AS_NODE=1 exec "$WORKFLOW_STUB_NODE" "$WORKFLOW_STUB_JS" "$@"
+#!/usr/bin/env node
+// A stand-in for the Harness's epic-status (test/contract/workflow-reader.test.ts): runs
+// epic-status.mjs next to this file. The test links it as <Claude home>/bin/epic-status and sets
+// the STUB_* variables epic-status.mjs reads in the scripts' environment. worfy starts the Harness
+// scripts as `node <script>` (src/main/workflow/profile.ts, harnessScriptCommand), so this is a Node
+// script; node resolves the link, and the import below is found next to this file.
+import './epic-status.mjs'

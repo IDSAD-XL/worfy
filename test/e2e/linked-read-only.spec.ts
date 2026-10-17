@@ -14,6 +14,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, repoRoot, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { catScript, loginProfileWithNode } from '../harness-node'
 
 test.setTimeout(180_000)
 
@@ -82,7 +83,7 @@ function prepareB(scratch: string) {
       })),
     }),
   )
-  writeFileSync(join(claudeHome, 'bin', 'epic-status'), `#!/bin/sh\ncat '${answer}'\n`)
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
   chmodSync(join(claudeHome, 'bin', 'epic-status'), 0o755)
   const dataDir = dataFolder(join(scratch, 'b-data'), [{ id: BETA, name: 'beta', path: realpathSync(repo) }])
   const base = { hidden: false, locked: false, pinned: false, tags: [] }
@@ -99,6 +100,8 @@ function prepareB(scratch: string) {
   )
   const home = join(scratch, 'b-home')
   mkdirSync(home, { recursive: true })
+  // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
+  loginProfileWithNode(home)
   return { env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'orchestrator', SHELL: '/bin/sh', HOME: home } }
 }
 

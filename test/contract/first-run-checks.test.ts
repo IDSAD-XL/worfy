@@ -13,6 +13,7 @@ import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, type Ac
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
+import { NODE, nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
@@ -328,7 +329,7 @@ describe('first-run checks', () => {
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'ok', detail: 'profile --help answered', hint: '', actions: [] })
     })
 
-    it("the scripts' environment has no node: failed with exit code 127, what stderr says and what it means", async () => {
+    it("the scripts' environment has no node: failed with that reason and what it means", async () => {
       tools(...ALL_TOOLS)
       installPlugin()
       const empty = join(root, 'empty-bin')
@@ -336,11 +337,18 @@ describe('first-run checks', () => {
       const report = await runChecks(deps(loginEnv(), { scriptEnv: () => Promise.resolve({ PATH: empty, HOME: home }) }))
       const scripts = checkOf(report, 'harness-scripts')
       expect(scripts.status).toBe('fail')
-      expect(scripts.detail).toMatch(/^profile --help: exit code 127: .*node.*No such file or directory/)
+      // worfy runs the script as `node <script>` and looks for node first (worfy-windows ticket 05).
+      expect(scripts.detail).toBe('profile --help: node not found in PATH')
       expect(scripts.hint).toBe(HARNESS_SCRIPT_HINTS.node)
       expect(scripts.hint).toBe('worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell')
       expect(scripts.actions).toEqual([])
     })
+
+    /**
+     * The screen's environment, whose node stand-in passes every call but --version to the real node:
+     * worfy runs the Harness scripts as `node <script>`, with the node on that PATH.
+     */
+    const withNode = (): Record<string, string> => loginEnv({ FAKE_NODE_REAL: NODE })
 
     /** The old Harness in <claude home>/bin: its epic-status and, when given, a `profile` with this text. */
     const oldHarness = (profile?: string, mode = 0o755): string => {
@@ -366,60 +374,59 @@ describe('first-run checks', () => {
 
     it('a timeout: failed with its limit, and the hint says the machine is slow, not that node is missing', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\nexec /bin/sleep 5\n')
-      const report = await runChecks(deps(loginEnv(), { harnessScriptTimeoutMs: 300 }))
+      oldHarness(nodeScript('setTimeout(() => undefined, 5000)'))
+      const report = await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 300 }))
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help did not answer within 0.3 s', hint: HARNESS_SCRIPT_HINTS.timeout })
     })
 
     it('node that cannot be run (exit code 126): the hint is about node on the PATH, as for 127', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\necho "env: node: Permission denied" >&2\nexit 126\n')
-      const report = await runChecks(deps(loginEnv()))
+      oldHarness(nodeScript("process.stderr.write('env: node: Permission denied\\n')\nprocess.exitCode = 126"))
+      const report = await runChecks(deps(withNode()))
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 126: env: node: Permission denied', hint: HARNESS_SCRIPT_HINTS.node })
     })
 
     it('the time limit is 15 s, the Epics read\'s, unless the checks are given another', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\nexit 0\n')
+      oldHarness(nodeScript('process.exitCode = 0'))
       runnerLimits.length = 0
-      expect(checkOf(await runChecks(deps(loginEnv())), 'harness-scripts').status).toBe('ok')
-      expect(checkOf(await runChecks(deps(loginEnv(), { harnessScriptTimeoutMs: 300 })), 'harness-scripts').status).toBe('ok')
+      expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts').status).toBe('ok')
+      expect(checkOf(await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 300 })), 'harness-scripts').status).toBe('ok')
       expect(runnerLimits).toEqual([15_000, 300])
     })
 
     // A crash by a signal was read as a timeout before review round 2 of PR #311.
     it('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\necho "Segmentation fault" >&2\nkill -SEGV $$\n')
-      const report = await runChecks(deps(loginEnv()))
+      // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
+      oldHarness(nodeScript("fs.writeSync(2, 'Segmentation fault\\n')\nprocess.kill(process.pid, 'SIGSEGV')"))
+      const report = await runChecks(deps(withNode()))
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGSEGV: Segmentation fault', hint: HARNESS_SCRIPT_HINTS.crash })
     })
 
     it("a crash of the script: its Error line, not node's version line; the hint is not about node", async () => {
       tools(...ALL_TOOLS)
-      oldHarness("#!/bin/sh\n/bin/cat >&2 <<'EOF'\n/h/bin/profile.js:12\n    throw new TypeError('boom')\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11) {\n  code: 'ERR_BOOM'\n}\n\nNode.js v24.19.0\nEOF\nexit 1\n")
-      const report = await runChecks(deps(loginEnv()))
+      const crash = "/h/bin/profile.js:12\n    throw new TypeError('boom')\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11) {\n  code: 'ERR_BOOM'\n}\n\nNode.js v24.19.0\n"
+      oldHarness(nodeScript(`process.stderr.write(${JSON.stringify(crash)})\nprocess.exitCode = 1`))
+      const report = await runChecks(deps(withNode()))
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 1: TypeError: boom', hint: HARNESS_SCRIPT_HINTS.crash })
     })
 
-    it.each([
-      ['not executable', '#!/bin/sh\nexit 0\n', 0o644],
-      ['its interpreter line names no file', '#!/nonexistent/interpreter\n', 0o755],
-    ] as const)('a script that is there but cannot be started (%s): failed, not "no profile script"', async (_case, text, mode) => {
+    // worfy-windows ticket 05: a Node script runs as `node <script>`, so its execute bit does not stop it any more.
+    it('a Node script without the execute bit: answered', async () => {
       tools(...ALL_TOOLS)
-      oldHarness(text, mode)
-      const scripts = checkOf(await runChecks(deps(loginEnv())), 'harness-scripts')
-      expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
-      expect(scripts.detail).toMatch(/^profile could not be started: /)
+      oldHarness(nodeScript('process.exitCode = 0'), 0o644)
+      const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
+      expect(scripts).toMatchObject({ status: 'ok', detail: 'profile --help answered' })
     })
 
-    it('on Windows: a warning that worfy cannot run the Harness scripts there yet, nothing run', async () => {
+    // A `#!` line that names no node is an older Harness's script: started by itself, as before.
+    it('a script that is there but cannot be started (its interpreter line names no file): failed, not "no profile script"', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\nexit 0\n')
-      let asked = 0
-      const report = await runChecks(deps(loginEnv(), { platform: 'win32', scriptEnv: () => ((asked += 1), Promise.resolve(loginEnv())) }))
-      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'warn', detail: 'worfy cannot run the Harness scripts on Windows yet (worfy-windows ticket 05)' })
-      expect(asked).toBe(0)
+      oldHarness('#!/nonexistent/interpreter\n')
+      const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
+      expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
+      expect(scripts.detail).toMatch(/^profile could not be started: /)
     })
   })
 

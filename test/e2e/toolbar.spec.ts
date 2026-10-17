@@ -5,13 +5,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, repoRoot } from './helpers'
+import { profileJsonScript } from '../harness-node'
 
 /**
  * A `bin/profile` stub that knows every folder: `--json` exits 0, a `--field` is absent (exit 4).
  * "Add project" then puts a repository into the list at once, without the dialog that connects a
  * new one (worfy-harness ticket 24).
  */
-const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
 
 // The toolbar with a long Project name: the name is cut with an ellipsis (full in its title), and
 // the Canvas/Session switch, the Limits, the Harness item and the search field stay inside the

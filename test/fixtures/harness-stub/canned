@@ -1,18 +1,24 @@
-#!/bin/sh
-# A Harness script (profile, ticket, epic-status) with a canned answer, for tests that need its exit
-# code and output rather than its logic (test/contract/workflow-reader, github-prs, docs). A test
-# links this file under the script's name and writes the answer next to the link:
-#   <link>.out  — printed to stdout;  <link>.err — printed to stderr;
-#   <link>.code — the exit code, 0 when there is no such file;
-#   <link>.log  — the path of a file to log each run to, as "<name> <arguments> in <cwd>".
-#
-# The script is the same file in every test, and only links to it are new: macOS checks every new
-# executable file on its first run, one at a time for the whole machine, and a new script per test
-# made the tests of a loaded full run time out (test/fixtures/harness-stub/answer has the same note).
-if [ -f "$0.log" ]; then
-  printf '%s %s in %s\n' "$(basename "$0")" "$*" "$(pwd -P)" >> "$(cat "$0.log")"
-fi
-if [ -f "$0.out" ]; then cat "$0.out"; fi
-if [ -f "$0.err" ]; then cat "$0.err" >&2; fi
-if [ -f "$0.code" ]; then exit "$(cat "$0.code")"; fi
-exit 0
+#!/usr/bin/env node
+// A Harness script (profile, ticket, epic-status) with a canned answer, for tests that need its exit
+// code and output rather than its logic (test/contract/workflow-reader, workflow-profile, github-prs,
+// docs). A test links or copies this file under the script's name and writes the answer next to it:
+//   <link>.out  — printed to stdout;  <link>.err — printed to stderr;
+//   <link>.code — the exit code, 0 when there is no such file;
+//   <link>.log  — the path of a file to log each run to, as "<name> <arguments> in <cwd>".
+//
+// worfy starts the Harness scripts as `node <script>` (src/main/workflow/profile.ts,
+// harnessScriptCommand), so this is a Node script: node reads it as an ES module here, in the repository's
+// `"type": "module"` scope, and also as a copy outside the repository, where it finds the `import` lines.
+import { appendFileSync, existsSync, readFileSync, realpathSync } from 'node:fs'
+import { basename } from 'node:path'
+import process from 'node:process'
+
+// The path it was started by: the link's or the copy's, not this file's.
+const self = process.argv[1]
+const read = (suffix) => readFileSync(`${self}${suffix}`, 'utf8')
+if (existsSync(`${self}.log`)) {
+  appendFileSync(read('.log').replace(/\n+$/u, ''), `${basename(self)} ${process.argv.slice(2).join(' ')} in ${realpathSync(process.cwd())}\n`)
+}
+if (existsSync(`${self}.out`)) process.stdout.write(read('.out'))
+if (existsSync(`${self}.err`)) process.stderr.write(read('.err'))
+process.exitCode = existsSync(`${self}.code`) ? Number(read('.code').trim()) : 0

@@ -4,10 +4,12 @@
 // test process itself has such a PATH: a folder of links to the utilities the scripts need, without
 // node. The environment handed to the readers has node. The scripts are the real `epic-status`,
 // `ticket` and `profile` of harness/bin, installed as the plugin in a temporary Claude home, and the
-// Project is Silent: its Tickets are in the Workflow folder, outside the repository. A reader that
-// ran a script with `process.env` would find no node: `epic-status` and `profile`, both Node scripts,
-// then exit with 127 (an older bash `epic-status` read `<repository>/.scratch` and answered with no
-// Epics), which the layout reads as a failed call.
+// Project is Silent: its Tickets are in the Workflow folder, outside the repository. worfy runs the
+// scripts as `node <script>` with the node of the environment it hands them (worfy-windows ticket
+// 05). A reader that handed them `process.env` would find no node there: `profile` is then not run
+// ("node not found in PATH"), which the layout reads as a failed call, and no Epic is shown. Started
+// by their own `#!` line without node, as a shell does, `epic-status` and `profile` exit with 127
+// (an older bash `epic-status` read `<repository>/.scratch` and answered with no Epics).
 //
 // Nothing here reads or writes the real ~/.claude: HOME, the Claude home and the Harness home are
 // in a temporary folder.
@@ -242,7 +244,7 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     const watcher = await WorkflowWatcher.start({ root: repo, claudeHome, env: harnessScriptEnv, layoutRetryMs: 100, onChange: () => undefined })
     try {
       expect(watcher.current.epics).toEqual([])
-      expect(watcher.current.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script failed with exit code 127: .*node/)
+      expect(watcher.current.error?.message).toMatch(/^worfy could not ask the Harness where the workflow of this Project lives: the profile script could not be run: node not found in PATH/)
       expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBeNull()
 
       // The user adds node in an rc file, as nvm, fnm, volta, asdf and mise do, and worfy keeps running.
@@ -287,7 +289,7 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
     try {
       const first = await hub.open(repo, { id: 1, send: () => undefined })
       expect(first.epics).toEqual([])
-      expect(first.error?.message).toMatch(/exit code 127: .*node/)
+      expect(first.error?.message).toMatch(/node not found in PATH/)
       const before = shellRuns()
 
       // The user adds node, as nvm does, and presses "Check again" (src/main/ipc/first-run.ts).

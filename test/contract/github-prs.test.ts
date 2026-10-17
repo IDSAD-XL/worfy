@@ -13,6 +13,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { pullOfTicket, worktreeOfTicket, type ChecksSnapshot } from '../../src/shared/ipc/checks'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { APP_URL, INDEX_HTML } from '../app-url'
+import { NODE_DIR, scriptsEnv } from '../harness-node'
 import { STUB_COMMAND } from './gh-world'
 
 // Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
@@ -535,7 +536,8 @@ async function accountWorld(profile: ProfileAnswer, gh: { token?: string; shellT
   const command = GH_ACCOUNT_STUB
   await writeFile(join(dir, 'prs.json'), JSON.stringify([pull(1, 'demo/01')]))
   const ghLog = join(dir, 'gh-calls.txt')
-  const env: Record<string, string> = { PATH: '/usr/bin:/bin', HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT }
+  // The login shell's PATH as far as the profile script goes: node is on it (worfy runs the script as `node <script>`).
+  const env: Record<string, string> = scriptsEnv([NODE_DIR, '/usr/bin', '/bin'], { HOME: dir, GH_STUB_LOG: ghLog, GH_STUB_DIR: dir, GH_STUB_ACCOUNT: ACCOUNT })
   if (gh.token !== undefined) env.GH_STUB_TOKEN = gh.token
   if (gh.shellToken !== undefined) env.GH_TOKEN = gh.shellToken
   const logged: string[] = []

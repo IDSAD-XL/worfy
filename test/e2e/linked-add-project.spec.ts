@@ -18,6 +18,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { loginProfileWithNode, printScript, profileJsonScript } from '../harness-node'
 
 test.setTimeout(240_000)
 
@@ -56,9 +57,9 @@ function makeRepo(dir: string): string {
 }
 
 /** An `epic-status` stub with no Epics, so a Project's Canvas reads without an error. */
-const NO_EPICS = `#!/bin/sh\necho '{"ref":"main","epics":[],"tickets":[]}'\n`
+const NO_EPICS = printScript('{"ref":"main","epics":[],"tickets":[]}\n')
 /** A `bin/profile` stub that knows every folder: "Add project" adds a repository at once (test/e2e/projects.spec.ts). */
-const KNOWS_ALL = `#!/bin/sh\ncase "$*" in *--json*) echo '{"name":"stub","_resolved":{"workspace":null}}' ;; *) exit 4 ;; esac\n`
+const KNOWS_ALL = profileJsonScript('{"name":"stub","_resolved":{"workspace":null}}')
 
 /** A Claude home with the two stubs. */
 function claudeHomeAt(dir: string): string {
@@ -119,6 +120,8 @@ async function launchPair(scratch: string, run: (pair: Pair) => Promise<void>): 
   mkdirSync(join(bHome, 'locked'), { recursive: true })
   chmodSync(join(bHome, 'locked'), 0o000)
   writeFileSync(join(bHome, 'todo.txt'), 'a file, not listed\n')
+  // B's login shell is /bin/sh with this HOME: its .profile puts node on PATH, for the Node stubs.
+  loginProfileWithNode(bHome)
 
   const a = await launchApp({ env: { WORFY_DATA_DIR: aData, WORFY_CLAUDE_HOME: claudeHomeAt(join(scratch, 'a-claude')) } })
   let b: LaunchedApp | undefined

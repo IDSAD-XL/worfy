@@ -22,6 +22,7 @@ import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLoca
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { layoutFailure, readProjectLayout, type ProjectLayout } from './folder'
+import { harnessScriptCommand, HarnessScriptStartError, NODE_NOT_FOUND, type HarnessScriptCommand } from './profile'
 import {
   epicStatusSchema,
   ticketKey,
@@ -103,10 +104,9 @@ export const epicStatusPath = (claudeHome: string): string => join(locateHarness
  * restart; the plugin's script gets HARNESS_HOME.
  *
  * `env` is asked on every run and is the login shell environment in the app
- * (src/main/harness/script-env.ts). The script is bash, but it asks `ticket root` for the Tickets
- * root, which is node; without node it exits 3 and names node (a Harness older than worfy-harness
- * ticket 37 read `<repository>/.scratch` instead and answered a Silent Project with no Epics).
- * Both the first run and the retry run below take the environment asked here, once per call.
+ * (src/main/harness/script-env.ts). The script is run by the node on that environment's PATH, never
+ * by its `#!` line (ADR-0055 item 2): worfy's own PATH from Finder has no node, and Windows reads no
+ * `#!` line. Both the first run and the retry run below take the environment asked here, once per call.
  */
 export function epicStatusRunner(claudeHome: string, env: HarnessScriptEnvSource): EpicStatusRunner {
   return async (cwd, ref) => {
@@ -125,18 +125,35 @@ export function epicStatusRunner(claudeHome: string, env: HarnessScriptEnvSource
   }
 }
 
-/** One run of `epic-status` of `harness` with the environment `base`; the plugin's gets HARNESS_HOME on top. */
-function runEpicStatus(harness: HarnessLocation, base: HarnessScriptEnv, cwd: string, ref: string | null): Promise<string> {
+/**
+ * One run of `epic-status` of `harness` with the environment `base`; the plugin's gets HARNESS_HOME
+ * on top. The script runs as `node <script>`, node from the PATH of that environment, or by itself
+ * when it is an older Harness's bash script on macOS or Linux (harnessScriptCommand). A missing
+ * script is `not-found` naming where it was looked for, a missing node is `not-found` saying so, an
+ * older Harness's script on Windows is `failed` saying to update it; none of them starts a process.
+ */
+async function runEpicStatus(harness: HarnessLocation, base: HarnessScriptEnv, cwd: string, ref: string | null): Promise<string> {
+  const script = join(harness.binDir, 'epic-status')
+  const where = harness.kind === 'none' ? notFoundPaths(harness, 'epic-status') : script
+  const env = scriptEnv(harness, base)
+  const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
+  let command: HarnessScriptCommand
+  try {
+    command = await harnessScriptCommand(script, args, env)
+  } catch (error) {
+    const code = error instanceof HarnessScriptStartError ? error.code : 'ENOENT'
+    if (code === 'NOT_NODE') throw new EpicStatusError({ code: 'failed', message: (error as Error).message })
+    const message = code === 'NODE_NOT_FOUND' ? `${NODE_NOT_FOUND}: epic-status is not run (${script})` : `epic-status not found: ${where}`
+    throw new EpicStatusError({ code: 'not-found', message })
+  }
   return new Promise((resolvePromise, reject) => {
-    const script = join(harness.binDir, 'epic-status')
-    const args = ref === null ? ['--json'] : ['--json', '--ref', ref]
-    const env = scriptEnv(harness, base)
-    execFile(script, args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
+    execFile(command.file, command.args, { cwd, env, maxBuffer: MAX_OUTPUT, timeout: TIMEOUT_MS, encoding: 'utf8' }, (error, stdout, stderr) => {
       if (!error) return resolvePromise(stdout)
       const code = (error as NodeJS.ErrnoException).code
+      // Not started after all: node went away between the look and the start, the folder `cwd` did,
+      // or an older Harness's script has no execute bit.
       if (code === 'ENOENT' || code === 'EACCES') {
-        const where = harness.kind === 'none' ? notFoundPaths(harness, 'epic-status') : script
-        return reject(new EpicStatusError({ code: 'not-found', message: `epic-status not found: ${where}` }))
+        return reject(new EpicStatusError({ code: 'not-found', message: `epic-status could not be started: ${error.message}` }))
       }
       const detail = stderr.trim() || error.message
       reject(new EpicStatusError({ code: 'failed', message: `epic-status failed${ref ? ` for ${ref}` : ''}: ${detail}` }))

@@ -1,7 +1,7 @@
 // The environment the Harness scripts run with when the main process starts them.
 //
-// The scripts are `#!/usr/bin/env node` (`profile`, `ticket`) or need node themselves
-// (`epic-status` without `--root` asks `ticket root`, and without node it exits 3). An app started
+// The scripts are Node scripts, and worfy runs them as `node <script>` with the node on the PATH
+// of this environment (src/main/workflow/profile.ts, harnessScriptCommand). An app started
 // from Finder has the PATH of launchd, /usr/bin:/bin:/usr/sbin:/sbin, and node is not on it
 // (ADR-0007). So a script never gets worfy's own `process.env`: it gets the user's login shell
 // environment, the one Sessions and Terminal Nodes get (src/main/agent/env.ts), captured once per
