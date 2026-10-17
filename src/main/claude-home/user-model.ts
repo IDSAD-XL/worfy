@@ -4,7 +4,9 @@
 // or larger, and to go back to it on "Default" (setModel with no model would give Claude Code's own
 // default instead). The effort is passed by session.ts itself: Claude Code takes a top-level
 // `effortLevel` of the user's settings only for the models it lists as older ones, so on a newer
-// model a Session that names no effort would run at that model's default. Nothing here writes
+// model a Session that names no effort would run at that model's default. The `autoCompactWindow`
+// there (worfy-polish ticket 29) wins over worfy's own default window: app-registry.ts reads it at
+// every start of a Session's Claude Code, Settings → Sessions names it. Nothing here writes
 // anywhere (ADR 0005).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -44,4 +46,14 @@ export function readUserModel(home: string = claudeHome()): string | null {
 export function readUserEffort(home: string = claudeHome()): EffortChoice | null {
   const parsed = effortSchema.safeParse(readUserSettings(home)?.effortLevel)
   return parsed.success ? parsed.data : null
+}
+
+/**
+ * The user's autocompact window in tokens: a whole positive `autoCompactWindow` of settings.json;
+ * null for anything else ("auto", a string, no field, no file). Claude Code's per-model
+ * `modelSettings` windows are not read.
+ */
+export function readUserAutoCompactWindow(home: string = claudeHome()): number | null {
+  const window = readUserSettings(home)?.autoCompactWindow
+  return typeof window === 'number' && Number.isSafeInteger(window) && window > 0 ? window : null
 }
