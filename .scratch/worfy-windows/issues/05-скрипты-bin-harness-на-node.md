@@ -415,3 +415,29 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ве
 - **К срезу 05b после ревью Mac:** gate full на Mac падал на `snapping.spec.ts:175` (1 из 30): stand-in на Node отвечал раньше нажатия, и панель «No epics yet» лежала над Card. Ответ по умолчанию в `snapping.spec.ts` — одна Epic без Ticket-ов (`c999115`, PR #434).
 
 **Не проверено:** всё на macOS и Linux; guard-ы раунда ревью проверены вызовом функций на образцах строк, не мутантом полного test-а.
+
+### Срез 05d, раунд 2 — ревью Mac (PR #444)
+
+Ревью первого раунда на Mac (глубина high: корректность на macOS, безопасность, мутанты): корректность и безопасность — ничего; без переменных скрипты на macOS байт в байт как main, ни один test не дошёл до настоящего `gh`. Изменения запрошены по одному medium; low-ы исправлены в том же раунде (`9341072`, `8e3e5ed`, `88aed26`, `2bb8e23`).
+
+- **medium: у guard-а не было своего test-а** (`gh-stand-in.sh:43`, `:66`; мутанты «принять любой `gh` из PATH shell-а» и «принять любой `gh`, который запустит node» выживали). Новый `harness/bin/tests/gh-stand-in.test.sh` идёт на любой ОС: поддельный `gh` первым в PATH — exit 1, строка REFUSED с его путём, файл-метка не записан; неверный `WAVE_GATE_GH`; неверный `TICKET_GH`; допустимые настройки; без переменной; guard снимает учётные данные. 12 ok / 0 FAIL.
+- **low: переопределения проверялись только на Windows** (6 мутантов выживали на macOS). Новый `harness/bin/tests/gh-override.test.sh` со stub-ами, которые пишут свои аргументы в журнал: `.mjs` идёт через node (dispatch и поиск run), `gh` после пробелов в начале тоже заменяется, обычная программа запускается как есть, `ghx …`/`xgh …` не трогаются. 7 ok / 0 FAIL; случай «без переменной» (stub с именем `gh` первым в PATH под guard-ом) на Windows пропущен — Node не запускает shell-stub. `TICKET_GH` на `.mjs` для `ticket mark` в режиме Full — в `ticket-mark.test.sh` на любой ОС.
+- **low: нет test-а снимка real home.** Новый `harness/bin/tests/real-home.test.sh`: запись в изменчивые папки без метки и с меткой (пути с `/` и `\`), запись в остальные части, предел 10 строк у `real_home_diff`. 14 ok / 0 FAIL.
+- **low: `TICKET_GH` на несуществующий файл давал «gh is not in PATH».** Теперь «TICKET_GH names a program that is not there: <путь>»; без `TICKET_GH` текст прежний. Test в `ticket-mark.test.sh`.
+- **low: `~/.claude/skills/synced/` — изменчивая папка** (`real-home.sh`): Claude Code переписывает её примерно раз в 10 минут, и «real home unchanged» мигал и на Mac.
+- **Мутанты на ПК, все 8 красные:** guard без проверки shell (2 FAIL) и без проверки node (3); `.mjs` как обычная программа (3); обычная программа через node (2); без замены в `ghShell` (5); регулярное выражение без границы слова (1); `ticket` без `TICKET_GH` (10 в `ticket-mark`); голый `gh` в поиске run (2).
+
+| Shell test, Git Bash | main `b2ae59d` | ветка `2bb8e23` |
+|---|---|---|
+| `gh-stand-in.test.sh` (новый) | — | exit 0, 12 ok / 0 FAIL |
+| `gh-override.test.sh` (новый) | — | exit 0, 7 ok / 0 FAIL, 1 skip |
+| `real-home.test.sh` (новый) | — | exit 0, 14 ok / 0 FAIL |
+| `ticket-mark.test.sh` | exit 1, 23 / 18 | exit 1, 42 / 1 |
+| `wave-gate.test.sh` | exit 1, 30 / 120 | exit 1, 120 / 30 |
+| `profile.test.sh` | exit 1, 208 / 2 | exit 0, 210 / 0 |
+
+- Сверка по именам: ни один случай, проходящий на main, на ветке не падает. Оставшиеся падения — те же, что в первом раунде (сигналы, `ioreg`/`caffeinate`, `git.exe` в минимальном PATH, zsh).
+- `test/contract/harness-scripts.test.ts` находит три новых файла, и они проходят. На Windows `profile`, `silent-mode` и `wave-gate` не укладываются в предел 120 с на файл (`harness-scripts.test.ts:22`) — вопрос скорости ПК; `profile` отдельно проходит.
+- Ни один test и ни одна проба этого раунда не запускали настоящий `gh`.
+
+**Не проверено:** всё на macOS и Linux, в том числе случаи «без переменной» в `gh-stand-in.test.sh` и `gh-override.test.sh` (на ПК проверены только чтением).
