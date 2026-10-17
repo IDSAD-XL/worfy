@@ -557,6 +557,7 @@ fi
 
 home_after="$(real_home_snapshot "$REAL_HOME")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" 0 "" test "$home_before" = "$home_after"
+[ "$home_before" = "$home_after" ] || real_home_diff "$home_before" "$home_after"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]

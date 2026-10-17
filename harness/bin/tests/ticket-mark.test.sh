@@ -178,7 +178,7 @@ tk "$T/r/plain" mark shopfront 02 review success --sha "$SHA" --root "$T/r/shop/
 [ "$rc" -eq 2 ] && ok "--contexts with arguments -> exit 2" || bad "--contexts with arguments: exit $rc"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
-[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
+[ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || { bad "the real home changed"; real_home_diff "$home_before" "$home_after"; }
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

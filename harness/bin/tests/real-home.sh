@@ -1,8 +1,9 @@
 # Sourced by the Harness shell tests that must not write into the real home (worfy-harness ticket 22).
 #
 #   real_home_snapshot <home> [<marker>]
+#   real_home_diff <before> <after>
 #
-# prints one line per file of the Harness parts of <home>/.claude — the Harness state folder
+# real_home_snapshot prints one line per file of the Harness parts of <home>/.claude — the Harness state folder
 # worfy-harness/ and the pre-plugin places gate/, profiles/, bin/, hooks/, skills/, agents/,
 # CLAUDE.md, settings.json — with its size and mtime. A test takes it before and after its run and
 # compares the two: a file created, deleted or rewritten there is a write into the real home.
@@ -12,18 +13,24 @@
 # files are not listed by mtime; instead, with <marker> (the test's temporary directory) the
 # snapshot lists every file there whose contents name the marker — a lock or a verdict of the test's
 # own temporary repository. Claude Code's own folders (projects/, todos/, shell-snapshots/ and the
-# rest) are not looked at: other sessions change them all the time.
+# rest) are not looked at: other sessions change them all the time. The three folders are matched on
+# the path with / as the separator, so they are volatile on Windows too, where node joins paths with \;
+# the marker is looked for as given and with that separator.
+#
+# real_home_diff prints the lines that differ between two snapshots (< before, > after), at most 10,
+# indented: a test prints them under its failed check, so a real write can be told from noise.
 real_home_snapshot() {
     node - "$1" "${2:-}" <<'NODE'
 const fs = require("fs"), path = require("path")
 const [home, marker] = process.argv.slice(2)
 const claude = path.join(home, ".claude")
 const VOLATILE = [/\/worktree-sessions(\/|$)/, /\/gate\/state(\/|$)/, /\/profiles\/[^/]+\/state(\/|$)/]
+const marks = marker ? [...new Set([marker, marker.split("/").join(path.sep)])] : []
 const out = []
 const walk = (p) => {
     let st
     try { st = fs.lstatSync(p) } catch { return }
-    const volatile = VOLATILE.some((re) => re.test(p))
+    const volatile = VOLATILE.some((re) => re.test(p.split(path.sep).join("/")))
     if (st.isDirectory()) {
         let names = []
         try { names = fs.readdirSync(p).sort() } catch { return }
@@ -32,10 +39,16 @@ const walk = (p) => {
     }
     if (!volatile) return out.push(`${p}\t${st.size}\t${st.mtimeMs}`)
     if (!marker || !st.isFile() || st.size > 1 << 20) return
-    try { if (fs.readFileSync(p, "utf8").includes(marker)) out.push(`${p}\tnames ${marker}`) } catch {}
+    try {
+        const text = fs.readFileSync(p, "utf8")
+        if (marks.some((m) => text.includes(m))) out.push(`${p}\tnames ${marker}`)
+    } catch {}
 }
 for (const part of ["worfy-harness", "gate", "profiles", "bin", "hooks", "skills", "agents", "CLAUDE.md", "settings.json"])
     walk(path.join(claude, part))
 process.stdout.write(out.join("\n") + "\n")
 NODE
+}
+real_home_diff() {
+    diff <(printf '%s\n' "$1") <(printf '%s\n' "$2") | grep '^[<>]' | head -n 10 | sed 's/^/    /'
 }
