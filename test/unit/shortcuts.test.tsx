@@ -118,6 +118,11 @@ describe('label', () => {
     expect(label(SHORTCUTS.dragFree, 'mac')).toBe('⌘ + drag')
     expect(label(SHORTCUTS.dragFree, 'windows')).toBe('Ctrl + drag')
     expect(label(SHORTCUTS.terminalRequest, 'mac')).toBe('⌘I')
+    expect(label(SHORTCUTS.back, 'mac')).toBe('⌘[')
+    expect(label(SHORTCUTS.back, 'windows')).toBe('Ctrl+[')
+    expect(label(SHORTCUTS.back, 'linux')).toBe('Ctrl+[')
+    expect(ariaKeys(SHORTCUTS.back, 'mac')).toBe('Meta+[')
+    expect(ariaKeys(SHORTCUTS.back, 'windows')).toBe('Control+[')
   })
 
   it('takes the system from <html> when none is given', () => {
@@ -157,6 +162,34 @@ describe('matches', () => {
   it('reads a letter by the place of its key in a layout that is not Latin', () => {
     expect(matches(primary('windows', { key: 'л', code: 'KeyK' }), SHORTCUTS.palette, 'windows')).toBe(true)
     expect(matches(primary('mac', { key: 'ш', code: 'KeyI' }), SHORTCUTS.terminalRequest, 'mac')).toBe(true)
+  })
+
+  it('takes ⌘[ / Ctrl+[ for Back by the character and, on a layout with a letter there, by the place of the key', () => {
+    for (const platform of PLATFORMS) {
+      expect(matches(primary(platform, { key: '[', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      // The Russian layout has х on the key of [.
+      expect(matches(primary(platform, { key: 'х', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      expect(matches(primary(platform, { key: 'х', code: 'BracketLeft', altKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(primary(platform, { key: 'Х', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(primary(platform, { key: 'х', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(primary(platform, { key: '{', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(press({ key: '[', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(press({ key: 'х', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(false)
+    }
+    // An accented Latin letter on the key of [ is read by the place too: German ü, Nordic å.
+    for (const platform of PLATFORMS) {
+      expect(matches(primary(platform, { key: 'ü', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      expect(matches(primary(platform, { key: 'å', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
+      expect(matches(primary(platform, { key: 'Ü', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)
+      expect(matches(primary(platform, { key: 'ü', code: 'BracketLeft', altKey: true }), SHORTCUTS.back, platform)).toBe(false)
+    }
+    // A letter a–z there stays the letter (BÉPO has z on the key of [), and another letter on another key is no [.
+    expect(matches(primary('mac', { key: 'z', code: 'BracketLeft' }), SHORTCUTS.back, 'mac')).toBe(false)
+    expect(matches(primary('mac', { key: 'z', code: 'BracketLeft' }), SHORTCUTS.undo, 'mac')).toBe(true)
+    expect(matches(primary('mac', { key: 'ъ', code: 'BracketRight' }), SHORTCUTS.back, 'mac')).toBe(false)
+    expect(matches(primary('mac', { key: 'ü', code: 'BracketRight' }), SHORTCUTS.back, 'mac')).toBe(false)
+    // While the input method composes, the key is not read by its place.
+    expect(matches(primary('mac', { key: 'х', code: 'BracketLeft', isComposing: true }), SHORTCUTS.back, 'mac')).toBe(false)
   })
 
   it('tells undo from redo by Shift, and Shift is part of the character for punctuation', () => {

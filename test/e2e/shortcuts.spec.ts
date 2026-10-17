@@ -11,7 +11,8 @@ import { snapshotThemes, type ThemeSnapshots } from './snapshots'
 // it and Esc closes it; Help ▸ Keyboard Shortcuts opens it — clicked by its id (clickMenuItem):
 // Playwright cannot press the menu's Cmd/Ctrl+/ accelerator, so the key itself is a manual check —,
 // also over focus mode, which stays under it; Settings → Shortcuts shows the same list; and ⌘K, ⌘F
-// and ⌘↩, now read from the registry of shortcuts, work as before. Snapshots in both themes:
+// and ⌘↩, now read from the registry of shortcuts, work as before; both lists have ⌘[ / Ctrl+[,
+// Back in the window of a Subagent (worfy-ui ticket 14; the key itself: session-back.spec.ts). Snapshots in both themes:
 // test-results/snapshots/shortcuts*/ (test/e2e/snapshots.ts); with WORFY_EVIDENCE_DIR set, the
 // window's two are copied there as 11-shortcuts-light.png and 11-shortcuts-dark.png.
 
@@ -87,6 +88,8 @@ test('"?" on the Canvas opens Keyboard shortcuts in groups and Esc closes it; "?
     await expect(shortcuts.getByRole('heading', { level: 3 })).toHaveText(['Window', 'Canvas', 'Focus mode', 'Find', 'Session', ...(mac ? ['Terminal'] : [])])
     await expect(shortcuts.locator('[data-shortcut="palette"] kbd')).toHaveText(mac ? '⌘K' : 'Ctrl+K')
     await expect(shortcuts.locator('[data-shortcut="session.new-line"] kbd')).toHaveText(mac ? '⇧⏎' : 'Shift+Enter')
+    // Back in the window of a Subagent (ExternalSessionPanel.tsx) is an entry of the registry too.
+    await expect(shortcuts.locator('[data-shortcut="session.back"] kbd')).toHaveText(mac ? '⌘[' : 'Ctrl+[')
     // Above everything else of the window, in the layer of Settings.
     await expect(window.locator('.w-shortcuts__backdrop')).toHaveCSS('z-index', '110')
     await keepEvidence(await snapshotThemes(window, 'shortcuts'), '11-shortcuts')
@@ -144,6 +147,7 @@ test('Settings → Shortcuts shows the list of the window; Help ▸ Keyboard Sho
     await expect(settings.getByRole('heading', { level: 2 })).toHaveText('Shortcuts')
     const inSettings = await settings.locator('[data-shortcut]').evaluateAll((rows) => rows.map((row) => (row as unknown as { textContent: string }).textContent))
     expect(inSettings.length).toBeGreaterThan(10)
+    await expect(settings.locator('[data-shortcut="session.back"] kbd')).toHaveText(process.platform === 'darwin' ? '⌘[' : 'Ctrl+[')
     await snapshotThemes(window, 'shortcuts-settings')
 
     // Back to General; the menu item shows the Shortcuts section, not a second window.

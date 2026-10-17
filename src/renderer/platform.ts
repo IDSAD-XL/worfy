@@ -76,19 +76,32 @@ export function isTerminalKey(event: { target: unknown }, platform: Platform = c
 }
 
 /**
- * The key a shortcut is matched by. A Latin letter is taken from the key cap (`event.key`), in lower
- * case, so a shortcut follows the letter on QWERTZ, AZERTY and Dvorak. With a layout that is not
- * Latin the key cap says `л` where the shortcut says K — on Windows also while Ctrl is held — so
- * there the letter comes from the place of the key (`event.code`, `KeyK`). Only a single letter of
- * another script is read by its place. Everything else is `event.key` as it is: punctuation and
- * accented letters of a Latin layout (Dvorak has `;` and BÉPO `à` where QWERTY has Z), the values
- * that name no character (`Process`, `Dead`, `Unidentified`), and any key while the input method
- * composes.
+ * The punctuation keys of shortcuts that a layout puts a letter on, by place (`event.code`): the
+ * Russian layout has `х` where a US one has `[`, the German one `ü`, the Nordic ones `å`; there
+ * `[` itself is typed with AltGr (Option on macOS), which is no shortcut.
+ * shortcut: only the punctuation of the registry's entries (`[` of Back), add a place when an entry gets another punctuation key.
+ */
+const PUNCTUATION_PLACES: Readonly<Record<string, string>> = { BracketLeft: '[' }
+
+/**
+ * The key a shortcut is matched by. A Latin letter a–z is taken from the key cap (`event.key`), in
+ * lower case, so a shortcut follows the letter on QWERTZ, AZERTY, Dvorak and BÉPO (`z` where QWERTY
+ * has `[`). Any other letter on the place of a key of PUNCTUATION_PLACES is that punctuation (`х`
+ * and `ü` on `BracketLeft` are `[`). With a layout that is not Latin the key cap says `л` where the
+ * shortcut says K — on Windows also while Ctrl is held — so there the letter comes from the place of
+ * the key (`event.code`, `KeyK`); only a single letter of another script is read by a letter's
+ * place. Everything else is `event.key` as it is: punctuation and the other accented letters of a
+ * Latin layout (Dvorak has `;` and BÉPO `à` where QWERTY has Z), the values that name no character
+ * (`Process`, `Dead`, `Unidentified`), and any key while the input method composes.
  */
 export function shortcutKey(event: { key: string; code?: string; isComposing?: boolean }): string {
   if (/^[a-z]$/i.test(event.key)) return event.key.toLowerCase()
-  if (event.isComposing === true || !/^\p{L}$/u.test(event.key) || /^\p{Script=Latin}$/u.test(event.key)) return event.key
-  const place = /^Key([A-Z])$/.exec(event.code ?? '')
+  if (event.isComposing === true || !/^\p{L}$/u.test(event.key)) return event.key
+  const code = event.code ?? ''
+  const punctuation = PUNCTUATION_PLACES[code]
+  if (punctuation !== undefined) return punctuation
+  if (/^\p{Script=Latin}$/u.test(event.key)) return event.key
+  const place = /^Key([A-Z])$/.exec(code)
   return place ? place[1]!.toLowerCase() : event.key
 }
 
