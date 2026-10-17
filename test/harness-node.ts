@@ -37,12 +37,19 @@ export const NODE = findNode()
 /** The folder of NODE, for the PATH of a scripts' environment. */
 export const NODE_DIR = dirname(NODE)
 
+let shStarts: boolean | undefined
+
 /**
  * Whether `sh` starts from this process's PATH: always on macOS and Linux, on Windows when Git Bash's
  * folder is on it. The stand-ins of an older Harness are `#!/bin/sh` scripts; a test that runs one
- * through `sh` runs wherever this is true.
+ * through `sh` runs wherever this is true. Asked on the first call, not when this module loads: the
+ * e2e specs load it too, and a spec starts no process while Playwright loads it
+ * (test/unit/e2e-no-spawn-on-load.test.ts).
  */
-export const SH = spawnSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0
+export function hasSh(): boolean {
+  shStarts ??= spawnSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0
+  return shStarts
+}
 
 /**
  * Gives the temporary home folder `home` a `.profile` that puts NODE_DIR first on PATH. A test that

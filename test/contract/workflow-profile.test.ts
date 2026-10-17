@@ -30,7 +30,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
-import { NODE_DIR, nodeScript, scriptsEnv, SH } from '../harness-node'
+import { hasSh, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
@@ -313,7 +313,7 @@ describe('readMcpAllowlist with the real runner', () => {
 
   // The stand-in itself, run by sh wherever there is one (on Windows, Git Bash's): it answers only
   // to readMcpAllowlist's arguments, so the case below proves they reach the script.
-  it.skipIf(!SH)("the older Harness's stand-in profile answers only to the arguments worfy passes", () => {
+  it.skipIf(!hasSh())("the older Harness's stand-in profile answers only to the arguments worfy passes", () => {
     const { script } = bashProfileHome()
     const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync('sh', [script, ...args], { encoding: 'utf8' })
     const ok = run(['-C', scratch, '--field', MCP_ALLOWED_FIELD])

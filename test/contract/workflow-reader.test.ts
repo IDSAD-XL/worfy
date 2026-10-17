@@ -14,7 +14,7 @@ import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } f
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
-import { NODE_DIR, SH, withPath } from '../harness-node'
+import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 
 /**
@@ -418,7 +418,7 @@ describe('workflow reader', () => {
 
   // The stand-in itself, run by sh wherever there is one (on Windows, Git Bash's): it answers only
   // to worfy's arguments, so the case below proves they reach the script.
-  it.skipIf(!SH)("the older Harness's stand-in answers only to the arguments worfy passes", () => {
+  it.skipIf(!hasSh())("the older Harness's stand-in answers only to the arguments worfy passes", () => {
     const { script } = bashHarness()
     const run = (args: string[]): ReturnType<typeof spawnSync> => spawnSync('sh', [script, ...args], { encoding: 'utf8' })
     for (const args of [['--json'], ['--json', '--ref', 'demo/02']]) {
