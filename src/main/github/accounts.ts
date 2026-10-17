@@ -14,6 +14,7 @@
 // in a reason (gh's own messages and accountAuth's never carry it) and not logged. gh runs with
 // GH_PROMPT_DISABLED (ghRunner), and nothing here signs in, switches or logs out an account or
 // changes gh's config: the global account belongs to the user.
+import { win32 } from 'node:path'
 import { spawn as spawnNodePty } from 'node-pty'
 import { z } from 'zod'
 import type { GithubAccount, GithubAccountsStep, WorkflowFinish } from '../../shared/ipc/projects'
@@ -203,11 +204,20 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * by worfy. Outside Windows `/bin/sh` execs gh (`gh` from the login shell's PATH, or WORFY_GH).
  * Windows has no `/bin/sh`, and node-pty there looks a bare name up only in worfy's own Path, without
  * adding `.exe`: gh starts by its full path, the first gh.exe in the Path of `env` (the environment
- * the pseudo-terminal gets), unless WORFY_GH already is a full path. Throws when there is none.
+ * the pseudo-terminal gets). A full-path WORFY_GH (`C:\…`, `\\…`) is that file, with `.exe` added
+ * when it has no extension; a relative one (`tools\gh.exe`, `\opt\gh`) is refused rather than looked
+ * up in every Path entry. Throws, with what to do, when there is no such file.
  */
 export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[] } {
   if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh] }
-  const file = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(gh) ? gh : findOnPath(gh, env, exists)
+  if (/^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(gh)) {
+    // findOnPath over the one folder of gh: the `.exe` it adds and its check that the file is there.
+    const file = findOnPath(win32.basename(gh), { PATH: win32.dirname(gh) }, exists)
+    if (file === null) throw new Error(`${gh} was not found: WORFY_GH must name gh.exe by its full path`)
+    return { file, args: ['auth', 'login'] }
+  }
+  if (/[\\/]/.test(gh)) throw new Error(`WORFY_GH must be a full path (C:\\… or \\\\…), not ${gh}`)
+  const file = findOnPath(gh, env, exists)
   if (file === null) throw new Error(`${gh} was not found in the Path: install GitHub CLI or add its folder to the Path, then restart worfy`)
   return { file, args: ['auth', 'login'] }
 }

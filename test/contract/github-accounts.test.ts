@@ -248,7 +248,20 @@ describe('"Sign in with gh"', () => {
   })
 
   it('on Windows a WORFY_GH with a full path is started as it is', () => {
-    expect(signInCommand('D:\\stub\\gh.exe', 'win32', {}, () => false)).toEqual({ file: 'D:\\stub\\gh.exe', args: ['auth', 'login'] })
+    expect(signInCommand('D:\\stub\\gh.exe', 'win32', {}, (path) => path === 'D:\\stub\\gh.exe')).toEqual({ file: 'D:\\stub\\gh.exe', args: ['auth', 'login'] })
+    expect(signInCommand('\\\\host\\share\\gh.exe', 'win32', {}, (path) => path === '\\\\host\\share\\gh.exe')).toEqual({ file: '\\\\host\\share\\gh.exe', args: ['auth', 'login'] })
+  })
+
+  it('on Windows a full-path WORFY_GH without an extension starts its .exe, and one that is not there fails with why', () => {
+    expect(signInCommand('C:\\stub\\gh', 'win32', WIN_PATH, (path) => path === 'C:\\stub\\gh.exe')).toEqual({ file: 'C:\\stub\\gh.exe', args: ['auth', 'login'] })
+    expect(() => signInCommand('C:\\stub\\gh', 'win32', WIN_PATH, onlyGhExe)).toThrow('C:\\stub\\gh was not found: WORFY_GH must name gh.exe by its full path')
+  })
+
+  it('on Windows a relative WORFY_GH is refused, not looked up in every Path entry', () => {
+    // Every candidate exists: a lookup would find one, so only the refusal passes.
+    for (const relative of ['tools\\gh.exe', '\\opt\\gh', 'bin/gh']) {
+      expect(() => signInCommand(relative, 'win32', WIN_PATH, () => true)).toThrow(`WORFY_GH must be a full path (C:\\… or \\\\…), not ${relative}`)
+    }
   })
 
   it('on Windows without gh in the Path the sign-in fails with a reason a person can act on', () => {
