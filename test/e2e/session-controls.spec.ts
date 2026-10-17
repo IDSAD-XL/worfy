@@ -2,9 +2,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSyn
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
-import { settled } from './wait'
+import { nextFrames, settled } from './wait'
 
 // The input field's pickers and message queue (ticket 19) against the built app, on the fake agent
 // with the script test/fixtures/agent-scripts/session-view.jsonl: turn 1 answers at once, turn 2
@@ -267,6 +267,40 @@ test("an Orchestrator saved on haiku starts on the default model with its effort
 // pickers' place gives the bar the lines it had then.
 const NATIVE_LISTS_WIDTH = 427
 
+type Box = { x: number; y: number; width: number; height: number }
+
+async function box(locator: Locator): Promise<Box> {
+  const found = await locator.boundingBox()
+  if (found === null) throw new Error('no box')
+  return found
+}
+
+/** Resizes the app's window until the page of `inPage` is `width` px wide. */
+async function resizeWindow(app: ElectronApplication, inPage: Locator, width: number, height: number): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        // Reading a box lays the page out for the width it has now.
+        const now = await inPage.evaluate((element) => element.ownerDocument.documentElement.clientWidth)
+        if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), { width, height })
+        return now
+      },
+      { message: `the window is ${width} px wide` },
+    )
+    .toBe(width)
+}
+
+/** The height of the bar as it is, and with a block as wide as the native lists in the pickers' place. */
+async function barHeights(window: Page, bar: Locator): Promise<{ now: number; withNativeLists: number }> {
+  const now = (await box(bar)).height
+  const style = await window.addStyleTag({
+    content: `.w-composer__item[data-item='Pickers'] { flex: 0 0 ${NATIVE_LISTS_WIDTH}px !important; min-width: 0 !important; max-width: none !important; overflow: hidden !important; }`,
+  })
+  const withNativeLists = (await box(bar)).height
+  await style.evaluate((element) => element.remove())
+  return { now, withNativeLists }
+}
+
 test('on the default model the pickers do not make the bar under the input field taller than the native lists did, and Send stays on their line', async () => {
   const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
   const launched = await launchApp({ env })
@@ -282,34 +316,8 @@ test('on the default model the pickers do not make the bar under the input field
     await expect(model).toHaveText('ModelDefault (recommended)')
     await expect(mode).toHaveText('PermissionsBypass permissions')
 
-    const box = async (locator: Locator): Promise<{ x: number; y: number; width: number; height: number }> => {
-      const found = await locator.boundingBox()
-      if (found === null) throw new Error('no box')
-      return found
-    }
-    const resize = async (width: number, height: number): Promise<void> => {
-      await expect
-        .poll(
-          async () => {
-            // Reading a box lays the page out for the width it has now.
-            const now = await bar.evaluate((element) => element.ownerDocument.documentElement.clientWidth)
-            if (now !== width) await app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setSize(wanted.width, wanted.height), { width, height })
-            return now
-          },
-          { message: `the window is ${width} px wide` },
-        )
-        .toBe(width)
-    }
-    /** The height of the bar as it is, and with a block as wide as the native lists in the pickers' place. */
-    const heights = async (): Promise<{ now: number; withNativeLists: number }> => {
-      const now = (await box(bar)).height
-      const style = await window.addStyleTag({
-        content: `.w-composer__item[data-item='Pickers'] { flex: 0 0 ${NATIVE_LISTS_WIDTH}px !important; min-width: 0 !important; max-width: none !important; overflow: hidden !important; }`,
-      })
-      const withNativeLists = (await box(bar)).height
-      await style.evaluate((element) => element.remove())
-      return { now, withNativeLists }
-    }
+    const resize = (width: number, height: number): Promise<void> => resizeWindow(app, bar, width, height)
+    const heights = (): Promise<{ now: number; withNativeLists: number }> => barHeights(window, bar)
     const cut = (picker: Locator): Promise<boolean> => picker.locator('.w-select__value').evaluate((value) => value.scrollWidth > value.clientWidth)
 
     // The window the app opens in, with the sidebar and the rail of the Session shown: the pickers
@@ -368,6 +376,141 @@ test('on the default model the pickers do not make the bar under the input field
     await expect(model).toHaveAttribute('data-value', 'sonnet')
     await expect(model).toHaveAttribute('title', 'Sonnet')
     expect(Math.abs((await width(pickers.locator('xpath=..'))) - (await width(pickers)))).toBeLessThan(1)
+  } finally {
+    await launched.close()
+  }
+})
+
+
+/** The pickers as they were before a caption could go: both captions always shown, buttons up to 220 px. */
+const CAPTIONS_ALWAYS = `.w-pickers { width: auto !important; } .w-pickers .w-pickers__select { max-width: 220px !important; } .w-pickers .w-select__prefix { display: inline !important; }`
+
+test('a caption "Model" or "Permissions" goes when a value would be cut with it, by the width of the window alone; the bar keeps its lines, the buttons their names', async () => {
+  const env = { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'session-view', WORFY_AGENT_LOG: log }
+  const launched = await launchApp({ env })
+  try {
+    const { window, app } = launched
+    const view = await openSession(window)
+    const model = view.getByTestId('picker-model')
+    const mode = view.getByTestId('picker-permissions')
+    const bar = view.locator('.w-composer__bar')
+    const pickers = view.getByTestId('pickers')
+    const send = view.getByTestId('input-send')
+    await expect(model).toHaveText('ModelDefault (recommended)')
+    await expect(mode).toHaveText('PermissionsBypass permissions')
+
+    // Two frames: the pickers' ResizeObserver has run and React has drawn what it chose.
+    const frames = (): Promise<void> => nextFrames(window)
+    /** What a picker shows: its caption or not, and how many px of its value, whole or cut. */
+    const shows = (picker: Locator): Promise<{ caption: boolean; value: number; cut: boolean }> =>
+      picker.evaluate((button) => {
+        const [caption, value] = [button.querySelector('.w-select__prefix'), button.querySelector('.w-select__value')]
+        if (caption === null || value === null) throw new Error('a picker without its caption or value')
+        return { caption: caption.checkVisibility(), value: value.clientWidth, cut: value.scrollWidth > value.clientWidth }
+      })
+    const layout = async () => {
+      const [pickersBox, sendBox] = [await box(pickers), await box(send)]
+      return {
+        model: await shows(model),
+        mode: await shows(mode),
+        bar: (await box(bar)).height,
+        sendOnTheirLine: Math.abs(sendBox.y + sendBox.height / 2 - (pickersBox.y + pickersBox.height / 2)) < 4,
+      }
+    }
+    /** The same in the same window with the captions always shown, as before. */
+    const asBefore = async (): Promise<Awaited<ReturnType<typeof layout>>> => {
+      const style = await window.addStyleTag({ content: CAPTIONS_ALWAYS })
+      const found = await layout()
+      await style.evaluate((element) => element.remove())
+      await frames()
+      return found
+    }
+
+    for (const [sidebar, width, height] of [
+      ['shown', 1440, 900],
+      ['shown', 900, 600],
+      ['shown', 800, 520],
+      ['hidden', 1920, 1080],
+    ] as const) {
+      if (sidebar === 'hidden') await window.getByRole('button', { name: 'Hide sidebar' }).click()
+      await resizeWindow(app, bar, width, height)
+      await frames()
+      const where = `${width}×${height}, the sidebar ${sidebar}`
+      const now = await layout()
+      const before = await asBefore()
+      test.info().annotations.push({ type: 'pickers', description: `${where}: ${JSON.stringify(now)}; with the captions always shown: ${JSON.stringify(before)}` })
+      // A caption shown has its value whole.
+      for (const [name, picker] of [['model', now.model], ['permission mode', now.mode]] as const) {
+        if (picker.caption) expect(picker.cut, `the ${name}'s value under its caption, ${where}`).toBe(false)
+      }
+      // No line more than with the captions always shown, or with the native lists; Send keeps its line.
+      expect(now.bar, `the bar, ${where}`).toBe(before.bar)
+      expect((await barHeights(window, bar)).withNativeLists, `the bar with the native lists, ${where}`).toBeGreaterThanOrEqual(now.bar)
+      expect(now.sendOnTheirLine, `Send on the pickers' line, ${where}`).toBe(before.sendOnTheirLine)
+      // Buttons wider than the room overflow on the right, as before, not out of the bar on the left.
+      expect((await box(model)).x, `the model's left edge, ${where}`).toBeGreaterThanOrEqual((await box(pickers)).x - 0.5)
+      // The captions are for the eye: the names and the titles of the buttons stay.
+      await expect(model).toHaveAccessibleName('Model')
+      await expect(model).toHaveAttribute('title', 'Default (recommended)')
+      await expect(mode).toHaveAccessibleName('Permission mode')
+      await expect(mode).toHaveAttribute('title', 'Bypass permissions')
+      if (width === 1440) {
+        // The model's value was cut: its caption goes, and more of the value shows; the permission mode is whole.
+        expect(before.model.cut, where).toBe(true)
+        expect(now.model.caption, where).toBe(false)
+        expect(now.model.value, where).toBeGreaterThan(before.model.value)
+        expect(now.mode.cut, where).toBe(false)
+      } else if (width === 1920) {
+        expect([now.model, now.mode], where).toEqual([expect.objectContaining({ caption: true, cut: false }), expect.objectContaining({ caption: true, cut: false })])
+      } else {
+        expect([now.model.caption, now.mode.caption], where).toEqual([false, false])
+        expect(now.mode.value, where).toBeGreaterThan(Math.max(5, before.mode.value))
+      }
+      if (sidebar === 'shown') {
+        for (const scheme of ['light', 'dark'] as const) {
+          await window.emulateMedia({ colorScheme: scheme })
+          await view.getByTestId('message-input').screenshot({ path: test.info().outputPath(`composer-captions-${width}x${height}-${scheme}.png`) })
+        }
+        await window.emulateMedia({ colorScheme: null })
+      }
+    }
+
+    // Both captions gone at the narrow end, both shown at the wide one, the pickers on one line between.
+    await resizeWindow(app, bar, 1320, 900)
+    await frames()
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1320 px').toEqual([false, false])
+
+    // A slow resize across the widths where the captions come back, and back again: each caption
+    // turns on once and off once. Every change of a button's class is written down as it happens.
+    await pickers.evaluate((element) => {
+      const changes: string[] = []
+      ;(globalThis as unknown as { captionChanges: string[] }).captionChanges = changes
+      const bare = (className: string | null): boolean => (className ?? '').split(' ').includes('w-pickers__select--bare')
+      type Record = { oldValue: string | null }
+      const { MutationObserver: Observer } = globalThis as unknown as {
+        MutationObserver: new (callback: (records: Record[]) => void) => { observe(target: unknown, options: object): void }
+      }
+      for (const button of element.querySelectorAll('[data-testid="picker-model"], [data-testid="picker-permissions"]')) {
+        new Observer((records) => {
+          records.forEach((record, at) => {
+            const next = at + 1 < records.length ? (records[at + 1]?.oldValue ?? null) : button.getAttribute('class')
+            if (bare(record.oldValue) !== bare(next)) changes.push(`${button.getAttribute('data-testid') ?? ''} ${bare(next) ? 'off' : 'on'}`)
+          })
+        }).observe(button, { attributes: true, attributeFilter: ['class'], attributeOldValue: true })
+      }
+    })
+    const changes = (): Promise<string[]> => window.evaluate(() => [...(globalThis as unknown as { captionChanges: string[] }).captionChanges])
+    const sweep = async (from: number, to: number): Promise<void> => {
+      for (let width = from; from < to ? width <= to : width >= to; width += from < to ? 4 : -4) {
+        await resizeWindow(app, bar, width, 900)
+        await frames()
+      }
+    }
+    await sweep(1320, 1460)
+    expect([(await shows(model)).caption, (await shows(mode)).caption], 'the captions at 1460 px').toEqual([true, true])
+    expect(await changes(), 'widening').toEqual(['picker-permissions on', 'picker-model on'])
+    await sweep(1460, 1320)
+    expect(await changes(), 'widening, then narrowing').toEqual(['picker-permissions on', 'picker-model on', 'picker-model off', 'picker-permissions off'])
   } finally {
     await launched.close()
   }

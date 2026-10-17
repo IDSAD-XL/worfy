@@ -774,10 +774,17 @@
   max-width: max-content;
 }
 
+/* The width is the pickers' full width with both captions (Pickers.tsx pins it): the bar gives them
+   the same room whichever captions are shown, so a caption that goes never moves the pickers to
+   another line, and the room they are given decides alone which captions show. What a hidden
+   caption leaves unused stays on the left, next to the spacer; buttons wider than the room still
+   overflow on the right, as before ("safe"), never out of the bar on the left. */
 .w-pickers {
   display: flex;
   flex: 0 1 auto;
+  width: var(--w-pickers-width, auto);
   min-width: 0;
+  justify-content: safe flex-end;
   align-items: center;
   gap: 4px;
 }
@@ -786,9 +793,10 @@
    muted caption, the value, a chevron. A value that does not fit is cut with an ellipsis inside
    its button, and the button's title has it in full. The model's value goes first: its button is
    124 px ("Sonnet" still fits) plus what is left after the other two. Only when that is nothing
-   does the permission mode get cut too, down to 110 px. The effort is never cut. */
+   does the permission mode get cut too, down to 110 px. The effort is never cut. A button is at
+   most 240 px: "Default (recommended)" with its caption takes 224. */
 .w-pickers .w-pickers__select {
-  max-width: 220px;
+  max-width: 240px;
 }
 
 .w-pickers .w-pickers__select--model {
@@ -799,6 +807,27 @@
 .w-pickers .w-pickers__select--permissions {
   flex: 0 1 auto;
   min-width: 110px;
+}
+
+/* Laid out for a measure, before the page paints (Pickers.tsx): "natural" — at full width with
+   every caption; otherwise the captions named are hidden ("all": none is). */
+.w-pickers[data-probe~='natural'] {
+  flex: none;
+  width: max-content;
+}
+
+/* A caption that would leave a value cut is hidden (Pickers.tsx picks which); the button keeps its
+   aria-label and its title. */
+.w-pickers:not([data-probe]) .w-pickers__select--bare .w-select__prefix,
+.w-pickers[data-probe~='model'] .w-pickers__select--model .w-select__prefix,
+.w-pickers[data-probe~='permissions'] .w-pickers__select--permissions .w-select__prefix {
+  display: none;
+}
+
+/* Without its caption the model's button grows to its value and no further. */
+.w-pickers:not([data-probe]) .w-pickers__select--model.w-pickers__select--bare,
+.w-pickers[data-probe~='model'] .w-pickers__select--model {
+  max-width: max-content;
 }
 
 /* The effort picker: its button and the popover with the slider that opens over it. */

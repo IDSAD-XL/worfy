@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type RefObject } from 'react'
 import { EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type ModelOption, type PermissionModeChoice, type SettingsChange } from '../../../shared/agent/settings'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
@@ -60,6 +60,69 @@ function useModels(sessionId: string | null): { models: readonly ModelOption[]; 
   }, [sessionId])
   useEffect(refresh, [refresh])
   return { models: found !== null && found.sessionId === sessionId ? found.models : [], refresh }
+}
+
+/** Which of the captions "Model" and "Permissions" the pickers show. */
+interface Captions {
+  model: boolean
+  permissions: boolean
+}
+const BOTH_CAPTIONS: Captions = { model: true, permissions: true }
+const NO_CAPTIONS: Captions = { model: false, permissions: false }
+/**
+ * From the most captions to none. A bar too narrow cuts the model's value first (session.css), so
+ * its caption is the first to go. Each step only gives the values more room, so as the window
+ * narrows a caption goes once and stays gone.
+ */
+const CAPTION_STEPS: readonly Captions[] = [BOTH_CAPTIONS, { model: false, permissions: true }, NO_CAPTIONS]
+
+/** The `data-probe` of the pickers that lays them out with these captions (session.css); "natural": all of them, at full width. */
+const probeOf = (captions: Captions | 'natural'): string =>
+  captions === 'natural' ? 'natural' : [captions.model ? '' : 'model', captions.permissions ? '' : 'permissions'].filter((token) => token !== '').join(' ') || 'all'
+
+/**
+ * The captions the pickers show, and a ref for their element: the first of CAPTION_STEPS with which
+ * no value of a button is cut; none when a value is cut even without them. Each step is laid out and
+ * read before the page paints, at a width that does not depend on the captions: the pickers' full
+ * width with both captions is pinned on their element (--w-pickers-width), so the bar gives them
+ * the room it gave them before any caption went, and that room alone picks the step. Read at the
+ * width a step makes itself, a caption would go, free the room it needed, come back and go again.
+ */
+function useCaptions(): { ref: RefObject<HTMLSpanElement | null>; captions: Captions } {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [captions, setCaptions] = useState<Captions>(BOTH_CAPTIONS)
+  const measure = useCallback(() => {
+    const pickers = ref.current
+    if (pickers === null) return
+    const values = [...pickers.querySelectorAll('.w-pickers__select .w-select__value')]
+    pickers.dataset['probe'] = probeOf('natural')
+    const full = pickers.getBoundingClientRect().width
+    // Not laid out (a hidden view): nothing to measure; the next resize measures again.
+    if (full === 0) {
+      delete pickers.dataset['probe']
+      return
+    }
+    pickers.style.setProperty('--w-pickers-width', `${full}px`)
+    const whole = (step: Captions): boolean => {
+      pickers.dataset['probe'] = probeOf(step)
+      return values.every((value) => value.scrollWidth <= value.clientWidth)
+    }
+    const chosen = CAPTION_STEPS.find(whole) ?? NO_CAPTIONS
+    delete pickers.dataset['probe']
+    setCaptions((now) => (now.model === chosen.model && now.permissions === chosen.permissions ? now : chosen))
+  }, [])
+  // After every render: a new value changes the widths before the page paints.
+  useLayoutEffect(measure)
+  useLayoutEffect(() => {
+    const pickers = ref.current
+    if (pickers === null || typeof ResizeObserver === 'undefined') return
+    // The pickers' own width follows the bar; a button's follows its value (the effort's level).
+    const observer = new ResizeObserver(measure)
+    observer.observe(pickers)
+    for (const child of pickers.children) observer.observe(child)
+    return () => observer.disconnect()
+  }, [measure])
+  return { ref, captions }
 }
 
 interface EffortPickerProps {
@@ -286,6 +349,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   // On a read-only screen (worfy-link ticket 25) the pickers show the settings and change nothing.
   const readOnly = useReadOnly()
   const disabled = sessionId === null || settings === null || readOnly !== null
+  const { ref, captions } = useCaptions()
 
   const configure = (change: SettingsChange) => {
     if (sessionId === null || readOnly !== null) return
@@ -312,10 +376,10 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
   }
 
   return (
-    <span className="w-pickers" data-testid="pickers">
-      {/* A narrow bar cuts the value of a button; its title has it in full. */}
+    <span ref={ref} className="w-pickers" data-testid="pickers">
+      {/* A caption goes where a value would be cut with it; a value still cut is in its button's title in full. */}
       <Select
-        className="w-pickers__select w-pickers__select--model"
+        className={`w-pickers__select w-pickers__select--model${captions.model ? '' : ' w-pickers__select--bare'}`}
         aria-label="Model"
         data-testid="picker-model"
         prefix="Model"
@@ -330,7 +394,7 @@ export default function Pickers({ sessionId }: ComposerItemProps) {
       {/* A thumb moved in one Session never goes to another: the picker starts anew with the Session. */}
       <EffortPicker key={sessionId ?? ''} effort={effort} efforts={efforts} disabled={disabled} configure={configure} />
       <Select
-        className="w-pickers__select w-pickers__select--permissions"
+        className={`w-pickers__select w-pickers__select--permissions${captions.permissions ? '' : ' w-pickers__select--bare'}`}
         aria-label="Permission mode"
         data-testid="picker-permissions"
         prefix="Permissions"
