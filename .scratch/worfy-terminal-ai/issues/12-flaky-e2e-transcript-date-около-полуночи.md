@@ -1,7 +1,8 @@
 # 12 — Flaky e2e `transcript-date` в `session-view.spec.ts`: красный, если полночь наступила между отправкой и проверкой
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T14:10Z
+Branch: worfy-terminal-ai/12
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен», кроме двух рисков — им Ticket-ы):
 [Ticket 10](10-test-paused-by-limits-около-полуночи.md), «Итог» («Остался один узкий случай, не починен»)
