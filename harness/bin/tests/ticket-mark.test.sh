@@ -52,11 +52,14 @@ repo "$T/r/local" "$T/elsewhere.git"
 repo "$T/r/multi/front" "https://github.com/acme/front"
 repo "$T/r/multi/back" "ssh://git@github.com/acme/back.git"
 repo "$T/r/plain" ""
+# Paths written into files node reads are in node's spelling: C:/… in Git Bash on Windows (pwd -W), where node
+# reads /tmp/… as C:\tmp\…; the same as $T elsewhere.
+TN="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 printf '{"repos":[%s]}\n' "$(printf '{"key":"shop","match":"%s","profile":"shop"},{"key":"quiet","match":"%s","profile":"quiet"},{"key":"local","match":"%s","profile":"local"},{"key":"front","match":"%s","profile":"multi"},{"key":"back","match":"%s","profile":"multi"}' \
-    "$T/r/shop" "$T/r/quiet" "$T/r/local" "$T/r/multi/front" "$T/r/multi/back")" >"$HH/gate/config.json"
+    "$TN/r/shop" "$TN/r/quiet" "$TN/r/local" "$TN/r/multi/front" "$TN/r/multi/back")" >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
 newp shop '{"schema":2,"name":"shop","mode":"full"}'
-newp quiet "{\"schema\":2,\"name\":\"quiet\",\"mode\":\"silent\",\"workflow\":{\"folder\":\"$T/wf\"}}"
+newp quiet "{\"schema\":2,\"name\":\"quiet\",\"mode\":\"silent\",\"workflow\":{\"folder\":\"$TN/wf\"}}"
 newp local '{"schema":2,"name":"local","mode":"full"}'
 newp multi '{"schema":2,"name":"multi","mode":"full"}'
 
