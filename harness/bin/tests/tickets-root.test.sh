@@ -14,7 +14,10 @@ STATUS="$BIN/epic-status"
 export CLAUDE_TICKET_BIN="$TICKET"
 export CLAUDE_PROFILE_BIN="$BIN/profile"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# T in node's spelling (C:/… in Git Bash on Windows, pwd -P elsewhere): it goes into the registry and profiles.
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# A path as ticket and epic-status print it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 trap 'rm -rf "$T"' EXIT
 . "$(dirname "$0")/real-home.sh"
 home_before="$(real_home_snapshot "$HOME" "$T")"
@@ -49,7 +52,7 @@ mk "$WS/Repo-A/.scratch" ep 01-decoy claimed   # decoy: git top-level/.scratch, 
 
 # 1. From inside a profile repository with an absolute tickets.root — the root is in the common directory.
 got="$(cd "$WS/Repo-A/src" && "$TICKET" root 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && [ "$got" = "$WS/.scratch" ] && ok "ticket root inside repo -> workspace .scratch" || bad "ticket root: exit $rc, got: $got"
+[ "$rc" -eq 0 ] && [ "$got" = "$(printed "$WS/.scratch")" ] && ok "ticket root inside repo -> workspace .scratch" || bad "ticket root: exit $rc, got: $got"
 got="$(cd "$WS/Repo-A/src" && "$TICKET" show ep 01 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$got" = "01-first.md:3  Status: open" ] && ok "ticket show inside repo reads workspace ticket" || bad "ticket show: exit $rc, got: $got"
 got="$(cd "$WS/Repo-B" && "$TICKET" claim ep/01 2>&1)"; rc=$?
@@ -79,9 +82,10 @@ got="$(cd "$WS/Repo-A" && "$STATUS" --root "$WS/Repo-A/.scratch" ep 2>&1)"; rc=$
 
 got="$(cd "$WS/Repo-A" && "$STATUS" ep --root "$WS/Repo-A/.scratch" 2>&1)"; rc=$?
 [[ "$rc" -eq 0 && "$got" == "/implement · ep 0/1 · main · ticket 01"* ]] && ok "epic-status <epic> --root (flag after epic)" || bad "epic-status ep --root: exit $rc, got: $got"
-ln -s "$WS/Repo-A/src" "$T/link"
+# MSYS: a real symlink in Git Bash on Windows (its plain ln -s copies the directory); ignored elsewhere.
+MSYS=winsymlinks:nativestrict ln -s "$WS/Repo-A/src" "$T/link"
 a="$(cd "$T/link" && "$TICKET" root --root ../.scratch 2>&1)"; b="$(cd "$T/link" && "$TICKET" show ep 01 --root ../.scratch 2>&1)"
-[ "$a" = "$WS/Repo-A/.scratch" ] && [ "$b" = "01-decoy.md:3  Status: claimed" ] && ok "relative --root through a symlink: root and show agree" || bad "symlink --root: root=$a show=$b"
+[ "$a" = "$(printed "$WS/Repo-A/.scratch")" ] && [ "$b" = "01-decoy.md:3  Status: claimed" ] && ok "relative --root through a symlink: root and show agree" || bad "symlink --root: root=$a show=$b"
 
 # 5. A relative tickets.root is taken from the current tree's root; a worktree has its own, and --ref reads the branch.
 mk "$T/rel/.scratch" ep 01-main open
@@ -90,7 +94,7 @@ git -C "$T/rel" worktree add -q -b feat "$T/rel-wt" 2>/dev/null
 mk "$T/rel-wt/.scratch" ep 02-branch open
 git -C "$T/rel-wt" add .scratch && git -C "$T/rel-wt" commit -q -m more
 got="$(cd "$T/rel-wt" && "$TICKET" root 2>&1)"
-[ "$got" = "$T/rel-wt/.scratch" ] && ok "relative root in worktree -> worktree .scratch" || bad "relative root wt: $got"
+[ "$got" = "$(printed "$T/rel-wt/.scratch")" ] && ok "relative root in worktree -> worktree .scratch" || bad "relative root wt: $got"
 got="$(cd "$T/rel" && "$STATUS" --json --ref feat 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(printf '%s' "$got" | jq -r '[.tickets[].slug]|join(",")')" = "main,branch" ] && ok "--json --ref reads branch tickets (git root)" || bad "--ref git: exit $rc, got: ${got:0:200}"
 got="$(cd "$T/rel" && "$STATUS" --json --ref no-such 2>&1)"; rc=$?
@@ -99,9 +103,9 @@ got="$(cd "$T/rel" && "$STATUS" --json --ref no-such 2>&1)"; rc=$?
 # 6. Outside the registry — as before: <git top-level>/.scratch, and "outside tickets" without the directory.
 mkdir -p "$T/unreg/sub"
 got="$(cd "$T/unreg/sub" && "$TICKET" root 2>&1)"
-[ "$got" = "$T/unreg/.scratch" ] && ok "unregistered -> git top-level/.scratch" || bad "unregistered root: $got"
+[ "$got" = "$(printed "$T/unreg/.scratch")" ] && ok "unregistered -> git top-level/.scratch" || bad "unregistered root: $got"
 got="$(cd "$T/unreg/sub" && "$STATUS" 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && [ "$got" = "outside tickets (no $T/unreg/.scratch)" ] && ok "unregistered epic-status unchanged" || bad "unregistered status: exit $rc, got: $got"
+[ "$rc" -eq 0 ] && [ "$got" = "outside tickets (no $(printed "$T/unreg/.scratch"))" ] && ok "unregistered epic-status unchanged" || bad "unregistered status: exit $rc, got: $got"
 
 # 6a. Silent mode (worfy-harness ticket 22): a relative tickets.root — and no tickets.root at all — is taken
 # from the Workflow folder, the same from the repository, its worktree and the folder itself.
@@ -114,10 +118,10 @@ printf '{"schema":2,"name":"sil2","mode":"silent","workflow":{"folder":"%s"}}\n'
 mk "$T/wfs/tickets" ep 01-silent open
 for d in "$T/silent" "$T/silent-wt"; do
     got="$(cd "$d" && "$TICKET" root 2>&1)"
-    [ "$got" = "$T/wfs/tickets" ] && ok "silent: relative tickets.root from ${d##*/} -> the Workflow folder" || bad "silent root from $d: $got"
+    [ "$got" = "$(printed "$T/wfs/tickets")" ] && ok "silent: relative tickets.root from ${d##*/} -> the Workflow folder" || bad "silent root from $d: $got"
 done
 got="$(cd "$T/silent2" && "$TICKET" root 2>&1)"
-[ "$got" = "$T/wfs2/.scratch" ] && ok "silent: no tickets.root -> <Workflow folder>/.scratch" || bad "silent default root: $got"
+[ "$got" = "$(printed "$T/wfs2/.scratch")" ] && ok "silent: no tickets.root -> <Workflow folder>/.scratch" || bad "silent default root: $got"
 got="$(cd "$T/silent-wt" && "$STATUS" ep 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$got" == "/to-tickets · ep 0/1 · ticket 01"* ]] && ok "silent: epic-status from a worktree reads the Workflow folder" || bad "silent epic-status: exit $rc, got: $got"
 
