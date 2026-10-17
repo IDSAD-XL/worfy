@@ -125,6 +125,7 @@ export function accountAuth(options: AccountAuthOptions): GhAuth {
 const checkSchema = z
   .object({
     __typename: z.string().optional(),
+    context: z.string().nullish(),
     status: z.string().nullish(),
     conclusion: z.string().nullish(),
     state: z.string().nullish(),
@@ -147,11 +148,24 @@ const ghPullSchema = z
 const FAILED = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR'])
 const PENDING_STATES = new Set(['PENDING', 'EXPECTED'])
 
-/** CI of a PR in three words: failing if any check failed, else running if any is not done, else passing. */
+/**
+ * The contexts of the agents' marks (ADR-0067): commit statuses that are not CI. `check/*` is every
+ * `check/<name>`. The same list `harness/bin/ticket mark --contexts` prints; a contract test holds the two together.
+ */
+export const MARK_CONTEXTS = ['review', 'check/*', 'deploy'] as const
+
+const isMark = (context: string | null | undefined): boolean =>
+  context != null && MARK_CONTEXTS.some((mark) => (mark.endsWith('/*') ? context.startsWith(mark.slice(0, -1)) && context.length > mark.length - 1 : context === mark))
+
+/**
+ * CI of a PR in three words: failing if any check failed, else running if any is not done, else passing.
+ * The agents' marks are left out: a `review` failure is a verdict, not red CI.
+ */
 export function ciOf(rollup: readonly z.infer<typeof checkSchema>[] | null | undefined): CiState | null {
-  if (!rollup || rollup.length === 0) return null
+  const checks = (rollup ?? []).filter((check) => !(check.state != null && check.status == null && isMark(check.context)))
+  if (checks.length === 0) return null
   let running = false
-  for (const check of rollup) {
+  for (const check of checks) {
     if (check.state != null && check.status == null) {
       // A commit status (StatusContext): SUCCESS | PENDING | EXPECTED | FAILURE | ERROR.
       if (FAILED.has(check.state)) return 'failing'

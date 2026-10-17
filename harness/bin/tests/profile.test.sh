@@ -307,6 +307,42 @@ newp lockrel '{"schema":2,"name":"lockrel","mode":"full","workflow":{"e2e_lock":
 newp lockhome '{"schema":2,"name":"lockhome","mode":"full","workflow":{"e2e_lock":"~/e2e.lock"}}'
 newp locknum '{"schema":2,"name":"locknum","mode":"full","workflow":{"e2e_lock":5}}'
 newp lockempty '{"schema":2,"name":"lockempty","mode":"full","workflow":{"e2e_lock":""}}'
+# The Pipeline of the project (worfy ADR-0067): workflow.pipeline from the catalogue of Stage kinds. A valid one,
+# null (the default), and one profile per rule it breaks: "<name>|<pipeline JSON>|<substring of the reason>".
+PL_GOOD='[{"kind":"queued"},{"kind":"implementing","stuck_after":"12h"},{"kind":"ci","stuck_after":"45m"},{"kind":"agent-review","label":"Review"},{"kind":"check","name":"windows","label":"Windows"},{"kind":"check","name":"a11y"},{"kind":"gate-merge"},{"kind":"deploy","environment":"stable"},{"kind":"closing"},{"kind":"done"}]'
+PL_BAD=(
+    'plobj|{"kind":"queued"}|workflow.pipeline is a list'
+    'plempty|[]|workflow.pipeline is a list of Stage kinds, got an empty list'
+    'plitem|[{"kind":"queued"},"ci",{"kind":"done"}]|workflow.pipeline[1] is an object'
+    'plkind|[{"kind":"queued"},{"kind":"review"},{"kind":"done"}]|workflow.pipeline[1].kind "review" is not a Stage kind'
+    'plnokind|[{"kind":"queued"},{"label":"x"},{"kind":"done"}]|workflow.pipeline[1].kind'
+    'plkey|[{"kind":"queued"},{"kind":"ci","when":"always"},{"kind":"done"}]|workflow.pipeline[1] has an unknown field "when"'
+    'plfirst|[{"kind":"implementing"},{"kind":"queued"},{"kind":"done"}]|the first Stage is queued'
+    'pllast|[{"kind":"queued"},{"kind":"done"},{"kind":"closing"}]|the last Stage is done'
+    'pldup|[{"kind":"queued"},{"kind":"ci"},{"kind":"ci"},{"kind":"done"}]|"ci" more than once'
+    'plcheckdup|[{"kind":"queued"},{"kind":"check","name":"windows"},{"kind":"check","name":"windows"},{"kind":"done"}]|check "windows" more than once'
+    'plchecknoname|[{"kind":"queued"},{"kind":"check"},{"kind":"done"}]|workflow.pipeline[1]: check needs a name'
+    'plcheckbadname|[{"kind":"queued"},{"kind":"check","name":"Win dows"},{"kind":"done"}]|workflow.pipeline[1].name'
+    'plname|[{"kind":"queued"},{"kind":"ci","name":"x"},{"kind":"done"}]|workflow.pipeline[1]: name is only for check'
+    'plenv|[{"kind":"queued"},{"kind":"ci","environment":"prod"},{"kind":"done"}]|workflow.pipeline[1]: environment is only for deploy'
+    'plboth|[{"kind":"queued"},{"kind":"gate-merge"},{"kind":"awaiting-merge"},{"kind":"done"}]|gate-merge and awaiting-merge'
+    'plstuck|[{"kind":"queued"},{"kind":"ci","stuck_after":"2 days"},{"kind":"done"}]|workflow.pipeline[1].stuck_after is "<number>h" or "<number>m"'
+    'plstucknum|[{"kind":"queued"},{"kind":"ci","stuck_after":2},{"kind":"done"}]|workflow.pipeline[1].stuck_after'
+    'plstuckzero|[{"kind":"queued"},{"kind":"ci","stuck_after":"0h"},{"kind":"done"}]|workflow.pipeline[1].stuck_after'
+    'pllabel|[{"kind":"queued"},{"kind":"ci","label":""},{"kind":"done"}]|workflow.pipeline[1].label'
+)
+for n in plgood plnull; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+newp plgood "{\"schema\":2,\"name\":\"plgood\",\"mode\":\"full\",\"workflow\":{\"pipeline\":$PL_GOOD}}"
+newp plnull '{"schema":2,"name":"plnull","mode":"full","workflow":{"pipeline":null}}'
+for spec in "${PL_BAD[@]}"; do
+    n="${spec%%|*}"; rest="${spec#*|}"; pl="${rest%|*}"
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+    newp "$n" "{\"schema\":2,\"name\":\"$n\",\"mode\":\"full\",\"workflow\":{\"pipeline\":$pl}}"
+done
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -365,6 +401,21 @@ fails_with "workflow.e2e_lock relative -> 1 with the reason" 1 "workflow.e2e_loc
 fails_with "workflow.e2e_lock 5 -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/locknum" --name
 fails_with "workflow.e2e_lock empty -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/lockempty" --name
 eq "--json carries workflow.merge_gate" wave bash -c 'set -o pipefail; "$@" --json | jq -r .workflow.merge_gate' _ "$P2" -C "$T/r/mgwave"
+# --- workflow.pipeline (worfy ADR-0067) ------------------------------------------------------------------------
+PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
+eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline
+eq "workflow.pipeline null -> the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/plnull" --field _resolved.pipeline
+eq "schema 1 -> the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/legacy" --field _resolved.pipeline
+eq "a valid workflow.pipeline -> _resolved.pipeline is that Pipeline" "$(jq -c . <<<"$PL_GOOD")" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/plgood" --field _resolved.pipeline
+eq "a valid workflow.pipeline: --field workflow.pipeline as written" "$(jq -c . <<<"$PL_GOOD")" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/plgood" --field workflow.pipeline
+eq "--json carries _resolved.pipeline" "queued implementing ci agent-review gate-merge closing done" bash -c 'set -o pipefail; "$@" --json | jq -r "[._resolved.pipeline[].kind] | join(\" \")"' _ "$P2" -C "$T/r/bare"
+check "the default Pipeline is not written into workflow" 4 "" "$P2" -C "$T/r/bare" --field workflow.pipeline
+for spec in "${PL_BAD[@]}"; do
+    n="${spec%%|*}"; reason="${spec##*|}"
+    fails_with "workflow.pipeline ($n) -> 1: $reason" 1 "$reason" "$P2" -C "$T/r/$n" --name
+done
+fails_with "a broken workflow.pipeline names the profile and says broken profile" 1 "$HH/projects/pldup/profile.json: workflow.pipeline" "$P2" -C "$T/r/pldup" --name
+fails_with "a broken workflow.pipeline: broken profile" 1 "— broken profile" "$P2" -C "$T/r/plfirst" --name
 eq "--json attribution absent, Silent mode -> off" off "${attr_json[@]}" "$T/r/home"
 eq "--json attribution: an explicit on in Silent mode wins" on "${attr_json[@]}" "$T/r/silenton"
 eq "--json attribution: an explicit off in Full mode wins" off "${attr_json[@]}" "$T/r/fulloff"

@@ -1,10 +1,11 @@
+import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, ciOf, ghRunner, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
 import { appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -84,6 +85,22 @@ describe('ciOf', () => {
     [[{ __typename: 'StatusContext', state: 'SUCCESS' }], 'passing'],
   ])('%j → %s', (rollup, expected) => {
     expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected)
+  })
+
+  // The agents' marks (ADR-0067) are commit statuses too, but they are not CI: review, check/<name>, deploy.
+  const green = { __typename: 'CheckRun', name: 'unit', status: 'COMPLETED', conclusion: 'SUCCESS' }
+  const status = (context: string, state: string) => ({ __typename: 'StatusContext', context, state })
+  it.each([
+    [[green, status('review', 'FAILURE')], 'passing'], [[green, status('review', 'PENDING')], 'passing'],
+    [[green, status('check/windows', 'FAILURE')], 'passing'], [[green, status('deploy', 'ERROR')], 'passing'],
+    [[status('review', 'SUCCESS')], null], [[green, status('ci/lint', 'FAILURE')], 'failing'],
+    [[green, status('reviewers', 'PENDING')], 'running'], [[green, status('check', 'FAILURE')], 'failing'],
+    [[{ __typename: 'CheckRun', name: 'review', status: 'COMPLETED', conclusion: 'FAILURE' }], 'failing'],
+  ])('with marks: %j → %s', (rollup, expected) => expect(ciOf(rollup as Parameters<typeof ciOf>[0])).toBe(expected))
+
+  it('leaves out the same contexts `ticket mark --contexts` prints', () => {
+    const run = spawnSync(process.execPath, [join(__dirname, '..', '..', 'harness', 'bin', 'ticket'), 'mark', '--contexts'], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+    expect([run.status, run.stdout.trim().split('\n')]).toEqual([0, [...MARK_CONTEXTS]])
   })
 })
 

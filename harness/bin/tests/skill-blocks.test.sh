@@ -5,6 +5,8 @@
 # Below — the blocks of skills/qmd (collections table) and skills/tickets-to-tasks (tool from the profile), and
 # the Silent mode blocks of skills/ship-ticket and skills/epic-wave (worfy-harness ticket 22): the branch named by
 # the change, the verdict in the ticket file, the local commit in the Workflow folder, resuming a wave by Branch:.
+# Then the agents' marks (worfy ADR-0067): the review mark blocks of both skills, and the CI filter that leaves the
+# marks out, the same command in both skills and in agents/implementer.md.
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
 # SKILL_FILE — check another copy of SKILL.md.
 set -u
@@ -166,6 +168,63 @@ done
 mv "$SW/.git" "$SH/wf.git"
 got="$(cd "$SH" && "${SENV[@]}" bash -c "$(sub "$B7")" 2>&1)"
 [[ "$got" == *"not a git repository of its own"* ]] && ok "Workflow folder block: a folder without its own git -> nothing to commit" || bad "Workflow folder without git: [$got]"
+
+# --- the agents' marks (worfy ADR-0067): the review mark blocks and the CI filter -------------------------
+# A stub gh first in PATH: `pr checks … --jq <filter>` applies the filter (real jq) to $GH_CHECKS; any other call is
+# only logged. No token reaches it, and nothing reaches GitHub.
+GHS="$T/ghstub"; mkdir -p "$GHS"
+cat >"$GHS/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$GH_LOG"
+if [ "$1 $2" = "pr checks" ]; then
+  f=""; while [ $# -gt 0 ]; do [ "$1" = --jq ] && f=$2; shift; done
+  jq -r "$f" "$GH_CHECKS"; exit $?
+fi
+exit 0
+EOF
+chmod +x "$GHS/gh"
+GH_LOG="$T/gh.log"; : >"$GH_LOG"
+MENV=(env -u GH_TOKEN -u GITHUB_TOKEN PATH="$GHS:$PATH" GH_LOG="$GH_LOG")
+# The review mark: the blocks of both skills, with the real ticket and a Silent project — the marks go to
+# $HARNESS_HOME/runs/sp/marks/pay-flow-02.json, gh is never called.
+HEAD_SHA="$(git -C "$SR" rev-parse HEAD)"
+M="$SHH/runs/sp/marks/pay-flow-02.json"
+for skill in "$WAVE" "$SHIP"; do
+    BR="$(SKILL="$skill" blockf 'mark <epic> <NN> review pending --sha "$sha"')"
+    name="$(basename "$(dirname "$skill")")"
+    [ -n "$BR" ] || { bad "$name: the review mark block not found"; continue; }
+    for sh in bash zsh; do
+        rm -f "$M"; reset_tickets
+        c="$(sub "$BR")"; c="${c//<NN>/02}"; c="${c//<implementer worktree>/$SR}"; c="${c//<worktree>/$SR}"
+        got="$(cd "$SH" && "${SENV[@]}" "${MENV[@]}" $sh -c "$c" 2>&1)"
+        marks="$(jq -r '[.marks[] | "\(.kind) \(.verdict) \(.sha)"] | join(",")' "$M" 2>&1)"
+        [ "$(grep -c 'EXIT=0' <<<"$got")" = 2 ] && [ "$marks" = "review pending $HEAD_SHA,review success $HEAD_SHA" ] \
+            && ok "$sh: $name review mark block: pending, then success, on the head SHA (Silent: the marks file)" || bad "$sh: $name review mark block: [$got] marks [$marks]"
+    done
+done
+[ ! -s "$GH_LOG" ] && [ -z "$(git -C "$SR" status --porcelain)" ] && ok "review mark blocks in Silent mode: no gh call, nothing in the repository" || bad "review mark blocks: gh [$(cat "$GH_LOG")] repo [$(git -C "$SR" status --porcelain)]"
+# The CI filter: the same command in both skills and in agents/implementer.md, leaving out the names
+# `ticket mark --contexts` prints.
+CI_FILTER='select((.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)'
+[ "$(node "$PLUGIN_ROOT/bin/ticket" mark --contexts | tr '\n' ' ')" = "review check/* deploy " ] && ok "ticket mark --contexts: review, check/*, deploy — the names the CI filter leaves out" || bad "ticket mark --contexts: $(node "$PLUGIN_ROOT/bin/ticket" mark --contexts)"
+BCI_W="$(SKILL="$WAVE" blockf 'gh pr checks <N> --json name,bucket')"; BCI_S="$(SKILL="$SHIP" blockf 'gh pr checks <N> --json name,bucket')"
+IMPL="$(cd "$SKILLS/.." && pwd)/agents/implementer.md"
+[ -n "$BCI_W" ] && [ "$BCI_W" = "$BCI_S" ] && [[ "$BCI_W" == *"$CI_FILTER"* ]] && grep -qF -- "${BCI_W%$'\n'}" "$IMPL" \
+    && ok "the CI filter: one command in epic-wave, ship-ticket and agents/implementer.md" || bad "the CI filter differs: [$BCI_W] [$BCI_S]"
+ci_case() { # ci_case <want> <checks JSON>
+    printf '%s\n' "$2" >"$T/checks.json"
+    for sh in bash zsh; do
+        got="$("${MENV[@]}" GH_CHECKS="$T/checks.json" $sh -c "${BCI_W//<N>/7}" 2>&1)"
+        [ "$got" = "$1"$'\n'"EXIT=0" ] && ok "$sh: CI filter $2 -> $1" || bad "$sh: CI filter $2: [$got] want $1"
+    done
+}
+ci_case CI=pass '[{"name":"unit","bucket":"pass"},{"name":"review","bucket":"fail"}]'
+ci_case CI=pass '[{"name":"unit","bucket":"pass"},{"name":"check/windows","bucket":"fail"},{"name":"deploy","bucket":"fail"},{"name":"e2e","bucket":"skipping"}]'
+ci_case CI=fail '[{"name":"unit","bucket":"pass"},{"name":"lint","bucket":"fail"},{"name":"review","bucket":"pass"}]'
+ci_case CI=fail '[{"name":"unit","bucket":"cancel"}]'
+ci_case CI=fail '[{"name":"reviewers","bucket":"fail"}]'
+ci_case CI=pending '[{"name":"unit","bucket":"pending"},{"name":"review","bucket":"fail"}]'
+ci_case CI=none '[{"name":"review","bucket":"pass"},{"name":"check/windows","bucket":"pending"}]'
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
