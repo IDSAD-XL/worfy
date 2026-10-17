@@ -56,7 +56,7 @@ cat >"$R/package.json" <<'EOF'
 EOF
 printf '# 01 — First\n\nStatus: done\n' >"$R/.scratch/e1/issues/01-first.md"
 printf '# 02 — Second\n\nBlocked by: 01\nStatus: open\n' >"$R/.scratch/e1/issues/02-second.md"
-# An old Russian Status value: epic-status still folds it into "done".
+# An old Russian Status value: an old header, epic-status gives state none with the reason, not a guess.
 printf '# 03 — Third\n\n**Status:** Выкачено 2026-08-23, PR #27\n' >"$R/.scratch/e1/issues/03-third.md"
 git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -q -m init
 # The gate runs "$PM run <script>"; pm is this file, so the test needs no npm. On Windows the
@@ -250,12 +250,14 @@ check "bin not executable: node epic-board --no-open (exit 0, page written)" [ "
 
 # --- 5. Machine output is unchanged ------------------------------------------------------
 # The expected JSON was printed by epic-status at the branch base (origin/main 31bc642) on this fixture;
-# worfy-harness ticket 22 added the branch and repo of every ticket (null: no Branch:/Repo: line).
-want='{"ref":"main","epics":[{"epic":"e1","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"e1","num":1,"slug":"first","title":"01 — First","statusRaw":"done","state":"done","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":2,"slug":"second","title":"02 — Second","statusRaw":"open","state":"open","blockedRaw":"01","blockedNums":[1],"blockedParsed":true,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":3,"slug":"third","title":"03 — Third","statusRaw":"Выкачено 2026-08-23, PR #27","state":"done","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"}]}'
+# worfy-harness ticket 22 added the branch and repo of every ticket (null: no Branch:/Repo: line); the
+# one-fact-per-line header added statusAt, statusError, blockedReason, waits and pr, and made the old
+# Russian Status line of ticket 03 an old header (state none).
+want='{"ref":"main","epics":[{"epic":"e1","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"e1","num":1,"slug":"first","title":"01 — First","statusRaw":"done","state":"done","statusAt":null,"statusError":null,"blockedReason":null,"waits":null,"pr":null,"blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":2,"slug":"second","title":"02 — Second","statusRaw":"open","state":"open","statusAt":null,"statusError":null,"blockedReason":null,"waits":null,"pr":null,"blockedRaw":"01","blockedNums":[1],"blockedParsed":true,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":3,"slug":"third","title":"03 — Third","statusRaw":"Выкачено 2026-08-23, PR #27","state":"none","statusAt":null,"statusError":"old header","blockedReason":null,"waits":null,"pr":null,"blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"}]}'
 got="$(cd "$R" && clean "$H1" node "$HARNESS/bin/epic-status" --json 2>&1)"
 check "epic-status --json: same JSON as at the branch base" [ "$got" = "$want" ]
 [ "$got" = "$want" ] || echo "     got: $got"
-for sub in "claim:Status: claimed — " "block:Status: blocked — waits" "done:Status: done — "; do
+for sub in "claim:Status: claimed 20" "block:Status: blocked 20" "done:Status: done 20"; do
     verb="${sub%%:*}" line="${sub#*:}"
     extra=(); [ "$verb" = block ] && extra=(waits)
     (cd "$R" && clean "$H1" node "$HARNESS/bin/ticket" "$verb" e1 02 ${extra[@]+"${extra[@]}"} >/dev/null 2>&1)

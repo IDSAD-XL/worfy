@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { clampScale, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
+import { autoCompactWindowChosen, clampScale, DEFAULT_APP_SETTINGS, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -164,6 +164,58 @@ describe('AppSettingsStore', () => {
     expect(new AppSettingsStore(old).get().autoCompactWindow).toStrictEqual({ orchestrator: 400_000, other: 500_000 })
     writeFileSync(old, JSON.stringify({ interfaceScale: 1, autoCompactWindow: { orchestrator: 1_234_567, other: null }, revision: 4 }))
     expect(new AppSettingsStore(old).get().autoCompactWindow).toStrictEqual({ orchestrator: 1_000_000, other: null })
+  })
+
+  it('tells a window the person chose from worfy\'s default, the default value chosen in "Custom" included (worfy-polish ticket 29)', () => {
+    const file = freshFile()
+    const store = new AppSettingsStore(file)
+    const chosen = (settings: AppSettings): [boolean, boolean] => [autoCompactWindowChosen(settings, 'orchestrator'), autoCompactWindowChosen(settings, 'other')]
+    // A Machine that never chose: worfy's defaults, nothing marked chosen.
+    expect(chosen(store.get())).toEqual([false, false])
+
+    // The same value as worfy's default, named by a change, is a choice: written, and read back by the next store.
+    const after = store.set({ autoCompactWindow: { orchestrator: 400_000 } })
+    expect(after.autoCompactWindow).toStrictEqual({ orchestrator: 400_000, other: 500_000 })
+    expect(after.revision).toBe(1)
+    expect(chosen(after)).toEqual([true, false])
+    expect(chosen(new AppSettingsStore(file).get())).toEqual([true, false])
+    // Named once more, it changes nothing.
+    expect(store.set({ autoCompactWindow: { orchestrator: 400_000 } }).revision).toBe(1)
+
+    store.set({ autoCompactWindow: { other: null } })
+    expect(chosen(new AppSettingsStore(file).get())).toEqual([true, true])
+
+    // 'worfy-default' takes a role back to worfy's default, unchosen; with neither chosen, the file carries no mark.
+    const back = store.set({ autoCompactWindow: { orchestrator: 'worfy-default', other: 'worfy-default' } })
+    expect(back.autoCompactWindow).toStrictEqual({ orchestrator: 400_000, other: 500_000 })
+    expect(chosen(back)).toEqual([false, false])
+    expect(back).not.toHaveProperty('autoCompactWindowChosen')
+    expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('autoCompactWindowChosen')
+    expect(chosen(new AppSettingsStore(file).get())).toEqual([false, false])
+  })
+
+  it.each([
+    ['no windows', {}, [false, false]],
+    ['the windows at worfy\'s defaults', { autoCompactWindow: { orchestrator: 400_000, other: 500_000 } }, [false, false]],
+    ['a window of the person\'s own and "Claude Code default"', { autoCompactWindow: { orchestrator: 300_000, other: null } }, [true, true]],
+    ['one window changed', { autoCompactWindow: { orchestrator: 400_000, other: 700_000 } }, [false, true]],
+  ] as const)('a file written before the mark existed (%s): a window that differs from worfy\'s default was chosen, one equal to it was not', (_case, fields, expected) => {
+    const file = freshFile()
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1, ...fields, revision: 4 }))
+    const store = new AppSettingsStore(file)
+    expect([autoCompactWindowChosen(store.get(), 'orchestrator'), autoCompactWindowChosen(store.get(), 'other')]).toEqual(expected)
+    // A change elsewhere keeps what was chosen, and keeps a window not chosen at worfy's default.
+    store.set({ interfaceScale: 1.2 })
+    const again = new AppSettingsStore(file).get()
+    expect([autoCompactWindowChosen(again, 'orchestrator'), autoCompactWindowChosen(again, 'other')]).toEqual(expected)
+  })
+
+  it('a mark that says "not chosen" for a window off worfy\'s default — a file edited by hand — reads as chosen: the window is kept', () => {
+    const file = freshFile()
+    writeFileSync(file, JSON.stringify({ autoCompactWindow: { orchestrator: 300_000, other: 500_000 }, autoCompactWindowChosen: { orchestrator: false, other: false } }))
+    const settings = new AppSettingsStore(file).get()
+    expect(settings.autoCompactWindow).toStrictEqual({ orchestrator: 300_000, other: 500_000 })
+    expect([autoCompactWindowChosen(settings, 'orchestrator'), autoCompactWindowChosen(settings, 'other')]).toEqual([true, false])
   })
 
   it('drops a field the schema does not declare, at the top and inside `sidebar`', () => {
@@ -337,7 +389,7 @@ describe('appSettings channels', () => {
   it('appSettings.set refuses an input outside the contract and changes nothing', async () => {
     const call = await windowCaller()
     const before = await call('appSettings.get')
-    for (const input of [{ interfaceScale: 'big' }, { sidebar: { collapsed: { MachinesSection: 'yes' } } }, { sidebar: { visible: { normal: 1 } } }, { sidebar: { collapsed: { '': true } } }]) {
+    for (const input of [{ interfaceScale: 'big' }, { sidebar: { collapsed: { MachinesSection: 'yes' } } }, { sidebar: { visible: { normal: 1 } } }, { sidebar: { collapsed: { '': true } } }, { autoCompactWindow: { orchestrator: 'default' } }]) {
       const answer = await call('appSettings.set', input)
       expect(answer.ok, JSON.stringify(input)).toBe(false)
     }

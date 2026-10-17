@@ -1,7 +1,8 @@
 # 28 — Заголовки Command palette — не больше 3 строк, полный текст в tooltip только у обрезанных строк
 
 Type: task
-Status: open
+Status: done — 2026-10-17, [PR #423](https://github.com/IDSAD-XL/worfy/pull/423)
+Branch: worfy-polish/28
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») — follow-up Ticket-а
 [16](16-полный-текст-ручной-проверки-в-палитре.md) (раздел «Gate оркестратора», Consider [low]: у строки
@@ -43,10 +44,10 @@ Source: решение владельца 2026-10-16 («со всем согла
 
 ## Готово, когда
 
-- [ ] Test-ы пункта 1 красные на main и зелёные с правкой; test-ы `palette-groups`, `palette-commands`,
+- [x] Test-ы пункта 1 красные на main и зелёные с правкой; test-ы `palette-groups`, `palette-commands`,
       `palette-transcripts` зелёные без правки ожиданий.
-- [ ] Проверка в 995 символов — 3 строки и многоточие; у короткой проверки нет `title`.
-- [ ] Снимки в обеих темах — ссылки в «Итог».
+- [x] Проверка в 995 символов — 3 строки и многоточие; у короткой проверки нет `title`.
+- [x] Снимки в обеих темах — ссылки в «Итог».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
@@ -71,4 +72,43 @@ Source: решение владельца 2026-10-16 («со всем согла
 
 ## Итог
 
-—
+Ветка `worfy-polish/28`. Правка — только `src/renderer/palette/CommandPalette.tsx` (`RowButton`, новый hook
+`useCut`) и `test/unit/palette-manual-check-row.test.tsx`.
+
+- **Предел 3 строки.** Заголовок строки `Manual check` — `display: -webkit-box`, `-webkit-line-clamp: 3`
+  (`WRAPPED_TITLE_LINES`, как `TICKET_TITLE_LINES` у Ticket-а на Canvas), `overflow: hidden` из обычного
+  заголовка; перенос (`white-space: normal`, `overflow-wrap: anywhere`) и `line-height: 18px` — как
+  были. Высота строки по-прежнему `height: auto`, `minHeight: var(--row-height)`: короткая проверка —
+  28 px, длинная — 62 px (3 × 18 + отступы).
+- **Tooltip только у обрезанных.** `useCut` меряет заголовок в DOM: `scrollHeight > clientHeight` у
+  строки с переносом, `scrollWidth > clientWidth` у однострочной. Мерит в `useLayoutEffect` и снова на
+  каждом `ResizeObserver` заголовка (ширина окна, панели, появление полосы прокрутки списка) и при смене
+  текста. `title` строки без состояния действия — `hint` (отрывок транскрипта), иначе полный заголовок
+  только пока он обрезан, иначе `title` нет. «Ship ticket», «Run wave» и строки только для чтения —
+  без изменений (текст команды или причина отказа).
+- **Red на main** (новые test-ы, `CommandPalette.tsx` с main): 5 из 8 красные — предел 3 строк для
+  проверки в 995 символов (`expected '' to be '-webkit-box'`), нет `title` у короткой проверки, пересчёт
+  при сужении, нет `title` у «New session», `title` только у обрезанной однострочной. **Green с правкой:**
+  `palette-manual-check-row`, `palette-groups`, `palette-commands`, `palette-transcripts` — 4 файла,
+  46 test-ов, exit 0; ожидания трёх последних не правились. В jsdom нет раскладки: test задаёт
+  заголовку размеры, какие дал бы браузер (7 px на символ, строки по line-height, видимых строк не
+  больше line clamp), и подменяет `ResizeObserver`.
+- **Mutation testing** (копия файла, восстановление по `cmp`), каждый мутант краснит test: без
+  `-webkit-line-clamp`; без `display: -webkit-box`; `title` всегда; `title` никогда; без
+  `ResizeObserver`; строка с переносом мерится по ширине, а не по высоте.
+- **Снимки** (собранный renderer, Playwright `_electron`, временные данные, `snapshotThemes`; проверки
+  в 995 и 42 символа, Ticket 07 с длинным заголовком): запрос «worfy-mvp 07» —
+  [светлая](../evidence/28-palette-three-lines-light.png), [тёмная](../evidence/28-palette-three-lines-dark.png).
+  Замер там же: длинная проверка — заголовок 54 px (3 × 18), `scrollHeight` 216, строка 62 px, `title`
+  — полный текст; короткая — 18 px, `title` нет; строки Go to и «Ship ticket» видны без прокрутки
+  (`scrollTop` 0); заголовок Go to обрезан (518 > 320 px) — `title` есть. Панель, суженная до 120 px,
+  — короткая проверка становится обрезанной (5 строк из 3) и получает `title`; вернули ширину —
+  `title` снова нет. Системный tooltip `title` на снимке страницы не рисуется: на снимке курсор над
+  длинной проверкой, сам tooltip подтверждён атрибутом. Spec снимков — в scratchpad, в репозиторий не
+  входит.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/423#issuecomment-6229683582)); gate full на Mac
+зелёный, merge `2e805e06`. Долг (low, не блокирует): пересчёт `useCut` при смене текста без смены
+ширины не покрыт test-ом — мутант с `[]` вместо `[text, wrapped]` (`CommandPalette.tsx:180`) зелёный;
+`ResizeObserver.disconnect` при unmount (`:179`) тоже без test-а.

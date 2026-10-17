@@ -7,6 +7,8 @@
 // The autocompact window (worfy-polish ticket 24) is read from the app settings of this Machine
 // each time a Session starts Claude Code — the Orchestrator's for a Project's Orchestrator, the
 // other one for any other Session — so a change reaches the next start, never a running process.
+// A window the person never chose gives way to `autoCompactWindow` of the user's settings.json,
+// read at the same moment (worfy-polish ticket 29, autoCompactWindowSource).
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Options } from '@anthropic-ai/claude-agent-sdk'
@@ -17,6 +19,7 @@ import { appLimits } from './limits'
 import { sessionHarnessPlugin, sessionOptions } from './options'
 import { currentHarness } from '../harness/locate'
 import { canvasForSession, type CanvasResolver, type CanvasSession } from '../mcp/canvas-server'
+import { readUserAutoCompactWindow } from '../claude-home/user-model'
 import { appSettingsStore } from '../settings/store'
 import { claudeHome } from '../storage/paths'
 import { autoCompactWindowFor } from '../../shared/settings/app-settings'
@@ -51,10 +54,13 @@ const profileAllowlist: McpAllowlistResolver = async (cwd, env) => (await readMc
  */
 export type AutoCompactWindowReader = (orchestrator: boolean) => number | null
 
-/** The window from the app settings of this Machine (src/main/settings/store.ts). */
+/**
+ * The window from the app settings of this Machine (src/main/settings/store.ts) and, for a window
+ * not chosen there, from the user's <claudeHome>/settings.json.
+ */
 const appAutoCompactWindow: AutoCompactWindowReader = (orchestrator) => {
   try {
-    return autoCompactWindowFor(appSettingsStore().get(), orchestrator)
+    return autoCompactWindowFor(appSettingsStore().get(), orchestrator, readUserAutoCompactWindow())
   } catch (error) {
     // The store answers the defaults for a file it cannot read; this is past that. The Session
     // still starts, with Claude Code's own window.

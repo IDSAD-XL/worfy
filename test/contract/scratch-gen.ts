@@ -46,7 +46,7 @@ export function generateScratch(root: string, epics = 42, tickets = 682): Genera
       const slug = `generated-ticket-${n}`
       const blockers = n > 2 ? [n - 1, n - 2] : []
       const state = states[n % states.length]!
-      const statusRaw = state === 'work' ? 'claimed — 2026-10-05' : state
+      const statusRaw = state === 'work' ? 'claimed 2026-10-05T09:41Z' : state
       const files = [`src/${epic}/module-${n}.ts`, `src/${epic}/shared-${n % 5}.ts`, `test/${epic}/module-${n}.test.ts`]
       const body = [
         `# ${nn} — Generated ticket ${n} of ${epic}`,

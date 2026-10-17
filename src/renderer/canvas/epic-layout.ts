@@ -474,16 +474,6 @@ export function progressOf(tickets: readonly Pick<Ticket, 'state'>[]): Progress 
   return { ...counts, total, segments }
 }
 
-/** The reason after `blocked` in a raw Status line: "blocked — needs keys" → "needs keys"; null when there is none. */
-export function blockedReason(statusRaw: string | null): string | null {
-  if (statusRaw === null) return null
-  const rest = statusRaw
-    .replace(/^\s*blocked\b/i, '')
-    .replace(/^[\s—–:,;-]+/, '')
-    .trim()
-  return rest || null
-}
-
 /**
  * The Ticket's file, `<root>/.scratch/<epic>/issues/<NN>-<slug>.md`. The workflow model does not
  * carry the path; the number is written with at least two digits, as the Tickets of every

@@ -1,15 +1,26 @@
 #!/usr/bin/env node
-// ticket — mechanical change of a ticket's status. Writes ONE canonical line,
-// so that the Status field stops being kept by hand in four different spellings.
+// ticket — mechanical change of a ticket's status. The header carries one fact per line
+// (TICKETS.md, "Header"), and this is the only writer of those lines:
 //
-//   ticket done  <epic> <NN> [--pr N]   Status: done — 2026-08-27, [PR #N](…)
+//   Status: <open|claimed|blocked|done> <time>   time — ISO 8601 UTC to the minute, 2026-10-17T09:41Z
+//   Blocked reason: <text>                       only while blocked
+//   Waits: <owner|team|agent|machine name>       only while blocked, from block --waits
+//   PR: #<N>                                     from done --pr
+//
+//   ticket done  <epic> <NN> [--pr N]   Status: done <time>; with --pr also `PR: #N`
 //   ticket claim <epic> <NN> [--branch B] [--repo R]
-//                                       Status: claimed — 2026-08-27; with --branch also the line
+//                                       Status: claimed <time>; with --branch also the line
 //                                       `Branch: B`, with --repo the line `Repo: R` (a name from
 //                                       _resolved.repos of the profile — a project of several repositories)
-//   ticket open  <epic> <NN>            Status: open
-//   ticket block <epic> <NN> <reason>   Status: blocked — <reason>
-//   ticket show  <epic> <NN>            show the current line, do not touch the file
+//   ticket open  <epic> <NN>            Status: open <time>
+//   ticket block <epic> <NN> <reason> [--waits W]
+//                                       Status: blocked <time>, `Blocked reason: <reason>`, with --waits
+//                                       also `Waits: W`. Without a reason on a ticket that is already
+//                                       blocked, `--waits W` only sets Waits (the migration's last step).
+//   claim, open and done remove `Blocked reason:` and `Waits:`.
+//   ticket show  <epic> <NN>            show the current lines, do not touch the file
+//   ticket migrate [--epic E] [-n]      move every ticket of the tickets root from the old spellings
+//                                       into the header above, once (see "migrate" below)
 //   ticket root                         print the tickets root (the directory of epics) and exit
 //
 // Tickets root (the directory holding <epic>/issues/): --root <dir>, otherwise
@@ -23,9 +34,9 @@
 // The -n flag prints the future line and does not write it. Flags are recognised in any
 // position, so a block reason must not contain a separate token "-n".
 //
-// The field's spelling is NOT imposed: if a Status line already exists, its prefix
-// (`**Status:**` or `Status:`) is kept — only the value changes. This way
-// the tool does not fight the /to-tickets and /wayfinder templates.
+// The old spellings — `**Status:**`, a Status line in the footer, a tail after the word
+// ("done — 2026-08-27, [PR #N](…)", "blocked — <reason>") — are no longer written or kept: a
+// write on such a file is exit 1 "run ticket migrate first".
 
 import fs from "node:fs"
 import os from "node:os"
@@ -38,11 +49,12 @@ const die = (msg) => {
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [--branch B] [--repo R] [-n] [--root <dir>]
+const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [--branch B] [--repo R] [--waits W] [-n] [--root <dir>]
+       ticket migrate [--epic E] [-n] [--root <dir>]
        ticket root [--root <dir>]
        ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
        ticket done disputes/03 --pr 42
-       ticket block disputes 04 "waits for ADR-0045"`
+       ticket block disputes 04 "waits for ADR-0045" --waits owner`
 
 const git = (args) => {
     try {
@@ -59,6 +71,8 @@ let pr = null
 let rootArg = null
 let branchArg = null
 let repoArg = null
+let waitsArg = null
+let epicArg = null
 const positional = []
 const valueOf = (flag, v) => {
     if (v === undefined || v === "" || v.startsWith("-")) die(`${flag} needs a value`)
@@ -82,12 +96,23 @@ for (let i = 0; i < argv.length; i++) {
     else if (a.startsWith("--branch=")) branchArg = valueOf("--branch", a.slice(9))
     else if (a === "--repo") repoArg = valueOf("--repo", argv[++i])
     else if (a.startsWith("--repo=")) repoArg = valueOf("--repo", a.slice(7))
+    else if (a === "--waits") waitsArg = valueOf("--waits", argv[++i])
+    else if (a.startsWith("--waits=")) waitsArg = valueOf("--waits", a.slice(8))
+    else if (a === "--epic") epicArg = valueOf("--epic", argv[++i])
+    else if (a.startsWith("--epic=")) epicArg = valueOf("--epic", a.slice(7))
     else if (a.startsWith("-")) die(`unknown flag: ${a}\n${USAGE}`)
     else positional.push(a)
 }
 
 const [cmd, ...where] = positional
-if (!cmd || !["done", "claim", "open", "block", "show", "root"].includes(cmd)) die(USAGE)
+if (!cmd || !["done", "claim", "open", "block", "show", "migrate", "root"].includes(cmd)) die(USAGE)
+if (waitsArg !== null) {
+    // One line of the header: no line breaks, no surrounding spaces.
+    waitsArg = waitsArg.trim()
+    if (!waitsArg || /[\r\n]/.test(waitsArg)) die("--waits needs one line: owner, team, agent or a machine name")
+    if (cmd !== "block") die(`--waits goes only with block, not with ${cmd}`)
+}
+if (epicArg !== null && cmd !== "migrate") die(`--epic goes only with migrate, not with ${cmd}`)
 
 // --- tickets root -----------------------------------------------------------
 // The profile is always asked, not only outside git: Atakama's tickets live in a common
@@ -173,6 +198,120 @@ if (cmd === "root") {
     console.log(scratch)
     process.exit(0)
 }
+// Paths in the output are relative to the directory above the tickets root: ".scratch/<epic>/issues/…",
+// always with forward slashes, so the output reads the same on Windows as on macOS and Linux.
+const root = path.dirname(scratch)
+const rel = (p) => path.relative(root, p).split(path.sep).join("/")
+
+// --- the header format --------------------------------------------------------
+// The reader of the same format is the awk program of epic-status; the two must agree line for line.
+// Status line of the new format: plain key, one of four words, an optional time (a migrated ticket keeps
+// its date without a time; `open` from a template has none).
+const TIME_RE = "\\d{4}-\\d{2}-\\d{2}(?:T\\d{2}:\\d{2}Z)?"
+const STATUS_NEW = new RegExp(`^Status: (open|claimed|blocked|done)(?: (${TIME_RE}))?[ \\t]*$`)
+// Any spelling of the Status key — the same test epic-status uses to find the line.
+const STATUS_ANY = /^\*{0,2}status[ \t]*\*{0,2}[ \t]*:/i
+// The lines that follow Status in the header, in this order; each holds one fact.
+const GROUP = ["Blocked reason", "Waits", "PR"]
+const FENCE = /^[ \t]*(```|~~~)/
+const FIELD_LINE = /^(\*{0,2})(Type|Status|Blocked by|Source|What to build)\b/i
+const now = () => new Date().toISOString().slice(0, 16) + "Z"
+
+function readTicket(target) {
+    let raw = fs.readFileSync(target, "utf8")
+    const bom = raw.startsWith("﻿") ? "﻿" : ""
+    if (bom) raw = raw.slice(1)
+    const eol = raw.includes("\r\n") ? "\r\n" : "\n"
+    return { bom, eol, lines: raw.split(/\r?\n/) }
+}
+
+// Writing through a temporary file: an interruption mid-write will not leave a truncated ticket.
+function writeTicket(target, { bom, eol, lines }) {
+    const tmp = `${target}.ticket.tmp`
+    try {
+        fs.writeFileSync(tmp, bom + lines.join(eol))
+        fs.renameSync(tmp, target)
+    } catch (e) {
+        try {
+            fs.unlinkSync(tmp)
+        } catch {
+            /* the temporary file may not exist */
+        }
+        die(`could not write ${rel(target)}: ${e.message}`)
+    }
+}
+
+// Where the header lines are. Code blocks are skipped: "Status: done" in an example is not a field.
+// The header runs from the top of the file to the first `## ` heading after the Status line; the
+// group lines are read only there — a `PR: <url>` line of a result section is not the header's.
+function shape(lines) {
+    const code = []
+    const statusAt = []
+    let fence = false
+    lines.forEach((l, i) => {
+        if (FENCE.test(l)) {
+            fence = !fence
+            code[i] = true
+            return
+        }
+        code[i] = fence
+        if (!fence && STATUS_ANY.test(l)) statusAt.push(i)
+    })
+    const first = statusAt.length ? statusAt[0] : -1
+    let end = lines.length
+    if (first !== -1)
+        for (let i = first + 1; i < lines.length; i++)
+            if (!code[i] && lines[i].startsWith("## ")) {
+                end = i
+                break
+            }
+    const group = {}
+    if (first !== -1)
+        for (let i = 0; i < end; i++) {
+            if (code[i]) continue
+            for (const k of GROUP)
+                if (group[k] === undefined && lines[i].startsWith(`${k}:`)) group[k] = lines[i].slice(k.length + 1).trim()
+        }
+    const kind = first === -1 ? "none" : statusAt.length === 1 && STATUS_NEW.test(lines[first]) ? "new" : "old"
+    return { code, statusAt, first, end, group, kind }
+}
+
+// Replaces every group line of the header with `values` (key → value or null), right after Status.
+// Returns the index of the last line of the group (Status itself when the group is empty).
+function writeGroup(lines, values) {
+    let sh = shape(lines)
+    for (let i = sh.end - 1; i >= 0; i--) if (!sh.code[i] && GROUP.some((k) => lines[i].startsWith(`${k}:`))) lines.splice(i, 1)
+    sh = shape(lines)
+    const add = GROUP.filter((k) => values[k]).map((k) => `${k}: ${values[k]}`)
+    lines.splice(sh.first + 1, 0, ...add)
+    return sh.first + add.length
+}
+
+// The words epic-status folded the old Status value into, by the same rule: asterisks out, the first
+// token, punctuation out. An unknown word is a refusal — the old reader called it open, a guess.
+const WORDS = [
+    [/^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$/, "done"],
+    [/^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/, "claimed"],
+    [/^(blocked|Blocked|заблокирован|Заблокирован)$/, "blocked"],
+    [/^(open|Open|OPEN)$/, "open"],
+]
+function oldValue(line) {
+    const v = line.replace(/^\*?\*?[^:]*:\*?\*?[ \t]*/, "")
+    const lead = v.replace(/^[\s*]+/, "")
+    const token = lead.match(/^\S*/)[0]
+    const w = token.replace(/\*/g, "").replace(/[.,;:()]/g, "")
+    let rest = lead.slice(token.length)
+    if (/^\*\*/.test(v) && /\*\*[ \t]*$/.test(rest)) rest = rest.replace(/\*\*[ \t]*$/, "") // **done — 2026-08-27**
+    rest = rest.trim().replace(/^[—–:,;-]+[ \t]*/, "").trim()
+    const found = WORDS.find(([re]) => re.test(w))
+    return { word: found ? found[1] : null, raw: w, rest }
+}
+
+const DATE_ONLY = new RegExp(`^(${TIME_RE})$`)
+const DATE_LEAD = new RegExp(`^(${TIME_RE})(?:[ \\t]*[,;—–:-][ \\t]*|[ \\t]+|$)`)
+const PR_REF = /\[PR #(\d+)\]\([^)]*\)|\bPR #(\d+)\b/g
+
+if (cmd === "migrate") migrate()
 
 // epic and number: "disputes 03" or "disputes/03"; the rest is the reason for block
 let epic, num, reason
@@ -190,8 +329,6 @@ if (!/^\d+$/.test(String(num).trim())) die(`a ticket number needs digits, got "$
 const n = Number(num)
 
 // --- ticket file ------------------------------------------------------------
-// Paths in the output are relative to the directory above the tickets root: ".scratch/<epic>/issues/…".
-const root = path.dirname(scratch)
 const issuesDir = path.join(scratch, epic, "issues")
 if (!fs.existsSync(issuesDir)) die(`no epic "${epic}": ${issuesDir}`)
 
@@ -211,47 +348,36 @@ let target
 try {
     target = fs.realpathSync(file)
 } catch (e) {
-    die(`could not resolve the path ${path.relative(root, file)}: ${e.message}`)
+    die(`could not resolve the path ${rel(file)}: ${e.message}`)
 }
 const viaLink = target !== file
 
-// --- reading while keeping the file's shape ----------------------------------
-let raw = fs.readFileSync(target, "utf8")
-const bom = raw.startsWith("﻿") ? "﻿" : ""
-if (bom) raw = raw.slice(1)
-const eol = raw.includes("\r\n") ? "\r\n" : "\n"
-const lines = raw.split(/\r?\n/)
-
-// The field prefix is parsed with two variants, not one: in `Status: **open**`
-// the asterisks belong to the value, and in `**Status:**` to the prefix.
-const STATUS_BOLD = /^(\*\*Status\b[ \t]*\*{0,2}[ \t]*:[ \t]*\*{0,2}[ \t]*)(.*)$/i
-const STATUS_PLAIN = /^(Status\b[ \t]*:[ \t]*)(.*)$/i
-const statusOf = (l) => l.match(STATUS_BOLD) || l.match(STATUS_PLAIN)
-const FIELD_LINE = /^(\*{0,2})(Type|Status|Blocked by|Source|What to build)\b/i
-
-const statusIdx = lines.reduce((last, l, i) => (statusOf(l) ? i : last), -1)
+const doc = readTicket(target)
+const { lines } = doc
+const sh = shape(lines)
 
 if (cmd === "show") {
-    if (statusIdx === -1) die(`${matches[0]}: no Status line`)
-    console.log(`${matches[0]}:${statusIdx + 1}  ${lines[statusIdx].trim()}`)
+    if (sh.first === -1) die(`${matches[0]}: no Status line`)
+    console.log(`${matches[0]}:${sh.first + 1}  ${lines[sh.first].trim()}`)
+    if (sh.kind === "old") console.log("  (old header — run ticket migrate)")
+    else for (const k of GROUP) if (sh.group[k] !== undefined) console.log(`  ${k}: ${sh.group[k]}`)
     process.exit(0)
 }
 
+if (sh.kind === "old")
+    die(`${rel(target)}:${sh.first + 1}: old header "${lines[sh.first].trim()}" — run ticket migrate first (TICKETS.md, "Header")`)
+
 // --- new value --------------------------------------------------------------
-const today = new Date().toISOString().slice(0, 10)
-
-const prLink = () => {
-    if (pr === null) return ""
-    const num = String(pr).replace(/\D/g, "")
-    if (!num) die(`--pr needs a number, got "${pr}"`)
-    const repo = git(["remote", "get-url", "origin"]).match(/github\.com[:/](.+?)(?:\.git)?$/)?.[1]
-    return repo ? `, [PR #${num}](https://github.com/${repo}/pull/${num})` : `, PR #${num}`
-}
-
-if (cmd === "block" && !reason) die(`block needs a reason:\n${USAGE}`)
 if (pr !== null && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
 if (branchArg !== null && cmd !== "claim") die(`--branch goes only with claim, not with ${cmd}`)
 if (repoArg !== null && cmd !== "claim") die(`--repo goes only with claim, not with ${cmd}`)
+const prNum = pr === null ? null : String(pr).replace(/\D/g, "")
+if (prNum === "") die(`--pr needs a number, got "${pr}"`)
+const wasBlocked = sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "blocked"
+// `block --waits W` without a reason: the ticket stays blocked as it is, only Waits is set.
+const onlyWaits = cmd === "block" && !reason && waitsArg !== null && wasBlocked
+if (cmd === "block" && !reason && !onlyWaits)
+    die(`block needs a reason${waitsArg !== null ? " (without one, --waits only sets Waits of a ticket that is already blocked)" : ""}:\n${USAGE}`)
 // A branch name git would refuse would end up in the ticket and lead nowhere.
 if (branchArg !== null) {
     try {
@@ -266,44 +392,47 @@ if (repoArg !== null && Array.isArray(prof?._resolved?.repos) && prof._resolved.
     const names = prof._resolved.repos.map((r) => r.name)
     if (!names.includes(repoArg)) die(`--repo: "${repoArg}" is not a repository of the project (${names.join(", ")})`)
 }
-const value = {
-    done: () => `done — ${today}${prLink()}`,
-    claim: () => `claimed — ${today}`,
-    open: () => "open",
-    block: () => `blocked — ${reason}`,
-}[cmd]()
+const word = { done: "done", claim: "claimed", open: "open", block: "blocked" }[cmd]
+const statusLine = onlyWaits ? lines[sh.first] : `Status: ${word} ${now()}`
+const before = { ...sh.group }
+const after = { PR: prNum !== null ? `#${prNum}` : before.PR ?? null }
+if (cmd === "block") {
+    after["Blocked reason"] = onlyWaits ? before["Blocked reason"] ?? null : reason
+    after.Waits = waitsArg
+}
 
 // --- edit -------------------------------------------------------------------
-let before = null
 let at
-if (statusIdx !== -1) {
-    before = lines[statusIdx]
-    lines[statusIdx] = statusOf(before)[1] + value
-    at = statusIdx
+const was = sh.first === -1 ? null : lines[sh.first]
+if (sh.first !== -1) {
+    lines[sh.first] = statusLine
+    at = sh.first
 } else {
     // No field — insert into the header right after the last field, and if there are no fields,
-    // after the heading. The spelling is taken from the neighbours.
+    // after the heading.
     const headEnd = lines.slice(0, 25).reduce((last, l, i) => (FIELD_LINE.test(l) ? i : last), -1)
-    const bold = headEnd !== -1 && lines[headEnd].match(FIELD_LINE)[1] === "**"
-    const line = bold ? `**Status:** ${value}` : `Status: ${value}`
-
     let insert
-    if (headEnd !== -1) [at, insert] = [headEnd + 1, [line]]
-    else if (lines[0]?.startsWith("#")) [at, insert] = [1, ["", line]]
-    else [at, insert] = [0, [line]]
+    if (headEnd !== -1) [at, insert] = [headEnd + 1, [statusLine]]
+    else if (lines[0]?.startsWith("#")) [at, insert] = [1, ["", statusLine]]
+    else [at, insert] = [0, [statusLine]]
     // The insertion must not merge with the next section.
     if (lines[at] !== undefined && lines[at].trim() !== "") insert.push("")
     lines.splice(at, 0, ...insert)
-    at += insert.indexOf(line)
+    at += insert.indexOf(statusLine)
+}
+let last = writeGroup(lines, after)
+
+console.log(`${rel(target)}:${at + 1}${viaLink ? `  (via link ${rel(file)})` : ""}`)
+if (was !== null) console.log(`  was: ${was.trim()}`)
+console.log(`  now: ${lines[at].trim()}`)
+for (const k of GROUP) {
+    if ((before[k] ?? null) === (after[k] ?? null)) continue
+    if (before[k] !== undefined) console.log(`  - ${k}: ${before[k]}`)
+    if (after[k]) console.log(`  + ${k}: ${after[k]}`)
 }
 
-console.log(`${path.relative(root, target)}:${at + 1}${viaLink ? `  (via link ${path.relative(root, file)})` : ""}`)
-if (before !== null) console.log(`  was: ${before.trim()}`)
-console.log(`  now: ${lines[at].trim()}`)
-
 // `Branch:` and `Repo:` — header lines next to Status (machine lines, English keys). An existing line keeps its
-// prefix (`**Branch:**` or `Branch:`) and gets the new value; a missing one goes right after the Status line,
-// in the Status line's spelling.
+// prefix (`**Branch:**` or `Branch:`) and gets the new value; a missing one goes right after the Status group.
 const extra = [
     ["Branch", branchArg],
     ["Repo", repoArg],
@@ -312,32 +441,187 @@ for (const [key, val] of extra) {
     if (val === null) continue
     const bold = new RegExp(`^(\\*\\*${key}\\b[ \\t]*\\*{0,2}[ \\t]*:[ \\t]*\\*{0,2}[ \\t]*)(.*)$`, "i")
     const plain = new RegExp(`^(${key}\\b[ \\t]*:[ \\t]*)(.*)$`, "i")
-    const idx = lines.reduce((last, l, i) => (bold.test(l) || plain.test(l) ? i : last), -1)
+    const idx = lines.reduce((found, l, i) => (bold.test(l) || plain.test(l) ? i : found), -1)
     if (idx !== -1) {
-        const was = lines[idx]
-        lines[idx] = (was.match(bold) || was.match(plain))[1] + val
-        console.log(`  ${key.toLowerCase()}: ${was.trim()} -> ${lines[idx].trim()}`)
+        const old = lines[idx]
+        lines[idx] = (old.match(bold) || old.match(plain))[1] + val
+        console.log(`  ${key.toLowerCase()}: ${old.trim()} -> ${lines[idx].trim()}`)
     } else {
-        const line = lines[at].startsWith("**") ? `**${key}:** ${val}` : `${key}: ${val}`
-        lines.splice(at + 1, 0, line)
-        console.log(`  ${key.toLowerCase()}: ${line}`)
+        lines.splice(++last, 0, `${key}: ${val}`)
+        console.log(`  ${key.toLowerCase()}: ${key}: ${val}`)
     }
 }
 if (dryRun) {
     console.log("  (-n: file not touched)")
     process.exit(0)
 }
+writeTicket(target, doc)
+process.exit(0)
 
-// Writing through a temporary file: an interruption mid-write will not leave a truncated ticket.
-const tmp = `${target}.ticket.tmp`
-try {
-    fs.writeFileSync(tmp, bom + lines.join(eol))
-    fs.renameSync(tmp, target)
-} catch (e) {
-    try {
-        fs.unlinkSync(tmp)
-    } catch {
-        /* the temporary file may not exist */
+// --- migrate ------------------------------------------------------------------
+// A one-time move of every ticket of the tickets root (in Silent mode — of the Workflow folder) into the
+// header format above. For each file:
+//   - the Status line of the header (the first one outside code) is split into Status, Blocked reason and PR;
+//     the word folds into four the way epic-status folded it (in-progress → claimed, the Russian "blocked" → blocked);
+//   - the other Status lines (the old footer) are deleted — when they say the same word;
+//   - a free-text note of a done line (a label before the PR link, a pointer to the result section) is dropped and named in
+//     the output: done is final, the result section keeps the record;
+//   - Waits is not guessed: the blocked tickets without it are listed.
+// A line it does not understand — an unknown word, a footer that disagrees with the header, two dates or two
+// PRs, a note on a line that is not done — is a refusal: exit 1 with the list, and NO file is written, so a
+// run either moves everything or nothing. A file already in the new format, or without Status, is skipped.
+// -n prints the diff and writes nothing.
+function migrate() {
+    if (where.length) die(`extra arguments: ${where.join(" ")}\n${USAGE}`)
+    if (pr !== null || branchArg !== null || repoArg !== null) die("migrate takes only --epic, -n and --root")
+    if (epicArg !== null && (/[/\\]/.test(epicArg) || epicArg === "." || epicArg === ".."))
+        die(`an epic name is one directory in .scratch, got "${epicArg}"`)
+    if (!fs.existsSync(scratch)) die(`no tickets root: ${scratch}`)
+    const epics = epicArg !== null ? [epicArg] : fs.readdirSync(scratch).filter((e) => !e.startsWith(".")).sort()
+    if (epicArg !== null && !fs.existsSync(path.join(scratch, epicArg, "issues"))) die(`no epic "${epicArg}": ${path.join(scratch, epicArg, "issues")}`)
+    const seen = new Set()
+    const changes = []
+    const refusals = []
+    const noWaits = []
+    let skippedNew = 0
+    let skippedNone = 0
+    for (const e of epics) {
+        const dir = path.join(scratch, e, "issues")
+        if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) continue
+        for (const f of fs.readdirSync(dir).sort()) {
+            if (!/^\d+-.*\.md$/.test(f)) continue
+            let target
+            try {
+                target = fs.realpathSync(path.join(dir, f))
+            } catch (err) {
+                refusals.push(`${rel(path.join(dir, f))}: could not resolve the path: ${err.message}`)
+                continue
+            }
+            if (seen.has(target)) continue // two links to one fix-queue ticket
+            seen.add(target)
+            const doc = readTicket(target)
+            const r = migrateLines(doc.lines)
+            if (r.skip === "new") skippedNew++
+            else if (r.skip === "none") skippedNone++
+            else if (r.refusals.length) for (const x of r.refusals) refusals.push(`${rel(target)}:${x}`)
+            else {
+                changes.push({ target, doc, before: doc.lines, after: r.lines, notes: r.notes })
+                if (r.blockedNoWaits !== null) noWaits.push(`  ${rel(target)}  Blocked reason: ${r.blockedNoWaits || "(none)"}`)
+            }
+        }
     }
-    die(`could not write ${path.relative(root, target)}: ${e.message}`)
+    if (refusals.length) {
+        process.stderr.write(`migrate: ${refusals.length} line(s) not understood — nothing written; fix them by hand and run again:\n`)
+        for (const x of refusals) process.stderr.write(`  ${x}\n`)
+        process.exit(1)
+    }
+    for (const c of changes) {
+        console.log(`--- ${rel(c.target)}`)
+        console.log(`+++ ${rel(c.target)}`)
+        for (const l of diff(c.before, c.after)) console.log(l)
+        for (const note of c.notes) console.log(`  ${rel(c.target)}: note dropped: ${note}`)
+    }
+    console.log(
+        `migrate: ${changes.length} files to change, ${skippedNew} already in the new format, ${skippedNone} without Status${dryRun ? " (-n: nothing written)" : ""}`,
+    )
+    if (noWaits.length) {
+        console.log(`blocked without Waits: ${noWaits.length} — set it with: ticket block <epic> <NN> --waits <owner|team|agent|machine>`)
+        for (const l of noWaits) console.log(l)
+    }
+    if (!dryRun) for (const c of changes) writeTicket(c.target, { ...c.doc, lines: c.after })
+    process.exit(0)
+}
+
+function migrateLines(lines) {
+    const sh = shape(lines)
+    if (sh.kind === "none") return { skip: "none" }
+    if (sh.kind === "new") return { skip: "new" }
+    const refusals = []
+    const refuse = (i, why) => refusals.push(`${i + 1}: ${lines[i].trim()} — ${why}`)
+    const head = oldValue(lines[sh.first])
+    if (!head.word) refuse(sh.first, `unknown word "${head.raw}"`)
+    for (const i of sh.statusAt.slice(1)) {
+        const w = oldValue(lines[i]).word
+        if (w !== head.word) refuse(i, `the header (line ${sh.first + 1}) says ${head.word ?? `"${head.raw}"`}, this line says ${w ?? "an unknown word"}`)
+    }
+    if (refusals.length) return { refusals }
+
+    let at = null
+    let prNum = null
+    let reason = null
+    const notes = []
+    if (head.word === "blocked") {
+        let rest = head.rest
+        const d = rest.match(DATE_LEAD)
+        if (d) [at, rest] = [d[1], rest.slice(d[0].length).trim()]
+        reason = rest || null
+    } else {
+        for (const part of head.rest.split(/[,;]/).map((p) => p.trim()).filter(Boolean)) {
+            const d = part.match(DATE_LEAD)
+            let left = part
+            if (d) {
+                if (at !== null) refuse(sh.first, "two dates")
+                at = d[1]
+                left = part.slice(d[0].length).trim()
+            }
+            const refs = [...left.matchAll(PR_REF)]
+            if (refs.length > 1 || (refs.length && prNum !== null)) refuse(sh.first, "two PRs")
+            if (refs.length) {
+                prNum = refs[0][1] ?? refs[0][2]
+                left = left.replace(PR_REF, "").replace(/^[\s—–:-]+|[\s—–:-]+$/g, "")
+            }
+            if (left && !DATE_ONLY.test(left)) notes.push(part)
+        }
+        if (notes.length && head.word !== "done") refuse(sh.first, `text besides the date and the PR on a ${head.word} line: ${notes.join(", ")}`)
+    }
+    if (refusals.length) return { refusals }
+
+    // Group lines the old header already had (written by hand) are kept, unless they contradict the Status line.
+    const values = { "Blocked reason": reason, PR: prNum === null ? null : `#${prNum}`, Waits: null }
+    for (const k of GROUP) {
+        const had = sh.group[k]
+        if (had === undefined) continue
+        if (values[k] !== null && values[k] !== had) refuse(sh.first, `the header already has "${k}: ${had}"`)
+        else values[k] = had
+    }
+    if (refusals.length) return { refusals }
+
+    const out = [...lines]
+    out[sh.first] = `Status: ${head.word}${at ? ` ${at}` : ""}`
+    // The footer lines go; a blank line left alone before the end of the file goes with them.
+    for (const i of sh.statusAt.slice(1).reverse()) {
+        const blankAround = out[i - 1] === "" && (i + 1 >= out.length || out[i + 1] === "")
+        out.splice(blankAround ? i - 1 : i, blankAround ? 2 : 1)
+    }
+    writeGroup(out, values)
+    return { lines: out, notes, refusals: [], blockedNoWaits: head.word === "blocked" && !values.Waits ? reason ?? "" : null }
+}
+
+// A line diff (longest common subsequence; a ticket is a few hundred lines), printed as hunks without context.
+function diff(a, b) {
+    const m = a.length
+    const k = b.length
+    const L = Array.from({ length: m + 1 }, () => new Int32Array(k + 1))
+    for (let i = m - 1; i >= 0; i--) for (let j = k - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1])
+    const out = []
+    let i = 0
+    let j = 0
+    let hunk = null
+    const flush = () => {
+        if (hunk) out.push(`@@ -${hunk.i + 1} +${hunk.j + 1} @@`, ...hunk.lines)
+        hunk = null
+    }
+    while (i < m || j < k) {
+        if (i < m && j < k && a[i] === b[j]) {
+            flush()
+            i++
+            j++
+        } else {
+            hunk ??= { i, j, lines: [] }
+            if (i < m && (j >= k || L[i + 1][j] >= L[i][j + 1])) hunk.lines.push(`-${a[i++]}`)
+            else hunk.lines.push(`+${b[j++]}`)
+        }
+    }
+    flush()
+    return out
 }
