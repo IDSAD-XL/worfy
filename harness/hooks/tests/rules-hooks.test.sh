@@ -275,7 +275,14 @@ process.stdout.write([...new Set(s.match(/[Ѐ-ӿ]+/g) || [])].sort().join(" "))'
 done
 
 for p in Telegram 'Standing authorization'; do
-    if grep -qiF "$p" "$all"; then bad "parts mention $p"; else ok "parts do not mention $p"; fi
+    # Not -iF: grep of Git Bash on Windows aborts on -i with -F (exit 134), and the check passed
+    # without looking. The two names have no regex characters.
+    grep -qi -- "$p" "$all"; found=$?
+    case "$found" in
+        0) bad "parts mention $p" ;;
+        1) ok "parts do not mention $p" ;;
+        *) bad "grep failed (exit $found) looking for $p" ;;
+    esac
 done
 if grep -qwE '(me|my|I)' "$all"; then
     bad "parts speak as the user (me/my/I): $(grep -nwE '(me|my|I)' "$all" | head -n 3 | tr '\n' ' ')"
