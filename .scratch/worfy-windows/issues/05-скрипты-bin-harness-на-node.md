@@ -279,3 +279,44 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnp
 - `harness-scripts.test.ts`: main 19 упало из 32 → ветка 18 из 33. `workflow-reader.test.ts` — 31 на обеих сторонах (stub-ы `#!/bin/sh`, их переводит срез 05b).
 - Скрипты Harness в Git Bash: `ticket-header.test.sh` 44/0, `epic-status.test.sh` 47/0, `harness-home.test.sh` 41/0 — exit 0; `silent-mode.test.sh` 85/3 (3 — `worktree-create.sh`, Ticket 04), `profile.test.sh` 92/79 и `tickets-root.test.sh` 12/14 — пути fixture-ов, срез 05c. На main `silent-mode.test.sh` и `tickets-root.test.sh` на ПК зависают (bash-`epic-status` в цикле на пути `C:\`); на ветке доходят до конца.
 - `pnpm lint`, `pnpm typecheck` на `1549ce9` — exit 0.
+
+### Срез 05b — worfy запускает скрипты Harness через `node`; stub-ы test-ов — скрипты Node
+
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/05-node-start` от main `4500799`. В неё слиты срез 05a по ходу его ревью (worfy не может запустить через `node` bash-`epic-status`) и main `00078fa`, где 05a влит (#420); конфликт в `harness-script-env.test.ts` — squash #420 против его же commit-ов, уже слитых сюда, решён в пользу ветки, где есть и 05a, и 05b. Пункты 5 и 7 «Что делаем». **На macOS и Linux с ПК ничего не запускалось.**
+
+- **worfy запускает `epic-status`, `profile` и `ticket` как `node <скрипт>` (`6ad96c9`).** `harnessScriptCommand` (`src/main/workflow/profile.ts`) ищет `node` в PATH окружения, которое получит скрипт (на Windows — `node.exe` и ключ `Path` в любом регистре; относительные записи PATH пропускаются), и до запуска проверяет, что файл скрипта есть. Нет файла — прежний ответ: `not-found` с обоими путями у `epic-status`, «нет скрипта profile» у `profile`. Нет node — свой текст `node not found in PATH`, помеченный как сбой окружения: watcher снова снимает окружение login shell. Через него идут `reader.ts`, `profileRunner`, `ticket root` (`folder.ts`), `profile --help` строки первого запуска. `epicStatusRunner` уже с PR #305 принимает окружение обязательным параметром — так и осталось.
+- **Старый Harness (`a8c4eb8`, ревью).** У копии Harness из `~/.claude/bin` (legacy) или plugin-а прежнего worfy, ещё не обновлённого, `epic-status` — на bash; `node <файл bash>` упал бы с SyntaxError, и Canvas потерял бы все Epic-и. Если первая строка `#!` не называет node, скрипт на macOS и Linux запускается сам, как раньше; на Windows — понятный отказ «this Harness's epic-status is not a Node script — update the Harness».
+- **Строка «Harness scripts» экрана первого запуска (`22f22ea`, `58354fc`)**: нет node — подсказка про node; пропуск на Windows («ticket 05 решит») снят; подсказка `start` говорит о запуске node, а не о бите исполнения.
+- **Stub-ы (`15693a5`, `5e81a2d`, `6c3fb9e`, `b091890`)**: stub-ы `epic-status` и `profile` в contract-test-ах (`workflow-reader`, `workflow-profile`, `github-prs`, `projects`, `docs`, `first-run-checks`, `harness-script-wiring`) и в 31 e2e-spec — скрипты Node; общий помощник `test/harness-node.ts`. Вывод и коды выхода — как у прежних `cat`/`printf`/`echo`.
+- **Новые contract-случаи:** node есть только в PATH runner-а — Epic-и читаются (на исходниках main красный); нет node — `node not found in PATH`; нет скрипта — сообщается раньше, чем нет node; нет файла `profile` — отказ, а не exit 1.
+- **Мутанты:** без поиска node падают 1 случай reader и 3 profile; без проверки существования — 29 reader и 4 profile; скрипт по пути без node — 32 из 47 reader и 45 из 84 profile; без ветки «старый Harness» — два случая Windows (случаи macOS и Linux на ПК пропущены).
+- **Ревью** — subagent этой Session, линза «корректность», macOS в первую очередь. Найдено и исправлено в `77f7b95`, `a8c4eb8`, `58354fc`:
+  - high: `harness-script-env.test.ts` (`:243`, `:288`), e2e `first-run.spec.ts` (`:322`) и `finder-path.spec.ts` (`:130`) ждали старый текст «exit code 127: … node» — на Windows пропущены, на Linux CI и Mac были бы красными;
+  - medium: старый Harness с bash-`epic-status` — см. выше;
+  - low: пропуск на Windows и подсказка в строке первого запуска, устаревшие комментарии.
+  - Ожидания «exit code 127» оставлены там, где test проверяет, как runner обрабатывает 127 от самого скрипта (это по-прежнему возможно у старого Harness, который запускается сам): `workflow-profile.test.ts:553`, `:662`, `workflow-watch-retry.test.ts:160`, `harness-script-wiring.test.ts:431-450`.
+  - Без ответа (вопрос): видит ли job `full-macos` CI node в PATH login shell — stub-ам e2e он теперь нужен там, где `#!/bin/sh` не требовал.
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| main `00078fa` | 1 | 5657 | 5206 | 307 | 144 |
+| ветка `272617c` | 1 | 5664 | 5280 | 240 | 144 |
+
+| Файл | main: упало | ветка: упало |
+|---|---|---|
+| `workflow-reader.test.ts` | 31 из 45 | 1 из 49, 1 пропущен |
+| `workflow-profile.test.ts` | 46 из 82 | 29 из 86 |
+| `github-prs.test.ts` | 14 из 69 | 0 из 69 |
+| `docs.test.ts` | 3 из 22 | 0 из 22 |
+| `projects.test.ts` | 11 из 42 | 10 из 42 |
+| `first-run-checks.test.ts` | 22 из 54 | 22 из 53 |
+
+- Ветка `272617c` по файлам равна `3c19ea6` (голова PR): слияние main `00078fa` добавило только `docs/lessons/README.md` и один файл `.scratch`.
+- **Новых падений по именам нет.** Перестали падать 67 test-ов: `workflow-reader` 30, `workflow-profile` 17, `github-prs` 14 (12 — группа «gh with the Project's GitHub account», которой нужен был `bin/profile`, остаток среза 3b Ticket-а 14; 2 — timeout-ы под нагрузкой на main), `docs` 3, `projects`, `harness-install`, `startup-failure` по 1. `startup-failure.test.ts` отдельно на обеих сторонах — одинаково, 11 из 35 упало.
+- Без нагрузки, отдельно на обеих сторонах (`workflow-reader`, `critical-path`, `epic-layout`, `harness-scripts`): новых падений нет; `critical-path` (разделитель пути Windows) и `epic-layout` (timeout 5 с) — по одному и на main.
+- Оставшийся `workflow-reader` — timeout производительности (371 мс при пороге 300 мс), падает и на main. 29 в `workflow-profile` и 10 в `projects` падают и на main: ждут путей POSIX (`/h/bin`, `/work/…`).
+- **e2e, 31 изменённый spec** (без `packaged.spec.ts`), `electron-vite build` и Playwright, окна приложения на ПК (ночная автономия). Сверка по имени test-а без номеров строк (spec-и правились). Первый прогон, main `3b50717` и ветка `c5f092b`, 05:10–05:46: main — 78 упало, 14 прошли; ветка — 58 упало, 34 прошли. Повтор после слияния с 05a раунда 2 и main, main `501e92a` и ветка `272617c`, 10:38–11:15: main — 78 упало, 14 прошли; ветка — 57 упало, 35 прошли; новых падений нет, перестали падать 21 (`autopilot` 5, `focus-sidebar` 2, `linked-autopilot` 2, `ship-ticket` 2, `card-api`, `checks-badges`, `epic-frame`, `epic-frame-undo`, `finder-path`, `projects`, `sidebar-sections`, `silent-project`, `theme-shadows`, `two-windows` по 1). `first-run.spec.ts` «Harness scripts…» (переименован в ревью) падает на обеих сторонах: fixture `PATH` в виде POSIX.
+- `pnpm lint`, `pnpm typecheck` на `44d37a5` (дерево `src` и `test` то же, что у `3c19ea6`) — exit 0.
+- Ночью на ПК оставались зависшие процессы `bash` от test-ов `silent-mode` на main (bash-`epic-status` в цикле на пути вида `C:\…`): 27, затем ещё 9. Они давали timeout-ы в полных прогонах; остановлены, после каждого прогона теперь чистятся. Поэтому сомнительные файлы прогнаны отдельно.
+
+**Не проверено:** всё на macOS и Linux, в том числе случаи «старый Harness запускается сам» и `harness-script-env.test.ts` (на Windows пропущены); `packaged.spec.ts`.
