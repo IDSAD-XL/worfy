@@ -123,8 +123,13 @@ function cutChars(s, n) {
 // ── running commands ──────────────────────────────────────────────────────────
 // A local git command, as `$(git …)` ran it: stdout without the trailing newlines, null when git failed.
 // stderr is dropped unless `stderr` is "inherit".
+// git ended by INT, TERM or HUP: Ctrl+C or a stop reached the whole process group, preflight too. Its own handler
+// runs only after this synchronous code, which would print lines built from the missing answer ("branch detached
+// ?"), so preflight exits here, with 128 + the signal number, as the shell's trap did.
+const STOP_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGHUP"])
 function git(args, { stderr = "ignore", raw = false } = {}) {
     const r = spawnSync("git", args, { stdio: ["ignore", "pipe", stderr], maxBuffer: 1 << 28, windowsHide: true })
+    if (STOP_SIGNALS.has(r.signal)) process.exit(128 + os.constants.signals[r.signal])
     if (r.error || r.status !== 0) return null
     const s = decode(r.stdout)
     return raw ? s : chomp(s)
@@ -173,9 +178,9 @@ function stopTree(child, then) {
     }, 500)
 }
 
-// withTimeout(<sec>, <program>, [<args>], {env, stdout, merge}) → {code, stdout, stderr}: the program's exit code,
-// 128 + the signal when a signal ended it, 124 if time ran out, 127 if it could not start (no output then, as a
-// shell reports a command it cannot start). stdout "ignore" drops it; merge puts stderr into stdout in arrival
+// withTimeout(<sec>, <program>, [<args>], {env, stdout, merge}) → {code, stdout, stderr, error}: the program's exit
+// code, 128 + the signal when a signal ended it, 124 if time ran out, 127 if it could not start (no output then,
+// and `error` is the start's error code: ENOENT, EACCES; null otherwise). stdout "ignore" drops it; merge puts stderr into stdout in arrival
 // order, as 2>&1 did. stdin is empty.
 function withTimeout(sec, cmd, args, { env = process.env, stdout = "pipe", merge = false } = {}) {
     return new Promise((resolve) => {
@@ -185,26 +190,28 @@ function withTimeout(sec, cmd, args, { env = process.env, stdout = "pipe", merge
         let timer = null
         let timedOut = false
         let child
+        let error = null
         const done = (code) => {
             if (settled) return
             settled = true
             clearTimeout(timer)
             running.delete(child)
             if (stopping) return // preflight is exiting: nothing more is checked or printed
-            resolve({ code, stdout: decode(Buffer.concat(out)), stderr: decode(Buffer.concat(err)) })
+            resolve({ code, stdout: decode(Buffer.concat(out)), stderr: decode(Buffer.concat(err)), error })
         }
         try {
             child = spawn(cmd, args, { stdio: ["ignore", stdout, "pipe"], env, detached: !WIN, windowsHide: true })
-        } catch {
-            out.length = 0
+        } catch (e) {
+            error = (e && e.code) || "ESPAWN"
             return void done(127)
         }
         running.add(child)
         child.stdout?.on("data", (d) => out.push(d))
         child.stderr.on("data", (d) => (merge ? out : err).push(d))
-        child.on("error", () => {
+        child.on("error", (e) => {
             // Not started (ENOENT, EACCES): nothing ran, so there is no output either.
             if (child.pid === undefined) {
+                error = (e && e.code) || "ESPAWN"
                 out.length = 0
                 err.length = 0
                 done(127)
@@ -448,7 +455,7 @@ function checkTree() {
 const gh = (args, sec) => {
     const over = process.env.PREFLIGHT_GH
     if (!over) return withTimeout(sec, "gh", args)
-    if (!fs.existsSync(over)) return Promise.resolve({ code: 127, stdout: "", stderr: "" })
+    if (!fs.existsSync(over)) return Promise.resolve({ code: 127, stdout: "", stderr: "", error: "ENOENT" })
     return withTimeout(sec, ...scriptCommand(over, args))
 }
 
@@ -705,7 +712,9 @@ async function checkPrs() {
     const r = await gh(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,mergeStateStatus"], GH_TIMEOUT)
     if (r.code === 124) return warn(`gh unavailable: timed out after ${GH_TIMEOUT} s`)
     const json = chomp(r.stdout)
-    if (r.code !== 0 || !json) return warn(`gh unavailable: ${firstLine(chomp(r.stderr))}`)
+    // A gh that could not start says nothing on stderr: the reason is the start's error.
+    const why = firstLine(chomp(r.stderr)) || (r.error === "ENOENT" ? "gh not found" : r.error ? `gh did not start (${r.error})` : "")
+    if (r.code !== 0 || !json) return warn(`gh unavailable: ${why}`)
     let v
     let n
     try {

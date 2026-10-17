@@ -40,7 +40,8 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 . "$(dirname "$0")/gh-stand-in.sh"
 unset PREFLIGHT_GH
 mkdir -p "$TP/stubs"
-printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
+# With $GH_STUB_JSON set, the stub answers `gh pr list` with that file instead of refusing.
+printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\n[ -n "${GH_STUB_JSON:-}" ] && [ "$1 $2" = "pr list" ] && { cat "$GH_STUB_JSON"; exit 0; }\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
 chmod +x "$TP/stubs/gh"; refusing_gh_exe "$TP/stubs/gh"
 export PATH="$TP/stubs:$PATH" GH_STUB_LOG="$TP/gh-stub.log"
 if on_windows; then node_stand_in "$TP/stubs/gh" "$TP/stubs/gh.mjs"; export PREFLIGHT_GH="$TP/stubs/gh.mjs"; fi
@@ -184,6 +185,81 @@ else
     done
 fi
 
+# 4f. Ctrl+C reaching the process group during a synchronous git: git dies of SIGINT, and preflight exits 130 at
+# once instead of printing lines built from the missing answer ("branch detached ?"). A git wrapper first on PATH
+# kills itself with SIGINT on the branch query of the tree step and passes every other call to the real git.
+if on_windows; then
+    echo "skip 4f: Git Bash on Windows has no SIGINT death of a child for node to see"
+else
+    mkdir -p "$TP/intgit"
+    printf '#!/usr/bin/env bash\ncase "$*" in "symbolic-ref --short -q HEAD") exec node -e "process.kill(process.pid, \\"SIGINT\\")" ;; esac\nexec "%s" "$@"\n' \
+        "$(command -v git)" >"$TP/intgit/git"
+    chmod +x "$TP/intgit/git"
+    out="$(cd "$T/reg" && PATH="$TP/intgit:$PATH" CLAUDE_SESSION_ID= node "$PF" --no-fetch 2>&1)"; rc=$?
+    [ "$rc" -eq 130 ] && [[ "$out" != *"tree: "* ]] && [[ "$out" != *"GO"* ]] && [[ "$out" != *"BLOCKED"* ]] \
+        && ok "git killed by SIGINT -> exit 130 at once, no lines from the missing answer" || bad "git SIGINT: exit $rc, out: ${out:0:400}"
+fi
+
+# 4g. gh that is not there: the PR line names the reason, not an empty one. PREFLIGHT_GH naming a missing file on
+# every OS; on macOS and Linux also a PATH with node and git but no gh.
+out="$(cd "$T/reg" && PREFLIGHT_GH="$T/no-such-gh" CLAUDE_SESSION_ID= node "$PF" --no-fetch 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"! gh unavailable: gh not found"* ]] && ok "PREFLIGHT_GH names a missing gh -> gh unavailable: gh not found" \
+    || bad "missing PREFLIGHT_GH: exit $rc, out: ${out:0:600}"
+if ! on_windows; then
+    mkdir -p "$TP/nogh" && ln -sf "$(command -v node)" "$TP/nogh/node" && ln -sf "$(command -v git)" "$TP/nogh/git"
+    out="$(cd "$T/reg" && env -u PREFLIGHT_GH PATH="$TP/nogh" CLAUDE_SESSION_ID= "$TP/nogh/node" "$PF" --no-fetch 2>&1)"; rc=$?
+    [ "$rc" -eq 0 ] && [[ "$out" == *"! gh unavailable: gh not found"* ]] && ok "no gh on PATH -> gh unavailable: gh not found" \
+        || bad "no gh on PATH: exit $rc, out: ${out:0:600}"
+fi
+
+# 4h. The steps end to end through main, in a Full-mode project with ADRs and a migrations journal:
+#   ADR claims of two branches with different files 0098-*.md (a collision), the migration number the local journal
+#   would take already on origin/main, a PR list longer than four, a base subject that is not UTF-8, and a live
+#   foreign session in the tree.
+E="$T/e2e"
+git init -q --bare -b main "$T/e2e-origin.git"
+git init -q -b main "$E"
+mkdir -p "$E/docs/adr" "$E/drizzle/meta" "$T/profiles/e"
+touch "$E/docs/adr/0001-a.md"
+printf '{"entries":[{"idx":0},{"idx":1},{"idx":2},{"idx":3}]}\n' >"$E/drizzle/meta/_journal.json"
+git -C "$E" add -A && git -C "$E" commit -q -m init && git -C "$E" remote add origin "$T/e2e-origin.git" && git -C "$E" push -q origin main
+for b in a b; do
+    git -C "$E" checkout -q -b "feat/$b" main && touch "$E/docs/adr/0098-$b.md" && git -C "$E" rm -q drizzle/meta/_journal.json
+    git -C "$E" add -A && git -C "$E" commit -q -m "adr $b" && git -C "$E" push -q origin "feat/$b"
+done
+git -C "$E" checkout -q main && git -C "$E" branch -q -D feat/a feat/b
+# git commit turns a message that is not UTF-8 into UTF-8 (as Latin-1); the commit object is written by hand instead.
+c="$(printf 'tree %s\nparent %s\nauthor t <t@t> 1760000000 +0000\ncommitter t <t@t> 1760000000 +0000\n\nbase \xff subject\n' \
+    "$(git -C "$E" rev-parse 'HEAD^{tree}')" "$(git -C "$E" rev-parse HEAD)" | git -C "$E" hash-object -t commit -w --stdin)"
+git -C "$E" reset -q --hard "$c" && git -C "$E" push -q origin main
+# The branch in work keeps a journal one entry behind; no other local branch (local branches count as claims).
+git -C "$E" fetch -q origin && git -C "$E" checkout -q -b work && git -C "$E" branch -q -D main
+printf '{"entries":[{"idx":0},{"idx":1},{"idx":2}]}\n' >"$E/drizzle/meta/_journal.json"
+git -C "$E" commit -q -am "journal behind"
+printf '{"schema":2,"name":"e","mode":"full","worktree":{"base":"origin/main"},"numbering":{"adr":{"dir":"docs/adr","check":null},"migrations":{"journal":"drizzle/meta/_journal.json","generate":"pnpm db:generate"}}}\n' \
+    >"$T/profiles/e/profile.json"
+: >"$T/profiles/e/rules.md"
+printf '{"repos":[{"key":"e","match":"%s","profile":"e","pm":"npm"}]}\n' "$E" >"$T/e.json"
+printf '[%s]\n' "$(for n in 1 2 3 4 5 6 7; do printf '{"number":%s,"headRefName":"b%s","mergeStateStatus":"CLEAN"}' "$n" "$n"; [ "$n" -lt 7 ] && printf ','; done)" >"$T/prs.json"
+out="$(cd "$E" && CLAUDE_GATE_CONFIG="$T/e.json" GH_STUB_JSON="$T/prs.json" CLAUDE_SESSION_ID= node "$PF" --no-fetch 2>&1)"; rc=$?
+printf '%s\n' "$out" >"$T/e2e.out"
+[ "$rc" -eq 0 ] && [ "$(tail -n 1 "$T/e2e.out")" = GO ] \
+    && grep -qxF 'ADR: highest 0001 on origin/main, 0098 in origin/feat/a, locally 0001 → next free 0099' "$T/e2e.out" \
+    && grep -qxF '! ADR number taken by different files — 0098: origin/feat/a, origin/feat/b' "$T/e2e.out" \
+    && ok "e2e ADR: claims of two branches -> next free 0099, the 0098 collision named" || bad "e2e ADR: exit $rc, out: $(cat "$T/e2e.out")"
+grep -qxF 'migrations: last 0003 on origin/main, 0002 in local:work, locally 0002 → next locally 0003' "$T/e2e.out" \
+    && grep -qxF '! migration number 0003 taken on origin/main — first rebase onto a fresh main, then pnpm db:generate' "$T/e2e.out" \
+    && ok "e2e migrations: the next local number is taken on origin/main -> a warning with the rebase hint" || bad "e2e migrations: $(grep migration "$T/e2e.out")"
+prs="$(grep -c '^  #' "$T/e2e.out")"
+[ "$prs" -eq 4 ] && grep -qxF 'open PRs: 7' "$T/e2e.out" && grep -qxF '  … and 3 more' "$T/e2e.out" && [ "$(wc -l <"$T/e2e.out")" -le 20 ] \
+    && ok "e2e PRs: 7 open -> 4 PR lines and '… and 3 more', at most 20 lines in all" || bad "e2e PRs: $prs PR lines, $(wc -l <"$T/e2e.out") lines: $(grep PR "$T/e2e.out")"
+LC_ALL=C grep -q "^origin/main: [0-9a-f]* [0-9T:-]* \"base $(printf '\xff') subject\"\$" "$T/e2e.out" \
+    && ok "e2e: a base subject that is not UTF-8 is printed byte for byte" || bad "e2e subject: $(grep '^origin/main' "$T/e2e.out" | od -c | head -3)"
+(cd "$E" && printf '{"session_id":"s1-aaaaaaaa","cwd":"%s"}' "$(node_path "$E")" | CLAUDE_GATE_CONFIG="$T/e.json" node "$BIN/worktree-lock" claim >/dev/null 2>&1)
+out="$(cd "$E" && CLAUDE_GATE_CONFIG="$T/e.json" CLAUDE_SESSION_ID=s9 node "$PF" --no-fetch 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "BLOCKED: another live session in the tree: s1-aaaaa (heartbeat just now)" ] \
+    && ok "e2e lock: a live foreign session -> BLOCKED: another live session in the tree, exit 1" || bad "e2e lock: exit $rc, out: ${out:0:900}"
+
 # 5. A broken profile (invalid JSON) — exit 2, not GO.
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && node "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
@@ -217,6 +293,24 @@ withTimeout(1, process.execPath, [tree, pidFile]).then(async (r) => {
     console.log(`${r.code} ${ms <= 3000 ? "in time" : "late " + ms + " ms"} ${state}`)
 })' "$PFN" "$(node_path "$T/tree.js")" "$(node_path "$T/grandchild.pid")" 2>&1)"
 [ "$out" = "124 in time ESRCH" ] && ok "timeout: exit 124 within 3 s, the grandchild is stopped too" || bad "timeout: [$out]"
+
+# 6b. Timeout when a grandchild outside the child's process group (detached) holds the output pipe: withTimeout
+# still returns 124 within 3 s instead of waiting for the pipe to close. The grandchild lives 15 s; it is killed after.
+cat >"$T/holder.js" <<'EOF'
+const { spawn } = require("node:child_process")
+const g = spawn(process.execPath, ["-e", "setTimeout(() => {}, 15000)"], { stdio: "inherit", detached: true, windowsHide: true })
+require("node:fs").writeFileSync(process.argv[2], String(g.pid))
+setInterval(() => {}, 1000)
+EOF
+out="$(node -e '
+const [pf, holder, pidFile] = process.argv.slice(1)
+const t0 = Date.now()
+require(pf).withTimeout(1, process.execPath, [holder, pidFile]).then((r) => {
+    const ms = Date.now() - t0
+    try { process.kill(Number(require("node:fs").readFileSync(pidFile, "utf8")), "SIGKILL") } catch {}
+    console.log(`${r.code} ${ms <= 3000 ? "in time" : "late " + ms + " ms"}`)
+})' "$PFN" "$(node_path "$T/holder.js")" "$(node_path "$T/holder.pid")" 2>&1)"
+[ "$out" = "124 in time" ] && ok "timeout: a detached grandchild holding the pipe -> 124 within 3 s" || bad "timeout, pipe held: [$out]"
 
 # 6a. A program that is not there: exit 127 and no output, as a shell reports a command it cannot start.
 out="$(node -e 'require(process.argv[1]).withTimeout(5, "preflight-no-such-program", []).then((r) => console.log(r.code, JSON.stringify(r.stdout + r.stderr)))' "$PFN" 2>&1)"

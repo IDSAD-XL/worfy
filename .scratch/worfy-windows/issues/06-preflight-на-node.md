@@ -121,7 +121,8 @@ Session на Mac (implementer), 2026-10-18. macOS 25.6, bash 3.2.57, Node 24.19.
   `grep -nE 'perl|jq ' harness/bin/preflight` — exit 1. Флаги, строки, тексты причин `BLOCKED`, предупреждения и
   коды выхода прежние. `withTimeout` запускает ребёнка асинхронно в своей группе процессов (`detached`), по
   тайм-ауту — TERM группе, через 0.5 s KILL; на Windows — `taskkill /PID <pid> /T /F` с `windowsHide`. Нет
-  программы — код 127 без вывода, как у perl (`gh unavailable: ` с пустой причиной, как раньше). Ctrl+C, TERM и
+  программы — код 127 без вывода, как у perl; строка PR тогда — `gh unavailable: gh not found` (круг ревью 1).
+  Ctrl+C, TERM и
   HUP самого `preflight` гасят дерево ребёнка и дают 130, 143, 129. JSON (журнал миграций, ответ `gh pr list`,
   Profile) читает сам скрипт; строки «jq not found — migrations not checked» нет. Вывод детей — байты: не-UTF-8
   проходит без изменений, тема коммита режется по code point. Соседи — через `process.execPath`; файл, чей `#!`
@@ -156,8 +157,27 @@ Session на Mac (implementer), 2026-10-18. macOS 25.6, bash 3.2.57, Node 24.19.
   много Epic-ов, зависание 20 s; Silent mode; тема с кириллицей и эмодзи и тема не в UTF-8; флаги) — 68 из 68
   одинаковы.
 - **Настоящий gh — 0 вызовов:** оба test-а с логирующим `gh` первым в PATH до stub-а — лог пуст.
-- **Отличия от bash-версии:** `profile --json`, который вернул exit 0 и не JSON, — причина теперь текст
-  `SyntaxError` (bash печатал первую строку stack trace node, `<anonymous_script>:1`). stdin детей — пустой (bash
+- **Отличия от bash-версии:** `profile --json`, который вернул exit 0 и не JSON, — причина теперь сообщение
+  `JSON.parse` без префикса `SyntaxError:` (bash печатал первую строку stack trace node, `<anonymous_script>:1`).
+  gh, которого нет, — `gh unavailable: gh not found` (на Mac bash печатал пустую причину). stdin детей — пустой (bash
   отдавал свой); ребёнок — в новой session (`setsid`, так делает `detached` в Node), а не только в своей группе: у него нет
   управляющего терминала, и `ssh` в `git fetch` не спросит пароль с терминала (при perl фоновая группа ждала бы
   до тайм-аута 60 s). Это следствие из устройства, не проверялось.
+
+### Круг ревью 1
+
+- Слит main `b07527f3` (hooks на Node, #453; #455): `harness-home.test.sh` больше не зовёт `bash stop.sh`.
+- gh, которого нет: причина — ошибка запуска (`ENOENT` → `gh not found`). Test-ы 4g: `PREFLIGHT_GH` на
+  несуществующий файл и PATH без gh (второй — только macOS и Linux).
+- Ctrl+C группе процессов во время синхронного `git`: git умер от SIGINT, TERM или HUP — `preflight` сразу выходит
+  с 128 + номер сигнала, без строк из пустого ответа («branch detached ?»). Test 4f: обёртка `git` первой в PATH
+  убивает себя SIGINT на `symbolic-ref` шага tree; exit 130, строк шага нет. На Windows — `skip`.
+- Test-ы через `main` (4h), Full mode: коллизия ADR `0098` в двух ветках; номер миграции, занятый на
+  origin/main; 7 PR → 4 строки и `… and 3 more`, всего не больше 20 строк; тема базы с байтом 0xFF — байт в байт
+  (объект commit пишется вручную: `git commit` переводит не-UTF-8 в UTF-8); живая чужая session — последняя
+  строка `BLOCKED: another live session in the tree: s1-aaaaa (heartbeat just now)`, exit 1. Test 6b: внук вне
+  группы (`detached`) держит pipe — 124 не позже 3 s.
+- Mutation testing, каждый mutant — красный test: причина замка в warn — `e2e lock`; `>=` → `>` для origin/main —
+  `e2e migrations`; строка коллизии не печатается — `e2e ADR`; без предела 4 строк — `e2e PRs` (7 строк PR, 21
+  строка); без причины для gh, которого нет, — оба случая 4g; без выхода по сигналу git — 4f; запасной таймер
+  pipe 60 s — 6b (`124 late 15052 ms`); декодер с потерей байт — `e2e subject` и `decode/encode`.
