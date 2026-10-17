@@ -1,7 +1,8 @@
 # 32 — Черновик «Add project» падает: Claude Code отвергает ключ `$schema` в схеме черновика
 
 Type: task
-Status: done — 2026-10-10, [PR #238](https://github.com/IDSAD-XL/worfy/pull/238)
+Status: done 2026-10-10
+PR: #238
 Blocked by:
 Source: приёмка E3, пункт 2 (Ticket [26](26-приёмка-e3.md)), запуск «silent» 2026-10-10: диалог «Add project» на шаге Draft перешёл в `failed` через несколько секунд. Диагностический запуск того же шага показал текст отказа.
 

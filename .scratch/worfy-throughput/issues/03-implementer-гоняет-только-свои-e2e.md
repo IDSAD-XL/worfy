@@ -1,7 +1,8 @@
 # 03 — Implementer гоняет только e2e своих spec-ов; весь `test:e2e` — в gate full перед мержем
 
 Type: task
-Status: done — 2026-10-16, [PR #385](https://github.com/IDSAD-XL/worfy/pull/385)
+Status: done 2026-10-16
+PR: #385
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»
 (Ticket записывает уже действующее правило); замер: `worfy-polish` 04 — 220 min до PR, 05 — 216 min,

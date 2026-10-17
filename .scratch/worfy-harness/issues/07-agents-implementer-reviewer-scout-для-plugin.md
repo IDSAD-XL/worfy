@@ -1,7 +1,8 @@
 # 07 — Agents implementer, reviewer и scout по-английски, с путями plugin и префиксом `worfy:`
 
 Type: task
-Status: done — 2026-10-07, [PR #108](https://github.com/IDSAD-XL/worfy/pull/108)
+Status: done 2026-10-07
+PR: #108
 Blocked by: 02
 Source: решения владельца 2026-10-07, вопросы Q6, Q34, Q2, Q15 и Q32; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинные строки), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, `${CLAUDE_PLUGIN_ROOT}`), [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) (имена инструментов qmd); [spec.md](../spec.md)
 

@@ -1,7 +1,8 @@
 # 24 — Слишком большой ответ IPC по связи — ошибка вызова, а не обрыв соединения
 
 Type: task
-Status: done — 2026-10-17, [PR #417](https://github.com/IDSAD-XL/worfy/pull/417)
+Status: done 2026-10-17
+PR: #417
 Branch: worfy-link/24
 Blocked by: —
 Source: долг ревьюера PR #154 (`.scratch/worfy-link/issues/01-сервер-связи-machine-ов.md:374`), подтверждён

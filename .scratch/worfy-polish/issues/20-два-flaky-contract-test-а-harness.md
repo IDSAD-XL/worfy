@@ -1,7 +1,8 @@
 # 20 — Два flaky contract test-а: timeout в `harness-script-wiring`, ENOTEMPTY в `harness-drift`
 
 Type: task
-Status: done — 2026-10-16, [PR #372](https://github.com/IDSAD-XL/worfy/pull/372)
+Status: done 2026-10-16
+PR: #372
 Blocked by: —
 Source: решение владельца 2026-10-15 по Gate Ticket-ов worfy-polish (разделы «Gate оркестратора
 (2026-10-15)»): [01](01-панель-выделения-не-закрывает-шапку-рамки-epic-а.md) — CI красный в

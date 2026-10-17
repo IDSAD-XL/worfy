@@ -1,7 +1,7 @@
 # 16 — Шаг владельца: машина владельца переходит на plugin `worfy`
 
 Type: task
-Status: done — 2026-10-08
+Status: done 2026-10-08
 Blocked by: 05, 09, 14, 15
 Source: решения владельца 2026-10-07, Q13, Q33, Q14, Q19, Q8, Q35 (пункт 3); [ADR-0047](../../../docs/adr/0047-harness-lessons-by-pr-early-owner-switch.md) (ранний переход машины владельца, `~/.claude` заморожен после импорта, откат одной командой, без пересборки во время Autopilot); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (вердикт Gate JSON-файлом); [spec.md](../spec.md)
 

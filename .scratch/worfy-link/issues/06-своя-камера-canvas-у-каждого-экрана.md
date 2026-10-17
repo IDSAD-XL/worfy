@@ -1,7 +1,8 @@
 # 06 — Камера Canvas своя у каждого экрана: viewport уходит из общего Layout
 
 Type: task
-Status: done — 2026-10-08, [PR #162](https://github.com/IDSAD-XL/worfy/pull/162)
+Status: done 2026-10-08
+PR: #162
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (общее состояние живое, у каждого экрана своё — камера, выделение, ⌘Z), Q15 (камера Canvas своя у каждого экрана на каждый Project и уходит из общего Layout); [spec.md](../spec.md); [ADR-0053](../../../docs/adr/0053-several-screens-on-one-project.md) — несколько экранов на одном Project-е; [ADR-0013](../../../docs/adr/0013-pinned-node-screen-coordinates.md) — закреплённый Node хранит экранные координаты
 

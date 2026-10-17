@@ -1,7 +1,8 @@
 # 23 — worfy читает Workflow folder Silent Project-а; Project над несколькими репозиториями: репозиторий на Node Ticket-а, Gate, PR и CI по нему
 
 Type: task
-Status: done — 2026-10-09, [PR #178](https://github.com/IDSAD-XL/worfy/pull/178)
+Status: done 2026-10-09
+PR: #178
 Branch: worfy-harness/23
 Blocked by: 22
 Source: решения владельца 2026-10-07, Q27, Q29, Q24, Q17; [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) (Full mode и Silent mode, Workflow folder, статус в Silent только в Workflow folder); [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) (один Ticket — один репозиторий, Project над несколькими репозиториями — Silent mode); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy — вид над workflow, только чтение); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (worfy ничего не пишет в репозитории Project-ов); [spec.md](../spec.md)

@@ -1,7 +1,8 @@
 # 02 — Экран не гаснет, пока Orchestrator вливает PR вне Autopilot; заблокированный экран перед gate full — одна строка, а не красный e2e
 
 Type: task
-Status: done — 2026-10-16, [PR #392](https://github.com/IDSAD-XL/worfy/pull/392)
+Status: done 2026-10-16
+PR: #392
 Branch: worfy-throughput/02
 Blocked by: 01
 Source: [spec.md](../spec.md), решение владельца 2026-10-16, пункт 1, и «Решено без владельца»

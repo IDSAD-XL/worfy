@@ -1,7 +1,8 @@
 # 06 — Долги [low] test-ов: предел строк палитры, `expandMachines`, старые fixture-ы `canvas-tools`
 
 Type: task
-Status: done — 2026-10-15, [PR #359](https://github.com/IDSAD-XL/worfy/pull/359)
+Status: done 2026-10-15
+PR: #359
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R11; «Итог»
 [`worfy-ui` 07](../../worfy-ui/issues/07-группы-в-палитре.md) (долг [low] про `SHOWN`),

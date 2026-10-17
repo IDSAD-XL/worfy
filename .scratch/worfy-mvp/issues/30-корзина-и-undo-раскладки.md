@@ -1,7 +1,8 @@
 # 30 — Корзина и undo / redo Раскладки
 
 Type: task
-Status: done — 2026-10-05, [PR #31](https://github.com/IDSAD-XL/worfy/pull/31)
+Status: done 2026-10-05
+PR: #31
 Blocked by: 14, 25, 26, 29
 Source: [CONTEXT.md](../../../CONTEXT.md), «Раскладка»; [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md), корзина; [spec.md](../spec.md), этап 5
 

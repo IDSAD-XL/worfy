@@ -1,7 +1,8 @@
 # 08 — Зависшие running Subagent-ы без task-notification
 
 Type: task
-Status: done — 2026-10-06, [PR #45](https://github.com/IDSAD-XL/worfy/pull/45)
+Status: done 2026-10-06
+PR: #45
 Blocked by: 05, 29
 Source: [spec.md](../spec.md), тема B, риск 9; Ticket 15 worfy-mvp (дерево Subagent-ов)
 

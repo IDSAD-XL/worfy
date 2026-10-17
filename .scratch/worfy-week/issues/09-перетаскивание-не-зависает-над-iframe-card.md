@@ -1,7 +1,8 @@
 # 09 — Перетаскивание и изменение размера Node-а не зависают над iframe Card
 
 Type: task
-Status: done — 2026-10-07, [PR #99](https://github.com/IDSAD-XL/worfy/pull/99)
+Status: done 2026-10-07
+PR: #99
 Blocked by: —
 Source: ручные проверки 2026-10-07, второй круг, проверка M23 ([PR #93](https://github.com/IDSAD-XL/worfy/pull/93), a3a2c50) — Ticket [06](06-snapping-при-перетаскивании.md), подраздел [«Ручная проверка 2026-10-07»](06-snapping-при-перетаскивании.md#ручная-проверка-2026-10-07); HANDOFF, «Риски и долги»; [spec.md](../spec.md), этап 3
 

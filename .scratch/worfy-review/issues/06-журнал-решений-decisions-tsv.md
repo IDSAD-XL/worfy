@@ -1,7 +1,8 @@
 # 06 — Журнал решений `decisions.tsv` для прогона Wave без человека
 
 Type: task
-Status: done — 2026-10-12, [PR #232](https://github.com/IDSAD-XL/worfy/pull/232)
+Status: done 2026-10-12
+PR: #232
 Blocked by: —
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «журнал решений» из таблицы; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), раздел о pstack (набор skills Lauren Tan; skill `show-me-your-work` ведёт дописываемый журнал решений и в конце сверяет его с транскриптом); [spec.md](../spec.md)
 

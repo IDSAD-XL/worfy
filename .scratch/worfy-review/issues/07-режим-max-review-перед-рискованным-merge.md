@@ -1,7 +1,8 @@
 # 07 — Режим расширенного ревью перед рискованным merge: две линзы по всей ветке, по желанию на двух моделях
 
 Type: task
-Status: done — 2026-10-15, [PR #330](https://github.com/IDSAD-XL/worfy/pull/330)
+Status: done 2026-10-15
+PR: #330
 Blocked by: 01, 02
 Source: решение владельца 2026-10-09 («Хорошие идеи, сохрани их и добавь в планы к имплементации»), пункт «режим max review» из таблицы, низкий приоритет; [исследование](../../../docs/research/2026-10-09-ponytail-pstack-thermos.md), разделы о Thermos (plugin Cursor: два reviewer-а и сводка ведущего агента) и о skill `interrogate` из pstack (один reviewer на модель, один prompt; разнообразие даёт модель, а не роль); [spec.md](../spec.md)
 

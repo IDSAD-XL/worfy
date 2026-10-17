@@ -1,7 +1,8 @@
 # 35 — `removeTree` решает «папка или ссылка» по `lstat` Node: junction на том по GUID читается как папка
 
 Type: task
-Status: done — 2026-10-13, [PR #287](https://github.com/IDSAD-XL/worfy/pull/287)
+Status: done 2026-10-13
+PR: #287
 Blocked by: —
 Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комментарий в PR #274](https://github.com/IDSAD-XL/worfy/pull/274#issuecomment-6137826085), раздел «Low», пункт «Older than this PR, own tickets»); ревью PR #276 в тот же день — [Ticket 32](32-остатки-ревью-pr-276.md), «Вне скоупа»; замер в «Итоге» [Ticket-а 19](19-leadstoremote-в-docs-cards-и-workflow.md). Первый шаг — замер на Windows-ПК на пустом томе.
 

@@ -1,7 +1,8 @@
 # 16 — ELECTRON_RENDERER_URL только в dev-сборке
 
 Type: task
-Status: done — 2026-10-06, [PR #71](https://github.com/IDSAD-XL/worfy/pull/71)
+Status: done 2026-10-06
+PR: #71
 Blocked by: 15
 Source: [spec.md](../spec.md), тема C; Ticket-ы 01 и 02 worfy-mvp (окно, доверенный отправитель IPC)
 

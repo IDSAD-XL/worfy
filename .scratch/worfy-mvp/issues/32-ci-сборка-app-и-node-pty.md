@@ -1,7 +1,8 @@
 # 32 — e2e и сборка `.app` в CI, `.app` с ad-hoc подписью и node-pty под ABI Electron
 
 Type: task
-Status: done — 2026-10-05, [PR #2](https://github.com/IDSAD-XL/worfy/pull/2)
+Status: done 2026-10-05
+PR: #2
 Blocked by: 01
 Source: [spec.md](../spec.md), «Соглашения для тикетов этого эпика», риски 7 и 9; [ADR-0004](../../../docs/adr/0004-stack-electron-ts-react-flow-agent-sdk.md)
 

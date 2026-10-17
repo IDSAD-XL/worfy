@@ -1,7 +1,8 @@
 # 10 — worfy понимает имена Harness с префиксом `worfy:` и новый формат команды Autopilot
 
 Type: task
-Status: done — 2026-10-07, [PR #104](https://github.com/IDSAD-XL/worfy/pull/104)
+Status: done 2026-10-07
+PR: #104
 Blocked by: —
 Source: решения владельца 2026-10-07: Q2 (имя plugin-а — `worfy`: `/worfy:epic-wave`, `/worfy:ship-ticket`, Subagent `worfy:implementer`; старые имена без префикса тоже понимаются), Q6 (машинные строки и формат команды Autopilot — по-английски, старые понимаются); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness plugin-ом `worfy`); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness на английском, машинный контракт без языка); [spec.md](../spec.md)
 

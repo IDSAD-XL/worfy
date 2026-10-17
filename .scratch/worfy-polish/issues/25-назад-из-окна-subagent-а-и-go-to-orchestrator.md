@@ -1,7 +1,8 @@
 # 25 — Окно Subagent-а: стрелка «назад» к родительской Session; в палитре — «Go to Orchestrator»
 
 Type: task
-Status: done — 2026-10-15, [PR #371](https://github.com/IDSAD-XL/worfy/pull/371)
+Status: done 2026-10-15
+PR: #371
 Branch: worfy-polish/25
 Blocked by: —
 Source: слово владельца 2026-10-15 (через Orchestrator-а): «Из окна Session Orchestrator-а можно

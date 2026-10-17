@@ -1,7 +1,8 @@
 # 02 — Типизированный IPC: канал описан один раз, проверяется на границе и расширяется без правки центральных файлов
 
 Type: task
-Status: done — 2026-10-05, [PR #3](https://github.com/IDSAD-XL/worfy/pull/3)
+Status: done 2026-10-05
+PR: #3
 Blocked by: 01
 Source: [spec.md](../spec.md), раздел «Как устроено», «Точки расширения вместо центральных файлов»; [ADR-0004](../../../docs/adr/0004-stack-electron-ts-react-flow-agent-sdk.md), абзац про типы на границах IPC
 

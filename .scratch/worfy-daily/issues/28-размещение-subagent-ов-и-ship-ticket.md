@@ -1,7 +1,8 @@
 # 28 — Размещение Node-ов Subagent-ов и Session из «Ship ticket»
 
 Type: task
-Status: done — 2026-10-06, [PR #66](https://github.com/IDSAD-XL/worfy/pull/66)
+Status: done 2026-10-06
+PR: #66
 Blocked by: 06, 07, 08, 09, 10, 23
 Source: [spec.md](../spec.md), тема C, риск 10; ручные проверки 2026-10-06, ночь — Ticket 15 worfy-mvp (`.scratch/worfy-mvp/issues/15-дерево-subagent-ов.md:145`) и Ticket 23 worfy-mvp (`.scratch/worfy-mvp/issues/23-ship-ticket-run-wave-open-pr.md:143`); HANDOFF, «Риски и долги»
 

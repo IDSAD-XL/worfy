@@ -1,7 +1,8 @@
 # 24 — Подключение Project-а: папка, режим, черновик Profile, форма, запись на машину и регистрация в Gate
 
 Type: task
-Status: done — 2026-10-09, [PR #176](https://github.com/IDSAD-XL/worfy/pull/176)
+Status: done 2026-10-09
+PR: #176
 Blocked by: 19, 22
 Source: решения владельца 2026-10-07, вопросы Q10, Q11', Q16, Q17, Q23–Q29; [spec.md](../spec.md); [ADR-0042](../../../docs/adr/0042-profile-on-machine-full-and-silent-modes.md) — Profile целиком на машине, Full mode и Silent mode, Workflow folder, worktree новых Project-ов вне репозитория; [ADR-0045](../../../docs/adr/0045-one-ticket-one-repository.md) — Project над несколькими репозиториями всегда в Silent mode; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — состояние Harness в `~/.claude/worfy-harness/`; [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — коллекции qmd по Profile; [ADR-0018](../../../docs/adr/0018-project-is-a-workflow-folder.md) — Project — папка с workflow; [docs/roadmap.md](../../../docs/roadmap.md), раздел E3
 

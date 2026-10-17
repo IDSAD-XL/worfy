@@ -1,7 +1,8 @@
 # 04 — Node-ы не перекрываются: main поправляет каждую операцию Layout, Derived Node-ы уступают
 
 Type: task
-Status: done — 2026-10-07, [PR #88](https://github.com/IDSAD-XL/worfy/pull/88)
+Status: done 2026-10-07
+PR: #88
 Blocked by: 02, 03
 Source: требование владельца 2026-10-07 «Node-ы никогда не перекрываются» и решения 19, 22–27 ([spec.md](../spec.md), раздел «Решения владельца по Canvas»); HANDOFF, «Риски и долги» — долг Ticket-а 12 `worfy-mvp` (Orchestrator и HANDOFF в (40, 40)); [spec.md](../spec.md), этап 2
 

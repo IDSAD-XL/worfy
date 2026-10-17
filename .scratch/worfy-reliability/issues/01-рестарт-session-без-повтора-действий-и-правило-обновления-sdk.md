@@ -1,7 +1,8 @@
 # 01 — Рестарт Session не повторяет внешних действий и не снимает отказ в разрешении; правило обновления SDK
 
 Type: task
-Status: done — 2026-10-15, [PR #342](https://github.com/IDSAD-XL/worfy/pull/342)
+Status: done 2026-10-15
+PR: #342
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 2026-10-15, пункт 1 (идея A); исследование
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «A. P0 candidate: Claude runtime

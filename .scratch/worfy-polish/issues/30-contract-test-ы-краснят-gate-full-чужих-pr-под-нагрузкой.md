@@ -1,7 +1,7 @@
 # 30 — Contract test-ы с timeout-ом под нагрузкой краснят gate full чужих PR: постоянные stub-ы вместо новых исполняемых файлов
 
 Type: task
-Status: claimed — 2026-10-16
+Status: claimed 2026-10-16
 Branch: worfy-polish/30
 Blocked by: —
 Source: решение владельца 2026-10-16 — открыть Ticket и поставить первым в следующую Wave; «Итог»

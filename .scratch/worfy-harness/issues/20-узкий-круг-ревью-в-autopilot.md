@@ -1,7 +1,8 @@
 # 20 — Autopilot делает один узкий круг ревью без владельца, если находки только med и low
 
 Type: task
-Status: done — 2026-10-08, [PR #144](https://github.com/IDSAD-XL/worfy/pull/144)
+Status: done 2026-10-08
+PR: #144
 Blocked by: 16
 Source: решение владельца 2026-10-07, вопрос Q7 ([spec.md](../spec.md)); [ADR-0046](../../../docs/adr/0046-autopilot-narrow-round-without-owner.md) — узкий круг в Autopilot; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) — worfy не знает протокола skill-а; [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md) — остановка прогона с `blocked-tickets`; урок «Узкий круг исправления» в `docs/lessons/process.md:22-28`
 

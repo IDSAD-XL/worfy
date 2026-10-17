@@ -1,7 +1,8 @@
 # 01 — Сервер связи Machine-ов: TLS, pairing по 6-значному коду, запомненный сертификат, выключатель
 
 Type: task
-Status: done — 2026-10-08, [PR #154](https://github.com/IDSAD-XL/worfy/pull/154)
+Status: done 2026-10-08
+PR: #154
 Blocked by: —
 Source: решения владельца 2026-10-07: Q4 (доступ выключен по умолчанию, код связи, токен устройства, TLS, только LAN, проверка Origin/Host), Q7 (host и client — роли соединения, каждый worfy бывает и тем, и другим), Q9 (термины Machine и Linked machine; у Project ровно одна Machine) и Q11 («Link a machine», код из 6 цифр, двусторонняя связь, TLS с запомненным сертификатом, отзыв с любой стороны) ([spec.md](../spec.md), «Готово, когда» Epic-а, пункты 1 и 5); [ADR-0052](../../../docs/adr/0052-machines-and-linking.md) (Machine и Linked machine, связь по коду, TLS с запомненным сертификатом, только LAN, проверка Host/Origin, отзыв, токены не в логах); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (домен IPC — два своих файла); [ADR-0005](../../../docs/adr/0005-worfy-own-state-inventory.md) (своё состояние worfy — в папке данных)
 

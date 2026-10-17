@@ -1,7 +1,8 @@
 # 17 — Subagent-ы workflow-скриптов в дереве; бейджи PR и CI на живых PR
 
 Type: task
-Status: done — 2026-10-06, [PR #73](https://github.com/IDSAD-XL/worfy/pull/73)
+Status: done 2026-10-06
+PR: #73
 Blocked by: 08, 11, 12, 13, 14, 16
 Source: [spec.md](../spec.md), тема D, риск 12; Ticket 09 worfy-mvp (`.scratch/worfy-mvp/issues/09-формат-транскриптов-и-реестра.md:137`); Ticket 15 worfy-mvp (`.scratch/worfy-mvp/issues/15-дерево-subagent-ов.md:134`); Ticket 17 worfy-mvp (бейджи)
 

@@ -1,7 +1,9 @@
 # 09 — Приёмка Epic-а worfy-terminal-ai по «Готово, когда» и live-проверка владельца на подписке
 
 Type: task
-Status: blocked — live-проверка владельца — утром 2026-10-17 через pnpm dev; Autopilot не берёт
+Status: blocked
+Blocked reason: live-проверка владельца — утром 2026-10-17 через pnpm dev; Autopilot не берёт
+Waits: owner
 Blocked by: 01, 02, 03, 04, 05, 06, 07, 08
 Source: «Готово, когда» Epic-а worfy-terminal-ai ([spec.md](../spec.md)); решения владельца 2026-10-09, пункт 7 (test-ы без расхода подписки, одна live-проверка владельца в конце), пункты 1–5 ([spec.md](../spec.md)); [ADR-0058](../../../docs/adr/0058-terminal-ai-assist-process.md); [evidence spike-а](../evidence/spike-задержки-2026-10-09.md) — цифры, с которыми сравнивать
 

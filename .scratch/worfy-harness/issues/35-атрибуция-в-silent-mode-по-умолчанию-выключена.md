@@ -1,7 +1,8 @@
 # 35 — В Silent mode атрибуция Claude по умолчанию выключена
 
 Type: task
-Status: done — 2026-10-13, [PR #268](https://github.com/IDSAD-XL/worfy/pull/268)
+Status: done 2026-10-13
+PR: #268
 Blocked by:
 Source: решение владельца 2026-10-13 («в silent mode по дефолту пусть атрибуция выключается») по наблюдению приёмки E3, пункт 2 (Ticket [26](26-приёмка-e3.md), запуск 2026-10-12: в PR и коммите Silent Project-а стояли строки «Generated with Claude Code» и `Co-authored-by: Claude`). Решение уточняет ADR-0042, пункт 6 (Q25 Session проектирования: «по умолчанию `on`»).
 

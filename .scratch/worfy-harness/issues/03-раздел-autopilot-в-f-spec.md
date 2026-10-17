@@ -1,7 +1,8 @@
 # 03 — Раздел Autopilot в F-SPEC: кнопка и строка состояния прогона
 
 Type: task
-Status: done — 2026-10-07, [PR #103](https://github.com/IDSAD-XL/worfy/pull/103)
+Status: done 2026-10-07
+PR: #103
 Blocked by: —
 Source: решения владельца 2026-10-07 («Перенесено из E2»); [spec.md](../spec.md); [F-SPEC.md](../../../docs/design/F-SPEC.md); Ticket-ы 04, 05, 29, 32 `worfy-daily`; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md); [ADR-0029](../../../docs/adr/0029-autopilot-waits-for-background-tasks.md); [ADR-0033](../../../docs/adr/0033-autopilot-names-wave-tickets.md); [ADR-0034](../../../docs/adr/0034-autopilot-keeps-display-awake.md)
 

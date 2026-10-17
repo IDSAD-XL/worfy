@@ -1,7 +1,8 @@
 # 53 — e2e на Windows не загружаются: `/bin/sh` при загрузке модуля в четырёх файлах `test/e2e`
 
 Type: task
-Status: done — 2026-10-16, [PR #387](https://github.com/IDSAD-XL/worfy/pull/387)
+Status: done 2026-10-16
+PR: #387
 Blocked by: —
 Source: Session на Windows-ПК «Worfy тесты на ПК», ночь 2026-10-16: Playwright падает при загрузке spec-ов — `spawnSync /bin/sh ENOENT`. Код перечитан на Mac по main `9974e0e0`.
 

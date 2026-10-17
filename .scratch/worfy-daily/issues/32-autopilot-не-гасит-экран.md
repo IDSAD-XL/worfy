@@ -1,7 +1,8 @@
 # 32 — Autopilot не даёт экрану погаснуть на время прогона
 
 Type: task
-Status: done — 2026-10-06, [PR #70](https://github.com/IDSAD-XL/worfy/pull/70)
+Status: done 2026-10-06
+PR: #70
 Blocked by: —
 Source: решение владельца 2026-10-06 ~23:40 (вариант (а)); вечер 2026-10-06, Wave 9 плана (Ticket-ы 24 и 28) и круг доработки Ticket-а 11: транскрипт Orchestrator-а `~/.claude/projects/-Users-alexey-Stuff-CanvasForAI/f6ab7045-416c-471a-a78d-433567aefa5a.jsonl`, записи 18:00Z–20:19Z; [spec.md](../spec.md), тема A; [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md), пункт 7; Ticket 04; урок «Заблокированный экран macOS» в [docs/lessons/agents.md](../../../docs/lessons/agents.md)
 

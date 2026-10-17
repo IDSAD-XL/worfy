@@ -1,7 +1,8 @@
 # 05 — 32 `waitForTimeout` в e2e: ожидание состояния или обоснованное окно «ничего не случилось»
 
 Type: task
-Status: done — 2026-10-15, [PR #356](https://github.com/IDSAD-XL/worfy/pull/356)
+Status: done 2026-10-15
+PR: #356
 Blocked by: —
 Source: [spec.md](../spec.md), кандидат R5; `HANDOFF.md`, «Риски и долги» (нестабильные e2e, ложные
 таймауты под нагрузкой); [docs/lessons/agents.md](../../../docs/lessons/agents.md).

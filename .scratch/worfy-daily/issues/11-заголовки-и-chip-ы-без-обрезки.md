@@ -1,7 +1,8 @@
 # 11 — Заголовки и chip-ы без обрезки
 
 Type: task
-Status: done — 2026-10-06, [PR #64](https://github.com/IDSAD-XL/worfy/pull/64)
+Status: done 2026-10-06
+PR: #64
 Blocked by: 10, 30
 Source: [spec.md](../spec.md), тема C; [F-SPEC.md](../../../docs/design/F-SPEC.md), макеты `docs/design/F-canvas-*.dc.html`; Ticket-ы 11 и 17 worfy-mvp
 

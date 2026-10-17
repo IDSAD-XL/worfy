@@ -1,7 +1,8 @@
 # 17 — qmd ставится вместе с Harness: npm, модели с согласия, коллекции по Profile
 
 Type: task
-Status: done — 2026-10-08, [PR #145](https://github.com/IDSAD-XL/worfy/pull/145)
+Status: done 2026-10-08
+PR: #145
 Blocked by: 16
 Source: решения владельца 2026-10-07, вопросы Q5, Q15 и Q16 ([spec.md](../spec.md)); [ADR-0043](../../../docs/adr/0043-qmd-is-part-of-harness.md) — qmd часть Harness; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) — папка plugin и состояние машины в `~/.claude/worfy-harness/`; ADR-0048 (будет `docs/adr/0048-harness-plugin-spike-results.md`) — итог spike Ticket-а 01 (имя MCP-сервера plugin в `allowedMcpServers`; файл заводит Ticket 01)
 
