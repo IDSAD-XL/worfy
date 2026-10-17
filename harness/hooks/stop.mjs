@@ -81,7 +81,8 @@ function touch(p) {
 // The context for the model without blocking the turn. Control characters other than tab and line
 // breaks are dropped.
 function say(text) {
-    const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
+    const kept = (ch) => ch >= " " || ch === "\t" || ch === "\n" || ch === "\r"
+    const clean = [...text].filter(kept).join("")
     process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "Stop", additionalContext: clean } }))
 }
 
@@ -283,8 +284,8 @@ if (isMain()) {
     try {
         code = main()
     } catch (e) {
+        // code stays 0: a broken hook must not hold the turn.
         process.stderr.write(`stop: ${String(e?.message ?? e).split("\n")[0]}\n`)
-        code = 0
     }
     process.exitCode = code
 }
