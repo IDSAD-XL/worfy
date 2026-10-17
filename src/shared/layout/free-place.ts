@@ -49,65 +49,301 @@ export function isClear(moving: readonly Rect[], obstacles: readonly Rect[], shi
 }
 
 /** The order of two shifts: nearer first, then the one that moves less up or down, then the one more to the right, then the lower one. */
-function better(a: Shift, b: Shift): boolean {
-  const da = a.dx * a.dx + a.dy * a.dy
-  const db = b.dx * b.dx + b.dy * b.dy
+const better = (a: Shift, b: Shift): boolean => comesFirst(a.dx, a.dy, b.dx, b.dy)
+
+/** `better` over plain numbers, for the search's heap, which compares without building shifts. */
+function comesFirst(adx: number, ady: number, bdx: number, bdy: number): boolean {
+  const da = adx * adx + ady * ady
+  const db = bdx * bdx + bdy * bdy
   if (da !== db) return da < db
-  if (Math.abs(a.dy) !== Math.abs(b.dy)) return Math.abs(a.dy) < Math.abs(b.dy)
-  if (a.dx !== b.dx) return a.dx > b.dx
-  return a.dy > b.dy
+  if (Math.abs(ady) !== Math.abs(bdy)) return Math.abs(ady) < Math.abs(bdy)
+  if (adx !== bdx) return adx > bdx
+  return ady > bdy
 }
 
 /** The distinct values, nearest to zero first. */
 const byDistance = (values: Iterable<number>): number[] => [...new Set(values)].sort((a, b) => Math.abs(a) - Math.abs(b) || b - a)
 
+/** Most cells a grid index keeps; a wider spread of obstacles gets larger cells. */
+const MAX_CELLS = 1 << 16
+/** An obstacle over more cells than this is checked by every lookup instead of being filed in its cells. */
+const MAX_CELLS_PER_OBSTACLE = 16
+
+/**
+ * The obstacles filed by the cells of a uniform grid, so that a rectangle is compared only with the
+ * obstacles in the cells it reaches. A lookup may hand out an obstacle that does not crowd; `crowds`
+ * still decides. It never leaves out one that does.
+ */
+class ObstacleGrid {
+  private readonly cells: number[][] = []
+  /** Obstacles too large for the cells, or with a coordinate that is not a finite number. */
+  private readonly wide: number[] = []
+  private readonly x0: number = 0
+  private readonly y0: number = 0
+  private readonly size: number = 1
+  private readonly columns: number = 0
+  private readonly rows: number = 0
+  /** The lookup that last handed out each obstacle, so an obstacle in several cells is handed out once. */
+  private readonly seen: Uint32Array
+  private lookup = 0
+
+  constructor(obstacles: readonly Rect[]) {
+    this.seen = new Uint32Array(obstacles.length)
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    let sides = 0
+    let finite = 0
+    for (const other of obstacles) {
+      if (!ObstacleGrid.finite(other)) continue
+      x0 = Math.min(x0, other.x)
+      y0 = Math.min(y0, other.y)
+      x1 = Math.max(x1, other.x + other.w)
+      y1 = Math.max(y1, other.y + other.h)
+      sides += Math.max(other.w, other.h)
+      finite += 1
+    }
+    if (finite === 0) {
+      obstacles.forEach((_, index) => this.wide.push(index))
+      return
+    }
+    // A cell about the size of an average obstacle, larger when the obstacles spread too far for MAX_CELLS of them.
+    let size = Math.max(1, sides / finite)
+    size = Math.max(size, Math.sqrt(((x1 - x0) * (y1 - y0)) / MAX_CELLS), (x1 - x0) / MAX_CELLS, (y1 - y0) / MAX_CELLS)
+    this.x0 = x0
+    this.y0 = y0
+    this.size = size
+    this.columns = Math.floor((x1 - x0) / size) + 1
+    this.rows = Math.floor((y1 - y0) / size) + 1
+    obstacles.forEach((other, index) => {
+      if (!ObstacleGrid.finite(other)) {
+        this.wide.push(index)
+        return
+      }
+      const left = this.column(other.x)
+      const right = this.column(other.x + other.w)
+      const top = this.row(other.y)
+      const bottom = this.row(other.y + other.h)
+      if ((right - left + 1) * (bottom - top + 1) > MAX_CELLS_PER_OBSTACLE) {
+        this.wide.push(index)
+        return
+      }
+      for (let row = top; row <= bottom; row += 1)
+        for (let column = left; column <= right; column += 1) (this.cells[row * this.columns + column] ??= []).push(index)
+    })
+  }
+
+  private static finite(rect: Rect): boolean {
+    return Number.isFinite(rect.x) && Number.isFinite(rect.y) && Number.isFinite(rect.w) && Number.isFinite(rect.h)
+  }
+
+  private column(x: number): number {
+    return Math.min(this.columns - 1, Math.max(0, Math.floor((x - this.x0) / this.size)))
+  }
+
+  private row(y: number): number {
+    return Math.min(this.rows - 1, Math.max(0, Math.floor((y - this.y0) / this.size)))
+  }
+
+  /**
+   * Calls `visit` with the index of every obstacle that may lie closer than `gap` to `rect`, each
+   * once, until `visit` returns true; returns whether it did.
+   */
+  some(rect: Rect, gap: number, visit: (index: number) => boolean): boolean {
+    this.lookup += 1
+    const lookup = this.lookup
+    for (const index of this.wide) if (visit(index)) return true
+    const left = rect.x - gap
+    const right = rect.x + rect.w + gap
+    const top = rect.y - gap
+    const bottom = rect.y + rect.h + gap
+    if (!(Number.isFinite(left) && Number.isFinite(right) && Number.isFinite(top) && Number.isFinite(bottom))) {
+      // A rectangle with no finite place has no cell range: every obstacle filed in a cell gets a look.
+      for (const list of this.cells) {
+        for (const index of list ?? []) {
+          if (this.seen[index] === lookup) continue
+          this.seen[index] = lookup
+          if (visit(index)) return true
+        }
+      }
+      return false
+    }
+    // Outside the grid there are no filed obstacles; the clamped edge cells only add more of them.
+    if (right < this.x0 || bottom < this.y0 || left > this.x0 + this.columns * this.size || top > this.y0 + this.rows * this.size) return false
+    const lastColumn = this.column(right)
+    const lastRow = this.row(bottom)
+    for (let row = this.row(top); row <= lastRow; row += 1) {
+      for (let column = this.column(left); column <= lastColumn; column += 1) {
+        const list = this.cells[row * this.columns + column]
+        if (list === undefined) continue
+        for (const index of list) {
+          if (this.seen[index] === lookup) continue
+          this.seen[index] = lookup
+          if (visit(index)) return true
+        }
+      }
+    }
+    return false
+  }
+}
+
 /**
  * The nearest shift that puts every rectangle of `moving` NODE_GAP clear of every rectangle of
  * `obstacles`, keeping the rectangles of `moving` where they are to each other. No shift when they
- * are clear already.
+ * are clear already. `onChecks`, when given, gets how many rectangle pairs the search compared.
  *
  * The nearest clear place touches, with the gap, some obstacle's side on each axis it moved along:
  * the candidates on x are 0 and, for each moving rectangle and obstacle, the shifts that put the
  * rectangle just left or just right of the obstacle; the same on y. Every pair of candidates is a
- * candidate shift. The shift right of every obstacle is always clear, so the search starts with it
- * and only looks at nearer ones.
+ * candidate shift. The shift right of every obstacle is always clear, so the search looks only at
+ * nearer ones, and takes the first clear one in the order of `better`.
+ *
+ * The pairs come in that order without sorting all of them: for one x candidate the y candidates
+ * on one side of zero, nearest to zero first, already come in it, so a heap merges one such list per
+ * x candidate and side. A pair that is not clear lets its list skip every next pair the same
+ * obstacle stops. A candidate is compared only with the obstacles a grid index finds near it
+ * (worfy-week ticket 14: the search compared every pair against every obstacle, and a dragged group
+ * of 10 Notes froze the Canvas). The answer is the same as that search's, to the bit
+ * (test/unit/free-place.test.ts).
  */
-export function freeShift(moving: readonly Rect[], obstacles: readonly Rect[], gap: number = NODE_GAP): Shift {
+export function freeShift(moving: readonly Rect[], obstacles: readonly Rect[], gap: number = NODE_GAP, onChecks?: (pairs: number) => void): Shift {
   const none = { dx: 0, dy: 0 }
-  if (moving.length === 0 || obstacles.length === 0 || isClear(moving, obstacles, none, gap)) return none
-  // Only obstacles within reach of the always clear shift can stop a nearer one.
-  const left = Math.min(...moving.map((rect) => rect.x))
-  const rightmost = Math.max(...obstacles.map((other) => other.x + other.w))
-  let best: Shift = { dx: rightmost + gap - left, dy: 0 }
-  const reach = best.dx
-  const box = {
-    x: Math.min(...moving.map((rect) => rect.x)) - reach - gap,
-    y: Math.min(...moving.map((rect) => rect.y)) - reach - gap,
-    right: Math.max(...moving.map((rect) => rect.x + rect.w)) + reach + gap,
-    bottom: Math.max(...moving.map((rect) => rect.y + rect.h)) + reach + gap,
+  if (moving.length === 0 || obstacles.length === 0) {
+    onChecks?.(0)
+    return none
   }
-  const near = obstacles.filter((other) => other.x < box.right && box.x < other.x + other.w && other.y < box.bottom && box.y < other.y + other.h)
+  const grid = new ObstacleGrid(obstacles)
+  let checks = 0
+  /** Obstacles a candidate is compared with; all of them for the place `moving` is at. */
+  let inReach: (index: number) => boolean = () => true
+  // The rectangle of `moving` and the obstacle that the last candidate found not clear was stopped by.
+  let stoppedRect = 0
+  let stoppedBy = 0
+  const clearAt = (dx: number, dy: number): boolean => {
+    for (let which = 0; which < moving.length; which += 1) {
+      const rect = moving[which]!
+      const at = { x: rect.x + dx, y: rect.y + dy, w: rect.w, h: rect.h }
+      const crowded = grid.some(at, gap, (index) => {
+        if (!inReach(index)) return false
+        checks += 1
+        if (!crowds(at, obstacles[index]!, gap)) return false
+        stoppedRect = which
+        stoppedBy = index
+        return true
+      })
+      if (crowded) return false
+    }
+    return true
+  }
+  const shift = search()
+  onChecks?.(checks)
+  return shift
 
-  const xs: number[] = [0]
-  const ys: number[] = [0]
-  for (const rect of moving) {
-    for (const other of near) {
-      xs.push(other.x - gap - rect.w - rect.x, other.x + other.w + gap - rect.x)
-      ys.push(other.y - gap - rect.h - rect.y, other.y + other.h + gap - rect.y)
+  function search(): Shift {
+    if (clearAt(0, 0)) return none
+    // Only obstacles within reach of the always clear shift can stop a nearer one.
+    const left = Math.min(...moving.map((rect) => rect.x))
+    const rightmost = Math.max(...obstacles.map((other) => other.x + other.w))
+    const always: Shift = { dx: rightmost + gap - left, dy: 0 }
+    const reach = always.dx
+    const box = {
+      x: Math.min(...moving.map((rect) => rect.x)) - reach - gap,
+      y: Math.min(...moving.map((rect) => rect.y)) - reach - gap,
+      right: Math.max(...moving.map((rect) => rect.x + rect.w)) + reach + gap,
+      bottom: Math.max(...moving.map((rect) => rect.y + rect.h)) + reach + gap,
     }
-  }
-  const sortedYs = byDistance(ys)
-  for (const dx of byDistance(xs)) {
-    const bestDistance = best.dx * best.dx + best.dy * best.dy
-    if (dx * dx > bestDistance) break
-    for (const dy of sortedYs) {
-      const candidate = { dx, dy }
-      if (dx * dx + dy * dy > best.dx * best.dx + best.dy * best.dy) break
-      if (!better(candidate, best)) continue
-      if (isClear(moving, near, candidate, gap)) best = candidate
+    const nearby = obstacles.map((other) => other.x < box.right && box.x < other.x + other.w && other.y < box.bottom && box.y < other.y + other.h)
+    const near = obstacles.filter((_, index) => nearby[index])
+    inReach = (index) => nearby[index]!
+
+    const xs: number[] = [0]
+    const ys: number[] = [0]
+    for (const rect of moving) {
+      for (const other of near) {
+        xs.push(other.x - gap - rect.w - rect.x, other.x + other.w + gap - rect.x)
+        ys.push(other.y - gap - rect.h - rect.y, other.y + other.h + gap - rect.y)
+      }
     }
+    const sortedXs = byDistance(xs)
+    const sortedYs = byDistance(ys)
+    // For one x candidate, the y candidates on each side of zero come in the order of `better`:
+    // 0 and up (UP), and down from 0 (DOWN).
+    const sides = [sortedYs.filter((dy) => dy >= 0), sortedYs.filter((dy) => dy < 0)]
+    const UP = 0
+    const DOWN = 1
+    // One entry per x candidate and side: the index of its next y candidate on that side. The
+    // heap's top is the next pair in the order of `better`.
+    const heapX = new Int32Array(2 * sortedXs.length)
+    const heapSide = new Uint8Array(2 * sortedXs.length)
+    const heapY = new Int32Array(2 * sortedXs.length)
+    let size = 0
+    for (const side of [UP, DOWN]) {
+      if (sides[side]!.length === 0) continue
+      for (let index = 0; index < sortedXs.length; index += 1) {
+        heapX[size] = index
+        heapSide[size] = side
+        size += 1
+      }
+    }
+    const dyOf = (entry: number): number => sides[heapSide[entry]!]![heapY[entry]!]!
+    const before = (a: number, b: number): boolean => comesFirst(sortedXs[heapX[a]!]!, dyOf(a), sortedXs[heapX[b]!]!, dyOf(b))
+    const swap = (a: number, b: number): void => {
+      const x = heapX[a]!
+      const side = heapSide[a]!
+      const y = heapY[a]!
+      heapX[a] = heapX[b]!
+      heapSide[a] = heapSide[b]!
+      heapY[a] = heapY[b]!
+      heapX[b] = x
+      heapSide[b] = side
+      heapY[b] = y
+    }
+    const down = (from: number): void => {
+      let at = from
+      for (;;) {
+        const left = 2 * at + 1
+        const right = left + 1
+        let first = at
+        if (left < size && before(left, first)) first = left
+        if (right < size && before(right, first)) first = right
+        if (first === at) return
+        swap(at, first)
+        at = first
+      }
+    }
+    for (let index = (size >> 1) - 1; index >= 0; index -= 1) down(index)
+    while (size > 0) {
+      const candidate = { dx: sortedXs[heapX[0]!]!, dy: dyOf(0) }
+      // Every pair from here on comes after the always clear shift.
+      if (!better(candidate, always)) return always
+      if (clearAt(candidate.dx, candidate.dy)) return candidate
+      // With the same dx, the obstacle that stopped this pair keeps crowding the same rectangle
+      // further along this side for as long as the rectangle has not passed it on y: the test is
+      // the one `crowds` makes on y, so those pairs are not clear either and are skipped.
+      const rect = moving[stoppedRect]!
+      const other = obstacles[stoppedBy]!
+      const side = sides[heapSide[0]!]!
+      const crowding =
+        heapSide[0] === UP ? (dy: number) => rect.y + dy < other.y + other.h + gap - EPSILON : (dy: number) => other.y < rect.y + dy + rect.h + gap - EPSILON
+      let low = heapY[0]! + 1
+      let high = side.length
+      while (low < high) {
+        const middle = (low + high) >> 1
+        if (crowding(side[middle]!)) low = middle + 1
+        else high = middle
+      }
+      if (low < side.length) heapY[0] = low
+      else {
+        size -= 1
+        heapX[0] = heapX[size]!
+        heapSide[0] = heapSide[size]!
+        heapY[0] = heapY[size]!
+      }
+      down(0)
+    }
+    return always
   }
-  return best
 }
 
 /** The nearest place for `rect` where it keeps the gap from every rectangle of `obstacles`. */

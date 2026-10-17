@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
 import { buildVersion } from './scripts/build-version'
+import { useDevBundle } from './scripts/dev-bundle'
 import { removeTree } from './src/main/storage/remove'
 
 /**
@@ -50,19 +51,24 @@ function bundleHarness(): Plugin {
   }
 }
 
-export default defineConfig({
-  main: {
-    plugins: [bundleHarness()],
-  },
-  preload: {
-    build: {
-      rollupOptions: {
-        // A sandboxed preload cannot be an ES module: emit CommonJS.
-        output: { format: 'cjs', entryFileNames: '[name].cjs' },
+export default defineConfig(({ command }) => {
+  // `pnpm dev` on macOS runs Electron from a bundle with worfy's name and icon, so its notifications
+  // are worfy's, not Electron's (scripts/dev-bundle.ts). A build, and every e2e run, keeps Electron.app.
+  if (command === 'serve') useDevBundle()
+  return {
+    main: {
+      plugins: [bundleHarness()],
+    },
+    preload: {
+      build: {
+        rollupOptions: {
+          // A sandboxed preload cannot be an ES module: emit CommonJS.
+          output: { format: 'cjs', entryFileNames: '[name].cjs' },
+        },
       },
     },
-  },
-  renderer: {
-    plugins: [react()],
-  },
+    renderer: {
+      plugins: [react()],
+    },
+  }
 })

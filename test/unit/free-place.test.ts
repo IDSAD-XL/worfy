@@ -132,6 +132,150 @@ describe('freeShift of a group', () => {
   })
 })
 
+/**
+ * freeShift as it was before worfy-week ticket 14, kept word for word as the reference the faster
+ * search must agree with; `count` gets every rectangle pair it compared.
+ */
+function previousFreeShift(moving: readonly Rect[], obstacles: readonly Rect[], gap: number = NODE_GAP, count: (pairs: number) => void = () => {}): Shift {
+  let pairs = 0
+  const clear = (rects: readonly Rect[], others: readonly Rect[], shift: Shift): boolean => {
+    for (const rect of rects) {
+      const at = { x: rect.x + shift.dx, y: rect.y + shift.dy, w: rect.w, h: rect.h }
+      for (const other of others) {
+        pairs += 1
+        if (crowds(at, other, gap)) return false
+      }
+    }
+    return true
+  }
+  const better = (a: Shift, b: Shift): boolean => {
+    const da = a.dx * a.dx + a.dy * a.dy
+    const db = b.dx * b.dx + b.dy * b.dy
+    if (da !== db) return da < db
+    if (Math.abs(a.dy) !== Math.abs(b.dy)) return Math.abs(a.dy) < Math.abs(b.dy)
+    if (a.dx !== b.dx) return a.dx > b.dx
+    return a.dy > b.dy
+  }
+  const byDistance = (values: Iterable<number>): number[] => [...new Set(values)].sort((a, b) => Math.abs(a) - Math.abs(b) || b - a)
+  const run = (): Shift => {
+    const none = { dx: 0, dy: 0 }
+    if (moving.length === 0 || obstacles.length === 0 || clear(moving, obstacles, none)) return none
+    const left = Math.min(...moving.map((rect) => rect.x))
+    const rightmost = Math.max(...obstacles.map((other) => other.x + other.w))
+    let best: Shift = { dx: rightmost + gap - left, dy: 0 }
+    const reach = best.dx
+    const box = {
+      x: Math.min(...moving.map((rect) => rect.x)) - reach - gap,
+      y: Math.min(...moving.map((rect) => rect.y)) - reach - gap,
+      right: Math.max(...moving.map((rect) => rect.x + rect.w)) + reach + gap,
+      bottom: Math.max(...moving.map((rect) => rect.y + rect.h)) + reach + gap,
+    }
+    const near = obstacles.filter((other) => other.x < box.right && box.x < other.x + other.w && other.y < box.bottom && box.y < other.y + other.h)
+    const xs: number[] = [0]
+    const ys: number[] = [0]
+    for (const rect of moving) {
+      for (const other of near) {
+        xs.push(other.x - gap - rect.w - rect.x, other.x + other.w + gap - rect.x)
+        ys.push(other.y - gap - rect.h - rect.y, other.y + other.h + gap - rect.y)
+      }
+    }
+    const sortedYs = byDistance(ys)
+    for (const dx of byDistance(xs)) {
+      const bestDistance = best.dx * best.dx + best.dy * best.dy
+      if (dx * dx > bestDistance) break
+      for (const dy of sortedYs) {
+        const candidate = { dx, dy }
+        if (dx * dx + dy * dy > best.dx * best.dx + best.dy * best.dy) break
+        if (!better(candidate, best)) continue
+        if (clear(moving, near, candidate)) best = candidate
+      }
+    }
+    return best
+  }
+  const shift = run()
+  count(pairs)
+  return shift
+}
+
+/**
+ * The Canvas of the ticket's measurement: `count` Nodes in 20 columns 360 × 280 apart, each moved
+ * up to 20 off its place, every other one a Card 300 × 220 and the rest Notes 220 × 120.
+ */
+function scatteredGrid(next: () => number, count = 250, columns = 20, round = true): Rect[] {
+  const off = () => {
+    const value = (next() * 2 - 1) * 20
+    return round ? Math.round(value) : value
+  }
+  return Array.from({ length: count }, (_, index) => {
+    const card = index % 2 === 0
+    return { x: (index % columns) * 360 + off(), y: Math.floor(index / columns) * 280 + off(), w: card ? 300 : 220, h: card ? 220 : 120 }
+  })
+}
+
+/** `size` selected Notes in rows of `perRow`, NODE_GAP apart, the first at (x, y). */
+const noteGroup = (size: number, x: number, y: number, perRow = 5): Rect[] =>
+  Array.from({ length: size }, (_, index) => ({ x: x + (index % perRow) * (220 + NODE_GAP), y: y + Math.floor(index / perRow) * (120 + NODE_GAP), w: 220, h: 120 }))
+
+/** The 120 places of a group dragged along a sine wave across the grid of scatteredGrid, over its fourth row. */
+const sineWave = (): { x: number; y: number }[] =>
+  Array.from({ length: 120 }, (_, step) => ({ x: Math.round((step / 119) * 20 * 360) - 600, y: Math.round(3 * 280 + 140 * Math.sin((step / 119) * 4 * Math.PI)) }))
+
+/**
+ * Rectangle pairs the search before ticket 14 compared for a group of 10 Notes along sineWave on
+ * scatteredGrid(random(7)), measured with previousFreeShift on main at 501e92a (free-place.ts as at 3bf0abb).
+ */
+const PREVIOUS_PAIR_CHECKS = 2_049_070_418
+
+describe('freeShift against the search before ticket 14', () => {
+  it('gives the same shift on 1000 random layouts: groups of 1–20 Notes, a Card, an Epic frame over a scattered grid', () => {
+    const next = random(2026)
+    for (let round = 0; round < 1000; round += 1) {
+      const columns = 4 + Math.floor(next() * 17)
+      // Up to 120 Nodes, and every 25th layout the full 250: the search before took 20 s over 1000 layouts of 250.
+      const count = round % 25 === 0 ? 250 : 10 + Math.floor(next() * 111)
+      const obstacles = scatteredGrid(next, count, columns, round % 4 !== 3)
+      // Every 20th layout also has Epic frames over many grid cells and one Node far left on the
+      // plane, which makes the grid index of freeShift take larger cells.
+      if (round % 20 === 5) {
+        const spot = () => ({ x: Math.round(next() * columns * 360), y: Math.round(next() * Math.ceil(count / columns) * 280) })
+        obstacles.push({ ...spot(), w: 1200, h: 900 }, { ...spot(), w: 3000, h: 1400 }, { x: -10_000_000, y: spot().y, w: 220, h: 120 })
+      }
+      const pick = next()
+      const x = Math.round(-400 + next() * (columns * 360 + 800))
+      const y = Math.round(-400 + next() * (Math.ceil(obstacles.length / columns) * 280 + 800))
+      const moving =
+        pick < 0.7
+          ? noteGroup(1 + Math.floor(next() * 20), x, y, 1 + Math.floor(next() * 5))
+          : pick < 0.85
+            ? [{ x, y, w: 300, h: 220 }]
+            : [{ x, y, w: 1200, h: 900 }]
+      const gap = round % 20 === 19 ? 0 : NODE_GAP
+      const expected = previousFreeShift(moving, obstacles, gap)
+      const shift = freeShift(moving, obstacles, gap)
+      expect(shift, `round ${round}`).toEqual(expected)
+      // To the bit: toEqual alone would take 0 for -0.
+      expect([Object.is(shift.dx, expected.dx), Object.is(shift.dy, expected.dy)], `round ${round}`).toEqual([true, true])
+      expect(isClear(moving, obstacles, shift, gap), `round ${round}`).toBe(true)
+    }
+  }, 120_000)
+
+  it('compares at least 10 times fewer rectangle pairs for a group of 10 Notes dragged along a sine wave over 250 Nodes', () => {
+    const obstacles = scatteredGrid(random(7))
+    let previous = 0
+    let now = 0
+    for (const place of sineWave()) {
+      const group = noteGroup(10, place.x, place.y)
+      const expected = previousFreeShift(group, obstacles, NODE_GAP, (pairs) => (previous += pairs))
+      expect(freeShift(group, obstacles, NODE_GAP, (pairs) => (now += pairs))).toEqual(expected)
+    }
+    expect(previous).toBe(PREVIOUS_PAIR_CHECKS)
+    // The search reports what it compared; none at all would mean the count is not wired.
+    expect(now).toBeGreaterThan(0)
+    expect(now * 10).toBeLessThanOrEqual(previous)
+    // The reference search alone takes about 10 s here.
+  }, 120_000)
+})
+
 describe('stopResize', () => {
   const neighbour = { x: 500, y: 0, w: 200, h: 200 }
 

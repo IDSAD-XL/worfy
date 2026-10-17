@@ -138,8 +138,13 @@ function standInApp(dir: string): string {
   return app
 }
 
+/**
+ * Runs a script over a stand-in app. Its registration with Launch Services (install-stable on macOS)
+ * runs /usr/bin/true instead of lsregister: the stand-in is no app, and every `pnpm test:e2e` would
+ * otherwise leave a record of a deleted temporary copy in the Launch Services of the Mac.
+ */
 function runScript(script: string, args: string[], env: Record<string, string>): ReturnType<typeof spawnSync> & { stdout: string; stderr: string } {
-  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, ...env } })
+  return spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env: { ...process.env, WORFY_STABLE_LSREGISTER: '/usr/bin/true', ...env } })
 }
 
 const readJson = (path: string): Record<string, unknown> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>

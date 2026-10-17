@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, metadataPath, notACopy, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
+import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -211,6 +211,25 @@ describe('what the script replaces and writes', () => {
   it('writes a time in UTC to the second, as the metadata file always had it', () => {
     expect(stamp(Date.UTC(2026, 9, 10, 18, 5, 9, 987))).toBe('2026-10-10T18:05:09Z')
     expect(stamp(0)).toBe('1970-01-01T00:00:00Z')
+  })
+})
+
+describe('the registration of the copy with Launch Services', () => {
+  const target = '/Users/dev/Applications/worfy-stable.app'
+
+  it('on macOS is `lsregister -f <copy>`, so Notification Center takes the icon of the copy just installed', () => {
+    expect(registerCommand('darwin', target, {})).toEqual({ command: LSREGISTER, args: ['-f', target] })
+    expect(LSREGISTER).toBe('/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister')
+  })
+
+  it('runs the program WORFY_STABLE_LSREGISTER names instead, and the tool when the variable is empty', () => {
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toEqual({ command: '/tmp/stand-in', args: ['-f', target] })
+    expect(registerCommand('darwin', target, { WORFY_STABLE_LSREGISTER: '' })).toEqual({ command: LSREGISTER, args: ['-f', target] })
+  })
+
+  it('is no step on Windows and Linux, which have no Launch Services', () => {
+    expect(registerCommand('win32', 'C:\\Users\\dev\\AppData\\Local\\worfy-stable', { WORFY_STABLE_LSREGISTER: '/tmp/stand-in' })).toBeNull()
+    expect(registerCommand('linux', '/home/dev/worfy-stable.app', {})).toBeNull()
   })
 })
 
