@@ -1,8 +1,9 @@
 # 30 — Contract test-ы с timeout-ом под нагрузкой краснят gate full чужих PR: постоянные stub-ы вместо новых исполняемых файлов
 
 Type: task
-Status: blocked 2026-10-17T22:21Z
-Blocked reason: замер под нагрузкой после #401: пять файлов Ticket-а — 0 красных в 12 прогонах, но --project contract — 5 красных из 12 от wave-gate.test.sh (предел 120 s в harness-scripts.test.ts); нужен новый Ticket и повтор замера
+Status: blocked 2026-10-17T22:29Z
+Blocked reason: ждёт worfy-polish 32: wave-gate.test.sh под нагрузкой дольше предела 120 s в harness-scripts.test.ts (5 красных из 12 в замере после #401); после 32 — повтор замера
+Waits: agent
 Branch: worfy-polish/30
 Blocked by: —
 Source: решение владельца 2026-10-16 — открыть Ticket и поставить первым в следующую Wave; «Итог»
@@ -253,8 +254,9 @@ Autopilot на машине не было. Load — `vm.loadavg` в конце �
 ### Что не сделано
 
 - **Замер «после — 0 красных» не выполнен:** 5 красных из 12, причина — `wave-gate.test.sh` против
-  предела 120 s в `harness-scripts.test.ts`, вне следа Ticket-а. Нужен новый Ticket (ускорить
-  `wave-gate.test.sh` или разбить его) и повтор замера после него. Пока его нет, Ticket — `blocked`.
+  предела 120 s в `harness-scripts.test.ts`, вне следа Ticket-а. Лечение — Ticket
+  [32](32-wave-gate-test-sh-дольше-предела-harness-scripts-под-нагрузкой.md), после него — повтор замера.
+  До тех пор Ticket — `blocked`.
 - Мутант «stub в каждом test-е» выжил (раздел 5): test-ы Ticket-а его не ловят ни без нагрузки, ни под ней.
 
 Команды замера. «До» — в worktree на `origin/main` до merge-а этого PR (`git worktree add --detach
