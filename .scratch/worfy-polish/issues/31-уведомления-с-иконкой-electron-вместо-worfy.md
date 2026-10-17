@@ -40,9 +40,10 @@ grilling-а о Pipeline; [worfy-daily 31](../../worfy-daily/issues/31-иконк
 - `tsconfig.node.json`, `tsconfig.test.node.json` — `scripts/dev-bundle.ts` в списке файлов.
 - `scripts/install-stable.mjs` — после установки регистрирует копию в Launch Services.
 - `src/main/notify.ts`, `src/main/dock-icon.ts` — только комментарии.
-- `test/unit/dev-bundle.test.ts` (новый), `test/unit/e2e-notifications.test.ts` (новый),
-  `test/unit/install-stable.test.ts`, `test/unit/install-stable-functions.test.ts`,
-  `test/unit/install-stable-harness.ts`.
+- `test/unit/dev-bundle.test.ts` (новый), `test/unit/dev-bundle-config.test.ts` (новый),
+  `test/unit/e2e-notifications.test.ts` (новый), `test/unit/install-stable.test.ts`,
+  `test/unit/install-stable-functions.test.ts`, `test/unit/install-stable-harness.ts`.
+- `test/e2e/packaged.spec.ts` — `runScript` ставит `WORFY_STABLE_LSREGISTER=/usr/bin/true`.
 
 Только читать: `src/main/quiet-windows.ts`, `playwright.config.ts`, `test/e2e/linked-notify.spec.ts`.
 
@@ -95,8 +96,11 @@ Stable copy — только через кэш Notification Center.
 и кэши иконок, которые узнают bundle по времени, читают иконку новой копии без ручных шагов после
 `pnpm install:stable`. Отказ `lsregister` — строка-предупреждение, установка не падает. Программу
 можно подменить переменной `WORFY_STABLE_LSREGISTER` — её ставят unit test-ы: их stand-in build не
-app, и test не меняет базу Launch Services машины. `test/e2e/packaged.spec.ts` (gate full) зовёт
-настоящий `lsregister` на своей временной копии — как её запуск и так её регистрирует.
+app, и test не меняет базу Launch Services машины. Блок `test/e2e/packaged.spec.ts` со stand-in app
+(он идёт в каждом `pnpm test:e2e` на Mac) тоже ставит `WORFY_STABLE_LSREGISTER=/usr/bin/true` в
+`runScript`: иначе каждый прогон оставлял бы в Launch Services запись удалённой временной копии.
+Блоки `@packaged` (`install()`, gate full) регистрируют настоящую собранную копию — её запуск в
+них и так её регистрирует.
 
 Это **платформенный PR** (ADR-0056, packaging): merge ждёт Windows-ПК. На Windows и Linux шаг не
 выполняется (`registerCommand` → `null`).
@@ -157,13 +161,21 @@ app, и test не меняет базу Launch Services машины. `test/e2e/
   `WORFY_STABLE_LSREGISTER` вместо него, на Windows и Linux — нет шага.
 - `test/unit/install-stable.test.ts` (macOS): каждая установка регистрирует копию со временем
   установки; отказ Launch Services — строка в выводе, копия и `worfy-stable.json` на месте.
-- `test/unit/e2e-notifications.test.ts` (новый, 3).
+- `test/unit/dev-bundle-config.test.ts` (новый, 2): `electron.vite.config.ts` зовёт dev bundle
+  только для `serve`, build — нет (recorder вместо `useDevBundle`); в `dev-bundle.test.ts` — тот же
+  config без подмены off macOS (на Linux CI): `ELECTRON_EXEC_PATH` не ставится ни для `serve`, ни
+  для `build`.
+- `test/unit/e2e-notifications.test.ts` (новый, 4): spec, который выключает тихие окна любым
+  написанием (`'0'`, `''`, другое слово, переменная, `delete`), обязан подменять
+  `Notification.prototype.show`; отдельный test — таблица написаний.
 
 Мутанты (на копиях в scratchpad, восстановлены, `cmp`): `install-stable.mjs` — без вызова
 `lsregister`, без `utimesSync`, шаг на Linux — красные 2, 1, 1 test-а; `dev-bundle.ts` — без
 сравнения иконки, без регистрации, bundle на Linux, без `CFBundleIdentifier`, перезапись заданного
 `ELECTRON_EXEC_PATH`, без удаления недоделанной копии, `undefined` в переменной — красные все;
-`playwright.config.ts` с `??= '0'` — красный 1.
+`playwright.config.ts` с `??= '0'` — красный 1; `electron.vite.config.ts` с `|| command === 'build'`,
+без условия, с `'build'` вместо `'serve'` — красные 1, 1, 2; лишний spec с
+`WORFY_QUIET_WINDOWS: 'off'` без подмены — красный 1.
 
 ### Что не проверено
 

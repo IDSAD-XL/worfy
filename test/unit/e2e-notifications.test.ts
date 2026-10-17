@@ -25,6 +25,17 @@ const loadConfig = async (): Promise<void> => {
   await import(`${pathToFileURL(join(REPO, 'playwright.config.ts')).href}?t=${Date.now()}`)
 }
 
+/**
+ * Whether a file of test/e2e turns quiet windows off: it deletes WORFY_QUIET_WINDOWS, or gives it
+ * any value but the literal '1' — '0', '', another word, a variable. Comments are left out.
+ */
+function turnsQuietOff(text: string): boolean {
+  const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  if (/delete\s+process\.env(\.WORFY_QUIET_WINDOWS|\[\s*['"`]WORFY_QUIET_WINDOWS['"`]\s*\])/.test(code)) return true
+  const values = [...code.matchAll(/WORFY_QUIET_WINDOWS['"`]?\s*\]?\s*(?:\?\?=|=|:)\s*([^,;}\n]+)/g)].map((match) => (match[1] ?? '').trim())
+  return values.some((value) => !/^(['"`])1\1$/.test(value))
+}
+
 describe('system notifications in an e2e run', () => {
   it('are off: the config of the run turns quiet windows on, and quiet windows show no system notification', async () => {
     delete process.env.WORFY_QUIET_WINDOWS
@@ -39,12 +50,28 @@ describe('system notifications in an e2e run', () => {
     expect(process.env.WORFY_QUIET_WINDOWS).toBe('0')
   })
 
-  it('a spec that turns quiet windows off replaces Notification.prototype.show itself', () => {
+  it('a spec that turns quiet windows off, by any spelling, replaces Notification.prototype.show itself', () => {
     const dir = join(REPO, 'test', 'e2e')
-    const loud = readdirSync(dir)
-      .filter((name) => name.endsWith('.spec.ts'))
-      .filter((name) => /WORFY_QUIET_WINDOWS: '0'/.test(readFileSync(join(dir, name), 'utf8')))
+    const files = readdirSync(dir, { recursive: true, encoding: 'utf8' }).filter((name) => name.endsWith('.ts'))
+    const loud = files.filter((name) => turnsQuietOff(readFileSync(join(dir, name), 'utf8')))
     expect(loud).toContain('linked-notify.spec.ts')
     for (const name of loud) expect(readFileSync(join(dir, name), 'utf8'), name).toContain('Notification.prototype.show = function show')
+  })
+
+  it('takes every spelling that is not quiet mode for turning it off', () => {
+    for (const text of [
+      "const NORMAL = { WORFY_QUIET_WINDOWS: '0' }",
+      'env: { WORFY_QUIET_WINDOWS: "" }',
+      "process.env.WORFY_QUIET_WINDOWS = 'no'",
+      "process.env['WORFY_QUIET_WINDOWS'] = '0'",
+      "{ ['WORFY_QUIET_WINDOWS']: off }",
+      'delete process.env.WORFY_QUIET_WINDOWS',
+      "{ WORFY_QUIET_WINDOWS: undefined }",
+    ]) {
+      expect(turnsQuietOff(text), text).toBe(true)
+    }
+    for (const text of ["const QUIET = { WORFY_QUIET_WINDOWS: '1' }", 'process.env.WORFY_QUIET_WINDOWS = "1"', '// WORFY_QUIET_WINDOWS=0 in a comment', 'no mention at all']) {
+      expect(turnsQuietOff(text), text).toBe(false)
+    }
   })
 })

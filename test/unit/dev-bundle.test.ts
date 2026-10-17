@@ -243,3 +243,22 @@ describe('the dev bundle in node_modules/.cache', () => {
     })
   })
 })
+
+// The real config, not a stand-in: off macOS `pnpm dev` (serve) runs Electron as it is, so the
+// variable stays unset (CI runs this on Linux). On macOS the same call would make the bundle in this
+// repository; test/unit/dev-bundle-config.test.ts covers the command there with a recorder.
+describe.runIf(process.platform !== 'darwin')('electron.vite.config.ts off macOS', () => {
+  it('leaves ELECTRON_EXEC_PATH unset for serve and for build', async () => {
+    const before = process.env.ELECTRON_EXEC_PATH
+    delete process.env.ELECTRON_EXEC_PATH
+    try {
+      // Loaded by path: electron.vite.config.ts belongs to tsconfig.node.json, not to the test project.
+      const { default: config } = (await import(join(REPO, 'electron.vite.config.ts'))) as { default: (env: { command: 'build' | 'serve'; mode: string }) => unknown }
+      config({ command: 'serve', mode: 'development' })
+      config({ command: 'build', mode: 'production' })
+      expect('ELECTRON_EXEC_PATH' in process.env).toBe(false)
+    } finally {
+      if (before !== undefined) process.env.ELECTRON_EXEC_PATH = before
+    }
+  })
+})
