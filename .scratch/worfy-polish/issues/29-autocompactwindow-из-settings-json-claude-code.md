@@ -1,7 +1,7 @@
 # 29 — `autoCompactWindow` из `~/.claude/settings.json` главнее значений worfy по умолчанию
 
 Type: task
-Status: claimed — 2026-10-17
+Status: done — 2026-10-17, [PR #424](https://github.com/IDSAD-XL/worfy/pull/424)
 Branch: worfy-polish/29
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») — follow-up Ticket-а
@@ -126,7 +126,9 @@ Session worfy после перезапуска не действует, пок�
 - **Решено без владельца, подтвердить:** (1) отдельного пункта «вернуться к значению по умолчанию» в
   Select нет: при окне в `settings.json` «Claude Code default» действует так же; (2) `settings.json`
   читается при открытии раздела, правка файла при открытом разделе видна после повторного открытия
-  (`shortcut:` в `SessionsSection.tsx`); (3) подписи источника — английские, как названия действий.
+  (`shortcut:` в `SessionsSection.tsx`); (3) подписи источника — английские, как названия действий; (4) источник для строки
+  Settings считает renderer той же функцией `autoCompactWindowSource`, а не получает его из main:
+  так строка меняется сразу после выбора.
 - **Изменения test-ов Ticket-а 24:** ожидания не менялись. Изменена подготовка в `beforeEach`
   `test/contract/agent-autocompact.test.ts`: раньше она возвращала store к 400K / 500K явной записью,
   теперь — значением `'worfy-default'`, иначе явная запись стала бы выбором человека. С прежней
@@ -153,3 +155,8 @@ Session worfy после перезапуска не действует, пок�
   [тёмная](../evidence/29-sessions-custom-dark.png).
 - `test/e2e/settings-sessions.spec.ts` (Ticket 24) зелёный без правки: 2 из 2, exit 0.
 - **Не проверено:** порог на настоящем Claude Code — пункт «(вручную)», шаг владельца.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/424#issuecomment-6229686497)); gate full на Mac
+зелёный, merge `21dfc5d1`. Находка low — отступление (4) не было в списке «Решено без владельца» —
+перенесена туда этим документным PR.

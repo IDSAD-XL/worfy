@@ -1,7 +1,7 @@
 # 27 — Разбить `src/main/agent/session.ts` на связные модули, без изменения поведения
 
 Type: task
-Status: claimed — 2026-10-17
+Status: done — 2026-10-17, [PR #422](https://github.com/IDSAD-XL/worfy/pull/422)
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») по долгу из `HANDOFF.md` («Сейчас в работе»,
 `worfy-week`: «долг: `src/main/agent/session.ts` 1077 строк»); файл перерос 1000 строк в
@@ -112,3 +112,7 @@ Source: решение владельца 2026-10-16 («со всем согла
 - Для Ticket-а 29 (порядок `autoCompactWindow`): окно автокомпакта выбирает `app-registry.ts` по
   `QueryRequest.orchestrator`; поле объявлено в `session/types.ts`, заполняется в `Session.begin()`
   (`session.ts`). Имена не менялись.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED` без находок
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/422#issuecomment-6229565623)); gate full на Mac
+зелёный, merge `8bf48ed2`.
