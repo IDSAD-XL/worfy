@@ -1,7 +1,7 @@
 # 28 — Заголовки Command palette — не больше 3 строк, полный текст в tooltip только у обрезанных строк
 
 Type: task
-Status: claimed — 2026-10-17
+Status: done — 2026-10-17, [PR #423](https://github.com/IDSAD-XL/worfy/pull/423)
 Branch: worfy-polish/28
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен») — follow-up Ticket-а
@@ -106,3 +106,9 @@ Source: решение владельца 2026-10-16 («со всем согла
   `title` снова нет. Системный tooltip `title` на снимке страницы не рисуется: на снимке курсор над
   длинной проверкой, сам tooltip подтверждён атрибутом. Spec снимков — в scratchpad, в репозиторий не
   входит.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/423#issuecomment-6229683582)); gate full на Mac
+зелёный, merge `2e805e06`. Долг (low, не блокирует): пересчёт `useCut` при смене текста без смены
+ширины не покрыт test-ом — мутант с `[]` вместо `[text, wrapped]` (`CommandPalette.tsx:180`) зелёный;
+`ResizeObserver.disconnect` при unmount (`:179`) тоже без test-а.
