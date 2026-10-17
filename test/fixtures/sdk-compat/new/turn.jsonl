@@ -1,0 +1,4 @@
+{"type": "system", "subtype": "init", "session_id": "s-1", "model": "claude-sonnet-5", "permissionMode": "default", "apiKeySource": "none", "claude_code_version": "2.1.300", "slash_commands": ["compact"], "fast_mode": false}
+{"type": "assistant", "message": {"id": "msg_1", "type": "message", "model": "claude-sonnet-5", "content": [{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "README.md"}}]}, "parent_tool_use_id": null, "session_id": "s-1"}
+{"type": "system", "subtype": "session_state_changed", "state": "idle", "session_id": "s-1"}
+{"type": "result", "subtype": "success", "is_error": false, "result": "done", "num_turns": "1", "modelUsage": {"claude-sonnet-5": {"inputTokens": 12, "costUSD": 0.02}}, "session_id": "s-1"}

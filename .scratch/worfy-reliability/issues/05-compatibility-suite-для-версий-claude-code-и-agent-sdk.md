@@ -1,7 +1,8 @@
 # 05 — Compatibility suite: worfy против версий Claude Code и Agent SDK
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T08:56Z
+Branch: worfy-reliability/05
 Blocked by: —
 Source: решение владельца 2026-10-16 («со всем согласен»): идея P0 из draft
 [PR #325](https://github.com/IDSAD-XL/worfy/pull/325), раздел «A. P0 candidate: Claude runtime compatibility
@@ -91,4 +92,71 @@ and fail-closed regression tests» (`docs/research/2026-10-15-frontier-ai-runtim
 
 ## Итог
 
-—
+Сделано 2026-10-17, ветка `worfy-reliability/05`.
+
+- **Манифест версии** — файл `test/fixtures/sdk-messages/manifest.json` (`sdk` 0.3.289, `claudeCode`
+  2.1.289, `queryMethods` — 30 методов `Query` из `sdk.d.ts`, каждый одной строкой объявления), строка
+  о нём — в `README.md` той же папки. Пишет его `node scripts/sdk-compat.mjs manifest`.
+  `test/contract/sdk-compat.test.ts`, describe «the pinned SDK and its captured messages»: версия в
+  `package.json` равна `sdk`; установленный пакет (версия, `claudeCodeVersion`, методы `Query`) равен
+  манифесту; `claude_code_version` каждого `system/init` снятых сообщений — `claudeCode`.
+- **Формы fake SDK** — describe «the fake agent plays only shapes the real SDK sent»: форма сообщения —
+  вид (`type/subtype`), каждый путь ключей и JSON-тип на нём (`scripts/sdk-compat.mjs`, `shapeOf`).
+  Проверяются все сообщения сценариев `test/fixtures/agent-scripts/` и сообщения, которые fake
+  агент строит сам по строке `permission` (`tool_use` и `tool_result`, разрешение и отказ: настоящий
+  `fakeQueryFactory` на `test/fixtures/sdk-compat/fake-scripts/permission.jsonl`). Проверка строже,
+  чем «ключи, которые читает перевод»: сверяются все ключи сообщения, не только прочитанные
+  `events.ts`, — так ловится и выдуманный ключ, которого перевод не читает. Не сверяется содержимое
+  `input` у `tool_use` (ключи инструмента, не SDK) и `structured_output` (форма, которую попросил
+  вызывающий); ключи `modelUsage` и `wire_tool_inputs` — данные (`*`). Исключения — `EXCEPTIONS` в
+  test-е, у каждого причина и ссылка через `satisfies` на объявление SDK 0.3.289: `system/compact_boundary`,
+  `system/task_progress`, `task_started.subagent_type` и `spawn_depth`, `task_notification.usage`,
+  `result/success.structured_output`, `assistant.parent_tool_use_id` строкой (Subagent-ов и
+  compaction в снятых сообщениях нет). Отдельный test падает, если исключение больше не нужно.
+- **Методы `Query`** — describe «the SDK Query against worfy’s QueryHandle»:
+  `expectTypeOf<Pick<Query, keyof QueryHandle>>().toExtend<Required<QueryHandle>>()` — `pnpm typecheck`
+  (проект `tsconfig.test.node.json`). `src/` не тронут. `QueryHandle` теперь в
+  `src/main/agent/session/types.ts` (worfy-polish 27 разделил `session.ts`).
+- **Сравнение N и N+1** — `scripts/sdk-compat.mjs diff <старая> <новая>`: новые и пропавшие виды
+  сообщений, ключи и их типы (только у видов, которые есть в обеих папках), методы `Query` и версии
+  из манифестов. Код 0 — разницы нет, 1 — есть, 2 — папку не прочесть. Unit test
+  `test/unit/sdk-compat-diff.test.ts` на `test/fixtures/sdk-compat/old` и `new`.
+
+Пример вывода (`node scripts/sdk-compat.mjs diff test/fixtures/sdk-compat/old test/fixtures/sdk-compat/new`, код 1):
+
+```text
+SDK 0.3.289 -> 0.3.300, Claude Code 2.1.289 -> 2.1.300
+message kinds:
+  + system/session_state_changed
+  - system/hook_started
+keys (kinds both captures have):
+  result/success
+    ~ num_turns: number -> string
+  system/init
+    + fast_mode: boolean
+    - output_style: string
+Query methods:
+  + stopTask(taskId: string): Promise<void>;
+  - setMaxThinkingTokens(maxThinkingTokens: number | null): Promise<void>;
+  ~ setModel(model?: string): Promise<void>;
+    setModel(model: string): Promise<void>;
+```
+
+Мутанты (каждый откатан из копии):
+
+| Мутант | Результат |
+| --- | --- |
+| `claudeCode` манифеста 2.1.299 | красные 2 test-а: установленный пакет и `system/init` |
+| `sdk` манифеста 0.3.300 | красные 2 test-а: `package.json` и установленный пакет |
+| `turn.jsonl:2` с ключом `invented_key` | красный: `turn.jsonl:2: system/init invented_key — no captured system/init has this key` |
+| `QueryHandle.setModel(model?: number)` | `tsc` exit 2, в том числе `sdk-compat.test.ts(263)` |
+| у `QueryHandle` метод `rewindAll()`, которого нет в SDK | `tsc` exit 2: `keyof QueryHandle` does not satisfy `keyof Query` |
+| в test-е `Query` без `getContextUsage` / с другим `setPermissionMode` (как у нового SDK) | `tsc` exit 2 на строке 263 |
+| `shapeOf` без `*` для ключей-данных | красные 3 unit test-а |
+
+Ни одного запуска настоящего Claude Code или SDK: test-ы и скрипт читают файлы.
+
+Урок (`docs/lessons/agents.md`, про обновление SDK) — Ticket 07 ещё не влит, поэтому строка здесь:
+`Проверка: test/contract/sdk-compat.test.ts — версия SDK в package.json, установленный пакет и
+claude_code_version снятых сообщений сверяются с test/fixtures/sdk-messages/manifest.json; формы
+старой и новой версии — node scripts/sdk-compat.mjs diff.`
