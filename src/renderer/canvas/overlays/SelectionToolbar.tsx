@@ -11,12 +11,17 @@
 // The toolbar stands above the selection unless there it would cover an Epic frame's header or
 // its column labels (a Ticket of the frame's top row); then it goes below the selection, under the
 // Focus button (FocusEntry.tsx), which holds the place right below it.
+//
+// On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) every button here
+// that would change the Layout stays on screen, inactive, with the read-only hint as its tooltip
+// (projects/read-only.ts). The keys stop where they send: history.ts and deleteToTrash.
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react'
 import { useNodes, useReactFlow, useStore, useStoreApi, ViewportPortal, type ReactFlowState } from '@xyflow/react'
 import { create } from 'zustand'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { SHORTCUTS } from '../../../shared/shortcuts'
-import { activeProject, useProjects } from '../../projects/useProjects'
+import { writeAction } from '../../projects/read-only'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { isTextTarget, matches } from '../../shortcuts/match'
 import { deletableNodes, deleteToTrash, grouped, historyOf } from '../history'
 import type { CanvasFlowNode } from '../nodes'
@@ -111,22 +116,21 @@ export function PinSection({ nodes }: SelectionSectionProps) {
   const ops = useLayoutOps()
   const flow = useReactFlow()
   const store = useStoreApi()
+  const readOnly = useReadOnly()
   const allPinned = nodes.every((node) => node.pinned)
+  const pin = () => {
+    // Converted through the viewport and the Canvas size of this moment (pinning.ts).
+    const viewport = flow.getViewport()
+    const size = canvasSizeOf(store.getState())
+    const list = allPinned ? nodes.map((node) => unpinOp(node, viewport, size)) : nodes.filter((node) => !node.pinned).map((node) => pinOp(node, viewport, size))
+    void applyAll(ops, list)
+  }
   return (
     <button
       type="button"
       className="w-selection-toolbar__button"
       aria-pressed={allPinned}
-      title={allPinned ? 'Put the selection back on the canvas' : 'Keep the selection at its place on the screen'}
-      onClick={() => {
-        // Converted through the viewport and the Canvas size of this moment (pinning.ts).
-        const viewport = flow.getViewport()
-        const size = canvasSizeOf(store.getState())
-        const list = allPinned
-          ? nodes.map((node) => unpinOp(node, viewport, size))
-          : nodes.filter((node) => !node.pinned).map((node) => pinOp(node, viewport, size))
-        void applyAll(ops, list)
-      }}
+      {...writeAction(readOnly, pin, allPinned ? 'Put the selection back on the canvas' : 'Keep the selection at its place on the screen')}
     >
       {allPinned ? 'Unpin' : 'Pin'}
     </button>
@@ -136,6 +140,7 @@ export function PinSection({ nodes }: SelectionSectionProps) {
 /** The tags of the selection, each removable from all of it, and a field that adds one to all of it. */
 export function TagsSection({ nodes }: SelectionSectionProps) {
   const ops = useLayoutOps()
+  const readOnly = useReadOnly()
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
   const tags = selectionTags(nodes)
@@ -163,7 +168,7 @@ export function TagsSection({ nodes }: SelectionSectionProps) {
         <span key={tag} className="w-selection-toolbar__tag" title={`${count} of ${nodes.length} selected`}>
           {tag}
           {count < nodes.length ? <span className="w-selection-toolbar__tag-count">{count}</span> : null}
-          <button type="button" className="w-selection-toolbar__tag-remove" aria-label={`Remove tag ${tag}`} onClick={() => void applyAll(ops, removeTagOps(nodes, tag))}>
+          <button type="button" className="w-selection-toolbar__tag-remove" aria-label={`Remove tag ${tag}`} {...writeAction(readOnly, () => void applyAll(ops, removeTagOps(nodes, tag)))}>
             ×
           </button>
         </span>
@@ -184,7 +189,7 @@ export function TagsSection({ nodes }: SelectionSectionProps) {
           }}
         />
       ) : (
-        <button type="button" className="w-selection-toolbar__button" onClick={() => setAdding(true)}>
+        <button type="button" className="w-selection-toolbar__button" {...writeAction(readOnly, () => setAdding(true))}>
           Add tag
         </button>
       )}
@@ -217,6 +222,7 @@ function deleteSelection(projectId: string, nodes: readonly LayoutNode[]): void 
  */
 export function DeleteSection({ nodes }: SelectionSectionProps) {
   const projectId = activeProject(useProjects())?.id
+  const readOnly = useReadOnly()
   const state = useDeleteRefusals()
   const deletable = deletableNodes(nodes)
   const key = selectionKey(nodes)
@@ -228,10 +234,15 @@ export function DeleteSection({ nodes }: SelectionSectionProps) {
         type="button"
         className="w-selection-toolbar__button w-selection-toolbar__delete"
         disabled={unavailable}
-        title={unavailable ? 'This cannot be deleted' : 'Move to the trash (Delete)'}
-        onClick={() => {
-          if (projectId !== undefined) deleteSelection(projectId, nodes)
-        }}
+        {...(unavailable
+          ? { title: 'This cannot be deleted' }
+          : writeAction(
+              readOnly,
+              () => {
+                if (projectId !== undefined) deleteSelection(projectId, nodes)
+              },
+              'Move to the trash (Delete)',
+            ))}
       >
         Delete
       </button>

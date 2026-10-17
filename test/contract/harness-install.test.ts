@@ -10,7 +10,8 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, sep } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
 import {
@@ -95,6 +96,8 @@ function makeBundle(target: string, version: string, dependencies?: string[]): s
 // marketplace is a folder (the Harness copy: its name comes from marketplace.json) or `owner/repo`
 // (its name is the repository's). What a test can ask of it, each by the start of the command line,
 // several joined with `|`:
+//   STUB_CLAUDE_RUNTIME     a file: each call appends how it runs, {"runAsNode", "type"} (ELECTRON_RUN_AS_NODE
+//                           and Electron's process.type, null when unset)
 //   STUB_CLAUDE_FAIL        exit 3 before anything is recorded
 //   STUB_CLAUDE_FAIL_AFTER  record what the command asked, then exit 1 (an install that refuses but leaves its record)
 //   STUB_CLAUDE_NO_MARKETPLACE_LIST  `plugin marketplace list` is an unknown command
@@ -106,6 +109,7 @@ import { basename, isAbsolute, join } from 'node:path'
 const args = process.argv.slice(2)
 const line = args.join(' ')
 appendFileSync(process.env.STUB_CLAUDE_LOG, JSON.stringify({ args, HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }) + '\\n')
+if (process.env.STUB_CLAUDE_RUNTIME) appendFileSync(process.env.STUB_CLAUDE_RUNTIME, JSON.stringify({ runAsNode: process.env.ELECTRON_RUN_AS_NODE ?? null, type: process.type ?? null }) + '\\n')
 const asked = (name) => (process.env[name] ?? '').split('|').some((prefix) => prefix !== '' && line.startsWith(prefix))
 const fail = (code) => {
   process.stderr.write('first line of noise\\nsecond line\\n' + line + ' failed: stub error\\n')
@@ -178,9 +182,13 @@ beforeEach(() => {
   const stubDir = join(root, 'stub')
   mkdirSync(stubDir)
   writeFileSync(join(stubDir, 'claude-stub.mjs'), STUB)
-  const stub = join(stubDir, 'claude')
-  writeFileSync(stub, `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "${join(stubDir, 'claude-stub.mjs')}" "$@"\n`)
-  chmodSync(stub, 0o755)
+  // Windows cannot start a `#!/bin/sh` script as a program: there the stand-in is the Node script
+  // itself, which the installer starts under worfy's own Node (src/main/program.ts).
+  const stub = process.platform === 'win32' ? join(stubDir, 'claude-stub.mjs') : join(stubDir, 'claude')
+  if (process.platform !== 'win32') {
+    writeFileSync(stub, `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec "${process.execPath}" "${join(stubDir, 'claude-stub.mjs')}" "$@"\n`)
+    chmodSync(stub, 0o755)
+  }
   const hHome = harnessHome({ WORFY_CLAUDE_HOME: claudeHome })
   sb = {
     root,
@@ -211,6 +219,18 @@ const calls = (): { args: string[]; HOME: string; CLAUDE_CONFIG_DIR: string }[] 
     : []
 const commands = (): string[] => calls().map((call) => call.args.join(' '))
 const clearCalls = (): void => rmSync(sb.log, { force: true })
+
+/**
+ * A stub in front of the stub, as a Node script, so the installer starts it on every system
+ * (src/main/program.ts): `body` sees `args` and may answer and exit; anything else goes on to the
+ * stub with the same arguments.
+ */
+function frontStub(name: string, body: string): string {
+  const front = join(sb.root, 'stub', name)
+  const stub = pathToFileURL(join(sb.root, 'stub', 'claude-stub.mjs')).href
+  writeFileSync(front, `import { existsSync, writeFileSync } from 'node:fs'\nconst args = process.argv.slice(2)\n${body}\nawait import(${JSON.stringify(stub)})\n`)
+  return front
+}
 
 function installer(bundle: string, options: Partial<InstallerOptions> = {}): HarnessInstaller {
   return new HarnessInstaller({ bundledDir: bundle, harnessHome: sb.harnessHome, claude: sb.stub, env: sb.env, canInstall: true, claudeHome: sb.claudeHome, ...options })
@@ -573,9 +593,10 @@ describe('which marketplaces Claude Code knows', () => {
 
   it('`plugin marketplace list` printing something else than a list of names: the marketplace is added, and a failure of that says the list could not be read', async () => {
     // A stub in front of the stub: `marketplace list` prints an object, everything else goes through.
-    const front = join(sb.root, 'stub', 'claude-odd-list')
-    writeFileSync(front, `#!/bin/sh\nif [ "$*" = "${MARKETPLACES}" ]; then printf '%s\\n' '{"marketplaces":{}}'; exit 0; fi\nexec "${sb.stub}" "$@"\n`)
-    chmodSync(front, 0o755)
+    const front = frontStub('claude-odd-list.mjs', `if (args.join(' ') === ${JSON.stringify(MARKETPLACES)}) {
+  process.stdout.write('{"marketplaces":{}}\\n')
+  process.exit(0)
+}`)
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const failing = await installer(bundle, { claude: front, env: { ...sb.env, STUB_CLAUDE_FAIL: ADD_OFFICIAL } }).install(yes)
     expect(failing.status.state).toMatchObject({ kind: 'error', step: 'dependency marketplace add' })
@@ -677,10 +698,14 @@ describe('errors', () => {
   it('the list cannot be read after a failed first `install`: the error names `install` and says the record was not checked', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
     // The first `plugin list` (before the dialog) answers; the one after the failed install does not.
-    const front = join(sb.root, 'stub', 'claude-list-once')
     const mark = join(sb.root, 'stub', 'listed-once')
-    writeFileSync(front, `#!/bin/sh\nif [ "$*" = "${LIST}" ]; then if [ -e "${mark}" ]; then echo 'list broke' >&2; exit 4; fi; : >"${mark}"; fi\nexec "${sb.stub}" "$@"\n`)
-    chmodSync(front, 0o755)
+    const front = frontStub('claude-list-once.mjs', `if (args.join(' ') === ${JSON.stringify(LIST)}) {
+  if (existsSync(${JSON.stringify(mark)})) {
+    process.stderr.write('list broke\\n')
+    process.exit(4)
+  }
+  writeFileSync(${JSON.stringify(mark)}, '')
+}`)
     const result = await installer(bundle, { claude: front, env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: INSTALL_WORFY } }).install(yes)
     expect(result.status.state).toMatchObject({ kind: 'error', step: 'install' })
     if (result.status.state.kind === 'error') {
@@ -746,6 +771,13 @@ describe('errors', () => {
     expect(none.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
     expect(asked).toBe(false)
     expect(existsSync(sb.harnessHome)).toBe(false)
+  })
+
+  it('a .mjs stand-in that is not there is "Claude Code not found" with its path, not the error of the Node that would run it', async () => {
+    const missing = join(sb.root, 'nowhere', 'claude.mjs')
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { claude: missing }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain(`Claude Code not found at ${missing} (ENOENT)`)
   })
 
   it('a plugin Claude Code reports broken for another reason is an error of `install` with that reason, not a quiet success', async () => {
@@ -832,13 +864,14 @@ describe('the old Harness', () => {
 
 describe('the environment of the claude commands', () => {
   it('with WORFY_CLAUDE_HOME puts CLAUDE_CONFIG_DIR and HOME into the sandbox; without it leaves the environment as it is', () => {
+    // The Claude home is resolved: `/tmp/…` stays as it is on macOS and Linux, and is `C:\tmp\…` on Windows.
     expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude', HOME: '/Users/me', PATH: '/bin' })).toEqual({
       WORFY_CLAUDE_HOME: '/tmp/sb/home/.claude',
-      HOME: '/tmp/sb/home',
-      CLAUDE_CONFIG_DIR: '/tmp/sb/home/.claude',
+      HOME: resolve('/tmp/sb/home'),
+      CLAUDE_CONFIG_DIR: resolve('/tmp/sb/home/.claude'),
       PATH: '/bin',
     })
-    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/worfy-claude-x', HOME: '/Users/me' })).toMatchObject({ HOME: '/tmp/worfy-claude-x', CLAUDE_CONFIG_DIR: '/tmp/worfy-claude-x' })
+    expect(claudeCommandEnv({ WORFY_CLAUDE_HOME: '/tmp/worfy-claude-x', HOME: '/Users/me' })).toMatchObject({ HOME: resolve('/tmp/worfy-claude-x'), CLAUDE_CONFIG_DIR: resolve('/tmp/worfy-claude-x') })
     const real = { HOME: '/Users/me', PATH: '/bin' }
     expect(claudeCommandEnv(real)).toBe(real)
   })
@@ -988,4 +1021,19 @@ describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of t
 
     for (const command of plans[0]!.commands) expect(run(command).status).toBe(0)
   }, 120_000)
+})
+
+describe('a .mjs Claude Code (WORFY_CLAUDE in tests)', () => {
+  it('runs under worfy\'s own Node on every system: ELECTRON_RUN_AS_NODE reaches it, and Electron starts no second app', async () => {
+    // sb.env has no ELECTRON_RUN_AS_NODE, so only the installer can have set it. Without it Electron
+    // would still run the script, as the main script of a second app (process.type "browser").
+    // `pnpm test` runs vitest in Electron (scripts/vitest-electron.mjs), so process.execPath, the
+    // file the stub starts from, is Electron there; under plain Node the `type` check cannot fail.
+    const runtime = join(sb.root, 'stub', 'runtime.jsonl')
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { claude: join(sb.root, 'stub', 'claude-stub.mjs'), env: { ...sb.env, STUB_CLAUDE_RUNTIME: runtime } }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V1 })
+    const lines = readFileSync(runtime, 'utf8').split('\n').filter((line) => line !== '')
+    expect(lines.length).toBeGreaterThan(0)
+    expect(new Set(lines)).toEqual(new Set([JSON.stringify({ runAsNode: '1', type: null })]))
+  })
 })

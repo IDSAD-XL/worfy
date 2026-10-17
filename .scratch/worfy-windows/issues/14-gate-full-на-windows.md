@@ -423,3 +423,34 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` и
   - Мутанты на ПК после правки: без `...start.env` падают 3 test-а, без приведения пути — 2.
   - **Не сделано:** у `appGh` (`src/main/ipc/projects.ts`) нет contract-test-а — кандидат на отдельный Ticket.
 **Не проверено:** `packaged.spec.ts` на Windows (собранное приложение — срез 5); на macOS и Linux `GH_STUB` — та же обёртка, что раньше.
+
+### Срез 3c — установщик Harness запускает подмену Claude Code через Node
+
+Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` идёт под Node 24.21.0 из Electron 44.5.1. Ветка `worfy-windows/14-claude-stand-in` от ветки среза 3b (`worfy-windows/14-stand-ins`, `3e12843`). **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Установщик (`src/main/harness/install.ts`).** Каждый шаг установки Harness запускает `claude`. Test-ы подставляют вместо него stub через `WORFY_CLAUDE` (или опцию `claude`): скрипт Node с обёрткой `#!/bin/sh`, которую Windows запустить не может. Поэтому на Windows из 46 test-ов `harness-install.test.ts` падали 34. Теперь `claude` запускается через `programStart` из среза 3b: путь на `.mjs` идёт скриптом собственного Node worfy с `ELECTRON_RUN_AS_NODE=1` для этого дочернего процесса; любой другой путь, в том числе `claude` или `claude.exe` из SDK, запускается как есть. `.mjs`, которого нет, — «Claude Code not found at <путь> (ENOENT)», как отсутствующий исполняемый файл.
+- **Test-ы (`test/contract/harness-install.test.ts`).**
+  - На Windows подмена — сам `claude-stub.mjs`; на macOS и Linux — обёртка, как раньше.
+  - Два stub-а «перед stub-ом» стали скриптами Node на всех системах (`frontStub`): отвечают на свой один случай, остальное отдают `claude-stub.mjs` через import.
+  - `claudeCommandEnv`: ожидаемые `HOME` и `CLAUDE_CONFIG_DIR` — `resolve('/tmp/…')`: `/tmp/…` на macOS и Linux, `C:\tmp\…` на Windows.
+  - Новые test-ы: подмена `.mjs` идёт под Node worfy на всех системах (stub пишет в `STUB_CLAUDE_RUNTIME`: `ELECTRON_RUN_AS_NODE` «1», `process.type` null); `.mjs`, которого нет, — «Claude Code not found».
+- **Мутанты на ПК** (`harness-install.test.ts`): без `...start.env` падают 34 test-а, без `programStart` — 34, без проверки существования скрипта — 1.
+
+- **Ревью** — subagent этой Session, линза «корректность»: настоящий `claude` из SDK и `#!/bin/sh`-обёртки e2e запускаются как раньше; окружение и тексты ошибок для путей не `.mjs` не изменились; Node-front-ы отвечают как прежние скрипты `sh` (строка `"$*"`, коды выхода 0 и 4, stdout, stderr, файл-метка); на macOS и Linux ни одна проверка не ослаблена. Одна находка low — комментарий test-а; уточнён в `d06ff45`: проверка `process.type` что-то значит, потому что `pnpm test` идёт в Electron, под голым Node она упасть не может. Вне линзы: для `.mjs` ENOENT от самого `execFile` значил бы, что нет исполняемого файла worfy, а текст назовёт путь `.mjs` — в работающем приложении маловероятно, не правилось.
+
+| `pnpm test` | Exit | Tests | Passed | Failed | Skipped |
+|---|---|---|---|---|---|
+| срез 3b `3e12843` | 1 | 5607 | 5122 | 341 | 144 |
+| ветка `d06ff45` | 1 | 5609 | 5164 | 301 | 144 |
+
+| Файл | 3b: упало | ветка: упало |
+|---|---|---|
+| `harness-install.test.ts` | 34 из 46, 2 пропущены | 0 из 48, 2 пропущены (только macOS) |
+
+- **Новых падений по именам нет.** Перестали падать 40 test-ов: 34 в `harness-install` и 6 в файлах, которые установщик не запускают (`startup-failure` 3, `projects-connect`, `terminal-windows`, `terminal` по 1) — разница между прогонами.
+- **Слияние с main `4500799`** (#411 и #408): конфликт add/add в `src/main/program.ts` решён в пользу 3c — файл main совпадает с головой 3b, 3c менял только комментарии. На слитом дереве `aad6600`: `harness-install`, `gh-stand-in`, `program`, `github-accounts` — как до слияния; `link-pairing` (из #408) — 51 прошёл; `github-prs` — те же 12 падений (`bin/profile`, Ticket 05). `pnpm lint`, `pnpm typecheck` — exit 0.
+
+**Что осталось и чьё:**
+- На Windows R6 и R10 (ревью Mac среза 3b: `ghRunner` без подмены зовёт настоящий `gh` из PATH) сторожит только test с настоящим `gh`, а он на Windows пропущен (`skipIf(win32)`: обёртку `sh` там не запустить). Test «gh not found (gh)» (`gh-stand-in.test.ts`) проходит и с этими мутантами. Замечание Session на Mac, уровень low.
+- `bundledClaudeBinary` в dev-запуске (`pnpm dev`) отдаёт путь `…/claude` без `.exe` и на Windows (`src/main/agent/options.ts:102`); путь собранного приложения (`:87`) `.exe` добавляет. Не проверено, срез его не трогает — собранное приложение и dev-запуск на Windows, срез 5.
+- `harness-migrate.test.ts` падает на Windows по своим причинам, не из-за запуска `claude`: пути Windows в JSON без экранирования («Bad escaped character»), ожидания путей POSIX, «no node in PATH». Отдельная область.

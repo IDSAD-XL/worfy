@@ -32,6 +32,7 @@ import { cp, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { HarnessDependency, HarnessState, HarnessStatus, HarnessStep } from '../../shared/ipc/harness'
+import { programStart } from '../program'
 import { claudeHome } from '../storage/paths'
 import { HARNESS_PLUGIN_NAME, locateHarness } from './locate'
 
@@ -578,9 +579,14 @@ export class HarnessInstaller {
   private claude(args: string[], step: HarnessStep, timeout = COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string }> {
     const { claude, env } = this.options
     if (claude === undefined) return Promise.reject(new StepError(step, `${commandLine(args)}: no Claude Code binary in this build`))
+    // A `.mjs` (a stand-in in tests, WORFY_CLAUDE) runs under worfy's own Node (src/main/program.ts);
+    // the system cannot say it is missing, Node would.
+    const start = programStart(claude, claude)
+    const [script] = start.args
+    if (script !== undefined && !existsSync(script)) return Promise.reject(new StepError(step, `${commandLine(args)}: Claude Code not found at ${claude} (ENOENT)`))
     return new Promise((resolve, reject) => {
       // cwd: a folder without project settings, so `plugin list` shows only what the user scope holds.
-      execFile(claude, args, { env, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
+      execFile(start.file, [...start.args, ...args], { env: { ...env, ...start.env }, cwd: tmpdir(), timeout, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' }, (error, stdout, stderr) => {
         if (error === null) {
           resolve({ stdout, stderr })
           return

@@ -32,6 +32,11 @@
 // whose shell needs Esc) end that. Only the active Node's content takes the wheel — before, the
 // wheel over any Node moves the Canvas (wheel-router.ts) — and only the active Card's page takes
 // the mouse (canvas.css).
+//
+// On the read-only screen of a Linked machine (worfy-link tickets 25 and 26, ADR-0066) no Node
+// drags: `nodesDraggable` follows the level, and a Node that asks to be dragged on its own (a
+// Subagent's) is held too (read-only-nodes.ts). Panning and zooming stay; overlays/ReadOnlyCanvas.tsx
+// draws the notice.
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   applyNodeChanges,
@@ -54,11 +59,13 @@ import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, t
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { invoke, windowMachine } from '../ipc'
 import { isMac } from '../platform'
+import { useReadOnly } from '../projects/useProjects'
 import { held, matches } from '../shortcuts/match'
 import { dropNodes, edgeSources, edgesOf, edgeTypes, nodeSources, overlays, type NodeSource } from './extensions'
 import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNode } from './nodes'
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
+import { lockedForReadOnly } from './read-only-nodes'
 import { screenId } from './screen'
 import { currentLayout, LayoutOpsContext, sendLayoutOp, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
@@ -494,10 +501,15 @@ function Flow({ projectId, state, opening }: FlowProps) {
 
   // Nodes pinned to the screen are placed anew for every viewport (pinning.ts).
   const pinnedNodes = usePinnedPlacement(nodes)
+  const readOnly = useReadOnly()
   // Only the active Node's object is replaced, so a drag does not redraw every Node on each frame.
   const shownNodes = useMemo(
-    () => (activeNodeId === null ? pinnedNodes : pinnedNodes.map((node) => (node.id === activeNodeId && node.selected === true ? withActiveClass(node) : node))),
-    [pinnedNodes, activeNodeId],
+    () =>
+      lockedForReadOnly(
+        activeNodeId === null ? pinnedNodes : pinnedNodes.map((node) => (node.id === activeNodeId && node.selected === true ? withActiveClass(node) : node)),
+        readOnly,
+      ),
+    [pinnedNodes, activeNodeId, readOnly],
   )
 
   return (
@@ -509,6 +521,7 @@ function Flow({ projectId, state, opening }: FlowProps) {
           nodeTypes={flowNodeTypes}
           edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
+          nodesDraggable={readOnly === null}
           onNodeClick={onNodeClick}
           onPaneClick={onPaneClick}
           onNodeDragStart={onNodeDragStart}

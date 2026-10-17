@@ -11,7 +11,9 @@
 //
 // Each tile draws the Node's own component, so the Node keeps working there: its data comes from
 // the same React Flow store the Canvas uses, and what it changes goes to main as on the Canvas.
-// The Canvas keeps its own copy of the Node mounted under the layer.
+// The Canvas keeps its own copy of the Node mounted under the layer. On the read-only screen of a
+// Linked machine a Terminal tile is the stand-in the Canvas draws (ReadOnlyTerminal.tsx, worfy-link
+// ticket 26): the Terminal itself would start the shell there, which that Machine refuses.
 //
 // Gestures: dragging a divider moves it, a double click on a divider evens out its split;
 // dragging a tile's title bar onto another tile swaps the two, or, near an edge of that tile,
@@ -26,10 +28,13 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNodes } from '@xyflow/react'
+import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { nodeTypes, type CanvasFlowNode, type CanvasNodeProps } from '../canvas/nodes'
+import { ReadOnlyTerminal } from '../canvas/ReadOnlyTerminal'
 import { UnknownNode } from '../canvas/UnknownNode'
 import { isPrimary } from '../platform'
+import { useReadOnly } from '../projects/useProjects'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
 import { label, matches } from '../shortcuts/match'
 import { setFocusActive, useFocusState } from './focus-state'
@@ -160,6 +165,8 @@ function takenOutside(press: EscapePress): boolean {
 }
 
 function TileNode({ node }: { node: CanvasFlowNode }) {
+  const readOnly = useReadOnly()
+  if (readOnly !== null && node.data.node.kind === TERMINAL_NODE_KIND) return <ReadOnlyTerminal id={node.id} hint={readOnly} />
   const Component = nodeTypes.get(node.data.node.kind)?.Component ?? UnknownNode
   return <Component {...tileProps(node)} />
 }
