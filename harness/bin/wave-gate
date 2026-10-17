@@ -84,8 +84,8 @@
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
 //
 // Environment: WAVE_GATE_GATE — an executable used instead of `node <plugin>/hooks/gate.mjs` (it gets
-// the argument `full`); WAVE_GATE_GH — an executable used instead of `gh` from PATH, a `.mjs` file runs with
-// this node (Windows cannot start a shell script); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
+// the argument `full`); WAVE_GATE_GH — an executable used instead of `gh` from PATH; a `.mjs` file in either
+// runs with this node (Windows cannot start a shell script); WAVE_GATE_SCREEN_POLL_S — the screen poll (30); WAVE_GATE_LOCK_POLL_S, WAVE_GATE_LOCK_STALE_S, WAVE_GATE_HEARTBEAT_S — the e2e
 // lock timings (20, 1800, 300); WAVE_GATE_MAIN_LOCK_POLL_S, WAVE_GATE_MAIN_LOCK_STALE_S — the main
 // lock (30, 5400). Tests set them; the defaults are the project's.
 "use strict"
@@ -426,7 +426,10 @@ function program(override, usual) {
     return [override, []]
 }
 function gateCommand() {
-    if (process.env.WAVE_GATE_GATE) return [process.env.WAVE_GATE_GATE, ["full"]]
+    if (process.env.WAVE_GATE_GATE) {
+        const [file, args] = program(process.env.WAVE_GATE_GATE)
+        return [file, [...args, "full"]]
+    }
     return [process.execPath, [GATE_SCRIPT, "full"]]
 }
 function verdict(code, text) {
