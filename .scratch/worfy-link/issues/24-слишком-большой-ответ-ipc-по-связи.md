@@ -1,7 +1,7 @@
 # 24 — Слишком большой ответ IPC по связи — ошибка вызова, а не обрыв соединения
 
 Type: task
-Status: claimed — 2026-10-17
+Status: done — 2026-10-17, [PR #417](https://github.com/IDSAD-XL/worfy/pull/417)
 Branch: worfy-link/24
 Blocked by: —
 Source: долг ревьюера PR #154 (`.scratch/worfy-link/issues/01-сервер-связи-machine-ов.md:374`), подтверждён
@@ -73,3 +73,7 @@ Source: долг ревьюера PR #154 (`.scratch/worfy-link/issues/01-сер
   Решено без владельца, подтвердить.
 - Тот же случай с другой стороны — вход вызова (`call`) больше предела — тоже рвёт соединение; в Ticket не
   входил, не менялся.
+
+**Ревью и merge (2026-10-17).** Круг 1 — `VERIFIED` без находок
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/417#issuecomment-6228061167)); gate full на Mac
+зелёный, merge `fa70c111`.
