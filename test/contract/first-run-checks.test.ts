@@ -412,25 +412,21 @@ describe('first-run checks', () => {
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 1: TypeError: boom', hint: HARNESS_SCRIPT_HINTS.crash })
     })
 
-    // worfy-windows ticket 05: the script runs as `node <script>`, so neither its execute bit nor its
-    // `#!` line stops it any more; both used to fail with "could not be started".
-    it.each([
-      ['not executable', nodeScript('process.exitCode = 0'), 0o644],
-      ['its interpreter line names no file', '#!/nonexistent/interpreter\n', 0o755],
-    ] as const)('a script node can run whatever its file says (%s): answered', async (_case, text, mode) => {
+    // worfy-windows ticket 05: a Node script runs as `node <script>`, so its execute bit does not stop it any more.
+    it('a Node script without the execute bit: answered', async () => {
       tools(...ALL_TOOLS)
-      oldHarness(text, mode)
+      oldHarness(nodeScript('process.exitCode = 0'), 0o644)
       const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
       expect(scripts).toMatchObject({ status: 'ok', detail: 'profile --help answered' })
     })
 
-    it('on Windows: a warning that worfy cannot run the Harness scripts there yet, nothing run', async () => {
+    // A `#!` line that names no node is an older Harness's script: started by itself, as before.
+    it('a script that is there but cannot be started (its interpreter line names no file): failed, not "no profile script"', async () => {
       tools(...ALL_TOOLS)
-      oldHarness('#!/bin/sh\nexit 0\n')
-      let asked = 0
-      const report = await runChecks(deps(loginEnv(), { platform: 'win32', scriptEnv: () => ((asked += 1), Promise.resolve(loginEnv())) }))
-      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'warn', detail: 'worfy cannot run the Harness scripts on Windows yet (worfy-windows ticket 05)' })
-      expect(asked).toBe(0)
+      oldHarness('#!/nonexistent/interpreter\n')
+      const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
+      expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
+      expect(scripts.detail).toMatch(/^profile could not be started: /)
     })
   })
 
