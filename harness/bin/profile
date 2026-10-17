@@ -28,10 +28,12 @@
 "use strict"
 
 const fs = require("node:fs")
+const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 
-const CLAUDE = path.join(process.env.HOME, ".claude")
+// os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
+const CLAUDE = path.join(os.homedir(), ".claude")
 // The Harness state on this machine (ADR-0040 item 5); the gate registry lives there.
 const HARNESS_HOME = process.env.HARNESS_HOME || path.join(CLAUDE, "worfy-harness")
 // Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
@@ -183,7 +185,7 @@ function workspaceOf(target) {
     const repos = (cfg.repos || []).filter((r) => r && typeof r.match === "string" && r.match)
     const groups = new Map()
     for (const r of repos) if (r.profile) groups.set(r.profile, [...(groups.get(r.profile) || []), r])
-    const home = process.env.HOME ? path.resolve(process.env.HOME) : null
+    const home = os.homedir() ? path.resolve(os.homedir()) : null
     // A directory inside a registry entry (for example, a `match` with a trailing slash, which the resolver
     // compares as a string) is not a workspace: let it stay a loud exit 3, as before.
     if (repos.some((r) => under(target, path.resolve(r.match)))) return null
@@ -303,7 +305,7 @@ function commonParent() {
     for (const r of profileEntries.slice(1)) while (!under(path.resolve(r.match), ws) && ws !== path.dirname(ws)) ws = path.dirname(ws)
     return ws === path.dirname(ws) ? null : ws
 }
-const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(process.env.HOME, p.slice(1)) : p)
+const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p)
 
 // The gate before a merge (worfy ADR-0065): workflow.merge_gate is "each" (gate full on every PR after a rebase),
 // "wave" (one gate full for the set of a wave's ready PRs, bin/wave-gate) or null / absent (none required);

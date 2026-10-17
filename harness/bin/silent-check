@@ -30,6 +30,7 @@
 "use strict"
 
 const fs = require("node:fs")
+const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 
@@ -136,8 +137,9 @@ if (silent) {
         try {
             forms.add(fs.realpathSync(wf))
         } catch {}
-        const home = process.env.HOME
-        for (const f of [...forms]) if (home && f.startsWith(home + "/")) forms.add("~" + f.slice(home.length))
+        const home = os.homedir()
+        for (const f of [...forms])
+            if (home && (f.startsWith(home + "/") || f.startsWith(home + path.sep))) forms.add("~" + f.slice(home.length))
         for (const f of forms) rules.push(["Workflow folder path", new RegExp(esc(f), "g"), true])
     }
     rules.push([".scratch", /\.scratch(?![\p{L}\p{N}_])/gu, true])

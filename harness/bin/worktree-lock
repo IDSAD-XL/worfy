@@ -19,6 +19,7 @@
 // an hour means the session was abandoned or crashed.
 
 import fs from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import crypto from "node:crypto"
 import { execFileSync } from "node:child_process"
@@ -36,7 +37,8 @@ const MUTEX_STALE_MS = 15000
 
 const main = () => {
     const TTL_MS = Math.max(0, Number(process.env.WORKTREE_LOCK_TTL_MIN ?? 60)) * 60000
-    const home = process.env.HOME
+    // $HOME where it is set, %USERPROFILE% on Windows without it.
+    const home = os.homedir()
     if (!home) return
 
     const git = (args, cwd) => {
