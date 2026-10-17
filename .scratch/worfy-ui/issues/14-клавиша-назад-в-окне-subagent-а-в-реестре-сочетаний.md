@@ -1,7 +1,8 @@
 # 14 — Клавиша ⌘[ / Ctrl+[ «Back to …» в окне Subagent-а — в реестр сочетаний и в окно Keyboard shortcuts
 
 Type: task
-Status: claimed 2026-10-17T18:03Z
+Status: done 2026-10-17T19:12Z
+PR: #449
 Branch: worfy-ui/14
 Blocked by: 11
 Source: разбор находок ночи 2026-10-16 (Session на Mac): [PR #371](https://github.com/IDSAD-XL/worfy/pull/371) (worfy-polish 25, стрелка назад в окне Subagent-а) добавил свой обработчик клавиши мимо реестра сочетаний, который вводит [PR #328](https://github.com/IDSAD-XL/worfy/pull/328) (Ticket [11](11-реестр-сочетаний-и-окно-keyboard-shortcuts.md), не влит). Код перечитан на Mac по main `9974e0e0` и ветке `worfy-ui/11` `2935b0e9`.
@@ -116,3 +117,19 @@ Source: разбор находок ночи 2026-10-16 (Session на Mac): [PR 
   нажатия на месте `BracketLeft`, которые дают не букву (раньше `isBackKey` брал любое). Буква a–z
   на этом месте теперь своя клавиша (BÉPO `z` — Undo), а не Back. На Windows и Linux Ctrl+[ внутри
   Terminal Node теперь у оболочки (там это Esc), как у всех записей с primary.
+
+Ревью и merge (2026-10-17): гейт глубины low, два круга.
+- Круг 1 — `REJECTED` ([вердикт](https://github.com/IDSAD-XL/worfy/pull/449#issuecomment-6238474975)): [med]
+  `src/renderer/platform.ts:98` — на немецкой раскладке Mac ⌘ü (`ü` на месте `BracketLeft`) больше не вёл назад,
+  вопреки пункту 3 «Что делаем»; test закреплял потерю. Снимки окна Keyboard shortcuts и Settings ▸ Shortcuts в
+  обеих темах — без дефектов.
+- Доработка: любая буква вне a–z на `BracketLeft` читается как `[` (⌘ü, ⌘å — назад; BÉPO `z` — Undo).
+- Круг 2 — `VERIFIED` ([вердикт](https://github.com/IDSAD-XL/worfy/pull/449#issuecomment-6238873879)); долг: [low]
+  `src/renderer/platform.ts:99` — на французской AZERTY и испанской раскладках на месте `BracketLeft` мёртвая
+  клавиша (`event.key` = `Dead`), ⌘ там назад не ведёт; отдаёт ли Chromium на macOS `Dead` при зажатом ⌘ —
+  не проверено.
+- Вне диффа: `test/contract/harness-scripts.test.ts:22` — `wave-gate.test.sh` идёт ~110 с при пределе 120 с и под
+  нагрузкой падал в gate fast проверяющего.
+
+`GATE_SCOPE=all` gate full — зелёный с первого прогона; влит — `a5e7f480`. Batch CI run
+на main после merge — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39061425963.

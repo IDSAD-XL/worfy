@@ -1,7 +1,8 @@
 # 15 — Composer: подписи «Model» и «Permissions» скрываются, когда значение не помещается
 
 Type: task
-Status: claimed 2026-10-17T18:17Z
+Status: done 2026-10-17T19:12Z
+PR: #450
 Branch: worfy-ui/15
 Blocked by: —
 Source: решение владельца 2026-10-16 по долгу круга 2 [Ticket-а 09](09-composer-effort-ползунок-и-select.md)
@@ -48,10 +49,12 @@ Source: решение владельца 2026-10-16 по долгу круга 
 - [x] Широкое окно (1920×1080 без боковой панели): обе подписи видны, значения целиком.
 - [x] Во всех четырёх окнах: у видимой подписи значение не обрезано (`scrollWidth` значения не больше
       `clientWidth`) — e2e `test/e2e/session-controls.spec.ts`.
-- [x] Высота строки composer-а в 1440×900, 900×600 и 800×520 с боковой панелью — как в test-е
+- [ ] Высота строки composer-а в 1440×900, 900×600 и 800×520 с боковой панелью — как в test-е
       Ticket-а 09 «on the default model the pickers do not make the bar under the input field taller
       than the native lists did, and Send stays on their line» (`session-controls.spec.ts:270`), Send
       на строке пикеров.
+      не выполнено: высота строки и место Send — как до Ticket-а, но Send на строке пикеров в этих трёх окнах
+      нет и на main (раскладка Ticket-а 09, пикеры 420 px); test `session-controls.spec.ts:451` сверяет место Send с прежним.
 - [x] Доступное имя и `title` кнопок не изменились (unit или e2e).
 - [x] Медленное изменение ширины окна через границу: подпись переключается один раз (e2e).
 - [x] Мутанты: подпись всегда видна; подпись всегда скрыта; решение по ширине без подписи (мигание) —
@@ -153,3 +156,17 @@ Orchestrator сверяет пересечения заново.
   ревью (`composer-captions-<окно>-<тема>.png`), в репозиторий не кладутся.
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0, «[gate] зелено (fast)».
   Gate full и Linux CI — за оркестратором.
+
+Ревью и merge (2026-10-17): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/450#issuecomment-6238597030)). Проверяющий сам снял composer в
+обеих темах в 1440×900, 900×600, 800×520 с боковой панелью и 1920×1080 без неё, сверил замеры «Итог» и убедился,
+что новый e2e красный на исходниках main. Долги:
+- [low] порядок шагов (`Pickers.tsx:77`): подпись Permissions уходит и тогда, когда её значение помещается, но
+  Model с ней обрезан, — отступление от пункта 1 «Что делаем»; решено без владельца, подтвердить.
+- [low] пункт «Высота строки … Send на строке пикеров» был отмечен `[x]` — снят, строка «не выполнено» выше.
+- вне диффа: в 800×520 с боковой панелью кнопка Permissions целиком за правым краем composer-а, подсказка
+  «/ commands» обрезана слева (`session.css:798-810`), — так же и на main.
+
+`GATE_SCOPE=all` gate full — первый прогон красный только на `test/e2e/subagent-tree.spec.ts:397` (вне диффа,
+flaky test под нагрузкой), повтор зелёный; влит — `da3de685`. Batch CI run
+на main после merge — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39061425963.
