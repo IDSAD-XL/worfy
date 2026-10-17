@@ -18,6 +18,7 @@ const focused = vi.hoisted(() => ({ count: 0 }))
 vi.mock('@xterm/xterm', () => {
   class Terminal {
     cols = 80
+    readonly parser = { registerOscHandler: () => ({ dispose: () => undefined }) }
     rows = 24
     options: Record<string, unknown> = {}
     attachCustomKeyEventHandler() {}

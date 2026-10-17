@@ -125,10 +125,13 @@
   background-color: var(--terminal-bg) !important;
 }
 
-/* The Command request panel (TerminalAiRequest.tsx): a popover over the top of the screen, under
-   the header. It hangs from an anchor of no height between the two, so the screen keeps its size
-   and the shell gets no resize; .w-terminal itself stays unpositioned, or its overflow would cut
-   the resize handles of the Node, which sit on its corners. */
+/* The Command request panel (TerminalAiRequest.tsx): a popover over the screen, under its first
+   row, so the prompt of a fresh Terminal and the command that runs stay readable. It hangs from an
+   anchor of no height between the header and the screen, so the screen keeps its size and the shell
+   gets no resize; .w-terminal itself stays unpositioned, or its overflow would cut the resize
+   handles of the Node, which sit on its corners. TerminalNode.tsx measures the first row and sets
+   `top`; the value here only holds until the screen has rows: the screen's padding, a row of 12px
+   text and a gap. */
 .w-terminal-request {
   position: relative;
   flex: none;
@@ -137,7 +140,7 @@
 }
 .w-terminal-request__panel {
   position: absolute;
-  top: 6px;
+  top: 26px;
   left: var(--space-2);
   right: var(--space-2);
   z-index: 2;
