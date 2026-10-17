@@ -126,7 +126,12 @@ fi
 
 # --- synthetic ----------------------------------------------------------------------
 T="$(mktemp -d)"
-T="$(cd "$T" && pwd -P)"
+# node's spelling of the path (C:/… in Git Bash on Windows, pwd -P elsewhere): it goes into the registries.
+T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# A path as profile prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+# The same inside a JSON string: each backslash doubled (a no-op where there are none).
+json_printed() { local p b='\'; p="$(printed "$1")"; printf '%s' "${p//"$b"/"$b$b"}"; }
 trap 'rm -rf "$T" /tmp/profile-test-err.$$' EXIT
 mkdir -p "$T/repo/sub" "$T/profiles/demo" "$T/plain" "$T/repo2"
 git -C "$T/repo" init -q -b main
@@ -225,16 +230,14 @@ rm -rf "$T/ws/.git"
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
 check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 # The home folder is never a workspace: with two repositories of one profile right under HOME, a
-# directory in HOME is not that project. Paths in node's spelling (C:/… in Git Bash on Windows), so
-# that the case runs there too; USERPROFILE with HOME, which node reads on Windows.
-nat() { cygpath -m "$1" 2>/dev/null || printf '%s' "$1"; }
+# directory in HOME is not that project. USERPROFILE with HOME, which node reads on Windows.
 mkdir -p "$T/hw/a" "$T/hw/b" "$T/hw/notes" "$T/hw-other"
 for d in a b; do git -C "$T/hw/$d" init -q -b main; done
-printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$(nat "$T/hw/a")" "$(nat "$T/hw/b")" >"$T/hw.json"
+printf '{"repos":[{"key":"a","match":"%s","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/hw/a" "$T/hw/b" >"$T/hw.json"
 check "common parent of a profile's repos, not HOME -> workspace" 0 "multi" \
-    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw-other" USERPROFILE="$(nat "$T/hw-other")" "$PROFILE" -C "$(nat "$T/hw/notes")" --name
+    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw-other" USERPROFILE="$T/hw-other" "$PROFILE" -C "$T/hw/notes" --name
 check "common parent of a profile's repos is HOME -> 3, not a workspace" 3 "" \
-    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw" USERPROFILE="$(nat "$T/hw")" "$PROFILE" -C "$(nat "$T/hw/notes")" --name
+    env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw" USERPROFILE="$T/hw" "$PROFILE" -C "$T/hw/notes" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
 
 # --- schema 2 and the profile's place on the machine ---------------------------------
@@ -244,6 +247,7 @@ unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
 # is read during the transition; with both, $HARNESS_HOME wins.
 H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
+BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
 for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do git -C "$T/r" init -q -b main "$n"; done
 {
@@ -264,8 +268,10 @@ newp nomode '{"schema":2,"name":"nomode"}'
 newp badmode '{"schema":2,"name":"badmode","mode":"other"}'
 newp bare '{"schema":2,"name":"bare","mode":"full","language":{"reports":"en","team":"en"}}'
 newp schema3 '{"schema":3,"name":"schema3","mode":"full"}'
-# schema 1 with the absolute form of the old place: <HOME>/.claude/bin/<script>
-oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"$H/.claude/bin/ticket\"},\"workflow\":{\"preflight\":\"$H/.claude/bin/preflight --epic <эпик>\"}}"
+# schema 1 with the absolute form of the old place: <HOME>/.claude/bin/<script>, spelled the way this
+# OS spells it (C:\…\.claude\bin\ on Windows, escaped for JSON)
+ABS_BIN="$(json_printed "$H/.claude/bin/")"
+oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"${ABS_BIN}ticket\"},\"workflow\":{\"preflight\":\"${ABS_BIN}preflight --epic <эпик>\"}}"
 # valid JSON, but not an object
 newp notobj '["schema",2]'
 # Silent mode (worfy-harness ticket 22): a Workflow folder given with ~/, a relative one (broken), and a
@@ -337,18 +343,18 @@ fails_with() { # $1 name, $2 exit code, $3 substring of stderr, then the command
     check "$name" 0 "" bash -c 'e="$("${@:2}" 2>&1 >/dev/null)"; r=$?; [ "$r" -eq "$0" ] && [[ "$e" == *"$1"* ]]' "$rc" "$sub" "$@"
 }
 eq "schema 2: in HARNESS_HOME/projects: --name" demo "$P2" -C "$T/r/demo" --name
-eq "schema 2: in HARNESS_HOME/projects: --dir" "$HH/projects/demo" "$P2" -C "$T/r/demo" --dir
-eq "schema 2: in HARNESS_HOME/projects: _resolved.dir" "$HH/projects/demo" "$P2" -C "$T/r/demo" --field _resolved.dir
+eq "schema 2: in HARNESS_HOME/projects: --dir" "$(printed "$HH/projects/demo")" "$P2" -C "$T/r/demo" --dir
+eq "schema 2: in HARNESS_HOME/projects: _resolved.dir" "$(printed "$HH/projects/demo")" "$P2" -C "$T/r/demo" --field _resolved.dir
 eq "schema 2: --field mode from the file" silent "$P2" -C "$T/r/demo" --field mode
 eq "schema 2: --rules from HARNESS_HOME" "# demo v2 rules" "$P2" -C "$T/r/demo" --rules
 eq "schema 1: only in ~/.claude/profiles: --name" legacy "$P2" -C "$T/r/legacy" --name
-eq "schema 1: only in ~/.claude/profiles: --dir" "$H/.claude/profiles/legacy" "$P2" -C "$T/r/legacy" --dir
-eq "in both places: HARNESS_HOME wins (--dir)" "$HH/projects/both" "$P2" -C "$T/r/both" --dir
+eq "schema 1: only in ~/.claude/profiles: --dir" "$(printed "$H/.claude/profiles/legacy")" "$P2" -C "$T/r/legacy" --dir
+eq "in both places: HARNESS_HOME wins (--dir)" "$(printed "$HH/projects/both")" "$P2" -C "$T/r/both" --dir
 eq "in both places: HARNESS_HOME wins (field)" "from harness home" "$P2" -C "$T/r/both" --field title
 fails_with "schema 2: without mode -> 1 with the reason" 1 '"mode"' "$P2" -C "$T/r/nomode" --name
 fails_with "schema 2: with mode other -> 1 with the reason" 1 '"other"' "$P2" -C "$T/r/badmode" --field schema
 fails_with "unknown schema 3 -> 1 with the reason" 1 'schema' "$P2" -C "$T/r/schema3" --name
-fails_with "profile in neither place -> 3 naming both" 3 "$HH/projects/nofile/profile.json" "$P2" -C "$T/r/nofile" --name
+fails_with "profile in neither place -> 3 naming both" 3 "$(printed "$HH/projects/nofile/profile.json")" "$P2" -C "$T/r/nofile" --name
 eq "schema 1: --field mode -> full" full "$P2" -C "$T/r/legacy" --field mode
 # `attribution` absent: the default follows the mode — `off` in Silent mode, `on` in Full mode (schema 1 is
 # always Full). A value written in the file wins in both modes. --json carries the same resolved value.
@@ -371,7 +377,7 @@ fails_with "workflow.merge_gate 1 -> 1 with the reason" 1 "workflow.merge_gate" 
 eq "--field workflow.e2e_lock path" /tmp/worfy-e2e.lock "$P2" -C "$T/r/mgwave" --field workflow.e2e_lock
 eq "--field workflow.e2e_lock null" null "$P2" -C "$T/r/mgeach" --field workflow.e2e_lock
 check "--field workflow.e2e_lock absent -> 4" 4 "" "$P2" -C "$T/r/mgnull" --field workflow.e2e_lock
-eq "--field workflow.e2e_lock with ~/ is expanded" "$H/e2e.lock" "$P2" -C "$T/r/lockhome" --field workflow.e2e_lock
+eq "--field workflow.e2e_lock with ~/ is expanded" "$(printed "$H/e2e.lock")" "$P2" -C "$T/r/lockhome" --field workflow.e2e_lock
 fails_with "workflow.e2e_lock relative -> 1 with the reason" 1 "workflow.e2e_lock is an absolute path or null" "$P2" -C "$T/r/lockrel" --name
 fails_with "workflow.e2e_lock 5 -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/locknum" --name
 fails_with "workflow.e2e_lock empty -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/lockempty" --name
@@ -406,46 +412,47 @@ eq "--field language.docs from the file" ru "$P2" -C "$T/r/demo" --field languag
 check "--field mcp.allowed is a JSON list from the file" 0 "" bash -c '[ "$("$@" | node -e "console.log(JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")).join(\",\"))")" = qmd,worfy-canvas,github ]' _ "$P2" -C "$T/r/demo" --field mcp.allowed
 check "--field mcp.allowed absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field mcp.allowed
 # The four Harness paths: answered with this Harness's own scripts, never from a schema 2 file.
-eq "schema 2: tickets.status_tool -> bin next to profile" "$BINREAL/ticket" "$P2" -C "$T/r/demo" --field tickets.status_tool
-eq "schema 2: tickets.epic_status -> bin next to profile" "$BINREAL/epic-status" "$P2" -C "$T/r/demo" --field tickets.epic_status
-eq "schema 2: numbering.reserve_with -> bin next to profile" "$BINREAL/preflight" "$P2" -C "$T/r/demo" --field numbering.reserve_with
-eq "schema 2: workflow.preflight -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/demo" --field workflow.preflight
-eq "schema 2: without the fields: tickets.status_tool still answered" "$BINREAL/ticket" "$P2" -C "$T/r/bare" --field tickets.status_tool
-eq "schema 1: ~/.claude/bin/ticket -> the same path as v2" "$BINREAL/ticket" "$P2" -C "$T/r/legacy" --field tickets.status_tool
-eq "schema 1: ~/.claude/bin/epic-status -> bin next to profile" "$BINREAL/epic-status" "$P2" -C "$T/r/legacy" --field tickets.epic_status
-eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/legacy" --field workflow.preflight
+eq "schema 2: tickets.status_tool -> bin next to profile" "$BINOUT/ticket" "$P2" -C "$T/r/demo" --field tickets.status_tool
+eq "schema 2: tickets.epic_status -> bin next to profile" "$BINOUT/epic-status" "$P2" -C "$T/r/demo" --field tickets.epic_status
+eq "schema 2: numbering.reserve_with -> bin next to profile" "$BINOUT/preflight" "$P2" -C "$T/r/demo" --field numbering.reserve_with
+eq "schema 2: workflow.preflight -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/demo" --field workflow.preflight
+eq "schema 2: without the fields: tickets.status_tool still answered" "$BINOUT/ticket" "$P2" -C "$T/r/bare" --field tickets.status_tool
+eq "schema 1: ~/.claude/bin/ticket -> the same path as v2" "$BINOUT/ticket" "$P2" -C "$T/r/legacy" --field tickets.status_tool
+eq "schema 1: ~/.claude/bin/epic-status -> bin next to profile" "$BINOUT/epic-status" "$P2" -C "$T/r/legacy" --field tickets.epic_status
+eq "schema 1: ~/.claude/bin/preflight --epic -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/legacy" --field workflow.preflight
 eq "schema 1: null stays null" null "$P2" -C "$T/r/legacy" --field numbering.reserve_with
-eq "schema 1: <HOME>/.claude/bin/ticket -> bin next to profile" "$BINREAL/ticket" "$P2" -C "$T/r/absbin" --field tickets.status_tool
-eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile" "$BINREAL/preflight --epic <эпик>" "$P2" -C "$T/r/absbin" --field workflow.preflight
+eq "schema 1: <HOME>/.claude/bin/ticket -> bin next to profile" "$BINOUT/ticket" "$P2" -C "$T/r/absbin" --field tickets.status_tool
+eq "schema 1: <HOME>/.claude/bin/preflight --epic -> bin next to profile" "$BINOUT/preflight --epic <эпик>" "$P2" -C "$T/r/absbin" --field workflow.preflight
 fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
-check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$BINREAL/ticket" "$P2" -C "$T/r/legacy"
+check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$(json_printed "$BINREAL")/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports
 eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --field language.team
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"
-eq "CLAUDE_PROFILES_DIR overrides both places" "$T/override/both" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
+eq "CLAUDE_PROFILES_DIR overrides both places" "$(printed "$T/override/both")" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
 # --- Silent mode: _resolved.mode, workflow_folder, repos (worfy-harness ticket 22) -----------------
 eq "silent: _resolved.mode" silent "$P2" -C "$T/r/demo" --field _resolved.mode
-eq "silent without workflow.folder, one repository -> HARNESS_HOME/projects/<name>/workflow" "$HH/projects/demo/workflow" "$P2" -C "$T/r/demo" --field _resolved.workflow_folder
-eq "silent: workflow.folder with ~/ is expanded" "$H/wf" "$P2" -C "$T/r/home" --field _resolved.workflow_folder
+eq "silent without workflow.folder, one repository -> HARNESS_HOME/projects/<name>/workflow" "$(printed "$HH/projects/demo/workflow")" "$P2" -C "$T/r/demo" --field _resolved.workflow_folder
+eq "silent: workflow.folder with ~/ is expanded" "$(printed "$H/wf")" "$P2" -C "$T/r/home" --field _resolved.workflow_folder
 fails_with "silent: a relative workflow.folder -> 1 with the reason" 1 "not an absolute path" "$P2" -C "$T/r/relwf" --name
-eq "silent, two repositories, no folder -> the folder above them" "$T/r/multi" "$P2" -C "$T/r/multi/m1" --field _resolved.workflow_folder
-eq "silent, two repositories: _resolved.repos lists both" "m1 $T/r/multi/m1 m1|m2 $T/r/multi/m2 m2" \
+eq "silent, two repositories, no folder -> the folder above them" "$(printed "$T/r/multi")" "$P2" -C "$T/r/multi/m1" --field _resolved.workflow_folder
+eq "silent, two repositories: _resolved.repos lists both" "m1 $(printed "$T/r/multi/m1") m1|m2 $(printed "$T/r/multi/m2") m2" \
     bash -c '"$@" | jq -r "map(\"\(.name) \(.path) \(.gate_key)\") | join(\"|\")"' _ "$P2" -C "$T/r/multi/m2" --field _resolved.repos
-eq "silent, the common directory itself: the same Workflow folder" "$T/r/multi" "$P2" -C "$T/r/multi" --field _resolved.workflow_folder
+eq "silent, the common directory itself: the same Workflow folder" "$(printed "$T/r/multi")" "$P2" -C "$T/r/multi" --field _resolved.workflow_folder
 eq "full: _resolved.mode" full "$P2" -C "$T/r/both" --field _resolved.mode
 eq "schema 1: _resolved.mode full" full "$P2" -C "$T/r/legacy" --field _resolved.mode
-eq "full: the Workflow folder is the working tree" "$(cd "$T/r/both" && pwd -P)" "$P2" -C "$T/r/both" --field _resolved.workflow_folder
+eq "full: the Workflow folder is the working tree" "$(printed "$(cd "$T/r/both" && pwd -P)")" "$P2" -C "$T/r/both" --field _resolved.workflow_folder
 eq "full: _resolved.repos of one repository" '[{"name":"both","gate_key":"both"}]' \
     bash -c '"$@" | jq -c "map({name, gate_key})"' _ "$P2" -C "$T/r/both" --field _resolved.repos
-check "silent summary names the mode and the Workflow folder" 0 "mode: silent   workflow folder: $H/wf" "$P2" -C "$T/r/home"
+check "silent summary names the mode and the Workflow folder" 0 "mode: silent   workflow folder: $(printed "$H/wf")" "$P2" -C "$T/r/home"
 check "full summary has no mode line" 0 "" bash -c '! "$@" | grep -q "^mode: "' _ "$P2" -C "$T/r/both"
 # The relative tickets.root of a Silent profile is taken from the Workflow folder (bin/ticket applies the rule).
-eq "silent: a relative tickets.root is taken from the Workflow folder" "$H/wf/.scratch" \
-    env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
-eq "full: a relative tickets.root is still taken from the working tree" "$(cd "$T/r/both" && pwd -P)/.scratch" \
-    env CLAUDE_PROFILE_BIN="$P2" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
+# ticket reads the profile next to it in the environment $P2 sets: node cannot start a shell script on Windows.
+eq "silent: a relative tickets.root is taken from the Workflow folder" "$(printed "$H/wf/.scratch")" \
+    env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" bash -c 'cd "$0" && node "$1" root' "$T/r/home" "$BIN/ticket"
+eq "full: a relative tickets.root is still taken from the working tree" "$(printed "$(cd "$T/r/both" && pwd -P)/.scratch")" \
+    env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" bash -c 'cd "$0" && node "$1" root' "$T/r/both" "$BIN/ticket"
 
 after="$(snapshot)"
 check "profile writes nothing into HOME or HARNESS_HOME" 0 "" test "$before" = "$after"
