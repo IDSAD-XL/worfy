@@ -44,7 +44,17 @@ interface GhPull {
   url: string
   statusCheckRollup: unknown[]
   comments: { body: string; createdAt?: string; author?: { login: string } }[]
+  headRefOid?: string
+  reviewDecision?: string
+  mergeCommit?: { oid: string }
+  mergedAt?: string
 }
+
+/** The fields every `gh pr list` of worfy asks for: those of the badges, then those of the Stage (ADR-0067). */
+const JSON_FIELDS = 'number,headRefName,state,url,statusCheckRollup,comments,headRefOid,reviewDecision,mergeCommit,mergedAt'
+
+/** What the tracker adds for the Stage to a PR whose gh answer has none of those fields. */
+const NO_STAGE_FIELDS = { headSha: null, reviewDecision: null, mergeCommit: null, mergedAt: null, checks: [], markStatuses: [] }
 
 const pull = (number: number, headRefName: string, extra: Partial<GhPull> = {}): GhPull => ({
   number,
@@ -172,14 +182,87 @@ describe('parsePrList', () => {
   it('keeps only the fields of the contract and drops entries that are not PRs', () => {
     const parsed = parsePrList(JSON.stringify([pull(3, 'demo/03', { extra: 'x' } as Partial<GhPull>), { number: 'four' }, null, pull(5, 'demo/05', { state: 'MERGED' })]))
     expect(parsed).toEqual([
-      { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', branch: 'demo/03', ci: null, verdict: null },
-      { number: 5, url: 'https://github.com/o/r/pull/5', state: 'MERGED', branch: 'demo/05', ci: null, verdict: null },
+      { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', branch: 'demo/03', ci: null, verdict: null, ...NO_STAGE_FIELDS },
+      { number: 5, url: 'https://github.com/o/r/pull/5', state: 'MERGED', branch: 'demo/05', ci: null, verdict: null, ...NO_STAGE_FIELDS },
     ])
   })
 
   it('refuses an answer that is not a JSON list', () => {
     expect(() => parsePrList('{"number":1}')).toThrow()
     expect(() => parsePrList('not json')).toThrow()
+  })
+})
+
+describe('the fields of the Stage (ADR-0067)', () => {
+  const HEAD = 'a'.repeat(40)
+  const MERGE = 'c'.repeat(40)
+
+  it('reads headRefOid, reviewDecision, mergeCommit and mergedAt, and the checks one by one with their times', () => {
+    const [parsed] = parsePrList(
+      JSON.stringify([
+        pull(9, 'demo/09', {
+          state: 'MERGED',
+          headRefOid: HEAD,
+          reviewDecision: 'APPROVED',
+          mergeCommit: { oid: MERGE },
+          mergedAt: '2026-10-17T12:00:00Z',
+          statusCheckRollup: [
+            { __typename: 'CheckRun', name: 'check', status: 'COMPLETED', conclusion: 'FAILURE', startedAt: '2026-10-17T10:00:00Z', completedAt: '2026-10-17T10:04:00Z' },
+            { __typename: 'CheckRun', name: 'lint', status: 'IN_PROGRESS', conclusion: '', startedAt: '2026-10-17T10:00:00Z', completedAt: '0001-01-01T00:00:00Z' },
+            { __typename: 'StatusContext', context: 'ci/legacy', state: 'SUCCESS', startedAt: '2026-10-17T10:01:00Z' },
+            { __typename: 'StatusContext', context: 'review', state: 'FAILURE', startedAt: '2026-10-17T11:00:00Z' },
+            { __typename: 'StatusContext', context: 'check/windows', state: 'PENDING', startedAt: '2026-10-17T11:05:00Z' },
+          ],
+        }),
+      ]),
+    )
+    expect(parsed).toMatchObject({
+      headSha: HEAD,
+      reviewDecision: 'APPROVED',
+      mergeCommit: MERGE,
+      mergedAt: '2026-10-17T12:00:00Z',
+      checks: [
+        { name: 'check', state: 'failure', startedAt: '2026-10-17T10:00:00Z', completedAt: '2026-10-17T10:04:00Z' },
+        { name: 'lint', state: 'pending', startedAt: '2026-10-17T10:00:00Z', completedAt: null },
+        { name: 'ci/legacy', state: 'success', startedAt: '2026-10-17T10:01:00Z', completedAt: '2026-10-17T10:01:00Z' },
+      ],
+      markStatuses: [
+        { context: 'review', state: 'FAILURE', at: '2026-10-17T11:00:00Z' },
+        { context: 'check/windows', state: 'PENDING', at: '2026-10-17T11:05:00Z' },
+      ],
+    })
+  })
+
+  it('an older gh without the fields: null, not a failure; a value of the wrong shape: null too', () => {
+    const parsed = parsePrList(
+      JSON.stringify([pull(1, 'demo/01'), pull(2, 'demo/02', { headRefOid: 7, reviewDecision: '', mergeCommit: 'not an object', mergedAt: '0001-01-01T00:00:00Z' } as unknown as Partial<GhPull>)]),
+    )
+    expect(parsed).toHaveLength(2)
+    for (const each of parsed) expect(each).toMatchObject({ headSha: null, reviewDecision: null, mergeCommit: null, mergedAt: null })
+  })
+
+  it('checks.get still sends only the fields of the badges', async () => {
+    const gh = await stubGh([pull(4, 'demo/04', { headRefOid: HEAD, reviewDecision: 'APPROVED' })])
+    const call = await ipcOver(gh.run, await tempDir())
+    const result = await call({ root: gh.dir, branches: ['demo/04'] })
+    expect(result.ok).toBe(true)
+    const snapshot = (result as { ok: true; value: ChecksSnapshot }).value
+    expect(Object.keys(snapshot.pulls[0]!).sort()).toEqual(['branch', 'ci', 'number', 'state', 'url', 'verdict'])
+  })
+
+  it('PrTracker.gh runs another gh command as the Project’s account, without touching the PR interval', async () => {
+    const seen: { args: readonly string[]; env: Record<string, string> | undefined }[] = []
+    const run: GhRunner = async (args, _cwd, env) => {
+      seen.push({ args, env: env as Record<string, string> | undefined })
+      return '[]'
+    }
+    const tracker = new PrTracker({ run, auth: async () => ({ GH_TOKEN: 'token-of-the-account' }) })
+    expect(await tracker.gh('/r', ['api', 'repos/o/r/deployments'])).toBe('[]')
+    await tracker.read('/r', [])
+    expect(seen.map((each) => [each.args[0], each.env?.GH_TOKEN])).toEqual([
+      ['api', 'token-of-the-account'],
+      ['pr', 'token-of-the-account'],
+    ])
   })
 })
 
@@ -218,8 +301,13 @@ describe('PrTracker over the gh stub', () => {
       branch: 'worfy-mvp/08',
       ci: 'running',
       verdict: 'VERIFIED',
+      ...NO_STAGE_FIELDS,
+      checks: [
+        { name: 'lint', state: 'success', startedAt: null, completedAt: null },
+        { name: 'e2e', state: 'pending', startedAt: null, completedAt: null },
+      ],
     })
-    expect(await gh.calls()).toEqual([['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']])
+    expect(await gh.calls()).toEqual([['pr', 'list', '--state', 'all', '--limit', '100', '--json', JSON_FIELDS]])
   })
 
   it('with 150 PRs, finds the PR of a branch outside the first 100 with --head <branch>, once per 5 minutes', async () => {
@@ -235,7 +323,7 @@ describe('PrTracker over the gh stub', () => {
     const first = await tracker.read(gh.dir, ['worfy-mvp/08', 'worfy-mvp/09'])
     expect(first.pulls).toHaveLength(101)
     expect(pullOfTicket(snapshotOf(first.pulls), { epic: 'worfy-mvp', num: 8 })).toMatchObject({ number: 30, verdict: 'VERIFIED' })
-    const search = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
+    const search = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', JSON_FIELDS]
     expect((await gh.calls()).slice(1)).toEqual([search('worfy-mvp/08'), search('worfy-mvp/09')])
 
     now = 60_000
@@ -494,8 +582,8 @@ describe('checks.get', () => {
 
 const ACCOUNT = 'IDSAD-XL'
 const TOKEN = 'gho_TestToken0123456789abcdef'
-const LIST = ['pr', 'list', '--state', 'all', '--limit', '100', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
-const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', 'number,headRefName,state,url,statusCheckRollup,comments']
+const LIST = ['pr', 'list', '--state', 'all', '--limit', '100', '--json', JSON_FIELDS]
+const lookup = (branch: string) => ['pr', 'list', '--state', 'all', '--head', branch, '--limit', '1', '--json', JSON_FIELDS]
 
 /**
  * A gh that logs `<GH_TOKEN or <unset>>\t<arg>\t<arg>…` and is logged in only as GH_STUB_ACCOUNT,

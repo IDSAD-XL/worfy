@@ -1,7 +1,7 @@
 # 03 — Stage каждого Ticket-а вычисляется в main по Pipeline его Project-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T22:32Z
 Blocked by: 01, 02
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 3, 4, 5, 7, 9 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md);
@@ -68,18 +68,18 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Готово, когда
 
-- [ ] `pnpm test test/unit/pipeline.test.ts` — exit 0: таблица случаев на каждый вид каталога и на оба
+- [x] `pnpm test test/unit/pipeline.test.ts` — exit 0: таблица случаев на каждый вид каталога и на оба
       примера Pipeline spec-а (worfy и Atakama), в том числе: отметка на старом SHA не считается;
       `review failure` → Implementing `rework`; PR влит без отметок → после мержа; `blocked` на CI;
       Check `skipped` пройден; `gate running` и `waiting for gate`; Deploy по предку.
-- [ ] `pnpm test test/contract/workflow-stages.test.ts` — exit 0: временный репозиторий, stub `gh`
+- [x] `pnpm test test/contract/workflow-stages.test.ts` — exit 0: временный репозиторий, stub `gh`
       с PR, check-ами, отметками и Deployment-ом, Silent mode с JSON отметок; Stage приходит событием
       `pipeline.changed` после правки файла Ticket-а и после опроса PR.
-- [ ] `pnpm test test/contract/github-prs.test.ts` — exit 0: новые поля разобраны; без них (старый `gh`)
+- [x] `pnpm test test/contract/github-prs.test.ts` — exit 0: новые поля разобраны; без них (старый `gh`)
       — `null`, не падение.
-- [ ] `grep -n "verdictOf" src/main/workflow/stages.ts src/shared/workflow/pipeline.ts` — пусто
+- [x] `grep -n "verdictOf" src/main/workflow/stages.ts src/shared/workflow/pipeline.ts` — пусто
       (exit 1): Stage не читает комментарии.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 
 ## Тесты
 
@@ -101,7 +101,55 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - `test/unit/pipeline.test.ts` (новый)
 - `test/contract/workflow-stages.test.ts` (новый)
 - `test/contract/github-prs.test.ts`
+- `test/unit/link-access.test.ts` (дописан при claim: каналы `pipeline.get` и `pipeline.close` — в списке `read`)
+- `test/contract/harness-script-wiring.test.ts` (дописан при claim: `src/main/ipc/pipeline.ts` запускает `bin/profile`)
 
 ## Итог
 
-Заполняется при закрытии.
+Stage считается в main. Чистая функция `stageOf` — `src/shared/workflow/pipeline.ts` (каталог видов,
+схема Pipeline с правилами `bin/profile`, подписи, Pipeline по умолчанию). Сбор фактов —
+`src/main/workflow/stages.ts` (`StageReader`, `StageHub`): модель workflow, единственный
+`sharedPrTracker()`, отметки (`src/main/workflow/marks.ts`), `git for-each-ref` и
+`git merge-base --is-ancestor`, Deployment-ы и отметки `deploy` (`src/main/github/deployments.ts`),
+замок e2e. Пересчёт — на каждое изменение модели и на каждый тик интервала PR (60 s; gh запускает сам
+tracker по своему интервалу). Домен IPC `pipeline`: `pipeline.get`, `pipeline.close`, событие
+`pipeline.changed` (весь snapshot), доступ `'project', 'read'`, путь проверяется `insideProjects`.
+Хук `src/renderer/pipeline/usePipeline.ts` — для Ticket-ов 04 и 05. worfy ничего не пишет: test
+сравнивает дерево репозитория и Harness home до и после.
+
+Спорные места, решены ближе к ADR-0067:
+
+- **Отметки в Full mode** — из `statusCheckRollup` PR по именам context (`review`, `check/<name>`).
+  Rollup — это commit status-ы head-коммита, поэтому каждая такая отметка — на head SHA; другой SHA
+  сюда не попадает. `skipped` в Full mode — commit status `success` с описанием `skipped`, а
+  описания в rollup нет: читается как `success`, Stage пройден, но в `skipped[]` не попадает.
+  В Silent mode `skipped` виден (`skipped[]` у результата `stageOf`).
+- **CI без check-ов** (workflow.ci `batch`: на PR CI нет) — пройден, если PR есть. Без PR CI не
+  пройден: у Atakama после ревью агентом Ticket ждёт PR на CI, а не Human review.
+- **Status `none`** (старая шапка, нет строки) — Queued, как `open`: не известно, что работа идёт.
+- **Замок занят, `holder.json` пустой или нечитаемый** — подпись `gate busy` («gate идёт, PR
+  неизвестен»): ни `gate running`, ни `waiting for gate` не утверждается.
+- **`enteredAt`** — самое позднее из известных времён: `statusAt` и время факта каждого пройденного
+  Stage (отметка `at`, `startedAt`/`completedAt` check-ов, `mergedAt`, время Deployment-а); у rework —
+  время отметки `failure`. Текст не разбирается; дата без времени — 00:00 UTC.
+- **`waits`** — строка `Waits:`, иначе `team` для Human review и Awaiting merge, `agent` для прочих;
+  у Done — `null`.
+- **`pipeline.close`** — добавлен к `pipeline.get` и `pipeline.changed`, как `workflow.close`: без него
+  подписка окна жила бы до закрытия окна.
+- **Отметка `deploy` в Full mode** — один GraphQL-запрос `gh api graphql` за 30 последними коммитами
+  ветки по умолчанию; Deploy пройден, если merge-коммит — предок одного из них
+  (`git merge-base --is-ancestor` в локальном клоне). Deployment окружения — `gh api
+  repos/<o>/<r>/deployments?environment=<env>`. Оба — только для Ticket-ов на Deploy и не чаще раза в
+  60 s. Пределы помечены `shortcut:` в коде: окно 30 коммитов; статус Deployment-а не читается;
+  коммит, которого нет в локальном клоне, — «не задеплоен» до следующего fetch.
+- **gh от имени аккаунта Project-а** для Deployment-ов — новый метод `PrTracker.gh(root, args)`: тот
+  же `accountAuth`, интервал опроса PR не трогает. Второго PrTracker нет.
+- **Файл отметок Silent mode** — `<Harness home>/runs/<_resolved.name>/marks/<epic>-<NN>.json`, номер
+  не короче двух цифр, как в имени файла Ticket-а. Битый файл — отметок нет, причина в log один раз.
+- **Profile** читается заново при каждом пересчёте (`readPipelineProfile`, `bin/profile --json`):
+  правка `workflow.pipeline` видна без перезапуска. Без `_resolved.pipeline` или с неверным —
+  Pipeline по умолчанию и причина в `error` snapshot-а.
+- **Project из нескольких репозиториев** — PR, ветки и отметки Ticket-а — из репозитория его строки
+  `Repo:`; Ticket без такой строки фактов PR не получает.
+- `checks.get` по-прежнему отдаёт только поля бейджей: новые поля PR снимает схема ответа (test в
+  `test/contract/github-prs.test.ts`).

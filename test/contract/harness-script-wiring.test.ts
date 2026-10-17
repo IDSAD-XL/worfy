@@ -51,6 +51,7 @@ const MOCKED = [
   '../../src/main/ipc/actions',
   '../../src/main/ipc/checks',
   '../../src/main/ipc/workflow',
+  '../../src/main/workflow/stages',
   '../../src/main/first-run/checks',
 ]
 
@@ -155,6 +156,30 @@ describe('every place of the app hands the scripts the source of src/main/harnes
     }))
     await import('../../src/main/ipc/workflow')
     expect(seen.hub?.env).toBe(SOURCE)
+  })
+
+  it('the Pipeline the Stages are computed by (src/main/ipc/pipeline.ts)', async () => {
+    mockElectron()
+    mockSource()
+    const seen: { env?: unknown; sources?: { profile: (root: string) => Promise<unknown> } } = {}
+    vi.doMock('../../src/main/workflow/profile', async (original) => ({
+      ...(await original<object>()),
+      readPipelineProfile: (options: { env: unknown }) => {
+        seen.env = options.env
+        return Promise.resolve({ ok: false, reason: 'stand-in', miss: 'none' })
+      },
+    }))
+    vi.doMock('../../src/main/workflow/stages', async (original) => ({
+      ...(await original<object>()),
+      StageHub: class {
+        constructor(sources: { profile: (root: string) => Promise<unknown> }) {
+          seen.sources = sources
+        }
+      },
+    }))
+    await import('../../src/main/ipc/pipeline')
+    await seen.sources?.profile(scratch)
+    expect(seen.env).toBe(LOGIN)
   })
 
   it('the read of Ship ticket and Run wave (src/main/ipc/actions.ts)', async () => {

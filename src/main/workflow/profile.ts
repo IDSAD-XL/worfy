@@ -1,5 +1,6 @@
-// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021) and the
-// GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01).
+// Reads the Project's Profile: the list of MCP servers its agents may use (ADR-0021), the
+// GitHub account worfy's own gh calls go with (ADR-0020, worfy-week ticket 01) and the Pipeline
+// with what the Stage of a Ticket is computed from (ADR-0067, `readPipelineProfile`).
 //
 // The Profile lives outside the repository — `<claude home>/profiles/<name>/profile.json` with the
 // old Harness, `<Harness home>/projects/<name>/` with the plugin — and its only reader is the
@@ -21,6 +22,7 @@ import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
+import { DEFAULT_PIPELINE, pipelineSchema, type PipelineStage } from '../../shared/workflow/pipeline'
 import { isAbsolutePath, isWindowsAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
@@ -453,4 +455,67 @@ export async function readResolvedProfile(options: ReadProfileOptions): Promise<
   }
   const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
   return { ok: true, profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })) } }
+}
+
+// ── the Pipeline ─────────────────────────────────────────────────────────────
+
+/** What the Stage of a Ticket needs from the Profile (ADR-0067). */
+export interface PipelineProfile {
+  /** The Profile's name, `_resolved.name`: the folder of its Silent mode marks. */
+  name: string
+  mode: 'full' | 'silent'
+  /** `_resolved.pipeline`; the default Pipeline when the Harness gives none or one that does not read. */
+  pipeline: readonly PipelineStage[]
+  /** Why `pipeline` is the default although the Harness answered; null otherwise. */
+  pipelineReason: string | null
+  /** `workflow.e2e_lock`: the folder of the e2e lock, whose holder.json names the PRs of the gate full that runs; null without one. */
+  e2eLock: string | null
+  repos: readonly ResolvedRepo[]
+}
+
+const pipelineProfileSchema = z.object({
+  _resolved: z.object({
+    name: z.string().trim().min(1),
+    mode: z.enum(['full', 'silent']),
+    repos: z.array(z.object({ name: z.string().trim().min(1), path: absolute })).catch([]),
+    pipeline: z.unknown().optional(),
+  }),
+  workflow: z.object({ e2e_lock: z.string().nullish().catch(null) }).loose().nullish().catch(null),
+})
+
+/**
+ * `_resolved.name`, `mode`, `repos` and `pipeline` and `workflow.e2e_lock` of `bin/profile -C <root> --json`,
+ * or why there are none (any exit code but 0, output that is not the expected JSON). A Harness from
+ * before the Pipeline has no `_resolved.pipeline`: the default Pipeline, and `pipelineReason` says so.
+ * A relative lock path is not taken: it would depend on worfy's own cwd. Nothing is logged here.
+ */
+export async function readPipelineProfile(options: ReadProfileOptions): Promise<{ ok: true; profile: PipelineProfile } | ProfileMissRead> {
+  const read = await runProfile(options, ['--json'], 'the profile script answered --json with exit code 4')
+  if (!read.ok) return read
+  const wrong = (reason: string): ProfileMissRead => ({ ok: false, reason, miss: 'failed', environment: false })
+  let json: unknown
+  try {
+    json = JSON.parse(read.stdout)
+  } catch {
+    return wrong(`profile --json printed something that is not JSON: ${JSON.stringify(read.stdout.slice(0, 200))}`)
+  }
+  const parsed = pipelineProfileSchema.safeParse(json)
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0]
+    return wrong(`profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.') || '(the whole answer)'}: ${issue.message}` : ''}`)
+  }
+  const { name, mode, repos, pipeline: given } = parsed.data._resolved
+  let pipeline: readonly PipelineStage[] = DEFAULT_PIPELINE
+  let pipelineReason: string | null = null
+  if (given === undefined) pipelineReason = 'the Harness gives no _resolved.pipeline: it is older than the Pipeline'
+  else {
+    const stages = pipelineSchema.safeParse(given)
+    if (stages.success) pipeline = stages.data
+    else pipelineReason = `_resolved.pipeline is not a Pipeline: ${stages.error.issues[0]?.message ?? ''}`
+  }
+  const lock = parsed.data.workflow?.e2e_lock ?? null
+  return {
+    ok: true,
+    profile: { name, mode, pipeline, pipelineReason, e2eLock: lock !== null && isAbsolutePath(lock) ? lock : null, repos: repos.map(({ name: repo, path }) => ({ name: repo, path })) },
+  }
 }
