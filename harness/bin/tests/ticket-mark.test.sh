@@ -110,6 +110,16 @@ tk "$T/r/local" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && [ "$(calls)" = "$n" ] && grep -q "not on GitHub" "$T/out" && ok "full: origin not on GitHub -> exit 1, no gh" || bad "full: local origin: exit $rc $(cat "$T/out")"
 GH_FAIL=1 tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && grep -q "HTTP 422" "$T/out" && ok "full: gh fails -> exit 1 with its message" || bad "full: gh fails: exit $rc $(cat "$T/out")"
+# TICKET_GH on every OS: a node script named there runs for a Full mark, with gh's arguments; a missing one is
+# named in the refusal (not "gh is not in PATH")
+printf '%s\n' 'import { appendFileSync } from "node:fs"' 'appendFileSync(process.env.OVR_LOG, process.argv.slice(2).join(" | ") + "\n")' >"$T/log-gh.mjs"
+n="$(calls)"
+OVR_LOG="$T/ovr.log" TICKET_GH="$T/log-gh.mjs" tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
+[ "$rc" -eq 0 ] && grep -q "^api | -X | POST | repos/acme/shop/statuses/$SHA | " "$T/ovr.log" 2>/dev/null && [ "$(calls)" = "$n" ] \
+    && ok "full: TICKET_GH names a node script -> it runs with gh's arguments, not gh" || bad "full: TICKET_GH: exit $rc log [$(cat "$T/ovr.log" 2>/dev/null)] $(cat "$T/out")"
+TICKET_GH="$T/no-such-gh" tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
+[ "$rc" -eq 1 ] && grep -q "TICKET_GH names a program that is not there: .*no-such-gh" "$T/out" && ! grep -q "not in PATH" "$T/out" \
+    && ok "full: TICKET_GH naming a missing program -> exit 1 naming it" || bad "full: missing TICKET_GH: exit $rc $(cat "$T/out")"
 MINBIN="$T/minbin"; mkdir -p "$MINBIN"
 for c in node git; do ln -s "$(command -v "$c")" "$MINBIN/$c"; done
 (cd "$T/r/shop" && env -u TICKET_GH PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?

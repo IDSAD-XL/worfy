@@ -728,6 +728,7 @@ function markGitHub() {
         if (process.env.TICKET_GH) execScriptSync(process.env.TICKET_GH, args, opts)
         else execFileSync("gh", args, opts)
     } catch (e) {
+        if (e.code === "ENOENT" && process.env.TICKET_GH) die(`TICKET_GH names a program that is not there: ${process.env.TICKET_GH}`)
         if (e.code === "ENOENT") die("gh is not in PATH: a commit status is set with gh api")
         const why = String(e.stderr || e.message || "").trim().split("\n")[0]
         die(`gh api repos/${owner}/${name}/statuses/${sha} failed (exit ${e.status}): ${why}`)
