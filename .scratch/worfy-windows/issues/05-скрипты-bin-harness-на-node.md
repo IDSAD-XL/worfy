@@ -137,7 +137,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [x] `harness-home.test.sh`, новый случай: копия `harness/` со снятым битом исполнения у всех файлов `bin` (`chmod -x`). В ней `node <копия>/bin/ticket root`, `node <копия>/bin/epic-status --json` и `node <копия>/bin/epic-board --no-open --out …` — exit 0. Так на Mac проверяется, что соседи зовутся не по shebang. На нынешнем main случай красный.
 - [ ] `bash harness/bin/tests/<файл>` для `profile.test.sh`, `tickets-root.test.sh`, `harness-home.test.sh`, `silent-mode.test.sh` и `epic-status.test.sh` — exit 0 на Mac; в `pnpm test` (`test/contract/harness-scripts.test.ts`) — зелёные.
 - [x] Windows-ПК, Git Bash: `node harness/bin/silent-check -C "$(mktemp -d)" hello; echo "EXIT=$?"` — `EXIT=0` (папка вне зарегистрированных Project-ов — «nothing to check»). На нынешнем main — EXIT=2, `spawnSync …\harness\bin\profile ENOENT` (evidence Ticket-а 01, раздел 18).
-- [ ] Те же пять test-ов — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`: без режима разработчика symlink на ПК — `EPERM`, evidence Ticket-а 01, раздел 22), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
+- [x] Те же пять test-ов — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`: без режима разработчика symlink на ПК — `EPERM`, evidence Ticket-а 01, раздел 22), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
 - [ ] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
 - [ ] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
 - [ ] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
@@ -471,3 +471,27 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ве
 - **Выборка процессов `gh.exe`** (каждые 300 мс, затем 100 мс с цепочкой родителей) поймала один настоящий `gh.exe`: `auth git-credential get` в 20:45:30. Это помощник учётных данных git при моём `git fetch` в общем клоне, не test: повторный прогон `profile.test.sh` с цепочкой родителей — 0 `gh.exe`.
 
 **Не проверено:** всё на macOS и Linux (на ПК — только чтением); что `gh` берёт `GH_TOKEN` раньше хранилища ОС — по документированному порядку токенов `gh`, настоящий `gh` для проверки не запускался.
+
+### Срез 05f — пункты «Готово, когда» на ПК с Windows
+
+Git Bash, Windows 11 Pro; папка настоящего `gh` убрана из PATH, выборка процессов `gh.exe` — ни одного.
+
+- **Отмечены четыре пункта:**
+  - `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock harness/bin/silent-check` — exit 1.
+  - Случай `harness-home.test.sh` с копией `harness/` без бита исполнения: `node … ticket root`, `node … epic-status --json`, `node … epic-board --no-open` — все три ok.
+  - `node harness/bin/silent-check -C "$(mktemp -d)" hello` с пустым реестром (`CLAUDE_GATE_CONFIG` на `{"repos":[]}`) — «not a registered project — nothing to check», `EXIT=0`. Без файла реестра вообще (так на ПК, где реестра нет нарочно) — `EXIT=2`: «profile not read (exit 1) … registry … cannot be read: ENOENT». Это в объёме Ticket-а 13 (первый запуск): на свежей машине до первого Project-а `silent-check` отвечает отказом, а не «nothing to check».
+  - Те же пять test-ов — exit 0 в Git Bash (ветка = main `9d21c3d` с Ticket-ом 04 + этот срез):
+
+| Shell test | main `7f8f46e` | ветка |
+|---|---|---|
+| `profile.test.sh` | exit 0, 210 ok / 0 FAIL, 6 skip | exit 0, 210 / 0, 6 skip |
+| `tickets-root.test.sh` | exit 0, 26 / 0 | exit 0, 26 / 0 |
+| `epic-status.test.sh` | exit 0, 47 / 0 | exit 0, 47 / 0 |
+| `harness-home.test.sh` | exit 1, 40 / 2, 2 skip | exit 0, 42 / 0, 2 skip |
+| `silent-mode.test.sh` | exit 1, 85 / 3, 1 skip | exit 0, 84 / 0, 3 skip |
+
+- `harness-home`: два случая, падавшие на `7f8f46e`, звали Stop hook `stop.sh`; Ticket 04 (PR #453, `9d21c3d`) перевёл его на `stop.mjs`.
+- `silent-mode`: случаи `worktree-create.sh` (скрипт на Windows не переносится — решение владельца 2026-10-13, Ticket 04 «Что происходит»: строка 65 считает `C:\…` относительным путём, `pwd -P` печатает путь POSIX) на Windows теперь `skip` с причиной: «WorktreeCreate outside, hook tree, repeat» и «WorktreeCreate default». «repeat» на Windows проходил, но он проверяет повтор после первого случая, поэтому пропускается вместе с ним. Отказы (имя с `..`, папка вне git) по-прежнему идут. На macOS и Linux случаи без изменений.
+- Остальные `skip` на Windows и причины: zsh нет в Git Bash (`profile`, `silent-mode`, `qmd-sync-main` в `harness-home`); `ln -s` без режима разработчика делает копию (`harness-home`); живых реестров и Project-ов владельца на ПК нет (`profile`); файловая система без учёта регистра (`profile`); Node не запускает shell-скрипт как профиль (`profile`).
+- `test/contract/workflow-reader.test.ts` на Windows — все случаи проходят. `test/contract/workflow-profile.test.ts` — 29 падений, все на написании путей в ожиданиях test-а (`/repo` против `C:\repo`, `/h/bin/profile` против `\h\bin\…`), код не при чём; для отдельного среза fixture-ов.
+- Не отмечены: пункты на Mac (bash-версия `epic-status`, сверка на живых данных, `exit 0 на Mac`, gate full и упакованная сборка); снимок Canvas на dev-сборке и `epic-board` в браузере — следующим шагом на ПК.
