@@ -15,7 +15,7 @@ Source: batch CI run на main после Wave 11–13 — https://github.com/ID
   же test-е insert после команды дошёл (`:869-870` зелёные): связь shell-а после команды восстановлена.
 - На Mac этот test зелёный: прогоны исполнителя и проверяющего Ticket-а 11, gate full перед merge PR #443.
 - Вероятная причина — в самом test-е, не в коде (не проверено на Linux): программа-держатель запускается через
-  `/bin/sh -c "… printf … >&$__worfy_assist_fd …; : > ${wroteFile}; …"` (`:855`). На Linux `/bin/sh` — dash, а dash
+  `/bin/sh -c "… printf … >&$__worfy_assist_fd …; : > ${wroteFile}; …"` (`:857`). На Linux `/bin/sh` — dash, а dash
   не принимает в перенаправлении номер descriptor-а больше 9 («Bad fd number»); zsh даёт `{fd}` от 10. Скрипт
   обрывается до `: > wroteFile`. На Mac `/bin/sh` — bash, у него такого предела нет.
 
