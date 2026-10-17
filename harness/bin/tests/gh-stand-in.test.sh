@@ -63,10 +63,24 @@ fi
 # (e) a fake gh ahead of the stub and no variable: refused on every OS
 guarded f "$FAKE:$STUBS:$BASE_PATH" WAVE_GATE_GH ""; rc=$?
 refused "no variable, a fake gh ahead of the stub -> refused" "$rc"
-# the guard leaves the credentials out
-( PATH="$STUBS:$BASE_PATH"; export WAVE_GATE_GH="$STUBS/gh.mjs" GH_TOKEN=secret GITHUB_TOKEN=secret
-  gh_guard WAVE_GATE_GH "$STUBS/gh" "$STUBS/gh.mjs"; printf '%s|%s|%s\n' "${GH_TOKEN-unset}" "${GITHUB_TOKEN-unset}" "${GH_CONFIG_DIR:-}" ) >"$T/out" 2>&1
-[ "$(cat "$T/out")" = "unset|unset|$T/gh-config" ] && ok "the guard unsets the tokens and empties GH_CONFIG_DIR" || bad "credentials: $(cat "$T/out")"
+# (g) no variable, and on Windows a refusing gh.exe (a copy of false) next to the stub: node's lookup of a bare gh
+# finds that copy, which refuses, so the guard passes there too; "-" (a script with no override variable) the same
+REF="$T/refusing"; mkdir -p "$REF"; cp "$STUBS/gh" "$REF/gh"; refusing_gh_exe "$REF/gh"
+( PATH="$REF:$BASE_PATH"; unset WAVE_GATE_GH; gh_guard WAVE_GATE_GH "$REF/gh" "$REF/gh.mjs"; echo "guard passed" ) >"$T/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "guard passed" "$T/out" && ok "no variable, the stub (and on Windows its refusing gh.exe) first on PATH -> passes" || bad "refusing gh.exe: exit $rc $(cat "$T/out")"
+( PATH="$REF:$BASE_PATH"; gh_guard - "$REF/gh" ""; echo "guard passed" ) >"$T/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && grep -q "guard passed" "$T/out" && ok "no override variable (-), the stub first on PATH -> passes" || bad "variable -: exit $rc $(cat "$T/out")"
+( PATH="$FAKE:$REF:$BASE_PATH"; gh_guard - "$REF/gh" ""; echo "guard passed" ) >"$T/out" 2>&1; rc=$?
+refused "no override variable (-), a fake gh ahead of the stub -> refused" "$rc"
+# the guard keeps every usable credential from gh: GH_TOKEN exported as a fixed invalid value (gh reads it before
+# hosts.yml and the OS keyring), the other tokens unset, GH_CONFIG_DIR an empty folder
+( PATH="$STUBS:$BASE_PATH"; export WAVE_GATE_GH="$STUBS/gh.mjs" GH_TOKEN=secret GITHUB_TOKEN=secret GH_ENTERPRISE_TOKEN=secret GITHUB_ENTERPRISE_TOKEN=secret
+  gh_guard WAVE_GATE_GH "$STUBS/gh" "$STUBS/gh.mjs"
+  printf '%s|%s|%s|%s|%s|%s\n' "$(printenv GH_TOKEN || echo unset)" "${GITHUB_TOKEN-unset}" "${GH_ENTERPRISE_TOKEN-unset}" "${GITHUB_ENTERPRISE_TOKEN-unset}" \
+      "${GH_CONFIG_DIR:-}" "$(ls -A "$GH_CONFIG_DIR" 2>&1)" ) >"$T/out" 2>&1
+[ "$(cat "$T/out")" = "worfy-test-no-token|unset|unset|unset|$T/gh-config|" ] \
+    && ok "the guard exports GH_TOKEN=worfy-test-no-token, unsets GITHUB_TOKEN, GH_ENTERPRISE_TOKEN, GITHUB_ENTERPRISE_TOKEN, GH_CONFIG_DIR is an empty folder" \
+    || bad "credentials: $(cat "$T/out")"
 
 # node_stand_in: the stand-in runs the stub with the arguments and its exit code; with STAND_IN_PARENTS it
 # records the pid of the program that started it

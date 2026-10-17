@@ -15,7 +15,12 @@ BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 PF="$BIN/preflight"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
+# and the profiles' paths must be in it. TP is the same folder for PATH, where C:/… cannot stand.
+T="$(mktemp -d)"; TP="$(cd "$T" && pwd -P)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# A path as profile prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere; preflight
+# prints the Workflow folder that way and joins its ADR directory with /.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 trap 'rm -rf "$T"' EXIT
 . "$(dirname "$0")/real-home.sh"
 REAL_HOME="$HOME"
@@ -26,6 +31,17 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# preflight asks gh for the open PRs (and, for a github.com origin, the active account): a stub named gh first on
+# PATH answers instead, logging its arguments to $GH_STUB_LOG and refusing (exit 1), as a real gh refuses in these
+# repositories whose origin is a local folder; the PR line stays "gh unavailable: …". preflight starts gh from bash
+# (through perl), which finds the stub on every OS; on Windows a refusing gh.exe next to it covers node's own
+# lookup. The guard stops the test before any check if another gh could be started.
+. "$(dirname "$0")/gh-stand-in.sh"
+mkdir -p "$TP/stubs"
+printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
+chmod +x "$TP/stubs/gh"; refusing_gh_exe "$TP/stubs/gh"
+export PATH="$TP/stubs:$PATH" GH_STUB_LOG="$TP/gh-stub.log"
+gh_guard - "$TP/stubs/gh" ""
 
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 mkdir -p "$T/nogit" "$T/unreg" "$T/reg" "$T/profiles/t"
@@ -133,7 +149,7 @@ printf '{"repos":[{"key":"s","match":"%s","profile":"s","pm":"npm"}]}\n' "$T/reg
 touch "$T/wf/docs/adr/0001-a.md" "$T/wf/docs/adr/0007-b.md"
 mkdir -p "$T/reg/docs/adr" && touch "$T/reg/docs/adr/0042-in-repo.md"   # a decoy: Silent mode does not count the repository
 out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"ADR: Silent mode, highest 0007 in the Workflow folder ($T/wf/docs/adr) → next free 0008"* ]] \
+[ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" == *"ADR: Silent mode, highest 0007 in the Workflow folder ($(printed "$T/wf")/docs/adr) → next free 0008"* ]] \
     && ok "silent: ADR numbers from the Workflow folder -> next free 0008, GO" || bad "silent ADR: exit $rc, out: ${out:0:600}"
 touch "$T/wf/docs/adr/0007-c.md"
 out="$(cd "$T/reg" && CLAUDE_GATE_CONFIG="$T/s.json" CLAUDE_SESSION_ID= bash "$PF" --no-fetch 2>&1)"; rc=$?
@@ -145,6 +161,11 @@ rm -rf "$T/reg/docs"
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && bash "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?
 [ "$rc" -eq 2 ] && [[ "$err" == *"profile unreadable"* ]] && ok "broken profile -> exit 2" || bad "broken profile: exit $rc, err: ${err:0:200}"
+
+# preflight's gh calls reached the stub: at least one, each a PR list (or the account query)
+calls="$(grep -c . "$GH_STUB_LOG" 2>/dev/null)"
+[ "${calls:-0}" -ge 1 ] && ! grep -qvE '^(pr list |api user)' "$GH_STUB_LOG" \
+    && ok "preflight's gh calls went to the stub (gh pr list)" || bad "gh stub log: ${calls:-0} calls [$(head -n 3 "$GH_STUB_LOG" 2>/dev/null)]"
 
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" \

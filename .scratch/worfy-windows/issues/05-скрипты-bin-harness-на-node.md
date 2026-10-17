@@ -441,3 +441,33 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ве
 - Ни один test и ни одна проба этого раунда не запускали настоящий `gh`.
 
 **Не проверено:** всё на macOS и Linux, в том числе случаи «без переменной» в `gh-stand-in.test.sh` и `gh-override.test.sh` (на ПК проверены только чтением).
+
+### Срез 05e — shell-test-ы Harness больше не доходят до настоящего `gh`
+
+Продолжение по ревью Mac второго раунда #444: три пункта. Ни один test и ни одна проба этого среза не запускали настоящий `gh`.
+
+- **`gh-override.test.sh`, случаи 1–3: не было отказывающего `gh` первым в PATH и `gh_guard`.** Сломайся `WAVE_GATE_GH` — эти случаи дошли бы до настоящего `gh`. Теперь первым в PATH стоит отказывающий stub, `gh_guard` вызывается до первой проверки, а отдельная проверка подтверждает, что stub ни разу не запустился.
+- **Новый случай: `gh pr merge` через `WAVE_GATE_GH` на любой ОС** (`wave-gate:699`). После зелёной проверки merge запускает журналирующий `.mjs` через node с аргументами `pr merge 7 --squash --match-head-commit <head>`.
+- **`GH_ENTERPRISE_TOKEN`.** `gh_guard` снимал его уже в `cd935f8` (`gh-stand-in.sh:46`); добавлено покрытие: случай учётных данных в `gh-stand-in.test.sh` проверяет все четыре переменные токенов.
+- **`preflight.test.sh` и `harness-home.test.sh` звали настоящий `gh pr list` с токеном пользователя.** `preflight` запускает `gh` из bash через perl: `gh pr list` (`preflight:411`) на каждом прогоне, `gh api user` (`:208`) только для origin на github.com. MSYS perl находит stub без расширения, поэтому переменная-переопределение не понадобилась. Оба test-а теперь ставят первым в PATH stub, который пишет свои вызовы в журнал, вызывают `gh_guard` и проверяют, что вызовы пришли в stub (9 в `preflight.test.sh`, 4 в `harness-home.test.sh`). На `cd935f8` журналирующий поддельный `gh.exe` последним в PATH получил 4 вызова от `harness-home.test.sh`, на ветке — 0.
+- **`profile.test.sh` до `gh` не доходит:** он не запускает ни `preflight`, ни `ticket mark`, ни `wave-gate`, а `profile` сам `gh` не запускает. Поддельный `gh.exe` получил от него 0 вызовов и на `cd935f8`, и на ветке; файл не менялся.
+- **`gh-stand-in.sh`.** На Windows отказывающий `<stub>.exe` (копия `false`) закрывает поиск `gh` в PATH со стороны node. Вызов `gh_guard -` — для скриптов без переменной-переопределения (`preflight`): guard принимает эту копию как `gh` для node. `preflight.test.sh` на Windows пишет временные пути как `C:/…` (`pwd -W`); на macOS и Linux пути прежние.
+
+| Shell test, Git Bash | `cd935f8` (#444) | ветка |
+|---|---|---|
+| `gh-stand-in.test.sh` | exit 0, 12 ok / 0 FAIL | exit 0, 15 / 0 |
+| `gh-override.test.sh` | exit 0, 7 / 0 | exit 0, 8 / 0, 2 skip |
+| `preflight.test.sh` | exit 1, 4 / 10 | exit 0, 15 / 0 |
+| `harness-home.test.sh` | exit 0, 41 / 0 | exit 0, 42 / 0 |
+| `profile.test.sh` | exit 1, 209 / 1 | exit 0, 210 / 0 |
+| `ticket-mark` / `skill-blocks` / `wave-gate` | 42/1, 5/40, 120/30 | те же |
+
+- Сверка по именам на всех восьми файлах: ни один случай, проходящий на `cd935f8`, на ветке не падает. Случай «silent ADR» в `preflight.test.sh` падал на Windows и на `cd935f8`: `preflight` печатает папку Workflow так, как её пишет node (`C:\…\wf/docs/adr`). Ожидаемая строка теперь собирается через `printed "$T/wf"` (как в 05c); на macOS и Linux она прежняя.
+- **Ревью на ПК** (subagent; линзы: путь до настоящего `gh` на любой ОС, корректность на macOS/Linux): пути до настоящего `gh` нет, на macOS/Linux ничего. Исправлено:
+  - medium: без токена в переменных и в `hosts.yml` `gh` берёт токен из хранилища ОС (Windows Credential Manager, Keychain на macOS). Guard теперь ставит `GH_TOKEN=worfy-test-no-token`: `gh` берёт `GH_TOKEN` раньше хранилища, и настоящий `gh`, если до него всё же дойдёт, не сможет действовать от имени владельца. Мутант без этой строки — 1 FAIL.
+  - low: проверка «ни один случай не запустил `gh` сам» в `gh-override.test.sh` на Windows проходила всегда (копия `false` ничего не пишет в журнал). На Windows она теперь выводит skip с причиной.
+  - Не исправлено, low: guard не повторяет первый шаг поиска node на Windows — `gh.exe` в рабочей папке запуска. Рабочие папки fixture-ов — свежие временные папки, такого файла там нет.
+- **Мутанты, все красные.** Stub за поддельным `gh` с guard-ом: REFUSED, ни одной проверки, 0 вызовов поддельного (`preflight`, `harness-home`, `gh-override`). То же без guard-а: падает проверка вызовов stub-а, а поддельный `gh.exe` получает 9 вызовов (`preflight`) и 4 (`harness-home`). `.mjs` merge как обычная программа — 1 FAIL; без `--squash` — 1 FAIL; `GH_ENTERPRISE_TOKEN` не снят — 1 FAIL.
+- **Выборка процессов `gh.exe`** (каждые 300 мс, затем 100 мс с цепочкой родителей) поймала один настоящий `gh.exe`: `auth git-credential get` в 20:45:30. Это помощник учётных данных git при моём `git fetch` в общем клоне, не test: повторный прогон `profile.test.sh` с цепочкой родителей — 0 `gh.exe`.
+
+**Не проверено:** всё на macOS и Linux (на ПК — только чтением); что `gh` берёт `GH_TOKEN` раньше хранилища ОС — по документированному порядку токенов `gh`, настоящий `gh` для проверки не запускался.

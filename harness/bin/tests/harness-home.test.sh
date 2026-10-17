@@ -21,7 +21,7 @@ HARNESS="${HARNESS_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"   # HARNESS_DIR �
 # Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
 # /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
-T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+T="$(mktemp -d)"; TP="$(cd "$T" && pwd -P)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"   # TP — for PATH
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -35,6 +35,18 @@ absent() { local p; for p in "$@"; do [ ! -e "$p" ] || return 1; done; }
 go_or_blocked() { [ "$1" = GO ] || [ "${1#BLOCKED: }" != "$1" ]; }
 # node, not shasum: Git Bash has shasum only where perl is on PATH.
 tag() { node -e 'process.stdout.write(require("node:crypto").createHash("sha1").update(process.argv[1]).digest("hex").slice(0, 8))' "$1"; }
+
+# preflight (run below, also from a copy of harness/) asks gh for the open PRs: a stub named gh first on PATH
+# answers instead, logging its arguments to $GH_STUB_LOG and refusing (exit 1), as a real gh refuses in the fixture
+# repository, which has no GitHub remote. preflight starts gh from bash (through perl), which finds the stub on
+# every OS; on Windows a refusing gh.exe next to it covers node's own lookup. The guard stops the test before any
+# check if another gh could be started.
+. "$(dirname "$0")/gh-stand-in.sh"
+mkdir -p "$TP/stubs"
+printf '#!/usr/bin/env bash\necho "$*" >>"$GH_STUB_LOG"\necho "gh stub: no GitHub in the tests" >&2\nexit 1\n' >"$TP/stubs/gh"
+chmod +x "$TP/stubs/gh"; refusing_gh_exe "$TP/stubs/gh"
+export PATH="$TP/stubs:$PATH" GH_STUB_LOG="$TP/gh-stub.log"
+gh_guard - "$TP/stubs/gh" ""
 
 # Runs a command with the home folder $1 and none of the overrides the calling session may have
 # set. HOME is the home folder for bash and for node on macOS and Linux, USERPROFILE for node on
@@ -273,6 +285,10 @@ out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s9 bash "$HARNESS/bin/prefli
 check "preflight sees another live session through worktree-lock status" [ "${out#*lock: another live session s1}" != "$out" ]
 out="$(cd "$R" && clean "$H1" env CLAUDE_SESSION_ID=s1 bash "$HARNESS/bin/preflight" --no-fetch </dev/null 2>&1)"
 check "preflight sees its own session holding the lock" [ "${out#*lock: held by this session}" != "$out" ]
+# preflight's gh calls (the copy's run in section 4 and the three above) reached the stub, each a PR list
+stub_calls() { [ "$(grep -c . "$GH_STUB_LOG" 2>/dev/null)" -ge 1 ] && ! grep -qvE '^(pr list |api user)' "$GH_STUB_LOG"; }
+check "preflight's gh calls went to the stub (gh pr list)" stub_calls
+stub_calls || echo "     gh stub log: [$(cat "$GH_STUB_LOG" 2>/dev/null)]"
 for want_rc in "0:-C $R --name" "2:--bogus" "3:-C $T --name" "4:-C $R --field no.such.field"; do
     (cd "$T" && clean "$H1" node "$HARNESS/bin/profile" ${want_rc#*:} >/dev/null 2>&1); rc=$?
     check "profile ${want_rc#*:} -> exit ${want_rc%%:*}" [ "$rc" -eq "${want_rc%%:*}" ]
