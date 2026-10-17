@@ -5,6 +5,11 @@
 // (`settings: { autoCompactWindow }`, src/main/agent/options.ts); "Claude Code default" (null)
 // passes nothing, so the user's settings.json and Claude Code decide.
 //
+// A window the person never chose in worfy (worfy-polish ticket 29) gives way to `autoCompactWindow`
+// of <claudeHome>/settings.json: worfy then passes nothing and Claude Code takes the user's own
+// window; only with none there do worfy's 400K and 500K go. A window chosen in Settings — "Custom" or
+// "Claude Code default" — wins over settings.json.
+//
 // The chain runs for real from the Orchestrators and the Session registry down to the options of
 // query(); the Session itself plays the fake agent. No Claude Code can start, three ways over:
 // - sdkQueryFactory gets query() from the test (`loadSdk`), so the SDK module is never imported;
@@ -83,8 +88,8 @@ beforeEach(() => {
   mocks.query.mockReset().mockReturnValue(SDK_QUERY)
   mocks.loadSdk.mockReset().mockResolvedValue({ query: mocks.query })
   mocks.agentEnv.mockReset().mockResolvedValue({ env: LOGIN_ENV, from: 'login-shell' })
-  // Back to the defaults of a Machine with no app-settings.json: 400K and 500K.
-  appSettingsStore().set({ autoCompactWindow: { orchestrator: 400_000, other: 500_000 } })
+  // Back to a Machine whose person never chose a window: worfy's 400K and 500K, unless settings.json has one.
+  appSettingsStore().set({ autoCompactWindow: { orchestrator: 'worfy-default', other: 'worfy-default' } })
 })
 
 afterEach(async () => {
@@ -141,6 +146,19 @@ function harness() {
     return node === undefined ? undefined : orchestrators.view(node.id)?.state
   }
   return { calls, requests, registry, orchestrators, orchestratorState }
+}
+
+/** Writes <claudeHome>/settings.json of this test: the user's own Claude Code settings. */
+function userSettings(fields: Record<string, unknown> | string): void {
+  writeFileSync(join(scratch, 'claude-home', 'settings.json'), typeof fields === 'string' ? fields : JSON.stringify(fields))
+}
+
+/** Starts the Orchestrator and a Session of the Canvas, and waits for the query() of both. */
+async function startBoth(h: ReturnType<typeof harness>, calls = 2): Promise<void> {
+  await h.orchestrators.open(PROJECT)
+  h.registry.start(repo, undefined, () => undefined)
+  await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(calls))
+  expect(h.requests.slice(-2).map((request) => request.orchestrator === true)).toEqual([true, false])
 }
 
 /** The options query() got at its n-th call. */
@@ -273,5 +291,85 @@ describe('the window by the role of the Session', () => {
     h.registry.start(repo, undefined, () => undefined)
     await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(2))
     expect([windowAsked(0), windowAsked(1)]).toEqual([500_000, 800_000])
+  })
+})
+
+describe('autoCompactWindow of ~/.claude/settings.json', () => {
+  it('a window there and a setting the person never chose in worfy: query() gets no flag settings, so Claude Code takes the user\'s window', async () => {
+    userSettings({ model: 'opus', autoCompactWindow: 300_000 })
+    const h = harness()
+    await startBoth(h)
+    expect(sdkOptions(0)).not.toHaveProperty('settings')
+    expect(sdkOptions(1)).not.toHaveProperty('settings')
+  })
+
+  it.each([
+    ['no settings.json', null],
+    ['a settings.json without the field', { model: 'opus' }],
+    ['"auto"', { autoCompactWindow: 'auto' }],
+    ['a number as a string', { autoCompactWindow: '300000' }],
+    ['zero', { autoCompactWindow: 0 }],
+    ['a negative number', { autoCompactWindow: -300_000 }],
+    ['a fraction', { autoCompactWindow: 300_000.5 }],
+    ['not JSON', '{ "autoCompactWindow": 300000'],
+  ])('with no whole positive window there (%s): worfy\'s 400K to the Orchestrator, 500K to the others', async (_case, fields) => {
+    if (fields !== null) userSettings(fields)
+    const h = harness()
+    await startBoth(h)
+    expect([windowAsked(0), windowAsked(1)]).toEqual([400_000, 500_000])
+  })
+
+  it('a window the person chose in worfy wins over settings.json: "Custom" — the default value too — and "Claude Code default"', async () => {
+    userSettings({ autoCompactWindow: 300_000 })
+    appSettingsStore().set({ autoCompactWindow: { orchestrator: 450_000, other: null } })
+    const h = harness()
+    await startBoth(h)
+    expect(windowAsked(0)).toBe(450_000)
+    expect(sdkOptions(1)).not.toHaveProperty('settings')
+
+    // "Custom" at the value worfy would give by default is a choice all the same.
+    appSettingsStore().set({ autoCompactWindow: { orchestrator: 400_000, other: 500_000 } })
+    await vi.waitFor(() => expect(h.orchestratorState()).toBe('idle'))
+    await h.orchestrators.setUnattended(PROJECT, true)
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(3))
+    h.registry.start(repo, undefined, () => undefined)
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(4))
+    expect(h.requests.slice(2).map((request) => request.orchestrator === true)).toEqual([true, false])
+    expect([windowAsked(2), windowAsked(3)]).toEqual([400_000, 500_000])
+  })
+
+  it('is read at every start: a window written there while worfy runs reaches the next start, and so does one taken away', async () => {
+    const h = harness()
+    const first = h.registry.start(repo, undefined, () => undefined)
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(first.state).toBe('idle'))
+    expect(windowAsked(0)).toBe(500_000)
+
+    userSettings({ autoCompactWindow: 600_000 })
+    h.registry.start(repo, undefined, () => undefined)
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(2))
+    expect(sdkOptions(1)).not.toHaveProperty('settings')
+
+    userSettings({})
+    h.registry.start(repo, undefined, () => undefined)
+    await vi.waitFor(() => expect(mocks.query).toHaveBeenCalledTimes(3))
+    expect(windowAsked(2)).toBe(500_000)
+  })
+})
+
+describe('sessionAutocompact.userSettings: the window of ~/.claude/settings.json for Settings → Sessions', () => {
+  const answer = async (): Promise<unknown> => {
+    const handler = (await import('../../src/main/ipc/session-autocompact')).default.find((each) => each.channel.name === 'sessionAutocompact.userSettings')
+    if (handler === undefined) throw new Error('the module has no sessionAutocompact.userSettings handler')
+    expect(handler.channel.access).toBe('local')
+    return handler.handle(undefined, { event: {} as never })
+  }
+
+  it('answers the whole positive window of the Claude home of this run, read at each call', async () => {
+    expect(await answer()).toStrictEqual({ value: null })
+    userSettings({ autoCompactWindow: 300_000 })
+    expect(await answer()).toStrictEqual({ value: 300_000 })
+    userSettings({ autoCompactWindow: 'auto' })
+    expect(await answer()).toStrictEqual({ value: null })
   })
 })

@@ -9,13 +9,22 @@
 // running Session keeps its own until it is started again, and worfy restarts none by itself.
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW in the login shell environment wins over both settings; the
 // section says so when main finds it there (`sessionAutocompact.shellOverride`).
+//
+// A window the person never chose here gives way to `autoCompactWindow` of the user's
+// ~/.claude/settings.json (worfy-polish ticket 29), which main reads (`sessionAutocompact.userSettings`):
+// the row then shows "Claude Code default", as worfy passes nothing. A line under each role names
+// the source — the person's own value, "Claude Code default", settings.json, or worfy's default —
+// by autoCompactWindowSource, the same order main starts a Session by.
 import { useEffect, useId, useState, type CSSProperties } from 'react'
 import {
   AUTO_COMPACT_WINDOW_DEFAULTS,
   AUTO_COMPACT_WINDOW_MAX,
   AUTO_COMPACT_WINDOW_MIN,
   AUTO_COMPACT_WINDOW_STEP,
+  autoCompactWindowSource,
   clampAutoCompactWindow,
+  type AutoCompactRole,
+  type AutoCompactWindowSource,
 } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
 import { Select, type SelectOption } from '../theme/Select'
@@ -26,7 +35,7 @@ export const order = 60
 export const title = 'Sessions'
 
 /** Which window: a Project's Orchestrator, or any other Session. */
-export type WindowRole = 'orchestrator' | 'other'
+export type WindowRole = AutoCompactRole
 
 /** The hint next to the windows: the threshold sits below the window. */
 export const BELOW_WINDOW_HINT = 'Autocompact runs a little below this: Claude Code keeps room for the summary.'
@@ -72,6 +81,20 @@ const styles = {
 /** A window in tokens as the field shows it: 400 000 → "400". */
 const toThousands = (tokens: number): string => String(Math.round(tokens / THOUSAND))
 
+/** The line under a role that names where its window comes from: "worfy default (400K)". */
+function sourceText(source: AutoCompactWindowSource): string {
+  switch (source.kind) {
+    case 'custom':
+      return `Custom (${toThousands(source.window)}K)`
+    case 'claude-code-default':
+      return 'Claude Code default'
+    case 'user-settings':
+      return `From ~/.claude/settings.json (${toThousands(source.window)}K)`
+    case 'worfy-default':
+      return `worfy default (${toThousands(source.window)}K)`
+  }
+}
+
 /**
  * What the field's text asks for: thousands of tokens brought into 100K–1M on a step of 10K
  * ("450" → 450 000, "5" → 100 000, "1200" → 1 000 000); undefined when it is no number at all, so
@@ -100,9 +123,35 @@ function useShellOverride(): string | null {
   return value
 }
 
-/** One window: "Claude Code default" or "Custom", and the custom window in thousands of tokens. */
-function WindowRow({ role, label, description }: { role: WindowRole; label: string; description: string }) {
-  const current = useAppSettings((settings) => settings.autoCompactWindow[role])
+/**
+ * `autoCompactWindow` of the user's ~/.claude/settings.json, asked once; null while unknown or absent.
+ * shortcut: a window written to settings.json while the section is open shows on the next opening, redo when Settings has to follow that file live.
+ */
+function useUserWindow(): number | null {
+  const [value, setValue] = useState<number | null>(null)
+  useEffect(() => {
+    let live = true
+    void invoke('sessionAutocompact.userSettings').then((result) => {
+      if (live && result.ok) setValue(result.value.value)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return value
+}
+
+/**
+ * One window: "Claude Code default" or "Custom", the custom window in thousands of tokens, and the
+ * line that names its source. A window not chosen shows as "Custom" at worfy's default, or as
+ * "Claude Code default" when settings.json has one: what a start passes either way.
+ */
+function WindowRow({ role, label, description, userWindow }: { role: WindowRole; label: string; description: string; userWindow: number | null }) {
+  // Both are the store's own objects, so the selectors keep their identity until the settings change.
+  const autoCompactWindow = useAppSettings((settings) => settings.autoCompactWindow)
+  const autoCompactWindowChosen = useAppSettings((settings) => settings.autoCompactWindowChosen)
+  const source = autoCompactWindowSource({ autoCompactWindow, autoCompactWindowChosen }, role, userWindow)
+  const shown = source.kind === 'custom' || source.kind === 'worfy-default' ? source.window : null
   // The text being typed, from the first key until the field commits it; undefined shows the window in force.
   const [draft, setDraft] = useState<string>()
   const [problem, setProblem] = useState<string>()
@@ -116,15 +165,17 @@ function WindowRow({ role, label, description }: { role: WindowRole; label: stri
     if (draft === undefined) return
     const next = windowFromText(draft)
     setDraft(undefined)
-    if (next !== undefined && next !== current) save(next)
+    if (next !== undefined && next !== shown) save(next)
   }
 
   return (
     <SettingRow
-      label={<label htmlFor={current === null ? undefined : fieldId}>{label}</label>}
+      label={<label htmlFor={shown === null ? undefined : fieldId}>{label}</label>}
       description={
         <>
           {description}
+          <br />
+          <span data-testid={`settings-autocompact-${role}-source`}>{sourceText(source)}</span>
           <br />
           {problem === undefined ? (
             RESTART_HINT
@@ -141,14 +192,14 @@ function WindowRow({ role, label, description }: { role: WindowRole; label: stri
         <Select
           aria-label={`${label} autocompact window`}
           data-testid={`settings-autocompact-${role}-mode`}
-          value={current === null ? 'default' : 'custom'}
+          value={shown === null ? 'default' : 'custom'}
           options={MODE_OPTIONS}
           onChange={(mode) => {
             setDraft(undefined)
             save(mode === 'default' ? null : AUTO_COMPACT_WINDOW_DEFAULTS[role])
           }}
         />
-        {current === null ? null : (
+        {shown === null ? null : (
           <>
             <input
               id={fieldId}
@@ -158,7 +209,7 @@ function WindowRow({ role, label, description }: { role: WindowRole; label: stri
               min={AUTO_COMPACT_WINDOW_MIN / THOUSAND}
               max={AUTO_COMPACT_WINDOW_MAX / THOUSAND}
               step={AUTO_COMPACT_WINDOW_STEP / THOUSAND}
-              value={draft ?? toThousands(current)}
+              value={draft ?? toThousands(shown)}
               aria-label={`${label} autocompact window, thousands of tokens`}
               data-testid={`settings-autocompact-${role}`}
               onChange={(event) => setDraft(event.target.value)}
@@ -179,6 +230,7 @@ function WindowRow({ role, label, description }: { role: WindowRole; label: stri
 
 export default function SessionsSection() {
   const shellOverride = useShellOverride()
+  const userWindow = useUserWindow()
   return (
     <>
       {shellOverride === null ? null : (
@@ -187,7 +239,7 @@ export default function SessionsSection() {
         </p>
       )}
       {ROLES.map((each) => (
-        <WindowRow key={each.role} {...each} />
+        <WindowRow key={each.role} {...each} userWindow={userWindow} />
       ))}
       <p style={styles.notes} data-testid="settings-autocompact-hint">
         {BELOW_WINDOW_HINT}
