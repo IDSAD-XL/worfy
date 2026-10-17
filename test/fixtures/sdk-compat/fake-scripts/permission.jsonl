@@ -1,0 +1,3 @@
+{"fake": "permission", "toolName": "Bash", "toolUseId": "toolu_compat_1", "input": {"command": "ls", "description": "List files"}}
+{"fake": "permission", "toolName": "Bash", "toolUseId": "toolu_compat_2", "input": {"command": "rm -rf build", "description": "Remove build"}}
+{"fake": "exit"}
