@@ -92,6 +92,8 @@ tk fin 01-a.md        '# 01 — A\n\nStatus: done\n'
 tk fin 02-b.md        '# 02 — B\n\nStatus: выкачено\n'
 tk fresh 01-a.md      '# 01 — A\n\nStatus: open\nBlocked by: 02\n'
 tk fresh 02-b.md      '# 02 — B\n\nStatus: open\n'
+# Not a ticket: a .md file of an epic outside issues/ (here and on branch old, read with --ref).
+mkdir -p "$S/fin/evidence" && printf '# 01 — Evidence\n\nStatus: open\n' >"$S/fin/evidence/01-x.md"
 g add -A && g commit -q -m tickets
 # Branch old: a different state of the same tree.
 g checkout -q -b old
@@ -104,6 +106,9 @@ mkdir -p "$R/sub" && g mv .scratch sub/.scratch && g commit -q -m moved
 g checkout -q main
 mkdir -p "$S/ebare"
 [ ! -e "$R/sub" ] || { echo "FAIL fixture: sub/ is left in the working tree of main"; exit 1; }
+# A tickets root whose name starts with two dots is inside the repository (on main, read with --ref).
+mkdir -p "$R/..t/dd/issues" && printf '# 01 — Dots\n\nStatus: open\n' >"$R/..t/dd/issues/01-a.md"
+g add -A -- "..t" && g commit -q -m dots
 # A tickets root outside git.
 NG="$T/nogit/.scratch"; mkdir -p "$NG/solo/issues"
 printf '# 01 — Solo\n\nStatus: open\n' >"$NG/solo/issues/01-solo.md"
@@ -227,6 +232,8 @@ run --json --ref moved --root "$R/sub/.scratch"
 is "--ref: a root missing in the working tree is read from the branch" 0 '{"ref":"moved","epics":[{"epic":"emap","hasSpec":false,"hasMap":true},{"epic":"fin","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"fin","num":1,"slug":"a","title":"01 — A","statusRaw":"done","state":"done","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"moved"},{"epic":"fin","num":2,"slug":"b","title":"02 — B","statusRaw":"open","state":"open","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"moved"}]}'
 run --json --ref nosc --root "$S"
 is "--ref of a branch without .scratch -> an empty slice" 0 '{"ref":"nosc","epics":[],"tickets":[]}'
+run --json --ref main --root "$R/..t"
+is "--ref: a root named ..t is inside the repository, not above it" 0 '{"ref":"main","epics":[{"epic":"dd","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"dd","num":1,"slug":"a","title":"01 — Dots","statusRaw":"open","state":"open","blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"}]}'
 run --json --ref no-such-branch --root "$S"
 fails "--ref of a missing ref -> exit 3" 3 "no such ref: no-such-branch"
 run cd "$T/nogit" --json --ref main --root "$NG"

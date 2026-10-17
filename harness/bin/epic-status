@@ -442,7 +442,8 @@ function main() {
             const topReal = real(scratchGit)
             const ancReal = real(anc)
             let rel = path.relative(topReal, ancReal)
-            if (rel.startsWith("..") || path.isAbsolute(rel))
+            // path.relative uses path.sep (\ on Windows); a directory named "..t" is inside the repository.
+            if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
                 fail(3, `epic-status: tickets root ${scratch} could not be resolved relative to ${scratchGit}`)
             if (anc !== scratch) rel = path.join(rel, path.relative(anc, scratch))
             rel = rel.split(path.sep).join("/")
