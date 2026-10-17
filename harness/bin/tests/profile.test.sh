@@ -309,7 +309,7 @@ newp locknum '{"schema":2,"name":"locknum","mode":"full","workflow":{"e2e_lock":
 newp lockempty '{"schema":2,"name":"lockempty","mode":"full","workflow":{"e2e_lock":""}}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
-exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
+exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
 EOF
 chmod +x "$T/p2"
 P2="$T/p2"
@@ -413,7 +413,7 @@ eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --fiel
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"
-eq "CLAUDE_PROFILES_DIR overrides both places" "$T/override/both" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
+eq "CLAUDE_PROFILES_DIR overrides both places" "$T/override/both" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
 # --- Silent mode: _resolved.mode, workflow_folder, repos (worfy-harness ticket 22) -----------------
 eq "silent: _resolved.mode" silent "$P2" -C "$T/r/demo" --field _resolved.mode
 eq "silent without workflow.folder, one repository -> HARNESS_HOME/projects/<name>/workflow" "$HH/projects/demo/workflow" "$P2" -C "$T/r/demo" --field _resolved.workflow_folder

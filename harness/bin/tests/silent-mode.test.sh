@@ -25,7 +25,9 @@ HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 SKILLS="$HARNESS/skills"
 REAL_HOME="$HOME"
 . "$(dirname "$0")/real-home.sh"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's
+# `match` written with /tmp/… would match nothing node sees. Elsewhere there is no -W.
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 before="$(real_home_snapshot "$REAL_HOME" "$T")"
 pass=0 fail=0
@@ -57,7 +59,10 @@ printf '# 06 — Second\n\nStatus: open\nRepo: repo\nBlocked by: 05\n' >"$WF/.sc
 git -C "$WF" init -q -b main && git -C "$WF" add -A && git -C "$WF" commit -q -m init
 
 # The gate runs "$PM run check"; this pm needs no npm.
-PM="$T/fakepm"; printf '#!/bin/sh\nexit 0\n' >"$PM"; chmod +x "$PM"
+# On Windows the file is a .cmd: node starts nothing else there without an interpreter.
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+if [ "$WIN" -eq 1 ]; then PM="$T/fakepm.cmd"; printf '@echo off\r\nexit /b 0\r\n' >"$PM"
+else PM="$T/fakepm"; printf '#!/bin/sh\nexit 0\n' >"$PM"; chmod +x "$PM"; fi
 cat >"$HARNESS_HOME/gate/config.json" <<EOF
 {"repos":[
  {"key":"sp","match":"$R","profile":"sp","pm":"$PM","root":{"fast":["check"]},"workspace":{}},
@@ -251,7 +256,12 @@ block() { # $1 skill file, $2 a string that identifies the ```bash block
 FIN="$(block "$SKILLS/ship-ticket/SKILL.md" 'MERGED=')"
 [ -n "$FIN" ] || bad "the local finish block (MERGED=) is not in ship-ticket/SKILL.md"
 FIN="${FIN//<epic>/ep}"        # the epic of the Full project fp below; sp's repository has no such folder
+ran=0
 for sh in bash zsh; do
+    if [ "$WIN" -eq 1 ] && ! command -v "$sh" >/dev/null 2>&1; then
+        echo "skip $sh: local finish: Git Bash on Windows has no $sh"; continue
+    fi
+    ran=$((ran + 1))
     b="fix/finish-$sh"
     git -C "$R" worktree add -q -b "$b" "$T/wt-$sh" main 2>/dev/null
     echo "$sh" >"$T/wt-$sh/$sh.txt"; git -C "$T/wt-$sh" add -A && git -C "$T/wt-$sh" commit -q -m "add $sh"
@@ -262,7 +272,7 @@ for sh in bash zsh; do
     else bad "$sh: local finish: out: ${out:0:300}"; fi
 done
 # A branch that is not on top of main is not merged.
-git -C "$R" worktree add -q -b fix/stale "$T/wt-stale" main~2 2>/dev/null
+git -C "$R" worktree add -q -b fix/stale "$T/wt-stale" "main~$ran" 2>/dev/null   # before the finishes above
 echo s >"$T/wt-stale/s.txt"; git -C "$T/wt-stale" add -A && git -C "$T/wt-stale" commit -q -m stale
 code="${FIN//<repo>/$R}"; code="${code//<ticket branch>/fix/stale}"; code="${code//<ticket worktree>/$T/wt-stale}"
 out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"

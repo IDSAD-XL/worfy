@@ -12,7 +12,7 @@
 // In Silent mode (profile mode "silent") the status lives in the Workflow folder and in no branch: the page is
 // built from that folder alone, with no branch marks.
 'use strict';
-const { execFileSync, execFile } = require('child_process');
+const { execFileSync, execFile, spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -60,12 +60,38 @@ function pickRefs() {
 // The scripts next to this one: the folder of its real file, not of a symlink to it.
 const BIN = path.dirname(fs.realpathSync(__filename));
 const EPIC_STATUS = path.join(BIN, 'epic-status');
+// A sibling script runs with the node running this one: Windows does not start an extensionless file
+// by its #! line. A missing file fails with ENOENT before anything starts, as a missing program did.
+const missing = (file, args) =>
+  Object.assign(new Error(`spawnSync ${file} ENOENT`), { code: 'ENOENT', path: file, spawnargs: args });
+function execScriptSync(file, args, options) {
+  if (!fs.existsSync(file)) throw missing(file, args);
+  return execFileSync(process.execPath, [file, ...args], options);
+}
+function execScript(file, args, options, callback) {
+  if (!fs.existsSync(file)) return callback(missing(file, args), '');
+  execFile(process.execPath, [file, ...args], options, callback);
+}
+
+// The page opens with the system's own command: open on macOS, explorer.exe on Windows, xdg-open
+// elsewhere. explorer.exe gets the path with no shell in between (nothing to quote) and answers 1 even
+// when it opened the file, so its exit code is not read; neither is xdg-open's.
+function openPage(file) {
+  if (process.platform === 'darwin') return execFileSync('open', [file]);
+  const [cmd, args] = process.platform === 'win32' ? ['explorer.exe', [path.resolve(file)]] : ['xdg-open', [file]];
+  const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+  child.on('error', e => {
+    process.stderr.write(`epic-board: the page was not opened (${cmd}): ${e.message}\n`);
+    process.exitCode = 1;
+  });
+  child.unref();
+}
 // The tickets root is the same for all branches — we ask for it once (the project's profile, otherwise
 // <git top-level>/.scratch) and pass it to every epic-status, instead of resolving the profile
 // again for each of a hundred branches.
 let TICKETS_ROOT;
 try {
-  TICKETS_ROOT = execFileSync(path.join(BIN, 'ticket'), ['root'],
+  TICKETS_ROOT = execScriptSync(path.join(BIN, 'ticket'), ['root'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 } catch (e) {
   die(`tickets root not determined: ${String(e.stderr || e.message).split('\n')[0]}`);
@@ -74,7 +100,7 @@ try {
 // Silent mode is asked once, like the root. Not registered or no profile — Full mode, as before.
 let SILENT = false;
 try {
-  SILENT = execFileSync(path.join(BIN, 'profile'), ['--field', '_resolved.mode'],
+  SILENT = execScriptSync(path.join(BIN, 'profile'), ['--field', '_resolved.mode'],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() === 'silent';
 } catch { SILENT = false; }
 if (SILENT) BASE = 'Workflow folder';
@@ -83,7 +109,7 @@ function readRef(ref) {
   // Silent mode: one snapshot — the Workflow folder itself (epic-status without --ref).
   const args = SILENT ? ['--json', '--root', TICKETS_ROOT] : ['--json', '--ref', ref, '--root', TICKETS_ROOT];
   return new Promise(resolve => {
-    execFile(EPIC_STATUS, args, { maxBuffer: 1 << 28 }, (err, stdout) => {
+    execScript(EPIC_STATUS, args, { maxBuffer: 1 << 28 }, (err, stdout) => {
       if (err) return resolve({ ref, epics: [], tickets: [], error: String(err.message || err) });
       try { resolve(JSON.parse(stdout)); }
       catch (e) { resolve({ ref, epics: [], tickets: [], error: 'unreadable JSON: ' + e.message }); }
@@ -367,5 +393,5 @@ document.getElementById('collapse').onclick = () => all(false);
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, page(model, refs, elapsed));
   process.stderr.write(`epic-board: ${model.epics.length} epics → ${OUT} (${elapsed} s)\n`);
-  if (!NO_OPEN) execFileSync('open', [OUT]);
+  if (!NO_OPEN) openPage(OUT);
 })().catch(e => { process.stderr.write('epic-board: ' + (e.stack || e) + '\n'); process.exit(1); });
