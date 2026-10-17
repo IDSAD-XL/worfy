@@ -205,7 +205,7 @@ git -C "$R" checkout -q -- package.json
 mode bad; touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
 verdict "red run (full) -> outcome red, exit 2, profile full" "$R" '.outcome == "red" and .exit == 2 and .profile == "full" and .key == "t"'
-# The red marker is what stop.sh holds a turn on: a red run leaves it, a green run removes it.
+# The red marker is what the Stop hook stop.mjs holds a turn on: a red run leaves it, a green run removes it.
 if [ -s "$STATE/red-t-$(tag "$R")" ]; then ok "red run leaves the red marker of the worktree"; else bad "red run: no red marker (state: $(ls "$STATE" | tr '\n' ' '))"; fi
 # Only green is cached: the same content checked again is run again, and is red again.
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?

@@ -1,26 +1,36 @@
 #!/usr/bin/env bash
-# Tests of hooks/gh-token-env.sh (worfy-harness ticket 18): the SessionStart hook that appends to
-# $CLAUDE_ENV_FILE the line which sets GH_TOKEN of the project's GitHub account (github.account).
+# Tests of hooks/gh-token-env.mjs (worfy-harness ticket 18, on Node since worfy-windows ticket 04):
+# the SessionStart hook that appends to $CLAUDE_ENV_FILE the line which sets GH_TOKEN of the
+# project's GitHub account (github.account).
 # Run: bash harness/hooks/tests/gh-token-env.test.sh; exit code 0 means everything passed.
 #
 # `gh` and `profile` are replaced by stubs in a temporary directory: no network, no real gh login,
 # no registry, runs on Linux in CI. The stub `gh auth token` prints the marker gho_TESTSENTINEL
 # instead of a token; every case checks that the marker never reaches the env file, stdout or
-# stderr, and that the hook never calls `gh auth switch` or `gh auth login`.
+# stderr, and that the hook never calls `gh auth switch` or `gh auth login`. No case can start a
+# real gh: gh_guard (bin/tests/gh-stand-in.sh) stops the test first if one could be reached. On
+# Windows node starts only gh.com or gh.exe from PATH, never the shell stub, so the hook is pointed
+# at a node stand-in of the stub through GH_TOKEN_ENV_GH there.
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
-HOOK="$HOOKS/gh-token-env.sh"
+HOOK="$HOOKS/gh-token-env.mjs"
 MARK=gho_TESTSENTINEL
 LINE='export GH_TOKEN="$(gh auth token -u IDSAD-XL 2>/dev/null)"'
+NODE="$(command -v node)"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# TP — the temporary directory for PATH and the shell (/tmp/…); T — the same directory as node
+# spells it (C:/… in Git Bash on Windows, `pwd -W`), for paths that go into JSON or to node.
+T="$(mktemp -d)"; TP="$(cd "$T" && pwd -P)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
+# A path as node prints it: C:\… on Windows, unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 mkdir -p "$T/bin" "$T/project" "$T/elsewhere"
 GH_LOG="$T/gh.log" PROFILE_LOG="$T/profile.log"
+export PROFILE_LOG
 : >"$GH_LOG"
 
 # gh stub: logs its arguments; `auth token -u <account>` (or --user) prints the marker when the
@@ -38,18 +48,24 @@ fi
 exit 1
 EOF
 # profile stub: logs its arguments; answers by $FAKE_PROFILE: "code:N" exits N with nothing on
-# stdout, anything else is printed as the field's value with exit 0.
-cat >"$T/profile" <<EOF
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >>"$PROFILE_LOG"
-case "\${FAKE_PROFILE:-}" in
-    code:*) exit "\${FAKE_PROFILE#code:}" ;;
-esac
-printf '%s\n' "\${FAKE_PROFILE:-}"
+# stdout, anything else is printed as the field's value with exit 0. It is a Node script: the hook
+# runs bin/profile as `node <script>`.
+cat >"$T/profile.mjs" <<'EOF'
+import fs from "node:fs"
+fs.appendFileSync(process.env.PROFILE_LOG, process.argv.slice(2).join(" ") + "\n")
+const value = process.env.FAKE_PROFILE ?? ""
+const code = /^code:(.*)$/.exec(value)
+if (code) process.exit(Number(code[1]))
+process.stdout.write(value + "\n")
 EOF
-chmod +x "$T/bin/gh" "$T/profile"
-export PATH="$T/bin:$PATH" CLAUDE_PROFILE_BIN="$T/profile"
-unset GH_TOKEN GITHUB_TOKEN
+chmod +x "$T/bin/gh"
+export PATH="$TP/bin:$PATH" CLAUDE_PROFILE_BIN="$T/profile.mjs"
+unset GH_TOKEN GITHUB_TOKEN GH_TOKEN_ENV_GH
+. "$HARNESS/bin/tests/gh-stand-in.sh"
+if on_windows; then node_stand_in "$TP/bin/gh" "$TP/bin/gh.mjs"; export GH_TOKEN_ENV_GH="$TP/bin/gh.mjs"; fi
+gh_guard GH_TOKEN_ENV_GH "$TP/bin/gh" "$TP/bin/gh.mjs"
+# gh_guard sets GH_TOKEN to an invalid value, so that a real gh reached anyway gets no credential;
+# the hook must not read it, and the cases below set their own.
 
 ENVF="$T/env-file"
 PRE='export SOMETHING_ELSE=1'
@@ -57,7 +73,15 @@ reset_env() { printf '%s\n' "$PRE" >"$ENVF"; cp "$ENVF" "$T/env-before"; }
 # Runs the hook from $T/elsewhere with cwd=$T/project in the JSON; stdout and stderr go to files.
 run() {
     (cd "$T/elsewhere" && printf '{"session_id":"t-1","cwd":"%s","hook_event_name":"SessionStart"}' "$T/project" \
-        | bash "$HOOK" >"$T/out" 2>"$T/err")
+        | "$NODE" "$HOOK" >"$T/out" 2>"$T/err")
+}
+# A field of the hook output in $T/out ("" when it is not JSON or has no such field).
+out_ctx() {
+    node -e '
+let o
+try { o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")) } catch { process.exit(0) }
+const h = (o && o.hookSpecificOutput) || {}
+if (h.hookEventName === "SessionStart" && typeof h.additionalContext === "string") process.stdout.write(h.additionalContext + "\n")' "$T/out" 2>/dev/null
 }
 # Checks shared by every case: exit 0, no marker anywhere, no gh auth switch/login.
 common() { # $1 case name, $2 exit code
@@ -76,7 +100,7 @@ quiet() { # $1 case name
     [ ! -s "$T/out" ] && ok "$1: nothing on stdout" || bad "$1: stdout: $(head -c 200 "$T/out")"
 }
 
-[ -f "$HOOK" ] && ok "hook exists: hooks/gh-token-env.sh" || bad "hook missing: $HOOK"
+[ -f "$HOOK" ] && ok "hook exists: hooks/gh-token-env.mjs" || bad "hook missing: $HOOK"
 
 # 1. The account is there and gh has a login under it: one line, sourced it gives the token.
 reset_env; : >"$PROFILE_LOG"
@@ -115,9 +139,9 @@ common "user GH_TOKEN in hook env" "$rc"
 
 # 1d. No cwd in the JSON: the project is found by $PWD.
 reset_env; : >"$PROFILE_LOG"
-(cd "$T/project" && printf '{"session_id":"t-1","hook_event_name":"SessionStart"}' | bash "$HOOK" >"$T/out" 2>"$T/err"); rc=$?
+(cd "$T/project" && printf '{"session_id":"t-1","hook_event_name":"SessionStart"}' | "$NODE" "$HOOK" >"$T/out" 2>"$T/err"); rc=$?
 common "no cwd in JSON" "$rc"
-grep -qxF -- "-C $T/project --field github.account" "$PROFILE_LOG" \
+grep -qxF -- "-C $(printed "$T/project") --field github.account" "$PROFILE_LOG" \
     && ok "no cwd in JSON: project found by \$PWD" || bad "no cwd in JSON: profile args: $(cat "$PROFILE_LOG")"
 
 # 1e. An env file without a trailing newline: the export still lands on a line of its own.
@@ -148,7 +172,7 @@ common "no profile script" "$rc"; unchanged "no profile script"; quiet "no profi
 reset_env
 FAKE_GH_LOGGED_IN="someone-else" run; rc=$?
 common "account without login" "$rc"; unchanged "account without login"
-ctx="$(jq -r 'select(.hookSpecificOutput.hookEventName == "SessionStart") | .hookSpecificOutput.additionalContext' "$T/out" 2>/dev/null)"
+ctx="$(out_ctx)"
 [[ "$ctx" == *IDSAD-XL* && "$ctx" == *"gh auth login"* ]] \
     && ok "account without login: additionalContext names the account and gh auth login" \
     || bad "account without login: stdout: $(head -c 300 "$T/out")"
@@ -156,14 +180,13 @@ ctx="$(jq -r 'select(.hookSpecificOutput.hookEventName == "SessionStart") | .hoo
     || bad "account without login: context has several lines"
 
 # 3a. The account is there, gh is not installed: no line, a context line, exit 0.
+# PATH is an empty folder: node runs by its full path and the hook needs no other tool, so gh is
+# found nowhere. GH_TOKEN_ENV_GH is unset, so the hook looks for gh itself.
 mkdir -p "$T/nogh"
-for tool in bash cat jq dirname realpath tail sed grep env; do
-    p="$(command -v "$tool")" && ln -sf "$p" "$T/nogh/$tool"
-done
 reset_env
-(PATH="$T/nogh" run); rc=$?
+(PATH="$TP/nogh"; unset GH_TOKEN_ENV_GH; run); rc=$?
 common "gh not installed" "$rc"; unchanged "gh not installed"
-ctx="$(jq -r '.hookSpecificOutput.additionalContext // empty' "$T/out" 2>/dev/null)"
+ctx="$(out_ctx)"
 [[ "$ctx" == *IDSAD-XL* && "$ctx" == *gh* ]] && ok "gh not installed: context names the account and gh" \
     || bad "gh not installed: stdout: $(head -c 300 "$T/out")"
 
@@ -181,10 +204,12 @@ done
     && ok "account [x; touch pwned]: no file pwned" || bad "account [x; touch pwned]: pwned created"
 
 # 5. hooks.json runs the hook under SessionStart.
-jq -e '[.hooks.SessionStart[].hooks[].command] | any(contains("${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh"))' \
-    "$HOOKS/hooks.json" >/dev/null; rc=$?
-[ "$rc" -eq 0 ] && ok "hooks.json: SessionStart runs \${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.sh" \
-    || bad "hooks.json: no SessionStart command for gh-token-env.sh (jq exit $rc)"
+node -e '
+const h = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).hooks
+const want = "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.mjs\""
+process.exit(h.SessionStart.some((g) => g.hooks.some((k) => k.command === want)) ? 0 : 1)' "$HOOKS/hooks.json" 2>/dev/null; rc=$?
+[ "$rc" -eq 0 ] && ok "hooks.json: SessionStart runs node \"\${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.mjs\"" \
+    || bad "hooks.json: no SessionStart command node \"\${CLAUDE_PLUGIN_ROOT}/hooks/gh-token-env.mjs\" (exit $rc)"
 
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

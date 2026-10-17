@@ -189,4 +189,40 @@ harness-home.test.sh и не ждёт этот Ticket: worfy не постави
 
 ## Итог
 
-Заполняется при закрытии.
+### Hooks на Node (ветка `worfy-windows/04-hooks-node`, ПК с Windows)
+
+- **Пять hooks на Node:** `inject-rules.mjs`, `session-start.mjs`, `session-end.mjs`, `stop.mjs`, `gh-token-env.mjs`; файлы `.sh` удалены. `worktree-create.sh` не тронут (решение владельца 2026-10-13), `gate.sh` остаётся файлом запуска Gate.
+  - JSON — `JSON.parse`/`JSON.stringify`, без `jq`. `session-start` печатает JSON в одну строку вместо форматированного вывода `jq`; содержимое то же.
+  - Домашняя папка — `HARNESS_HOME`, иначе `os.homedir()`; `profile` и resolver Gate запускаются через `process.execPath`.
+  - Stop: тег worktree, путь репозитория и папка состояния — из `gate-paths.mjs`; время рождения транскрипта — `birthtimeMs`, при 0 маркеры без Session не берутся (`stop.mjs:30`, `:245`, `:269`).
+  - `inject-rules` подставляет путь plugin буквально: путь с `Заполняется при закрытии.
+` и `$1` проверен (`inject-rules.mjs:61`).
+  - Сбой внутри hook-а — одна строка в stderr и код 0.
+  - На Windows пути для модели пишутся через `/` (`C:/…`, `~/…`), в том числе вне домашней папки; сокращение до `~` требует границы пути (`/Users/xy` больше не сокращается до `~y`).
+  - Поиск node в nvm и `/opt/homebrew/bin` ушёл: без node в PATH Claude Code hooks не запустит.
+- **`hooks.json`:** каждая команда — `node "${CLAUDE_PLUGIN_ROOT}/…"` для пяти hooks, `bin/worktree-lock` и `guard.mjs`; hook Gate по-прежнему зовёт `gate.sh`. События, matcher-ы и timeout-ы те же. `rules-hooks.test.sh:363`: команда, которая называет скрипт Node, обязана начинаться с `node`.
+- **Ссылки на имена:** READMEs, skills `retro`, `tickets-to-tasks`, а также устаревшие `gh-token-env.sh` в `epic-wave`, `ship-ticket`, `overnight-fix-loop`; комментарии `gate.mjs`, `gate-resolve.mjs`, `gate.sh`, `harness-plugin.test.ts`, `gate-verdict.test.sh`. `git grep -nE '(inject-rules|session-start|session-end|stop)\.sh' -- harness src` пуст; в `harness/hooks` вне test-ов из `.sh` остались только `worktree-create.sh` и `gate.sh`.
+- **Вне трассы Ticket-а — миграция старого Harness** (`src/main/harness/migrate/plan.ts:295-297`). План переноса считал файл «в plugin» по тому же имени, и `~/.claude/hooks/stop.sh`, `session-start.sh`, `session-end.sh` перестали бы удаляться — только «оставить», а их записи в `settings.json` — «not in the plugin». Теперь старый `hooks/<имя>.sh` — это `hooks/<имя>.mjs` plugin-а. Новый unit test `test/unit/harness-migrate-renamed-hooks.test.ts` (идёт и на Windows): `stop.sh` и его запись удаляемы, `foo.sh` без пары — только «оставить» с пометкой. Мутант без сопоставления — красный. Случаи `harness-migrate.test.ts:102`, `:355-369`, `:571-573` на Windows не доходят до дела (файл падает раньше, на `:92`, путь `~\`, и на main тоже) — их подтверждает Mac.
+- **Сначала падающие test-ы** (новые test-ы против кода main `90c5e72`): `rules-hooks.test.sh` — 104 ok / 43 FAIL («Cannot find module …inject-rules.mjs», `hooks.json` не совпадает, 4 × «a Node script without node», «0 inject-rules.mjs commands, not 3»); `session-hooks.test.sh` — 1 / 17 (node не находит `session-start.mjs`, rc=1 везде, в том числе в новых случаях Windows: `cwd` как `C:\…`, `CLAUDE_PLUGIN_ROOT` как `C:/…`).
+- **Мутанты, все красные:** Stop выходит 0 при красном маркере — 4 FAIL; время рождения 0 принято — 1; `HOME` вместо `os.homedir()` — 1; без подстановки `${CLAUDE_PLUGIN_ROOT}` — 11; Stop в `hooks.json` без `node` — 2; путь вне домашней папки без `/` — 1; миграция без сопоставления — 1.
+- **Попутно в `rules-hooks.test.sh`:** `grep -iF` в Git Bash падал с кодом 134, и проверка «части правил не упоминают Telegram» проходила, ничего не проверив (мутант со словом Telegram теперь красный); скобка с тире в проверке status line под локалью C падала и на main.
+- **Удалено:** в `gate-notverified.test.sh` два случая «stop without node …» — уходят по той же причине, что у Gate в Ticket-е 03; проверка доставки маркера осталась, теперь с node.
+
+| Shell test, Git Bash | main `90c5e72` | ветка |
+|---|---|---|
+| `rules-hooks.test.sh` | exit 1, 129 ok / 14 FAIL | exit 0, 160 / 0 |
+| `session-hooks.test.sh` | exit 1, 9 / 5 | exit 0, 18 / 0 |
+| `gate-notverified.test.sh` | exit 1, 32 / 1 | exit 0, 33 / 0 |
+| `gate-unregistered.test.sh` | exit 0, 11 / 0 | exit 0, 11 / 0 |
+| `gh-token-env.test.sh` | exit 1, 101 / 2 | exit 0, 103 / 0 |
+| `gate-verdict` / `gate-shim` / `gate-file-size` | exit 0 | exit 0 |
+| `harness-home.test.sh` | exit 0, 42 / 0 | exit 0, 42 / 0 |
+| `epic-wave-ship-ticket.test.sh` | exit 0, 215 / 0 | exit 0, 215 / 0 |
+| `guard-silent.test.sh` | exit 1, 27 / 28 | exit 1, 27 / 28 |
+| `silent-mode.test.sh` | exit 1, 85 / 3 | exit 1, 85 / 3 |
+
+- Сверка по именам: ни один случай, проходящий на main, на ветке не падает. На main `rules-hooks` и `session-hooks` были красными на Windows, потому что `jq` из WinGet печатает CRLF. `silent-mode` — три случая `worktree-create.sh` (известный дефект скрипта, см. выше); `guard-silent` на ветке и на main одинаков, не разбирался.
+- Ревью на ПК (subagent; линзы: то же поведение, что у скриптов bash на macOS/Linux, и Windows): по первой — ничего; по второй — один low, исправлен (пути вне домашней папки на Windows печатались с `\`).
+- `pnpm lint`, `pnpm typecheck` — exit 0. Полный `pnpm test` (Electron Node 24.21.0): main `90c5e72` — exit 1, 253 failed / 5392 passed / 151 skipped; ветка `6f8899e` — exit 1, 238 / 5408 / 151. По именам: ни одного нового падающего test-а; 4 случая, прошедшие на main, упали на ветке под нагрузкой (`check-lessons`, `critical-path` «refuses wrong arguments», 2 в `harness-install`) — отдельно, два прогона подряд, проходят; 19 случаев, падавших на main, на ветке проходят.
+
+**Не проверено:** всё на macOS и Linux (в том числе `birthtimeMs` там); ручные проверки владельца — упакованная сборка на Mac и Session Claude Code с plugin `worfy` на ПК.

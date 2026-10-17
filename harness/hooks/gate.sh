@@ -8,7 +8,7 @@
 #   2. it starts gate.mjs with the same arguments and stdin and ends with its exit code;
 #   3. with no node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
 #      ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден», exit code 3, the marker nokey-broken-<tag>-<session>
-#      for stop.sh and an "unverified" verdict file in place of the one of the run before.
+#      for stop.mjs and an "unverified" verdict file in place of the one of the run before.
 #      Outside a git worktree it says nothing and exits with 0, as the gate does.
 #
 # Who calls it:
@@ -41,7 +41,7 @@ fi
 
 # --- no node --------------------------------------------------------------------------------
 # The rest is the answer of the bash gate, cut down to this one case. The state folder, the tag
-# and the fields of the verdict file are the ones of gate-paths.mjs and gate.mjs: stop.sh and
+# and the fields of the verdict file are the ones of gate-paths.mjs and gate.mjs: stop.mjs and
 # worfy look for the marker and the verdict file by those names.
 PROFILE="${1:-fast}"
 

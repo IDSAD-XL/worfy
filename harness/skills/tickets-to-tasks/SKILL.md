@@ -113,7 +113,7 @@ Then record the epic as active:
 D="$("${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --dir)" && mkdir -p "$D/state" && echo <slug> > "$D/state/active-epic"
 ```
 
-`hooks/session-start.sh` reads that file and, for a profile with
+`hooks/session-start.mjs` reads that file and, for a profile with
 `session.inject_rules: true`, loads `<profile dir>/epics/<slug>/map.md` into every
 new session.
 
