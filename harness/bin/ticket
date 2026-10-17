@@ -97,6 +97,27 @@ if (!cmd || !["done", "claim", "open", "block", "show", "root"].includes(cmd)) d
 // would write the status into the wrong file.
 // profile is the script next to this one (the folder of its real file, not of a symlink).
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url))), "profile")
+// A sibling script runs with the node running this one: Windows does not start an extensionless file
+// by its #! line. Anything else (a shell stub of a test) runs by its #! line, as before. A missing file
+// fails with ENOENT before anything starts, as a missing program did ("no profile").
+function execScriptSync(file, args, options) {
+    if (!fs.existsSync(file))
+        throw Object.assign(new Error(`spawnSync ${file} ENOENT`), { code: "ENOENT", path: file, spawnargs: args })
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: node reports it */
+    }
+    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return execFileSync(file, args, options)
+    return execFileSync(process.execPath, [file, ...args], options)
+}
 // The logical launch directory, like $PWD in a shell: process.cwd() resolves symlinks
 // (/tmp → /private/tmp), and messages outside git would differ from the old ones.
 function launchDir() {
@@ -121,7 +142,7 @@ function ticketsRoot() {
     if (rootArg !== null && repoArg === null) return path.resolve(process.cwd(), rootArg)
     try {
         prof = JSON.parse(
-            execFileSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
+            execScriptSync(PROFILE, ["-C", here, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
         )
     } catch (e) {
         if (e.code === "ENOENT" || e.status === 3) prof = null

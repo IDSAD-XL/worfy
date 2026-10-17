@@ -139,7 +139,8 @@ if (checkout) {
 // --- gate resolver: the same code that picks the checks ----------------------------
 let which
 try {
-    which = execFileSync("node", [RESOLVE, "--which", canon], {
+    // The node running this script, not the first `node` on PATH (which may be missing or another version).
+    which = execFileSync(process.execPath, [RESOLVE, "--which", canon], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, CLAUDE_GATE_CONFIG: CFG },
