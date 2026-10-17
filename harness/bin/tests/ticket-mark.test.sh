@@ -32,6 +32,11 @@ echo '{"state":"ok"}'
 EOF
 chmod +x "$STUBS/gh"
 export PATH="$STUBS:$PATH" GH_LOG="$T/gh.log"
+# On Windows node runs the stub through a node stand-in named by $TICKET_GH; the guard stops the test
+# before anything runs if any gh it can start is not the stub.
+. "$HERE/gh-stand-in.sh"
+if on_windows; then node_stand_in "$STUBS/gh" "$STUBS/gh.mjs"; export TICKET_GH="$STUBS/gh.mjs"; fi
+gh_guard TICKET_GH "$STUBS/gh" "$STUBS/gh.mjs"
 
 # --- the machine: HOME, HARNESS_HOME, the registry and the profiles -------------------------------------
 H="$T/home" HH="$T/hh"
@@ -104,7 +109,7 @@ GH_FAIL=1 tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && grep -q "HTTP 422" "$T/out" && ok "full: gh fails -> exit 1 with its message" || bad "full: gh fails: exit $rc $(cat "$T/out")"
 MINBIN="$T/minbin"; mkdir -p "$MINBIN"
 for c in node git; do ln -s "$(command -v "$c")" "$MINBIN/$c"; done
-(cd "$T/r/shop" && env PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
+(cd "$T/r/shop" && env -u TICKET_GH PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "gh" "$T/out" && ok "full: no gh in PATH -> exit 1 naming gh" || bad "full: no gh: exit $rc $(cat "$T/out")"
 
 # --- Silent mode: a local JSON file, never gh ---------------------------------------------------------------

@@ -683,7 +683,8 @@ function diff(a, b) {
 //                 no ticket and no epic. The repository is the ticket's `Repo:` line (a project of several
 //                 repositories, ADR-0045), otherwise the git repository ticket runs in; its origin must be on
 //                 GitHub. gh runs with the session's environment: the plugin's session hook sets GH_TOKEN of
-//                 the profile's github.account.
+//                 the profile's github.account. $TICKET_GH, when set, names the program run instead of gh from
+//                 PATH (a test's stand-in; a node script runs with this node, as the sibling scripts do).
 //   Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json: {epic, num, marks: [{kind, verdict, sha,
 //                 at}]}, each mark appended at the end. Written through a temporary file and rename, under a lock
 //                 directory next to it, so two marks at once do not lose one. Nothing goes to GitHub or into the
@@ -723,7 +724,9 @@ function markGitHub() {
     const state = verdict === "skipped" ? "success" : verdict
     const args = ["api", "-X", "POST", `repos/${owner}/${name}/statuses/${sha}`, "-f", `state=${state}`, "-f", `context=${kind}`, "-f", `description=${verdict}`]
     try {
-        execFileSync("gh", args, { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+        const opts = { cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+        if (process.env.TICKET_GH) execScriptSync(process.env.TICKET_GH, args, opts)
+        else execFileSync("gh", args, opts)
     } catch (e) {
         if (e.code === "ENOENT") die("gh is not in PATH: a commit status is set with gh api")
         const why = String(e.stderr || e.message || "").trim().split("\n")[0]
