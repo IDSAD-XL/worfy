@@ -462,11 +462,12 @@ gh pr view <N> --json mergeStateStatus
 
 CI is the PR's checks without the agents' marks: `review`, `check/<name>` and `deploy` are commit
 statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints their names), and a
-`review` failure is a verdict, not red CI. `CI=pass` is green; `CI=fail`, `CI=pending` and
-`CI=none` (no CI run yet) are not:
+`review` failure is a verdict, not red CI. Only commit statuses are left out (an empty
+`workflow`): a GitHub Actions job named `deploy` is CI. `CI=pass` is green; `CI=fail`,
+`CI=pending` and `CI=none` (no CI run yet) are not:
 
 ```bash
-gh pr checks <N> --json name,bucket --jq '[.[] | select((.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
+gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
 ```
 
 On a conflict with the base branch the checks do not turn red, they **disappear** ("no checks

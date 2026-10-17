@@ -267,11 +267,12 @@ gh pr view <N> --json mergeStateStatus,headRefOid             # pr-green-ci only
 
 CI of the PR (`pr-green-ci` only) is its checks without the agents' marks: `review`, `check/<name>`
 and `deploy` are commit statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints
-their names), and a `review` failure is a verdict, not red CI. `CI=pass` is green; `CI=fail`,
+their names), and a `review` failure is a verdict, not red CI. Only commit statuses are left out
+(an empty `workflow`): a GitHub Actions job named `deploy` is CI. `CI=pass` is green; `CI=fail`,
 `CI=pending` and `CI=none` (no CI run yet) are not:
 
 ```bash
-gh pr checks <N> --json name,bucket --jq '[.[] | select((.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
+gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"
 ```
 
 A non-zero `EXIT` with "no checks reported" is `CI=none`: GitHub has created no CI run (a `DIRTY` PR

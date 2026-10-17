@@ -83,6 +83,8 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] Платформенный PR (ADR-0056, пункт 2): вердикт Windows — gate full на ПК, код 0 и
       `[gate] зелено (full)`. Не проверено: шаг Orchestrator-а (запрос на ПК) перед merge.
+- [ ] (вручную, Orchestrator со словом владельца, до установки Harness с этим PR) rules.md:46: `rmdir "$L"` →
+      `rm -f "$L/holder.json"; rmdir "$L"`. Не проверено: шаг Orchestrator-а.
 - [ ] (вручную, Orchestrator после мержа и `pnpm install:stable`) первый PR следующей Wave показывает
       `review` в списке check-ов GitHub; `profile.json` worfy получает `workflow.pipeline` (Check
       «windows», Deploy); diff — в «Итог». Не проверено: шаг Orchestrator-а после merge.
@@ -132,7 +134,9 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
    `MARK_CONTEXTS`; контрактный test сверяет список с выводом `ticket mark --contexts`. Если остались
    только отметки — CI `null` (нет CI). В skills (`epic-wave`, раздел 3; `ship-ticket`, шаг 8) и в
    `agents/implementer.md` вместо голого `gh pr checks <N>` — одна команда
-   `gh pr checks <N> --json name,bucket --jq …`, печатает `CI=pass|fail|pending|none`.
+   `gh pr checks <N> --json name,bucket,workflow --jq …`, печатает `CI=pass|fail|pending|none`.
+   Исключаются только commit status-ы (пустой `workflow`): job GitHub Actions с именем `deploy` или
+   `review` — это CI (круг ревью 1, находка о красном job `deploy`, дававшем `CI=pass`).
 3. **Отметки ревью в skills.** `epic-wave`, раздел 3, и `ship-ticket`, шаг 7 и «Review of a PR another
    session wrote»: `review pending` на head SHA до ревью, `review success|failure` на том же SHA с
    вердиктом. Комментарий PR, commit `gate:` и строка в файле Ticket-а остались. В Full mode с
@@ -141,6 +145,12 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
    (`{"prs","what":"gate-full","pid","since"}`), при снятии удаляет только свой файл (по `pid`), брошенный
    замок снимается вместе с чужим `holder.json`. В `epic-wave`, раздел 4, новый блок gate full одного PR
    (путь `"each"`) с тем же `holder.json`; heartbeat в нём не держит вывод команды открытым.
+   Цена: one-liner замка из `rules.md` Profile-а worfy (строка 46, файл вне репозитория) снимает
+   брошенный замок через `rmdir "$L"`, а папка с `holder.json` не пустая — после убитого (SIGKILL)
+   `wave-gate` такой замок не снимается, и очередь ждёт. Правка `rules.md` — ручной пункт «Готово,
+   когда» до установки Harness с этим PR. Способа со стороны кода, при котором `holder.json` лежит в
+   папке замка и `rmdir` пустой папки срабатывает, нет: `wave-gate` убирает файл сам на выходе и на
+   SIGTERM/SIGINT, остаётся только SIGKILL и обрыв машины.
 5. **Отметка деплоя.** `scripts/install-stable.mjs`, `markDeploy`: после установки и записи
    `<target>.json` — `deploy: success` на поставленный коммит. Только Full mode (Profile репозитория через
    его `harness/bin/profile`), только сборка здесь из чистого дерева, только `origin` на GitHub; `gh` — как

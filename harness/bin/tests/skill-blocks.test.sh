@@ -205,9 +205,10 @@ done
 [ ! -s "$GH_LOG" ] && [ -z "$(git -C "$SR" status --porcelain)" ] && ok "review mark blocks in Silent mode: no gh call, nothing in the repository" || bad "review mark blocks: gh [$(cat "$GH_LOG")] repo [$(git -C "$SR" status --porcelain)]"
 # The CI filter: the same command in both skills and in agents/implementer.md, leaving out the names
 # `ticket mark --contexts` prints.
-CI_FILTER='select((.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)'
+# Only commit statuses are marks: gh gives a status an empty `workflow` (an Actions job has its workflow's name).
+CI_FILTER='select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)'
 [ "$(node "$PLUGIN_ROOT/bin/ticket" mark --contexts | tr '\n' ' ')" = "review check/* deploy " ] && ok "ticket mark --contexts: review, check/*, deploy — the names the CI filter leaves out" || bad "ticket mark --contexts: $(node "$PLUGIN_ROOT/bin/ticket" mark --contexts)"
-BCI_W="$(SKILL="$WAVE" blockf 'gh pr checks <N> --json name,bucket')"; BCI_S="$(SKILL="$SHIP" blockf 'gh pr checks <N> --json name,bucket')"
+BCI_W="$(SKILL="$WAVE" blockf 'gh pr checks <N> --json name,bucket,workflow')"; BCI_S="$(SKILL="$SHIP" blockf 'gh pr checks <N> --json name,bucket,workflow')"
 IMPL="$(cd "$SKILLS/.." && pwd)/agents/implementer.md"
 [ -n "$BCI_W" ] && [ "$BCI_W" = "$BCI_S" ] && [[ "$BCI_W" == *"$CI_FILTER"* ]] && grep -qF -- "${BCI_W%$'\n'}" "$IMPL" \
     && ok "the CI filter: one command in epic-wave, ship-ticket and agents/implementer.md" || bad "the CI filter differs: [$BCI_W] [$BCI_S]"
@@ -218,13 +219,20 @@ ci_case() { # ci_case <want> <checks JSON>
         [ "$got" = "$1"$'\n'"EXIT=0" ] && ok "$sh: CI filter $2 -> $1" || bad "$sh: CI filter $2: [$got] want $1"
     done
 }
-ci_case CI=pass '[{"name":"unit","bucket":"pass"},{"name":"review","bucket":"fail"}]'
-ci_case CI=pass '[{"name":"unit","bucket":"pass"},{"name":"check/windows","bucket":"fail"},{"name":"deploy","bucket":"fail"},{"name":"e2e","bucket":"skipping"}]'
-ci_case CI=fail '[{"name":"unit","bucket":"pass"},{"name":"lint","bucket":"fail"},{"name":"review","bucket":"pass"}]'
-ci_case CI=fail '[{"name":"unit","bucket":"cancel"}]'
-ci_case CI=fail '[{"name":"reviewers","bucket":"fail"}]'
-ci_case CI=pending '[{"name":"unit","bucket":"pending"},{"name":"review","bucket":"fail"}]'
-ci_case CI=none '[{"name":"review","bucket":"pass"},{"name":"check/windows","bucket":"pending"}]'
+# a job of GitHub Actions has its workflow's name; a commit status — a mark among them — has "".
+j() { printf '{"name":"%s","bucket":"%s","workflow":"CI"}' "$1" "$2"; }
+st() { printf '{"name":"%s","bucket":"%s","workflow":""}' "$1" "$2"; }
+ci_case CI=pass "[$(j unit pass),$(st review fail)]"
+ci_case CI=pass "[$(j unit pass),$(st check/windows fail),$(st deploy fail),$(j e2e skipping)]"
+ci_case CI=fail "[$(j unit pass),$(j lint fail),$(st review pass)]"
+ci_case CI=fail "[$(j unit cancel)]"
+ci_case CI=fail "[$(st reviewers fail)]"
+ci_case CI=pending "[$(j unit pending),$(st review fail)]"
+ci_case CI=none "[$(st review pass),$(st check/windows pending)]"
+# an Actions job named like a mark is CI: a red job `deploy` is red CI, and a red status `deploy` is not
+ci_case CI=fail "[$(j unit pass),$(j deploy fail)]"
+ci_case CI=fail "[$(j unit pass),$(j review fail),$(j check/windows fail)]"
+ci_case CI=pass "[$(j unit pass),$(j deploy pass),$(st deploy fail)]"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
