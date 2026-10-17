@@ -268,6 +268,14 @@ have been opened at all). Otherwise:
   (`BLOCKED`, `UNSTABLE`, `BEHIND`) — `FAILURE.md` with the name of the failed job, the PR stays
   open, the module drops out of the night. Fixing at night a CI that is green locally means editing blind.
 
+With `F workflow.ci` `batch` (worfy ADR-0068) GitHub CI does not run on a PR: skip `gh pr checks` and
+`mergeStateStatus`. The merge condition is two at once: `mergeable` is `MERGEABLE` and "clean" from the 1f
+reviewer; `CONFLICTING` is handled as `DIRTY` above. The night's CI run is one, in section 2.
+
+```bash
+gh pr view <N> --json mergeable -q .mergeable   # batch: MERGEABLE — merge; CONFLICTING — as DIRTY
+```
+
 The night branch has moved after the merge: this does not affect the next module, the module footprints and test
 files do not overlap.
 
@@ -314,6 +322,11 @@ gh pr checks <N> --watch --fail-fast; echo "EXIT=$?"
 The PR stays open. Red checks of the integration — a line in the report with the PR number and the failed job,
 triage in the morning: fixing at night what is green module by module but red together means editing blind.
 
+With `F workflow.ci` `batch` the PR gets no checks, and `gh pr checks` is not run. The night gets one CI run, on
+the night branch: the CI file and the `wave-gate ci` block of skill `/worfy:epic-wave`, section 4, "Batch CI on the
+main branch", with `overnight/<date>` in place of `<main branch>`; then its wait block. The report gets the run's
+URL and its result instead of the checks; a red run is triaged in the morning the same way.
+
 ## 3. Morning report
 
 `OVERNIGHT-REPORT.md` in the session's scratchpad directory: a table per module, then the status block.
@@ -340,6 +353,9 @@ id=$(gh run list --branch "$MAIN" --limit 10 --json databaseId,headSha \
 gh run watch "$id" --exit-status; echo "EXIT=$?"      # the deploy in this CI run — F deploy.how
 got=$(<F deploy.production_check>); echo "EXIT=$? commit=$got sha=$sha"
 ```
+
+With `F workflow.ci` `batch` the merge starts no push run on the main branch, so this block finds no `id`: the
+production check of such a project is not covered here and is "not verified" in the report.
 
 The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `commit` or a `commit` not equal to
 `$sha` — production is "not verified", and that is what gets written. The environment's password never goes into command arguments — only the way

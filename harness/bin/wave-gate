@@ -4,6 +4,23 @@
 //
 //   wave-gate check <state.json>   squash-merge the set in a temporary worktree, run `gate full` on it
 //   wave-gate merge <state.json>   merge the checked set (or its green prefix) with `gh pr merge`
+//   wave-gate ci <ci.json>         after the whole wave is merged: the one CI run of the wave on the main
+//                                  branch (profile workflow.ci "batch", worfy ADR-0068)
+//
+// ci reads a file of its own: {repo, branch, remote?, ci, ci_batch_run} — ci and ci_batch_run are the
+// profile's workflow.ci and workflow.ci_batch_run (a set's state file with these two keys works too, once its
+// merge is not pending). ci "pr" — nothing is dispatched (CI=skipped, exit 0). ci "batch" — fetch, run
+// ci_batch_run once with $ref replaced by the branch, then find the run: the URL the command printed, else
+// `gh run list --commit <tip of the branch> --event workflow_dispatch [--workflow <the one the command names>]`.
+// It adds ci_run: {status, command, commit, dispatched_at, output, lookups, run_id, url, superseded}. A second ci
+// on the same file while the branch is still at the recorded commit never dispatches again: it only looks for
+// the run when the first did not find it, at most CI_LOOKUPS calls, then the run is "not verified". When the
+// branch has moved (a later wave reusing the file, a merge since), ci dispatches anew for the new tip and keeps
+// the old record in ci_run.superseded. Neither check nor merge look at the PRs' checks or mergeStateStatus:
+// with "batch" a PR has no CI run on its head.
+// Exit codes of ci: 0 dispatched and found (or "pr"), 3 dispatched and not listed yet (CI_RUN=not-found: run ci
+// again) or not listed after CI_LOOKUPS calls (CI_RUN=not-verified), 1 error or a failed dispatch (nothing
+// recorded as dispatched).
 //
 // The state file is the input and the record. The orchestrator writes the input:
 //   repo       absolute path of a checkout of the repository
@@ -678,6 +695,117 @@ async function merge(file) {
     }
 }
 
+// --- ci: the one CI run of a wave on the main branch (workflow.ci "batch", worfy ADR-0068) ------------------
+const CI_MODES = ["pr", "batch"]
+// How many calls of ci may find no run for one dispatch before the run counts as not verified.
+const CI_LOOKUPS = 6
+const RUN_URL = /https?:\/\/\S+\/actions\/runs\/(\d+)/
+function loadCi(file) {
+    let st
+    try {
+        st = JSON.parse(fs.readFileSync(file, "utf8"))
+    } catch (e) {
+        fail(`${file}: ${e.message}`)
+    }
+    if (!st || typeof st !== "object" || Array.isArray(st)) fail(`${file} is not a JSON object`)
+    if (typeof st.repo !== "string" || !path.isAbsolute(st.repo) || !fs.existsSync(st.repo)) fail(`${file}: "repo" must be the absolute path of a checkout`)
+    // The branch goes into a shell command in place of $ref: only the characters of a plain branch name.
+    if (typeof st.branch !== "string" || !/^[A-Za-z0-9._/-]+$/.test(st.branch)) fail(`${file}: "branch" must name the main branch`)
+    if (st.remote !== undefined && (typeof st.remote !== "string" || !st.remote)) fail(`${file}: "remote" must be a remote name`)
+    if (!CI_MODES.includes(st.ci)) fail(`${file}: "ci" must be "pr" or "batch" (profile workflow.ci), got ${JSON.stringify(st.ci)}`)
+    if (st.ci === "batch" && !(typeof st.ci_batch_run === "string" && st.ci_batch_run.trim()))
+        fail(`${file}: "ci" is "batch" but "ci_batch_run" (profile workflow.ci_batch_run) is not a command`)
+    if (st.merge && st.merge.status === "pending") fail(`${file}: the merge of this set is not finished (merge.status pending): run merge first`)
+    return st
+}
+// The run the dispatch created: the URL `gh workflow run` prints, else the newest workflow_dispatch run on the
+// dispatched commit that was created after the dispatch (2 min for clock skew), of the workflow the command names.
+async function findRun(st, text) {
+    const m = RUN_URL.exec(text || "")
+    if (m) return { run_id: Number(m[1]), url: m[0] }
+    const args = ["run", "list", "--branch", st.branch, "--commit", st.ci_run.commit, "--event", "workflow_dispatch", "--json", "databaseId,url,createdAt", "--limit", "20"]
+    const wf = /\bgh\s+workflow\s+run\s+([^\s-][^\s]*)/.exec(st.ci_run.command)
+    if (wf) args.push("--workflow", wf[1])
+    const since = Date.parse(st.ci_run.dispatched_at) - 120000
+    const tries = seconds("WAVE_GATE_CI_TRIES", 12)
+    for (let i = 0; i < tries; i++) {
+        if (i) await sleep(seconds("WAVE_GATE_CI_POLL_S", 5))
+        const r = spawnSync("gh", args, { cwd: st.repo, encoding: "utf8", windowsHide: true })
+        if (r.error || r.status !== 0) continue
+        let runs
+        try {
+            runs = JSON.parse(r.stdout)
+        } catch {
+            continue
+        }
+        const hit = (Array.isArray(runs) ? runs : [])
+            .filter((x) => x && Number.isInteger(x.databaseId) && Date.parse(x.createdAt) >= since)
+            .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0]
+        if (hit) return { run_id: hit.databaseId, url: hit.url }
+    }
+    return null
+}
+async function ci(file) {
+    const st = loadCi(file)
+    if (st.ci === "pr") {
+        say("workflow.ci is pr: CI runs on every PR head, no batch run is dispatched")
+        process.stdout.write("CI=skipped\n")
+        return 0
+    }
+    const remote = st.remote || "origin"
+    const done = () => {
+        say(`batch CI run on ${st.branch} ${String(st.ci_run.commit).slice(0, 12)}: ${st.ci_run.url}`)
+        process.stdout.write(`CI_RUN=${st.ci_run.run_id} ${st.ci_run.url}\n`)
+        return 0
+    }
+    // The tip of the branch now. A recorded dispatch counts only for that same commit: a file reused by a later
+    // wave, or a branch that moved since, gets a new dispatch, and the old run is kept in ci_run.superseded.
+    git(["fetch", "-q", remote, `+refs/heads/${st.branch}:refs/remotes/${remote}/${st.branch}`], st.repo)
+    const commit = out(["rev-parse", `refs/remotes/${remote}/${st.branch}^{commit}`], st.repo)
+    const prev = st.ci_run || {}
+    if (!(prev.dispatched_at && prev.commit === commit)) {
+        const superseded = [...(prev.superseded || [])]
+        if (prev.dispatched_at) {
+            superseded.push({ ...prev, superseded: undefined })
+            say(`${st.branch} is at ${commit.slice(0, 12)}, the recorded run was for ${String(prev.commit).slice(0, 12)}: a new dispatch`)
+        }
+        const command = st.ci_batch_run.split("${ref}").join(st.branch).split("$ref").join(st.branch)
+        say(`dispatch: ${command}`)
+        const r = spawnSync(command, { cwd: st.repo, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 })
+        if (r.error || r.status !== 0) {
+            st.ci_run = { status: "dispatch failed", command, commit, exit: r.status ?? null, error: ((r.stderr || "") + (r.error ? r.error.message : "")).trim().split("\n")[0], at: now(), superseded }
+            save(file, st)
+            fail(`the dispatch failed (exit ${r.status ?? r.error.message}): ${st.ci_run.error}; nothing is recorded as dispatched, run ci again`)
+        }
+        st.ci_run = { status: "dispatched", command, commit, dispatched_at: now(), output: `${r.stdout || ""}${r.stderr || ""}`.trim().slice(0, 2000), lookups: 0, superseded }
+        save(file, st)
+    } else if (prev.run_id) return done()
+    else if (prev.status === "not verified") {
+        say(`not verified: ${prev.reason}`)
+        process.stdout.write("CI_RUN=not-verified\n")
+        return 3
+    }
+    const run = await findRun(st, st.ci_run.output)
+    if (!run) {
+        st.ci_run.lookups = (st.ci_run.lookups || 0) + 1
+        if (st.ci_run.lookups >= CI_LOOKUPS) {
+            st.ci_run.status = "not verified"
+            st.ci_run.reason = `dispatched at ${st.ci_run.dispatched_at}, but no workflow_dispatch run on ${commit} was listed after ${CI_LOOKUPS} calls of ci`
+            save(file, st)
+            say(`not verified: ${st.ci_run.reason}`)
+            process.stdout.write("CI_RUN=not-verified\n")
+            return 3
+        }
+        save(file, st)
+        say(`dispatched at ${st.ci_run.dispatched_at}, but no workflow_dispatch run on ${commit.slice(0, 12)} is listed yet (call ${st.ci_run.lookups} of ${CI_LOOKUPS}): run ci again (it does not dispatch a second time)`)
+        process.stdout.write("CI_RUN=not-found\n")
+        return 3
+    }
+    Object.assign(st.ci_run, run, { status: "found" })
+    save(file, st)
+    return done()
+}
+
 // --- entry -------------------------------------------------------------------------------------------------
 function release() {
     for (const dir of [...held.locks.keys()]) unlock(dir)
@@ -695,8 +823,9 @@ for (const [sig, n] of Object.entries(SIGNALS))
 
 async function main() {
     const [cmd, file, ...rest] = process.argv.slice(2)
-    if (!["check", "merge"].includes(cmd) || !file || rest.length) fail("usage: wave-gate check <state.json> | wave-gate merge <state.json>")
+    if (!["check", "merge", "ci"].includes(cmd) || !file || rest.length) fail("usage: wave-gate check <state.json> | wave-gate merge <state.json> | wave-gate ci <state.json>")
     const abs = path.resolve(file)
+    if (cmd === "ci") return ci(abs)
     keepAwake()
     if (cmd === "merge") return merge(abs)
     try {

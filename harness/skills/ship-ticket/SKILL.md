@@ -49,6 +49,11 @@ Two fields set the shape of the whole loop — read them right away:
   no deploy — steps 8–10 are skipped, and that is said; the ticket closes in step 11 when the local
   `gate full` is green and its branch is merged locally into the main branch of its repository.
 
+With `pr-green-ci` a third field says where GitHub CI runs: `F workflow.ci` — `pr` (also when the
+field is absent): CI on the PR head, waited for in step 8; `batch` (worfy ADR-0068): CI does not
+run on a PR and is not a merge condition, it runs once on the main branch after the wave is merged
+(skill `/worfy:epic-wave`, section 4, "Batch CI on the main branch").
+
 **Silent mode** — `F _resolved.mode` prints `silent` (contract: `profiles/README.md`, "Full mode and
 Silent mode"). The workflow files — the ticket, the epic spec, the state file, ADRs, the glossary,
 lessons, evidence screenshots — live in the Workflow folder `F _resolved.workflow_folder`, not in the
@@ -495,6 +500,19 @@ In the last case the finish is a local gate fast with exit code 0 and a PR comme
 docs-only change". What the project's CI does not run, and so what must run locally before the
 merge, — the profile's `rules.md`.
 
+**`F workflow.ci` is `batch`** — skip the CI wait of this step: GitHub CI does not run on the PR,
+and `NO RUN`, `CI=none` or old red checks are not a reason to hold it; the agents' marks (`review`,
+`check/<name>`, `deploy`) are still set and read as above. The finish is the PR plus a local gate
+fast with exit code 0 (step 6). Instead of `mergeStateStatus` and `gh pr checks` look at
+`mergeable`: `CONFLICTING` — rebase onto the base; `MERGEABLE` — done; `UNKNOWN` — GitHub is still
+computing it, ask again in a minute.
+
+```bash
+gh pr view <N> --json mergeable --jq .mergeable   # with workflow.ci batch, instead of the CI wait
+```
+
+With `pr` the step stays as above.
+
 ## 9. Merge — a separate step, on green
 
 Only with `pr-green-ci`; the merge is done by whoever `F workflow.merge` names (today always the
@@ -512,6 +530,11 @@ skill `/worfy:epic-wave`, section 4).
 The gate the project requires before this merge is `F workflow.merge_gate` — skill
 `/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
 is a set of one PR: the same three blocks, with `PRS=(<N>)`.
+
+With `F workflow.ci` `batch` the merge does not wait for CI: the PR merges on its gate when
+`mergeable` is `MERGEABLE`. A single ticket outside a wave is a wave of one: after its merge, the
+batch CI run on the main branch of skill `/worfy:epic-wave`, section 4, "Batch CI on the main
+branch" — dispatch, wait, and the same rule for a red run.
 
 ## 10. Check production
 

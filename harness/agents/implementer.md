@@ -184,7 +184,12 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    finish — repeat it), not by frequent polling: your turns are limited. The result — the PR's checks
    without the agents' marks `review`, `check/<name>` and `deploy` (commit statuses, not CI; a
    `review` failure is a verdict; an Actions job of such a name is CI): `gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"`
-   — green is `CI=pass`. `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
+   — green is `CI=pass`. With `workflow.ci: "batch"` (worfy ADR-0068) GitHub CI does not run on a
+   PR: the PR and the green step 5 are the finish, and `CI=none` is expected, not a gap. Do not wait
+   for CI; check `gh pr view <N> --json mergeable` instead — `CONFLICTING` means rebase onto the
+   base, `MERGEABLE` is done. Say "CI: batch, runs on main after the Wave" in the report. With
+   `"pr"` (or no field) CI is waited for as above.
+   `"local-green"` — do not open a PR; you finish at step 5. Before the local merge the
    branch must be on top of the main branch (skill `/worfy:ship-ticket`, step 11): that rebase is
    yours — when the orchestrator sends the branch back, rebase it onto the main branch in your own
    tree, resolve conflicts there and run step 5 again. The merge itself is the orchestrator's.

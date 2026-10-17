@@ -57,6 +57,11 @@ Two fields set the shape of the wave:
   no production check; a ticket finishes when the local `gate full` is green and its branch is merged
   locally into the main branch of its repository (section 4, "Local merge"). With `single` each next
   ticket's branch is created from the main branch after the previous ticket's local merge.
+- `F workflow.ci` (with `pr-green-ci`) — `pr`, also when the field is absent: CI on every PR head
+  is a merge condition, as everywhere below; `batch` (worfy ADR-0068): CI does not run on PRs and is
+  not a merge condition — a PR merges on its gate when `mergeable` is `MERGEABLE`, and CI runs once
+  on the main branch after the wave is merged (section 4, "Batch CI on the main branch"). Every place
+  below that waits for CI on a PR says what changes with `batch`.
 
 **Silent mode** — `F _resolved.mode` prints `silent`. The rules are in skill `/worfy:ship-ticket`,
 section 0: the workflow files live in the Workflow folder `F _resolved.workflow_folder`, and branches,
@@ -180,6 +185,8 @@ only appends; do not create or edit the file any other way. One row per decision
 - a finding put into Dismissed (section 3);
 - a narrow round given or refused, and a ticket taken out of the wave (section 3);
 - the order of the merges when it differs from the plan (section 4).
+- With `F workflow.ci` `batch`: the batch CI run dispatched for the main branch, and its result —
+  green, red with the failing jobs, or not verified (section 4, "Batch CI on the main branch").
 
 `<decision>` says what was decided and names the ticket; `<why>` is the reason in one sentence;
 `<evidence>` is what can be opened or run to check it — a PR comment, a `file:line`, a command with
@@ -277,6 +284,11 @@ gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == ""
 
 A non-zero `EXIT` with "no checks reported" is `CI=none`: GitHub has created no CI run (a `DIRTY` PR
 gets none; `mergeStateStatus` above says which).
+
+With `F workflow.ci` `batch` the verifier skips this CI check: the PR has no CI run, so `CI=none`
+is expected, and old red checks are not a finding either. It runs
+`gh pr view <N> --json mergeable,headRefOid` instead; `CONFLICTING` goes back to the implementer
+for a rebase, like `DIRTY`. The review mark below is set as usual: it is a commit status, not CI.
 
 **The review mark.** The verdict is bound to the commit it was given on (ADR-0067): before the
 verifier starts, the orchestrator marks the head commit `review pending`; the recorded verdict marks
@@ -577,6 +589,14 @@ if [ -z "$id" ]; then echo "NO RUN"; else
 create one. Look at `mergeStateStatus`; on `DIRTY` a rebase is needed (the paragraph on conflicts
 at the end of this section).
 
+With `F workflow.ci` `batch` neither block above applies: there is no CI run to wait for, and
+`mergeStateStatus` can stay `UNSTABLE` from checks of an older head. The merge condition is the
+gate below plus `mergeable`:
+
+```bash
+gh pr view <N> --json mergeable --jq .mergeable   # batch: MERGEABLE — merge; CONFLICTING — rebase; UNKNOWN — ask again
+```
+
 **Lock on the main branch.** When several waves or workflows of one project run in parallel, every
 merge and every documents commit to the main branch goes one at a time, under a shared lock. Take
 it in one Bash call with timeout 600000 (if not taken, repeat), and release it on exit and on error
@@ -602,19 +622,22 @@ is `F workflow.merge_gate`:
 
 - absent or `null` — the Harness requires no gate before the merge (the project's `rules.md` may);
 - `"each"` — every PR on its own: rebase onto the fresh main branch, `GATE_SCOPE=all` gate full on
-  its branch (exit code 0 and the line `[gate] зелено (…)`), CI again on the new head, the merge;
-  then the next PR;
+  its branch (exit code 0 and the line `[gate] зелено (…)`), CI again on the new head (with
+  `F workflow.ci` `batch` — no CI: `mergeable` is `MERGEABLE`), the merge; then the next PR;
 - `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate` (worfy
   ADR-0065), as below.
 
-The set is the wave's PRs with `VERIFIED` and green CI on their head, in merge order. Mark the
+The set is the wave's PRs with `VERIFIED` and green CI on their head, in merge order (with
+`F workflow.ci` `batch`: `VERIFIED` and `mergeable` `MERGEABLE` — no CI on the head, and red or
+missing checks do not keep a PR out). Mark the
 platform PRs — those the project's rules send to another platform's verdict (worfy: ADR-0056,
 item 2). They and the PRs with the label `needs-mac-gate` stay out of the set, and so do the PRs
 `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a red set): each of them
 is merged the old way, as with `"each"`, plus the other platform's verdict for a platform PR. A PR
 that becomes ready after `check` started waits for the next set. PRs of the set are not rebased and
 their CI is not run again before the merge: CI was green on the head, and each merge runs CI on the
-push to the main branch. `wave-gate` takes the e2e lock (`F workflow.e2e_lock`) for each gate run
+push to the main branch (with `batch` there is no CI on a head or on a push: one CI run on the main
+branch after the wave, below). `wave-gate` looks at neither checks nor `mergeStateStatus`. It takes the e2e lock (`F workflow.e2e_lock`) for each gate run
 and the main-branch lock for the merges itself: do not wrap it in the lock command above.
 
 The screen, on a Mac: a locked screen shows no Electron window, and every e2e fails on its first
@@ -657,7 +680,7 @@ of the main-branch lock above:
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
-PRS=(<PR numbers in merge order>)              # VERIFIED, CI green on the head
+PRS=(<PR numbers in merge order>)              # VERIFIED, CI green on the head (batch: mergeable MERGEABLE)
 PLATFORM=(<platform PR numbers>)               # none: PLATFORM=()
 node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
 const fs = require("fs"), { execFileSync } = require("child_process")
@@ -703,6 +726,85 @@ command); the PRs not merged go into a new set.
 Red CI on the main branch after the set's merges: no new merges. Open a revert of the squash commit
 of the first red push run (`git revert <sha>` on a branch, a PR); the revert PR goes the old way,
 outside any set, with its own gate full, and the ticket of the reverted PR gets a rework round.
+With `F workflow.ci` `batch` there are no push runs: the rule for a red batch CI run is below.
+
+**Batch CI on the main branch** (`F workflow.ci` `batch`, worfy ADR-0068). With `pr` — skip this
+paragraph: CI already ran on every head and every push. With `batch` the wave gets one CI run on the
+main branch, after the last code merge of the wave — the set's `wave-gate merge`, the PRs out of the
+set merged the old way, or the last `"each"` merge — and before the documents PR or commit (item 4;
+it changes no code, and it goes on while the CI run does). Even when `wave-gate merge` stopped
+(`EXIT=4`), what it merged gets the CI run. A wave that merged no code gets none. One CI file per
+wave, named by the epic and the wave's number like the state file of the set; the block does not
+overwrite an existing one, so after a session break the same block finds the dispatch recorded and
+does not start a second CI run while the main branch is still at the recorded commit. When the main
+branch has moved since (a file reused by a later wave, a merge after the dispatch), `wave-gate ci`
+dispatches anew for the new tip and keeps the old run under `ci_run.superseded`. So once the
+documents PR or commit of the wave is merged, do not run the block again: read the recorded run
+(`jq -r '.ci_run.run_id' <CI file>`) for the wait below.
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+C=<CI file>                                    # e.g. <orchestrator scratchpad>/wave-ci-<epic>-<wave number>.json
+node - "$C" <repo> <main branch> "$(F workflow.ci)" "$(F workflow.ci_batch_run)" <<'NODE'
+const fs = require("fs")
+const [file, repo, branch, ci, run] = process.argv.slice(2)
+if (!fs.existsSync(file)) fs.writeFileSync(file, JSON.stringify({ repo, branch, ci: ci || "pr", ci_batch_run: run || null }, null, 2) + "\n")
+NODE
+"${CLAUDE_PLUGIN_ROOT}/bin/wave-gate" ci "$C"; echo "EXIT=$?"
+```
+
+- `EXIT=0` with `CI_RUN=<id> <url>` — dispatched once (`F workflow.ci_batch_run` with `$ref` = the
+  main branch) and found; `ci_run` in the CI file has the id, the URL and the commit. Write a row to
+  the decision log (section 1; `'batch CI run dispatched for <main branch> <commit>'`, evidence — the
+  URL). `CI=skipped` — the profile says `pr`.
+- `EXIT=3` (`CI_RUN=not-found`) — dispatched, but GitHub does not list the run yet: run the same
+  block again in a minute; it does not dispatch a second time. `wave-gate ci` counts these calls:
+  after six without a listed run it answers `CI_RUN=not-verified` (still `EXIT=3`), and so does
+  every later call — the CI run of the wave is not verified, with the reason in `ci_run.reason`;
+  handle it as a not verified run below.
+- `EXIT=1` — an error or a failed dispatch (the message says which; nothing is recorded as
+  dispatched): fix the cause and run the block again.
+
+The orchestrator waits for the result before the report (section 5), so the next wave never starts
+on a main branch whose CI run is unknown. One long command with Bash timeout 600000; if it did not
+finish waiting, repeat it — at most six calls (an hour), then the CI run counts as not verified:
+
+```bash
+id=<run id from CI_RUN=>
+set -o pipefail; gh run watch "$id" --exit-status --compact --interval 30 | tail -n 5; echo "EXIT=$?"
+gh run view "$id" --json status,conclusion,url,jobs --jq '{status, conclusion, url, failed: [.jobs[] | select(.conclusion == "failure") | .name]}'
+```
+
+`conclusion` `success` — the wave is green on the main branch; the report says so with the URL.
+
+`cancelled` is not red by itself. Runs of one job on the main branch go one at a time (`ci.yml`
+does not cancel a running one), but GitHub cancels a waiting run when a newer dispatch arrives — a
+parallel wave, or the owner's run by hand. So look for a newer run of the same workflow on the main
+branch (`<workflow>` — the name after `gh workflow run` in `F workflow.ci_batch_run`):
+
+```bash
+gh run list --branch <main branch> --event workflow_dispatch --workflow <workflow> --limit 5 --json databaseId,url,createdAt,headSha,status,conclusion
+```
+
+A run created after the cancelled one exists — the cancelled run is superseded, not red: its commit
+is in the newer run's commit. Write a decision-log row (`'batch CI run <id> superseded by <newer id>'`)
+and wait for the newer run with the same block and the same rules. No newer run — the cancelled run
+(cancelled by hand) is not verified.
+
+Any other result of a `completed` run (`failure`, `timed_out`, `startup_failure`) is red; a run
+still not `completed` after six calls, a cancelled run with no newer one, and `CI_RUN=not-verified`
+are not verified. A not verified CI run stops the Autopilot run after the wave the same way as a red
+one, with the reason instead of failing jobs. Neither is reverted — the fix goes forward:
+
+- the failing jobs are in `failed`; the failing tests —
+  `set -o pipefail; gh run view "$id" --log-failed | grep -E ' FAIL |✘|×' | head -n 20; echo "EXIT=$?"`
+  (`EXIT=1` there — no line matched: name the failing step from the log instead);
+- file the failure: a new open ticket in the epic (`Source:` — the CI run URL; the failing jobs and
+  tests in its first section), or, when the cause is not known yet, a `blocked` line in the state
+  file's list of what waits for the owner; and a decision-log row with the URL;
+- no new merges in this wave, and the run stops after it: in a session without a human (worfy
+  Autopilot) no next wave starts. The report's `— Жду:` line names the CI run URL and the failing jobs
+  and tests. A session with a human reports the same and asks.
 
 1. Ordinary PRs with code — with `merge_gate: "wave"` as a set (above); otherwise one after another,
    as `VERIFIED` verdicts arrive.
@@ -808,7 +910,8 @@ the gate again, then the merge. The next PR is taken after the previous one is m
 the fresh merge commit. CI does not start on a PR in state `DIRTY`, and the wave's documents
 commit changes ticket files, so open PRs (of the next wave, of a parallel wave, not yet merged)
 become `DIRTY`. So check `mergeStateStatus` and rebase before the rework round and before waiting
-for CI, not after.
+for CI, not after. With `F workflow.ci` `batch` there is no CI to wait for: check `mergeable`
+(`CONFLICTING` — rebase) before the rework round and before the merge.
 
 **Cleanup after the merge.** Once a ticket's PR (and the wave's documents PR) is merged — at once
 `git worktree remove <worktree>` and `git branch -D <branch>`; the verifiers' worktrees too. With
@@ -837,6 +940,8 @@ the verifier's answer yourself before quoting it.
 | 09 | — | REJECTED ×2 | blocked | — |
 | 11 | #344 | REJECTED ×2 → NARROW: VERIFIED | 1 round + narrow | 5e6f7a8 |
 
+With `F workflow.ci` `batch` one line goes under the table: `CI on <main branch>: <URL> — green`,
+`— red: <failing jobs and tests>`, `— not verified: <why>`, or `— none: the wave merged no code`.
 The "PR" and "Production" columns are "—" with `local-green` and without `deploy`. The "Rework"
 column shows a narrow round as "+ narrow"; a narrow round that ended in `NARROW: REJECTED` is a
 `blocked` row.
