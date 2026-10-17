@@ -55,12 +55,15 @@ function git(cwd: string, ...args: string[]): string {
 
 /**
  * The only and active Project, a git repository whose `.scratch` `fill` writes, with the saved
- * `nodes`; the Claude home's bin/epic-status prints `answer` (an empty workflow without one).
+ * `nodes`; the Claude home's bin/epic-status prints `answer`, without one an Epic with no Tickets.
+ * Not an empty workflow: with no Epic the "No epics yet" panel (FirstEpic.tsx) lies over the middle
+ * of the Canvas, and once the answer comes before a press, the press lands on the panel. The Epic's
+ * frame is stacked from x = 0, clear of every Node (epic-layout.ts, stackFrames).
  */
 function makeProject(nodes: unknown[], viewport: { x: number; y: number; zoom: number } = VIEWPORT, fill?: (scratchDir: string) => string): void {
   const repo = join(scratch, 'demo')
   mkdirSync(join(repo, '.scratch'), { recursive: true })
-  const answer = fill?.(join(repo, '.scratch')) ?? JSON.stringify({ ref: 'main', epics: [], tickets: [] })
+  const answer = fill?.(join(repo, '.scratch')) ?? JSON.stringify({ ref: 'main', epics: [{ epic: 'empty', hasSpec: false, hasMap: false }], tickets: [] })
   git(repo, 'init', '-q')
   git(repo, 'commit', '-q', '--allow-empty', '-m', 'init')
   git(repo, 'add', '.')
