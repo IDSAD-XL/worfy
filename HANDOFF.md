@@ -32,7 +32,7 @@
 
 ## Риски и долги
 
-- Test-ы с наблюдателем файлов (`docs.test.ts`, `claude-home-registry.test.ts`) красные и на main — перегружен `fseventsd`; лечит владелец: `sudo killall fseventsd` (замеры — `worfy-windows` 26).
+- Test-ы наблюдателя файлов красные и на main — перегружен `fseventsd`: признак и лечение — урок в `docs/lessons/agents.md`.
 - Удаление вне Windows больше не стирает том, примонтированный в папку Card-а: отказ с `EXDEV` (PR #293). Не видна точка монтирования с `dev` её папки (Ticket 47). На Windows junction по GUID закрыт PR #287; junction отключённого тома `purge` не удаляет (45, замер 6).
 - Каждый мерж, который трогает `harness/`, кончается `pnpm install:stable` вне прогона Autopilot (ADR-0047): без пересборки Stable copy влитый урок не действует.
 - Atakama пойдёт через полный предполёт Harness с `git fetch`. На живых репозиториях Atakama это не проверено, только на клонах (`worfy-harness` 11).
