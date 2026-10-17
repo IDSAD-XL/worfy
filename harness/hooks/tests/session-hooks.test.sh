@@ -11,8 +11,6 @@ set -u
 # Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; a path like
 # /c/… or /tmp/… means nothing to node. Elsewhere there is no -W.
 case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
-# A path as node prints it: C:\… on Windows, unchanged elsewhere.
-printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 # The hooks and bin/profile under test are the copies next to this test (harness/); BIN_DIR and
 # HOOKS_DIR point it at another copy. Checks on live repositories need the live registry too.
 HARNESS="$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })"
@@ -201,7 +199,7 @@ echo '{"schema":2,"name":"fulloff","mode":"full","attribution":"off"}' >"$T/sp/f
 printf '{"repos":[{"key":"s","match":"%s","profile":"silent"},{"key":"f","match":"%s","profile":"fullon"},{"key":"o","match":"%s","profile":"fulloff"}]}\n' \
     "$T/syn/s1" "$T/syn/f1" "$T/syn/f2" >"$T/syn4.json"
 c="$(CLAUDE_GATE_CONFIG="$T/syn4.json" CLAUDE_PROFILES_DIR="$T/sp" run "$START" "$T/syn/s1" "$T/syn/s1" | ctx)"
-if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project works in Silent mode"* && "$c" == *"Workflow folder $(printed "$T/wf"),"* ]] \
+if [[ "$c" == *"## Workflow mode (profile silent)"* && "$c" == *"This project works in Silent mode"* && "$c" == *"Workflow folder $T/wf,"* ]] \
    && [[ "$c" == *"no epic names, ticket or ADR numbers"* && "$c" == *"Attribution is off for this project"* ]]; then
     ok "silent + attribution off: the mode and attribution lines are mixed in without inject_rules"
 else bad "silent session context: [$c]"; fi

@@ -83,15 +83,16 @@ function str(value) {
 }
 
 // `p` with the home folder at its start shown as ~. On Windows the comparison ignores the separator
-// and letter case, and the rest is spelled with /, so ~/… reads the same in Git Bash and PowerShell.
+// and letter case, and the path is spelled with /, so ~/… and D:/… read the same in Git Bash and PowerShell.
 function tilde(p, home = os.homedir(), platform = process.platform) {
-    if (!p || !home) return p
+    if (!p) return p
     const win = platform === "win32"
+    if (!home) return win ? p.replaceAll("\\", "/") : p
     const fold = (s) => (win ? s.replaceAll("\\", "/").toLowerCase() : s)
     const base = home.replace(win ? /[\\/]+$/ : /\/+$/, "")
     const h = fold(base)
     const f = fold(p)
-    if (f !== h && !f.startsWith(h + "/")) return p
+    if (f !== h && !f.startsWith(h + "/")) return win ? p.replaceAll("\\", "/") : p
     const rest = p.slice(base.length)
     return "~" + (win ? rest.replaceAll("\\", "/") : rest)
 }
