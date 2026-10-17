@@ -60,7 +60,6 @@ import type { SlashCommand } from '../../shared/agent/commands'
 import {
   contextUsageOf,
   isCompactBoundary,
-  isMainOnlyEvent,
   sameContextUsage,
   sdkMessageToEvents,
   type AgentEvent,
@@ -71,269 +70,46 @@ import {
 } from '../../shared/agent/events'
 import {
   DEFAULT_SETTINGS,
-  EFFORT_LEVELS,
   isSelectableModel,
   sameSettings,
   withSelectableModel,
-  type EffortChoice,
   type ModelOption,
-  type PermissionModeChoice,
   type SessionSettings,
   type SettingsChange,
 } from '../../shared/agent/settings'
 import { readUserEffort, readUserModel, type UserEffortReader, type UserModelReader } from '../claude-home/user-model'
 import { userContent } from './attachments'
-import { CommandCatalog, type CommandInfoLike } from './commands'
+import { CommandCatalog } from './commands'
 import { PermissionGate, unattendedCanUseTool, type CanUseToolHandler, type RefusalDetails } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
+import { InputQueue } from './session/input-queue'
+import { mergeSettings, modelOptions, USER_MODEL_FALLBACK } from './session/models'
+import { EXIT_WAIT_MS, exitOf, HALT_TURN_MS, hasExited, KILL_EXIT_MS, within } from './session/process'
+import { pushSettings, STDERR_KEEP, type Run } from './session/run'
+import type { ClaudeCodeProcess, EventSink, QueryFactory, QueryHandle, QueryRequest, SessionControls, SessionInfo } from './session/types'
 import { ATTENDED, launchSettings, settingsChangeRefusal, type SessionLaunch } from './session-settings'
 
-/** What accountInfo() returns, as far as worfy reads it (ADR-0009). */
-export interface AccountInfoLike {
-  email?: string | undefined
-  subscriptionType?: string | undefined
-  tokenSource?: string | undefined
-  apiProvider?: string | undefined
-}
-
-/** A row of supportedModels(), as far as worfy reads it (ticket 06, question 6). */
-export interface ModelInfoLike {
-  value: string
-  displayName?: string | undefined
-  supportsEffort?: boolean | undefined
-  supportedEffortLevels?: readonly string[] | undefined
-}
-
-/**
- * A Claude Code process as far as a Session watches it: Node's ChildProcess has all of it. A process
- * without a pid never started (spawn failed) and is not waited for.
- */
-export interface ClaudeCodeProcess {
-  readonly pid?: number | undefined
-  readonly exitCode: number | null
-  readonly signalCode: NodeJS.Signals | null
-  kill(signal: NodeJS.Signals): boolean
-  once(event: 'exit', listener: () => void): unknown
-}
-
-/** The part of the SDK's Query a Session uses; fake-query.ts implements it too. */
-export interface QueryHandle extends AsyncIterable<unknown> {
-  interrupt(): Promise<unknown>
-  close(): void
-  accountInfo(): Promise<AccountInfoLike>
-  /** undefined: Claude Code's default model. */
-  setModel(model?: string): Promise<void>
-  setPermissionMode(mode: PermissionModeChoice): Promise<void>
-  /** How the SDK changes effort mid-session (ticket 06); null goes back to the model's default. */
-  applyFlagSettings(settings: { effortLevel?: EffortChoice | null }): Promise<void>
-  supportedModels(): Promise<ModelInfoLike[]>
-  /** The slash commands and skills (ticket 20); optional, as a query that lacks it lists those of system/init. */
-  supportedCommands?(): Promise<CommandInfoLike[]>
-  /**
-   * How full the context window is (worfy-polish ticket 23), read leniently (contextUsageOf);
-   * optional, as a query that lacks it reports no usage.
-   */
-  getContextUsage?(opts?: { detail?: 'summary' | 'full' }): Promise<unknown>
-}
-
-export interface QueryRequest {
-  prompt: AsyncIterable<SDKUserMessage>
-  cwd: string
-  /** SDK session id to continue. */
-  resume: string | undefined
-  /**
-   * The id a new SDK session is to have (SDK option `sessionId`): set when `resume` is not, so the
-   * Session's id is known before system/init. Never set together with `resume`.
-   */
-  sessionId?: string | undefined
-  /** Claude Code's stderr, kept to explain a crash. */
-  stderr: (data: string) => void
-  /** The model, effort and permission mode the query starts with. */
-  settings: SessionSettings
-  /** Answers Claude Code's permission requests (permissions.ts); one gate per Session, across its queries. */
-  canUseTool: CanUseToolHandler
-  /** No person is at the Session (session-settings.ts): Claude Code must run in bypassPermissions. A Session always sets it. */
-  unattended?: boolean | undefined
-  /**
-   * Told of each Claude Code process the query starts (app-registry.ts, through the SDK's
-   * spawnClaudeCodeProcess), so the Session can wait for its exit. A Session always sets it; a
-   * factory with no process of its own (the fake agent) never calls it.
-   */
-  spawned?: ((process: ClaudeCodeProcess) => void) | undefined
-  /**
-   * The Session is a Project's Orchestrator, Autopilot's included (SessionLaunch.orchestrator): its
-   * Claude Code gets the Orchestrator's autocompact window, any other Session the other one
-   * (app-registry.ts). A Session always sets it.
-   */
-  orchestrator?: boolean | undefined
-}
-
-/** Starts Claude Code for a Session: the real SDK, or the fake agent in tests. */
-export type QueryFactory = (request: QueryRequest) => Promise<QueryHandle>
-
-/** Receives every event of every Session, with the Session's current id. */
-export type EventSink = (sessionId: string, event: AgentEvent) => void
-
-/** Told when a person acts on a Session through the UI: what they did, in a few words. */
-export type InputListener = (session: Session, what: string) => void
-
-export interface SessionInfo {
-  sessionId: string
-  /** The SDK session it runs or will resume, once known: a resumed Session has it before its id is reported. */
-  sdkSessionId: string | null
-  cwd: string
-  state: SessionState
-}
-
-/** What the input field shows of a Session besides its events: its settings and its queue. */
-export interface SessionControls {
-  settings: SessionSettings
-  queue: QueueSnapshot
-}
-
-/** The row of the SDK's default model. */
-const DEFAULT_MODEL_VALUE = 'default'
-
-const isEffort = (level: string): level is EffortChoice => (EFFORT_LEVELS as readonly string[]).includes(level)
-
-/** What a Session that names no model is started on when the user's own model is a haiku. */
-export const USER_MODEL_FALLBACK = 'sonnet'
-
-/** supportedModels() rows as the model picker lists them; models below sonnet are left out. */
-export function modelOptions(models: readonly ModelInfoLike[]): ModelOption[] {
-  const selectable = models.filter((model) => isSelectableModel(model.value) && isSelectableModel(model.displayName ?? model.value))
-  return selectable.map((model) => ({
-    value: model.value === DEFAULT_MODEL_VALUE ? null : model.value,
-    displayName: model.displayName ?? model.value,
-    efforts: model.supportsEffort === false ? [] : (model.supportedEffortLevels ?? []).filter(isEffort),
-  }))
-}
-
-function mergeSettings(settings: SessionSettings, change: SettingsChange): SessionSettings {
-  return {
-    model: change.model !== undefined ? change.model : settings.model,
-    effort: change.effort !== undefined ? change.effort : settings.effort,
-    permissionMode: change.permissionMode ?? settings.permissionMode,
-  }
-}
-
-/** An async iterable that yields what is pushed into it, until it is ended. */
-class InputQueue<T> implements AsyncIterable<T> {
-  private readonly items: T[] = []
-  private waiting: ((result: IteratorResult<T>) => void) | null = null
-  private ended = false
-
-  push(item: T): void {
-    if (this.ended) return
-    if (this.waiting) {
-      const resolve = this.waiting
-      this.waiting = null
-      resolve({ value: item, done: false })
-    } else {
-      this.items.push(item)
-    }
-  }
-
-  end(): void {
-    this.ended = true
-    if (this.waiting) {
-      const resolve = this.waiting
-      this.waiting = null
-      resolve({ value: undefined, done: true })
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<T> {
-    return {
-      next: () => {
-        const item = this.items.shift()
-        if (item !== undefined) return Promise.resolve({ value: item, done: false })
-        if (this.ended) return Promise.resolve({ value: undefined, done: true })
-        return new Promise((resolve) => {
-          this.waiting = resolve
-        })
-      },
-    }
-  }
-}
-
-const STDERR_KEEP = 20
-
-/**
- * How long halt() waits for an interrupted turn to end. Past it the caller closes the process,
- * which ends the turn all the same (Orchestrators.giveBackNow).
- */
-export const HALT_TURN_MS = 15_000
-
-/**
- * How long exited() waits for a Claude Code process after the Session closed it, before it sends
- * SIGKILL (ADR-0064). The SDK's close() ends stdin, sends SIGTERM 2 s later and SIGKILL 5 s after
- * that (SDK 0.3.289): worfy's own SIGKILL comes after the SDK's, so the graceful path is not cut
- * short, and ends a process the SDK's did not.
- */
-export const EXIT_WAIT_MS = 7_500
-
-/** After SIGKILL: how long exited() still waits for the exit before it gives up on the process. */
-export const KILL_EXIT_MS = 2_000
-
-/** Whether a process has exited: by itself (an exit code) or by a signal. */
-const hasExited = (child: ClaudeCodeProcess): boolean => child.exitCode !== null || child.signalCode !== null
-
-/** Settles once `process` has exited; at once for one that already has. */
-const exitOf = (child: ClaudeCodeProcess): Promise<void> =>
-  new Promise((done) => {
-    if (hasExited(child)) done()
-    else child.once('exit', () => done())
-  })
-
-/** Settles with true once `work` settles, or with false after `ms`, whichever comes first. */
-async function within(work: Promise<unknown>, ms: number): Promise<boolean> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const limit = new Promise<boolean>((done) => {
-    timer = setTimeout(() => done(false), ms)
-  })
-  try {
-    return await Promise.race([work.then(() => true), limit])
-  } finally {
-    clearTimeout(timer)
-  }
-}
+// What the importers of this module read from it lives in src/main/agent/session/; it stays importable from here.
+export type {
+  AccountInfoLike,
+  ClaudeCodeProcess,
+  EventSink,
+  InputListener,
+  ModelInfoLike,
+  QueryFactory,
+  QueryHandle,
+  QueryRequest,
+  SessionControls,
+  SessionInfo,
+} from './session/types'
+export { modelOptions, USER_MODEL_FALLBACK } from './session/models'
+export { EXIT_WAIT_MS, HALT_TURN_MS, KILL_EXIT_MS } from './session/process'
+export { SessionRegistry } from './session/registry'
 
 /** Whether a Session state is a running turn. */
 const inTurn = (state: SessionState): boolean => state === 'busy' || state === 'needs_permission'
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
-/** One live query and what belongs to it; replaced when a crashed Session is resumed. */
-interface Run {
-  query: QueryHandle | null
-  input: InputQueue<SDKUserMessage>
-  stderr: string[]
-  /** The settings this query runs with: those it started with, then each control call that succeeded. */
-  applied: SessionSettings
-}
-
-/**
- * Brings a live query to `to`, one control call per changed setting. `run.applied` keeps the
- * Session's own settings; `request` turns them into what the calls ask for (Session.controlSettings):
- * a `null` model or effort becomes the user's own.
- */
-async function pushSettings(run: Run, query: QueryHandle, to: SessionSettings, request: (settings: SessionSettings) => SessionSettings): Promise<void> {
-  const changed = run.applied.model !== to.model || run.applied.effort !== to.effort
-  const asked = changed ? request(to) : to
-  if (run.applied.model !== to.model) {
-    await query.setModel(asked.model ?? undefined)
-    run.applied = { ...run.applied, model: to.model }
-  }
-  if (run.applied.permissionMode !== to.permissionMode) {
-    await query.setPermissionMode(to.permissionMode)
-    run.applied = { ...run.applied, permissionMode: to.permissionMode }
-  }
-  if (run.applied.effort !== to.effort) {
-    await query.applyFlagSettings({ effortLevel: asked.effort })
-    run.applied = { ...run.applied, effort: to.effort }
-  }
-}
 
 export class Session {
   private current: string
@@ -962,116 +738,5 @@ export class Session {
 
   private emit(event: AgentEvent): void {
     this.sink(this.current, event)
-  }
-}
-
-/** Every live Session of the app, by id; a Session is also found by its temporary id. */
-export class SessionRegistry {
-  private readonly sessions = new Map<string, Session>()
-  private readonly observers = new Set<EventSink>()
-  private readonly inputObservers = new Set<InputListener>()
-
-  /** `userModel` and `userEffort` read the user's own model and effort (user-model.ts); tests give them fixed answers. */
-  constructor(
-    private readonly factory: QueryFactory,
-    private readonly userModel: UserModelReader = () => readUserModel(),
-    private readonly userEffort: UserEffortReader = () => readUserEffort(),
-  ) {}
-
-  /**
-   * Gets every action a person takes on a live Session through the UI (src/main/ipc/agent.ts):
-   * Autopilot (worfy-daily ticket 04) journals those on the Session of its run. Answers the
-   * unsubscribe.
-   */
-  observeInput(listener: InputListener): () => void {
-    this.inputObservers.add(listener)
-    return () => this.inputObservers.delete(listener)
-  }
-
-  /**
-   * A person acts on the Session `sessionId` through the UI; told before the action runs, whether
-   * the Session then takes it or refuses it. An id that is not live is ignored.
-   */
-  noteInput(sessionId: string, what: string): void {
-    const session = this.sessions.get(sessionId)
-    if (session === undefined) return
-    for (const listener of this.inputObservers) {
-      try {
-        listener(session, what)
-      } catch (error) {
-        console.warn('[agent] an input observer failed', error)
-      }
-    }
-  }
-
-  /** Gets every event of every Session, besides the Session's own sink (notifications, src/main/notify.ts); answers the unsubscribe. */
-  observe(listener: EventSink): () => void {
-    this.observers.add(listener)
-    return () => this.observers.delete(listener)
-  }
-
-  /**
-   * Starts a Session whose events go to `sink` (the window that asked for it), main-only ones
-   * (isMainOnlyEvent) left out: those go to the observers alone. Resuming an SDK
-   * session that a live Session already runs is refused: two Claude Code processes would write
-   * one transcript, and both Sessions would send events under one id. `launch` is attended unless
-   * Autopilot starts the Session unattended (session-settings.ts). With `after`, the Session is live
-   * at once but starts its Claude Code process only once `after` settles (Session.start).
-   */
-  start(cwd: string, resume: string | undefined, sink: EventSink, settings?: SessionSettings, launch?: SessionLaunch, after?: Promise<void>): Session {
-    if (resume !== undefined && this.live().some((live) => live.id === resume || live.sdkId === resume)) {
-      throw new Error(`Session ${resume} is already live`)
-    }
-    const session = new Session(
-      cwd,
-      this.factory,
-      (sessionId, event) => {
-        for (const observer of this.observers) {
-          try {
-            observer(sessionId, event)
-          } catch (error) {
-            console.warn('[agent] an event observer failed', error)
-          }
-        }
-        try {
-          // Events for the main process only (task_activity) reach the observers, not the windows.
-          if (!isMainOnlyEvent(event)) sink(sessionId, event)
-        } finally {
-          // A sink that throws (a window already gone) must not keep a closed Session listed.
-          if (event.type === 'state' && event.state === 'closed') this.forget(session)
-        }
-      },
-      (_from, to) => this.sessions.set(to, session),
-      resume,
-      settings,
-      launch,
-      this.userModel,
-      this.userEffort,
-    )
-    this.sessions.set(session.id, session)
-    session.start(after)
-    return session
-  }
-
-  get(sessionId: string): Session {
-    const session = this.sessions.get(sessionId)
-    if (!session) throw new Error(`No live Session ${sessionId}`)
-    return session
-  }
-
-  list(): SessionInfo[] {
-    return this.live().map((session) => session.info())
-  }
-
-  closeAll(): void {
-    for (const session of this.live()) session.close()
-  }
-
-  private live(): Session[] {
-    return [...new Set(this.sessions.values())]
-  }
-
-  private forget(session: Session): void {
-    for (const [id, value] of this.sessions) if (value === session) this.sessions.delete(id)
   }
 }
