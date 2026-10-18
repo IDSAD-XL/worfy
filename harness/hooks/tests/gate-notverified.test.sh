@@ -94,6 +94,14 @@ check "stop: red past MAX_BLOCKS again -> silent (once per session)" bash -c '[ 
 rm -f "$RED" "$T/state/stop-blocks/"*
 echo "$GOOD_CFG" >"$CLAUDE_GATE_CONFIG"
 
+# --- 2. Stdin that is not JSON ---------------------------------------------------------
+# The red marker still holds the turn: a hook input it cannot parse must not let the turn end.
+date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
+out="$(cd "$T/reg" && printf 'not json' | node "$STOP" 2>&1)"; rc=$?
+check "stop: red marker + stdin not JSON -> blocks (exit 2) with the red message" \
+    bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"The quality gate is red"* ]]' _ "$out" "$rc"
+rm -f "$RED" "$T/state/stop-blocks/"*
+
 # --- 10. No node / the resolver crashed -------------------------------------------
 # gate.mjs is a Node script and cannot say "node not found": the launcher gate.sh says it, with
 # code 3, and leaves the marker that stop.mjs delivers. NONODE is a PATH with git and the tools
