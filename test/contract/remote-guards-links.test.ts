@@ -2,14 +2,14 @@
 // symlink to a share nobody answers for (worfy-windows ticket 20). Every call of node:fs is counted
 // (counted-fs.ts): none may name a path through the link. Making a symlink on Windows needs
 // Developer Mode: without it the cases are skipped, with the reason.
-import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, realpathSync, rmdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TRASH_KEEP_MS } from '../../src/shared/ipc/trash'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import { TrashStore, type TrashLayout } from '../../src/main/layout/trash'
-import { cardIdTaken, cardsFolderAway } from '../../src/main/mcp/canvas-server'
+import { canvasForSession, cardIdTaken, cardsFolderAway, type CanvasDeps, type CanvasLayout } from '../../src/main/mcp/canvas-server'
 import { browseFolder } from '../../src/main/projects/browse'
 import { removeTree } from '../../src/main/storage/remove'
 import { canLink, countFsCalls, SHARE, through } from './counted-fs'
@@ -141,6 +141,30 @@ describe.runIf(WINDOWS && LINKS)('a symlink to an unreachable share, on Windows'
     }
   })
 
+  it('in place of the Cards folder when a Session starts: no folder is made through it, and the Session gets its canvas all the same', async () => {
+    const cards = join(dataDir, 'cards')
+    rmdirSync(cards)
+    symlinkSync(`${SHARE}\\cards`, cards, 'dir')
+    const repo = join(dir, 'repo')
+    mkdirSync(repo)
+    const deps: CanvasDeps = {
+      projects: () => [{ id: PROJECT, name: 'demo', path: repo }],
+      dataDir: () => dataDir,
+      layout: { get: () => ({ layout: { nodes } }) as ReturnType<CanvasLayout['get']>, apply: () => ({ layout: { nodes } }) as ReturnType<CanvasLayout['apply']> },
+      workflow: () => Promise.resolve({ epics: [], tickets: [], error: null }),
+    }
+    // A mkdir is counted and refused before it reaches the disk: through the link it would contact the host.
+    const counted = countFsCalls({ refuse: ['mkdir'] })
+    try {
+      const canvas = await canvasForSession({ cwd: repo, resume: undefined }, deps)
+      expect(canvas?.attachment.cardsDir).toBe(cards)
+      expect(counted.calls.filter((call) => call.startsWith('mkdir '))).toEqual([])
+      expect(through(counted.calls, cards)).toEqual([])
+    } finally {
+      counted.restore()
+    }
+  })
+
   it('at the path of a Card id in the Cards folder: the id is taken, and the link is not followed', () => {
     const link = cardDir('card-away')
     symlinkSync(`${SHARE}\\card`, link, 'dir')
@@ -161,6 +185,10 @@ describe.runIf(WINDOWS && LINKS)('a symlink to an unreachable share, on Windows'
     symlinkSync(join(dir, 'elsewhere', 'clone'), join(work, 'linked'), 'junction')
     const link = join(work, 'assets')
     symlinkSync(`${SHARE}\\assets`, link, 'dir')
+    // A .git that is itself a link to the share: it is there, by lstat, and is not followed (worfy-windows ticket 33).
+    mkdirSync(join(work, 'shared'))
+    const git = join(work, 'shared', '.git')
+    symlinkSync(`${SHARE}\\git`, git, 'dir')
     const counted = countFsCalls()
     try {
       const at = performance.now()
@@ -170,8 +198,10 @@ describe.runIf(WINDOWS && LINKS)('a symlink to an unreachable share, on Windows'
       expect(answer.ok && answer.folders.map((folder) => [folder.name, folder.gitRepo])).toEqual([
         ['linked', true],
         ['repo', true],
+        ['shared', true],
       ])
       expect(through(counted.calls, link)).toEqual([])
+      expect(through(counted.calls, git)).toEqual([])
     } finally {
       counted.restore()
     }

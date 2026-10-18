@@ -139,11 +139,14 @@ describe('the watch of a Tickets root, by the rules of Windows', () => {
     expect(disk.contacts).toEqual([])
   })
 
-  it('a link where epic-status reads nothing — among the evidence, or right under the root next to a file — is never read', async () => {
-    const disk = windowsDisk({ ...TICKETS, [`${ROOT}\\demo\\evidence\\modules`]: linkTo(`${EVIL}\\modules`) })
+  it('a link where epic-status reads nothing — among the evidence, or in an Epic folder next to its spec.md — is never read', async () => {
+    const disk = windowsDisk({ ...TICKETS, [`${ROOT}\\demo\\evidence\\modules`]: linkTo(`${EVIL}\\modules`), [`${ROOT}\\demo\\vendor`]: linkTo(`${EVIL}\\vendor`) })
     const { watch } = await start(disk)
     expect(watch.skipped()).toEqual([])
     expect(disk.calls.some((call) => call.includes('evidence'))).toBe(false)
+    // The Epic folder is listed — its spec.md and issues matter — but the link in it is not read.
+    expect(disk.calls).toContain(`readdir ${ROOT}\\demo`)
+    expect(disk.calls.some((call) => call.includes('vendor'))).toBe(false)
     expect(disk.contacts).toEqual([])
   })
 })

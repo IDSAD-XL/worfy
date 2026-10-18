@@ -5,6 +5,17 @@
 // What makes it a model of the danger: a call that would make Windows go through a link to
 // `\\host\share\…` is written to `contacts` and fails as the real call does. lstat and readlink of
 // the link itself are not such calls; lstat of anything below it is.
+//
+// What it does not model (worfy-windows ticket 33):
+// - short 8.3 names and network drives mapped to a letter: realpath answers the path as it was put
+//   in the model, and `Z:\…` is a disk like `C:\…`;
+// - a call made right on `\\evil\share\x`, with no link on the way: only a call through a link is
+//   written to `contacts`;
+// - what a recursive watch does not see on the PC: a change put through a local link is told to a
+//   watch of the folder that holds the link, as if the change were in that folder;
+// - the events of a removal: a watch of the removed folder itself gets five events that name it by
+//   its `\\?\` path, the number is the model's own; a watch of a folder below the removed one gets
+//   nothing at all.
 import { win32 } from 'node:path'
 import type { EntryKind, WatchFs, WatchHandle } from '../../src/main/link-safe-watch'
 import type { LinkFs, LinkFsSync } from '../../src/main/remote-links'
@@ -63,6 +74,9 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
   const watches: Watch[] = []
   const unreadable = new Set<string>()
   const denied = new Set<string>()
+  /** How many times each entry, or what lies in a folder, has changed: its stamp. */
+  const versions = new Map<string, number>()
+  const touch = (path: string): void => void versions.set(key(path), (versions.get(key(path)) ?? 0) + 1)
 
   /** Puts an entry in the tree; answers the paths that are new or changed, the folders made above it first. */
   const set = (path: string, entry: DiskEntry): string[] => {
@@ -75,7 +89,11 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
       tree.set(key(above), { path: above, entry: FOLDER })
       made.unshift(above)
     }
+    const fresh = !tree.has(key(path))
     tree.set(key(path), { path: tree.get(key(path))?.path ?? path, entry })
+    // As on a disk: a new entry changes the folder that holds it; a changed one, only itself.
+    for (const each of fresh ? [...made, path] : made) touch(win32.dirname(each))
+    for (const each of [...made, path]) touch(each)
     return [...made, path]
   }
   for (const [path, entry] of Object.entries(entries)) set(path, entry)
@@ -190,6 +208,15 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         return false
       }
     },
+    stamp: async (path) => {
+      calls.push(`stamp ${path}`)
+      try {
+        const real = follow('stamp', path, false)
+        return tree.has(key(real)) ? `v${versions.get(key(real)) ?? 0}` : null
+      } catch {
+        return null
+      }
+    },
     watch: (path, recursive, onEvent, onError): WatchHandle => {
       calls.push(`watch ${path}${recursive ? ' (recursive)' : ''}`)
       const real = follow('watch', path, true)
@@ -222,6 +249,7 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         const rel = win32.relative(path, each.path)
         if (rel === '' || (!rel.startsWith('..') && !win32.isAbsolute(rel))) tree.delete(key(each.path))
       }
+      touch(win32.dirname(path))
       // A watch of the folder itself gets a run of events that name the folder by its device path.
       for (const watch of [...watches]) {
         if (watch.closed || key(watch.path) !== key(path)) continue
