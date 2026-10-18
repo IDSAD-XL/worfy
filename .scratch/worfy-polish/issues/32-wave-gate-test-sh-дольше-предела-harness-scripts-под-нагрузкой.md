@@ -1,7 +1,8 @@
 # 32 — `wave-gate.test.sh` под нагрузкой дольше предела 120 s на файл в `harness-scripts.test.ts`
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T13:04Z
+Branch: worfy-polish/32-wave-gate-test-time
 Blocked by: —
 Source: замер [30](30-contract-test-ы-краснят-gate-full-чужих-pr-под-нагрузкой.md) 2026-10-17/18,
 «Итог», раздел 5; решение Orchestrator-а 2026-10-18 — открыть отдельный Ticket, 30 ждёт его.
@@ -75,3 +76,67 @@ Windows (ADR-0056).
 - Поведение `harness/bin/wave-gate`.
 
 ## Итог
+
+Ветка `worfy-polish/32-wave-gate-test-time`, 2026-10-18. Направление — пункт 2 «Что делаем» (ускорить
+самый долгий раздел); файл не разбит, `harness/bin/wave-gate` и `SKILL.md` не тронуты, пределы не подняты.
+
+### Где уходило время
+
+Замер по разделам (копия test-а с отметкой времени у каждого `# --- … ---` и каждого `new_world`,
+без нагрузки, load ~4): всего 110 s, из них 43,6 s — раздел «the blocks of skills/epic-wave/SKILL.md».
+Внутри него 20,1 s и 20,2 s — второй запуск блока «gate full одного PR» (bash и zsh), тот, что снимает
+брошенный замок. Блок после `rm -f "$L/holder.json"; rmdir "$L"` всегда ждёт `sleep 20` перед новым
+`mkdir`: 40 s фиксированного ожидания, которое нагрузка не сокращает и не удлиняет. Следующие разделы —
+3,5–4 s каждый (`resume`, `screenblip`, `screenpkg`, `beat`, `screenpre`, `screenlock`, `lock`): их
+`sleep` проверяют сам механизм (опрос экрана и замка раз в 1 s, heartbeat), их не трогал.
+
+### Что изменено
+
+- `harness/bin/tests/wave-gate.test.sh`: test подставляет в блок вместо строки `    sleep 20` цикла
+  `until mkdir "$L"` опрос 0,2 s — так же, как `wave-gate` он гоняет с `WAVE_GATE_LOCK_POLL_S=1`.
+  Подстановка ограничена 50 опросами (10 s): блок, который так и не берёт замок, выходит с 98, и его
+  проверка краснеет вместо зависания всего файла до предела 120 s.
+- Новая проверка: в блоке SKILL.md цикл `until mkdir "$L"` ждёт ровно `sleep 20`. Если строку
+  поменяют, подстановка не совпадёт — проверка это назовёт, а не молча вернёт 20 s в каждый прогон.
+- Число проверок: 150 `ok` до, 151 после (+1 — проверка `sleep 20` выше); ни одна не убрана.
+
+### Замер (2026-10-18, Mac 18 ядер, на машине работали другие агенты)
+
+Запуск как в `harness-scripts.test.ts` (пустой `HOME`, тот же env), `bash <файл>`; «до» — файл
+`origin/main` `cf506ee0`, «после» — ветка; перед каждым запуском — нет `/tmp/worfy-e2e.lock` и нет
+`gate.mjs full`. «Нагрузка» — разом с `pnpm typecheck` и
+`node scripts/vitest-electron.mjs --project contract test/contract/workflow-reader.test.ts`.
+
+| | Прогон 1 | Прогон 2 | Прогон 3 |
+| --- | --- | --- | --- |
+| до, один | 107,4 s | 134,2 s | 118,7 s |
+| после, один | 72,5 s | 75,1 s | 71,6 s |
+| до, под нагрузкой | 114,7 s | 125,5 s | 110,5 s |
+| после, под нагрузкой | 82,8 s | 102,4 s | 70,0 s |
+
+Все 12 — exit 0; typecheck и workflow-reader — exit 0 в каждом прогоне под нагрузкой. «После, нагрузка,
+прогон 2» — load в конце 19,3: во время прогона начался чужой gate full. Два из шести прогонов «до»
+(134,2 и 125,5 s) уже дольше предела 120 s.
+
+### Мутанты (каждый в копии в scratchpad, дерево не менялось)
+
+- `wave-gate`: `st.culprit = st.set[hi]` вместо `[hi - 1]` — exit 1, `FAIL red set: culprit 4`,
+  `FAIL resume: … culprit 4`.
+- `wave-gate`: порог брошенного замка 60 s вместо 1800 — exit 1, `FAIL e2e lock: a 25-min lock was taken`.
+- `SKILL.md`: `sleep 30` вместо `sleep 20` в цикле блока одного PR — exit 1, `FAIL skill blocks: the
+  one-PR gate full block has no 'sleep 20' in its until mkdir loop`.
+- `SKILL.md`: брошенный замок не снимается (`then :; fi`) — exit 1 за 104 s, `FAIL bash: the one-PR
+  block, abandoned lock`, то же для zsh. До правки этот мутант вешал файл: цикл `sleep 20` без конца.
+
+### Проверки
+
+`pnpm lint && pnpm typecheck && pnpm test` — exit 0 (290 файлов, 6209 test-ов); `gate.mjs fast` —
+exit 0, «[gate] зелено (fast)».
+
+### Не сделано
+
+- Замер Ticket-а 30 («Команды замера»: два прогона `--project contract` разом под `yes` на половине
+  ядер, N ≥ 6) не выполнен: на машине работали другие агенты, а нагрузка краснит их gate. Пункт
+  «Готово, когда» о нём остаётся для Orchestrator-а; вместо него — замер выше.
+- Остаток после правки — ~70 s без нагрузки; если под нагрузкой Ticket-а 30 его не хватит, следующий
+  шаг — разбить файл (пункт 1 «Что делаем»).
