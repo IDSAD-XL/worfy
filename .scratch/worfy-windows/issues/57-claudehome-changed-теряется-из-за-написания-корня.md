@@ -88,9 +88,8 @@ worktree `C:/Users/Alexey/worfy-wt/57`. PR не открыт, push не было
   корня из одного окна — два watcher-а, каждое событие в своём написании.
 - Сравнения двух написаний (`sameProjectRoot`, Ticket 49) здесь не нужно: main ничего не сравнивает, он
   отдаёт окну его же строку. Окно не менялось.
-- Пункт 2: `rootOf` (`:156`) возвращает путь, который ответил `insideProjects`. Для окна это прежний
-  `resolve(projectRoot)`; для вызова Linked machine — real path после проверки, как требует
-  `caller.ts:59-61`: `git worktree list` и чтение транскриптов идут по проверенному пути.
+- Пункт 2 (в круге 2 исправлен, см. ниже): `rootOf` пользуется путём, который ответил `insideProjects`,
+  как требует `caller.ts:59-61`.
 
 **Test-ы.**
 
@@ -102,9 +101,9 @@ worktree `C:/Users/Alexey/worfy-wt/57`. PR не открыт, push не было
   Windows (`C:\p`), и на macOS (posix `resolve` даёт `<cwd>/C:/p`).
 - Там же три прежние проверки событий с настоящим watcher-ом ждут корень как его прислали (`DEMO`,
   `CYRILLIC`), а не `resolve(…)`. На macOS это одно и то же.
-- `test/unit/claude-home-changed-root.test.tsx` (jsdom): `useClaudeHome`, `useSessionSignals` и
-  `useSubagentTree` под корнем `C:/p` снова спрашивают main на событие с `C:/p` и не реагируют на `C:\p`.
-  Окно не менялось, так что эти test-ы зелёные и на старом коде: они фиксируют, какое написание окно ждёт.
+- `test/unit/claude-home-changed-root.test.tsx` (jsdom) — в круге 2 удалён: он не мог упасть ни на старом,
+  ни на новом коде, а проверки «окно не реагирует на `C:\p`» закрепляли дефект. Его место занял test из
+  конца-в-конец (круг 2).
 
 **Запуски test-ов** (`node scripts/vitest-electron.mjs <файлы>`, под замком heavy.lock). Набор: `claude-home-registry`,
 `claude-home-changed-root`, `claude-home-titles`, `claude-home-search`, `claude-home-subagents`, `clients`,
@@ -128,10 +127,68 @@ worktree `C:/Users/Alexey/worfy-wt/57`. PR не открыт, push не было
 4. `claudeHome.close` ищет `resolve(projectRoot)` — 11 упало, «two spellings…»;
 5. handler не передаёт `projectRoot` в `subscribe` — 13 упало, 3 новых.
 
+### Круг 2 (два ревью `f7ea055f..a49320eb`, четыре находки low)
+
+**1. Linked machine не находила Session-ы своего Project-а.** В круге 1 `rootOf` отдавал registry real
+path, а registry ищет папки `~/.claude/projects` по `projectDirName(root)` — по cwd, в котором запущен
+Claude Code, с учётом регистра. Project, чей путь отличается от real path (junction, subst, регистр
+букв), на экране Linked machine оставался без Session-ов, а `reportLive` нёс real path в
+`note.projectRoot` уведомления. Исправление:
+
+- `RegistryRoot` (`src/main/claude-home/registry.ts`): строка, как раньше, или `{ path, gitAt }`.
+  `roots()` (`:636`) берёт папки по `path` и по `gitAt`, а `git worktree list` запускает только в
+  `gitAt` (`:640`). `sessions`, `live`, `transcriptPath`, `watch` и `TranscriptSearch.search` принимают
+  `RegistryRoot`.
+- `rootOf` (`src/main/ipc/claude-home.ts:162`): для окна — строка `resolve(projectRoot)`, как до тикета;
+  для вызова Linked machine — `{ path: resolve(projectRoot), gitAt: <ответ insideProjects> }`.
+- `reportLive` отдаёт слушателям `rootPath(root)` (`:59`) — resolved написание, не real path.
+
+**2–3.** Test «spellings of one root» (`test/contract/claude-home-registry.test.ts:900`): три написания
+`C:/p`, `C:/p/`, `C:\p` (первые два — один resolved корень на любой системе) и слушатель live Session-ов:
+все шесть отчётов — под `resolve(…)`, а не под написанием клиента; иначе `notify.ts:220` завёл бы по
+ключу на написание.
+
+**4.** `test/contract/claude-home-window-root.test.tsx:102` (проект jsdom): bridge окна вызывает
+настоящие handler-ы `claudeHomeHandlers` над registry с ручным watcher-ом, `send` подставного sender-а
+зовёт обработчики `bridge.on`, `useClaudeHome('C:/p')` после изменения снова спрашивает
+`claudeHome.live`. Модули main импортируются по пути, за которым type checker не идёт: файл входит в
+`tsconfig.test.web.json`, который не может перечислить файлы main (им нужны типы Node, а у проекта —
+DOM; статический импорт даёт TS6307). Интерфейс, которым пользуется test, описан в нём же
+(`MainModules`). Вариант `.ts` в проекте contract с `@vitest-environment jsdom` пробовал: список
+`useClaudeHome.ts` в `tsconfig.test.node.json` тянет типы React и ломает typecheck e2e spec-ов —
+откатил.
+
+Test Linked machine (`:925`) теперь на настоящем registry: папка транскриптов названа по написанию
+вызова (junction `alias`), git спрошен только в `project` (real path), слушатель получил `alias`.
+
+**Запуски test-ов круга 2.** Набор тот же, вместо удалённого unit-файла — `claude-home-window-root`.
+
+- Красный A — новые test-ы (`claude-home-registry`, `claude-home-window-root`, `no-rmsync`,
+  `e2e-no-spawn-on-load`) на исходнике main `f7ea055f` (`claude-home.ts`, `registry.ts`, `search.ts`):
+  exit code 1, 126 test-ов, 11 упало — 7 давних и 4 новых: три describe-а `:868` и test окна (`asked` —
+  только `claudeHome.sessions`, `claudeHome.live` не было).
+- Красный B — те же файлы на исходнике круга 1 `a49320eb`: exit code 1, 126 test-ов, 8 упало — 7 давних
+  и test Linked machine (git спрошен в `…\alias`, а не в `…\project`).
+- Зелёный и финальный: exit code 1, 258 test-ов, 10 упало; `diff` имён с базой — пусто (exit code 0).
+- `CI=true pnpm lint` — exit code 0. `CI=true pnpm typecheck` — exit code 0.
+
+**Мутанты круга 2** — каждый отдельно, полный набор, файл восстановлен копией (`cmp` 0), `git diff
+--quiet` — 0. Убиты 5 из 5:
+
+6. `rootOf` отдаёт только real path — 11 упало, test Linked machine;
+7. `roots()` без написания вызова (`registry.ts`) — 11 упало, test Linked machine;
+8. слушатели получают `gitAt` вместо `rootPath` — 11 упало, test Linked machine;
+9. `reportLive(asSent)` на изменении — 11 упало, «spellings of one root…»;
+10. `reportLive(asSent)` после `ready` — 13 упало: «spellings…», Linked machine и
+    `claude-home-search` «stops at the file limit…» — timeout 15 s; в финальном запуске и во всех
+    остальных он прошёл, мутант search не затрагивает.
+
 **Не проверено.**
 
 - Три прежние проверки событий с настоящим watcher-ом (`DEMO`, `CYRILLIC` вместо `resolve(…)`) на ПК
   падают и до, и после правки — watcher в test-ах здесь не доносит изменения. Проверка — на Mac.
 - Пункт «Windows-ПК: Session из PowerShell появляется в списке» — приложение не запускалось.
+- Вызов Linked machine проверен только через junction; subst-диск и регистр букв, отличный от диска, —
+  нет. Настоящее соединение двух машин не запускалось.
 - `pnpm test` целиком, gate fast и gate full не запускались (бриф: gate не запускать); на macOS и Linux с
   ПК ничего не запускалось.
