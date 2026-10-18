@@ -1,7 +1,9 @@
 # 40 — node-pty завершает процесс с кодом 3221225477 при одновременном kill()
 
 Type: task
-Status: open
+Status: blocked
+Blocked reason: решение владельца — вернуть системную консоль (0 смертей из 96 на ПК) или исправление в node-pty upstream (mutex вокруг списка pty); и crash dump шага 6, который меняет настройки Windows
+Waits: owner
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «Not this PR — I file tickets»); замер Session на Windows-ПК при работе над [Ticket-ом 22](22-conhost-остаётся-после-exit-в-terminal.md) (PR #280). Первый шаг — воспроизвести и измерить на Windows-ПК.
 
