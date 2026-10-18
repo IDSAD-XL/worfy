@@ -7,6 +7,7 @@
 // command palette (openFirstRun, palette/commands.ts). Closing it tells main, which writes the mark.
 import { useEffect, useId, useRef, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { isMac } from '../platform'
 import { FirstRunChecks, type FirstRunChecksParts } from './FirstRunChecks'
 import { askAtStartup, closeFirstRun, useFirstRun } from './first-run-store'
 
@@ -70,7 +71,9 @@ function FirstRunDialog({ summary, list, message, checkAgain, running, migrating
             <h2 id={titleId} style={styles.title}>
               First run
             </h2>
-            <p style={styles.subtitle} data-testid="first-run-subtitle">worfy checks this Mac for itself and the Harness. Nothing changes until you confirm it.</p>
+            <p style={styles.subtitle} data-testid="first-run-subtitle">
+              worfy checks this {isMac() ? 'Mac' : 'PC'} for itself and the Harness. Nothing changes until you confirm it.
+            </p>
           </div>
           {summary}
         </div>

@@ -10,10 +10,13 @@
 // 13) through the caller.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { HarnessState } from '../../../shared/ipc/harness'
 import type { ClaudeMdSection, MigrationChoice, MigrationGroup, MigrationPlan, MigrationProfile, MigrationRow } from '../../../shared/ipc/harness-migration'
+import { bridgeCommand, bridgeOf, samePath, splitCommand } from '../status-line'
 import { jsonText, profileToSchema2, readLegacyProfiles, rewriteHarnessPaths, type LegacyProfile } from './profiles'
+
+export { splitCommand }
 
 /** Q19: the agents and skills of the old Harness. */
 export const HARNESS_AGENTS = ['implementer.md', 'reviewer.md', 'scout.md'] as const
@@ -75,8 +78,10 @@ export interface PlanOptions {
   claudeJson: string
   /** What `$HOME` and `~` mean in the commands of settings.json: the HOME Claude Code runs with. */
   userHome: string
-  /** <resourcesPath>/statusline-bridge.sh of the packaged app; null in a dev build. */
+  /** The bridge of the packaged app (bridgeFile() of src/main/harness/status-line.ts); null in a dev build. */
   bridgeScript: string | null
+  /** The system the status line command is written for; that of this process by default. */
+  platform?: NodeJS.Platform
   /** Whether this run may move (moveOffered()). */
   offered: boolean
   /** The environment of `git` (HOME of the sandbox in tests); process.env by default. */
@@ -154,22 +159,14 @@ const isDir = (path: string): boolean => {
 
 const listDir = (path: string): string[] => (isDir(path) ? readdirSync(path).filter((name) => name !== '.DS_Store').sort() : [])
 
-/** The first word of a shell command, quotes removed, and the rest of the command as it is. */
-export function splitCommand(command: string): { head: string; rest: string } {
-  const text = command.trimStart()
-  const quote = text[0]
-  if (quote === '"' || quote === "'") {
-    const end = text.indexOf(quote, 1)
-    if (end > 0) return { head: text.slice(1, end), rest: text.slice(end + 1) }
-  }
-  const match = /^\S+/.exec(text)
-  const head = match?.[0] ?? ''
-  return { head, rest: text.slice(head.length) }
-}
-
 /** The file a command runs, with `$HOME`, `${HOME}` and `~` expanded; null when it is not an absolute path then. */
 export function commandTarget(command: string, userHome: string): string | null {
-  let { head } = splitCommand(command)
+  return pathTarget(splitCommand(command).head, userHome)
+}
+
+/** A path as a command names it, with `$HOME`, `${HOME}` and `~` expanded; null when it is not an absolute path then. */
+function pathTarget(path: string, userHome: string): string | null {
+  let head = path
   if (head === '~' || head.startsWith('~/')) head = join(userHome, head.slice(1))
   else if (head.startsWith('$HOME/')) head = join(userHome, head.slice('$HOME/'.length))
   else if (head.startsWith('${HOME}/')) head = join(userHome, head.slice('${HOME}/'.length))
@@ -187,8 +184,6 @@ function shown(path: string): string {
   const home = homedir()
   return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path
 }
-
-const quoteIfNeeded = (path: string): string => (/^[\w./+@-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`)
 
 /**
  * The `##` and `###` sections of a markdown text: the line each starts at, and the line it ends
@@ -374,9 +369,12 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
 
   const statusLine = settings?.json.statusLine
   if (isObject(statusLine) && typeof statusLine.command === 'string') {
-    const { head, rest } = splitCommand(statusLine.command)
-    const target = commandTarget(statusLine.command, userHome)
-    if (basename(head) === 'statusline-bridge.sh' && target !== options.bridgeScript) {
+    // A bridge of another build, in either form (src/main/harness/status-line.ts); this build's is left alone.
+    const found = bridgeOf(statusLine.command)
+    const target = found === null ? null : pathTarget(found.bridge, userHome)
+    const platform = options.platform ?? process.platform
+    const ours = target !== null && options.bridgeScript !== null && samePath(platform, target, options.bridgeScript)
+    if (found !== null && !ours) {
       const bridge = options.bridgeScript
       const reason =
         bridge === null
@@ -384,7 +382,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
           : existsSync(bridge)
             ? null
             : `this build has no ${bridge}`
-      const command = bridge === null ? null : `${quoteIfNeeded(bridge)}${rest}`
+      const command = bridge === null ? null : bridgeCommand(platform, bridge, found.rest)
       add(
         row({
           id: 'status-line',

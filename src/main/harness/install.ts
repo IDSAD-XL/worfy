@@ -112,6 +112,43 @@ export interface InstallerOptions {
   claudeHome?: string
   /** Copies a tree into an empty folder; tests inject a failing one. */
   copyTree?: (from: string, to: string) => Promise<void>
+  /** Renames a folder; tests inject one that fails as a file held open on Windows does. */
+  renameDir?: (from: string, to: string) => Promise<void>
+  /** The system the renames are retried for (renameRetried); that of this process by default. */
+  platform?: NodeJS.Platform
+  /** How long a rename that fails with EPERM, EBUSY or EACCES on Windows is tried again; 60 s by default. */
+  renameRetryMs?: number
+}
+
+/** Errors of a rename on Windows that a file held open causes — an antivirus scan, an editor, a running Claude Code. */
+const HELD_OPEN = new Set(['EPERM', 'EBUSY', 'EACCES'])
+/** How long graceful-fs tries a rename again on win32, and its largest pause. */
+export const RENAME_RETRY_MS = 60_000
+const RENAME_MAX_PAUSE_MS = 100
+
+/**
+ * A rename that on Windows is tried again while it fails with EPERM, EBUSY or EACCES, as graceful-fs
+ * does on win32: pauses of 0, 10, 20 … 100 ms, until `retryMs` has passed since the first attempt.
+ * Then, and on any other error or system, the error of the last attempt is thrown.
+ */
+export async function renameRetried(
+  from: string,
+  to: string,
+  { platform = process.platform, retryMs = RENAME_RETRY_MS, renameDir = rename }: { platform?: NodeJS.Platform; retryMs?: number; renameDir?: (from: string, to: string) => Promise<void> } = {},
+): Promise<void> {
+  const started = Date.now()
+  let pause = 0
+  for (;;) {
+    try {
+      await renameDir(from, to)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (platform !== 'win32' || code === undefined || !HELD_OPEN.has(code) || Date.now() - started >= retryMs) throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, pause))
+    pause = Math.min(pause + 10, RENAME_MAX_PAUSE_MS)
+  }
 }
 
 export type InstallOutcome = 'done' | 'declined' | 'nothing-to-do'
@@ -531,6 +568,9 @@ export class HarnessInstaller {
    * Replaces <harnessHome>/plugin with the copy of this build: the copy goes into a staging folder
    * next to it, then the old folder is renamed away and the staging folder into place. A failed
    * copy leaves the old folder untouched; files the new version dropped are gone with the old one.
+   * On Windows a rename that a held-open file refuses (EPERM, EBUSY) is tried again for a while
+   * (renameRetried, worfy-windows ticket 13); when it still fails, the step `copy` fails with the
+   * previous copy back in place.
    */
   private async replaceCopy(): Promise<void> {
     const { harnessHome, bundledDir } = this.options
@@ -547,11 +587,19 @@ export class HarnessInstaller {
       }
       const old = join(harnessHome, `.plugin-old-${basename(staging).slice('.plugin-new-'.length)}`)
       const hadOld = existsSync(this.pluginDir)
-      if (hadOld) await rename(this.pluginDir, old)
+      if (hadOld) {
+        try {
+          await this.renameDir(this.pluginDir, old)
+        } catch (error) {
+          // Nothing moved: the previous copy is in place; only the staging folder goes.
+          await rm(staging, { recursive: true, force: true })
+          throw error
+        }
+      }
       try {
-        await rename(staging, this.pluginDir)
+        await this.renameDir(staging, this.pluginDir)
       } catch (error) {
-        if (hadOld) await rename(old, this.pluginDir)
+        if (hadOld) await this.renameDir(old, this.pluginDir)
         await rm(staging, { recursive: true, force: true })
         throw error
       }
@@ -569,10 +617,16 @@ export class HarnessInstaller {
   private async removeLeftovers(): Promise<void> {
     const { harnessHome } = this.options
     const setAside = readdirSync(harnessHome).find((name) => name.startsWith('.plugin-old-'))
-    if (setAside !== undefined && !existsSync(this.pluginDir)) await rename(join(harnessHome, setAside), this.pluginDir)
+    if (setAside !== undefined && !existsSync(this.pluginDir)) await this.renameDir(join(harnessHome, setAside), this.pluginDir)
     for (const name of readdirSync(harnessHome)) {
       if (name.startsWith('.plugin-new-') || name.startsWith('.plugin-old-')) await rm(join(harnessHome, name), { recursive: true, force: true })
     }
+  }
+
+  /** A rename of the plugin folders, tried again on Windows while a held-open file refuses it (renameRetried). */
+  private renameDir(from: string, to: string): Promise<void> {
+    const { platform, renameRetryMs, renameDir } = this.options
+    return renameRetried(from, to, { ...(platform === undefined ? {} : { platform }), ...(renameRetryMs === undefined ? {} : { retryMs: renameRetryMs }), ...(renameDir === undefined ? {} : { renameDir }) })
   }
 
   /** Runs one `claude` command; a missing binary or a non-zero exit is a StepError of `step`. */

@@ -1,9 +1,10 @@
 // The `firstRun` domain (worfy-harness ticket 19, question Q22 of the epic): the first-run screen.
 // main checks the machine — the Claude Code sign-in, `claude --version` against the version this
 // build carries, git, gh and its accounts, node 22 or newer, jq, the Harness plugin and the plugins
-// it depends on, the old Harness in ~/.claude, qmd and its models — and runs an action only after the user pressed "Confirm" in
+// it depends on, the old Harness in ~/.claude, qmd and its models; on Windows also Git Bash, the Windows
+// build and architecture, PowerShell and the Limits bridge in statusLine — and runs an action only after the user pressed "Confirm" in
 // the dialog that names what it will do. Checks read only; they run in the login shell environment
-// (ADR-0007). main: src/main/first-run/ and src/main/ipc/first-run.ts; the screen:
+// (ADR-0007), on Windows in the environment worfy builds for a Session (ADR-0057). main: src/main/first-run/ and src/main/ipc/first-run.ts; the screen:
 // src/renderer/shell/FirstRun.tsx; the look: docs/design/F-SPEC.md, "First run".
 import { z } from 'zod'
 import { invokeChannel } from './channels'
@@ -14,7 +15,14 @@ export type CheckStatus = z.infer<typeof checkStatusSchema>
 export const checkIdSchema = z.enum([
   'claude-login',
   'claude-version',
+  // Windows only (worfy-windows ticket 13): the Limits bridge in statusLine, the Windows build,
+  // the architecture, the Terminal's PowerShell, Git Bash.
+  'limits',
+  'windows',
+  'arch',
+  'powershell',
   'git',
+  'git-bash',
   'gh',
   'node',
   'jq',
@@ -33,12 +41,13 @@ export type CheckId = z.infer<typeof checkIdSchema>
  * What a check's button does. main runs `harness-install` (the Harness plugin and its missing
  * dependencies, one dialog) and the `qmd-*` actions itself after its dialog; `gh-login` is
  * confirmed by main and then typed into a Terminal Node by the screen;
- * `migration-form` only opens the form of worfy-harness ticket 14, which asks on its own.
+ * `migration-form` only opens the form of worfy-harness ticket 14, which asks on its own;
+ * `limits-bridge` (Windows) points statusLine of Claude Code's settings.json at the Limits bridge.
  */
-export const firstRunActionSchema = z.enum(['harness-install', 'migration-form', 'qmd-install', 'qmd-models-download', 'qmd-models-skip', 'qmd-collections', 'gh-login'])
+export const firstRunActionSchema = z.enum(['harness-install', 'migration-form', 'qmd-install', 'qmd-models-download', 'qmd-models-skip', 'qmd-collections', 'gh-login', 'limits-bridge'])
 export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
-export const checkGroupSchema = z.enum(['Claude Code', 'Command-line tools', 'GitHub', 'Harness', 'qmd'])
+export const checkGroupSchema = z.enum(['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'Harness', 'qmd'])
 export type CheckGroup = z.infer<typeof checkGroupSchema>
 
 export const checkSchema = z.object({

@@ -3,8 +3,8 @@
 // in a sandbox: HOME, CLAUDE_CONFIG_DIR and the Claude home worfy reads (WORFY_CLAUDE_HOME) all point
 // into a temporary folder, never at the real ~/.claude. `claude` is a stub that logs its arguments
 // and environment and keeps its own state outside the sandbox; it never reaches the network. The
-// last case runs the Claude Code binary of the SDK on macOS, on a Harness copy without dependencies,
-// so that binary runs only local commands.
+// last case runs the Claude Code binary of the SDK on macOS and on Windows (claude.exe, worfy-windows
+// ticket 13), on a Harness copy without dependencies, so that binary runs only local commands.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -823,6 +823,57 @@ describe('errors', () => {
   })
 })
 
+// worfy-windows ticket 13: on Windows a rename of the plugin folder can fail with EPERM or EBUSY
+// while an antivirus or another process holds a file in it. The renames are injected, so these run
+// on any system with the platform given as win32.
+describe('a rename refused by a held-open file (Windows)', () => {
+  const heldOpen = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`${code}: resource busy or locked, rename (injected)`), { code })
+  /** A rename that refuses to put the new copy into place `times` times (every time with Infinity), then renames. */
+  const refusingStaging = (code: string, times: number) => {
+    const tries: string[] = []
+    const renameDir = (from: string, to: string): Promise<void> => {
+      const name = (path: string): string => path.slice(sb.harnessHome.length + 1).replace(/^(\.plugin-(?:new|old))-.*/, '$1-*')
+      tries.push(`${name(from)} -> ${name(to)}`)
+      if (from.includes('.plugin-new-') && tries.filter((each) => each.startsWith('.plugin-new-')).length <= times) return Promise.reject(heldOpen(code))
+      renameSync(from, to)
+      return Promise.resolve()
+    }
+    return { tries, renameDir }
+  }
+
+  it('EBUSY twice, then free: the rename is tried again and the new version is installed', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const { tries, renameDir } = refusingStaging('EBUSY', 2)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(tries).toEqual(['plugin -> .plugin-old-*', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin'])
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
+  })
+
+  it('EPERM until the retry time is over: an error of `copy` naming EPERM, the previous copy back in place byte for byte, no command for worfy', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    const { tries, renameDir } = refusingStaging('EPERM', Infinity)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('EPERM')
+    expect(tries.filter((each) => each === '.plugin-new-* -> plugin').length).toBeGreaterThan(1)
+    expect(tries.at(-1)).toBe('.plugin-old-* -> plugin')
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
+    expect(writes()).toEqual([])
+  })
+
+  it('off Windows the same error is not tried again', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const { tries, renameDir } = refusingStaging('EPERM', Infinity)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'darwin', renameDir }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect(tries.filter((each) => each === '.plugin-new-* -> plugin')).toHaveLength(1)
+  })
+})
+
 describe('the dev build', () => {
   it('offers the install only when packaged or with WORFY_CLAUDE_HOME', () => {
     expect(installOffered({ packaged: false, env: {} })).toBe(false)
@@ -964,10 +1015,11 @@ describe('a Linked machine', () => {
   })
 })
 
-/** The Claude Code binary of the SDK's platform package, the one the app runs. */
+/** The Claude Code binary of the SDK's platform package, the one the app runs: claude.exe on Windows. */
 function sdkClaude(): string {
   const sdk = realpathSync(join(REPO, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'))
-  return join(dirname(createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)), 'claude')
+  const dir = dirname(createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`))
+  return join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude')
 }
 
 describe('the Claude Code binary the installer runs', () => {
@@ -976,7 +1028,7 @@ describe('the Claude Code binary the installer runs', () => {
     expect(bundledClaudeBinary(packaged)).toBe(claudeExecutablePath(packaged))
   })
 
-  it.skipIf(process.platform !== 'darwin')("is the SDK's platform package in a dev run (macOS)", () => {
+  it.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')("is the SDK's platform package in a dev run (macOS and Windows)", () => {
     const dev = { packaged: false, resourcesPath: '/R', platform: process.platform, arch: process.arch }
     expect(bundledClaudeBinary(dev)).toBe(sdkClaude())
     expect(existsSync(bundledClaudeBinary(dev) ?? '')).toBe(true)
@@ -987,11 +1039,34 @@ describe('the Claude Code binary the installer runs', () => {
 // The Harness copy here names no dependency: that binary must not reach for a remote marketplace
 // from a test, so it runs the commands of the plugin `worfy` alone, all of them local. The
 // dependency with that binary is checked by the acceptance run in a sandbox (worfy-harness ticket 26).
-describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of the SDK (macOS, local, a Harness copy without dependencies)', () => {
+// On Windows (worfy-windows ticket 13) claude.exe gets every home-like folder inside the sandbox as
+// well — USERPROFILE (what the home folder is there), APPDATA, LOCALAPPDATA, TEMP — so it cannot reach
+// the real %USERPROFILE%\.claude; the plugin folder it is given is a C:\… path.
+/** A bare environment for that binary: no variables of a parent Claude Code session, no network (closed proxy port). */
+function sandboxClaudeEnv(): Record<string, string> {
+  const offline = { HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', DISABLE_AUTOUPDATER: '1' }
+  if (process.platform !== 'win32') return { PATH: '/usr/bin:/bin', HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome, ...offline }
+  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
+  const temp = join(sb.root, 'temp')
+  for (const dir of [temp, join(sb.home, 'AppData', 'Roaming'), join(sb.home, 'AppData', 'Local')]) mkdirSync(dir, { recursive: true })
+  return {
+    SystemRoot: systemRoot,
+    PATH: join(systemRoot, 'System32'),
+    USERPROFILE: sb.home,
+    HOME: sb.home,
+    APPDATA: join(sb.home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: join(sb.home, 'AppData', 'Local'),
+    TEMP: temp,
+    TMP: temp,
+    CLAUDE_CONFIG_DIR: sb.claudeHome,
+    ...offline,
+  }
+}
+
+describe.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')('with the Claude Code binary of the SDK (macOS and Windows, local, a Harness copy without dependencies)', () => {
   it('installs worfy enabled with the build version, keeps the keys of settings.json, and the same commands again exit 0', async () => {
     const claude = sdkClaude()
-    // A bare environment: no variables of a parent Claude Code session, no network (closed proxy port).
-    const env = { PATH: '/usr/bin:/bin', HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome, HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9' }
+    const env = sandboxClaudeEnv()
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
     const plans: InstallPlan[] = []
     const result = await installer(bundle, { claude, env }).install((plan) => {

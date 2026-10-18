@@ -26,7 +26,8 @@ import { checkAgain, useFirstRun } from './first-run-store'
 
 /** The size of the Terminal Node the GitHub sign-in opens: the default of the Terminal Node type. */
 const TERMINAL_SIZE = { w: 560, h: 340 }
-const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Command-line tools', 'GitHub', 'Harness', 'qmd']
+// Windows has rows only on Windows (worfy-windows ticket 13); a group without rows is not shown.
+const GROUPS: readonly CheckGroup[] = ['Claude Code', 'Windows', 'Command-line tools', 'GitHub', 'Harness', 'qmd']
 
 type ChipState = CheckStatus | 'running'
 const CHIP_LABEL: Record<ChipState, string> = { ok: 'OK', warn: 'Warning', fail: 'Failed', running: 'Running…' }

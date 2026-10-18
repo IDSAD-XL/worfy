@@ -8,8 +8,11 @@
 // installer (src/main/harness/install.ts, ticket 13), qmd, its models and collections
 // (src/main/harness/qmd.ts, ticket 17). The move of the old Harness (ticket 14) is not here: the
 // screen opens its form, which asks on its own. `gh-login` is only confirmed here; the screen types
-// `gh auth login` into a Terminal Node, where the user signs in.
+// `gh auth login` into a Terminal Node, where the user signs in. `limits-bridge` (Windows,
+// worfy-windows ticket 13) points statusLine of Claude Code's settings.json at the Limits bridge of
+// this build, with the command the move form builds (src/main/harness/status-line.ts).
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { confirmationText, type InstallOutcome, type InstallPlan } from '../harness/install'
 import {
@@ -25,6 +28,8 @@ import {
   setupCollections,
   type QmdHomes,
 } from '../harness/qmd'
+import { writeStatusLine } from '../harness/migrate/apply'
+import { limitsBridgeState } from '../harness/status-line'
 import type { HarnessStatus } from '../../shared/ipc/harness'
 import type { CheckId, FirstRunAction, FirstRunReport } from '../../shared/ipc/first-run'
 import { formatBytes, type Env, type ProjectProfile } from './checks'
@@ -51,6 +56,11 @@ export interface ActionDeps {
   projects: () => Promise<readonly ProjectProfile[]>
   /** The Harness plugin's scripts: <harnessHome>/plugin/bin. */
   binDir: string
+  /**
+   * What the Limits action (Windows, worfy-windows ticket 13) changes: Claude Code's settings.json,
+   * the bridge of this build (null in a development build) and the system the command is for.
+   */
+  limits?: { settingsFile: string; bridge: string | null; platform: NodeJS.Platform }
 }
 
 export interface ActionResult {
@@ -67,6 +77,7 @@ const CHECK_OF: Record<RunnableAction, CheckId> = {
   'qmd-models-skip': 'qmd-models',
   'qmd-collections': 'qmd-collections',
   'gh-login': 'gh-auth',
+  'limits-bridge': 'limits',
 }
 
 type Outcome = { outcome: ActionResult['outcome']; message: string | null; check?: CheckId }
@@ -154,6 +165,8 @@ export class FirstRunActions {
         return this.setupCollections()
       case 'gh-login':
         return this.ghLogin(context.projectName)
+      case 'limits-bridge':
+        return this.limitsBridge()
     }
   }
 
@@ -266,6 +279,36 @@ export class FirstRunActions {
       if (result.code !== 0) errors.push(`${name}: qmd-collections exited ${String(result.code)}: ${tail(result.output, 3)}`)
     }
     return errors.length === 0 ? done() : failed(errors.join('\n'))
+  }
+
+  /**
+   * Points statusLine of settings.json at the Limits bridge of this build, after a dialog that names
+   * the file and the command before and after. Only the statusLine key changes, written as the move
+   * form writes it (writeStatusLine); a file changed after the dialog is refused.
+   */
+  private async limitsBridge(): Promise<Outcome> {
+    const { limits } = this.deps
+    if (limits === undefined) return failed('this build does not set up the status line')
+    const state = limitsBridgeState({ ...limits, exists: existsSync })
+    if (state.kind === 'bridged') return done('The status line already runs the bridge of this build')
+    if (state.kind === 'unavailable') return failed(state.reason)
+    const confirmed = await this.deps.confirm({
+      message: 'Send the Limits of Claude Code in a terminal to worfy?',
+      detail: [
+        `worfy changes statusLine.command in ${limits.settingsFile}:`,
+        `  now: ${state.current ?? '(none)'}`,
+        `  new: ${state.command}`,
+        '',
+        'The bridge copies the Limits to worfy and runs the command you had with the same input; its output is what the status line shows. Nothing else in settings.json changes.',
+      ].join('\n'),
+    })
+    if (!confirmed) return declined
+    try {
+      writeStatusLine(limits.settingsFile, state.current, state.command)
+    } catch (error) {
+      return failed(error instanceof Error ? error.message : String(error))
+    }
+    return done()
   }
 
   private async ghLogin(projectName: string | undefined): Promise<Outcome> {
