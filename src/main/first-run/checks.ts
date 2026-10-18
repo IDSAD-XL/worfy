@@ -151,22 +151,40 @@ function variable(env: Env, name: string): string | undefined {
   return undefined
 }
 
+/** The extensions windowsProgram looks for, in the order of PATHEXT (`.COM;.EXE;.BAT;.CMD;…` by default). */
+function programExtensions(env: Env): string[] {
+  const listed = (variable(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((ext) => ext.trim().toLowerCase())
+    .filter((ext) => ext === '.exe' || ext === '.cmd' || ext === '.bat')
+  return listed.length > 0 ? listed : ['.exe', '.bat', '.cmd']
+}
+
 /**
- * A program on the PATH of `env` on Windows: `<name>.exe`, else `<name>.cmd` — what npm installs, such
- * as Claude Code's claude.cmd; null when neither is there.
+ * A program on the PATH of `env` on Windows, found as the command line finds it: folder by folder,
+ * in each folder `<name>.exe`, `.bat` and `.cmd` in the order of PATHEXT — so npm's claude.cmd in a
+ * folder before that of a claude.exe wins, as it does in a terminal. `.bat` and `.cmd` only cmd.exe
+ * runs (`cmd: true`). Null when there is none.
  */
 export function windowsProgram(name: string, env: Env, exists?: FileExists): { file: string; cmd: boolean } | null {
-  const exe = findOnPath(`${name}.exe`, env, exists)
-  if (exe !== null) return { file: exe, cmd: false }
-  const cmd = findOnPath(`${name}.cmd`, env, exists)
-  return cmd === null ? null : { file: cmd, cmd: true }
+  const extensions = programExtensions(env)
+  for (const dir of (variable(env, 'PATH') ?? '').split(';')) {
+    for (const ext of extensions) {
+      // findOnPath on that one folder: the same rules for a folder of the Path (full paths only, quotes).
+      const file = findOnPath(`${name}${ext}`, { PATH: dir }, exists)
+      if (file !== null) return { file, cmd: ext !== '.exe' }
+    }
+  }
+  return null
 }
 
 /**
  * How a tool starts. Off Windows by its name, which the PATH of `env` resolves. On Windows by the
  * full path windowsProgram finds; a `.cmd` through cmd.exe of %SystemRoot%, because Node refuses to
  * start a `.cmd` or `.bat` itself (EINVAL, the fix of CVE-2024-27980). The arguments the checks pass
- * are constant words (`--version`, `auth status`), so the line cmd.exe gets needs no escaping.
+ * are constant words (`--version`, `auth status`), so the line cmd.exe gets needs no escaping. The
+ * path itself is quoted but cmd.exe still expands `%NAME%` in it: a folder named with `%` would be
+ * read as another one (none of the usual install folders is).
  */
 export function toolStart(name: string, args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: FileExists): { file: string; args: string[]; shell: string | false } | null {
   if (platform !== 'win32') return { file: name, args: [...args], shell: false }
@@ -178,18 +196,44 @@ export function toolStart(name: string, args: readonly string[], env: Env, platf
   return { file: [`"${program.file}"`, ...args].join(' '), args: [], shell: cmdExe }
 }
 
-/** Runs a tool found on the PATH of `env`. Never rejects. */
+/** taskkill of %SystemRoot%, by its full path. */
+function taskkillPath(env: Env): string {
+  const root = variable(env, 'SystemRoot') ?? ''
+  return win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
+}
+
+/**
+ * Runs a tool found on the PATH of `env`. Never rejects. At `timeoutMs` the run is answered at once
+ * as timed out, without waiting for its output pipes to close: a claude.cmd runs node.exe under
+ * cmd.exe, and node.exe keeps the pipes open after cmd.exe is gone. The tool is ended then — on
+ * Windows its whole tree (taskkill /T /F on the child worfy started), elsewhere the process itself.
+ */
 function runTool(name: string, args: readonly string[], env: Env, timeoutMs: number, platform: NodeJS.Platform = process.platform): Promise<ToolRun> {
   const start = toolStart(name, args, env, platform)
   if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: '', missing: true })
   return new Promise((resolve) => {
-    const options = { env: env as NodeJS.ProcessEnv, timeout: timeoutMs, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(start.shell === false ? {} : { shell: start.shell }) }
-    execFile(start.file, start.args, options, (error, stdout, stderr) => {
-      if (!error) return resolve({ code: 0, stdout, stderr, missing: false })
+    let settled = false
+    const settle = (run: ToolRun): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(run)
+    }
+    const options = { env: env as NodeJS.ProcessEnv, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(start.shell === false ? {} : { shell: start.shell }) }
+    const child = execFile(start.file, start.args, options, (error, stdout, stderr) => {
+      if (!error) return settle({ code: 0, stdout, stderr, missing: false })
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'EACCES') return resolve({ code: null, stdout, stderr, missing: true })
-      resolve({ code: typeof code === 'number' ? code : null, stdout, stderr: stderr || error.message, missing: false })
+      if (code === 'ENOENT' || code === 'EACCES') return settle({ code: null, stdout, stderr, missing: true })
+      settle({ code: typeof code === 'number' ? code : null, stdout, stderr: stderr || error.message, missing: false })
     })
+    const timer = setTimeout(() => {
+      settle({ code: null, stdout: '', stderr: `${name} did not answer within ${Math.round(timeoutMs / 1000)} s`, missing: false })
+      if (platform === 'win32' && child.pid !== undefined) {
+        execFile(taskkillPath(env), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined)
+      } else {
+        child.kill('SIGKILL')
+      }
+    }, timeoutMs)
   })
 }
 
@@ -388,16 +432,27 @@ async function node(deps: CheckDeps, machine: Machine, timeoutMs: number): Promi
   return row('ok', version)
 }
 
-/** Git Bash of Git for Windows, found as the Sessions find it (ticket 09); never the WSL launcher. */
+const GIT_BASH_HINT = 'Claude Code needs Git Bash for its Bash tool and the Harness hooks; C:\\Windows\\System32\\bash.exe starts WSL and does not count'
+
+/**
+ * Git Bash as a Session gets it (ticket 09, src/main/agent/env.ts): CLAUDE_CODE_GIT_BASH_PATH when the
+ * environment sets it — the user's own, or the one captureWindowsEnv found — else findGitBash. A
+ * variable that names a file under the Windows folder (System32\bash.exe starts WSL) fails, as
+ * findGitBash refuses such a candidate; one that names no file fails too.
+ */
 function gitBash(deps: CheckDeps, machine: Machine): Row {
+  const named = variable(deps.env, 'CLAUDE_CODE_GIT_BASH_PATH')
+  if (named !== undefined && named !== '') {
+    const systemRoot = (variable(deps.env, 'SystemRoot') || 'C:\\Windows').toLowerCase()
+    if (win32.normalize(named).toLowerCase().startsWith(`${win32.normalize(systemRoot)}\\`)) {
+      return row('fail', `CLAUDE_CODE_GIT_BASH_PATH is ${named}`, `${GIT_BASH_HINT}: point the variable at bash.exe of Git for Windows, or remove it`, `winget install ${WINGET_IDS.git}`)
+    }
+    if (!machine.probes.exists(named)) return row('fail', `CLAUDE_CODE_GIT_BASH_PATH names a missing file: ${named}`, `${GIT_BASH_HINT}: point the variable at bash.exe of Git for Windows, or remove it`, `winget install ${WINGET_IDS.git}`)
+    return row('ok', named)
+  }
   const bash = findGitBash(deps.env, machine.probes.exists)
   if (bash !== null) return row('ok', bash)
-  return row(
-    'fail',
-    'not found',
-    'Claude Code needs Git Bash for its Bash tool and the Harness hooks; C:\\Windows\\System32\\bash.exe starts WSL and does not count',
-    `winget install ${WINGET_IDS.git}`,
-  )
+  return row('fail', 'not found', GIT_BASH_HINT, `winget install ${WINGET_IDS.git}`)
 }
 
 /** The Windows build of os.release() (`10.0.<build>`); null when there is none. */
@@ -414,6 +469,21 @@ function windowsVersion(machine: Machine): Row {
   const name = `${build >= 22000 ? 'Windows 11' : 'Windows 10'}, build ${build}`
   if (build < MIN_WINDOWS_BUILD) return row('fail', name, 'Windows 10 21H2 or newer is required: update Windows')
   return row('ok', name)
+}
+
+/**
+ * The architecture of the machine on Windows, not of worfy's process: os.arch() of an x64 build that
+ * runs under emulation on arm64 says x64. PROCESSOR_ARCHITEW6432 names the machine to a 32-bit process
+ * under WOW64; PROCESSOR_ARCHITECTURE of the environment worfy builds for a Session is the machine's
+ * own (src/main/agent/env.ts takes it from the registry, HKLM Session Manager\Environment, which no
+ * emulation changes). Limit: when the registry could not be read (`from: 'fallback'`), the variable
+ * comes from worfy's process, which an x64 emulation sees as AMD64. Null without either variable.
+ */
+export function windowsNativeArch(env: Env): string | null {
+  const raw = (variable(env, 'PROCESSOR_ARCHITEW6432') || variable(env, 'PROCESSOR_ARCHITECTURE'))?.trim()
+  if (!raw) return null
+  const names: Record<string, string> = { AMD64: 'x64', ARM64: 'arm64', X86: 'ia32' }
+  return names[raw.toUpperCase()] ?? raw.toLowerCase()
 }
 
 function architecture(machine: Machine): Row {
@@ -615,7 +685,8 @@ async function guarded(run: () => Promise<Row> | Row): Promise<Row> {
 /** Every check, in the screen's order. Writes nothing. */
 export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const timeoutMs = deps.toolTimeoutMs ?? TOOL_TIMEOUT_MS
-  const system: SystemInfo = { platform: process.platform, release: osRelease(), arch: osArch(), ...deps.system }
+  const platform = deps.system?.platform ?? process.platform
+  const system: SystemInfo = { platform, release: osRelease(), arch: (platform === 'win32' ? windowsNativeArch(deps.env) : null) ?? osArch(), ...deps.system }
   const machine: Machine = {
     system,
     probes: { run: (name, args, env, ms) => runTool(name, args, env, ms, system.platform), exists: existsSync, ...deps.probes },

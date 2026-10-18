@@ -184,7 +184,7 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 01, раздел 24).
 
 Только чтение: `src/main/agent/env.ts` (поиск Git Bash, Ticket 09), `src/main/agent/options.ts`
-(`claudeExecutablePath`, Ticket 09), `src/main/terminal/pty.ts` (выбор PowerShell, Ticket 10),
+(`claudeExecutablePath`, Ticket 09; исполнитель всё же поправил в нём `bundledClaudeBinary` — см. список выше и Итог), `src/main/terminal/pty.ts` (выбор PowerShell, Ticket 10),
 `src/main/harness/bundled.ts`, `src/main/storage/paths.ts`, файл моста Limits Ticket-а 08.
 `src/renderer/shell/FirstRun.tsx` меняется, только если общий код экрана не рисует новую проверку;
 тогда исполнитель добавляет файл в этот список. Окно ошибки старта (`src/main/startup-failure.ts`)
@@ -203,27 +203,43 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   `release` = `os.release()`, `arch`), `probes` (`run` — запуск tool-а, `exists` — есть ли файл) и
   `limitsBridge`; по умолчанию — эта машина. Строки только для `win32`: «Limits from terminal» (группа
   Claude Code), группа `Windows` — «Windows version» (build < 19044 — `fail` «Windows 10 21H2 or newer is
-  required»), «Architecture» (не x64 — `warn`), «PowerShell» (`terminalShell` Ticket-а 10: нет `pwsh.exe` —
+  required»), «Architecture» (не x64 — `warn`; архитектура машины, а не процесса: `PROCESSOR_ARCHITEW6432`, иначе
+  `PROCESSOR_ARCHITECTURE` окружения Session, которое Ticket 09 берёт из реестра HKLM. Предел: при `from:
+  'fallback'` (реестр не прочитан) переменная — из процесса worfy, и сборка x64 под эмуляцией на arm64 видит
+  `AMD64`; `os.machine()` не помогает — libuv берёт архитектуру процесса), «PowerShell» (`terminalShell` Ticket-а 10: нет `pwsh.exe` —
   `warn` «Terminal uses Windows PowerShell» и `winget install Microsoft.PowerShell`); «Git Bash» после git
-  (`findGitBash` Ticket-а 09, `System32\bash.exe` не считается, нет — `fail` и `winget install Git.Git`).
+  (как у Session: `CLAUDE_CODE_GIT_BASH_PATH`, если он задан, иначе `findGitBash` Ticket-а 09; переменная с файлом под
+  `%SystemRoot%` — например `System32\bash.exe`, запуск WSL — или с несуществующим файлом — `fail`; нет Git
+  Bash — `fail` и `winget install Git.Git`).
   Подсказки на Windows — `winget install <id>` (`WINGET_IDS`), «not found on the PATH» вместо «… of the login
   shell»: окружение — то, что `agentEnv()` на Windows уже собирает по Ticket-у 09 (реестр, не login shell).
   `jq` на `win32` — `warn` с `winget install jqlang.jq` и строкой, что без него не работают шаги skills с
   `jq`; на `darwin` — прежний `fail`. Список и подсказки Mac не менялись.
-- **`claude --version` на Windows**: `toolStart`/`windowsProgram` ищут `claude.exe`, затем `claude.cmd` в
-  `PATH`; `.cmd` идёт через `%SystemRoot%\System32\cmd.exe` (`shell`), без `EINVAL`. Unit-случай с настоящим
-  `claude.cmd` на ПК прошёл.
-- **Установщик** (`src/main/harness/install.ts`): все переименования папки plugin — через `renameRetried`: на
-  `win32` при `EPERM`/`EBUSY`/`EACCES` повтор с паузой 0, 10 … 100 мс до 60 с, как `graceful-fs`; потом —
-  `error` на шаге `copy`, прежняя копия на месте. Неудача первого переименования (старая папка в сторону)
-  теперь тоже убирает staging-папку. Источник, цель и бинарь — прежние `bundledHarnessDir()`,
+- **`claude --version` на Windows**: `toolStart`/`windowsProgram` идут по `PATH` папка за папкой, в каждой —
+  `.exe`, `.bat`, `.cmd` в порядке `PATHEXT`, как командная строка; `.cmd`/`.bat` идут через
+  `%SystemRoot%\System32\cmd.exe` (`shell`), без `EINVAL`. cmd.exe раскрывает `%NAME%` в пути — папка с `%`
+  в имени будет прочитана как другая (записано в коде). По timeout проверка отвечает сразу, не ждёт закрытия
+  pipe-ов (их держит node.exe под cmd.exe), и гасит дерево: `taskkill /pid <pid> /T /F` на Windows, `SIGKILL`
+  на остальных. Unit-случай с настоящим `claude.cmd` на ПК прошёл.
+- **Установщик** (`src/main/harness/install.ts`): переименования и удаления папок plugin — через
+  `retriedOnWindows`: на `win32` при `EPERM`/`EBUSY`/`EACCES` (у удаления ещё `ENOTEMPTY`) повтор с паузой 0,
+  10 … 100 мс до 60 с, как `graceful-fs`. Старую папку не убрать в сторону — `error` на шаге `copy`, старая на
+  месте. Новую копию не поставить на место — staging удаляется, старая возвращается (не дольше
+  `ROLLBACK_RETRY_MS` = 10 с, всего ~70 с), `error` на шаге `copy` с первой ошибкой; если и возврат не удался,
+  сообщение говорит об этом, `plugin/` нет, прежняя копия лежит в `.plugin-old-*`, и следующая установка ставит
+  её на место первой (`removeLeftovers`). Старую папку не удалить после замены — установка успешна, папка
+  остаётся с предупреждением в лог и уходит при следующей установке. `removeLeftovers` папку, которую не
+  удалить или не вернуть, пропускает с предупреждением и установку не роняет. Источник, цель и бинарь — прежние `bundledHarnessDir()`,
   `harnessHome()/plugin`, `claudeExecutablePath()`. Попутно: `bundledClaudeBinary` в dev-run на Windows
   отдавал `…\claude` без `.exe` — статус Harness в `pnpm dev` падал бы с ENOENT; теперь `claude.exe`.
 - **`statusLine`** — новый `src/main/harness/status-line.ts`: `bridgeFile` (`<resources>/statusline-bridge.mjs`
   на Windows, `statusline-bridge.sh` на Mac), `bridgeCommand`/`withBridge` (Windows —
   `node "C:/…/statusline-bridge.mjs" '<прежняя команда>'`, Mac — прежняя строка формы переноса), `bridgeOf`
   (обе формы считаются мостом). Форма переноса (`migrate/plan.ts`) строит строку той же функцией; запись —
-  общая `withStatusLineCommand` в `migrate/apply.ts` (форма переноса и новый `writeStatusLine`). Проверка
+  общая `withStatusLineCommand` из `src/main/harness/status-line.ts`, её зовут `writeSettings` формы переноса и
+  новый `writeStatusLine` в `migrate/apply.ts`. Строка формы переноса на Mac — как на main
+  (`otherBuildBridge` в `migrate/plan.ts`): только вход `.sh`, в dev-сборке с относительным путём — строки нет,
+  форма `node "…/statusline-bridge.mjs"` на Mac не считается; на Windows — обе формы. Проверка
   «Limits from terminal» на Windows: `ok`, когда `statusLine.command` зовёт мост этой сборки; иначе `warn` с
   кнопкой «Set up…» (действие `limits-bridge`): окно подтверждения с файлом, прежней и новой командой, запись
   только ключа `statusLine`; файл, изменённый после окна, — отказ. В dev-сборке — `warn` без кнопки.
@@ -243,9 +259,12 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   `Error: no check git-bash: claude-login, claude-version, git, gh, node, jq, gh-auth, …` — строки Git Bash в
   списке нет.
 - **Прогоны на ПК** (`node scripts/vitest-electron.mjs`, `gh` убран из `PATH`):
-  - `test/unit/first-run-windows.test.ts` — exit 0, 26 passed (вместе с настоящим `claude.cmd`);
-  - `test/contract/harness-install.test.ts` — exit 0, 51 passed, 0 skipped (настоящий `claude.exe` и три
-    новых случая с `EBUSY`/`EPERM`);
+  - `test/unit/first-run-windows.test.ts` — exit 0, 34 passed (вместе с настоящим `claude.cmd`);
+  - `test/contract/harness-install.test.ts` — exit 0, 54 passed, 0 skipped (настоящий `claude.exe`, повторы
+    переименования, неудаляемая старая копия и остатки, двойной отказ — замена и возврат);
+  - mutants (по одному, файлы возвращены байт в байт): без проверки `%SystemRoot%` в `findGitBash`
+    (`env.ts`) — 1 красный; `jq --version` с ошибкой на `win32` как `fail` — 1 красный;
+  - `test/unit/agent-env.test.ts` + `e2e-no-spawn-on-load` — exit 0, 112 passed, 4 skipped;
   - `test/contract/first-run-checks.test.ts` + `test/contract/harness-migrate.test.ts` — exit 1, 38 failed /
     47 passed / 11 skipped; на коде main на этом ПК — те же 38 failed, список совпадает строка в строку.
     Причины не этого Ticket-а: stand-in-ы `first-run-tools` — `#!/bin/sh` (22), в fixture

@@ -872,6 +872,70 @@ describe('a rename refused by a held-open file (Windows)', () => {
     expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
     expect(tries.filter((each) => each === '.plugin-new-* -> plugin')).toHaveLength(1)
   })
+
+  const leftovers = (): string[] => readdirSync(sb.harnessHome).filter((name) => name !== 'plugin')
+  /** A removal that a held-open file refuses for the folders `refused` names; others are removed. */
+  const refusingRemove = (refused: (path: string) => boolean) => (path: string): Promise<void> => {
+    if (refused(path)) return Promise.reject(heldOpen('EBUSY'))
+    rmSync(path, { recursive: true, force: true })
+    return Promise.resolve()
+  }
+
+  it('the new copy in place but the previous one cannot be removed: installed all the same, the folder left for the next install to remove', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const removeDir = refusingRemove((path) => path.includes('.plugin-old-'))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(JSON.parse(readFileSync(join(sb.pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'))).toMatchObject({ version: V2 })
+    expect(leftovers()).toHaveLength(1)
+    expect(leftovers()[0]).toMatch(/^\.plugin-old-/)
+    const next = await installer(makeBundle(join(sb.root, 'bundle-v1b'), V1)).install(yes)
+    expect(next.status.state).toMatchObject({ kind: 'installed', version: V1 })
+    expect(leftovers()).toEqual([])
+  })
+
+  it('a leftover folder that cannot be removed is skipped: the install goes on and the folder stays', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    mkdirSync(join(sb.harnessHome, '.plugin-new-stuck'))
+    const removeDir = refusingRemove((path) => path.endsWith('.plugin-new-stuck'))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(leftovers()).toEqual(['.plugin-new-stuck'])
+  })
+
+  it('the new copy refused and the previous copy refused on its way back: the first error is reported with the second, no staging folder, the previous copy kept aside and put back by the next install', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    let settingAside = true
+    const renameDir = (from: string, to: string): Promise<void> => {
+      // The first rename (plugin/ set aside) works; both renames into plugin/ are refused.
+      if (settingAside) {
+        settingAside = false
+        renameSync(from, to)
+        return Promise.resolve()
+      }
+      return Promise.reject(heldOpen(from.includes('.plugin-new-') ? 'EPERM' : 'EBUSY'))
+    }
+    const started = Date.now()
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, renameRetryMs: 50 }).install(yes)
+    expect(Date.now() - started).toBeLessThan(10_000)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') {
+      expect(result.status.state.reason).toMatch(/failed: EPERM: .*; putting the previous copy back failed too \(EBUSY: /)
+      expect(result.status.state.reason).toContain('the next install puts it back first')
+    }
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(leftovers()).toHaveLength(1)
+    expect(leftovers()[0]).toMatch(/^\.plugin-old-/)
+    expect(treeOf(join(sb.harnessHome, leftovers()[0]!))).toEqual(before)
+    expect(writes()).toEqual([])
+    // The next install, with renames that work, puts the previous copy back before it copies.
+    const failing = (): Promise<void> => Promise.reject(new Error('disk full (injected)'))
+    await installer(makeBundle(join(sb.root, 'bundle-v2b'), V2), { copyTree: failing }).install(yes)
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+  })
 })
 
 describe('the dev build', () => {

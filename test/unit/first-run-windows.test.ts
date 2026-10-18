@@ -5,10 +5,11 @@
 // the "Limits from terminal" row and its action. No real tool runs, except one .cmd on Windows.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { runChecks, toolStart, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
+import { runChecks, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
+import { otherBuildBridge } from '../../src/main/harness/migrate/plan'
 import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, withBridge } from '../../src/main/harness/status-line'
 import type { Check, CheckId, FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
@@ -199,6 +200,42 @@ describe('first-run checks on Windows', () => {
     const report = await runChecks(deps(WIN11, {}, []))
     expect(JSON.stringify(report)).not.toContain('brew')
   })
+
+  it('a git.exe under C:\\Windows: the bash.exe next to it is refused, as findGitBash refuses the Windows folder', async () => {
+    // git.exe in C:\Windows\cmd makes C:\Windows the root of Git for Windows, and C:\Windows\bin\bash.exe its Git Bash.
+    const env = { ...WINDOWS_ENV, PATH: 'C:\\Windows\\cmd;C:\\Windows\\System32' }
+    const report = await runChecks(deps(WIN11, ALL, ['C:\\Windows\\cmd\\git.exe', 'C:\\Windows\\bin\\bash.exe'], { env }))
+    expect(checkOf(report, 'git-bash')).toMatchObject({ status: 'fail', detail: 'not found', command: 'winget install Git.Git' })
+  })
+
+  it('CLAUDE_CODE_GIT_BASH_PATH, which the Session keeps: a portable Git there is OK, System32\\bash.exe fails, a missing file fails', async () => {
+    const portable = 'D:\\tools\\PortableGit\\bin\\bash.exe'
+    const withVariable = (value: string, files: string[]) => runChecks(deps(WIN11, ALL, files, { env: { ...WINDOWS_ENV, CLAUDE_CODE_GIT_BASH_PATH: value } }))
+    // The variable wins over the Git Bash findGitBash would find.
+    expect(checkOf(await withVariable(portable, [portable, GIT_BASH]), 'git-bash')).toMatchObject({ status: 'ok', detail: portable })
+    const wsl = checkOf(await withVariable(WSL_BASH, [WSL_BASH, GIT_BASH]), 'git-bash')
+    expect(wsl).toMatchObject({ status: 'fail', detail: `CLAUDE_CODE_GIT_BASH_PATH is ${WSL_BASH}`, command: 'winget install Git.Git' })
+    expect(checkOf(await withVariable('c:\\windows\\system32\\bash.exe', [GIT_BASH]), 'git-bash').status).toBe('fail')
+    expect(checkOf(await withVariable(portable, [GIT_BASH]), 'git-bash')).toMatchObject({ status: 'fail', detail: `CLAUDE_CODE_GIT_BASH_PATH names a missing file: ${portable}` })
+  })
+
+  it('jq there but `jq --version` failing: a Warning, not Failed, with the same command', async () => {
+    const base = probes(ALL, [`${GIT_CMD}\\git.exe`, GIT_BASH, PWSH])
+    const run: Probes['run'] = (name, args, env, ms) =>
+      name === 'jq' ? Promise.resolve({ code: 2, stdout: '', stderr: 'jq: error while loading shared libraries\n', missing: false }) : base.run(name, args, env, ms)
+    const report = await runChecks(deps(WIN11, ALL, undefined, { probes: { ...base, run } }))
+    expect(checkOf(report, 'jq')).toMatchObject({ status: 'warn', detail: 'jq --version failed: jq: error while loading shared libraries', command: 'winget install jqlang.jq' })
+  })
+
+  it('the architecture is the machine\'s: PROCESSOR_ARCHITEW6432, else PROCESSOR_ARCHITECTURE of the Session environment', async () => {
+    expect(windowsNativeArch({ PROCESSOR_ARCHITECTURE: 'AMD64' })).toBe('x64')
+    expect(windowsNativeArch({ PROCESSOR_ARCHITECTURE: 'ARM64' })).toBe('arm64')
+    expect(windowsNativeArch({ PROCESSOR_ARCHITECTURE: 'x86', PROCESSOR_ARCHITEW6432: 'AMD64' })).toBe('x64')
+    expect(windowsNativeArch({})).toBeNull()
+    // Without an architecture given, an arm64 machine warns even when worfy's process is x64.
+    const report = await runChecks(deps({ platform: 'win32', release: '10.0.22631' }, ALL, undefined, { env: { ...WINDOWS_ENV, PROCESSOR_ARCHITECTURE: 'ARM64' } }))
+    expect(checkOf(report, 'arch')).toMatchObject({ status: 'warn', detail: 'arm64' })
+  })
 })
 
 describe('first-run checks on macOS: as before this ticket', () => {
@@ -221,8 +258,14 @@ describe('first-run checks on macOS: as before this ticket', () => {
       'qmd-collections',
     ])
     for (const name of ['git', 'gh', 'jq'] as const) {
-      expect(checkOf(report, name)).toMatchObject({ status: 'fail', detail: 'not found on the PATH of the login shell', command: `brew install ${name}` })
+      expect(checkOf(report, name)).toMatchObject({
+        status: 'fail',
+        detail: 'not found on the PATH of the login shell',
+        hint: 'worfy does not install it: run the command in a terminal',
+        command: `brew install ${name}`,
+      })
     }
+    expect(checkOf(report, 'node').hint).toBe('The Harness scripts need node 22 or newer')
     expect(checkOf(report, 'node')).toMatchObject({ status: 'fail', detail: 'not found on the PATH of the login shell', command: 'brew install node' })
     expect(checkOf(report, 'gh-auth').hint).toBe('Install gh first (brew install gh), then sign in')
     expect(checkOf(report, 'claude-version').detail).toBe('not found on the PATH of the login shell')
@@ -236,6 +279,16 @@ describe('first-run checks on macOS: as before this ticket', () => {
     expect(checkOf(report, 'claude-version')).toMatchObject({ status: 'warn', detail: `2.1.100, older than ${BUNDLED} in worfy`, command: 'claude update' })
     expect(checkOf(report, 'jq').status).toBe('ok')
   })
+
+  it('a tool whose --version fails: Failed with "Reinstall it", jq too', async () => {
+    const base = probes(ALL, [])
+    const run: Probes['run'] = (name, args, env, ms) =>
+      name === 'git' || name === 'jq' ? Promise.resolve({ code: 1, stdout: '', stderr: 'broken\n', missing: false }) : base.run(name, args, env, ms)
+    const report = await runChecks(deps(MAC, ALL, [], { probes: { ...base, run } }))
+    for (const name of ['git', 'jq'] as const) {
+      expect(checkOf(report, name)).toMatchObject({ status: 'fail', detail: `${name} --version failed: broken`, hint: 'Reinstall it', command: `brew install ${name}` })
+    }
+  })
 })
 
 describe('claude on Windows: claude.exe or npm\'s claude.cmd', () => {
@@ -247,6 +300,15 @@ describe('claude on Windows: claude.exe or npm\'s claude.cmd', () => {
     expect(windowsProgram('claude', env, (path) => path === `${local}\\claude.exe` || path === `${npm}\\claude.cmd`)).toEqual({ file: `${local}\\claude.exe`, cmd: false })
     expect(windowsProgram('claude', env, (path) => path === `${npm}\\claude.cmd`)).toEqual({ file: `${npm}\\claude.cmd`, cmd: true })
     expect(windowsProgram('claude', env, () => false)).toBeNull()
+  })
+
+  it('goes folder by folder, as the command line does: claude.cmd in an earlier folder wins over claude.exe in a later one', () => {
+    const cmdFirst = { PATH: `${npm};${local}` }
+    expect(windowsProgram('claude', cmdFirst, (path) => path === `${local}\\claude.exe` || path === `${npm}\\claude.cmd`)).toEqual({ file: `${npm}\\claude.cmd`, cmd: true })
+    // In one folder PATHEXT decides: .EXE before .CMD by default, .CMD first when PATHEXT says so.
+    const both = (path: string): boolean => path === `${npm}\\claude.exe` || path === `${npm}\\claude.cmd`
+    expect(windowsProgram('claude', { PATH: npm }, both)).toEqual({ file: `${npm}\\claude.exe`, cmd: false })
+    expect(windowsProgram('claude', { PATH: npm, PATHEXT: '.CMD;.EXE' }, both)).toEqual({ file: `${npm}\\claude.cmd`, cmd: true })
   })
 
   it('starts claude.exe itself and claude.cmd through cmd.exe of %SystemRoot%, so Node does not refuse it with EINVAL', () => {
@@ -291,6 +353,28 @@ describe('the status line command of the Limits bridge', () => {
     expect(bridgeOf(`/R/statusline-bridge.sh 'a'`)).toEqual({ bridge: '/R/statusline-bridge.sh', rest: " 'a'" })
     expect(bridgeOf('bash ~/.claude/statusline.sh')).toBeNull()
     expect(bridgeOf('node other.mjs')).toBeNull()
+  })
+})
+
+describe('the status line row of the move form', () => {
+  const home = '/Users/alice'
+  it('macOS as before: only the sh entry, none for a relative bridge in a development build, none for the Windows form', () => {
+    const darwin = (command: string, bridgeScript: string | null) => otherBuildBridge(command, { platform: 'darwin', bridgeScript, userHome: home })
+    expect(darwin("statusline-bridge.sh 'bash x.sh'", null)).toBeNull()
+    expect(darwin(`node "/Volumes/old/statusline-bridge.mjs" 'bash x.sh'`, '/R/statusline-bridge.sh')).toBeNull()
+    expect(darwin(`node "/Volumes/old/statusline-bridge.mjs" 'bash x.sh'`, null)).toBeNull()
+    expect(darwin("/Volumes/old/statusline-bridge.sh 'bash x.sh'", '/R/statusline-bridge.sh')).toEqual({ bridge: '/Volumes/old/statusline-bridge.sh', rest: " 'bash x.sh'" })
+    // An absolute bridge of another build in a development build: the row is there (with its note), as on main.
+    expect(darwin("/Volumes/old/statusline-bridge.sh 'bash x.sh'", null)).not.toBeNull()
+    // This build's own bridge: no row (resolve() gives the bridge the same form on any host).
+    const own = resolve('/R/statusline-bridge.sh')
+    expect(darwin("/R/statusline-bridge.sh 'bash x.sh'", own)).toBeNull()
+  })
+
+  it('Windows: either form, this build\'s bridge compared without case and separators', () => {
+    const win = (command: string) => otherBuildBridge(command, { platform: 'win32', bridgeScript: 'C:\\Program Files\\worfy\\resources\\statusline-bridge.mjs', userHome: home })
+    expect(win(`node "C:/program files/worfy/resources/statusline-bridge.mjs" 'x'`)).toBeNull()
+    expect(win(`node "D:/old/resources/statusline-bridge.mjs" 'x'`)).toEqual({ bridge: 'D:/old/resources/statusline-bridge.mjs', rest: " 'x'" })
   })
 })
 

@@ -10,10 +10,10 @@
 // 13) through the caller.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
 import type { HarnessState } from '../../../shared/ipc/harness'
 import type { ClaudeMdSection, MigrationChoice, MigrationGroup, MigrationPlan, MigrationProfile, MigrationRow } from '../../../shared/ipc/harness-migration'
-import { bridgeCommand, bridgeOf, samePath, splitCommand } from '../status-line'
+import { BRIDGE_ENTRY, bridgeCommand, bridgeOf, samePath, splitCommand } from '../status-line'
 import { jsonText, profileToSchema2, readLegacyProfiles, rewriteHarnessPaths, type LegacyProfile } from './profiles'
 
 export { splitCommand }
@@ -171,6 +171,27 @@ function pathTarget(path: string, userHome: string): string | null {
   else if (head.startsWith('$HOME/')) head = join(userHome, head.slice('$HOME/'.length))
   else if (head.startsWith('${HOME}/')) head = join(userHome, head.slice('${HOME}/'.length))
   return isAbsolute(head) ? resolve(head) : null
+}
+
+/**
+ * The bridge of another build that a status line command runs, with the text after it; null when
+ * the form offers no status line row. On macOS as before worfy-windows ticket 13: only the sh entry
+ * counts, and the row is there when the file it names (expanded, resolved) is not `bridgeScript` —
+ * so a relative path in a development build (`bridgeScript` null) shows none. On Windows either form
+ * counts (status-line.ts), compared as Windows compares paths.
+ */
+export function otherBuildBridge(command: string, { platform, bridgeScript, userHome }: { platform: NodeJS.Platform; bridgeScript: string | null; userHome: string }): { bridge: string; rest: string } | null {
+  const found = bridgeOf(command)
+  if (found === null) return null
+  const target = pathTarget(found.bridge, userHome)
+  if (platform !== 'win32') {
+    if ((found.bridge.split('/').at(-1) ?? '') !== BRIDGE_ENTRY) return null
+    return target === bridgeScript ? null : found
+  }
+  // A Windows path is read as one on any host (tests run on macOS and Linux too).
+  const windowsTarget = win32.isAbsolute(found.bridge) && /^(?:[A-Za-z]:|[\\/]{2})/.test(found.bridge) ? found.bridge : target
+  const ours = windowsTarget !== null && bridgeScript !== null && samePath(platform, windowsTarget, bridgeScript)
+  return ours ? null : found
 }
 
 /** `path` relative to `root` when inside it (not equal), else null. */
@@ -369,12 +390,10 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
 
   const statusLine = settings?.json.statusLine
   if (isObject(statusLine) && typeof statusLine.command === 'string') {
-    // A bridge of another build, in either form (src/main/harness/status-line.ts); this build's is left alone.
-    const found = bridgeOf(statusLine.command)
-    const target = found === null ? null : pathTarget(found.bridge, userHome)
+    // A bridge of another build (otherBuildBridge); this build's is left alone.
     const platform = options.platform ?? process.platform
-    const ours = target !== null && options.bridgeScript !== null && samePath(platform, target, options.bridgeScript)
-    if (found !== null && !ours) {
+    const found = otherBuildBridge(statusLine.command, { platform, bridgeScript: options.bridgeScript, userHome })
+    if (found !== null) {
       const bridge = options.bridgeScript
       const reason =
         bridge === null
