@@ -482,5 +482,222 @@ for f in "$EW" "$ST"; do
     check "$n: no Cyrillic outside the allowlist${left:+ — first: $left}" test -z "$left"
 done
 
+# 9. The Pipeline (worfy ADR-0067, ticket worfy-pipeline/07): both skills read `_resolved.pipeline` and act on its
+# Stages — Agent review where it stands, Check «<name>» as marks on the PR's head, people's Stages without a merge,
+# Deploy before the ticket closes. The blocks run under bash and zsh with a stub profile, a stub gh that only
+# reads (any write or unknown call is exit 1) and a temporary HOME and HARNESS_HOME.
+T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+trap 'rm -rf "$T"' EXIT
+. "$HARNESS/bin/tests/real-home.sh"
+. "$HARNESS/bin/tests/gh-stand-in.sh"
+home_before="$(real_home_snapshot "$HOME" "$T")"
+REAL_HOME="$HOME"
+skill_block() { # skill_block <file> <marker>: the ```bash blocks of <file> that contain <marker>, without the F() line
+    awk -v m="$2" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$1" \
+        | grep -v '^F() { "\${CLAUDE_PLUGIN_ROOT}/bin/profile"'
+}
+GHS="$T/gh-bin"; GH_DATA="$T/gh-data"; GH_LOG="$T/gh.log"; mkdir -p "$GHS" "$GH_DATA" "$T/home" "$T/hh"; : >"$GH_LOG"
+cat >"$GHS/gh" <<'EOF'
+#!/usr/bin/env bash
+# A gh stand-in that only reads: the answers are files in $GH_DATA, filtered by --jq like gh does. A write
+# (-X, --method, -f) or a call it does not know is exit 1. Every call goes to $GH_LOG.
+printf '%s\n' "$*" >>"$GH_LOG"
+jqf=; args=()
+while [ $# -gt 0 ]; do
+    case "$1" in --jq) jqf=$2; shift 2 ;; -X|--method|-f|-F|--field|--raw-field) echo "gh stand-in: no writes" >&2; exit 1 ;; *) args+=("$1"); shift ;; esac
+done
+p="${args[2]:-}"
+case "${args[0]:-} ${args[1]:-}" in
+    "pr view") f="$GH_DATA/pr-$p.json" ;;
+    "api repos/{owner}/{repo}/commits/"*/status)
+        f="$GH_DATA/status-$(sed -E 's#^.*/commits/([^/]+)/status$#\1#' <<<"${args[1]}").json"; [ -f "$f" ] || f="$GH_DATA/no-status.json" ;;
+    "api repos/{owner}/{repo}/deployments?"*) f="$GH_DATA/deployments.json" ;;
+    "api repos/{owner}/{repo}/deployments/"*/statuses)
+        f="$GH_DATA/deployment-$(sed -E 's#^.*/deployments/([^/]+)/statuses$#\1#' <<<"${args[1]}").json" ;;
+    *) echo "gh stand-in: unknown call: ${args[*]}" >&2; exit 1 ;;
+esac
+[ -f "$f" ] || { echo "gh stand-in: no answer for: ${args[*]}" >&2; exit 1; }
+if [ -n "$jqf" ]; then jq -rc "$jqf" "$f"; else cat "$f"; fi
+EOF
+chmod +x "$GHS/gh"
+echo '{"statuses":[]}' >"$GH_DATA/no-status.json"
+( PATH="$GHS:$PATH"; gh_guard - "$GHS/gh" - ) || exit 1
+RUN_ENV=(env HOME="$T/home" HARNESS_HOME="$(node_path "$T/hh")" PATH="$GHS:$PATH" GH_LOG="$GH_LOG" GH_DATA="$GH_DATA" GH_TOKEN=worfy-test-no-token GH_CONFIG_DIR="$T/gh-config")
+mkdir -p "$T/gh-config"
+
+# 9a. Both skills read the Pipeline with the same block, near the top (ship-ticket section 0, epic-wave section 0).
+PL_MARK='--field _resolved.pipeline | node -e'
+PL_EW="$(skill_block "$EW" "$PL_MARK")"; PL_ST="$(skill_block "$ST" "$PL_MARK")"
+check "Pipeline: epic-wave section 0 reads _resolved.pipeline" bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 0)" "$PL_MARK"
+check "Pipeline: ship-ticket section 0 reads _resolved.pipeline" bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$ST" 0)" "$PL_MARK"
+check "Pipeline: one block in both skills" bash -c '[ -n "$1" ] && [ "$1" = "$2" ]' _ "$PL_EW" "$PL_ST"
+mkdir -p "$T/plugin/bin"
+cat >"$T/plugin/bin/profile" <<'EOF'
+#!/usr/bin/env bash
+# bin/profile stand-in: prints $PIPELINE for --field _resolved.pipeline, exit $PROFILE_EXIT otherwise.
+[ "${PROFILE_EXIT:-0}" = 0 ] || { echo "profile: broken" >&2; exit "$PROFILE_EXIT"; }
+[ "$1 $2 $3 $4" = "-C $REPO_WANT --field _resolved.pipeline" ] || { echo "profile stand-in: $*" >&2; exit 2; }
+printf '%s\n' "$PIPELINE"
+EOF
+chmod +x "$T/plugin/bin/profile"
+WORFY_PL='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"check","name":"windows"},{"kind":"gate-merge"},{"kind":"deploy"},{"kind":"closing"},{"kind":"done"}]'
+for sh in bash zsh; do
+    got="$("${RUN_ENV[@]}" CLAUDE_PLUGIN_ROOT="$T/plugin" REPO_WANT=/r PIPELINE="$WORFY_PL" $sh -c "${PL_EW//<repo>//r}" 2>&1)"
+    check "$sh: the Pipeline block prints one Stage per line, a Check with its name" test "$got" = 'queued
+implementing
+ci
+agent-review
+check windows
+gate-merge
+deploy
+closing
+done
+EXIT=0'
+    got="$("${RUN_ENV[@]}" CLAUDE_PLUGIN_ROOT="$T/plugin" REPO_WANT=/r PROFILE_EXIT=1 $sh -c "${PL_EW//<repo>//r}" 2>&1)"
+    check "$sh: the Pipeline block with a broken profile ends in a non-zero EXIT" bash -c '[[ "$1" == *"EXIT="[1-9]* ]] && [[ "$1" != *"EXIT=0"* ]]' _ "$got"
+done
+
+# 9b. Check «<name>»: the marks on the head of each ready PR decide whether it goes into the set.
+CB="$(skill_block "$EW" 'CANDIDATES=(')"
+check "Check: the block of marks on the PR heads is in epic-wave section 4" bash -c '[ -n "$1" ] && [[ "$2" == *"CANDIDATES=("* ]]' _ "$CB" "$(section "$EW" 4)"
+check "Check: the block of marks does not take the set block's place (wave-gate.test.sh finds that one by PLATFORM=()" \
+    bash -c '[[ "$1" != *"PLATFORM=("* ]]' _ "$CB"
+sha() { printf '%040d' "$1"; }                # a fake 40-character SHA
+pr_head() { printf '{"headRefOid":"%s"}\n' "$(sha "$2")" >"$GH_DATA/pr-$1.json"; }
+statuses() { # statuses <sha number> <context:state:description>...
+    local s="$1" out="" c; shift
+    for c in "$@"; do IFS=: read -r ctx state desc <<<"$c"; out="$out${out:+,}{\"context\":\"$ctx\",\"state\":\"$state\",\"description\":\"$desc\"}"; done
+    printf '{"statuses":[%s]}\n' "$out" >"$GH_DATA/status-$(sha "$s").json"
+}
+run_checks() { # run_checks <sh> <mode> <pipeline JSON> <candidates>
+    local b="${CB//<repo>/$R}"
+    b="${b//<epic>/pay-flow}"; b="${b//<PR>:<NN> pairs in merge order/$4}"
+    (cd "$R" && "${RUN_ENV[@]}" $1 -c "F() { case \"\$1\" in _resolved.pipeline) printf '%s\n' '$3' ;; _resolved.mode) echo $2 ;; _resolved.name) echo sp ;; *) return 4 ;; esac; }"$'\n'"$b" 2>&1)
+}
+R="$T/repo"; git init -q -b main "$R"
+pr_head 1 11; pr_head 2 12; pr_head 3 13; pr_head 4 14; pr_head 5 15; pr_head 6 16
+statuses 12 'check/windows:success:skipped' 'review:success:success'
+statuses 13 'check/windows:success:success' 'review:success:success'
+statuses 14 'check/windows:failure:failure'
+statuses 105 'check/windows:success:success'        # a mark on an old head of PR 5
+statuses 16 'check/windows:pending:pending'
+line() { grep "^PR $1 " <<<"$2"; }
+for sh in bash zsh; do
+    : >"$GH_LOG"
+    got="$(run_checks "$sh" full "$WORFY_PL" '1:01 2:02 3:03 4:04 5:05 6:06')"
+    check "$sh: Check without a mark on the head — the PR waits, out of the set" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 1 "$got")"
+    check "$sh: Check skipped — the PR is ready, not a platform PR" bash -c '[[ "$1" == *"check/windows=skipped — ready" ]]' _ "$(line 2 "$got")"
+    check "$sh: Check success — the PR is ready and goes into PLATFORM" bash -c '[[ "$1" == *"check/windows=success — ready, PLATFORM" ]]' _ "$(line 3 "$got")"
+    check "$sh: Check failure — the PR failed, it goes to rework" bash -c '[[ "$1" == *"check/windows=failure — failed" ]]' _ "$(line 4 "$got")"
+    check "$sh: a mark on an old head does not count — the PR waits" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 5 "$got")"
+    check "$sh: Check pending — the PR waits" bash -c '[[ "$1" == *"check/windows=pending — waits" ]]' _ "$(line 6 "$got")"
+    check "$sh: the line names the PR's head" bash -c '[[ "$1" == "PR 2 $2 "* ]]' _ "$(line 2 "$got")" "$(sha 12 | cut -c1-7)"
+    check "$sh: the block of marks ends in EXIT=0" bash -c '[ "$(tail -n 1 <<<"$1")" = EXIT=0 ]' _ "$got"
+    check "$sh: Full mode reads the commit status of each head, writes nothing" \
+        bash -c '[ "$(grep -c "^api repos/{owner}/{repo}/commits/.*/status" "$1")" = 6 ] && ! grep -qE -- "-X|--method|(^| )-f " "$1"' _ "$GH_LOG"
+    got="$(run_checks "$sh" full '[{"kind":"queued"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"done"}]' '1:01 4:04')"
+    NOCHECK="no Check in the Pipeline — ready (PLATFORM if the project's rules make it a platform PR)"
+    check "$sh: no Check in the Pipeline — every PR is ready, the line sends platform PRs to the project's rules" \
+        bash -c '[[ "$(grep "^PR 1 " <<<"$1")" == *"$2" ]] && [[ "$(grep "^PR 4 " <<<"$1")" == *"$2" ]]' _ "$got" "$NOCHECK"
+    TWO='[{"kind":"queued"},{"kind":"check","name":"windows"},{"kind":"check","name":"linux"},{"kind":"gate-merge"},{"kind":"done"}]'
+    got="$(run_checks "$sh" full "$TWO" '2:02')"
+    check "$sh: two Checks, one without a mark — the PR waits" bash -c '[[ "$1" == *"check/windows=skipped check/linux=none — waits" ]]' _ "$(line 2 "$got")"
+    # Silent mode: the marks file of the ticket in $HARNESS_HOME, the last mark of a kind on the head wins; no status read.
+    mkdir -p "$T/hh/runs/sp/marks"
+    printf '{"epic":"pay-flow","num":"02","marks":[{"kind":"check/windows","verdict":"pending","sha":"%s","at":"t1"},{"kind":"check/windows","verdict":"skipped","sha":"%s","at":"t2"},{"kind":"check/windows","verdict":"failure","sha":"%s","at":"t3"}]}\n' \
+        "$(sha 12)" "$(sha 12)" "$(sha 99)" >"$T/hh/runs/sp/marks/pay-flow-02.json"
+    : >"$GH_LOG"
+    got="$(run_checks "$sh" silent "$WORFY_PL" '2:02 3:03')"
+    check "$sh: Silent mode — the marks file: skipped on the head, a failure on another commit does not count" bash -c '[[ "$1" == *"check/windows=skipped — ready" ]]' _ "$(line 2 "$got")"
+    check "$sh: Silent mode — no marks file for the ticket: the PR waits" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 3 "$got")"
+    check "$sh: Silent mode — no commit status is read" bash -c '! grep -q "^api " "$1"' _ "$GH_LOG"
+    rm -rf "$T/hh/runs"
+    got="$(run_checks "$sh" full "$WORFY_PL" '7:07 2:02')"
+    check "$sh: gh gives no head — the line says so, the other PRs still get theirs, EXIT=1" \
+        bash -c '[[ "$1" == *"PR 7: no head from gh"* ]] && [[ "$1" == *"check/windows=skipped — ready"* ]] && [ "$(tail -n 1 <<<"$1")" = EXIT=1 ]' _ "$got"
+done
+EW4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
+in_ew4() { [[ "$EW4" == *"$1"* ]]; }
+check "Check: the mark is set with ticket mark on the head SHA" has "$EW" '"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> check/<name> skipped --sha "$sha"'
+check "Check: the set takes only the ready PRs" in_ew4 'Only the PRs whose line says `ready` — `ready` or `ready, PLATFORM` — go into `PRS=(…)` of a set'
+check "Check: PLATFORM=() is filled from the PRs whose Check is not skipped" in_ew4 'the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too'
+check "Check: a push or a rebase leaves the marks on the old head" in_ew4 'after a push or a rebase the new head has no marks, and the PR waits again'
+check "Check: which PRs need a Check is the project's rule" in_ew4 'the project'"'"'s rules (`rules.md`) say the PR does not need this check'
+# Without a `check` Stage (the default Pipeline, a profile not yet edited) the rule in words stays: platform PRs
+# keep out of the set, go into PLATFORM=() and merge the old way after the other platform's verdict.
+check "Check: no Check in the Pipeline — PLATFORM=() lists the platform PRs by the project's rules" \
+    in_ew4 '**With no `check` Stage in the Pipeline** the marks cannot tell them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project'"'"'s rules send to another platform'"'"'s verdict — and each of them merges the old way only after that verdict on its head'
+check "Check: no Check in the Pipeline — a platform PR merged the old way waits for the other platform's verdict" \
+    in_ew4 "(with no \`check\` Stage — plus the other platform's verdict for a platform PR)"
+check "Check: epic-wave section 0 keeps platform PRs waiting without a check Stage" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 0 | tr '\n' ' ' | tr -s ' ')" \
+    "With no \`check\` Stage in the Pipeline the platform PRs still wait: those the project's rules send to another platform's verdict go into \`PLATFORM=(…)\` and merge the old way after that verdict"
+check "Check: ship-ticket step 9 keeps platform PRs waiting without a check Stage" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$ST" 9 | tr '\n' ' ' | tr -s ' ')" \
+    "With no \`check\` Stage in the Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only after that verdict, the old way"
+for f in "$EW" "$ST"; do
+    check "$(name_of "$f"): no ADR-0056 as the rule the skill waits by" lacks "$f" 'ADR-0056'
+done
+
+# 9c. Agent review where the Pipeline puts it; people's Stages are not merged; Deploy before the ticket closes.
+EW0="$(section "$EW" 0 | tr '\n' ' ' | tr -s ' ')"; ST0="$(section "$ST" 0 | tr '\n' ' ' | tr -s ' ')"
+in_ew0() { [[ "$EW0" == *"$1"* ]]; }
+in_st0() { [[ "$ST0" == *"$1"* ]]; }
+check "epic-wave: Agent review before CI — no PR until review success" in_ew0 'after `review success` the orchestrator asks the implementer through `SendMessage` to open the PR from that same head'
+check "epic-wave: no Agent review in the Pipeline — no review by agents" in_ew0 'No `agent-review` in the Pipeline — no review by agents: section 3 is skipped'
+check "epic-wave: Human review — no merge before APPROVED" in_ew0 'With `human-review` the wave does not merge a PR before its review decision is `APPROVED`'
+check "epic-wave: Awaiting merge — the wave never merges, the ticket waits for people" in_ew0 'with `awaiting-merge` it never merges: people do. Such a ticket stays `claimed` with its PR open, the wave goes on without it'
+check "epic-wave: Deploy — the ticket is not closed before its deploy" in_ew0 'after the merge the ticket is not closed (`ticket done`) until its merge commit is deployed'
+check "epic-wave section 3 runs only with agent-review in the Pipeline" bash -c '[[ "$1" == *"Only with \`agent-review\` in the Pipeline"* ]]' _ "$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
+check "ship-ticket: steps 7 and 8 go in the Pipeline's order" in_st0 'Steps 7 and 8 go in the order of the Pipeline'
+check "ship-ticket: no Agent review in the Pipeline — step 7 is skipped" in_st0 'no `agent-review` in the Pipeline — step 7 is skipped'
+check "ship-ticket step 9: Checks, people and the merge" bash -c '[[ "$1" == *"Checks before merge"* ]] && [[ "$1" == *"\`awaiting-merge\`"* ]] && [[ "$1" == *"\`human-review\`"* ]]' _ "$(section "$ST" 9 | tr '\n' ' ' | tr -s ' ')"
+check "ship-ticket step 11: no ticket done before the deploy" bash -c '[[ "$1" == *"Deploy before close"* ]] && [[ "$1" == *"DEPLOYED=none"* ]]' _ "$(section "$ST" 11 | tr '\n' ' ' | tr -s ' ')"
+check "epic-wave item 4: ticket done only for a deployed ticket" in_ew4 '`DEPLOYED=none` — not yet: the ticket stays `claimed`'
+
+# 9d. The deploy block: the merge commit is an ancestor of a commit with the deploy mark.
+DB="$(skill_block "$EW" 'DEPLOYED=')"
+check "Deploy: the block is in epic-wave section 4" bash -c '[ -n "$1" ] && [[ "$2" == *"DEPLOYED="* ]]' _ "$DB" "$(section "$EW" 4)"
+O="$T/origin.git"; git init -q --bare -b main "$O"
+D="$T/deploy-repo"; git init -q -b main "$D"; git -C "$D" remote add origin "$O"
+for i in 1 2 3 4; do echo "$i" >"$D/f"; git -C "$D" add f; git -C "$D" -c user.email=t@t -c user.name=t commit -q -m "c$i"; done
+git -C "$D" push -q origin main
+c() { git -C "$D" rev-parse "HEAD~$((4 - $1))"; }           # c 1 … c 4, c 2 is the merge commit
+printf '{"mergeCommit":{"oid":"%s"}}\n' "$(c 2)" >"$GH_DATA/pr-42.json"
+run_deploy() { # run_deploy <sh> <pipeline JSON>
+    local b="${DB//<repo>/$D}"; b="${b//<main branch>/main}"; b="${b//<N>/42}"
+    (cd "$D" && "${RUN_ENV[@]}" $1 -c "F() { case \"\$1\" in _resolved.pipeline) printf '%s\n' '$2' ;; *) return 4 ;; esac; }"$'\n'"$b" 2>&1)
+}
+st_file() { printf '{"statuses":[%s]}\n' "$2" >"$GH_DATA/status-$1.json"; }
+NOENV="$WORFY_PL"
+ENV_PL='[{"kind":"queued"},{"kind":"gate-merge"},{"kind":"deploy","environment":"stable"},{"kind":"done"}]'
+for sh in bash zsh; do
+    rm -f "$GH_DATA"/status-*.json "$GH_DATA"/deployment*.json
+    st_file "$(c 3)" '{"context":"deploy","state":"success","description":"installed"}'
+    got="$(run_deploy "$sh" "$NOENV")"
+    check "$sh: deploy mark on a later commit of the main branch — DEPLOYED is that commit" bash -c '[[ "$1" == *"DEPLOYED=$2"* ]]' _ "$got" "$(c 3)"
+    rm -f "$GH_DATA"/status-*.json
+    st_file "$(c 1)" '{"context":"deploy","state":"success","description":"installed"}'
+    st_file "$(c 4)" '{"context":"deploy","state":"failure","description":"x"},{"context":"review","state":"success","description":"success"}'
+    got="$(run_deploy "$sh" "$NOENV")"
+    check "$sh: deploy mark only before the merge, a failed one after it — DEPLOYED=none" bash -c '[[ "$1" == *"DEPLOYED=none"* ]]' _ "$got"
+    st_file "$(c 2)" '{"context":"deploy","state":"success","description":"installed"}'
+    got="$(run_deploy "$sh" "$NOENV")"
+    check "$sh: deploy mark on the merge commit itself — deployed" bash -c '[[ "$1" == *"DEPLOYED=$2"* ]]' _ "$got" "$(c 2)"
+    # With an environment: a GitHub Deployment, the newest first; one that does not contain the merge commit does not count.
+    rm -f "$GH_DATA"/status-*.json
+    printf '[{"id":9,"sha":"%s"},{"id":8,"sha":"%s"}]\n' "$(c 1)" "$(c 4)" >"$GH_DATA/deployments.json"
+    echo '[{"state":"success"}]' >"$GH_DATA/deployment-9.json"; echo '[{"state":"failure"},{"state":"success"}]' >"$GH_DATA/deployment-8.json"
+    : >"$GH_LOG"
+    got="$(run_deploy "$sh" "$ENV_PL")"
+    check "$sh: a Deployment whose latest status is not success — DEPLOYED=none" bash -c '[[ "$1" == *"DEPLOYED=none"* ]]' _ "$got"
+    check "$sh: the Deployments are asked for by the Stage's environment" grep -q 'deployments?environment=stable' "$GH_LOG"
+    echo '[{"state":"success"}]' >"$GH_DATA/deployment-8.json"
+    got="$(run_deploy "$sh" "$ENV_PL")"
+    check "$sh: a successful Deployment of a commit that contains the merge — deployed" bash -c '[[ "$1" == *"DEPLOYED=$2"* ]]' _ "$got" "$(c 4)"
+done
+home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
+check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]

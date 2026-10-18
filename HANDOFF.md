@@ -12,7 +12,7 @@
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 30/32 — 01–29, 31 (#425) влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на Windows-ПК). 30 (#401) blocked, ждёт 32 (`wave-gate.test.sh` > 120 s).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 4/9, влиты 01–03 (`wave-gate`, ADR-0065) и 08 (#433, ADR-0068): batch CI на `main` включён; 06 — stub-ы для Windows, 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
-- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 2/8, влиты 01 (#421, новая шапка, `ticket migrate`) и 02 (#428, отметки на SHA); `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 4/8, влиты 01 (#421, шапка), 02 (#428, отметки на SHA), 03 (#457, Stage в main), 07 (#460, skills по Pipeline); дальше 04 и 05; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 
 ## Ждёт владельца
 
@@ -28,6 +28,7 @@
 - `worfy-windows` 35 (влит, PR #287): пробный том на ПК отключает владелец, шаги — в «Итог» Ticket-а; test на настоящих папках (Ticket 45, пункт 1) ждёт его слова в чате Windows Session.
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
 - `worfy-ui` 15: подпись Permissions уходит вместе с подписью Model, когда Model обрезан, — решено без владельца, подтвердить («Итог» 15).
+- `worfy-pipeline` 07: правка `profile.json` (Pipeline с Check «windows», Deploy?) и `rules.md` — слово владельца, diff в «Итог» 07; до неё действует запасной путь по тексту `rules.md`.
 
 ## Риски и долги
 

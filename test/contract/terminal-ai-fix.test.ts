@@ -6,7 +6,6 @@
 // come from a file the test writes, and every request is one line of a log the test reads. Claude
 // Code is never started and the subscription is never spent. HOME and the user's files are in a
 // temporary folder: the real ~/.zshrc and ~/.zsh_history are never read or written.
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -32,6 +31,7 @@ import { accessOf, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/i
 import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { needsZsh, zshPath } from '../zsh'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 vi.mock('@anthropic-ai/claude-agent-sdk', () => {
@@ -41,8 +41,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
   return { prewarm: vi.fn(refuse), query: vi.fn(refuse), startup: vi.fn(refuse) }
 })
 
-/** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
 const SH_NODE = 'terminal-node-sh'
@@ -189,7 +187,7 @@ async function start(w: World = world()) {
     return pty
   }
   const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8' }
-  const registry: TerminalRegistry = new TerminalRegistry({ env: () => Promise.resolve({ ...base, SHELL: ZSH }), killGraceMs: 1000, integration, spawn, assist: link })
+  const registry: TerminalRegistry = new TerminalRegistry({ env: () => Promise.resolve({ ...base, SHELL: zshPath() }), killGraceMs: 1000, integration, spawn, assist: link })
   registries.push(registry)
   const sh = new TerminalRegistry({ env: () => Promise.resolve({ ...base, SHELL: '/bin/sh' }), killGraceMs: 1000, integration, assist: link })
   registries.push(sh)
@@ -341,7 +339,8 @@ describe('the channels of the Fix button', () => {
     for (const channel of ['terminalAi.fix.state', 'terminalAi.fix.changed', 'terminalAi.fix.run']) expect(accessOf(channel), channel).toBe('project')
   })
 
-  it('`ls /nonexistent-worfy` makes the button available: the event and the state say so; a Terminal on /bin/sh never has it', async () => {
+  it('`ls /nonexistent-worfy` makes the button available: the event and the state say so; a Terminal on /bin/sh never has it', async (context) => {
+    needsZsh(context)
     const s = await start()
     await s.run(FAILING)
     await vi.waitFor(() => expect(last(s.window)).toEqual({ projectId: PROJECT, nodeId: NODE, available: true }), WAIT)
@@ -350,7 +349,8 @@ describe('the channels of the Fix button', () => {
     expect(await s.state(SH_NODE)).toEqual({ ok: true, value: { available: false } })
   })
 
-  it('Fix asks Sonnet with the command, its exit code and the tail of its output; the answer is the line of the zsh, and nothing runs', async () => {
+  it('Fix asks Sonnet with the command, its exit code and the tail of its output; the answer is the line of the zsh, and nothing runs', async (context) => {
+    needsZsh(context)
     const s = await start()
     s.answers(answering())
     await s.run(FAILING)
@@ -378,7 +378,8 @@ describe('the channels of the Fix button', () => {
     expect(await s.state()).toEqual({ ok: true, value: { available: false } })
   })
 
-  it('a secret the failed command printed reaches the model as [redacted]', async () => {
+  it('a secret the failed command printed reaches the model as [redacted]', async (context) => {
+    needsZsh(context)
     const s = await start()
     s.answers(answering())
     // The token is assembled by the shell: the command line holds only its halves.
@@ -390,7 +391,8 @@ describe('the channels of the Fix button', () => {
     expect(text).not.toContain(TOKEN)
   })
 
-  it('a new command takes the button away; a failed command that started with a space never brings it', async () => {
+  it('a new command takes the button away; a failed command that started with a space never brings it', async (context) => {
+    needsZsh(context)
     const s = await start()
     await s.run(FAILING)
     await vi.waitFor(() => expect(last(s.window)).toMatchObject({ available: true }), WAIT)
@@ -408,7 +410,8 @@ describe('the channels of the Fix button', () => {
     expect(s.window.changes().filter((change) => (change as { available: boolean }).available)).toHaveLength(1)
   })
 
-  it('with Fix off in Settings the button goes, and comes back when it is on', async () => {
+  it('with Fix off in Settings the button goes, and comes back when it is on', async (context) => {
+    needsZsh(context)
     const s = await start()
     await s.run(FAILING)
     await vi.waitFor(() => expect(last(s.window)).toMatchObject({ available: true }), WAIT)
@@ -423,7 +426,8 @@ describe('the channels of the Fix button', () => {
     await vi.waitFor(() => expect(last(s.window)).toMatchObject({ available: true }), WAIT)
   })
 
-  it('the zsh leaving takes the button away', async () => {
+  it('the zsh leaving takes the button away', async (context) => {
+    needsZsh(context)
     const s = await start()
     await s.run(FAILING)
     await vi.waitFor(() => expect(last(s.window)).toMatchObject({ available: true }), WAIT)
@@ -431,7 +435,8 @@ describe('the channels of the Fix button', () => {
     await vi.waitFor(() => expect(last(s.window)).toMatchObject({ available: false }), WAIT)
   })
 
-  it('Limits rejected: a refusal with the time they reset, and no request', async () => {
+  it('Limits rejected: a refusal with the time they reset, and no request', async (context) => {
+    needsZsh(context)
     const w = world()
     w.answers(answering())
     const resetsAt = Math.round(Date.now() / 1000) + 2 * 3600
@@ -447,7 +452,8 @@ describe('the channels of the Fix button', () => {
     expect(await s.state()).toEqual({ ok: true, value: { available: true } })
   })
 
-  it('while a command runs Fix says the Terminal is busy, and the model is not asked', async () => {
+  it('while a command runs Fix says the Terminal is busy, and the model is not asked', async (context) => {
+    needsZsh(context)
     const s = await start()
     s.answers(answering())
     await s.run(FAILING)
@@ -457,7 +463,8 @@ describe('the channels of the Fix button', () => {
     expect(s.requests()).toEqual([])
   })
 
-  it('an answer that comes after a new command started is not put into the line', async () => {
+  it('an answer that comes after a new command started is not put into the line', async (context) => {
+    needsZsh(context)
     const s = await start()
     s.answers(answering(1500))
     await s.run(FAILING)
@@ -471,7 +478,8 @@ describe('the channels of the Fix button', () => {
     expect(s.requests().filter((entry) => !entry.cancelled)).toEqual([])
   })
 
-  it('the log of main and of the service holds neither the command, nor its output, nor the answer', async () => {
+  it('the log of main and of the service holds neither the command, nor its output, nor the answer', async (context) => {
+    needsZsh(context)
     const printed: string[] = []
     for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
       vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void printed.push(args.map((arg) => (arg instanceof Error ? `${arg.message} ${arg.stack ?? ''}` : String(arg))).join(' ')))

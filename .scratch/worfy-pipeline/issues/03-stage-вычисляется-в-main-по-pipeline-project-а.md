@@ -1,7 +1,8 @@
 # 03 — Stage каждого Ticket-а вычисляется в main по Pipeline его Project-а
 
 Type: task
-Status: claimed 2026-10-17T22:32Z
+Status: done 2026-10-18T00:53Z
+PR: #457
 Blocked by: 01, 02
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 3, 4, 5, 7, 9 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md);
@@ -153,3 +154,22 @@ tracker по своему интервалу). Домен IPC `pipeline`: `pipel
   `Repo:`; Ticket без такой строки фактов PR не получает.
 - `checks.get` по-прежнему отдаёт только поля бейджей: новые поля PR снимает схема ответа (test в
   `test/contract/github-prs.test.ts`).
+
+Ревью и merge (2026-10-18): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/457#issuecomment-6243077016)). Проверяющий подтвердил: новый код
+ничего не пишет (ни файлов, ни Harness home, ни замка), вызовы `gh` для деплоя — только чтение, `PrTracker` один;
+из 10 мутантов 7 красные. Долги:
+- [low] `src/main/github/prs.ts:39` — test «an older gh without the fields» проверяет только JSON без полей; `gh`, не
+  знающий одно из четырёх полей, отвергает `--json` целиком, и бейджи показывают «gh unavailable». Исправление —
+  переименовать test или повторять запрос со старым `FIELDS` на «Unknown JSON field».
+- [low] `src/main/workflow/stages.ts:304,308` — мутанты «`close()` не останавливает таймер» и «не вызывает
+  `workflow.close`» выжили: утечку подписки после последнего `pipeline.close` test не ловит.
+- [low] `src/main/workflow/stages.ts:218` — лишний `gh api graphql` о деплое в Silent mode без `environment` test не
+  ловит (Stage не меняется).
+- [low, вопрос] `src/main/workflow/stages.ts:143` — общий `PrTracker.read` склеивает одновременные вызовы: Stage может
+  на один тик откатиться, если PR старше последних 100; поведение tracker-а было и раньше, не воспроизведено.
+- мёртвая строка `passed.pop()` в `src/shared/workflow/pipeline.ts:271`; `test/contract/github-prs.test.ts` — 1088
+  строк (gate warning).
+
+`GATE_SCOPE=all` gate full — зелёный с первого прогона; влит — `8f0f945f`. Batch CI run на main —
+зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39080623515.

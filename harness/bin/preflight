@@ -1,480 +1,822 @@
-#!/usr/bin/env bash
-# preflight — a check before starting work on a ticket or a wave in a registered project.
-#
-#   preflight [--epic <epic>] [--no-fetch]
-#
-# The same steps as section 1 (preflight) of the epic-wave skill and sections 2–3 of the ship-ticket skill,
-# but as one command: a step in the text can be skipped, exit code 1 cannot.
-#
-# Runs from any directory inside the repository (any worktree, any subdirectory).
-# All checks run to the end and collect reasons — hence set -u -o pipefail
-# without set -e. Output is at most 20 lines, warnings start with "! ", the last
-# line is exactly "GO" or "BLOCKED: <reasons separated by "; ">".
-#
-# Exit code: 0 — GO, 1 — BLOCKED, 2 — usage error (not a git repository, project not
-# registered or profile unreadable, unknown flag).
-#
-# Project facts come from the profile (bin/profile next to this script, contract in <plugin>/profiles/README.md):
-#   worktree.base               — the base (origin/main); the main branch is that without "origin/";
-#                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
-#                                 origin/HEAD points to, then origin/main;
-#   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
-#                                 in Silent mode (mode "silent") the ADRs live in the Workflow folder
-#                                 (_resolved.workflow_folder), not in branches: the numbers are counted
-#                                 from the files of that directory, a relative path is taken from the folder;
-#   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
-#                                 and the generate command for the hint; none — the step is skipped.
-# A skipped step is printed as a line, not passed over silently.
-# The epic summary is not a profile fact: it is the Harness's own epic-status next to this script
-# (a path to it in a schema 1 profile is not read; profiles/README.md, "Schema 1").
-#
-# Compatibility: bash 3.2 (macOS), no coreutils timeout — the time of network commands
-# is limited by perl (fork + alarm + kill of the whole process group: git leaves
-# git-remote-https behind, gh does not die from SIGALRM, but does die from SIGTERM).
-#
-# The ADR logic can be checked on a substitute list of names, without touching git:
-#   source <plugin>/bin/preflight; printf '%s\n' 0001-a.md 0001-b.md | adr_scan
-#   adr_scan 0005-x.md 0005-y.md 0007-z.md
-#   printf '0098\tfoo.md\torigin/a\n0098\tbar.md\torigin/b\n' | adr_collisions
+#!/usr/bin/env node
+// preflight — a check before starting work on a ticket or a wave in a registered project.
+//
+//   preflight [--epic <epic>] [--no-fetch]
+//
+// The same steps as section 1 (preflight) of the epic-wave skill and sections 2–3 of the ship-ticket skill,
+// but as one command: a step in the text can be skipped, exit code 1 cannot.
+//
+// Runs from any directory inside the repository (any worktree, any subdirectory).
+// All checks run to the end and collect reasons. Output is at most 20 lines, warnings start with "! ", the last
+// line is exactly "GO" or "BLOCKED: <reasons separated by "; ">".
+//
+// Exit code: 0 — GO, 1 — BLOCKED, 2 — usage error (not a git repository, project not
+// registered or profile unreadable, unknown flag); 130 and 143 — stopped by Ctrl+C or TERM.
+//
+// Project facts come from the profile (bin/profile next to this script, contract in <plugin>/profiles/README.md):
+//   worktree.base               — the base (origin/main); the main branch is that without "origin/";
+//                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
+//                                 origin/HEAD points to, then origin/main;
+//   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
+//                                 in Silent mode (mode "silent") the ADRs live in the Workflow folder
+//                                 (_resolved.workflow_folder), not in branches: the numbers are counted
+//                                 from the files of that directory, a relative path is taken from the folder;
+//   numbering.migrations.journal / .generate — the migrations journal (drizzle _journal.json format)
+//                                 and the generate command for the hint; none — the step is skipped.
+// A skipped step is printed as a line, not passed over silently.
+// The epic summary is not a profile fact: it is the Harness's own epic-status next to this script
+// (a path to it in a schema 1 profile is not read; profiles/README.md, "Schema 1").
+//
+// This script replaced a bash one (ADR-0055) and keeps its output and exit codes. The time of network and
+// sibling commands is limited by withTimeout: the child runs in its own process group (macOS, Linux) and on
+// timeout the whole group gets TERM, then KILL 0.5 s later (git leaves git-remote-https behind, gh does not die
+// from SIGALRM, but does die from SIGTERM); on Windows `taskkill /T /F` stops the whole tree. Exit code 124.
+// The sibling scripts run with the node running this one (Windows does not start an extensionless file by its
+// #! line): profile ($PREFLIGHT_PROFILE_BIN, for tests), worktree-lock, epic-status; a file whose #! line names
+// another interpreter (a shell stub of a test, a bash epic-status) runs by that line, through bash on Windows.
+// $PREFLIGHT_GH, when set, names the program run instead of gh from PATH (a test's stand-in), by the same rule.
+// Child output is handled as bytes: what is not valid UTF-8 comes out as it went in, and the commit subject is
+// cut by characters, not by UTF-16 units or bytes.
+//
+// The pure functions and the timeout can be checked without git through require, which does not run main:
+//   const pf = require("<plugin>/bin/preflight")
+//   pf.adrScan(["0001-a.md", "0001-b.md"])                          // "highest 0001 · duplicates 0001"
+//   pf.adrCollisions("0098\tfoo.md\torigin/a\n0098\tbar.md\torigin/b\n") // ["0098: origin/a, origin/b"]
+//   pf.migLast('{"entries":[{"idx":"0077"}]}')                       // "77"
+//   pf.lockReport(<output of worktree-lock status>, <session id>)   // [["say" | "warn" | "block", text], …]
+//   await pf.withTimeout(<sec>, <program>, [<args>])                 // {code, stdout, stderr}
+"use strict"
 
-set -u -o pipefail
+const fs = require("node:fs")
+const os = require("node:os")
+const path = require("node:path")
+const { spawn, spawnSync } = require("node:child_process")
+const { isUtf8 } = require("node:buffer")
 
-# bash 3.2 slices strings by characters, not bytes, only in a UTF-8 locale.
-unset LC_ALL
-export LC_CTYPE=en_US.UTF-8
-export GIT_TERMINAL_PROMPT=0 GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
+const WIN = process.platform === "win32"
+const USAGE = "usage: preflight [--epic <epic>] [--no-fetch]"
+const BIN = path.dirname(fs.realpathSync(__filename))
+const EPIC_TOOL = path.join(BIN, "epic-status") // a constant of the Harness, the same for every project
+const FETCH_TIMEOUT = 60 // seconds; a typical fetch takes a few seconds
+const GH_TIMEOUT = 20
+const TOOL_TIMEOUT = 20 // worktree-lock, epic-status are local, but node may hang
 
-USAGE='usage: preflight [--epic <epic>] [--no-fetch]'
-BIN=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")" 2>/dev/null && pwd -P)
-PROFILE_BIN=${PREFLIGHT_PROFILE_BIN:-$BIN/profile}   # the override is for tests
-# load_profile fills these; the defaults are only for sourcing the functions in tests.
-BASE=origin/main MAIN=main ADR_DIR=docs/adr JOURNAL='' MIG_GEN='' MODE=full WORKFLOW=''
-EPIC_TOOL=$BIN/epic-status   # a constant of the Harness, the same for every project
-FETCH_TIMEOUT=60   # seconds; a typical fetch takes a few seconds
-GH_TIMEOUT=20
-TOOL_TIMEOUT=20    # worktree-lock, epic-status are local, but node may hang
-
-# ── output ────────────────────────────────────────────────────────────────────
-REASONS=''
-say()   { printf '%s\n' "$*"; }
-warn()  { printf '! %s\n' "$*"; }
-block() { REASONS="${REASONS:+$REASONS; }$*"; }
-die()   { printf 'preflight: %s\n' "$*" >&2; exit 2; }
-first_line() { printf '%s' "${1%%$'\n'*}"; }
-fmt4()  { printf '%04d' "$1"; }
-cut_chars() {  # <string> <N> — cut to N characters with "…"
-  local s=$1 n=$2
-  [ "${#s}" -gt "$n" ] && s="${s:0:$n}…"
-  printf '%s' "$s"
+// ── bytes ─────────────────────────────────────────────────────────────────────
+// Child output is decoded as UTF-8, and a byte that is not part of a valid sequence becomes the lone surrogate
+// U+DC80–U+DCFF; encode() turns it back into that byte. So text that is not valid UTF-8 passes through unchanged,
+// as it did through bash, and each such byte counts as one character, as bash counted it.
+function decode(buf) {
+    if (isUtf8(buf)) return buf.toString("utf8")
+    let s = ""
+    for (let i = 0; i < buf.length; ) {
+        let n = buf[i] < 0x80 ? 1 : 0
+        for (let k = 2; !n && k <= 4 && i + k <= buf.length; k++) if (isUtf8(buf.subarray(i, i + k))) n = k
+        if (n) s += buf.toString("utf8", i, i + n)
+        else s += String.fromCharCode(0xdc00 + buf[i])
+        i += n || 1
+    }
+    return s
+}
+function encode(s) {
+    const re = /(?<![\ud800-\udbff])[\udc80-\udcff]/g
+    const parts = []
+    let last = 0
+    for (let m; (m = re.exec(s)); last = m.index + 1)
+        parts.push(Buffer.from(s.slice(last, m.index), "utf8"), Buffer.from([s.charCodeAt(m.index) - 0xdc00]))
+    parts.push(Buffer.from(s.slice(last), "utf8"))
+    return Buffer.concat(parts)
 }
 
-# with_timeout <sec> <command…> — the command's exit code; 124 if time ran out.
-# The child gets its own process group, and on timeout the whole group dies.
-with_timeout() {
-  perl -e '
-    my $t = shift @ARGV;
-    my $pid = fork; die "fork: $!\n" unless defined $pid;
-    if (!$pid) { setpgrp(0, 0); exec @ARGV or exit 127 }
-    my $stop = sub { my $code = shift; kill "TERM", -$pid; select undef, undef, undef, 0.5;
-                     kill "KILL", -$pid; waitpid $pid, 0; exit $code };
-    local $SIG{ALRM} = sub { $stop->(124) };
-    local $SIG{INT} = local $SIG{TERM} = local $SIG{HUP} = sub { $stop->(130) };
-    alarm $t; waitpid $pid, 0; my $st = $?;
-    exit(($st & 127) ? 128 + ($st & 127) : $st >> 8);
-  ' "$@"
+// ── output ────────────────────────────────────────────────────────────────────
+// Written synchronously to the file descriptors: a signal handler may end the process at any moment, and a line
+// already printed must not be lost in a stream buffer.
+const write = (fd, s) => {
+    try {
+        fs.writeSync(fd, encode(s))
+    } catch {
+        /* the reader is gone */
+    }
+}
+class Exit {
+    constructor(code) {
+        this.code = code
+    }
+}
+let REASONS = ""
+const say = (s) => write(1, s + "\n")
+const warn = (s) => write(1, "! " + s + "\n")
+const block = (s) => (REASONS = REASONS ? `${REASONS}; ${s}` : s)
+const die = (s) => {
+    write(2, `preflight: ${s}\n`)
+    throw new Exit(2)
+}
+const firstLine = (s) => s.split("\n")[0]
+const fmt4 = (n) => String(n).padStart(4, "0")
+// What a shell's $(…) keeps of a command's output: everything but the trailing newlines.
+const chomp = (s) => s.replace(/\n+$/, "")
+// <string> <N> — cut to N characters with "…"; a character is a code point, so Cyrillic and emoji stay whole.
+function cutChars(s, n) {
+    const chars = Array.from(s)
+    return chars.length > n ? chars.slice(0, n).join("") + "…" : s
 }
 
-# ── ADR: pure functions over a list of names (stdin), testable without git ────
-adr_numbers() {  # file names → four-digit numbers, one per line
-  awk '{ n=$0; sub(/.*\//,"",n); if (n ~ /^[0-9][0-9][0-9][0-9]-/) print substr(n,1,4) }'
-}
-adr_max()  { adr_numbers | sort -n | tail -1; }            # empty if there are no ADRs
-adr_dups() { adr_numbers | sort | uniq -d | paste -s -d, - | sed 's/,/, /g'; }
-adr_scan() {  # [names…] or stdin → "highest NNNN · duplicates …"
-  local list
-  if [ $# -gt 0 ]; then list=$(printf '%s\n' "$@"); else list=$(cat); fi
-  local mx dp
-  mx=$(printf '%s\n' "$list" | adr_max)
-  dp=$(printf '%s\n' "$list" | adr_dups)
-  printf 'highest %s · duplicates %s\n' "${mx:-none}" "${dp:-none}"
-}
-# stdin: lines "number<TAB>file name<TAB>branch" → "NNNN: branch1, branch2" for numbers
-# that name different files in different branches (two sessions took the same number).
-adr_collisions() {
-  awk -F'\t' '
-    !($1 in name) { name[$1]=$2; br[$1]=$3; next }
-    $2 != name[$1] { hit[$1]=1; if (index(", " br[$1] ", ", ", " $3 ", ") == 0) br[$1]=br[$1] ", " $3 }
-    END { for (k in hit) print k ": " br[k] }' | sort
+// ── running commands ──────────────────────────────────────────────────────────
+// A local git command, as `$(git …)` ran it: stdout without the trailing newlines, null when git failed.
+// stderr is dropped unless `stderr` is "inherit".
+// git ended by INT, TERM or HUP: Ctrl+C or a stop reached the whole process group, preflight too. Its own handler
+// runs only after this synchronous code, which would print lines built from the missing answer ("branch detached
+// ?"), so preflight exits here, with 128 + the signal number, as the shell's trap did.
+const STOP_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGHUP"])
+function git(args, { stderr = "ignore", raw = false } = {}) {
+    const r = spawnSync("git", args, { stdio: ["ignore", "pipe", stderr], maxBuffer: 1 << 28, windowsHide: true })
+    if (STOP_SIGNALS.has(r.signal)) process.exit(128 + os.constants.signals[r.signal])
+    if (r.error || r.status !== 0) return null
+    const s = decode(r.stdout)
+    return raw ? s : chomp(s)
 }
 
-mig_last() {  # stdin: _journal.json → idx of the last entry as a decimal number; empty if none
-  local v
-  v=$(jq -r '.entries[-1].idx // empty' 2>/dev/null) || return 0
-  # A string idx with leading zeros ("0077") without 10# would go into octal arithmetic.
-  case $v in ''|*[!0-9]*) return 0 ;; esac
-  printf '%s\n' "$(( 10#$v ))"
+// What runs a file: a node script (a #! line naming node, or none) with this node; a file whose #! line names
+// another interpreter by that line, through bash on Windows, which cannot start it by its #! line.
+function scriptCommand(file, args) {
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: the start reports it */
+    }
+    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return WIN ? ["bash", [file, ...args]] : [file, args]
+    return [process.execPath, [file, ...args]]
 }
 
-# ── arguments ─────────────────────────────────────────────────────────────────
-EPIC='' FETCH=1
-parse_args() {
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --epic)     [ $# -ge 2 ] || die "--epic without a value · $USAGE"; EPIC=$2; shift 2 ;;
-      --epic=*)   EPIC=${1#--epic=}; shift ;;
-      --no-fetch) FETCH=0; shift ;;
-      -h|--help)  say "$USAGE"; exit 0 ;;
-      *)          die "unknown flag $1 · $USAGE" ;;
-    esac
-  done
+const running = new Set() // children of withTimeout, stopped with the tree when preflight itself is stopped
+let stopping = false
+
+function killTree(child, signal) {
+    if (WIN) {
+        spawnSync("taskkill", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true })
+        return
+    }
+    try {
+        process.kill(-child.pid, signal)
+    } catch {
+        /* the group is gone */
+    }
+}
+// TERM to the tree, KILL 0.5 s later (on Windows taskkill /F is immediate, once).
+function stopTree(child, then) {
+    killTree(child, "SIGTERM")
+    if (WIN) return then()
+    setTimeout(() => {
+        killTree(child, "SIGKILL")
+        then()
+    }, 500)
 }
 
-# ── checks ────────────────────────────────────────────────────────────────────
-ROOT='' BRANCH='' HEAD7='' MAIN_TREE='' ME=''
-
-locate_repo() {
-  ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not a git repository: $PWD"
-  cd "$ROOT" || die "no access to $ROOT"
-  TMP=$(mktemp -d 2>/dev/null) || die "mktemp failed"
-  trap 'rm -rf "$TMP"' EXIT
-  trap 'rm -rf "$TMP"; exit 130' INT
-  trap 'rm -rf "$TMP"; exit 143' TERM
+// withTimeout(<sec>, <program>, [<args>], {env, stdout, merge}) → {code, stdout, stderr, error}: the program's exit
+// code, 128 + the signal when a signal ended it, 124 if time ran out, 127 if it could not start (no output then,
+// and `error` is the start's error code: ENOENT, EACCES; null otherwise). stdout "ignore" drops it; merge puts stderr into stdout in arrival
+// order, as 2>&1 did. stdin is empty.
+function withTimeout(sec, cmd, args, { env = process.env, stdout = "pipe", merge = false } = {}) {
+    return new Promise((resolve) => {
+        const out = []
+        const err = []
+        let settled = false
+        let timer = null
+        let timedOut = false
+        let child
+        let error = null
+        const done = (code) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            running.delete(child)
+            if (stopping) return // preflight is exiting: nothing more is checked or printed
+            resolve({ code, stdout: decode(Buffer.concat(out)), stderr: decode(Buffer.concat(err)), error })
+        }
+        try {
+            child = spawn(cmd, args, { stdio: ["ignore", stdout, "pipe"], env, detached: !WIN, windowsHide: true })
+        } catch (e) {
+            error = (e && e.code) || "ESPAWN"
+            return void done(127)
+        }
+        running.add(child)
+        child.stdout?.on("data", (d) => out.push(d))
+        child.stderr.on("data", (d) => (merge ? out : err).push(d))
+        child.on("error", (e) => {
+            // Not started (ENOENT, EACCES): nothing ran, so there is no output either.
+            if (child.pid === undefined) {
+                error = (e && e.code) || "ESPAWN"
+                out.length = 0
+                err.length = 0
+                done(127)
+            }
+        })
+        child.on("close", (code, signal) => {
+            if (timedOut) return done(124)
+            done(signal ? 128 + (os.constants.signals[signal] || 0) : code)
+        })
+        timer = setTimeout(() => {
+            timedOut = true
+            stopTree(child, () => {
+                // A process outside the tree may still hold the output pipe: do not wait for it long.
+                setTimeout(() => {
+                    child.stdout?.destroy()
+                    child.stderr.destroy()
+                    done(124)
+                }, 1000).unref()
+            })
+        }, sec * 1000)
+    })
 }
 
-# Profile fields as one TSV line. profile exit 3 — the project is not registered, 1 — the registry
-# or the profile is broken: in both cases there is nothing to check against, it is a usage error (exit 2).
-load_profile() {
-  local json rc vals
-  json=$(with_timeout "$TOOL_TIMEOUT" "$PROFILE_BIN" -C "$ROOT" --json </dev/null 2>"$TMP/profile.err"); rc=$?
-  case $rc in
-    0) ;;
-    3) die "project not registered in ${HARNESS_HOME:-~/.claude/worfy-harness}/gate/config.json (or its entry has no profile): $(first_line "$(cat "$TMP/profile.err")")" ;;
-    *) die "profile unreadable (profile, exit $rc): $(first_line "$(cat "$TMP/profile.err")")" ;;
-  esac
-  vals=$(printf '%s' "$json" | node -e '
-    let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
-      const p = JSON.parse(s), g = (o, ...k) => k.reduce((a, x) => (a == null ? a : a[x]), o)
-      // No worktree.base (Atakama: several repositories, not all on main) — the default branch
-      // of this repository from layout.repos; none — empty, and the shell asks origin/HEAD.
-      const repo = g(p, "_resolved", "repo_root"), db = repo ? g(p, "layout", "repos", repo.split("/").pop(), "default_branch") : null
-      const v = [
-        g(p, "worktree", "base") || (typeof db === "string" && db ? "origin/" + db : ""),
-        g(p, "numbering", "adr", "dir") || g(p, "docs", "adr_dir") || "",
-        g(p, "numbering", "migrations", "journal") || "",
-        g(p, "numbering", "migrations", "generate") || "",
-        g(p, "_resolved", "mode") || "full",
-        g(p, "_resolved", "workflow_folder") || "",
-      ]
-      process.stdout.write(v.map((x) => String(x).replace(/[\t\n]/g, " ")).join("\t") + "\n")
-    })' 2>"$TMP/profile.err") || die "profile --json not parsed: $(first_line "$(cat "$TMP/profile.err")")"
-  # A tab IFS collapses empty fields: the fields are cut by hand; gate.mjs splits by tabs too.
-  BASE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
-  ADR_DIR=${vals%%$'\t'*};   vals=${vals#*$'\t'}
-  JOURNAL=${vals%%$'\t'*};   vals=${vals#*$'\t'}
-  MIG_GEN=${vals%%$'\t'*};   vals=${vals#*$'\t'}
-  MODE=${vals%%$'\t'*};      vals=${vals#*$'\t'}
-  WORKFLOW=$vals
-  ADR_DIR=${ADR_DIR%/}
-  # Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
-  if [ -z "$BASE" ]; then
-    BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) || BASE=''
-    [ -n "$BASE" ] || BASE=origin/main
-  fi
-  MAIN=${BASE#origin/}
+// Ctrl+C, TERM and HUP of preflight stop the trees of the running children, then exit 130, 143, 129.
+function onSignal(signal, code) {
+    process.on(signal, () => {
+        if (stopping) return
+        stopping = true
+        const children = [...running]
+        if (!children.length) process.exit(code)
+        let left = children.length
+        for (const c of children) stopTree(c, () => --left || process.exit(code))
+    })
 }
 
-check_tree() {  # 1
-  BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || BRANCH=''
-  HEAD7=$(git rev-parse --short HEAD 2>/dev/null) || HEAD7='?'
-  local dirty
-  dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ') || dirty='?'
-  say "tree: $ROOT · branch ${BRANCH:-detached $HEAD7} · uncommitted files ${dirty:-?}"
+// ── ADR: pure functions over a list of names, testable without git ────────────
+const adrNumbers = (names) =>
+    names.map((n) => n.replace(/.*\//, "")).filter((n) => /^[0-9]{4}-/.test(n)).map((n) => n.slice(0, 4))
+const adrMax = (names) => {
+    const nums = adrNumbers(names)
+    return nums.length ? nums.reduce((a, b) => (Number(b) >= Number(a) ? b : a)) : ""
+} // empty if there are no ADRs
+const adrDups = (names) => {
+    const seen = new Map()
+    for (const n of adrNumbers(names)) seen.set(n, (seen.get(n) || 0) + 1)
+    return [...seen].filter(([, c]) => c > 1).map(([n]) => n).sort().join(", ")
+}
+// names → "highest NNNN · duplicates …"
+const adrScan = (names) => `highest ${adrMax(names) || "none"} · duplicates ${adrDups(names) || "none"}`
+// Lines "number<TAB>file name<TAB>branch" → ["NNNN: branch1, branch2"] for numbers that name different files in
+// different branches (two sessions took the same number), sorted.
+function adrCollisions(tsv) {
+    const name = new Map()
+    const br = new Map()
+    const hit = new Set()
+    for (const line of tsv.split("\n")) {
+        if (!line) continue
+        const [num, file = "", branch = ""] = line.split("\t")
+        if (!name.has(num)) {
+            name.set(num, file)
+            br.set(num, branch)
+            continue
+        }
+        if (file !== name.get(num)) {
+            hit.add(num)
+            if (!`, ${br.get(num)}, `.includes(`, ${branch}, `)) br.set(num, `${br.get(num)}, ${branch}`)
+        }
+    }
+    return [...hit].map((k) => `${k}: ${br.get(k)}`).sort()
 }
 
-# The active gh account versus the remote's owner. gh holds two accounts, git takes its token
-# from gh: a wrong active account fails fetch and gh pr list with an obscure "repository not
-# found". The account is not switched — it is a machine-wide setting shared by other sessions;
-# the result is a hint in GH_WARN, which check_fetch prints. A gh failure stays silent:
-# the PR line already reports gh being unavailable.
-GH_WARN=''
-check_gh_account() {
-  local url path owner login
-  url=$(git remote get-url origin 2>/dev/null) || return 0
-  case $url in *github.com*) ;; *) return 0 ;; esac
-  # https://github.com/owner/repo.git · git@github.com:owner/repo.git · ssh://git@github.com/owner/repo
-  path=$(printf '%s' "$url" | sed -E 's#^[a-z+]+://[^/]+/##; s#^[^@/]+@[^:/]+:##; s#^[^/:]+:##')
-  owner=${path%%/*}
-  [ -n "$owner" ] || return 0
-  login=$(with_timeout "$GH_TIMEOUT" gh api user --jq .login 2>/dev/null) || return 0
-  [ -n "$login" ] || return 0
-  # GitHub logins are case-insensitive, and the case in a remote URL is arbitrary.
-  [ "$(printf '%s' "$login" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" ] && return 0
-  GH_WARN="gh: active account $login, remote belongs to $owner — gh auth switch --user $owner"
+// _journal.json text → idx of the last entry as a decimal number ("0077" → "77"); empty if none or unreadable.
+function migLast(text) {
+    let p
+    try {
+        p = JSON.parse(text)
+    } catch {
+        return ""
+    }
+    const isObj = (x) => x !== null && typeof x === "object" && !Array.isArray(x)
+    if (!isObj(p)) return ""
+    const entries = p.entries
+    if (!Array.isArray(entries) || !entries.length) return ""
+    const last = entries[entries.length - 1]
+    if (!isObj(last)) return ""
+    const v = typeof last.idx === "string" || typeof last.idx === "number" ? String(last.idx) : ""
+    return /^[0-9]+$/.test(v) ? String(parseInt(v, 10)) : ""
 }
 
-check_fetch() {  # 2
-  # The gh account hint shares a line with fetch (or the BLOCKED reason): a separate
-  # line would break the 20-line limit, and without it a fetch failure is a mystery.
-  [ "$FETCH" = 1 ] || { warn "fetch skipped${GH_WARN:+ · $GH_WARN}"; return; }
-  local rc
-  with_timeout "$FETCH_TIMEOUT" git fetch origin --prune --quiet >/dev/null 2>"$TMP/fetch.err"; rc=$?
-  case $rc in
-    0)   [ -z "$GH_WARN" ] || warn "$GH_WARN" ;;
-    124) block "fetch failed: timed out after $FETCH_TIMEOUT s${GH_WARN:+ · $GH_WARN}" ;;
-    *)   block "fetch failed: $(first_line "$(cat "$TMP/fetch.err")")${GH_WARN:+ · $GH_WARN}" ;;
-  esac
+// The output of `worktree-lock status` and this session's id → what the lock step prints:
+// [["say" | "warn" | "block", text], …]. Lines like "  holds a0184940  since 06:54  seen 7 min ago  ← this"
+// and "   also …".
+function lockReport(out, me) {
+    if (out.includes("no live sessions recorded")) return [["say", "lock: free"]]
+    if (out.includes("registry unreadable")) return [["warn", `lock: registry unreadable, lock disabled — ${firstLine(out)}`]]
+    let mine = false
+    let holderMe = false
+    let foreign = ""
+    let myAge = ""
+    let nparsed = 0
+    for (const line of out.split("\n")) {
+        if (!line.includes("  seen ")) continue
+        nparsed++
+        const [role = "", id = ""] = line.split(/[ \t]+/).filter(Boolean)
+        let age = line.slice(line.indexOf("  seen ") + 7)
+        if (age.includes("  ←")) age = age.slice(0, age.indexOf("  ←"))
+        const num = Number(age.split(" ")[0])
+        let mins = 0
+        if (age.endsWith(" min ago")) mins = num
+        else if (age.endsWith(" h ago")) mins = num * 60
+        if (line.includes("← this")) {
+            mine = true
+            myAge = age
+            if (role === "holds") holderMe = true
+        } else {
+            // An entry younger than the TTL (60 min) counts as alive: a crashed session without release
+            // looks alive for up to an hour — the heartbeat age is the check for that.
+            const stale = mins >= 30 ? ", possibly abandoned" : ""
+            foreign = `${foreign ? foreign + ", " : ""}${id} (heartbeat ${age}${stale})`
+        }
+    }
+    if (nparsed === 0) return [["warn", `lock: worktree-lock output not parsed: ${firstLine(out)}`]]
+    if (foreign && me)
+        return [
+            ["say", `lock: another live session ${foreign}`],
+            ["block", `another live session in the tree: ${foreign}`],
+        ]
+    if (foreign) return [["warn", `lock: a live session in the tree ${foreign}; ours or another — cannot tell, no CLAUDE_SESSION_ID`]]
+    if (holderMe) return [["say", `lock: held by this session (heartbeat ${myAge})`]]
+    if (mine) return [["say", `lock: this session is registered, but is not the holder (heartbeat ${myAge})`]]
+    return []
 }
 
-check_origin_main() {  # 3
-  git rev-parse --verify -q "refs/remotes/$BASE" >/dev/null 2>&1 \
-    || { block "no ref $BASE"; return; }
-  local sha date subj
-  IFS=$'\t' read -r sha date subj < <(git log -1 --format='%h%x09%cd%x09%s' --date=format:%Y-%m-%dT%H:%M "$BASE")
-  say "$BASE: $sha $date \"$(cut_chars "$subj" 60)\""
+// ── arguments ─────────────────────────────────────────────────────────────────
+let EPIC = ""
+let FETCH = true
+function parseArgs(argv) {
+    for (let i = 0; i < argv.length; ) {
+        const a = argv[i]
+        if (a === "--epic") {
+            if (i + 1 >= argv.length) die(`--epic without a value · ${USAGE}`)
+            EPIC = argv[i + 1]
+            i += 2
+        } else if (a.startsWith("--epic=")) {
+            EPIC = a.slice("--epic=".length)
+            i++
+        } else if (a === "--no-fetch") {
+            FETCH = false
+            i++
+        } else if (a === "-h" || a === "--help") {
+            say(USAGE)
+            throw new Exit(0)
+        } else die(`unknown flag ${a} · ${USAGE}`)
+    }
 }
 
-check_main() {  # 4
-  local wt='' key val behind ahead k hint
-  while read -r key val; do
-    case $key in
-      worktree) wt=$val ;;
-      branch)   [ "$val" = "refs/heads/$MAIN" ] && MAIN_TREE=$wt ;;
-    esac
-  done < <(git worktree list --porcelain 2>/dev/null)
+// ── checks ────────────────────────────────────────────────────────────────────
+let ROOT = ""
+let BRANCH = ""
+let HEAD7 = ""
+let MAIN_TREE = ""
+let BASE = "origin/main"
+let MAIN = "main"
+let ADR_DIR = ""
+let JOURNAL = ""
+let MIG_GEN = ""
+let MODE = "full"
+let WORKFLOW = ""
 
-  if git rev-parse --verify -q "refs/heads/$MAIN" >/dev/null 2>&1; then
-    behind=$(git rev-list --count "$MAIN..$BASE" 2>/dev/null) || behind='?'
-    ahead=$(git rev-list --count "$BASE..$MAIN" 2>/dev/null) || ahead='?'
-    if [ "$behind" != 0 ]; then
-      if [ "$ahead" != 0 ]; then
-        hint="diverged (ahead by $ahead): ff impossible, sort it out by hand"
-      elif [ -z "$MAIN_TREE" ]; then
-        hint="catch up: git fetch origin $MAIN:$MAIN ($MAIN is not checked out anywhere)"
-      elif [ "$MAIN_TREE" = "$ROOT" ]; then
-        hint="catch up: git pull --ff-only"
-      else
-        hint="catch up: git -C $MAIN_TREE pull --ff-only"
-      fi
-      warn "$MAIN is behind $BASE by $behind — $hint"
-      [ "$BRANCH" = "$MAIN" ] && block "working on a stale $MAIN (behind by $behind)"
-    elif [ "$ahead" != 0 ]; then
-      warn "$MAIN is ahead of $BASE by $ahead — unpushed commits in $MAIN"
-    fi
-  else
-    warn "no local branch $MAIN"
-  fi
-
-  if [ "$BRANCH" != "$MAIN" ]; then
-    k=$(git rev-list --count "HEAD..$BASE" 2>/dev/null) || k='?'
-    say "branch ${BRANCH:-detached $HEAD7}: behind $BASE by $k"
-  fi
+// The logical launch directory, like $PWD in a shell: process.cwd() resolves symlinks (/tmp → /private/tmp).
+function launchDir() {
+    const cwd = process.cwd()
+    const pwd = process.env.PWD
+    try {
+        if (pwd && path.isAbsolute(pwd) && fs.realpathSync(pwd) === fs.realpathSync(cwd)) return pwd
+    } catch {
+        /* $PWD is stale — take cwd */
+    }
+    return cwd
 }
 
-check_lock() {  # 5
-  ME=${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-}}
-  local out rc line role id age mins stale mine=0 holder_me=0 foreign='' my_age='' nparsed=0
-  out=$(CLAUDE_SESSION_ID="$ME" with_timeout "$TOOL_TIMEOUT" "$BIN/worktree-lock" status </dev/null 2>&1); rc=$?
-  if [ "$rc" != 0 ] || [ -z "$out" ]; then
-    warn "lock: worktree-lock unavailable (exit $rc)${out:+: $(first_line "$out")}"; return
-  fi
-  case $out in
-    *'no live sessions recorded'*) say "lock: free"; return ;;
-    *'registry unreadable'*)       warn "lock: registry unreadable, lock disabled — $(first_line "$out")"; return ;;
-  esac
-  # Lines like "  holds a0184940  since 06:54  seen 7 min ago  ← this" / "   also …".
-  while IFS= read -r line; do
-    case $line in *'  seen '*) ;; *) continue ;; esac
-    nparsed=$((nparsed + 1))
-    set -- $line
-    role=$1; id=$2
-    age=${line#*  seen }; age=${age%%  ←*}
-    mins=0
-    case $age in
-      *' min ago') mins=${age%% *} ;;
-      *' h ago')   mins=$(( ${age%% *} * 60 )) ;;
-    esac
-    case $line in
-      *'← this'*) mine=1; my_age=$age; [ "$role" = holds ] && holder_me=1 ;;
-      *) stale=''
-         # An entry younger than the TTL (60 min) counts as alive: a crashed session without release
-         # looks alive for up to an hour — the heartbeat age is the check for that.
-         [ "$mins" -ge 30 ] && stale=', possibly abandoned'
-         foreign="${foreign:+$foreign, }$id (heartbeat $age$stale)" ;;
-    esac
-  done <<<"$out"
-
-  if [ "$nparsed" -eq 0 ]; then
-    warn "lock: worktree-lock output not parsed: $(first_line "$out")"
-  elif [ -n "$foreign" ] && [ -n "$ME" ]; then
-    say "lock: another live session $foreign"
-    block "another live session in the tree: $foreign"
-  elif [ -n "$foreign" ]; then
-    warn "lock: a live session in the tree $foreign; ours or another — cannot tell, no CLAUDE_SESSION_ID"
-  elif [ "$holder_me" = 1 ]; then
-    say "lock: held by this session (heartbeat $my_age)"
-  elif [ "$mine" = 1 ]; then
-    say "lock: this session is registered, but is not the holder (heartbeat $my_age)"
-  fi
+function locateRepo() {
+    const top = git(["rev-parse", "--show-toplevel"])
+    if (top === null) die(`not a git repository: ${launchDir()}`)
+    ROOT = top
+    try {
+        process.chdir(ROOT)
+    } catch {
+        die(`no access to ${ROOT}`)
+    }
 }
 
-# Branches whose claims on ADR and migration numbers must be counted: all refs/remotes/origin/*
-# (except HEAD and main — origin/main is counted separately) and all local refs/heads/*,
-# including main and the current one. Since 2026-09-14 the branches of a batch live locally without push for weeks,
-# and an ADR stub from a neighbouring worktree is visible before push only here. Remote first,
-# then local: with equal numbers the line keeps the branch everyone can see.
-# Prints "<full ref><TAB><label>": origin/<branch> or local:<branch>.
-ref_sources() {
-  git for-each-ref --format='%(refname)%09%(refname:strip=2)' refs/remotes/origin/ 2>/dev/null \
-    | awk -F'\t' -v base="$BASE" '$2 != "origin/HEAD" && $2 != base'
-  git for-each-ref --format='%(refname)%09local:%(refname:strip=2)' refs/heads/ 2>/dev/null
+// Profile fields. profile exit 3 — the project is not registered, 1 — the registry or the profile is broken:
+// in both cases there is nothing to check against, it is a usage error (exit 2).
+async function loadProfile() {
+    const bin = process.env.PREFLIGHT_PROFILE_BIN || path.join(BIN, "profile") // the override is for tests
+    const r = fs.existsSync(bin)
+        ? await withTimeout(TOOL_TIMEOUT, ...scriptCommand(bin, ["-C", ROOT, "--json"]))
+        : { code: 127, stdout: "", stderr: "" }
+    const why = firstLine(chomp(r.stderr))
+    if (r.code === 3)
+        die(`project not registered in ${process.env.HARNESS_HOME || "~/.claude/worfy-harness"}/gate/config.json (or its entry has no profile): ${why}`)
+    if (r.code !== 0) die(`profile unreadable (profile, exit ${r.code}): ${why}`)
+    let v
+    try {
+        const p = JSON.parse(chomp(r.stdout))
+        const g = (o, ...k) => k.reduce((a, x) => (a == null ? a : a[x]), o)
+        // No worktree.base (Atakama: several repositories, not all on main) — the default branch
+        // of this repository from layout.repos; none — empty, and git is asked for origin/HEAD.
+        const repo = g(p, "_resolved", "repo_root")
+        const db = repo ? g(p, "layout", "repos", repo.split("/").pop(), "default_branch") : null
+        v = [
+            g(p, "worktree", "base") || (typeof db === "string" && db ? "origin/" + db : ""),
+            g(p, "numbering", "adr", "dir") || g(p, "docs", "adr_dir") || "",
+            g(p, "numbering", "migrations", "journal") || "",
+            g(p, "numbering", "migrations", "generate") || "",
+            g(p, "_resolved", "mode") || "full",
+            g(p, "_resolved", "workflow_folder") || "",
+        ].map((x) => String(x).replace(/[\t\n]/g, " "))
+    } catch (e) {
+        die(`profile --json not parsed: ${firstLine(String(e && e.message))}`)
+    }
+    ;[BASE, ADR_DIR, JOURNAL, MIG_GEN, MODE, WORKFLOW] = v
+    if (ADR_DIR.endsWith("/")) ADR_DIR = ADR_DIR.slice(0, -1)
+    // Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
+    if (!BASE) BASE = git(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) || "origin/main"
+    MAIN = BASE.startsWith("origin/") ? BASE.slice("origin/".length) : BASE
 }
 
-# Silent mode: the ADRs are files of the Workflow folder, one copy, in no branch of the repository. A duplicate
-# number there is the same collision two branches give in Full mode, so it blocks.
-check_adr_silent() {
-  local dir=$ADR_DIR mx dups
-  case $dir in /*) ;; '~'|'~/'*) dir=$HOME${dir#'~'} ;; *) dir=$WORKFLOW/$dir ;; esac
-  [ -n "$WORKFLOW" ] || { block "Silent mode, but the profile names no Workflow folder"; return; }
-  if [ ! -d "$dir" ]; then say "ADR: Silent mode, no ADR directory $dir in the Workflow folder yet → next free 0001"; return; fi
-  mx=$(ls -1 "$dir" 2>/dev/null | adr_max); mx=$(( 10#${mx:-0} ))
-  dups=$(ls -1 "$dir" 2>/dev/null | adr_dups)
-  [ -n "$dups" ] && block "duplicate ADR $dups in the Workflow folder ($dir)"
-  say "ADR: Silent mode, highest $(fmt4 "$mx") in the Workflow folder ($dir) → next free $(fmt4 $((mx + 1)))"
+function checkTree() {
+    // 1
+    BRANCH = git(["symbolic-ref", "--short", "-q", "HEAD"]) || ""
+    const h = git(["rev-parse", "--short", "HEAD"])
+    HEAD7 = h === null ? "?" : h
+    const st = git(["status", "--porcelain"], { raw: true })
+    const dirty = st === null ? "?" : String(st.split("\n").length - 1)
+    say(`tree: ${ROOT} · branch ${BRANCH || `detached ${HEAD7}`} · uncommitted files ${dirty}`)
 }
 
-check_adr() {  # 6
-  [ -n "$ADR_DIR" ] || { say "ADR: no ADR directory in the profile (numbering.adr) — step skipped"; return; }
-  [ "$MODE" = silent ] && { check_adr_silent; return; }
-  local list main_max dups ref b m br_max=0 br_name='' local_max next coll
-  list=$(git ls-tree --name-only "$BASE" "$ADR_DIR/" 2>/dev/null)
-  main_max=$(printf '%s\n' "$list" | adr_max); main_max=$(( 10#${main_max:-0} ))
-  dups=$(printf '%s\n' "$list" | adr_dups)
-  [ -n "$dups" ] && block "duplicate ADR $dups on $BASE"
-
-  : >"$TMP/adr.tsv"
-  while IFS=$'\t' read -r ref b; do
-    [ -n "$ref" ] || continue
-    list=$(git ls-tree --name-only "$ref" "$ADR_DIR/" 2>/dev/null) || continue
-    m=$(printf '%s\n' "$list" | adr_max); m=$(( 10#${m:-0} ))
-    [ "$m" -gt "$br_max" ] && { br_max=$m; br_name=$b; }
-    # Numbers above main are branch claims; one number with different files in two branches is a collision.
-    printf '%s\n' "$list" | awk -v b="$b" -v top="$main_max" '
-      { n=$0; sub(/.*\//,"",n); if (n ~ /^[0-9][0-9][0-9][0-9]-/ && substr(n,1,4)+0 > top) printf "%s\t%s\t%s\n", substr(n,1,4), n, b }' \
-      >>"$TMP/adr.tsv"
-  done < <(ref_sources)
-  local_max=$(printf '%s\n' "$ADR_DIR"/* | adr_max); local_max=$(( 10#${local_max:-0} ))
-
-  next=$main_max
-  [ "$br_max" -gt "$next" ] && next=$br_max
-  [ "$local_max" -gt "$next" ] && next=$local_max
-  next=$((next + 1))
-  say "ADR: highest $(fmt4 "$main_max") on $BASE, $([ "$br_max" -gt 0 ] && printf '%s in %s' "$(fmt4 "$br_max")" "$br_name" || printf 'none in other branches'), locally $(fmt4 "$local_max") → next free $(fmt4 "$next")"
-
-  coll=$(adr_collisions <"$TMP/adr.tsv" | paste -s -d';' - | sed 's/;/; /g')
-  [ -n "$coll" ] && warn "ADR number taken by different files — $coll"
+// gh, or the program $PREFLIGHT_GH names (a test's stand-in).
+const gh = (args, sec) => {
+    const over = process.env.PREFLIGHT_GH
+    if (!over) return withTimeout(sec, "gh", args)
+    if (!fs.existsSync(over)) return Promise.resolve({ code: 127, stdout: "", stderr: "", error: "ENOENT" })
+    return withTimeout(sec, ...scriptCommand(over, args))
 }
 
-check_migrations() {  # 7
-  [ -n "$JOURNAL" ] || { say "migrations: no migrations journal in the profile (numbering.migrations) — step skipped"; return; }
-  command -v jq >/dev/null 2>&1 || { warn "jq not found — migrations not checked"; return; }
-  local main_last ref b m br_max=0 br_name='' local_last next taken='' hint=''
-  main_last=$(git show "$BASE:$JOURNAL" 2>/dev/null | mig_last)
-  while IFS=$'\t' read -r ref b; do
-    [ -n "$ref" ] || continue
-    m=$(git show "$ref:$JOURNAL" 2>/dev/null | mig_last)
-    [ -n "$m" ] && [ "$m" -gt "$br_max" ] && { br_max=$m; br_name=$b; }
-  done < <(ref_sources)
-  local_last=''
-  [ -f "$JOURNAL" ] && local_last=$(mig_last <"$JOURNAL")
-  say "migrations: last $([ -n "$main_last" ] && fmt4 "$main_last" || printf '?') on $BASE, $([ "$br_max" -gt 0 ] && printf '%s in %s' "$(fmt4 "$br_max")" "$br_name" || printf 'none in other branches'), locally $([ -n "$local_last" ] && fmt4 "$local_last" || printf '?')${local_last:+ → next locally $(fmt4 $((local_last + 1)))}"
-  # The migrations generator (numbering.migrations.generate, for Auction — pnpm db:generate) takes the next idx from the LOCAL journal. If this number already
-  # exists on origin/main or in a branch, after the merge the migration that is younger by when will silently not
-  # be applied — one warning line for both sources, the hint depends on the source:
-  # one taken on origin/main is freed by a rebase, one taken in a branch is not (the local idx
-  # does not change with a rebase), there one waits for the branch to merge or agrees on the number.
-  [ -n "$local_last" ] || return 0
-  next=$((local_last + 1))
-  if [ -n "$main_last" ] && [ "$main_last" -ge "$next" ]; then
-    taken="$(fmt4 "$main_last") taken on $BASE"
-    hint="first rebase onto a fresh $MAIN, then ${MIG_GEN:-generate the migration}"
-  fi
-  if [ "$br_max" -ge "$next" ]; then
-    if [ -n "$taken" ]; then taken="$taken, $(fmt4 "$br_max") in $br_name"
-    else taken="$(fmt4 "$br_max") taken in $br_name"; fi
-    hint="${hint:+$hint · }a rebase will not free it: wait for $br_name to merge or agree on the number"
-  fi
-  [ -z "$taken" ] || warn "migration number $taken — $hint"
+// The active gh account versus the remote's owner. gh holds two accounts, git takes its token
+// from gh: a wrong active account fails fetch and gh pr list with an obscure "repository not
+// found". The account is not switched — it is a machine-wide setting shared by other sessions;
+// the result is a hint in GH_WARN, which checkFetch prints. A gh failure stays silent:
+// the PR line already reports gh being unavailable.
+let GH_WARN = ""
+async function checkGhAccount() {
+    const url = git(["remote", "get-url", "origin"])
+    if (url === null || !url.includes("github.com")) return
+    // https://github.com/owner/repo.git · git@github.com:owner/repo.git · ssh://git@github.com/owner/repo
+    const p = url
+        .split("\n")
+        .map((l) => l.replace(/^[a-z+]+:\/\/[^/]+\//, "").replace(/^[^@/]+@[^:/]+:/, "").replace(/^[^/:]+:/, ""))
+        .join("\n")
+    const owner = p.split("/")[0]
+    if (!owner) return
+    const r = await gh(["api", "user", "--jq", ".login"], GH_TIMEOUT)
+    const login = chomp(r.stdout)
+    if (r.code !== 0 || !login) return
+    // GitHub logins are case-insensitive, and the case in a remote URL is arbitrary.
+    if (login.toLowerCase() === owner.toLowerCase()) return
+    GH_WARN = `gh: active account ${login}, remote belongs to ${owner} — gh auth switch --user ${owner}`
 }
 
-check_prs() {  # 8
-  local json rc n
-  json=$(with_timeout "$GH_TIMEOUT" gh pr list --state open --limit 100 --json number,headRefName,mergeStateStatus 2>"$TMP/gh.err"); rc=$?
-  if [ "$rc" = 124 ]; then warn "gh unavailable: timed out after $GH_TIMEOUT s"; return; fi
-  if [ "$rc" != 0 ] || [ -z "$json" ]; then
-    warn "gh unavailable: $(first_line "$(cat "$TMP/gh.err" 2>/dev/null)")"; return
-  fi
-  n=$(printf '%s' "$json" | jq 'length' 2>/dev/null) || { warn "gh unavailable: answer not parsed"; return; }
-  say "open PRs: $n"
-  printf '%s' "$json" | jq -r '.[:4][] | "  #\(.number) \(.headRefName) \(.mergeStateStatus)"' 2>/dev/null
-  [ "$n" -gt 4 ] && say "  … and $((n - 4)) more"
+async function checkFetch() {
+    // 2
+    // The gh account hint shares a line with fetch (or the BLOCKED reason): a separate
+    // line would break the 20-line limit, and without it a fetch failure is a mystery.
+    const hint = GH_WARN ? ` · ${GH_WARN}` : ""
+    if (!FETCH) return warn(`fetch skipped${hint}`)
+    const r = await withTimeout(FETCH_TIMEOUT, "git", ["fetch", "origin", "--prune", "--quiet"], { stdout: "ignore" })
+    if (r.code === 0) {
+        if (GH_WARN) warn(GH_WARN)
+    } else if (r.code === 124) block(`fetch failed: timed out after ${FETCH_TIMEOUT} s${hint}`)
+    else block(`fetch failed: ${firstLine(chomp(r.stderr))}${hint}`)
 }
 
-check_tickets() {  # 9
-  local out rc line total=0 active=0 first='' second='' tool=$EPIC_TOOL why
-  # "unavailable" — only if the command did not start (no file / not executable).
-  if [ ! -x "$tool" ]; then
-    why="epic-status unavailable: no executable $tool"
-    if [ -n "$EPIC" ]; then block "$why"; else warn "$why"; fi
-    return
-  fi
-  if [ -n "$EPIC" ]; then
-    out=$(with_timeout "$TOOL_TIMEOUT" "$tool" "$EPIC" </dev/null 2>&1); rc=$?
-    # The epic is named explicitly: any non-zero exit is a reason to stop, not a warning.
-    if [ "$rc" = 0 ] && [ -n "$out" ]; then say "epic: $(first_line "$out")"
-    elif [ "$rc" = 124 ]; then block "epic-status $EPIC: no answer within $TOOL_TIMEOUT s"
-    else block "epic-status $EPIC: $(first_line "${out:-exit $rc with no output}")"; fi
-    return
-  fi
-  out=$(with_timeout "$TOOL_TIMEOUT" "$tool" </dev/null 2>&1); rc=$?
-  if [ "$rc" = 124 ]; then warn "epic-status gave no answer within $TOOL_TIMEOUT s"; return; fi
-  if [ "$rc" != 0 ]; then warn "epic-status returned exit $rc${out:+: $(first_line "$out")}"; return; fi
-  if [ -z "$out" ]; then warn "epic-status: empty output"; return; fi
-  # The "<branch>:" heading repeats the "tree" line, closed epics are of no interest:
-  # only epics in progress are printed, no more than three lines in all.
-  while IFS= read -r line; do
-    case $line in *' · '*) ;; *) continue ;; esac
-    total=$((total + 1))
-    case $line in 'closed'*) continue ;; esac
-    active=$((active + 1))
-    if [ -z "$first" ]; then first=$line; elif [ -z "$second" ]; then second=$line; fi
-  done <<<"$out"
-  if [ "$total" -eq 0 ]; then say "epics: $(first_line "$out")"; return; fi
-  say "epics: $total, in progress $active"
-  [ -n "$first" ] && say "  $first"
-  if [ "$active" -eq 2 ]; then say "  $second"
-  elif [ "$active" -gt 2 ]; then say "  … and $((active - 1)) more"; fi
+function checkOriginMain() {
+    // 3
+    if (git(["rev-parse", "--verify", "-q", `refs/remotes/${BASE}`]) === null) return block(`no ref ${BASE}`)
+    const log = git(["log", "-1", "--format=%h%x09%cd%x09%s", "--date=format:%Y-%m-%dT%H:%M", BASE], { stderr: "inherit", raw: true }) || ""
+    // As `IFS=$'\t' read -r sha date subj`: the first line, tabs around the fields dropped.
+    let rest = firstLine(log).replace(/^\t+/, "")
+    const field = () => {
+        const i = rest.indexOf("\t")
+        const f = i < 0 ? rest : rest.slice(0, i)
+        rest = i < 0 ? "" : rest.slice(i).replace(/^\t+/, "")
+        return f
+    }
+    const sha = field()
+    const date = field()
+    const subj = rest.replace(/\t+$/, "")
+    say(`${BASE}: ${sha} ${date} "${cutChars(subj, 60)}"`)
 }
 
-verdict() {  # 10
-  if [ -n "$REASONS" ]; then say "BLOCKED: $REASONS"; exit 1; fi
-  say "GO"; exit 0
+function checkMain() {
+    // 4
+    let wt = ""
+    // As `while read -r key val`: whole lines only, the first word, then the rest without the blanks around it.
+    for (const line of (git(["worktree", "list", "--porcelain"], { raw: true }) || "").split("\n").slice(0, -1)) {
+        const t = line.replace(/^[ \t]+/, "")
+        const key = t.match(/^[^ \t]*/)[0]
+        const val = t.slice(key.length).replace(/^[ \t]+/, "").replace(/[ \t]+$/, "")
+        if (key === "worktree") wt = val
+        else if (key === "branch" && val === `refs/heads/${MAIN}`) MAIN_TREE = wt
+    }
+
+    if (git(["rev-parse", "--verify", "-q", `refs/heads/${MAIN}`]) !== null) {
+        const behind = git(["rev-list", "--count", `${MAIN}..${BASE}`]) ?? "?"
+        const ahead = git(["rev-list", "--count", `${BASE}..${MAIN}`]) ?? "?"
+        if (behind !== "0") {
+            let hint
+            if (ahead !== "0") hint = `diverged (ahead by ${ahead}): ff impossible, sort it out by hand`
+            else if (!MAIN_TREE) hint = `catch up: git fetch origin ${MAIN}:${MAIN} (${MAIN} is not checked out anywhere)`
+            // git on Windows prints C:/…: both sides are compared as resolved paths.
+            else if (path.resolve(MAIN_TREE) === path.resolve(ROOT)) hint = "catch up: git pull --ff-only"
+            else hint = `catch up: git -C ${MAIN_TREE} pull --ff-only`
+            warn(`${MAIN} is behind ${BASE} by ${behind} — ${hint}`)
+            if (BRANCH === MAIN) block(`working on a stale ${MAIN} (behind by ${behind})`)
+        } else if (ahead !== "0") warn(`${MAIN} is ahead of ${BASE} by ${ahead} — unpushed commits in ${MAIN}`)
+    } else warn(`no local branch ${MAIN}`)
+
+    if (BRANCH !== MAIN) {
+        const k = git(["rev-list", "--count", `HEAD..${BASE}`]) ?? "?"
+        say(`branch ${BRANCH || `detached ${HEAD7}`}: behind ${BASE} by ${k}`)
+    }
 }
 
-main() {
-  parse_args "$@"
-  locate_repo
-  load_profile
-  check_tree
-  check_gh_account
-  check_fetch
-  check_origin_main
-  check_main
-  check_lock
-  check_adr
-  check_migrations
-  check_prs
-  check_tickets
-  verdict
+async function checkLock() {
+    // 5
+    const me = process.env.CLAUDE_SESSION_ID || process.env.CLAUDE_CODE_SESSION_ID || ""
+    const tool = path.join(BIN, "worktree-lock")
+    const r = fs.existsSync(tool)
+        ? await withTimeout(TOOL_TIMEOUT, ...scriptCommand(tool, ["status"]), { env: { ...process.env, CLAUDE_SESSION_ID: me }, merge: true })
+        : { code: 127, stdout: "" }
+    const out = chomp(r.stdout)
+    if (r.code !== 0 || !out) return warn(`lock: worktree-lock unavailable (exit ${r.code})${out ? `: ${firstLine(out)}` : ""}`)
+    for (const [kind, text] of lockReport(out, me)) (kind === "say" ? say : kind === "warn" ? warn : block)(text)
 }
 
-[ "${BASH_SOURCE[0]}" = "$0" ] && main "$@"
+// Branches whose claims on ADR and migration numbers must be counted: all refs/remotes/origin/*
+// (except HEAD and the base — it is counted separately) and all local refs/heads/*,
+// including main and the current one. Since 2026-09-14 the branches of a batch live locally without push for weeks,
+// and an ADR stub from a neighbouring worktree is visible before push only here. Remote first,
+// then local: with equal numbers the line keeps the branch everyone can see.
+// Returns [<full ref>, <label>]: origin/<branch> or local:<branch>.
+function refSources() {
+    const rows = (args) =>
+        (git(["for-each-ref", ...args], { raw: true }) || "")
+            .split("\n")
+            .slice(0, -1)
+            .map((l) => {
+                const t = l.replace(/^\t+/, "")
+                const i = t.indexOf("\t")
+                return i < 0 ? [t, ""] : [t.slice(0, i), t.slice(i).replace(/^\t+/, "").replace(/\t+$/, "")]
+            })
+    return [
+        ...rows(["--format=%(refname)%09%(refname:strip=2)", "refs/remotes/origin/"]).filter(([, b]) => b !== "origin/HEAD" && b !== BASE),
+        ...rows(["--format=%(refname)%09local:%(refname:strip=2)", "refs/heads/"]),
+    ].filter(([ref]) => ref)
+}
+const lsNames = (ref) => {
+    const s = git(["ls-tree", "--name-only", ref, `${ADR_DIR}/`])
+    return s === null ? null : s.split("\n")
+}
+const readdir = (dir) => {
+    try {
+        return fs.readdirSync(dir)
+    } catch {
+        return []
+    }
+}
+
+// Silent mode: the ADRs are files of the Workflow folder, one copy, in no branch of the repository. A duplicate
+// number there is the same collision two branches give in Full mode, so it blocks.
+function checkAdrSilent() {
+    let dir = ADR_DIR
+    if (path.isAbsolute(dir)) {
+        /* as given */
+    } else if (dir === "~" || dir.startsWith("~/")) dir = os.homedir() + dir.slice(1)
+    else dir = `${WORKFLOW}/${dir}`
+    if (!WORKFLOW) return block("Silent mode, but the profile names no Workflow folder")
+    let isDir = false
+    try {
+        isDir = fs.statSync(dir).isDirectory()
+    } catch {
+        /* missing */
+    }
+    if (!isDir) return say(`ADR: Silent mode, no ADR directory ${dir} in the Workflow folder yet → next free 0001`)
+    const names = readdir(dir).filter((n) => !n.startsWith("."))
+    const mx = Number(adrMax(names) || 0)
+    const dups = adrDups(names)
+    if (dups) block(`duplicate ADR ${dups} in the Workflow folder (${dir})`)
+    say(`ADR: Silent mode, highest ${fmt4(mx)} in the Workflow folder (${dir}) → next free ${fmt4(mx + 1)}`)
+}
+
+function checkAdr() {
+    // 6
+    if (!ADR_DIR) return say("ADR: no ADR directory in the profile (numbering.adr) — step skipped")
+    if (MODE === "silent") return checkAdrSilent()
+    const list = lsNames(BASE) || []
+    const mainMax = Number(adrMax(list) || 0)
+    const dups = adrDups(list)
+    if (dups) block(`duplicate ADR ${dups} on ${BASE}`)
+
+    let tsv = ""
+    let brMax = 0
+    let brName = ""
+    for (const [ref, b] of refSources()) {
+        const names = lsNames(ref)
+        if (names === null) continue
+        const m = Number(adrMax(names) || 0)
+        if (m > brMax) {
+            brMax = m
+            brName = b
+        }
+        // Numbers above the base are branch claims; one number with different files in two branches is a collision.
+        for (const n of names.map((x) => x.replace(/.*\//, "")))
+            if (/^[0-9]{4}-/.test(n) && Number(n.slice(0, 4)) > mainMax) tsv += `${n.slice(0, 4)}\t${n}\t${b}\n`
+    }
+    const localMax = Number(adrMax(readdir(path.resolve(ROOT, ADR_DIR)).filter((n) => !n.startsWith("."))) || 0)
+
+    const next = Math.max(mainMax, brMax, localMax) + 1
+    const inBranches = brMax > 0 ? `${fmt4(brMax)} in ${brName}` : "none in other branches"
+    say(`ADR: highest ${fmt4(mainMax)} on ${BASE}, ${inBranches}, locally ${fmt4(localMax)} → next free ${fmt4(next)}`)
+
+    const coll = adrCollisions(tsv).join("; ")
+    if (coll) warn(`ADR number taken by different files — ${coll}`)
+}
+
+function checkMigrations() {
+    // 7
+    if (!JOURNAL) return say("migrations: no migrations journal in the profile (numbering.migrations) — step skipped")
+    const show = (ref) => migLast(git(["show", `${ref}:${JOURNAL}`], { raw: true }) || "")
+    const mainLast = show(BASE)
+    let brMax = 0
+    let brName = ""
+    for (const [ref, b] of refSources()) {
+        const m = show(ref)
+        if (m && Number(m) > brMax) {
+            brMax = Number(m)
+            brName = b
+        }
+    }
+    let localLast = ""
+    const journal = path.resolve(ROOT, JOURNAL)
+    try {
+        if (fs.statSync(journal).isFile()) localLast = migLast(decode(fs.readFileSync(journal)))
+    } catch {
+        /* no local journal */
+    }
+    const f = (v) => (v ? fmt4(v) : "?")
+    const inBranches = brMax > 0 ? `${fmt4(brMax)} in ${brName}` : "none in other branches"
+    const nextLocal = localLast ? ` → next locally ${fmt4(Number(localLast) + 1)}` : ""
+    say(`migrations: last ${f(mainLast)} on ${BASE}, ${inBranches}, locally ${f(localLast)}${nextLocal}`)
+    // The migrations generator (numbering.migrations.generate, for Auction — pnpm db:generate) takes the next idx from the LOCAL journal. If this number already
+    // exists on origin/main or in a branch, after the merge the migration that is younger by when will silently not
+    // be applied — one warning line for both sources, the hint depends on the source:
+    // one taken on origin/main is freed by a rebase, one taken in a branch is not (the local idx
+    // does not change with a rebase), there one waits for the branch to merge or agrees on the number.
+    if (!localLast) return
+    const next = Number(localLast) + 1
+    let taken = ""
+    let hint = ""
+    if (mainLast && Number(mainLast) >= next) {
+        taken = `${fmt4(mainLast)} taken on ${BASE}`
+        hint = `first rebase onto a fresh ${MAIN}, then ${MIG_GEN || "generate the migration"}`
+    }
+    if (brMax >= next) {
+        taken = taken ? `${taken}, ${fmt4(brMax)} in ${brName}` : `${fmt4(brMax)} taken in ${brName}`
+        hint = `${hint ? hint + " · " : ""}a rebase will not free it: wait for ${brName} to merge or agree on the number`
+    }
+    if (taken) warn(`migration number ${taken} — ${hint}`)
+}
+
+// The answer is read as the bash version's JSON filter read it, so odd answers print the same lines.
+// A value in a PR line: a string as it is, anything else as compact JSON.
+const jsonText = (v) => (typeof v === "string" ? v : v === undefined ? "null" : JSON.stringify(v))
+// The count: of an array, an object's keys, a string's characters, |number|, 0 for null; a boolean is not parsed.
+function jsonLength(v) {
+    if (Array.isArray(v)) return v.length
+    if (v === null) return 0
+    if (typeof v === "object") return Object.keys(v).length
+    if (typeof v === "string") return Array.from(v).length
+    if (typeof v === "number") return Math.abs(v)
+    return null
+}
+
+async function checkPrs() {
+    // 8
+    const r = await gh(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,mergeStateStatus"], GH_TIMEOUT)
+    if (r.code === 124) return warn(`gh unavailable: timed out after ${GH_TIMEOUT} s`)
+    const json = chomp(r.stdout)
+    // A gh that could not start says nothing on stderr: the reason is the start's error.
+    const why = firstLine(chomp(r.stderr)) || (r.error === "ENOENT" ? "gh not found" : r.error ? `gh did not start (${r.error})` : "")
+    if (r.code !== 0 || !json) return warn(`gh unavailable: ${why}`)
+    let v
+    let n
+    try {
+        v = JSON.parse(json)
+        n = jsonLength(v)
+    } catch {
+        n = null
+    }
+    if (n === null) return warn("gh unavailable: answer not parsed")
+    say(`open PRs: ${n}`)
+    if (Array.isArray(v))
+        for (const pr of v.slice(0, 4)) {
+            if (pr !== null && (typeof pr !== "object" || Array.isArray(pr))) break // the old filter stopped at an element it could not index
+            const x = pr || {}
+            say(`  #${jsonText(x.number)} ${jsonText(x.headRefName)} ${jsonText(x.mergeStateStatus)}`)
+        }
+    if (Number.isInteger(n) && n > 4) say(`  … and ${n - 4} more`)
+}
+
+async function checkTickets() {
+    // 9
+    const tool = EPIC_TOOL
+    // "unavailable" — only if the command is not there.
+    if (!fs.existsSync(tool)) {
+        const why = `epic-status unavailable: no executable ${tool}`
+        return EPIC ? block(why) : warn(why)
+    }
+    const run = (args) => withTimeout(TOOL_TIMEOUT, ...scriptCommand(tool, args), { merge: true })
+    if (EPIC) {
+        const { code, stdout } = await run([EPIC])
+        const out = chomp(stdout)
+        // The epic is named explicitly: any non-zero exit is a reason to stop, not a warning.
+        if (code === 0 && out) say(`epic: ${firstLine(out)}`)
+        else if (code === 124) block(`epic-status ${EPIC}: no answer within ${TOOL_TIMEOUT} s`)
+        else block(`epic-status ${EPIC}: ${firstLine(out || `exit ${code} with no output`)}`)
+        return
+    }
+    const { code, stdout } = await run([])
+    const out = chomp(stdout)
+    if (code === 124) return warn(`epic-status gave no answer within ${TOOL_TIMEOUT} s`)
+    if (code !== 0) return warn(`epic-status returned exit ${code}${out ? `: ${firstLine(out)}` : ""}`)
+    if (!out) return warn("epic-status: empty output")
+    // The "<branch>:" heading repeats the "tree" line, closed epics are of no interest:
+    // only epics in progress are printed, no more than three lines in all.
+    let total = 0
+    const active = []
+    for (const line of out.split("\n")) {
+        if (!line.includes(" · ")) continue
+        total++
+        if (!line.startsWith("closed")) active.push(line)
+    }
+    if (total === 0) return say(`epics: ${firstLine(out)}`)
+    say(`epics: ${total}, in progress ${active.length}`)
+    if (active.length) say(`  ${active[0]}`)
+    if (active.length === 2) say(`  ${active[1]}`)
+    else if (active.length > 2) say(`  … and ${active.length - 1} more`)
+}
+
+function verdict() {
+    // 10
+    if (REASONS) {
+        say(`BLOCKED: ${REASONS}`)
+        return 1
+    }
+    say("GO")
+    return 0
+}
+
+async function main(argv) {
+    // The children's environment, as the bash version exported it.
+    delete process.env.LC_ALL
+    process.env.LC_CTYPE = "en_US.UTF-8"
+    Object.assign(process.env, { GIT_TERMINAL_PROMPT: "0", GH_NO_UPDATE_NOTIFIER: "1", GH_PROMPT_DISABLED: "1" })
+    onSignal("SIGINT", 130)
+    onSignal("SIGTERM", 143)
+    onSignal("SIGHUP", 129)
+    parseArgs(argv)
+    locateRepo()
+    await loadProfile()
+    checkTree()
+    await checkGhAccount()
+    await checkFetch()
+    checkOriginMain()
+    checkMain()
+    await checkLock()
+    checkAdr()
+    checkMigrations()
+    await checkPrs()
+    await checkTickets()
+    return verdict()
+}
+
+module.exports = { withTimeout, adrScan, adrCollisions, migLast, lockReport, cutChars, decode, encode }
+
+if (require.main === module)
+    main(process.argv.slice(2)).then(
+        (code) => (process.exitCode = code),
+        (e) => {
+            if (e instanceof Exit) process.exitCode = e.code
+            else {
+                write(2, `preflight: ${e && e.stack ? e.stack : e}\n`)
+                process.exitCode = 2
+            }
+        },
+    )

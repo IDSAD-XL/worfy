@@ -454,3 +454,19 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200; `pnpm test` и
 - На Windows R6 и R10 (ревью Mac среза 3b: `ghRunner` без подмены зовёт настоящий `gh` из PATH) сторожит только test с настоящим `gh`, а он на Windows пропущен (`skipIf(win32)`: обёртку `sh` там не запустить). Test «gh not found (gh)» (`gh-stand-in.test.ts`) проходит и с этими мутантами. Замечание Session на Mac, уровень low.
 - `bundledClaudeBinary` в dev-запуске (`pnpm dev`) отдаёт путь `…/claude` без `.exe` и на Windows (`src/main/agent/options.ts:102`); путь собранного приложения (`:87`) `.exe` добавляет. Не проверено, срез его не трогает — собранное приложение и dev-запуск на Windows, срез 5.
 - `harness-migrate.test.ts` падает на Windows по своим причинам, не из-за запуска `claude`: пути Windows в JSON без экранирования («Bad escaped character»), ожидания путей POSIX, «no node in PATH». Отдельная область.
+
+### Срез 3d — `workflow-profile`: ожидаемые пути пишутся так же, как их пишет приложение
+
+Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh` вне PATH. Ветка `worfy-windows/wp-paths` от main `62a4c4a`. **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Что падало.** На Windows `test/contract/workflow-profile.test.ts` — 29 падений из 87, все на написании путей в ожидаемых значениях: test ждал `/repo`, `/work/atakama` и `no profile script at /h/bin/profile`, а приложение на Windows пишет `C:\repo`, `C:\work\atakama` и `\h\bin\profile`.
+- **Что сделано (только test).** Ожидаемые пути строятся так же, как их строит приложение. Корень Project-а — `resolve(…)` (`src/main/workflow/folder.ts:123`). Путь скрипта — `join('/h', 'bin', 'profile')` (`src/main/workflow/profile.ts:67`). Строки лога `[workflow] <корень>: …` — регулярное выражение из экранированного `resolve(root)` с тем же якорем `^`. На macOS и Linux каждое ожидание даёт ту же строку, что и раньше. Пути, которые Harness напечатал (`workflowFolder`, `ticketsRoot` от `ticket root`, `repos`), сравниваются с литералами как напечатанные — как и раньше.
+- **`ticketsRoot` без буквы диска** (`\work\atakama\.scratch`) в трёх случаях «`ticket root` failing» — следствие данных test-а, не ошибка приложения. Приложение берёт `workflowFolder` как его напечатал Harness (`folder.ts:137`) и строит `ticketsRoot` через `join(workflowFolder, '.scratch')` (`:140`). Test подаёт POSIX-путь приложению на Windows; Harness на Windows печатает пути `C:\…`. Разрешать `workflowFolder` в приложении — изменение поведения для удалённых и POSIX-корней; срез его не делает.
+- **Ревью** — subagent этой Session, линзы «корректность» и «сила test-ов»: ни одно утверждение не ослаблено, пропусков не добавлено, `escapeRegExp` верен, якорь `workflowLine` тот же. На Windows test стал строже: приложение без `resolve()` или с `path.posix` его уронит. Находок нет.
+
+| `vitest run --project contract test/contract/workflow-profile.test.ts` | Exit | Passed | Failed | Skipped |
+|---|---|---|---|---|
+| main `62a4c4a` | 1 | 57 | 29 | 1 |
+| ветка | 0 | 86 | 0 | 1 |
+
+- Пропуск — прежний `skipIf(win32)` test-а профиля shell-а, не из этого среза. `pnpm lint`, `pnpm typecheck` — exit 0. Полный `pnpm test` на ПК не прогонялся: срез меняет только этот файл.

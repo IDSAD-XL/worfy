@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
-import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
 
 // Settings → "Terminal AI" against the built app:
 // - the switches reach a zsh that is already running: with "Suggestion" off, and with "Terminal AI"

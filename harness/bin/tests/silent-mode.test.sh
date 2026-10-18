@@ -243,6 +243,13 @@ grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \
 # another script through --settings, not this one through the plugin (ticket 22 result).
 WTC="$HOOKS/worktree-create.sh"
 wtc() { printf '{"name":"%s","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$1" "$2" | "$WTC" 2>"$T/wtc.err"; }
+# On Windows the script is not ported (owner decision 2026-10-13): line 65 takes only a /… path as absolute, so
+# the C:\… root profile prints there lands inside the repository, and pwd -P prints a /tmp/… path native Claude
+# Code cannot use (worfy-windows ticket 04). The cases that create a tree are skipped there; the refusals still run.
+WTC_SKIP="worktree-create.sh is not ported to Windows (C:\\… root taken as relative, POSIX path printed)"
+if [ "$WIN" -eq 1 ]; then
+    echo "skip WorktreeCreate outside, hook tree, repeat: $WTC_SKIP"
+else
 out="$(wtc agent-a1 "$R")"; rc=$?
 if [ "$rc" -eq 0 ] && [ "$out" = "$HARNESS_HOME/worktrees/sp/agent-a1" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = worktree-agent-a1 ] \
    && [ "$(git -C "$out" rev-parse --path-format=absolute --git-common-dir)" = "$R/.git" ]; then
@@ -253,13 +260,18 @@ git -C "$out" branch -m worktree-agent-a1 fix/agent-a1 2>/dev/null
     && ok "the hook's tree: the same profile, the implementer renames the branch, the repository stays clean" || bad "hook tree: $(git -C "$out" rev-parse --abbrev-ref HEAD)"
 out="$(wtc agent-a1 "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate: the template fails (the tree exists) — exit $rc, no path" || bad "WorktreeCreate repeat: exit $rc, out: $out"
+fi
 out="$(wtc ../escape "$R")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && [ ! -e "$HARNESS_HOME/worktrees/escape" ] && ok "WorktreeCreate: a name with .. is refused" || bad "WorktreeCreate ../: exit $rc, out: $out"
+if [ "$WIN" -eq 1 ]; then
+    echo "skip WorktreeCreate default: $WTC_SKIP"
+else
 out="$(wtc agent-b1 "$FR")"; rc=$?
 [ "$rc" -eq 0 ] && [ "$out" = "$FR/.claude/worktrees/agent-b1" ] && [ "$(git -C "$out" rev-parse --abbrev-ref HEAD 2>/dev/null)" = worktree-agent-b1 ] \
     && ok "WorktreeCreate, no outside root (Full project fp): <repository>/.claude/worktrees/<name> on worktree-<name>, as Claude Code itself" \
     || bad "WorktreeCreate default: exit $rc, out: $out, err: $(head -c 300 "$T/wtc.err")"
 git -C "$FR" worktree remove --force "$FR/.claude/worktrees/agent-b1" && git -C "$FR" branch -q -D worktree-agent-b1
+fi
 out="$(wtc agent-c1 "$T")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate outside git: exit $rc, no path" || bad "WorktreeCreate outside git: exit $rc, out: $out"
 jq -e '.hooks | type == "object" and (has("WorktreeCreate") | not) and ([.. | strings | select(contains("worktree-create"))] == [])' "$HOOKS/hooks.json" >/dev/null \

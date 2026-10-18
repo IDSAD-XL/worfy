@@ -131,16 +131,16 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 
 ## Готово, когда
 
-- [ ] `harness/bin/tests/epic-status.test.sh` (новый) зелёный на bash-версии из `origin/main` — до переписывания — и на Node-версии. Его случаи — в «Тесты».
-- [ ] Сверка на живых данных, Mac, worktree worfy: старая версия из `git show origin/main:harness/bin/epic-status`, запущенная `bash` с `CLAUDE_TICKET_BIN=harness/bin/ticket`, и новая дают одинаковый вывод (`diff` пуст) для `--json`, для `--json --ref origin/main`, для строк без аргументов и для `epic-status worfy-windows` (через раздел Mac checks PR, Q33).
-- [ ] `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock harness/bin/silent-check` — exit 1.
-- [ ] `harness-home.test.sh`, новый случай: копия `harness/` со снятым битом исполнения у всех файлов `bin` (`chmod -x`). В ней `node <копия>/bin/ticket root`, `node <копия>/bin/epic-status --json` и `node <копия>/bin/epic-board --no-open --out …` — exit 0. Так на Mac проверяется, что соседи зовутся не по shebang. На нынешнем main случай красный.
-- [ ] `bash harness/bin/tests/<файл>` для `profile.test.sh`, `tickets-root.test.sh`, `harness-home.test.sh`, `silent-mode.test.sh` и `epic-status.test.sh` — exit 0 на Mac; в `pnpm test` (`test/contract/harness-scripts.test.ts`) — зелёные.
-- [ ] Windows-ПК, Git Bash: `node harness/bin/silent-check -C "$(mktemp -d)" hello; echo "EXIT=$?"` — `EXIT=0` (папка вне зарегистрированных Project-ов — «nothing to check»). На нынешнем main — EXIT=2, `spawnSync …\harness\bin\profile ENOENT` (evidence Ticket-а 01, раздел 18).
-- [ ] Те же пять test-ов — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`: без режима разработчика symlink на ПК — `EPERM`, evidence Ticket-а 01, раздел 22), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
-- [ ] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
-- [ ] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
-- [ ] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
+- [x] `harness/bin/tests/epic-status.test.sh` (новый) зелёный на bash-версии из `origin/main` — до переписывания — и на Node-версии. Его случаи — в «Тесты».
+- [x] Сверка на живых данных, Mac, worktree worfy: старая версия из `git show origin/main:harness/bin/epic-status`, запущенная `bash` с `CLAUDE_TICKET_BIN=harness/bin/ticket`, и новая дают одинаковый вывод (`diff` пуст) для `--json`, для `--json --ref origin/main`, для строк без аргументов и для `epic-status worfy-windows` (через раздел Mac checks PR, Q33).
+- [x] `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock harness/bin/silent-check` — exit 1.
+- [x] `harness-home.test.sh`, новый случай: копия `harness/` со снятым битом исполнения у всех файлов `bin` (`chmod -x`). В ней `node <копия>/bin/ticket root`, `node <копия>/bin/epic-status --json` и `node <копия>/bin/epic-board --no-open --out …` — exit 0. Так на Mac проверяется, что соседи зовутся не по shebang. На нынешнем main случай красный.
+- [x] `bash harness/bin/tests/<файл>` для `profile.test.sh`, `tickets-root.test.sh`, `harness-home.test.sh`, `silent-mode.test.sh` и `epic-status.test.sh` — exit 0 на Mac; в `pnpm test` (`test/contract/harness-scripts.test.ts`) — зелёные.
+- [x] Windows-ПК, Git Bash: `node harness/bin/silent-check -C "$(mktemp -d)" hello; echo "EXIT=$?"` — `EXIT=0` (папка вне зарегистрированных Project-ов — «nothing to check»). На нынешнем main — EXIT=2, `spawnSync …\harness\bin\profile ENOENT` (evidence Ticket-а 01, раздел 18).
+- [x] Те же пять test-ов — exit 0 в Git Bash на Windows-ПК. Случай, который на Windows не может пройти (например, symlink в `harness-home.test.sh:196`: без режима разработчика symlink на ПК — `EPERM`, evidence Ticket-а 01, раздел 22), пропускается со строкой `skip <причина>` только на Windows; причина — в Итог.
+- [x] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
+- [x] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
+- [x] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
 - [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Упакованная сборка (`pnpm package`), запущенная с окружением launchd (`env -i`, как в skill `ship-ticket`, раздел 6), показывает рамки Epic-ов Project-а worfy: в PATH launchd node нет, в окружении агента — есть (через раздел Mac checks PR, Q33).
 
 ## Тесты
@@ -471,3 +471,40 @@ Session на Windows-ПК, 2026-10-17. Windows 11 Pro 10.0.26200, Git Bash. Ве
 - **Выборка процессов `gh.exe`** (каждые 300 мс, затем 100 мс с цепочкой родителей) поймала один настоящий `gh.exe`: `auth git-credential get` в 20:45:30. Это помощник учётных данных git при моём `git fetch` в общем клоне, не test: повторный прогон `profile.test.sh` с цепочкой родителей — 0 `gh.exe`.
 
 **Не проверено:** всё на macOS и Linux (на ПК — только чтением); что `gh` берёт `GH_TOKEN` раньше хранилища ОС — по документированному порядку токенов `gh`, настоящий `gh` для проверки не запускался.
+
+### Срез 05f — пункты «Готово, когда» на ПК с Windows
+
+Git Bash, Windows 11 Pro; папка настоящего `gh` убрана из PATH, выборка процессов `gh.exe` — ни одного.
+
+- **Отмечены четыре пункта:**
+  - `head -1 harness/bin/epic-status` — `#!/usr/bin/env node`; `grep -n 'process.env.HOME' harness/bin/profile harness/bin/worktree-lock harness/bin/silent-check` — exit 1.
+  - Случай `harness-home.test.sh` с копией `harness/` без бита исполнения: `node … ticket root`, `node … epic-status --json`, `node … epic-board --no-open` — все три ok.
+  - `node harness/bin/silent-check -C "$(mktemp -d)" hello` с пустым реестром (`CLAUDE_GATE_CONFIG` на `{"repos":[]}`) — «not a registered project — nothing to check», `EXIT=0`. Без файла реестра вообще (так на ПК, где реестра нет нарочно) — `EXIT=2`: «profile not read (exit 1) … registry … cannot be read: ENOENT». Это в объёме Ticket-а 13 (первый запуск): на свежей машине до первого Project-а `silent-check` отвечает отказом, а не «nothing to check».
+  - Те же пять test-ов — exit 0 в Git Bash (ветка = main `9d21c3d` с Ticket-ом 04 + этот срез):
+
+| Shell test | main `7f8f46e` | ветка |
+|---|---|---|
+| `profile.test.sh` | exit 0, 210 ok / 0 FAIL, 6 skip | exit 0, 210 / 0, 6 skip |
+| `tickets-root.test.sh` | exit 0, 26 / 0 | exit 0, 26 / 0 |
+| `epic-status.test.sh` | exit 0, 47 / 0 | exit 0, 47 / 0 |
+| `harness-home.test.sh` | exit 1, 40 / 2, 2 skip | exit 0, 42 / 0, 2 skip |
+| `silent-mode.test.sh` | exit 1, 85 / 3, 1 skip | exit 0, 84 / 0, 3 skip |
+
+- `harness-home`: два случая, падавшие на `7f8f46e`, звали Stop hook `stop.sh`; Ticket 04 (PR #453, `9d21c3d`) перевёл его на `stop.mjs`.
+- `silent-mode`: случаи `worktree-create.sh` (скрипт на Windows не переносится — решение владельца 2026-10-13, Ticket 04 «Что происходит»: строка 65 считает `C:\…` относительным путём, `pwd -P` печатает путь POSIX) на Windows теперь `skip` с причиной: «WorktreeCreate outside, hook tree, repeat» и «WorktreeCreate default». «repeat» на Windows проходил, но он проверяет повтор после первого случая, поэтому пропускается вместе с ним. Отказы (имя с `..`, папка вне git) по-прежнему идут. На macOS и Linux случаи без изменений.
+- Остальные `skip` на Windows и причины: zsh нет в Git Bash (`profile`, `silent-mode`, `qmd-sync-main` в `harness-home`); `ln -s` без режима разработчика делает копию (`harness-home`); живых реестров и Project-ов владельца на ПК нет (`profile`); файловая система без учёта регистра (`profile`); Node не запускает shell-скрипт как профиль (`profile`).
+- `test/contract/workflow-reader.test.ts` на Windows — все случаи проходят. `test/contract/workflow-profile.test.ts` — 29 падений, все на написании путей в ожиданиях test-а (`/repo` против `C:\repo`, `/h/bin/profile` против `\h\bin\…`), код не при чём; для отдельного среза fixture-ов.
+- Не отмечены: пункты на Mac (bash-версия `epic-status`, сверка на живых данных, `exit 0 на Mac`, gate full и упакованная сборка).
+- **Canvas и `epic-board` на ПК (пункт отмечен).** Неупакованная сборка этой ветки (`pnpm build`, запуск через Playwright `_electron`) с отдельными `WORFY_DATA_DIR`, `WORFY_CLAUDE_HOME`, `WORFY_HARNESS_HOME`, временным реестром и Profile-ем `worfy` (Full) — данные владельца и `~/.claude` не тронуты; `gh` вне PATH. Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами: worfy-windows 25/55 (стопка из 25 done, уровни 1–4, Ticket 39 «Ready»), worfy-ui 14/15, worfy-week 20/20 свёрнут; снимок — `../evidence/05-epic-и-на-windows.png`. Значок «Harness not installed» в шапке — от пустой временной папки Claude, рамкам он не мешает. `node harness/bin/epic-board` — exit 0, «13 epics → …/state/epic-board.html», страница открылась в браузере по умолчанию (Chrome, заголовок окна «Epics and tickets»); `--no-open` — exit 0, тот же файл, браузер не открывается.
+
+### Срез 05f, пункты на Mac — проверка Session Mac (PR #459, head `eb2e02e`)
+
+macOS, stub `gh` с журналом первым в PATH: test-ы — 0 вызовов настоящего `gh`.
+
+- **epic-status.test.sh на bash-версии и на Node (пункт отмечен).** Bash-версия — `ed5f85f3`, родитель `00078fa1`, где `epic-status` ещё bash: `HARNESS_DIR=<git archive ed5f85f3 harness>` — EXIT=0, 47 / 0. Node-версия — EXIT=0, 47 / 0.
+- **Сверка на живых данных (пункт отмечен).** Старая — `bash <(git show ed5f85f3:harness/bin/epic-status)`, новая — `harness/bin/epic-status`, обе с `CLAUDE_TICKET_BIN=harness/bin/ticket`, exit 0. `--json` (309 Ticket-ов), без аргументов, `worfy-windows` — `diff` пуст, stderr одинаков. `--json --ref origin/main` — 3 slug-а из 309 с «ё» или «й» bash печатает в форме NFD, git и Node — NFC; после NFC-нормализации старого вывода `cmp` — exit 0. Это то исправление, о котором раунд ревью 05a (выше).
+- **Пять shell-test-ов на Mac (пункт отмечен).** profile 259 / 0, tickets-root 26 / 0, harness-home 46 / 0, silent-mode 89 / 0, epic-status 47 / 0, все exit 0. В `test/contract/harness-scripts.test.ts` эти пять зелёные; красный один — `wave-gate.test.sh exits 0 with an empty HOME`, timeout 120 s при load average 7–10. Он не связан с этим Ticket-ом: на main то же (123 s, отдельно — exit 0, 150 passed); ускорение — `worfy-polish` 32.
+- **workflow-reader, новый случай (пункт отмечен).** «reads the Epics with node only on the PATH of the runner's environment…» зелёный на `eb2e02e`; на `4dbae797^` (до случая) — красный, `expected { code: 'failed', …(1) } to be null`.
+- **workflow-reader и workflow-profile, отказы (пункт отмечен).** Зелёные: reader `:373` (нет `epic-status` — оба места), reader `:455` (нет node в PATH — текст про node), profile `:287` (нет файла `profile` — отказ, а не exit 1).
+- **Упакованная сборка с окружением launchd (часть пункта про gate full).** `pnpm package` — EXIT=0. Запуск с `env -i …, PATH=/usr/bin:/bin:/usr/sbin:/sbin` (node в нём нет), своей папкой данных (`WORFY_DATA_DIR`) и stub `gh`: на Canvas Project-а worfy 11 рамок Epic-ов (например «worfy-windows 27/56», «worfy-polish 30/32»), панель первого запуска — node `OK 24.19.0`. Флаг `--user-data-dir` worfy не принимает — свою папку задаёт только `WORFY_DATA_DIR`.
+- Не отмечен: gate full — его прогоняет Session Mac перед merge.
