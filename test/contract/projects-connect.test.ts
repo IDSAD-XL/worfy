@@ -38,7 +38,7 @@ import {
 } from '../../src/main/projects/connect'
 import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
-import type { HarnessLocation } from '../../src/main/harness/locate'
+import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
 import { HarnessScriptStartError, type ProfileRunner, type SpawnProcess } from '../../src/main/workflow/profile'
 import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
@@ -143,6 +143,8 @@ function sandboxEnv(): NodeJS.ProcessEnv {
   return {
     ...env,
     HOME: home,
+    // node's os.homedir() on Windows: bin/profile looks for the old registry under it.
+    USERPROFILE: home,
     HARNESS_HOME: harnessHome,
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     PROJECT_CONNECT_QMD: join(scratch, 'no-qmd'),
@@ -203,7 +205,7 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     // No gh unless a test brings its stand-in (test/contract/gh-world.ts).
     gh: ghRunner({ command: join(scratch, 'no-gh') }),
     profile: realProfile,
-    gateDir: () => join(harnessHome, 'gate'),
+    gateRegistries: () => Promise.resolve(profileRegistryFiles(sandboxEnv())),
     connect: (args, stdin) => runScript('project-connect', args, stdin),
     harness: () => Promise.resolve(installed),
     query: (request) => {
@@ -346,6 +348,37 @@ describe('a folder the Harness already knows', () => {
     expect(await timedOut.connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile did not answer in time and was stopped` })
   })
 
+  // Mac review of PR #482: on main a machine without the Harness got "new", and the dialog's Harness
+  // step said what to install. The profile script is missing there (ENOENT): that stays so.
+  it('no profile script while the Harness step stops the dialog (not installed): a new folder, as before', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const missing: ProfileRunner = () => Promise.reject(new HarnessScriptStartError('ENOENT', `no Harness script at ${join(home, '.claude', 'bin', 'profile')}`))
+    const notInstalled = connectorWith({ profile: missing, harness: () => Promise.resolve({ ...installed, state: { kind: 'not-installed' } }) })
+    expect(await notInstalled.connector.inspect(repo)).toEqual({ status: 'new', folder: { kind: 'git', root: repo, repos: [{ name: 'shop', path: repo }], notice: null } })
+    expect(await notInstalled.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)).toEqual({
+      status: 'harness',
+      reason: 'The Harness plugin is not installed. Install it on the first-run screen.',
+    })
+    expect(notInstalled.requests).toHaveLength(0)
+
+    // The Harness installed and enabled, and still no script: that is the Folder step's error.
+    const installedButMissing = connectorWith({ profile: missing })
+    expect((await installedButMissing.connector.inspect(repo)).status).toBe('rejected')
+  })
+
+  it('the real bin/profile with a broken old registry (~/.claude/gate/config.json, no new one; exit 1): an error, not a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    rmSync(join(harnessHome, 'gate', 'config.json'))
+    const legacy = join(home, '.claude', 'gate', 'config.json')
+    mkdirSync(join(home, '.claude', 'gate'), { recursive: true })
+    writeFileSync(legacy, '{"Repos":[]}\n')
+    const { connector, requests } = connectorWith()
+    const answer = await connector.inspect(repo)
+    expect(answer.status).toBe('rejected')
+    expect(answer.status === 'rejected' ? answer.reason : '').toContain(`registry ${legacy} is broken: the "repos" field must be an array`)
+    expect(requests).toHaveLength(0)
+  })
+
   it('the real bin/profile of a fresh Harness (no gate registry, exit 1): a new folder', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
     rmSync(join(harnessHome, 'gate', 'config.json'))
@@ -467,6 +500,29 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
     }
     expect(existsSync(alive)).toBe(false)
+  })
+
+  it('the signal (the app quits) kills a running script: code null, and the script is gone', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const tick = join(scratch, 'script-tick')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      ['#!/usr/bin/env node', `setInterval(() => require('node:fs').writeFileSync(${JSON.stringify(tick)}, String(Date.now())), 100)`, ''].join('\n'),
+    )
+    const quitting = new AbortController()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), signal: () => quitting.signal })
+    const running = connect([], '{}')
+    for (let i = 0; i < 100 && !existsSync(tick); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+    const started = Date.now()
+    quitting.abort()
+    expect(await running).toMatchObject({ code: null, signal: null })
+    expect(Date.now() - started).toBeLessThan(3000)
+    const last = readFileSync(tick, 'utf8')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(readFileSync(tick, 'utf8')).toBe(last)
+    // An aborted signal starts nothing.
+    await expect(connect([], '{}')).rejects.toThrow('not started: the run was stopped')
   })
 
   it('a crash of bin/project-connect (exit 1, no issues): the refusal names its Error line, not the "Node.js vNN" line', async () => {

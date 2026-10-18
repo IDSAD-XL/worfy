@@ -13,17 +13,22 @@ import { HarnessScriptStartError, type ProfileRun, type ProfileRunner } from '..
 import { removeTestTree } from '../remove'
 
 let scratch: string
-/** The gate folder of a Harness with its registry config.json. */
-let withRegistry: string
-/** The gate folder of a fresh Harness: no config.json yet. */
-let fresh: string
+/** The registry files bin/profile reads (profileRegistryFiles), the new one there. */
+let withRegistry: string[]
+/** Only the old ~/.claude/gate/config.json is there: bin/profile reads it. */
+let legacyOnly: string[]
+/** A fresh Harness: neither file. */
+let fresh: string[]
 
 beforeAll(() => {
   scratch = mkdtempSync(join(tmpdir(), 'worfy-profile-knows-'))
-  withRegistry = join(scratch, 'gate')
-  mkdirSync(withRegistry)
-  writeFileSync(join(withRegistry, 'config.json'), '{"repos":[]}\n')
-  fresh = join(scratch, 'fresh-gate')
+  for (const dir of ['harness-gate', 'old-gate']) {
+    mkdirSync(join(scratch, dir))
+    writeFileSync(join(scratch, dir, 'config.json'), '{"repos":[]}\n')
+  }
+  withRegistry = [join(scratch, 'harness-gate', 'config.json'), join(scratch, 'missing-old', 'config.json')]
+  legacyOnly = [join(scratch, 'missing-new', 'config.json'), join(scratch, 'old-gate', 'config.json')]
+  fresh = [join(scratch, 'missing-new', 'config.json'), join(scratch, 'missing-old', 'config.json')]
 })
 
 afterAll(() => removeTestTree(scratch))
@@ -98,6 +103,13 @@ describe('profileKnows: bin/profile failed — an error with what it said', () =
     await expect(profileKnows(gitFolder, answers({ code: 1, stdout: '', stderr: crash }), withRegistry)).rejects.toThrow('bin/profile failed with exit code 1: TypeError: boom')
   })
 
+  it('exit 1 with only the old ~/.claude/gate/config.json there (a broken old registry): rejects, not a new folder', async () => {
+    const broken = 'profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: registry /home/.claude/gate/config.json is broken: the "repos" field must be an array\n'
+    await expect(profileKnows(gitFolder, answers({ code: 1, stdout: '', stderr: broken }), legacyOnly)).rejects.toThrow(
+      'bin/profile failed with exit code 1: profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 4)',
+    )
+  })
+
   it('exit 2 (usage): rejects', async () => {
     await expect(profileKnows(gitFolder, answers({ code: 2, stdout: '', stderr: 'profile: no such directory: /work/shop\n' }), withRegistry)).rejects.toThrow(
       'bin/profile failed with exit code 2: profile: no such directory: /work/shop',
@@ -110,7 +122,7 @@ describe('profileKnows: what bin/profile answered', () => {
     expect(await profileKnows(gitFolder, answers({ code: 3, stdout: '', stderr: 'profile: /work/shop is not in a registered project\n' }), withRegistry)).toBe(false)
   })
 
-  it('exit 1 of a fresh Harness, whose gate folder has no config.json: false (bin/project-connect writes the registry)', async () => {
+  it('exit 1 of a fresh Harness, with neither registry file: false (bin/project-connect writes the registry)', async () => {
     expect(await profileKnows(gitFolder, answers({ code: 1, stdout: '', stderr: FRESH_STDERR }), fresh)).toBe(false)
   })
 

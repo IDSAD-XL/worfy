@@ -254,30 +254,50 @@ export interface HarnessScriptRunOptions {
   timeoutMs: number
   /** node's spawn when absent. */
   spawn?: SpawnProcess
+  /**
+   * Kills the script (SIGKILL) when it aborts, as the time limit does: the app aborts it on quit. An
+   * aborted signal starts nothing.
+   */
+  signal?: AbortSignal
 }
+
+/** What runHarnessScript rejects with when its signal had aborted before the script started. */
+export const HARNESS_SCRIPT_ABORTED = 'not started: the run was stopped'
 
 /**
  * One run of the Harness script `script` with `args` and `env` (`env` already has HARNESS_HOME:
  * scriptEnv), started as harnessScriptCommand says, for the scripts that read stdin or run for
  * minutes: `project-connect` (src/main/projects/connect.ts) and `qmd-collections`
  * (src/main/harness/qmd.ts). Up to 1 MiB of each output is kept. Resolves with the exit code
- * whatever it is (null when it was killed at `timeoutMs` or by a signal); rejects with a
- * HarnessScriptStartError when the script or node is missing (or, on Windows, the script is not
- * Node), and with the start error otherwise.
+ * whatever it is (null when it was killed at `timeoutMs`, by `signal`, or by a signal from
+ * elsewhere); rejects with a HarnessScriptStartError when the script or node is missing (or, on
+ * Windows, the script is not Node), and with the start error otherwise. No console window opens on
+ * Windows.
  */
 export async function runHarnessScript(script: string, args: readonly string[], env: HarnessScriptEnv, options: HarnessScriptRunOptions): Promise<ProfileRun> {
   const command = await harnessScriptCommand(script, args, env)
+  if (options.signal?.aborted) throw new Error(HARNESS_SCRIPT_ABORTED)
   const start = options.spawn ?? spawn
   return new Promise((resolvePromise, reject) => {
-    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     let stdout = ''
     let stderr = ''
-    let timedOut = false
+    /** The runner killed the script: at its time limit or on the signal. */
+    let killed = false
     let settled = false
-    const settle = (run: ProfileRun): void => {
-      if (settled) return
+    const stop = (): void => {
+      if (child.exitCode !== null || child.signalCode !== null) return
+      killed = true
+      child.kill('SIGKILL')
+    }
+    const done = (): void => {
       settled = true
       clearTimeout(timer)
+      options.signal?.removeEventListener('abort', stop)
+    }
+    const settle = (run: ProfileRun): void => {
+      if (settled) return
+      done()
       resolvePromise(run)
     }
     const timer = setTimeout(() => {
@@ -288,9 +308,9 @@ export async function runHarnessScript(script: string, args: readonly string[], 
         settle({ code: child.exitCode, signal: child.signalCode, stdout, stderr })
         return
       }
-      timedOut = true
-      child.kill('SIGKILL')
+      stop()
     }, options.timeoutMs)
+    options.signal?.addEventListener('abort', stop, { once: true })
     child.stdout.on('data', (chunk: Buffer) => {
       if (stdout.length < MAX_OUTPUT) stdout += chunk.toString('utf8')
     })
@@ -299,22 +319,21 @@ export async function runHarnessScript(script: string, args: readonly string[], 
     })
     child.on('error', (error) => {
       if (settled) return
-      settled = true
-      clearTimeout(timer)
+      done()
       reject(error)
     })
     // After the runner's own kill the answer is given when the script exits, not on 'close': a
     // process the script started with its stdio inherited (qmd-collections runs `qmd update`) may
-    // hold the pipes open long after, and the time limit would not hold. The pipes are let go.
+    // hold the pipes open long after, and the limit would not hold. The pipes are let go.
     child.on('exit', () => {
-      if (!timedOut) return
+      if (!killed) return
       child.stdout.destroy()
       child.stderr.destroy()
       settle({ code: null, signal: null, stdout, stderr })
     })
     child.on('close', (code, signal) => {
-      // The runner's own kill at `timeoutMs` is a timeout, not a signal from elsewhere (ProfileRun).
-      settle({ code, signal: timedOut ? null : signal, stdout, stderr })
+      // The runner's own kill is a timeout or a stop, not a signal from elsewhere (ProfileRun).
+      settle({ code, signal: killed ? null : signal, stdout, stderr })
     })
     child.stdin.on('error', () => undefined)
     child.stdin.end(options.stdin ?? '')

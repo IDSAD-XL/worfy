@@ -39,7 +39,7 @@ import { clientOf, type Client } from '../clients'
 import { signInRegistry, type GhProgram } from '../github/accounts'
 import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
-import { currentHarness, harnessHomes, locateHarness } from '../harness/locate'
+import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
 import { isRemoteCall } from '../link/caller'
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
@@ -58,12 +58,30 @@ const store = projectStore()
 
 /**
  * `bin/project-connect` of the Harness on the machine, with the login shell's PATH (node) and
- * HARNESS_HOME, started as `node <script>` by the shared launcher (worfy-windows ticket 30).
+ * HARNESS_HOME, started as `node <script>` by the shared launcher (worfy-windows ticket 30). The
+ * write may run for up to 30 minutes and has no Stop of its own: a script still running when the
+ * app quits is killed (will-quit, as the other children of this module are ended).
  */
-const connectScript: ConnectScript = connectScriptRunner({
-  harness: () => locateHarness(harnessHomes(claudeHome())),
-  env: async () => (await agentEnv()).env,
-})
+function appConnectScript(): ConnectScript {
+  let quitting: AbortController | undefined
+  // Subscribed on the first run of the script, so building the connector touches no app event.
+  const quitSignal = (): AbortSignal => {
+    if (quitting === undefined) {
+      const controller = new AbortController()
+      app.on('will-quit', () => controller.abort())
+      quitting = controller
+    }
+    return quitting.signal
+  }
+  return connectScriptRunner({
+    harness: () => locateHarness(harnessHomes(claudeHome())),
+    env: async () => (await agentEnv()).env,
+    signal: quitSignal,
+  })
+}
+
+/** The gate registry files the machine's bin/profile reads, with the environment it runs with. */
+const gateRegistries = async (): Promise<string[]> => profileRegistryFiles(scriptEnv(locateHarness(harnessHomes(claudeHome())), (await agentEnv()).env))
 
 /** The draft Session's Claude Code: the SDK with the draft's options, as a Session outside every Project (no canvas). */
 const sdkDraftQuery: DraftQueryFactory = async (request) => {
@@ -118,8 +136,8 @@ function connector(): ProjectConnector {
     git: runGit,
     gh: ghRunner(appGh()),
     profile: async (cwd, args) => profileRunner(claudeHome(), (await agentEnv()).env)(cwd, args),
-    gateDir: () => locateHarness(harnessHomes(claudeHome())).gateDir,
-    connect: connectScript,
+    gateRegistries,
+    connect: appConnectScript(),
     harness: () => appInstaller().status(),
     query: draftQueryFromEnv(),
     draftSchema: () => JSON.parse(readFileSync(join(bundledHarnessDir(), 'profiles', 'draft.schema.json'), 'utf8')) as Record<string, unknown>,

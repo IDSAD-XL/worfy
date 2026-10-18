@@ -119,6 +119,8 @@ export interface ConnectScriptSource {
   spawn?: SpawnProcess
   /** One limit for every call; CONNECT_TIMEOUT_MS, and CONNECT_WRITE_TIMEOUT_MS for the write, when absent. */
   timeoutMs?: number
+  /** Asked on each run: a running script is killed when it aborts; the app aborts it on quit (src/main/ipc/projects.ts). */
+  signal?: () => AbortSignal
 }
 
 /**
@@ -130,7 +132,12 @@ export function connectScriptRunner(source: ConnectScriptSource): ConnectScript 
   return async (args, stdin) => {
     const harness = source.harness()
     const env = scriptEnv(harness, await source.env())
-    return runHarnessScript(join(harness.binDir, 'project-connect'), args, env, { stdin, timeoutMs: source.timeoutMs ?? (args.length === 0 ? CONNECT_WRITE_TIMEOUT_MS : CONNECT_TIMEOUT_MS), spawn: source.spawn })
+    return runHarnessScript(join(harness.binDir, 'project-connect'), args, env, {
+      stdin,
+      timeoutMs: source.timeoutMs ?? (args.length === 0 ? CONNECT_WRITE_TIMEOUT_MS : CONNECT_TIMEOUT_MS),
+      spawn: source.spawn,
+      signal: source.signal?.(),
+    })
   }
 }
 
@@ -144,10 +151,11 @@ export interface ConnectDeps {
   /** `bin/profile` of the Harness on the machine. */
   profile: ProfileRunner
   /**
-   * The gate folder of the same Harness (HarnessLocation.gateDir): without its `config.json` an exit 1
-   * of bin/profile is a fresh Harness, not a failure (profileKnows).
+   * The gate registry files bin/profile of the same Harness reads, in its order
+   * (profileRegistryFiles): when none of them exists, an exit 1 of bin/profile is a fresh Harness,
+   * not a failure (profileKnows).
    */
-  gateDir: () => string
+  gateRegistries: () => Promise<readonly string[]>
   /** `bin/project-connect` of the Harness on the machine. */
   connect: ConnectScript
   /** The installer's state (src/main/harness/install.ts), as the first-run screen reads it. */
@@ -241,16 +249,17 @@ export async function inspectFolder(folder: string, git: GitRunner): Promise<Fol
 /**
  * Whether the Harness already knows the folder: `bin/profile -C <root>` exits 0 (a multi-repo folder
  * also needs `_resolved.workspace`). "Not known" is exit 3 (no registered project), and exit 1 while
- * the gate registry `<gateDir>/config.json` does not exist: a fresh Harness, whose bin/profile then
- * says its resolver could not read the registry; bin/project-connect creates it with the first
- * Project. Everything else throws (worfy-windows ticket 30), because the folder is then not "new"
+ * none of `registries` exists — the gate registry files bin/profile reads, the new one and the old
+ * ~/.claude/gate/config.json (profileRegistryFiles): a fresh Harness, whose bin/profile then says
+ * its resolver could not read the registry; bin/project-connect creates it with the first Project.
+ * A broken old registry is there, so its exit 1 is an error, and no new registry shadows it. Everything else throws (worfy-windows ticket 30), because the folder is then not "new"
  * and the caller says why it cannot tell: the script was not started (no script, no node —
  * HarnessScriptStartError —, ENOENT), the system found no interpreter for it (exit code 127 or 126),
  * it was killed at its time limit or by a signal (code null), or it failed with another code — exit
  * 1 with the registry there is a broken registry, a broken profile.json of a registered project or a
  * crash, and a draft for such a folder would only fail at the write ("the name is taken").
  */
-export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner, gateDir: string): Promise<boolean> {
+export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner, registries: readonly string[]): Promise<boolean> {
   let run: ProfileRun
   try {
     run = await profile(folder.root, ['-C', folder.root, '--json'])
@@ -265,7 +274,7 @@ export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner
     throw new Error(`bin/profile could not be run: exit code ${String(run.code)}${detail ? `: ${detail}` : ''}`)
   }
   if (run.code === 3) return false
-  if (run.code === 1 && !existsSync(join(gateDir, 'config.json'))) return false
+  if (run.code === 1 && !registries.some((registry) => existsSync(registry))) return false
   if (run.code !== 0) {
     const detail = scriptFailureDetail(run.stderr)
     throw new Error(`bin/profile failed with exit code ${String(run.code)}${detail ? `: ${detail}` : ''}`)
@@ -277,6 +286,12 @@ export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner
   } catch {
     return false
   }
+}
+
+/** profileKnows failed because the profile script is not on disk: no Harness script, or a start that found no file. */
+function missingScript(error: unknown): boolean {
+  const cause = error instanceof Error ? error.cause : undefined
+  return typeof cause === 'object' && cause !== null && (cause as { code?: unknown }).code === 'ENOENT'
 }
 
 // ── step 3: the Harness ───────────────────────────────────────────────────────
@@ -472,6 +487,15 @@ export class ProjectConnector {
 
   constructor(private readonly deps: ConnectDeps) {}
 
+  /** Whether the Harness step stops the dialog (harnessBlocker); an installer that cannot answer does not count. */
+  private async harnessStops(): Promise<boolean> {
+    try {
+      return harnessBlocker(await this.deps.harness()) !== null
+    } catch {
+      return false
+    }
+  }
+
   private log(message: string): void {
     ;(this.deps.log ?? ((text: string) => console.warn(text)))(message)
   }
@@ -482,8 +506,11 @@ export class ProjectConnector {
     if (!inspected.ok) return { status: 'rejected', reason: inspected.reason }
     let known: boolean
     try {
-      known = await profileKnows(inspected.folder, this.deps.profile, this.deps.gateDir())
+      known = await profileKnows(inspected.folder, this.deps.profile, await this.deps.gateRegistries())
     } catch (error) {
+      // No profile script because no Harness is installed (or it is one the Harness step stops at):
+      // the folder goes on to the dialog as before, and its Harness step says what to do.
+      if (missingScript(error) && (await this.harnessStops())) return { status: 'new', folder: inspected.folder }
       // Not "new": the form would draft a Profile the Harness may already have (worfy-windows ticket 30).
       return { status: 'rejected', reason: `The Harness could not tell whether it knows ${inspected.folder.root}: ${error instanceof Error ? error.message : String(error)}` }
     }
@@ -622,7 +649,7 @@ export class ProjectConnector {
     if (!written.ok) return { status: 'refused', issues: written.issues }
     let found: boolean
     try {
-      found = await profileKnows(folder, this.deps.profile, this.deps.gateDir())
+      found = await profileKnows(folder, this.deps.profile, await this.deps.gateRegistries())
     } catch (error) {
       return { status: 'rejected', reason: `The profile was written, but the Harness could not be asked about ${folder.root}: ${error instanceof Error ? error.message : String(error)}. The folder was not added.` }
     }

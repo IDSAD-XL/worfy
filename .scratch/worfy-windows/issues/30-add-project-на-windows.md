@@ -149,4 +149,34 @@ Session на Windows-ПК, 2026-10-18, та же ветка.
 | `pnpm lint` | 0 | — |
 | `pnpm typecheck` | 0 | — |
 
+### Fix round 1 — ревью Mac (PR #482, head `a4c099e`)
+
+Session на Windows-ПК, 2026-10-18, та же ветка. Сам комментарий ревью на ПК не читался. Repo приватный, а правило владельца запрещает subagent-у запускать настоящий gh в любом виде. Пункты взяты из сообщения координатора.
+
+- **medium 1, регрессия на macOS без Harness.** На main машина без Harness получала «new», и шаг «Harness» диалога говорил, что поставить. `a4c099e` отказывал уже на шаге «Folder» с путём `~/.claude/bin/profile`. Теперь `inspect` возвращает «new», когда скрипта `profile` нет на диске (ENOENT: `HarnessScriptStartError` или ENOENT самого spawn) и шаг «Harness» всё равно остановит диалог (`harnessBlocker` не `null`). Взято шире, чем только `not-installed`: при `outdated`, выключенном plugin-е и ошибке проверки шаг «Harness» тоже останавливает диалог своим текстом, как на main. При установленном Harness нет скрипта — по-прежнему ошибка шага «Folder». Test на `a4c099e` красный: `expected { status: 'rejected', … } to deeply equal { status: 'new', … }`, причина — `bin/profile could not be run: no Harness script at …\home\.claude\bin\profile`.
+- **medium 2, старый реестр.** `bin/profile` читает `CLAUDE_GATE_CONFIG`, иначе `<HARNESS_HOME>/gate/config.json`, а пока его нет — старый `~/.claude/gate/config.json`. Выбран тот же поиск в worfy, а не новый exit code в `bin/profile`. Причина: `gate-resolve.mjs` сознательно считает нечитаемый реестр «не проверено», а не «не зарегистрирован», и новый код менял бы контракт для всех вызывающих `profile`.
+  - `profileRegistryFiles(env)` (`src/main/harness/locate.ts`) даёт файлы в том же порядке. Окружение — то, с которым идёт скрипт (`scriptEnv`); домашняя папка — как её берёт `os.homedir()` у node: USERPROFILE на Windows, HOME на других системах.
+  - `ConnectDeps.gateDir` заменён на `gateRegistries`. Exit 1 — «не знает», только когда нет ни одного файла. Сломанный старый реестр теперь ошибка, и `project-connect` не пишет новый реестр, который скрыл бы его.
+  - В test-ах `sandboxEnv` получил `USERPROFILE`, чтобы настоящий `bin/profile` на Windows искал старый реестр в песочнице.
+- **low.**
+  - `runHarnessScript` запускает с `windowsHide`.
+  - Запись Profile (до 30 мин) отменить нельзя, но при выходе из приложения её процесс теперь убивается. `connectScriptRunner` принимает `signal`. `src/main/ipc/projects.ts` подписывает `will-quit` при первом запуске скрипта — так же этот модуль закрывает вход через gh. Подписка не при создании connector-а: mock `electron` в `projects.test.ts` без `app`. Stop для записи в UI нет — это не строилось.
+  - `harness/bin/project-connect` запускает `qmd-collections` правилом `scriptCommand` из `epic-status`: Node-скрипт — через `process.execPath`, shell-stub test-а — сам, как раньше.
+- **Не сделано:** «четыре выживших мутанта из комментария». Их список есть только в комментарии ревью, а его на ПК не прочитать (см. выше). Нужен список от координатора.
+- **Test-ы:**
+  - `projects-connect` +3: нет Harness → «new» и текст шага «Harness»; сломанный старый реестр через настоящий `bin/profile` → ошибка; signal убивает идущий скрипт, а при прерванном signal скрипт не запускается.
+  - `profile-knows` +1: только старый реестр, exit 1 → ошибка.
+  - `harness-locate` +4: `profileRegistryFiles`.
+  - `project-connect.test.sh` +3: Node `qmd-collections` без бита исполнения идёт через node. «qmd» в этом случае — сам node (`node --version`), поэтому случай идёт и на Windows. С `project-connect` из main все 3 красные.
+
+| Прогон на ПК | Exit | Итог |
+|---|---|---|
+| vitest: `profile-knows`, `harness-locate`, `projects-connect`, `harness-qmd`, `e2e-no-spawn-on-load` | 1 | 15 упало, 129 прошли из 144; упавшие — те же 15 имён, что на main `ee6c253`, новых нет |
+| `bash harness/bin/tests/project-connect.test.sh`, ветка | 1 | 90 прошли, 21 упало |
+| то же на main `ee6c253` | 1 | 87 прошли, 21 упало — те же имена; 3 новых случая на ветке зелёные |
+| мутант a: `profileRegistryFiles` без старого реестра | 1 | убит 4 test-ами |
+| мутант c: `runHarnessScript` без подписки на signal | 1 | убит test-ом signal-а |
+| `pnpm lint` | 0 | — |
+| `pnpm typecheck` | 0 | — |
+
 **Ждёт владельца:** пункты 1–3 «Готово, когда» на ПК — форма целиком руками: новая папка до «Review» и записи, знакомая папка сразу в список, ошибка шага «Folder» при сбое скрипта. Для этого Harness должен стоять на машине (Ticket 13), а эта Session в профиль владельца не пишет. Ещё — `gate full` на Mac. e2e (`projects-connect.spec.ts`) на ПК не запускались: окна приложения не открывались.

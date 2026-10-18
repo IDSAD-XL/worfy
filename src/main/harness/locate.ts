@@ -14,6 +14,7 @@
 // Nothing is cached: every call looks again, so a machine that switches to the plugin is seen
 // without a restart. Nothing here writes.
 import { readFileSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { HarnessKind } from '../../shared/projects/action-templates'
 import { claudeHome as defaultClaudeHome, harnessHome as defaultHarnessHome } from '../storage/paths'
@@ -95,6 +96,22 @@ export function currentHarness(env: NodeJS.ProcessEnv = process.env): HarnessLoc
  */
 export function scriptEnv(location: HarnessLocation, base: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
   return location.kind === 'plugin' ? { ...base, HARNESS_HOME: location.harnessHome } : { ...base }
+}
+
+/**
+ * The gate registry files `bin/profile` may read, in its order (harness/bin/profile, `CFG` and
+ * `gateConfig`): only the file CLAUDE_GATE_CONFIG names when that is set; otherwise
+ * <HARNESS_HOME>/gate/config.json, then the old <home>/.claude/gate/config.json, which it reads
+ * while the new one is missing. `env` is the script's environment (scriptEnv): its HARNESS_HOME,
+ * and its home folder as node's os.homedir() takes it there — USERPROFILE on Windows, HOME
+ * elsewhere. No file of the list on disk means the Harness has no registry yet (worfy-windows
+ * ticket 30, profileKnows).
+ */
+export function profileRegistryFiles(env: Readonly<Record<string, string | undefined>>, platform: NodeJS.Platform = process.platform): string[] {
+  const named = env.CLAUDE_GATE_CONFIG
+  if (named) return [named]
+  const claude = join((platform === 'win32' ? env.USERPROFILE : env.HOME) || homedir(), '.claude')
+  return [join(env.HARNESS_HOME || join(claude, 'worfy-harness'), 'gate', 'config.json'), join(claude, 'gate', 'config.json')]
 }
 
 /** "not found" text naming both scripts looked for. */
