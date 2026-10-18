@@ -64,6 +64,7 @@ const MUTANTS = [
   ['m16_emfile_counts_as_not_there', GONE, "['ENOENT', 'ENOTDIR']", "['ENOENT', 'ENOTDIR', 'EMFILE']", [...GT, ...DT]],
   // The review of d9fb032: runs of failures, Linux, and the real fs.watch.
   ['m17_no_new_run_after_an_event', DOCS, '        if (this.watcher !== mine.handle) return\n        this.failing = false\n', '        if (this.watcher !== mine.handle) return\n', DT],
+  ['m17b_an_event_of_a_stale_watch_starts_a_new_run', DOCS, '        if (this.watcher !== mine.handle) return\n        this.failing = false\n', '        this.failing = false\n        if (this.watcher !== mine.handle) return\n', DT],
   ['m18_no_new_run_after_a_retry_period', DOCS, 'if (this.watcher === mine.handle) this.failing = false', 'if (this.watcher === mine.handle) void 0', DT],
   ['m19_a_new_run_at_every_watch_made', DOCS, '    this.watcher = mine.handle\n', '    this.watcher = mine.handle\n    this.failing = false\n', DT],
   ['m20_an_error_ends_the_watch_on_linux', DOCS, "  return platform !== 'linux'\n", '  return true\n', DT],

@@ -252,6 +252,20 @@ describe('DocsWatcher and a root that is removed', () => {
     expect(error).toHaveBeenCalledTimes(3)
   })
 
+  it('an event of the watch that failed is no sign that the watch works: the next failure is the same run, not said', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    await start(model, { retryMs: 200 })
+    const failure = Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' })
+    model.made[0]!.fail(failure)
+    await until(() => expect(model.made).toHaveLength(2))
+    // The old watch still has an event on the way; then the new one fails within its retry period.
+    model.made[0]!.event('HANDOFF.md')
+    model.made[1]!.fail(failure)
+    expect(error).toHaveBeenCalledTimes(1)
+  })
+
   it('on Linux an error of the watch is only said: the watch goes on, and is not made anew', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const model = stand()
