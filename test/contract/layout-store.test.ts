@@ -49,6 +49,10 @@ let store: LayoutStore
  * `trash`, src/main/ipc/trash.ts too.
  */
 async function start(trash = false): Promise<void> {
+  // The store of the start before this one may still hold a change back, and saveLayoutNow() in
+  // afterEach reaches the store of the last start alone. Left to its timer, the save came after the
+  // folder was gone and made it again (worfy-windows ticket 32). It is written now.
+  ;(store as LayoutStore | undefined)?.flushAll()
   vi.resetModules()
   electron.quitListeners.length = 0
   process.env.WORFY_DATA_DIR = dataDir
