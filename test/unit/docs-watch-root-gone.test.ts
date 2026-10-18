@@ -27,6 +27,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.restoreAllMocks()
   await Promise.all(watchers.splice(0).map((watcher) => watcher.close()))
   removeTestTree(dir)
@@ -38,18 +39,32 @@ interface Stand {
   made: { closed: boolean; event: (filename: string | null) => void; fail: (error: unknown) => void }[]
   /** Makes the next call of `watch` throw, as fs.watch does for a folder that is not there. */
   refuseNext: () => void
+  /** Makes the next `times` calls of `watch` throw with `code` (0: no more refusals); `refused` counts them. */
+  refuse: (code: string, times: number) => void
+  refused: () => number
 }
 
 function stand(): Stand {
   const made: Stand['made'] = []
-  let refuse = false
+  let left = 0
+  let code = 'ENOENT'
+  let refused = 0
   return {
     made,
-    refuseNext: () => void (refuse = true),
+    refuseNext: () => {
+      code = 'ENOENT'
+      left = 1
+    },
+    refuse: (what, times) => {
+      code = what
+      left = times
+    },
+    refused: () => refused,
     watch: (_root, onEvent, onError) => {
-      if (refuse) {
-        refuse = false
-        throw Object.assign(new Error('ENOENT: no such file or directory, watch'), { code: 'ENOENT' })
+      if (left > 0) {
+        left -= 1
+        refused += 1
+        throw Object.assign(new Error(`${code}: watch`), { code })
       }
       const one = { closed: false, event: onEvent, fail: onError }
       made.push(one)
@@ -84,8 +99,12 @@ async function start(model: Stand): Promise<Started> {
   return { watcher, changes, there }
 }
 
+const gone = (): string => `[docs] the folder ${root} is gone: its documents are not watched until it is back`
 const until = (done: () => void): Promise<void> => vi.waitFor(done, { timeout: 3000, interval: 5 })
 const pause = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+/** A wait on the real clock, also while the test has faked it: a look at the folder answers from the thread pool. */
+const realTimeout = globalThis.setTimeout
+const settled = (ms = 50): Promise<void> => new Promise((resolve) => realTimeout(resolve, ms))
 
 describe('DocsWatcher and a root that is removed', () => {
   it('closes its watch at the first event that names the folder itself, says so once, and reports the documents as they are then', async () => {
@@ -101,15 +120,14 @@ describe('DocsWatcher and a root that is removed', () => {
     for (let times = 0; times < 50; times++) model.made[0]!.event(ITSELF)
     expect(model.made[0]!.closed).toBe(true)
     await until(() => expect(changes).toEqual([{ handoff: null, adrs: [] }]))
-    expect(warn.mock.calls).toEqual([[`[docs] the folder ${root} is gone: its documents are not watched until it is back`]])
-    // No second watch while the folder is not there.
-    await pause(RETRY * 5)
+    expect(warn.mock.calls).toEqual([[gone()]])
+    // No second watch while the folder is not there: it is looked for again after the first answer.
+    await until(() => expect(there.asked).toBeGreaterThan(1))
     expect(model.made).toHaveLength(1)
-    expect(there.asked).toBeGreaterThan(1)
   })
 
-  it('watches the root again when it is a folder again, and reads it: the documents come back, and a later change is followed', async () => {
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+  it('watches the root again when it is a folder again, and reads it: the documents come back, a later change is followed, and a second loss is met like the first', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const model = stand()
     const { changes, there } = await start(model)
     removeTestTree(root)
@@ -136,10 +154,26 @@ describe('DocsWatcher and a root that is removed', () => {
     await pause(RETRY * 5)
     expect(model.made).toHaveLength(watches)
     expect(model.made[1]!.closed).toBe(false)
+
+    // The root goes a second time: the new watch is closed at its first such event, it is said
+    // again, and the root is waited for again.
+    removeTestTree(root)
+    there.now = false
+    model.made[1]!.event(ITSELF)
+    expect(model.made[1]!.closed).toBe(true)
+    await until(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }))
+    expect(warn.mock.calls).toEqual([[gone()], [gone()]])
+    mkdirSync(root)
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, a third time\n')
+    there.now = true
+    await until(() => expect(model.made).toHaveLength(3))
+    await until(() => expect(changes.at(-1)?.handoff).not.toBeNull())
+    expect(model.made[2]!.closed).toBe(false)
   })
 
-  it('a root that is gone again between the look and the watch is waited for again', async () => {
+  it('a root that is gone again between the look and the watch is waited for again, and nothing more is said', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const model = stand()
     const { there } = await start(model)
     there.now = false
@@ -149,6 +183,60 @@ describe('DocsWatcher and a root that is removed', () => {
     there.now = true
     await until(() => expect(model.made).toHaveLength(2))
     expect(model.made[1]!.closed).toBe(false)
+    expect(model.refused()).toBe(1)
+    expect(error).not.toHaveBeenCalled()
+  })
+
+  it('a root that is a folder but cannot be watched for another reason: the failure is said once, and the documents are read meanwhile', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    const { changes, there } = await start(model)
+    removeTestTree(root)
+    there.now = false
+    model.made[0]!.event(ITSELF)
+    await until(() => expect(changes).toEqual([{ handoff: null, adrs: [] }]))
+
+    mkdirSync(root)
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, again\n')
+    model.refuse('EMFILE', 1_000_000)
+    there.now = true
+    // The folder is there with its HANDOFF.md: it is read while it cannot be watched.
+    await until(() => expect(changes.at(-1)?.handoff).not.toBeNull())
+    await until(() => expect(model.refused()).toBeGreaterThan(3))
+    expect(model.made).toHaveLength(1)
+    expect(error.mock.calls).toEqual([[`[docs] cannot watch ${root}: its documents are not followed until it can be`, expect.objectContaining({ code: 'EMFILE' })]])
+
+    // Once it can be watched it is.
+    model.refuse('EMFILE', 0)
+    await until(() => expect(model.made).toHaveLength(2))
+    expect(model.made[1]!.closed).toBe(false)
+    expect(error).toHaveBeenCalledTimes(1)
+  })
+
+  it('a watch that fails is said with its error and made anew while the root is a folder; the watch that failed is heard no more', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    const { changes } = await start(model)
+    const failure = Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' })
+    model.made[0]!.fail(failure)
+    expect(model.made[0]!.closed).toBe(true)
+    expect(error.mock.calls).toEqual([[`[docs] the watch of ${root} failed: its documents are not followed until it is made anew`, failure]])
+    await until(() => expect(model.made).toHaveLength(2))
+    expect(model.made[1]!.closed).toBe(false)
+
+    // The new watch is followed; the one that failed is not.
+    model.made[0]!.fail(failure)
+    model.made[0]!.event(ITSELF)
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed\n')
+    model.made[1]!.event('HANDOFF.md')
+    await until(() => expect(changes).toHaveLength(1))
+    await pause(RETRY * 5)
+    expect(model.made).toHaveLength(2)
+    expect(model.made[1]!.closed).toBe(false)
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('a name under the root, or no name at all, does not close the watch', async () => {
@@ -207,7 +295,31 @@ describe('DocsWatcher and a root that is removed', () => {
     expect(asked).toBe(1)
   })
 
-  it('looks for the root every two seconds unless told otherwise', () => {
+  it('unless told otherwise: takes the rule for a full path from the system, looks at the folder itself, and every two seconds', async () => {
     expect(ROOT_RETRY_MS).toBe(2000)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const model = stand()
+    const watcher = await DocsWatcher.start({ root, debounceMs: 0, onChange: () => undefined, watch: model.watch })
+    watchers.push(watcher)
+    model.made[0]!.event('HANDOFF.md')
+    expect(model.made[0]!.closed).toBe(false)
+    removeTestTree(root)
+    // The root by its full path, in the form of this system.
+    model.made[0]!.event(root)
+    expect(model.made[0]!.closed).toBe(true)
+
+    // Looked at after two seconds; not a folder, so not watched.
+    await vi.advanceTimersByTimeAsync(ROOT_RETRY_MS)
+    await settled()
+    expect(model.made).toHaveLength(1)
+    // A folder again: watched at the next look, two seconds after the one before, not earlier.
+    mkdirSync(root)
+    await vi.advanceTimersByTimeAsync(ROOT_RETRY_MS - 1)
+    await settled()
+    expect(model.made).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    for (let tries = 0; tries < 200 && model.made.length < 2; tries++) await settled(5)
+    expect(model.made).toHaveLength(2)
   })
 })
