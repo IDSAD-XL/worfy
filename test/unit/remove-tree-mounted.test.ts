@@ -155,7 +155,7 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     const m = model(BEHIND_A_LINK_TO_ANOTHER_VOLUME)
     expect(endViaModule(m, '/data/away/sub', platform)).toBeNull()
     expect(m.calls).toEqual(['lstat /data/away/sub', 'lstat /data/away/sub/..', 'readdir /data/away/sub', 'lstat /data/away/sub/f.txt', 'rmSync /data/away/sub recursive force'])
-    expect(m.names()).toEqual(['/data', '/data/away', '/vol', '/vol/r', '/vol/r/empty'])
+    expect(m.names()).toEqual(['/data', '/data/away', '/home', '/home/notes', '/home/notes/keep.txt', '/vol', '/vol/r', '/vol/r/empty', '/vol/r/m'])
   })
 
   it('a link to a folder of another volume is no mount point: it is not followed by the look, and goes as the link it is', () => {
@@ -177,7 +177,7 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     expect(itself.names()).toEqual(['/data', '/data/card', '/vol', '/vol/notes', '/vol/notes/keep.txt'])
   })
 
-  // (A tree with no mount point and no link out of its volume: test/unit/remove-tree.test.ts, "on
+  // (A tree with no mount point and no link out of its volume: test/unit/remove-tree-walk.test.ts, "on
   // every other system the tree is looked through".)
   it('a file, and a path that is not there: one look, then rmSync as before', () => {
     const m = model(WITH_A_LINK)

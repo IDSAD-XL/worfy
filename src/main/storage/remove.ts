@@ -15,7 +15,13 @@
 // So on Windows a tree is removed by a walk of its own: lstat says what a path is and never follows
 // a link; what is not a folder is unlinked; a folder is emptied and then removed. The walk reaches
 // every entry by its full path, so it holds only for a tree nobody else changes meanwhile: a folder
-// that another process swaps for a link during the removal would be entered.
+// that another process swaps for a link during the removal would be entered. Two such windows of
+// the rules below (worfy-windows ticket 45; read, not measured): a folder swapped for a junction by
+// GUID between its first rmdir, which answered ENOTEMPTY, and its listing is listed — the window
+// ran from lstat to the listing before those rules, and is shorter now; a folder swapped for a file
+// between lstat and its first rmdir is taken as gone, since libuv answers ENOENT to rmdir of a path
+// that is no folder — the file stays, and its folder then fails as "not empty". The walk before
+// came to the same through ENOTDIR of the listing.
 //
 // One link lstat does not see (worfy-windows ticket 35): a junction whose target is written with
 // the GUID of a volume (`mklink /J link \\?\Volume{…}\`, or a folder of such a volume). Measured
@@ -33,11 +39,24 @@
 //     folder it lies in is never listed, whatever rmdir answers. It is asked to go with rmdir, and
 //     nothing more. The folder a path lies in is asked for its volume only when lstat calls it a
 //     folder: an ordinary junction or a symlink there answers with the volume the link lies on,
-//     not the one the path is on (measured).
+//     not the one the path is on (measured). Nor is it known when that folder cannot be asked:
+//     for a path written with \\?\ that lies in the root of a disk it is `\\?\C:`, and lstat of
+//     that answers EISDIR (measured under both Nodes, worfy-windows ticket 45; no caller gives such
+//     a path, read). For the path given the first rmdir alone decides then.
+// An entry its folder lists and lstat says is not there (ENOENT, ENOTDIR) is asked to go with one
+// rmdir, whatever it answers. A junction by GUID whose volume is detached, or whose target folder
+// is gone, answers ENOENT to lstat, and kept its folder from going at every removal; rmdir removes
+// it as the link it is (measured, worfy-windows ticket 45). That rmdir lists nothing. The path given
+// to removeTree gets the same rmdir when lstat does not see it: such a junction given directly
+// stayed, and restoring a folder over it then failed with EEXIST. So a path that is not there costs
+// one more rmdir, which answers ENOENT.
 // The price: a folder that is busy itself is waited for before its entries — the walk before came
 // to it last — and keeps what it holds while it stays busy. Once the waits of the removal are
 // spent, half a second, it fails; the walk before removed the entries first, and succeeded when
-// the folder was let go meanwhile.
+// the folder was let go meanwhile. In the trash (src/main/layout/trash.ts) that is the folder of an
+// entry, which the rollback of put and restore remove: busy itself, it keeps entry.json, and list
+// shows an entry whose Card is back in place. Only a process with its working folder there makes
+// it busy so; the application starts none (read).
 //
 // On every other system fs.rmSync removes the tree, as before this module: there it never went
 // through a link, it is safe against such a swap, it goes on past an entry it cannot remove, and
@@ -80,7 +99,7 @@
 //
 // The text of scripts that cannot import anything keeps a copy of both functions: the restore
 // script of src/main/harness/migrate/restore.ts, scripts/remove-tree.mjs and
-// scripts/install-stable.mjs. test/unit/remove-tree.test.ts compares the copies.
+// scripts/install-stable.mjs. test/unit/remove-tree-copies.test.ts compares the copies.
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 
@@ -198,12 +217,24 @@ function goesUnlisted(path: string, fs: RemoveFs, options: RemoveOptions, patien
  * first error is thrown at the end, with the folder left for what stayed in it.
  *
  * `outer` is the volume of the folder the path lies in; the path the caller gave has none yet, and
- * its parent folder is asked. A folder is listed only when both hold: it is on that volume, and it
- * has answered "not empty" to one rmdir (the two rules of the header).
+ * its parent folder is asked. A folder is listed only when it has answered "not empty" to one rmdir
+ * and, when the volume of the folder it lies in is known, it is on that volume (the two rules of
+ * the header). For the path the caller gave that volume is unknown when its parent is a link to
+ * lstat or cannot be asked: then the first rmdir alone decides.
  */
 function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Patience, outer?: number): void {
   const seen = seenAt(path, fs)
-  if (seen === null) return
+  if (seen === null) {
+    // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
+    // answers so (the header), the path given too. One rmdir, whatever it answers: its folder's own
+    // rmdir tells what stays.
+    try {
+      fs.rmdirSync(path)
+    } catch {
+      // Nothing is there, or it stays and its folder fails as "not empty".
+    }
+    return
+  }
   if (!seen.folder) {
     patiently(() => fs.unlinkSync(path), options, patience)
     return
