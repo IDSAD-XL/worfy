@@ -268,6 +268,31 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     picks "an old node first on PATH (it refuses the version check)" v24 "$oldpath:$NONODE"
     fakenode "$NVM/v24.1.0/bin" v24 old
     picks "the newest node of nvm is too old" v9
+    # The version boundary itself, with copies of ORDER whose NODE_MIN is the major version of the
+    # real node, and one above it. Equal passes (v9 here runs the real node); above it nothing
+    # passes, and the answer names the node that was found and refused, not «node не найден».
+    major="$(node -p 'process.versions.node.split(".")[0]' | tr -d '\r')"
+    for min in "$major" "$((major + 1))"; do
+        sed "s#^NODE_MIN=18\$#NODE_MIN=$min#" "$ORDER" >"$PLUGIN/hooks/gate-min-$min.sh"
+        chmod +x "$PLUGIN/hooks/gate-min-$min.sh"
+    done
+    if ! grep -q "^NODE_MIN=$major\$" "$PLUGIN/hooks/gate-min-$major.sh"; then bad "gate.sh has no line NODE_MIN=18 to change"; else
+        ORDER_SAVED="$ORDER"
+        ORDER="$PLUGIN/hooks/gate-min-$major.sh"
+        picks "NODE_MIN equal to the major version of the real node ($major)" v9
+        ORDER="$PLUGIN/hooks/gate-min-$((major + 1)).sh"
+        mkdir -p "$T/state-min"
+        rm -f "$T/order/used"
+        out="$(cd "$R" && HOME="$T/order/home" USERPROFILE="$T/order/home" CLAUDE_GATE_STATE="$T/state-min" GATE_SCOPE=all PATH="$NONODE" "$BASH" "$ORDER" fast </dev/null 2>&1)"; rc=$?
+        out="$(printf '%s' "$out" | tr -d '\r')"
+        want="no node $((major + 1)) or newer: $NVM/v24.1.0/bin/node is older or did not start"
+        if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $want" ] && [ ! -e "$T/order/used" ] \
+            && [ "$(jqr .reason "$T/state-min/verdict-$(tag "$R").json" 2>/dev/null)" = "$want" ] \
+            && grep -qF "$want. Repository: $R. The gate needs node $((major + 1)) or newer" "$T/state-min/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then
+            ok "NODE_MIN above the real node: exit 3, the line, the reason and the marker name the node refused, the gate did not run"
+        else bad "NODE_MIN above the real node: rc=$rc, used: $(cat "$T/order/used" 2>/dev/null), reason: $(jqr .reason "$T/state-min/verdict-$(tag "$R").json" 2>/dev/null), out: ${out:0:300}"; fi
+        ORDER="$ORDER_SAVED"
+    fi
     # Outside git there is nothing to say, as for the gate itself.
     mkdir -p "$T/state-none"
     out="$(cd "$T/none" && HOME="$T/home" USERPROFILE="$T/home" CLAUDE_GATE_STATE="$T/state-none" PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?

@@ -207,9 +207,9 @@ The gate is `gate.mjs fast`: the root lint plus `typecheck` and `test` of the ch
 **and** the line `[gate] зелено (…)`; exit 0 with the line «ничего не прогналось» or «окружение
 недоступно» is not a check. Exit 2 is red (`[gate] красно`). Exit 3 is unverified, neither green nor red: the line
 `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry unreadable,
-resolver crashed). Exit 127 — node is not on PATH and the gate never started. Exit 130 or 143
-(128 + a signal) — the gate itself was stopped and this run wrote nothing. A red gate, exit 3, 127,
-130 or 143, and exit 0 without the «зелено» line — `FAILURE.md` with that line and the exit code,
+resolver crashed). Exit 127 — node is not on PATH and the gate never started. Exit 128 + the
+signal number — 129, 130, 143, 149 (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself
+was stopped and this run wrote nothing. A red gate, exit 3, 127, 129, 130, 143 or 149, and exit 0 without the «зелено» line — `FAILURE.md` with that line and the exit code,
 no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
 the push in 1g sends only commits. Rebuilds that the profile section requires before
 `typecheck` and the gate — once before the gate; after each mutation — only if the section says so.

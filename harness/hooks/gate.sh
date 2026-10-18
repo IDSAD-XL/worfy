@@ -10,7 +10,9 @@
 #   2. it starts gate.mjs with the same arguments and stdin and ends with its exit code;
 #   3. with no such node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
 #      ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден», exit code 3, the marker nokey-broken-<tag>-<session>
-#      for stop.mjs and an "unverified" verdict file in place of the one of the run before.
+#      for stop.mjs and an "unverified" verdict file in place of the one of the run before. When
+#      a node was found but failed the check, the line says «no node 18 or newer: <its path> is
+#      older or did not start» instead, with the same code, marker and file.
 #      Outside a git worktree it says nothing and exits with 0, as the gate does.
 #
 # Who calls it:
@@ -33,8 +35,13 @@ set -u
 # String.replaceAll, fs.rmSync). An older node would fail on gate.mjs and leave a stale verdict.
 NODE_MIN=18
 # usable <file>: an executable file that runs as node NODE_MIN or newer. It is started to say so.
+# The first executable file that fails the check is kept in `refused`, for the answer below.
+refused=""
 usable() {
-    [ -f "$1" ] && [ -x "$1" ] && "$1" -e "process.exit(Number(process.versions.node.split('.')[0]) >= $NODE_MIN ? 0 : 1)" </dev/null >/dev/null 2>&1
+    [ -f "$1" ] && [ -x "$1" ] || return 1
+    "$1" -e "process.exit(Number(process.versions.node.split('.')[0]) >= $NODE_MIN ? 0 : 1)" </dev/null >/dev/null 2>&1 && return 0
+    [ -n "$refused" ] || refused="$1"
+    return 1
 }
 node=""
 candidate="$(command -v node 2>/dev/null)" && usable "$candidate" && node="$candidate"
@@ -147,7 +154,15 @@ json_str() {
 }
 
 text="node не найден"
+reason="node not found"
 explain="Repository: $repo. The gate does not work without node — this is not green: the work was not verified by the gate."
+# A node was found but did not pass the check: older than NODE_MIN, or it did not start. Said so,
+# with its path: "node не найден" would be wrong while node is there.
+if [ -n "$refused" ]; then
+    text="no node $NODE_MIN or newer: $refused is older or did not start"
+    reason="$text"
+    explain="Repository: $repo. The gate needs node $NODE_MIN or newer — this is not green: the work was not verified by the gate."
+fi
 if [ -n "$tag" ]; then
     # The marker is per tree and per session; with no session it is "anon" (see notVerified in gate.mjs).
     printf '%s. %s\n' "$text" "$explain" >"$STATE/nokey-broken-$tag-${SESSION:-anon}" 2>/dev/null || true
@@ -158,8 +173,8 @@ if [ -n "$tag" ]; then
     [ -n "$head" ] && head="$(json_str "$head")" || head="null"
     tmp="$(mktemp "$STATE/.verdict-$tag.XXXXXX" 2>/dev/null)" || tmp=""
     if [ -z "$tmp" ] ||
-        ! printf '{"version":1,"outcome":"unverified","profile":%s,"worktree":%s,"key":null,"head":%s,"exit":3,"at":"%s","reason":"node not found"}\n' \
-            "$(json_str "$PROFILE")" "$(json_str "$repo")" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$tmp" 2>/dev/null ||
+        ! printf '{"version":1,"outcome":"unverified","profile":%s,"worktree":%s,"key":null,"head":%s,"exit":3,"at":"%s","reason":%s}\n' \
+            "$(json_str "$PROFILE")" "$(json_str "$repo")" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(json_str "$reason")" >"$tmp" 2>/dev/null ||
         ! mv -f "$tmp" "$verdict" 2>/dev/null; then
         [ -n "$tmp" ] && rm -f "$tmp" 2>/dev/null
         rm -f "$verdict" 2>/dev/null

@@ -288,9 +288,10 @@ Gate exit codes: `0` — green, only if the output has the line `[gate] зеле
 with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
 unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the
 line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry
-unreadable, resolver crashed); `127` — node is not on PATH and the gate never started; `130` or
-`143` (128 + a signal) — the gate itself was stopped and this run wrote nothing. On exit code 3,
-127, 130 or 143 do not merge and do not call the ticket done: the work is not verified, the code
+unreadable, resolver crashed); `127` — node is not on PATH and the gate never started; 128 + the
+signal number — `129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the
+gate itself was stopped and this run wrote nothing. On exit code 3, 127, 129, 130, 143 or 149 do
+not merge and do not call the ticket done: the work is not verified, the code
 goes into the report as "not verified", and on 3 or 127 a human fixes the environment.
 
 With `local-green` a green step 6 is the ticket's finish as far as code goes: next are step 7

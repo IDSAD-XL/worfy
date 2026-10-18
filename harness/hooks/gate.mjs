@@ -968,6 +968,9 @@ async function main() {
         // Otherwise a red state could be washed away by editing a document.
         remove(redMarker)
         remove(unverifiedMarker)
+        // The "could not verify" marker an error of the gate or a crashed resolver left in this
+        // tree and session: a green run has shown that the gate works here now.
+        remove(path.join(STATE, `nokey-broken-${tag}-${SESSION || "anon"}`))
         let blocks = []
         try {
             blocks = fs.readdirSync(BLOCKS)
@@ -1001,8 +1004,11 @@ try {
     // comes only before `settle` has finished.
     // Once the worktree is known (`tag`), the error leaves the marker of a resolver that crashed,
     // nokey-broken-<tag>-<session>: stop.mjs tells the model about it as about any "could not verify".
+    // The loop goes round for every error, not only for a child ended by a signal: the gate may
+    // have been told to stop while it waited on a git that then failed in another way (past the
+    // output limit, say), and such a run is stopped, not "could not verify".
     verdictWritten = false
-    if (error?.childSignal) await stopIfTold(error.childSignal)
+    await stopIfTold(error?.childSignal)
     outcomeCode = 3
     settled = true
     const text = String(error?.message ?? error).split(/\r?\n/)[0]
