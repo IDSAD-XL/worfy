@@ -13,8 +13,11 @@
 // carries the corrected place.
 //
 // Operations change the Layout in memory at once; the file is written after a quiet period
-// (LAYOUT_SAVE_DELAY_MS since the last operation), and right away by flush() — the IPC module
-// calls flushAll() when the app quits.
+// (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
+// period, LAYOUT_SAVE_MAX_DELAY_MS after the first unsaved one; and right away by flush() — the IPC
+// module calls flushAll() when the app quits. The file's path is asked of the list of Projects at
+// write time, so projects.remove writes the Layout before the Project leaves the list and forgets
+// it after (worfy-windows ticket 31).
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -26,6 +29,12 @@ import { upgradeLayout, upgradeMessages } from './upgrade'
 
 /** How long the Layout must stay unchanged before it is written. */
 export const LAYOUT_SAVE_DELAY_MS = 250
+
+/**
+ * The longest an unsaved change waits for its write while operations keep coming less than
+ * LAYOUT_SAVE_DELAY_MS apart (an agent's Session, the canvas tools): what a crash can lose.
+ */
+export const LAYOUT_SAVE_MAX_DELAY_MS = 1000
 
 export const LAYOUT_FILE = 'layout.json'
 
@@ -43,12 +52,16 @@ export interface LayoutStoreOptions {
   /** Writes a Layout to its file; tests pass a recorder. */
   write?: (file: string, layout: Layout) => void
   delayMs?: number
+  maxDelayMs?: number
 }
 
 interface Entry {
   layout: Layout
   revision: number
+  /** The write after the quiet period; started again by every operation. */
   timer: ReturnType<typeof setTimeout> | undefined
+  /** The write at the latest: started by the first unsaved operation, not moved by later ones. */
+  deadline: ReturnType<typeof setTimeout> | undefined
   dirty: boolean
 }
 
@@ -153,6 +166,7 @@ export class LayoutStore {
   private readonly listeners = new Set<(change: LayoutChange) => void>()
   private readonly write: (file: string, layout: Layout) => void
   private readonly delayMs: number
+  private readonly maxDelayMs: number
 
   /**
    * `dirOf` gives a Project's data folder and throws for a Project that is not in the list.
@@ -164,6 +178,7 @@ export class LayoutStore {
   ) {
     this.write = options.write ?? writeLayoutFile
     this.delayMs = options.delayMs ?? LAYOUT_SAVE_DELAY_MS
+    this.maxDelayMs = options.maxDelayMs ?? LAYOUT_SAVE_MAX_DELAY_MS
   }
 
   file(projectId: string): string {
@@ -179,7 +194,7 @@ export class LayoutStore {
       // What this version no longer keeps goes once, and overlaps are removed, on the first read
       // (upgrade.ts, ADR-0037, ADR-0038).
       const upgraded = upgradeLayout(read)
-      entry = { layout: upgraded?.layout ?? read, revision: 0, timer: undefined, dirty: false }
+      entry = { layout: upgraded?.layout ?? read, revision: 0, timer: undefined, deadline: undefined, dirty: false }
       this.entries.set(projectId, entry)
       if (upgraded) {
         for (const line of upgradeMessages(projectId, upgraded)) console.info(line)
@@ -229,14 +244,21 @@ export class LayoutStore {
   private schedule(projectId: string, entry: Entry): void {
     if (entry.timer !== undefined) clearTimeout(entry.timer)
     entry.timer = setTimeout(() => this.flush(projectId), this.delayMs)
+    entry.deadline ??= setTimeout(() => this.flush(projectId), this.maxDelayMs)
+  }
+
+  private static stopTimers(entry: Entry): void {
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
+    if (entry.deadline !== undefined) clearTimeout(entry.deadline)
+    entry.timer = undefined
+    entry.deadline = undefined
   }
 
   /** Writes the Project's Layout now if it has unsaved changes. A failed write is logged and retried on the next change. */
   flush(projectId: string): void {
     const entry = this.entries.get(projectId)
     if (!entry) return
-    if (entry.timer !== undefined) clearTimeout(entry.timer)
-    entry.timer = undefined
+    LayoutStore.stopTimers(entry)
     if (!entry.dirty) return
     try {
       this.write(this.file(projectId), entry.layout)
@@ -248,6 +270,19 @@ export class LayoutStore {
 
   flushAll(): void {
     for (const projectId of this.entries.keys()) this.flush(projectId)
+  }
+
+  /**
+   * Drops the Project's Layout from memory, for a Project that has left the list: a later add reads
+   * layout.json again, and quitting has nothing of it to write. The caller flushes first, while the
+   * Project is still in the list; a change that write could not save is lost here, and said so.
+   */
+  forget(projectId: string): void {
+    const entry = this.entries.get(projectId)
+    if (!entry) return
+    LayoutStore.stopTimers(entry)
+    this.entries.delete(projectId)
+    if (entry.dirty) console.error(`[layout] the Layout of ${projectId} had unsaved changes when its Project left the list; they are lost`)
   }
 }
 

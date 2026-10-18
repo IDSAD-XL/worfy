@@ -40,6 +40,7 @@ import { signInRegistry, type GhProgram } from '../github/accounts'
 import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
 import { currentHarness, harnessHomes, locateHarness, profileRegistryFiles, scriptEnv } from '../harness/locate'
+import { layoutStore } from '../layout/store'
 import { isRemoteCall } from '../link/caller'
 import { browseFolder } from '../projects/browse'
 import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
@@ -306,8 +307,14 @@ export default [
     return store.state()
   }),
 
+  // The Layout is written a moment after its last change, to a path the list of Projects gives:
+  // what is still waiting is written now, while the Project is in the list, and its Layout is
+  // forgotten once it is out (worfy-windows ticket 31). A refused remove (a Linked machine and the
+  // active Project) throws before the forget; the write before it changes nothing.
   defineHandler(projectsRemove, ({ id }, { event }) => {
+    layoutStore().flush(id)
     store.remove(id, { keepActive: isRemoteCall(event) })
+    layoutStore().forget(id)
     return store.state()
   }),
 

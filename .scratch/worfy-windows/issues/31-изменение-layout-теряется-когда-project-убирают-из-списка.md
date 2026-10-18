@@ -1,7 +1,8 @@
 # 31 — Изменение Layout теряется, когда Project убирают из списка раньше отложенной записи
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T15:06Z
+Branch: worfy-windows/31
 Blocked by: —
 Source: «Итог» [Ticket-а 26](26-test-ы-на-windows-оставляют-папки-в-temp.md) (Windows Session назвала случай); первый круг ревью PR #276 на Mac, 2026-10-13 ([комментарий в PR #276](https://github.com/IDSAD-XL/worfy/pull/276#issuecomment-6138375749)) — воспроизведено двумя независимыми пробами
 
