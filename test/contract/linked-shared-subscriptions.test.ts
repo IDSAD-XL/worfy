@@ -142,8 +142,10 @@ class Window extends EventEmitter {
   send(channel: string, payload: unknown): void {
     this.sent.push({ channel: channel.slice(IPC_CHANNEL_PREFIX.length), payload })
   }
+  /** Set when the window is destroyed. */
+  gone = false
   isDestroyed(): boolean {
-    return false
+    return this.gone
   }
   /** The `channel` events of the Linked machine this window heard. */
   heard(channel: string): unknown[] {
@@ -260,6 +262,35 @@ describe('two windows of A on one Project of B', () => {
     await settle()
     await bothHear('pipeline.changed', fire, 2)
 
+    expect(await windowCall(second, 'pipeline.close', { root: PROJECT })).toEqual({ ok: true, value: { closed: true } })
+    await settle()
+    expect(pipeline.subscribed()).toBe(0)
+  })
+
+  it('workflow: windows that spell the root apart (`P` and `P/`) share one subscription on B; the last close ends it', async () => {
+    const fire = () => workflow.change((root) => ({ root, epics: [], tickets: [], removedEpics: [], removedTickets: [], error: null, branchErrors: [] }))
+    expect(await windowCall(first, 'workflow.open', { root: PROJECT })).toMatchObject({ ok: true })
+    expect(await windowCall(second, 'workflow.open', { root: `${PROJECT}/` })).toMatchObject({ ok: true })
+    expect(workflow.subscribed()).toBe(1)
+
+    expect(await windowCall(first, 'workflow.close', { root: PROJECT })).toEqual({ ok: true, value: { closed: true } })
+    await settle()
+    expect(workflow.subscribed()).toBe(1)
+    await bothHear('workflow.changed', fire, 1)
+
+    expect(await windowCall(second, 'workflow.close', { root: `${PROJECT}/` })).toEqual({ ok: true, value: { closed: true } })
+    await settle()
+    expect(workflow.subscribed()).toBe(0)
+  })
+
+  it('pipeline: a window destroyed while its open is on the way is not counted; the other window\'s close ends the subscription on B', async () => {
+    // The handler runs after the input is parsed (src/main/ipc/index.ts): the window goes in between.
+    const opening = windowCall(first, 'pipeline.get', { root: PROJECT })
+    first.gone = true
+    first.emit('destroyed')
+    expect(await opening).toEqual({ ok: false, error: 'pipeline.get: the window is gone' })
+
+    expect(await windowCall(second, 'pipeline.get', { root: PROJECT })).toMatchObject({ ok: true })
     expect(await windowCall(second, 'pipeline.close', { root: PROJECT })).toEqual({ ok: true, value: { closed: true } })
     await settle()
     expect(pipeline.subscribed()).toBe(0)

@@ -8,7 +8,8 @@
 //
 // This module is also loaded by the IPC adapter of every link service (ipc-adapter.ts), in tests
 // without Electron: it imports Electron only when it sends to the windows.
-import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../shared/ipc/channels'
+import { posix } from 'node:path'
+import { IPC_CHANNEL_PREFIX, type InvokeInput, type InvokeName, type IpcResult } from '../../shared/ipc/channels'
 import { linkedChanged, linkedEvent, linkedInvoke, linkedOpen, linkedState, type LinkedState } from '../../shared/ipc/linked'
 import type { Client } from '../clients'
 import { appRemoteCalls, type RemoteCalls } from '../link/remote-calls'
@@ -75,6 +76,7 @@ async function toWindows(send: (target: Client) => void): Promise<void> {
 interface Screen {
   id: number | string
   once(event: 'destroyed', listener: () => void): unknown
+  isDestroyed?(): boolean
   on?(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): unknown
 }
 
@@ -94,49 +96,85 @@ function release(screen: Screen): void {
 }
 
 /**
- * The calls that subscribe a window to the changes of a Project on a Linked machine, with the call
- * that ends the subscription and the input field that names what it is for. The Linked machine
- * serves every window of this Machine with one client (LinkPeer, src/main/link/ipc-adapter.ts) and
- * keys these subscriptions by client and that field, so it cannot tell two windows apart: the close
- * of one window would end the subscription of every window (worfy-windows ticket 64). So the windows
- * are counted here, and a close goes to the Linked machine only when the last window lets go.
+ * How a subscription's root is told apart on the Linked machine. `as-sent`: by the string the
+ * window sent (claudeHome, src/main/ipc/claude-home.ts keys by client and root as sent). `resolved`:
+ * by the folder it names (workflow and pipeline: their hubs key by client and path.resolve of the
+ * real path, src/main/workflow/watch.ts, stages.ts), so `P` and `P/`, or `C:/p` and `C:\p`, are one
+ * subscription there.
  */
-const SUBSCRIBING: Readonly<Record<string, { close: string; key: string }>> = {
-  'claudeHome.sessions': { close: 'claudeHome.close', key: 'projectRoot' },
-  'workflow.open': { close: 'workflow.close', key: 'root' },
-  'pipeline.get': { close: 'pipeline.close', key: 'root' },
+type Spelling = 'as-sent' | 'resolved'
+
+/** A subscribing call: the call that ends it, the input field naming the root in both, and how roots compare. */
+type SubscribingRules = {
+  [Open in InvokeName]?: { [Close in InvokeName]: { close: Close; key: keyof InvokeInput<Open> & keyof InvokeInput<Close> & string; spelling: Spelling } }[InvokeName]
 }
-const KEY_OF_CLOSE = new Map(Object.values(SUBSCRIBING).map(({ close, key }) => [close, key]))
+
+/**
+ * The calls that subscribe a window to the changes of a Project on a Linked machine. The Linked
+ * machine serves every window of this Machine with one client (LinkPeer,
+ * src/main/link/ipc-adapter.ts) and keys these subscriptions by client and root, so it cannot tell
+ * two windows apart: the close of one window would end the subscription of every window
+ * (worfy-windows ticket 64). So the windows are counted here, and a close goes to the Linked machine
+ * only when the last window lets go.
+ */
+const SUBSCRIBING = {
+  'claudeHome.sessions': { close: 'claudeHome.close', key: 'projectRoot', spelling: 'as-sent' },
+  'workflow.open': { close: 'workflow.close', key: 'root', spelling: 'resolved' },
+  'pipeline.get': { close: 'pipeline.close', key: 'root', spelling: 'resolved' },
+} as const satisfies SubscribingRules
+
+interface Rule {
+  close: string
+  key: string
+  spelling: Spelling
+}
+const RULE_OF_OPEN: ReadonlyMap<string, Rule> = new Map(Object.entries(SUBSCRIBING))
+const RULE_OF_CLOSE: ReadonlyMap<string, Rule> = new Map(Object.values(SUBSCRIBING).map((rule) => [rule.close, rule]))
+
+/**
+ * The root of a `resolved` subscription as one key, whatever system the Linked machine runs: `\`
+ * read as `/`, `.`, `..`, doubled and trailing separators gone, and the case folded. It merges more
+ * spellings than the Linked machine may: two of its roots that differ in case only, or in `\` in a
+ * POSIX file name, count as one here. That errs the safe way: their close waits until every window
+ * let go of both, and then goes for each spelling sent (closeOnMachine). Merging fewer would lose the
+ * changes of a window. Links between folders are not seen from here.
+ */
+function resolvedKey(root: string): string {
+  const normal = posix.normalize(root.replaceAll('\\', '/'))
+  return (normal.length > 1 ? normal.replace(/\/+$/, '') : normal).toLowerCase()
+}
 
 interface Subscription {
   machine: string
-  close: string
-  /** The input of the close, as a window sends it. */
-  input: Record<string, string>
+  rule: Rule
+  /** Every spelling of the root the windows sent; the Linked machine remembers each (OpenedRoots). */
+  spellings: Set<string>
   /** The ids of the windows subscribed. */
   windows: Set<number | string>
 }
 
-/** The subscriptions of this Machine's windows on Linked machines, by Machine, close channel and key. */
+/** The subscriptions of this Machine's windows on Linked machines, by Machine, close channel and root. */
 const subscriptions = new Map<string, Subscription>()
 
-/** The subscription a call of `channel` with `input` names, when it opens or closes one. */
-function subscriptionOf(machine: string, channel: string, input: unknown): { id: string; close: string; input: Record<string, string> } | undefined {
-  const close = SUBSCRIBING[channel]?.close ?? (KEY_OF_CLOSE.has(channel) ? channel : undefined)
-  const key = close === undefined ? undefined : KEY_OF_CLOSE.get(close)
-  if (close === undefined || key === undefined || typeof input !== 'object' || input === null) return undefined
-  const value = (input as Record<string, unknown>)[key]
-  if (typeof value !== 'string') return undefined
-  return { id: `${machine}\0${close}\0${value}`, close, input: { [key]: value } }
+/** The subscription a call names when it opens or closes one, by its rule and the root it sent. */
+function subscriptionOf(machine: string, rule: Rule, input: unknown): { id: string; root: string } | undefined {
+  if (typeof input !== 'object' || input === null) return undefined
+  const root = (input as Record<string, unknown>)[rule.key]
+  if (typeof root !== 'string') return undefined
+  const key = rule.spelling === 'resolved' ? resolvedKey(root) : root
+  return { id: `${machine}\0${rule.close}\0${key}`, root }
 }
 
-/** Ends a subscription on its Linked machine: the last window let go of it. */
-function closeOnMachine(subscription: Subscription): void {
-  void follow()
-    ?.call(subscription.machine, subscription.close, subscription.input)
-    .then((result) => {
-      if (!result.ok) console.warn(`[linked] Machine ${subscription.machine} did not end a subscription (${subscription.close}): ${result.error}`)
-    })
+/** Ends a subscription on its Linked machine under each spelling but `sent`, which the window's own close carries. */
+function closeOnMachine(subscription: Subscription, sent?: string): void {
+  for (const root of subscription.spellings) {
+    if (root === sent) continue
+    void follow()
+      ?.call(subscription.machine, subscription.rule.close, { [subscription.rule.key]: root })
+      .then((result) => {
+        if (!result.ok) console.warn(`[linked] Machine ${subscription.machine} did not end a subscription (${subscription.rule.close}): ${result.error}`)
+      })
+  }
 }
 
 /** Window `screen` closed or loads another page: it lets go of its subscriptions. */
@@ -149,26 +187,51 @@ function unsubscribe(screen: Screen): void {
 }
 
 /**
- * Counts the window in or out of the subscription that `channel` opens or closes. A close of a
- * subscription other windows still hold is answered here, `closed: true` for the window that sent it,
- * and never reaches the Linked machine.
+ * What countWindow decided: `answer` when the call must not go to the Linked machine; `after`,
+ * what to do once the Linked machine answered it.
  */
-function countWindow(screen: Screen | undefined, machine: string, channel: string, input: unknown): IpcResult<unknown> | undefined {
-  if (typeof screen?.once !== 'function') return undefined
-  const named = subscriptionOf(machine, channel, input)
-  if (named === undefined) return undefined
+interface Counted {
+  answer?: IpcResult<unknown>
+  after?: () => void
+}
+
+/**
+ * Counts the window in or out of the subscription that `channel` opens or closes. A close is
+ * answered here while other windows still hold the subscription: `closed: true` for a window
+ * counted in, `closed: false` for one that was not (it let go already, say on a navigation that was
+ * then cancelled). The last close goes on, and after it the closes of the other spellings sent.
+ */
+function countWindow(screen: Screen | undefined, machine: string, channel: string, input: unknown): Counted {
+  if (typeof screen?.once !== 'function') return {}
+  const opens = RULE_OF_OPEN.get(channel)
+  const rule = opens ?? RULE_OF_CLOSE.get(channel)
+  const named = rule === undefined ? undefined : subscriptionOf(machine, rule, input)
+  if (rule === undefined || named === undefined) return {}
   const known = subscriptions.get(named.id)
-  if (SUBSCRIBING[channel] !== undefined) {
+  if (opens !== undefined) {
+    // A window destroyed before its call got here never emits 'destroyed' again: it would never
+    // leave the count, and the subscription would outlive every window.
+    if (screen.isDestroyed?.() === true) return { answer: { ok: false, error: `${channel}: the window is gone` } }
     // Counted before the call goes: a close of another window meanwhile keeps the subscription.
-    if (known === undefined) subscriptions.set(named.id, { machine, close: named.close, input: named.input, windows: new Set([screen.id]) })
-    else known.windows.add(screen.id)
+    if (known === undefined) subscriptions.set(named.id, { machine, rule, spellings: new Set([named.root]), windows: new Set([screen.id]) })
+    else {
+      known.spellings.add(named.root)
+      known.windows.add(screen.id)
+    }
     watch(screen)
-    return undefined
+    return {}
   }
-  if (known === undefined || !known.windows.delete(screen.id)) return undefined
-  if (known.windows.size > 0) return { ok: true, value: { closed: true } }
+  if (known === undefined) return {}
+  if (!known.windows.delete(screen.id)) return { answer: { ok: true, value: { closed: false } } }
+  if (known.windows.size > 0) return { answer: { ok: true, value: { closed: true } } }
   subscriptions.delete(named.id)
-  return undefined
+  // After the window's own close, so that one answers for the subscription it ends. A window that
+  // subscribed again meanwhile holds it anew on the Linked machine: its other spellings stay.
+  return {
+    after: () => {
+      if (!subscriptions.has(named.id)) closeOnMachine(known, named.root)
+    },
+  }
 }
 
 const watched = new WeakSet<object>()
@@ -193,9 +256,11 @@ export default [
     if (calls === undefined) return { ok: false as const, error: `${channel}: ${appLinkProblem() ?? 'the link service has not started yet'}` }
     // A name with the prefix would read as another channel on the other side.
     if (channel.startsWith(IPC_CHANNEL_PREFIX)) return { ok: false as const, error: `${channel}: not a channel name` }
-    const answered = countWindow(event.sender as unknown as Screen | undefined, machine, channel, input)
-    if (answered !== undefined) return answered
-    return calls.call(machine, channel, input)
+    const counted = countWindow(event.sender as unknown as Screen | undefined, machine, channel, input)
+    if (counted.answer !== undefined) return counted.answer
+    const result = await calls.call(machine, channel, input)
+    counted.after?.()
+    return result
   }),
 
   defineHandler(linkedState, () => buildState()),
