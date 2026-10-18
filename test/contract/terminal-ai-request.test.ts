@@ -7,7 +7,6 @@
 // come from a file the test writes, and every request is one line of a log the test reads. Claude
 // Code is never started and the subscription is never spent. HOME and the user's files are in a
 // temporary folder: the real ~/.zshrc and ~/.zsh_history are never read or written.
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -33,6 +32,7 @@ import { MAX_FIELD_CHARS } from '../../src/shared/terminal-ai/context'
 import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/settings'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
+import { needsZsh, zshPath } from '../zsh'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -44,8 +44,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
   return { prewarm: vi.fn(refuse), query: vi.fn(refuse), startup: vi.fn(refuse) }
 })
 
-/** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 const PROJECT = 'alpha-0000000a'
 const NODE = 'terminal-node-1'
 const SH_NODE = 'terminal-node-sh'
@@ -215,7 +213,7 @@ async function start(options: StartOptions = {}) {
   const w = options.world ?? world()
   const integration = new ShellIntegration()
   integrations.push(integration)
-  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: ZSH }
+  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: zshPath() }
   const asks: (ShellAsk & { feature: string })[] = []
   /** The real handler of Command request, with every ask seen by the test. */
   const watched: FeatureLoader = async () => {
@@ -404,6 +402,8 @@ describe('the handler of the feature', () => {
 // ---- the line `# …` -----------------------------------------------------------------------------------
 
 describe('a line that starts with `# ` and Enter', () => {
+  beforeEach(needsZsh)
+
   it('becomes the command of the answer, and the command does not run: no file of it, no Enter from main', async () => {
     const w = world()
     w.answers(answering())
@@ -578,6 +578,8 @@ describe('a line that starts with `# ` and Enter', () => {
 })
 
 describe('the Limits', () => {
+  beforeEach(needsZsh)
+
   it('rejected: a grey note with the time they reset, and no request', async () => {
     const w = world()
     w.answers(answering())
@@ -608,6 +610,8 @@ describe('the Limits', () => {
 })
 
 describe('with the Suggestion from the model (rc.d/20-suggest-ai.zsh)', () => {
+  beforeEach(needsZsh)
+
   it('neither the line `# …` nor the command put into the line is asked about; a line typed after it is', async () => {
     const w = world({ settings: { suggestionAsksModel: true } })
     w.answers(answering())
@@ -703,7 +707,8 @@ describe('the channels of the ⌘I panel', () => {
     for (const channel of ['terminalAi.request.state', 'terminalAi.request.changed', 'terminalAi.request', 'terminalAi.request.cancel']) expect(accessOf(channel), channel).toBe('project')
   })
 
-  it('the state: available for a zsh connected to Terminal AI, not for a Terminal on /bin/sh, not with Command request off; busy while a command runs', async () => {
+  it('the state: available for a zsh connected to Terminal AI, not for a Terminal on /bin/sh, not with Command request off; busy while a command runs', async (context) => {
+    needsZsh(context)
     const p = await panel()
     expect(await p.call('terminalAi.request.state', { projectId: PROJECT, nodeId: NODE })).toEqual({ ok: true, value: { available: true, busy: false } })
     expect(await p.call('terminalAi.request.state', { projectId: PROJECT, nodeId: SH_NODE })).toEqual({ ok: true, value: { available: false, busy: false } })
@@ -731,21 +736,24 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.window.sent).toHaveLength(sent)
   })
 
-  it('the zsh leaving makes the panel unavailable', async () => {
+  it('the zsh leaving makes the panel unavailable', async (context) => {
+    needsZsh(context)
     const p = await panel()
     await p.call('terminalAi.request.state', { projectId: PROJECT, nodeId: NODE })
     await p.registry.close(KEY)
     await vi.waitFor(() => expect(p.window.changes().at(-1)).toEqual({ projectId: PROJECT, nodeId: NODE, available: false, busy: false }), WAIT)
   })
 
-  it('a zsh that connects after the window asked makes the panel available, without any event of the shell', async () => {
+  it('a zsh that connects after the window asked makes the panel available, without any event of the shell', async (context) => {
+    needsZsh(context)
     const p = await panel({ noShellEvents: true })
     expect(await p.call('terminalAi.request.state', { projectId: PROJECT, nodeId: LATER_NODE })).toEqual({ ok: true, value: { available: false, busy: false } })
     await openTerminal(p.registry, [], terminalKey(PROJECT, LATER_NODE))
     await vi.waitFor(() => expect(p.window.changes().at(-1)).toEqual({ projectId: PROJECT, nodeId: LATER_NODE, available: true, busy: false }), WAIT)
   })
 
-  it('a request puts the command into the line of the zsh, and nothing runs', async () => {
+  it('a request puts the command into the line of the zsh, and nothing runs', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering())
     const prompts = p.t.count('prompt')
@@ -758,7 +766,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests()).toMatchObject([{ feature: 'request', model: 'sonnet', context: { request: WORDS, line: '', cwd: root } }])
   })
 
-  it('the line the panel read off the screen goes into the context, redacted; a line with a space at its start does not', async () => {
+  it('the line the panel read off the screen goes into the context, redacted; a line with a space at its start does not', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering())
     const ask = (line: string) => p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS, line })
@@ -771,7 +780,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests().every((entry) => entry.context.request === WORDS)).toBe(true)
   })
 
-  it('a line longer than MAX_FIELD_CHARS is refused by the channel, and the model is not asked', async () => {
+  it('a line longer than MAX_FIELD_CHARS is refused by the channel, and the model is not asked', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering())
     const result = await p.call('terminalAi.request', { projectId: PROJECT, nodeId: NODE, text: WORDS, line: 'x'.repeat(MAX_FIELD_CHARS + 1) })
@@ -780,7 +790,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests().map((entry) => entry.context.line.length)).toEqual([MAX_FIELD_CHARS])
   })
 
-  it('a request to a Terminal without the integration fails, and the model is not asked', async () => {
+  it('a request to a Terminal without the integration fails, and the model is not asked', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering())
     const result = await p.call('terminalAi.request', { projectId: PROJECT, nodeId: SH_NODE, text: WORDS })
@@ -789,7 +800,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests()).toEqual([])
   })
 
-  it('a request while a command runs says the Terminal is busy, and the model is not asked', async () => {
+  it('a request while a command runs says the Terminal is busy, and the model is not asked', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering())
     p.t.type('sleep 2\r')
@@ -798,7 +810,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests()).toEqual([])
   })
 
-  it('a request the panel cancels puts nothing into the line', async () => {
+  it('a request the panel cancels puts nothing into the line', async (context) => {
+    needsZsh(context)
     const p = await panel()
     p.answers(answering(1500))
     p.t.type('echo typed-by-the-user')
@@ -812,7 +825,8 @@ describe('the channels of the ⌘I panel', () => {
     expect(p.requests().filter((entry) => !entry.cancelled)).toEqual([])
   })
 
-  it('an answer that the model gave although the panel had cancelled is not put into the line', async () => {
+  it('an answer that the model gave although the panel had cancelled is not put into the line', async (context) => {
+    needsZsh(context)
     let entered = false
     let release = (): void => undefined
     const held = new Promise<void>((resolve) => {
@@ -845,6 +859,8 @@ describe('the channels of the ⌘I panel', () => {
 })
 
 describe('the log and the errors of main', () => {
+  beforeEach(needsZsh)
+
   it('hold neither the words, nor the line, nor the answer', async () => {
     const printed: string[] = []
     for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {

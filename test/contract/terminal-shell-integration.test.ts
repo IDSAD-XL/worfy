@@ -19,9 +19,8 @@ import type { ShellEvent } from '../../src/main/terminal/osc'
 import { REPLAY_LIMIT, TerminalRegistry, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath } from '../../src/main/terminal/shell-integration'
 import { removeTestTree } from '../remove'
+import { needsZsh, zshPath } from '../zsh'
 
-/** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
 /**
@@ -53,7 +52,7 @@ afterEach(async () => {
 
 /** What the same zsh with the same HOME prints without worfy: a login, interactive shell running `command`. */
 function withoutWorfy(command: string): string {
-  return execFileSync(ZSH, ['-l', '-i', '-c', command], {
+  return execFileSync(zshPath(), ['-l', '-i', '-c', command], {
     env: { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, TERM: 'xterm-256color', TERM_PROGRAM: 'worfy', LANG: 'en_US.UTF-8' },
     encoding: 'utf8',
   })
@@ -101,7 +100,7 @@ interface StartOptions {
 async function start(options: StartOptions = {}) {
   const integration = options.integration instanceof ShellIntegration ? options.integration : new ShellIntegration()
   integrations.push(integration)
-  const shell = options.shell === undefined ? ZSH : options.shell
+  const shell = options.shell === undefined ? zshPath() : options.shell
   const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', LESS: '', ...(shell === null ? {} : { SHELL: shell }), ...options.env }
   const registry = new TerminalRegistry({
     env: () => Promise.resolve(base),
@@ -176,6 +175,8 @@ const FOUR_FILES = {
 const PRINT_FILES = 'print -r -- "files:$Z_ENV,$Z_PROFILE,$Z_RC,$Z_LOGIN zdotdir:${ZDOTDIR-unset}"'
 
 describe("worfy's ZDOTDIR reads the user's startup files", () => {
+  beforeEach(needsZsh)
+
   it('.zshenv, .zprofile, .zshrc and .zlogin of HOME are read, worfy\'s .zlogin gives ZDOTDIR back, and the files are not changed', async () => {
     await userFiles(FOUR_FILES)
     const before = await hashes(home)
@@ -210,6 +211,8 @@ describe("worfy's ZDOTDIR reads the user's startup files", () => {
 })
 
 describe("the user's ZDOTDIR while their files run", () => {
+  beforeEach(needsZsh)
+
   it('a .zshenv that sets ZDOTDIR only when it is unset (the XDG form) reads the same .zshrc and ends with the same ZDOTDIR as without worfy', async () => {
     await userFiles({ '.zshenv': ': ${ZDOTDIR:=$HOME/zdot}; export ZDOTDIR' })
     await userFiles({ '.zshrc': 'ZRC=loaded' }, join(home, 'zdot'))
@@ -236,6 +239,8 @@ describe("the user's ZDOTDIR while their files run", () => {
 })
 
 describe('the history stays the user\'s', () => {
+  beforeEach(needsZsh)
+
   it('a line of $HOME/.zsh_history is there in a new Terminal, and a typed command goes back to it, not to worfy\'s folder', async () => {
     await writeFile(join(home, '.zsh_history'), 'echo from-the-past\n')
     await userFiles({ '.zshrc': 'HISTSIZE=100; SAVEHIST=100' })
@@ -278,6 +283,8 @@ describe('the history stays the user\'s', () => {
 })
 
 describe('the state of the Terminal, from the sequences with the nonce', () => {
+  beforeEach(needsZsh)
+
   it('folder, exit code, a running command; a sequence without the nonce changes nothing; WORFY_ variables are not exported', async () => {
     await mkdir(join(root, 'sub'))
     const { open } = await start()
@@ -428,7 +435,8 @@ describe('the state of the Terminal, from the sequences with the nonce', () => {
 })
 
 describe("worfy's folder", () => {
-  it('a folder emptied or removed (as macOS dirhelper does) is written anew by the next Terminal', async () => {
+  it('a folder emptied or removed (as macOS dirhelper does) is written anew by the next Terminal', async (context) => {
+    needsZsh(context)
     await userFiles(FOUR_FILES)
     const { open, integration } = await start()
     const first = await open('first')
@@ -481,7 +489,8 @@ describe('no integration where it does not belong', () => {
     expect(integration.path).toBeNull()
   })
 
-  it('zsh in a registry without the integration (as "Sign in with gh"): the same', async () => {
+  it('zsh in a registry without the integration (as "Sign in with gh"): the same', async (context) => {
+    needsZsh(context)
     // Without any startup file zsh on Debian and Ubuntu opens zsh-newuser-install, which waits for a key.
     await userFiles({ '.zshrc': "PS1='$ '" })
     const { open } = await start({ integration: false })
@@ -492,7 +501,8 @@ describe('no integration where it does not belong', () => {
     expect(t.state()).toBeNull()
   })
 
-  it('without SHELL /bin/zsh starts, with the integration', async () => {
+  it('without SHELL /bin/zsh starts, with the integration', async (context) => {
+    needsZsh(context)
     const { open } = await start({ shell: null })
     const t = await open()
     expect(t.opened.shell).toBe('zsh')
@@ -502,6 +512,8 @@ describe('no integration where it does not belong', () => {
 })
 
 describe('the output of a zsh Terminal with the integration, measured (worfy-link ticket 05)', () => {
+  beforeEach(needsZsh)
+
   // The numbers are always printed; WORFY_PERF=1 checks them, as test/contract/terminal.test.ts does.
   const enforce = process.env.WORFY_PERF === '1'
   const BYTES = 10_000_000
