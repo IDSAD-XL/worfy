@@ -396,6 +396,9 @@ describe('a link target written from a drive-less root (ticket 34)', () => {
     // With forward slashes, and the bare name with nothing after it.
     ['/Device/Mup/evil/share'],
     ['\\Device'],
+    // The bare root, with either separator: one separator and nothing after it is still drive-less.
+    ['\\'],
+    ['/'],
   ])('a link to %s leads off the machine: both walks say remote, and nothing is asked after its readlink', async (target) => {
     const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
     expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md')).toEqual(['remote', 'remote'])
