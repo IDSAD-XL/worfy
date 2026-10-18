@@ -163,6 +163,12 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
 
 export class LayoutStore {
   private readonly entries = new Map<string, Entry>()
+  /**
+   * The last revision of each Layout forget() dropped. A screen keeps the Layout it last saw and
+   * takes no state with a lower revision (src/renderer/canvas/useLayout.ts, the undo marks of
+   * history.ts), so a Project added again in the same run goes on from here instead of from 0.
+   */
+  private readonly forgottenRevisions = new Map<string, number>()
   private readonly listeners = new Set<(change: LayoutChange) => void>()
   private readonly write: (file: string, layout: Layout) => void
   private readonly delayMs: number
@@ -194,8 +200,12 @@ export class LayoutStore {
       // What this version no longer keeps goes once, and overlaps are removed, on the first read
       // (upgrade.ts, ADR-0037, ADR-0038).
       const upgraded = upgradeLayout(read)
-      entry = { layout: upgraded?.layout ?? read, revision: 0, timer: undefined, deadline: undefined, dirty: false }
+      // After a forget the file is read again: a new state, one revision after the last one handed out.
+      const forgotten = this.forgottenRevisions.get(projectId)
+      const revision = forgotten === undefined ? 0 : forgotten + 1
+      entry = { layout: upgraded?.layout ?? read, revision, timer: undefined, deadline: undefined, dirty: false }
       this.entries.set(projectId, entry)
+      this.forgottenRevisions.delete(projectId)
       if (upgraded) {
         for (const line of upgradeMessages(projectId, upgraded)) console.info(line)
         entry.dirty = true
@@ -276,12 +286,14 @@ export class LayoutStore {
    * Drops the Project's Layout from memory, for a Project that has left the list: a later add reads
    * layout.json again, and quitting has nothing of it to write. The caller flushes first, while the
    * Project is still in the list; a change that write could not save is lost here, and said so.
+   * The revision is kept: a later read goes on after it.
    */
   forget(projectId: string): void {
     const entry = this.entries.get(projectId)
     if (!entry) return
     LayoutStore.stopTimers(entry)
     this.entries.delete(projectId)
+    this.forgottenRevisions.set(projectId, entry.revision)
     if (entry.dirty) console.error(`[layout] the Layout of ${projectId} had unsaved changes when its Project left the list; they are lost`)
   }
 }

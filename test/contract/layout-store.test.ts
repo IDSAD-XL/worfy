@@ -282,7 +282,7 @@ describe('layout store: projects.remove of a Project with a change not yet writt
     vi.unstubAllEnvs()
   })
 
-  it('the change is in layout.json once projects.remove answers; neither the store\'s timer nor quitting writes or logs anything after that', async () => {
+  it('the change is in layout.json once projects.remove answers; quitting writes and logs nothing after that', async () => {
     await applied(note('n1'), id)
     store.flushAll()
     // A second change, still waiting for its write, and the Project leaves the list at once.
@@ -293,9 +293,7 @@ describe('layout store: projects.remove of a Project with a change not yet writt
     expect(layoutErrors()).toEqual([])
 
     // Nothing is left to write: a write after this point would make the file again.
-    const { LAYOUT_SAVE_DELAY_MS } = await import('../../src/main/layout/store')
     removeTestTree(layoutFile(id))
-    await new Promise((resolve) => setTimeout(resolve, LAYOUT_SAVE_DELAY_MS * 2))
     expect(electron.quitListeners.length).toBeGreaterThan(0)
     for (const listener of electron.quitListeners) listener()
     expect(existsSync(layoutFile(id))).toBe(false)
@@ -316,11 +314,28 @@ describe('layout store: projects.remove of a Project with a change not yet writt
     expect(layoutErrors()).toEqual([])
   })
 
-  it('a Linked machine\'s projects.remove of the active Project is still refused, and its Layout stays in use', async () => {
+  it('added again in the same run, the Layout goes on after the last revision a screen saw, so the screen takes it', async () => {
     await applied(note('n1'), id)
+    await applied({ op: 'move', id: 'n1', x: 100, y: 0 }, id)
+    const last = (await applied({ op: 'move', id: 'n1', x: 200, y: 0 }, id)).revision
+    expect(await call('projects.remove', { id })).toMatchObject({ ok: true })
+    expect(await call('projects.add', { path: gitRepo })).toMatchObject({ ok: true })
+
+    // A screen keeps the Layout it last saw and drops a state with a lower revision (useLayout.ts).
+    const read = await value('layout.get', { projectId: id })
+    expect(read.revision).toBeGreaterThan(last)
+    expect(nodeOf(read.layout, 'n1')).toMatchObject({ x: 200, y: 0 })
+    expect((await applied({ op: 'move', id: 'n1', x: 300, y: 0 }, id)).revision).toBe(read.revision + 1)
+  })
+
+  it('a Linked machine\'s projects.remove of the active Project is still refused, and its Layout stays in memory as it was', async () => {
+    await applied(note('n1'), id)
+    const before = (await applied({ op: 'move', id: 'n1', x: 100, y: 0 }, id)).revision
     const refused = await call('projects.remove', { id }, { id: 'link:mac/1' })
     expect(refused).toEqual({ ok: false, error: expect.stringMatching(/is the active Project of this Machine/) })
 
+    // The same entry, not one read again: a forget on the refused path would read the file anew, one revision on.
+    expect((await value('layout.get', { projectId: id })).revision).toBe(before)
     expect(nodeOf((await applied({ op: 'move', id: 'n1', x: 3000, y: 4000 }, id)).layout, 'n1')).toMatchObject({ x: 3000, y: 4000 })
     store.flushAll()
     expect(nodeOf(onDisk(id), 'n1')).toMatchObject({ x: 3000, y: 4000 })
@@ -552,6 +567,54 @@ describe('layout store: saving', () => {
     const count = writes.length
     vi.advanceTimersByTime(LAYOUT_SAVE_MAX_DELAY_MS * 2)
     expect(writes).toHaveLength(count)
+  })
+
+  it('the bound holds for every stretch of a long stream, not only the first: 2.5 s of operations give a second write by 2 × LAYOUT_SAVE_MAX_DELAY_MS', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore, LAYOUT_SAVE_MAX_DELAY_MS } = await import('../../src/main/layout/store')
+    const started = Date.now()
+    const writes: number[] = []
+    const local = new LayoutStore(() => join(dataDir, PROJECT), { write: () => writes.push(Date.now() - started) })
+
+    // One operation every 100 ms for 2.5 s; the one at 1000 ms comes right after the first write.
+    local.apply(PROJECT, note('n1'))
+    for (let n = 1; n <= 25; n++) {
+      vi.advanceTimersByTime(100)
+      local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
+    }
+    expect(writes.length).toBeGreaterThanOrEqual(2)
+    expect(writes[1]).toBeLessThanOrEqual(2 * LAYOUT_SAVE_MAX_DELAY_MS)
+    local.flushAll()
+  })
+
+  it('forget() of a Layout whose write failed says the unsaved changes are lost, after the failed write said so', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore } = await import('../../src/main/layout/store')
+    let attempts = 0
+    const local = new LayoutStore(() => join(dataDir, PROJECT), {
+      write: () => {
+        attempts += 1
+        throw new Error('EACCES: permission denied')
+      },
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      local.apply(PROJECT, note('n1'))
+      local.flush(PROJECT)
+      local.forget(PROJECT)
+      expect(logged.mock.calls.map(([message]) => String(message))).toEqual([
+        `[layout] could not save the Layout of ${PROJECT}`,
+        `[layout] the Layout of ${PROJECT} had unsaved changes when its Project left the list; they are lost`,
+      ])
+      expect(attempts).toBe(1)
+
+      // Forgotten: no timer and no quit writes it again.
+      vi.advanceTimersByTime(10_000)
+      local.flushAll()
+      expect(attempts).toBe(1)
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it('a restarted main reads the Layout back, and it is written only into the data folder', async () => {
