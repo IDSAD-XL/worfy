@@ -40,7 +40,11 @@ const INFO =
 /** The echo has a quote right after `info|ps=`; the output does not. */
 const INFO_OUTPUT = /info\|ps=[^'\r\n]*\|end/
 
-const print = (label: string, value: unknown): void => console.log(`[probe41 ${label}] ${JSON.stringify(value)}`)
+// process.stdout, not console.log: in the job (no TTY) the default reporter of vitest drops the console
+// output of a test that passes, while a direct write reaches the log.
+const print = (label: string, value: unknown): void => {
+  process.stdout.write(`[probe41 ${label}] ${JSON.stringify(value)}\n`)
+}
 const ms = (value: number): number => Math.round(value * 10) / 10
 const sleep = (wait: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, wait))
 
