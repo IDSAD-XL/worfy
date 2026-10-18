@@ -86,12 +86,12 @@ a package from `FLAT` — the package directory name; when names collide — wit
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
-PK=$(F layout.packages | jq -r 'join(" ")')
+PK=$(F layout.packages | jq -r 'join(" ")' | tr -d '\r')
 M=$(F modules 2>/dev/null) && [ "$M" != null ] || M='{}'
-DEEP=$(jq -r '.deep // [] | join(" ")' <<<"$M"); FLAT=$(jq -r '.flat // [] | join(" ")' <<<"$M"); SKIP=$(jq -r '.skip // [] | join(" ")' <<<"$M")
+DEEP=$(jq -r '.deep // [] | join(" ")' <<<"$M" | tr -d '\r'); FLAT=$(jq -r '.flat // [] | join(" ")' <<<"$M" | tr -d '\r'); SKIP=$(jq -r '.skip // [] | join(" ")' <<<"$M" | tr -d '\r')
 # pathspec as an array, not `for p in $PK`: the Bash tool runs zsh, and zsh does not split
 # an unquoted variable into words, so the loop would run once over the whole string
-SRC=(); while IFS= read -r p; do SRC+=("$p/src"); done < <(F layout.packages | jq -r '.[]')
+SRC=(); while IFS= read -r p; do SRC+=("$p/src"); done < <(F layout.packages | jq -r '.[]' | tr -d '\r')
 git log "$BASE" --since=30.days --name-only --pretty=format: -- "${SRC[@]}" \
   | awk -v pk="$PK" -v deep="$DEEP" -v flat="$FLAT" -v skip="$SKIP" '
       BEGIN { np=split(pk,P," "); nd=split(deep,D," "); nf=split(flat,F," "); ns=split(skip,S," ") }
@@ -156,7 +156,7 @@ that exist there; the test-file globs — `F tests.globs` (no field — globs fo
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
 # Globs as a quoted array: that way neither bash nor zsh expands them (`set -f` in zsh does not
 # turn globbing off, and an unquoted `$INC` string is not split into words in zsh — grep got one glued glob)
-INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]')
+INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]' | tr -d '\r')
 DIRS=(); for d in test src; do [ -d "<каталог пакета>/$d" ] && DIRS+=("$d"); done
 cd <каталог пакета> && grep -rslE "/<имя>(/|')" "${INC[@]}" "${DIRS[@]}"   # exit 1 on an empty result is not an error
 ```

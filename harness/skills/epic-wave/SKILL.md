@@ -113,6 +113,152 @@ Project pitfalls and what each `BLOCKED` reason of the preflight means are in th
 
 ## 1. Preflight
 
+**The cross-machine gate comes first** (`F cross_machine_gate`, worfy ADR-0069). A project may run
+on two machines, one of which cannot run the other's gate full. The PRs of the machine with
+`F cross_machine_gate.role` `request` that touch shared code carry the label
+`F cross_machine_gate.label` (skill `/worfy:ship-ticket`, step 8), and the machine with `serve`
+checks and merges them. Exit code 4 or `null` — the project has one machine: say "cross-machine gate
+skipped: the profile has no `cross_machine_gate`" and go on with the preflight. Each machine has its
+own profile, so the role is that machine's; the label and the section name come from the profile,
+never from this text.
+
+With `serve` — before the preflight, the open PRs with the label, **one at a time** (merge in turn,
+section 4). Only PRs from a branch of this repository: a PR from a fork is not checked out and the
+commands of its section are not run — anyone with a fork writes that description, and this machine
+would run it as shell. The block prints such a PR as `<N> fork: skipped`, and the wave report names
+it:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+gh pr list --state open --label "$(F cross_machine_gate.label)" --json number,headRefName,headRefOid,isCrossRepository \
+  --jq '.[] | if .isCrossRepository == false then "\(.number) \(.headRefName) \(.headRefOid)" else "\(.number) fork: skipped" end'; echo "EXIT=$?"
+```
+
+For each PR, in that order, with `<N>`, `<branch>` and `<head>` from its line:
+
+1. A worktree of its own on the PR's branch as origin has it, rebased onto the fresh base
+   `F worktree.base` (already a remote branch, `origin/main`) and pushed. `-B` resets a local branch
+   left from an earlier pass: the other machine may have pushed a rework since, and a rebase of the
+   old local branch would push it away. The push holds a lease on `<head>`: if the branch moved after
+   the list, it is refused and the worktree removed — start the pass again from the list. The steps
+   are joined with `&&`: a failed step stops the block, so a rebase never runs in a tree of an earlier
+   try and nothing half-rebased is pushed; a tree `<scratchpad>/pr-<N>` left from an earlier try of
+   this PR is removed first, and `git worktree prune` drops one deleted by hand that git still lists.
+   The line before `EXIT=0` is the new head: the checks run on it and the merge is matched against it.
+   A conflict stops the block with the tree kept. A conflict only in the state file
+   (`F docs.handoff.path`) the session resolves itself (the session that merges resolves it), stages
+   the file and finishes with the second block below. Any other conflict is red, with the conflicting
+   files as the reason:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
+P=<scratchpad>/pr-<N>
+gone() { [ ! -e "$P" ] || git -C <repo> worktree remove --force "$P"; }   # the tree of an earlier try of this PR
+git -C <repo> fetch origin && gone && git -C <repo> worktree prune && git -C <repo> worktree add -B <branch> "$P" origin/<branch> \
+  && git -C "$P" rebase "$B" \
+  && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { gone; false; }; } \
+  && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
+```
+
+   The second block, after the state-file conflict is resolved and staged. Each Bash call starts a
+   fresh shell, so nothing of the block above is defined here: the path is written out again, and the
+   block refuses unless it is the PR's worktree — `git -C ""` acts in the current folder and would
+   push that folder's HEAD into `<branch>`:
+
+```bash
+P=<scratchpad>/pr-<N>                                   # written out: nothing carries over between Bash calls
+if [ -n "$P" ] && [ -d "$P" ] && case "$(git -C "$P" rev-parse --git-dir 2>/dev/null)" in */worktrees/pr-<N>) true ;; *) false ;; esac; then
+  GIT_EDITOR=true git -C "$P" rebase --continue \
+    && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { git -C <repo> worktree remove --force "$P"; false; }; } \
+    && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
+else echo "REFUSED: '$P' is not the worktree of PR <N>: nothing pushed"; fi
+```
+
+2. `F cross_machine_gate.check` in that worktree (`<PR worktree>` — `<scratchpad>/pr-<N>`), the way section 4 runs a gate full of one PR — the
+   screen check, the e2e lock — with that command in place of the block's last line. Its verdict line
+   and exit code go into the report.
+3. The commands of the PR's section `F cross_machine_gate.checks_section`, each run in that worktree
+   with its exit code. The block prints the section's lines up to the next heading: a command and its
+   expected result a line, `none` when the section says there is nothing to run, `no-section` when the
+   PR has no such section or it is empty — red, with the reason "no `<checks_section>` section". Only a
+   heading of level 1 or 2 outside a code block ends the section, so a `# comment` in a code block
+   stays in it:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.checks_section)" '
+  { sub(/\r$/, "") }
+  /^```/ { fence = !fence }
+  $0 == h { on = 1; next }
+  on && !fence && /^##? / { on = 0 }
+  on && NF { print; n++ }
+  END { if (!n) print "no-section" }'
+```
+
+4. CI on the new head — the CI wait block of section 4 (with `F workflow.ci` `batch`: `mergeable`).
+5. The report, before any merge, in `<scratchpad>/pr-<N>-report.md`. Its first line is
+   `<checks_section> report: green` or `<checks_section> report: red`; then the verdict line of
+   `check` and its exit code, each command of the section with its exit code and the tail of its
+   output, and with red the reason. Green — `check`, every command of the section and CI are green.
+   **No merge without the report.** The block posts it with `gh pr comment` and merges only when the
+   first line is green, `gh pr comment` gave exit code 0 and `check` gave exit code 0 (`<check exit>`,
+   step 2). `--match-head-commit <new head>` (the last line of step 1) refuses the merge if the branch
+   moved after the checks. Red or a rebase conflict — the report with the reason, the label stays, no
+   merge. Then `git -C <repo> worktree remove --force <scratchpad>/pr-<N>`:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+R=<scratchpad>/pr-<N>-report.md; v=$(head -n 1 "$R" | tr -d '\r')
+gh pr comment <N> --body-file "$R"; c=$?; echo "comment EXIT=$c"
+if [ "$c" = 0 ] && [ "$v" = "$(F cross_machine_gate.checks_section) report: green" ] && [ "<check exit>" = 0 ]; then
+  gh pr merge <N> --squash --match-head-commit <new head>; m=$?; echo "merge EXIT=$m"
+  [ "$m" = 0 ] && { gh pr edit <N> --remove-label "$(F cross_machine_gate.label)"; echo "EXIT=$?"; }
+else echo "no merge: report [$v], gh pr comment exit $c, check exit <check exit>"; fi
+```
+
+The `request` machine does not run its own gate full again on the rebased branch before the merge:
+it checks the main branch at the start of its next wave (below). This session takes no tickets of
+the other machine's epic and does not change their status. Each PR of the pass — its verdict, the
+merge or the report — goes into the wave report (section 5).
+
+With `request` — first a gate full on the fresh base, before any ticket is dispatched: a worktree of
+its own on the base, detached, and the gate full of section 4 in it (the screen check, the e2e lock,
+`<PR worktree>` — this worktree):
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
+git -C <repo> fetch && git -C <repo> worktree add --detach <scratchpad>/base-gate "$B"; echo "EXIT=$?"
+(cd <scratchpad>/base-gate && <F commands.prepare_tree>); echo "EXIT=$?"
+# then the gate full block of section 4 with <PR worktree> = <scratchpad>/base-gate; afterwards:
+git -C <repo> worktree remove --force <scratchpad>/base-gate
+```
+
+Its verdict line and exit code go into the wave report before the dispatch. Red — **fix the base
+first**: no ticket of the wave is dispatched until gate full on the fresh base is green, and the
+report names the verdict and what is being fixed. A fix that touches shared code goes by the same
+rule: the label and the `F cross_machine_gate.checks_section` section. Green — then this machine's
+own PRs with the label: the epic's tickets `blocked` with the reason of skill `/worfy:ship-ticket`,
+step 9. For each — only a report by `F github.account` counts (the account the sessions of both
+machines run `gh` as; anyone can write a comment that starts the same way), so with no
+`github.account` no report is found and the PR waits:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+sec=$(F cross_machine_gate.checks_section); acct=$(F github.account)
+gh pr view <N> --json state,commits,comments --jq "{state, pushed: .commits[-1].committedDate, report: ([.comments[] | select(.author.login == \"$acct\" and (.body | startswith(\"$sec report: \"))) | {at: .createdAt, verdict: (.body | split(\"\n\")[0])}] | last)}"; echo "EXIT=$?"
+```
+
+- `MERGED` — the ticket is closed by skill `/worfy:ship-ticket`, step 11 (`ticket done <epic> <NN>
+  --pr <N>`, the state file).
+- A red report newer than the last push (`report.at` later than `pushed`) — the ticket is back in
+  work: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" open <epic> <NN>`, and it is dispatched with the report as
+  its rework list. Its branch is taken from origin anew (`origin/<branch>`, not the old local branch):
+  the other machine rebased it.
+- Otherwise the PR still waits for the `serve` machine: the ticket stays `blocked`, and the report
+  names it with the PR number.
+
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json | jq '.tickets[] | select(.epic=="<epic>")'
@@ -142,6 +288,24 @@ filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in
 Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
 `rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
 "How to resume a wave"), not dispatched again; everything else becomes rows of the plan table.
+
+**Open PRs of other epics** (`pr-green-ci` only). Another session — on this
+machine or on another one — may have an open PR on files of this wave. The block lists the open PRs
+whose branch does not match this epic's branch template `F tickets.branch`, one line per file,
+`#<N> <branch> <file>`; it filters inside `gh` (`--jq`) and needs no `jq`:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+re=$(F tickets.branch | sed -e 's/<эпик>/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
+[ -n "$re" ] || echo "no tickets.branch in the profile: every open PR is listed"
+gh pr list --state open --limit 200 --json number,headRefName,files \
+  --jq ".[] | select(\"$re\" == \"\" or (.headRefName | test(\"^$re\$\") | not)) | \"#\\(.number) \\(.headRefName) \\(.files[].path)\""; echo "EXIT=$?"
+```
+
+Compare these files with the files of the wave's tickets (their section `F tickets.trail_section`). A
+ticket that shares a file with such a PR is **not dispatched until that PR is merged** — the same rule
+that keeps two tickets with a shared file out of one wave. The plan table and the wave report name the
+ticket, the file and the PR number. On one machine the rule means "a PR of another session".
 
 **What goes into the wave.** The request names the wave in one of these ways, and each is the
 owner's permission:
@@ -613,9 +777,19 @@ Each step is status and merge as two commands; "no checks reported" is what `gh 
 on a conflict, not a value of `mergeStateStatus`:
 
 ```bash
-gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BLOCKED, UNSTABLE, BEHIND — wait
+gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BEHIND — rebase (below); BLOCKED, UNSTABLE — wait
 gh pr merge <N> --squash
 ```
+
+**Merge in turn across machines**. Another machine may merge into the same
+main branch, and nothing here waits for it. Before each merge run `git -C <repo> fetch`. A PR merged outside
+`wave-gate` (with `"each"`, or one out of the set) in state `BEHIND`, or whose base moved after its
+checks ran, does not wait: nothing will update its branch. Rebase the branch onto the fresh base in the ticket's worktree and push it with a lease
+on the head the PR had before the rebase — `git push --force-with-lease=<branch>:<headRefOid> origin
+HEAD:<branch>`, `<headRefOid>` from `gh pr view <N> --json headRefOid` — so a push from elsewhere is
+not overwritten; then wait for CI again with the CI wait block below (with `F workflow.ci` `batch`: `mergeable` again). `BEHIND` no longer means only
+"wait". PRs of a `wave-gate` set are not rebased (below): `wave-gate merge` checks that each merge
+gives the tree it checked.
 
 Wait for CI with one long command, not frequent polling: an agent has a limited number of turns,
 and polling `gh pr checks` twice cut a merge off in the middle of CI. The Bash call has timeout
@@ -649,8 +823,7 @@ too:
 ```bash
 L=<orchestrator scratchpad>/main.lock                 # one path for all parallel waves (see below)
 until mkdir "$L" 2>/dev/null; do
-  m=$(stat -f %m "$L" 2>/dev/null) || continue        # lock released between mkdir and stat; Linux: stat -c %Y
-  if [ $(( $(date +%s) - m )) -gt 5400 ]; then rmdir "$L"; fi   # older than 90 min — stuck
+  if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck; BSD and GNU find alike
   sleep 30
 done; echo LOCKED
 # rebase on a fresh base → merge or commit → push; then:
@@ -659,7 +832,15 @@ rmdir "$L"
 
 The orchestrator's scratchpad works when all waves run from one session. Different sessions have
 different scratchpads, and locks there do not see each other — then use the repository's shared
-path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
+path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`. Either lock is seen only on its own
+machine: a session on another machine does not see it and merges on its own, so the order across
+machines comes from the fetch and rebase before each merge (above), not from the lock.
+
+**PRs with the cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the project has
+one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request` a PR with the
+label `F cross_machine_gate.label` is not merged on this machine, whatever its gate says: in the wave
+report it is "waits for the machine with `serve`", with its number. With `serve` such PRs are merged
+by section 1, before the wave, not here.
 
 **People in the Pipeline.** With `awaiting-merge` the wave merges no PR, and with `human-review` no PR
 whose review decision is not `APPROVED` (section 0): the ticket waits for people, and the wave goes on
@@ -743,7 +924,7 @@ CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `
 ran on them, it was not `skipped`. **With no `check` Stage in the Pipeline** the marks cannot tell
 them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project's rules
 send to another platform's verdict — and each of them merges the old way only after that verdict on
-its head (the other platform's gate full: exit code 0 and the line `[gate] зелено (…)`). They and the PRs with the label `needs-mac-gate` stay out of the
+its head (the other platform's gate full: exit code 0 and the line `[gate] зелено (…)`). They and the PRs with the label `F cross_machine_gate.label` stay out of the
 set, and so do the PRs `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a
 red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head
 (with no `check` Stage — plus the other platform's verdict for a platform PR). A PR
@@ -776,8 +957,7 @@ L=$(F workflow.e2e_lock); [ "$L" = null ] && L=                # no lock in the 
 ioreg -n Root -d1 2>/dev/null | grep -q '"IOConsoleLocked" = Yes' && { echo "screen locked: waiting"; while ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes'; do sleep 30; done; }
 if [ -n "$L" ]; then
   until mkdir "$L" 2>/dev/null; do
-    m=$(stat -c %Y "$L" 2>/dev/null || stat -f %m "$L" 2>/dev/null) || continue   # released between mkdir and stat
-    if [ $(( $(date +%s) - m )) -gt 1800 ]; then rm -f "$L/holder.json"; rmdir "$L"; fi   # older than 30 min — abandoned
+    if [ -n "$(find "$L" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rm -f "$L/holder.json"; rmdir "$L"; fi   # older than 30 min — abandoned
     sleep 20
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
@@ -1037,7 +1217,7 @@ echo "EXIT=$rc"
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
 W=$(F _resolved.workflow_folder)
-if [ "$(git -C "$W" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$W" && pwd -P)" ]; then
+if git -C "$W" rev-parse --git-dir >/dev/null 2>&1 && [ -z "$(git -C "$W" rev-parse --show-prefix)" ]; then   # its own repository; no path compare: Git Bash spells C:/ and /c/
   git -C "$W" add -A . && git -C "$W" commit -q -m "<epic>: wave of tickets <NN>, <NN> — statuses, state file"; echo "EXIT=$?"
 else echo "the Workflow folder is not a git repository of its own: the files are saved, nothing to commit"; fi
 ```
@@ -1120,8 +1300,8 @@ checkout; a ticket with a `Repo:` line is looked up in that repository:
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
 (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json) \
   | jq -r '.tickets[] | select(.epic=="<epic>" and .state!="open") | [.num, .state, (.branch // "-"), (.repo // "-")] | @tsv' \
-  | while IFS=$'\t' read -r n st b r; do
-      d=<repo>; [ "$r" = - ] || d=$(F _resolved.repos | jq -r --arg r "$r" '.[] | select(.name==$r) | .path')
+  | tr -d '\r' | while IFS=$'\t' read -r n st b r; do
+      d=<repo>; [ "$r" = - ] || d=$(F _resolved.repos | jq -r --arg r "$r" '.[] | select(.name==$r) | .path' | tr -d '\r')
       if [ "$b" = - ]; then w="no Branch: line"
       elif git -C "$d" rev-parse --verify -q "refs/heads/$b" >/dev/null; then w="local branch"
       elif git -C "$d" rev-parse --verify -q "refs/remotes/origin/$b" >/dev/null; then w="on origin only"

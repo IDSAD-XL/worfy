@@ -16,7 +16,7 @@ files from is in `index.yml`. One call prints both tables:
 for d in "${HARNESS_HOME:-$HOME/.claude/worfy-harness}/projects" "$HOME/.claude/profiles"; do
   find "$d" -mindepth 2 -maxdepth 2 -name profile.json 2>/dev/null | sort
 done | while read -r f; do
-  jq -r '"\(.name): \((.qmd.collections // []) | join(", ")) — \(.qmd.covers // "no qmd field")"' "$f"
+  jq -r '"\(.name): \((.qmd.collections // []) | join(", ")) — \(.qmd.covers // "no qmd field")"' "$f" | tr -d '\r'
 done
 awk '/^collections:/{c=1; next} c && /^[^ ]/{c=0} c && /^  [^ ]/{n=$1; sub(/:$/, "", n)} c && /^    path:/{print n "\t" $2}' ~/.config/qmd/index.yml
 ```

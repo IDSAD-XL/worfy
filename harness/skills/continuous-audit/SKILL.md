@@ -130,9 +130,9 @@ merged into the main one: the open tickets of branches with commits in the last 
 
 ```bash
 git for-each-ref refs/remotes/origin --format='%(refname:short) %(committerdate:unix)' \
-  | awk -v t="$(date -v-14d +%s)" '$2>t{print $1}' \
+  | awk -v t="$(( $(date +%s) - 14 * 86400 ))" '$2>t{print $1}' \
   | while read -r b; do "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json --ref "$b"; done \
-  | jq -c '.tickets[]|select(.state!="done")|[.ref,.epic,.num,.slug,.title]' > "$TMPDIR/live-tickets.jsonl"
+  | jq -c '.tickets[]|select(.state!="done")|[.ref,.epic,.num,.slug,.title]' | tr -d '\r' > "${TMPDIR:-/tmp}/live-tickets.jsonl"
 ```
 
 The agent per lens is `worfy:scout`: it has the `qmd` tools (`query`, `get`), and the `qmd` rules are written for the

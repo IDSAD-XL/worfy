@@ -312,6 +312,21 @@ path (`ps -o comm= -p <pid>`). No permissions, or the check cannot be automated 
 `[ ]` with a line "not verified: <why>" (in the docs' language; worfy: «не проверено: …») in the
 ticket's result section: that is an honest gap, not a review finding.
 
+On Windows the same rules hold, with these steps instead of the macOS ones. Screenshots come only
+from Playwright (`page.screenshot`) of the agent's own build, as on macOS; Windows has no per-app
+Screen Recording or Accessibility grant to ask for, and the agent still captures only the app's own
+window and types only into the app's own frontmost window. Launching "as from the Start menu": a
+program started from the agent's shell inherits the agent's environment (`CLAUDECODE`,
+`CLAUDE_CODE_*`, the agent's PATH and `NoDefaultCurrentDirectoryInExePath=1`, which Claude Code sets
+for its processes), so such a launch is not the same as a click in the Start menu. Launch through
+Explorer instead, `explorer.exe "$(cygpath -w <path to the .exe>)"`: the program then starts from
+Explorer's environment. `explorer.exe` may exit with code 1 even when it started the program, so
+check the process, not the exit code. Several builds of one app id on disk — before the check,
+verify the process path:
+`powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"` (the pid of every copy:
+`powershell -NoProfile -Command "Get-Process <name> | Select-Object Id,Path"`). Where the installer
+puts the app and where the stable copy lives on Windows — the project's glossary (`F docs.context`).
+
 ## 7. Review agents on the diff
 
 Only with `agent-review` in the Pipeline (section 0), at its place there: before step 8 when the
@@ -489,6 +504,59 @@ gh pr create --fill
 gh pr view <N> --json mergeStateStatus
 ```
 
+**The cross-machine label** (`F cross_machine_gate`, worfy ADR-0069; exit code 4 or `null` — the
+project has one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request`,
+right after `gh pr create`: the PR's files are compared with `F cross_machine_gate.exempt` — paths
+whose change needs no label; a path that ends with `/` is a folder and covers every file under it.
+One file outside `exempt` — the PR gets the label `F cross_machine_gate.label`, and its description
+gets the section `## <checks_section>` (`F cross_machine_gate.checks_section`): the old description
+and the section, through `--body-file`. The section lists the commands of the ticket's acceptance
+items (worfy: «Готово, когда») that run on the machine with `serve` beyond its `check` — the ticket
+marks them itself, the skill does not decide which — one line each, with its expected result:
+``- `<command>` — <expected result>``. No such item — the single line `none`. Write those lines into
+`<section file>` first; the block prints `label` or `no-label`, or a line starting with `ERROR:`
+when `gh` failed or listed no files (right after `gh pr create` the list can still be empty): run the
+block again then, never take that for `no-label`. A broken profile (`bin/profile` exit 1) is an
+`ERROR:` too, not an absent field:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+role=$(F cross_machine_gate.role); rc=$?                # 4 — no such field; 1 — a broken profile or registry
+if [ "$rc" != 0 ] && [ "$rc" != 4 ]; then echo "ERROR: bin/profile exit $rc: the profile or the registry is broken — run it without 2>/dev/null"
+elif [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
+elif ! files=$(gh pr view <N> --json files --jq '.files[].path'); then echo "ERROR: gh pr view <N> failed: run the block again"
+elif [ -z "$files" ]; then echo "ERROR: PR <N> lists no files yet: run the block again"
+else
+  exempt=$(F cross_machine_gate.exempt | sed -n 's/^ *"\(.*\)",\{0,1\}$/\1/p')   # one path a line; no field — nothing is exempt
+  need=no-label
+  while IFS= read -r f; do
+    hit=no
+    while IFS= read -r e; do
+      [ -n "$e" ] || continue
+      case "$e" in */) case "$f" in "$e"*) hit=yes ;; esac ;; *) [ "$f" = "$e" ] && hit=yes ;; esac
+    done <<EXEMPT
+$exempt
+EXEMPT
+    [ "$hit" = yes ] || need=label
+  done <<FILES
+$(printf '%s\n' "$files" | tr -d '\r')
+FILES
+  echo "$need"
+  if [ "$need" = label ]; then
+    sec=$(F cross_machine_gate.checks_section); B=<scratchpad>/pr-<N>-body.md
+    if ! gh pr view <N> --json body --jq .body >"$B"; then echo "ERROR: gh pr view <N> --json body failed: run the block again"
+    else
+      tr -d '\r' <"$B" | grep -qxF "## $sec" || { printf '\n## %s\n\n' "$sec"; cat <section file>; } >>"$B"
+      gh pr edit <N> --add-label "$(F cross_machine_gate.label)" --body-file "$B"; echo "EXIT=$?"
+    fi
+  fi
+fi
+```
+
+A description that already has the section keeps it as it is, so a second run adds nothing. The
+label goes on only after this machine's own checks are green (step 6, and the other platform's
+verdict for a platform PR). `no-label` — the PR goes on as usual.
+
 CI is the PR's checks without the agents' marks: `review`, `check/<name>` and `deploy` are commit
 statuses too (`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark --contexts` prints their names), and a
 `review` failure is a verdict, not red CI. Only commit statuses are left out (an empty
@@ -559,6 +627,12 @@ block that reads them — skill `/worfy:epic-wave`, section 4, "Checks before me
 there is not `ready` waits, and a `failed` one goes back to rework. With no `check` Stage in the
 Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only
 after that verdict, the old way: the same section, "Gate before merge".
+
+With `F cross_machine_gate.role` `request` a PR with the label `F cross_machine_gate.label` is not
+merged by this machine: the machine with `serve` checks, reports and merges it (skill
+`/worfy:epic-wave`, section 1). The ticket is blocked with the reason —
+`"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "waits for the machine with serve: <label>, PR #<N>"`
+(the reason in the docs' language) — and is closed when that PR is merged.
 
 The gate the project requires before this merge is `F workflow.merge_gate` — skill
 `/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
@@ -633,7 +707,7 @@ DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
 [ -n "$r" ] && [ "$r" != null ] && [ -e "$T/${r%/}/$E" ] && DOCS+=("${r%/}/$E")
 [ -n "$h" ] && [ "$h" != null ] && [ -e "$T/$h" ] && DOCS+=("$h")
 M=$(F worktree.base); [ "$M" = null ] && M=
-[ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null)
+[ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null | tr -d '\r')
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
 [ -n "$M" ] || for c in main master; do git -C <repo> rev-parse -q --verify "refs/heads/$c" >/dev/null && { M=$c; break; }; done
 M=${M#origin/}
