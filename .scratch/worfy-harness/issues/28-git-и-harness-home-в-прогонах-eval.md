@@ -241,3 +241,21 @@ worfy/.:test`. Mutants `scripts/eval-harness.mjs` и `demo-project.sh` (филь
 **Копия git.** Папка `git --exec-path` Command Line Tools — 172 имени, из них 146 symlink на один
 бинарник `../../bin/git`. Копия держит каждый файл один раз: второе имя того же файла (symlink или
 hard link, как в `/usr/lib/git-core` Linux) — symlink внутри копии; без `git-credential*`.
+
+**Fix round 1 (PR #476).** Ревью нашло пять блокирующих пробелов и восемь мелких; все закрыты test-ом,
+каждый mutant в своём дереве, файл восстановлен из копии:
+
+- Фикстура (`demo-project.sh`) больше не читает `HARNESS_HOME`: без `EVAL_HARNESS_HOME` состояние —
+  `$HOME/.claude/worfy-harness`, как в шаге 4; с ним — папка из `eval-env.cjs` без `HARNESS_HOME`.
+  Прогон не получает `HARNESS_HOME` (sandbox передаёт `PATH` и `EVAL_*`), поэтому фикстура его не
+  учитывает. Отказ на чужой реестр (`gate/config.json` уже есть) — exit 1, файл байт в байт.
+- `eval-harness.mjs`: SIGHUP, как SIGINT и SIGTERM, не убивает скрипт; копия git удаляется в своём
+  `finally`, даже если удаление копии плагина бросило; код выхода по сигналу — 128 + номер.
+  Test-ы: сигналы, «копия не отвечает `--version`», «файл git не копируется», `--exec-path` копии,
+  системный gitconfig не читается, соседняя папка в `results/` остаётся.
+- `eval-env.test.sh`: Gate — на ветке с изменениями без `GATE_SCOPE=all`, stderr сравнивается;
+  `worktree-lock status`; `profile -C` и `worktree-lock` из другой папки; `ticket mark` Silent,
+  `epic-board` без `--out`, `worktree-create.sh`, `gate.sh` с абсолютным `EVAL_HARNESS_HOME`; список
+  для grep собирается из всех Node-скриптов `bin/` и `hooks/`. `shortcut-ledger` и `wave-gate` зовут
+  git через helper; `project-connect` и `qmd-collections` — названные исключения (работают с
+  состоянием владельца, в кейсах eval не запускаются).

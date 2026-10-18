@@ -4,9 +4,9 @@
 // `claude plugin eval` needs, every scaffold script builds its fixture in a temporary folder with a
 // temporary HOME, the fixture is a project the Harness scripts recognise (bin/profile exit 0,
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
-import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
+import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { constants, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
@@ -56,12 +56,17 @@ const tempDir = (prefix: string): string => {
  * workspace, with HOME in a temporary folder and only PATH, HOME and TMPDIR from this process
  * (git in an empty HOME has no identity, so the fixture must not need one).
  */
-function scaffold(name: string, extra: NodeJS.ProcessEnv = {}): { work: string; home: string; run: SpawnSyncReturns<string> } {
+function scaffold(
+  name: string,
+  extra: NodeJS.ProcessEnv = {},
+  prepare: (work: string, home: string) => void = () => {},
+): { work: string; home: string; run: SpawnSyncReturns<string> } {
   const root = tempDir('worfy-eval-')
   const work = join(root, 'work')
   const home = join(root, 'home')
   mkdirSync(work)
   mkdirSync(home)
+  prepare(work, home)
   const script = field(readFileSync(join(EVALS, name, 'case.yaml'), 'utf8'), 'scaffold_script') ?? ''
   const run = spawnSync('bash', [join(EVALS, name, script)], {
     cwd: work,
@@ -142,6 +147,43 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(profile.status, profile.stderr).toBe(0)
     expect(profile.stdout.trim()).toBe('demo')
     expect(existsSync(join(home, '.claude'))).toBe(false)
+  })
+
+  // A run gets no HARNESS_HOME (its sandbox passes PATH and EVAL_*), so the fixture ignores it.
+  it('without EVAL_HARNESS_HOME the state goes to $HOME/.claude/worfy-harness, HARNESS_HOME or not', () => {
+    const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
+    const { work, home, run } = scaffold('status-block', { HARNESS_HOME: elsewhere })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(existsSync(join(home, '.claude', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+    expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
+    expect(existsSync(elsewhere)).toBe(false)
+    expect(existsSync(join(work, '.git', 'worfy-harness'))).toBe(false)
+  })
+
+  it('with EVAL_HARNESS_HOME and HARNESS_HOME the state still goes to <fixture>/.git/worfy-harness', () => {
+    const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
+    const { work, home, run } = scaffold('status-block', { HARNESS_HOME: elsewhere, EVAL_HARNESS_HOME: 'worfy-harness' })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+    expect(existsSync(elsewhere)).toBe(false)
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+  })
+
+  it.each([
+    ['$HOME/.claude/worfy-harness', {}, (work: string, home: string) => join(home, '.claude', 'worfy-harness')],
+    ['<fixture>/.git/worfy-harness', { EVAL_HARNESS_HOME: 'worfy-harness' }, (work: string) => join(work, '.git', 'worfy-harness')],
+  ] as const)('refuses a state folder %s that already has a gate registry and leaves it as it was', (_, extra, state) => {
+    const registry = '{"repos": [{"key": "owner", "match": "/somewhere/else"}]}\n'
+    let config = ''
+    const { run } = scaffold('status-block', extra, (work, home) => {
+      config = join(state(work, home), 'gate', 'config.json')
+      mkdirSync(dirname(config), { recursive: true })
+      writeFileSync(config, registry)
+    })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stderr).toMatch(/already has a gate registry/)
+    expect(readFileSync(config, 'utf8')).toBe(registry)
+    expect(existsSync(join(dirname(dirname(config)), 'projects'))).toBe(false)
   })
 
   it('epic-status sees the four tickets of epic demo', () => {
@@ -247,11 +289,14 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 
 // A stand-in for claude: prints STUB_VERSION for --version; for every other call appends to
 // STUB_LOG its arguments, what the target plugin folder holds (manifest, eval folder), PATH, the
-// EVAL_* variables, the answer of "$EVAL_GIT" --version with PATH=/usr/bin:/bin and the files of
-// the copy of git, and exits with the next code from STUB_CODES (comma-separated, one per call).
+// EVAL_* variables, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
+// the exit code of "$EVAL_GIT" config --get worfy.probe with STUB_SYSTEM_CONFIG as the system
+// gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
+// (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
+// STUB_HANG: the first call writes its pid there and waits a minute before it exits.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
-const { appendFileSync, existsSync, readdirSync, readFileSync } = require('node:fs')
+const { appendFileSync, chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join } = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
@@ -260,14 +305,24 @@ const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\\n').filter(Bo
 const manifest = JSON.parse(readFileSync(join(args[2], '.claude-plugin', 'plugin.json'), 'utf8'))
 const evals = readdirSync(join(args[2], 'evals'))
 const evalGit = process.env.EVAL_GIT || ''
-const version = evalGit ? spawnSync(evalGit, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } }) : null
+const runGit = (gitArgs, env = {}) => spawnSync(evalGit, gitArgs, { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', ...env } })
+const version = evalGit ? runGit(['--version']) : null
+const execPath = evalGit ? runGit(['--exec-path']).stdout.trim() : ''
+const systemConfig = evalGit && process.env.STUB_SYSTEM_CONFIG
+  ? runGit(['config', '--get', 'worfy.probe'], { GIT_CONFIG_SYSTEM: process.env.STUB_SYSTEM_CONFIG, GIT_CONFIG_GLOBAL: '/dev/null' }).status
+  : null
 const core = evalGit ? join(dirname(evalGit), 'git-core') : ''
 const gitFiles = core && existsSync(core) ? readdirSync(core) : []
 appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
-  gitVersion: version ? { status: version.status, stdout: version.stdout } : null, gitFiles,
+  gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
 }) + '\\n')
-process.exit(Number((process.env.STUB_CODES || '0').split(',')[calls] || 0))
+if (process.env.STUB_LOCK && calls === 0) chmodSync(args[2], 0o555)
+const code = Number((process.env.STUB_CODES || '0').split(',')[calls] || 0)
+if (process.env.STUB_HANG && calls === 0) {
+  writeFileSync(process.env.STUB_HANG, String(process.pid))
+  setTimeout(() => process.exit(code), 60000)
+} else process.exit(code)
 `
 
 interface StubCall {
@@ -278,6 +333,8 @@ interface StubCall {
   evalGit: string
   evalHarnessHome: string | null
   gitVersion: { status: number | null; stdout: string } | null
+  execPath: string
+  systemConfig: number | null
   gitFiles: string[]
 }
 
@@ -300,40 +357,73 @@ const evaluated = (): string => {
   return harnessCopy
 }
 
+/** A folder with the stub as `claude`, and the environment eval-harness.mjs runs with against it. */
+function stubSetup(
+  version: string,
+  codes: string,
+  path: (home: string) => string,
+  extra: NodeJS.ProcessEnv,
+): { dir: string; log: string; env: NodeJS.ProcessEnv } {
+  const dir = tempDir('worfy-eval-stub-')
+  const claude = join(dir, 'claude')
+  writeFileSync(claude, STUB)
+  chmodSync(claude, 0o755)
+  const log = join(dir, 'calls.log')
+  const env = {
+    PATH: path(dir),
+    HOME: dir,
+    ELECTRON_RUN_AS_NODE: '1',
+    HARNESS_DIR: evaluated(),
+    CLAUDE_BIN: claude,
+    STUB_VERSION: version,
+    STUB_CODES: codes,
+    STUB_LOG: log,
+    ...extra,
+  }
+  return { dir, log, env }
+}
+
+const loggedCalls = (log: string): StubCall[] =>
+  existsSync(log)
+    ? readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as StubCall)
+    : []
+
+const EVAL_HARNESS = join(REPO, 'scripts', 'eval-harness.mjs')
+
 /** Runs scripts/eval-harness.mjs against the stub; returns the run and the logged eval calls. */
 function evalHarness(
   version: string,
   codes: string,
   args: string[] = [],
   path: (home: string) => string = () => process.env.PATH ?? '',
+  extra: NodeJS.ProcessEnv = {},
 ): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
-  const dir = tempDir('worfy-eval-stub-')
-  const claude = join(dir, 'claude')
-  writeFileSync(claude, STUB)
-  chmodSync(claude, 0o755)
-  const log = join(dir, 'calls.log')
-  const run = spawnSync(process.execPath, [join(REPO, 'scripts', 'eval-harness.mjs'), ...args], {
-    env: {
-      PATH: path(dir),
-      HOME: dir,
-      ELECTRON_RUN_AS_NODE: '1',
-      HARNESS_DIR: evaluated(),
-      CLAUDE_BIN: claude,
-      STUB_VERSION: version,
-      STUB_CODES: codes,
-      STUB_LOG: log,
-    },
-    encoding: 'utf8',
-    timeout: SCAFFOLD_TIMEOUT_MS,
-  })
-  const calls = existsSync(log)
-    ? readFileSync(log, 'utf8')
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => JSON.parse(line) as StubCall)
-    : []
-  return { run, calls }
+  const { log, env } = stubSetup(version, codes, path, extra)
+  const run = spawnSync(process.execPath, [EVAL_HARNESS, ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  return { run, calls: loggedCalls(log) }
 }
+
+/** The copies of git eval-harness.mjs has left in the results folder of the Harness it evaluates. */
+const gitCopies = (): string[] => {
+  const results = join(evaluated(), 'evals', 'results')
+  return existsSync(results) ? readdirSync(results).filter((dir) => dir.endsWith('-git')) : []
+}
+
+/** A folder first on PATH whose `git` prints `core` for --exec-path and fails for anything else. */
+const fakeGitPath = (dir: string, core: string): string => {
+  const bin = join(dir, 'fake-git')
+  mkdirSync(bin)
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ "$1" = --exec-path ]; then echo '${core}'; exit 0; fi\nexit 1\n`)
+  chmodSync(join(bin, 'git'), 0o755)
+  return [bin, process.env.PATH ?? ''].join(delimiter)
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+// chmod has no say on Windows, and root reads and removes whatever it likes.
+const permissionsHold = process.platform !== 'win32' && process.getuid?.() !== 0
 
 const readManifestOf = (dir: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
@@ -419,7 +509,20 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   it('gives the runs a copy of git without credential helpers, first on PATH, and removes it after', () => {
     const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout.trim()
     expect(readdirSync(exec).filter((file) => file.startsWith('git-credential'))).not.toEqual([])
-    const { run, calls } = evalHarness('2.1.289', '0,0')
+    // An earlier result next to the copy: only the copy goes.
+    const earlier = join(evaluated(), 'evals', 'results', '2026-01-01T00-00-00-000Z-main')
+    mkdirSync(earlier, { recursive: true })
+    writeFileSync(join(earlier, 'aggregate-result.json'), '{}\n')
+    // A system gitconfig with a key: the git of the runs must not read it (the one of Command Line
+    // Tools sets credential.helper osxkeychain). The real git reads it, so the check means something.
+    const systemConfig = join(tempDir('worfy-eval-gitconfig-'), 'gitconfig')
+    writeFileSync(systemConfig, '[worfy]\n\tprobe = system\n')
+    const control = spawnSync('git', ['config', '--get', 'worfy.probe'], {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH, GIT_CONFIG_SYSTEM: systemConfig, GIT_CONFIG_GLOBAL: '/dev/null' },
+    })
+    expect(control.stdout.trim(), control.stderr).toBe('system')
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_SYSTEM_CONFIG: systemConfig })
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toHaveLength(2)
     const [first, second] = calls
@@ -429,17 +532,18 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(first.evalGit.startsWith(join(evaluated(), 'evals', 'results') + sep)).toBe(true)
     expect(first.gitVersion?.status, JSON.stringify(first.gitVersion)).toBe(0)
     expect(first.gitVersion?.stdout).toMatch(/^git version /)
+    expect(first.execPath).toBe(join(dirname(first.evalGit), 'git-core'))
+    expect(first.systemConfig).toBe(1)
     expect(first.gitFiles).toContain('git')
     expect(first.gitFiles.filter((file) => file.startsWith('git-credential'))).toEqual([])
     expect(first.evalHarnessHome).toBe('worfy-harness')
     expect(second.evalGit).toBe(first.evalGit)
     expect(existsSync(dirname(first.evalGit))).toBe(false)
+    expect(existsSync(join(earlier, 'aggregate-result.json'))).toBe(true)
   })
 
   it('exits 1 and calls no claude when `git --exec-path` gives no folder', () => {
-    const results = join(evaluated(), 'evals', 'results')
-    const copies = (): string[] => (existsSync(results) ? readdirSync(results).filter((dir) => dir.endsWith('-git')) : [])
-    const before = copies()
+    const before = gitCopies()
     const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
       const gitStubDir = join(dir, 'failing-git')
       mkdirSync(gitStubDir)
@@ -450,8 +554,100 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(run.status).toBe(1)
     expect(run.stderr).toMatch(/git --exec-path/)
     expect(calls).toEqual([])
-    expect(copies()).toEqual(before)
+    expect(gitCopies()).toEqual(before)
   })
+
+  it('exits 1, calls no claude and removes the copy when the copy of git does not answer --version', () => {
+    const before = gitCopies()
+    const core = join(tempDir('worfy-eval-core-'), 'git-core')
+    mkdirSync(core)
+    writeFileSync(join(core, 'git'), '#!/bin/sh\nexit 1\n')
+    chmodSync(join(core, 'git'), 0o755)
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
+    expect(run.status).toBe(1)
+    expect(run.stderr).toMatch(/the copy of git does not run/)
+    expect(calls).toEqual([])
+    expect(gitCopies()).toEqual(before)
+  })
+
+  it.skipIf(!permissionsHold)('exits 1, calls no claude and removes the copy when a file of git cannot be copied', () => {
+    const before = gitCopies()
+    const core = join(tempDir('worfy-eval-core-'), 'git-core')
+    mkdirSync(core)
+    writeFileSync(join(core, 'git'), '#!/bin/sh\necho git version 0\n')
+    chmodSync(join(core, 'git'), 0o755)
+    writeFileSync(join(core, 'git-unreadable'), 'x')
+    chmodSync(join(core, 'git-unreadable'), 0o000)
+    try {
+      const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
+      expect(run.status).toBe(1)
+      expect(run.stderr).toMatch(/cannot copy/)
+      expect(calls).toEqual([])
+      expect(gitCopies()).toEqual(before)
+    } finally {
+      chmodSync(join(core, 'git-unreadable'), 0o644)
+    }
+  })
+
+  it.skipIf(!permissionsHold)('removes the copy of git when removing the copy of the plugin throws', () => {
+    const before = gitCopies()
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_LOCK: '1' })
+    const target = calls[0]?.args[2] ?? ''
+    try {
+      expect(calls).toHaveLength(2)
+      expect(run.status).toBe(1)
+      expect(run.stderr).toMatch(/ENOTEMPTY|EACCES|EPERM/)
+      expect(existsSync(target)).toBe(true)
+      expect(existsSync(dirname(calls[0]?.evalGit ?? ''))).toBe(false)
+      expect(gitCopies()).toEqual(before)
+    } finally {
+      if (target && existsSync(target)) {
+        chmodSync(target, 0o755)
+        removeTestTree(dirname(target))
+      }
+    }
+  })
+
+  // A signal reaches the whole process group: claude ends, eval-harness.mjs stays to remove its
+  // copies and reports 128 + the number of the signal.
+  it.skipIf(process.platform === 'win32').each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)(
+    'outlives %s, removes its copies of git and of the plugin, and reports 128 + the signal',
+    async (signal) => {
+      const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
+      const hang = join(dir, 'hang.pid')
+      const child = spawn(process.execPath, [EVAL_HARNESS], { env: { ...env, STUB_HANG: hang }, stdio: 'ignore' })
+      const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
+        child.on('close', (code, ended) => resolve({ code, signal: ended })),
+      )
+      let stub = 0
+      try {
+        for (let waited = 0; !(existsSync(hang) && readFileSync(hang, 'utf8') !== ''); waited += 50) {
+          if (waited > 30_000) throw new Error('the stub never started')
+          await sleep(50)
+        }
+        stub = Number(readFileSync(hang, 'utf8'))
+        const [first] = loggedCalls(log)
+        if (!first) throw new Error('no call of the stub logged')
+        if (child.pid === undefined) throw new Error('eval-harness.mjs has no pid')
+        process.kill(child.pid, signal)
+        await sleep(300)
+        process.kill(stub, signal)
+        const ended = await exited
+        expect(ended).toEqual({ code: 128 + constants.signals[signal], signal: null })
+        expect(existsSync(dirname(first.evalGit))).toBe(false)
+        expect(existsSync(first.args[2] ?? '')).toBe(false)
+      } finally {
+        for (const pid of [stub, child.pid ?? 0]) {
+          try {
+            if (pid) process.kill(pid, 'SIGKILL')
+          } catch {
+            // already gone
+          }
+        }
+      }
+    },
+    SCAFFOLD_TIMEOUT_MS,
+  )
 
   it.each([
     ['1,0', 1],

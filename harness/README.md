@@ -81,7 +81,8 @@ through the OS, and the main session ends a working turn with the four-line stat
 Each case builds its fixture with `evals/lib/demo-project.sh`: a small git repository with epic
 `demo` (four tickets) in the run's working folder, and the gate registry and profile `demo` where
 the Harness scripts of the run look for them (`.git/worfy-harness` of that folder under
-`pnpm eval:harness`, see below; the run's temporary `HOME` without `EVAL_HARNESS_HOME`). Graders are free (`regex`, `tool_used`) wherever they can be; `llm` graders
+`pnpm eval:harness`, see below; `.claude/worfy-harness` of the run's temporary `HOME` without
+`EVAL_HARNESS_HOME`; `HARNESS_HOME` is ignored, since a run does not get it). Graders are free (`regex`, `tool_used`) wherever they can be; `llm` graders
 judge only short answers.
 
 Run, on a Mac, by hand, from the repository root:
@@ -112,7 +113,7 @@ git and the Harness state in a run (ticket worfy-harness/28). The sandbox settin
 eval` writes for a run list the Command Line Tools `git` binary among denied credential files, next
 to the `git-credential-*` helpers, and let a run write only into its working folder. So
 `scripts/eval-harness.mjs` copies the folder `git --exec-path` names, without `git-credential-*`,
-into `evals/results/<time>-git/` (removed at the end), puts that folder first on the runs' `PATH`
+into `evals/results/<time>-git/` (removed at the end, also after Ctrl-C, SIGTERM or SIGHUP), puts that folder first on the runs' `PATH`
 and sets two variables, which every Harness script reads through `hooks/eval-env.cjs`:
 
 - `EVAL_GIT` — the git the scripts start instead of `git` from `PATH`;

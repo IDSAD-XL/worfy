@@ -8,17 +8,21 @@
 # What is checked:
 #   1. With a git on PATH that only fails (exit 97) and EVAL_GIT naming a wrapper over the real git
 #      that logs its arguments, preflight, epic-status --json, profile -C <repo> --name, ticket show,
-#      gate.sh fast, worktree-lock claim/release, silent-check --cached and epic-board --no-open give
-#      the exit code and the output they give with the real git on PATH, and each of them left lines
-#      in the log of the wrapper. Without EVAL_GIT the failing git is what they get.
+#      worktree-lock claim/status/release, silent-check --cached, epic-board --no-open, shortcut-ledger
+#      and gate.sh fast (on a branch with changes, so that its scope comes from git) give the exit
+#      code and the output they give with the real git on PATH, and each of them left lines in the log
+#      of the wrapper. Without EVAL_GIT the failing git is what they get.
 #   2. EVAL_HARNESS_HOME=worfy-harness with HARNESS_HOME unset: profile finds the profile of
-#      <repo>/.git/worfy-harness, the gate writes gate/state there, worktree-lock writes
-#      worktree-sessions there, a worktree of the same repository gets the same folder, and the
-#      .claude folder of the temporary HOME is never created. HARNESS_HOME wins over it; an absolute
-#      value is taken as it is; a relative one outside git gives the default $HOME/.claude/worfy-harness.
+#      <repo>/.git/worfy-harness, also with -C from another folder; the gate writes gate/state there,
+#      worktree-lock writes worktree-sessions there (also run from another folder), epic-board its
+#      page, ticket mark of a Silent project its marks; a worktree of the same repository gets the
+#      same folder, and the .claude folder of the temporary HOME is never created. HARNESS_HOME wins
+#      over it; an absolute value is taken as it is; a relative one outside git gives the default
+#      $HOME/.claude/worfy-harness; eval-env.cjs asks EVAL_GIT, not git from PATH. worktree-create.sh
+#      starts its git through EVAL_GIT.
 #   3. gate.sh with no node: its own git calls go to EVAL_GIT, and its marker lands under
-#      EVAL_HARNESS_HOME.
-#   4. No Node script of the Harness starts git by its name.
+#      EVAL_HARNESS_HOME, relative or absolute.
+#   4. No Node script of bin/ and hooks/ starts git by its name (two named exceptions).
 #   5. Without EVAL_* nothing changes: harness-home.test.sh and the tests of each script stay as they are.
 # Run: bash harness/bin/tests/eval-env.test.sh; exit code 0 means everything passed.
 # Every HOME here is a temporary folder; the real home is compared with a snapshot at the end. gh is a
@@ -121,12 +125,14 @@ registry "$HOME/.claude/worfy-harness" "$R"
 # --- 1. Every script with EVAL_GIT and a failing git on PATH --------------------------------
 # pair <name> <stdin> <command…>: the command in $R twice — with the real git on PATH, then with the
 # failing git first on PATH and EVAL_GIT; the same exit code and stdout, and new lines in the log.
+# PAIR_STDERR=1 compares stderr too.
 pair() {
     local name="$1" input="$2"; shift 2
-    local real_out real_rc eval_out eval_rc before after
-    real_out="$(cd "$R" && printf '%s' "$input" | "$@" 2>/dev/null | nocr)"; real_rc=$?
+    local real_out real_rc eval_out eval_rc before after err=/dev/null
+    [ "${PAIR_STDERR:-0}" = 1 ] && err=/dev/stdout
+    real_out="$(cd "$R" && printf '%s' "$input" | "$@" 2>"$err" | nocr)"; real_rc=$?
     before="$(log_lines)"
-    eval_out="$(cd "$R" && printf '%s' "$input" | PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" "$@" 2>/dev/null | nocr)"; eval_rc=$?
+    eval_out="$(cd "$R" && printf '%s' "$input" | PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" "$@" 2>"$err" | nocr)"; eval_rc=$?
     after="$(log_lines)"
     if [ "$eval_rc" -eq "$real_rc" ] && [ "$eval_out" = "$real_out" ]; then ok "$name: with EVAL_GIT the same exit code ($real_rc) and output as with git on PATH"
     else bad "$name: git on PATH rc=$real_rc, out: ${real_out:0:400}; EVAL_GIT rc=$eval_rc, out: ${eval_out:0:400}"; fi
@@ -148,13 +154,29 @@ check "preflight with EVAL_GIT gets to its last line (GO), past the fetch" [ "$(
 pair "epic-status --json" "" node "$BIN/epic-status" --json
 pair "profile -C <repo> --name" "" node "$BIN/profile" -C "$R" --name
 pair "ticket show (Status)" "" node "$BIN/ticket" show e 01
-# The gate with a state folder of its own each run, so that the second run is no cache hit of the first.
-gate_fresh() { CLAUDE_GATE_STATE="$(mktemp -d "$T/state.XXXXXX")" GATE_SCOPE=all bash "$HOOKS/gate.sh" "$@"; }
-pair "gate.sh fast" "" gate_fresh fast
+# claim and release print nothing either way, so on Windows, where the log is not checked, their
+# pairs show only the exit code; status between them prints the tree and the session claim
+# registered, and nothing when git fails.
 pair "worktree-lock claim" "$SID" node "$BIN/worktree-lock" claim
+pair "worktree-lock status" "" env CLAUDE_SESSION_ID= node "$BIN/worktree-lock" status
+check "worktree-lock status printed the tree and the session (so its pair compared an output)" \
+    [ -n "$(cd "$R" && CLAUDE_SESSION_ID= node "$BIN/worktree-lock" status 2>/dev/null | grep 's-eval')" ]
 pair "worktree-lock release" "$SID" node "$BIN/worktree-lock" release
 pair "silent-check --cached --untracked" "" node "$BIN/silent-check" -C "$R" --cached --untracked
 pair "epic-board --no-open" "" node "$BIN/epic-board" --out "$T/board.html" --no-open
+pair "shortcut-ledger <repo>" "" node "$BIN/shortcut-ledger" "$R"
+# The gate on a branch ahead of origin/main by a commit, with a file not yet committed: its scope
+# comes from git status and the diff from the merge-base, and the scope line it prints (stderr
+# compared too) names that merge-base and the number of changed files. A state folder of its own
+# each run, so that the second run is no cache hit of the first.
+git -C "$R" checkout -q -b feature && echo x >"$R/a.txt" && git -C "$R" add a.txt && git -C "$R" commit -q -m a
+echo y >"$R/b.txt"
+gate_fresh() { CLAUDE_GATE_STATE="$(mktemp -d "$T/state.XXXXXX")" bash "$HOOKS/gate.sh" "$@"; }
+PAIR_STDERR=1 pair "gate.sh fast on a branch with changes" "" gate_fresh fast </dev/null
+out="$(cd "$R" && gate_fresh fast </dev/null 2>&1 | nocr)"
+check "the gate narrowed its scope by the diff (files changed: 2) and was green" \
+    [ "${out#*files changed: 2}" != "$out" -a "${out#*зелено (fast)}" != "$out" ]
+[ "${out#*files changed: 2}" != "$out" ] || echo "     gate: ${out:0:400}"
 set +o pipefail
 
 # --- 2. EVAL_HARNESS_HOME ---------------------------------------------------------------------
@@ -204,6 +226,50 @@ check "a relative EVAL_HARNESS_HOME outside git: the default <home>/.claude/worf
 [ "$out" = "$want" ] || echo "     got: $out, want: $want"
 out="$(cd "$R2" && HOME="$H2" USERPROFILE="$H2" hh)"
 check "no variable: the default <home>/.claude/worfy-harness" [ "$out" = "$want" ]
+# eval-env.cjs asks EVAL_GIT for the git common dir, not git from PATH.
+out="$(cd "$R2" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME=worfy-harness PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" hh)"
+check "a relative EVAL_HARNESS_HOME with a failing git on PATH: the folder comes from EVAL_GIT" [ "$out" = "$STATE2_REAL" ]
+[ "$out" = "$STATE2_REAL" ] || echo "     got: $out, want: $STATE2_REAL"
+out="$(cd "$T/nogit" && HOME="$H2" USERPROFILE="$H2" GIT_CEILING_DIRECTORIES="$T" EVAL_HARNESS_HOME="$T/abs-home" hh)"
+check "an absolute EVAL_HARNESS_HOME outside git is taken as it is" [ "$out" = "$T/abs-home" ]
+# From a folder outside the repository: the state folder is that of the repository named by -C or
+# by the payload's cwd, an absolute path (git prints the common dir relative to its own cwd).
+out="$(cd "$T/nogit" && HOME="$H2" USERPROFILE="$H2" GIT_CEILING_DIRECTORIES="$T" EVAL_HARNESS_HOME=worfy-harness \
+    node "$BIN/profile" -C "$R2" --name 2>&1)"; rc=$?
+check "profile -C <repo> run from another folder finds the profile of <repo>/.git/worfy-harness" [ "$rc" -eq 0 -a "$out" = t ]
+[ "$rc" -eq 0 ] || echo "     profile: rc=$rc, out: ${out:0:300}"
+(cd "$T/nogit" && HOME="$H2" USERPROFILE="$H2" GIT_CEILING_DIRECTORIES="$T" EVAL_HARNESS_HOME=worfy-harness \
+    node "$BIN/worktree-lock" claim <<<'{"session_id":"s-eval3","cwd":"'"$R2"'"}' >/dev/null 2>&1)
+check "worktree-lock claim run from another folder writes under <repo of cwd>/.git/worfy-harness" \
+    [ -n "$(grep -l s-eval3 "$STATE2/worktree-sessions"/* 2>/dev/null)" -a ! -e "$T/nogit/.git" ]
+# epic-board without --out writes its page into <state>/state/.
+rm -f "$STATE2/state/epic-board.html"
+in2 env PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" node "$BIN/epic-board" --no-open >/dev/null 2>&1; rc=$?
+check "EVAL_HARNESS_HOME: epic-board without --out writes <repo>/.git/worfy-harness/state/epic-board.html (exit 0)" \
+    [ "$rc" -eq 0 -a -f "$STATE2/state/epic-board.html" ]
+# ticket mark of a Silent project keeps its marks in <state>/runs/<project>/marks/.
+R4="$T/repo4"
+newrepo "$R4"
+STATE4="$R4/.git/worfy-harness"
+registry "$STATE4" "$R4"
+mkdir -p "$T/wf4/.scratch/e/issues"
+cp "$R4/.scratch/e/issues/01-a.md" "$T/wf4/.scratch/e/issues/"
+printf '{"schema":2,"name":"t","mode":"silent","workflow":{"folder":"%s"}}\n' "$T/wf4" >"$STATE4/projects/t/profile.json"
+out="$(cd "$R4" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME=worfy-harness PATH="$BROKEN_PATH" EVAL_GIT="$EVAL_GIT_NODE" \
+    node "$BIN/ticket" mark e 01 review success --sha "$(git -C "$R4" rev-parse HEAD)" 2>&1)"; rc=$?
+check "EVAL_HARNESS_HOME: ticket mark of a Silent project writes <repo>/.git/worfy-harness/runs/t/marks/e-01.json" \
+    [ "$rc" -eq 0 -a -f "$STATE4/runs/t/marks/e-01.json" ]
+[ "$rc" -eq 0 ] || echo "     ticket mark: rc=$rc, out: ${out:0:300}"
+# worktree-create.sh (not registered, kept as documentation) starts its git through EVAL_GIT. It is
+# bash, so EVAL_GIT is the logging wrapper on every system.
+before="$(log_lines)"
+out="$(printf '{"name":"wc1","cwd":"%s"}' "$R2" | (cd "$R2" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME=worfy-harness \
+    PATH="$TP/broken:$PATH" EVAL_GIT="$TP/evalgit/git" bash "$HOOKS/worktree-create.sh" 2>&1))"; rc=$?
+after="$(log_lines)"
+check "worktree-create.sh with EVAL_GIT and a failing git on PATH: exit 0, a tree at <repo>/.claude/worktrees/wc1" \
+    [ "$rc" -eq 0 -a -d "$R2/.claude/worktrees/wc1" ]
+[ "$rc" -eq 0 ] || echo "     worktree-create: rc=$rc, out: ${out:0:300}"
+check "worktree-create.sh: its git calls went to EVAL_GIT" [ "$after" -gt "$before" ]
 check "nothing above wrote .claude into the temporary HOME" [ ! -e "$H2/.claude" ]
 
 # --- 3. gate.sh with no node ------------------------------------------------------------------
@@ -232,13 +298,31 @@ if [ -z "$NONODE" ]; then echo "skip the checks of gate.sh without node: $why"; 
     check "gate.sh without node: its git calls went to EVAL_GIT" [ "$after" -gt "$before" ]
     check "gate.sh without node: the marker and the verdict file are under <repo>/.git/worfy-harness/gate/state" \
         [ -n "$(ls "$STATE2/gate/state" 2>/dev/null | grep '^nokey-broken-')" -a -n "$(ls "$STATE2/gate/state" 2>/dev/null | grep '^verdict-.*\.json$')" ]
+    (cd "$R2" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME="$T/abs-gate" EVAL_GIT="$TP/evalgit/git" \
+        PATH="$TP/broken:$NONODE" "$BASH" "$T/plugin/hooks/gate.sh" fast </dev/null >/dev/null 2>&1)
+    check "gate.sh without node, an absolute EVAL_HARNESS_HOME: the marker is under <that folder>/gate/state" \
+        [ -n "$(ls "$T/abs-gate/gate/state" 2>/dev/null | grep '^nokey-broken-')" ]
     check "gate.sh without node: the temporary HOME has no .claude" [ ! -e "$H2/.claude" ]
 fi
 
 # --- 4. No Node script starts git by its name ----------------------------------------------------
-found="$(cd "$HARNESS" && grep -nE "(execFileSync|spawnSync|spawn|execFile|withTimeout\([^,]+,)\(? *[\"']git[\"']" \
-    bin/profile bin/ticket bin/worktree-lock bin/silent-check bin/epic-board bin/preflight bin/epic-status \
-    hooks/gate-resolve.mjs hooks/gate-paths.mjs hooks/gate.mjs hooks/stop.mjs 2>&1)"; rc=$?
+# Every Node script of bin/ and hooks/: *.mjs, *.cjs, *.js and the files whose first line names node.
+# Two are left out on purpose; neither runs in an eval case, and both work on the owner's own state:
+#   bin/project-connect  — registers a project on the owner's machine: git init and commits in HARNESS_HOME;
+#   bin/qmd-collections  — builds the qmd index: clones the project's repositories with their origin.
+node_scripts=()
+for f in "$HARNESS"/bin/* "$HARNESS"/hooks/*; do
+    [ -f "$f" ] || continue
+    case "${f##*/}" in project-connect | qmd-collections) continue ;; esac
+    case "$f" in
+        *.mjs | *.cjs | *.js) node_scripts+=("$f") ;;
+        *) head -1 "$f" | grep -q '^#!.*node' && node_scripts+=("$f") ;;
+    esac
+done
+names=" ${node_scripts[*]##*/} "
+check "the list of Node scripts holds the ones that start git (${#node_scripts[@]} scripts)" \
+    [ "${names#* profile }" != "$names" -a "${names#* wave-gate }" != "$names" -a "${names#* shortcut-ledger }" != "$names" -a "${names#* gate.mjs }" != "$names" ]
+found="$(grep -nE "(execFileSync|execSync|spawnSync|spawn|execFile|exec|run|withTimeout\([^,]+,)\(? *[\"'\`]git[\"'\`]" "${node_scripts[@]}" 2>&1)"; rc=$?
 check "no Node script of the Harness starts git by its name (grep exit 1)" [ "$rc" -eq 1 ]
 [ "$rc" -eq 1 ] || printf '%s\n' "$found" | sed -n '1,10p' | sed 's/^/     /'
 

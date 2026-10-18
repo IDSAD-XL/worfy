@@ -46,7 +46,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir, tmpdir } from 'node:os'
+import { constants, homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -269,9 +269,9 @@ const version = checkVersion(claude)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}\n`)
 
-// Ctrl-C and SIGTERM reach claude too; this process outlives it to remove the copy and report.
-process.on('SIGINT', () => {})
-process.on('SIGTERM', () => {})
+// Ctrl-C, SIGTERM and a closed terminal (SIGHUP) reach claude too; this process outlives it to
+// remove the copies and report.
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => {})
 
 const gitDir = join(EVALS, 'results', `${stamp}-git`)
 const evalGit = gitCopy(gitDir)
@@ -295,14 +295,18 @@ try {
     const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', tag, '--allow-tools', ...grants(harness)[tag], ...passThrough]
     process.stdout.write(`eval:harness: ${tag} — claude ${args.join(' ')}\n`)
     const run = spawnSync(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
-    const code = run.status ?? (run.signal === 'SIGINT' ? 130 : 143)
+    const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${tag} exited ${code}\n`)
     worst = Math.max(worst, code)
     outputs.push(outputDir)
   }
 } finally {
-  if (harness) removeTree(dirname(harness))
-  removeTree(gitDir)
+  // The copy of git goes even when removing the copy of the plugin throws.
+  try {
+    if (harness) removeTree(dirname(harness))
+  } finally {
+    removeTree(gitDir)
+  }
 }
 
 for (const dir of outputs) {

@@ -32,8 +32,10 @@ case "$finish" in local-green | pr-green-ci) ;; *) echo "usage: demo-project.sh 
 case "$variant" in none | blocked | ui | reviewer) ;; *) echo "demo-project.sh: unknown variant '$variant'" >&2; exit 2 ;; esac
 
 work="$(pwd -P)"
-# The rule of the Harness scripts themselves, asked once the repository exists (a relative
-# EVAL_HARNESS_HOME is taken from its .git): HARNESS_HOME, else EVAL_HARNESS_HOME, else the default.
+# The folder the Harness scripts of the run will use. A run gets no HARNESS_HOME (its sandbox passes
+# PATH and the EVAL_* variables), so it is ignored here too: with EVAL_HARNESS_HOME the folder
+# hooks/eval-env.cjs names, asked once the repository exists (a relative value is taken from its
+# .git); without it $HOME/.claude/worfy-harness.
 eval_env="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hooks" && pwd -P)/eval-env.cjs"
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
@@ -171,7 +173,8 @@ ticket 03 charlie 'charlie: функция negate' "$blocker03" negate 'возв
 ticket 04 delta 'delta: функция tripel' '—' triple 'возвращает `n * 3`' 'triple(2)' 6
 
 git init -q -b main
-state="$(node "$eval_env" harness-home)"
+if [ -n "${EVAL_HARNESS_HOME:-}" ]; then state="$(env -u HARNESS_HOME node "$eval_env" harness-home)"
+else state="$HOME/.claude/worfy-harness"; fi
 [ -n "$state" ] && [ ! -e "$state/gate/config.json" ] || { echo "demo-project.sh: $state already has a gate registry" >&2; exit 1; }
 git add -A
 git commit -q -m "demo: sum and epic demo"
