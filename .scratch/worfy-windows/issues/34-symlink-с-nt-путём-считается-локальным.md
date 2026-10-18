@@ -176,3 +176,48 @@ Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комм
     `check-lessons`; четыре `tsc --noEmit`) — exit 0 и exit 0.
 - **Осталось.** `gate full` на Mac. Real-link test в наборе нет: ссылку пишет только прямой
   reparse-вызов, это замер на ПК, а не test для CI.
+
+### Fix round 2 (ревью round 1 PR #488, comment 6248133138), 2026-10-18
+
+- **HIGH: список имён обходится.** Правило round 1 отклоняло цель по списку имён
+  (`Device|DosDevices|GLOBAL??|Sessions`). Его обходили: `\SystemRoot\Temp\evil` (Windows
+  доразрешает в `C:\Windows\Temp\evil` шагом, который Node не показывает, а тот сам может быть
+  ссылкой на шару), `\ArcName\…`, `\RPC Control\…`, `\BaseNamedObjects\…`, `\Silos\…`, и Unicode
+  case-folds `\Devıce` (dotless i), `\Seſſions` (long s) — `/i` без `/u` их не ловит.
+- **Правка (выбор ревью, мой вопрос b).** Список имён убран. Теперь только для цели ссылки
+  (`from !== null`) отклоняется любой путь с корнем без буквы диска: один разделитель `\` или `/`,
+  затем имя, не шара и не диск (`ROOTED_NO_DRIVE = /^[\\/](?![\\/])/`). Путь-кандидат и разрешённые
+  папки (`from === null`) читаются как раньше: имя с корнем без буквы там — папка диска
+  (`\Device\…` → `C:\Device\…`, local).
+- **Префиксы по-прежнему как были.** `\\?\`, `\\.\`, `\??\`, `\\?\UNC\`, `\\?\GLOBALROOT\…` проходят
+  до нового правила тем же путём, что и в round 1: `\??\UNC\…`, `\??\GLOBALROOT\…`, `\?\…` — `null`
+  (remote) в блоке device-prefix; `\\?\UNC\…` и `\\.\…` после `resolve` дают ведущий `\\` (remote);
+  `\\?\C:\…` и `\??\C:\…` снимают префикс и дают локальный диск. Все пять форм закреплены test-ом
+  «the device prefixes a link target can carry are read as before».
+- **Замер (2): относительная цель, климбящая выше корня тома.** Symlink с целью
+  `..\..\..\..\..\..\..\..\Mup\worfy-no-such-host-climb\share` из папки глубины 3. Windows
+  срезает лишние `..` на корне диска: `realpath`, `stat`, `readdir` — ENOENT за 0,2–0,3 ms под
+  обоими Node (системный 24.21.0 и Electron 44.5.1), host не ищется (поиск занял бы ~1 s).
+  `path.win32.resolve` даёт `C:\…\Mup\…` (local). Цель относительная, без ведущего разделителя, —
+  `walkLinks` её обходит и отвечает `'local'`. Угрозы нет.
+- **Замер (1): второй hop `\SystemRoot\Temp\<x>` → ссылка на шару — ПРОПУЩЕН.** В
+  `C:\Windows\Temp` писать нельзя: пробная запись ответила «Отказано в доступе», и это системная
+  папка, а мои правила ограничивают меня своими temp-папками. На код это не влияет: цель
+  `\SystemRoot\…` — корень без буквы диска, новое правило отклоняет её как `'remote'` ещё до
+  любого обращения к файловой системе (test `\SystemRoot\Temp\evil` → remote).
+- **Красный прогон до правки (на 92cb438).** `remote-links.test.ts` — exit 1, 9 упало, 61 прошло:
+  семь форм обхода и Unicode (`\SystemRoot`, `\ArcName`, `\RPC Control`, `\BaseNamedObjects`,
+  `\Silos`, `\Devıce`, `\Seſſions`) ждут remote, а код round 1 даёт local; test кандидата
+  `\Device\…` и выброшенной разрешённой папки ждёт local, а код даёт remote.
+- **Мутанты нового правила** (по одному, файл восстановлен байт в байт, хеш сверен; `remote-links` и
+  `remote-guards`): все 5 красные. M1 правило убрано — 18 упало; M2 снят guard `from !== null`
+  (правило бьёт и по кандидату, и по папкам) — 1 (ловит test кандидата/папки, тот самый выживавший
+  мутант); M3 guard инвертирован — 19; M4 убран lookahead (`\\host` тоже матчится) — 9; M5 вместо
+  `null` возвращается путь — 18.
+- **Проверки на ПК round 2** (gh убран из PATH; gate не запускался — профиля на ПК нет):
+  - `node scripts/vitest-electron.mjs` по `remote-links`, `remote-guards`, `link-safe-watch`,
+    `e2e-no-spawn-on-load`, `no-rmsync` — exit 0, 5 файлов, 198 прошло.
+  - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0 (с `CI=true`: без него pnpm хотел
+    переустановить `node_modules` и падал без TTY, как в round 1).
+- **Осталось round 2.** `gate full` на Mac. Замер (1) — на владельце/Mac или на ПК с доступом к
+  `C:\Windows\Temp`.

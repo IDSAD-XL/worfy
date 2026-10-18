@@ -73,8 +73,8 @@ export const MAX_LINK_HOPS = 40
 /** A path that starts with two separators: a share, or a device path. */
 const UNC = /^[\\/]{2}/
 
-/** A path from the root of the NT namespace, through a folder of it that reaches a share. */
-const NT_ROOT = /^[\\/](?:device|dosdevices|global\?\?|sessions)(?:[\\/]|$)/i
+/** A path that starts with one separator and no drive letter: rooted, but not a share or a drive. */
+const ROOTED_NO_DRIVE = /^[\\/](?![\\/])/
 
 /** lstat and readlink of Node. lstat, never stat: stat follows the link, which is the call to avoid. */
 export const nodeLinks: LinkFs = {
@@ -137,10 +137,16 @@ function withoutDevicePrefix(path: string): string {
  *   stored (`\??\GLOBALROOT\Device\Mup\host\share\x`, `\??\Global\UNC\host\…`, `\??\pipe\x`). Such a
  *   name can reach the network redirector, and path.win32.resolve would make `C:\??\…` of it. Only
  *   `\??\C:\x`, should it arrive, is read as the disk it names;
- * - a name from the root of the NT namespace that leads to the network redirector: `\Device\…`,
- *   `\DosDevices\…`, `\GLOBAL??\…`, `\Sessions\…`, in any case (worfy-windows ticket 34). Written
- *   in a symlink as an absolute path, Windows follows it to the host (see LinkFs); readlink gives
- *   it back as stored, the same text as a relative link to `C:\Device\…`, so that one is refused too;
+ * - the target of a link written from a root with no drive letter — one leading separator, then a
+ *   name, not a share or a drive (worfy-windows ticket 34). `\Device\Mup\host\share` and the other
+ *   names of the object namespace (`\DosDevices\…`, `\GLOBAL??\…`, `\Sessions\…`, `\ArcName\…`,
+ *   `\RPC Control\…`, `\SystemRoot\…`) reach the network redirector or resolve, by a second step
+ *   Node does not show, to another folder that may itself be a link off the machine. On the PC a
+ *   symlink to such an absolute target made Windows look for the host (~1.26 s). readlink gives the
+ *   text back as stored — the same for a relative link to `C:\Device\…` — so the whole shape is
+ *   refused, rather than a list of names a Unicode case fold (`\Devıce`, `\Seſſions`) or a new
+ *   object directory could slip past. The path the caller asks about and an allowed folder are not
+ *   a link's stored target, so they keep the old reading: such a name there is a folder of the disk;
  * - a server with no share, `\\host`: Windows reads a server, path.win32.resolve a folder `\host`
  *   of the current disk.
  */
@@ -152,7 +158,8 @@ function absolute(written: string, from: string | null, paths: PathRules): strin
     if (!/^\\\?\?\\[A-Za-z]:\\/.test(text)) return null
     text = text.slice(4)
   }
-  if (NT_ROOT.test(text)) return null
+  // A link's own target written from a drive-less root: refused by its shape, not by a list of names.
+  if (from !== null && ROOTED_NO_DRIVE.test(text)) return null
   const full = from === null ? paths.resolve(text) : paths.resolve(from, text)
   if (UNC.test(text) && !full.startsWith('\\\\')) return null
   return withoutDevicePrefix(full)
