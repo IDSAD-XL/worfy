@@ -51,6 +51,8 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
 
 const die = (msg) => {
     process.stderr.write(msg + "\n")
@@ -68,7 +70,7 @@ const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [
 
 const git = (args) => {
     try {
-        return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
+        return execFileSync(GIT, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
     } catch {
         return ""
     }
@@ -430,7 +432,7 @@ if (cmd === "block" && !reason && !onlyWaits)
 // A branch name git would refuse would end up in the ticket and lead nowhere.
 if (branchArg !== null) {
     try {
-        execFileSync("git", ["check-ref-format", "--branch", branchArg], { stdio: ["ignore", "ignore", "ignore"] })
+        execFileSync(GIT, ["check-ref-format", "--branch", branchArg], { stdio: ["ignore", "ignore", "ignore"] })
     } catch {
         die(`--branch: "${branchArg}" is not a valid branch name`)
     }
@@ -714,7 +716,7 @@ function markGitHub() {
     else die(`${rel(target)} has no Repo: line and ${process.cwd()} is not a git repository: name the repository in the ticket (ticket claim --repo) or run mark from it`)
     let url = ""
     try {
-        url = execFileSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
+        url = execFileSync(GIT, ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim()
     } catch {
         die(`${dir} has no origin: a commit status needs a repository on GitHub`)
     }
@@ -738,8 +740,7 @@ function markGitHub() {
 
 function markLocal(nn) {
     const { kind, verdict, sha } = markArgs
-    const home = process.env.HARNESS_HOME || path.join(os.homedir(), ".claude", "worfy-harness")
-    const dir = path.join(home, "runs", prof._resolved.name, "marks")
+    const dir = path.join(harnessHome(), "runs", prof._resolved.name, "marks")
     const store = path.join(dir, `${epic}-${nn}.json`)
     const lock = `${store}.lock`
     try {

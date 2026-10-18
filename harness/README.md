@@ -16,7 +16,7 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 | `agents/` | Generic agents: `implementer`, `reviewer`, `scout` | `agents/` |
 | `skills/<name>/SKILL.md` | `epic-wave`, `ship-ticket`, `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks`; new in the plugin: `max-review` (a review of a whole branch before a risky merge) | `skills/` (`max-review` is new) |
 | `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`, `wave-gate` (one gate full for the set of a wave's ready PRs, then their merge; with `workflow.ci: "batch"` also the one CI run of the wave on the main branch, `wave-gate ci`); notes in `ТИКЕТЫ.md` | `bin/` |
-| `hooks/` | `gate.mjs`, `gate-paths.mjs`, `gate-resolve.mjs`, `guard.mjs`, `inject-rules.mjs`, `session-start.mjs`, `session-end.mjs`, `stop.mjs`, `gh-token-env.mjs` (every Node script runs as `node <file>`); `gate.sh` is the launcher of the gate under its old name: it finds node and starts `gate.mjs`, and without node it answers "could not verify" itself — `hooks.json` calls it, and so do profiles moved from the old Harness (worfy-windows ticket 46 takes the name out of the profiles) | `hooks/` |
+| `hooks/` | `gate.mjs`, `gate-paths.mjs`, `gate-resolve.mjs`, `guard.mjs`, `inject-rules.mjs`, `session-start.mjs`, `session-end.mjs`, `stop.mjs`, `gh-token-env.mjs` (every Node script runs as `node <file>`), `eval-env.cjs` (the git every script starts and the Harness state folder, with the variables of an eval run — see "Evals"); `gate.sh` is the launcher of the gate under its old name: it finds node and starts `gate.mjs`, and without node it answers "could not verify" itself — `hooks.json` calls it, and so do profiles moved from the old Harness (worfy-windows ticket 46 takes the name out of the profiles) | `hooks/` |
 | `bin/tests/`, `hooks/tests/` | Shell tests of the scripts and hooks | `bin/tests/`, `hooks/tests/` |
 | `profiles/README.md` | The contract of a project profile | `profiles/README.md` |
 | `.claude-plugin/plugin.json` | Plugin manifest: name `worfy`, dependency `mattpocock-skills` | new |
@@ -79,8 +79,9 @@ the lens "implementer's report" answers `VERIFIED` or `REJECTED`, no agent captu
 through the OS, and the main session ends a working turn with the four-line status block.
 
 Each case builds its fixture with `evals/lib/demo-project.sh`: a small git repository with epic
-`demo` (four tickets) in the run's working folder, and the gate registry and profile `demo` in the
-run's temporary `HOME`. Graders are free (`regex`, `tool_used`) wherever they can be; `llm` graders
+`demo` (four tickets) in the run's working folder, and the gate registry and profile `demo` where
+the Harness scripts of the run look for them (`.git/worfy-harness` of that folder under
+`pnpm eval:harness`, see below; the run's temporary `HOME` without `EVAL_HARNESS_HOME`). Graders are free (`regex`, `tool_used`) wherever they can be; `llm` graders
 judge only short answers.
 
 Run, on a Mac, by hand, from the repository root:
@@ -107,9 +108,18 @@ the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do n
 `test/contract/harness-evals.test.ts` checks for free only that every case is complete, every
 fixture builds, and the Harness scripts recognise it.
 
-Known limit (2026-10-08): on a Mac whose only git is Apple's (`/usr/bin/git` from the Command Line
-Tools), `git` does not run inside a run's sandbox. The sandbox settings `claude plugin eval` writes
-for a run list the Command Line Tools `git` binary among denied credential files, next to the
-`git-credential-*` helpers (the system git config sets `credential.helper osxkeychain`), so
-`/usr/bin/git` cannot start it. Every case needs git, so the paid runs wait for a decision; the
-details are in the result section of ticket worfy-harness/27.
+git and the Harness state in a run (ticket worfy-harness/28). The sandbox settings `claude plugin
+eval` writes for a run list the Command Line Tools `git` binary among denied credential files, next
+to the `git-credential-*` helpers, and let a run write only into its working folder. So
+`scripts/eval-harness.mjs` copies the folder `git --exec-path` names, without `git-credential-*`,
+into `evals/results/<time>-git/` (removed at the end), puts that folder first on the runs' `PATH`
+and sets two variables, which every Harness script reads through `hooks/eval-env.cjs`:
+
+- `EVAL_GIT` — the git the scripts start instead of `git` from `PATH`;
+- `EVAL_HARNESS_HOME` — the Harness state folder when `HARNESS_HOME` is not set; a relative value
+  (`worfy-harness`) is taken from the git common directory of the current folder, so the state of a
+  run goes to `.git/worfy-harness` of its working folder.
+
+Without both variables the scripts start `git` from `PATH` and keep the state in `HARNESS_HOME` or
+`~/.claude/worfy-harness`, as before. Whether the copy of git runs inside a real sandbox is checked
+by the first paid run of ticket worfy-harness/27.

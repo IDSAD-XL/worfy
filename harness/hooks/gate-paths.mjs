@@ -11,26 +11,29 @@ import crypto from "node:crypto"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { git, harnessHome as harnessHomeOf } from "./eval-env.cjs"
 
-// The Harness state on this machine (ADR-0040 item 5): the gate registry and markers. The home
-// folder comes from os.homedir(): on Windows that is USERPROFILE, and HOME may be unset there.
-export function harnessHome(env = process.env) {
-    return env.HARNESS_HOME || path.join(os.homedir(), ".claude", "worfy-harness")
+// The Harness state on this machine (ADR-0040 item 5): the gate registry and markers. HARNESS_HOME,
+// else EVAL_HARNESS_HOME of an eval run (see eval-env.cjs; a relative one is taken from the git
+// common directory of `cwd`), else ~/.claude/worfy-harness. The home folder comes from
+// os.homedir(): on Windows that is USERPROFILE, and HOME may be unset there.
+export function harnessHome(env = process.env, cwd) {
+    return harnessHomeOf(cwd, env)
 }
 
 // The gate registry: CLAUDE_GATE_CONFIG, else $HARNESS_HOME/gate/config.json. Transition: with no
 // registry there but one in the old place, ~/.claude/gate/config.json, read the old one. Only
 // read it — the state is always written under HARNESS_HOME.
-export function gateConfigFile(env = process.env) {
+export function gateConfigFile(env = process.env, cwd) {
     if (env.CLAUDE_GATE_CONFIG) return env.CLAUDE_GATE_CONFIG
-    const current = path.join(harnessHome(env), "gate", "config.json")
+    const current = path.join(harnessHome(env, cwd), "gate", "config.json")
     const legacy = path.join(os.homedir(), ".claude", "gate", "config.json")
     return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
 }
 
 // The folder of the markers, the verdict files and the cache; CLAUDE_GATE_STATE is for tests.
-export function gateStateDir(env = process.env) {
-    return env.CLAUDE_GATE_STATE || path.join(harnessHome(env), "gate", "state")
+export function gateStateDir(env = process.env, cwd) {
+    return env.CLAUDE_GATE_STATE || path.join(harnessHome(env, cwd), "gate", "state")
 }
 
 // The error of a child process that a signal ended, `what` naming it ("git rev-parse HEAD"). Such
@@ -43,7 +46,7 @@ export function endedBySignal(what, signal) {
 // One line of git output without its line break, or null when git failed or is not installed.
 // Throws when a signal ended git.
 function gitLine(cwd, args) {
-    const run = spawnSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true })
+    const run = spawnSync(git, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], windowsHide: true })
     if (run.signal) throw endedBySignal(`git ${args.join(" ")}`, run.signal)
     return run.status === 0 ? run.stdout.replace(/\n+$/, "") : null
 }

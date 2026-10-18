@@ -305,3 +305,13 @@ Xcode Command Line Tools. Настройки песочницы, которые 
 
 - Как дать прогонам eval git — вариант (б): правка Harness отдельным Ticket-ом 28 (`scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает; скрипты берут путь к git и `HARNESS_HOME` из `EVAL_*`). Платная часть этого Ticket-а идёт после Ticket-а 28.
 - Когда гонять полный набор: перед мержем PR, который правит правила, — кейсы изменённых файлов; полный набор — по событию (смена закреплённой модели, новая версия Claude Code, обновление Stable copy). Связь «кейс → файлы правил» и строка итога eval в PR — Ticket 29.
+
+### Ticket 28 (2026-10-18)
+
+[Ticket 28](28-git-и-harness-home-в-прогонах-eval.md) сделал вариант (б) бесплатно: `pnpm eval:harness` кладёт копию
+git (папка `git --exec-path` без `git-credential-*`) в `harness/evals/results/<время>-git/`, ставит её первой в
+`PATH` прогонов и задаёт `EVAL_GIT` и `EVAL_HARNESS_HOME=worfy-harness`; скрипты Harness берут git и папку
+состояния через `harness/hooks/eval-env.cjs`, фикстура пишет реестр и Profile `demo` в `.git/worfy-harness` рабочей
+папки. Платная проба шага 5 Ticket-а 28 (`--case epic-wave-tickets --runs 1`) не запускалась: по решению
+Orchestrator-а её делает этот Ticket первым платным run-ом. Если песочница закроет и копию в `results/`
+(`denyRead`) — вопрос владельцу со строками `<tmp>/config/settings.json` прогона.

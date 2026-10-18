@@ -35,6 +35,9 @@
 
 set -uo pipefail
 PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# The git of an eval run: EVAL_GIT, else git from PATH (hooks/eval-env.cjs). The worktree.implementer
+# template runs in a shell of its own and starts git from PATH.
+git() { command "${EVAL_GIT:-git}" "$@"; }
 
 PROFILE_BIN="${CLAUDE_PROFILE_BIN:-$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd -P)/bin/profile}"
 

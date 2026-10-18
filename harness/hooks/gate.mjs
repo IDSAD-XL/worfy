@@ -110,6 +110,7 @@ import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
+import { git as GIT } from "./eval-env.cjs"
 
 const WINDOWS = process.platform === "win32"
 const PROFILE = process.argv[2] || "fast"
@@ -213,7 +214,7 @@ function readHookInput() {
 // A git that a signal ended gave no answer: its empty output would read as "no edits" or "nothing
 // changed", and the cache would answer for a tree it never saw. The run ends at the catch below main.
 function git(args, options = {}) {
-    const run = spawnSync("git", ["-C", repo, ...args], {
+    const run = spawnSync(GIT, ["-C", repo, ...args], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         maxBuffer: GIT_OUTPUT_MAX,
