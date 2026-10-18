@@ -122,21 +122,9 @@ export function useTerminalScratch(): void {
   })
 }
 
-/**
- * Why the tests on Windows PowerShell 5.1 are skipped on the GitHub runner (worfy-windows ticket 41):
- * there every fresh process answers its first command after 24-32 s, and neither a warm-up nor a
- * shared LOCALAPPDATA made the next process faster (runs 39090844904 and 39093912268).
- */
-export const NO_WINDOWS_POWERSHELL_ON_RUNNER = "worfy-windows ticket 41: on the clean GitHub Windows runner the first command of a fresh Windows PowerShell 5.1 answers after ~25 s; runs on the PC and owners' machines"
-
-/**
- * Skips a vitest test whose shell is Windows PowerShell 5.1 on the GitHub Windows runner, with the
- * reason: `needsWindowsPowerShellOffRunner(context)` first in the test. On macOS, Linux and a Windows
- * PC the test runs.
- */
-export function needsWindowsPowerShellOffRunner(context: { skip: (condition: boolean, note?: string) => void }): void {
-  context.skip(WINDOWS && process.env['GITHUB_ACTIONS'] === 'true', NO_WINDOWS_POWERSHELL_ON_RUNNER)
-}
+// The skip of the Windows PowerShell 5.1 tests on the GitHub runner (worfy-windows ticket 41) lives in
+// test/windows-runner.ts, where test/unit/windows-runner.test.ts pins its condition.
+export { NO_WINDOWS_POWERSHELL_ON_RUNNER, needsWindowsPowerShellOffRunner } from '../windows-runner'
 
 /** True while a process with this pid exists (a reaped child is gone). */
 export function alive(pid: number): boolean {
