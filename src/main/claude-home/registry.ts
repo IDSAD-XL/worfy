@@ -592,6 +592,18 @@ export interface WatchOptions {
   settleMs?: number
 }
 
+/**
+ * A Project root for the registry. `path` names the Project's folders under projects/: Claude Code
+ * names them after the cwd it started in, so the spelling of the Project list. `gitAt` is the real
+ * path a Linked machine's call was checked on (src/main/link/caller.ts): git lists the worktrees
+ * there, so a link swapped in after the check does not lead git elsewhere, and the folders named
+ * after the real path count too. A string is both.
+ */
+export type RegistryRoot = string | { readonly path: string; readonly gitAt: string }
+
+/** The spelling of a RegistryRoot that names its folders. */
+export const rootPath = (root: RegistryRoot): string => (typeof root === 'string' ? root : root.path)
+
 export interface ClaudeHomeWatch {
   /** Resolves once the initial scan is done and changes are being reported. */
   ready: Promise<void>
@@ -620,11 +632,12 @@ export class ClaudeHomeRegistry {
     return join(this.home, 'sessions')
   }
 
-  /** The Project root and its worktrees, absolute and normalised. */
-  async roots(projectRoot: string): Promise<string[]> {
-    const root = resolve(projectRoot)
-    const worktrees = await this.listWorktrees(root)
-    return [root, ...worktrees.map((path) => resolve(path)).filter((path) => path !== root)]
+  /** The Project root, its real path when one is given, and its worktrees, absolute and normalised. */
+  async roots(projectRoot: RegistryRoot): Promise<string[]> {
+    const root = resolve(rootPath(projectRoot))
+    const gitAt = typeof projectRoot === 'string' ? root : resolve(projectRoot.gitAt)
+    const worktrees = await this.listWorktrees(gitAt)
+    return [...new Set([root, gitAt, ...worktrees.map((path) => resolve(path))])]
   }
 
   /**
@@ -644,7 +657,7 @@ export class ClaudeHomeRegistry {
   }
 
   /** Live Sessions and the history of the Project at `projectRoot`. */
-  async sessions(projectRoot: string): Promise<ProjectSessions> {
+  async sessions(projectRoot: RegistryRoot): Promise<ProjectSessions> {
     const roots = await this.roots(projectRoot)
     const [live, dirs] = await Promise.all([liveSessions(this.home, roots, this.isAlive), this.transcriptDirs(roots)])
     const liveIds = new Set(live.map((session) => session.sessionId))
@@ -674,12 +687,12 @@ export class ClaudeHomeRegistry {
   }
 
   /** Only the live Sessions of the Project at `projectRoot`; the history is not read. */
-  async live(projectRoot: string): Promise<LiveSession[]> {
+  async live(projectRoot: RegistryRoot): Promise<LiveSession[]> {
     return liveSessions(this.home, await this.roots(projectRoot), this.isAlive)
   }
 
   /** Path of a Session's transcript among the Project's folders, or null. */
-  async transcriptPath(projectRoot: string, sessionId: string): Promise<string | null> {
+  async transcriptPath(projectRoot: RegistryRoot, sessionId: string): Promise<string | null> {
     if (!TRANSCRIPT.test(`${sessionId}.jsonl`)) return null
     const roots = await this.roots(projectRoot)
     for (const { path: dir, checkCwd } of await this.transcriptDirs(roots)) {
@@ -697,7 +710,7 @@ export class ClaudeHomeRegistry {
    * Watches the registry and the Project's transcript folders and reports changes, debounced.
    * New worktree folders of the root are picked up as they appear.
    */
-  async watch(projectRoot: string, onChange: (change: ClaudeHomeChange) => void, options: WatchOptions = {}): Promise<ClaudeHomeWatch> {
+  async watch(projectRoot: RegistryRoot, onChange: (change: ClaudeHomeChange) => void, options: WatchOptions = {}): Promise<ClaudeHomeWatch> {
     const roots = await this.roots(projectRoot)
     const debounceMs = options.debounceMs ?? 150
     const settleMs = options.settleMs ?? 100

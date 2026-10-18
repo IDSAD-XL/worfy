@@ -7,7 +7,7 @@
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
 // and again after each change of the registry.
 import { resolve } from 'node:path'
-import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
+import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
@@ -49,10 +49,15 @@ export class ClaudeHomeSubscriptions {
     private readonly listeners: ReadonlySet<LiveSessionsListener> = liveSessionListeners,
   ) {}
 
-  /** Reads the Project's live Sessions for the listeners; nothing when there are none. */
-  private reportLive(projectRoot: string): void {
+  /**
+   * Reads the Project's live Sessions for the listeners; nothing when there are none. They get
+   * the resolved root in the spelling that names its folders, not a real path, so one Project is
+   * one key for the notifications (src/main/notify.ts) whichever client watches it.
+   */
+  private reportLive(root: RegistryRoot): void {
     if (this.listeners.size === 0) return
-    this.registry.live(projectRoot).then(
+    const projectRoot = rootPath(root)
+    this.registry.live(root).then(
       (live) => {
         for (const listener of this.listeners) {
           try {
@@ -72,7 +77,7 @@ export class ClaudeHomeSubscriptions {
    * and `unsubscribe` takes it, since the window looks the root up by its own string. On Windows
    * the window keeps git's `C:/…` while path.resolve gives `C:\…` (worfy-windows ticket 57).
    */
-  async subscribe(subscriber: Subscriber, projectRoot: string, asSent = projectRoot): Promise<void> {
+  async subscribe(subscriber: Subscriber, projectRoot: RegistryRoot, asSent = rootPath(projectRoot)): Promise<void> {
     // First: a new client under an old one's id takes the id over, ending the old one's watchers.
     // A destroyed client is not held: it never emits 'destroyed' again, its watcher would never be
     // closed, and a late call of an old client must not take the id back from a new one.
@@ -96,7 +101,7 @@ export class ClaudeHomeSubscriptions {
           return watch
         })
         .catch((error: unknown) => {
-          console.error(`[claude-home] could not watch ${projectRoot}`, error)
+          console.error(`[claude-home] could not watch ${rootPath(projectRoot)}`, error)
           // Only this watcher's entry: the key may hold a later subscription by now.
           if (this.watches.get(key) === started) this.watches.delete(key)
           return undefined
@@ -150,10 +155,15 @@ export function claudeHomeHandlers(
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
   /**
-   * The resolved root; for a call from a Linked machine, the real path its check answers, so a
-   * link swapped in after the check does not lead the git call and the reads elsewhere.
+   * The resolved root. For a call from a Linked machine, also the real path its check answers:
+   * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
+   * Claude home folders are still found by the resolved spelling (RegistryRoot).
    */
-  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): string => insideProjects(event, resolve(projectRoot), projects, 'the Project root')
+  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): RegistryRoot => {
+    const root = resolve(projectRoot)
+    const checked = insideProjects(event, root, projects, 'the Project root')
+    return checked === root ? root : { path: root, gitAt: checked }
+  }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
       const root = rootOf(projectRoot, event)
