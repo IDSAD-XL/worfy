@@ -36,6 +36,12 @@ jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
 case "$(uname -s)" in
     MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
 esac
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
+# (worfy-windows ticket 59, the review of PR #481).
+case "$(uname -s)" in
+    MINGW* | MSYS*) ;;
+    *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
+esac
 
 block() { # $1 = a string that identifies the ```bash block; prints it without the `F() {…profile…}` line
     awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL" \

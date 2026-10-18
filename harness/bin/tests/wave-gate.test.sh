@@ -165,7 +165,8 @@ new_world() {
     unset GATE_LOCK GH_EXTRA_AT GH_RUN_URL GH_RUNS GH_DISPATCH_RC GH_MERGE_FAIL_AT
 }
 head_of() { git -C "$W/origin.git" rev-parse "refs/pull/$1/head"; }
-# state <file> <lock or null> <pr>…: each pr is "<N>[,platform][,label=<name>]"
+# state <file> <lock or null> <pr>…: each pr is "<N>[,platform][,label=<name>]"; the cross-machine label of the
+# profile is $XLABEL as JSON (default "needs-mac-gate", the label of worfy's profile)
 state() {
     local f="$1" lock="$2"; shift 2
     local items="" sep=""
@@ -176,7 +177,7 @@ state() {
         items="$items$sep{\"number\":$n,\"head\":\"$(head_of "$n")\",\"labels\":[$labels],\"platform\":$plat}"; sep=","
     done
     [ "$lock" = null ] || lock="\"$(tn "$lock")\""
-    printf '{"repo":"%s","branch":"main","e2e_lock":%s,"prepare":null,"prs":[%s]}\n' "$(tn "$W/repo")" "$lock" "$items" >"$f"
+    printf '{"repo":"%s","branch":"main","e2e_lock":%s,"prepare":null,"cross_machine_label":%s,"prs":[%s]}\n' "$(tn "$W/repo")" "$lock" "${XLABEL:-\"needs-mac-gate\"}" "$items" >"$f"
 }
 gate_count() { cat "$GATE_DIR/count" 2>/dev/null || echo 0; }
 # until_ok <seconds> <command…>: polls the command every 0.2 s; exit 0 as soon as it succeeds, 1 after the time
@@ -256,6 +257,18 @@ S="$W/state.json"; state "$S" null 1 2,platform 3,label=needs-mac-gate 4
 ! grep -q "b.txt\|c.txt" "$GATE_DIR/log" && ok "platform: their changes are not in the gate's tree" || bad "platform: gate tree has them: $(cat "$GATE_DIR/log")"
 "$WG" merge "$S" >/dev/null 2>&1
 [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 4 " ] && ok "platform: merge merges only 1 and 4" || bad "platform: merged $(cat "$GH_LOG")"
+# The label is the profile's cross_machine_gate.label from the state file, not a name in wave-gate (worfy-windows
+# ticket 59): another project's label takes its PR out, worfy's name is then an ordinary label; null — no such label.
+new_world xlabel 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; XLABEL='"needs-pc-gate"' state "$S" null 1 2,label=needs-pc-gate 3,label=needs-mac-gate
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.set')" = "[1,3]" ] && [ "$(q "$S" 's.excluded.map(e=>e.number+":"+e.reason).join(" ")')" = "2:needs-pc-gate" ] \
+    && ok "label: the profile's label (needs-pc-gate) takes PR 2 out; needs-mac-gate is an ordinary label then" || bad "label: exit $rc set $(q "$S" s.set 2>&1) excluded $(q "$S" s.excluded 2>&1)"
+new_world xlabel-null 1:a.txt 2:b.txt
+S="$W/state.json"; XLABEL=null state "$S" null 1 2,label=needs-mac-gate
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.set')" = "[1,2]" ] && [ "$(q "$S" 's.excluded.length')" = 0 ] \
+    && ok "label: null (no cross-machine gate in the profile) takes no PR out by a label" || bad "label null: exit $rc set $(q "$S" s.set 2>&1)"
 
 # --- red, then green on the repeat: flaky ----------------------------------------------
 new_world flaky 1:a.txt 2:b.txt
@@ -476,7 +489,7 @@ tree=$(printf '100644 blob %s\tbroken.txt\n' "$blob" | git -C "$W/repo" mktree)
 c2=$(git -C "$W/repo" commit-tree "$tree" -p "$(git -C "$W/repo" rev-parse origin/main)" -m broken)
 rm -f "$W/repo/.git/objects/${tree:0:2}/${tree:2}"
 S="$W/state.json"
-printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[{"number":1,"head":"%s"},{"number":2,"head":"%s"}]}\n' "$(tn "$W/repo")" "$(head_of 1)" "$c2" >"$S"
+printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"cross_machine_label":null,"prs":[{"number":1,"head":"%s"},{"number":2,"head":"%s"}]}\n' "$(tn "$W/repo")" "$(head_of 1)" "$c2" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && [ "$(q "$S" s.status)" = error ] && ok "error while merging: exit 1, status error" || bad "error while merging: exit $rc status $(q "$S" s.status 2>&1): $(tail -3 "$W/out")"
 [ ! -e "$(TMPW_OF)" ] && ok "error while merging: the temporary worktree is removed" || bad "error while merging: worktree left"
@@ -737,6 +750,9 @@ new_world input 1:a.txt
 S="$W/state.json"; printf '{"repo":"%s","branch":"main","prs":[]}\n' "$(tn "$W/repo")" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "e2e_lock" "$W/out" && ok "input: e2e_lock missing -> exit 1 naming it" || bad "input: exit $rc $(cat "$W/out")"
+printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[]}\n' "$(tn "$W/repo")" >"$S"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 1 ] && grep -q "cross_machine_label" "$W/out" && ok "input: cross_machine_label missing -> exit 1 naming it" || bad "input: cross_machine_label missing: exit $rc $(cat "$W/out")"
 "$WG" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && ok "input: no command -> exit 1" || bad "input: no command exit $rc"
 
@@ -750,7 +766,7 @@ BI="$(block 'PLATFORM=(')"; BC="$(block 'wave-gate" check')"; BM="$(block 'wave-
 for sh in bash zsh; do
     new_world "skill-$sh" 1:a.txt 2:b.txt 3:c.txt
     export GH_LABELS_3="needs-mac-gate other"
-    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$(tn "$W/e2e.lock")' ;; commands.prepare_tree) echo 'echo prepared >prepared.txt' ;; *) return 4 ;; esac; }"
+    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$(tn "$W/e2e.lock")' ;; commands.prepare_tree) echo 'echo prepared >prepared.txt' ;; cross_machine_gate.label) echo needs-mac-gate ;; *) return 4 ;; esac; }"
     # The paths the blocks hand to node in node's spelling. On Windows the set block's node, which runs gh by
     # name and would find the real gh.exe, runs the gh stand-in instead.
     sub() { local b="$1" ghpat='execFileSync("gh", ['
@@ -767,7 +783,7 @@ for sh in bash zsh; do
     fi
     S="$W/state.json"
     [ -f "$S" ] && [ "$(q "$S" 's.prs.map(p=>p.number+":"+p.platform+":"+p.labels.join("+")+":"+(p.head.length)).join(" ")')" = "1:false::40 2:true::40 3:false:needs-mac-gate+other:40" ] \
-        && [ "$(q "$S" 's.repo+" "+s.branch+" "+s.e2e_lock+" "+s.prepare+" "+s.main_lock')" = "$(tn "$W/repo") main $(tn "$W/e2e.lock") echo prepared >prepared.txt $(tn "$W/main.lock")" ] \
+        && [ "$(q "$S" 's.repo+" "+s.branch+" "+s.e2e_lock+" "+s.prepare+" "+s.main_lock+" "+s.cross_machine_label')" = "$(tn "$W/repo") main $(tn "$W/e2e.lock") echo prepared >prepared.txt $(tn "$W/main.lock") needs-mac-gate" ] \
         && ok "$sh: the set block writes the state file" || bad "$sh: the set block: [$got] $(cat "$S" 2>/dev/null)"
     got="$(cd "$W/repo" && CLAUDE_PLUGIN_ROOT="$HARNESS" $sh -c "$(sub "$BC")" 2>&1)"
     [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$S" s.set)" = "[1]" ] && grep -q "prepared.txt" "$GATE_DIR/log" && ok "$sh: the check block: green set of PR 1, prepare ran" || bad "$sh: the check block: [$got]"

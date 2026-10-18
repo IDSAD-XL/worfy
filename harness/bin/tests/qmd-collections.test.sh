@@ -185,6 +185,40 @@ cmp -s "$PROFILE" "$C/profile.0" && [ ! -e "$H/.cache/qmd/x-main" ] && [ ! -e "$
     && ok "auction-like: the profile unchanged, no new collections, no copy cloned, no qmd run" || bad "auction-like: profile or copy changed"
 clean_repos && ok "auction-like: the project's repository is untouched" || bad "auction-like: git status dirty"
 
+# --- refresh.lock left by a killed holder (worfy-windows ticket 59) ----------------------------
+# worfy kills qmd-collections with its process group at a time limit or on quit; the lock it held stays. qmd-mcp
+# drops such a lock only when it starts, so qmd-collections looks at the holder itself: a pid that is not running,
+# or no pid after two minutes, is an abandoned lock and is taken; a running holder is waited for.
+setup lockdead x "$FULL"
+LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
+sh -c 'exit 0' & dead=$!; wait "$dead"
+printf '%s' "$dead" >"$LK/pid"
+start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
+[ "$rc" -eq 0 ] && [ "$took" -lt 20 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
+    && ok "refresh.lock of a pid that is not running: taken at once, qmd update ran, the lock released" \
+    || bad "dead holder: rc=$rc took=${took}s calls [$(cat "$QMD_CALLS" 2>/dev/null)] out=[$(cat "$C/out")]"
+setup lockold x "$FULL"
+LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"; touch -t 202601010000 "$LK"
+start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
+[ "$rc" -eq 0 ] && [ "$took" -lt 20 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
+    && ok "refresh.lock without a pid, older than two minutes: taken, qmd update ran" \
+    || bad "old lock without pid: rc=$rc took=${took}s out=[$(cat "$C/out")]"
+for holder in live young; do
+    setup "lock$holder" x "$FULL"
+    LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
+    hp=""
+    if [ "$holder" = live ]; then sleep 60 & hp=$!; printf '%s' "$hp" >"$LK/pid"; fi
+    collect x & cp_pid=$!
+    for _ in $(seq 1 30); do grep -q "added to" "$C/out" 2>/dev/null && break; sleep 0.2; done
+    sleep 2
+    waiting=no; kill -0 "$cp_pid" 2>/dev/null && [ ! -e "$QMD_CALLS" ] && [ -d "$LK" ] && waiting=yes
+    rm -rf "$LK"; [ -n "$hp" ] && kill "$hp" 2>/dev/null
+    wait "$cp_pid"; rc=$?
+    [ "$waiting" = yes ] && [ "$rc" -eq 0 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null \
+        && ok "refresh.lock of a $holder holder: waited for, then taken once it was released" \
+        || bad "$holder holder: waiting=$waiting rc=$rc out=[$(cat "$C/out")]"
+done
+
 # --- usage ------------------------------------------------------------------------------------
 node "$SCRIPT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "no project name: exit 2" || bad "no project name: exit $rc"

@@ -55,6 +55,11 @@ machine fixes and pushes, and another gate full here would change nothing. Its l
 pass does not touch it. A green report ends no wait: the same pass merges a green PR, so a PR still
 open after one is a PR whose merge failed (a conflict with the main branch, the network, the head
 moved, the lock) — nothing for the other machine to fix, and the next pass takes it from the start.
+Once, not without end: a PR with two green reports newer than its last commit had its merge fail
+twice on one head (a rebase onto a main branch that has not moved keeps the head and its commit
+date), and a third gate full would change nothing. Its line is `<N> needs owner: …`; the pass does
+not touch it, and its row in the table says `needs owner` with the reason, for the owner to look at
+the failed merge. A new commit — a rebase onto a moved main branch or a push — makes it wait again.
 
 A PR from a fork is not checked out and the commands of its section are not run — anyone with a fork
 writes that description, and this machine would run it as shell. The block prints such a PR as
@@ -68,11 +73,15 @@ F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 GQ_SECTION=$(F cross_machine_gate.checks_section) GQ_ACCOUNT=$(F github.account) \
   gh pr list --state open --label "$(F cross_machine_gate.label)" --limit 100 \
   --json number,headRefName,headRefOid,isCrossRepository,createdAt,commits,comments --jq '
-  [.[] | (.commits[-1].committedDate // .createdAt) as $pushed
-   | ([.comments[] | select(.author.login == ($ENV.GQ_ACCOUNT | rtrimstr("\r")) and (.body | startswith(($ENV.GQ_SECTION | rtrimstr("\r")) + " report: red"))) | .createdAt] | max) as $red
-   | . + {since: ([.createdAt, $pushed] | max), waits: ($red == null or $red <= $pushed)}]
+  ($ENV.GQ_ACCOUNT | rtrimstr("\r")) as $account | ($ENV.GQ_SECTION | rtrimstr("\r")) as $section
+  | [.[] | (.commits[-1].committedDate // .createdAt) as $pushed
+   | [.comments[] | select(.author.login == $account)] as $own
+   | ([$own[] | select(.body | startswith($section + " report: red")) | .createdAt] | max) as $red
+   | ([$own[] | select((.body | startswith($section + " report: green")) and .createdAt > $pushed)] | length) as $green
+   | . + {since: ([.createdAt, $pushed] | max), waits: ($red == null or $red <= $pushed), stuck: ($green >= 2)}]
   | sort_by(.since) | .[]
   | if .isCrossRepository then "\(.number) fork: skipped"
+    elif .stuck then "\(.number) needs owner: the merge failed after two green reports on head \(.headRefOid), the gate is not run again"
     elif .waits then "\(.number) \(.headRefName) \(.headRefOid) since \(.since)"
     else "\(.number) waits for the requesting machine: its red report is newer than its last commit" end'; echo "EXIT=$?"
 ```
@@ -168,7 +177,8 @@ gh pr comment <N> --body-file <scratchpad>/pr-<N>-report.md; echo "comment EXIT=
    block waits for it. The `trap` releases the lock on any exit, an error and a stopped call too. Run
    the block in one Bash call with timeout 600000; if the lock is not taken in that time, repeat this
    block only — the report is already posted. A failed merge leaves the label and the PR waits again
-   (step 2); its row in the table says `green, merge failed` with `merge EXIT`. Then
+   (step 2) — once: after a second failed merge on the same head it is `needs owner` (step 2); its row
+   in the table says `green, merge failed` with `merge EXIT`. Then
    `git -C <repo> worktree remove --force <scratchpad>/pr-<N>`:
 
 ```bash
@@ -202,6 +212,7 @@ A table, one row a PR of the list, in the order of the list:
 | #485 | red: `pnpm icons` exit 1 | <URL of the report comment> |
 | #486 | waits for the requesting machine | — |
 | #487 | fork: skipped | — |
+| #488 | needs owner: the merge failed after two green reports on one head | — |
 
 The block of step 2 printed no PR — the table is the one line `queue empty`. Called from skill
 `/worfy:epic-wave`, section 1, the table goes into the wave report (its section 5).

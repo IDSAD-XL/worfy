@@ -30,6 +30,8 @@
 //              on, labels — names, platform — true for a platform PR (the project's rules say which)
 //   e2e_lock   path of the e2e lock directory (profile workflow.e2e_lock), or null — no lock
 //   prepare    shell command that readies a fresh tree (profile commands.prepare_tree), or null
+//   cross_machine_label  the label of a PR that waits for the gate of the other machine (profile
+//              cross_machine_gate.label), or null — the project has no such label
 //   main_lock  optional path of the main-branch lock; <git common dir>/main.lock by default
 // `check` adds: base (SHA of <remote>/<branch>), excluded [{number, reason}], set (numbers), prefixes
 // [{number, head, commit, tree}] — the tree after each PR of the set, runs [{role, size, tree, outcome, …}],
@@ -37,8 +39,8 @@
 // `merge` adds merge: {merged: [{number, commit, tree}], status, stopped}.
 //
 // check:
-//   - a PR with platform: true or the label needs-mac-gate leaves the set with that reason: it is
-//     merged the old way (one at a time, rebase, its own gate full);
+//   - a PR with platform: true or the label cross_machine_label leaves the set with that reason (the
+//     label's name): it is merged the old way (one at a time, rebase, its own gate full);
 //   - a temporary worktree at a fixed path in the git directory, <git common dir>/worfy-wave-gate,
 //     starts at base; each PR in order is `git merge --squash` + commit, as GitHub's squash merge does;
 //     a conflict takes the PR out of the set with reason DIRTY;
@@ -148,7 +150,7 @@ function load(file) {
     if (typeof st.repo !== "string" || !path.isAbsolute(st.repo) || !fs.existsSync(st.repo)) fail(`${file}: "repo" must be the absolute path of a checkout`)
     if (typeof st.branch !== "string" || !st.branch) fail(`${file}: "branch" must name the main branch`)
     if (st.remote !== undefined && (typeof st.remote !== "string" || !st.remote)) fail(`${file}: "remote" must be a remote name`)
-    for (const key of ["e2e_lock", "prepare"])
+    for (const key of ["e2e_lock", "prepare", "cross_machine_label"])
         if (!(key in st) || (st[key] !== null && (typeof st[key] !== "string" || !st[key])))
             fail(`${file}: "${key}" must be present: a string or null (a missing one would silently run without it)`)
     if (st.e2e_lock !== null && !path.isAbsolute(st.e2e_lock)) fail(`${file}: "e2e_lock" must be an absolute path`)
@@ -485,7 +487,7 @@ async function check(file) {
         st.runs = []
         for (const pr of st.prs) {
             if (pr.platform === true) st.excluded.push({ number: pr.number, reason: "platform" })
-            else if (labelsOf(pr).includes("needs-mac-gate")) st.excluded.push({ number: pr.number, reason: "needs-mac-gate" })
+            else if (st.cross_machine_label !== null && labelsOf(pr).includes(st.cross_machine_label)) st.excluded.push({ number: pr.number, reason: st.cross_machine_label })
             else st.candidates.push(pr.number)
         }
     }

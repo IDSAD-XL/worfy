@@ -63,6 +63,8 @@ const ANSWER_FILE = path.join(HARNESS_HOME, "qmd-models")
 const EMBED_MODEL = "hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 const RU_GENERATE_MODEL = "hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
 const LOCK_WAIT_MS = 120_000
+// A lock with no pid in it this long after it was made was left by a holder that stopped before writing it (qmd-mcp).
+const LOCK_ABANDONED_MS = 120_000
 
 const say = (s) => process.stdout.write(`qmd-collections: ${s}\n`)
 const die = (code, s) => {
@@ -352,6 +354,28 @@ if (!qmd) {
 // The lock shared with qmd-mcp and qmd-refresh: `qmd update` checks out the shared copies.
 const LOCK = path.join(CACHE, "refresh.lock")
 fs.mkdirSync(CACHE, { recursive: true })
+// An abandoned lock, by the rule of qmd-mcp: the pid is written and that process is not running, or
+// no pid was written within two minutes. worfy kills this script with its process group (at a time
+// limit, on quit), and the lock it held stays; qmd-mcp drops such a lock only when it starts.
+const abandoned = () => {
+    let pid = ""
+    try {
+        pid = fs.readFileSync(path.join(LOCK, "pid"), "utf8").trim()
+    } catch {}
+    if (/^\d+$/.test(pid)) {
+        try {
+            process.kill(Number(pid), 0)
+            return false
+        } catch (e) {
+            return e.code === "ESRCH" // EPERM: running, under another user
+        }
+    }
+    try {
+        return Date.now() - fs.statSync(LOCK).mtimeMs > LOCK_ABANDONED_MS
+    } catch {
+        return false // gone already: the next mkdir takes it
+    }
+}
 const deadline = Date.now() + LOCK_WAIT_MS
 let locked = false
 while (!locked) {
@@ -359,6 +383,11 @@ while (!locked) {
         fs.mkdirSync(LOCK)
         locked = true
     } catch {
+        if (abandoned()) {
+            say(`${LOCK} was left by a holder that is gone: taken`)
+            fs.rmSync(LOCK, { recursive: true, force: true })
+            continue
+        }
         if (Date.now() > deadline) die(1, `${LOCK} is held for over ${LOCK_WAIT_MS / 1000} s — the collections are recorded, run \`qmd update\` later`)
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
     }

@@ -26,6 +26,12 @@ SHELLS=(bash zsh)
 case "$(uname -s)" in
     MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
 esac
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
+# (worfy-windows ticket 59, the review of PR #481).
+case "$(uname -s)" in
+    MINGW* | MSYS*) ;;
+    *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
+esac
 command -v jq >/dev/null 2>&1 || { echo "FAIL no jq on PATH: the stub gh applies the --jq filter with it"; exit 1; }
 
 # 1. The text. The label and the section name come from the profile, never from the text (worfy ADR-0069).
@@ -145,6 +151,21 @@ EXIT=0" \
     "$(pr 32 2026-10-18T06:00:00Z 2026-10-18T06:30:00Z "$(comment mac-bot 2026-10-18T07:00:00Z $'See the Mac checks report: red above')")" \
     "$(pr 33 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z $'Mac checks report: green\nall fine')")" \
     "$(pr 34 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z | jq -c '.isCrossRepository = true')"
+# Two green reports newer than the last commit (worfy-windows ticket 59): the merge failed twice on one head — a rebase
+# onto an unchanged main branch keeps the head and its commit date — so a third gate full would change nothing. The PR
+# needs the owner and is not waiting; one green report on that head still waits, and so does a PR whose second green
+# report is older than its last commit (a new head after the rebase). Reports by another account do not count.
+GREEN=$'Mac checks report: green\nall fine'
+list_case "two green reports on one head -> needs owner; one, or one before the last commit -> still waits" \
+    "62 feature-62 oid62 since 2026-10-18T07:00:00Z
+63 feature-63 oid63 since 2026-10-18T08:00:00Z
+64 feature-64 oid64 since 2026-10-18T08:30:00Z
+61 needs owner: the merge failed after two green reports on head oid61, the gate is not run again
+EXIT=0" \
+    "$(pr 61 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T10:30:00Z "$GREEN")")" \
+    "$(pr 62 2026-10-18T06:00:00Z 2026-10-18T07:00:00Z "$(comment mac-bot 2026-10-18T07:30:00Z "$GREEN")")" \
+    "$(pr 63 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z "$(comment mac-bot 2026-10-18T07:30:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T08:30:00Z "$GREEN")")" \
+    "$(pr 64 2026-10-18T06:00:00Z 2026-10-18T08:30:00Z "$(comment mallory 2026-10-18T09:00:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T09:30:00Z "$GREEN")")"
 # A red report at the same second as the last commit is not newer than it: the PR waits (the same rule as worfy's reader).
 list_case "a red report at the same second as the last commit -> still waits" \
     "35 feature-35 oid35 since 2026-10-18T09:00:00Z
