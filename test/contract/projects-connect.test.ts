@@ -24,7 +24,10 @@ import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {
   activityOf,
   applyChoices,
+  CONNECT_TIMEOUT_MS,
+  CONNECT_WRITE_TIMEOUT_MS,
   connectScriptRunner,
+  connectTimeoutMs,
   DRAFT_DISALLOWED_TOOLS,
   DRAFT_TOOLS,
   draftCanUseTool,
@@ -496,6 +499,69 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       expect(readFileSync(tick, 'utf8')).not.toBe(before)
     } finally {
       // The grandchild ends itself on the stop file; nothing is killed by a pid.
+      writeFileSync(stop, '')
+      for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(existsSync(alive)).toBe(false)
+  })
+
+  // Mutant review of PR #482: the write's limit, the error after the write, and the timer branch.
+  it('the write (no arguments) gets 30 minutes: after its commit it may run qmd-collections; the facts and the checks keep 120 s', () => {
+    expect(CONNECT_WRITE_TIMEOUT_MS).toBe(30 * 60_000)
+    expect(CONNECT_TIMEOUT_MS).toBe(120_000)
+    expect(connectTimeoutMs([])).toBe(CONNECT_WRITE_TIMEOUT_MS)
+    for (const args of [['--facts', '/work/shop'], ['--schema-only'], ['--check']]) expect(connectTimeoutMs(args)).toBe(CONNECT_TIMEOUT_MS)
+  })
+
+  it('bin/profile that fails after the Profile is written: the reason says so with what it said, not "does not find it"', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const written = connectorWith({
+      connect: () => Promise.resolve({ code: 0, stdout: '{}', stderr: '' }),
+      profile: () => Promise.resolve({ code: 1, stdout: '', stderr: 'profile: /h/projects/shop/profile.json is not valid JSON: Unexpected end of JSON input\n' }),
+    })
+    expect(await written.connector.write(repo, { profile: { mode: 'silent' }, rules: '', gate: [] })).toEqual({
+      status: 'rejected',
+      reason: `The profile was written, but the Harness could not be asked about ${repo}: bin/profile failed with exit code 1: profile: /h/projects/shop/profile.json is not valid JSON: Unexpected end of JSON input. The folder was not added.`,
+    })
+    expect(written.added).toEqual([])
+  })
+
+  it('the script ends by itself and only a process it started holds the pipes: at the limit, the script\'s own exit code', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const alive = join(scratch, 'grandchild-alive')
+    const stop = join(scratch, 'grandchild-stop')
+    // The grandchild holds the inherited pipes until the stop file appears (or 30 s); detached, so
+    // that on Windows it outlives the script (see the time-limit test above).
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [alive, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(alive, String(process.pid))',
+      'const end = () => { try { fs.rmSync(alive) } catch {} process.exit(0) }',
+      'setInterval(() => { if (fs.existsSync(stop)) end() }, 100)',
+      'setTimeout(end, 30000)',
+    ].join('; ')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        // unref: the script does not wait for it, as with a daemon it leaves behind.
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true }).unref()`,
+        "  process.stdout.write('written')",
+        '  process.exitCode = 7',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 3000 })
+    try {
+      const started = Date.now()
+      const run = await connect([], '{}')
+      expect(run).toMatchObject({ code: 7, signal: null, stdout: 'written' })
+      expect(Date.now() - started).toBeLessThan(8000)
+      expect(existsSync(alive)).toBe(true)
+    } finally {
       writeFileSync(stop, '')
       for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
     }

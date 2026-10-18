@@ -332,8 +332,9 @@ export async function runHarnessScript(script: string, args: readonly string[], 
       settle({ code: null, signal: null, stdout, stderr })
     })
     child.on('close', (code, signal) => {
-      // The runner's own kill is a timeout or a stop, not a signal from elsewhere (ProfileRun).
-      settle({ code, signal: killed ? null : signal, stdout, stderr })
+      // After the runner's own kill 'exit' has answered already (node emits it before 'close'), so a
+      // signal here came from elsewhere (ProfileRun).
+      settle({ code, signal, stdout, stderr })
     })
     child.stdin.on('error', () => undefined)
     child.stdin.end(options.stdin ?? '')

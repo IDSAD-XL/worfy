@@ -110,6 +110,9 @@ export const CONNECT_TIMEOUT_MS = 120_000
  */
 export const CONNECT_WRITE_TIMEOUT_MS = 30 * 60_000
 
+/** The time limit of one bin/project-connect call: the write (no arguments) gets CONNECT_WRITE_TIMEOUT_MS. */
+export const connectTimeoutMs = (args: readonly string[]): number => (args.length === 0 ? CONNECT_WRITE_TIMEOUT_MS : CONNECT_TIMEOUT_MS)
+
 export interface ConnectScriptSource {
   /** The Harness on the machine, looked for on every run (src/main/harness/locate.ts). */
   harness: () => HarnessLocation
@@ -134,7 +137,7 @@ export function connectScriptRunner(source: ConnectScriptSource): ConnectScript 
     const env = scriptEnv(harness, await source.env())
     return runHarnessScript(join(harness.binDir, 'project-connect'), args, env, {
       stdin,
-      timeoutMs: source.timeoutMs ?? (args.length === 0 ? CONNECT_WRITE_TIMEOUT_MS : CONNECT_TIMEOUT_MS),
+      timeoutMs: source.timeoutMs ?? connectTimeoutMs(args),
       spawn: source.spawn,
       signal: source.signal?.(),
     })
