@@ -6,7 +6,9 @@
 //     (os.userInfo().homedir), not from HOME, which is what is being checked;
 //   - a HARNESS_HOME outside <fixture>: the Harness state of that shell lives elsewhere, and a home
 //     folder next to it is likely the real one too.
-// Paths are compared after resolving links (/var and /private/var on macOS).
+// Folders are compared as files, by device and inode (links followed): on macOS one folder has many
+// spellings — /var and /private/var, /Users/x and /USERS/X on a case-insensitive volume,
+// /System/Volumes/Data/Users/x. A folder that does not exist is not the real home.
 "use strict"
 
 const fs = require("node:fs")
@@ -21,9 +23,19 @@ const resolved = (dir) => {
     }
 }
 
+const sameFolder = (a, b) => {
+    try {
+        const one = fs.statSync(a)
+        const two = fs.statSync(b)
+        return one.dev === two.dev && one.ino === two.ino
+    } catch {
+        return false
+    }
+}
+
 function refusal(home, fixture, env = process.env) {
     if (!home) return "HOME is not set"
-    if (resolved(home) === resolved(os.userInfo().homedir)) return `HOME (${home}) is the real home folder of this user; run the fixture with a temporary HOME`
+    if (sameFolder(home, os.userInfo().homedir)) return `HOME (${home}) is the real home folder of this user; run the fixture with a temporary HOME`
     if (env.HARNESS_HOME) {
         const inside = path.relative(resolved(fixture), resolved(env.HARNESS_HOME))
         if (inside.startsWith("..") || path.isAbsolute(inside)) return `HARNESS_HOME (${env.HARNESS_HOME}) is outside the fixture ${fixture}; unset it`

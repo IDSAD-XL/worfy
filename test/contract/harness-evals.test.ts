@@ -5,7 +5,7 @@
 // temporary HOME, the fixture is a project the Harness scripts recognise (bin/profile exit 0,
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { constants, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -223,6 +223,61 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(check(fake, { HARNESS_HOME: join(work, 'hh') }).status).toBe(0)
     expect(readdirSync(work)).toEqual([])
     expect(readdirSync(fake)).toEqual([])
+  })
+
+  // A stub loaded into every node the scaffold starts makes os.userInfo().homedir name a temporary
+  // folder, so the real-home refusal can be tested end to end without the real home.
+  const fakeRealHome = (): { stub: NodeJS.ProcessEnv; realHome: string } => {
+    const dir = tempDir('worfy-eval-userinfo-')
+    const stub = join(dir, 'userinfo-stub.cjs')
+    writeFileSync(
+      stub,
+      "const os = require('node:os'); const original = os.userInfo; os.userInfo = (options) => ({ ...original(options), homedir: process.env.EVAL_TEST_REAL_HOME })\n",
+    )
+    const realHome = realpathSync(tempDir('worfy-eval-realhome-'))
+    return { stub: { NODE_OPTIONS: `--require ${stub}`, EVAL_TEST_REAL_HOME: realHome }, realHome }
+  }
+
+  it('the scaffold refuses a HOME that is the real home folder and writes nothing there', () => {
+    const { stub, realHome } = fakeRealHome()
+    const work = tempDir('worfy-eval-realhome-work-')
+    const run = spawnSync('bash', [join(EVALS, 'status-block', 'scaffold.sh')], {
+      cwd: work,
+      env: { PATH: process.env.PATH, HOME: realHome, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...stub },
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
+    expect(existsSync(join(realHome, '.claude', 'worfy-harness', 'gate'))).toBe(false)
+    expect(existsSync(join(realHome, '.claude', 'worfy-harness', 'projects'))).toBe(false)
+    expect(readdirSync(realHome)).toEqual([])
+    expect(readdirSync(work)).toEqual([])
+  })
+
+  it('state-guard.cjs refuses the real home folder through a link to it', () => {
+    const { stub, realHome } = fakeRealHome()
+    const link = join(tempDir('worfy-eval-link-'), 'home')
+    symlinkSync(realHome, link)
+    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), link, tempDir('worfy-eval-guard-')], {
+      env: { PATH: process.env.PATH, ...stub },
+      encoding: 'utf8',
+    })
+    expect(run.status, run.stderr).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
+  })
+
+  // macOS volumes are case-insensitive by default: /USERS/X is the folder /Users/x. Where the volume
+  // is case-sensitive (Linux CI) the other spelling is another, missing folder, and nothing to test.
+  const { realHome: caseHome } = fakeRealHome()
+  it.skipIf(!existsSync(caseHome.toUpperCase()))('state-guard.cjs refuses the real home folder spelled in another case', () => {
+    const { stub, realHome } = fakeRealHome()
+    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), realHome.toUpperCase(), tempDir('worfy-eval-guard-')], {
+      env: { PATH: process.env.PATH, ...stub },
+      encoding: 'utf8',
+    })
+    expect(run.status, run.stderr).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
   })
 
   it.each([
