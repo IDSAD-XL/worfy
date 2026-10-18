@@ -7,6 +7,7 @@ import { Canvas } from './canvas/Canvas'
 import { windowMachine } from './ipc'
 import { useMachines } from './machines/useMachines'
 import { markPlatform } from './platform'
+import { PipelineBoard } from './pipeline/PipelineBoard'
 import { activeProject, useLinked, useProjects } from './projects/useProjects'
 import { setView, useNavigation } from './session/navigation'
 import { SessionView } from './session/SessionView'
@@ -77,6 +78,7 @@ export function App() {
         )
       }
       session={<SessionView projectId={active?.id} projectName={active?.name} />}
+      pipeline={<PipelineBoard project={active} />}
     />
   )
 }

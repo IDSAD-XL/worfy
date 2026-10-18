@@ -118,10 +118,13 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           type="button"
           className="w-segmented__item"
           aria-pressed={option.value === value}
+          // The name stays the label when a narrow place shows the icon alone (shell.css, the View switch).
+          aria-label={option.label}
+          title={option.label}
           onClick={() => onChange(option.value)}
         >
           {option.icon}
-          {option.label}
+          <span className="w-segmented__label">{option.label}</span>
         </button>
       ))}
     </div>

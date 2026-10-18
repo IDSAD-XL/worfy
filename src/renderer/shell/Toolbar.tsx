@@ -8,7 +8,7 @@ import { SidebarToggle } from './sidebar-visibility'
 // switch and the command palette field; this file never changes when an item is added.
 const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: true }))
 
-export type ShellView = 'canvas' | 'session'
+export type ShellView = 'canvas' | 'session' | 'pipeline'
 
 /** The Project the window shows. Until Projects exist (ticket 04) the toolbar shows none. */
 export interface ToolbarProject {
@@ -35,6 +35,18 @@ const viewOptions: readonly SegmentOption<ShellView>[] = [
     icon: (
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5z" />
+      </svg>
+    ),
+  },
+  {
+    // The board of the active Project: a column per Stage of its Pipeline (pipeline/PipelineBoard.tsx).
+    value: 'pipeline',
+    label: 'Pipeline',
+    icon: (
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <rect x="2" y="2.5" width="3.2" height="11" rx="1" />
+        <rect x="6.4" y="2.5" width="3.2" height="7.5" rx="1" />
+        <rect x="10.8" y="2.5" width="3.2" height="4.5" rx="1" />
       </svg>
     ),
   },

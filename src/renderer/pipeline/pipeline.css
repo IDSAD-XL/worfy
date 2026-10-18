@@ -1,0 +1,274 @@
+/* The Pipeline view (PipelineBoard.tsx) and the rows of the sidebar's Pipeline section
+   (shell/sidebar/PipelineSection.tsx). Values come from tokens.css only, so both themes come for free. */
+
+.w-shell__content--pipeline {
+  background: var(--bg);
+}
+
+.w-pipeline {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: var(--space-3) var(--space-4) 0;
+  gap: var(--space-2);
+}
+.w-pipeline__heading {
+  margin: 0;
+  font-size: var(--text-15);
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+.w-pipeline__notice {
+  margin: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--blocked-text);
+  overflow-wrap: anywhere;
+}
+
+/* The columns side by side; the board scrolls sideways when they do not fit, each column down. */
+.w-pipeline__columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-bottom: var(--space-3);
+}
+.w-pipeline-column {
+  flex: none;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+}
+.w-pipeline-column__header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.w-pipeline-column__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-pipeline-column__count {
+  font-size: var(--text-11);
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.w-pipeline-column__fold {
+  flex: none;
+  margin: var(--space-2) var(--space-2) 0;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+.w-pipeline-column__fold:hover {
+  border-color: var(--text-secondary);
+}
+.w-pipeline-column__fold:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-pipeline-column__cards {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A Ticket: its reference and the caption of its Stage, the title, then its flags and who it waits for. */
+.w-pipeline-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 6px var(--space-2) 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface);
+  box-shadow: var(--shadow-control);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.w-pipeline-card:hover {
+  border-color: var(--border-strong);
+}
+.w-pipeline-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-pipeline-card[data-blocked='true'] {
+  border-color: var(--blocked-ring);
+}
+.w-pipeline-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.w-pipeline-card__ref {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-11);
+  color: var(--text-secondary);
+}
+.w-pipeline-card__title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--text-12);
+  line-height: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.w-pipeline-card__flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.w-pipeline-card__waits {
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text-muted);
+}
+
+/* A flag of a card or a row: blocked, rework, the caption of the Stage. */
+.w-pipeline-flag {
+  display: inline-block;
+  max-width: 100%;
+  height: 16px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: var(--radius-chip);
+  font-size: var(--text-11);
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-pipeline-flag--attention {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-pipeline-flag--working {
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+
+/* The sidebar section: a Project's name, then a two-line row per Ticket in work. */
+.w-pipeline-section__project {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-pipeline-section__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.w-pipeline-section__message {
+  margin: 2px 8px 4px;
+  font-size: var(--text-12);
+  line-height: 16px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.w-pipeline-section__message--error {
+  color: var(--blocked-text);
+}
+/* Over .w-row (theme/primitives.css): two lines, not one 28 px line. */
+.w-row.w-pipeline-row {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: var(--row-height);
+  padding: 5px 8px 6px;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.w-pipeline-row__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-pipeline-row__line + .w-pipeline-row__line {
+  margin-top: 4px;
+}
+.w-pipeline-row__ref {
+  flex: none;
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.w-pipeline-row__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.w-pipeline-row__stage {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 60%;
+}
+.w-pipeline-row .w-chip {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-pipeline-row__waits {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}

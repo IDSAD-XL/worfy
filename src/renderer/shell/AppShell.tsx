@@ -15,6 +15,8 @@ export interface AppShellProps {
   canvas?: ReactNode
   /** Content of the Session view (ticket 33). */
   session?: ReactNode
+  /** Content of the Pipeline view: the board of the active Project (worfy-pipeline ticket 04). */
+  pipeline?: ReactNode
   /**
    * The view on screen, when the caller decides it (main.tsx: a double click on a Session's Node
    * opens the Session view). Without it the shell keeps the view itself.
@@ -52,8 +54,11 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   }
 }
 
+/** The name of the main area for each view, as its tab in the toolbar says it. */
+const VIEW_NAMES: Record<ShellView, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline' }
+
 /** The window of design F: sidebar, unified toolbar and the main area under it. */
-export function AppShell({ project, canvas, session, view: controlledView, onViewChange }: AppShellProps) {
+export function AppShell({ project, canvas, session, pipeline, view: controlledView, onViewChange }: AppShellProps) {
   const [ownView, setOwnView] = useState<ShellView>('canvas')
   const view = controlledView ?? ownView
   const setView = (next: ShellView) => {
@@ -80,7 +85,7 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
           view, next to the sidebar. */}
       <div ref={setFocusSlot} className="w-shell__main">
         <Toolbar project={project} view={view} onViewChange={setView} sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} />
-        <main className={`w-shell__content w-shell__content--${view}`} aria-label={view === 'canvas' ? 'Canvas' : 'Session'}>
+        <main className={`w-shell__content w-shell__content--${view}`} aria-label={VIEW_NAMES[view]}>
           {/* Both views stay mounted and the inactive one is only hidden: switching must not
               destroy what a view keeps in memory (the React Flow instance, xterm terminals). */}
           <div className="w-shell__view" data-view="canvas" hidden={view !== 'canvas'}>
@@ -88,6 +93,9 @@ export function AppShell({ project, canvas, session, view: controlledView, onVie
           </div>
           <div className="w-shell__view" data-view="session" hidden={view !== 'session'}>
             {session}
+          </div>
+          <div className="w-shell__view" data-view="pipeline" hidden={view !== 'pipeline'}>
+            {pipeline}
           </div>
         </main>
       </div>

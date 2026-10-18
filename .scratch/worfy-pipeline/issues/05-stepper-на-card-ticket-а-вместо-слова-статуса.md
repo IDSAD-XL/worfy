@@ -1,7 +1,9 @@
 # 05 — Stepper на Card Ticket-а вместо слова статуса; бейдж вердикта — из отметки `review`
 
 Type: task
-Status: open
+Status: blocked 2026-10-18T03:03Z
+Blocked reason: второй REJECTED в PR #468: имя Stage обрезано на Card с chip-ами репозитория и Ready (проверка не видит переполнение < 1 px); третий круг — решение владельца
+Waits: owner
 Blocked by: 03
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 2, 5 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).
