@@ -26,6 +26,7 @@ import { featureModules, ShellLink, type FeatureLoader, type ShellAsk, type Shel
 import { TerminalAiSettingsStore } from '../../src/main/terminal-ai/settings'
 import type { TerminalAiSettingsPatch } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
+import { needsZsh, zshPath } from '../zsh'
 
 // The real SDK module, replaced: a test that reached it would fail here instead of starting Claude Code.
 const sdkModule = vi.hoisted(() => ({ loaded: 0 }))
@@ -37,8 +38,6 @@ vi.mock('@anthropic-ai/claude-agent-sdk', () => {
   return { prewarm: vi.fn(refuse), query: vi.fn(refuse), startup: vi.fn(refuse) }
 })
 
-/** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
@@ -360,7 +359,7 @@ async function start(options: StartOptions = {}) {
   const w = options.world ?? world()
   const integration = new ShellIntegration()
   integrations.push(integration)
-  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: ZSH }
+  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: zshPath() }
   const asks: SeenAsk[] = []
   const feature = nextCommandFeature({ pauseMs: options.pauseMs ?? PAUSE_MS })
   /** The handler, with every ask and every answer seen by the test. */
@@ -471,6 +470,8 @@ async function openTerminal(registry: TerminalRegistry, allEvents: { key: string
 }
 
 describe('Next command on a real zsh', () => {
+  beforeEach(needsZsh)
+
   it('after `git status` in a repository the answer of the model is grey on the empty line; the request has the command, its exit code, the branch and the folder, and no output', async () => {
     const { t, answers, requests, requestsText, askNumber, asks } = await start()
     answers([{ feature: 'next', answer: 'git add -A', delayMs: 300 }])
@@ -702,7 +703,7 @@ describe('Next command on a real zsh', () => {
   it('a zsh that edits no line reads the script after the widget of rc.d/10-assist.zsh and sets nothing up, without an error', () => {
     const scripts = join(import.meta.dirname, '../../src/main/terminal/zsh/rc.d')
     const read = spawnSync(
-      ZSH,
+      zshPath(),
       ['-f', '-c', `source '${scripts}/10-assist.zsh'; source '${scripts}/30-next-command.zsh'; print -r -- "set-up:\${+functions[_worfy_next_line]}:\${#__worfy_assist_line_hooks}"`],
       { encoding: 'utf8', env: { PATH: SYSTEM_PATH, HOME: home } },
     )

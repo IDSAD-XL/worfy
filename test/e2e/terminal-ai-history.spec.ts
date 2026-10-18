@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, openSecondWindow } from './helpers'
-import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
 
 // The Suggestion of Terminal AI from the history of commands, in a Terminal Node of the built app
 // on a real zsh: a command that ran is offered again in grey when its start is typed, → and

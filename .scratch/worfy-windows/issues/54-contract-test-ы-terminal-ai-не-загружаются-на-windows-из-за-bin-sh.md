@@ -66,14 +66,14 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 
 ## Готово, когда
 
-- [ ] На Windows-ПК шесть файлов загружаются: `pnpm exec vitest run --project contract` по каждому —
+- [x] На Windows-ПК шесть файлов загружаются: `pnpm exec vitest run --project contract` по каждому —
       ни одного `spawnSync /bin/sh ENOENT`; test-ы zsh — skipped с причиной; test-ы без zsh идут.
       Числа passed, skipped и failed по файлам — в «Итог». Это проверяет Session на Windows-ПК.
 - [ ] На macOS те же test-ы идут, как раньше: число test-ов каждого из шести файлов (passed и
       skipped) то же, что на main; числа — в «Итог».
-- [ ] Static check смотрит `test/contract`: красный на main (шесть вызовов найдены), зелёный после
+- [x] Static check смотрит `test/contract`: красный на main (шесть вызовов найдены), зелёный после
       правки.
-- [ ] Мутант: вернуть `const ZSH = execFileSync(…)` в один из шести файлов — static check красный.
+- [x] Мутант: вернуть `const ZSH = execFileSync(…)` в один из шести файлов — static check красный.
 - [ ] Четыре nit-а из пункта 4 закрыты: на каждый — случай в таблице unit-test-а, красный до правки
       static check и зелёный после (тёзка `start` из чужого модуля проходит; `new Promise` с вызовом
       найден; `import cp = require('child_process')` найден; `const { beforeAll } = test` —
@@ -115,4 +115,41 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 
 ## Итог
 
-—
+Ветка `worfy-windows/54` поверх main `9cbe679`. Проверено на Windows-ПК (Windows 11 Pro, Git Bash, `gh` вне PATH).
+
+### Что сделано
+
+- **Поиск zsh — общий файл `test/zsh.ts`** (был `test/e2e/zsh.ts` Ticket-а 53): `zshPath()` спрашивает `/bin/sh` при первом вызове, `NO_ZSH`, `NO_ZSH_ON_WINDOWS`. Новое — `needsZsh(context)`: пропуск vitest-test-а с причиной там, где zsh нет (`beforeEach(needsZsh)` для describe, где zsh нужен всем test-ам). Восемь spec-ов `test/e2e` импортируют из нового места.
+- **Шесть файлов `test/contract` зовут `zshPath()` там, где zsh нужен.** Test-ы zsh на `win32` пропускаются с причиной `NO_ZSH_ON_WINDOWS`; test-ы без zsh идут и на Windows. На macOS и Linux ничего не пропускается: число test-ов каждого файла то же, что на main (14, 22, 28, 35, 49, 20).
+- **Три test-а, которые падали на Windows не из-за zsh, пропускаются там с причиной** «the test starts /bin/sh or expects the folder /tmp; Windows has neither» (`needsPosix(context)` в `test/zsh.ts`): «a shell that is not zsh gets no socket and no token» (`terminal-ai-zle`), «a shell that is not zsh (/bin/sh)…» и «the socket path in it fits zsh…; with a long TMPDIR the folder goes to /tmp…» (`terminal-shell-integration`). Ticket 14 берёт только другие файлы `test/contract`, поэтому они решены здесь; два из них ждали 10 s перед падением.
+- **Static check `test/unit/e2e-no-spawn-on-load.test.ts` обходит `test/e2e`, `test/contract` и всё, что они загружают**, файлы `.ts` и `.tsx` (`.tsx` — jsdom-проект, например `ipc-renderer.test.tsx`). Четыре nit-а ревью PR #387:
+  1. функция, запускающая процесс, опознаётся по файлу, где она объявлена, через импорт имени: тёзка из чужого модуля и метод с тем же именем — не она;
+  2. `new Promise(fn)` выполняет `fn` сразу; `import cp = require('child_process')` распознаётся;
+  3. отложенные вызовы (test-ы, их модификаторы, hook-и) определяются по тому, откуда взято имя: vitest, Playwright, деструктуризация `test`, `test.extend` под любым именем, в том числе импортированный из другого файла;
+  4. инициализатор нестатического поля класса выполняется при `new`, статического — при загрузке.
+- **Процессы при загрузке, оставленные намеренно** (`STARTED_ON_LOAD_ON_PURPOSE`, с причиной на каждый файл): шесть вызовов `git(…)` в `link-access.test.ts` (git есть на каждой системе test-ов); `execFileSync('node', …)` и `tool('jq')` в `statusline-bridge.test.ts` (`tool()` — `spawnSync`, который возвращает ошибку, а не бросает её); `hasSh()` в `workflow-profile.test.ts` и `workflow-reader.test.ts` (`spawnSync` для `it.skipIf`). Вызов сверяется по тексту; вызов, которого больше нет в файле, валит test, чтобы список не пережил его.
+
+### Проверено на Windows-ПК
+
+`pnpm exec vitest run --project contract <файл>` по каждому файлу:
+
+| Файл | main `9cbe679` | ветка `c28e575` |
+|---|---|---|
+| `terminal-ai-fix` | exit 1, файл не загрузился: `spawnSync /bin/sh ENOENT`, 0 test-ов | exit 0: 4 passed, 10 skipped, 0 failed |
+| `terminal-ai-next-command` | то же | exit 0: 8 passed, 14 skipped, 0 failed |
+| `terminal-ai-request` | то же | exit 0: 6 passed, 22 skipped, 0 failed |
+| `terminal-ai-suggest` | то же | exit 0: 13 passed, 22 skipped, 0 failed |
+| `terminal-ai-zle` | то же | exit 0: 0 passed, 49 skipped, 0 failed |
+| `terminal-shell-integration` | то же | exit 0: 0 passed, 20 skipped, 0 failed |
+
+- Ни одного `ENOENT` на ветке; verbose reporter печатает причину рядом с каждым пропущенным test-ом.
+- **Static check красный на main:** test-файл ветки, запущенный на дереве main, — exit 1, найдены шесть вызовов: `terminal-ai-fix.test.ts:45`, `terminal-ai-next-command.test.ts:41`, `terminal-ai-request.test.ts:48`, `terminal-ai-suggest.test.ts:42`, `terminal-ai-zle.test.ts:24`, `terminal-shell-integration.test.ts:24`. На ветке — exit 0, 45 passed.
+- **Мутант:** `const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], …)` на верхнем уровне `terminal-ai-suggest.test.ts` — static check exit 1, вызов найден в строке 2; после отката — exit 0.
+- **Полный `pnpm test` по имени против main `9cbe679`:** новых падений нет. Четыре test-а, упавших в полном прогоне ветки (`critical-path`, `install-stable-functions`, `harness-install`, `harness-scripts` с `profile.test.sh`), прошли при повторе этих четырёх файлов: полный прогон шёл параллельно с проверками PR #461 на том же ПК. Итог полного прогона: main — 234 failed / 5487 passed / 151 skipped из 5872, ветка — 236 / 5529 / 288 из 6053 (шесть файлов загружаются и дают свои test-ы). Падения на main и на ветке — известные Windows-падения других Ticket-ов.
+- `pnpm lint` — exit 0, `pnpm typecheck` — exit 0.
+- Ревью (correctness и test coverage): три находки — три test-а без zsh, падавшие на Windows; `.tsx` вне обхода; намеренные процессы при загрузке не записаны в «Итог». Все три закрыты в commit-е `c28e575` и в этом разделе.
+
+### Не проверено на ПК
+
+- Пункт четырёх nit-ов: случаи в таблице unit-test-а есть и зелёные (45 passed), но «красный до правки static check» на ПК не воспроизводился — старая версия static check живёт в том же файле, что и таблица. Пункт не отмечен; проверка — на Mac или по истории commit-ов.
+- macOS: число test-ов по файлам, `pnpm lint`/`typecheck`/`test`, gate full, Linux CI.

@@ -4,7 +4,6 @@
 //
 // HOME and the user's files are in a temporary folder: the real ~/.zshrc and ~/.zsh_history of the
 // machine running the tests are never read or written.
-import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { createConnection, type Socket } from 'node:net'
@@ -19,15 +18,14 @@ import { encodeMessage, parseShellMessage } from '../../src/main/terminal-ai/pro
 import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
+import { needsPosix, needsZsh, zshPath } from '../zsh'
 
-/** The zsh of the machine: /bin/zsh on macOS, /usr/bin/zsh on Linux CI (.github/workflows/ci.yml). */
-const ZSH = execFileSync('/bin/sh', ['-c', 'command -v zsh'], { encoding: 'utf8' }).trim()
 /**
  * Runs a script as a program the shell starts: a zsh without startup files. Not /bin/sh: dash, which
  * is /bin/sh on Linux, stops the whole script with "Bad fd number" at a redirect to a descriptor above
  * 9, and the shell holds its connection above 9.
  */
-const PROGRAM = `${ZSH} -fc`
+const program = (): string => `${zshPath()} -fc`
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
 /** Ubuntu's /etc/zsh/zshrc runs compinit unless this is set, and on the CI runner compinit waits for a key. */
@@ -136,7 +134,7 @@ interface StartOptions {
 function start(options: StartOptions = {}) {
   const integration = options.integration ?? new ShellIntegration()
   integrations.push(integration)
-  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: ZSH, ...options.env }
+  const base: Env = { ...QUIET_ZSH, PATH: SYSTEM_PATH, HOME: home, LANG: 'en_US.UTF-8', SHELL: options.env?.SHELL ?? zshPath(), ...options.env }
   const settings = options.settings ?? settingsSource()
   const link = new ShellLink({
     settings: () => Promise.resolve(settings),
@@ -306,7 +304,7 @@ const widgetScript = (body: string) => ['__test_widget() {', body, '}', 'zle -N 
  * A program that looks at every descriptor from 3 to 255 it was given: `open:<n>` for one that is
  * open, `socket:<n>` for one that is a socket, then `checked`.
  */
-const DESCRIPTORS = `${PROGRAM} 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
+const descriptors = (): string => `${program()} 'n=3; while [ $n -le 255 ]; do if ( : >&$n ) 2>/dev/null; then echo "open:$n"; fi; if [ -S /dev/fd/$n ]; then echo "socket:$n"; fi; n=$((n + 1)); done; echo checked'`
 
 /** A message with an id the shell never asked under: the shell drops it, and main sends it only while it holds a connection. */
 const STALE = { type: 'show', id: 99_999, text: ' STALE' } as const
@@ -341,6 +339,8 @@ async function withAskingScript(options: StartOptions = {}, more = '') {
 }
 
 describe('the Suggestion from the history of commands', () => {
+  beforeEach(needsZsh)
+
   it('after `echo worfy-zle-1`, typing `echo wo` shows the rest of it in grey', async () => {
     const { open } = start()
     const t = await open()
@@ -543,7 +543,8 @@ describe('the Suggestion from the history of commands', () => {
 })
 
 describe('the socket', () => {
-  it('the file is 0600 in a folder of 0700, and the shell says hello over it', async () => {
+  it('the file is 0600 in a folder of 0700, and the shell says hello over it', async (context) => {
+    needsZsh(context)
     const { open, integration, link } = start()
     const t = await open()
     await t.connected()
@@ -558,7 +559,8 @@ describe('the socket', () => {
     await vi.waitFor(() => expect(link.connected(KEY)).toBe(false), WAIT)
   })
 
-  it('zsh connects to a socket whose path is 103 bytes, the longest zsocket takes', async () => {
+  it('zsh connects to a socket whose path is 103 bytes, the longest zsocket takes', async (context) => {
+    needsZsh(context)
     // /tmp/<name>/worfy-XXXXXX/assist.sock is 103 bytes when /tmp/<name> is 78.
     const base = `/tmp/worfy-zle-${process.pid}-`.padEnd(78, 'x')
     folders.push(base)
@@ -573,7 +575,8 @@ describe('the socket', () => {
     expect(await t.redrawn()).toMatch(lineAlone('echo long-path'))
   })
 
-  it('a connection without hello, with a token nobody was given, with a token in use and with the token of a shell that is gone is closed', async () => {
+  it('a connection without hello, with a token nobody was given, with a token in use and with the token of a shell that is gone is closed', async (context) => {
+    needsZsh(context)
     const { open, integration, link, envs } = start({ helloTimeoutMs: 300 })
     const t = await open()
     await t.connected()
@@ -611,7 +614,8 @@ describe('the socket', () => {
     expect(afterExit.received()).toBe('')
   })
 
-  it('a Terminal started again gets a new token; the old one opens nothing', async () => {
+  it('a Terminal started again gets a new token; the old one opens nothing', async (context) => {
+    needsZsh(context)
     const { open, registry, integration, link, envs } = start()
     const first = await open()
     await first.connected()
@@ -627,7 +631,8 @@ describe('the socket', () => {
     expect(await second.redrawn()).toMatch(lineAlone('echo second-shell'))
   })
 
-  it('the file of the socket was removed: the next Terminal connects, and the first stays connected', async () => {
+  it('the file of the socket was removed: the next Terminal connects, and the first stays connected', async (context) => {
+    needsZsh(context)
     const { open, integration, link } = start()
     const first = await open('first')
     await first.connected()
@@ -651,7 +656,8 @@ describe('the socket', () => {
     expect(await third.redrawn()).toMatch(lineAlone('echo third-shell'))
   })
 
-  it('without the socket the shell starts all the same, with the Suggestion from history', async () => {
+  it('without the socket the shell starts all the same, with the Suggestion from history', async (context) => {
+    needsZsh(context)
     const door: AssistDoor = { admit: () => Promise.reject(new Error('no socket')), revoke: () => undefined }
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { open, envs } = start({ door })
@@ -666,7 +672,8 @@ describe('the socket', () => {
     expect(shown(t.text())).not.toMatch(/zsh: |zsocket|sysread|No such file|not found/)
   })
 
-  it('a shell that is not zsh gets no socket and no token', async () => {
+  it('a shell that is not zsh gets no socket and no token', async (context) => {
+    needsPosix(context)
     const admitted: string[] = []
     const door: AssistDoor = {
       admit: (key) => {
@@ -685,11 +692,13 @@ describe('the socket', () => {
 })
 
 describe('the connection while a command runs', () => {
+  beforeEach(needsZsh)
+
   it('a program the shell starts finds no connection to the socket on any descriptor', async () => {
     const { open, link } = start()
     const t = await open()
     await t.connected()
-    const found = await t.run(`${DESCRIPTORS}; (${DESCRIPTORS}) & wait`)
+    const found = await t.run(`${descriptors()}; (${descriptors()}) & wait`)
     expect(found.match(/checked/g)).toHaveLength(2)
     expect(found).not.toMatch(/socket:\d|open:[3-9]\r/)
     // The shell is connected again at the prompt after it.
@@ -701,7 +710,7 @@ describe('the connection while a command runs', () => {
   it('an ask a program writes into every descriptor it was given does not reach main', async () => {
     const { t, feature, askAbout, probeOn } = await withAskingScript()
     const written = await t.run(
-      `${PROGRAM} 'n=3; while [ $n -le 255 ]; do (printf "ask\\t999\\t${PROBE}\\tworfy-leaked-ask\\n" >&$n) 2>/dev/null; n=$((n + 1)); done; echo written'`,
+      `${program()} 'n=3; while [ $n -le 255 ]; do (printf "ask\\t999\\t${PROBE}\\tworfy-leaked-ask\\n" >&$n) 2>/dev/null; n=$((n + 1)); done; echo written'`,
     )
     expect(written).toContain('written')
     await probeOn()
@@ -803,7 +812,7 @@ describe('the connection while a command runs', () => {
     const { open, link } = start()
     const t = await open()
     await t.connected()
-    t.type(`vared -c __test_typed; print -r -- "typed:$__test_typed"; ${DESCRIPTORS}\r`)
+    t.type(`vared -c __test_typed; print -r -- "typed:$__test_typed"; ${descriptors()}\r`)
     await vi.waitFor(() => expect(t.state()?.commandRunning).toBe(true), WAIT)
     await t.settle()
     expect(link.push(KEY, STALE)).toBe(false)
@@ -822,7 +831,7 @@ describe('the connection while a command runs', () => {
     const started = start()
     const file = join(root, 'addhistory.txt')
     // zsh 5.9 runs zle-line-finish, then zshaddhistory, then preexec and its hooks, then the command.
-    await testScript(started.integration, `zshaddhistory() { ${DESCRIPTORS} >| ${file}; builtin return 0 }`)
+    await testScript(started.integration, `zshaddhistory() { ${descriptors()} >| ${file}; builtin return 0 }`)
     const t = await started.open()
     await t.connected()
     await t.run('echo worfy-history-hook')
@@ -844,7 +853,7 @@ describe('the connection while a command runs', () => {
     await testScript(started.integration, '__test_finish() { : }\nzle -N zle-line-finish __test_finish')
     const t = await started.open()
     await t.connected()
-    const found = await t.run(DESCRIPTORS)
+    const found = await t.run(descriptors())
     expect(found).toContain('checked')
     expect(found).not.toMatch(/socket:\d/)
     await vi.waitFor(() => expect(started.link.push(KEY, { type: 'insert', text: 'echo finish-replaced' })).toBe(true), WAIT)
@@ -859,7 +868,7 @@ describe('the connection while a command runs', () => {
       {},
       widgetScript(
         [
-          `  ${PROGRAM} "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
+          `  ${program()} "trap '' PIPE; sleep 3; printf 'ask\\t998\\t${PROBE}\\tworfy-holder-ask\\n' >&$__worfy_assist_fd 2>/dev/null; : > ${wroteFile}; exec sleep 30" &!`,
           `  print -r -- $! >| ${pidFile}`,
         ].join('\n'),
       ),
@@ -934,6 +943,8 @@ describe('the connection while a command runs', () => {
 })
 
 describe('the messages of main', () => {
+  beforeEach(needsZsh)
+
   it('insert replaces the line and runs nothing: main writes nothing into the pty, Enter is the user\'s', async () => {
     const { open, link, written } = start()
     const t = await open()
@@ -1081,6 +1092,8 @@ describe('the messages of main', () => {
 })
 
 describe('the settings', () => {
+  beforeEach(needsZsh)
+
   it('config without the Suggestion: no grey text, from history either; turned back on, it shows again', async () => {
     const settings = settingsSource({ suggestion: false })
     const { open } = start({ settings })
@@ -1134,6 +1147,8 @@ describe('the settings', () => {
 })
 
 describe('what does not leak and where the widget is not', () => {
+  beforeEach(needsZsh)
+
   it('the environment of the shell has neither the token nor the socket, also under `setopt allexport`', async () => {
     await userZshrc('setopt allexport')
     const { open, envs, integration } = start()
@@ -1158,7 +1173,7 @@ describe('what does not leak and where the widget is not', () => {
     // zsh has no way to keep a descriptor it opened from the programs it starts. A command finds the
     // connection closed (the tests above); a program a widget starts while zsh waits for a key gets
     // it, above 9, where zsh keeps its own.
-    await testScript(started.integration, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${DESCRIPTORS} } >| ${file}`))
+    await testScript(started.integration, widgetScript(`  { print -r -- "shell-fd:$__worfy_assist_fd"; ${descriptors()} } >| ${file}`))
     const t = await started.open()
     await t.connected()
     t.type(WIDGET_KEY)

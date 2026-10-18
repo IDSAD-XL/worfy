@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, type Locator, type Page } from '@playwright/test'
 import type { FakeAnswer, FakeLogEntry } from '../../src/main/terminal-ai/fake-backend'
-import { zshPath } from './zsh'
+import { zshPath } from '../zsh'
 
 // What the e2e tests of Terminal AI share: a Terminal Node on a real zsh that reads nothing of the
 // machine running the tests, what its screen shows, and the fake assist process.
