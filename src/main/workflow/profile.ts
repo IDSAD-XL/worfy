@@ -273,7 +273,21 @@ export async function runHarnessScript(script: string, args: readonly string[], 
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let settled = false
+    const settle = (run: ProfileRun): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolvePromise(run)
+    }
     const timer = setTimeout(() => {
+      // The script itself has ended, and only a process it left holds the pipes: its own exit code.
+      if (child.exitCode !== null || child.signalCode !== null) {
+        child.stdout.destroy()
+        child.stderr.destroy()
+        settle({ code: child.exitCode, signal: child.signalCode, stdout, stderr })
+        return
+      }
       timedOut = true
       child.kill('SIGKILL')
     }, options.timeoutMs)
@@ -284,13 +298,23 @@ export async function runHarnessScript(script: string, args: readonly string[], 
       if (stderr.length < MAX_OUTPUT) stderr += chunk.toString('utf8')
     })
     child.on('error', (error) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       reject(error)
     })
+    // After the runner's own kill the answer is given when the script exits, not on 'close': a
+    // process the script started with its stdio inherited (qmd-collections runs `qmd update`) may
+    // hold the pipes open long after, and the time limit would not hold. The pipes are let go.
+    child.on('exit', () => {
+      if (!timedOut) return
+      child.stdout.destroy()
+      child.stderr.destroy()
+      settle({ code: null, signal: null, stdout, stderr })
+    })
     child.on('close', (code, signal) => {
-      clearTimeout(timer)
       // The runner's own kill at `timeoutMs` is a timeout, not a signal from elsewhere (ProfileRun).
-      resolvePromise({ code, signal: timedOut ? null : signal, stdout, stderr })
+      settle({ code, signal: timedOut ? null : signal, stdout, stderr })
     })
     child.stdin.on('error', () => undefined)
     child.stdin.end(options.stdin ?? '')

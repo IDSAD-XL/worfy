@@ -118,6 +118,7 @@ function connector(): ProjectConnector {
     git: runGit,
     gh: ghRunner(appGh()),
     profile: async (cwd, args) => profileRunner(claudeHome(), (await agentEnv()).env)(cwd, args),
+    gateDir: () => locateHarness(harnessHomes(claudeHome())).gateDir,
     connect: connectScript,
     harness: () => appInstaller().status(),
     query: draftQueryFromEnv(),

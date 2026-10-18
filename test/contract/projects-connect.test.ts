@@ -10,7 +10,7 @@
 // must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
 // code names for a mode must be the one bin/profile prints for a Profile without the field.
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -203,6 +203,7 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     // No gh unless a test brings its stand-in (test/contract/gh-world.ts).
     gh: ghRunner({ command: join(scratch, 'no-gh') }),
     profile: realProfile,
+    gateDir: () => join(harnessHome, 'gate'),
     connect: (args, stdin) => runScript('project-connect', args, stdin),
     harness: () => Promise.resolve(installed),
     query: (request) => {
@@ -344,6 +345,26 @@ describe('a folder the Harness already knows', () => {
     const timedOut = connectorWith({ profile: () => Promise.resolve({ code: null, stdout: '', stderr: '' }) })
     expect(await timedOut.connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile did not answer in time and was stopped` })
   })
+
+  it('the real bin/profile of a fresh Harness (no gate registry, exit 1): a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    rmSync(join(harnessHome, 'gate', 'config.json'))
+    const { connector } = connectorWith()
+    expect((await connector.inspect(repo)).status).toBe('new')
+  })
+
+  it('the real bin/profile with a broken registry (exit 1, the registry there): the Folder step shows its reason', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    writeFileSync(join(harnessHome, 'gate', 'config.json'), '{"Repos":[]}\n')
+    const { connector, requests } = connectorWith()
+    const answer = await connector.inspect(repo)
+    expect(answer.status).toBe('rejected')
+    const reason = answer.status === 'rejected' ? answer.reason : ''
+    expect(reason.startsWith(`The Harness could not tell whether it knows ${repo}: bin/profile failed with exit code 1: profile: resolver `)).toBe(true)
+    expect(reason).toContain('failed (exit 4) — project not determined: gate-resolve: registry ')
+    expect(reason.endsWith(`${join(harnessHome, 'gate', 'config.json')} is broken: the "repos" field must be an array`)).toBe(true)
+    expect(requests).toHaveLength(0)
+  })
 })
 
 describe('bin/project-connect is started as node <script> (worfy-windows ticket 30)', () => {
@@ -398,6 +419,60 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
     const noNode = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([emptyDir])), spawn: start })
     await expect(noNode(['--check'], '{}')).rejects.toMatchObject({ code: 'NODE_NOT_FOUND' })
     expect(calls).toHaveLength(0)
+  })
+
+  it('the time limit holds while a process the script started keeps its pipes open', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const alive = join(scratch, 'grandchild-alive')
+    const stop = join(scratch, 'grandchild-stop')
+    const tick = `${alive}.tick`
+    // The grandchild, like `qmd update` started with its stdio inherited: it holds the script's
+    // pipes, writes the time to a file every 100 ms while it runs, and ends when the stop file
+    // appears (or after 30 s), removing its `alive` file. It is detached: on Windows node puts the
+    // processes it starts in a job that ends with it, and the grandchild would die with the script;
+    // a detached one outlives it, as a process another program started does.
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [alive, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(alive, String(process.pid))',
+      'const end = () => { try { fs.rmSync(alive) } catch {} process.exit(0) }',
+      "setInterval(() => { fs.writeFileSync(alive + '.tick', String(Date.now())); if (fs.existsSync(stop)) end() }, 100)",
+      'setTimeout(end, 30000)',
+    ].join('; ')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true })`,
+        '  setInterval(() => undefined, 1000)',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 3000 })
+    try {
+      const started = Date.now()
+      const run = await connect([], '{}')
+      expect(run).toMatchObject({ code: null, signal: null })
+      expect(Date.now() - started).toBeLessThan(8000)
+      // The grandchild still runs (its time file moves on): the pipes were held when the answer came.
+      const before = readFileSync(tick, 'utf8')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(readFileSync(tick, 'utf8')).not.toBe(before)
+    } finally {
+      // The grandchild ends itself on the stop file; nothing is killed by a pid.
+      writeFileSync(stop, '')
+      for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(existsSync(alive)).toBe(false)
+  })
+
+  it('a crash of bin/project-connect (exit 1, no issues): the refusal names its Error line, not the "Node.js vNN" line', async () => {
+    const crash = '/h/bin/project-connect:300\n    throw x\n    ^\n\nTypeError: boom\n    at Object.<anonymous> (/h/bin/project-connect:300:5)\n\nNode.js v24.21.0\n'
+    const { connector } = connectorWith({ connect: () => Promise.resolve({ code: 1, stdout: '', stderr: crash }) })
+    expect(await connector.check({} as ProfileDraft)).toEqual([{ path: '', kind: 'write', message: 'TypeError: boom' }])
   })
 
   it('a start failure of the script is the form step\'s reason', async () => {

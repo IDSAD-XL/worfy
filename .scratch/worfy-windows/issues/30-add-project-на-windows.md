@@ -105,7 +105,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash; test
 - **`bin/project-connect`.** `connectScriptRunner` (`src/main/projects/connect.ts`) — `connect` из `ConnectDeps` по умолчанию: Harness, `scriptEnv` (HARNESS_HOME), `runHarnessScript`. `connectScript` в `src/main/ipc/projects.ts` — теперь одна строка вызова, свой `spawn` убран. Через него идут все три шага формы: `--facts`, `--schema-only`/`--check`, запись.
 - **`bin/qmd-collections`.** `setupCollections` (`src/main/harness/qmd.ts`) идёт через `runHarnessScript`; сбой запуска — `code: null` и причина в `output` (как раньше у ENOENT). Вызовы `npm` (`qmd.ts`, `first-run/actions.ts`) не тронуты — Ticket 15.
 - **`profileKnows`** различает ответ и его отсутствие. Бросает ошибку, когда `bin/profile` не запустился (reject runner-а: `HarnessScriptStartError`, ENOENT), когда система не нашла интерпретатор (exit code 127/126) и когда процесс убит (код `null`: timeout или signal). Шаг «Folder» (`ProjectConnector.inspect`) отдаёт тогда `rejected` с причиной `The Harness could not tell whether it knows <root>: …` — окно показывает её так же, как другие ошибки шага (`ProjectsSection.tsx`, `fail(answer.reason)`), UI не менялся. Шаг записи после `bin/project-connect` отвечает своей причиной (`…could not be asked about…`), а не «Harness не находит Profile».
-- **Отклонение от буквы пункта 3:** любой другой exit code, кроме 0, остаётся ответом «не знает», не ошибкой. Причина: свежий Harness без `gate/config.json` отвечает exit 1 на любую папку (`gate-resolve.mjs` → 4 → `profile` → 1), а `bin/project-connect` создаёт реестр при первой записи. Ошибка на exit 1 сломала бы первый «Add project» на новой машине.
+- **Правило exit 1 (изменено в раунде 2, см. ниже):** в первом раунде любой exit code, кроме 0, читался как «не знает». Теперь «не знает» — только exit 3 и exit 1 при отсутствующем `gate/config.json`; остальное — ошибка.
 - **Test-ы.**
   - `test/unit/profile-knows.test.ts` (новый, 14): сбой запуска, timeout, signal, 127/126 — reject; exit 3 и exit 1 — `false`; exit 0 и `_resolved.workspace` — как раньше.
   - `test/contract/projects-connect.test.ts` (+5): `connectScriptRunner` с подменённым `spawn` — команда `NODE` из PATH окружения, первый аргумент — путь скрипта, затем аргументы; stdin и HARNESS_HOME доходят до stand-in-а без бита исполнения. Ещё: настоящий `harness/bin/project-connect --schema-only` через него; нет скрипта/нет node — `HarnessScriptStartError`, `spawn` не вызван; сбой запуска — причина шага «Draft»; шаг «Folder» при сбое `bin/profile` — `rejected`, draft Session не стартует.
@@ -124,5 +124,29 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash; test
 
 - Новых падений по именам нет. Старые падения на ПК — Windows-специфика test-ов, не этого Ticket-а: stub-ы `#!/bin/sh` (`harness-qmd`: node/npm/qmd stand-in-ы не запускаются; старый случай `setupCollections` со stub-ом `#!/bin/sh` на Windows теперь падает с `NOT_NODE` вместо ENOENT — то же имя), пути `C:\` против `/` (`projects-connect` draft/write, `projects`, `first-run-checks`).
 - `gate` не запускался: Harness profile на этом ПК нет намеренно, и gate пишет своё состояние в `~/.claude`, куда этой Session писать нельзя.
+
+### Раунд 2 — read-only ревью `4a1fe00`
+
+Session на Windows-ПК, 2026-10-18, та же ветка.
+
+- **medium, exit 1 у `bin/profile`.** `harness/bin/profile` отвечает exit 1 и на сломанный или нечитаемый реестр, и на сломанный `profile.json` подключённого Project-а, и на любой crash node. Подключённый Project со сломанным `profile.json` выглядел «новым», draft Session шла, запись падала на «the name is taken». Новое правило `profileKnows`:
+  - «не знает»: exit 3, и exit 1 только когда нет `<gateDir>/config.json`. Это свежий Harness: его resolver не читает реестр (`gate-resolve.mjs` exit 4 → `profile` exit 1). `gateDir` берётся из `HarnessLocation.gateDir` — так же, как его находит `src/main/gate/state.ts`. Он приходит новым обязательным полем `ConnectDeps.gateDir`.
+  - любой другой ненулевой код (exit 1 при реестре на месте, exit 2 и прочие) — ошибка `bin/profile failed with exit code N: <scriptFailureDetail(stderr)>`. Шаг «Folder» показывает её. Проверка после записи Profile отдаёт её же в причине, stderr не теряется.
+- **low, отказ `bin/project-connect` с exit 1 без issues** и сбой с другим кодом берут `scriptFailureDetail(stderr)`, а не последнюю строку. Crash node даёт строку `TypeError: …`, а не «Node.js vNN».
+- **low, timeout `runHarnessScript`.** После своего SIGKILL runner ждал `close`. Внук с унаследованным stdio (`qmd update` у `qmd-collections`) держит pipe-ы, и `close` не приходит — лимит не держался. Теперь после своего kill ответ — на `exit`, pipe-ы отпускаются (`destroy`). Если скрипт уже вышел сам, а pipe-ы держит только внук, по timeout приходит exit code самого скрипта. `harnessScriptRunner` (`execFile` для `profile`/`ticket`) не трогал: его вызовы не запускают долгих внуков.
+- **Найдено при test-е на Windows:** node, запущенный из node, по умолчанию попадает в job object libuv. Внук умирает вместе с убитым скриптом. Поэтому на Windows зависание видно только с внуком, запущенным `detached`, — как процесс другой программы. В test-е внук `detached` (без окна, `windowsHide`), пишет время в файл каждые 100 мс и выходит сам по stop-файлу. Ни один процесс не убивался по pid, после прогонов по command line (`grandchild-alive`) — 0 процессов.
+- **Известный предел, исправлен:** запись Profile (вызов без аргументов) получила `CONNECT_WRITE_TIMEOUT_MS` = 30 мин — столько же, сколько `setupCollections` даёт `qmd-collections`. При 120 с `project-connect` мог быть убит, пока `qmd-collections` индексирует после commit-а. Profile тогда оставался записанным, а папка — вне списка. `--facts` и `--check` остаются на 120 с. Отдельного test-а на лимит записи нет.
+- **Test-ы:**
+  - `profile-knows.test.ts` — 17. Fresh Harness с настоящим stderr: текст `profile` и `gate-resolve.mjs`, снят запуском `harness/bin/profile` во временном HARNESS_HOME → `false`. Реестр на месте, exit 1: сломанный `profile.json` и crash → ошибка с деталью. Exit 2 → ошибка.
+  - `projects-connect.test.ts` — +4. Настоящий `bin/profile` без `config.json` → `new`. Настоящий `bin/profile` с реестром `{"Repos":[]}` → `rejected` с текстом resolver-а. Лимит держится при внуке, держащем pipe-ы. Crash `project-connect` → `TypeError: boom`.
+
+| Прогон на ПК | Exit | Итог |
+|---|---|---|
+| vitest: `profile-knows`, `projects-connect`, `harness-qmd`, `e2e-no-spawn-on-load` | 1 | 15 упало, 109 прошли из 124; упавшие — те же 15 имён, что на main `ee6c253`, новых нет; все новые и `e2e-no-spawn-on-load` зелёные |
+| мутант 1: `runHarnessScript` запускает файл скрипта, а не `node <скрипт>` | 1 | убит 7 test-ами (`connectScriptRunner` ×5, `setupCollections` ×2) |
+| мутант 2: сбой запуска в `profileKnows` → `false` | 1 | убит 5 test-ами (4 в `profile-knows`, 1 в `projects-connect`) |
+| мутант 3: после своего kill ответ только на `close` (как в раунде 1) | 1 | убит test-ом лимита (timeout test-а 20 с) |
+| `pnpm lint` | 0 | — |
+| `pnpm typecheck` | 0 | — |
 
 **Ждёт владельца:** пункты 1–3 «Готово, когда» на ПК — форма целиком руками: новая папка до «Review» и записи, знакомая папка сразу в список, ошибка шага «Folder» при сбое скрипта. Для этого Harness должен стоять на машине (Ticket 13), а эта Session в профиль владельца не пишет. Ещё — `gate full` на Mac. e2e (`projects-connect.spec.ts`) на ПК не запускались: окна приложения не открывались.
