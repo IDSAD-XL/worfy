@@ -256,7 +256,8 @@ Epic готов, когда:
 - **Ghost text поверх xterm, как в VS Code, и свой редактор строки, как в Warp** — отвергнуты
   (ADR-0058, Considered Options).
 - **Ключ API** — отвергнут владельцем (ADR-0058, пункт 7).
-- **Terminal AI внутри ssh, tmux и вложенного shell-а** — там нет скриптов worfy.
+- **Terminal AI внутри ssh, tmux и вложенного shell-а** — там нет скриптов worfy. SSH session — отдельный
+  Epic [worfy-terminal-ssh](../worfy-terminal-ssh/spec.md); tmux и вложенный shell не входят и туда.
 - **Terminal «Sign in with gh»** (`src/main/github/accounts.ts:219-224`) — без Terminal AI: там не
   shell.
 - **Окно Settings и Select** — Ticket-ы 02 и 08 Epic-а [worfy-ui](../worfy-ui/spec.md); здесь только

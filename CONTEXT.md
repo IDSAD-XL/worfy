@@ -160,6 +160,14 @@ _Avoid_: запрос к AI, промпт, NL-команда
 Действие после команды, которая кончилась ошибкой: Terminal AI ставит в строку ввода исправленную команду, не запуская её.
 _Avoid_: исправление, autofix, quick fix
 
+**SSH session**:
+Часть жизни Terminal-а от входа по `ssh` до выхода: всё это время команды идут в shell-е на Remote host-е.
+_Avoid_: ssh-коннект, удалёнка
+
+**Remote host**:
+Компьютер, к которому подключается SSH session. У него есть флаг «Terminal AI включён» и переключатель отправки данных в модель. Это не Linked machine: на Remote host-е нет worfy.
+_Avoid_: сервер (как название термина)
+
 ## Relationships
 
 - **Project** содержит много **Epic**-ов; **Epic** — много **Ticket**-ов; **Ticket** может блокироваться другими Ticket-ами того же Epic.
@@ -174,3 +182,4 @@ _Avoid_: исправление, autofix, quick fix
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
 - **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
 - **Terminal AI** работает в **Terminal**-е и не делает его агентским: команды в **Terminal**-е по-прежнему запускает только пользователь, а **Terminal AI** лишь предлагает текст строки ввода. Это не **Session**: на **Canvas** у него нет Node-а.
+- **SSH session** идёт внутри **Terminal**-а, у неё ровно один **Remote host**. **Terminal AI** работает в ней, только если на этом **Remote host**-е он включён. **Remote host** — не **Machine** и не **Linked machine**.
