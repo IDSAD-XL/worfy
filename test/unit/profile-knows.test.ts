@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ConnectFolder } from '../../src/shared/ipc/projects'
-import { profileKnows } from '../../src/main/projects/connect'
+import { profileKnows, resolverReason } from '../../src/main/projects/connect'
 import { HarnessScriptStartError, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
 import { removeTestTree } from '../remove'
 
@@ -106,7 +106,17 @@ describe('profileKnows: bin/profile failed — an error with what it said', () =
   it('exit 1 with only the old ~/.claude/gate/config.json there (a broken old registry): rejects, not a new folder', async () => {
     const broken = 'profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: registry /home/.claude/gate/config.json is broken: the "repos" field must be an array\n'
     await expect(profileKnows(gitFolder, answers({ code: 1, stdout: '', stderr: broken }), legacyOnly)).rejects.toThrow(
-      'bin/profile failed with exit code 1: profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 4)',
+      new Error('bin/profile failed with exit code 1: registry /home/.claude/gate/config.json is broken: the "repos" field must be an array'),
+    )
+  })
+
+  it('exit 1 with long paths (a temporary folder on macOS): the registry reason is whole, not cut at the limit of a reason', async () => {
+    const deep = `/private/var/folders/3c/${'v'.repeat(28)}/T/worfy-connect-AbCdEf`
+    const registry = `${deep}/home/.claude/worfy-harness/gate/config.json`
+    const broken = `profile: resolver /Users/someone/Stuff/CanvasForAI/.claude/worktrees/gate-full-${'x'.repeat(80)}/harness/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: registry ${registry} is broken: the "repos" field must be an array\n`
+    expect(broken.length).toBeGreaterThan(400)
+    await expect(profileKnows(gitFolder, answers({ code: 1, stdout: '', stderr: broken }), withRegistry)).rejects.toThrow(
+      new Error(`bin/profile failed with exit code 1: registry ${registry} is broken: the "repos" field must be an array`),
     )
   })
 
@@ -146,5 +156,34 @@ describe('profileKnows: what bin/profile answered', () => {
       withRegistry,
     )
     expect(asked).toEqual([{ cwd: '/work/shop', args: ['-C', '/work/shop', '--json'] }])
+  })
+})
+
+describe('resolverReason: the gate resolver reason inside the stderr of bin/profile', () => {
+  const reason = 'registry /h/gate/config.json is broken: the "repos" field must be an array'
+
+  it('the line bin/profile wraps the resolver in: the reason only', () => {
+    expect(resolverReason(`profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: ${reason}\n`)).toBe(`${reason}\n`)
+    expect(resolverReason(FRESH_STDERR)).toBe("registry /h/gate/config.json cannot be read: ENOENT: no such file or directory, open '/h/gate/config.json'\n")
+  })
+
+  it('the resolver line without the wrapping (the line bin/profile passes on as it is): the reason only', () => {
+    expect(resolverReason(`gate-resolve: ${reason}\n`)).toBe(`${reason}\n`)
+  })
+
+  it('a message without the wrapping stays as it is', () => {
+    const notJson = 'profile: /h/projects/shop/profile.json is not valid JSON: Unexpected end of JSON input\n'
+    expect(resolverReason(notJson)).toBe(notJson)
+    expect(resolverReason('')).toBe('')
+  })
+
+  it('a crash of the resolver keeps its wrapping: it says that the resolver crashed', () => {
+    const crash = 'profile: resolver /h/plugin/hooks/gate-resolve.mjs failed (exit 1) — project not determined: TypeError: boom\n'
+    expect(resolverReason(crash)).toBe(crash)
+  })
+
+  it('only the resolver line of several is unwrapped; gate-resolve: in the middle of a line stays', () => {
+    const stderr = `warning: something else\r\nprofile: resolver /h/r.mjs failed (exit 4) — project not determined: gate-resolve: ${reason}\r\nnote: see gate-resolve: docs\n`
+    expect(resolverReason(stderr)).toBe(`warning: something else\r\n${reason}\r\nnote: see gate-resolve: docs\n`)
   })
 })

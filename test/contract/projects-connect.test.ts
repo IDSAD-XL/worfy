@@ -396,9 +396,9 @@ describe('a folder the Harness already knows', () => {
     const answer = await connector.inspect(repo)
     expect(answer.status).toBe('rejected')
     const reason = answer.status === 'rejected' ? answer.reason : ''
-    expect(reason.startsWith(`The Harness could not tell whether it knows ${repo}: bin/profile failed with exit code 1: profile: resolver `)).toBe(true)
-    expect(reason).toContain('failed (exit 4) — project not determined: gate-resolve: registry ')
-    expect(reason.endsWith(`${join(harnessHome, 'gate', 'config.json')} is broken: the "repos" field must be an array`)).toBe(true)
+    // The resolver's own reason, without bin/profile's wrapping: with the long paths of a
+    // temporary folder the wrapped line outgrew the limit of a reason and lost its end.
+    expect(reason).toBe(`The Harness could not tell whether it knows ${repo}: bin/profile failed with exit code 1: registry ${join(harnessHome, 'gate', 'config.json')} is broken: the "repos" field must be an array`)
     expect(requests).toHaveLength(0)
   })
 })

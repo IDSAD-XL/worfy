@@ -251,6 +251,19 @@ export async function inspectFolder(folder: string, git: GitRunner): Promise<Fol
   }
 }
 
+/** A line of the gate resolver's own reason, with bin/profile's wrapping of it in front or without it. */
+const RESOLVER_REASON = /^(?:profile: resolver .+? failed \(exit \d+\) — project not determined: )?gate-resolve: /gm
+
+/**
+ * bin/profile's stderr with the gate resolver's own reasons unwrapped: bin/profile reports a resolver
+ * failure as `profile: resolver <path> failed (exit N) — project not determined: gate-resolve:
+ * registry <path> is broken: …`, and with two long paths the line outgrows scriptFailureDetail's
+ * limit before the reason. Such a line, and a bare `gate-resolve: …` line, keep only the reason
+ * (`registry <path> is broken: …`). Every other line stays as it is, a crash of the resolver
+ * (`… project not determined: TypeError: …`) included: its wrapping says where it crashed.
+ */
+export const resolverReason = (stderr: string): string => stderr.replace(RESOLVER_REASON, '')
+
 /**
  * Whether the Harness already knows the folder: `bin/profile -C <root>` exits 0 (a multi-repo folder
  * also needs `_resolved.workspace`). "Not known" is exit 3 (no registered project), and exit 1 while
@@ -281,7 +294,7 @@ export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner
   if (run.code === 3) return false
   if (run.code === 1 && !registries.some((registry) => existsSync(registry))) return false
   if (run.code !== 0) {
-    const detail = scriptFailureDetail(run.stderr)
+    const detail = scriptFailureDetail(resolverReason(run.stderr))
     throw new Error(`bin/profile failed with exit code ${String(run.code)}${detail ? `: ${detail}` : ''}`)
   }
   if (folder.kind === 'git') return true
