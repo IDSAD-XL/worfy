@@ -32,17 +32,32 @@ export async function until(what: string, done: () => boolean, ms = 5000): Promi
   }
 }
 
+/** The calls that change the disk, as countFsCalls labels them (worfy-windows ticket 33). */
+export type FsWrite = 'mkdir' | 'rename' | 'rm' | 'rmdir' | 'unlink'
+
 /**
  * Counts the calls of node:fs that take a path, whoever makes them — chokidar included: the
- * functions are replaced on the module and the named imports are brought in line with it.
+ * functions are replaced on the module and the named imports are brought in line with it. The
+ * calls that change the disk are counted too; the ones named in `refuse` are counted and then
+ * fail with EPERM before they reach the disk, so a test can show a folder is not made without
+ * making it anywhere.
  */
-export function countFsCalls(): { calls: string[]; restore: () => void } {
+export function countFsCalls(options: { refuse?: readonly FsWrite[] } = {}): { calls: string[]; restore: () => void } {
   const calls: string[] = []
   const undo: (() => void)[] = []
+  const refused = new Set<string>(options.refuse ?? [])
   const wrap = (owner: Record<string, unknown>, name: string, label: string): void => {
     const original = owner[name] as (...args: unknown[]) => unknown
     const counted = function (this: unknown, ...args: unknown[]): unknown {
       calls.push(`${label} ${String(args[0])}`)
+      if (refused.has(label)) {
+        const error = Object.assign(new Error(`EPERM: ${label} ${String(args[0])} is refused by the test`), { code: 'EPERM' })
+        // The promise form rejects, the callback form calls back with the error, the sync form throws.
+        if (owner === (fs.promises as unknown)) return Promise.reject(error)
+        const callback = args.at(-1)
+        if (name === label && typeof callback === 'function') return void (callback as (error: Error) => void)(error)
+        throw error
+      }
       return original.apply(this, args)
     }
     owner[name] = Object.assign(counted, original)
@@ -50,9 +65,10 @@ export function countFsCalls(): { calls: string[]; restore: () => void } {
       owner[name] = original
     })
   }
-  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile']) wrap(fs.promises as unknown as Record<string, unknown>, name, name)
-  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile', 'watch', 'watchFile']) wrap(fs as unknown as Record<string, unknown>, name, name)
-  for (const name of ['realpathSync', 'statSync', 'lstatSync', 'readdirSync', 'openSync', 'readlinkSync', 'existsSync', 'accessSync', 'readFileSync']) wrap(fs as unknown as Record<string, unknown>, name, name.replace(/Sync$/, ''))
+  const writes: FsWrite[] = ['mkdir', 'rename', 'rm', 'rmdir', 'unlink']
+  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile', ...writes]) wrap(fs.promises as unknown as Record<string, unknown>, name, name)
+  for (const name of ['realpath', 'stat', 'lstat', 'readdir', 'open', 'readlink', 'access', 'readFile', 'watch', 'watchFile', ...writes]) wrap(fs as unknown as Record<string, unknown>, name, name)
+  for (const name of ['realpathSync', 'statSync', 'lstatSync', 'readdirSync', 'openSync', 'readlinkSync', 'existsSync', 'accessSync', 'readFileSync', 'mkdirSync', 'renameSync', 'rmSync', 'rmdirSync', 'unlinkSync']) wrap(fs as unknown as Record<string, unknown>, name, name.replace(/Sync$/, ''))
   syncBuiltinESMExports()
   return {
     calls,
@@ -63,12 +79,17 @@ export function countFsCalls(): { calls: string[]; restore: () => void } {
   }
 }
 
-/** The counted calls that name a path through the link, other than lstat and readlink of the link itself. */
+/**
+ * The counted calls that name a path through the link. Not counted: the calls on the link itself
+ * that do not follow it — lstat and readlink read it, rename moves it, unlink and rmdir take it
+ * away. mkdir and rm of the link itself are counted: worfy has no reason to make or remove a
+ * folder through a link, and with `recursive` either may go through it.
+ */
 export function through(calls: readonly string[], link: string): string[] {
   const lower = link.toLowerCase()
   return calls.filter((call) => {
     const path = call.replace(/^\S+ /, '').toLowerCase()
-    if (path === lower) return !/^(lstat|readlink) /.test(call)
+    if (path === lower) return !/^(lstat|readlink|rename|unlink|rmdir) /.test(call)
     return path.startsWith(`${lower}\\`)
   })
 }

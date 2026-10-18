@@ -4,7 +4,7 @@
 // answer by contacting the host: `contacts` must stay empty.
 import { win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LinkSafeWatch, MAX_SCAN_DEPTH, RETRY_DELAY_MS, type LinkSafeWatchOptions, type WatchFs, type WatchState } from '../../src/main/link-safe-watch'
+import { LinkSafeWatch, MAX_SCAN_DEPTH, RETRY_DELAY_MS, RETRY_SLOW_AFTER, ROOT_ERRORS_BEFORE_PAUSE, SLOW_RETRY_DELAY_MS, type LinkSafeWatchOptions, type WatchFs, type WatchState } from '../../src/main/link-safe-watch'
 import { UNCHECKED } from '../../src/main/remote-links'
 import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
 
@@ -370,7 +370,7 @@ describe('a root that is not there, or goes away', () => {
     expect(changes).toEqual([])
   })
 
-  it('a root that comes between the look for it and the start of the wait is found: the wait looks once more', async () => {
+  it('a root that comes between the look for it and the start of the wait is found: the wait looks once more, and the root is reported once the start is over', async () => {
     const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
     const watch = disk.fs.watch
     let first = true
@@ -389,6 +389,9 @@ describe('a root that is not there, or goes away', () => {
     open.push(late)
     expect(await late.start()).toBe('watching')
     expect(disk.open()).toEqual([`${ROOT} (recursive)`])
+    // Not there at the first look: the Ticket was written before any watch saw it (worfy-windows
+    // ticket 33). The caller may not have read the root yet, but nothing says it is there now.
+    expect(changes).toEqual([ROOT])
   })
 
   it('a root that comes as a link to a share is refused when it comes', async () => {
@@ -446,12 +449,13 @@ describe('a root that is not there, or goes away', () => {
 describe('a look at the root that fails is repeated', () => {
   const TARGET = 'C:\\other\\scratch'
 
-  it('a root that is a link to a folder of this machine which is not there: waited for without a word, and watched once the folder is made', async () => {
+  it('a root that is a link to a folder of this machine which is not there: said once, looked at again, and watched by its real path once the folder is made', async () => {
     const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE, [ROOT]: linkTo(TARGET) })
     const { watch, state, changes, errors } = await start(disk, ROOT, [REPO, ROOT], { retryDelayMs: RETRY })
     expect(state).toBe('waiting')
     expect(watch.watched()).toEqual({ root: null, waitingAt: null, links: {} })
     expect(disk.open()).toEqual([])
+    await until('two more looks', () => disk.calls.filter((call) => call === `realpath ${ROOT}`).length >= 3)
 
     // No event tells of it: nothing above the folder is watched.
     disk.putQuietly(`${TARGET}\\demo\\issues\\01-a.md`, FILE)
@@ -459,9 +463,11 @@ describe('a look at the root that fails is repeated', () => {
     await watch.settled()
     expect(watch.watched()).toEqual({ root: TARGET, waitingAt: null, links: {} })
     expect(disk.open()).toEqual([`${TARGET} (recursive)`])
+    // The system is given the real path, not the link (worfy-windows ticket 33).
+    expect(disk.calls.filter((call) => call.startsWith('watch '))).toEqual([`watch ${TARGET} (recursive)`])
     expect(changes).toEqual([ROOT])
-    // "Not there" is no failure.
-    expect(errors).toEqual([])
+    // A root that leads nowhere is not a root that is not there: the log says so, once (ticket 33).
+    expect(errors.map(String)).toEqual([`Error: ${ROOT} is a link that leads nowhere: it is looked at again until it leads to a folder`])
     expect(disk.contacts).toEqual([])
 
     disk.put(`${TARGET}\\demo\\issues\\02-b.md`, FILE)
@@ -483,8 +489,9 @@ describe('a look at the root that fails is repeated', () => {
     await until('the watch of the root', () => watch.state === 'watching')
     await watch.settled()
     expect(disk.open()).toEqual([`${TARGET} (recursive)`])
+    expect(disk.calls.filter((call) => call.startsWith('watch '))).toEqual([`watch ${TARGET} (recursive)`, `watch ${TARGET} (recursive)`])
     expect(changes).toEqual([ROOT, ROOT])
-    expect(errors).toEqual([])
+    expect(errors.map(String)).toEqual([`Error: ${ROOT} is a link that leads nowhere: it is looked at again until it leads to a folder`])
   })
 
   it('the time between two looks is two seconds unless the caller says otherwise, and close leaves no timer behind', async () => {
@@ -890,5 +897,176 @@ describe('close', () => {
     await watch.settled()
     expect(watch.state).toBe('closed')
     expect(errors).toEqual([])
+  })
+})
+
+// The review of PR #274, rounds one and two (worfy-windows ticket 33): the mutants that passed,
+// and the retries that did not end or grow.
+describe('an event that names a folder by its absolute path', () => {
+  it('the folder the wait is at is removed: the wait moves up to the folder above', async () => {
+    const disk = windowsDisk({ [`${REPO}\\.scratch\\notes.txt`]: FILE })
+    const root = `${REPO}\\.scratch\\tickets`
+    const { watch, state } = await start(disk, root, [REPO, root])
+    expect(state).toBe('waiting')
+    expect(watch.watched().waitingAt).toBe(`${REPO}\\.scratch`)
+    // Windows names the removed folder itself, by its `\\?\` path; the next name on the way never comes.
+    disk.remove(`${REPO}\\.scratch`)
+    await watch.settled()
+    expect(watch.watched()).toEqual({ root: null, waitingAt: REPO, links: {} })
+    expect(disk.open()).toEqual([REPO])
+  })
+
+  it('what a local link leads to is removed: its watch is closed at the first such event, before any new look for links', async () => {
+    const link = `${ROOT}\\linked`
+    const disk = windowsDisk({ ...TICKETS, [link]: linkTo('C:\\other\\epic'), 'C:\\other\\epic\\spec.md': FILE })
+    // No look for links comes in the time of the test: only the event may close the watch.
+    const { watch, changes } = await start(disk, ROOT, [REPO, ROOT], { scanDelayMs: 60_000 })
+    expect(disk.open()).toEqual([`${ROOT} (recursive)`, 'C:\\other\\epic (recursive)'])
+    disk.remove('C:\\other\\epic')
+    expect(watch.watched().links).toEqual({})
+    expect(disk.open()).toEqual([`${ROOT} (recursive)`])
+    // Once for the five events: the link is reported, the rest are not the watch's any more.
+    expect(changes).toEqual([link])
+  })
+})
+
+describe('the review of PR #274: close during the wait, and a root that comes while the wait is made', () => {
+  it('close while the wait looks for the folder above the root: no wait is made after the close', async () => {
+    const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
+    const held = holding(disk.fs, 'kind', REPO)
+    const { watch } = made(disk, ROOT, [REPO, ROOT], { fs: held.fs })
+    const started = watch.start()
+    await held.asked
+    watch.close()
+    held.release()
+    expect(await started).toBe('closed')
+    await watch.settled()
+    expect(disk.open()).toEqual([])
+    expect(disk.calls.filter((call) => call.startsWith('watch '))).toEqual([])
+  })
+
+  it('a root that comes while the wait is made, and whose watch then fails every time: said once', async () => {
+    const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE })
+    const refused = coded('EPERM', `watch ${ROOT}`)
+    let first = true
+    let rootWatches = 0
+    const fs: WatchFs = {
+      ...disk.fs,
+      watch: (path, ...rest) => {
+        if (path.toLowerCase() === ROOT.toLowerCase()) {
+          rootWatches++
+          throw refused
+        }
+        const handle = disk.fs.watch(path, ...rest)
+        // The root comes right after the wait began, with no event: the wait finds it by its second look.
+        if (first) disk.putQuietly(`${ROOT}\\demo\\spec.md`, FILE)
+        first = false
+        return handle
+      },
+    }
+    const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], { fs, retryDelayMs: RETRY })
+    await until('three more looks', () => rootWatches >= 4)
+    expect(watch.state).toBe('waiting')
+    expect(errors).toEqual([refused])
+  })
+})
+
+describe('a look that fails again and again', () => {
+  const TARGET = 'C:\\other\\scratch'
+
+  it('after RETRY_SLOW_AFTER failures in a row the time between two looks grows to SLOW_RETRY_DELAY_MS', async () => {
+    expect([RETRY_SLOW_AFTER, SLOW_RETRY_DELAY_MS]).toEqual([5, 30_000])
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE, [ROOT]: linkTo(TARGET) })
+      const { watch, errors } = await start(disk)
+      const looks = (): number => disk.calls.filter((call) => call === `realpath ${ROOT}`).length
+      expect(looks()).toBe(1)
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * (RETRY_SLOW_AFTER - 1))
+      expect(looks()).toBe(RETRY_SLOW_AFTER)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS - 1)
+      expect(looks()).toBe(RETRY_SLOW_AFTER)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(looks()).toBe(RETRY_SLOW_AFTER + 1)
+      // One line for the whole run.
+      expect(errors).toHaveLength(1)
+
+      // The folder comes: watched at the next look, and a later failure starts from the short time again.
+      disk.putQuietly(`${TARGET}\\demo\\spec.md`, FILE)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(watch.state).toBe('watching')
+      disk.remove(TARGET)
+      await vi.advanceTimersByTimeAsync(0)
+      const after = looks()
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
+      expect(looks()).toBe(after + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a look for links that throws every time, after the root watch is made, is said once', async () => {
+    const disk = windowsDisk(TICKETS)
+    const bug = new Error('the rule of the caller threw')
+    const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], {
+      retryDelayMs: RETRY,
+      enter: () => {
+        throw bug
+      },
+    })
+    expect(watch.state).toBe('waiting')
+    await until('three more looks', () => disk.calls.filter((call) => call === `watch ${ROOT} (recursive)`).length >= 4)
+    expect(errors).toEqual([bug])
+  })
+
+  it(`a root watch that fails right after it is made, every time: made again at once ${ROOT_ERRORS_BEFORE_PAUSE} times, then after the time between two looks, and the log has a bounded number of lines`, async () => {
+    expect(ROOT_ERRORS_BEFORE_PAUSE).toBe(3)
+    const disk = windowsDisk(TICKETS)
+    const failure = new Error('EPERM: operation not permitted, watch')
+    const fs: WatchFs = {
+      ...disk.fs,
+      watch: (path, recursive, onEvent, onError) => {
+        const handle = disk.fs.watch(path, recursive, onEvent, onError)
+        if (path.toLowerCase() === ROOT.toLowerCase()) setTimeout(() => onError(failure), 0)
+        return handle
+      },
+    }
+    const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], { fs, retryDelayMs: RETRY, slowRetryDelayMs: 60_000 })
+    const watches = (): number => disk.calls.filter((call) => call === `watch ${ROOT} (recursive)`).length
+    // The start, three at once, then four after the short time, as a failed look; the next one is a minute away.
+    const before = 1 + ROOT_ERRORS_BEFORE_PAUSE + (RETRY_SLOW_AFTER - 1)
+    await until('the watches before the long time', () => watches() >= before)
+    await pause(RETRY * 20)
+    expect(watches()).toBe(before)
+    expect(errors.map(String)).toEqual([...Array<string>(ROOT_ERRORS_BEFORE_PAUSE).fill(String(failure)), `Error: the watch of ${ROOT} fails each time it is made: it is made again after a pause, and not said again until it works`])
+    expect(watch.state).toBe('waiting')
+  })
+})
+
+describe('the links of a root on a mapped network drive', () => {
+  it('a link is read with the real path of the root among the allowed folders: a link that stays on the machine gets its watch', async () => {
+    // Z: is a share of the user mapped to a letter; realpath answers it by its UNC path. The model
+    // has no mapped drives: the same folder is put at both paths, and realpath is told the mapping.
+    const root = 'Z:\\worfy\\demo\\cards'
+    const real = '\\\\nas\\work\\worfy\\demo\\cards'
+    const disk = windowsDisk({
+      [`${root}\\c1\\index.html`]: FILE,
+      [`${real}\\c1\\index.html`]: FILE,
+      [`${real}\\linked`]: linkTo('C:\\elsewhere\\card'),
+      'C:\\elsewhere\\card\\index.html': FILE,
+    })
+    const fs: WatchFs = {
+      ...disk.fs,
+      realpath: async (path) => {
+        if (path.toLowerCase() !== root.toLowerCase()) return disk.fs.realpath(path)
+        disk.calls.push(`realpath ${path}`)
+        return real
+      },
+    }
+    const { watch, state } = await start(disk, root, [root], { fs, enter: () => true, wanted: () => true })
+    expect(state).toBe('watching')
+    expect(watch.skipped()).toEqual([])
+    expect(watch.watched()).toEqual({ root: real, waitingAt: null, links: { [`${root}\\linked`]: 'C:\\elsewhere\\card' } })
+    expect(disk.contacts).toEqual([])
   })
 })

@@ -5,6 +5,17 @@
 // What makes it a model of the danger: a call that would make Windows go through a link to
 // `\\host\share\…` is written to `contacts` and fails as the real call does. lstat and readlink of
 // the link itself are not such calls; lstat of anything below it is.
+//
+// What it does not model (worfy-windows ticket 33):
+// - short 8.3 names and network drives mapped to a letter: realpath answers the path as it was put
+//   in the model, and `Z:\…` is a disk like `C:\…`;
+// - a call made right on `\\evil\share\x`, with no link on the way: only a call through a link is
+//   written to `contacts`;
+// - what a recursive watch does not see on the PC: a change put through a local link is told to a
+//   watch of the folder that holds the link, as if the change were in that folder;
+// - the events of a removal: a watch of the removed folder itself gets five events that name it by
+//   its `\\?\` path, the number is the model's own; a watch of a folder below the removed one gets
+//   nothing at all.
 import { win32 } from 'node:path'
 import type { EntryKind, WatchFs, WatchHandle } from '../../src/main/link-safe-watch'
 import type { LinkFs, LinkFsSync } from '../../src/main/remote-links'
