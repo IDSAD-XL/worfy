@@ -1,7 +1,8 @@
 // The screen of the Terminal contract tests (terminal-harness.ts): the window the calls come from
-// answers the cursor-position requests of a shell, as xterm.js does in the app. The console of the
-// node-pty package 1.2.0-beta.15 asks them after a resize, and a shell that is not answered stops
-// echoing on Windows (PR #498). A stand-in pty here, so this runs on any system.
+// answers the cursor-position requests of a shell, as xterm.js does in the app, marked as an
+// answer; main drops those answers and answers itself (cursor-answers.ts, worfy-windows ticket 39).
+// The console of the node-pty package 1.2.0-beta.15 asks them after a resize, and a shell that is
+// not answered stops echoing on Windows (PR #498). A stand-in pty here, so this runs on any system.
 import { describe, expect, it, vi } from 'vitest'
 import type { PtyProcess, SpawnPty } from '../../src/main/terminal/pty'
 import { CURSOR_ANSWER, CURSOR_REQUEST, cursorRequests, harness, NODE, PROJECT, useTerminalScratch } from './terminal-harness'
@@ -37,7 +38,7 @@ describe('the screen of the Terminal contract tests', () => {
     expect(count('plain text')).toBe(0)
   })
 
-  it('the window of the calls answers each cursor request with a position; another window does not', async () => {
+  it('the window of the calls answers each cursor request, marked as an answer, and main drops it: the shell gets main’s answer, once, with the position (worfy-windows ticket 39)', async () => {
     const shell = printingPty()
     const spawn: SpawnPty = () => shell.pty
     const h = await harness({ spawn, platform: 'darwin' })
@@ -48,10 +49,12 @@ describe('the screen of the Terminal contract tests', () => {
     shell.print(`prompt${CURSOR_REQUEST}`)
     shell.print('\x1b[6')
     shell.print('n more')
-    await vi.waitFor(() => expect(shell.typed.filter((data) => data === CURSOR_ANSWER)).toHaveLength(2))
-    // Nothing else was typed, and no third answer comes.
+    // After `prompt` the cursor is in the 7th column of the first row, for both requests.
+    const tracked = '\x1b[1;7R'
+    await vi.waitFor(() => expect(shell.typed).toHaveLength(2))
+    // Nothing else was typed, and no third answer comes: the screen's own answers went nowhere.
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(shell.typed).toEqual([CURSOR_ANSWER, CURSOR_ANSWER])
+    expect(shell.typed).toEqual([tracked, tracked])
     expect(CURSOR_ANSWER).toBe('\x1b[1;1R')
     // A close off Windows signals the pid, which is nobody's here: the stand-in ends itself.
     shell.pty.kill()

@@ -138,7 +138,8 @@ export function alive(pid: number): boolean {
 
 /**
  * A cursor-position request (DSR 6) and what a screen answers to it: row and column, 1-based.
- * xterm.js answers it in the app. The console of the node-pty package 1.2.0-beta.15
+ * main answers it (cursor-answers.ts); xterm.js in a view answers too, and main drops that answer.
+ * The console of the node-pty package 1.2.0-beta.15
  * (OpenConsole.exe 1.25.2603.03002) sends it about ten times after a resize, and PowerShell echoes
  * nothing more until it is answered (measured on the owner's PC, PR #498).
  */
@@ -218,13 +219,16 @@ export async function harness(options: HarnessOptions = {}) {
   const exits: Exit[] = []
   let windows = 0
   // The window of the calls without a window of their own is the screen: it answers the cursor
-  // requests, once for each, as xterm.js does. Another window stays silent: two answers to one
-  // request are not what a test of a resize is about.
+  // requests, once for each, as xterm.js does in a view — marked as an answer (`reply`), and main
+  // drops it: main answers those requests itself (cursor-answers.ts, worfy-windows ticket 39).
+  // Another window stays silent.
   const screens = new Map<string, (data: string) => number>()
   const answerCursor = (output: Output, from: ReturnType<typeof makeWindow>) => {
     let requests = screens.get(output.nodeId)
     if (requests === undefined) screens.set(output.nodeId, (requests = cursorRequests()))
-    for (let left = requests(output.data); left > 0; left--) void type(CURSOR_ANSWER, output.nodeId, from).catch(() => undefined)
+    for (let left = requests(output.data); left > 0; left--) {
+      void ok('terminal.input', { projectId: PROJECT, nodeId: output.nodeId, data: CURSOR_ANSWER, reply: true }, from).catch(() => undefined)
+    }
   }
   const makeWindow = (screen = false) => {
     const window = Object.assign(new EventEmitter(), {

@@ -262,6 +262,8 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
   it('a second screen that only opens the Terminal leaves the size of the pty where it is, whatever the kept output asks', async () => {
     const { pty } = await terminal()
     pty.print(`PS C:\\> ${ESC}[c${ESC}[?1004h${ESC}[6nvim is waiting`)
+    // main answers the cursor request when it comes (cursor-answers.ts).
+    await waitFor(() => expect(pty.writes).toEqual([`${ESC}[1;9R`]))
     pty.calls.length = 0
 
     await mount()
@@ -279,6 +281,8 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     await print(pty, xterm, `${ESC}[c`)
     await print(pty, xterm, `${ESC}[?1004h`)
     await print(pty, xterm, `${ESC}[6n`)
+    // The cursor position is main's answer (cursor-answers.ts), a moment later; the view's own goes nowhere.
+    await waitFor(() => expect(pty.calls).toHaveLength(3))
     expect(pty.calls).toEqual([
       ['write', DEVICE_ATTRIBUTES],
       ['write', FOCUS_OUT],
@@ -323,6 +327,24 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     await mount()
 
     expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
+    expect(pty.resizes).toEqual([])
+  })
+
+  it('cursor requests before, while and after a view opens (about ten after a resize, as node-pty 1.2.0-beta.15 sends them): each answered once, by main', async () => {
+    const tenAfterResize = `${ESC}[6n`.repeat(10)
+    const { pty } = await terminal({ otherScreen: true, duringOpen: (shell) => shell.print(`${ESC}[6n`) })
+    // No view yet: main answers the ten at once.
+    pty.print(`PS> ${tenAfterResize}`)
+    await waitFor(() => expect(pty.writes).toHaveLength(10))
+    whileReplaying.run = () => pty.print(`${ESC}[6n`)
+
+    const { xterm } = await mount()
+    await print(pty, xterm, `${ESC}[6n`)
+
+    // Ten before the view, one while it opened, one while it parsed the kept output, one live.
+    await waitFor(() => expect(pty.writes).toHaveLength(13))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pty.writes).toEqual(Array.from({ length: 13 }, () => `${ESC}[1;5R`))
     expect(pty.resizes).toEqual([])
   })
 

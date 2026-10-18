@@ -95,8 +95,9 @@ export const terminalShells = invokeChannel(
 
 /**
  * Keys typed or pasted in the terminal. `reply` marks an answer of the caller's terminal to the
- * program instead (a focus report, the device attributes, the cursor position): it reaches the shell
- * the same way, but does not give the caller the size of the pty (worfy-windows ticket 39).
+ * program instead (a focus report, the device attributes): it reaches the shell the same way, but
+ * does not give the caller the size of the pty (worfy-windows ticket 39). A marked answer to a
+ * cursor-position request goes nowhere: main answers those itself (src/main/terminal/cursor-answers.ts).
  */
 export const terminalInput = invokeChannel(
   'terminal.input',

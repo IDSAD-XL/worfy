@@ -19,7 +19,9 @@
 // subscriber that typed or clicked in the terminal last (Q14). A subscriber's resize is remembered
 // and applies only while it owns the size; typing (write) or a click (takeSize) makes it the owner.
 // An answer of a screen's terminal to the program (write with `reply`) does not (ticket 39 of
-// worfy-windows): it reaches the shell, and the size stays where it is.
+// worfy-windows): it reaches the shell, and the size stays where it is. Cursor-position requests
+// are answered by main itself, once, at the pty's size, and the screens' answers to them are
+// dropped (cursor-answers.ts).
 // When the owner leaves, the size goes to the subscriber that typed or clicked last, or else to the
 // one whose size came last.
 //
@@ -54,6 +56,7 @@ import { spawn as spawnNodePty } from 'node-pty'
 import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
+import { CursorAnswers, isCursorAnswer } from './cursor-answers'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 
@@ -525,6 +528,8 @@ interface Terminal {
   tracker: ShellTracker | null
   /** The size the pty has now. */
   size: Size
+  /** Answers the cursor-position requests in the output, on every system (cursor-answers.ts). */
+  cursor: CursorAnswers
   exited: Promise<void>
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
@@ -732,6 +737,7 @@ export class TerminalRegistry {
       return
     }
     terminal.size = size
+    terminal.cursor.resize(size.cols, size.rows)
   }
 
   /** Types `command` once: on the shell's first output, or after COMMAND_DELAY_MS of silence. */
@@ -804,6 +810,15 @@ export class TerminalRegistry {
       buffer: new ReplayBuffer(),
       tracker,
       size: { cols, rows },
+      cursor: new CursorAnswers({ cols, rows }, (answer) => {
+        // Not for a Terminal that has ended: its pty takes no input.
+        if (ended) return
+        try {
+          pty.write(answer)
+        } catch (error) {
+          console.warn(`[terminal] ${key}: a cursor-position request could not be answered`, error)
+        }
+      }),
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
@@ -811,6 +826,7 @@ export class TerminalRegistry {
         if (ended) return
         ended = true
         terminal.finished = true
+        terminal.cursor.dispose()
         if (exitPoll !== null) clearInterval(exitPoll)
         if (admission !== null) assist?.revoke(admission.token)
         if (this.terminals.get(key) === terminal) {
@@ -839,6 +855,7 @@ export class TerminalRegistry {
       // was not a close is kept for the next open, as before.
       if (ended && (terminal.closing || this.platform === 'win32')) return
       terminal.buffer.push(data)
+      terminal.cursor.feed(data)
       const { end } = terminal.buffer
       this.broadcast(key, 'sending the output', (each) => each.output(data, end))
       if (tracker !== null) for (const event of tracker.feed(data)) this.announce(key, event)
@@ -980,12 +997,14 @@ export class TerminalRegistry {
 
   /**
    * Types into the shell; a subscriber that types takes the size of the pty first. An answer of the
-   * subscriber's terminal to the program (`reply`: a focus report, the device attributes, the
-   * cursor position) reaches the shell the same way and leaves the size where it is: the size
-   * belongs to the screen that typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39).
+   * subscriber's terminal to the program (`reply`: a focus report, the device attributes) reaches
+   * the shell the same way and leaves the size where it is: the size belongs to the screen that
+   * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer to a
+   * cursor-position request goes nowhere: main has answered that request itself (cursor-answers.ts).
    */
   write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
     const terminal = this.running(key)
+    if (options.reply === true && isCursorAnswer(data)) return
     if (options.reply !== true) this.touch(key, terminal, client)
     terminal.pty.write(data)
   }
