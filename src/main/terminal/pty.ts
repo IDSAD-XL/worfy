@@ -374,6 +374,9 @@ export interface PtyProcess {
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(signal?: string): void
+  /** Stops and restarts reading the output (node-pty: its socket); main's screen holds a flood back with it (cursor-answers.ts). */
+  pause?(): void
+  resume?(): void
 }
 
 export type SpawnPty = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd: string; env: Env }) => PtyProcess
@@ -818,7 +821,23 @@ export class TerminalRegistry {
         } catch (error) {
           console.warn(`[terminal] ${key}: a cursor-position request could not be answered`, error)
         }
-      }, key),
+      }, key, {
+        // Held back while main's screen lags behind a flood (cursor-answers.ts, HIGH_WATER).
+        pause: () => {
+          try {
+            pty.pause?.()
+          } catch (error) {
+            console.warn(`[terminal] ${key}: pausing the output failed`, error)
+          }
+        },
+        resume: () => {
+          try {
+            pty.resume?.()
+          } catch (error) {
+            console.warn(`[terminal] ${key}: resuming the output failed`, error)
+          }
+        },
+      }),
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
@@ -1085,6 +1104,8 @@ export class TerminalRegistry {
     }
     if (!terminal.closing) {
       terminal.closing = true
+      // A pty paused for main's screen is read to its end: node-pty reports the exit only then.
+      terminal.cursor.letOutputFlow()
       const { pid } = terminal.pty
       if (this.platform === 'win32') {
         void this.endWindowsShell(key, terminal)
@@ -1159,6 +1180,7 @@ export class TerminalRegistry {
     }
     if (exited && !quiet) return
     terminal.released = true
+    terminal.cursor.letOutputFlow()
     try {
       terminal.pty.kill()
     } catch (error) {

@@ -31,6 +31,15 @@
 // It is code in a string (`eval`), the same in tests, a dev run and the package; it loads
 // @xterm/headless by path, from app.asar.unpacked in the package (electron-builder.yml asarUnpack).
 //
+// The worker may fall behind a program that floods its output (one thread parses for every shell).
+// xterm.js keeps what it has not parsed yet, and past 50 MB it refuses more. So the worker says
+// how much of each shell's output it has parsed, and main keeps at most HIGH_WATER characters of a
+// shell on the way: above it main pauses that shell's pty, and resumes it once the worker is down
+// to LOW_WATER. The screens of the views get the output at the pace the worker parses it then.
+// Before a pty is closed, or when main stops answering a shell, its pty is resumed for good
+// (`letOutputFlow`): on Windows node-pty reports the exit only when the output of the console has
+// been read to its end.
+//
 // The screen may refuse output: xterm.js throws "write data discarded" once more than 50 MB wait
 // to be parsed; the worker may also fail to start or stop. Then main stops answering for that
 // shell until it ends (`answering` is false, a warning is logged once) and the views' marked
@@ -46,14 +55,22 @@ export { isCursorAnswer }
 /** Lines kept above the visible rows; see the head of the file. */
 export const SCROLLBACK = 1000
 
+/** Characters of a shell's output on the way to the worker above which main pauses its pty. */
+export const HIGH_WATER = 4_000_000
+/** ... and at or below which main resumes it. */
+export const LOW_WATER = 1_000_000
+
 /** For tests: a module to load in place of @xterm/headless when the worker starts. */
 export const screenWorker: { headless: string | undefined } = { headless: undefined }
 
+/** A module's path inside app.asar, as the same path out of it: electron-builder.yml unpacks @xterm/headless. */
+export function unpackedPath(path: string): string {
+  return path.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
+}
+
 /** Where @xterm/headless is, for the worker: in the package, out of app.asar (a worker may not read inside it). */
 function headlessPath(): string {
-  return createRequire(import.meta.url)
-    .resolve('@xterm/headless')
-    .replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
+  return unpackedPath(createRequire(import.meta.url).resolve('@xterm/headless'))
 }
 
 /** The worker: a headless xterm.js per shell, fed in the order main posts; what each answers goes back. */
@@ -77,8 +94,10 @@ parentPort.on('message', (m) => {
     }
     const screen = screens.get(m.id)
     if (screen === undefined) return
-    if (m.t === 'feed') screen.write(m.data)
-    else if (m.t === 'resize') screen.write('', () => { if (screens.get(m.id) === screen) screen.resize(m.cols, m.rows) })
+    if (m.t === 'feed') {
+      const n = m.data.length
+      screen.write(m.data, () => parentPort.postMessage({ t: 'parsed', id: m.id, n }))
+    } else if (m.t === 'resize') screen.write('', () => { if (screens.get(m.id) === screen) screen.resize(m.cols, m.rows) })
     else if (m.t === 'close') { screens.delete(m.id); screen.dispose() }
   } catch (error) {
     refuse(m.id, error)
@@ -91,11 +110,19 @@ type ToWorker =
   | { t: 'feed'; id: number; data: string }
   | { t: 'resize'; id: number; cols: number; rows: number }
   | { t: 'close'; id: number }
-type FromWorker = { t: 'data'; id: number; data: string } | { t: 'refused'; id: number; message: string }
+type FromWorker = { t: 'data'; id: number; data: string } | { t: 'parsed'; id: number; n: number } | { t: 'refused'; id: number; message: string }
 
 interface ScreenListener {
   data(data: string): void
+  /** The worker has parsed `n` more characters of this shell's output. */
+  parsed(n: number): void
   refused(reason: string): void
+}
+
+/** The pty of the shell, as far as main holds its output back. */
+export interface OutputFlow {
+  pause(): void
+  resume(): void
 }
 
 /** The one worker and the screens in it. */
@@ -137,6 +164,7 @@ class ScreenWorker {
       const listener = this.screens.get(message.id)
       if (listener === undefined) return
       if (message.t === 'data') listener.data(message.data)
+      else if (message.t === 'parsed') listener.parsed(message.n)
       else {
         this.screens.delete(message.id)
         listener.refused(message.message)
@@ -165,16 +193,27 @@ export class CursorAnswers {
   private disposed = false
   /** The screen refused output or the worker was lost: its position is no longer the shell's. */
   private failed = false
+  /** Characters posted to the worker and not parsed yet. */
+  private inFlight = 0
+  /** main has paused the pty (HIGH_WATER). */
+  private paused = false
+  /** The pty is never paused again (letOutputFlow). */
+  private flowing = false
 
-  /** `name` is the shell's, for the warning when the screen refuses output. */
+  /** `name` is the shell's, for the warning when the screen refuses output; `flow` is its pty, paused while the worker lags. */
   constructor(
     size: { cols: number; rows: number },
     answer: (data: string) => void,
     private readonly name = 'terminal',
+    private readonly flow?: OutputFlow,
   ) {
     this.id = screenWorkerOf().open(size, {
       data: (data) => {
         if (this.answering && isCursorAnswer(data)) answer(data)
+      },
+      parsed: (n) => {
+        this.inFlight -= n
+        if (this.paused && this.inFlight <= LOW_WATER) this.resume()
       },
       refused: (reason) => this.refuse(reason),
     })
@@ -185,9 +224,21 @@ export class CursorAnswers {
     return !this.disposed && !this.failed
   }
 
-  /** Output of the shell, in the order it came. */
+  /** Output of the shell, in the order it came. Pauses the pty while too much of it waits in the worker. */
   feed(data: string): void {
-    if (this.answering) screenWorkerOf().post({ t: 'feed', id: this.id, data })
+    if (!this.answering) return
+    this.inFlight += data.length
+    screenWorkerOf().post({ t: 'feed', id: this.id, data })
+    if (!this.paused && !this.flowing && this.inFlight > HIGH_WATER) {
+      this.paused = true
+      this.flow?.pause()
+    }
+  }
+
+  /** The pty is resumed if paused, and never paused again: before it is closed. */
+  letOutputFlow(): void {
+    this.flowing = true
+    this.resume()
   }
 
   /** The pty took a new size: applied after the output that came before it, as on a view. */
@@ -199,11 +250,20 @@ export class CursorAnswers {
     if (this.disposed) return
     this.disposed = true
     screenWorkerOf().close(this.id)
+    this.letOutputFlow()
+  }
+
+  private resume(): void {
+    if (!this.paused) return
+    this.paused = false
+    this.flow?.resume()
   }
 
   private refuse(reason: string): void {
     if (!this.answering) return
     this.failed = true
+    // Nothing goes to the worker any more: the pty must not wait for it.
+    this.letOutputFlow()
     console.warn(`[terminal] ${this.name}: main's screen refused output (${reason}); the views answer the cursor-position requests from now on`)
   }
 }

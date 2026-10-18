@@ -9,12 +9,16 @@
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { join } from 'node:path'
-import { CursorAnswers, isCursorAnswer, SCROLLBACK, screenWorker } from '../../src/main/terminal/cursor-answers'
+import { CursorAnswers, HIGH_WATER, isCursorAnswer, SCROLLBACK, screenWorker, unpackedPath } from '../../src/main/terminal/cursor-answers'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
 /** A stand-in of @xterm/headless whose write throws "write data discarded". */
 const REFUSING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-refuses.cjs')
+const SILENT_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-silent.cjs')
+const EXITING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-exits.cjs')
+/** 999 999 characters of `y` lines, as `yes` floods a shell; the same string each time. */
+const MEGABYTE = 'y\r\n'.repeat(333_333)
 const ESC = '\x1b'
 const REQUEST = `${ESC}[6n`
 
@@ -26,8 +30,25 @@ class StandInPty implements PtyProcess {
   private readonly data: ((data: string) => void)[] = []
   private readonly exits: ((event: { exitCode: number }) => void)[] = []
   private ended = false
+  /** Output printed while paused waits here, as a paused node-pty leaves it in its socket. */
+  private readonly held: string[] = []
+  paused = false
+  pauses = 0
+  resumes = 0
   onData(listener: (data: string) => void): void {
     this.data.push(listener)
+  }
+  pause(): void {
+    this.pauses += 1
+    this.paused = true
+  }
+  resume(): void {
+    this.resumes += 1
+    this.paused = false
+    while (!this.paused && this.held.length > 0) this.emit(this.held.shift() ?? '')
+  }
+  get heldLength(): number {
+    return this.held.reduce((sum, text) => sum + text.length, 0)
   }
   onExit(listener: (event: { exitCode: number }) => void): void {
     this.exits.push(listener)
@@ -39,6 +60,10 @@ class StandInPty implements PtyProcess {
     this.calls.push(['resize', cols, rows])
   }
   print(text: string): void {
+    if (this.paused) this.held.push(text)
+    else this.emit(text)
+  }
+  private emit(text: string): void {
     for (const listener of this.data) listener(text)
   }
   kill(): void {
@@ -238,6 +263,107 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
     pty.print(`${ESC}[30;1Hx${REQUEST}`)
     expect(await writtenSoon(pty, 2)).toEqual([`${ESC}[1;3R`, `${ESC}[30;2R`])
     expect(write).not.toHaveBeenCalled()
+  })
+})
+
+describe('main holds a flood back while its screen lags (worfy-windows ticket 39)', () => {
+  it('60 MB printed at once: the pty is paused above HIGH_WATER and resumed as the worker parses, the screen never refuses output, and the request after the flood is answered', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const shown = { length: 0 }
+    const { pty } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void (shown.length += data.length) })
+    for (let i = 0; i < 60; i += 1) pty.print(MEGABYTE)
+    pty.print(REQUEST)
+    const pausesAtOnce = pty.pauses
+    const heldAtOnce = pty.heldLength
+
+    // Without the pause all 60 MB reach xterm.js of the worker at once, and it refuses past 50 MB.
+    await vi.waitFor(() => expect(pty.writes.length + warn.mock.calls.length).toBeGreaterThan(0), { timeout: 60_000, interval: 50 })
+    expect(warn).not.toHaveBeenCalled()
+    expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
+    // Paused at the fifth megabyte, the 55 others and the request waiting in the pty.
+    expect(pausesAtOnce).toBe(1)
+    expect(heldAtOnce).toBe(55 * MEGABYTE.length + REQUEST.length)
+    expect(pty.pauses).toBeGreaterThan(1)
+    expect(pty.resumes).toBe(pty.pauses)
+    expect(pty.paused).toBe(false)
+    expect(shown.length).toBe(60 * MEGABYTE.length + REQUEST.length)
+  }, 90_000)
+
+  it('a screen that never says it parsed anything: the pty stays paused at HIGH_WATER with the rest of the output in it, and resumes when the screen catches up', async () => {
+    screenWorker.headless = SILENT_HEADLESS
+    try {
+      const shown = { length: 0 }
+      const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void (shown.length += data.length) })
+      expect(4 * MEGABYTE.length).toBeLessThanOrEqual(HIGH_WATER)
+      expect(5 * MEGABYTE.length).toBeGreaterThan(HIGH_WATER)
+      for (let i = 0; i < 6; i += 1) pty.print(MEGABYTE)
+      expect(pty.pauses).toBe(1)
+      expect(pty.heldLength).toBe(MEGABYTE.length)
+      expect(shown.length).toBe(5 * MEGABYTE.length)
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      expect(pty.paused).toBe(true)
+      expect(pty.resumes).toBe(0)
+
+      // The stand-in parses all it keeps at the empty write the worker makes for a resize.
+      registry.resize(KEY, 100, 30, a)
+      await vi.waitFor(() => expect(pty.resumes).toBe(1))
+      expect(pty.paused).toBe(false)
+      expect(pty.heldLength).toBe(0)
+      expect(shown.length).toBe(6 * MEGABYTE.length)
+      expect(pty.pauses).toBe(1)
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+
+  it('a pty paused for the screen is resumed for good when it is closed, so its exit can come', async () => {
+    screenWorker.headless = SILENT_HEADLESS
+    try {
+      const { registry, pty } = await shell()
+      for (let i = 0; i < 5; i += 1) pty.print(MEGABYTE)
+      expect(pty.paused).toBe(true)
+      const closing = registry.close(KEY)
+      expect(pty.paused).toBe(false)
+      pty.print(MEGABYTE)
+      expect(pty.pauses).toBe(1)
+      // close() sends SIGHUP to a pid no process has; the stand-in shell exits as a shell would.
+      pty.kill()
+      await closing
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+
+  it('when the worker of the screens ends (a crash), the shells do not hang: the pty is resumed, main stops answering and the view’s answer reaches the shell', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    // The worker thread ends at the first output it is given (process.exit in the stand-in).
+    screenWorker.headless = EXITING_HEADLESS
+    try {
+      const { registry, pty, a } = await shell()
+      for (let i = 0; i < 5; i += 1) pty.print(MEGABYTE)
+      pty.print(REQUEST)
+      expect(pty.pauses).toBe(1)
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
+      expect(String(warn.mock.calls[0]?.[0])).toContain('exit code 7')
+      expect(pty.paused).toBe(false)
+      expect(pty.heldLength).toBe(0)
+
+      registry.write(KEY, `${ESC}[24;1R`, a, { reply: true })
+      expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;1R`])
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+})
+
+describe('unpackedPath', () => {
+  it.each([
+    ['C:\\Program Files\\worfy\\resources\\app.asar\\node_modules\\@xterm\\headless\\lib-headless\\xterm-headless.js', 'C:\\Program Files\\worfy\\resources\\app.asar.unpacked\\node_modules\\@xterm\\headless\\lib-headless\\xterm-headless.js'],
+    ['/Applications/worfy.app/Contents/Resources/app.asar/node_modules/@xterm/headless/lib-headless/xterm-headless.js', '/Applications/worfy.app/Contents/Resources/app.asar.unpacked/node_modules/@xterm/headless/lib-headless/xterm-headless.js'],
+    ['C:\\work\\worfy\\node_modules\\@xterm\\headless\\lib-headless\\xterm-headless.js', 'C:\\work\\worfy\\node_modules\\@xterm\\headless\\lib-headless\\xterm-headless.js'],
+    ['/r/app.asar.unpacked/node_modules/x.js', '/r/app.asar.unpacked/node_modules/x.js'],
+  ])('%s → %s', (path, expected) => {
+    expect(unpackedPath(path)).toBe(expected)
   })
 })
 
