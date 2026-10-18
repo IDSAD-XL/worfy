@@ -379,6 +379,8 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
 
     const { xterm, shown } = await mount('exited')
 
+    // The parse has ended by now (mount waits for it): the view did not attach to the gone shell.
+    expect(screen.getByTestId('terminal-node').dataset.state).toBe('exited')
     expect(firstLine(xterm)).toBe('first|bye|')
     expect(shown.container.querySelector('.w-terminal__shell')?.textContent).toBe('sh')
     expect(pty.calls).toEqual([])
