@@ -78,6 +78,95 @@ Project pitfalls and what each `BLOCKED` reason of the preflight means are in th
 
 ## 1. Preflight
 
+**The cross-machine gate comes first** (`F cross_machine_gate`, worfy ADR-0069). A project may run
+on two machines, one of which cannot run the other's gate full. The PRs of the machine with
+`F cross_machine_gate.role` `request` that touch shared code carry the label
+`F cross_machine_gate.label` (skill `/worfy:ship-ticket`, step 8), and the machine with `serve`
+checks and merges them. Exit code 4 or `null` — the project has one machine: say "cross-machine gate
+skipped: the profile has no `cross_machine_gate`" and go on with the preflight. Each machine has its
+own profile, so the role is that machine's; the label and the section name come from the profile,
+never from this text.
+
+With `serve` — before the preflight, the open PRs with the label, **one at a time** (merge in turn,
+section 4):
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+gh pr list --state open --label "$(F cross_machine_gate.label)" --json number,headRefName --jq '.[] | "\(.number) \(.headRefName)"'; echo "EXIT=$?"
+```
+
+For each PR, in that order:
+
+1. A worktree of its own on the PR's branch, then `git fetch`, `git rebase origin/<base>` (the base —
+   `F worktree.base`) and `git push --force-with-lease`. A conflict only in the state file
+   (`F docs.handoff.path`) the session resolves itself: the session that merges resolves it (worfy
+   ADR-0056, consequences). Any other conflict is red, with the conflicting files as the reason.
+2. `F cross_machine_gate.check` in that worktree, the way section 4 runs a gate full of one PR — the
+   screen check, the e2e lock — with that command in place of the block's last line. Its verdict line
+   and exit code go into the report.
+3. The commands of the PR's section `F cross_machine_gate.checks_section`, each run in that worktree
+   with its exit code. The block prints the section's lines up to the next heading: a command and its
+   expected result a line, `none` when the section says there is nothing to run, `no-section` when the
+   PR has no such section — red, with the reason "no `<checks_section>` section":
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.checks_section)" '
+  { sub(/\r$/, "") }
+  $0 == h { on = 1; found = 1; next }
+  on && /^#/ { on = 0 }
+  on && NF { print }
+  END { if (!found) print "no-section" }'
+```
+
+4. CI on the new head — the CI wait block of section 4 (with `F workflow.ci` `batch`: `mergeable`).
+5. The report, before any merge: `gh pr comment <N> --body-file <file>`. Its first line is
+   `<checks_section> report: green` or `<checks_section> report: red`; then the verdict line of
+   `check` and its exit code, each command of the section with its exit code and the tail of its
+   output, and with red the reason. **No merge without the report.** Green — `check`, every command of
+   the section and CI are green and `gh pr comment` gave exit code 0 — then `gh pr merge <N> --squash`
+   and after it `gh pr edit <N> --remove-label "$(F cross_machine_gate.label)"`. Red or a rebase
+   conflict — the report with the reason, the label stays, no merge.
+
+The `request` machine does not run its own gate full again on the rebased branch before the merge:
+it checks the main branch at the start of its next wave (below). This session takes no tickets of
+the other machine's epic and does not change their status. Each PR of the pass — its verdict, the
+merge or the report — goes into the wave report (section 5).
+
+With `request` — first a gate full on the fresh base, before any ticket is dispatched: a worktree of
+its own on the base, detached, and the gate full of section 4 in it (the screen check, the e2e lock,
+`<PR worktree>` — this worktree):
+
+```bash
+git -C <repo> fetch
+git -C <repo> worktree add --detach <scratchpad>/base-gate origin/<base>
+(cd <scratchpad>/base-gate && <F commands.prepare_tree>); echo "EXIT=$?"
+# then the gate full block of section 4 with <PR worktree> = <scratchpad>/base-gate; afterwards:
+git -C <repo> worktree remove --force <scratchpad>/base-gate
+```
+
+Its verdict line and exit code go into the wave report before the dispatch. Red — **fix the base
+first**: no ticket of the wave is dispatched until gate full on the fresh base is green, and the
+report names the verdict and what is being fixed. A fix that touches shared code goes by the same
+rule: the label and the `F cross_machine_gate.checks_section` section. Green — then this machine's
+own PRs with the label: the epic's tickets `blocked` with the reason of skill `/worfy:ship-ticket`,
+step 9. For each:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+sec=$(F cross_machine_gate.checks_section)
+gh pr view <N> --json state,commits,comments --jq "{state, pushed: .commits[-1].committedDate, report: ([.comments[] | select(.body | startswith(\"$sec report: \")) | {at: .createdAt, verdict: (.body | split(\"\n\")[0])}] | last)}"; echo "EXIT=$?"
+```
+
+- `MERGED` — the ticket is closed by skill `/worfy:ship-ticket`, step 11 (`ticket done <epic> <NN>
+  --pr <N>`, the state file).
+- A red report newer than the last push (`report.at` later than `pushed`) — the ticket is back in
+  work: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" open <epic> <NN>`, and it is dispatched with the report as
+  its rework list. Its branch is taken from origin anew (`origin/<branch>`, not the old local branch):
+  the other machine rebased it.
+- Otherwise the PR still waits for the `serve` machine: the ticket stays `blocked`, and the report
+  names it with the PR number.
+
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/preflight" --epic <epic>; echo "EXIT=$?"
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json | jq '.tickets[] | select(.epic=="<epic>")'
@@ -107,6 +196,24 @@ filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in
 Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
 `rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
 "How to resume a wave"), not dispatched again; everything else becomes rows of the plan table.
+
+**Open PRs of other epics** (worfy ADR-0056, item 5; `pr-green-ci` only). Another session — on this
+machine or on another one — may have an open PR on files of this wave. The block lists the open PRs
+whose branch does not match this epic's branch template `F tickets.branch`, one line per file,
+`#<N> <branch> <file>`; it filters inside `gh` (`--jq`) and needs no `jq`:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+re=$(F tickets.branch | sed -e 's/<эпик>/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
+[ -n "$re" ] || echo "no tickets.branch in the profile: every open PR is listed"
+gh pr list --state open --limit 200 --json number,headRefName,files \
+  --jq ".[] | select(\"$re\" == \"\" or (.headRefName | test(\"^$re\$\") | not)) | \"#\\(.number) \\(.headRefName) \\(.files[].path)\""; echo "EXIT=$?"
+```
+
+Compare these files with the files of the wave's tickets (their section `F tickets.trail_section`). A
+ticket that shares a file with such a PR is **not dispatched until that PR is merged** — the same rule
+that keeps two tickets with a shared file out of one wave. The plan table and the wave report name the
+ticket, the file and the PR number. On one machine the rule means "a PR of another session".
 
 **What goes into the wave.** The request names the wave in one of these ways, and each is the
 owner's permission:
@@ -569,9 +676,16 @@ Each step is status and merge as two commands; "no checks reported" is what `gh 
 on a conflict, not a value of `mergeStateStatus`:
 
 ```bash
-gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BLOCKED, UNSTABLE, BEHIND — wait
+gh pr view <N> --json mergeStateStatus   # CLEAN — merge; DIRTY — conflict; BEHIND — rebase (below); BLOCKED, UNSTABLE — wait
 gh pr merge <N> --squash
 ```
+
+**Merge in turn across machines** (worfy ADR-0056, item 6). Another machine may merge into the same
+main branch, and nothing here waits for it. Before each merge run `git -C <repo> fetch`. A PR in state
+`BEHIND`, or one whose base moved after its checks ran, does not wait: nothing will update its branch.
+Rebase the branch onto the fresh base in the ticket's worktree, push it, and wait for CI again with the
+CI wait block below (with `F workflow.ci` `batch`: `mergeable` again). `BEHIND` no longer means only
+"wait".
 
 Wait for CI with one long command, not frequent polling: an agent has a limited number of turns,
 and polling `gh pr checks` twice cut a merge off in the middle of CI. The Bash call has timeout
@@ -605,8 +719,7 @@ too:
 ```bash
 L=<orchestrator scratchpad>/main.lock                 # one path for all parallel waves (see below)
 until mkdir "$L" 2>/dev/null; do
-  m=$(stat -f %m "$L" 2>/dev/null) || continue        # lock released between mkdir and stat; Linux: stat -c %Y
-  if [ $(( $(date +%s) - m )) -gt 5400 ]; then rmdir "$L"; fi   # older than 90 min — stuck
+  if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck; BSD and GNU find alike
   sleep 30
 done; echo LOCKED
 # rebase on a fresh base → merge or commit → push; then:
@@ -615,7 +728,15 @@ rmdir "$L"
 
 The orchestrator's scratchpad works when all waves run from one session. Different sessions have
 different scratchpads, and locks there do not see each other — then use the repository's shared
-path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
+path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`. Either lock is seen only on its own
+machine: a session on another machine does not see it and merges on its own, so the order across
+machines comes from the fetch and rebase before each merge (above), not from the lock.
+
+**PRs with the cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the project has
+one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request` a PR with the
+label `F cross_machine_gate.label` is not merged on this machine, whatever its gate says: in the wave
+report it is "waits for the machine with `serve`", with its number. With `serve` such PRs are merged
+by section 1, before the wave, not here.
 
 **Gate before merge** (`pr-green-ci`). What the project requires before a PR with code is merged
 is `F workflow.merge_gate`:
@@ -631,7 +752,7 @@ The set is the wave's PRs with `VERIFIED` and green CI on their head, in merge o
 `F workflow.ci` `batch`: `VERIFIED` and `mergeable` `MERGEABLE` — no CI on the head, and red or
 missing checks do not keep a PR out). Mark the
 platform PRs — those the project's rules send to another platform's verdict (worfy: ADR-0056,
-item 2). They and the PRs with the label `needs-mac-gate` stay out of the set, and so do the PRs
+item 2). They and the PRs with the label `F cross_machine_gate.label` stay out of the set, and so do the PRs
 `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a red set): each of them
 is merged the old way, as with `"each"`, plus the other platform's verdict for a platform PR. A PR
 that becomes ready after `check` started waits for the next set. PRs of the set are not rebased and
@@ -663,8 +784,7 @@ L=$(F workflow.e2e_lock); [ "$L" = null ] && L=                # no lock in the 
 ioreg -n Root -d1 2>/dev/null | grep -q '"IOConsoleLocked" = Yes' && { echo "screen locked: waiting"; while ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes'; do sleep 30; done; }
 if [ -n "$L" ]; then
   until mkdir "$L" 2>/dev/null; do
-    m=$(stat -c %Y "$L" 2>/dev/null || stat -f %m "$L" 2>/dev/null) || continue   # released between mkdir and stat
-    if [ $(( $(date +%s) - m )) -gt 1800 ]; then rm -f "$L/holder.json"; rmdir "$L"; fi   # older than 30 min — abandoned
+    if [ -n "$(find "$L" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rm -f "$L/holder.json"; rmdir "$L"; fi   # older than 30 min — abandoned
     sleep 20
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"

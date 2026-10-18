@@ -160,6 +160,11 @@ the way the project really runs them.
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | how migrations are created and what sets their order | implementer, reviewer, ship-ticket, epic-wave |
 | `deploy` | object \| null | `how` — how it deploys; `ci_run_check` — the command that checks the CI run by commit (`$sha` — the merge commit's SHA); `production_check` + `production_expect` — a request to the live address and the expected answer (requirements for the command — below the table); `smoke`, `auth` — explanations; `env` — names of environment variables without which the production checks cannot run (names, not values). `null` — the project does not deploy | orchestrator, ship-ticket, epic-wave |
 | `github.account` | string \| null | the `gh` account that opens PRs and runs git commands against origin: the plugin's `SessionStart` hook (`hooks/gh-token-env.mjs`) appends `export GH_TOKEN="$(gh auth token -u <account> 2>/dev/null)"` to `CLAUDE_ENV_FILE`, so every Bash command of the session and its agents runs as this account; the global account is not switched; no login under it — the session gets one line of context instead; absent — `gh` runs as the active account | hooks/gh-token-env.mjs, overnight-fix-loop, ship-ticket, epic-wave |
+| `cross_machine_gate.label` | string | the name of the GitHub label on the PRs of the `request` machine that touch shared code (worfy: `needs-mac-gate`). Skills take it from here and never write it in their text | epic-wave (sections 1 and 4), ship-ticket (steps 8 and 9) |
+| `cross_machine_gate.role` | `"request"` \| `"serve"` | this machine's part, written in each machine's own profile (worfy: the Windows PC — `request`, the Mac — `serve`). `request` — puts the label on its PRs with shared code and does not merge them; at the start of each wave it runs gate full on the fresh base first. `serve` — before each wave goes through the open labelled PRs one at a time: rebase, `check`, the commands of the `checks_section` section, a report in the PR, then the merge | epic-wave (sections 1 and 4), ship-ticket (steps 8 and 9) |
+| `cross_machine_gate.exempt` | strings \| null | paths whose change needs no label: documents and files no other machine reads (worfy: `.scratch/`, `docs/`, `HANDOFF.md`, `CONTEXT.md`, `README.md`). `/`-separated as `gh` prints a PR's files; a path that ends with `/` is a folder, as in `filesOverlap` of worfy (`src/shared/workflow/waves.ts`); no quote or backslash. Absent or `null` — nothing is exempt, every PR gets the label. Read with `request` | ship-ticket (step 8) |
+| `cross_machine_gate.check` | string \| null | the command that checks a labelled PR's branch on the `serve` machine, run in the PR's worktree under the project's e2e lock (worfy: `GATE_SCOPE=all` gate full). Required with `serve`. Read with `serve` | epic-wave (section 1) |
+| `cross_machine_gate.checks_section` | string | the heading of the PR description section with the commands the `serve` machine runs beyond `check`, each with its expected result, or the line `none` (worfy: `Mac checks`). `request` writes the section, `serve` runs it and starts its report in the PR with `<checks_section> report: green` or `… red`; a labelled PR without the section is red | epic-wave (section 1), ship-ticket (step 8) |
 | `serial_merge.paths` | strings | PRs that touch these paths are merged one at a time | epic-wave |
 | `serial_merge.rule` | string | when the next one may be merged | epic-wave |
 | `docs.context` | `{path, vocabulary_section, decided_in}` \| null | the project's glossary | all agents |
@@ -191,6 +196,13 @@ addresses of private databases. The profile names the variable (`$API_URL`), not
 
 Placeholders inside values (`<эпик>`, `<NN>`, `<пакет>` and the rest above) are part of the
 contract: they are substituted as written, not translated.
+
+`cross_machine_gate` (worfy ADR-0069) is checked by `bin/profile` the way `mode` is. No field, or
+`null` — exit 4 for `--field cross_machine_gate.<name>` (the project has one machine: the skills skip
+the step and say so). Exit 1 with the reason in stderr: `role` neither `"request"` nor `"serve"`, no
+`label`, no `checks_section` (absent or blank), `"serve"` without `check`, `exempt` that is not a
+list of `/`-separated paths, `check` that is not a command string. A guessed role would either merge
+a PR without the other machine's gate full, or leave it with nobody to merge it.
 
 `tickets.root` — how `bin/ticket`, `bin/epic-status` and `bin/epic-board` read it:
 - an absolute path (`/Users/alexey/Work/Atakama/.scratch/`) or `~/…` — taken as is. This is how a

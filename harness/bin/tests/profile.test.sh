@@ -332,6 +332,23 @@ newp cibad '{"schema":2,"name":"cibad","mode":"full","workflow":{"ci":"nightly"}
 newp cinorun '{"schema":2,"name":"cinorun","mode":"full","workflow":{"ci":"batch"}}'
 newp cirunnum '{"schema":2,"name":"cirunnum","mode":"full","workflow":{"ci":"pr","ci_batch_run":5}}'
 newp cirunempty '{"schema":2,"name":"cirunempty","mode":"full","workflow":{"ci":"batch","ci_batch_run":"  "}}'
+# The cross-machine gate (worfy-windows 07, ADR-0069): cross_machine_gate, valid and broken values.
+CMG_PROFILES=(cmreq cmserve cmnull cmrole cmnolabel cmnosection cmservenocheck cmexemptbs cmexemptstr cmobj)
+for n in "${CMG_PROFILES[@]}"; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+cmg() { newp "$1" "{\"schema\":2,\"name\":\"$1\",\"mode\":\"full\",\"cross_machine_gate\":$2}"; }
+cmg cmreq '{"label": "needs-mac-gate", "role": "request", "exempt": [".scratch/", "docs/"], "checks_section": "Mac checks"}'
+cmg cmserve '{"label": "needs-mac-gate", "role": "serve", "check": "GATE_SCOPE=all gate full", "checks_section": "Mac checks"}'
+cmg cmnull null
+cmg cmrole '{"label": "needs-mac-gate", "role": "merge", "checks_section": "Mac checks"}'
+cmg cmnolabel '{"role": "request", "checks_section": "Mac checks"}'
+cmg cmnosection '{"label": "needs-mac-gate", "role": "request"}'
+cmg cmservenocheck '{"label": "needs-mac-gate", "role": "serve", "checks_section": "Mac checks"}'
+cmg cmexemptbs '{"label": "needs-mac-gate", "role": "request", "exempt": ["docs\\\\adr\\\\"], "checks_section": "Mac checks"}'
+cmg cmexemptstr '{"label": "needs-mac-gate", "role": "request", "exempt": "docs/", "checks_section": "Mac checks"}'
+cmg cmobj '["needs-mac-gate"]'
 # The Pipeline of the project (worfy ADR-0067): workflow.pipeline from the catalogue of Stage kinds. A valid one,
 # null (the default), and one profile per rule it breaks: "<name>|<pipeline JSON>|<substring of the reason>".
 PL_GOOD='[{"kind":"queued"},{"kind":"implementing","stuck_after":"12h"},{"kind":"ci","stuck_after":"45m"},{"kind":"agent-review","label":"Review"},{"kind":"check","name":"windows","label":"Windows"},{"kind":"check","name":"a11y"},{"kind":"gate-merge"},{"kind":"deploy","environment":"stable"},{"kind":"closing"},{"kind":"done"}]'
@@ -450,6 +467,26 @@ fails_with "workflow.ci \"nightly\" -> 1 with the reason" 1 'workflow.ci is "pr"
 fails_with "workflow.ci batch without ci_batch_run -> 1 with the reason" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cinorun" --name
 fails_with "workflow.ci batch with a blank ci_batch_run -> 1" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cirunempty" --name
 fails_with "workflow.ci_batch_run 5 -> 1 with the reason" 1 'workflow.ci_batch_run is a command string or null' "$P2" -C "$T/r/cirunnum" --name
+# --- cross_machine_gate (worfy-windows 07, ADR-0069) ------------------------------------------------------------
+eq "--field cross_machine_gate.role request" request "$P2" -C "$T/r/cmreq" --field cross_machine_gate.role
+eq "--field cross_machine_gate.label" needs-mac-gate "$P2" -C "$T/r/cmreq" --field cross_machine_gate.label
+eq "--field cross_machine_gate.checks_section" "Mac checks" "$P2" -C "$T/r/cmreq" --field cross_machine_gate.checks_section
+eq "--field cross_machine_gate.exempt: one path a line, as the label block of ship-ticket reads it" $'.scratch/\ndocs/' \
+    bash -c 'set -o pipefail; "$@" | sed -n '"'"'s/^ *"\(.*\)",\{0,1\}$/\1/p'"'" _ "$P2" -C "$T/r/cmreq" --field cross_machine_gate.exempt
+eq "--field cross_machine_gate.role serve" serve "$P2" -C "$T/r/cmserve" --field cross_machine_gate.role
+eq "--field cross_machine_gate.check with serve" "GATE_SCOPE=all gate full" "$P2" -C "$T/r/cmserve" --field cross_machine_gate.check
+check "--field cross_machine_gate absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field cross_machine_gate
+check "--field cross_machine_gate.role absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field cross_machine_gate.role
+check "--field cross_machine_gate.exempt absent with serve -> 4" 4 "" "$P2" -C "$T/r/cmserve" --field cross_machine_gate.exempt
+eq "--field cross_machine_gate null" null "$P2" -C "$T/r/cmnull" --field cross_machine_gate
+check "--field cross_machine_gate.role under null -> 4" 4 "" "$P2" -C "$T/r/cmnull" --field cross_machine_gate.role
+fails_with "cross_machine_gate.role \"merge\" -> 1 with the reason" 1 'cross_machine_gate.role is "request" or "serve", got "merge"' "$P2" -C "$T/r/cmrole" --name
+fails_with "cross_machine_gate without label -> 1 with the reason" 1 'cross_machine_gate.label is the name of the GitHub label, got no label' "$P2" -C "$T/r/cmnolabel" --name
+fails_with "cross_machine_gate without checks_section -> 1 with the reason" 1 'cross_machine_gate.checks_section is the heading' "$P2" -C "$T/r/cmnosection" --name
+fails_with "cross_machine_gate serve without check -> 1 with the reason" 1 'cross_machine_gate: role "serve" needs check' "$P2" -C "$T/r/cmservenocheck" --name
+fails_with "cross_machine_gate.exempt with a backslash -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptbs" --name
+fails_with "cross_machine_gate.exempt a string -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptstr" --name
+fails_with "cross_machine_gate a list -> 1 with the reason" 1 'cross_machine_gate is an object' "$P2" -C "$T/r/cmobj" --field cross_machine_gate
 # --- workflow.pipeline (worfy ADR-0067) ------------------------------------------------------------------------
 PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
 eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline

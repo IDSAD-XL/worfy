@@ -402,6 +402,64 @@ check "epic-wave section 5: the report shows the four groups, the status block s
     bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 5 | tr '\n' ' ' | tr -s ' ')" \
     'A table for the wave, then the four groups of findings of every ticket whose gate gave any (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line status block, which stays last.'
 
+# 7e. Two machines on one repository (worfy-windows ticket 07; worfy ADR-0056 items 5 and 6, ADR-0069): the open PRs
+# of other epics before a wave, BEHIND rebased, the Windows step of the manual GUI checks, and the cross-machine
+# gate — the label, the checks section, the report before the merge, gate full on the fresh base on `request`.
+# The names of the label and of the section come from the profile, never from the text.
+ew1="$(section "$EW" 1 | tr '\n' ' ' | tr -s ' ')"; ew4="$(section "$EW" 4 | tr '\n' ' ' | tr -s ' ')"
+st6="$(section "$ST" 6 | tr '\n' ' ' | tr -s ' ')"; st8="$(section "$ST" 8 | tr '\n' ' ' | tr -s ' ')"; st9="$(section "$ST" 9 | tr '\n' ' ' | tr -s ' ')"
+in_() { [[ "$1" == *"$2"* ]]; }
+before() { local a="${1%%"$2"*}" b="${1%%"$3"*}"; [[ "$1" == *"$2"* && "$1" == *"$3"* ]] && [ ${#a} -lt ${#b} ]; }   # before <text> <first> <second>
+check "epic-wave section 1: the open-PR block takes number,headRefName,files and filters with --jq" \
+    in_ "$ew1" '--json number,headRefName,files \ --jq ".[] | select('
+check "epic-wave section 1: the open-PR block is in section 1" in_ "$ew1" 'gh pr list --state open --limit 200 --json number,headRefName,files'
+check "epic-wave section 1: a ticket sharing a file is not dispatched until that PR is merged" in_ "$ew1" 'is **not dispatched until that PR is merged**'
+check "epic-wave section 1: the plan and the report name the ticket, the file and the PR" in_ "$ew1" 'The plan table and the wave report name the ticket, the file and the PR number.'
+check "epic-wave section 4: BEHIND is rebased onto the fresh base, pushed, and CI runs again" in_ "$ew4" \
+    'Rebase the branch onto the fresh base in the ticket'"'"'s worktree, push it, and wait for CI again with the CI wait block below'
+check "epic-wave section 4: BEHIND no longer means only wait" in_ "$ew4" '`BEHIND` no longer means only "wait".'
+check "epic-wave section 4: git fetch before each merge" in_ "$ew4" 'Before each merge run `git -C <repo> fetch`.'
+check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'Either lock is seen only on its own machine'
+check "epic-wave section 4: no BEHIND among the states that only wait" lacks "$EW" 'BLOCKED, UNSTABLE, BEHIND — wait'
+check "ship-ticket section 6: the Windows paragraph launches through explorer.exe" in_ "$st6" 'explorer.exe "$(cygpath -w <path to the .exe>)"'
+check "ship-ticket section 6: the Windows paragraph checks the process path with Get-Process" in_ "$st6" \
+    '`powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"`'
+check "ship-ticket section 6: the agent's environment on Windows is named" in_ "$st6" 'NoDefaultCurrentDirectoryInExePath=1'
+# The label.
+for w in cross_machine_gate --label --force-with-lease --remove-label 'gh pr comment'; do
+    check "epic-wave section 1: the serve pass has '$w'" in_ "$ew1" "$w"
+done
+check "epic-wave section 1: the labelled PRs go one at a time" in_ "$ew1" 'the open PRs with the label, **one at a time**'
+check "epic-wave section 1: request — a merged PR closes its ticket" in_ "$ew1" '`MERGED` — the ticket is closed by skill `/worfy:ship-ticket`, step 11'
+check "epic-wave section 1: request — a red report newer than the push sends the ticket back to work" in_ "$ew1" \
+    'A red report newer than the last push (`report.at` later than `pushed`) — the ticket is back in work: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" open <epic> <NN>`'
+check "epic-wave section 1: request — the branch is taken from origin anew" in_ "$ew1" 'Its branch is taken from origin anew'
+check "epic-wave section 4: with request a labelled PR is not merged here" in_ "$ew4" \
+    'With `F cross_machine_gate.role` `request` a PR with the label `F cross_machine_gate.label` is not merged on this machine'
+check "ship-ticket section 8: --add-label" in_ "$st8" '--add-label "$(F cross_machine_gate.label)"'
+check "ship-ticket section 9: a labelled PR is not merged by this machine" in_ "$st9" \
+    'With `F cross_machine_gate.role` `request` a PR with the label `F cross_machine_gate.label` is not merged by this machine'
+# The checks section and the report (Q33); gate full on the fresh base (Q31).
+for w in checks_section 'report: green' 'report: red'; do
+    check "epic-wave section 1: the serve pass has '$w'" in_ "$ew1" "$w"
+done
+check "epic-wave section 1: no merge without the report" in_ "$ew1" '**No merge without the report.**'
+check "epic-wave section 1: gh pr comment comes before gh pr merge" before "$ew1" 'gh pr comment <N>' 'gh pr merge <N>'
+check "epic-wave section 1: a PR without the section is red" in_ "$ew1" 'red, with the reason "no `<checks_section>` section"'
+check "epic-wave section 1: request — gate full on the fresh base in a detached worktree, before the dispatch" in_ "$ew1" \
+    'With `request` — first a gate full on the fresh base, before any ticket is dispatched'
+check "epic-wave section 1: request — the worktree of the base is detached" in_ "$ew1" 'worktree add --detach <scratchpad>/base-gate origin/<base>'
+check "epic-wave section 1: request — fix the base first" in_ "$ew1" 'Red — **fix the base first**'
+check "epic-wave section 1: the cross-machine gate comes before the preflight" before "$ew1" 'The cross-machine gate comes first' 'bin/preflight" --epic <epic>'
+for w in checks_section --body-file '`none`'; do
+    check "ship-ticket section 8: the label block has '$w'" in_ "$st8" "$w"
+done
+for f in "$EW" "$ST"; do
+    n="$(name_of "$f")"
+    check "$n: no label name in the text (it comes from the profile)" lacks "$f" 'needs-mac-gate'
+    check "$n: no section name in the text (it comes from the profile)" lacks "$f" 'Mac checks'
+done
+
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(

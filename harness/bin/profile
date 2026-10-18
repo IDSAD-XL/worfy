@@ -335,6 +335,28 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
         die(1, `${pjPath}: workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch — broken profile`)
 }
 
+// The cross-machine gate (worfy ADR-0069): a project on two machines, one of which cannot run the other's gate
+// full. cross_machine_gate is {label, role, exempt?, check?, checks_section} or null / absent (one machine — the
+// skills skip the step). role "request" labels its PRs with shared code and does not merge them; "serve" checks,
+// reports on and merges the labelled PRs, with check. exempt paths are as gh prints PR files: "/" separated, a
+// trailing "/" is a folder; no quote or backslash, so a skill can read the printed list line by line. A guessed
+// role would either merge a PR without the other machine's gate or leave it with nobody to merge it.
+const CMG_ROLES = ["request", "serve"]
+if (profile.cross_machine_gate !== undefined && profile.cross_machine_gate !== null) {
+    const g = profile.cross_machine_gate
+    const broken = (msg) => die(1, `${pjPath}: cross_machine_gate${msg} — broken profile`)
+    const text = (v) => typeof v === "string" && v.trim() !== ""
+    if (typeof g !== "object" || Array.isArray(g)) broken(` is an object {label, role, exempt?, check?, checks_section} or null, got ${JSON.stringify(g)}`)
+    if (!CMG_ROLES.includes(g.role)) broken(`.role is "request" or "serve", got ${g.role === undefined ? "no role" : JSON.stringify(g.role)}`)
+    if (!text(g.label)) broken(`.label is the name of the GitHub label, got ${g.label === undefined ? "no label" : JSON.stringify(g.label)}`)
+    if (!text(g.checks_section))
+        broken(`.checks_section is the heading of the PR description section with the commands for the serve machine, got ${g.checks_section === undefined ? "no checks_section" : JSON.stringify(g.checks_section)}`)
+    if (g.exempt !== undefined && g.exempt !== null && !(Array.isArray(g.exempt) && g.exempt.every((p) => text(p) && !/["\\]/.test(p))))
+        broken(`.exempt is a list of paths ("/" separated, no quote or backslash), got ${JSON.stringify(g.exempt)}`)
+    if (g.check !== undefined && g.check !== null && !text(g.check)) broken(`.check is a command string or null, got ${JSON.stringify(g.check)}`)
+    if (g.role === "serve" && !text(g.check)) broken(`: role "serve" needs check, the command that checks a labelled PR's branch on this machine`)
+}
+
 // The Pipeline of the project (worfy ADR-0067): the Stages a ticket goes through, built from a fixed catalogue
 // of kinds. Each kind has its predicate in code (worfy and the Harness check the same thing); the profile only
 // picks kinds, orders them, renames them (label) and sets when a ticket counts as stuck (stuck_after). check is

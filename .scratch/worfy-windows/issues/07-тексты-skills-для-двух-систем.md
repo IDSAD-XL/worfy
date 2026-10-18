@@ -1,7 +1,7 @@
 # 07 — Тексты skills для двух систем; перед Wave — открытые PR второго Epic-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-17T23:28Z
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -205,21 +205,21 @@ macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` 
 
 ## Готово, когда
 
-- [ ] `grep -rnE 'stat -f|date -v' harness/skills harness/agents harness/hooks/rules` — exit 1.
-- [ ] `skill-blocks.test.sh`, блок замка из `epic-wave/SKILL.md`. Папка замка со временем изменения два часа назад (`touch -t`) снимается и берётся заново — вывод `LOCKED`. Свежая папка после одного круга остаётся (в test-е `sleep 30` заменён на `break`, а число кругов ограничено, чтобы холостой цикл не повесил прогон). Под bash и под zsh на Mac.
-- [ ] `skill-blocks.test.sh`, блок веток за 14 дней из `continuous-audit/SKILL.md`. В репозитории test-а есть `refs/remotes/origin/old` (коммит 20 дней назад) и `origin/new` (1 день назад); `epic-status` подменён stub-ом. В `live-tickets.jsonl` — только Ticket-ы `origin/new`.
-- [ ] `epic-wave-ship-ticket.test.sh`: в разделе 1 `epic-wave` есть блок с `--json number,headRefName,files` и `--jq` и правило «not dispatched until that PR is merged»; в разделе 4 — `BEHIND` с перебазированием и повторным CI; в разделе 6 `ship-ticket` — абзац Windows с `Get-Process` и способом запуска. Проверки номеров разделов и кириллицы проходят.
-- [ ] `skill-blocks.test.sh`, блок выбора метки из `ship-ticket/SKILL.md`, раздел 8, `gh` подменён stub-ом. Файлы PR только из `exempt` — вывод `no-label`, `gh pr edit` не вызван. Один файл вне `exempt` — вывод `label` и вызов `gh pr edit <N> --add-label needs-mac-gate`. Путь `exempt` с `/` на конце покрывает файлы в этой папке. Под bash и под zsh на Mac.
-- [ ] `epic-wave-ship-ticket.test.sh`, метка `needs-mac-gate`: в разделе 1 `epic-wave` — `cross_machine_gate`, `--label`, `--force-with-lease`, `--remove-label`, `gh pr comment` и правило «one at a time»; там же ветка `request` — закрытие влитого Ticket-а и возврат в работу после красного. В разделе 4 `epic-wave` — PR с меткой не вливается при `request`. В разделе 8 `ship-ticket` — `--add-label`, в разделе 9 — PR с меткой эта Machine не вливает. Имени `needs-mac-gate` в тексте skills нет: оно берётся из Profile. Проверки номеров разделов и кириллицы проходят.
-- [ ] `epic-wave-ship-ticket.test.sh`, Q31 и Q33. В разделе 1 `epic-wave` при `serve` — `checks_section`, `report: green`, `report: red`, правило «no merge without the report» и `gh pr comment` перед `gh pr merge`; при `request` — gate full на свежей базе в отдельном worktree `--detach` до раздачи Ticket-ов и правило «fix the base first». В разделе 8 `ship-ticket` — `checks_section`, `--body-file` и `none`. Имени `Mac checks` в тексте skills нет: оно берётся из Profile. Проверки номеров разделов и кириллицы проходят.
-- [ ] `skill-blocks.test.sh`, блок раздела `checks_section` из `epic-wave/SKILL.md`, раздел 1, `gh` подменён stub-ом. Описание PR с `## Mac checks` и двумя командами — блок печатает две команды; с `none` — печатает `none`; без раздела — `no-section`. Раздел кончается на следующем заголовке: команды из него не попадают. Под bash и под zsh на Mac.
-- [ ] `skill-blocks.test.sh`, блок выбора метки из `ship-ticket/SKILL.md`, раздел 8: при выводе `label` вызван `gh pr edit <N> --body-file`, и файл содержит прежнее описание и `## Mac checks`; при `no-label` описание не меняется.
-- [ ] Contract test Profile-а — `profile.test.sh`. Profile с `"cross_machine_gate": {"label": "needs-mac-gate", "role": "request", "exempt": [".scratch/", "docs/"], "checks_section": "Mac checks"}`: `profile --field cross_machine_gate.role` печатает `request`, `--field cross_machine_gate.label` — `needs-mac-gate`, `--field cross_machine_gate.checks_section` — `Mac checks`. Profile без поля — exit 4. `"role": "merge"`, `cross_machine_gate` без `label`, без `checks_section` и `"role": "serve"` без `check` — exit 1 и причина в stderr.
-- [ ] ADR этого Ticket-а в `docs/adr/`: в заголовке или первом абзаце — «уточняет ADR-0056»; есть Q30, Q31, Q32 и Q33, пять полей `cross_machine_gate`, отвергнутые варианты; Q31 записан как уточнение ADR-0056, пункт 6 (повтора gate full на Windows после rebase нет, main проверяется в начале Wave на Windows). `git diff origin/main -- docs/adr/0056-*.md` пуст.
-- [ ] `harness/profiles/README.md`: в таблице `profile.json` — строки `cross_machine_gate.label`, `cross_machine_gate.role`, `cross_machine_gate.exempt`, `cross_machine_gate.check` и `cross_machine_gate.checks_section` с типом, смыслом и читателями (`epic-wave`, `ship-ticket`); правило exit 1 для поля — под таблицей.
-- [ ] `bash harness/bin/tests/skill-blocks.test.sh`, `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/profile.test.sh` — exit 0 на Mac и в `pnpm test`.
+- [x] `grep -rnE 'stat -f|date -v' harness/skills harness/agents harness/hooks/rules` — exit 1.
+- [x] `skill-blocks.test.sh`, блок замка из `epic-wave/SKILL.md`. Папка замка со временем изменения два часа назад (`touch -t`) снимается и берётся заново — вывод `LOCKED`. Свежая папка после одного круга остаётся (в test-е `sleep 30` заменён на `break`, а число кругов ограничено, чтобы холостой цикл не повесил прогон). Под bash и под zsh на Mac.
+- [x] `skill-blocks.test.sh`, блок веток за 14 дней из `continuous-audit/SKILL.md`. В репозитории test-а есть `refs/remotes/origin/old` (коммит 20 дней назад) и `origin/new` (1 день назад); `epic-status` подменён stub-ом. В `live-tickets.jsonl` — только Ticket-ы `origin/new`.
+- [x] `epic-wave-ship-ticket.test.sh`: в разделе 1 `epic-wave` есть блок с `--json number,headRefName,files` и `--jq` и правило «not dispatched until that PR is merged»; в разделе 4 — `BEHIND` с перебазированием и повторным CI; в разделе 6 `ship-ticket` — абзац Windows с `Get-Process` и способом запуска. Проверки номеров разделов и кириллицы проходят.
+- [x] `skill-blocks.test.sh`, блок выбора метки из `ship-ticket/SKILL.md`, раздел 8, `gh` подменён stub-ом. Файлы PR только из `exempt` — вывод `no-label`, `gh pr edit` не вызван. Один файл вне `exempt` — вывод `label` и вызов `gh pr edit <N> --add-label needs-mac-gate`. Путь `exempt` с `/` на конце покрывает файлы в этой папке. Под bash и под zsh на Mac.
+- [x] `epic-wave-ship-ticket.test.sh`, метка `needs-mac-gate`: в разделе 1 `epic-wave` — `cross_machine_gate`, `--label`, `--force-with-lease`, `--remove-label`, `gh pr comment` и правило «one at a time»; там же ветка `request` — закрытие влитого Ticket-а и возврат в работу после красного. В разделе 4 `epic-wave` — PR с меткой не вливается при `request`. В разделе 8 `ship-ticket` — `--add-label`, в разделе 9 — PR с меткой эта Machine не вливает. Имени `needs-mac-gate` в тексте skills нет: оно берётся из Profile. Проверки номеров разделов и кириллицы проходят.
+- [x] `epic-wave-ship-ticket.test.sh`, Q31 и Q33. В разделе 1 `epic-wave` при `serve` — `checks_section`, `report: green`, `report: red`, правило «no merge without the report» и `gh pr comment` перед `gh pr merge`; при `request` — gate full на свежей базе в отдельном worktree `--detach` до раздачи Ticket-ов и правило «fix the base first». В разделе 8 `ship-ticket` — `checks_section`, `--body-file` и `none`. Имени `Mac checks` в тексте skills нет: оно берётся из Profile. Проверки номеров разделов и кириллицы проходят.
+- [x] `skill-blocks.test.sh`, блок раздела `checks_section` из `epic-wave/SKILL.md`, раздел 1, `gh` подменён stub-ом. Описание PR с `## Mac checks` и двумя командами — блок печатает две команды; с `none` — печатает `none`; без раздела — `no-section`. Раздел кончается на следующем заголовке: команды из него не попадают. Под bash и под zsh на Mac.
+- [x] `skill-blocks.test.sh`, блок выбора метки из `ship-ticket/SKILL.md`, раздел 8: при выводе `label` вызван `gh pr edit <N> --body-file`, и файл содержит прежнее описание и `## Mac checks`; при `no-label` описание не меняется.
+- [x] Contract test Profile-а — `profile.test.sh`. Profile с `"cross_machine_gate": {"label": "needs-mac-gate", "role": "request", "exempt": [".scratch/", "docs/"], "checks_section": "Mac checks"}`: `profile --field cross_machine_gate.role` печатает `request`, `--field cross_machine_gate.label` — `needs-mac-gate`, `--field cross_machine_gate.checks_section` — `Mac checks`. Profile без поля — exit 4. `"role": "merge"`, `cross_machine_gate` без `label`, без `checks_section` и `"role": "serve"` без `check` — exit 1 и причина в stderr.
+- [x] ADR этого Ticket-а в `docs/adr/`: в заголовке или первом абзаце — «уточняет ADR-0056»; есть Q30, Q31, Q32 и Q33, пять полей `cross_machine_gate`, отвергнутые варианты; Q31 записан как уточнение ADR-0056, пункт 6 (повтора gate full на Windows после rebase нет, main проверяется в начале Wave на Windows). `git diff origin/main -- docs/adr/0056-*.md` пуст.
+- [x] `harness/profiles/README.md`: в таблице `profile.json` — строки `cross_machine_gate.label`, `cross_machine_gate.role`, `cross_machine_gate.exempt`, `cross_machine_gate.check` и `cross_machine_gate.checks_section` с типом, смыслом и читателями (`epic-wave`, `ship-ticket`); правило exit 1 для поля — под таблицей.
+- [x] `bash harness/bin/tests/skill-blocks.test.sh`, `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/profile.test.sh` — exit 0 на Mac и в `pnpm test`.
 - [ ] Те же три test-а — exit 0 в Git Bash на Windows-ПК; случаи zsh печатают `skip`.
-- [ ] Живая проверка: новый блок раздела 1 в репозитории worfy для Epic-а `worfy-windows` печатает открытые PR других Epic-ов с их файлами (или ничего). Вывод — в Итог.
+- [x] Живая проверка: новый блок раздела 1 в репозитории worfy для Epic-а `worfy-windows` печатает открытые PR других Epic-ов с их файлами (или ничего). Вывод — в Итог.
 - [ ] Вручную: `profile --field cross_machine_gate.role` в репозитории worfy печатает `request` на Windows-ПК и `serve` на Mac (Mac — через раздел Mac checks PR, Q33); `--field cross_machine_gate.checks_section` на обеих — `Mac checks`.
 - [ ] Живая проверка метки. PR этого Ticket-а идёт по правилу вручную: метку ставит Session на Windows, вливает Session на Mac. Первый PR с меткой после его мержа, когда новые тексты skills стоят на обеих Machine, идёт по новым шагам: метку ставит раздел 8 `ship-ticket` на Windows-ПК, Session на Mac в разделе 1 `epic-wave` перебазирует, проверяет и вливает его или пишет комментарий. Годится PR Ticket-а, который не ждёт 07 (обычно 14): 15 и 16 ждут 07. Если такого PR не осталось — на Windows-ПК блок раздела 8 над влитым PR этого Ticket-а печатает `label`, на Mac блок раздела 1 печатает открытые PR с меткой или ничего. Номер PR, строка `[gate]` и итог — в Итог.
 - [ ] Живая проверка Q33 на том же PR с меткой: в описании PR есть раздел `## Mac checks` (команды или `none`); в PR есть отчёт Session на Mac с первой строкой `Mac checks report: green` или `Mac checks report: red`, строкой `[gate]` и кодами выхода команд раздела; мерж — позже отчёта по времени. Ссылки на описание и отчёт — в Итог.
@@ -252,4 +252,64 @@ ADR этого Ticket-а — новый файл в `docs/adr/`, имя с но�
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано на Mac (Session на Mac, 2026-10-18; Ticket взят Mac-ом по брифу оркестратора, платформенный
+PR — ADR-0056, пункт 2: перед мержем — Windows checks на ПК, см. PR). ADR — `docs/adr/0069-cross-machine-gate-label-and-roles.md`
+(номер — следующий свободный по `preflight`, в брифе номера не было).
+
+- **Замок на главной ветке и замок e2e** (`epic-wave`, раздел 4): возраст папки замка —
+  `find "$L" -maxdepth 0 -mmin +90` (у замка e2e — `+30`) вместо `stat -f %m`, одинаково в BSD и GNU.
+  Комментарий `Linux: stat -c %Y` ушёл; блок gate full одного PR больше не зовёт `stat -c %Y || stat -f %m`.
+- **Ветки за 14 дней** (`continuous-audit`): порог `$(( $(date +%s) - 14 * 86400 ))`, файл
+  `${TMPDIR:-/tmp}/live-tickets.jsonl`.
+- **Шаг Windows в ручных проверках GUI** (`ship-ticket`, раздел 6): Playwright своей сборки, запуск
+  через `explorer.exe "$(cygpath -w <path>)"`, путь процесса — `Get-Process`. Способ запуска — кандидат:
+  на ПК не проверен (Windows checks PR).
+- **Открытые PR других Epic-ов** (`epic-wave`, раздел 1) и **`BEHIND` с rebase** (`epic-wave`, раздел 4).
+- **`cross_machine_gate`**: поле в `bin/profile` (exit 1 по правилам Ticket-а, плюс `exempt` — список путей
+  без кавычек и обратной косой черты: так блок метки читает его построчно), строки в `profiles/README.md`,
+  блок метки и раздела в `ship-ticket`, раздел 8, правило раздела 9, проход очереди при `serve` и gate full
+  на свежей базе при `request` в `epic-wave`, раздел 1, правило раздела 4. Имя `needs-mac-gate` из текста
+  `epic-wave` ушло (раздел 4, набор `wave-gate`): теперь `F cross_machine_gate.label`.
+- **Test-ы на Windows**: в `skill-blocks.test.sh` случаи zsh в Git Bash без zsh пропускаются одной строкой
+  `skip zsh: …`; на Mac и Linux отсутствие zsh — провал, как раньше.
+
+Красный прогон (раздел «Тесты»): на Mac с подменой `stat` и `date` на поведение GNU (shim-ы, которые
+отвечают как Git Bash: `stat -f` — `cannot read file system information`, `date -v` — `unknown option -- v`),
+новые случаи на старом тексте skills:
+
+```
+FAIL bash: main-branch lock, stale: exit 7 [IDLE]
+FAIL zsh: main-branch lock, stale: exit 7 [IDLE]
+FAIL bash: branches-of-14-days block: [date: unknown option -- v] live-tickets [["origin/new","e","01","s","t"]
+["origin/old","e","01","s","t"]]
+```
+
+После правки те же shim-ы — `passed 78, failed 0`; без них — тоже `passed 78, failed 0`. Mutation testing
+(13 мутантов: роль, `serve` без `check`, `exempt` с `\`, папка в `exempt` как голый префикс, раздел
+дважды, конец раздела на заголовке, CRLF, свои PR в списке, шаблон ветки без `$`, 90 → 900 минут,
+14 → 30 дней, `BEHIND — wait`, имя метки в тексте) — все убиты.
+
+Живая проверка блока «открытые PR других Epic-ов» для `worfy-windows` (2026-10-18): список открытых PR
+снят один раз `gh pr list --json number,headRefName,files`, блок из `SKILL.md` прогнан над ним со stub-ом
+`gh`, который применяет его `--jq`. Свои PR (#455 `worfy-windows/50`, #456 `worfy-windows/06`) не
+попали; вывод — PR других Epic-ов:
+
+```
+#458 docs/windows-04-done .scratch/worfy-link/issues/21-hello-b-после-подтверждения-ключа.md
+… (ещё 9 файлов #458, в том числе HANDOFF.md)
+#457 worfy-pipeline/03 src/main/github/deployments.ts
+… (ещё 14 файлов #457)
+EXIT=0
+```
+
+Проверки на Mac после rebase на origin/main `9cbe6794`: `pnpm lint`, `pnpm typecheck`, `pnpm test` —
+exit 0 (283 файла passed); gate fast — exit 0, `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck
+worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase один прогон `pnpm test` и gate fast были
+красными одним файлом: `harness-scripts.test.ts` > `wave-gate.test.sh` дольше предела 120 s (ETIMEDOUT) —
+известный красный worfy-polish 32. Не от этого PR: `wave-gate.test.sh` один — 123 s с
+`epic-wave/SKILL.md` от origin/main и 122 s с этой ветки, exit 0 в обоих.
+
+Не проверено (не на Mac): три test-а в Git Bash на ПК и строка `skip zsh`; запуск через `explorer.exe`
+и `Get-Process`; значения `cross_machine_gate` в Profile-ах обеих Machine (Profile — вне репозитория,
+пишет Orchestrator); живые проверки метки, Q31 и Q33 — после мержа; gate full на Mac — Session, которая
+вливает.

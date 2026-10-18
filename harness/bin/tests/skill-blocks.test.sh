@@ -7,6 +7,9 @@
 # the change, the verdict in the ticket file, the local commit in the Workflow folder, resuming a wave by Branch:.
 # Then the agents' marks (worfy ADR-0067): the review mark blocks of both skills, and the CI filter that leaves the
 # marks out, the same command in both skills and in agents/implementer.md.
+# Last, the blocks that run alike on BSD and GNU tools (worfy-windows ticket 07): the main-branch lock of
+# skills/epic-wave, the branches of the last 14 days of skills/continuous-audit, the label and the checks section of
+# the cross-machine gate (skills/ship-ticket step 8, skills/epic-wave section 1), with a stub gh.
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
 # SKILL_FILE — check another copy of SKILL.md.
 set -u
@@ -20,6 +23,12 @@ home_before="$(real_home_snapshot "$HOME" "$T")"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
+# The shells every block runs under. Git Bash on Windows has no zsh (worfy ADR-0055): there the zsh cases are
+# skipped with one line. On macOS and Linux a missing zsh is a failure, not a skip.
+SHELLS=(bash zsh)
+case "$(uname -s)" in
+    MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
+esac
 
 block() { # $1 = a string that identifies the ```bash block; prints it without the `F() {…profile…}` line
     awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL" \
@@ -45,7 +54,7 @@ git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -q -m 
 B1="$(block 'git log "$BASE" --since=30.days')"
 [ -n "$B1" ] || bad "module-choice block not found in $SKILL"
 want="$(printf '%s\n' apps/api/src/auctions apps/api/src/lots apps/web/src/catalog)"
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
     [ "$got" = "$want" ] && ok "$sh: module-choice block lists modules of every package" \
         || bad "$sh: module-choice block: got [$(echo $got)] want [$(echo $want)]"
@@ -56,7 +65,7 @@ B2="$(block 'grep -rslE')"
 [ -n "$B2" ] || bad "test-list block not found in $SKILL"
 B2="${B2//<каталог пакета>/$R/apps/api}"; B2="${B2//<имя>/auctions}"
 want="$(printf '%s\n' src/z.spec.ts test/auctions.test.ts)"
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
     [ "$got" = "$want" ] && ok "$sh: test-list block finds test files by every glob" \
         || bad "$sh: test-list block: got [$(echo $got)] want [$(echo $want)]"
@@ -74,7 +83,7 @@ echo '{"name":"p2"}' >"$H/.claude/profiles/p2/profile.json"
 echo '{"name":"p3","qmd":{"collections":["p3-docs","p3-tickets","p3-memory"],"covers":"p3"}}' >"$H/.claude/worfy-harness/projects/p3/profile.json"
 printf 'collections:\n  c1:\n    path: /x/one\n    pattern: "**/*.md"\n  c2:\n    path: /x/two\n  p3-docs:\n    path: "/x/three"\n    update: /p/qmd-sync-main p3\nmodels:\n  embed: e\n' >"$H/.config/qmd/index.yml"
 want="$(printf 'p3: p3-docs, p3-tickets, p3-memory — p3\np1: c1, c2 — docs of p1\np2:  — no qmd field\nc1\t/x/one\nc2\t/x/two\np3-docs\t"/x/three"')"
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     got="$(HOME="$H" HARNESS_HOME= $sh -c "$B3" 2>&1)"
     [ "$got" = "$want" ] && ok "$sh: qmd block prints profile collections and index paths" \
         || bad "$sh: qmd block: got [$got] want [$want]"
@@ -91,7 +100,7 @@ PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ATAKAMA="$HOME/Work/Atakama" AUCTION="$HOME/Work/Auction"
 if { [ -f "$HOME/.claude/worfy-harness/gate/config.json" ] || [ -f "$HOME/.claude/gate/config.json" ]; } \
     && [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -d "$AUCTION" ]; then
-    for sh in bash zsh; do
+    for sh in "${SHELLS[@]}"; do
         got="$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" $sh -c "${B4//<repo>/$ATAKAMA}" 2>&1)"
         # The profile lives in ~/.claude/profiles/atakama before the move to the Harness home and in
         # ~/.claude/worfy-harness/projects/atakama after it.
@@ -135,7 +144,7 @@ B7="$(SKILL="$WAVE" blockf 'git -C "$W" add -A .')"
 [ -n "$B7" ] || bad "Workflow folder commit block not found in $WAVE"
 B8="$(SKILL="$WAVE" blockf 'gate: VERIFIED — $(date')"
 [ -n "$B8" ] || bad "Silent verdict block not found in $WAVE"
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     reset_tickets
     # the branch named by the change: checked, then recorded in the ticket of the Workflow folder
     c="$(sub "$B5")"; c="${c//<kind>\/<what-the-change-does>/fix/pay-button-$sh}"; c="${c//<NN>/01}"
@@ -200,7 +209,7 @@ for skill in "$WAVE" "$SHIP"; do
     BR="$(SKILL="$skill" blockf 'mark <epic> <NN> review pending --sha "$sha"')"
     name="$(basename "$(dirname "$skill")")"
     [ -n "$BR" ] || { bad "$name: the review mark block not found"; continue; }
-    for sh in bash zsh; do
+    for sh in "${SHELLS[@]}"; do
         rm -f "$M"; reset_tickets
         c="$(sub "$BR")"; c="${c//<NN>/02}"; c="${c//<implementer worktree>/$SR}"; c="${c//<worktree>/$SR}"
         got="$(cd "$SH" && "${SENV[@]}" "${MENV[@]}" $sh -c "$c" 2>&1)"
@@ -221,7 +230,7 @@ IMPL="$(cd "$SKILLS/.." && pwd)/agents/implementer.md"
     && ok "the CI filter: one command in epic-wave, ship-ticket and agents/implementer.md" || bad "the CI filter differs: [$BCI_W] [$BCI_S]"
 ci_case() { # ci_case <want> <checks JSON>
     printf '%s\n' "$2" >"$T/checks.json"
-    for sh in bash zsh; do
+    for sh in "${SHELLS[@]}"; do
         got="$("${MENV[@]}" GH_CHECKS="$T/checks.json" $sh -c "${BCI_W//<N>/7}" 2>&1)"
         [ "$got" = "$1"$'\n'"EXIT=0" ] && ok "$sh: CI filter $2 -> $1" || bad "$sh: CI filter $2: [$got] want $1"
     done
@@ -240,6 +249,156 @@ ci_case CI=none "[$(st review pass),$(st check/windows pending)]"
 ci_case CI=fail "[$(j unit pass),$(j deploy fail)]"
 ci_case CI=fail "[$(j unit pass),$(j review fail),$(j check/windows fail)]"
 ci_case CI=pass "[$(j unit pass),$(j deploy pass),$(st deploy fail)]"
+
+# --- blocks alike on BSD and GNU tools (worfy-windows ticket 07, worfy ADR-0055 item 6) -----------------------------
+# The main-branch lock of skills/epic-wave, section 4. The loop is bounded: each round counts, and after three the
+# block exits with IDLE — so a loop that spins without sleeping (BSD `stat -f %m` under GNU stat fails, and
+# `|| continue` skips the sleep) ends the case instead of hanging the run. `sleep 30` becomes a no-op.
+BL="$(SKILL="$WAVE" block '<orchestrator scratchpad>/main.lock')"
+[ -n "$BL" ] || bad "main-branch lock block not found in $WAVE"
+BL="${BL//<orchestrator scratchpad>/$T/lk}"
+pat='until mkdir "$L" 2>/dev/null; do'
+rep='until mkdir "$L" 2>/dev/null; do n=$((n+1)); [ "$n" -le 3 ] || { echo IDLE; exit 7; };'
+BL="${BL//"$pat"/$rep}"
+BL="${BL//sleep 30/:}"
+[[ "$BL" == *'echo IDLE'* && "$BL" != *'sleep 30'* ]] || bad "main-branch lock block: the round bound did not go in: [$BL]"
+two_hours_ago="$(perl -MPOSIX -e 'print strftime("%Y%m%d%H%M", localtime(time - 7200))')"
+for sh in "${SHELLS[@]}"; do
+    rm -rf "$T/lk"; mkdir -p "$T/lk/main.lock"; touch -t "$two_hours_ago" "$T/lk/main.lock"
+    got="$($sh -c "$BL" 2>&1)"; rc=$?
+    [ "$rc" = 0 ] && [ "$got" = LOCKED ] && [ ! -e "$T/lk/main.lock" ] \
+        && ok "$sh: main-branch lock: a lock two hours old is removed and taken again (LOCKED), then released" \
+        || bad "$sh: main-branch lock, stale: exit $rc [$got]"
+    rm -rf "$T/lk"; mkdir -p "$T/lk/main.lock"
+    got="$($sh -c "$BL" 2>&1)"; rc=$?
+    [ "$rc" = 7 ] && [ "$got" = IDLE ] && [ -d "$T/lk/main.lock" ] \
+        && ok "$sh: main-branch lock: a fresh lock stays, the block waits" || bad "$sh: main-branch lock, fresh: exit $rc [$got]"
+done
+
+# The branches of the last 14 days, skills/continuous-audit: origin/old (a commit 20 days ago) is left out,
+# origin/new (1 day ago) is read; epic-status is a stub that answers for the ref it is given.
+ASKILL="${AUDIT_SKILL_FILE:-$SKILLS/continuous-audit/SKILL.md}"
+BA="$(SKILL="$ASKILL" block 'live-tickets.jsonl')"
+[ -n "$BA" ] || bad "branches-of-14-days block not found in $ASKILL"
+[[ "$BA" == *'"${TMPDIR:-/tmp}/live-tickets.jsonl"'* ]] && ok "branches-of-14-days block writes to \${TMPDIR:-/tmp}" || bad "branches-of-14-days block: no \${TMPDIR:-/tmp}: [$BA]"
+AU="$T/audit"; mkdir -p "$AU/plugin/bin" "$AU/tmp"
+cat >"$AU/plugin/bin/epic-status" <<'EOF'
+#!/usr/bin/env bash
+# epic-status stub: one open and one done ticket on the ref of --ref.
+b=""; while [ $# -gt 0 ]; do [ "$1" = --ref ] && b=$2; shift; done
+printf '{"ref":"%s","tickets":[{"ref":"%s","epic":"e","num":"01","slug":"s","title":"t","state":"open"},{"ref":"%s","epic":"e","num":"02","slug":"d","title":"d","state":"done"}]}\n' "$b" "$b" "$b"
+EOF
+chmod +x "$AU/plugin/bin/epic-status"
+git -C "$AU" init -q -b main repo
+now="$(date +%s)"
+for b in old:20 new:1; do
+    GIT_COMMITTER_DATE="$((now - ${b#*:} * 86400)) +0000" GIT_AUTHOR_DATE="$((now - ${b#*:} * 86400)) +0000" \
+        git -C "$AU/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "${b%%:*}"
+    git -C "$AU/repo" update-ref "refs/remotes/origin/${b%%:*}" HEAD
+done
+for sh in "${SHELLS[@]}"; do
+    rm -f "$AU/tmp/live-tickets.jsonl"
+    got="$(cd "$AU/repo" && CLAUDE_PLUGIN_ROOT="$AU/plugin" TMPDIR="$AU/tmp" $sh -c "$BA" 2>&1)"
+    live="$(cat "$AU/tmp/live-tickets.jsonl" 2>&1)"
+    [ "$live" = '["origin/new","e","01","s","t"]' ] && ok "$sh: branches-of-14-days block reads origin/new only, open tickets only" \
+        || bad "$sh: branches-of-14-days block: [$got] live-tickets [$live]"
+done
+
+# The cross-machine gate (worfy ADR-0069): a project with cross_machine_gate in the sandbox HARNESS_HOME, and a stub
+# gh: `--jq <filter>` applies the filter (real jq) to $GH_JSON, `--body-file <f>` keeps a copy of <f> in $GH_BODY_OUT,
+# every call is logged. No token reaches it, and nothing reaches GitHub.
+CM="$T/cm"; CR="$CM/repo"; mkdir -p "$CM" "$SHH/projects/cm"
+git -C "$CM" init -q -b main repo
+printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"},{"key":"cm","match":"%s","profile":"cm"}]}\n' "$SR" "$CR" >"$SHH/gate/config.json"
+printf '%s\n' '{"schema":2,"name":"cm","mode":"full","tickets":{"branch":"<эпик>/<NN>"},"cross_machine_gate":{"label":"needs-mac-gate","role":"request","exempt":[".scratch/","docs/","HANDOFF.md"],"checks_section":"Mac checks"}}' >"$SHH/projects/cm/profile.json"
+GHX="$T/ghx"; mkdir -p "$GHX"
+cat >"$GHX/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$GH_LOG"; echo "$*" >>"$GH_ALL"
+f=""; prev=""
+for a in "$@"; do
+  [ "$prev" = --jq ] && f=$a
+  [ "$prev" = --body-file ] && cp "$a" "$GH_BODY_OUT"
+  prev=$a
+done
+if [ -n "$f" ]; then jq -r "$f" "$GH_JSON"; exit $?; fi
+exit 0
+EOF
+chmod +x "$GHX/gh"
+refusing_gh_exe "$GHX/gh"
+( PATH="$GHX:$PATH"; gh_guard - "$GHX/gh" "$GHX/gh" ) || exit 1
+XENV=(env -u GH_TOKEN -u GITHUB_TOKEN PATH="$GHX:$PATH" GH_LOG="$T/ghx.log" GH_ALL="$T/ghx-all.log" GH_JSON="$T/ghx.json" GH_BODY_OUT="$T/ghx-body.md" GH_CONFIG_DIR="$T/gh-config")
+
+# The label block of skills/ship-ticket, step 8: the PR's files against cross_machine_gate.exempt.
+BLB="$(SKILL="$SHIP" blockf 'cross_machine_gate.exempt')"
+[ -n "$BLB" ] || bad "label block not found in $SHIP"
+printf -- '- `pnpm icons` — exit 0\n' >"$T/section.md"
+BLB="$(sub "${BLB//<repo>/$CR}")"; BLB="${BLB//<N>/7}"; BLB="${BLB//<scratchpad>/$T}"; BLB="${BLB//<section file>/$T/section.md}"
+label_case() { # label_case <want: label|no-label> <name> <body> <file>...
+    local want="$1" name="$2" body="$3" sh got; shift 3
+    jq -n --arg body "$body" '{body: $body, files: [$ARGS.positional[] | {path: .}]}' --args "$@" >"$T/ghx.json"
+    for sh in "${SHELLS[@]}"; do
+        : >"$T/ghx.log"; rm -f "$T/ghx-body.md" "$T/pr-7-body.md"
+        got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BLB" 2>&1)"
+        if [ "$want" = no-label ]; then
+            [ "$got" = no-label ] && ! grep -q '^pr edit' "$T/ghx.log" && [ ! -e "$T/ghx-body.md" ] \
+                && ok "$sh: label block, $name -> no-label, gh pr edit not called" || bad "$sh: label block, $name: [$got] gh [$(cat "$T/ghx.log")]"
+        else
+            [ "$got" = $'label\nEXIT=0' ] && grep -qxF 'pr edit 7 --add-label needs-mac-gate --body-file '"$T/pr-7-body.md" "$T/ghx.log" \
+                && grep -qxF 'Old description.' "$T/ghx-body.md" && grep -qxF '## Mac checks' "$T/ghx-body.md" && grep -qxF -- '- `pnpm icons` — exit 0' "$T/ghx-body.md" \
+                && [ "$(grep -c '^## Mac checks$' "$T/ghx-body.md")" = 1 ] \
+                && ok "$sh: label block, $name -> label, --add-label needs-mac-gate and --body-file with the old description and ## Mac checks" \
+                || bad "$sh: label block, $name: [$got] gh [$(cat "$T/ghx.log")] body [$(cat "$T/ghx-body.md" 2>&1)]"
+        fi
+    done
+}
+label_case no-label "files in exempt folders and an exempt file" 'Old description.' .scratch/worfy-windows/issues/07-t.md docs/adr/0069-x.md HANDOFF.md
+label_case label "one file outside exempt" 'Old description.' docs/adr/0069-x.md harness/skills/epic-wave/SKILL.md
+label_case label "a folder entry covers only paths under it (docsx/)" 'Old description.' docsx/a.md
+label_case label "a file entry is the whole path (HANDOFF.md.bak)" 'Old description.' HANDOFF.md.bak
+label_case label "a description that already has the section gets no second one" $'Old description.\n\n## Mac checks\n\n- `pnpm icons` — exit 0' harness/x.sh
+
+# The checks section block of skills/epic-wave, section 1: the section's lines up to the next heading.
+BCS="$(SKILL="$WAVE" blockf 'no-section')"
+[ -n "$BCS" ] || bad "checks section block not found in $WAVE"
+BCS="$(sub "${BCS//<repo>/$CR}")"; BCS="${BCS//<N>/7}"
+section_case() { # section_case <name> <want> <body>
+    jq -n --arg body "$3" '{body: $body}' >"$T/ghx.json"
+    for sh in "${SHELLS[@]}"; do
+        got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BCS" 2>&1)"
+        [ "$got" = "$2" ] && ok "$sh: checks section block, $1" || bad "$sh: checks section block, $1: got [$got] want [$2]"
+    done
+}
+TWO=$'- `pnpm icons` — exit 0\n- `git add --renormalize . && git status --porcelain` — empty output'
+section_case "two commands, the next heading ends the section" "$TWO" \
+    $'Intro.\n\n## Mac checks\n\n- `pnpm icons` — exit 0\n- `git add --renormalize . && git status --porcelain` — empty output\n\n## Windows checks\n\n- `bash x.test.sh` — exit 0'
+section_case "CRLF line ends" "$TWO" \
+    $'Intro.\r\n\r\n## Mac checks\r\n\r\n- `pnpm icons` — exit 0\r\n- `git add --renormalize . && git status --porcelain` — empty output\r\n'
+section_case "none" none $'## Summary\n\nx\n\n## Mac checks\n\nnone\n'
+section_case "no section" no-section $'## Summary\n\nNo checks here.\n\n## Windows checks\n\n- `x` — exit 0'
+section_case "a heading of another level ends it too" '- `a` — exit 0' $'## Mac checks\n- `a` — exit 0\n### Notes\n- `b` — exit 0'
+
+# The open PRs of other epics, skills/epic-wave section 1: every file of each open PR whose branch does not match
+# this epic's tickets.branch (<эпик>/<NN>, the epic is pay-flow here), filtered by gh's own --jq.
+BOP="$(SKILL="$WAVE" blockf 'gh pr list --state open --limit 200 --json number,headRefName,files')"
+[ -n "$BOP" ] || bad "open PRs of other epics block not found in $WAVE"
+BOP="$(sub "${BOP//<repo>/$CR}")"
+printf '%s\n' '[{"number":1,"headRefName":"pay-flow/03","files":[{"path":"src/a.ts"}]},
+ {"number":2,"headRefName":"worfy-link/05","files":[{"path":"src/x.ts"},{"path":"HANDOFF.md"}]},
+ {"number":3,"headRefName":"pay-flow/03-extra","files":[{"path":"src/z.ts"}]},
+ {"number":4,"headRefName":"fix/empty","files":[]}]' >"$T/ghx.json"
+want='#2 worfy-link/05 src/x.ts
+#2 worfy-link/05 HANDOFF.md
+#3 pay-flow/03-extra src/z.ts
+EXIT=0'
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BOP" 2>&1)"
+    [ "$got" = "$want" ] && [ "$(grep -c '^pr list' "$T/ghx.log")" = 1 ] \
+        && ok "$sh: open PRs of other epics: every file of the PRs off the epic's branch template, own PRs left out" \
+        || bad "$sh: open PRs of other epics: got [$got] want [$want]"
+done
+echo "stub gh calls of the cross-machine and open-PR cases: $(wc -l <"$T/ghx-all.log" | tr -d ' ')"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
