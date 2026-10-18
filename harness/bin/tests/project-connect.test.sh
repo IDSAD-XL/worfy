@@ -325,6 +325,25 @@ check "qmd update failing after index.yml was written reports only that" 0 "the 
 check "the profile keeps its qmd field, committed" 0 "q4-docs" git -C "$HARNESS_HOME" show HEAD:projects/q4/profile.json
 [ "$(commits)" -eq $((n_q + 1)) ] && ok "q4 is one commit" || bad "q4 commits: $n_q -> $(commits)"
 [ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "nothing left uncommitted after the late qmd failure" || bad "uncommitted: $(git -C "$HARNESS_HOME" status --porcelain)"
+# A Node qmd-collections (the real one is) runs as `node <script>`, not by its #! line, which Windows
+# does not read: this stand-in has no execute bit. "qmd" is node itself here (`node --version`
+# exits 0), so the case runs where the shell stub of qmd cannot start (Windows).
+cat >"$T/bin/qmd-collections-node" <<'STUB'
+#!/usr/bin/env node
+const fs = require("fs")
+const name = process.argv[2]
+fs.appendFileSync(process.env.QMD_NODE_LOG, name + "\n")
+const file = require("path").join(process.env.HARNESS_HOME, "projects", name, "profile.json")
+const profile = JSON.parse(fs.readFileSync(file, "utf8"))
+profile.qmd = { collections: [name + "-docs"] }
+fs.writeFileSync(file, JSON.stringify(profile, null, 2) + "\n")
+STUB
+repo "$T/q5"
+draft q5 full null "$T/q5" >"$T/q5.json"
+check "a Node qmd-collections without the execute bit runs through node" 0 '"status": "added"' \
+    env QMD_NODE_LOG="$T/qmd-node-called" PROJECT_CONNECT_QMD="$(command -v node)" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections-node" "$CONNECT" <"$T/q5.json"
+check "the Node qmd-collections got the project name" 0 "q5" cat "$T/qmd-node-called"
+check "its qmd field went into the q5 commit" 0 "q5-docs" git -C "$HARNESS_HOME" show HEAD:projects/q5/profile.json
 export HARNESS_HOME="$SAVED"
 
 home_after="$(real_home_snapshot "$REAL_HOME")"

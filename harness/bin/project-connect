@@ -51,6 +51,24 @@ const BIN = path.dirname(fs.realpathSync(__filename))
 const SCHEMA_FILE = path.join(path.dirname(BIN), "profiles", "draft.schema.json")
 const QMD_COLLECTIONS = process.env.PROJECT_CONNECT_QMD_BIN || path.join(BIN, "qmd-collections")
 const QMD = process.env.PROJECT_CONNECT_QMD || "qmd"
+// A Node script (bin/qmd-collections) is started with the node running this one: Windows does not
+// start an extensionless file by its #! line. Anything else (a shell stub of a test) is started by
+// its #! line, as before — the rule of epic-status's scriptCommand.
+function scriptCommand(file, args) {
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: let node report it */
+    }
+    return head.startsWith("#!") && !/\bnode\b/.test(head) ? [file, args] : [process.execPath, [file, ...args]]
+}
 const FAIL_AT = process.env.PROJECT_CONNECT_FAIL_AT || ""
 
 const USAGE = `usage: project-connect [--check | --schema-only] < draft.json
@@ -495,7 +513,8 @@ if (qmd.error || qmd.status !== 0) written.qmd = { status: "skipped", reason: "q
 else if (models !== "downloaded") written.qmd = { status: "skipped", reason: 'the qmd models were not downloaded (qmd-models is not "downloaded")' }
 else {
     const indexBefore = readIndex()
-    const added = spawnSync(QMD_COLLECTIONS, [name], { encoding: "utf8", env: { ...process.env, HARNESS_HOME } })
+    const [collectionsFile, collectionsArgs] = scriptCommand(QMD_COLLECTIONS, [name])
+    const added = spawnSync(collectionsFile, collectionsArgs, { encoding: "utf8", env: { ...process.env, HARNESS_HOME } })
     const last = ((added.stderr || "") + (added.error ? added.error.message : "")).trim().split("\n").pop()
     if (added.status === 0) {
         written.qmd = { status: "added", reason: amendProfile() }

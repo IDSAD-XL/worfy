@@ -10,6 +10,7 @@
 // after a short quiet period; DocsHub shares one watcher per Project between the windows that
 // opened it. Nothing here writes a file: the watch only listens, the rest only reads.
 import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { resolve, sep } from 'node:path'
@@ -186,6 +187,20 @@ const isFolder = (path: string): Promise<boolean> =>
     () => false,
   )
 
+/**
+ * The last name of a folder as the system gives it in the events of its watch: that of its real
+ * path, a symlink followed and the case of the disk (`…/link` to `…/realproj` gives `realproj`,
+ * `…/project` of the folder `Project` gives `Project`). The name as written when there is no real
+ * path to take.
+ */
+function nameOnDisk(folder: string): string {
+  try {
+    return nativePath.basename(realpathSync.native(folder))
+  } catch {
+    return nativePath.basename(folder)
+  }
+}
+
 /** The time between two looks for a root that is gone. */
 export const ROOT_RETRY_MS = 2000
 
@@ -230,6 +245,21 @@ export function errorEndsWatch(platform: NodeJS.Platform): boolean {
  * folder again it is watched again and read. A watch that fails on macOS or Windows (worfy-windows
  * ticket 36) is dead — Node closes its handle before it reports the error — and is met the same
  * way, with the error in the log once per run of failures (errorEndsWatch).
+ *
+ * On macOS (worfy-windows ticket 38) the watch of a root that is removed or renamed neither closes
+ * nor fails, and sends one event, named by the last name of the root's real path (nameOnDisk):
+ * not a full path, so the watch is kept. That name asks for a read, which finds no documents.
+ * FSEvents follows the path, not the folder: the same watch tells of a root made again or renamed
+ * back by the same name, and that read finds them again; the folder renamed away is not followed.
+ * A file directly under the root with the root's own name gives the same name: one read more, sent
+ * nowhere when nothing changed.
+ * A parent of the root removed or renamed, and renamed back, gives no event at all (measured):
+ * the documents stay as they were read.
+ *
+ * On Linux (read in the sources of Node 24, not run) a root that is removed comes as one event
+ * named '' and Node's recursive watch closes its inner watches itself, with neither `close` nor
+ * `error`: the documents stay as they were read and the root is not waited for. worfy has no
+ * Linux build (ADR-0054), so nothing is done about it.
  */
 export class DocsWatcher {
   private docs: Docs | null = null
@@ -282,6 +312,9 @@ export class DocsWatcher {
     const { root } = this.options
     const full = this.options.isAbsolute ?? nativePath.isAbsolute
     const mine: { handle: { close: () => void } | null } = { handle: null }
+    // On macOS the root itself, removed, renamed away, made again or renamed back, comes as one
+    // event named by its last name on the disk (see the header of DocsWatcher).
+    const itself = nameOnDisk(root)
     // Events for any other path of the repository (node_modules, .git, out/) are dropped by name
     // here, before any read.
     mine.handle = (this.options.watch ?? watchRootWithNode)(
@@ -292,7 +325,7 @@ export class DocsWatcher {
         this.failing = false
         // A name under the root is not a full path: this one names the root itself, which is gone.
         if (namesTheFolder(filename, full)) return this.lost()
-        if (filename === null || isWatchedPath(filename)) this.schedule()
+        if (filename === null || filename === itself || isWatchedPath(filename)) this.schedule()
       },
       (error) => {
         if (this.watcher !== mine.handle) return

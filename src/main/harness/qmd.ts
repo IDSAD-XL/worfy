@@ -20,12 +20,14 @@
 //   writes the answer to <harnessHome>/qmd-models (MODELS_ANSWER_FILE): `downloaded` and the model
 //   URIs `qmd pull` reported, or `skipped`. Without `downloaded` qmd-mcp does not start the server, otherwise qmd would
 //   download the models itself on the first query.
-// - setupCollections runs the Harness script `bin/qmd-collections <project>`: the three collections
-//   of a Project in the global index and their names in its Profile.
+// - setupCollections runs the Harness script `bin/qmd-collections <project>` as `node <script>`
+//   (src/main/workflow/profile.ts, runHarnessScript): the three collections of a Project in the
+//   global index and their names in its Profile.
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { agentEnv } from '../agent/env'
+import { runHarnessScript, type SpawnProcess } from '../workflow/profile'
 
 type Env = Readonly<Record<string, string | undefined>>
 
@@ -375,10 +377,17 @@ export interface CollectionsResult {
 
 /**
  * `<binDir>/qmd-collections <project>` (the Harness script) with the login shell environment and
- * HARNESS_HOME: the Project's collections in the global qmd index, their names in its Profile.
+ * HARNESS_HOME: the Project's collections in the global qmd index, their names in its Profile. It
+ * starts as every Harness script does, `node <script> <project>` (runHarnessScript, worfy-windows
+ * ticket 30): Windows does not run the file by its `#!` line. A script that could not be started
+ * gives code null and the reason as its output.
  */
-export async function setupCollections(options: QmdOptions & { binDir: string; project: string }): Promise<CollectionsResult> {
+export async function setupCollections(options: QmdOptions & { binDir: string; project: string; spawn?: SpawnProcess }): Promise<CollectionsResult> {
   const env = await loginEnv(options)
-  const run = await runCommand(join(options.binDir, 'qmd-collections'), [options.project], { ...env, HARNESS_HOME: options.harnessHome }, COLLECTIONS_TIMEOUT_MS)
-  return { code: run.code, output: `${run.stdout}${run.stderr}` }
+  try {
+    const run = await runHarnessScript(join(options.binDir, 'qmd-collections'), [options.project], { ...env, HARNESS_HOME: options.harnessHome }, { timeoutMs: COLLECTIONS_TIMEOUT_MS, spawn: options.spawn })
+    return { code: run.code, output: `${run.stdout}${run.stderr}` }
+  } catch (error) {
+    return { code: null, output: error instanceof Error ? error.message : String(error) }
+  }
 }

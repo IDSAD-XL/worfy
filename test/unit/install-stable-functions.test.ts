@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
@@ -417,8 +417,20 @@ describe('the deploy mark', () => {
 // A whole install with a build step of the test, as `pnpm install:stable` runs: the mark comes after the copy is
 // at the target and its metadata file is written, and a mark that throws does not fail the install.
 // Not on Linux: there the copy step runs ditto, which only macOS has (the whole installs of install-stable.test.ts skip Linux too).
-describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', () => {
+//
+// Why these cases were slow: the stand-in of Launch Services' tool is a shell script useStandInBuild writes anew
+// for every test, and macOS checks a new executable before its first run — about 400 ms on an idle Mac, several
+// seconds on one a full gate loads, which took these cases past vitest's 5 s default. These cases do not look at
+// what was registered, so the program they register with is /usr/bin/true, a system program macOS runs at once.
+// What is left are real programs all the same (git, ps twice, ditto; PowerShell's list of processes twice on
+// Windows), around 150 ms on an idle Mac: the explicit timeout keeps a loaded machine from failing them on time
+// alone, as the contract project's 15 s does for its real processes. A case that really hangs still fails.
+describe.runIf(process.platform !== 'linux')('the deploy mark after a whole install', { timeout: 15_000 }, () => {
   useStandInBuild()
+  beforeEach(() => {
+    // After useStandInBuild's own beforeEach, which points the variable at its script; its afterEach puts back the value from before.
+    if (process.platform === 'darwin') process.env.WORFY_STABLE_LSREGISTER = '/usr/bin/true'
+  })
   const repoWithBuild = () => {
     const repo = join(dir, 'repo')
     mkdirSync(repo)

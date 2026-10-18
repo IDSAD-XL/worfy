@@ -3,11 +3,11 @@
 // itself by its `\\?\` path. Here the watch of the system is a stand-in that the test drives, and
 // the rule for a full path is path.win32's, so every case runs on any system; the documents are
 // read from a real folder.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, type Docs, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
+import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, SETTLE_READS_MS, type Docs, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
 import { removeTestTree } from '../remove'
 
 /** The time between two looks for the root, in these tests. */
@@ -403,5 +403,73 @@ describe('DocsWatcher and a root that is removed', () => {
     await vi.advanceTimersByTimeAsync(1)
     for (let tries = 0; tries < 200 && model.made.length < 2; tries++) await settled(5)
     expect(model.made).toHaveLength(2)
+  })
+})
+
+// macOS (worfy-windows ticket 38): a root that is removed or renamed gives one event, named by the
+// root's last name — not a full path, so the watch is kept — and nothing more. The same name comes
+// when the root is back at its path, made again or renamed back.
+describe('DocsWatcher and an event named by the root\'s last name', () => {
+  /** Past the reads that follow the start of a watch: a read after this comes from an event. */
+  const pastStartReads = (): Promise<void> => pause(Math.max(...SETTLE_READS_MS) + 100)
+
+  it('reads the documents: a root that is gone reads as empty; the watch is kept and nothing is said', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const model = stand()
+    const { watcher, changes } = await start(model)
+    expect(watcher.current.handoff).not.toBeNull()
+    await pastStartReads()
+    removeTestTree(root)
+    model.made[0]!.event('repo')
+    await until(() => expect(changes).toEqual([{ handoff: null, adrs: [] }]))
+    expect(model.made[0]!.closed).toBe(false)
+    expect(model.made).toHaveLength(1)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a root renamed away and back is read at each event, by the same watch', async () => {
+    const model = stand()
+    const { changes } = await start(model)
+    await pastStartReads()
+    const moved = join(dir, 'moved')
+    renameSync(root, moved)
+    model.made[0]!.event('repo')
+    await until(() => expect(changes).toEqual([{ handoff: null, adrs: [] }]))
+    renameSync(moved, root)
+    model.made[0]!.event('repo')
+    await until(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'))
+    expect(changes).toHaveLength(2)
+    expect(model.made).toHaveLength(1)
+  })
+})
+
+describe('DocsWatcher and names at the top of the root', () => {
+  const pastStartReads = (): Promise<void> => pause(Math.max(...SETTLE_READS_MS) + 100)
+
+  it('another name at the top of the root asks for no read; the root\'s own name and HANDOFF.md do', async () => {
+    const model = stand()
+    const { changes } = await start(model)
+    await pastStartReads()
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed\n')
+    for (const name of ['package.json', '.git', 'README.md', 'repository']) model.made[0]!.event(name)
+    await pause(100)
+    expect(changes).toEqual([])
+    model.made[0]!.event('repo')
+    await until(() => expect(changes).toHaveLength(1))
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed again\n')
+    model.made[0]!.event('HANDOFF.md')
+    await until(() => expect(changes).toHaveLength(2))
+  })
+
+  it('a root that has no real path when its watch starts goes by its name as written', async () => {
+    removeTestTree(root)
+    const model = stand()
+    const { watcher, changes } = await start(model)
+    expect(watcher.current).toEqual({ handoff: null, adrs: [] })
+    await pastStartReads()
+    mkdirSync(root)
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, back\n')
+    model.made[0]!.event('repo')
+    await until(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'))
   })
 })
