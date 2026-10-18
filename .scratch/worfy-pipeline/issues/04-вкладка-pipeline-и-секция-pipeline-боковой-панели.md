@@ -1,7 +1,7 @@
 # 04 — Вкладка Pipeline (доска активного Project-а) и секция Pipeline боковой панели
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T01:14Z
 Blocked by: 03
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 1, 2 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).

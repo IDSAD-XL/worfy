@@ -20,7 +20,7 @@ const PROJECT = 'alpha-0000000a'
 const EPICS = Array.from({ length: 12 }, (_, index) => `epic-${String(index + 1).padStart(2, '0')}`)
 const ADRS = Array.from({ length: 20 }, (_, index) => String(index + 1).padStart(4, '0'))
 /** The sections in the order of the sidebar: the names of their files. */
-const SECTIONS = ['ProjectsSection', 'MachinesSection', 'EpicsSection', 'SessionsSection', 'AdrSection']
+const SECTIONS = ['ProjectsSection', 'MachinesSection', 'EpicsSection', 'PipelineSection', 'SessionsSection', 'AdrSection']
 
 /** The rows the height rules count in: the common row, and the two-line row of Epics. */
 const ROW = 28
