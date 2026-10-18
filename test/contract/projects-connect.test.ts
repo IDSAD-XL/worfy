@@ -752,6 +752,79 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
     }
   })
 
+  // Review round 1 of PR #507: SIGKILL on the exit left qmd-collections no chance to release
+  // refresh.lock. The exit sends SIGTERM, which a script can handle.
+  it.skipIf(process.platform === 'win32')('on the exit of worfy a running script gets SIGTERM, so it can clean up before it ends', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const ready = join(scratch, 'term-ready')
+    const cleaned = join(scratch, 'term-cleaned')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "const fs = require('node:fs')",
+        `process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(cleaned)}, 'SIGTERM'); process.exit(143) })`,
+        `fs.writeFileSync(${JSON.stringify(ready)}, '')`,
+        'setTimeout(() => process.exit(0), 30000)',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 15_000 })
+    const running = connect([], '{}')
+    for (let i = 0; i < 200 && !existsSync(ready); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+    killRunningHarnessScripts()
+    expect(await running).toMatchObject({ code: 143 })
+    expect(readFileSync(cleaned, 'utf8')).toBe('SIGTERM')
+  })
+
+  // Review round 1 of PR #507 (mutant M1): the script has exited, its process group still holds the
+  // pipes; the exit of worfy ends that group too.
+  it.skipIf(process.platform === 'win32')('on the exit of worfy the group of a script that has exited, still holding its pipes, is ended', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { pidFile, stop, marker } = groupScript(binDir, 7)
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 5000 })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      const started = Date.now()
+      killRunningHarnessScripts()
+      expect(await running).toMatchObject({ code: 7 })
+      expect(Date.now() - started).toBeLessThan(3000)
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        if (grandchildRunning(pid, marker)) process.kill(pid, 'SIGKILL')
+      }
+    }
+  })
+
+  // Review round 1 of PR #507 (mutant M4): a script that has answered leaves the list, so the exit of
+  // worfy signals no group of an old pid, which may belong to another process by then.
+  it('a script that has answered is not signalled on the exit of worfy', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    writeFileSync(join(binDir, 'project-connect'), ['#!/usr/bin/env node', 'process.stdout.write(String(process.pid))', ''].join('\n'))
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])) })
+    const run = await connect([], '{}')
+    const pid = Number(run.stdout)
+    expect(pid).toBeGreaterThan(0)
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      killRunningHarnessScripts()
+      expect(kill.mock.calls.filter(([target]) => target === pid || target === -pid)).toEqual([])
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
   it('the signal (the app quits) kills a running script: code null, and the script is gone', async () => {
     const binDir = join(scratch, 'harness-bin')
     mkdirSync(binDir)

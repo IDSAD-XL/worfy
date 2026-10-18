@@ -334,28 +334,34 @@ const KILL_SYSTEM: KillSystem = {
  * The Harness scripts that have not answered yet. Outside Windows each leads a process group of its
  * own, so the Ctrl+C or SIGHUP of a terminal that started worfy does not reach it: Electron quits on
  * those signals and node emits 'exit', and killRunningHarnessScripts ends them then, the scripts
- * started with no signal of their own (qmd-collections, src/main/harness/qmd.ts) included.
+ * started with no signal of their own (qmd-collections, src/main/harness/qmd.ts) included. A script
+ * leaves the list when it has answered (done in runHarnessScript).
  */
 const runningScripts = new Set<ChildProcess>()
 
 /**
- * Kills every Harness script that has not answered, with what it started (killTree), and with its
- * process group when the script itself has exited while the group still holds its pipes. Run on the
- * 'exit' of the process; outside Windows the kill is synchronous, as 'exit' needs. On Windows the
- * scripts are not detached, and taskkill, a process of its own, may not start before the exit.
+ * SIGTERM to the process group of every Harness script that has not answered — the script and what
+ * it started, or, when the script itself has exited, what still holds its pipes. Run on the 'exit'
+ * of the process, Cmd+Q included: SIGTERM, not SIGKILL, so that a script can let go of what it holds
+ * (qmd-collections releases refresh.lock on it), and process.kill is synchronous, as 'exit' needs. A
+ * script that ignores SIGTERM outlives worfy: 'exit' cannot wait to send SIGKILL after it. On
+ * Windows the scripts are not detached and killTree runs taskkill, a process of its own that may not
+ * start before the exit.
  */
 export function killRunningHarnessScripts(): void {
   for (const child of runningScripts) {
-    if (child.exitCode === null && child.signalCode === null) killTree(child)
-    else if (process.platform !== 'win32' && child.pid !== undefined) killGroup(child.pid)
+    const running = child.exitCode === null && child.signalCode === null
+    if (process.platform === 'win32') {
+      if (running) killTree(child)
+    } else if (child.pid !== undefined) signalGroup(child.pid, 'SIGTERM')
   }
   runningScripts.clear()
 }
 
-/** SIGKILL to the process group `pid` leads; a group that has ended already is no error. */
-function killGroup(pid: number): void {
+/** `signal` to the process group `pid` leads; a group that has ended already is no error. */
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
   try {
-    process.kill(-pid, 'SIGKILL')
+    process.kill(-pid, signal)
   } catch {
     // ESRCH: nothing is left in the group.
   }
@@ -400,7 +406,7 @@ export async function runHarnessScript(script: string, args: readonly string[], 
       if (exited()) {
         // The signal (the app quits): what the script left in its process group goes too. On Windows
         // the tree is gone with the script (taskkill /T finds no parent), and its pid may be reused.
-        if (process.platform !== 'win32' && child.pid !== undefined) killGroup(child.pid)
+        if (process.platform !== 'win32' && child.pid !== undefined) signalGroup(child.pid, 'SIGKILL')
         settleExited()
         return
       }
@@ -420,7 +426,8 @@ export async function runHarnessScript(script: string, args: readonly string[], 
     }
     const timer = setTimeout(() => {
       // At the time limit a script that has ended is answered with its own exit code, and what it
-      // left runs on; only the signal (the app quits) or the exit of worfy ends that.
+      // left runs on: the answer takes the script off the list, so neither the signal nor the exit
+      // of worfy reaches that group any more.
       if (exited()) return settleExited()
       stop()
     }, options.timeoutMs)
