@@ -19,6 +19,9 @@
 // `gh()` lends the same account to the other read-only calls of the Stage (src/main/github/deployments.ts).
 // Nothing is written to GitHub, to the Project, to the gh config or to the Claude home.
 //
+// The reviewer's verdict on the badges is the `review` mark on the PR's head commit (ADR-0067), not
+// the text of its comments; the comments are still read for the narrow round's journal of Autopilot.
+//
 // Besides what the badges show, each PR keeps what its Stage needs (src/shared/workflow/pipeline.ts):
 // the head SHA, `reviewDecision`, the merge commit and time, its CI checks one by one, and the
 // agents' marks among its commit statuses. An older gh that does not give a field leaves it null.
@@ -195,23 +198,6 @@ export function ciOf(rollup: readonly z.infer<typeof checkSchema>[] | null | und
   return running ? 'running' : 'passing'
 }
 
-// The narrow round's verdicts (worfy-harness ticket 20) carry the prefix `NARROW: `; the gate's
-// own verdict word follows it.
-const VERDICT = /^(?:NARROW:\s*)?(VERIFIED|REJECTED)\b/u
-
-/**
- * The reviewer's verdict: the last comment whose first line starts with VERIFIED or REJECTED, or
- * with the narrow round's NARROW: VERIFIED or NARROW: REJECTED.
- */
-export function verdictOf(comments: readonly { body: string }[] | null | undefined): 'VERIFIED' | 'REJECTED' | null {
-  let verdict: 'VERIFIED' | 'REJECTED' | null = null
-  for (const comment of comments ?? []) {
-    const match = VERDICT.exec(firstLine(comment.body))
-    if (match) verdict = match[1] as 'VERIFIED' | 'REJECTED'
-  }
-  return verdict
-}
-
 const NARROW = /^NARROW:(.*)$/u
 
 /** The first line kept to NARROW_TEXT_MAX UTF-16 units, without half of a surrogate pair at the cut. */
@@ -276,6 +262,20 @@ export interface TrackedPull extends PullRequest {
 
 type GhCheck = z.infer<typeof checkSchema>
 
+/**
+ * The reviewer's verdict on a PR: its `review` mark among the commit statuses of the head commit
+ * (ADR-0067) — `success` is VERIFIED, `failure` (GitHub's FAILURE or ERROR) is REJECTED; `pending`,
+ * or no `review` mark on the head commit, is no verdict. The rollup gh gives is of the head commit
+ * only, so a mark on an older commit — stale after a push — is not in it. Comments of the PR are not
+ * read for it: they stay for people and for the narrow round's journal (narrowRoundsOf).
+ */
+export function reviewMarkVerdict(marks: readonly MarkStatus[]): 'VERIFIED' | 'REJECTED' | null {
+  const state = marks.findLast((mark) => mark.context === 'review')?.state
+  if (state === 'SUCCESS') return 'VERIFIED'
+  if (state === 'FAILURE' || state === 'ERROR') return 'REJECTED'
+  return null
+}
+
 /** A commit status of a mark context: a status with a state and no check run status. */
 const isMarkStatus = (check: GhCheck): boolean => check.state != null && check.status == null && isMark(check.context)
 
@@ -309,20 +309,21 @@ export function parsePrList(stdout: string): TrackedPull[] {
     if (!parsed.success) continue
     const pull = parsed.data
     const narrow = narrowRoundsOf(pull.comments)
+    const markStatuses = (pull.statusCheckRollup ?? []).filter(isMarkStatus).map((check) => ({ context: check.context!, state: check.state!, at: check.startedAt ?? null }))
     result.push({
       number: pull.number,
       url: pull.url,
       state: pull.state,
       branch: pull.headRefName,
       ci: ciOf(pull.statusCheckRollup),
-      verdict: verdictOf(pull.comments),
+      verdict: reviewMarkVerdict(markStatuses),
       ...(narrow.length > 0 ? { narrow } : {}),
       headSha: pull.headRefOid || null,
       reviewDecision: pull.reviewDecision || null,
       mergeCommit: pull.mergeCommit?.oid || null,
       mergedAt: realTime(pull.mergedAt),
       checks: checksOf(pull.statusCheckRollup),
-      markStatuses: (pull.statusCheckRollup ?? []).filter(isMarkStatus).map((check) => ({ context: check.context!, state: check.state!, at: check.startedAt ?? null })),
+      markStatuses,
     })
   }
   return result

@@ -3,6 +3,8 @@ import { Handle, Position } from '@xyflow/react'
 import type { Ticket } from '../../../shared/workflow/types'
 import { invoke } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
+import Stepper from '../../pipeline/Stepper'
+import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
@@ -11,8 +13,9 @@ import type { TicketNodeData } from '../sources/epics'
 import type { CanvasNodeProps } from './index'
 import '../epic-frame.css'
 
-// One Ticket inside its Epic frame: number, title, a state chip, what blocks it, and the two
-// slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
+// One Ticket inside its Epic frame: number, title, the stepper of its Stage (worfy-pipeline ticket
+// 05) — the status word only until main has computed the Stage, or when it could not — what blocks
+// it, and the two slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
 // the default editor through `shell.openInEditor`; in a window on a Linked machine it shows "File is
 // on <Machine>" in place of the blockers line instead (worfy-link ticket 12). The Node comes from
 // sources/epics.ts. A row that
@@ -104,9 +107,15 @@ function BlockersLine({ data }: { data: TicketNodeData }) {
   )
 }
 
-function TicketNode({ data }: CanvasNodeProps) {
+function TicketNode({ data, width }: CanvasNodeProps) {
   const node = data.node.data as TicketNodeData
   const { projectId, root, ticket, placed } = node
+  const { snapshot } = usePipeline(root)
+  const stage = stageOfTicket(snapshot, ticket)
+  const column = stage === null ? undefined : snapshot?.pipeline[stage.index]
+  // The top row holds the stepper with the Ready chip or the repository chip only in its narrow form.
+  const repos = useProjectRepos(root)
+  const narrow = placed.ready || (repos?.repos.length ?? 0) > 1 || (width ?? defaultWidth) < defaultWidth
   const subject: SlotSubject = { kind: 'ticket', projectId, root, ticket }
   const reason = ticket.state === 'blocked' ? (ticket.blockedReason ?? null) : null
   // The tooltip shows the Status line with the reason, as the single old line `blocked — <reason>` did.
@@ -130,7 +139,7 @@ function TicketNode({ data }: CanvasNodeProps) {
   return (
     <article
       className={`w-ticket w-ticket--${ticket.state}${placed.ready ? ' w-ticket--ready' : ''}`}
-      aria-label={`Ticket ${pad(ticket.num)}, ${stateLabel}`}
+      aria-label={`Ticket ${pad(ticket.num)}, ${column?.title ?? stateLabel}`}
       data-testid="ticket-node"
       data-epic={ticket.epic}
       data-ticket={ticket.num}
@@ -143,7 +152,7 @@ function TicketNode({ data }: CanvasNodeProps) {
       <div className="w-ticket__top">
         <span className="w-mono w-ticket__num">{pad(ticket.num)}</span>
         <RepoChip root={root} repo={ticket.repo} />
-        <StateChip ticket={ticket} />
+        {stage !== null && snapshot !== undefined ? <Stepper pipeline={snapshot.pipeline} stage={stage} narrow={narrow} /> : <StateChip ticket={ticket} />}
         {placed.ready ? (
           // In the ready Wave: marked here, not by the Ticket's place in its column (ADR-0037).
           <span className="w-chip w-chip--ready w-ticket__ready" data-status="ready" data-testid="ticket-ready">

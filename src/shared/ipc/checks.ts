@@ -84,8 +84,9 @@ export const pullRequestSchema = z.object({
   branch: z.string(),
   ci: ciStateSchema.nullable(),
   /**
-   * The last comment whose first line is `VERIFIED` or `REJECTED`, or the narrow round's
-   * `NARROW: VERIFIED` or `NARROW: REJECTED`; null when there is none.
+   * The reviewer's verdict: the `review` mark (a commit status, ADR-0067) on the PR's head commit —
+   * `success` VERIFIED, `failure` REJECTED; null when it is `pending` or the head commit has none (a
+   * mark on an older commit is stale). Comments of the PR do not give it.
    */
   verdict: z.enum(['VERIFIED', 'REJECTED']).nullable(),
   /**

@@ -67,4 +67,63 @@ e2e меняет только stub `gh` (commit status вместо коммен
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-pipeline/05`.
+
+- **Stepper** — `src/renderer/pipeline/Stepper.tsx` и `stepper.css` (свой файл стилей; `pipeline.css` —
+  Ticket-а 04). Точка на каждый Stage Pipeline: пройденные, текущий, будущие; Check, пройденный
+  отметкой `skipped`, — пунктирное кольцо. Справа — имя текущего Stage (компактный чип) и «кого
+  ждёт». `blocked` — кольцо на текущей точке и пометка «!» с причиной в подсказке; `rework` — пометка
+  «rework» у Implementing. Подсказка всего stepper-а — Stage, `sub` («failing», «waiting for gate»…),
+  кого ждёт, «Stage N of M», пропущенные Check-и и причина блокировки. Узкий вид — только имя
+  Stage и «N/M».
+- **Card** (`TicketNode.tsx`): stepper в верхней строке вместо чипа статуса; `aria-label` —
+  `Ticket NN, <Stage>`; бейджи PR, CI и вердикта — на прежнем месте под ним. Stage берётся из
+  `usePipeline` (`pipeline.get`, Ticket 03), один запрос на Project.
+- **Вердикт** — `reviewMarkVerdict` в `src/main/github/prs.ts`: отметка `review` среди commit status
+  head-коммита: `SUCCESS` → `VERIFIED`, `FAILURE`/`ERROR` → `REJECTED`, `PENDING`/`EXPECTED` и
+  отсутствие → нет вердикта. `verdictOf` и его regex удалены; `grep -rn "verdictOf" src/main/github` —
+  пусто. Autopilot `verdictOf` не использовал: журнал узкого круга читает `pull.narrow`
+  (`narrowRoundsOf`), он не тронут.
+
+Выборы (вариант ближе к ADR-0067 и spec-у):
+
+- **Пока Stage не пришёл** (main ещё не ответил, `pipeline.get` упал, снимок не называет Ticket) —
+  прежний чип статуса и `aria-label` со словом статуса. Иначе Card была бы без состояния.
+- **Когда stepper узкий.** Высота Card (`TICKET_HEIGHT` = 160) расписана по строкам, отдельной строки
+  нет, поэтому stepper стоит в верхней строке (18 px). Узкий вид — когда в той же строке есть чип
+  «Ready» или чип репозитория (Project из нескольких репозиториев), или Card уже 204 px.
+- **Цвета** — по таблице токенов F-SPEC: пройденный Stage — ready dot, текущий — working dot,
+  blocked — ring. F-SPEC не говорит о точках Stage; мой выбор: у Done текущая точка — ready, у Queued
+  — нейтральная (`--border-strong`). Имя Stage — чип в цветах заменённого чипа статуса: Queued —
+  open (`--surface-raised`, `--text-secondary`), Done — done, blocked — blocked, остальные — working.
+- **Тесная строка.** «Кого ждёт» занимает только место, оставшееся после имени Stage, и режется
+  первым; на Card 204 px с семью Stage «Implementing · agent» показывает «· a…». Полный текст — в
+  подсказке.
+- **Silent mode.** Отметки там — локальный JSON, не commit status; снимок `checks` их не читает,
+  поэтому бейджа вердикта в Silent mode нет (раньше его тоже не было: вердикт там — строка в файле
+  Ticket-а, не комментарий PR). Пройденный Agent review виден в stepper-е.
+- **Устаревшая отметка.** gh отдаёт `statusCheckRollup` только head-коммита, поэтому отметка на
+  старом коммите в него не попадает и вердикта не даёт.
+
+Правки вне «Где в коде» (с разрешения Orchestrator-а):
+
+- `test/e2e/epic-frame.spec.ts:335` — ждал слово `claimed` на Card после `ticket claim`; теперь
+  `aria-label` `Ticket 01, Implementing`. Замер «смена видна ≤ 1 s» по-прежнему по `data-state`
+  (MutationObserver), он не менялся.
+- `test/e2e/epic-frame.spec.ts:617-653` — test «state chips use the F tokens…» искал чипы статуса на
+  Card-ах; теперь он проверяет stepper тех же четырёх Ticket-ов в обеих темах: имя Stage, его цвета
+  (`--done-bg`/`--done-text`, `--working-bg`/`--working-text`, `--blocked-bg`/`--blocked-text`,
+  `--surface-raised`/`--text-secondary` — все токены старого test-а) и цвет текущей точки
+  (`--ready-dot`, `--working-dot`, кольцо `--blocked-ring`, `--border-strong`), пометку blocked.
+  Проверка «у чипа есть иконка» ушла: у имени Stage иконки нет, состояние несёт слово.
+- `harness/bin/tests/max-review.test.sh:132-141` — вырезал из `prs.ts` regex `VERDICT` (удалён вместе с
+  `verdictOf`) и проверял, что worfy не видит вердикт `MAX-REVIEW:`. Теперь он читает `const NARROW`
+  — единственный оставшийся читатель комментариев PR (журнал узкого круга) — и проверяет то же:
+  regex найден, `NARROW: REJECTED` видит, `MAX-REVIEW: REJECTED` и `MAX-REVIEW: VERIFIED` не видит;
+  `PRS_FILE` сохранён. Mutant (`NARROW` совпадает и с `MAX-REVIEW:`, через `PRS_FILE` на копию) —
+  test красный, exit 1. Меняется только bash-test, скрипт Harness — нет: PR не платформенный.
+
+Проверки: `pnpm lint`, `pnpm typecheck` — exit 0; `pnpm test test/unit/ticket-stepper.test.tsx
+test/unit/checks-badges.test.tsx test/contract/github-prs.test.ts` — exit 0; `pnpm test:e2e
+test/e2e/checks-badges.spec.ts test/e2e/epic-frame.spec.ts` — exit 0 (9 passed), под замком e2e.
+Снимок `../evidence/05-stepper.png` — шаг проверяющего, не сделан.

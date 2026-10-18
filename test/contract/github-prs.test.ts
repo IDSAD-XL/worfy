@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
-import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, verdictOf, type GhRunner } from '../../src/main/github/prs'
+import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
 import { appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
@@ -115,30 +115,31 @@ describe('ciOf', () => {
   })
 })
 
-describe('verdictOf', () => {
-  it('is the last comment whose first line starts with VERIFIED or REJECTED', () => {
-    expect(verdictOf([{ body: 'REJECTED\n- a\n- b' }, { body: 'VERIFIED' }])).toBe('VERIFIED')
-    expect(verdictOf([{ body: 'VERIFIED' }, { body: 'REJECTED: 2 findings' }, { body: 'thanks' }])).toBe('REJECTED')
-    expect(verdictOf([{ body: '  VERIFIED — all three lenses\nnothing found' }])).toBe('VERIFIED')
-    // The English reviewer of the Harness as a plugin (ticket worfy-harness/10): the word, then its round and head.
-    expect(verdictOf([{ body: 'VERIFIED (round 1, head abc1234)\nAll three lenses clean.' }])).toBe('VERIFIED')
-    expect(verdictOf([{ body: 'REJECTED (round 1, head abc1234)\n- src/a.ts:1 — x' }, { body: 'VERIFIED (round 2, head def5678)' }])).toBe('VERIFIED')
+describe('the verdict: the review mark on the head commit (worfy-pipeline ticket 05, ADR-0067)', () => {
+  const status = (context: string, state: string) => ({ __typename: 'StatusContext', context, state, startedAt: '2026-10-17T11:00:00Z' })
+  const verdictOn = (extra: Partial<GhPull>) => parsePrList(JSON.stringify([pull(7, 'demo/07', extra)]))[0]!.verdict
+
+  it('review success is VERIFIED, failure or error REJECTED, pending or expected no verdict', () => {
+    expect(verdictOn({ statusCheckRollup: [status('review', 'SUCCESS')] })).toBe('VERIFIED')
+    expect(verdictOn({ statusCheckRollup: [status('review', 'FAILURE')] })).toBe('REJECTED')
+    expect(verdictOn({ statusCheckRollup: [status('review', 'ERROR')] })).toBe('REJECTED')
+    expect(verdictOn({ statusCheckRollup: [status('review', 'PENDING')] })).toBeNull()
+    expect(verdictOn({ statusCheckRollup: [status('review', 'EXPECTED')] })).toBeNull()
   })
 
-  it('reads the narrow round’s verdicts (worfy-harness ticket 20): NARROW: VERIFIED and NARROW: REJECTED count, NARROW: <findings> does not', () => {
-    expect(verdictOf([{ body: 'REJECTED: 2 findings' }, { body: 'REJECTED: 1 finding' }, { body: 'NARROW: VERIFIED' }])).toBe('VERIFIED')
-    expect(verdictOf([{ body: 'REJECTED: 1 finding' }, { body: 'NARROW: [med] src/a.ts:1 — x' }, { body: 'NARROW: REJECTED: src/a.ts:1 still open' }])).toBe('REJECTED')
-    expect(verdictOf([{ body: 'VERIFIED' }, { body: 'NARROW: [med] src/a.ts:1 — x' }])).toBe('VERIFIED')
-    expect(verdictOf([{ body: 'NARROW: VERIFIEDX' }])).toBeNull()
-    expect(verdictOf([{ body: 'see NARROW: VERIFIED' }])).toBeNull()
+  it('a VERIFIED or REJECTED comment without the mark gives no verdict, and the mark wins over the comments', () => {
+    expect(verdictOn({ comments: [{ body: 'VERIFIED\nall lenses clean' }] })).toBeNull()
+    expect(verdictOn({ comments: [{ body: 'REJECTED: 2 findings' }, { body: 'NARROW: VERIFIED' }] })).toBeNull()
+    expect(verdictOn({ comments: [{ body: 'VERIFIED' }], statusCheckRollup: [status('review', 'FAILURE')] })).toBe('REJECTED')
+    expect(verdictOn({ comments: [{ body: 'REJECTED: 1 finding' }], statusCheckRollup: [status('review', 'SUCCESS')] })).toBe('VERIFIED')
   })
 
-  it('does not take the word anywhere but at the start of the first line', () => {
-    expect(verdictOf([{ body: 'Looks fine\nVERIFIED' }])).toBeNull()
-    expect(verdictOf([{ body: 'not VERIFIED yet' }])).toBeNull()
-    expect(verdictOf([{ body: 'VERIFIEDX' }])).toBeNull()
-    expect(verdictOf([])).toBeNull()
-    expect(verdictOf(null)).toBeNull()
+  it('no review mark on the head commit — none at all, or stale after a push, so gh does not give it — is no verdict; other marks and CI do not give one', () => {
+    expect(verdictOn({})).toBeNull()
+    expect(verdictOn({ statusCheckRollup: [status('check/windows', 'SUCCESS'), status('deploy', 'SUCCESS'), status('ci/legacy', 'FAILURE')] })).toBeNull()
+    expect(verdictOn({ statusCheckRollup: [{ __typename: 'CheckRun', name: 'review', status: 'COMPLETED', conclusion: 'SUCCESS' }] })).toBeNull()
+    // A failed review is a verdict, not red CI.
+    expect(parsePrList(JSON.stringify([pull(7, 'demo/07', { statusCheckRollup: [status('review', 'FAILURE')] })]))[0]).toMatchObject({ verdict: 'REJECTED', ci: null })
   })
 })
 
@@ -173,7 +174,7 @@ describe('narrowOf (worfy-harness ticket 20)', () => {
       { outcome: 'rejected', text: 'NARROW: REJECTED: x', at: '2026-10-08T03:00:00Z' },
     ])
     const [withNarrow, without] = parsePrList(JSON.stringify([pull(7, 'demo/07', { comments }), pull(8, 'demo/08', { comments: [{ body: 'VERIFIED' }] })]))
-    expect(withNarrow).toMatchObject({ number: 7, verdict: 'REJECTED', narrow: narrowRoundsOf(comments) })
+    expect(withNarrow).toMatchObject({ number: 7, verdict: null, narrow: narrowRoundsOf(comments) })
     expect(without).not.toHaveProperty('narrow')
   })
 })
@@ -278,17 +279,16 @@ describe('pullOfTicket', () => {
 })
 
 describe('PrTracker over the gh stub', () => {
-  it('a PR on worfy-mvp/08 with CI running and a VERIFIED comment gives «PR #N», `running` and VERIFIED on Ticket 08', async () => {
+  it('a PR on worfy-mvp/08 with CI running and a review success mark gives «PR #N», `running` and VERIFIED on Ticket 08', async () => {
     const gh = await stubGh([
       pull(31, 'worfy-mvp/08', {
         statusCheckRollup: [
           { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' },
           { __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' },
+          { __typename: 'StatusContext', context: 'review', state: 'SUCCESS' },
         ],
-        comments: [
-          { body: 'REJECTED\n- correctness: x', author: { login: 'r' } },
-          { body: 'VERIFIED\nall lenses clean', author: { login: 'r' } },
-        ],
+        // The comments disagree with the mark: the mark decides.
+        comments: [{ body: 'REJECTED\n- correctness: x', author: { login: 'r' } }],
       }),
       pull(30, 'worfy-mvp/07', { state: 'MERGED' }),
     ])
@@ -306,6 +306,7 @@ describe('PrTracker over the gh stub', () => {
         { name: 'lint', state: 'success', startedAt: null, completedAt: null },
         { name: 'e2e', state: 'pending', startedAt: null, completedAt: null },
       ],
+      markStatuses: [{ context: 'review', state: 'SUCCESS', at: null }],
     })
     expect(await gh.calls()).toEqual([['pr', 'list', '--state', 'all', '--limit', '100', '--json', JSON_FIELDS]])
   })
@@ -315,7 +316,7 @@ describe('PrTracker over the gh stub', () => {
     // A newer PR on a branch that only starts like worfy-mvp/08: GitHub's `head:` search matches
     // it by prefix, and with `--limit 1` it would hide the PR of worfy-mvp/08 itself.
     pulls[110] = pull(40, 'worfy-mvp/08-fix')
-    pulls[120] = pull(30, 'worfy-mvp/08', { comments: [{ body: 'VERIFIED' }] })
+    pulls[120] = pull(30, 'worfy-mvp/08', { statusCheckRollup: [{ __typename: 'StatusContext', context: 'review', state: 'SUCCESS' }] })
     const gh = await stubGh(pulls)
     let now = 0
     const tracker = new PrTracker({ run: gh.run, now: () => now })

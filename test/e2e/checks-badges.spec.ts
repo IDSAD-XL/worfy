@@ -185,7 +185,8 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     JSON.stringify({ pid: claude.pid, sessionId: S7, cwd: worktree07, kind: 'interactive', entrypoint: 'cli', status: 'busy', name: 'ticket-07' }),
   )
 
-  // GitHub: PR #31 on demo/08 with CI running and a VERIFIED comment.
+  // GitHub: PR #31 on demo/08 with CI running and a review success mark on its head commit — the
+  // verdict comes from the mark (ADR-0067), so the comments say the opposite of each mark.
   mkdirSync(ghDir)
   writeFileSync(
     join(ghDir, 'prs.json'),
@@ -198,8 +199,9 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
         statusCheckRollup: [
           { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' },
           { __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' },
+          { __typename: 'StatusContext', context: 'review', state: 'SUCCESS' },
         ],
-        comments: [{ body: 'REJECTED\n- x' }, { body: 'VERIFIED\nall lenses clean' }],
+        comments: [{ body: 'REJECTED\n- x' }],
       },
       // PR #1234 on demo/10, the blocked Ticket: a four-digit number, and both its actions
       // ("Ship ticket", "Open PR") next to the badges.
@@ -208,8 +210,11 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
         headRefName: 'demo/10',
         state: 'OPEN',
         url: 'https://github.com/o/r/pull/1234',
-        statusCheckRollup: [{ __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' }],
-        comments: [{ body: 'REJECTED\n- y' }],
+        statusCheckRollup: [
+          { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
+          { __typename: 'StatusContext', context: 'review', state: 'FAILURE' },
+        ],
+        comments: [{ body: 'VERIFIED\nall lenses clean' }],
       },
     ]),
   )
@@ -244,6 +249,14 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     await expect(ticket(8).getByTestId('checks-ci')).toHaveText('CI running')
     await expect(ticket(8).getByTestId('checks-verdict')).toHaveText('VERIFIED')
     await expect(ticket(9).locator('[data-testid^="checks-"]')).toHaveCount(0)
+    // The stepper above the badges, in place of the status word: Ticket 08 is on CI (its checks run),
+    // Ticket 09 is Queued; the Project has no Profile, so the default Pipeline of seven Stages.
+    await expect(ticket(8)).toHaveAttribute('aria-label', 'Ticket 08, CI')
+    await expect(ticket(8).getByTestId('stepper-label')).toHaveText('CI')
+    await expect(ticket(8).locator('[data-step]')).toHaveCount(7)
+    await expect(ticket(9)).toHaveAttribute('aria-label', 'Ticket 09, Queued')
+    await expect(ticket(8).getByText('claimed', { exact: true })).toHaveCount(0)
+    expect(await clippedBy(ticket(8).locator('.w-stepper__dots')), 'the dots of the stepper are cut by no box around them').toEqual([])
     // A gate, a PR, CI and a verdict on a 204 px Ticket: the PR number and the CI chip are whole,
     // inside the Ticket Node and inside every box that clips them. The gate and the verdict may be
     // cut, then with "…" and their text in a tooltip; the row's tooltip lists everything.

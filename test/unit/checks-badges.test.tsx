@@ -126,6 +126,26 @@ describe('ChecksBadges on a Ticket', () => {
     expect(screen.queryByTestId('checks-gate')).toBeNull()
     // The row may be cut at the Node's edge; its tooltip lists everything.
     expect(screen.getByTestId('checks-badges').getAttribute('title')).toBe('PR #31 open · CI running · VERIFIED')
+    // The verdict is the review mark on the head commit (worfy-pipeline ticket 05), and its tooltip says so.
+    expect(screen.getByTestId('checks-verdict').getAttribute('title')).toBe("VERIFIED — the review mark on the PR's head commit")
+  })
+
+  it('REJECTED from a failed review mark is a blocked chip; a PR without a verdict (no mark, or pending) has no verdict chip', async () => {
+    snapshot = { ...snapshot, pulls: [{ ...snapshot.pulls[0]!, verdict: 'REJECTED' }] }
+    const { default: ChecksBadges } = await load()
+    const { unmount } = render(<ChecksBadges subject={ticketSubject(8)} />)
+    const verdict = await screen.findByTestId('checks-verdict')
+    expect(verdict.textContent).toBe('REJECTED')
+    expect(verdict.querySelector('[data-status]')?.getAttribute('data-status')).toBe('blocked')
+    unmount()
+
+    snapshot = { ...snapshot, pulls: [{ ...snapshot.pulls[0]!, verdict: null }] }
+    vi.resetModules()
+    const fresh = await load()
+    render(<fresh.default subject={ticketSubject(8)} />)
+    expect((await screen.findByTestId('checks-pr')).textContent).toBe('PR #31')
+    expect(screen.queryByTestId('checks-verdict')).toBeNull()
+    expect(screen.getByTestId('checks-badges').getAttribute('title')).toBe('PR #31 open · CI running')
   })
 
   it('asks about the branches of Tickets in work: the claimed branch, else <epic>/<NN>', async () => {

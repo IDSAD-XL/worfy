@@ -1,0 +1,117 @@
+/* The stepper of a Ticket (Stepper.tsx): one row, 18 px high like the Card's top row it sits in
+   (TICKET_HEIGHT of epic-layout.ts budgets no extra row). Colours are the tokens of F-SPEC's table:
+   a passed Stage has the ready dot, the current one the working dot, blocked the blocked ring; the
+   Stage's name is a compact chip in the colours the status chip it replaces had (open, working,
+   blocked, done). Every state also has its own shape or word, so none is told by colour alone. */
+.w-stepper {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  overflow: hidden;
+  font-size: var(--text-11);
+  line-height: 16px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.w-stepper__dots {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.w-stepper__dot {
+  flex: none;
+  box-sizing: border-box;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+}
+.w-stepper__dot--passed {
+  border-color: var(--ready-dot);
+  background: var(--ready-dot);
+}
+/* Passed by a `skipped` mark: a hollow dashed ring of the passed colour. */
+.w-stepper__dot--skipped {
+  border: 1px dashed var(--ready-dot);
+}
+.w-stepper__dot--current {
+  width: 7px;
+  height: 7px;
+  border-color: var(--working-dot);
+  background: var(--working-dot);
+}
+/* Done is finished work, Queued not started: neither is "working". */
+.w-stepper[data-kind='done'] .w-stepper__dot--current {
+  border-color: var(--ready-dot);
+  background: var(--ready-dot);
+}
+.w-stepper[data-kind='queued'] .w-stepper__dot--current {
+  border-color: var(--border-strong);
+  background: var(--border-strong);
+}
+.w-stepper__dot--current[data-rework='true'] {
+  box-shadow: 0 0 0 1px var(--surface), 0 0 0 2px var(--blocked-ring);
+}
+.w-stepper .w-stepper__dot--current[data-blocked='true'] {
+  border: 2px solid var(--blocked-ring);
+  background: transparent;
+}
+.w-stepper__label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 4px;
+  border-radius: var(--radius-chip);
+  font-weight: 600;
+  background: var(--working-bg);
+  color: var(--working-text);
+}
+.w-stepper[data-kind='queued'] .w-stepper__label {
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+.w-stepper[data-kind='done'] .w-stepper__label {
+  background: var(--done-bg);
+  color: var(--done-text);
+}
+.w-stepper[data-blocked='true'] .w-stepper__label {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+/* Who it waits for takes only the room left after the Stage's name: it is cut first, the name only
+   when the dots and the name alone do not fit (the tooltip has both). */
+.w-stepper__waits {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+}
+.w-stepper__waits::before {
+  content: '· ';
+}
+.w-stepper__count {
+  flex: none;
+  color: var(--text-muted);
+}
+.w-stepper__flag {
+  flex: none;
+  padding: 0 4px;
+  border-radius: var(--radius-chip);
+  line-height: 14px;
+}
+.w-stepper__flag--rework {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-stepper__flag--blocked {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+  font-weight: 700;
+}
