@@ -59,7 +59,8 @@ already uses.
   Neither is reported as done.
 - Gate exit codes: `2` is red. `3` is not verified — unregistered project, broken registry —
   never green. `127` means node is not on PATH and the command above never started the gate:
-  not verified, never green. `130` or `143` (128 + a signal) means the gate itself was stopped:
+  not verified, never green. 128 + the signal number — `129`, `130`, `143`, `149` (SIGHUP,
+  SIGINT, SIGTERM, Ctrl+Break of Windows) — means the gate itself was stopped:
   this run wrote nothing, the work is not verified — never green. A signal in the gate's first
   tens of milliseconds, or while it waits up to 2 s on an open stdin that sends nothing, may
   leave the verdict of an earlier run in place. `0` is green only when the output has the
