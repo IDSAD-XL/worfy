@@ -307,8 +307,9 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
 
     // `ticket claim` rewrites the Status line; the Card follows without a restart.
     const first = join(repo, '.scratch', 'worfy-mvp', 'issues', readdirSync(join(repo, '.scratch', 'worfy-mvp', 'issues')).find((f) => f.startsWith('01-'))!)
-    // The moment the chip changes is taken inside the page by a MutationObserver, so the polling
-    // interval of Playwright's assertions is not counted. Both clocks are this machine's.
+    // The moment the Card's state changes (its data-state, which the stepper follows) is taken inside
+    // the page by a MutationObserver, so the polling interval of Playwright's assertions is not
+    // counted. Both clocks are this machine's.
     await window.evaluate(() => {
       const page = globalThis as unknown as {
         document: { querySelector(selector: string): object | null; body: object }
@@ -640,6 +641,8 @@ test('the steppers use the F tokens in both themes and always carry a label; the
         await expect(ticketNode(window, step.num)).toHaveAttribute('aria-label', `Ticket ${String(step.num).padStart(2, '0')}, ${step.stage}`)
         const label = stepper.getByTestId('stepper-label')
         await expect(label).toHaveText(step.stage)
+        // Done carries the check of the done chip (F-SPEC: done is text plus a check icon).
+        await expect(label.locator('svg')).toHaveCount(step.stage === 'Done' ? 1 : 0)
         const chip = await colorsOf(label, [step.bg, step.fg])
         expect(chip.bg, `${scheme} Ticket ${step.num} Stage background`).toBe(hexToRgb(chip.tokens[0]!))
         expect(chip.fg, `${scheme} Ticket ${step.num} Stage text`).toBe(hexToRgb(chip.tokens[1]!))

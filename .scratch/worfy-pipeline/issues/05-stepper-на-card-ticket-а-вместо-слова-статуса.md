@@ -71,9 +71,10 @@ e2e меняет только stub `gh` (commit status вместо коммен
 
 - **Stepper** — `src/renderer/pipeline/Stepper.tsx` и `stepper.css` (свой файл стилей; `pipeline.css` —
   Ticket-а 04). Точка на каждый Stage Pipeline: пройденные, текущий, будущие; Check, пройденный
-  отметкой `skipped`, — пунктирное кольцо. Справа — имя текущего Stage (компактный чип) и «кого
-  ждёт». `blocked` — кольцо на текущей точке и пометка «!» с причиной в подсказке; `rework` — пометка
-  «rework» у Implementing. Подсказка всего stepper-а — Stage, `sub` («failing», «waiting for gate»…),
+  отметкой `skipped`, — пунктирное кольцо. Справа — имя текущего Stage (компактный чип; у Done — с
+  галочкой, как у прежнего чипа done, F-SPEC) и «кого ждёт». `blocked` — кольцо на текущей точке и
+  пометка «!» с причиной в подсказке; `rework` — кольцо у Implementing и пометка «↺» (слово — в
+  подсказке и `aria-label`). Подсказка всего stepper-а — Stage, `sub` («failing», «waiting for gate»…),
   кого ждёт, «Stage N of M», пропущенные Check-и и причина блокировки. Узкий вид — только имя
   Stage и «N/M».
 - **Card** (`TicketNode.tsx`): stepper в верхней строке вместо чипа статуса; `aria-label` —
@@ -91,14 +92,19 @@ e2e меняет только stub `gh` (commit status вместо коммен
   прежний чип статуса и `aria-label` со словом статуса. Иначе Card была бы без состояния.
 - **Когда stepper узкий.** Высота Card (`TICKET_HEIGHT` = 160) расписана по строкам, отдельной строки
   нет, поэтому stepper стоит в верхней строке (18 px). Узкий вид — когда в той же строке есть чип
-  «Ready» или чип репозитория (Project из нескольких репозиториев), или Card уже 204 px.
+  «Ready» или чип репозитория (Project из нескольких репозиториев), или Card уже 204 px; и сверх
+  того — когда полный вид не помещается: stepper меряет себя (точки, имя Stage, пометки) до отрисовки
+  и меряет снова, когда меняется Stage или ширина его места (ResizeObserver). Так у Pipeline worfy из
+  девяти Stage Implementing с rework и blocked и Check «windows» на Card 204 px — узкий вид с целым
+  именем и «N/M»; короткий CI — полный вид с точками. Чип репозитория уступает место stepper-у
+  (`flexShrink`), имя репозитория остаётся в подсказке.
 - **Цвета** — по таблице токенов F-SPEC: пройденный Stage — ready dot, текущий — working dot,
   blocked — ring. F-SPEC не говорит о точках Stage; мой выбор: у Done текущая точка — ready, у Queued
   — нейтральная (`--border-strong`). Имя Stage — чип в цветах заменённого чипа статуса: Queued —
   open (`--surface-raised`, `--text-secondary`), Done — done, blocked — blocked, остальные — working.
 - **Тесная строка.** «Кого ждёт» занимает только место, оставшееся после имени Stage, и режется
-  первым; на Card 204 px с семью Stage «Implementing · agent» показывает «· a…». Полный текст — в
-  подсказке.
+  первым; узкий вид его не показывает (по Ticket-у — только Stage и «N/M»). Полный текст — в
+  подсказке. Имя Stage режется только в последнюю очередь, когда даже узкий вид не помещается.
 - **Silent mode.** Отметки там — локальный JSON, не commit status; снимок `checks` их не читает,
   поэтому бейджа вердикта в Silent mode нет (раньше его тоже не было: вердикт там — строка в файле
   Ticket-а, не комментарий PR). Пройденный Agent review виден в stepper-е.
@@ -122,6 +128,20 @@ e2e меняет только stub `gh` (commit status вместо коммен
   regex найден, `NARROW: REJECTED` видит, `MAX-REVIEW: REJECTED` и `MAX-REVIEW: VERIFIED` не видит;
   `PRS_FILE` сохранён. Mutant (`NARROW` совпадает и с `MAX-REVIEW:`, через `PRS_FILE` на копию) —
   test красный, exit 1. Меняется только bash-test, скрипт Harness — нет: PR не платформенный.
+
+Круг доработки после REJECTED (head до доработки 8b3cb187):
+
+1. [med] Имя Stage резалось на Pipeline из девяти Stage — узкий вид теперь выбирается и по замеру
+   (выше, «Когда stepper узкий»), «rework» стал пометкой «↺», чип репозитория уступает место.
+   Test-ы: `test/unit/ticket-stepper.test.tsx` — «Stepper measures whether the full form fits»
+   (шесть mutant-ов Stepper.tsx красные: без замера, без проверки имени, без повторного замера по
+   ширине, без пометок в ключе замера, без галочки, без отписки ResizeObserver);
+   `test/e2e/checks-badges.spec.ts` — два новых test-а с Profile из девяти Stage: Card 204 px,
+   rework, blocked, оба сразу, Check «windows», CI; и Project из двух репозиториев с чипом
+   репозитория и «Ready». Оба красные на mutant-ах «без замера» и «без flexShrink».
+2. [low] Done — галочка в имени Stage; e2e `epic-frame.spec.ts` проверяет её у Done и её
+   отсутствие у прочих.
+3. [low] Комментарии `epic-frame.spec.ts:308-311` говорят о Card и stepper-е, не о чипе.
 
 Проверки: `pnpm lint`, `pnpm typecheck` — exit 0; `pnpm test test/unit/ticket-stepper.test.tsx
 test/unit/checks-badges.test.tsx test/contract/github-prs.test.ts` — exit 0; `pnpm test:e2e

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { launchApp } from './helpers'
-import { catScript } from '../harness-node'
+import { catScript, profileJsonScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
 // what the gate and Claude Code leave behind: gate/config.json, a red marker for the worktree of
@@ -354,6 +354,148 @@ test('gh missing: «gh unavailable» on the Tickets in work, and the app goes on
     // The app goes on: the Canvas still answers, the Ticket opens nothing broken.
     await window.evaluate(() => (globalThis as unknown as { dispatchEvent: (event: Event) => boolean }).dispatchEvent(new Event('focus')))
     await expect(ticket(9)).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
+// ── the stepper of a nine-Stage Pipeline on a 204 px Card (worfy-pipeline ticket 05) ──────────
+
+/** worfy's own Pipeline (spec.md of worfy-pipeline, owner's decision 4): nine Stages. */
+const WORFY_PIPELINE = [
+  { kind: 'queued' },
+  { kind: 'implementing' },
+  { kind: 'ci' },
+  { kind: 'agent-review' },
+  { kind: 'check', name: 'windows' },
+  { kind: 'gate-merge' },
+  { kind: 'deploy' },
+  { kind: 'closing' },
+  { kind: 'done' },
+]
+
+interface StepperTicket {
+  num: number
+  status: string
+  state: string
+  reason?: string
+  repo?: string
+}
+
+/** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline and `repos`, launched. */
+async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repos: (repo: string) => { name: string; path: string }[]) {
+  const dataDir = join(scratch, 'data')
+  const claudeHome = join(scratch, 'claude-home')
+  const ghDir = join(scratch, 'gh')
+  const repo = join(scratch, 'demo')
+  const issues = join(repo, '.scratch', 'demo', 'issues')
+  for (const dir of [issues, join(claudeHome, 'bin'), ghDir, join(dataDir, PROJECT)]) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo\n')
+  for (const t of tickets) writeFileSync(join(issues, `${String(t.num).padStart(2, '0')}-ticket-${t.num}.md`), ticketFile(t.num, t.status))
+  writeFileSync(join(repo, '.gitignore'), '.claude/\n')
+  git(repo, 'init', '-q')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-q', '-m', 'init')
+  const projectRepos = repos(repo)
+  for (const each of projectRepos) {
+    if (each.path === repo) continue
+    mkdirSync(each.path, { recursive: true })
+    writeFileSync(join(each.path, 'a'), 'a')
+    git(each.path, 'init', '-q')
+    git(each.path, 'add', '.')
+    git(each.path, 'commit', '-q', '-m', 'init')
+  }
+  const answer = join(claudeHome, 'epic-status.json')
+  const json = (t: StepperTicket) => ({ ...ticketJson(t.num, t.status, t.state), ...(t.reason ? { blockedReason: t.reason } : {}), ...(t.repo ? { repo: t.repo } : {}) })
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: tickets.map(json) }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  const profile = { _resolved: { name: 'worfy', mode: 'full', workflow_folder: repo, workspace: repo, repos: projectRepos, pipeline: WORFY_PIPELINE }, workflow: { e2e_lock: join(scratch, 'no-lock') } }
+  writeFileSync(join(claudeHome, 'bin', 'profile'), profileJsonScript(JSON.stringify(profile)))
+  for (const script of ['epic-status', 'profile']) chmodSync(join(claudeHome, 'bin', script), 0o755)
+  writeFileSync(join(ghDir, 'prs.json'), JSON.stringify(pulls))
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 0.8 } }))
+  return launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), GH_STUB_DIR: ghDir, GH_STUB_LOG: join(ghDir, 'calls.jsonl') } })
+}
+
+/** Whether the Stage's name and the stepper are whole: nothing cut, nothing past the stepper's edge. */
+const stepperFit = (ticket: Locator) =>
+  ticket.getByTestId('ticket-stepper').evaluate((stepper) => {
+    const label = stepper.querySelector('[data-testid="stepper-label"]')!
+    return { label: [label.scrollWidth, label.clientWidth], stepper: [stepper.scrollWidth, stepper.clientWidth], card: (stepper.closest('[data-testid="ticket-node"]') as unknown as { offsetWidth: number }).offsetWidth }
+  })
+
+const HEAD = (n: number) => String(n).repeat(40).slice(0, 40)
+const ok = { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' }
+const review = (state: string) => ({ __typename: 'StatusContext', context: 'review', state })
+const openPull = (num: number, branch: string, rollup: unknown[]) => ({ number: num, headRefName: branch, state: 'OPEN', url: `https://github.com/o/r/pull/${num}`, headRefOid: HEAD(num % 9 + 1), statusCheckRollup: rollup, comments: [] })
+
+test('nine Stages on a 204 px Card: the Stage name is never cut — rework, blocked, both, Check «windows»; the narrow form when the full one does not fit', async () => {
+  const tickets: StepperTicket[] = [
+    { num: 2, status: 'claimed — 2026-10-17', state: 'work' },
+    { num: 3, status: 'blocked — needs Stripe test keys', state: 'blocked', reason: 'needs Stripe test keys' },
+    { num: 4, status: 'claimed — 2026-10-17', state: 'work' },
+    { num: 5, status: 'blocked — waits for the owner', state: 'blocked', reason: 'waits for the owner' },
+    { num: 6, status: 'claimed — 2026-10-17', state: 'work' },
+  ]
+  const pulls = [
+    openPull(41, 'demo/02', [ok, review('FAILURE')]),
+    openPull(43, 'demo/04', [ok, review('SUCCESS')]),
+    openPull(44, 'demo/05', [ok, review('FAILURE')]),
+    openPull(45, 'demo/06', [{ __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' }]),
+  ]
+  const launched = await launchNineStages(tickets, pulls, () => [])
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
+    const expected = [
+      { num: 2, stage: 'Implementing', rework: true, blocked: false },
+      { num: 3, stage: 'Implementing', rework: false, blocked: true },
+      { num: 4, stage: 'Check «windows»', rework: false, blocked: false },
+      { num: 5, stage: 'Implementing', rework: true, blocked: true },
+      { num: 6, stage: 'CI', rework: false, blocked: false },
+    ]
+    for (const each of expected) {
+      const card = ticket(each.num)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
+      await expect(card.getByTestId('stepper-rework')).toHaveCount(each.rework ? 1 : 0)
+      await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
+      const fit = await stepperFit(card)
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
+      expect(fit.label[0], `the Stage name on Ticket ${each.num} is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.label[1]!)
+      expect(fit.stepper[0], `the stepper of Ticket ${each.num} runs past no edge: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.stepper[1]!)
+    }
+    // Nine dots, the name and its flags do not fit 204 px for these: the narrow form with «N/M».
+    await expect(ticket(5).getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+    await expect(ticket(5).getByTestId('stepper-count')).toHaveText('2/9')
+    await expect(ticket(4).getByTestId('stepper-count')).toHaveText('5/9')
+    // A short name keeps the full form: the dots and who it waits for.
+    await expect(ticket(6).getByTestId('ticket-stepper')).not.toHaveAttribute('data-narrow', 'true')
+    await expect(ticket(6).locator('[data-step]')).toHaveCount(9)
+    await expect(ticket(6).getByTestId('stepper-waits')).toHaveText('agent')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('nine Stages, a repository chip and the Ready chip in one row: the Stage name stays whole, the repository chip gives way', async () => {
+  const launched = await launchNineStages([{ num: 1, status: 'open', state: 'open', repo: 'application-server' }], [], (repo) => [
+    { name: 'application-server', path: repo },
+    { name: 'web', path: join(scratch, 'web') },
+  ])
+  try {
+    const { window } = launched
+    const card = window.locator('[data-testid="ticket-node"][data-ticket="1"]')
+    await expect(card).toHaveAttribute('aria-label', 'Ticket 01, Queued', { timeout: 20_000 })
+    await expect(card.getByTestId('ticket-repo')).toBeVisible()
+    await expect(card.getByTestId('ticket-ready')).toBeVisible()
+    await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+    await expect(card.getByTestId('stepper-count')).toHaveText('1/9')
+    const fit = await stepperFit(card)
+    expect(fit.label[0], `the Stage name is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.label[1]!)
+    expect(fit.stepper[0], `the stepper runs past no edge: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.stepper[1]!)
   } finally {
     await launched.close()
   }

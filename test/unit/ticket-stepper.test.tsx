@@ -3,7 +3,7 @@
 // mark — the current Stage's name and who the Ticket waits for, the `blocked` flag with its reason in
 // the tooltip, `rework` on Implementing, and on a narrow Card only the current Stage and «N/M». The
 // Card (TicketNode.tsx) draws it from the `pipeline.get` snapshot in place of the status word.
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
@@ -133,7 +133,7 @@ describe('Stepper', () => {
     const current = screen.getByTestId('ticket-stepper').querySelector<HTMLElement>('[data-step="implementing"]')!
     expect(current.dataset.state).toBe('current')
     expect(current.dataset.rework).toBe('true')
-    expect(screen.getByTestId('stepper-rework').textContent).toBe('rework')
+    expect(screen.getByTestId('stepper-rework').getAttribute('aria-label')).toBe('rework')
     expect(screen.getByTestId('ticket-stepper').title).toBe('Implementing · rework · waits for agent · Stage 2 of 9')
   })
 
@@ -167,6 +167,134 @@ describe('Stepper', () => {
   it('narrow Atakama on its last Stage: 7/7', () => {
     render(<Stepper pipeline={ATAKAMA} stage={on(ATAKAMA, 'done')} narrow />)
     expect(screen.getByTestId('stepper-count').textContent).toBe('7/7')
+  })
+
+  it('Done carries the check of the done chip (F-SPEC); no other Stage does', () => {
+    const { unmount } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'done')} />)
+    expect(screen.getByTestId('stepper-label').querySelectorAll('svg')).toHaveLength(1)
+    expect(screen.getByTestId('stepper-label').textContent).toBe('Done')
+    unmount()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'closing')} />)
+    expect(screen.getByTestId('stepper-label').querySelector('svg')).toBeNull()
+  })
+})
+
+// ── the full form only when it fits ─────────────────────────────────────────
+
+describe('Stepper measures whether the full form fits', () => {
+  /** The box the stepper has, and what its full form needs; jsdom has no layout, so both are set here. */
+  let room: number
+  let need: (stepper: HTMLElement) => number
+  let labelCut: boolean
+  let observers: { callback: () => void }[]
+
+  const layout = () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('w-stepper')) return room
+      if (this.classList.contains('w-stepper__label')) return labelCut && this.closest('[data-narrow]') === null ? 40 : 80
+      return 0
+    })
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('w-stepper')) return this.querySelector('.w-stepper__dots') === null ? Math.min(room, 120) : Math.max(room, need(this))
+      if (this.classList.contains('w-stepper__label')) return 80
+      return 0
+    })
+    observers = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(readonly callback: () => void) {
+          observers.push(this)
+        }
+        observe() {}
+        disconnect() {
+          observers = observers.filter((each) => each !== this)
+        }
+      },
+    )
+  }
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  const stepper = () => screen.getByTestId('ticket-stepper')
+  const isNarrow = () => stepper().dataset.narrow === 'true'
+
+  it('nine Stages that do not fit the box: the narrow form with «N/M», though nobody asked for it', () => {
+    room = 160
+    need = () => 230
+    labelCut = false
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing', { rework: true, blocked: { reason: 'x' } })} />)
+    expect(isNarrow()).toBe(true)
+    expect(stepper().querySelectorAll('[data-step]')).toHaveLength(0)
+    expect(screen.getByTestId('stepper-count').textContent).toBe('2/9')
+    expect(screen.getByTestId('stepper-rework')).toBeTruthy()
+    expect(screen.getByTestId('stepper-blocked')).toBeTruthy()
+  })
+
+  it('room enough: the full form with its dots', () => {
+    room = 300
+    need = () => 230
+    labelCut = false
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci')} />)
+    expect(isNarrow()).toBe(false)
+    expect(stepper().querySelectorAll('[data-step]')).toHaveLength(9)
+  })
+
+  it('the dots fit but the Stage\'s name would be cut: narrow', () => {
+    room = 300
+    need = () => 230
+    labelCut = true
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'check/windows')} />)
+    expect(isNarrow()).toBe(true)
+  })
+
+  it('a change of the same Stage is measured again: Implementing fits, with rework and blocked it does not', () => {
+    room = 180
+    need = (element) => 150 + (element.querySelector('[data-testid="stepper-rework"]') ? 30 : 0) + (element.querySelector('[data-testid="stepper-blocked"]') ? 30 : 0)
+    labelCut = false
+    layout()
+    const { rerender } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing')} />)
+    expect(isNarrow()).toBe(false)
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing', { rework: true, blocked: { reason: 'x' } })} />)
+    expect(isNarrow()).toBe(true)
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing')} />)
+    expect(isNarrow()).toBe(false)
+  })
+
+  it('the box widens: the full form again; narrows: the narrow one; the same width does not measure again', () => {
+    room = 160
+    need = () => 230
+    labelCut = false
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing')} />)
+    expect(isNarrow()).toBe(true)
+    expect(observers).toHaveLength(1)
+    room = 300
+    act(() => observers[0]!.callback())
+    expect(isNarrow()).toBe(false)
+    room = 160
+    act(() => observers[0]!.callback())
+    expect(isNarrow()).toBe(true)
+    // A callback at the same width — the first one an observer gives, or one after a child changed — keeps the form.
+    need = () => 100
+    act(() => observers[0]!.callback())
+    expect(isNarrow()).toBe(true)
+  })
+
+  it('stops observing when the stepper is gone', () => {
+    room = 160
+    need = () => 230
+    labelCut = false
+    layout()
+    const { unmount } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'implementing')} />)
+    expect(observers).toHaveLength(1)
+    unmount()
+    expect(observers).toHaveLength(0)
   })
 })
 

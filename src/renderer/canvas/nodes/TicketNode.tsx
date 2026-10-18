@@ -51,8 +51,11 @@ function StateChip({ ticket }: { ticket: Ticket }) {
   }
 }
 
-/** The chip is cut with "…" past this width; its tooltip has the whole name. */
-const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
+/**
+ * The chip is cut with "…" past this width; its tooltip has the whole name. It gives way before the
+ * stepper beside it (flexShrink): the Stage is the Card's state, the repository's name is in the tooltip.
+ */
+const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, flexShrink: 100, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
 
 /** The Ticket's repository, shown only in a Project with more than one. */
 function RepoChip({ root, repo }: { root: string; repo: string | null | undefined }) {

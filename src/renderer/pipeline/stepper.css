@@ -72,6 +72,10 @@
   background: var(--working-bg);
   color: var(--working-text);
 }
+.w-stepper__check {
+  margin-right: 2px;
+  vertical-align: -1px;
+}
 .w-stepper[data-kind='queued'] .w-stepper__label {
   background: var(--surface-raised);
   color: var(--text-secondary);

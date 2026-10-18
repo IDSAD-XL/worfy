@@ -2,8 +2,11 @@
 // the Project's Pipeline — passed, current, future, and a Check passed by a `skipped` mark drawn
 // apart — then the current Stage's name and who the Ticket waits for. `blocked` is a flag on the
 // current step with its reason in the tooltip; `rework` (Implementing again after a failed mark) is
-// a flag on Implementing. A narrow one shows only the current Stage and «N/M». The Stage comes from
-// main (`pipeline.get`, usePipeline.ts); the stepper only draws it.
+// a flag on Implementing. A narrow one shows only the current Stage and «N/M»: when the caller says
+// so, and when the full one does not fit — the dots, the Stage's name and its flags measured in the
+// box the stepper has, again whenever that box changes width. The Stage comes from main
+// (`pipeline.get`, usePipeline.ts); the stepper only draws it.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PipelineColumn } from '../../shared/ipc/pipeline'
 import type { TicketStage } from '../../shared/workflow/pipeline'
 import './stepper.css'
@@ -13,7 +16,7 @@ export interface StepperProps {
   pipeline: readonly PipelineColumn[]
   /** The Ticket's Stage in it. */
   stage: TicketStage
-  /** Only the current Stage and «N/M»: when the row has no room for the dots. */
+  /** Only the current Stage and «N/M», without measuring: the row is known to have no room for the dots. */
   narrow?: boolean
 }
 
@@ -41,11 +44,54 @@ function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage): 
 
 const blockedTitle = (reason: string | null): string => `blocked: ${reason ?? 'no reason given'}`
 
+/** Whether the full stepper does not fit its box: the Stage's name is cut, or the dots and flags run past the edge. */
+function overflows(stepper: HTMLElement): boolean {
+  const label = stepper.querySelector<HTMLElement>('.w-stepper__label')
+  return stepper.scrollWidth > stepper.clientWidth || (label !== null && label.scrollWidth > label.clientWidth)
+}
+
+/** Everything the full stepper's width depends on, besides its box. */
+const shapeOf = (pipeline: readonly PipelineColumn[], stage: TicketStage): string =>
+  JSON.stringify([pipeline.map((column) => column.title), stage.index, stage.rework, stage.blocked !== null, stage.waits])
+
 export default function Stepper({ pipeline, stage, narrow = false }: StepperProps) {
   const title = pipeline[stage.index]?.title ?? stage.stage
+  const ref = useRef<HTMLSpanElement>(null)
+  // What the full form was last measured for, and whether it overflowed. A stale measure draws the
+  // full form, which the layout effect measures before the browser paints it.
+  const shape = shapeOf(pipeline, stage)
+  const [fit, setFit] = useState<{ shape: string; tight: boolean } | null>(null)
+  const compact = narrow || (fit !== null && fit.shape === shape && fit.tight)
+  useLayoutEffect(() => {
+    if (narrow || ref.current === null || (fit !== null && fit.shape === shape)) return
+    setFit({ shape, tight: overflows(ref.current) })
+  }, [narrow, fit, shape])
+  // The box changed width (the Card was resized, a chip beside it came or went): measure again.
+  // Its width does not depend on the form drawn in it: the stepper takes the row's free space.
+  useEffect(() => {
+    const element = ref.current
+    if (element === null || typeof ResizeObserver === 'undefined') return
+    let width = element.clientWidth
+    const observer = new ResizeObserver(() => {
+      if (element.clientWidth === width) return
+      width = element.clientWidth
+      setFit(null)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
   return (
-    <span className="w-stepper" data-testid="ticket-stepper" data-stage={stage.stage} data-kind={stage.kind} data-blocked={stage.blocked !== null ? 'true' : undefined} data-narrow={narrow ? 'true' : undefined} title={stepperTitle(pipeline, stage)}>
-      {narrow ? null : (
+    <span
+      ref={ref}
+      className="w-stepper"
+      data-testid="ticket-stepper"
+      data-stage={stage.stage}
+      data-kind={stage.kind}
+      data-blocked={stage.blocked !== null ? 'true' : undefined}
+      data-narrow={compact ? 'true' : undefined}
+      title={stepperTitle(pipeline, stage)}
+    >
+      {compact ? null : (
         <span className="w-stepper__dots" aria-hidden="true">
           {pipeline.map((column, at) => {
             const state = stepState(column, at, stage)
@@ -64,11 +110,18 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
         </span>
       )}
       <span className="w-stepper__label" data-testid="stepper-label">
+        {stage.kind === 'done' ? (
+          // The check of the shared done chip (theme/primitives.tsx): F-SPEC pairs done with it.
+          <svg className="w-stepper__check" width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3.5 8.5l3 3 6-7" />
+          </svg>
+        ) : null}
         {title}
       </span>
       {stage.rework ? (
-        <span className="w-stepper__flag w-stepper__flag--rework" data-testid="stepper-rework">
-          rework
+        // A mark like blocked's, so the Stage's name keeps the room; the tooltip says the word.
+        <span className="w-stepper__flag w-stepper__flag--rework" data-testid="stepper-rework" role="img" aria-label="rework" title="rework: Implementing again after a failed mark">
+          ↺
         </span>
       ) : null}
       {stage.blocked !== null ? (
@@ -77,7 +130,7 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
           !
         </span>
       ) : null}
-      {narrow ? (
+      {compact ? (
         <span className="w-stepper__count w-mono" data-testid="stepper-count">
           {stage.index + 1}/{pipeline.length}
         </span>
