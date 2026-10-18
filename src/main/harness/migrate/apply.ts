@@ -29,6 +29,7 @@ import { buildPlan, hookRecords, inside, LEGACY_MARKER, type HookRef, type Opera
 import { jsonText, profileToSchema2, rewriteHarnessPaths } from './profiles'
 import { BACKUP_AFTER_DIR, BACKUP_CLAUDE_DIR, PENDING, restoreCommand, RESTORE_SCRIPT, treeHash, writeManifest, writeRestoreFiles, type Manifest } from './restore'
 import { removeFile, removeTree } from '../../storage/remove'
+import { statusLineCommandOf, withStatusLineCommand } from '../status-line'
 
 export const MIGRATION_STEPS: readonly MigrationStep[] = ['backup', 'settings', 'claude-json', 'claude-md', 'state', 'files', 'epic-status', 'commit']
 
@@ -92,13 +93,19 @@ export function stringifyLike(original: string, value: unknown): string {
   return original.endsWith('\n') ? `${text}\n` : text
 }
 
-/** Writes through a file next to the target, renamed over it; the mode of the old file is kept. */
-function writeAtomically(path: string, text: string): void {
+/** Writes through a file next to the target, renamed over it; the mode of the old file is kept. A failed rename removes that file. */
+export function writeAtomically(path: string, text: string): void {
   const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o644
   const temp = `${path}.worfy-move-${process.pid}`
   writeFileSync(temp, text, { mode })
-  chmodSync(temp, mode)
-  renameSync(temp, path)
+  try {
+    chmodSync(temp, mode)
+    renameSync(temp, path)
+  } catch (error) {
+    // A rename refused (on Windows a file held open without delete sharing): no temporary file is left next to it.
+    removeFile(temp)
+    throw error
+  }
 }
 
 /** A folder the move may write in: an existing directory, not the disk root and not the user's home folder. */
@@ -523,10 +530,26 @@ function writeSettings(claudeHome: string, actions: Actions, touching: () => voi
     }
     settings.hooks = hooks
   }
-  if (actions.statusLine !== null && isObject(settings.statusLine)) settings.statusLine = { ...settings.statusLine, command: actions.statusLine }
+  const written = actions.statusLine !== null && isObject(settings.statusLine) ? withStatusLineCommand(settings, actions.statusLine) : settings
   touching()
-  writeAtomically(path, stringifyLike(original, settings))
+  writeAtomically(path, stringifyLike(original, written))
   return true
+}
+
+/**
+ * Sets `statusLine.command` of Claude Code's settings.json to `command` and changes no other key —
+ * the "Limits from terminal" action of the first-run screen on Windows (worfy-windows ticket 13),
+ * with the same change the move writes above (withStatusLineCommand). `expected` is the command the
+ * dialog showed, null for none: a file changed since is refused, not overwritten. A missing
+ * settings.json is created with the statusLine key alone.
+ */
+export function writeStatusLine(settingsFile: string, expected: string | null, command: string): void {
+  const original = existsSync(settingsFile) ? readFileSync(settingsFile, 'utf8') : null
+  const now = original === null ? null : statusLineCommandOf(original)
+  if (now !== expected) throw new Error(`settings.json changed since the dialog: its statusLine command is now ${now === null ? 'not set' : `"${now}"`}`)
+  const settings = original === null ? {} : (JSON.parse(original) as Json)
+  if (original === null) mkdirSync(dirname(settingsFile), { recursive: true })
+  writeAtomically(settingsFile, stringifyLike(original ?? '{\n  "statusLine": null\n}\n', withStatusLineCommand(settings, command)))
 }
 
 function removeClaudeJsonRecord(path: string, manifest: Manifest): void {

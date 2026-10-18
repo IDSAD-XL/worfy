@@ -74,6 +74,15 @@ const LINK_TO_A_FOLDER = process.platform === 'win32' ? 'junction' : 'dir'
 
 const sub = (text: string): string => text.replaceAll('__SANDBOX__', sandbox.root)
 
+/**
+ * The bridge file of a build on this system and the command the form writes for it with the
+ * fixture's argument: the sh entry on macOS; on Windows the .mjs that node runs, its path with
+ * forward slashes in double quotes (worfy-windows ticket 13).
+ */
+const BRIDGE_FILE = process.platform === 'win32' ? 'statusline-bridge.mjs' : 'statusline-bridge.sh'
+const bridgeLine = (bridge: string): string =>
+  process.platform === 'win32' ? `node '${bridge.replaceAll('\\', '/')}' 'bash ~/.claude/statusline.sh'` : `${bridge} 'bash ~/.claude/statusline.sh'`
+
 describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {
     expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS].sort())
@@ -147,7 +156,7 @@ describe('the plan of the form', () => {
 
   it('offers the status line of another build only with a bridge of this build: replaced, its argument kept', () => {
     const resources = join(sandbox.root, 'Resources')
-    const bridge = join(resources, 'statusline-bridge.sh')
+    const bridge = join(resources, BRIDGE_FILE)
     const missing = plan({ bridgeScript: bridge }).rows.find((row) => row.group === 'status-line')
     expect(missing?.choices).toEqual(['keep'])
     expect(missing?.note).toBe(`this build has no ${bridge}`)
@@ -159,7 +168,7 @@ describe('the plan of the form', () => {
     writeFileSync(bridge, '#!/bin/sh\n')
     const offered = plan({ bridgeScript: bridge }).rows.find((row) => row.group === 'status-line')
     expect(offered?.choices).toEqual(['remove', 'keep'])
-    expect(offered?.detail).toBe(`becomes: ${bridge} 'bash ~/.claude/statusline.sh'`)
+    expect(offered?.detail).toBe(`becomes: ${bridgeLine(bridge)}`)
   })
 
   it('a plugin with a qmd server: the qmd row has no warning', () => {
@@ -371,13 +380,13 @@ describe('the move', () => {
   })
 
   it('the status line of another build: the command points at this build bridge and keeps its argument', async () => {
-    const bridge = join(sandbox.root, 'Resources', 'statusline-bridge.sh')
+    const bridge = join(sandbox.root, 'Resources', BRIDGE_FILE)
     mkdirSync(dirname(bridge))
     writeFileSync(bridge, '#!/bin/sh\n')
     const before = readJson(join(sandbox.claudeHome, 'settings.json')).statusLine as Record<string, unknown>
     const result = await applyMigration(selection(plan({ bridgeScript: bridge })), applyOptions({ bridgeScript: bridge }))
     expect(result.outcome).toBe('done')
-    expect(readJson(join(sandbox.claudeHome, 'settings.json')).statusLine).toEqual({ ...before, command: `${bridge} 'bash ~/.claude/statusline.sh'` })
+    expect(readJson(join(sandbox.claudeHome, 'settings.json')).statusLine).toEqual({ ...before, command: bridgeLine(bridge) })
   })
 
   it('the qmd group: "Remove" takes the three scripts, the hook and the record together; "Keep" leaves all five, .claude.json byte for byte', async () => {

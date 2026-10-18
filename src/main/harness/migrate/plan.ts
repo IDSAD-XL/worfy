@@ -10,10 +10,13 @@
 // 13) through the caller.
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
 import type { HarnessState } from '../../../shared/ipc/harness'
 import type { ClaudeMdSection, MigrationChoice, MigrationGroup, MigrationPlan, MigrationProfile, MigrationRow } from '../../../shared/ipc/harness-migration'
+import { BRIDGE_ENTRY, bridgeCommand, bridgeOf, samePath, splitCommand } from '../status-line'
 import { jsonText, profileToSchema2, readLegacyProfiles, rewriteHarnessPaths, type LegacyProfile } from './profiles'
+
+export { splitCommand }
 
 /** Q19: the agents and skills of the old Harness. */
 export const HARNESS_AGENTS = ['implementer.md', 'reviewer.md', 'scout.md'] as const
@@ -75,8 +78,10 @@ export interface PlanOptions {
   claudeJson: string
   /** What `$HOME` and `~` mean in the commands of settings.json: the HOME Claude Code runs with. */
   userHome: string
-  /** <resourcesPath>/statusline-bridge.sh of the packaged app; null in a dev build. */
+  /** The bridge of the packaged app (bridgeFile() of src/main/harness/status-line.ts); null in a dev build. */
   bridgeScript: string | null
+  /** The system the status line command is written for; that of this process by default. */
+  platform?: NodeJS.Platform
   /** Whether this run may move (moveOffered()). */
   offered: boolean
   /** The environment of `git` (HOME of the sandbox in tests); process.env by default. */
@@ -154,26 +159,39 @@ const isDir = (path: string): boolean => {
 
 const listDir = (path: string): string[] => (isDir(path) ? readdirSync(path).filter((name) => name !== '.DS_Store').sort() : [])
 
-/** The first word of a shell command, quotes removed, and the rest of the command as it is. */
-export function splitCommand(command: string): { head: string; rest: string } {
-  const text = command.trimStart()
-  const quote = text[0]
-  if (quote === '"' || quote === "'") {
-    const end = text.indexOf(quote, 1)
-    if (end > 0) return { head: text.slice(1, end), rest: text.slice(end + 1) }
-  }
-  const match = /^\S+/.exec(text)
-  const head = match?.[0] ?? ''
-  return { head, rest: text.slice(head.length) }
-}
-
 /** The file a command runs, with `$HOME`, `${HOME}` and `~` expanded; null when it is not an absolute path then. */
 export function commandTarget(command: string, userHome: string): string | null {
-  let { head } = splitCommand(command)
+  return pathTarget(splitCommand(command).head, userHome)
+}
+
+/** A path as a command names it, with `$HOME`, `${HOME}` and `~` expanded; null when it is not an absolute path then. */
+function pathTarget(path: string, userHome: string): string | null {
+  let head = path
   if (head === '~' || head.startsWith('~/')) head = join(userHome, head.slice(1))
   else if (head.startsWith('$HOME/')) head = join(userHome, head.slice('$HOME/'.length))
   else if (head.startsWith('${HOME}/')) head = join(userHome, head.slice('${HOME}/'.length))
   return isAbsolute(head) ? resolve(head) : null
+}
+
+/**
+ * The bridge of another build that a status line command runs, with the text after it; null when
+ * the form offers no status line row. On macOS as before worfy-windows ticket 13: only the sh entry
+ * counts, and the row is there when the file it names (expanded, resolved) is not `bridgeScript` —
+ * so a relative path in a development build (`bridgeScript` null) shows none. On Windows either form
+ * counts (status-line.ts), compared as Windows compares paths.
+ */
+export function otherBuildBridge(command: string, { platform, bridgeScript, userHome }: { platform: NodeJS.Platform; bridgeScript: string | null; userHome: string }): { bridge: string; rest: string } | null {
+  const found = bridgeOf(command)
+  if (found === null) return null
+  const target = pathTarget(found.bridge, userHome)
+  if (platform !== 'win32') {
+    if ((found.bridge.split('/').at(-1) ?? '') !== BRIDGE_ENTRY) return null
+    return target === bridgeScript ? null : found
+  }
+  // A Windows path is read as one on any host (tests run on macOS and Linux too).
+  const windowsTarget = win32.isAbsolute(found.bridge) && /^(?:[A-Za-z]:|[\\/]{2})/.test(found.bridge) ? found.bridge : target
+  const ours = windowsTarget !== null && bridgeScript !== null && samePath(platform, windowsTarget, bridgeScript)
+  return ours ? null : found
 }
 
 /** `path` relative to `root` when inside it (not equal), else null. */
@@ -187,8 +205,6 @@ function shown(path: string): string {
   const home = homedir()
   return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path
 }
-
-const quoteIfNeeded = (path: string): string => (/^[\w./+@-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`)
 
 /**
  * The `##` and `###` sections of a markdown text: the line each starts at, and the line it ends
@@ -374,9 +390,10 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
 
   const statusLine = settings?.json.statusLine
   if (isObject(statusLine) && typeof statusLine.command === 'string') {
-    const { head, rest } = splitCommand(statusLine.command)
-    const target = commandTarget(statusLine.command, userHome)
-    if (basename(head) === 'statusline-bridge.sh' && target !== options.bridgeScript) {
+    // A bridge of another build (otherBuildBridge); this build's is left alone.
+    const platform = options.platform ?? process.platform
+    const found = otherBuildBridge(statusLine.command, { platform, bridgeScript: options.bridgeScript, userHome })
+    if (found !== null) {
       const bridge = options.bridgeScript
       const reason =
         bridge === null
@@ -384,7 +401,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
           : existsSync(bridge)
             ? null
             : `this build has no ${bridge}`
-      const command = bridge === null ? null : `${quoteIfNeeded(bridge)}${rest}`
+      const command = bridge === null ? null : bridgeCommand(platform, bridge, found.rest)
       add(
         row({
           id: 'status-line',

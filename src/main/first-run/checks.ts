@@ -28,10 +28,30 @@
 //   a warning with the move form.
 // - qmd, its models, the collections of the connected Projects (src/main/harness/qmd.ts, ticket 17).
 //   qmd is optional for worfy itself (search falls back to grep), so these only warn.
-import { execFile } from 'node:child_process'
+//
+// On Windows (worfy-windows ticket 13; owner's answers Q18, Q20, Q24) the same list, with these
+// differences. The tools run with the environment worfy builds there for a Session (src/main/agent/env.ts,
+// ticket 09: the session variables and the registry), not a login shell; a missing tool's command is
+// `winget install <id>`. `claude` is claude.exe or npm's claude.cmd, which only cmd.exe starts.
+// - Git Bash: found as the Sessions find it (findGitBash); the WSL launcher System32\bash.exe does
+//   not count. Missing fails with `winget install Git.Git`.
+// - jq: missing only warns (owner's decision of 2026-10-09): the skill steps that call jq need it,
+//   installing the Harness does not.
+// - Windows: build 19044 (Windows 10 21H2) or newer, else fail; an architecture other than x64 warns.
+// - PowerShell: the shell a Terminal Node starts (terminalShell, ticket 10); Windows PowerShell
+//   without pwsh warns with `winget install Microsoft.PowerShell`.
+// - Limits from terminal: whether statusLine of settings.json runs the Limits bridge of this build
+//   (src/main/harness/status-line.ts); a warning with an action that points it there.
+// The system, its os.release(), its architecture and the answers of the tools come in through
+// CheckDeps, so a test checks Windows on any machine.
+import { execFile, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { arch as osArch, release as osRelease } from 'node:os'
+import { join, win32 } from 'node:path'
+import { fileOrAlias, findGitBash, findOnPath, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
+import { limitsBridgeState } from '../harness/status-line'
+import { terminalShell } from '../terminal/pty'
 import { DEPENDENCY_MARKETPLACE_SOURCE } from '../harness/install'
 import { harnessHomes, locateHarness } from '../harness/locate'
 import type { HarnessScriptEnvSource } from '../harness/script-env'
@@ -77,7 +97,37 @@ export interface CheckDeps {
   /** How long a tool or the sign-in may take; 15 s and 60 s by default. */
   toolTimeoutMs?: number
   accountTimeoutMs?: number
+  /** The machine the checks describe; this one by default. */
+  system?: Partial<SystemInfo>
+  /** How a tool runs and how a file is looked for; tests give their own answers. */
+  probes?: Partial<Probes>
+  /**
+   * The Limits bridge of this build (bridgeFile() of src/main/harness/status-line.ts); null in a
+   * development build. Only the Windows row "Limits from terminal" reads it.
+   */
+  limitsBridge?: string | null
 }
+
+/** The machine: process.platform, os.release() (`10.0.<build>` on Windows) and the architecture. */
+export interface SystemInfo {
+  platform: NodeJS.Platform
+  release: string
+  arch: string
+}
+
+/** What the checks ask the machine. */
+export interface Probes {
+  /** Runs a tool found on the PATH of `env`; never rejects. */
+  run: (name: string, args: readonly string[], env: Env, timeoutMs: number) => Promise<ToolRun>
+  /** Whether a file is there, or an app execution alias of one (fileOrAlias, as Terminal looks): Git Bash, pwsh.exe, the bridge, settings.json. */
+  exists: FileExists
+}
+
+/** The oldest Windows worfy runs on: Windows 10 21H2 (Q24). */
+export const MIN_WINDOWS_BUILD = 19044
+
+/** The winget ids of what the checks name on Windows. */
+export const WINGET_IDS = { git: 'Git.Git', gh: 'GitHub.cli', jq: 'jqlang.jq', node: 'OpenJS.NodeJS.LTS', pwsh: 'Microsoft.PowerShell' } as const
 
 const TOOL_TIMEOUT_MS = 15_000
 /** How long the Claude Code process of the sign-in check may take to answer; then it is closed (askAccount). */
@@ -86,7 +136,7 @@ export const ACCOUNT_TIMEOUT_MS = 60_000
 const SIGN_IN_GUARD_MS = ACCOUNT_TIMEOUT_MS + 5_000
 const MAX_OUTPUT = 256 * 1024
 
-interface ToolRun {
+export interface ToolRun {
   code: number | null
   stdout: string
   stderr: string
@@ -94,15 +144,107 @@ interface ToolRun {
   missing: boolean
 }
 
-/** Runs a tool found on the PATH of `env`. Never rejects. */
-function runTool(name: string, args: readonly string[], env: Env, timeoutMs: number): Promise<ToolRun> {
+/** A variable of `env` under any case, as Windows reads variable names. */
+function variable(env: Env, name: string): string | undefined {
+  const upper = name.toUpperCase()
+  for (const [key, value] of Object.entries(env)) if (key.toUpperCase() === upper) return value
+  return undefined
+}
+
+/** The extensions windowsProgram looks for, in the order of PATHEXT (`.COM;.EXE;.BAT;.CMD;…` by default). */
+function programExtensions(env: Env): string[] {
+  const listed = (variable(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD')
+    .split(';')
+    .map((ext) => ext.trim().toLowerCase())
+    .filter((ext) => ext === '.exe' || ext === '.cmd' || ext === '.bat')
+  return listed.length > 0 ? listed : ['.exe', '.bat', '.cmd']
+}
+
+/**
+ * A program on the PATH of `env` on Windows, found as the command line finds it: folder by folder,
+ * in each folder `<name>.exe`, `.bat` and `.cmd` in the order of PATHEXT — so npm's claude.cmd in a
+ * folder before that of a claude.exe wins, as it does in a terminal. `.bat` and `.cmd` only cmd.exe
+ * runs (`cmd: true`). Null when there is none.
+ */
+export function windowsProgram(name: string, env: Env, exists?: FileExists): { file: string; cmd: boolean } | null {
+  const extensions = programExtensions(env)
+  for (const dir of (variable(env, 'PATH') ?? '').split(';')) {
+    for (const ext of extensions) {
+      // findOnPath on that one folder: the same rules for a folder of the Path (full paths only, quotes).
+      const file = findOnPath(`${name}${ext}`, { PATH: dir }, exists)
+      if (file !== null) return { file, cmd: ext !== '.exe' }
+    }
+  }
+  return null
+}
+
+/**
+ * How a tool starts. Off Windows by its name, which the PATH of `env` resolves. On Windows by the
+ * full path windowsProgram finds; a `.cmd` through cmd.exe of %SystemRoot%, because Node refuses to
+ * start a `.cmd` or `.bat` itself (EINVAL, the fix of CVE-2024-27980). The arguments the checks pass
+ * are constant words (`--version`, `auth status`), so the line cmd.exe gets needs no escaping. The
+ * path itself is quoted but cmd.exe still expands `%NAME%` in it: a folder named with `%` would be
+ * read as another one (none of the usual install folders is).
+ */
+export function toolStart(name: string, args: readonly string[], env: Env, platform: NodeJS.Platform, exists?: FileExists): { file: string; args: string[]; shell: string | false } | null {
+  if (platform !== 'win32') return { file: name, args: [...args], shell: false }
+  const program = windowsProgram(name, env, exists)
+  if (program === null) return null
+  if (!program.cmd) return { file: program.file, args: [...args], shell: false }
+  const root = variable(env, 'SystemRoot') ?? ''
+  const cmdExe = win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'cmd.exe')
+  return { file: [`"${program.file}"`, ...args].join(' '), args: [], shell: cmdExe }
+}
+
+/** taskkill of %SystemRoot%, by its full path. */
+function taskkillPath(env: Env): string {
+  const root = variable(env, 'SystemRoot') ?? ''
+  return win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
+}
+
+/** Ends a tool that did not answer: on Windows its whole tree (taskkill /T /F on the child worfy started), elsewhere the process itself. */
+export function killTool(child: ChildProcess, platform: NodeJS.Platform, env: Env): void {
+  if (platform === 'win32' && child.pid !== undefined) {
+    execFile(taskkillPath(env), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined)
+  } else {
+    child.kill('SIGKILL')
+  }
+}
+
+/**
+ * Runs a tool found on the PATH of `env`. Never rejects. At `timeoutMs` the run is answered at once
+ * as timed out, without waiting for its output pipes to close: a claude.cmd runs node.exe under
+ * cmd.exe, and node.exe keeps the pipes open after cmd.exe is gone. The tool is ended then by
+ * `kill` (killTool; tests wrap it).
+ */
+export function runTool(
+  name: string,
+  args: readonly string[],
+  env: Env,
+  timeoutMs: number,
+  { platform = process.platform, kill = killTool }: { platform?: NodeJS.Platform; kill?: typeof killTool } = {},
+): Promise<ToolRun> {
+  const start = toolStart(name, args, env, platform)
+  if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: '', missing: true })
   return new Promise((resolve) => {
-    execFile(name, [...args], { env: env as NodeJS.ProcessEnv, timeout: timeoutMs, maxBuffer: MAX_OUTPUT, encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (!error) return resolve({ code: 0, stdout, stderr, missing: false })
+    let settled = false
+    const settle = (run: ToolRun): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(run)
+    }
+    const options = { env: env as NodeJS.ProcessEnv, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(start.shell === false ? {} : { shell: start.shell }) }
+    const child = execFile(start.file, start.args, options, (error, stdout, stderr) => {
+      if (!error) return settle({ code: 0, stdout, stderr, missing: false })
       const code = (error as NodeJS.ErrnoException).code
-      if (code === 'ENOENT' || code === 'EACCES') return resolve({ code: null, stdout, stderr, missing: true })
-      resolve({ code: typeof code === 'number' ? code : null, stdout, stderr: stderr || error.message, missing: false })
+      if (code === 'ENOENT' || code === 'EACCES') return settle({ code: null, stdout, stderr, missing: true })
+      settle({ code: typeof code === 'number' ? code : null, stdout, stderr: stderr || error.message, missing: false })
     })
+    const timer = setTimeout(() => {
+      settle({ code: null, stdout: '', stderr: `${name} did not answer within ${Math.round(timeoutMs / 1000)} s`, missing: false })
+      kill(child, platform, env)
+    }, timeoutMs)
   })
 }
 
@@ -144,11 +286,16 @@ type Row = Omit<Check, 'id' | 'group' | 'title'>
 const row = (status: Check['status'], detail: string, hint = '', command: string | null = null, actions: Check['actions'] = []): Row => ({ status, detail, hint, command, actions })
 const action = (id: FirstRunAction, label: string): Check['actions'][number] => ({ id, label })
 
-/** The checks in the order the screen shows them, with their group and title. */
-const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string }[] = [
+/** The checks in the order the screen shows them, with their group and title; `windows` — on Windows only. */
+const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string; windows?: true }[] = [
   { id: 'claude-login', group: 'Claude Code', title: 'Sign-in' },
   { id: 'claude-version', group: 'Claude Code', title: 'Claude Code in the terminal' },
+  { id: 'limits', group: 'Claude Code', title: 'Limits from terminal', windows: true },
+  { id: 'windows', group: 'Windows', title: 'Windows version', windows: true },
+  { id: 'arch', group: 'Windows', title: 'Architecture', windows: true },
+  { id: 'powershell', group: 'Windows', title: 'PowerShell', windows: true },
   { id: 'git', group: 'Command-line tools', title: 'git' },
+  { id: 'git-bash', group: 'Command-line tools', title: 'Git Bash', windows: true },
   { id: 'gh', group: 'Command-line tools', title: 'gh' },
   { id: 'node', group: 'Command-line tools', title: 'node' },
   { id: 'jq', group: 'Command-line tools', title: 'jq' },
@@ -236,13 +383,29 @@ async function signIn(deps: CheckDeps): Promise<Row> {
   return row('ok', who.length > 0 ? who.join(' · ') : 'signed in')
 }
 
-async function claudeVersion(deps: CheckDeps, timeoutMs: number): Promise<Row> {
+/** The system and the probes of one run of the checks. */
+interface Machine {
+  system: SystemInfo
+  probes: Probes
+  windows: boolean
+}
+
+/** Where a missing tool was looked for: the login shell off Windows, the environment worfy builds on Windows. */
+const notFound = (machine: Machine): string => (machine.windows ? 'not found on the PATH' : 'not found on the PATH of the login shell')
+
+/** The command that installs a tool: `brew install <tool>` on macOS, `winget install <id>` on Windows. */
+const installCommand = (machine: Machine, name: keyof typeof WINGET_IDS): string => {
+  if (machine.windows) return `winget install ${WINGET_IDS[name]}`
+  return name === 'node' ? NODE_INSTALL_HINT : `brew install ${name}`
+}
+
+async function claudeVersion(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
   const bundled = deps.bundledClaudeCodeVersion
-  const run = await runTool('claude', ['--version'], deps.env, timeoutMs)
+  const run = await machine.probes.run('claude', ['--version'], deps.env, timeoutMs)
   const builtIn = bundled === null ? 'its own copy' : `its own ${bundled}`
   if (run.missing) {
     // `claude update` needs a `claude` to run: here the line only says to install it.
-    return row('warn', 'not found on the PATH of the login shell', `Sessions in worfy still run ${builtIn}; install Claude Code (claude.com/claude-code) to use it in a terminal`)
+    return row('warn', notFound(machine), `Sessions in worfy still run ${builtIn}; install Claude Code (claude.com/claude-code) to use it in a terminal`)
   }
   const found = semver(run.stdout)
   if (run.code !== 0 || found === null) {
@@ -256,22 +419,108 @@ async function claudeVersion(deps: CheckDeps, timeoutMs: number): Promise<Row> {
   return row('ok', version)
 }
 
-async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, timeoutMs: number): Promise<Row> {
-  const run = await runTool(name, ['--version'], deps.env, timeoutMs)
-  const install = `brew install ${name}`
-  if (run.missing) return row('fail', 'not found on the PATH of the login shell', 'worfy does not install it: run the command in a terminal', install)
-  if (run.code !== 0) return row('fail', `${name} --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, 'Reinstall it', install)
+/** What jq is for on Windows, where it only warns: the Harness installs and runs without it. */
+export const JQ_WINDOWS_HINT = 'Skill steps that call jq do not work without it; installing the Harness does not need it'
+
+async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
+  const run = await machine.probes.run(name, ['--version'], deps.env, timeoutMs)
+  const install = installCommand(machine, name)
+  // On Windows jq is not required (owner's decision of 2026-10-09): missing or broken, it warns.
+  const optional = machine.windows && name === 'jq'
+  if (run.missing) return row(optional ? 'warn' : 'fail', notFound(machine), optional ? JQ_WINDOWS_HINT : 'worfy does not install it: run the command in a terminal', install)
+  if (run.code !== 0) return row(optional ? 'warn' : 'fail', `${name} --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, optional ? `Reinstall it. ${JQ_WINDOWS_HINT}` : 'Reinstall it', install)
   return row('ok', firstLine(run.stdout))
 }
 
-async function node(deps: CheckDeps, timeoutMs: number): Promise<Row> {
-  const run = await runTool('node', ['--version'], deps.env, timeoutMs)
-  if (run.missing) return row('fail', 'not found on the PATH of the login shell', `The Harness scripts need node ${MIN_NODE_MAJOR} or newer`, NODE_INSTALL_HINT)
+async function node(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
+  const run = await machine.probes.run('node', ['--version'], deps.env, timeoutMs)
+  const install = installCommand(machine, 'node')
+  if (run.missing) return row('fail', notFound(machine), `The Harness scripts need node ${MIN_NODE_MAJOR} or newer`, install)
   const found = semver(run.stdout)
-  if (run.code !== 0 || found === null) return row('fail', `node --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, 'Reinstall it', NODE_INSTALL_HINT)
+  if (run.code !== 0 || found === null) return row('fail', `node --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, 'Reinstall it', install)
   const version = found.join('.')
-  if (found[0] < MIN_NODE_MAJOR) return row('fail', `${version}, needs ${MIN_NODE_MAJOR} or newer`, `The Harness scripts and qmd need node ${MIN_NODE_MAJOR} or newer`, NODE_INSTALL_HINT)
+  if (found[0] < MIN_NODE_MAJOR) return row('fail', `${version}, needs ${MIN_NODE_MAJOR} or newer`, `The Harness scripts and qmd need node ${MIN_NODE_MAJOR} or newer`, install)
   return row('ok', version)
+}
+
+const GIT_BASH_HINT = 'Claude Code needs Git Bash for its Bash tool and the Harness hooks; C:\\Windows\\System32\\bash.exe starts WSL and does not count'
+
+/**
+ * Git Bash as a Session gets it (ticket 09, src/main/agent/env.ts): CLAUDE_CODE_GIT_BASH_PATH when the
+ * environment sets it — the user's own, or the one captureWindowsEnv found — else findGitBash. A
+ * variable that names a file under the Windows folder (System32\bash.exe starts WSL) fails, as
+ * findGitBash refuses such a candidate; one that names no file fails too.
+ */
+function gitBash(deps: CheckDeps, machine: Machine): Row {
+  const named = variable(deps.env, 'CLAUDE_CODE_GIT_BASH_PATH')
+  if (named !== undefined && named !== '') {
+    const systemRoot = (variable(deps.env, 'SystemRoot') || 'C:\\Windows').toLowerCase()
+    if (win32.normalize(named).toLowerCase().startsWith(`${win32.normalize(systemRoot)}\\`)) {
+      return row('fail', `CLAUDE_CODE_GIT_BASH_PATH is ${named}`, `${GIT_BASH_HINT}: point the variable at bash.exe of Git for Windows, or remove it`, `winget install ${WINGET_IDS.git}`)
+    }
+    if (!machine.probes.exists(named)) return row('fail', `CLAUDE_CODE_GIT_BASH_PATH names a missing file: ${named}`, `${GIT_BASH_HINT}: point the variable at bash.exe of Git for Windows, or remove it`, `winget install ${WINGET_IDS.git}`)
+    return row('ok', named)
+  }
+  const bash = findGitBash(deps.env, machine.probes.exists)
+  if (bash !== null) return row('ok', bash)
+  return row('fail', 'not found', GIT_BASH_HINT, `winget install ${WINGET_IDS.git}`)
+}
+
+/** The Windows build of os.release() (`10.0.<build>`); null when there is none. */
+export function windowsBuild(release: string): number | null {
+  const match = /^\d+\.\d+\.(\d+)/.exec(release.trim())
+  return match ? Number(match[1]) : null
+}
+
+function windowsVersion(machine: Machine): Row {
+  const { release } = machine.system
+  const build = windowsBuild(release)
+  if (build === null) return row('warn', `unknown build (${release})`, `worfy needs Windows 10 21H2 (build ${MIN_WINDOWS_BUILD}) or newer`)
+  // Windows 11 starts at build 22000 and still reports 10.0 (Q24).
+  const name = `${build >= 22000 ? 'Windows 11' : 'Windows 10'}, build ${build}`
+  if (build < MIN_WINDOWS_BUILD) return row('fail', name, 'Windows 10 21H2 or newer is required: update Windows')
+  return row('ok', name)
+}
+
+/**
+ * The architecture of the machine on Windows, not of worfy's process: os.arch() of an x64 build that
+ * runs under emulation on arm64 says x64. PROCESSOR_ARCHITEW6432 names the machine to a 32-bit process
+ * under WOW64; PROCESSOR_ARCHITECTURE of the environment worfy builds for a Session is the machine's
+ * own (src/main/agent/env.ts takes it from the registry, HKLM Session Manager\Environment, which no
+ * emulation changes). Limit: when the registry could not be read (`from: 'fallback'`), the variable
+ * comes from worfy's process, which an x64 emulation sees as AMD64. Null without either variable.
+ */
+export function windowsNativeArch(env: Env): string | null {
+  const raw = (variable(env, 'PROCESSOR_ARCHITEW6432') || variable(env, 'PROCESSOR_ARCHITECTURE'))?.trim()
+  if (!raw) return null
+  const names: Record<string, string> = { AMD64: 'x64', ARM64: 'arm64', X86: 'ia32' }
+  return names[raw.toUpperCase()] ?? raw.toLowerCase()
+}
+
+function architecture(machine: Machine): Row {
+  const { arch } = machine.system
+  if (arch === 'x64') return row('ok', arch)
+  return row('warn', arch, 'worfy is built for x64: an arm64 build comes later, and the x64 build under emulation is not tested')
+}
+
+/** The shell a Terminal Node starts (terminalShell of ticket 10): pwsh, else Windows PowerShell. */
+function powershell(deps: CheckDeps, machine: Machine): Row {
+  const shell = terminalShell(deps.env as Readonly<AgentEnv>, 'powershell', { platform: 'win32', exists: machine.probes.exists })
+  if (shell.name.toLowerCase() === 'pwsh.exe') return row('ok', shell.file)
+  return row('warn', 'Terminal uses Windows PowerShell', 'Terminal Nodes start PowerShell 7 (pwsh) once it is installed', `winget install ${WINGET_IDS.pwsh}`)
+}
+
+/** Whether statusLine of settings.json runs the Limits bridge of this build (src/main/harness/status-line.ts). */
+function limits(deps: CheckDeps, machine: Machine): Row {
+  const state = limitsBridgeState({
+    platform: machine.system.platform,
+    settingsFile: join(deps.homes.claudeHome, 'settings.json'),
+    bridge: deps.limitsBridge ?? null,
+    exists: machine.probes.exists,
+  })
+  if (state.kind === 'bridged') return row('ok', 'statusLine runs the bridge of this build')
+  if (state.kind === 'unavailable') return row('warn', state.detail, state.reason)
+  return row('warn', state.detail, 'Limits of Claude Code in a terminal reach worfy only through its bridge; the dialog shows the new statusLine first', null, [action('limits-bridge', 'Set up…')])
 }
 
 /** The accounts `gh auth status` names, `host: login`; gh prints them to stdout (2.40+) or stderr (older). */
@@ -281,9 +530,9 @@ export function ghAccounts(output: string): string[] {
   return accounts
 }
 
-async function ghAuth(deps: CheckDeps, timeoutMs: number): Promise<Row> {
-  const run = await runTool('gh', ['auth', 'status'], deps.env, timeoutMs)
-  if (run.missing) return row('fail', 'gh is not installed', 'Install gh first (brew install gh), then sign in')
+async function ghAuth(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
+  const run = await machine.probes.run('gh', ['auth', 'status'], deps.env, timeoutMs)
+  if (run.missing) return row('fail', 'gh is not installed', `Install gh first (${installCommand(machine, 'gh')}), then sign in`)
   const accounts = ghAccounts(`${run.stdout}\n${run.stderr}`)
   if (accounts.length > 0) return row('ok', accounts.join(', '))
   return row('fail', 'not signed in to any GitHub host', 'Sign in with gh auth login: you answer its questions yourself', 'gh auth login', [action('gh-login', 'Sign in…')])
@@ -447,20 +696,34 @@ async function guarded(run: () => Promise<Row> | Row): Promise<Row> {
 /** Every check, in the screen's order. Writes nothing. */
 export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const timeoutMs = deps.toolTimeoutMs ?? TOOL_TIMEOUT_MS
+  const platform = deps.system?.platform ?? process.platform
+  const system: SystemInfo = { platform, release: osRelease(), arch: (platform === 'win32' ? windowsNativeArch(deps.env) : null) ?? osArch(), ...deps.system }
+  const machine: Machine = {
+    system,
+    probes: { run: (name, args, env, ms) => runTool(name, args, env, ms, { platform: system.platform }), exists: fileOrAlias, ...deps.probes },
+    windows: system.platform === 'win32',
+  }
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
   const qmdAll = qmdRows(deps)
   qmdAll.catch(() => undefined)
   // One read of the installer's state feeds the Harness plugin and its dependencies.
   const harnessStatus = Promise.resolve().then(() => deps.harness())
   harnessStatus.catch(() => undefined)
-  const rows: Record<CheckId, Promise<Row>> = {
+  const listed = CHECKS.filter((check) => machine.windows || check.windows !== true)
+  const onWindows = (run: () => Promise<Row> | Row): Promise<Row> | null => (machine.windows ? guarded(run) : null)
+  const rows: Record<CheckId, Promise<Row> | null> = {
     'claude-login': guarded(() => signIn(deps)),
-    'claude-version': guarded(() => claudeVersion(deps, timeoutMs)),
-    git: guarded(() => tool('git', deps, timeoutMs)),
-    gh: guarded(() => tool('gh', deps, timeoutMs)),
-    node: guarded(() => node(deps, timeoutMs)),
-    jq: guarded(() => tool('jq', deps, timeoutMs)),
-    'gh-auth': guarded(() => ghAuth(deps, timeoutMs)),
+    'claude-version': guarded(() => claudeVersion(deps, machine, timeoutMs)),
+    limits: onWindows(() => limits(deps, machine)),
+    windows: onWindows(() => windowsVersion(machine)),
+    arch: onWindows(() => architecture(machine)),
+    powershell: onWindows(() => powershell(deps, machine)),
+    git: guarded(() => tool('git', deps, machine, timeoutMs)),
+    'git-bash': onWindows(() => gitBash(deps, machine)),
+    gh: guarded(() => tool('gh', deps, machine, timeoutMs)),
+    node: guarded(() => node(deps, machine, timeoutMs)),
+    jq: guarded(() => tool('jq', deps, machine, timeoutMs)),
+    'gh-auth': guarded(() => ghAuth(deps, machine, timeoutMs)),
     harness: guarded(async () => harness(await harnessStatus)),
     'harness-dependencies': guarded(async () => harnessDependencies(await harnessStatus)),
     'harness-scripts': guarded(() => harnessScripts(deps)),
@@ -469,6 +732,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     'qmd-models': guarded(async () => (await qmdAll).models),
     'qmd-collections': guarded(async () => (await qmdAll).collections),
   }
-  const checks = await Promise.all(CHECKS.map(async (check) => ({ ...check, ...(await rows[check.id]) })))
+  const checks = await Promise.all(
+    listed.map(async ({ id, group, title }) => ({ id, group, title, ...(await (rows[id] ?? Promise.resolve(row('fail', 'the check did not run')))) })),
+  )
   return { checks, checkedAt: new Date().toISOString() }
 }

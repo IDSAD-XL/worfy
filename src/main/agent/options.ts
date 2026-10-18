@@ -99,7 +99,8 @@ export function bundledClaudeBinary(runtime: RuntimeInfo): string | undefined {
   try {
     const sdk = createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk')
     const manifest = createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${runtime.platform}-${runtime.arch}/package.json`)
-    return join(dirname(manifest), 'claude')
+    // claude.exe in the Windows package (worfy-windows ticket 13: the installer's status ran a missing `claude` there).
+    return join(dirname(manifest), runtime.platform === 'win32' ? 'claude.exe' : 'claude')
   } catch {
     return undefined
   }

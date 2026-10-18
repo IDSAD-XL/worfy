@@ -15,6 +15,7 @@ import { bundledHarnessDir } from '../harness/bundled'
 import { claudeCommandEnv, HarnessInstaller, installOffered } from '../harness/install'
 import { applyMigration, type MigrationSummary } from '../harness/migrate/apply'
 import { buildPlan, claudeJsonPath, hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
+import { bridgeFile } from '../harness/status-line'
 import { claudeHome, harnessHome } from '../storage/paths'
 import { defineHandler, type HandlerModule } from './index'
 
@@ -28,8 +29,9 @@ export function planOptions(): Omit<PlanOptions, 'pluginState'> {
     harnessHome: harnessHome(env),
     claudeJson: claudeJsonPath(env, home),
     userHome: commandEnv.HOME ?? homedir(),
-    // The bridge of this build (ticket 15 puts it into the .app); a dev build has none of its own.
-    bridgeScript: app.isPackaged ? join(process.resourcesPath, 'statusline-bridge.sh') : null,
+    // The bridge of this build (ticket 15 puts it into the .app; on Windows the .mjs that node runs,
+    // worfy-windows ticket 13); a dev build has none of its own.
+    bridgeScript: app.isPackaged ? bridgeFile(process.platform, process.resourcesPath) : null,
     offered: installOffered({ packaged: app.isPackaged, env }),
     env: { ...commandEnv },
   }

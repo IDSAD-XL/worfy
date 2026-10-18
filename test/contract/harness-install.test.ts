@@ -3,8 +3,8 @@
 // in a sandbox: HOME, CLAUDE_CONFIG_DIR and the Claude home worfy reads (WORFY_CLAUDE_HOME) all point
 // into a temporary folder, never at the real ~/.claude. `claude` is a stub that logs its arguments
 // and environment and keeps its own state outside the sandbox; it never reaches the network. The
-// last case runs the Claude Code binary of the SDK on macOS, on a Harness copy without dependencies,
-// so that binary runs only local commands.
+// last case runs the Claude Code binary of the SDK on macOS and on Windows (claude.exe, worfy-windows
+// ticket 13), on a Harness copy without dependencies, so that binary runs only local commands.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
@@ -12,7 +12,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
 import {
   claudeCommandEnv,
@@ -23,6 +23,8 @@ import {
   HARNESS_PLUGIN_ID,
   HarnessInstaller,
   installOffered,
+  RENAME_RETRY_MS,
+  ROLLBACK_RETRY_MS,
   type InstallerOptions,
   type InstallPlan,
 } from '../../src/main/harness/install'
@@ -823,6 +825,211 @@ describe('errors', () => {
   })
 })
 
+// worfy-windows ticket 13: on Windows a rename of the plugin folder can fail with EPERM or EBUSY
+// while an antivirus or another process holds a file in it. The renames are injected, so these run
+// on any system with the platform given as win32.
+describe('a rename refused by a held-open file (Windows)', () => {
+  const heldOpen = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`${code}: resource busy or locked, rename (injected)`), { code })
+  /** A rename that refuses to put the new copy into place `times` times (every time with Infinity), then renames. */
+  const refusingStaging = (code: string, times: number) => {
+    const tries: string[] = []
+    const renameDir = (from: string, to: string): Promise<void> => {
+      const name = (path: string): string => path.slice(sb.harnessHome.length + 1).replace(/^(\.plugin-(?:new|old))-.*/, '$1-*')
+      tries.push(`${name(from)} -> ${name(to)}`)
+      if (from.includes('.plugin-new-') && tries.filter((each) => each.startsWith('.plugin-new-')).length <= times) return Promise.reject(heldOpen(code))
+      renameSync(from, to)
+      return Promise.resolve()
+    }
+    return { tries, renameDir }
+  }
+
+  it('EBUSY twice, then free: the rename is tried again and the new version is installed', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const { tries, renameDir } = refusingStaging('EBUSY', 2)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(tries).toEqual(['plugin -> .plugin-old-*', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin'])
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
+  })
+
+  it('EPERM until the retry time is over: an error of `copy` naming EPERM, the previous copy back in place byte for byte, no command for worfy', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    const { tries, renameDir } = refusingStaging('EPERM', Infinity)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('EPERM')
+    expect(tries.filter((each) => each === '.plugin-new-* -> plugin').length).toBeGreaterThan(1)
+    expect(tries.at(-1)).toBe('.plugin-old-* -> plugin')
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
+    expect(writes()).toEqual([])
+  })
+
+  it('off Windows the same error is not tried again', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const { tries, renameDir } = refusingStaging('EPERM', Infinity)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'darwin', renameDir }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect(tries.filter((each) => each === '.plugin-new-* -> plugin')).toHaveLength(1)
+  })
+
+  const leftovers = (): string[] => readdirSync(sb.harnessHome).filter((name) => name !== 'plugin')
+  /** A removal that a held-open file refuses for the folders `refused` names; others are removed. */
+  const refusingRemove = (refused: (path: string) => boolean) => (path: string): Promise<void> => {
+    if (refused(path)) return Promise.reject(heldOpen('EBUSY'))
+    removeTestTree(path)
+    return Promise.resolve()
+  }
+
+  it('the new copy in place but the previous one cannot be removed: installed all the same, the folder left for the next install to remove', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const removeDir = refusingRemove((path) => path.includes('.plugin-old-'))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(JSON.parse(readFileSync(join(sb.pluginDir, '.claude-plugin', 'plugin.json'), 'utf8'))).toMatchObject({ version: V2 })
+    expect(leftovers()).toHaveLength(1)
+    expect(leftovers()[0]).toMatch(/^\.plugin-old-/)
+    const next = await installer(makeBundle(join(sb.root, 'bundle-v1b'), V1)).install(yes)
+    expect(next.status.state).toMatchObject({ kind: 'installed', version: V1 })
+    expect(leftovers()).toEqual([])
+  })
+
+  it('a leftover folder that cannot be removed is skipped: the install goes on and the folder stays', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    mkdirSync(join(sb.harnessHome, '.plugin-new-stuck'))
+    const removeDir = refusingRemove((path) => path.endsWith('.plugin-new-stuck'))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
+    expect(leftovers()).toEqual(['.plugin-new-stuck'])
+  })
+
+  it('the new copy refused and the previous copy refused on its way back: the first error is reported with the second, no staging folder, the previous copy kept aside and put back by the next install', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    let settingAside = true
+    const renameDir = (from: string, to: string): Promise<void> => {
+      // The first rename (plugin/ set aside) works; both renames into plugin/ are refused.
+      if (settingAside) {
+        settingAside = false
+        renameSync(from, to)
+        return Promise.resolve()
+      }
+      return Promise.reject(heldOpen(from.includes('.plugin-new-') ? 'EPERM' : 'EBUSY'))
+    }
+    const started = Date.now()
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, renameRetryMs: 50 }).install(yes)
+    expect(Date.now() - started).toBeLessThan(10_000)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') {
+      expect(result.status.state.reason).toMatch(/failed: EPERM: .*; putting the previous copy back failed too \(EBUSY: /)
+      expect(result.status.state.reason).toContain('the next install puts it back first')
+    }
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(leftovers()).toHaveLength(1)
+    expect(leftovers()[0]).toMatch(/^\.plugin-old-/)
+    expect(treeOf(join(sb.harnessHome, leftovers()[0]!))).toEqual(before)
+    expect(writes()).toEqual([])
+    // The next install, with renames that work, puts the previous copy back before it copies.
+    const failing = (): Promise<void> => Promise.reject(new Error('disk full (injected)'))
+    await installer(makeBundle(join(sb.root, 'bundle-v2b'), V2), { copyTree: failing }).install(yes)
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+  })
+
+  /** The renames and removals of one install, in order, with the folders named as `refusingStaging` names them. */
+  const recorder = (refuse: (step: string) => string | null) => {
+    const steps: string[] = []
+    const name = (path: string): string => path.slice(sb.harnessHome.length + 1).replace(/^(\.plugin-(?:new|old))-.*/, '$1-*')
+    const attempt = (step: string, operation: () => void): Promise<void> => {
+      steps.push(step)
+      const code = refuse(step)
+      if (code !== null) return Promise.reject(heldOpen(code))
+      operation()
+      return Promise.resolve()
+    }
+    return {
+      steps,
+      renameDir: (from: string, to: string) => attempt(`rename ${name(from)} -> ${name(to)}`, () => renameSync(from, to)),
+      removeDir: (path: string) => attempt(`remove ${name(path)}`, () => removeTestTree(path)),
+    }
+  }
+
+  it('the new copy refused: the previous copy goes back into plugin/ before the staging folder is removed, as on main', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-new-* -> plugin' ? 'EPERM' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    const back = steps.indexOf('rename .plugin-old-* -> plugin')
+    const staging = steps.indexOf('remove .plugin-new-*')
+    expect(back).toBeGreaterThan(-1)
+    expect(staging).toBeGreaterThan(back)
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('the previous copy cannot be set aside: the step `copy` fails, plugin/ untouched, the staging folder removed', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename plugin -> .plugin-old-*' ? 'EBUSY' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('EBUSY')
+    expect(steps.filter((step) => step.startsWith('rename .plugin-new-*'))).toEqual([])
+    expect(steps.at(-1)).toBe('remove .plugin-new-*')
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+    expect(writes()).toEqual([])
+  })
+
+  it('a first install whose new copy is refused: the step `copy` fails, no plugin/, the staging folder removed', async () => {
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-new-* -> plugin' ? 'EPERM' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect(steps.filter((step) => step.includes('.plugin-old-'))).toEqual([])
+    expect(steps.at(-1)).toBe('remove .plugin-new-*')
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('an interrupted install left the only copy aside and it cannot be put back: removeLeftovers keeps it, never removes it', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    // A crash between the two renames: no plugin/, the previous copy in .plugin-old-crash.
+    renameSync(sb.pluginDir, join(sb.harnessHome, '.plugin-old-crash'))
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-old-* -> plugin' ? 'EBUSY' : null))
+    await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(steps).not.toContain('remove .plugin-old-*')
+    expect(treeOf(join(sb.harnessHome, '.plugin-old-crash'))).toEqual(before)
+  })
+
+  it('the worst failure is bounded: the rename back and every staging removal stop after ROLLBACK_RETRY_MS, about 80 s in all', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    // A clock that moves 5 s at each attempt, so the 60 s and 10 s limits pass in a few real milliseconds.
+    let offset = 0
+    const realNow = Date.now.bind(Date)
+    const { steps, renameDir, removeDir } = recorder((step) => {
+      offset += 5000
+      return step === 'rename plugin -> .plugin-old-*' ? null : 'EBUSY'
+    })
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir })
+      .install(yes)
+      .finally(() => spy.mockRestore())
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    const count = (step: string): number => steps.filter((each) => each === step).length
+    // 60 s for the refused new copy (RENAME_RETRY_MS), then at most 10 s each for the rename back and the staging folder.
+    expect(count('rename .plugin-new-* -> plugin')).toBeGreaterThanOrEqual(RENAME_RETRY_MS / 5000)
+    expect(count('rename .plugin-old-* -> plugin')).toBeLessThanOrEqual(ROLLBACK_RETRY_MS / 5000 + 1)
+    expect(count('remove .plugin-new-*')).toBeLessThanOrEqual(ROLLBACK_RETRY_MS / 5000 + 1)
+    expect(offset).toBeLessThanOrEqual(RENAME_RETRY_MS + 2 * ROLLBACK_RETRY_MS + 4 * 5000)
+  })
+})
+
 describe('the dev build', () => {
   it('offers the install only when packaged or with WORFY_CLAUDE_HOME', () => {
     expect(installOffered({ packaged: false, env: {} })).toBe(false)
@@ -964,10 +1171,11 @@ describe('a Linked machine', () => {
   })
 })
 
-/** The Claude Code binary of the SDK's platform package, the one the app runs. */
+/** The Claude Code binary of the SDK's platform package, the one the app runs: claude.exe on Windows. */
 function sdkClaude(): string {
   const sdk = realpathSync(join(REPO, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'))
-  return join(dirname(createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)), 'claude')
+  const dir = dirname(createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`))
+  return join(dir, process.platform === 'win32' ? 'claude.exe' : 'claude')
 }
 
 describe('the Claude Code binary the installer runs', () => {
@@ -976,7 +1184,7 @@ describe('the Claude Code binary the installer runs', () => {
     expect(bundledClaudeBinary(packaged)).toBe(claudeExecutablePath(packaged))
   })
 
-  it.skipIf(process.platform !== 'darwin')("is the SDK's platform package in a dev run (macOS)", () => {
+  it.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')("is the SDK's platform package in a dev run (macOS and Windows)", () => {
     const dev = { packaged: false, resourcesPath: '/R', platform: process.platform, arch: process.arch }
     expect(bundledClaudeBinary(dev)).toBe(sdkClaude())
     expect(existsSync(bundledClaudeBinary(dev) ?? '')).toBe(true)
@@ -987,11 +1195,34 @@ describe('the Claude Code binary the installer runs', () => {
 // The Harness copy here names no dependency: that binary must not reach for a remote marketplace
 // from a test, so it runs the commands of the plugin `worfy` alone, all of them local. The
 // dependency with that binary is checked by the acceptance run in a sandbox (worfy-harness ticket 26).
-describe.skipIf(process.platform !== 'darwin')('with the Claude Code binary of the SDK (macOS, local, a Harness copy without dependencies)', () => {
+// On Windows (worfy-windows ticket 13) claude.exe gets every home-like folder inside the sandbox as
+// well — USERPROFILE (what the home folder is there), APPDATA, LOCALAPPDATA, TEMP — so it cannot reach
+// the real %USERPROFILE%\.claude; the plugin folder it is given is a C:\… path.
+/** A bare environment for that binary: no variables of a parent Claude Code session, no network (closed proxy port). */
+function sandboxClaudeEnv(): Record<string, string> {
+  const offline = { HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9', DISABLE_AUTOUPDATER: '1' }
+  if (process.platform !== 'win32') return { PATH: '/usr/bin:/bin', HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome, ...offline }
+  const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
+  const temp = join(sb.root, 'temp')
+  for (const dir of [temp, join(sb.home, 'AppData', 'Roaming'), join(sb.home, 'AppData', 'Local')]) mkdirSync(dir, { recursive: true })
+  return {
+    SystemRoot: systemRoot,
+    PATH: join(systemRoot, 'System32'),
+    USERPROFILE: sb.home,
+    HOME: sb.home,
+    APPDATA: join(sb.home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: join(sb.home, 'AppData', 'Local'),
+    TEMP: temp,
+    TMP: temp,
+    CLAUDE_CONFIG_DIR: sb.claudeHome,
+    ...offline,
+  }
+}
+
+describe.skipIf(process.platform !== 'darwin' && process.platform !== 'win32')('with the Claude Code binary of the SDK (macOS and Windows, local, a Harness copy without dependencies)', () => {
   it('installs worfy enabled with the build version, keeps the keys of settings.json, and the same commands again exit 0', async () => {
     const claude = sdkClaude()
-    // A bare environment: no variables of a parent Claude Code session, no network (closed proxy port).
-    const env = { PATH: '/usr/bin:/bin', HOME: sb.home, CLAUDE_CONFIG_DIR: sb.claudeHome, HTTPS_PROXY: 'http://127.0.0.1:9', HTTP_PROXY: 'http://127.0.0.1:9' }
+    const env = sandboxClaudeEnv()
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
     const plans: InstallPlan[] = []
     const result = await installer(bundle, { claude, env }).install((plan) => {
