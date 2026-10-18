@@ -66,20 +66,26 @@ export class ClaudeHomeSubscriptions {
     )
   }
 
-  /** Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone. */
-  async subscribe(subscriber: Subscriber, projectRoot: string): Promise<void> {
+  /**
+   * Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone.
+   * `asSent` is the root as the client spelled it: its `claudeHome.changed` carries that spelling
+   * and `unsubscribe` takes it, since the window looks the root up by its own string. On Windows
+   * the window keeps git's `C:/…` while path.resolve gives `C:\…` (worfy-windows ticket 57).
+   */
+  async subscribe(subscriber: Subscriber, projectRoot: string, asSent = projectRoot): Promise<void> {
     // First: a new client under an old one's id takes the id over, ending the old one's watchers.
     // A destroyed client is not held: it never emits 'destroyed' again, its watcher would never be
     // closed, and a late call of an old client must not take the id back from a new one.
     if (!this.holders.hold(subscriber)) return
-    const key = `${subscriber.id}\0${projectRoot}`
+    // By the client's spelling: two spellings of one root get a watcher each, each event in its own.
+    const key = `${subscriber.id}\0${asSent}`
     if (!this.watches.has(key)) {
       const started: Promise<ClaudeHomeWatch | undefined> = this.registry
         .watch(projectRoot, (change) => {
           if (change.sessions) this.reportLive(projectRoot)
           if (subscriber.isDestroyed()) return
           try {
-            emit(subscriber, claudeHomeChanged, { projectRoot, ...change })
+            emit(subscriber, claudeHomeChanged, { projectRoot: asSent, ...change })
           } catch (error) {
             console.error('[claude-home] could not send a change', error)
           }
@@ -100,9 +106,9 @@ export class ClaudeHomeSubscriptions {
     await this.watches.get(key)
   }
 
-  /** Stops watching `projectRoot` for one client; false when it was not watching. */
-  async unsubscribe(subscriberId: ClientId, projectRoot: string): Promise<boolean> {
-    const key = `${subscriberId}\0${projectRoot}`
+  /** Stops watching the root spelled `asSent` for one client; false when it was not watching. */
+  async unsubscribe(subscriberId: ClientId, asSent: string): Promise<boolean> {
+    const key = `${subscriberId}\0${asSent}`
     const watch = this.watches.get(key)
     if (watch === undefined) return false
     this.watches.delete(key)
@@ -143,24 +149,23 @@ export function claudeHomeHandlers(
   search = new TranscriptSearch(registry),
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
-  /** The resolved root, checked for a call from a Linked machine. */
-  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): string => {
-    const root = resolve(projectRoot)
-    insideProjects(event, root, projects, 'the Project root')
-    return root
-  }
+  /**
+   * The resolved root; for a call from a Linked machine, the real path its check answers, so a
+   * link swapped in after the check does not lead the git call and the reads elsewhere.
+   */
+  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): string => insideProjects(event, resolve(projectRoot), projects, 'the Project root')
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
       const root = rootOf(projectRoot, event)
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
-      if (client) await subscriptions.subscribe(client, root)
+      if (client) await subscriptions.subscribe(client, root, projectRoot)
       return registry.sessions(root)
     }),
     defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
       const client = clientOf(event)
-      return { closed: client ? await subscriptions.unsubscribe(client.id, resolve(projectRoot)) : false }
+      return { closed: client ? await subscriptions.unsubscribe(client.id, projectRoot) : false }
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }, { event }) => {
       const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
