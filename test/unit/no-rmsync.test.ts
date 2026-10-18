@@ -8,18 +8,19 @@
 // The search is by text, not by an ESLint rule: one of the places is JavaScript inside a string —
 // the script restore.mjs in src/main/harness/migrate/restore.ts — which a rule would not see.
 //
-// Not covered: `rm` of node:fs/promises. src/main/harness/install.ts calls it; measured on the PC,
-// it does not go through a junction.
+// Not covered in src/ and scripts/: `rm` of node:fs/promises. src/main/harness/install.ts calls it;
+// measured on the PC, it does not go through a junction.
 //
 // What the search cannot see (worfy-windows ticket 28 names each form the review of PR #257 found;
-// the others are caught below): a call whose arguments end more than 8 lines after it starts; a
-// removal reached through another name than an import alias — `const wipe = fs.rmdirSync`, a
-// property of an object; and anything a string builds at run time.
+// the others are caught below): a removal reached through another name than an import alias —
+// `const wipe = fs.rmdirSync`, a property of an object, a name destructured from node:fs; and
+// anything a string builds at run time.
 //
-// Tests have the same rule for rmSync with `recursive` (worfy-windows ticket 26): they run under
-// the Node of Electron, where a cleanup that called it failed its test at the first read-only file
-// — git writes its objects that way — and left the folder in %TEMP%. A test removes a folder with
-// removeTestTree of test/remove.ts.
+// Tests have the same rule for a removal with `recursive` (worfy-windows tickets 26 and 32): they
+// run under the Node of Electron, where a cleanup with rmSync failed its test at the first read-only
+// file — git writes its objects that way — and left the folder in %TEMP%. In test/ the rule takes
+// rmSync and rmdirSync; the rm of node:fs/promises, measured, has neither fault. A test removes a
+// folder with removeTestTree of test/remove.ts.
 //
 // The configuration files at the root of the repository have the rule of src/ (worfy-windows ticket
 // 51): vitest.config.ts, under the same Node, removes old folders of other runs from %TEMP%.
@@ -65,12 +66,15 @@ function outsideStrings(text: string, from: number, visit: (char: string, at: nu
 
 /**
  * The calls that start in a line — every one of them, not the first alone — each to the bracket
- * that closes it, on a later line when its arguments go on there. A call that starts in a later
- * line is found from that line. A bracket inside a quoted string closes nothing.
+ * that closes it, on a later line when its arguments go on there, however far down that is. A call
+ * that starts in a later line is found from that line. A bracket inside a quoted string closes
+ * nothing.
  */
 function callsFrom(lines: string[], index: number, name: RegExp): string[] {
-  const rest = lines.slice(index, index + 8).join('\n')
-  return [...(lines[index] ?? '').matchAll(new RegExp(name.source, 'g'))].map((match) => {
+  const matches = [...(lines[index] ?? '').matchAll(new RegExp(name.source, 'g'))]
+  if (matches.length === 0) return []
+  const rest = lines.slice(index).join('\n')
+  return matches.map((match) => {
     let depth = 0
     let end = rest.length
     outsideStrings(rest, rest.indexOf('(', match.index), (char, at) => {
@@ -139,12 +143,33 @@ const scanned = (folder: string, ending: RegExp): string[] =>
  */
 const ITS_OWN_TESTS = ['test/unit/no-rmsync.test.ts', 'test/unit/remove-tree.test.ts', 'test/unit/remove-tree-model.ts']
 
-/** The lines of a text that call rmSync with `recursive`, comment lines apart; the options may lie on the lines after the call. */
+/** A line without the comment at its end; a `//` inside a quoted string starts none. */
+function withoutEndComment(line: string): string {
+  let end = line.length
+  outsideStrings(line, 0, (char, at) => {
+    if (char === '/' && line[at + 1] === '/') end = at
+    return end !== line.length
+  })
+  return line.slice(0, end)
+}
+
+/**
+ * The lines of a text that call rmSync or rmdirSync (the same removal under another name) with
+ * `recursive` (worfy-windows tickets 26 and 32), by their names, as a method (`fs.rmSync`), or under
+ * an alias an import of node:fs gives them. Comment lines and a comment at the end of a line are not
+ * read; the options may lie on the lines after the call. The rm of node:fs/promises is not counted:
+ * see the test of the search below.
+ */
 function recursiveUses(text: string): string[] {
   const lines = text.split(/\r?\n/)
+  const aliases = [...text.matchAll(/\bimport\s*\{([^}]*)\}\s*from\s*['"](?:node:)?fs['"]/g)].flatMap((imported) =>
+    [...imported[1]!.matchAll(/\b(?:rmSync|rmdirSync)\s+as\s+([\w$]+)/g)].map((alias) => alias[1]!),
+  )
+  const name = new RegExp(`(?<![\\w$])(?:${['rmSync', 'rmdirSync', ...aliases].join('|')})\\s*\\(`)
+  const code = lines.map(withoutEndComment)
   return lines.flatMap((line, index) => {
     if (/^\s*(\/\/|\*)/.test(line)) return []
-    return callsFrom(lines, index, /\brmSync\s*\(/).some(mayBeRecursive) ? [line.trim()] : []
+    return callsFrom(code, index, name).some(mayBeRecursive) ? [line.trim()] : []
   })
 }
 
@@ -202,6 +227,33 @@ describe('fs.rmSync with "recursive" in test/', () => {
     expect(recursiveUses("  rmSync(join(dir, ')'), { recursive: true })")).toHaveLength(1)
     expect(recursiveUses("  rmSync(join(dir, 'a,b'))\n  rmSync(other, { force: true })")).toEqual([])
   })
+
+  // worfy-windows ticket 32: the forms the review of PR #276 found the search of test/ passing by,
+  // one per line, and the two places it failed a line that removes nothing.
+  it('the search finds rmSync and rmdirSync under an import alias, rmdirSync with "recursive", and options eight lines after the call', () => {
+    expect(recursiveUses('  const options = { recursive: true, force: true }\n  rmSync(dir, options)')).toEqual(['rmSync(dir, options)'])
+    expect(recursiveUses("import { rmSync as wipe } from 'node:fs'\n  wipe(dir, { recursive: true })")).toEqual(['wipe(dir, { recursive: true })'])
+    expect(recursiveUses("import {\n  mkdirSync,\n  rmdirSync as clear,\n} from 'fs'\n  clear(dir, options)")).toEqual(['clear(dir, options)'])
+    expect(recursiveUses('  rmdirSync(dir, { recursive: true })')).toEqual(['rmdirSync(dir, { recursive: true })'])
+    expect(recursiveUses('  fs.rmdirSync(join(root, name), {\n    recursive: true,\n  })')).toEqual(['fs.rmdirSync(join(root, name), {'])
+    expect(recursiveUses('  rmSync(file); rmSync(dir, { recursive: true })')).toHaveLength(1)
+    expect(recursiveUses(`  rmSync(dir,${'\n'.repeat(8)}    { recursive: true })`)).toEqual(['rmSync(dir,'])
+  })
+
+  it('the search passes by "rmSync" in a comment at the end of a line, rmdirSync without "recursive", and the rm of node:fs/promises', () => {
+    expect(recursiveUses('  removeTestTree(dir) // not rmSync(dir, { recursive: true }): it stops at a read-only file')).toEqual([])
+    expect(recursiveUses("  const url = 'http://example.test/a'; rmSync(dir, { recursive: true }) // gone")).toHaveLength(1)
+    expect(recursiveUses('  rmdirSync(link)\n  rmdirSync(dir, { maxRetries: 3 })')).toEqual([])
+    expect(recursiveUses("import { rmSync as wipe } from 'node:fs'\n  wipe(file)")).toEqual([])
+    expect(recursiveUses('  farm(dir, options); confirmSync(dir, options)')).toEqual([])
+    // Measured under the Node of Electron 44 on the PC (worfy-windows ticket 32): fs.promises.rm with
+    // `recursive` removes a read-only file and takes a junction away as a link, where fs.rmSync
+    // stops with EPERM and empties the folder behind the junction. 137 cleanups of test/ call it.
+    expect(recursiveUses("import { rm } from 'node:fs/promises'\n  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })")).toEqual([])
+    // A call inside a string is still one: a script a test writes may run under process.execPath,
+    // which is the Node of Electron in the test run.
+    expect(recursiveUses('  const script = "rmSync(dir, { recursive: true })"')).toHaveLength(1)
+  })
 })
 
 describe('fs.rmSync in src/ and in scripts/', () => {
@@ -236,6 +288,8 @@ describe('fs.rmSync in src/ and in scripts/', () => {
     // The options of a call on the lines after it are read with it.
     expect(uses('  rmdirSync(dir, {\n    recursive: true,\n  })')).toEqual(['1: rmdirSync(dir, {'])
     expect(uses('  rmdirSync(\n    join(a, b),\n    { recursive: true },\n  )')).toHaveLength(1)
+    // worfy-windows ticket 32: however far down the call ends.
+    expect(uses(`  rmdirSync(dir,${'\n'.repeat(8)}    { recursive: true })`)).toEqual(['1: rmdirSync(dir,'])
   })
 
   // Review round 2 of PR #257. What lies between the marks is not searched, so the marks are

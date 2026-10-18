@@ -21,8 +21,10 @@ export function removeTestTree(path: string): void {
  * Writes now what the Layout store of the application still holds back. The store saves a quarter
  * of a second after the last change (LAYOUT_SAVE_DELAY_MS); a test that removed its data folder
  * before that got the folder back, with layout.json in it, when the save came. Called before the
- * folder is removed. The store is asked for when it is called: a test that reset the modules gets
- * the store its own imports got.
+ * folder is removed. The store is asked for when it is called, so it is the store of the last
+ * start: a test that reset the modules gets the store its own imports got after that. A store of an
+ * earlier start is not reached; a test that starts the modules again writes that one itself before
+ * the reset (start() of test/contract/trash.test.ts and test/contract/layout-store.test.ts).
  */
 export async function saveLayoutNow(): Promise<void> {
   const { layoutStore } = await import('../src/main/layout/store')
