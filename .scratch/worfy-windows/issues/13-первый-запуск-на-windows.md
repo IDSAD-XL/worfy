@@ -1,7 +1,8 @@
 # 13 — Первый запуск на Windows: проверки машины и установщик Harness из E3
 
 Type: task
-Status: claimed 2026-10-18T04:40Z
+Status: done 2026-10-18T11:18Z
+PR: #479
 Branch: worfy-windows/13-first-run
 Blocked by: 04, 05, 12
 Source: решения владельца 2026-10-07: Q18 (Git for Windows обязателен, подсказка `winget install Git.Git`), Q24 (Windows 10 21H2+ и 11, только x64), Q20 (Terminal на Windows — PowerShell: pwsh, иначе Windows PowerShell), Q19 (скрипты, которые зовут hooks и worfy, — на Node), Q22 (неподписанный установщик NSIS до E4); «Готово, когда» Epic-а, пункт 1 (подтверждено 2026-10-08); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness локальным marketplace); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (команды `claude plugin`); Ticket-ы E3: [13](../../worfy-harness/issues/13-установщик-harness-из-app.md) (установщик Harness), [14](../../worfy-harness/issues/14-перенос-harness-из-claude-с-откатом.md) (форма переноса), [15](../../worfy-harness/issues/15-мост-limits-из-app.md) (мост Limits), [19](../../worfy-harness/issues/19-экран-первого-запуска.md) (экран первого запуска); [spec.md](../spec.md)

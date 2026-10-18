@@ -1,7 +1,8 @@
 # 30 — «Add project» на Windows не проходит: worfy запускает `bin/project-connect` как файл
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T05:46Z
+Branch: worfy-windows/30-add-project
 Blocked by: 05, 13
 Source: ручная проверка владельца на Windows-ПК 2026-10-13 (установленный worfy из `dist\`, сборка с main после PR #257); разбор кода на Mac в тот же день
 

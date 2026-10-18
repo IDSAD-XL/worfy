@@ -1,7 +1,8 @@
 # 49 — Корень Project-а на Windows в двух написаниях: `C:/…` в списке Project-ов, `C:\…` в уведомлениях; сравнение через один helper, id Project-а не меняется
 
 Type: task
-Status: claimed 2026-10-18T08:48Z
+Status: done 2026-10-18T11:18Z
+PR: #489
 Branch: worfy-windows/49-root-two-spellings
 Blocked by: —
 Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/store.ts` (комментарий к PR #304; срез 3d Ticket-а [14](14-gate-full-на-windows.md) — только test-ы); подозрение на дефект продукта найдено чтением кода, запуском не подтверждено. Код перечитан на Mac по main `1c1beadd`.
