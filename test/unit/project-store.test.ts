@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ProjectStore, type GitRunner, type ProjectsChange } from '../../src/main/projects/store'
+import { ProjectStore, projectId, type GitRunner, type ProjectsChange } from '../../src/main/projects/store'
 import { removeTestTree } from '../remove'
 
 let scratch: string
@@ -37,6 +37,15 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks()
   removeTestTree(scratch)
+})
+
+describe('projectId', () => {
+  // Contract (worfy-windows tickets 08, 12, 49): the id hashes the root as git prints it. The owner's
+  // Project on the Windows PC is `worfy-d5750da7`, and its data folder has that name; hashing any other
+  // spelling of the root (`C:\…`, `c:/…`) would point the Project at a new, empty data folder.
+  it('of the root `C:/Users/Alexey/worfy` is worfy-d5750da7 on any system', () => {
+    expect(projectId('C:/Users/Alexey/worfy')).toBe('worfy-d5750da7')
+  })
 })
 
 describe('ProjectStore.onChange', () => {
