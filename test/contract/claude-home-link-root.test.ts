@@ -382,6 +382,31 @@ describe('a folder that is only named like a folder inside the Project (round 3)
     // The other Project's own window still has it: its folder is named exactly like its root.
     expect(await history(other, window)).toContain(E)
   })
+  it('the watcher of /p/A reports its own transcript whose cwd is unknown to a window, and none of /p/A-evil', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    const other = join(dir, 'p', 'A-evil')
+    for (const folder of [project, other]) await mkdir(folder, { recursive: true })
+    const { write, registry } = await bench(dir, [project, other])
+    const N = 'e2222222-2222-4222-8222-222222222222'
+    const E = 'e1111111-1111-4111-8111-111111111111'
+    const own = await write(undefined, N, [summary('a summary of A')], project)
+    const foreign = await write(undefined, E, [summary('a summary of the other Project')], other)
+    const local: ClaudeHomeChange[] = []
+    const remote: ClaudeHomeChange[] = []
+    const watches = [await registry.watch({ path: project, local: true }, (change) => local.push(change), { debounceMs: 20 }), await registry.watch({ path: project, gitAt: project }, (change) => remote.push(change), { debounceMs: 20 })]
+    for (const watch of watches) closers.push(() => watch.close())
+    await Promise.all(watches.map((watch) => watch.ready))
+    await appendFile(own, `${summary('more')}\n`)
+    await appendFile(foreign, `${summary('more')}\n`)
+    // The folder of /p/A is named exactly like its root, that of /p/A-evil only like a folder inside it.
+    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(N), { timeout: 3000, interval: 20 })
+    await new Promise((done) => setTimeout(done, 300))
+    expect(local.flatMap((change) => change.transcripts)).not.toContain(E)
+    expect(remote.flatMap((change) => change.transcripts)).not.toContain(N)
+    expect(remote.flatMap((change) => change.transcripts)).not.toContain(E)
+  })
 })
 
 describe('sessions.resumable from a Linked machine (round 3)', () => {
