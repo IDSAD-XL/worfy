@@ -88,19 +88,23 @@ Windows Session, 2026-10-18, ветка `worfy-windows/31` от main 3c23d7a4. C
 ### Что сделано
 
 - **Пункт 1.** `projects.remove` сначала зовёт `layoutStore().flush(id)`, пока Project ещё в списке (`src/main/ipc/projects.ts:315`).
-- **Пункт 2.** Новый метод `LayoutStore.forget(id)` (`src/main/layout/store.ts:280`): останавливает timer-ы и убирает запись из памяти. Зовётся после `store.remove` (`projects.ts:317`). Повторное добавление читает файл, выход ничего не пишет и не логирует. Если запись перед удалением не прошла (диск, права), `flush` пишет ошибку в лог, а `forget` пишет вторую строку — что несохранённые изменения потеряны. Молча не глотается.
-- **Риск с Linked machine.** `flush` не бросает исключений, поэтому отказ `keepActive` (удаление активного Project-а с Linked machine) проходит как раньше. `forget` при отказе не вызывается: исключение летит раньше. Это покрыто test-ом.
-- **Пункт 3 — граница введена: 1000 ms.** `LAYOUT_SAVE_MAX_DELAY_MS = 1000` (`store.ts:37`). Первое несохранённое изменение заводит второй timer (`store.ts:247`), следующие изменения его не сдвигают. `flush` останавливает оба. Почему 1000: аварийное завершение теряет не больше секунды. При непрерывных изменениях запись идёт раз в секунду, это дёшево. Число меньше 1,2 s, поэтому ticket-овый test «двенадцать изменений с шагом 100 ms» проверяет именно границу. Опция конструктора `maxDelayMs` — для test-ов.
+- **Пункт 2.** Новый метод `LayoutStore.forget(id)` (`src/main/layout/store.ts:291`): останавливает timer-ы и убирает запись из памяти. Зовётся после `store.remove` (`projects.ts:317`). Повторное добавление читает файл, выход ничего не пишет и не логирует. Если запись перед удалением не прошла (диск, права), `flush` пишет ошибку в лог, а `forget` пишет вторую строку — что несохранённые изменения потеряны. Молча не глотается.
+- **Revision не начинается с 0 (круг ревью, commit 1c454be3).** Первая версия `forget` выбрасывала запись вместе со счётчиком `revision`. Повторное добавление в том же запуске начинало с revision 0. А экран хранит последний полученный Layout и отбрасывает состояние с меньшей revision (`acceptLayoutState`, `src/renderer/canvas/useLayout.ts:24`; так же сравнивают отметки undo в `src/renderer/canvas/history.ts`). Без перезагрузки окна Canvas показывал бы старую копию. Теперь `forget` запоминает последнюю revision (`store.ts:171`, `:296`), а новое чтение файла продолжает с неё + 1 (`store.ts:204-208`).
+- **Риск с Linked machine.** `flush` не бросает исключений, поэтому отказ `keepActive` (удаление активного Project-а с Linked machine) проходит как раньше. `forget` при отказе не вызывается: исключение летит раньше. **Ответ на замечание ревью:** первая версия test-а этого не ловила (`forget` выше `store.remove` или в `finally` проходили). Теперь test проверяет, что после отказа `layout.get` отдаёт ту же revision. `forget` на пути отказа заставил бы прочитать файл заново, уже с revision + 1. Мутанты «`forget` до `store.remove`» и «`forget` в `finally`» этим test-ом убиты — после правки revision они не стали безвредными.
+- **Пункт 3 — граница введена: 1000 ms.** `LAYOUT_SAVE_MAX_DELAY_MS = 1000` (`store.ts:37`). Первое несохранённое изменение заводит второй timer (`store.ts:257`), следующие изменения его не сдвигают. `flush` останавливает оба. Почему 1000: аварийное завершение теряет не больше секунды. При непрерывных изменениях запись идёт раз в секунду, это дёшево. Число меньше 1,2 s, поэтому ticket-овый test «двенадцать изменений с шагом 100 ms» проверяет именно границу. Опция конструктора `maxDelayMs` — для test-ов.
 - **Существующий test** «debounces writes: a burst of operations is one write» укорочен: было 20 операций по 125 ms (2,5 s), стало 6 (750 ms). Иначе burst длиннее границы и по новому правилу пишется по ходу. Смысл test-а прежний.
 - **Другой путь** (хранить путь файла в записи) не выбран: в памяти осталась бы запись, а повторное добавление не перечитывало бы файл.
 
 ### Test-ы (`test/contract/layout-store.test.ts`)
 
 - describe «layout store: projects.remove of a Project with a change not yet written», на настоящем `projects.add`/`projects.remove` через IPC и git-репозитории во временной папке:
-  - изменение ждёт записи, сразу `projects.remove` → оно в `layout.json`, ошибок `[layout]` нет. Затем файл удаляется, ждём 2 × 250 ms и зовём обработчики `will-quit`: файл не появился, в логе пусто;
+  - изменение ждёт записи, сразу `projects.remove` → оно в `layout.json`, ошибок `[layout]` нет. Затем файл удаляется и вызываются обработчики `will-quit`: файл не появился, в логе пусто. Настоящее ожидание 2 × 250 ms из первой версии убрано: оно не убивало ни одного мутанта;
   - после удаления и нового добавления в том же запуске Layout читается с диска (файл изменён, пока Project вне списка);
-  - Linked machine удаляет активный Project → отказ, Layout продолжает работать и пишется.
+  - после нового добавления первое состояние имеет revision больше последней до удаления, следующая операция идёт с revision + 1;
+  - Linked machine удаляет активный Project → отказ. Запись в памяти та же (revision не изменилась), Layout продолжает работать и пишется.
 - «operations with no quiet period between them are still written, LAYOUT_SAVE_MAX_DELAY_MS at the latest after the first one» — двенадцать изменений с шагом 100 ms.
+- «the bound holds for every stretch of a long stream…» — операции каждые 100 ms в течение 2,5 s: записей не меньше двух, вторая не позже 2 × `LAYOUT_SAVE_MAX_DELAY_MS`. Ловит `flush`, который не сбрасывает timer границы: тогда граница работает только для первой серии.
+- «forget() of a Layout whose write failed…» — `write` бросает. После `flush` + `forget` в логе ровно две строки `[layout]`: неудачная запись и потерянные изменения. Затем ни timer, ни `flushAll` не пытаются писать.
 - `start()` в test-е принимает `{ trash, projects }` вместо одного флага; `call()` принимает sender.
 
 ### Команды и exit codes (Windows 11, `node scripts/vitest-electron.mjs …`, каждый run вместе с `test/unit/no-rmsync.test.ts` и `test/unit/e2e-no-spawn-on-load.test.ts`)
@@ -117,9 +121,21 @@ Windows Session, 2026-10-18, ветка `worfy-windows/31` от main 3c23d7a4. C
 - В `forget` убрано `entries.delete` — убит (exit 1): падает «added again…».
 - Убран timer границы (`entry.deadline ??= …`) — убит (exit 1): падает test границы.
 
+### Круг ревью (commit 1c454be3): команды, exit codes, мутанты
+
+- **Red:** новые test-ы против `store.ts` из 1f6b85b0 — exit 1, упал 1 из 111: «added again in the same run, the Layout goes on after the last revision…». Остальные три новых или изменённых test-а проходят и на старом коде: они сторожат мутанты ниже. Файл возвращён, `cmp` exit 0.
+- **Green:** `layout-store.test.ts` — exit 0, 111 passed.
+- **Мутанты** (на 1c454be3, каждый отдельно; после каждого `cmp` exit 0 и `git diff --quiet` exit 0). Все девять убиты, test exit 1 у каждого:
+  - четыре мутанта первого круга — снова убиты;
+  - `forget` не запоминает revision — падает test revision;
+  - `forget` до `store.remove` — падает test отказа Linked machine;
+  - `store.remove` в `try`, `forget` в `finally` — падает test отказа Linked machine;
+  - `flush` не сбрасывает timer границы (убрано `entry.deadline = undefined`) — падает test «the bound holds for every stretch…»;
+  - строка лога в `forget` убрана — падает test «forget() of a Layout whose write failed…».
+- **Финальный run на 1c454be3:** `layout-store`, `layout-pin-tag`, `viewport-store`, `trash`, `no-rmsync`, `e2e-no-spawn-on-load` — exit 0, 160 passed / 1 skipped. `CI=true pnpm lint` — exit 0. `CI=true pnpm typecheck` — exit 0.
+
 ### Не проверено / не сделано
 
 - **Пункт 4 не сделан:** правило Windows Session запрещает править другие ticket-ы. Править нужно `26-…md:197`: «Теряется то, что изменено за последние 250 ms» → «всё, что изменено после последней записи; видно после перезапуска и нового добавления».
 - `gate full` на Mac не запускался.
-- В живом приложении (Electron с окном) не проверялось — только contract test-ы.
-- Мутант «`flush` не останавливает timer границы» не запускался: тогда следующая серия изменений осталась бы без границы, и test этого не ловит.
+- В живом приложении (Electron с окном) не проверялось — только contract test-ы. Что экран действительно принимает Layout после нового добавления, проверено только через revision в main, без renderer-а.
