@@ -15,18 +15,22 @@
 #                           01-alpha … 04-delta, each with its own files
 #   ./.git/demo-origin.git  with local-green: a bare repository as `origin`, so preflight can fetch
 #                           without network; with pr-green-ci there is no origin at all
-#   the Harness state       the gate registry and the schema 2 profile `demo`, the same in both places the
-#                           Harness scripts of a run may look for them. `claude plugin eval` starts the
-#                           scaffold with PATH, HOME and TMPDIR only (claude 2.1.289), so the fixture cannot
-#                           tell which run follows:
-#                           - the folder hooks/eval-env.cjs names for EVAL_HARNESS_HOME — ./.git/worfy-harness
-#                             for `worfy-harness`, the value pnpm eval:harness gives every run and the one
-#                             taken when the scaffold has none; the one place the sandbox lets a run write;
-#                           - $HOME/.claude/worfy-harness/ of the run's temporary HOME (`claude plugin eval`
-#                             sets HOME for the scaffold), for a run without EVAL_HARNESS_HOME
+#   the Harness state       the gate registry and the schema 2 profile `demo`, where the Harness scripts of
+#                           the run look for them. `claude plugin eval` starts the scaffold with a short
+#                           fixed environment and no EVAL_* (claude 2.1.289: PATH, HOME, USERPROFILE,
+#                           TMPDIR, TMP, TEMP, TERM, GIT_CONFIG_NOSYSTEM, USER_TYPE, NODE_ENV), so without
+#                           EVAL_HARNESS_HOME the fixture cannot tell which run follows and writes both:
+#                           - ./.git/worfy-harness, the folder hooks/eval-env.cjs names for `worfy-harness`
+#                             (the value pnpm eval:harness gives every run); the one place the sandbox lets
+#                             a run write;
+#                           - $HOME/.claude/worfy-harness/ of the run's temporary HOME, for a run without
+#                             EVAL_HARNESS_HOME.
+#                           With EVAL_HARNESS_HOME (a scaffold run by hand) only the folder it names.
 #
 # Bash, not Node: it is test code (ADR-0055). Runs as the owner outside the sandbox, so it writes
-# only into the current folder and $HOME, and refuses a state folder that already has a gate registry.
+# only into the current folder and $HOME, refuses a state folder that already has a gate registry,
+# and refuses to start (writing nothing) when HOME is the user's real home folder or HARNESS_HOME
+# points outside the current folder (lib/state-guard.cjs).
 set -euo pipefail
 
 finish="${1:-}"
@@ -35,10 +39,11 @@ case "$finish" in local-green | pr-green-ci) ;; *) echo "usage: demo-project.sh 
 case "$variant" in none | blocked | ui | reviewer) ;; *) echo "demo-project.sh: unknown variant '$variant'" >&2; exit 2 ;; esac
 
 work="$(pwd -P)"
-# The folders the Harness scripts of the run may use. A run gets no HARNESS_HOME (its sandbox passes
-# PATH and the EVAL_* variables), so it is ignored here too: the folder hooks/eval-env.cjs names for
-# EVAL_HARNESS_HOME (worfy-harness when unset), asked once the repository exists (a relative value is
-# taken from its .git), and $HOME/.claude/worfy-harness.
+node "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/state-guard.cjs" "${HOME:-}" "$work" || exit 1
+# The folders the Harness scripts of the run may use. A run gets no HARNESS_HOME (the scaffold's
+# environment is fixed, see above), so it is ignored here too: the folder hooks/eval-env.cjs names
+# for EVAL_HARNESS_HOME (worfy-harness when unset), asked once the repository exists (a relative
+# value is taken from its .git), and, when EVAL_HARNESS_HOME is unset, $HOME/.claude/worfy-harness.
 eval_env="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hooks" && pwd -P)/eval-env.cjs"
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
@@ -177,7 +182,8 @@ ticket 04 delta 'delta: функция tripel' '—' triple 'возвращае�
 
 git init -q -b main
 state="$(EVAL_HARNESS_HOME="${EVAL_HARNESS_HOME:-worfy-harness}" env -u HARNESS_HOME node "$eval_env" harness-home)"
-home_state="$HOME/.claude/worfy-harness"
+home_state="$state"
+[ -n "${EVAL_HARNESS_HOME:-}" ] || home_state="$HOME/.claude/worfy-harness"
 for dir in "$state" "$home_state"; do
     [ -n "$dir" ] && [ ! -e "$dir/gate/config.json" ] || { echo "demo-project.sh: $dir already has a gate registry" >&2; exit 1; }
 done

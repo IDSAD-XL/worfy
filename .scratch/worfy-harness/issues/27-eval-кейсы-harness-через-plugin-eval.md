@@ -178,6 +178,7 @@ Mac.
   Полный набор — 10 кейсов, 25 run-ов — собран из восьми вызовов `pnpm eval:harness` (ради потолка цены),
   у каждого код 0 или 1 и `partial: false`. Ниже 0.8 — `reviewer-verdict` (0.67) и `status-block` (0.50),
   оба разобраны как нарушения правил с предложением Ticket-а; см. «Итог», раздел «Платный круг 2026-10-18».
+  Считать ли набор из восьми вызовов полным прогоном (один вызов без `--case` не запускался) — решает владелец.
 - [x] «Итог»: таблица кейс / оценка / run-ы / цена / время, общая цена, `claudeVersion`, модели
   агента и судьи, путь к `report.html`, вопрос владельцу — когда гонять.
   Раздел «Платный круг 2026-10-18»; когда гонять, владелец решил 2026-10-10 (раздел «Решения владельца»).
@@ -437,8 +438,12 @@ here; keep the store's contents in one plain directory (its root may be a link)�
    `EVAL_HARNESS_HOME=worfy-harness`) искали их в `<рабочая папка>/.git/worfy-harness`: первый run `epic-wave-tickets`
    кончился на `profile` с «registry … cannot be read: ENOENT» (0.67, 0.32 USD). Предпосылка Ticket-а 28 («фикстура
    пишет в `.git/worfy-harness`») проверялась test-ом, который сам передавал scaffold-у `EVAL_HARNESS_HOME`.
-   Теперь `harness/evals/lib/demo-project.sh` пишет одно и то же состояние в оба места: папку для
-   `EVAL_HARNESS_HOME` (`worfy-harness`, если переменной нет) и `$HOME/.claude/worfy-harness`. Test
+   Теперь `harness/evals/lib/demo-project.sh` без `EVAL_HARNESS_HOME` пишет одно и то же состояние в оба места:
+   `.git/worfy-harness` и `$HOME/.claude/worfy-harness`; с переменной (запуск руками) — только в папку, которую
+   она называет. Ревью PR #496, круг 1: запуск руками мог записать реестр и Profile `demo` в настоящий `~/.claude`.
+   Поэтому фикстура до первой записи зовёт `harness/evals/lib/state-guard.cjs` и выходит с кодом 1, ничего не
+   записав, если `HOME` — настоящая домашняя папка пользователя (по базе пользователей, `os.userInfo().homedir`,
+   а не по `HOME`) или `HARNESS_HOME` указывает вне рабочей папки. Test
    «a scaffold without EVAL_* leaves state the scripts of an eval:harness run find» — красный на старой фикстуре
    (10 из 10), зелёный теперь.
 2. **Gate фикстуры звал `npm`.** Запись реестра — `"pm": "npm"`, а `npm` на этой машине из nvm: его файлы

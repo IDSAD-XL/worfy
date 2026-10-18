@@ -6,7 +6,7 @@
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { constants, tmpdir } from 'node:os'
+import { constants, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
@@ -53,12 +53,13 @@ const tempDir = (prefix: string): string => {
 
 /**
  * Runs a case's scaffold script the way `claude plugin eval --scaffold` does: in an empty
- * workspace, with HOME in a temporary folder and only PATH, HOME and TMPDIR from this process
- * (git in an empty HOME has no identity, so the fixture must not need one).
+ * workspace, with HOME in a temporary folder and a short fixed environment — PATH, HOME, TMPDIR and
+ * TERM here; claude 2.1.289 also sets USERPROFILE, TMP, TEMP, GIT_CONFIG_NOSYSTEM, USER_TYPE and
+ * NODE_ENV, and passes no EVAL_* (git in an empty HOME has no identity, so the fixture must not need one).
  */
 function scaffold(
   name: string,
-  extra: NodeJS.ProcessEnv = {},
+  extra: NodeJS.ProcessEnv | ((work: string, home: string) => NodeJS.ProcessEnv) = {},
   prepare: (work: string, home: string) => void = () => {},
 ): { work: string; home: string; run: SpawnSyncReturns<string> } {
   const root = tempDir('worfy-eval-')
@@ -70,7 +71,7 @@ function scaffold(
   const script = field(readFileSync(join(EVALS, name, 'case.yaml'), 'utf8'), 'scaffold_script') ?? ''
   const run = spawnSync('bash', [join(EVALS, name, script)], {
     cwd: work,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...extra },
+    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...(typeof extra === 'function' ? extra(work, home) : extra) },
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -148,8 +149,8 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   })
 
   // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
-  // starts the scaffold with PATH, HOME and TMPDIR only (claude 2.1.289): the fixture never sees
-  // EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
+  // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
+  // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
   it.each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -160,42 +161,68 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   })
 
   // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
-  // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME uses the folder it names.
+  // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
+  // the folder it names and nothing else — no copy in $HOME.
   it.each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
-    // The copy for a run without EVAL_HARNESS_HOME; bin/profile of a run with it does not touch $HOME.
-    const homeState = join(home, '.claude', 'worfy-harness')
-    expect(readFileSync(join(homeState, 'projects', 'demo', 'profile.json'), 'utf8')).toBe(
-      readFileSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'), 'utf8'),
-    )
-    const before = readdirSync(join(home, '.claude'), { recursive: true }).sort()
+    expect(existsSync(join(home, '.claude'))).toBe(false)
     const profile = harness(home, work, 'profile', ['-C', work, '--name'], evalHome)
     expect(profile.status, profile.stderr).toBe(0)
     expect(profile.stdout.trim()).toBe('demo')
-    expect(readdirSync(join(home, '.claude'), { recursive: true }).sort()).toEqual(before)
+    expect(existsSync(join(home, '.claude'))).toBe(false)
   })
 
-  // A run gets no HARNESS_HOME (its sandbox passes PATH and EVAL_*), so the fixture ignores it.
-  it('without EVAL_HARNESS_HOME the state goes to $HOME/.claude/worfy-harness and <fixture>/.git/worfy-harness, HARNESS_HOME or not', () => {
-    const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
-    const { work, home, run } = scaffold('status-block', { HARNESS_HOME: elsewhere })
+  it('without EVAL_HARNESS_HOME the state goes to $HOME/.claude/worfy-harness and <fixture>/.git/worfy-harness', () => {
+    const { work, home, run } = scaffold('status-block')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(home, '.claude', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
-    expect(existsSync(elsewhere)).toBe(false)
-    expect(existsSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
+    expect(readFileSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'), 'utf8')).toBe(
+      readFileSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'), 'utf8'),
+    )
   })
 
-  it('with EVAL_HARNESS_HOME and HARNESS_HOME the state still goes to <fixture>/.git/worfy-harness', () => {
+  // A run gets no HARNESS_HOME; one set to a folder outside the fixture means a real shell, whose
+  // home folder is likely the real one: the scaffold writes nothing at all.
+  it.each(CASES.map(([name]) => name))('%s: refuses a HARNESS_HOME outside the fixture and writes nothing', (name) => {
     const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
-    const { work, run } = scaffold('status-block', { HARNESS_HOME: elsewhere, EVAL_HARNESS_HOME: 'worfy-harness' })
+    const { work, home, run } = scaffold(name, { HARNESS_HOME: elsewhere })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stderr).toMatch(/HARNESS_HOME .* is outside the fixture/)
+    expect(readdirSync(work)).toEqual([])
+    expect(readdirSync(home)).toEqual([])
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+    expect(existsSync(elsewhere)).toBe(false)
+  })
+
+  it('with EVAL_HARNESS_HOME and a HARNESS_HOME inside the fixture the state still goes to <fixture>/.git/worfy-harness', () => {
+    const { work, home, run } = scaffold('status-block', (work) => ({ HARNESS_HOME: join(work, 'hh'), EVAL_HARNESS_HOME: 'worfy-harness' }))
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    expect(existsSync(elsewhere)).toBe(false)
+    expect(existsSync(join(work, 'hh'))).toBe(false)
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+  })
+
+  // The guard of the fixture on its own: a HOME that is the user's real home folder (from the user
+  // database, whatever HOME says) is refused. Only the guard runs here, so nothing can be written.
+  it('state-guard.cjs refuses the real home folder and a HARNESS_HOME outside the fixture, and passes a temporary HOME', () => {
+    const guard = join(EVALS, 'lib', 'state-guard.cjs')
+    const work = tempDir('worfy-eval-guard-')
+    const fake = tempDir('worfy-eval-guard-home-')
+    const env = { PATH: process.env.PATH, HOME: fake }
+    const check = (home: string, extra: NodeJS.ProcessEnv = {}) =>
+      spawnSync(process.env.npm_node_execpath ?? 'node', [guard, home, work], { env: { ...env, ...extra }, encoding: 'utf8' })
+    const real = check(userInfo().homedir)
+    expect(real.status, real.stderr).toBe(1)
+    expect(real.stderr).toMatch(/is the real home folder of this user/)
+    expect(check(fake).status).toBe(0)
+    expect(check(fake, { HARNESS_HOME: join(fake, 'hh') }).status).toBe(1)
+    expect(check(fake, { HARNESS_HOME: join(work, 'hh') }).status).toBe(0)
+    expect(readdirSync(work)).toEqual([])
+    expect(readdirSync(fake)).toEqual([])
   })
 
   it.each([
@@ -235,6 +262,21 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     })
     expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
     expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+  })
+
+  // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks
+  // sum, gate fast is red.
+  it('gate fast of the fixture is red (exit 2) when its tests fail', () => {
+    const { work, home, run } = scaffold('reviewer-verdict')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
+      cwd: work,
+      env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', EVAL_HARNESS_HOME: 'worfy-harness' },
+      encoding: 'utf8',
+      input: '',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(2)
   })
 
   it('epic-status sees the four tickets of epic demo', () => {
@@ -522,8 +564,22 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     // Claude Code checks each part of a compound command against the rules, and does not let
     // `echo "EXIT=$?"` or `set -o pipefail` through on its own (claude 2.1.289, dontAsk mode). The
     // Harness asks for both around every check, so without these two the gui case cannot run one.
-    expect(guiGrants).toEqual(expect.arrayContaining(['Bash(echo *)', 'Bash(set -o pipefail)']))
-    expect(guiGrants.filter((grant) => /screencapture|osascript/.test(grant))).toEqual([])
+    // The whole list: any wider rule (Bash(*), Bash(sh *), Bash(bash *)) would let a screen capture run.
+    const target = main[2] ?? '<no target>'
+    expect(guiGrants).toEqual([
+      'Bash(git *)',
+      'Bash(node *)',
+      `Bash(${target}/bin/*)`,
+      `Bash("${target}/bin/*)`,
+      `Bash(${target}/hooks/*)`,
+      `Bash("${target}/hooks/*)`,
+      `Bash(bash ${target}/hooks/*)`,
+      `Bash(bash "${target}/hooks/*)`,
+      'Bash(echo *)',
+      'Bash(set -o pipefail)',
+      'Write',
+      'Edit',
+    ])
     expect(run.stdout).toContain(join('harness', 'evals', 'results'))
     expect(run.stdout).toMatch(/aggregate-result\.json/)
     expect(run.stdout).toMatch(/report\.html/)
