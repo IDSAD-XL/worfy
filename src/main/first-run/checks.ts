@@ -44,11 +44,11 @@
 //   (src/main/harness/status-line.ts); a warning with an action that points it there.
 // The system, its os.release(), its architecture and the answers of the tools come in through
 // CheckDeps, so a test checks Windows on any machine.
-import { execFile } from 'node:child_process'
+import { execFile, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { arch as osArch, release as osRelease } from 'node:os'
 import { join, win32 } from 'node:path'
-import { findGitBash, findOnPath, type Env as AgentEnv, type FileExists } from '../agent/env'
+import { fileOrAlias, findGitBash, findOnPath, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
 import { limitsBridgeState } from '../harness/status-line'
 import { terminalShell } from '../terminal/pty'
@@ -119,7 +119,7 @@ export interface SystemInfo {
 export interface Probes {
   /** Runs a tool found on the PATH of `env`; never rejects. */
   run: (name: string, args: readonly string[], env: Env, timeoutMs: number) => Promise<ToolRun>
-  /** Whether a file is there: Git Bash, pwsh.exe, the bridge, settings.json. */
+  /** Whether a file is there, or an app execution alias of one (fileOrAlias, as Terminal looks): Git Bash, pwsh.exe, the bridge, settings.json. */
   exists: FileExists
 }
 
@@ -202,13 +202,28 @@ function taskkillPath(env: Env): string {
   return win32.join(/^[A-Za-z]:[\\/]/.test(root) ? root : 'C:\\Windows', 'System32', 'taskkill.exe')
 }
 
+/** Ends a tool that did not answer: on Windows its whole tree (taskkill /T /F on the child worfy started), elsewhere the process itself. */
+export function killTool(child: ChildProcess, platform: NodeJS.Platform, env: Env): void {
+  if (platform === 'win32' && child.pid !== undefined) {
+    execFile(taskkillPath(env), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined)
+  } else {
+    child.kill('SIGKILL')
+  }
+}
+
 /**
  * Runs a tool found on the PATH of `env`. Never rejects. At `timeoutMs` the run is answered at once
  * as timed out, without waiting for its output pipes to close: a claude.cmd runs node.exe under
- * cmd.exe, and node.exe keeps the pipes open after cmd.exe is gone. The tool is ended then — on
- * Windows its whole tree (taskkill /T /F on the child worfy started), elsewhere the process itself.
+ * cmd.exe, and node.exe keeps the pipes open after cmd.exe is gone. The tool is ended then by
+ * `kill` (killTool; tests wrap it).
  */
-function runTool(name: string, args: readonly string[], env: Env, timeoutMs: number, platform: NodeJS.Platform = process.platform): Promise<ToolRun> {
+export function runTool(
+  name: string,
+  args: readonly string[],
+  env: Env,
+  timeoutMs: number,
+  { platform = process.platform, kill = killTool }: { platform?: NodeJS.Platform; kill?: typeof killTool } = {},
+): Promise<ToolRun> {
   const start = toolStart(name, args, env, platform)
   if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: '', missing: true })
   return new Promise((resolve) => {
@@ -228,11 +243,7 @@ function runTool(name: string, args: readonly string[], env: Env, timeoutMs: num
     })
     const timer = setTimeout(() => {
       settle({ code: null, stdout: '', stderr: `${name} did not answer within ${Math.round(timeoutMs / 1000)} s`, missing: false })
-      if (platform === 'win32' && child.pid !== undefined) {
-        execFile(taskkillPath(env), ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => undefined)
-      } else {
-        child.kill('SIGKILL')
-      }
+      kill(child, platform, env)
     }, timeoutMs)
   })
 }
@@ -689,7 +700,7 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const system: SystemInfo = { platform, release: osRelease(), arch: (platform === 'win32' ? windowsNativeArch(deps.env) : null) ?? osArch(), ...deps.system }
   const machine: Machine = {
     system,
-    probes: { run: (name, args, env, ms) => runTool(name, args, env, ms, system.platform), exists: existsSync, ...deps.probes },
+    probes: { run: (name, args, env, ms) => runTool(name, args, env, ms, { platform: system.platform }), exists: fileOrAlias, ...deps.probes },
     windows: system.platform === 'win32',
   }
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.

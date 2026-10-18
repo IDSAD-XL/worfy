@@ -130,8 +130,11 @@ const HELD_OPEN_REMOVE = new Set([...HELD_OPEN, 'ENOTEMPTY'])
 export const RENAME_RETRY_MS = 60_000
 const RENAME_MAX_PAUSE_MS = 100
 /**
- * The limit of putting the previous copy back after the new one could not be put in place: that
- * rename already waited its own RENAME_RETRY_MS, so the whole failure takes about 70 s, not 120.
+ * The limit of the retries on a failure path: putting the previous copy back after the new one could
+ * not be put in place, and removing the staging folder after a failure (a staging folder left behind
+ * is removed by the next install). The rename that failed already waited its own RENAME_RETRY_MS,
+ * so the worst failure — the new copy refused, the copy put back, staging refused — takes about
+ * 60 + 10 + 10 = 80 s, not 180.
  */
 export const ROLLBACK_RETRY_MS = 10_000
 
@@ -160,15 +163,6 @@ export async function retriedOnWindows(
     await new Promise((resolve) => setTimeout(resolve, pause))
     pause = Math.min(pause + 10, RENAME_MAX_PAUSE_MS)
   }
-}
-
-/** A rename tried again on Windows while a held-open file refuses it (retriedOnWindows). */
-export function renameRetried(
-  from: string,
-  to: string,
-  { platform, retryMs, renameDir = rename }: { platform?: NodeJS.Platform; retryMs?: number; renameDir?: (from: string, to: string) => Promise<void> } = {},
-): Promise<void> {
-  return retriedOnWindows(() => renameDir(from, to), { ...(platform === undefined ? {} : { platform }), ...(retryMs === undefined ? {} : { retryMs }) })
 }
 
 export type InstallOutcome = 'done' | 'declined' | 'nothing-to-do'
@@ -592,10 +586,13 @@ export class HarnessInstaller {
    * On Windows a rename or removal that a held-open file refuses (EPERM, EBUSY) is tried again for a
    * while (retriedOnWindows, worfy-windows ticket 13):
    * - the old folder cannot be set aside: the step `copy` fails, the old folder is where it was;
-   * - the new copy cannot be put in place: the old folder is renamed back (for at most
-   *   ROLLBACK_RETRY_MS more) and the step `copy` fails with the first error. When that rename back
-   *   fails too, the message says so and the previous copy stays in `.plugin-old-*`, which the next
-   *   install puts back first (removeLeftovers);
+   * - the new copy cannot be put in place: the old folder is renamed back first (for at most
+   *   ROLLBACK_RETRY_MS more), so plugin/ is missing no longer than needed, then the staging folder
+   *   goes, and the step `copy` fails with the first error. When that rename back fails too, the
+   *   message says so and the previous copy stays in `.plugin-old-*`, which the next install puts
+   *   back first (removeLeftovers);
+   * - on every failure path the staging folder is removed with retries of at most ROLLBACK_RETRY_MS:
+   *   the worst failure takes about 80 s;
    * - the old folder cannot be removed after the swap: the new copy is in place, so the install goes
    *   on; the folder is left with a warning and removed by the next install.
    */
@@ -609,7 +606,7 @@ export class HarnessInstaller {
       try {
         await (this.options.copyTree ?? copyWhole)(bundledDir, staging)
       } catch (error) {
-        await this.removeQuietly(staging)
+        await this.removeQuietly(staging, this.failureRetryMs())
         throw error
       }
       const old = join(harnessHome, `.plugin-old-${basename(staging).slice('.plugin-new-'.length)}`)
@@ -619,22 +616,27 @@ export class HarnessInstaller {
           await this.renameDir(this.pluginDir, old)
         } catch (error) {
           // Nothing moved: the previous copy is in place; only the staging folder goes.
-          await this.removeQuietly(staging)
+          await this.removeQuietly(staging, this.failureRetryMs())
           throw error
         }
       }
       try {
         await this.renameDir(staging, this.pluginDir)
       } catch (error) {
-        await this.removeQuietly(staging)
-        if (!hadOld) throw error
+        if (!hadOld) {
+          await this.removeQuietly(staging, this.failureRetryMs())
+          throw error
+        }
+        // The previous copy goes back before anything else, as on main: no plugin/ for as short as possible.
         try {
-          await this.renameDir(old, this.pluginDir, Math.min(this.options.renameRetryMs ?? RENAME_RETRY_MS, ROLLBACK_RETRY_MS))
+          await this.renameDir(old, this.pluginDir, this.failureRetryMs())
         } catch (rollback) {
+          await this.removeQuietly(staging, this.failureRetryMs())
           throw new Error(`${messageOf(error)}; putting the previous copy back failed too (${messageOf(rollback)}): it is in ${old}, and the next install puts it back first`, {
             cause: rollback,
           })
         }
+        await this.removeQuietly(staging, this.failureRetryMs())
         throw error
       }
       // The new copy is in place: a previous copy that cannot be removed now is removed by the next install.
@@ -675,14 +677,19 @@ export class HarnessInstaller {
     return retriedOnWindows(() => renameDir(from, to), { ...(platform === undefined ? {} : { platform }), ...(retryMs === undefined ? {} : { retryMs }) })
   }
 
+  /** The retry limit on a failure path: ROLLBACK_RETRY_MS, or the configured limit when it is shorter. */
+  private failureRetryMs(): number {
+    return Math.min(this.options.renameRetryMs ?? RENAME_RETRY_MS, ROLLBACK_RETRY_MS)
+  }
+
   /** Removes a folder tree, tried again on Windows like a rename; a folder that still cannot go is left with a warning. */
-  private async removeQuietly(path: string): Promise<void> {
-    const { platform, renameRetryMs, removeDir = defaultRemove } = this.options
+  private async removeQuietly(path: string, retryMs = this.options.renameRetryMs): Promise<void> {
+    const { platform, removeDir = defaultRemove } = this.options
     try {
       await retriedOnWindows(() => removeDir(path), {
         codes: HELD_OPEN_REMOVE,
         ...(platform === undefined ? {} : { platform }),
-        ...(renameRetryMs === undefined ? {} : { retryMs: renameRetryMs }),
+        ...(retryMs === undefined ? {} : { retryMs }),
       })
     } catch (error) {
       console.warn(`[harness] left ${path}: ${messageOf(error)}; the next install removes it`)

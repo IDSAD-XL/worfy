@@ -379,7 +379,7 @@ function putKey(values: RegValue[], env: Env): void {
  * stat fails with EACCES), and readlink names the program it starts (evidence of worfy-windows
  * ticket 01, section 25; ticket 10). A folder of that name and a link to nothing are neither.
  */
-const fileOrAlias: FileExists = (path) => {
+export const fileOrAlias: FileExists = (path) => {
   try {
     return statSync(path).isFile()
   } catch {

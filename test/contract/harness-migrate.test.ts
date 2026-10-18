@@ -81,7 +81,7 @@ const sub = (text: string): string => text.replaceAll('__SANDBOX__', sandbox.roo
  */
 const BRIDGE_FILE = process.platform === 'win32' ? 'statusline-bridge.mjs' : 'statusline-bridge.sh'
 const bridgeLine = (bridge: string): string =>
-  process.platform === 'win32' ? `node "${bridge.replaceAll('\\', '/')}" 'bash ~/.claude/statusline.sh'` : `${bridge} 'bash ~/.claude/statusline.sh'`
+  process.platform === 'win32' ? `node '${bridge.replaceAll('\\', '/')}' 'bash ~/.claude/statusline.sh'` : `${bridge} 'bash ~/.claude/statusline.sh'`
 
 describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {

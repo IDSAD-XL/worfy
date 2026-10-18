@@ -18,7 +18,7 @@
 // and `confirm` saying yes; every path written or removed is checked to be inside the Claude home
 // or the Harness home, and .claude.json is the one file outside them.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -93,13 +93,19 @@ export function stringifyLike(original: string, value: unknown): string {
   return original.endsWith('\n') ? `${text}\n` : text
 }
 
-/** Writes through a file next to the target, renamed over it; the mode of the old file is kept. */
-function writeAtomically(path: string, text: string): void {
+/** Writes through a file next to the target, renamed over it; the mode of the old file is kept. A failed rename removes that file. */
+export function writeAtomically(path: string, text: string): void {
   const mode = existsSync(path) ? statSync(path).mode & 0o777 : 0o644
   const temp = `${path}.worfy-move-${process.pid}`
   writeFileSync(temp, text, { mode })
-  chmodSync(temp, mode)
-  renameSync(temp, path)
+  try {
+    chmodSync(temp, mode)
+    renameSync(temp, path)
+  } catch (error) {
+    // A rename refused (on Windows a file held open without delete sharing): no temporary file is left next to it.
+    rmSync(temp, { force: true })
+    throw error
+  }
 }
 
 /** A folder the move may write in: an existing directory, not the disk root and not the user's home folder. */

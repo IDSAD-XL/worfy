@@ -206,7 +206,8 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   required»), «Architecture» (не x64 — `warn`; архитектура машины, а не процесса: `PROCESSOR_ARCHITEW6432`, иначе
   `PROCESSOR_ARCHITECTURE` окружения Session, которое Ticket 09 берёт из реестра HKLM. Предел: при `from:
   'fallback'` (реестр не прочитан) переменная — из процесса worfy, и сборка x64 под эмуляцией на arm64 видит
-  `AMD64`; `os.machine()` не помогает — libuv берёт архитектуру процесса), «PowerShell» (`terminalShell` Ticket-а 10: нет `pwsh.exe` —
+  `AMD64`; `os.machine()` не помогает — libuv берёт архитектуру процесса), «PowerShell» (`terminalShell` Ticket-а 10 с той же проверкой файла, что у Terminal, —
+  `fileOrAlias` из `env.ts`, видит alias MSIX в WindowsApps, которого не видит `existsSync`; нет `pwsh.exe` —
   `warn` «Terminal uses Windows PowerShell» и `winget install Microsoft.PowerShell`); «Git Bash» после git
   (как у Session: `CLAUDE_CODE_GIT_BASH_PATH`, если он задан, иначе `findGitBash` Ticket-а 09; переменная с файлом под
   `%SystemRoot%` — например `System32\bash.exe`, запуск WSL — или с несуществующим файлом — `fail`; нет Git
@@ -224,8 +225,9 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
 - **Установщик** (`src/main/harness/install.ts`): переименования и удаления папок plugin — через
   `retriedOnWindows`: на `win32` при `EPERM`/`EBUSY`/`EACCES` (у удаления ещё `ENOTEMPTY`) повтор с паузой 0,
   10 … 100 мс до 60 с, как `graceful-fs`. Старую папку не убрать в сторону — `error` на шаге `copy`, старая на
-  месте. Новую копию не поставить на место — staging удаляется, старая возвращается (не дольше
-  `ROLLBACK_RETRY_MS` = 10 с, всего ~70 с), `error` на шаге `copy` с первой ошибкой; если и возврат не удался,
+  месте. Новую копию не поставить на место — сначала возвращается старая (как на main: `plugin/` нет как можно
+  меньше; не дольше `ROLLBACK_RETRY_MS` = 10 с), потом удаляется staging (тоже не дольше 10 с: остаток уберёт
+  следующая установка); худший случай — 60 + 10 + 10 ≈ 80 с; `error` на шаге `copy` с первой ошибкой; если и возврат не удался,
   сообщение говорит об этом, `plugin/` нет, прежняя копия лежит в `.plugin-old-*`, и следующая установка ставит
   её на место первой (`removeLeftovers`). Старую папку не удалить после замены — установка успешна, папка
   остаётся с предупреждением в лог и уходит при следующей установке. `removeLeftovers` папку, которую не
@@ -234,8 +236,8 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   отдавал `…\claude` без `.exe` — статус Harness в `pnpm dev` падал бы с ENOENT; теперь `claude.exe`.
 - **`statusLine`** — новый `src/main/harness/status-line.ts`: `bridgeFile` (`<resources>/statusline-bridge.mjs`
   на Windows, `statusline-bridge.sh` на Mac), `bridgeCommand`/`withBridge` (Windows —
-  `node "C:/…/statusline-bridge.mjs" '<прежняя команда>'`, Mac — прежняя строка формы переноса), `bridgeOf`
-  (обе формы считаются мостом). Форма переноса (`migrate/plan.ts`) строит строку той же функцией; запись —
+  `node 'C:/…/statusline-bridge.mjs' '<прежняя команда>'`, Mac — прежняя строка формы переноса), `bridgeOf`
+  (обе формы считаются мостом, путь и в двойных кавычках прежних сборок). Форма переноса (`migrate/plan.ts`) строит строку той же функцией; запись —
   общая `withStatusLineCommand` из `src/main/harness/status-line.ts`, её зовут `writeSettings` формы переноса и
   новый `writeStatusLine` в `migrate/apply.ts`. Строка формы переноса на Mac — как на main
   (`otherBuildBridge` в `migrate/plan.ts`): только вход `.sh`, в dev-сборке с относительным путём — строки нет,
@@ -243,7 +245,8 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   «Limits from terminal» на Windows: `ok`, когда `statusLine.command` зовёт мост этой сборки; иначе `warn` с
   кнопкой «Set up…» (действие `limits-bridge`): окно подтверждения с файлом, прежней и новой командой, запись
   только ключа `statusLine`; файл, изменённый после окна, — отказ. В dev-сборке — `warn` без кнопки.
-- **Аргумент в `statusLine` на Windows** — POSIX single quotes (`'…'\''…'`): по Итогу Ticket-а 08 Claude Code
+- **Аргумент и путь моста в `statusLine` на Windows** — POSIX single quotes (`'…'\''…'`, `shellWord`): в
+  двойных кавычках Git Bash раскрыл бы `$`, `$(…)` и backtick в папке установки. По Итогу Ticket-а 08 Claude Code
   на Windows исполняет `statusLine` через Git Bash. Живой прогон `statusLine` в интерактивной Session не
   делался (нужно окно Claude Code): если оболочка окажется cmd.exe, одинарные кавычки там не кавычки —
   проверяет пункт Limits на ПК владельца.
@@ -275,6 +278,21 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
     `connect-project`, `harness-migration-form`, `harness-migrate-renamed-hooks` — exit 0, 152 passed;
   - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0. Gate не запускался: на ПК нет registry Harness (exit 3
     ожидаем), gate full — на Mac.
+- **Раунд ревью 2** (ревью c3839d2 на Mac, PR #479). Изменения: при отказе новой копии старая
+  возвращается в `plugin/` до удаления staging (порядок main); удаление staging на всех путях отказа — не
+  дольше `ROLLBACK_RETRY_MS`, худший случай ≈ 80 с вместо ≈ 130 с; неиспользуемый `renameRetried` удалён;
+  строка PowerShell ищет `pwsh.exe` через `fileOrAlias` (alias MSIX); таймер `runTool` вынесен в `killTool`
+  (тесты подменяют kill); путь моста на Windows — в одинарных кавычках (`shellWord`); `writeAtomically`
+  удаляет временный файл, если rename не удался. Новые tests: порядок отката, старая папка не уходит в
+  сторону, первая установка с отказом, единственная копия в `.plugin-old-*` не удаляется `removeLeftovers`,
+  граница ожидания (часы подменены), settings.json изменён во время окна, действие в состоянии
+  `unavailable`, нет файла моста, мост другой сборки, новый `statusLine` с `type: 'command'`, `$(…)` в пути,
+  alias `pwsh.exe` на этом ПК, папка `pwsh.exe`, зависший tool (ответ по timeout, потом kill дерева
+  cmd.exe → node.exe), архитектура не зависит от хоста (x86 → ia32). Mutants — 16 из 16 красные (по одному,
+  файлы возвращены байт в байт), среди них все выжившие из ревью.
+  Прогоны: `first-run-windows` + `harness-install` — exit 0, 103 passed; `first-run-checks` +
+  `harness-migrate` — exit 1, 38 failed / 47 passed / 11 skipped, список совпадает с main строка в строку;
+  `agent-env` + `e2e-no-spawn-on-load` — exit 0, 112 passed, 4 skipped; `pnpm lint` — 0; `pnpm typecheck` — 0.
 - **Ждут ПК владельца** (не отмечены): установка NSIS и экран первого запуска со снимком, `claude plugin list`
   в настоящем `%USERPROFILE%`, hooks в настоящей Session, Limits с настоящим `settings.json` (там же — в какой
   оболочке Claude Code исполняет `statusLine`). Пункт gate — Mac (needs-mac-gate).

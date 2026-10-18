@@ -12,7 +12,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { bundledClaudeBinary, claudeExecutablePath } from '../../src/main/agent/options'
 import {
   claudeCommandEnv,
@@ -23,6 +23,8 @@ import {
   HARNESS_PLUGIN_ID,
   HarnessInstaller,
   installOffered,
+  RENAME_RETRY_MS,
+  ROLLBACK_RETRY_MS,
   type InstallerOptions,
   type InstallPlan,
 } from '../../src/main/harness/install'
@@ -935,6 +937,96 @@ describe('a rename refused by a held-open file (Windows)', () => {
     await installer(makeBundle(join(sb.root, 'bundle-v2b'), V2), { copyTree: failing }).install(yes)
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(leftovers()).toEqual([])
+  })
+
+  /** The renames and removals of one install, in order, with the folders named as `refusingStaging` names them. */
+  const recorder = (refuse: (step: string) => string | null) => {
+    const steps: string[] = []
+    const name = (path: string): string => path.slice(sb.harnessHome.length + 1).replace(/^(\.plugin-(?:new|old))-.*/, '$1-*')
+    const attempt = (step: string, operation: () => void): Promise<void> => {
+      steps.push(step)
+      const code = refuse(step)
+      if (code !== null) return Promise.reject(heldOpen(code))
+      operation()
+      return Promise.resolve()
+    }
+    return {
+      steps,
+      renameDir: (from: string, to: string) => attempt(`rename ${name(from)} -> ${name(to)}`, () => renameSync(from, to)),
+      removeDir: (path: string) => attempt(`remove ${name(path)}`, () => rmSync(path, { recursive: true, force: true })),
+    }
+  }
+
+  it('the new copy refused: the previous copy goes back into plugin/ before the staging folder is removed, as on main', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-new-* -> plugin' ? 'EPERM' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    const back = steps.indexOf('rename .plugin-old-* -> plugin')
+    const staging = steps.indexOf('remove .plugin-new-*')
+    expect(back).toBeGreaterThan(-1)
+    expect(staging).toBeGreaterThan(back)
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('the previous copy cannot be set aside: the step `copy` fails, plugin/ untouched, the staging folder removed', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    clearCalls()
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename plugin -> .plugin-old-*' ? 'EBUSY' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    if (result.status.state.kind === 'error') expect(result.status.state.reason).toContain('EBUSY')
+    expect(steps.filter((step) => step.startsWith('rename .plugin-new-*'))).toEqual([])
+    expect(steps.at(-1)).toBe('remove .plugin-new-*')
+    expect(treeOf(sb.pluginDir)).toEqual(before)
+    expect(leftovers()).toEqual([])
+    expect(writes()).toEqual([])
+  })
+
+  it('a first install whose new copy is refused: the step `copy` fails, no plugin/, the staging folder removed', async () => {
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-new-* -> plugin' ? 'EPERM' : null))
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    expect(steps.filter((step) => step.includes('.plugin-old-'))).toEqual([])
+    expect(steps.at(-1)).toBe('remove .plugin-new-*')
+    expect(existsSync(sb.pluginDir)).toBe(false)
+    expect(leftovers()).toEqual([])
+  })
+
+  it('an interrupted install left the only copy aside and it cannot be put back: removeLeftovers keeps it, never removes it', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    const before = treeOf(sb.pluginDir)
+    // A crash between the two renames: no plugin/, the previous copy in .plugin-old-crash.
+    renameSync(sb.pluginDir, join(sb.harnessHome, '.plugin-old-crash'))
+    const { steps, renameDir, removeDir } = recorder((step) => (step === 'rename .plugin-old-* -> plugin' ? 'EBUSY' : null))
+    await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir, renameRetryMs: 50 }).install(yes)
+    expect(steps).not.toContain('remove .plugin-old-*')
+    expect(treeOf(join(sb.harnessHome, '.plugin-old-crash'))).toEqual(before)
+  })
+
+  it('the worst failure is bounded: the rename back and every staging removal stop after ROLLBACK_RETRY_MS, about 80 s in all', async () => {
+    await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
+    // A clock that moves 5 s at each attempt, so the 60 s and 10 s limits pass in a few real milliseconds.
+    let offset = 0
+    const realNow = Date.now.bind(Date)
+    const { steps, renameDir, removeDir } = recorder((step) => {
+      offset += 5000
+      return step === 'rename plugin -> .plugin-old-*' ? null : 'EBUSY'
+    })
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset)
+    const result = await installer(makeBundle(join(sb.root, 'bundle-v2'), V2), { platform: 'win32', renameDir, removeDir })
+      .install(yes)
+      .finally(() => spy.mockRestore())
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
+    const count = (step: string): number => steps.filter((each) => each === step).length
+    // 60 s for the refused new copy (RENAME_RETRY_MS), then at most 10 s each for the rename back and the staging folder.
+    expect(count('rename .plugin-new-* -> plugin')).toBeGreaterThanOrEqual(RENAME_RETRY_MS / 5000)
+    expect(count('rename .plugin-old-* -> plugin')).toBeLessThanOrEqual(ROLLBACK_RETRY_MS / 5000 + 1)
+    expect(count('remove .plugin-new-*')).toBeLessThanOrEqual(ROLLBACK_RETRY_MS / 5000 + 1)
+    expect(offset).toBeLessThanOrEqual(RENAME_RETRY_MS + 2 * ROLLBACK_RETRY_MS + 4 * 5000)
   })
 })
 

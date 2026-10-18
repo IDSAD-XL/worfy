@@ -8,12 +8,13 @@
 // of the first-run screen on Windows (first-run/checks.ts and actions.ts). The forms:
 //
 //   macOS    <Resources>/statusline-bridge.sh '<the user's command>'        (the sh entry, ticket 08)
-//   Windows  node "C:/…/resources/statusline-bridge.mjs" '<the user's command>'
+//   Windows  node 'C:/…/resources/statusline-bridge.mjs' '<the user's command>'
 //
-// On Windows the path has forward slashes in double quotes: node reads it so in Git Bash, cmd.exe
-// and PowerShell alike. The user's command is one argument in POSIX single quotes: Claude Code runs
-// `statusLine` through Git Bash on Windows (its own status line setup agent says so, worfy-windows
-// ticket 08), and the bridge runs the command through Git Bash too (scripts/statusline-bridge.mjs).
+// Claude Code runs `statusLine` through Git Bash on Windows (its own status line setup agent says
+// so, worfy-windows ticket 08), and the bridge runs the user's command through Git Bash too
+// (scripts/statusline-bridge.mjs). So both are POSIX shell words: the path with forward slashes and
+// the user's command, each in single quotes when it needs quotes, where Git Bash expands nothing —
+// in double quotes a `$`, `$(…)` or backtick in the install folder would run.
 import { readFileSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
 
@@ -46,7 +47,7 @@ const fileName = (path: string): string => path.split(/[\\/]/).at(-1) ?? ''
 /**
  * The bridge a status line command runs, and the text after it (its argument, as written); null
  * when it runs no worfy bridge. Both forms count on every system: `<…>/statusline-bridge.sh …` and
- * `node "<…>/statusline-bridge.mjs" …`.
+ * `node '<…>/statusline-bridge.mjs' …` (the path in double quotes too, as earlier builds wrote it).
  */
 export function bridgeOf(command: string): { bridge: string; rest: string } | null {
   const first = splitCommand(command)
@@ -66,10 +67,11 @@ export function shellWord(text: string): string {
 /**
  * The `statusLine.command` that runs `bridge` followed by `rest` — the text after the bridge, with
  * its leading space, such as ` 'bash ~/.claude/statusline.sh'`, or '' for none. On Windows
- * `node "<bridge>"` with forward slashes; elsewhere the entry, quoted only when it needs it.
+ * `node <bridge>` with forward slashes; elsewhere the entry. The path is a shell word (shellWord):
+ * in single quotes when it needs quotes.
  */
 export function bridgeCommand(platform: NodeJS.Platform, bridge: string, rest: string): string {
-  if (platform === 'win32') return `node "${bridge.replace(/\\/g, '/')}"${rest}`
+  if (platform === 'win32') return `node ${shellWord(bridge.replace(/\\/g, '/'))}${rest}`
   return `${shellWord(bridge)}${rest}`
 }
 

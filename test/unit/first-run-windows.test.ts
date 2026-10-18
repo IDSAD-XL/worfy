@@ -3,12 +3,14 @@
 // cases run on any machine, Linux CI included. The same checks with `darwin` keep the Mac list and
 // its `brew install` commands. Then the status line command of the Limits bridge for both systems,
 // the "Limits from terminal" row and its action. No real tool runs, except one .cmd on Windows.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import type { ChildProcess } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { runChecks, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
+import { killTool, runChecks, runTool, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
+import { writeAtomically, writeStatusLine } from '../../src/main/harness/migrate/apply'
 import { otherBuildBridge } from '../../src/main/harness/migrate/plan'
 import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, withBridge } from '../../src/main/harness/status-line'
 import type { Check, CheckId, FirstRunReport } from '../../src/shared/ipc/first-run'
@@ -232,11 +234,90 @@ describe('first-run checks on Windows', () => {
     expect(windowsNativeArch({ PROCESSOR_ARCHITECTURE: 'ARM64' })).toBe('arm64')
     expect(windowsNativeArch({ PROCESSOR_ARCHITECTURE: 'x86', PROCESSOR_ARCHITEW6432: 'AMD64' })).toBe('x64')
     expect(windowsNativeArch({})).toBeNull()
-    // Without an architecture given, an arm64 machine warns even when worfy's process is x64.
-    const report = await runChecks(deps({ platform: 'win32', release: '10.0.22631' }, ALL, undefined, { env: { ...WINDOWS_ENV, PROCESSOR_ARCHITECTURE: 'ARM64' } }))
-    expect(checkOf(report, 'arch')).toMatchObject({ status: 'warn', detail: 'arm64' })
+    // Without an architecture given, the row names the machine's from the environment, not the process's.
+    // x86 (ia32) is the architecture of no test host, so the answer cannot come from os.arch() by chance.
+    const report = await runChecks(deps({ platform: 'win32', release: '10.0.22631' }, ALL, undefined, { env: { ...WINDOWS_ENV, PROCESSOR_ARCHITECTURE: 'x86' } }))
+    expect(checkOf(report, 'arch')).toMatchObject({ status: 'warn', detail: 'ia32' })
+  })
+
+  it.skipIf(process.platform !== 'win32')('pwsh as an app execution alias (MSIX in WindowsApps): the row finds it as Terminal does (Windows with that alias only)', async () => {
+    const windowsApps = join(process.env.LOCALAPPDATA ?? '', 'Microsoft', 'WindowsApps')
+    // existsSync does not see the alias; the row must not fall back to Windows PowerShell for it.
+    if (existsSync(join(windowsApps, 'pwsh.exe')) || !isAlias(join(windowsApps, 'pwsh.exe'))) return
+    const env = { ...WINDOWS_ENV, PATH: windowsApps }
+    const report = await runChecks(deps(WIN11, ALL, undefined, { env, probes: { run: probes(ALL, []).run } }))
+    expect(checkOf(report, 'powershell')).toMatchObject({ status: 'ok', detail: join(windowsApps, 'pwsh.exe') })
+  })
+
+  it.skipIf(process.platform !== 'win32')('a folder named pwsh.exe is no pwsh: the row looks for a file, as Terminal does (Windows only)', async () => {
+    const dir = join(root, 'not pwsh')
+    mkdirSync(join(dir, 'pwsh.exe'), { recursive: true })
+    const env = { ...WINDOWS_ENV, PATH: dir }
+    const report = await runChecks(deps(WIN11, ALL, undefined, { env, probes: { run: probes(ALL, []).run } }))
+    expect(checkOf(report, 'powershell')).toMatchObject({ status: 'warn', detail: 'Terminal uses Windows PowerShell' })
   })
 })
+
+/** Whether `path` is a link that cannot be opened as a file but names one that exists (an app execution alias). */
+function isAlias(path: string): boolean {
+  try {
+    return existsSync(readlinkSync(path))
+  } catch {
+    return false
+  }
+}
+
+describe('a tool that does not answer', () => {
+  it('the check answers at the time limit without waiting for the pipes, and the tool is ended with its tree', async () => {
+    const dir = join(root, 'hanging tool')
+    mkdirSync(dir)
+    const pidFile = join(dir, 'pid')
+    // A node that keeps its pipes open, started the way claude.cmd starts node on Windows (cmd.exe → node.exe).
+    writeFileSync(join(dir, 'hang.js'), `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\n`)
+    writeFileSync(join(dir, 'hang.cmd'), '@node "%~dp0hang.js"\r\n')
+    writeFileSync(join(dir, 'hang'), `#!/bin/sh\nexec node "$(dirname "$0")/hang.js"\n`, { mode: 0o755 })
+    // The PATH of this process (Path on Windows) with the tool's folder first, under one key.
+    const env: Record<string, string | undefined> = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PATH'))
+    env.PATH = `${dir}${delimiter}${process.env.PATH ?? process.env.Path ?? ''}`
+    env.PATHEXT = '.CMD;.EXE'
+    const killed: { child: ChildProcess; platform: NodeJS.Platform }[] = []
+    const started = Date.now()
+    // The kill is held back: the answer must come while the tool still runs.
+    const run = await runTool('hang', ['--version'], env, 1500, {
+      kill: (child, platform) => {
+        killed.push({ child, platform })
+      },
+    })
+    try {
+      expect(run).toEqual({ code: null, stdout: '', stderr: 'hang did not answer within 2 s', missing: false })
+      expect(Date.now() - started).toBeLessThan(5000)
+      expect(killed).toHaveLength(1)
+      await until(() => existsSync(pidFile))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      expect(alive(pid)).toBe(true)
+    } finally {
+      // The real kill, which must end node.exe under cmd.exe too.
+      for (const { child, platform } of killed) killTool(child, platform, env)
+    }
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    await until(() => !alive(pid))
+    expect(alive(pid)).toBe(false)
+  })
+})
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function until(condition: () => boolean, ms = 10_000): Promise<void> {
+  const started = Date.now()
+  while (!condition() && Date.now() - started < ms) await new Promise((resolve) => setTimeout(resolve, 50))
+}
 
 describe('first-run checks on macOS: as before this ticket', () => {
   it('the Mac list, no Windows row, and brew install for each missing tool', async () => {
@@ -331,14 +412,22 @@ describe('the status line command of the Limits bridge', () => {
   const resources = 'C:\\Program Files\\worfy\\resources'
   const winBridge = `${resources}\\statusline-bridge.mjs`
 
-  it('win32: node "<resources>/statusline-bridge.mjs" with forward slashes, the previous command as its argument', () => {
+  it("win32: node '<resources>/statusline-bridge.mjs' with forward slashes, the previous command as its argument", () => {
     expect(bridgeFile('win32', resources)).toBe(winBridge)
-    expect(withBridge('win32', winBridge, 'bash ~/.claude/statusline.sh')).toBe(`node "C:/Program Files/worfy/resources/statusline-bridge.mjs" 'bash ~/.claude/statusline.sh'`)
-    expect(withBridge('win32', winBridge, "echo 'it''s'")).toBe(`node "C:/Program Files/worfy/resources/statusline-bridge.mjs" 'echo '\\''it'\\'''\\''s'\\'''`)
-    expect(withBridge('win32', winBridge, null)).toBe('node "C:/Program Files/worfy/resources/statusline-bridge.mjs"')
-    // The bridge of another build: replaced, its argument kept as written.
-    expect(withBridge('win32', winBridge, `node "D:/old/resources/statusline-bridge.mjs" 'bash x.sh'`)).toBe(`node "C:/Program Files/worfy/resources/statusline-bridge.mjs" 'bash x.sh'`)
-    expect(bridgeCommand('win32', winBridge, " 'a'")).toBe(`node "C:/Program Files/worfy/resources/statusline-bridge.mjs" 'a'`)
+    expect(withBridge('win32', winBridge, 'bash ~/.claude/statusline.sh')).toBe(`node 'C:/Program Files/worfy/resources/statusline-bridge.mjs' 'bash ~/.claude/statusline.sh'`)
+    expect(withBridge('win32', winBridge, "echo 'it''s'")).toBe(`node 'C:/Program Files/worfy/resources/statusline-bridge.mjs' 'echo '\\''it'\\'''\\''s'\\'''`)
+    expect(withBridge('win32', winBridge, null)).toBe("node 'C:/Program Files/worfy/resources/statusline-bridge.mjs'")
+    // The bridge of another build, in the double quotes earlier builds wrote: replaced, its argument kept as written.
+    expect(withBridge('win32', winBridge, `node "D:/old/resources/statusline-bridge.mjs" 'bash x.sh'`)).toBe(`node 'C:/Program Files/worfy/resources/statusline-bridge.mjs' 'bash x.sh'`)
+    expect(bridgeCommand('win32', winBridge, " 'a'")).toBe(`node 'C:/Program Files/worfy/resources/statusline-bridge.mjs' 'a'`)
+  })
+
+  it('win32: a $, $(…) or backtick in the install folder stays text in single quotes, where Git Bash expands nothing', () => {
+    const odd = 'C:\\Users\\a$HOME\\x $(touch pwned)`id`\\resources\\statusline-bridge.mjs'
+    const command = bridgeCommand('win32', odd, " 'a'")
+    expect(command).toBe("node 'C:/Users/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs' 'a'")
+    // The row reads the path back as written, so it compares the real folder.
+    expect(bridgeOf(command)).toEqual({ bridge: 'C:/Users/a$HOME/x $(touch pwned)`id`/resources/statusline-bridge.mjs', rest: " 'a'" })
   })
 
   it('darwin: the sh entry, as the move form wrote it before this ticket', () => {
@@ -382,7 +471,8 @@ describe('Limits from terminal (Windows)', () => {
   let bridge: string
   let settingsFile: string
   beforeEach(() => {
-    const resources = join(root, 'resources')
+    // A space in the folder: the bridge path is quoted on every host.
+    const resources = join(root, 'worfy resources')
     mkdirSync(resources)
     bridge = join(resources, 'statusline-bridge.mjs')
     writeFileSync(bridge, '// bridge\n')
@@ -394,6 +484,9 @@ describe('Limits from terminal (Windows)', () => {
     settings()
     const warn = checkOf(await runChecks(deps(WIN11, ALL, undefined, { limitsBridge: bridge })), 'limits')
     expect(warn).toMatchObject({ status: 'warn', detail: 'no statusLine in settings.json', actions: [{ id: 'limits-bridge', label: 'Set up…' }] })
+    settings({ type: 'command', command: `node '${bridge.replace(/\\/g, '/')}' 'bash x.sh'` })
+    expect(checkOf(await runChecks(deps(WIN11, ALL, undefined, { limitsBridge: bridge })), 'limits').status).toBe('ok')
+    // The double quotes of earlier builds read the same.
     settings({ type: 'command', command: `node "${bridge.replace(/\\/g, '/')}" 'bash x.sh'` })
     expect(checkOf(await runChecks(deps(WIN11, ALL, undefined, { limitsBridge: bridge })), 'limits').status).toBe('ok')
     expect((await runChecks(deps(MAC, ALL, [], { limitsBridge: bridge }))).checks.map((check) => check.id)).not.toContain('limits')
@@ -402,6 +495,22 @@ describe('Limits from terminal (Windows)', () => {
   it('a development build: a Warning without an action', async () => {
     settings({ type: 'command', command: 'bash x.sh' })
     expect(checkOf(await runChecks(deps(WIN11)), 'limits')).toMatchObject({ status: 'warn', detail: 'statusLine does not run the worfy bridge', actions: [] })
+  })
+
+  it('the bridge of another build is not OK: a Warning with "Set up…", whose command points at this build', async () => {
+    settings({ type: 'command', command: `node 'D:/old worfy/resources/statusline-bridge.mjs' 'bash x.sh'` })
+    const row = checkOf(await runChecks(deps(WIN11, ALL, undefined, { limitsBridge: bridge })), 'limits')
+    expect(row).toMatchObject({ status: 'warn', detail: 'statusLine runs the bridge of another build', actions: [{ id: 'limits-bridge', label: 'Set up…' }] })
+    const state = limitsBridgeState({ platform: 'win32', settingsFile, bridge, exists: existsSync })
+    expect(state).toMatchObject({ kind: 'offer', command: `node '${bridge.replace(/\\/g, '/')}' 'bash x.sh'` })
+  })
+
+  it('this build without its bridge file: a Warning without "Set up…", nothing offered that points at a missing file', async () => {
+    settings({ type: 'command', command: 'bash x.sh' })
+    rmSync(bridge)
+    const row = checkOf(await runChecks(deps(WIN11, ALL, undefined, { limitsBridge: bridge })), 'limits')
+    expect(row).toMatchObject({ status: 'warn', detail: 'statusLine does not run the worfy bridge', hint: `This build has no ${bridge}`, actions: [] })
+    expect(limitsBridgeState({ platform: 'win32', settingsFile, bridge, exists: existsSync }).kind).toBe('unavailable')
   })
 
   function actions(confirm: (confirmation: Confirmation) => Promise<boolean>): FirstRunActions {
@@ -427,7 +536,7 @@ describe('Limits from terminal (Windows)', () => {
     }).run('limits-bridge')
     expect(declined.outcome).toBe('declined')
     expect(readFileSync(settingsFile, 'utf8')).toBe(before)
-    const command = `node "${bridge.replace(/\\/g, '/')}" 'bash ~/.claude/statusline.sh'`
+    const command = `node '${bridge.replace(/\\/g, '/')}' 'bash ~/.claude/statusline.sh'`
     expect(asked[0]?.detail).toContain(settingsFile)
     expect(asked[0]?.detail).toContain('now: bash ~/.claude/statusline.sh')
     expect(asked[0]?.detail).toContain(`new: ${command}`)
@@ -438,5 +547,69 @@ describe('Limits from terminal (Windows)', () => {
     expect(written).toEqual({ theme: 'dark', statusLine: { type: 'command', command, padding: 0 }, model: 'opus' })
     expect(checkOf(done.report, 'limits').status).toBe('ok')
     expect(limitsBridgeState({ platform: 'win32', settingsFile, bridge, exists: existsSync }).kind).toBe('bridged')
+  })
+
+  it('settings.json changed while the dialog was open: refused, the new text left byte for byte', async () => {
+    settings({ type: 'command', command: 'bash ~/.claude/statusline.sh' })
+    let edited = ''
+    const result = await actions(() => {
+      // The user (or Claude Code) edits the file before Confirm.
+      settings({ type: 'command', command: 'bash ~/.claude/other.sh' })
+      edited = readFileSync(settingsFile, 'utf8')
+      return Promise.resolve(true)
+    }).run('limits-bridge')
+    expect(result.outcome).toBe('failed')
+    expect(result.message).toContain('settings.json changed since the dialog')
+    expect(readFileSync(settingsFile, 'utf8')).toBe(edited)
+  })
+
+  it('with nothing to offer (no bridge file, a development build, unreadable JSON) the action asks nothing and writes nothing', async () => {
+    settings({ type: 'command', command: 'bash ~/.claude/statusline.sh', padding: 0 })
+    const before = readFileSync(settingsFile, 'utf8')
+    const asked: Confirmation[] = []
+    const confirm = (confirmation: Confirmation): Promise<boolean> => {
+      asked.push(confirmation)
+      return Promise.resolve(true)
+    }
+    const run = (limits: { settingsFile: string; bridge: string | null; platform: NodeJS.Platform }) =>
+      new FirstRunActions({
+        checks: () => runChecks(deps(WIN11, ALL, undefined, { limitsBridge: limits.bridge })),
+        confirm,
+        env: () => Promise.resolve({}),
+        homes: { harnessHome: join(claudeHome, 'worfy-harness'), claudeHome },
+        installHarness: () => Promise.reject(new Error('not in this test')),
+        projects: () => Promise.resolve([]),
+        binDir: join(root, 'bin'),
+        limits,
+      }).run('limits-bridge')
+    const development = await run({ settingsFile, bridge: null, platform: 'win32' })
+    expect(development.outcome).toBe('failed')
+    rmSync(bridge)
+    const noBridge = await run({ settingsFile, bridge, platform: 'win32' })
+    expect(noBridge).toMatchObject({ outcome: 'failed', message: `This build has no ${bridge}` })
+    expect(asked).toEqual([])
+    expect(readFileSync(settingsFile, 'utf8')).toBe(before)
+  })
+
+  it('no statusLine, or no settings.json at all: Confirm writes a new statusLine of type command', async () => {
+    settings()
+    const command = `node '${bridge.replace(/\\/g, '/')}'`
+    expect((await actions(() => Promise.resolve(true)).run('limits-bridge')).outcome).toBe('done')
+    expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual({ theme: 'dark', model: 'opus', statusLine: { type: 'command', command } })
+    rmSync(settingsFile)
+    expect((await actions(() => Promise.resolve(true)).run('limits-bridge')).outcome).toBe('done')
+    expect(JSON.parse(readFileSync(settingsFile, 'utf8'))).toEqual({ statusLine: { type: 'command', command } })
+    // writeStatusLine itself, for a file that is not there yet in a folder that is not there yet.
+    const fresh = join(root, 'new home', 'settings.json')
+    writeStatusLine(fresh, null, 'x')
+    expect(JSON.parse(readFileSync(fresh, 'utf8'))).toEqual({ statusLine: { type: 'command', command: 'x' } })
+  })
+
+  it('a write whose rename is refused leaves no temporary file next to the target', () => {
+    // A folder where the file should be: the rename over it fails on every system (EPERM on Windows, EISDIR elsewhere).
+    const target = join(root, 'settings.json')
+    mkdirSync(target)
+    expect(() => writeAtomically(target, '{}\n')).toThrow()
+    expect(readdirSync(root).filter((name) => name.includes('.worfy-move-'))).toEqual([])
   })
 })
