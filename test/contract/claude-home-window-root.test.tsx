@@ -1,6 +1,7 @@
 // claudeHome.changed from main to the window, end to end (worfy-windows ticket 57). The window's
 // bridge calls the real handlers of src/main/ipc/claude-home.ts, and what main sends to the window
-// goes to the bridge's listeners, so useClaudeHome sees the root exactly as main sent it. On
+// goes to the bridge's listeners, so the window's three readers of the event (useClaudeHome, the
+// binding signals, the Subagent files) see the root exactly as main sent it. On
 // Windows the window has git's `C:/…` from the Project list; main used to send path.resolve's
 // `C:\…`, and the window dropped every change. The registry is a stand-in whose watcher the test
 // fires by hand: no files and no real watcher.
@@ -16,6 +17,7 @@ import { IPC_CHANNEL_PREFIX, type WorfyBridge } from '../../src/shared/ipc/chann
 
 /** The root as the window has it: git's spelling on Windows. */
 const ROOT = 'C:/p'
+const S = 'eeeeeeee-0000-4000-8000-000000000005'
 /** The renderer location that passes the frame check, as test/app-url.ts builds it. */
 const INDEX_HTML = '/Applications/worfy.app/Contents/Resources/app/out/renderer/index.html'
 
@@ -57,6 +59,8 @@ beforeEach(async () => {
     },
     sessions: async () => ({ live: [], history: [] }),
     live: async () => [],
+    // claudeHome.subagents answers found: false; the test counts the requests, not their answers.
+    transcriptPath: async () => null,
   }
   const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
   closeAll = () => subscriptions.closeAll()
@@ -80,6 +84,9 @@ beforeEach(async () => {
   const bridge = {
     invoke: async (channel: string, input: unknown) => {
       asked.push(channel)
+      // bindings.signals is another domain's handler (src/main/ipc/bindings.ts); what it answers
+      // does not decide whether the window asks again, so a stand-in answers it.
+      if (channel === 'bindings.signals') return { ok: true, value: { sessionId: S, signals: [], subagents: [] } }
       const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
       if (!listener) throw new Error(`no handler for ${channel}`)
       return listener(event, input)
@@ -109,5 +116,37 @@ describe('claudeHome.changed reaches the window that asked with C:/p', () => {
       for (const watcher of watchers) watcher({ sessions: true, transcripts: [] })
     })
     await vi.waitFor(() => expect(asked).toEqual(['claudeHome.sessions', 'claudeHome.live']))
+  })
+
+  const times = (channel: string) => asked.filter((each) => each === channel).length
+  const transcriptChanged = async () =>
+    act(async () => {
+      for (const watcher of watchers) watcher({ sessions: false, transcripts: [S] })
+    })
+
+  it('a change of a Session\'s transcript makes the binding signals read again', async () => {
+    const { useClaudeHome } = await import('../../src/renderer/claude-home/useClaudeHome')
+    const { useSessionSignals } = await import('../../src/renderer/binding/store')
+    // The window subscribes through useClaudeHome, as the Sessions section does beside the signals.
+    renderHook(() => {
+      useClaudeHome(ROOT)
+      return useSessionSignals(ROOT, [S])
+    })
+    await vi.waitFor(() => expect(watchers).toHaveLength(1))
+    await vi.waitFor(() => expect(times('bindings.signals')).toBe(1))
+
+    await transcriptChanged()
+    await vi.waitFor(() => expect(times('bindings.signals')).toBe(2))
+  })
+
+  it('a change of a Session\'s transcript makes its Subagent files read again', async () => {
+    const { useSubagentTree } = await import('../../src/renderer/claude-home/subagents')
+    // useSubagentTree subscribes through useClaudeHome itself.
+    renderHook(() => useSubagentTree(ROOT, S))
+    await vi.waitFor(() => expect(watchers).toHaveLength(1))
+    await vi.waitFor(() => expect(times('claudeHome.subagents')).toBe(1))
+
+    await transcriptChanged()
+    await vi.waitFor(() => expect(times('claudeHome.subagents')).toBe(2))
   })
 })
