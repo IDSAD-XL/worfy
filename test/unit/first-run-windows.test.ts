@@ -3,7 +3,7 @@
 // cases run on any machine, Linux CI included. The same checks with `darwin` keep the Mac list and
 // its `brew install` commands. Then the status line command of the Limits bridge for both systems,
 // the "Limits from terminal" row and its action. No real tool runs, except one .cmd on Windows.
-import type { ChildProcess } from 'node:child_process'
+import { execFileSync, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join, resolve } from 'node:path'
@@ -12,7 +12,7 @@ import { FirstRunActions, type Confirmation } from '../../src/main/first-run/act
 import { killTool, runChecks, runTool, toolStart, windowsNativeArch, windowsProgram, type CheckDeps, type Probes, type ToolRun } from '../../src/main/first-run/checks'
 import { writeAtomically, writeStatusLine } from '../../src/main/harness/migrate/apply'
 import { otherBuildBridge } from '../../src/main/harness/migrate/plan'
-import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, withBridge } from '../../src/main/harness/status-line'
+import { bridgeCommand, bridgeFile, bridgeOf, limitsBridgeState, splitCommand, statusLineCommandOf, withBridge } from '../../src/main/harness/status-line'
 import type { Check, CheckId, FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { removeTestTree } from '../remove'
@@ -268,10 +268,25 @@ function isAlias(path: string): boolean {
 }
 
 describe('a tool that does not answer', () => {
+  let hanging: { dir: string; pidFile: string } | null = null
+  // A test that fails before the kill leaves hang.js running: it is stopped here by the pid in its pid file,
+  // only when that pid's command line is hang.js of this test's folder (Windows reuses pids).
+  afterEach(async () => {
+    if (hanging === null) return
+    const { dir, pidFile } = hanging
+    hanging = null
+    await until(() => existsSync(pidFile), 3000)
+    if (!existsSync(pidFile)) return
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    if (Number.isInteger(pid) && pid > 0 && alive(pid) && commandLineOf(pid).toLowerCase().includes(join(dir, 'hang.js').toLowerCase())) process.kill(pid, 'SIGKILL')
+    rmSync(pidFile, { force: true })
+  })
+
   it('the check answers at the time limit without waiting for the pipes, and the tool is ended with its tree', async () => {
     const dir = join(root, 'hanging tool')
     mkdirSync(dir)
     const pidFile = join(dir, 'pid')
+    hanging = { dir, pidFile }
     // A node that keeps its pipes open, started the way claude.cmd starts node on Windows (cmd.exe → node.exe).
     writeFileSync(join(dir, 'hang.js'), `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)\n`)
     writeFileSync(join(dir, 'hang.cmd'), '@node "%~dp0hang.js"\r\n')
@@ -311,6 +326,17 @@ function alive(pid: number): boolean {
     return true
   } catch {
     return false
+  }
+}
+
+/** The command line of a running process, '' when it cannot be read. */
+function commandLineOf(pid: number): string {
+  try {
+    if (process.platform !== 'win32') return execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' })
+    const powershell = join(process.env.SystemRoot ?? 'C:/Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    return execFileSync(powershell, ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`], { encoding: 'utf8', windowsHide: true })
+  } catch {
+    return ''
   }
 }
 
@@ -443,6 +469,47 @@ describe('the status line command of the Limits bridge', () => {
     expect(bridgeOf('bash ~/.claude/statusline.sh')).toBeNull()
     expect(bridgeOf('node other.mjs')).toBeNull()
   })
+
+  // A ' in the install folder (C:\Users\O'Brien, /Users/o'brien): shellWord writes it as '…'\''…', one shell word.
+  const winOdd = "C:\\Users\\O'Brien\\worfy\\resources\\statusline-bridge.mjs"
+  const macOdd = "/Users/o'brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh"
+
+  it("a ' in the bridge path, Windows and macOS: the command reads back to the same bridge, and a second set-up does not wrap it again", () => {
+    const win = withBridge('win32', winOdd, 'bash ~/.claude/statusline.sh')
+    expect(win).toBe(`node 'C:/Users/O'\\''Brien/worfy/resources/statusline-bridge.mjs' 'bash ~/.claude/statusline.sh'`)
+    expect(bridgeOf(win)).toEqual({ bridge: "C:/Users/O'Brien/worfy/resources/statusline-bridge.mjs", rest: " 'bash ~/.claude/statusline.sh'" })
+    expect(withBridge('win32', winOdd, win)).toBe(win)
+    const mac = withBridge('darwin', macOdd, 'bash ~/.claude/statusline.sh')
+    expect(mac).toBe(`'/Users/o'\\''brien/Applications/worfy.app/Contents/Resources/statusline-bridge.sh' 'bash ~/.claude/statusline.sh'`)
+    expect(bridgeOf(mac)).toEqual({ bridge: macOdd, rest: " 'bash ~/.claude/statusline.sh'" })
+    expect(withBridge('darwin', macOdd, mac)).toBe(mac)
+  })
+
+  it('round trip: the previous command, with quotes of any kind, comes back unchanged from the command built around it', () => {
+    const previous = ["echo 'it''s'", 'printf "%s\\n" "$HOME"', "a\\ b 'c' \"d\"", `O'Brien's "x" \`id\` $(date)`, 'bash ~/.claude/statusline.sh']
+    for (const [platform, bridge, read] of [
+      ['win32', winOdd, "C:/Users/O'Brien/worfy/resources/statusline-bridge.mjs"],
+      ['darwin', macOdd, macOdd],
+    ] as const) {
+      for (const command of previous) {
+        const built = withBridge(platform, bridge, command)
+        const found = bridgeOf(built)
+        expect(found?.bridge).toBe(read)
+        expect(splitCommand(found?.rest ?? '')).toEqual({ head: command, rest: '' })
+        expect(withBridge(platform, bridge, built)).toBe(built)
+      }
+    }
+  })
+
+  it('splitCommand reads one POSIX shell word: quoted parts joined, escapes in double quotes and outside quotes; a Windows path stays as written', () => {
+    expect(splitCommand(`'a'\\''b'"c d"e f`)).toEqual({ head: "a'bc de", rest: ' f' })
+    expect(splitCommand(`"a\\"b\\\\c\\$d\\x" rest`)).toEqual({ head: 'a"b\\c$d\\x', rest: ' rest' })
+    expect(splitCommand(`a\\ b\\'c rest`)).toEqual({ head: "a b'c", rest: ' rest' })
+    expect(splitCommand(`  C:\\Users\\me\\statusline.sh --x`)).toEqual({ head: 'C:\\Users\\me\\statusline.sh', rest: ' --x' })
+    expect(splitCommand(`"C:\\Program Files\\x.exe" y`)).toEqual({ head: 'C:\\Program Files\\x.exe', rest: ' y' })
+    expect(splitCommand(`'unclosed rest`)).toEqual({ head: "'unclosed", rest: ' rest' })
+    expect(splitCommand('')).toEqual({ head: '', rest: '' })
+  })
 })
 
 describe('the status line row of the move form', () => {
@@ -495,6 +562,22 @@ describe('Limits from terminal (Windows)', () => {
   it('a development build: a Warning without an action', async () => {
     settings({ type: 'command', command: 'bash x.sh' })
     expect(checkOf(await runChecks(deps(WIN11)), 'limits')).toMatchObject({ status: 'warn', detail: 'statusLine does not run the worfy bridge', actions: [] })
+  })
+
+  it("a ' in this build's folder: Confirm once, the row is OK, and a second set-up finds it done instead of wrapping the bridge again", async () => {
+    const odd = join(root, "O'Brien", 'resources')
+    mkdirSync(odd, { recursive: true })
+    bridge = join(odd, 'statusline-bridge.mjs')
+    writeFileSync(bridge, '// bridge\n')
+    settings({ type: 'command', command: 'bash ~/.claude/statusline.sh' })
+    const first = await actions(() => Promise.resolve(true)).run('limits-bridge')
+    expect(first.outcome).toBe('done')
+    expect(checkOf(first.report, 'limits').status).toBe('ok')
+    const written = readFileSync(settingsFile, 'utf8')
+    const second = await actions(() => Promise.resolve(true)).run('limits-bridge')
+    expect(second).toMatchObject({ outcome: 'done', message: 'The status line already runs the bridge of this build' })
+    expect(readFileSync(settingsFile, 'utf8')).toBe(written)
+    expect(bridgeOf(statusLineCommandOf(written) ?? '')?.rest).toBe(" 'bash ~/.claude/statusline.sh'")
   })
 
   it('the bridge of another build is not OK: a Warning with "Set up…", whose command points at this build', async () => {

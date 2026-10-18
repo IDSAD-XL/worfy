@@ -28,17 +28,54 @@ export function bridgeFile(platform: NodeJS.Platform, resourcesPath: string): st
   return platform === 'win32' ? win32.join(resourcesPath, BRIDGE_SCRIPT) : posix.join(resourcesPath, BRIDGE_ENTRY)
 }
 
-/** The first word of a command — a quoted one without its quotes — and the text after it. */
+/** The text up to the first space, as written, and the text after it. */
+function firstRun(text: string): { head: string; rest: string } {
+  const head = /^\S*/.exec(text)?.[0] ?? ''
+  return { head, rest: text.slice(head.length) }
+}
+
+/**
+ * The first word of a command as a POSIX shell reads it, and the text after it as written. A word
+ * joins its parts: '…' as it is, "…" where `\` escapes only $, `, ", \ and a newline, and plain
+ * text where `\` escapes a space, a quote, `\`, $ or a backtick — so shellWord's `'…'\''…'` reads
+ * back as one word, and a Windows path written without quotes (C:\Users\me\x.sh) as written. A
+ * quote left open: the text up to the first space, as written.
+ */
 export function splitCommand(command: string): { head: string; rest: string } {
   const text = command.trimStart()
-  const quote = text[0]
-  if (quote === '"' || quote === "'") {
-    const end = text.indexOf(quote, 1)
-    if (end > 0) return { head: text.slice(1, end), rest: text.slice(end + 1) }
+  let head = ''
+  let at = 0
+  while (at < text.length && !/\s/.test(text.charAt(at))) {
+    const char = text.charAt(at)
+    const next = text.charAt(at + 1)
+    if (char === "'") {
+      const end = text.indexOf("'", at + 1)
+      if (end < 0) return firstRun(text)
+      head += text.slice(at + 1, end)
+      at = end + 1
+    } else if (char === '"') {
+      let end = at + 1
+      while (end < text.length && text.charAt(end) !== '"') {
+        const escaped = text.charAt(end + 1)
+        if (text.charAt(end) === '\\' && escaped !== '' && '$`"\\\n'.includes(escaped)) {
+          head += escaped
+          end += 2
+        } else {
+          head += text.charAt(end)
+          end += 1
+        }
+      }
+      if (end >= text.length) return firstRun(text)
+      at = end + 1
+    } else if (char === '\\' && next !== '' && /[\s'"\\$`]/.test(next)) {
+      head += next
+      at += 2
+    } else {
+      head += char
+      at += 1
+    }
   }
-  const match = /^\S+/.exec(text)
-  const head = match?.[0] ?? ''
-  return { head, rest: text.slice(head.length) }
+  return { head, rest: text.slice(at) }
 }
 
 /** The last part of a path with either separator. */

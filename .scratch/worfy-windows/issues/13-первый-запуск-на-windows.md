@@ -293,6 +293,21 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
   Прогоны: `first-run-windows` + `harness-install` — exit 0, 103 passed; `first-run-checks` +
   `harness-migrate` — exit 1, 38 failed / 47 passed / 11 skipped, список совпадает с main строка в строку;
   `agent-env` + `e2e-no-spawn-on-load` — exit 0, 112 passed, 4 skipped; `pnpm lint` — 0; `pnpm typecheck` — 0.
+- **Раунд ревью 3** (ревью ede2de8 на Mac). `splitCommand` (`status-line.ts`) читает первое слово как POSIX
+  shell: части `'…'`, `"…"` (там `\` экранирует только `$`, backtick, `"`, `\`, перевод строки) и текст
+  без кавычек (там `\` экранирует пробел, кавычку, `\`, `$`, backtick — путь Windows без кавычек читается как
+  написан), склеенные в одно слово; незакрытая кавычка — текст до пробела, как прежде. Раньше путь моста с
+  `'` (`C:\Users\O'Brien`, `/Users/o'brien`) после `shellWord` (`'…'\''…'`) обрывался на второй кавычке:
+  `bridgeOf` давал null, строка Limits оставалась `warn`, и каждый Confirm заворачивал мост в мост ещё раз.
+  Новые tests (сначала красные на ede2de8: 4 failed / 44 passed): `'` в пути для формы Windows и Mac, round
+  trip (команда собрана, `bridgeOf` возвращает мост и прежнюю команду без изменений, для пяти разных
+  команд), второй Confirm находит мост и не пишет файл, сам `splitCommand`. В test зависшего tool-а
+  `afterEach` гасит `hang.js` по pid из его файла, только если в командной строке этого pid — `hang.js`
+  из папки этого test-а, и удаляет файл. Mutants `status-line.ts` — 9 из 9 красные (5 новых в
+  `splitCommand` и 4 прежних). Прогоны (тяжёлые — под общим lock `heavy.lock`): `first-run-windows` —
+  exit 0, 48 passed; `harness-install` — exit 0, 59 passed; `harness-migrate` + `first-run-checks` — exit 1,
+  38 failed / 47 passed / 11 skipped, список совпадает с main; `e2e-no-spawn-on-load` — exit 0, 48 passed;
+  `pnpm lint` — 0; `pnpm typecheck` — 0.
 - **Ждут ПК владельца** (не отмечены): установка NSIS и экран первого запуска со снимком, `claude plugin list`
   в настоящем `%USERPROFILE%`, hooks в настоящей Session, Limits с настоящим `settings.json` (там же — в какой
   оболочке Claude Code исполняет `statusLine`). Пункт gate — Mac (needs-mac-gate).
