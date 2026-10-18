@@ -97,12 +97,41 @@ Ticket-а, и после; `diffModels` разницы не находит, и д
 не изменилось; отдельной проверки ошибки модели в этом test-е не было. Два других падения link-access —
 терминал: PowerShell падает с «Ошибка 8009001d при загрузке управляемой оболочки», это окружение ПК.
 
-**Вопросы ревьюеру.**
+**Ответ `workflow.open`/`pipeline.get`** теперь тоже несёт корень клиента, а не resolved; мест в окне, которые
+ждали бы resolved корень в `model.root` или `snapshot.root`, не нашлось.
 
-- Hub держит подписчика по id внутри Project-а. Если один клиент откроет один корень в двух написаниях,
-  получит изменения только в последнем, а `close` любого из них снимет подписку. В 57 два написания — две
-  подписки; здесь так не сделано, чтобы не ломать контракт 06 «закрыть можно любым написанием»
-  (`test/contract/workflow-stages.test.ts`, describe «one computation per Project root»). Окно с одним списком
-  Project-ов в такое не попадает.
-- Ответ `workflow.open`/`pipeline.get` теперь тоже несёт корень клиента, а не resolved. Если где-то в окне
-  ждали resolved корень в `model.root` или `snapshot.root`, это изменение поведения; таких мест я не нашёл.
+**Два написания одного корня у одного клиента — не дефект для настоящих вызовов** (вывод ревью круга 1).
+Hub держит подписчика по id внутри Project-а: если бы один клиент открыл корень в двух написаниях, изменения
+шли бы только в последнем. Но все 16 вызовов `useWorkflow`/`usePipeline` берут `project.path` (git toplevel,
+`src/main/projects/store.ts:270`), так что у одного окна одно написание на Project; Linked machine тоже
+берёт его из своего списка Project-ов. Контракт Ticket-а 06 (`test/contract/workflow-stages.test.ts:482-518`) —
+два написания от двух подписчиков. Код не менялся.
+
+### Круг 2 (замечания ревью)
+
+- **F3: `workflow.open` от Linked machine открывает watch по real path.** Раньше handler отбрасывал путь,
+  который вернул `insideProjects`, и открывал hub по присланному корню: защита `link/caller.ts:61-63` от
+  ссылки, подменённой после проверки, для workflow не работала, а написание, отличное от real path, заводило
+  второй watcher. Теперь `workflow.open` и `workflow.close` берут путь, который ответил `insideProjects`
+  (`src/main/ipc/workflow.ts`, `watchedRoot`), как `pipeline.get`; ответ и изменения по-прежнему несут
+  написание клиента. Вызов окна это не трогает: `insideProjects` для него возвращает путь как пришёл
+  (`link/caller.ts:66`), и окно встречает Autopilot, waits-notify и Stage hub под тем же `resolve`. Цена: если
+  real path Project-а отличается от `resolve` пути из списка (junction, регистр букв), watch Linked machine —
+  отдельный от локальных подписчиков; у `pipeline.get` так было и раньше. `workflow.close` от Linked machine
+  теперь тоже проходит проверку: для корня вне Project-ов он отвечает ошибкой, а не `closed: false`.
+- **F1:** test Linked machine идёт через junction (`l` → `p`; вне Windows — symbolic link) в написании, которое
+  `resolve` меняет, и проверяет ключ hub-а: `realpathSync.native(project)`, для обеих половин, и `close` тем же
+  написанием.
+- **F2:** клиент, уничтоженный до изменения (его `send` бросает, как webContents Electron-а), пропускается без
+  исключения, другой клиент изменение получает — для `workflow.changed` и `pipeline.changed`.
+
+Прогоны круга 2:
+
+- Красный до правки F3: exit 1, 2 из 69 — оба test-а workflow (ключ hub-а не real path; другой клиент не
+  получил дельту). Зелёный после: exit 0, 69 из 69.
+- Мутанты, по одному, файл возвращён из копии байт в байт, `git diff --quiet` — 0 после каждого: `pipeline.get`
+  по `resolve(root)` вместо `checked` — 2 красных; без `isDestroyed` в `workflow.ts` — 1; без `isDestroyed` в
+  `pipeline.ts` — 1; `workflow.open` по присланному корню — 2; `workflow.close` по присланному корню — 1.
+- Связанные файлы (как в круге 1, плюс новый test): exit 1, 10 упали, 378 прошли; по именам те же 10, что
+  на main `9157c0a4`.
+- `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался.
