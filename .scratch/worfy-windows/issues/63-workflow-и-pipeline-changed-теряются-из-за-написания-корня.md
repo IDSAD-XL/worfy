@@ -135,3 +135,46 @@ Hub держит подписчика по id внутри Project-а: если 
 - Связанные файлы (как в круге 1, плюс новый test): exit 1, 10 упали, 378 прошли; по именам те же 10, что
   на main `9157c0a4`.
 - `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался.
+
+Ответы Mac на вопросы ревьюеру: про два написания одного корня у одного клиента и про корень клиента в
+ответе `workflow.open`/`pipeline.get` — оба решения оставить как есть.
+
+### Круг 3 (ревью Mac по PR #511)
+
+- **`close` больше не проходит через `insideProjects`.** Close только снимает подписчика самого клиента и
+  ничего не читает. Отказ же — например, когда корень ушёл из списка Project-ов, — оставлял watch Linked
+  machine живым до разрыва связи. Теперь handler-ы помнят, под каким корнем каждый open открыл hub, по паре
+  (id клиента, корень как прислан) — `OpenedRoots` в `src/main/ipc/workflow.ts` — и `close` закрывает под ним.
+  Без open — `resolve(root)`, и hub отвечает `closed: false`. Запись уходит при close и когда клиент
+  уничтожен или его id занял другой (`ClientHolders`), так что Map не растёт. Если open упал, запись остаётся
+  до close или ухода клиента: `StageHub.open` при неудаче оставляет подписчика в hub-е, и close должен попасть
+  в тот же ключ.
+- **Pipeline:** у `pipeline.close` проверка была, и сделано то же самое.
+- **Окно:** ключ hub-а при close тот же, что раньше: `insideProjects` для окна возвращает путь как пришёл,
+  а hub и раньше закрывал по `resolve(root)`.
+- **Test-ы** (`describe.each` по `workflow.close` и `pipeline.close`). Linked machine: open, корень убран из
+  списка, close → `closed: true`, подписки нет, запомненного нет, повторный close → `closed: false`. Close
+  без open для корня вне Project-ов → `closed: false`, без ошибки. Клиент ушёл — запомненного нет. Close из
+  окна — как раньше.
+
+Прогоны круга 3:
+
+- Красный до правки: exit 1, 4 из 75 упали — Linked machine после ухода корня из списка и close без open,
+  для обоих close (`… is outside the Projects of this Machine`). Close из окна зелёный и до правки.
+  Зелёный после: exit 0, 77 из 77.
+- Мутанты, по одному, файл возвращён из копии байт в байт, `git diff --quiet` — 0 после каждого. Все 7
+  пойманы:
+
+  | Мутант | Красных test-ов |
+  |---|---|
+  | `workflow.close` снова через `insideProjects` | 2 |
+  | `workflow.close` по `resolve(root)` вместо запомненного | 2 |
+  | `pipeline.close` снова через `insideProjects` | 2 |
+  | `pipeline.close` по `resolve(root)` вместо запомненного | 2 |
+  | запись не удаляется при close (`OpenedRoots.take`) | 2 |
+  | запись не забывается при уходе клиента, workflow | 1 |
+  | то же, pipeline | 1 |
+
+- Связанные файлы: exit 1, 10 упали, 386 прошли; по именам те же 10, что на main `9157c0a4`.
+- `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался. Тестов, открывающих окна, не было: только vitest
+  через `node scripts/vitest-electron.mjs`.
