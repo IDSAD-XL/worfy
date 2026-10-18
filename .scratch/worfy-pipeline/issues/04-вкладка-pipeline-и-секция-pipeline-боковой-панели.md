@@ -101,6 +101,15 @@ Ticket не правит.
 - `src/renderer/pipeline/board.ts` (новый) — общие функции доски и секции. ESLint
   `react-refresh/only-export-components` не даёт экспортировать их из `PipelineBoard.tsx`.
 
+- `src/main/workflow/stages.ts` и `test/contract/workflow-stages.test.ts` — после красного gate full
+  перед merge, с разрешения Orchestrator-а. Секция Pipeline включила вычисление Stage для каждого
+  Project-а. Если Profile не прочитан (`repos: []`), Stage-и читали PR в корне Project-а. У Project-а из
+  нескольких репозиториев (Atakama) корень — обычная папка, и `gh` запускался вне репозитория
+  (`test/e2e/silent-project.spec.ts:302`). В stub-е этого e2e у `_resolved` нет `name`, поэтому
+  `readPipelineProfile` отказывает. Теперь корень берётся, только если он внутри git work tree
+  (`rev-parse --is-inside-work-tree`). Два contract test-а: плоская папка над репозиториями — `gh`
+  нигде (краснеет на mutant-е без проверки); корень-репозиторий — `gh` в корне, как раньше.
+
 Проверено:
 
 - `pnpm test test/unit/pipeline-board.test.tsx` — exit 0, 13 test-ов. Снимки строятся через
