@@ -46,11 +46,10 @@
 // An entry its folder lists and lstat says is not there (ENOENT, ENOTDIR) is asked to go with one
 // rmdir, whatever it answers. A junction by GUID whose volume is detached, or whose target folder
 // is gone, answers ENOENT to lstat, and kept its folder from going at every removal; rmdir removes
-// it as the link it is (measured, worfy-windows ticket 45). That rmdir lists nothing. A path given
-// to removeTree that is such a junction stays: lstat answers ENOENT, and the walk takes the path as
-// gone and returns. The rmdir is kept to entries of the walk, which their folder's listing names:
-// for the path given nothing says something is there, and every call with a path that is not there
-// would make one more rmdir.
+// it as the link it is (measured, worfy-windows ticket 45). That rmdir lists nothing. The path given
+// to removeTree gets the same rmdir when lstat does not see it: such a junction given directly
+// stayed, and restoring a folder over it then failed with EEXIST. So a path that is not there costs
+// one more rmdir, which answers ENOENT.
 // The price: a folder that is busy itself is waited for before its entries — the walk before came
 // to it last — and keeps what it holds while it stays busy. Once the waits of the removal are
 // spent, half a second, it fails; the walk before removed the entries first, and succeeded when
@@ -227,13 +226,12 @@ function walk(path: string, fs: RemoveFs, options: RemoveOptions, patience: Pati
   const seen = seenAt(path, fs)
   if (seen === null) {
     // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
-    // answers so (the header). One rmdir, whatever it answers: its folder's own rmdir tells what stays.
-    if (outer !== undefined) {
-      try {
-        fs.rmdirSync(path)
-      } catch {
-        // Nothing is there, or it stays and its folder fails as "not empty".
-      }
+    // answers so (the header), the path given too. One rmdir, whatever it answers: its folder's own
+    // rmdir tells what stays.
+    try {
+      fs.rmdirSync(path)
+    } catch {
+      // Nothing is there, or it stays and its folder fails as "not empty".
     }
     return
   }

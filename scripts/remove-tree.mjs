@@ -20,8 +20,8 @@
 // So a folder is first asked to go with one rmdir, which removes such a junction as a link, and is
 // listed only when the answer is "not empty" and, when the volume of the folder it lies in is
 // known, it is on that volume. An entry a listing names and lstat does not see (such a junction
-// whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45); a path given that
-// is such a junction stays, taken as gone: only a listing says it is there.
+// whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45), and so is a path
+// given that lstat does not see.
 // The price: a folder that is busy itself is waited for before its entries, and keeps them when
 // it stays busy.
 //
@@ -95,14 +95,12 @@ function removeWalk(given, patience, outer) {
   } catch (error) {
     if (!gone(error)) throw error
     // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
-    // answers so (worfy-windows ticket 45). One rmdir, which lists nothing, whatever it answers:
-    // the rmdir of its folder tells what stays.
-    if (outer !== undefined) {
-      try {
-        rmdirSync(path)
-      } catch {
-        // Nothing is there, or it stays and its folder fails as "not empty".
-      }
+    // answers so (worfy-windows ticket 45), the path given too. One rmdir, which lists nothing,
+    // whatever it answers: the rmdir of its folder tells what stays.
+    try {
+      rmdirSync(path)
+    } catch {
+      // Nothing is there, or it stays and its folder fails as "not empty".
     }
     return
   }

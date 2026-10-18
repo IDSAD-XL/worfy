@@ -113,7 +113,7 @@ import { fileURLToPath } from 'node:url'
 // with one rmdir and is listed only when the answer is "not empty" and, when the volume of the
 // folder it lies in is known, it is on that volume; an entry a listing names and lstat does not see
 // (such a junction whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45),
-// and a path given that is such a junction stays, taken as gone: only a listing says it is there;
+// and so is a path given that lstat does not see;
 // a folder that is busy itself keeps what it holds. Off Windows fs.rmSync is
 // used, and it goes into a folder a volume is mounted on (worfy-windows ticket 44; measured on
 // macOS: the files of the volume were removed). So a folder is looked through first, and with a
@@ -177,14 +177,12 @@ function removeWalk(given, patience, outer) {
   } catch (error) {
     if (!gone(error)) throw error
     // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
-    // answers so (worfy-windows ticket 45). One rmdir, which lists nothing, whatever it answers:
-    // the rmdir of its folder tells what stays.
-    if (outer !== undefined) {
-      try {
-        rmdirSync(path)
-      } catch {
-        // Nothing is there, or it stays and its folder fails as "not empty".
-      }
+    // answers so (worfy-windows ticket 45), the path given too. One rmdir, which lists nothing,
+    // whatever it answers: the rmdir of its folder tells what stays.
+    try {
+      rmdirSync(path)
+    } catch {
+      // Nothing is there, or it stays and its folder fails as "not empty".
     }
     return
   }

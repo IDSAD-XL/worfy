@@ -207,11 +207,12 @@ describe('removeTree over a model of the file system', () => {
       expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
       expect(m.waits).toEqual([])
       expect(m.names()).toEqual(['/data'])
-      // As the path given it is a path that is not there: nothing is asked of it but lstat.
+      // As the path given it gets the same one rmdir, and goes: kept, it made restoring a folder over
+      // it fail with EEXIST (review round 1 of PR #499).
       const itself = model(WITH_A_DETACHED_MOUNT)
       expect(viaModule(itself, '/data/card/linked', 'win32')).toBeNull()
-      expect(itself.calls).toEqual(['lstat /data/card/linked'])
-      expect(itself.names()).toContain('/data/card/linked')
+      expect(itself.calls).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(itself.names()).not.toContain('/data/card/linked')
       // Whatever that rmdir answers, nothing more is asked of the entry; its folder says what stays.
       const refusing = model(WITH_A_DETACHED_MOUNT, { 'rmdir /data/card/linked': ['EPERM'] })
       expect(viaModule(refusing, '/data/card', 'win32')).toBe('ENOTEMPTY')
@@ -302,7 +303,8 @@ describe('removeTree over a model of the file system', () => {
   it('takes "nothing is there" in every form it comes in: a name on the way that is no folder, a folder gone between the look and the listing', () => {
     const below = model({ '/f': { kind: 'file' } }, { 'lstat /f/x': ['ENOTDIR'] })
     expect(viaModule(below, '/f/x', 'win32')).toBeNull()
-    expect(below.calls).toEqual(['lstat /f/x'])
+    // A path given that lstat does not see is asked to go with one rmdir (review round 1 of PR #499).
+    expect(below.calls).toEqual(['lstat /f/x', 'rmdir /f/x'])
     const gone = model({ '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }, { 'readdir /d': ['ENOENT'] })
     expect(viaModule(gone, '/d', 'win32')).toBeNull()
     // The look, the volume of the parent folder, the first rmdir — "not empty" — and the listing.
@@ -323,7 +325,7 @@ describe('removeTree over a model of the file system', () => {
     for (const [written, asked] of [['C:\\', 'C:/'], ['C:/', 'C:/'], ['/', '/'], ['\\', '/']] as const) {
       const root = model({})
       viaModule(root, written, 'win32')
-      expect(root.calls, written).toEqual([`lstat ${asked}`])
+      expect(root.calls, written).toEqual([`lstat ${asked}`, `rmdir ${asked}`])
     }
   })
 
