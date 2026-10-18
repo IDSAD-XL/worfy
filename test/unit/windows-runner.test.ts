@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { needsWindowsPowerShellOffRunner, NO_WINDOWS_POWERSHELL_ON_RUNNER, windowsPowerShellOffRunner } from '../windows-runner'
 
 // The skip of the Windows PowerShell 5.1 Terminal tests (worfy-windows ticket 41) fires on the GitHub
@@ -17,14 +17,26 @@ describe('the skip of the Windows PowerShell 5.1 tests on the GitHub runner', ()
     expect(windowsPowerShellOffRunner(platform, env)).toBe(skips)
   })
 
-  it('needsWindowsPowerShellOffRunner passes the condition of this machine and the reason that names ticket 41', () => {
-    let call: [boolean, string | undefined] | undefined
-    needsWindowsPowerShellOffRunner({
-      skip: (condition, note) => {
-        call = [condition, note]
-      },
-    })
-    expect(call).toEqual([process.platform === 'win32' && process.env['GITHUB_ACTIONS'] === 'true', NO_WINDOWS_POWERSHELL_ON_RUNNER])
+  // Review of PR #478 (worfy-windows ticket 59): the expected value was the formula of the code on
+  // this machine, false off Windows, so a helper that always passed false stayed green there. The
+  // system and the environment are set for each case instead.
+  it.each([
+    ['win32', 'true', true],
+    ['win32', undefined, false],
+    ['darwin', 'true', false],
+    ['linux', 'true', false],
+  ] as const)('needsWindowsPowerShellOffRunner on %s with GITHUB_ACTIONS=%s passes skip(%s) and the reason that names ticket 41', (platform, actions, skips) => {
+    const real = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { ...real, value: platform })
+    vi.stubEnv('GITHUB_ACTIONS', actions)
+    const calls: [boolean, string | undefined][] = []
+    try {
+      needsWindowsPowerShellOffRunner({ skip: (condition, note) => void calls.push([condition, note]) })
+    } finally {
+      Object.defineProperty(process, 'platform', real)
+      vi.unstubAllEnvs()
+    }
+    expect(calls).toEqual([[skips, NO_WINDOWS_POWERSHELL_ON_RUNNER]])
     expect(NO_WINDOWS_POWERSHELL_ON_RUNNER).toMatch(/ticket 41/)
   })
 })

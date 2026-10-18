@@ -474,6 +474,19 @@ describe('layout store: what an older version kept and this one drops (ADR-0037)
 })
 
 describe('layout store: saving', () => {
+  // Review of PR #485 (worfy-windows ticket 59): start() of this file writes what the store of the
+  // start before still holds back, and no test saw it go. Left to its timer, that save came after
+  // afterEach had removed the folder, and made it again.
+  it('a new start() of this file writes the change the store of the start before still held back', async () => {
+    const earlier = store
+    await applied(note('held'))
+    expect(existsSync(layoutFile())).toBe(false)
+    await start()
+    expect(store).not.toBe(earlier)
+    // At once, not a save delay later: the store of the earlier start has written it.
+    expect(nodeOf(onDisk(), 'held')).toBeDefined()
+  })
+
   it('debounces writes: a burst of operations is one write, after the burst', async () => {
     vi.useFakeTimers()
     const { LayoutStore, LAYOUT_SAVE_DELAY_MS } = await import('../../src/main/layout/store')
