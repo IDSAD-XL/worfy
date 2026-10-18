@@ -293,7 +293,8 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 // the exit code of "$EVAL_GIT" config --get worfy.probe with STUB_SYSTEM_CONFIG as the system
 // gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
-// STUB_HANG: the first call writes its pid there and waits a minute before it exits.
+// STUB_HANG: the first call writes its pid there and waits a minute before it exits; with
+// STUB_CATCH it exits 0 on a signal instead of being ended by it.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
 const { appendFileSync, chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
@@ -320,6 +321,8 @@ appendFileSync(log, JSON.stringify({
 if (process.env.STUB_LOCK && calls === 0) chmodSync(args[2], 0o555)
 const code = Number((process.env.STUB_CODES || '0').split(',')[calls] || 0)
 if (process.env.STUB_HANG && calls === 0) {
+  // STUB_CATCH: the stub catches the signal and exits 0, as a claude that ends cleanly on Ctrl-C.
+  if (process.env.STUB_CATCH) for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => process.exit(0))
   writeFileSync(process.env.STUB_HANG, String(process.pid))
   setTimeout(() => process.exit(code), 60000)
 } else process.exit(code)
@@ -608,14 +611,23 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     }
   })
 
-  // A signal reaches the whole process group: claude ends, eval-harness.mjs stays to remove its
-  // copies and reports 128 + the number of the signal.
-  it.skipIf(process.platform === 'win32').each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)(
-    'outlives %s, removes its copies of git and of the plugin, and reports 128 + the signal',
-    async (signal) => {
+  // A signal reaches the whole process group: claude ends, or catches it and exits 0;
+  // eval-harness.mjs stays to remove its copies, starts no gui call (it is paid, and after SIGHUP
+  // nobody could stop it) and reports 128 + the number of the signal.
+  it.skipIf(process.platform === 'win32').each([
+    ['SIGINT', 'ends on it'],
+    ['SIGTERM', 'ends on it'],
+    ['SIGHUP', 'ends on it'],
+    ['SIGINT', 'exits 0'],
+    ['SIGTERM', 'exits 0'],
+    ['SIGHUP', 'exits 0'],
+  ] as const)(
+    'outlives %s (claude %s), skips the gui call, removes its copies of git and of the plugin, and reports 128 + the signal',
+    async (signal, claudeDoes) => {
       const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
       const hang = join(dir, 'hang.pid')
-      const child = spawn(process.execPath, [EVAL_HARNESS], { env: { ...env, STUB_HANG: hang }, stdio: 'ignore' })
+      const stubEnv = { ...env, STUB_HANG: hang, ...(claudeDoes === 'exits 0' ? { STUB_CATCH: '1' } : {}) }
+      const child = spawn(process.execPath, [EVAL_HARNESS], { env: stubEnv, stdio: 'ignore' })
       const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
         child.on('close', (code, ended) => resolve({ code, signal: ended })),
       )
@@ -634,6 +646,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
         process.kill(stub, signal)
         const ended = await exited
         expect(ended).toEqual({ code: 128 + constants.signals[signal], signal: null })
+        expect(loggedCalls(log).map((call) => listAfter(call.args, '--tag'))).toEqual([['main']])
         expect(existsSync(dirname(first.evalGit))).toBe(false)
         expect(existsSync(first.args[2] ?? '')).toBe(false)
       } finally {

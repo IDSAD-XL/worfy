@@ -98,7 +98,8 @@ Harness scripts. Both pass `--scaffold --trust-plugin --ablation none --threshol
 --max-cost-usd 30 --no-publish` and pinned `--model` and `--judge-model`; arguments after `--` go
 to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
 the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
-partial run (cost ceiling, the account refused), `130`/`143` — interrupted.
+partial run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal
+(`130` SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining call is not started.
 
 Every run and every `llm` grader is a real model call on the owner's account. The cost of a full
 run is not measured yet: see the result section of ticket worfy-harness/27. One run of

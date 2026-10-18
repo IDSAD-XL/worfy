@@ -28,7 +28,8 @@
 // claude: $CLAUDE_BIN, else the binary bundled with the Agent SDK in node_modules; older than
 // 2.1.269 (no `plugin eval`) — exit 1. Exit code: the worst of the calls (0 — every case at or
 // above the threshold; 1 — a case below it or not loaded; 2 — partial: cost ceiling or the
-// account refused; 130, 143 — interrupted). At the end: the paths to aggregate-result.json and
+// account refused; 128 + the signal number — stopped by a signal: SIGINT 130, SIGHUP 129, SIGTERM
+// 143, and the remaining calls are not started). At the end: the paths to aggregate-result.json and
 // report.html of each call.
 import { spawnSync } from 'node:child_process'
 import {
@@ -49,6 +50,7 @@ import { createRequire } from 'node:module'
 import { constants, homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
+import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { removeTree } from './remove-tree.mjs'
 
@@ -270,8 +272,12 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}\n`)
 
 // Ctrl-C, SIGTERM and a closed terminal (SIGHUP) reach claude too; this process outlives it to
-// remove the copies and report.
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => {})
+// remove the copies, starts no further call (each one is paid, and after SIGHUP nobody could stop
+// it) and exits with 128 + the signal number.
+let stopped = null // the first of these signals this process got
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => (stopped ??= signal))
+// A signal handler runs only when the event loop gets a turn, and spawnSync does not give it one.
+const signalsHandled = () => new Promise((resolve) => setImmediate(resolve))
 
 const gitDir = join(EVALS, 'results', `${stamp}-git`)
 const evalGit = gitCopy(gitDir)
@@ -286,6 +292,13 @@ try {
   harness = pluginCopy(SOURCE)
   process.stdout.write(`eval:harness: plugin under test — ${harness} (a copy of ${SOURCE} without dependencies)\n`)
   for (const tag of ['main', 'gui']) {
+    // A signal during the copies or the call before stops here: claude may have ended on it, or
+    // caught it and exited with a code of its own.
+    await signalsHandled()
+    if (stopped) {
+      process.stdout.write(`eval:harness: stopped by ${stopped}, the ${tag} call and any after it are skipped\n`)
+      break
+    }
     if (!selects(tag, passThrough)) {
       process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
       continue
@@ -300,6 +313,8 @@ try {
     worst = Math.max(worst, code)
     outputs.push(outputDir)
   }
+  await signalsHandled()
+  if (stopped) worst = Math.max(worst, 128 + (constants.signals[stopped] ?? constants.signals.SIGTERM))
 } finally {
   // The copy of git goes even when removing the copy of the plugin throws.
   try {
