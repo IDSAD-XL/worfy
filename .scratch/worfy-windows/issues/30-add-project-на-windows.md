@@ -1,7 +1,8 @@
 # 30 — «Add project» на Windows не проходит: worfy запускает `bin/project-connect` как файл
 
 Type: task
-Status: claimed 2026-10-18T05:46Z
+Status: done 2026-10-18T17:49Z
+PR: #482
 Branch: worfy-windows/30-add-project
 Blocked by: 05, 13
 Source: ручная проверка владельца на Windows-ПК 2026-10-13 (установленный worfy из `dist\`, сборка с main после PR #257); разбор кода на Mac в тот же день
@@ -192,3 +193,11 @@ Session на Windows-ПК, 2026-10-18, та же ветка. Сам коммен
   Прогон: `profile-knows`, `projects-connect`, `harness-qmd`, `harness-locate`, `e2e-no-spawn-on-load`, `no-rmsync` — exit 1, 15 упало / 147 прошли из 162, те же 15 имён, что на main. `pnpm lint` 0, `pnpm typecheck` 0. Оставшихся процессов нет.
 
 **Ждёт владельца:** пункты 1–3 «Готово, когда» на ПК — форма целиком руками: новая папка до «Review» и записи, знакомая папка сразу в список, ошибка шага «Folder» при сбое скрипта. Для этого Harness должен стоять на машине (Ticket 13), а эта Session в профиль владельца не пишет. Ещё — `gate full` на Mac. e2e (`projects-connect.spec.ts`) на ПК не запускались: окна приложения не открывались.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #482 влит как `21306ec8`. Ревью на Mac — три круга; третий ([комментарий](https://github.com/IDSAD-XL/worfy/pull/482#issuecomment-6247473146)) без high и medium.
+- Первый проход очереди gate на Mac ([отчёт `Mac checks report: red`](https://github.com/IDSAD-XL/worfy/pull/482#issuecomment-6248738119), head `d2351067` после rebase на `b485181b`): gate full exit 2, 2 из 6213 test-ов упали в `test/contract/projects-connect.test.ts` — шаг «Folder» терял причину от сломанного registry. Причина — предел 400 символов в `scriptFailureDetail` ([поправка](https://github.com/IDSAD-XL/worfy/pull/482#issuecomment-6248971869)); исправлено commit-ом `d8dd278e`, его ревью на Mac — без находок.
+- Вердикт Windows на `d8dd278e` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/482#issuecomment-6250642054), ПК передал его через канал между Session, у ПК не было доступа к GitHub): `projects-connect`, `profile-knows`, `no-rmsync`, `e2e-no-spawn-on-load` — 131 passed / 4 failed; те же 4 имени падают на main `cf506ee0` на ПК. Регрессий на Windows нет.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, head `ad8dc41c` после rebase на `8d014c65` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/482#issuecomment-6250872514)). Linux CI — batch CI на main, не ждали.
+- Осталось владельцу: пункты 1–3 «Готово, когда» руками на ПК (выше, «Ждёт владельца»).

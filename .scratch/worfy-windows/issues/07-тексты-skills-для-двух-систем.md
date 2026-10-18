@@ -1,8 +1,8 @@
 # 07 — Тексты skills для двух систем; перед Wave — открытые PR второго Epic-а
 
 Type: task
-Status: blocked 2026-10-18T11:19Z
-Blocked reason: влит (#461); метка и Q33 проверены на #479; ждут ПК: Q31 (первая Wave на ПК), Profile ПК role request, запуск worfy и Get-Process
+Status: blocked 2026-10-18T17:55Z
+Blocked reason: влит (#461); метка и Q33 проверены на #479; Profile ПК role request записан; ждут ПК: Q31 (первая Wave на ПК), запуск worfy и Get-Process
 Waits: owner
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
@@ -323,4 +323,8 @@ worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase
 - Profile Mac: записано `cross_machine_gate` = role `serve`, label `needs-mac-gate`, checks_section `Mac checks`, check `GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null` (решение владельца 2026-10-18). `profile --field cross_machine_gate.role` на Mac — `serve`, `--field cross_machine_gate.checks_section` — `Mac checks`, оба exit 0. Половина пункта для ПК (`request`) ждёт слова владельца в чате Windows Session.
 - Harness на Mac обновлён до `0.3.0+f1ac65af`: установленный `epic-wave/SKILL.md` содержит новые тексты.
 - Живые проверки метки и Q33 — на PR #479 (Ticket 13 с ПК), первом PR, влитом через проход serve: метка `needs-mac-gate` поставлена 05:41Z, раздел `## Mac checks` в описании; первый проход — [отчёт `Mac checks report: red`](https://github.com/IDSAD-XL/worfy/pull/479#issuecomment-6247176425) (`[gate] красно (full): worfy/.:test`, exit 2: `no-rmsync`), ПК исправил, второй — [отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/479#issuecomment-6247593323) (`[gate] зелено (full)`, exit 0) в 08:23:10Z, мерж `2fb5e68a` в 08:23:13Z — позже отчёта.
-- Осталось (ПК, владелец): Q31 — первая Wave на ПК, запуск установленного worfy на ПК (`Get-Process`), Profile ПК с role `request`.
+- Windows-ПК 2026-10-18: Harness обновлён до `0.3.0+7ea3fbdf` кликом владельца в Stable copy (сборка из main `7ea3fbd`, `pnpm install:stable`).
+- Profile ПК записан через `project-connect` (exit 0, Harness home `610fbcd`): копия Profile Mac с путями ПК и `cross_machine_gate` = role `request`, label `needs-mac-gate`, checks_section `Mac checks`; `profile --field cross_machine_gate.role` на ПК — `request`, exit 0.
+- Блок Pipeline (Q8) в Profile ПК — Harness home `67d8d71`. В Profile Mac блок Pipeline (Q8) тоже записан: шаг Orchestrator-а после мержа Ticket-а 07 Epic-а `worfy-pipeline` сделан 2026-10-18.
+- gate fast на ПК — `lint` и `typecheck` (решение владельца в чате ПК, Harness home `2bb021e`), пока не закрыт [Ticket 14](14-gate-full-на-windows.md).
+- Осталось (ПК, владелец): Q31 — первая Wave на ПК; запуск установленного worfy на ПК (`Get-Process`).

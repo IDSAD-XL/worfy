@@ -485,3 +485,16 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 ### Сверка статуса (Session на Mac, 2026-10-18)
 
 - Влиты срезы 1, 2, 3a–3e (#299, #304, #407, #411, #413, #463, #481); ни один из десяти пунктов «Готово, когда» не отмечен, все ждут итоговой проверки — `pnpm test` exit 0 на ПК, пять test-ов macOS и `grep Meta` с `pnpm test:e2e` на Mac (срез 2 сделал правку, отметки нет), e2e `terminal.spec.ts` и `pnpm test:package` на ПК, `harness-scripts.test.ts` через Git Bash, gate full на ПК и на Mac по итогу, `ci.yml` и ручной прогон job `windows` с согласия владельца; статус не меняется.
+
+### Прогон всего набора на ПК и gate fast ПК (Session на Mac, 2026-10-18, вечер)
+
+- **Весь набор на ПК.** `GATE_SCOPE=all gate.sh fast` на main `7ea3fbd`, Windows-ПК, 2026-10-18: exit 2,
+  1326 s. lint и typecheck — зелёные. `pnpm test`: упали 30 файлов из 297 и 216 test-ов из 6325;
+  5813 passed, 296 skipped. Среди падений: `startup-failure.test.ts:232` (ждёт `ENOTDIR`, исключения
+  нет); `workflow-reader`, чтение размера Auction — 648 ms при пределе 300 ms. Для сравнения: первый
+  подсчёт этого Ticket-а — 55 файлов из 157 и 662 test-а из 2995.
+- **gate fast на ПК — `lint` и `typecheck`, пока не закрыт Ticket 14** (решение владельца в чате ПК; Harness
+  home `2bb021e`). `pnpm test` в gate fast ПК вернётся, когда весь набор станет зелёным на Windows.
+- **Junction по GUID и `rmdir`.** Замер Ticket-а 45 (PR #499): `cmd /c rmdir /s /q` на junction по GUID
+  (цель `\\?\Volume{…}\…`) снимает только сам junction — файлы за ним остаются, как и у `rmdir` без
+  ключей. Для ручной чистки `%TEMP%` от папок test-ов на ПК это безопасный способ.

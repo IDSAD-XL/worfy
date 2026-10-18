@@ -1,7 +1,8 @@
 # 58 — Flaky test: «the deploy mark after a whole install» упирается в timeout 5 s под нагрузкой
 
 Type: bug
-Status: claimed 2026-10-18T13:03Z
+Status: done 2026-10-18T17:49Z
+PR: #492
 Branch: worfy-windows/58-deploy-mark-flaky
 Blocked by: —
 Source: gate full на Mac, 2026-10-18: test падал три раза за день, каждый раз в первом прогоне — PR #479,
@@ -75,3 +76,8 @@ timeout по умолчанию — 5 s; своего `testTimeout`, как у �
 
 Не сделано: три прогона `GATE_SCOPE=all` gate full под нагрузкой — бриф оркестратора велел gate fast, не gate
 full; это пункт для gate full Wave.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #492 влит как `8d014c65`. Перед мержем ([комментарий](https://github.com/IDSAD-XL/worfy/pull/492#issuecomment-6250702783)) `GATE_SCOPE=all` gate full на Mac, дерево `29e4ff11` с main `cf506ee0` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`. Ревью на Mac (medium, test-ы) — без находок; пять своих мутантов deploy mark убиты; файл три раза подряд зелёный (43 passed), lint и typecheck exit 0.
+- PR только про test-ы и не платформенный. На Windows `describe` идёт без подменного `lsregister` (`registerCommand` отдаёт `null`, `scripts/install-stable.mjs:261`); там меняется только timeout 15 s. Вердикта Windows нет: файл стоит в Windows checks следующего прогона ПК. Linux CI — batch CI на main.

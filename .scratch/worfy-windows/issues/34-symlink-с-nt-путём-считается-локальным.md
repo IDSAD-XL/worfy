@@ -1,7 +1,8 @@
 # 34 — Symlink с целью в виде NT-пути (`\Device\Mup\host\share`) считается локальным
 
 Type: task
-Status: claimed 2026-10-18T08:37Z
+Status: done 2026-10-18T17:49Z
+PR: #488
 Branch: worfy-windows/34-nt-path-symlink
 Blocked by: —
 Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комментарий в PR #274](https://github.com/IDSAD-XL/worfy/pull/274#issuecomment-6137826085), раздел «Low», пункт «Older than this PR, own tickets»); замеры junction в «Итоге» [Ticket-а 19](19-leadstoremote-в-docs-cards-и-workflow.md). Первый шаг — замер на Windows-ПК.
@@ -221,3 +222,10 @@ Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комм
     переустановить `node_modules` и падал без TTY, как в round 1).
 - **Осталось round 2.** `gate full` на Mac. Замер (1) — на владельце/Mac или на ПК с доступом к
   `C:\Windows\Temp`.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #488 влит как `01ae750e`. Ревью на Mac — три круга: high круга 1 (обход списка имён) закрыт правилом `ROOTED_NO_DRIVE` в `83b0eea`; medium круга 2 — два случая `['\\']` и `['/']` в test-е (`5cecb605`); круг 3 ([комментарий](https://github.com/IDSAD-XL/worfy/pull/488#issuecomment-6251378832)) — чисто. ПК убил оба выживших мутанта `ROOTED_NO_DRIVE`.
+- Вердикт Windows на head `6d2ee9d3` (в ветку влит main `3c23d7a4`, [комментарий](https://github.com/IDSAD-XL/worfy/pull/488#issuecomment-6251418233)): `remote-links` + `no-rmsync` + `e2e-no-spawn-on-load` — exit 0, 3 файла, 135 passed. Регрессий нет.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, тот же head `6d2ee9d3` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/488#issuecomment-6251558601)). Linux CI — batch CI на main.
+- Осталось: замер (1) — владелец или ПК с доступом к `C:\Windows\Temp`.
