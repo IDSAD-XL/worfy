@@ -37,14 +37,20 @@ export function workflowHandlers(options: WorkflowHandlersOptions): HandlerModul
       },
     }
   }
+  /**
+   * The root the hub watches: a window's as it came, so it meets the hub's other subscribers
+   * (Autopilot, the Stage hub, waits-notify) under path.resolve; for a Linked machine the real path
+   * the check answered, so a link swapped in after the check does not lead the watch elsewhere.
+   */
+  const watchedRoot = (root: string, event: { readonly sender?: unknown }): string => insideProjects(event, root, projects, 'the Project root')
   return [
     defineHandler(workflowOpen, async ({ root }, { event }) => {
-      insideProjects(event, root, projects, 'the Project root')
-      return { ...(await options.hub.open(root, subscriberOf(clientOf(event), root))), root }
+      const watched = watchedRoot(root, event)
+      return { ...(await options.hub.open(watched, subscriberOf(clientOf(event), root))), root }
     }),
     defineHandler(workflowClose, async ({ root }, { event }) => {
       const client = clientOf(event)
-      return { closed: client === undefined ? false : await options.hub.close(root, client.id) }
+      return { closed: client === undefined ? false : await options.hub.close(watchedRoot(root, event), client.id) }
     }),
   ]
 }

@@ -13,7 +13,7 @@
 // tsconfig.test.web.json, which cannot list main's files (they need Node's types, the project has
 // the DOM's). MainModules below is the part of their interface the test uses.
 /// <reference types="node" />
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -85,16 +85,24 @@ let workflow = standInHub(model)
 let pipeline = standInHub((root) => snapshot(root))
 let handlers = new Map<string, Listener>()
 let modules: MainModules
+/** The temporary folder: the Project folder `p` and a link `l` to it, the Project's path in the list. */
+let base = ''
 let project = ''
+let link = ''
 
 beforeEach(async () => {
   vi.resetModules()
   modules = await mainModules()
-  project = mkdtempSync(join(tmpdir(), 'worfy-63-'))
+  base = mkdtempSync(join(tmpdir(), 'worfy-63-'))
+  project = join(base, 'p')
+  mkdirSync(project)
+  link = join(base, 'l')
+  // A junction on Windows needs no rights; elsewhere the type is ignored and it is a symbolic link.
+  symlinkSync(project, link, 'junction')
   workflow = standInHub(model)
   pipeline = standInHub((root) => snapshot(root))
   handlers = new Map()
-  const projects = () => [{ path: project }]
+  const projects = () => [{ path: link }]
   await modules.registerIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener) },
     {
@@ -134,7 +142,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
-  modules.removeTestTree(project)
+  modules.removeTestTree(base)
 })
 
 describe('the window that asked with C:/p gets the changes', () => {
@@ -165,35 +173,80 @@ describe('the window that asked with C:/p gets the changes', () => {
   })
 })
 
-describe('a Linked machine gets its own spelling of the root back', () => {
-  /** The Project folder spelled otherwise than path.resolve does: git's `C:/…` on Windows, a trailing separator elsewhere. */
-  const otherSpelling = (): string => (sep === '\\' ? project.replaceAll('\\', '/') : `${project}/`)
-
-  async function callFromLink(channel: string, root: string, sent: { channel: string; payload: unknown }[]): Promise<{ ok: boolean; value?: { root: string } }> {
-    const sender = { id: 'link:machine/1', send: (name: string, payload: unknown) => void sent.push({ channel: name, payload }), isDestroyed: () => false, once: () => sender }
-    const event = { senderFrame: { url: pathToFileURL(INDEX_HTML).href }, sender }
-    return (await handlers.get(IPC_CHANNEL_PREFIX + channel)!(event, { root })) as { ok: boolean; value?: { root: string } }
+/** A client of a link connection: a string id makes its calls remote (src/main/link/caller.ts). */
+function linkClient(id: string) {
+  const sent: { channel: string; payload: unknown }[] = []
+  let destroyed = false
+  const sender = {
+    id,
+    send: (channel: string, payload: unknown) => {
+      // As Electron's webContents does once it is gone.
+      if (destroyed) throw new Error('Object has been destroyed')
+      sent.push({ channel, payload })
+    },
+    isDestroyed: () => destroyed,
+    once: () => sender,
   }
+  const event = { senderFrame: { url: pathToFileURL(INDEX_HTML).href }, sender }
+  return {
+    sent,
+    destroy: () => void (destroyed = true),
+    call: async (channel: string, root: string) => (await handlers.get(IPC_CHANNEL_PREFIX + channel)!(event, { root })) as { ok: boolean; value?: { root: string } },
+  }
+}
 
-  it('workflow.open answers, and workflow.changed comes, with the root as the Linked machine sent it', async () => {
-    const root = otherSpelling()
+describe('a Linked machine: the hub opens the real path, the answer and the changes keep its spelling', () => {
+  /**
+   * The Project's path in the list, through its link and spelled otherwise than path.resolve does:
+   * git's `C:/…` on Windows, a trailing separator elsewhere. Its real path is the folder behind the link.
+   */
+  const linkSpelling = (): string => (sep === '\\' ? link.replaceAll('\\', '/') : `${link}/`)
+
+  it('workflow.open: the watch is opened under the real path the check answered, the answer and workflow.changed carry the root as sent', async () => {
+    const root = linkSpelling()
+    const real = realpathSync.native(project)
     expect(resolve(root)).not.toBe(root)
-    const sent: { channel: string; payload: unknown }[] = []
-    const answer = await callFromLink('workflow.open', root, sent)
-    expect(answer).toMatchObject({ ok: true, value: { root } })
-    workflow.change(root, delta)
-    expect(sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}workflow.changed`, payload: delta(root) }])
+    expect(resolve(root)).not.toBe(real)
+    const client = linkClient('link:machine/1')
+    expect(await client.call('workflow.open', root)).toMatchObject({ ok: true, value: { root } })
+    expect(workflow.opened()).toEqual([real])
+    workflow.change(real, delta)
+    expect(client.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}workflow.changed`, payload: delta(root) }])
+    expect(await client.call('workflow.close', root)).toEqual({ ok: true, value: { closed: true } })
+    expect(workflow.opened()).toEqual([])
   })
 
-  it('pipeline.get answers, and pipeline.changed comes, with the root as the Linked machine sent it', async () => {
-    const root = otherSpelling()
-    const sent: { channel: string; payload: unknown }[] = []
-    const answer = await callFromLink('pipeline.get', root, sent)
-    expect(answer).toMatchObject({ ok: true, value: { root } })
-    // The hub computes the Project under the real path the check answered.
-    const [opened] = pipeline.opened()
-    expect(opened).toBeDefined()
-    pipeline.change(opened!, (key) => snapshot(key, 'gh is unavailable'))
-    expect(sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}pipeline.changed`, payload: snapshot(root, 'gh is unavailable') }])
+  it('pipeline.get: the Stages are computed under the real path the check answered, the answer and pipeline.changed carry the root as sent', async () => {
+    const root = linkSpelling()
+    const real = realpathSync.native(project)
+    const client = linkClient('link:machine/1')
+    expect(await client.call('pipeline.get', root)).toMatchObject({ ok: true, value: { root } })
+    expect(pipeline.opened()).toEqual([real])
+    pipeline.change(real, (key) => snapshot(key, 'gh is unavailable'))
+    expect(client.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}pipeline.changed`, payload: snapshot(root, 'gh is unavailable') }])
+    expect(await client.call('pipeline.close', root)).toEqual({ ok: true, value: { closed: true } })
+    expect(pipeline.opened()).toEqual([])
+  })
+})
+
+describe('a client gone before a change is skipped; the others still get it', () => {
+  it('workflow.changed', async () => {
+    const [gone, kept] = [linkClient('link:machine/1'), linkClient('link:machine/2')]
+    expect(await gone.call('workflow.open', link)).toMatchObject({ ok: true })
+    expect(await kept.call('workflow.open', link)).toMatchObject({ ok: true })
+    gone.destroy()
+    expect(() => workflow.change(realpathSync.native(project), delta)).not.toThrow()
+    expect(gone.sent).toEqual([])
+    expect(kept.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}workflow.changed`, payload: delta(link) }])
+  })
+
+  it('pipeline.changed', async () => {
+    const [gone, kept] = [linkClient('link:machine/1'), linkClient('link:machine/2')]
+    expect(await gone.call('pipeline.get', link)).toMatchObject({ ok: true })
+    expect(await kept.call('pipeline.get', link)).toMatchObject({ ok: true })
+    gone.destroy()
+    expect(() => pipeline.change(realpathSync.native(project), (key) => snapshot(key, 'gh is unavailable'))).not.toThrow()
+    expect(gone.sent).toEqual([])
+    expect(kept.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}pipeline.changed`, payload: snapshot(link, 'gh is unavailable') }])
   })
 })
