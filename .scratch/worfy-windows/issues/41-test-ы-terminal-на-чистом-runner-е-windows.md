@@ -88,7 +88,7 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 
 ## Готово, когда
 
-- [ ] Причина названа по замеру на runner-е; вывод замера — в «Итоге».
+- [x] Причина названа по замеру на runner-е; вывод замера — в «Итоге».
 - [ ] Ручной job на `test/contract/terminal.test.ts`: 0 упавших — либо 15 test-ов пропущены с
       причиной, и это записано в `windows-tests.yml` и в test-файле.
 - [ ] На ПК владельца те же test-ы идут и зелёные: пропуск их там не выключает.
@@ -142,3 +142,22 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - **15 test-ов из списка на ПК проходят.** После PR #280 они разделены: 10 в `test/contract/terminal.test.ts` (exit 0: 44 прошло, 3 пропущено — случай только macOS и два «не на Windows»), 5 в `test/contract/terminal-windows.test.ts` (exit 0: 13 прошло). Test с `gh auth login` настоящий `gh` не достаёт: на Path оболочки только временный home test-а со stub-ом `gh.cmd` и системные папки.
 - **Вывод для причины:** на ПК Windows PowerShell 5.1 отвечает меньше чем за 1,1 s на обеих ширинах, так что разница — в среде runner-а (образ, версия PSReadLine, консоль), а не в harness-е вообще. Назвать её может только замер на runner-е.
 - **Попутно для [Ticket-а 40](40-node-pty-падает-при-одновременном-kill.md):** четыре брошенные оболочки `powershell.exe -NoLogo -NoProfile` с headless-консолями 80×24 от прогонов test-ов Terminal-а 2026-10-17 — запись там.
+
+### Замер на runner-е: запуск 39090844904 (2026-10-18)
+
+Запуск разрешил владелец, запустила Session на Mac: [39090844904](https://github.com/IDSAD-XL/worfy/actions/runs/39090844904), `windows-tests.yml` на ветке `worfy-windows/41-probe` (`6370f6c`), `files=test/contract/terminal-probe-41.test.ts`, exit 0. Лог прочитала Session на Windows-ПК. Runner: Windows Server 10.0.26100, образ `win25-vs2026` 20261007.264.1, Node 24.21.0 из Electron 44.5.1, node-pty 1.1.0.
+
+| Оболочка, ширина | Prompt | Echo команды | Вывод команды | Вторая команда, вывод | Версия, PSReadLine, кодировка |
+|---|---|---|---|---|---|
+| `powershell.exe`, 80 | 625 ms | 798 ms | **26 799 ms** | 27 074 ms | 5.1.26100.33438, 2.0.0, IBM437 |
+| `powershell.exe`, 200 | 492 ms | 609 ms | **24 321 ms** | 24 489 ms | то же |
+| `pwsh.exe`, 80 | 751 ms | 865 ms | 935 ms | 1 132 ms | 7.6.6, 2.4.5, ibm437 |
+| `pwsh.exe`, 200 | 687 ms | 792 ms | 882 ms | 1 047 ms | то же |
+
+(Время — от вызова open. На ПК тот же замер: вывод Windows PowerShell через 705 и 1039 ms.)
+
+- **Вывод не теряется — он приходит через 24–27 s.** После echo команды и перевода строки (+817 ms) оболочка молчит: ни одного куска вывода до +26,8 s (на ширине 200 — до +24,3 s). Потом приходят `probe-42`, prompt, а вторая команда, напечатанная следом, отвечает за 170–280 ms. Медленная только **первая** команда свежего Windows PowerShell. Test-ы ждали 5 s (`run`) и 10 s — поэтому 15 падений «echo есть, вывода нет».
+- **Ширина ни при чём:** 80 и 200 столбцов — одинаково (24–27 s). PSReadLine 2.0.0 — тот же, что на ПК; echo приходит сразу. `pwsh` 7.6.6 на том же runner-е отвечает меньше чем за 1 s.
+- **Где уходят 25 s — по замеру без pty.** Вызов `powershell.exe -NoLogo -NoProfile -NonInteractive -Command …Get-Module -ListAvailable PSReadLine…` с тем же окружением `windowsEnv` на runner-е не уложился в 30 s (`Command failed`, timeout пробы); на ПК он идёт меньше секунды. Первая команда заставляет Windows PowerShell искать команды по всем модулям `PSModulePath`; кэш этого поиска (ModuleAnalysisCache) лежит в `%LOCALAPPDATA%\Microsoft\Windows\PowerShell`, а `windowsEnv` даёт каждой оболочке пустой временный `LOCALAPPDATA` (`test/contract/terminal-harness.ts:57`). На ПК модулей мало, на образе runner-а — много. Это объяснение по замеру и устройству PowerShell 5.1; отдельно на runner-е (например, с готовым кэшем или узким `PSModulePath`) оно не проверялось.
+- **Шаг 2, вариант «test-ы идут на runner-е».** `windowsEnv` задаёт `PSModulePath` только с папкой модулей системы (`%SystemRoot%\System32\WindowsPowerShell\v1.0\Modules`) — так же, как он уже задаёт `Path` только из системных папок: test-ам Terminal-а другие модули не нужны, а поиск по одной папке короткий. Проверка — ещё один запуск ручного job-а на `test/contract/terminal.test.ts` и `test/contract/terminal-windows.test.ts` (решение владельца). Вариант «только ПК» (пропуск на runner-е) остаётся запасным.
+- **Не про test-ы, а про приложение:** worfy запускает Windows PowerShell с настоящим `LOCALAPPDATA` пользователя, кэш там уже есть — у пользователя первой команде ждать не нужно. На свежей системе с большим набором модулей первая команда может быть медленной и в приложении; не мерилось.
