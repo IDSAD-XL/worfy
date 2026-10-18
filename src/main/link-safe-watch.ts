@@ -28,9 +28,15 @@
 // a root that was not there at the first look and is watched by the time start() answers.
 //
 // An error of the watch of the root is said and the root is looked at again at once, up to
-// ROOT_ERRORS_BEFORE_PAUSE times in a row with no event in between; after that the watch is made
-// again with the pauses of a failed look, and nothing more is said until it reports an event
-// (worfy-windows ticket 33: an error that comes after every new watch filled the log).
+// ROOT_ERRORS_BEFORE_PAUSE times in a row; after that the watch is made again with the pauses of a
+// failed look, and nothing more is said until a watch has worked (worfy-windows ticket 33: an error
+// that comes after every new watch filled the log). A watch has worked when it reported a change
+// below the root, or lived the time between two looks with no error; an event that says the root
+// itself went is no sign of it. While the watch fails each time it is made, a new watch reports
+// the root only when the stamps (lstat's mtime and size) of the entries in the folders `enter`
+// names differ from those at the last watch: every pause would otherwise say that anything may
+// have changed, and the caller would read everything again each time. A change of a file deeper
+// than those folders that adds or removes no entry is not seen by the stamps.
 //
 // Links below the root are read with the real path of the root among the allowed folders: under a
 // root on a mapped network drive realpath answers the share's UNC path, and the walk would take
@@ -62,6 +68,8 @@ export interface WatchFs {
   list: (path: string) => Promise<{ name: string; kind: EntryKind }[]>
   realpath: (path: string) => Promise<string>
   isFolder: (path: string) => Promise<boolean>
+  /** What changes when the entry at the path changes (lstat's mtime and size); null when nothing is there. Never follows a link. */
+  stamp: (path: string) => Promise<string | null>
   /**
    * Watches a folder (with everything below it when `recursive`) or a file. `onEvent` gets the
    * name the system reports, relative to the path, or null when it reports none.
@@ -83,6 +91,11 @@ export const nodeWatchFs: WatchFs = {
     stat(path).then(
       (stats) => stats.isDirectory(),
       () => false,
+    ),
+  stamp: (path) =>
+    lstat(path).then(
+      (stats) => `${stats.mtimeMs}:${stats.size}`,
+      () => null,
     ),
   watch: (path, recursive, onEvent, onError) => {
     const watcher = watchNode(path, { recursive }, (_event, name) => onEvent(name === null ? null : String(name)))
@@ -181,8 +194,10 @@ export class LinkSafeWatch {
   private said = false
   /** The looks in a row that failed: past RETRY_SLOW_AFTER the next one waits longer. */
   private failures = 0
-  /** The errors of the root watch in a row with no event of it in between. */
+  /** The errors of the root watch in a row, with no watch in between that worked. */
   private rootErrors = 0
+  /** The stamps of the root at the last watch while its watch keeps failing; null when it does not. */
+  private lastStamps: string | null = null
   /** Whether the first look found no root: start() then reports it when it answers 'watching'. */
   private absentAtStart = false
   private closed = false
@@ -337,29 +352,38 @@ export class LinkSafeWatch {
     if (this.closed) return
     this.rootReal = real
     const mine: { handle: WatchHandle | null } = { handle: null }
+    const madeAt = Date.now()
+    let reported = false
+    /** Whether this watch has worked: it reported a change below the root, or lived the time between two looks. */
+    const worked = (): boolean => reported || Date.now() - madeAt >= (this.options.retryDelayMs ?? RETRY_DELAY_MS)
     mine.handle = this.fs.watch(
       real,
       true,
       (name) => {
         if (this.rootWatch !== mine.handle) return
-        // The watch works: a later error of it is said again.
-        this.rootErrors = 0
+        // The root itself went: no sign that the watch works.
         if (name !== null && this.paths.isAbsolute(name)) return this.lost()
+        reported = true
         this.report(name === null ? root : this.paths.join(root, name))
       },
       (error) => {
         if (this.rootWatch !== mine.handle) return
+        // The only place the run of errors ends: a watch that worked starts a new one.
+        if (worked()) {
+          this.rootErrors = 0
+          this.lastStamps = null
+        }
         this.rootErrors++
         if (this.rootErrors <= ROOT_ERRORS_BEFORE_PAUSE) {
           this.options.onError(error)
           return this.lost()
         }
         // An error that comes after every new watch: the watch is made again after a pause, and
-        // the log has said enough.
+        // the log has said enough. The root is not reported here: the next watch reports it if
+        // its stamps have changed meanwhile.
         if (this.rootErrors === ROOT_ERRORS_BEFORE_PAUSE + 1) this.options.onError(new Error(`the watch of ${root} fails each time it is made: it is made again after a pause, and not said again until it works`))
         this.detach()
         this.current = 'waiting'
-        this.options.onChange(root)
         this.retryLater(this.rootErrors - ROOT_ERRORS_BEFORE_PAUSE)
       },
     )
@@ -367,10 +391,41 @@ export class LinkSafeWatch {
     this.current = 'watching'
     await this.scan()
     if (this.rootWatch !== mine.handle) return
-    if (this.started) this.options.onChange(root)
+    if (this.started) {
+      if (this.rootErrors === 0) this.options.onChange(root)
+      else {
+        // The watch has failed lately: the stamps tell the next watch whether anything changed
+        // while none was in place. Up to the pause the root is reported all the same.
+        const stamps = await this.stamps()
+        if (this.rootWatch !== mine.handle) return
+        if (this.rootErrors <= ROOT_ERRORS_BEFORE_PAUSE || stamps !== this.lastStamps) this.options.onChange(root)
+        this.lastStamps = stamps
+      }
+    }
     // The look has succeeded to its end: a failure after this is a new one, and is said.
     this.said = false
     this.failures = 0
+  }
+
+  /** The stamps of the entries in the folders `enter` names, as one text; links are not followed. */
+  private async stamps(): Promise<string> {
+    const lines: string[] = []
+    const visit = async (shown: string, real: string, depth: number): Promise<void> => {
+      let entries: { name: string; kind: EntryKind }[]
+      try {
+        entries = await this.fs.list(real)
+      } catch {
+        lines.push(`${shown} unreadable`)
+        return
+      }
+      for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+        const path = this.paths.join(shown, entry.name)
+        lines.push(`${path} ${entry.kind} ${await this.fs.stamp(this.paths.join(real, entry.name))}`)
+        if (entry.kind === 'folder' && depth + 1 < MAX_SCAN_DEPTH && this.entered(path)) await visit(path, this.paths.join(real, entry.name), depth + 1)
+      }
+    }
+    await visit(this.options.root, this.rootReal, 0)
+    return lines.join('\n')
   }
 
   /** The root is gone, or its watch failed: it is waited for again, and said to have changed. */
@@ -418,6 +473,7 @@ export class LinkSafeWatch {
     this.said = false
     this.failures = 0
     this.rootErrors = 0
+    this.lastStamps = null
   }
 
   /** Called only by a watch that is still the current one: after close there is none. */

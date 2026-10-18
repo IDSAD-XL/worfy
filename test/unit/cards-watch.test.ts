@@ -6,6 +6,7 @@ import { posix, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CardInfo } from '../../src/shared/ipc/cards'
 import { CARD_LINK_DEPTH, CardStore, type CardFs } from '../../src/main/cards/store'
+import { RETRY_DELAY_MS, SLOW_RETRY_DELAY_MS } from '../../src/main/link-safe-watch'
 import { countFsCalls } from '../contract/counted-fs'
 import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
 
@@ -146,6 +147,48 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
     disk.put(`${CARDS}\\c1\\index.html`, FILE)
     await changed(seen, 'c1')
     expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', revision: 1 })])
+  })
+
+  it('a watch of the Cards folder that fails each time it is made: the Cards are not read again at every pause, but a Card written meanwhile is', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TWO_CARDS)
+      const failure = new Error('EPERM: operation not permitted, watch')
+      const watchFs = {
+        ...disk.fs,
+        watch: (...args: Parameters<WindowsDisk['fs']['watch']>) => {
+          const handle = disk.fs.watch(...args)
+          if (args[0] === CARDS) setTimeout(() => args[3](failure), 0)
+          return handle
+        },
+      }
+      const store = new CardStore({ dataDirOf: () => DATA, projectIds: () => [PROJECT], delayMs: 0, paths: win32, links: disk.links, fs: cardFs(disk), watchFs })
+      stores.push(store)
+      const seen: CardInfo[] = []
+      store.onChange((info) => seen.push(info))
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        await store.info(PROJECT, 'c1')
+        // Made again at once up to the pause: those reports read the Card again, a bounded number of times.
+        await vi.advanceTimersByTimeAsync(100)
+        const before = seen.length
+        expect(before).toBeGreaterThan(0)
+        // Four short pauses and two long ones: nothing changed, no new revision.
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 4 + SLOW_RETRY_DELAY_MS * 2)
+        expect(seen).toHaveLength(before)
+        // Written while no watch is in place: the next watch finds it, and the Card is read again once.
+        disk.putQuietly(`${CARDS}\\c1\\index.html`, FILE)
+        await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+        expect(seen).toHaveLength(before + 1)
+        expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: seen[before - 1]!.revision + 1 })
+        await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS * 2)
+        expect(seen).toHaveLength(before + 1)
+      } finally {
+        errors.mockRestore()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a Cards folder that is removed while watched: the Cards that were asked about are reported as gone', async () => {

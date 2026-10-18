@@ -121,6 +121,26 @@ function holding(base: WatchFs, call: Asked, path: string, nth = 1): { fs: Watch
   return { fs, asked, release }
 }
 
+/**
+ * The calls given, with what each new watch of the root does right after it is made, in the next
+ * turn of the timers: fails, says the root went (by its `\\?\` path), or nothing.
+ */
+function erring(disk: WindowsDisk, next: () => 'error' | 'gone' | 'quiet', root: string = ROOT): { fs: WatchFs; failure: Error } {
+  const failure = new Error('EPERM: operation not permitted, watch')
+  const fs: WatchFs = {
+    ...disk.fs,
+    watch: (path, recursive, onEvent, onError) => {
+      const handle = disk.fs.watch(path, recursive, onEvent, onError)
+      if (path.toLowerCase() !== root.toLowerCase()) return handle
+      const what = next()
+      if (what === 'error') setTimeout(() => onError(failure), 0)
+      if (what === 'gone') setTimeout(() => onEvent(`\\\\?\\${path}`), 0)
+      return handle
+    },
+  }
+  return { fs, failure }
+}
+
 /** The calls that name a path through the link, other than lstat and readlink of the link itself. */
 const through = (disk: WindowsDisk, link: string): string[] =>
   disk.calls.filter((call) => {
@@ -1019,27 +1039,115 @@ describe('a look that fails again and again', () => {
     expect(errors).toEqual([bug])
   })
 
-  it(`a root watch that fails right after it is made, every time: made again at once ${ROOT_ERRORS_BEFORE_PAUSE} times, then after the time between two looks, and the log has a bounded number of lines`, async () => {
+  it(`a root watch that fails right after it is made, every time: made again at once ${ROOT_ERRORS_BEFORE_PAUSE} times, then after the pauses of a failed look; a bounded log, and the root reported after a pause only when something changed`, async () => {
     expect(ROOT_ERRORS_BEFORE_PAUSE).toBe(3)
-    const disk = windowsDisk(TICKETS)
-    const failure = new Error('EPERM: operation not permitted, watch')
-    const fs: WatchFs = {
-      ...disk.fs,
-      watch: (path, recursive, onEvent, onError) => {
-        const handle = disk.fs.watch(path, recursive, onEvent, onError)
-        if (path.toLowerCase() === ROOT.toLowerCase()) setTimeout(() => onError(failure), 0)
-        return handle
-      },
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TICKETS)
+      const broken = erring(disk, () => 'error')
+      const { watch, errors, changes } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      const watches = (): number => disk.calls.filter((call) => call === `watch ${ROOT} (recursive)`).length
+      await vi.advanceTimersByTimeAsync(10)
+      expect(watches()).toBe(1 + ROOT_ERRORS_BEFORE_PAUSE)
+      expect(errors.map(String)).toEqual([...Array<string>(ROOT_ERRORS_BEFORE_PAUSE).fill(String(broken.failure)), `Error: the watch of ${ROOT} fails each time it is made: it is made again after a pause, and not said again until it works`])
+      // Up to the pause: once when each watch failed, once when the next was in place.
+      expect(changes).toHaveLength(2 * ROOT_ERRORS_BEFORE_PAUSE)
+      // Four pauses of a failed look, then the long one: nothing changed, nothing is reported.
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * (RETRY_SLOW_AFTER - 1))
+      expect(watches()).toBe(ROOT_ERRORS_BEFORE_PAUSE + RETRY_SLOW_AFTER)
+      // (The first 10 ms above are part of the long pause too.)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS - 20)
+      expect(watches()).toBe(ROOT_ERRORS_BEFORE_PAUSE + RETRY_SLOW_AFTER)
+      expect(changes).toHaveLength(2 * ROOT_ERRORS_BEFORE_PAUSE)
+      // A Ticket written while no watch is in place: the next watch reports the root, once.
+      disk.putQuietly(`${ROOT}\\demo\\issues\\02-b.md`, FILE)
+      await vi.advanceTimersByTimeAsync(20)
+      expect(watches()).toBe(ROOT_ERRORS_BEFORE_PAUSE + RETRY_SLOW_AFTER + 1)
+      expect(changes).toHaveLength(2 * ROOT_ERRORS_BEFORE_PAUSE + 1)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS * 2)
+      expect(changes).toHaveLength(2 * ROOT_ERRORS_BEFORE_PAUSE + 1)
+      expect(errors).toHaveLength(ROOT_ERRORS_BEFORE_PAUSE + 1)
+      expect(watch.state).toBe('waiting')
+    } finally {
+      vi.useRealTimers()
     }
-    const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], { fs, retryDelayMs: RETRY, slowRetryDelayMs: 60_000 })
-    const watches = (): number => disk.calls.filter((call) => call === `watch ${ROOT} (recursive)`).length
-    // The start, three at once, then four after the short time, as a failed look; the next one is a minute away.
-    const before = 1 + ROOT_ERRORS_BEFORE_PAUSE + (RETRY_SLOW_AFTER - 1)
-    await until('the watches before the long time', () => watches() >= before)
-    await pause(RETRY * 20)
-    expect(watches()).toBe(before)
-    expect(errors.map(String)).toEqual([...Array<string>(ROOT_ERRORS_BEFORE_PAUSE).fill(String(failure)), `Error: the watch of ${ROOT} fails each time it is made: it is made again after a pause, and not said again until it works`])
-    expect(watch.state).toBe('waiting')
+  })
+
+  it('errors of the root watch far apart, each after the watch lived the time between two looks: each is said, and the watch is made again at once', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TICKETS)
+      const { watch, errors } = await start(disk)
+      const failure = new Error('EPERM: operation not permitted, watch')
+      for (let times = 0; times < ROOT_ERRORS_BEFORE_PAUSE + 2; times++) {
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
+        disk.fail(ROOT, failure)
+        await vi.advanceTimersByTimeAsync(0)
+        expect(watch.state).toBe('watching')
+      }
+      expect(errors).toEqual(Array<Error>(ROOT_ERRORS_BEFORE_PAUSE + 2).fill(failure))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an event that says the root went is no sign that the watch works: watches that fail and watches that see the root go, in turns, reach the pause', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TICKETS)
+      let made = 0
+      const broken = erring(disk, () => (++made % 2 === 1 ? 'error' : 'gone'))
+      const { errors } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(errors.map(String)).toEqual([...Array<string>(ROOT_ERRORS_BEFORE_PAUSE).fill(String(broken.failure)), `Error: the watch of ${ROOT} fails each time it is made: it is made again after a pause, and not said again until it works`])
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 3)
+      expect(errors).toHaveLength(ROOT_ERRORS_BEFORE_PAUSE + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a change the root watch reports ends the run of errors: the next error is said, and the watch made again at once', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TICKETS)
+      let left = ROOT_ERRORS_BEFORE_PAUSE
+      const broken = erring(disk, () => (left-- > 0 ? 'error' : 'quiet'))
+      const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(errors).toEqual(Array<Error>(ROOT_ERRORS_BEFORE_PAUSE).fill(broken.failure))
+      expect(watch.state).toBe('watching')
+      // The watch in place reports a Ticket, well within the time between two looks.
+      disk.put(`${ROOT}\\demo\\issues\\02-b.md`, FILE)
+      disk.fail(ROOT, broken.failure)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(errors).toEqual(Array<Error>(ROOT_ERRORS_BEFORE_PAUSE + 1).fill(broken.failure))
+      expect(watch.state).toBe('watching')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a proper wait for a root that went ends the run of errors: an error of the watch of the root made again is said', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TICKETS)
+      let left = ROOT_ERRORS_BEFORE_PAUSE
+      const broken = erring(disk, () => (left-- > 0 ? 'error' : 'quiet'))
+      const { watch, errors } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(errors).toHaveLength(ROOT_ERRORS_BEFORE_PAUSE)
+      disk.remove(ROOT)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(watch.watched().waitingAt).toBe(REPO)
+      left = 1
+      disk.put(`${ROOT}\\demo\\issues\\01-a.md`, FILE)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(errors).toEqual(Array<Error>(ROOT_ERRORS_BEFORE_PAUSE + 1).fill(broken.failure))
+      expect(watch.state).toBe('watching')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

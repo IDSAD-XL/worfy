@@ -74,6 +74,9 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
   const watches: Watch[] = []
   const unreadable = new Set<string>()
   const denied = new Set<string>()
+  /** How many times each entry, or what lies in a folder, has changed: its stamp. */
+  const versions = new Map<string, number>()
+  const touch = (path: string): void => void versions.set(key(path), (versions.get(key(path)) ?? 0) + 1)
 
   /** Puts an entry in the tree; answers the paths that are new or changed, the folders made above it first. */
   const set = (path: string, entry: DiskEntry): string[] => {
@@ -86,7 +89,11 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
       tree.set(key(above), { path: above, entry: FOLDER })
       made.unshift(above)
     }
+    const fresh = !tree.has(key(path))
     tree.set(key(path), { path: tree.get(key(path))?.path ?? path, entry })
+    // As on a disk: a new entry changes the folder that holds it; a changed one, only itself.
+    for (const each of fresh ? [...made, path] : made) touch(win32.dirname(each))
+    for (const each of [...made, path]) touch(each)
     return [...made, path]
   }
   for (const [path, entry] of Object.entries(entries)) set(path, entry)
@@ -201,6 +208,15 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         return false
       }
     },
+    stamp: async (path) => {
+      calls.push(`stamp ${path}`)
+      try {
+        const real = follow('stamp', path, false)
+        return tree.has(key(real)) ? `v${versions.get(key(real)) ?? 0}` : null
+      } catch {
+        return null
+      }
+    },
     watch: (path, recursive, onEvent, onError): WatchHandle => {
       calls.push(`watch ${path}${recursive ? ' (recursive)' : ''}`)
       const real = follow('watch', path, true)
@@ -233,6 +249,7 @@ export function windowsDisk(entries: Record<string, DiskEntry>): WindowsDisk {
         const rel = win32.relative(path, each.path)
         if (rel === '' || (!rel.startsWith('..') && !win32.isAbsolute(rel))) tree.delete(key(each.path))
       }
+      touch(win32.dirname(path))
       // A watch of the folder itself gets a run of events that name the folder by its device path.
       for (const watch of [...watches]) {
         if (watch.closed || key(watch.path) !== key(path)) continue
