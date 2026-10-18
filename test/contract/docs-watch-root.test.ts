@@ -1,8 +1,11 @@
-// DocsWatcher over real folders when its root is removed and made again (worfy-windows ticket 27).
-// Windows only: there fs.watch of a removed folder sends events without end — before the fix the
-// process spent a whole processor core on them and never saw the folder come back. The same case
-// on a stand-in watch, for any system, is test/unit/docs-watch-root-gone.test.ts.
-import { mkdirSync, mkdtempSync, realpathSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+// DocsWatcher over real folders when its root is removed and made again. Windows (worfy-windows
+// ticket 27): there fs.watch of a removed folder sends events without end — before the fix the
+// process spent a whole processor core on them and never saw the folder come back. macOS
+// (worfy-windows ticket 38): there the root removed or renamed gives one event, named by its last
+// name, and before the fix the documents stayed as they were read. Each case runs on its own
+// system only; the same cases on a stand-in watch, for any system, are in
+// test/unit/docs-watch-root-gone.test.ts.
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -73,4 +76,73 @@ describe.runIf(WINDOWS)('DocsWatcher on Windows, real folders: the root is remov
     expect(lines()).toEqual([[said], [said]])
     await back('# handoff, a third time\n', '# handoff, changed a third time\n')
   }, 40_000)
+})
+
+// macOS (worfy-windows ticket 38): a root that is removed or renamed gives one event, named by the
+// root's last name (`project` here), and its watch stays: the same watch reports the root when it
+// is back at its path. Measured on the Mac, Darwin 25.6.0, Node 24.21.0 of Electron 44.5.1.
+const MACOS = process.platform === 'darwin'
+
+/** The ways to take the root away that the ticket measured, and how each one brings it back. */
+const WAYS: { way: string; away: () => void; back: () => void }[] = [
+  {
+    way: 'unlink and rmdir',
+    away: () => {
+      unlinkSync(join(root, 'docs', 'adr', '0001-first.md'))
+      rmdirSync(join(root, 'docs', 'adr'))
+      rmdirSync(join(root, 'docs'))
+      unlinkSync(join(root, 'HANDOFF.md'))
+      rmdirSync(root)
+    },
+    back: () => {
+      mkdirSync(root)
+      writeFileSync(join(root, 'HANDOFF.md'), '# handoff, again\n')
+    },
+  },
+  {
+    way: 'rename',
+    away: () => renameSync(root, join(dir, 'moved')),
+    back: () => renameSync(join(dir, 'moved'), root),
+  },
+  {
+    way: 'a recursive remove',
+    away: () => removeTestTree(root),
+    back: () => {
+      mkdirSync(root)
+      writeFileSync(join(root, 'HANDOFF.md'), '# handoff, again\n')
+    },
+  },
+]
+
+describe.runIf(MACOS)('DocsWatcher on macOS, real folders: the root is removed or renamed, then back', () => {
+  it.each(WAYS)('$way: the documents read as gone while the root is away, and are followed again when it is back', async ({ away, back }) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mkdirSync(join(root, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(root, 'docs', 'adr', '0001-first.md'), '# First\n\nДата: 2026-10-18. Статус: принят.\n')
+    const changes: Docs[] = []
+    const watcher = await DocsWatcher.start({ root, onChange: (docs) => changes.push(docs) })
+    watchers.push(watcher)
+    expect(watcher.current.handoff).not.toBeNull()
+    expect(watcher.current.adrs).toHaveLength(1)
+    // Past the reads that follow the start of the watch: what comes now comes from its events.
+    await pause(1200)
+
+    away()
+    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: 3000, interval: 50 })
+    // A folder renamed away is not followed under its new name.
+    if (existsSync(join(dir, 'moved'))) {
+      writeFileSync(join(dir, 'moved', 'HANDOFF.md'), '# handoff, moved\n')
+      await pause(500)
+      expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] })
+    }
+
+    back()
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff).not.toBeNull(), { timeout: 3000, interval: 50 })
+    // Followed, not only read once: a later change comes through.
+    const version = changes.at(-1)?.handoff?.version
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed once more\n')
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.version).not.toBe(version), { timeout: 3000, interval: 50 })
+    // The watch was kept: the line of a root that is gone is a Windows one.
+    expect(warn).not.toHaveBeenCalled()
+  }, 20_000)
 })

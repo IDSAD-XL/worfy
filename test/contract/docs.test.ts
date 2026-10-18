@@ -5,7 +5,7 @@
 // file. Nothing here writes into the repository (ADR-0002, ADR-0005): the last test checks that
 // the files and `git status --porcelain` are exactly as they were.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -298,6 +298,25 @@ describe('the HANDOFF Node', () => {
     writeFileSync(join(repo, 'HANDOFF.md'), HANDOFF)
     await vi.waitFor(() => expect(handoffNodes()[0]?.hidden).toBe(false), { timeout: 1000, interval: 20 })
     // The same Node all along: its place and size stay the user's.
+    expect(handoffNodes().map((n) => n.id)).toStrictEqual([node!.id])
+  })
+
+  // macOS only (worfy-windows ticket 38): there the root renamed away and back gives one event
+  // each time, named by the root's last name, and the same watch reports the root back. On Linux
+  // a root that is gone is not followed (the header of DocsWatcher); on Windows it is waited for,
+  // test/contract/docs-watch-root.test.ts.
+  it.runIf(process.platform === 'darwin')('is hidden and marked while the Project root is renamed away, shown when it is back', async () => {
+    await value('docs.open', { projectId: PROJECT_ID })
+    const [node] = handoffNodes()
+    await pastStartReads()
+
+    const moved = join(scratch, 'moved')
+    renameSync(repo, moved)
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: true, data: { missing: true } }), { timeout: 1000, interval: 20 })
+    expect(sender.sent.at(-1)).toMatchObject({ handoff: null, adrs: [] })
+    renameSync(moved, repo)
+    await vi.waitFor(() => expect(handoffNodes()[0]).toMatchObject({ hidden: false, data: { missing: false } }), { timeout: 1000, interval: 20 })
+    expect(sender.sent.at(-1)?.adrs.map((adr) => adr.number)).toStrictEqual(['0001', '0002'])
     expect(handoffNodes().map((n) => n.id)).toStrictEqual([node!.id])
   })
 
