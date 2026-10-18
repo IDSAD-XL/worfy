@@ -18,8 +18,10 @@ interface StandWatcher {
   readonly paths: unknown
   readonly options: { ignoreInitial?: boolean; ignored?: unknown }
   closed: boolean
-  /** Sends a `raw` event as chokidar does: the event, the name the system gave, the watched path. */
+  /** Sends a `raw` event as chokidar's fs.watch does: the event, the name the system gave, the watched path. */
   raw: (name: string | null, watchedPath: string) => void
+  /** Sends a `raw` event with any details, as chokidar's polling does (`{ curr, prev }`, no `watchedPath`). */
+  rawWith: (event: string, name: string, details: unknown) => void
   close: () => Promise<void>
 }
 
@@ -28,6 +30,8 @@ const stand = vi.hoisted(() => ({
   /** While set, a close does not resolve until `release` is called. */
   holdClose: false,
   release: [] as (() => void)[],
+  /** While set, the next watch of the branches made never says it is ready (a close comes first). */
+  holdReady: false,
 }))
 
 vi.mock('chokidar', async () => {
@@ -40,10 +44,14 @@ vi.mock('chokidar', async () => {
       readonly options: { ignoreInitial?: boolean; ignored?: unknown },
     ) {
       super()
-      setTimeout(() => this.emit('ready'), 0)
+      if (stand.holdReady && Array.isArray(paths)) stand.holdReady = false
+      else setTimeout(() => this.emit('ready'), 0)
     }
     raw(name: string | null, watchedPath: string): void {
       this.emit('raw', 'rename', name, { watchedPath })
+    }
+    rawWith(event: string, name: string, details: unknown): void {
+      this.emit('raw', event, name, details)
     }
     close(): Promise<void> {
       this.closed = true
@@ -60,7 +68,21 @@ vi.mock('chokidar', async () => {
   }
 })
 
-const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
+// The real reader; each read of the worktree list (`git worktree list`, the first step of every read
+// of the branches) is counted.
+const reads = vi.hoisted(() => ({ worktrees: 0 }))
+vi.mock('../../src/main/workflow/reader', async (original) => {
+  const real = await original<typeof import('../../src/main/workflow/reader')>()
+  return {
+    ...real,
+    ticketWorktrees: (...args: Parameters<typeof real.ticketWorktrees>) => {
+      reads.worktrees += 1
+      return real.ticketWorktrees(...args)
+    },
+  }
+})
+
+const EPIC_JSON =JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 /** The name Windows gives in the events of a watched `worktrees` folder that is gone. */
 const WORKTREES = 'C:\\p\\repo\\.git\\worktrees'
@@ -79,6 +101,8 @@ beforeEach(() => {
   stand.made.length = 0
   stand.holdClose = false
   stand.release.length = 0
+  stand.holdReady = false
+  reads.worktrees = 0
 })
 
 afterEach(async () => {
@@ -92,8 +116,8 @@ afterEach(async () => {
 /** The watches of the branches made so far: the one chokidar call that is given a list of paths. */
 const branches = (): StandWatcher[] => stand.made.filter((made) => Array.isArray(made.paths))
 
-async function start(): Promise<WorkflowWatcher> {
-  const watcher = await WorkflowWatcher.start({
+function begin(): Promise<WorkflowWatcher> {
+  return WorkflowWatcher.start({
     root: repo,
     claudeHome: '/h',
     env: () => Promise.resolve({}),
@@ -103,8 +127,14 @@ async function start(): Promise<WorkflowWatcher> {
     isAbsolute: win32.isAbsolute,
     debounceMs: 10,
     onChange: () => undefined,
+  }).then((watcher) => {
+    watchers.push(watcher)
+    return watcher
   })
-  watchers.push(watcher)
+}
+
+async function start(): Promise<WorkflowWatcher> {
+  const watcher = await begin()
   expect(branches()).toHaveLength(1)
   return watcher
 }
@@ -163,6 +193,41 @@ describe('the watch of the branches when a folder it watches is gone', () => {
 
     await watcher.close()
     expect(stand.made.every((made) => made.closed)).toBe(true)
+  })
+
+  it('the branches are read again once the watch is made anew', async () => {
+    warnings()
+    await start()
+    await pause(50)
+    const before = reads.worktrees
+    branches()[0]!.raw(WORKTREES, WORKTREES)
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    // The stand-in sends no change of its own: only the remake asks for this read.
+    await vi.waitFor(() => expect(reads.worktrees).toBeGreaterThan(before), { timeout: 2000, interval: 5 })
+  })
+
+  it('a watch that goes before it is ready: the start does not wait for it, but for the watch made anew', async () => {
+    warnings()
+    stand.holdReady = true
+    const starting = begin()
+    await vi.waitFor(() => expect(branches()).toHaveLength(1), { timeout: 5000, interval: 5 })
+    branches()[0]!.raw(WORKTREES, WORKTREES)
+    const outcome = await Promise.race([starting.then(() => 'started'), pause(3000).then(() => 'still waiting')])
+    expect(outcome).toBe('started')
+    expect(branches()).toHaveLength(2)
+    expect(branches()[0]!.closed).toBe(true)
+  })
+
+  it('a polled event names the changed file by its full path and has no watchedPath: the watch is left as it is', async () => {
+    const lines = warnings()
+    await start()
+    const [first] = branches()
+    // chokidar's polling (fs.watchFile) sends `raw` as ('change', file, { curr, prev }).
+    expect(() => first!.rawWith('change', 'C:\\p\\repo\\.git\\packed-refs', { curr: {}, prev: {} })).not.toThrow()
+    await pause(50)
+    expect(branches()).toHaveLength(1)
+    expect(first!.closed).toBe(false)
+    expect(lines()).toEqual([])
   })
 
   it('a close while the gone watch is being closed: no watch is made after it', async () => {

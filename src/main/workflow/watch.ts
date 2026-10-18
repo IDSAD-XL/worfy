@@ -401,7 +401,9 @@ export class WorkflowWatcher {
         const parts = rel.split(sep)
         return parts.length > 2 || (parts.length === 2 && parts[1] !== 'HEAD')
       }
-      add(this.watchBranches([join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees], ignored), 'branches')
+      const paths = [join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees]
+      // A watch made anew before it was ready passes `done` on to the new one: see watchBranches.
+      ready.push(new Promise<void>((done) => this.follow(this.watchBranches(paths, ignored, done), 'branches')))
     }
     // chokidar's close removes the 'ready' listener, so a watch closed before it was ready never
     // gets the event: close() would then wait for this read for good.
@@ -423,10 +425,15 @@ export class WorkflowWatcher {
    * anew on the same paths, which chokidar then follows from the nearest folder still there. Only
    * fs.watch events carry `watchedPath`; a polled watch names every changed file by its full path
    * and is left alone.
+   *
+   * `ready` is called once this watch, or the one made anew in its place, is ready: chokidar's close
+   * removes the 'ready' listener, and the start of the watch would otherwise wait for a watch closed
+   * before it was ready until the Project is closed.
    */
-  private watchBranches(paths: string[], ignored: (path: string) => boolean): FSWatcher {
+  private watchBranches(paths: string[], ignored: (path: string) => boolean, ready: () => void = () => undefined): FSWatcher {
     const full = this.options.isAbsolute ?? isAbsolute
     const watcher = watch(paths, { ignoreInitial: true, ignored })
+    watcher.once('ready', () => ready())
     let gone = false
     watcher.on('raw', (_event, name, details) => {
       const folder = (details as { watchedPath?: unknown } | null | undefined)?.watchedPath
@@ -435,18 +442,18 @@ export class WorkflowWatcher {
       gone = true
       // chokidar names a path it was given with `/` on Windows, one it found below with `\`.
       console.warn(`[workflow] the folder ${nativePath.normalize(folder)} is gone: the watch of the branches is made anew`)
-      void this.remakeBranches(watcher, paths, ignored)
+      void this.remakeBranches(watcher, paths, ignored, ready)
     })
     return watcher
   }
 
-  private async remakeBranches(gone: FSWatcher, paths: string[], ignored: (path: string) => boolean): Promise<void> {
+  private async remakeBranches(gone: FSWatcher, paths: string[], ignored: (path: string) => boolean, ready: () => void): Promise<void> {
     await gone.close().catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
     // close() has closed every watch, this one too, and nothing more is watched after it.
     if (this.closed) return
     const at = this.watchers.indexOf(gone)
     if (at !== -1) this.watchers.splice(at, 1)
-    this.follow(this.watchBranches(paths, ignored), 'branches')
+    this.follow(this.watchBranches(paths, ignored, ready), 'branches')
     // What the removal changed: a worktree or the whole repository is gone.
     this.schedule('branches')
   }

@@ -172,6 +172,10 @@ chokidar ставит на каждую папку не рекурсивный `
 - `pnpm lint`: exit code 0. `pnpm typecheck`: exit code 0.
 - `gate.sh fast`: exit code 3 — Harness-профиля на ПК нет, это не зелёный.
 
+### После ревью `6f34540` (три low)
+
+- Watch, заведённый заново до своего `ready`, больше не вешает старт: `ready` передаётся новому watch-у (иначе `WorkflowWatcher.start()` ждал до закрытия Project-а). Добавлены unit test-ы: старт до `ready` (красный на `6f34540`, 1 из 7), чтение веток после пересоздания, событие опроса без `watchedPath`. Мутанты «`ready` не передан», «нет чтения после пересоздания», «нет проверки `watchedPath`» — каждый убит (exit code 1, файл возвращён байт в байт). 10 файлов test-ов: exit code 0, 261 passed, 3 skipped; `pnpm lint` и `pnpm typecheck`: exit code 0.
+
 ### Осталось Mac и владельцу
 
 - `gate full` на Mac; ручной job «Windows tests» на двух новых test-файлах.
