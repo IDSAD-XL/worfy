@@ -96,7 +96,7 @@ printf '%s\n' 'process.stdout.write("[gate] зелено (full): stub\n")' >"$L/
 git -C "$T/repo" checkout -q -b pr7 && echo seven >"$T/repo/seven.txt" && git -C "$T/repo" add -A && git -C "$T/repo" commit -q -m "pr 7" \
     && git -C "$T/repo" push -q origin "HEAD:refs/pull/7/head" && git -C "$T/repo" checkout -q main
 HEAD7="$(git -C "$T/repo" rev-parse pr7)"
-node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ repo: process.argv[2], branch: "main", e2e_lock: null, prepare: null,
+node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({ repo: process.argv[2], branch: "main", e2e_lock: null, prepare: null, cross_machine_label: null,
     prs: [{ number: 7, head: process.argv[3], labels: [], platform: false }] }))' "$T/m.json" "$(node_path "$T/repo")" "$HEAD7"
 WAVE_GATE_GATE="$L/gate.mjs" "$WG" check "$T/m.json" >"$T/out" 2>&1; rc=$?
 : >"$OVR_LOG"
