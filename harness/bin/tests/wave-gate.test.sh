@@ -792,11 +792,18 @@ done
 # The gate full of one PR ("each"): the e2e lock with holder.json naming that PR, under bash and zsh.
 BE="$(block 'printf '"'"'{"prs":[%s],"what":"gate-full"')"
 [ -n "$BE" ] && ok "skill blocks: the one-PR gate full block is in $SKILL" || bad "skill blocks: the one-PR gate full block not found in $SKILL"
+# The block polls the e2e lock every 20 s, and it sleeps once more after it removes an abandoned lock: the run
+# with an abandoned lock below spent 20 s per shell in that sleep alone. The test runs the block with a 0.2 s
+# poll, as it runs wave-gate with WAVE_GATE_LOCK_POLL_S=1; the 20 s of the block is checked here. After 50 polls
+# (10 s) the block exits 98: a block that never takes the lock fails its check instead of hanging the file.
+LOCK_POLL=$'\n    sleep 20\n' LOCK_FAST=$'\n    sleep 0.2; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 50 ] || exit 98\n'
+[[ "$BE" == *"until mkdir \"\$L\""*"$LOCK_POLL"*"  done"* ]] && ok "skill blocks: the one-PR gate full block polls the e2e lock every 20 s" \
+    || bad "skill blocks: the one-PR gate full block has no 'sleep 20' in its until mkdir loop"
 for sh in bash zsh; do
     new_world "each-$sh" 1:a.txt
     L="$W/e2e.lock"; export GATE_LOCK="$L"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
-    b="${BE//<N>/5}"; b="${b//<PR worktree>/$W/repo}"; b="${b//<repo>/$W/repo}"
+    b="${BE//<N>/5}"; b="${b//<PR worktree>/$W/repo}"; b="${b//<repo>/$W/repo}"; b="${b/"$LOCK_POLL"/$LOCK_FAST}"
     b="${b//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
     got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
     h="$GATE_DIR/holder.1.json"
