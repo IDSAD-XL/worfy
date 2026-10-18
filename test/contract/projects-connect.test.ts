@@ -9,8 +9,8 @@
 // wrote in the acceptance run of 2026-10-12. The form must get `off` for it, the person's own choice
 // must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
 // code names for a mode must be the one bin/profile prints for a Profile without the field.
-import { execFileSync, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,7 +42,7 @@ import {
 import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
-import { HarnessScriptStartError, type ProfileRunner, type SpawnProcess } from '../../src/main/workflow/profile'
+import { HarnessScriptStartError, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
 import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
@@ -371,7 +371,7 @@ describe('a folder the Harness already knows', () => {
 
   it('the real bin/profile with a broken old registry (~/.claude/gate/config.json, no new one; exit 1): an error, not a new folder', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
-    rmSync(join(harnessHome, 'gate', 'config.json'))
+    removeTestTree(join(harnessHome, 'gate', 'config.json'))
     const legacy = join(home, '.claude', 'gate', 'config.json')
     mkdirSync(join(home, '.claude', 'gate'), { recursive: true })
     writeFileSync(legacy, '{"Repos":[]}\n')
@@ -384,7 +384,7 @@ describe('a folder the Harness already knows', () => {
 
   it('the real bin/profile of a fresh Harness (no gate registry, exit 1): a new folder', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
-    rmSync(join(harnessHome, 'gate', 'config.json'))
+    removeTestTree(join(harnessHome, 'gate', 'config.json'))
     const { connector } = connectorWith()
     expect((await connector.inspect(repo)).status).toBe('new')
   })
@@ -402,6 +402,30 @@ describe('a folder the Harness already knows', () => {
     expect(requests).toHaveLength(0)
   })
 })
+
+/** Whether some process has the pid `pid` now (signal 0 only asks). */
+function pidInUse(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the process `pid` runs and is still the grandchild named by `marker`: a pid that is in use
+ * again by another process is not it. The command line comes from `ps`, on Windows from
+ * Win32_Process.
+ */
+function grandchildRunning(pid: number, marker: string): boolean {
+  if (!pidInUse(pid)) return false
+  const commandLine =
+    process.platform === 'win32'
+      ? spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`], { encoding: 'utf8', windowsHide: true }).stdout
+      : spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' }).stdout
+  return (commandLine ?? '').includes(marker)
+}
 
 describe('bin/project-connect is started as node <script> (worfy-windows ticket 30)', () => {
   /** A stand-in of the script: prints its arguments, its stdin and HARNESS_HOME. Not executable: only `node <file>` runs it. */
@@ -463,25 +487,26 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
     const alive = join(scratch, 'grandchild-alive')
     const stop = join(scratch, 'grandchild-stop')
     const tick = `${alive}.tick`
-    // The grandchild, like `qmd update` started with its stdio inherited: it holds the script's
-    // pipes, writes the time to a file every 100 ms while it runs, and ends when the stop file
-    // appears (or after 30 s), removing its `alive` file. It is detached: on Windows node puts the
-    // processes it starts in a job that ends with it, and the grandchild would die with the script;
-    // a detached one outlives it, as a process another program started does.
+    // The holder has the script's pipes, inherited: it writes the time to a file every 100 ms while
+    // it runs, and ends when the stop file appears (or after 30 s), removing its `alive` file. The
+    // runner kills the script's whole tree (killTree), so the holder is left outside it, as a daemon
+    // is: a short-lived process the script starts, detached, starts it detached and exits. Detached
+    // also takes both out of the job in which node keeps its children on Windows.
     const grandchild = [
       "const fs = require('node:fs')",
       'const [alive, stop] = process.argv.slice(1)',
       'fs.writeFileSync(alive, String(process.pid))',
-      'const end = () => { try { fs.rmSync(alive) } catch {} process.exit(0) }',
+      'const end = () => { try { fs.unlinkSync(alive) } catch {} process.exit(0) }',
       "setInterval(() => { fs.writeFileSync(alive + '.tick', String(Date.now())); if (fs.existsSync(stop)) end() }, 100)",
       'setTimeout(end, 30000)',
     ].join('; ')
+    const intermediate = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true }).unref()`
     writeFileSync(
       join(binDir, 'project-connect'),
       [
         '#!/usr/bin/env node',
         "import('node:child_process').then((cp) => {",
-        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true })`,
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(intermediate)}], { stdio: 'inherit', detached: true, windowsHide: true })`,
         '  setInterval(() => undefined, 1000)',
         '})',
         '',
@@ -493,7 +518,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       const run = await connect([], '{}')
       expect(run).toMatchObject({ code: null, signal: null })
       expect(Date.now() - started).toBeLessThan(8000)
-      // The grandchild still runs (its time file moves on): the pipes were held when the answer came.
+      // The holder still runs (its time file moves on): the pipes were held when the answer came.
       const before = readFileSync(tick, 'utf8')
       await new Promise((resolve) => setTimeout(resolve, 500))
       expect(readFileSync(tick, 'utf8')).not.toBe(before)
@@ -537,7 +562,7 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       "const fs = require('node:fs')",
       'const [alive, stop] = process.argv.slice(1)',
       'fs.writeFileSync(alive, String(process.pid))',
-      'const end = () => { try { fs.rmSync(alive) } catch {} process.exit(0) }',
+      'const end = () => { try { fs.unlinkSync(alive) } catch {} process.exit(0) }',
       'setInterval(() => { if (fs.existsSync(stop)) end() }, 100)',
       'setTimeout(end, 30000)',
     ].join('; ')
@@ -566,6 +591,71 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
     }
     expect(existsSync(alive)).toBe(false)
+  })
+
+  // Mac review round 2 of PR #482: a test of the limit the runner is asked for, not of the constants.
+  it('with no limit in the source the write gets 30 minutes from runHarnessScript, --facts and --check 120 s', async () => {
+    const asked: { args: string[]; timeoutMs: number }[] = []
+    const run: typeof runHarnessScript = (_script, args, _env, options) => {
+      asked.push({ args: [...args], timeoutMs: options.timeoutMs })
+      return Promise.resolve({ code: 0, stdout: '{}', stderr: '' })
+    }
+    const connect = connectScriptRunner({ harness: () => location(join(scratch, 'harness-bin')), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), run })
+    await connect([], '{}')
+    await connect(['--facts', join(scratch, 'shop')], 'null')
+    await connect(['--check'], '{}')
+    expect(asked).toEqual([
+      { args: [], timeoutMs: 30 * 60_000 },
+      { args: ['--facts', join(scratch, 'shop')], timeoutMs: 120_000 },
+      { args: ['--check'], timeoutMs: 120_000 },
+    ])
+  })
+
+  // Mac review round 2: project-connect runs qmd-collections, which runs `qmd update`. A kill of
+  // the script alone left them running.
+  it('an abort kills the script and what it started: the grandchild does not outlive it', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const pidFile = join(scratch, 'grandchild-pid')
+    const stop = join(scratch, 'grandchild-stop')
+    const marker = `worfy-ticket30-grandchild-${process.pid}-${Date.now()}`
+    // Ends by itself on the stop file or after 30 s, so that a failing run leaves nothing for long.
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [pidFile, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(pidFile, String(process.pid))',
+      'setInterval(() => { if (fs.existsSync(stop)) process.exit(0) }, 100)',
+      'setTimeout(() => process.exit(0), 30000)',
+    ].join('; ')
+    // On Windows node keeps the processes it starts in a job that ends with it; the grandchild is
+    // detached there to be outside it, as a process a non-node program started would be. Elsewhere it
+    // stays in the script's process group, as qmd-collections and qmd update do.
+    const detached = process.platform === 'win32'
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(pidFile)}, ${JSON.stringify(stop)}, ${JSON.stringify(marker)}], { stdio: 'ignore', detached: ${String(detached)}, windowsHide: true })`,
+        '  setInterval(() => undefined, 1000)',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const quitting = new AbortController()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), signal: () => quitting.signal })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      quitting.abort()
+      expect(await running).toMatchObject({ code: null, signal: null })
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+    }
   })
 
   it('the signal (the app quits) kills a running script: code null, and the script is gone', async () => {

@@ -124,6 +124,8 @@ export interface ConnectScriptSource {
   timeoutMs?: number
   /** Asked on each run: a running script is killed when it aborts; the app aborts it on quit (src/main/ipc/projects.ts). */
   signal?: () => AbortSignal
+  /** runHarnessScript when absent; a test hands one that records the options a call gets. */
+  run?: typeof runHarnessScript
 }
 
 /**
@@ -135,7 +137,7 @@ export function connectScriptRunner(source: ConnectScriptSource): ConnectScript 
   return async (args, stdin) => {
     const harness = source.harness()
     const env = scriptEnv(harness, await source.env())
-    return runHarnessScript(join(harness.binDir, 'project-connect'), args, env, {
+    return (source.run ?? runHarnessScript)(join(harness.binDir, 'project-connect'), args, env, {
       stdin,
       timeoutMs: source.timeoutMs ?? connectTimeoutMs(args),
       spawn: source.spawn,

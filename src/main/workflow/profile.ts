@@ -16,7 +16,7 @@
 // ticket 37).
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
-import { execFile, spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
@@ -261,6 +261,35 @@ export interface HarnessScriptRunOptions {
   signal?: AbortSignal
 }
 
+/**
+ * Kills `child` and the processes under it — project-connect runs qmd-collections, which runs
+ * `qmd update`; killed alone, the script would leave them writing profile.json with no commit to
+ * follow (harness/bin/project-connect, the qmd step). On Windows: `taskkill /T /F` by the full path,
+ * without a window; the pid is the runner's own child, still running. Elsewhere: SIGKILL to the
+ * process group the child leads (runHarnessScript starts it detached there). When that fails, the
+ * child alone.
+ */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid
+  const alone = (): void => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }
+  if (pid === undefined) return alone()
+  if (process.platform === 'win32') {
+    const taskkill = spawn(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
+    taskkill.on('error', alone)
+    taskkill.on('exit', (code) => {
+      if (code !== 0) alone()
+    })
+    return
+  }
+  try {
+    process.kill(-pid, 'SIGKILL')
+  } catch {
+    alone()
+  }
+}
+
 /** What runHarnessScript rejects with when its signal had aborted before the script started. */
 export const HARNESS_SCRIPT_ABORTED = 'not started: the run was stopped'
 
@@ -279,7 +308,9 @@ export async function runHarnessScript(script: string, args: readonly string[], 
   if (options.signal?.aborted) throw new Error(HARNESS_SCRIPT_ABORTED)
   const start = options.spawn ?? spawn
   return new Promise((resolvePromise, reject) => {
-    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    // Outside Windows the script leads a process group of its own, so that a kill reaches what it
+    // started (killTree); on Windows `detached` would give it a console of its own.
+    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' })
     let stdout = ''
     let stderr = ''
     /** The runner killed the script: at its time limit or on the signal. */
@@ -288,7 +319,7 @@ export async function runHarnessScript(script: string, args: readonly string[], 
     const stop = (): void => {
       if (child.exitCode !== null || child.signalCode !== null) return
       killed = true
-      child.kill('SIGKILL')
+      killTree(child)
     }
     const done = (): void => {
       settled = true
