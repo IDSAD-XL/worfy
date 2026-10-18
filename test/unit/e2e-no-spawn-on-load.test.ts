@@ -465,13 +465,15 @@ const STARTED_ON_LOAD_ON_PURPOSE: Record<string, { why: string; calls: string[] 
   'test/contract/workflow-reader.test.ts': { why: 'hasSh() of test/harness-node.ts is a spawnSync for it.skipIf: it returns false where sh does not start', calls: ['hasSh()'] },
 }
 
+/** A call found at load (`<line>: <text>`) is on purpose when its file is on the list and the text of the call too. */
+const onPurpose = ({ path, use }: { path: string; use: string }): boolean => STARTED_ON_LOAD_ON_PURPOSE[path]?.calls.includes(use.replace(/^\d+: /, '')) ?? false
+
 describe('a process started while a module of test/e2e or test/contract loads', () => {
   // It parses every file of the two folders and of src/ that they load: about 2 s alone on Windows, more in a full run.
   it('is started by no file of test/e2e or test/contract, nor by a file they load: Playwright loads every spec before it runs any, vitest fails the whole file', { timeout: 20_000 }, () => {
     const p = program(ROOTS.flatMap(sources), (path) => readFileSync(path, 'utf8'), onDisk)
     const spawning = spawningFunctions(p)
     const found = [...p.files.values()].flatMap((source) => spawnsOnLoad(p, source, spawning).map((use) => ({ path: inRepo(source.path), use })))
-    const onPurpose = ({ path, use }: { path: string; use: string }): boolean => STARTED_ON_LOAD_ON_PURPOSE[path]?.calls.includes(use.replace(/^\d+: /, '')) ?? false
     expect(found.filter((site) => !onPurpose(site)).map(({ path, use }) => `${path}:${use}`)).toEqual([])
     const listed = Object.entries(STARTED_ON_LOAD_ON_PURPOSE).flatMap(([path, { calls }]) => calls.map((call) => `${path}: ${call}`))
     expect(listed.filter((entry) => !found.some(({ path, use }) => `${path}: ${use.replace(/^\d+: /, '')}` === entry))).toEqual([])
@@ -480,7 +482,16 @@ describe('a process started while a module of test/e2e or test/contract loads', 
     expect(keys).toEqual(expect.arrayContaining(['test/zsh.ts#zshPath', 'test/e2e/terminal-ai-helpers.ts#terminalAiSandbox', 'scripts/build-version.ts#buildVersion']))
     const paths = [...p.files.keys()].map(inRepo)
     expect(paths).toContain('scripts/build-version.ts')
+    expect(paths).toContain('test/contract/ipc-renderer.test.tsx')
     expect(paths).toEqual(expect.arrayContaining(['test/contract/terminal-ai-zle.test.ts', 'test/contract/terminal-shell-integration.test.ts']))
+  })
+
+  it.each<[string, { path: string; use: string }, boolean]>([
+    ['a listed call in its file is on purpose', { path: 'test/contract/link-access.test.ts', use: "12: git(repo, 'init', '-q')" }, true],
+    ['another call in a listed file is not', { path: 'test/contract/link-access.test.ts', use: "12: execSync('git init')" }, false],
+    ['a listed call in another file is not', { path: 'test/contract/terminal.test.ts', use: "12: git(repo, 'init', '-q')" }, false],
+  ])('the list of processes started on purpose: %s', (_name, site, listed) => {
+    expect(onPurpose(site)).toBe(listed)
   })
 
   const IMPORT = "import { test } from '@playwright/test'; import { execFileSync, execSync, spawnSync } from 'node:child_process'\n"
