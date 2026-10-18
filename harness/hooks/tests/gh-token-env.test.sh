@@ -144,6 +144,15 @@ common "no cwd in JSON" "$rc"
 grep -qxF -- "-C $(printed "$T/project") --field github.account" "$PROFILE_LOG" \
     && ok "no cwd in JSON: project found by \$PWD" || bad "no cwd in JSON: profile args: $(cat "$PROFILE_LOG")"
 
+# 1d'. Stdin that is not JSON: the project is found by $PWD, and the export line is still written.
+reset_env; : >"$PROFILE_LOG"
+(cd "$T/project" && printf 'not json' | "$NODE" "$HOOK" >"$T/out" 2>"$T/err"); rc=$?
+common "stdin not JSON" "$rc"
+grep -qxF -- "-C $(printed "$T/project") --field github.account" "$PROFILE_LOG" \
+    && ok "stdin not JSON: project found by \$PWD" || bad "stdin not JSON: profile args: $(cat "$PROFILE_LOG")"
+[ "$(sed -n '2,$p' "$ENVF")" = "$LINE" ] && ok "stdin not JSON: the export line is written" \
+    || bad "stdin not JSON: new lines: [$(sed -n '2,$p' "$ENVF")]"
+
 # 1e. An env file without a trailing newline: the export still lands on a line of its own.
 printf '%s' "$PRE" >"$ENVF"
 run; rc=$?
