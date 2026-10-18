@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { QueryRequest } from '../../src/main/agent/session'
 import type { CanvasSession } from '../../src/main/mcp/canvas-server'
@@ -69,6 +69,18 @@ function stubRun(answer: ProfileRun | Error): ProfileRunner & { calls: [string, 
 
 const enoent = (): Error => Object.assign(new Error('spawn profile ENOENT'), { code: 'ENOENT' })
 
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// The fixture paths are POSIX. A path worfy builds from one — the script under the Claude home, the
+// Project root it resolves — is spelled by the rules of the system: the same string on macOS and
+// Linux, `\h\bin\profile` and `C:\repo` on Windows. The expectations build it the same way.
+
+/** The reason for a missing profile script under the Claude home `/h`. */
+const NO_SCRIPT = new RegExp(`no profile script at ${escapeRegExp(join('/h', 'bin', 'profile'))}`)
+
+/** The start of a `[workflow]` log line for the Project at `root`, resolved as readProjectLayout does. */
+const workflowLine = (root: string, text: string): RegExp => new RegExp(`^\\[workflow\\] ${escapeRegExp(resolve(root))}: ${escapeRegExp(text)}`)
+
 describe('readMcpAllowlist with a stand-in runner', () => {
   it('exit code 0 with a list: the Profile list, asked of the Project root', async () => {
     const run = stubRun({ code: 0, stdout: '[\n  "qmd",\n  "github",\n  "qmd"\n]\n', stderr: '' })
@@ -87,7 +99,7 @@ describe('readMcpAllowlist with a stand-in runner', () => {
   it.each<[string, ProfileRun | Error, RegExp]>([
     ['exit code 3 (no registered project)', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3: profile: \/repo is not in a registered project/],
     ['exit code 4 (no such field)', { code: 4, stdout: '', stderr: 'profile: field "mcp.allowed" is absent\n' }, /no mcp\.allowed field \(profile exit code 4\)/],
-    ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
+    ['no script', enoent(), NO_SCRIPT],
     ['broken JSON', { code: 0, stdout: '["qmd", \n', stderr: '' }, /mcp\.allowed is not JSON/],
     ['a field that is null', { code: 0, stdout: 'null\n', stderr: '' }, /mcp\.allowed is null/],
     ['a field that is not a list', { code: 0, stdout: '{"qmd": true}\n', stderr: '' }, /not a list of server names/],
@@ -398,7 +410,7 @@ describe('readGithubAccount', () => {
     ['exit code 3 (no registered project)', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3: profile: \/repo is not in a registered project/],
     ['exit code 4 (no such field)', { code: 4, stdout: '', stderr: 'profile: field "github.account" is absent\n' }, /no github\.account field \(profile exit code 4\)/],
     ['a field that is null', { code: 0, stdout: 'null\n', stderr: '' }, /github\.account is null/],
-    ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
+    ['no script', enoent(), NO_SCRIPT],
     ['another exit code', { code: 1, stdout: '', stderr: 'registry is broken\n' }, /failed with exit code 1: registry is broken/],
     ['a timeout', { code: null, stdout: '', stderr: '' }, /did not answer within 15 s/],
     ['an empty value', { code: 0, stdout: '\n', stderr: '' }, /github\.account is empty/],
@@ -537,7 +549,8 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     const runTicket = stubRun({ code: 0, stdout: '/work/atakama/.scratch\n', stderr: '' })
     const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run, runTicket, log })
     expect(layout).toEqual({
-      root: '/work/atakama',
+      // The root is resolved; the paths the Harness printed are kept as printed.
+      root: resolve('/work/atakama'),
       mode: 'silent',
       workflowFolder: '/work/atakama',
       ticketsRoot: '/work/atakama/.scratch',
@@ -549,15 +562,15 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
       reason: null,
       failed: false,
     })
-    expect(run.calls).toEqual([['/work/atakama', ['-C', '/work/atakama', '--json']]])
-    expect(runTicket.calls).toEqual([['/work/atakama', ['root']]])
+    expect(run.calls).toEqual([[resolve('/work/atakama'), ['-C', resolve('/work/atakama'), '--json']]])
+    expect(runTicket.calls).toEqual([[resolve('/work/atakama'), ['root']]])
     expect(logged).toEqual([])
   })
 
   it('exit code 0 in Full mode: the Project root as the Workflow folder, whatever spelling of it the Harness printed', async () => {
     const json = { mode: 'full', _resolved: { mode: 'full', workflow_folder: '/private/repo', workspace: null, repos: [{ name: 'repo', path: '/private/repo' }] } }
     const layout = await readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(json), stderr: '' }), runTicket: stubRun({ code: 0, stdout: '/private/repo/.scratch\n', stderr: '' }), log })
-    expect(layout).toMatchObject({ mode: 'full', workflowFolder: '/repo', ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
+    expect(layout).toMatchObject({ mode: 'full', workflowFolder: resolve('/repo'), ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
   })
 
   it.each<[string, ProfileRun, RegExp]>([
@@ -566,14 +579,15 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     ['a signal', { code: null, signal: 'SIGSEGV', stdout: '', stderr: '' }, /ticket root failed with the signal SIGSEGV/],
   ])('`ticket root` failing (%s): the Tickets root is .scratch of the Workflow folder, and the reason is logged', async (_case, answer, reason) => {
     const layout = await readProjectLayout({ root: '/work/atakama', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(SILENT_JSON), stderr: '' }), runTicket: stubRun(answer), log })
-    expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: '/work/atakama/.scratch', reason: null })
+    // `.scratch` joined to the Workflow folder as the Harness printed it, by the rules of the system.
+    expect(layout).toMatchObject({ mode: 'silent', ticketsRoot: join('/work/atakama', '.scratch'), reason: null })
     expect(logged.join('\n')).toMatch(reason)
   })
 
   // No Profile: the folder is read as before Silent mode (worfy-harness ticket 37, «Profile-а нет»).
   it.each<[string, ProfileRun | Error, RegExp]>([
     ['exit code 3', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3/],
-    ['no script', enoent(), /no profile script at \/h\/bin\/profile/],
+    ['no script', enoent(), NO_SCRIPT],
     ['a Harness before Silent mode: no _resolved.mode', { code: 0, stdout: JSON.stringify({ name: 'demo', _resolved: { name: 'demo', repo_root: '/repo' } }), stderr: '' }, /no _resolved\.mode/],
   ])('no Profile — %s: Full mode, the Project root, one repository, <root>/.scratch — and `ticket root` is not run', async (_case, answer, reason) => {
     const runTicket = stubRun({ code: 0, stdout: '/elsewhere\n', stderr: '' })
@@ -583,7 +597,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(layout.reason).toMatch(reason)
     expect(runTicket.calls).toEqual([])
     expect(logged).toHaveLength(1)
-    expect(logged[0]).toMatch(/^\[workflow\] \/repo: Full mode/)
+    expect(logged[0]).toMatch(workflowLine('/repo', 'Full mode'))
     const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
     expect(resolved).toEqual({ ok: false, miss: 'none', reason: expect.stringMatching(reason) })
   })
@@ -624,7 +638,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(layout.reason).not.toMatch(/Node\.js v|\n/)
     expect(runTicket.calls).toEqual([])
     expect(logged).toHaveLength(1)
-    expect(logged[0]).toMatch(/^\[workflow\] \/repo: the workflow is not read, because /)
+    expect(logged[0]).toMatch(workflowLine('/repo', 'the workflow is not read, because '))
     const resolved = await readResolvedProfile({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun(answer) })
     expect(resolved).toEqual({ ok: false, miss: 'failed', reason: expect.stringMatching(reason), environment })
   })
@@ -646,7 +660,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(await cache.get('/nowhere/repo')).toBe(first)
     now = 1500
     expect(await cache.get('/nowhere/repo')).not.toBe(first)
-    expect(first).toMatchObject({ mode: 'full', root: '/nowhere/repo' })
+    expect(first).toMatchObject({ mode: 'full', root: resolve('/nowhere/repo') })
     // The fallback reason (no script) is logged once for the Project, not on every read.
     expect(runs).toBe(1)
     warn.mockRestore()
