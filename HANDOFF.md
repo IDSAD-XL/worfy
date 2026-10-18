@@ -13,7 +13,7 @@
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 30/32 — 01–29, 31 (#425) влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на Windows-ПК). 30 (#401) blocked, ждёт 32 (`wave-gate.test.sh` > 120 s).
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 4/9, влиты 01–03 (`wave-gate`, ADR-0065) и 08 (#433, ADR-0068): batch CI на `main` включён; 06 — stub-ы для Windows, 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
-- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 4/8, влиты 01 (#421, шапка), 02 (#428, отметки на SHA), 03 (#457, Stage в main), 07 (#460, skills по Pipeline); дальше 04 и 05; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
+- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 5/8, влиты 01 (#421), 02 (#428), 03 (#457), 04 (#467, вкладка Pipeline), 07 (#460); 05 blocked (#468); `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 
 ## Ждёт владельца
 
@@ -30,6 +30,7 @@
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
 - `worfy-ui` 15: подпись Permissions уходит вместе с подписью Model, когда Model обрезан, — решено без владельца, подтвердить («Итог» 15).
 - `worfy-pipeline` 07: правка `profile.json` (Pipeline с Check «windows», Deploy?) и `rules.md` — слово владельца, diff в «Итог» 07; до неё действует запасной путь по тексту `rules.md`.
+- `worfy-pipeline` 05: третий круг PR #468 — слово владельца (`Blocked reason`); ждут 06 и 08.
 
 ## Риски и долги
 
@@ -45,7 +46,7 @@
 - Gate `fast` с сужением по диффу не видит `scripts/` и `test/fixtures/` (`worfy-mvp` 01). Перед мержем — `GATE_SCOPE=all gate.sh full` на ветке: e2e и `.app` идут только локально ([ci-merge.md](docs/lessons/ci-merge.md)).
 - Contract test-ы с дочерними процессами (`github-prs`, `harness-qmd`, `workflow-reader`, `docs`) при load 6–8 не укладываются в 15 s: gate fast параллельных исполнителей краснел.
 - Ложный таймаут первого окна в e2e: заблокированный экран, сеанс macOS владельца в фоне, параллельные e2e, окно macOS «восстановить окна?» (с PR #179 test-ы его отключают; на Mac владельца ещё и `defaults` для `com.github.Electron`) — [agents.md](docs/lessons/agents.md).
-- Замок e2e держащий обновляет `touch -c` раз в 5 минут (`rules.md` Profile-а worfy, 2026-10-10): без этого соседняя очередь снимала живой замок.
+- Замок e2e держащий обновляет `touch -c` раз в 5 минут (`rules.md`): на macOS `touch -c` без файла — exit 0, `|| exit 0` не срабатывает, без trap цикл вечен (7 с 2026-10-17).
 - Долги low — в «Итог» Ticket-ов (абзацы «Долг» и подраздел «Долги из HANDOFF (2026-10-08)»), разбор — шаг документов при закрытии Epic-а.
 
 ## Дальше

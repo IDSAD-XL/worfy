@@ -1,7 +1,8 @@
 # 04 — Вкладка Pipeline (доска активного Project-а) и секция Pipeline боковой панели
 
 Type: task
-Status: claimed 2026-10-18T01:14Z
+Status: done 2026-10-18T03:03Z
+PR: #467
 Blocked by: 03
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 1, 2 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).
@@ -129,3 +130,24 @@ Ticket не правит.
 - В палитре нет команды «Switch to Pipeline»: `viewCommands` (`src/renderer/palette/commands.ts:195`)
   перечисляет только Canvas и Session. Файл вне списка — кандидат в следующий Ticket.
 - (вручную) снимок доски worfy во время Wave — после мержа, на Stable copy.
+
+Ревью и merge (2026-10-18): гейт глубины low — `VERIFIED` с первого круга
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/467#issuecomment-6244603788)). Проверяющий снял доску, секцию,
+toolbar на 1280 и 1600 px и MigrationForm в обеих темах; e2e pipeline, sidebar-sections, binding, canvas-layout,
+harness-migrate, terminal — 23 passed. Находка «клик по карточке не показывает скрытую Card» отклонена: палитра для
+Card Ticket-а сама передаёт `hidden: false` (`src/renderer/palette/commands.ts:325`, `:388`).
+
+Первый `GATE_SCOPE=all` gate full (head `d17a3966`) — красный: e2e `test/e2e/silent-project.spec.ts:302` увидел `gh`
+в корне Project-а из двух репозиториев, 24 падения `spawnSync bash EAGAIN` в `harness-scripts.test.ts` — нагрузка
+(файл отдельно — 37 passed). Правка до merge — абзац выше; проверка правки — `VERIFIED`
+([вердикт](https://github.com/IDSAD-XL/worfy/pull/467#issuecomment-6244880213)). Второй gate full — зелёный; влит —
+`e074b41f`. Долги:
+- [low] `test/e2e/pipeline.spec.ts:161-164` — e2e проверяет только переход на Canvas после клика по карточке, не
+  центрирование Card (разовый e2e проверяющего его подтвердил).
+- [low] `test/e2e/silent-project.spec.ts:203`, `:252` — у stub-а Harness в `_resolved` нет `name`, поэтому оба e2e
+  Silent-Project-а идут по пути «Profile не прочитан»: Pipeline из Profile, Silent marks и `several=true` там не
+  проверяются. Исправление — добавить `name` в оба `resolved`.
+- [low] `src/main/workflow/stages.ts:41` — `git rev-parse` с timeout 10 s: при timeout Ticket-ы в работе на один
+  опрос теряют факты PR, а `snapshot.error` молчит.
+
+Batch CI run на main — зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39092198641.
