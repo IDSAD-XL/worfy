@@ -116,7 +116,7 @@ import { fileURLToPath } from 'node:url'
 // macOS: the files of the volume were removed). So a folder is looked through first, and with a
 // folder on another volume than the folder it lies in the removal ends with the code EXDEV and
 // nothing removed. A copy of removeTree of src/main/storage/remove.ts, since this script imports
-// nothing of worfy; test/unit/remove-tree.test.ts runs both over the same trees.
+// nothing of worfy; test/unit/remove-tree-copies.test.ts runs both over the same trees.
 // <remove-tree>
 function removeTree(given) {
   // The waits are those of the whole removal, five in all: a folder of entries that stay busy

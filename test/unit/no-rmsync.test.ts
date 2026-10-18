@@ -3,7 +3,7 @@
 // and without `recursive` it refuses a read-only file and a junction. Removals go through
 // src/main/storage/remove.ts, which calls rmSync only where it is safe: on every system but
 // Windows. The scripts that cannot import the module carry a copy between marks, and the same rule
-// holds inside it (test/unit/remove-tree.test.ts compares the copies with the module).
+// holds inside it (test/unit/remove-tree-copies.test.ts compares the copies with the module).
 //
 // The search is by text, not by an ESLint rule: one of the places is JavaScript inside a string —
 // the script restore.mjs in src/main/harness/migrate/restore.ts — which a rule would not see.
@@ -293,7 +293,7 @@ describe('fs.rmSync in src/ and in scripts/', () => {
   })
 
   // Review round 2 of PR #257. What lies between the marks is not searched, so the marks are
-  // taken only where test/unit/remove-tree.test.ts compares the text between them with the module.
+  // taken only where test/unit/remove-tree-copies.test.ts compares the text between them with the module.
   it('a copy between the marks is in the three files whose copy is compared with the module, and in no other', () => {
     const marked = [...sources(join(REPO, 'src'), /\.tsx?$/), ...sources(join(REPO, 'scripts'), /\.(mjs|cjs|js|ts)$/)]
       .filter((file) => /^\s*\/\/ <\/?remove-(tree|file)>\s*$/m.test(readFileSync(file, 'utf8')))

@@ -177,7 +177,7 @@ describe.each(['darwin', 'linux'] as const)('removeTree on %s and a volume mount
     expect(itself.names()).toEqual(['/data', '/data/card', '/vol', '/vol/notes', '/vol/notes/keep.txt'])
   })
 
-  // (A tree with no mount point and no link out of its volume: test/unit/remove-tree.test.ts, "on
+  // (A tree with no mount point and no link out of its volume: test/unit/remove-tree-walk.test.ts, "on
   // every other system the tree is looked through".)
   it('a file, and a path that is not there: one look, then rmSync as before', () => {
     const m = model(WITH_A_LINK)

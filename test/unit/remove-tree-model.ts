@@ -1,7 +1,7 @@
 // The file system in memory that the tests of src/main/storage/remove.ts run over, the trees they
 // remove, and the copies of the removal that cannot import the module. Not a test file: it is
-// imported by test/unit/remove-tree.test.ts, test/unit/remove-tree-mounted.test.ts and
-// test/unit/trash-mounted.test.ts.
+// imported by test/unit/remove-tree-walk.test.ts, test/unit/remove-tree-copies.test.ts,
+// test/unit/remove-tree-mounted.test.ts and test/unit/trash-mounted.test.ts.
 import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { restoreScriptSource } from '../../src/main/harness/migrate/restore'

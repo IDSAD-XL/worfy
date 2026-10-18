@@ -395,7 +395,7 @@ function patiently(step) {
  * volume than the folder it lies in the removal ends with the code EXDEV and nothing removed.
  */
 // A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
-// file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
+// file with no import of its own. test/unit/remove-tree-copies.test.ts runs the copies and the module
 // over the same trees.
 // <remove-tree>
 function removeTree(given) {

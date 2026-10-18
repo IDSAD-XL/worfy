@@ -80,7 +80,7 @@
 //
 // The text of scripts that cannot import anything keeps a copy of both functions: the restore
 // script of src/main/harness/migrate/restore.ts, scripts/remove-tree.mjs and
-// scripts/install-stable.mjs. test/unit/remove-tree.test.ts compares the copies.
+// scripts/install-stable.mjs. test/unit/remove-tree-copies.test.ts compares the copies.
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync, type Stats } from 'node:fs'
 import { join } from 'node:path'
 

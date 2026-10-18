@@ -23,7 +23,7 @@
 // it stays busy.
 //
 // The scripts cannot import from src/main, so this is a copy of removeTree of
-// src/main/storage/remove.ts; test/unit/remove-tree.test.ts runs both over the same trees.
+// src/main/storage/remove.ts; test/unit/remove-tree-copies.test.ts runs both over the same trees.
 
 import { lstatSync, readdirSync, rmdirSync, rmSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
