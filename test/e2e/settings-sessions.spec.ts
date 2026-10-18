@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
-import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from './zsh'
+import { NO_ZSH, NO_ZSH_ON_WINDOWS, zshPath } from '../zsh'
 
 // Settings → Sessions (worfy-polish ticket 24) against the built app: the autocompact window of the
 // Orchestrator and of the other Sessions — the defaults, a window of the user's own and "Claude
