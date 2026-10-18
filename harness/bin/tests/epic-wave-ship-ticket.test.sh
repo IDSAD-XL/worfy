@@ -416,7 +416,10 @@ check "epic-wave section 1: the open-PR block is in section 1" in_ "$ew1" 'gh pr
 check "epic-wave section 1: a ticket sharing a file is not dispatched until that PR is merged" in_ "$ew1" 'is **not dispatched until that PR is merged**'
 check "epic-wave section 1: the plan and the report name the ticket, the file and the PR" in_ "$ew1" 'The plan table and the wave report name the ticket, the file and the PR number.'
 check "epic-wave section 4: BEHIND is rebased onto the fresh base, pushed, and CI runs again" in_ "$ew4" \
-    'Rebase the branch onto the fresh base in the ticket'"'"'s worktree, push it, and wait for CI again with the CI wait block below'
+    'Rebase the branch onto the fresh base in the ticket'"'"'s worktree and push it with a lease on the head the PR had before the rebase'
+check "epic-wave section 4: the BEHIND push holds a lease on the PR's head" in_ "$ew4" \
+    '`git push --force-with-lease=<branch>:<headRefOid> origin HEAD:<branch>`, `<headRefOid>` from `gh pr view <N> --json headRefOid`'
+check "epic-wave section 4: CI again after the BEHIND push" in_ "$ew4" 'then wait for CI again with the CI wait block below'
 check "epic-wave section 4: BEHIND no longer means only wait" in_ "$ew4" '`BEHIND` no longer means only "wait".'
 check "epic-wave section 4: git fetch before each merge" in_ "$ew4" 'Before each merge run `git -C <repo> fetch`.'
 check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'Either lock is seen only on its own machine'

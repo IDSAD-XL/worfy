@@ -331,7 +331,8 @@ done
 CM="$T/cm"; CR="$CM/repo"; mkdir -p "$CM" "$SHH/projects/cm"
 git -C "$CM" init -q --bare -b main origin.git && git -C "$CM" clone -q origin.git repo 2>/dev/null
 printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"},{"key":"cm","match":"%s","profile":"cm"}]}\n' "$(native "$SR")" "$(native "$CR")" >"$SHH/gate/config.json"
-printf '%s\n' '{"schema":2,"name":"cm","mode":"full","tickets":{"branch":"<эпик>/<NN>"},"worktree":{"base":"origin/main"},"cross_machine_gate":{"label":"needs-mac-gate","role":"request","exempt":[".scratch/","docs/","HANDOFF.md"],"checks_section":"Mac checks"}}' >"$SHH/projects/cm/profile.json"
+CMP='{"schema":2,"name":"cm","mode":"full","tickets":{"branch":"<эпик>/<NN>"},"github":{"account":"mac-bot"},"worktree":{"base":"origin/main"},"cross_machine_gate":{"label":"needs-mac-gate","role":"request","exempt":[".scratch/","docs/","HANDOFF.md"],"checks_section":"Mac checks"}}'
+printf '%s\n' "$CMP" >"$SHH/projects/cm/profile.json"
 GHX="$T/ghx"; mkdir -p "$GHX"
 cat >"$GHX/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -343,6 +344,7 @@ for a in "$@"; do
   prev=$a
 done
 [ -n "${GH_FAIL:-}" ] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
+[ -n "${GH_FAIL_ON:-}" ] && [[ " $* " == *" $GH_FAIL_ON "* ]] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
 [ -n "${GH_BODY_RAW:-}" ] && [[ " $* " == *" --json body "* ]] && { cat "$GH_BODY_RAW"; exit 0; }
 if [ -n "$f" ]; then set -o pipefail; jq -r "$f" "$GH_JSON" | tr -d '\r'; exit $?; fi
 exit 0
@@ -392,6 +394,26 @@ label_error_case() { # label_error_case <name> <env assignment> <ERROR text> <fi
 }
 label_error_case "gh answers HTTP 502" GH_FAIL=1 'failed' harness/x.sh
 label_error_case "the PR lists no files yet" GH_FAIL= 'lists no files'
+# Only the description read fails: without the guard the block went on and replaced the whole description
+# with the section alone.
+label_error_case "gh fails on reading the description" GH_FAIL_ON=body 'json body failed' harness/x.sh
+# bin/profile exit 1 (a broken cross_machine_gate) is an ERROR, exit 4 (no such field) is the skip.
+jq -n '{body: "Old description.", files: [{path: "harness/x.sh"}]}' >"$T/ghx.json"
+jq '.cross_machine_gate.role = "merge"' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BLB" 2>&1)"
+    [[ "$got" == "ERROR: bin/profile exit 1"* ]] && [ ! -s "$T/ghx.log" ] \
+        && ok "$sh: label block, a broken profile (exit 1) -> ERROR, gh not called" || bad "$sh: label block, broken profile: [$got] gh [$(cat "$T/ghx.log")]"
+done
+jq 'del(.cross_machine_gate)' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BLB" 2>&1)"
+    [ "$got" = "label step skipped: cross_machine_gate.role is absent" ] && [ ! -s "$T/ghx.log" ] \
+        && ok "$sh: label block, no cross_machine_gate (exit 4) -> skipped, gh not called" || bad "$sh: label block, no field: [$got]"
+done
+printf '%s\n' "$CMP" >"$SHH/projects/cm/profile.json"
 # A description edited on the web comes with CRLF: its section is found, no second one is added.
 jq -n '{body: "Old description.", files: [{path: "harness/x.sh"}]}' >"$T/ghx.json"
 printf 'Old description.\r\n\r\n## Mac checks\r\n\r\n- `pnpm icons` — exit 0\r\n' >"$T/ghx-crlf-body.md"
@@ -426,29 +448,110 @@ section_case "a # comment inside a code block stays in the section" $'```bash\n#
     $'## Mac checks\n\n```bash\n# comment\npnpm icons\n```\n- `b` — exit 0\n\n## Next\n- `c`'
 section_case "an empty section" no-section $'## Mac checks\n\n## Windows checks\n\n- `x` — exit 0'
 
-# The serve rebase block and the request fresh-base block of skills/epic-wave section 1, with F worktree.base
-# origin/main as in the live profile: the PR branch is rebased onto origin/main and pushed; the detached worktree
-# of the base is created on origin/main and removed.
+# The serve pass of skills/epic-wave section 1 against a bare origin, with F worktree.base origin/main as in the
+# live profile. The list skips fork PRs. The rebase block takes the branch as origin has it (a stale local branch
+# from an earlier pass would push a rework away), pushes with a lease on the listed head, prints the new head.
 G=(-c user.email=t@t -c user.name=t)
 git -C "$CR" "${G[@]}" commit -q --allow-empty -m base && git -C "$CR" push -q origin main 2>/dev/null
 git -C "$CR" checkout -q -b feature && echo f >"$CR/f.txt" && git -C "$CR" add f.txt && git -C "$CR" "${G[@]}" commit -q -m feature \
-    && git -C "$CR" push -q origin feature 2>/dev/null && git -C "$CR" checkout -q main
+    && git -C "$CR" push -q origin feature 2>/dev/null && git -C "$CR" checkout -q main      # the local feature: stale from now on
 git -C "$CM" clone -q origin.git other 2>/dev/null && git -C "$CM/other" "${G[@]}" commit -q --allow-empty -m moved && git -C "$CM/other" push -q origin main 2>/dev/null
-git -C "$CR" worktree add -q "$CM/prwt" feature 2>/dev/null && git -C "$CR" branch -q --set-upstream-to=origin/feature feature
-BSV="$(SKILL="$WAVE" blockf 'push --force-with-lease; echo')"
+git -C "$CM/other" checkout -q feature 2>/dev/null && echo r >"$CM/other/r.txt" && git -C "$CM/other" add r.txt \
+    && git -C "$CM/other" "${G[@]}" commit -q -m rework && git -C "$CM/other" push -q origin feature 2>/dev/null   # the rework of the request machine
+tip="$(git -C "$CM/origin.git" rev-parse main)"; rework="$(git -C "$CM/origin.git" rev-parse feature)"
+BSL="$(SKILL="$WAVE" blockf 'isCrossRepository')"
+[ -n "$BSL" ] || bad "serve list block not found in $WAVE"
+BSL="$(sub "${BSL//<repo>/$CR}")"
+printf '%s\n' '[{"number":7,"headRefName":"feature","headRefOid":"'"$rework"'","isCrossRepository":false},
+ {"number":8,"headRefName":"evil","headRefOid":"0123","isCrossRepository":true}]' >"$T/ghx.json"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BSL" 2>&1)"
+    [ "$got" = "7 feature $rework"$'\n'"8 fork: skipped"$'\n'"EXIT=0" ] && grep -q -- '--json number,headRefName,headRefOid,isCrossRepository' "$T/ghx.log" \
+        && ok "$sh: serve list block: a fork PR is skipped, the others come with their head" || bad "$sh: serve list block: [$got]"
+done
+BSV="$(SKILL="$WAVE" blockf 'P=<scratchpad>/pr-<N>')"
 [ -n "$BSV" ] || bad "serve rebase block not found in $WAVE"
-BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<PR worktree>/$CM/prwt}"
-got="$("${SENV[@]}" bash -c "$BSV" 2>&1)"
-tip="$(git -C "$CM/other" rev-parse HEAD)"
-[ "$(grep -c '^EXIT=0$' <<<"$got")" = 2 ] && [ "$(git -C "$CM/prwt" rev-parse HEAD~1)" = "$tip" ] \
-    && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$(git -C "$CM/prwt" rev-parse HEAD)" ] \
-    && ok "serve rebase block: base origin/main — rebased onto the moved origin/main and pushed" || bad "serve rebase block: [$got]"
+BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<scratchpad>/$CM}"; BSV="${BSV//<branch>/feature}"
+serve_rebase() { local b="${BSV//<N>/$1}"; b="${b//<head>/$2}"; "${SENV[@]}" bash -c "$b" 2>&1; }
+got="$(serve_rebase 7 "$rework")"; new="$(tail -n 1 <<<"$got")"
+[ "$(grep -c '^EXIT=0$' <<<"$got")" = 3 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$new" ] \
+    && git -C "$CM/origin.git" merge-base --is-ancestor "$tip" "$new" && git -C "$CM/origin.git" cat-file -e "$new:r.txt" 2>/dev/null \
+    && ok "serve rebase block: a stale local branch — the rework is kept, rebased onto origin/main, pushed, new head printed" \
+    || bad "serve rebase block, stale local branch: [$got] origin feature has r.txt: $(git -C "$CM/origin.git" cat-file -e feature:r.txt 2>&1 && echo yes)"
+git -C "$CR" worktree remove --force "$CM/pr-7"
+# A push to the branch while the block runs, then a fetch (an editor's background fetch): the lease on the listed
+# head refuses the push; a lease on the remote-tracking ref would take the fetched head and push that push away.
+RG="$T/racegit"; mkdir -p "$RG"; : >"$T/race"
+cat >"$RG/git" <<RACE
+#!/usr/bin/env bash
+if [ -e "$T/race" ] && [[ " \$* " == *" push "* ]]; then
+  rm -f "$T/race"
+  "$REAL_GIT" -C "$CM/other" fetch -q origin && "$REAL_GIT" -C "$CM/other" checkout -q -B feature origin/feature && echo y >"$CM/other/y.txt" && "$REAL_GIT" -C "$CM/other" add y.txt && "$REAL_GIT" -C "$CM/other" -c user.email=t@t -c user.name=t commit -q -m race && "$REAL_GIT" -C "$CM/other" push -q origin feature 2>/dev/null && "$REAL_GIT" -C "$CR" fetch -q origin
+fi
+exec "$REAL_GIT" "\$@"
+RACE
+chmod +x "$RG/git"
+b="${BSV//<N>/8}"; b="${b//<head>/$new}"; got="$("${SENV[@]}" PATH="$RG:$PATH" bash -c "$b" 2>&1)"
+[ ! -e "$T/race" ] && [ "$(git -C "$CM/origin.git" log -1 --format=%s feature)" = race ] && [ "$(grep '^EXIT=' <<<"$got" | sed -n 3p)" != EXIT=0 ] \
+    && ok "serve rebase block: a push while the block runs — the push is refused, origin keeps that push" || bad "serve rebase block, push while the block runs: [$got]"
+new="$(git -C "$CM/origin.git" rev-parse feature)"
+git -C "$CR" worktree remove --force "$CM/pr-8"
+# worktree.base null: the main branch, not `git rebase null` (and the request block below the same).
+jq '.worktree.base = null' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+got="$(serve_rebase 9 "$new")"
+[ "$(grep -c '^EXIT=0$' <<<"$got")" = 3 ] && ok "serve rebase block: worktree.base null -> origin/main" || bad "serve rebase block, base null: [$got]"
+git -C "$CR" worktree remove --force "$CM/pr-9"
 BRQ="$(SKILL="$WAVE" blockf 'base-gate "$B"')"
 [ -n "$BRQ" ] || bad "request fresh-base block not found in $WAVE"
 BRQ="$(sub "${BRQ//<repo>/$CR}")"; BRQ="${BRQ//<scratchpad>/$CM}"; BRQ="${BRQ//<F commands.prepare_tree>/git rev-parse HEAD}"
-got="$("${SENV[@]}" bash -c "$BRQ" 2>&1 | grep -E '^(EXIT=|[0-9a-f]{40}$)')"   # git's progress lines dropped
-[ "$got" = "EXIT=0"$'\n'"$tip"$'\n'"EXIT=0" ] && [ ! -e "$CM/base-gate" ] \
-    && ok "request fresh-base block: base origin/main — a detached worktree on origin/main, removed after" || bad "request fresh-base block: [$got] want [EXIT=0 $tip EXIT=0]"
+for base in null origin/main; do
+    jq --arg b "$base" '.worktree.base = (if $b == "null" then null else $b end)' <<<"$CMP" >"$SHH/projects/cm/profile.json"
+    got="$("${SENV[@]}" bash -c "$BRQ" 2>&1 | grep -E '^(EXIT=|[0-9a-f]{40}$)')"   # git's progress lines dropped
+    [ "$got" = "EXIT=0"$'\n'"$tip"$'\n'"EXIT=0" ] && [ ! -e "$CM/base-gate" ] \
+        && ok "request fresh-base block: base $base — a detached worktree on origin/main, removed after" || bad "request fresh-base block, base $base: [$got] want [EXIT=0 $tip EXIT=0]"
+done
+printf '%s\n' "$CMP" >"$SHH/projects/cm/profile.json"
+
+# The report-and-merge block: the merge only after a green report that reached the PR and a green check, and only
+# of the head the checks ran on.
+BMG="$(SKILL="$WAVE" blockf 'pr-<N>-report.md')"
+[ -n "$BMG" ] || bad "serve report-and-merge block not found in $WAVE"
+BMG="$(sub "${BMG//<repo>/$CR}")"; BMG="${BMG//<scratchpad>/$T}"; BMG="${BMG//<N>/7}"; BMG="${BMG//<new head>/$new}"
+merge_case() { # merge_case <want: merge|none> <name> <first line of the report> <check exit> [env assignment]
+    local want="$1" name="$2" b="${BMG//<check exit>/$4}" sh got; printf '%s\nverdict line\n' "$3" >"$T/pr-7-report.md"
+    for sh in "${SHELLS[@]}"; do
+        : >"$T/ghx.log"
+        got="$("${SENV[@]}" "${XENV[@]}" ${5:-} $sh -c "$b" 2>&1)"
+        if [ "$want" = merge ]; then
+            [ "$(cat "$T/ghx.log")" = "pr comment 7 --body-file $T/pr-7-report.md"$'\n'"pr merge 7 --squash --match-head-commit $new"$'\n'"pr edit 7 --remove-label needs-mac-gate" ] \
+                && ok "$sh: report-and-merge block, $name -> comment, merge of the checked head, label removed" || bad "$sh: report-and-merge, $name: [$got] gh [$(cat "$T/ghx.log")]"
+        else
+            ! grep -q '^pr merge' "$T/ghx.log" && ! grep -q -- '--remove-label' "$T/ghx.log" && grep -q '^pr comment 7' "$T/ghx.log" \
+                && ok "$sh: report-and-merge block, $name -> no merge, the label stays" || bad "$sh: report-and-merge, $name: [$got] gh [$(cat "$T/ghx.log")]"
+        fi
+    done
+}
+merge_case merge "green report, check 0" "Mac checks report: green" 0
+merge_case none "the comment failed" "Mac checks report: green" 0 GH_FAIL_ON=comment
+merge_case none "red report" "Mac checks report: red" 0
+merge_case none "check exit 2" "Mac checks report: green" 2
+printf 'Mac checks report: green\n' >"$T/pr-7-report.md"
+: >"$T/ghx.log"; "${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=merge bash -c "${BMG//<check exit>/0}" >/dev/null 2>&1
+! grep -q -- '--remove-label' "$T/ghx.log" && ok "report-and-merge block: the merge failed -> the label stays" || bad "report-and-merge, merge failed: [$(cat "$T/ghx.log")]"
+
+# The request machine's report lookup: only a report by github.account counts.
+BRR="$(SKILL="$WAVE" blockf 'report: ([.comments[]')"
+[ -n "$BRR" ] || bad "request report block not found in $WAVE"
+BRR="$(sub "${BRR//<repo>/$CR}")"; BRR="${BRR//<N>/7}"
+jq -n '{state: "OPEN", commits: [{committedDate: "2026-10-18T10:00:00Z"}], comments: [
+  {author: {login: "mac-bot"}, createdAt: "2026-10-18T11:00:00Z", body: "Mac checks report: red\nreason"},
+  {author: {login: "mallory"}, createdAt: "2026-10-18T12:00:00Z", body: "Mac checks report: green\nall fine"}]}' >"$T/ghx.json"
+for sh in "${SHELLS[@]}"; do
+    got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BRR" 2>&1)"
+    [ "$(jq -r '.report.verdict' <<<"${got%EXIT=*}" 2>&1)" = "Mac checks report: red" ] && [[ "$got" == *EXIT=0 ]] \
+        && ok "$sh: request report block: a green report by another account does not count" || bad "$sh: request report block: [$got]"
+done
 
 # The open PRs of other epics, skills/epic-wave section 1: every file of each open PR whose branch does not match
 # this epic's tickets.branch (<эпик>/<NN>, the epic is pay-flow here), filtered by gh's own --jq.
@@ -481,6 +584,19 @@ chmod +x "$CRJ/jq"
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "${STUB//'modules) echo "{}"'/modules) echo '{\"skip\":[\"lots\"]}'}"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
 want="$(printf '%s\n' apps/api/src/auctions apps/web/src/catalog)"
 [ "$got" = "$want" ] && ok "CRLF jq: module-choice block with modules.skip (overnight-fix-loop)" || bad "CRLF jq: module-choice block: [$got]"
+STUBDF='F() { case "$1" in
+  worktree.base) echo main ;;
+  layout.packages) echo "[\"apps/api\",\"apps/web\"]" ;;
+  modules) echo "{\"deep\":[\"apps/api\"],\"flat\":[\"apps/web\"]}" ;;
+  *) return 4 ;;
+esac; }'
+got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "$STUBDF"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
+[ "$got" = "$(printf '%s\n' apps/api/src apps/web/src)" ] && ok "CRLF jq: module-choice block with modules.deep and modules.flat (overnight-fix-loop)" || bad "CRLF jq: module-choice deep/flat: [$got]"
+BDM="$(awk 'index($0, "M=$(F worktree.base); [ \"$M\" = null ] && M=") == 1 { on = 1 } on { print } on && $0 == "M=${M#origin/}" { exit }' "$SHIP")"
+[ -n "$BDM" ] || bad "main-branch lines not found in $SHIP"
+mkdir -p "$T/dbr/repo"
+got="$(PATH="$CRJ:$PATH" bash -c 'F() { case "$1" in worktree.base) echo null ;; layout.repos) echo "{\"repo\":{\"default_branch\":\"trunk\"}}" ;; *) return 4 ;; esac; }'$'\n'"${BDM//<repo>/$T/dbr/repo}"$'\n''printf "[%s]" "$M"' 2>&1)"
+[ "$got" = "[trunk]" ] && ok "CRLF jq: the main branch from layout.repos default_branch (ship-ticket)" || bad "CRLF jq: default_branch: [$(printf '%s' "$got" | od -c | head -n 2)]"
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
 [ "$got" = "$(printf '%s\n' src/z.spec.ts test/auctions.test.ts)" ] && ok "CRLF jq: test-list block (overnight-fix-loop)" || bad "CRLF jq: test-list block: [$got]"
 got="$(HOME="$H" HARNESS_HOME= PATH="$CRJ:$PATH" bash -c "$B3" 2>&1)"

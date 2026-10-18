@@ -516,12 +516,14 @@ marks them itself, the skill does not decide which — one line each, with its e
 ``- `<command>` — <expected result>``. No such item — the single line `none`. Write those lines into
 `<section file>` first; the block prints `label` or `no-label`, or a line starting with `ERROR:`
 when `gh` failed or listed no files (right after `gh pr create` the list can still be empty): run the
-block again then, never take that for `no-label`:
+block again then, never take that for `no-label`. A broken profile (`bin/profile` exit 1) is an
+`ERROR:` too, not an absent field:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-role=$(F cross_machine_gate.role)
-if [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
+role=$(F cross_machine_gate.role); rc=$?                # 4 — no such field; 1 — a broken profile or registry
+if [ "$rc" != 0 ] && [ "$rc" != 4 ]; then echo "ERROR: bin/profile exit $rc: the profile or the registry is broken — run it without 2>/dev/null"
+elif [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
 elif ! files=$(gh pr view <N> --json files --jq '.files[].path'); then echo "ERROR: gh pr view <N> failed: run the block again"
 elif [ -z "$files" ]; then echo "ERROR: PR <N> lists no files yet: run the block again"
 else
