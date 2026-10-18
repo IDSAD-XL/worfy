@@ -47,9 +47,9 @@ Source: «Итог» [Ticket-а 26](26-test-ы-на-windows-оставляют-�
 
 ## Готово, когда
 
-- [ ] Test (contract, все системы): изменение Layout, сразу `projects.remove`; `layout.json` содержит изменение; в логе нет строки об ошибке; `flushAll()` после этого ничего не пишет и ничего не логирует.
-- [ ] Test: после удаления и нового добавления в том же запуске Layout читается с диска.
-- [ ] Пункт 3: решение записано в «Итог»; если граница введена — test «двенадцать изменений с шагом 100 ms: файл появляется не позже границы».
+- [x] Test (contract, все системы): изменение Layout, сразу `projects.remove`; `layout.json` содержит изменение; в логе нет строки об ошибке; `flushAll()` после этого ничего не пишет и ничего не логирует.
+- [x] Test: после удаления и нового добавления в том же запуске Layout читается с диска.
+- [x] Пункт 3: решение записано в «Итог»; если граница введена — test «двенадцать изменений с шагом 100 ms: файл появляется не позже границы».
 - [ ] Формулировка в «Итоге» Ticket-а 26 исправлена.
 - [ ] `gate full` зелёный на Mac.
 
@@ -78,4 +78,48 @@ Source: «Итог» [Ticket-а 26](26-test-ы-на-windows-оставляют-�
 
 ## Итог
 
-—
+Windows Session, 2026-10-18, ветка `worfy-windows/31` от main 3c23d7a4. Commit с правкой — 6555361a.
+
+### Причина (подтверждена на текущем коде)
+
+- `flush()` берёт путь `layout.json` у списка Project-ов в момент записи (`src/main/layout/store.ts:242` до правки). Для убранного Project-а это бросает `No Project with id …`, ошибка уходит в лог (`:245`), запись остаётся «несохранённой».
+- `projects.remove` сразу звал `store.remove` (`src/main/ipc/projects.ts:310` до правки), отложенную запись ничто не дописывало. Red run воспроизвёл это на Windows: в логе та же строка `[layout] could not save the Layout of auction-… No Project with id …`.
+
+### Что сделано
+
+- **Пункт 1.** `projects.remove` сначала зовёт `layoutStore().flush(id)`, пока Project ещё в списке (`src/main/ipc/projects.ts:315`).
+- **Пункт 2.** Новый метод `LayoutStore.forget(id)` (`src/main/layout/store.ts:280`): останавливает timer-ы и убирает запись из памяти. Зовётся после `store.remove` (`projects.ts:317`). Повторное добавление читает файл, выход ничего не пишет и не логирует. Если запись перед удалением не прошла (диск, права), `flush` пишет ошибку в лог, а `forget` пишет вторую строку — что несохранённые изменения потеряны. Молча не глотается.
+- **Риск с Linked machine.** `flush` не бросает исключений, поэтому отказ `keepActive` (удаление активного Project-а с Linked machine) проходит как раньше. `forget` при отказе не вызывается: исключение летит раньше. Это покрыто test-ом.
+- **Пункт 3 — граница введена: 1000 ms.** `LAYOUT_SAVE_MAX_DELAY_MS = 1000` (`store.ts:37`). Первое несохранённое изменение заводит второй timer (`store.ts:247`), следующие изменения его не сдвигают. `flush` останавливает оба. Почему 1000: аварийное завершение теряет не больше секунды. При непрерывных изменениях запись идёт раз в секунду, это дёшево. Число меньше 1,2 s, поэтому ticket-овый test «двенадцать изменений с шагом 100 ms» проверяет именно границу. Опция конструктора `maxDelayMs` — для test-ов.
+- **Существующий test** «debounces writes: a burst of operations is one write» укорочен: было 20 операций по 125 ms (2,5 s), стало 6 (750 ms). Иначе burst длиннее границы и по новому правилу пишется по ходу. Смысл test-а прежний.
+- **Другой путь** (хранить путь файла в записи) не выбран: в памяти осталась бы запись, а повторное добавление не перечитывало бы файл.
+
+### Test-ы (`test/contract/layout-store.test.ts`)
+
+- describe «layout store: projects.remove of a Project with a change not yet written», на настоящем `projects.add`/`projects.remove` через IPC и git-репозитории во временной папке:
+  - изменение ждёт записи, сразу `projects.remove` → оно в `layout.json`, ошибок `[layout]` нет. Затем файл удаляется, ждём 2 × 250 ms и зовём обработчики `will-quit`: файл не появился, в логе пусто;
+  - после удаления и нового добавления в том же запуске Layout читается с диска (файл изменён, пока Project вне списка);
+  - Linked machine удаляет активный Project → отказ, Layout продолжает работать и пишется.
+- «operations with no quiet period between them are still written, LAYOUT_SAVE_MAX_DELAY_MS at the latest after the first one» — двенадцать изменений с шагом 100 ms.
+- `start()` в test-е принимает `{ trash, projects }` вместо одного флага; `call()` принимает sender.
+
+### Команды и exit codes (Windows 11, `node scripts/vitest-electron.mjs …`, каждый run вместе с `test/unit/no-rmsync.test.ts` и `test/unit/e2e-no-spawn-on-load.test.ts`)
+
+- **Red** (test-ы есть, правки нет): `layout-store.test.ts` — exit 1. Упали 3 из 108: два первых test-а нового describe и test границы. Test про Linked machine проходил и до правки: он сторожит риск, а не ловит дефект.
+- **Green** по всем contract test-ам, которые импортируют `layout/store`, `ipc/projects` или `ipc/layout` (23 файла), плюс `test/unit/test-remove.test.ts`: exit 1, 22 failed / 656 passed / 6 skipped. Все 22 падения — в `projects.test.ts` (10), `canvas-tools.test.ts` (4), `projects-connect.test.ts` (4), `link-access.test.ts` (3), `link-server.test.ts` (1). Это пути `/` против `\`, symlink, linked worktree, код закрытия 1006 вместо 1009 — Windows-проблемы других ticket-ов. **Проверено, что не от этой правки:** те же пять файлов с `src/main/ipc/projects.ts` и `src/main/layout/store.ts` из HEAD — exit 1, те же 22 test-а (списки имён совпали, `diff` exit 0). Затем правка возвращена, `cmp` exit 0.
+- **Green, финальный, на commit-е:** `layout-store`, `layout-pin-tag`, `viewport-store`, `trash` — exit 0, 157 passed / 1 skipped.
+- `CI=true pnpm lint` — exit 0. `CI=true pnpm typecheck` — exit 0.
+
+### Мутанты (каждый отдельно; файл восстановлен из копии, `cmp` exit 0, `git diff --quiet` exit 0 после каждого)
+
+- Убран `flush` перед удалением — убит (exit 1): падают «the change is in layout.json…» и «added again…».
+- Убран вызов `forget` после удаления — убит (exit 1): падает «added again…».
+- В `forget` убрано `entries.delete` — убит (exit 1): падает «added again…».
+- Убран timer границы (`entry.deadline ??= …`) — убит (exit 1): падает test границы.
+
+### Не проверено / не сделано
+
+- **Пункт 4 не сделан:** правило Windows Session запрещает править другие ticket-ы. Править нужно `26-…md:197`: «Теряется то, что изменено за последние 250 ms» → «всё, что изменено после последней записи; видно после перезапуска и нового добавления».
+- `gate full` на Mac не запускался.
+- В живом приложении (Electron с окном) не проверялось — только contract test-ы.
+- Мутант «`flush` не останавливает timer границы» не запускался: тогда следующая серия изменений осталась бы без границы, и test этого не ловит.
