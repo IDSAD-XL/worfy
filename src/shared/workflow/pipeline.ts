@@ -176,8 +176,11 @@ export const ticketStageSchema = z.object({
   waits: z.string().nullable(),
   /** When the Ticket entered the Stage, ISO; from structured times only, null when none is known. */
   enteredAt: z.string().nullable(),
-  /** The time of its `Status:` line as the file has it: with Waits, the key of one wait (ticket 06). */
-  statusAt: z.string().nullable(),
+  /**
+   * The time of its `Status:` line as the file has it: with Waits, the key of one wait (ticket 06).
+   * Optional, and absent reads as null: a Linked machine's older worfy does not send it.
+   */
+  statusAt: z.string().nullable().optional(),
 })
 export type TicketStage = z.infer<typeof ticketStageSchema>
 

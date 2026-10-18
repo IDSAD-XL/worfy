@@ -307,3 +307,16 @@ describe('onStageFor', () => {
     expect(onStageFor('CI', 47 * HOUR)).toBe('on CI for 47 h')
   })
 })
+
+describe('a snapshot across the link between Machines (worfy-pipeline ticket 06)', () => {
+  it('a Linked machine on an older build sends no statusAt: its snapshot still reads, and statusAt is absent', async () => {
+    const { pipelineSnapshotSchema } = await import('../../src/shared/ipc/pipeline')
+    const ticket = { epic: 'worfy-link', num: 16, stage: 'ci', index: 2, kind: 'ci', passed: ['queued', 'implementing'], skipped: [], blocked: null, rework: false, sub: null, waits: 'agent', enteredAt: null }
+    const parsed = pipelineSnapshotSchema.safeParse({ root: '/projects/worfy', pipeline: [], tickets: [ticket], error: null })
+    expect(parsed.error?.issues).toBeUndefined()
+    expect(parsed.data?.tickets[0]?.statusAt).toBeUndefined()
+    // A snapshot of this build keeps its time, and null stays null.
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, statusAt: '2026-10-18T10:00Z' }], error: null }).tickets[0]?.statusAt).toBe('2026-10-18T10:00Z')
+    expect(pipelineSnapshotSchema.parse({ root: '/r', pipeline: [], tickets: [{ ...ticket, statusAt: null }], error: null }).tickets[0]?.statusAt).toBeNull()
+  })
+})

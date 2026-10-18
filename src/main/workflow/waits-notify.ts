@@ -8,6 +8,7 @@
 // itself counts: the first snapshot of a Project is its start, and what already waited then gives
 // none. Other transitions (CI red, a failed review) are left to the board.
 import type { PipelineSnapshot } from '../../shared/ipc/pipeline'
+import { MAX_INTERVAL_MS } from '../github/prs'
 import type { TicketNote } from '../notify'
 import type { StageHub, StageSubscriber } from './stages'
 
@@ -23,7 +24,7 @@ const SUBSCRIBER_ID = 'waits-notify'
 const refOf = (ticket: { epic: string; num: number }): string => `${ticket.epic} ${String(ticket.num).padStart(2, '0')}`
 
 /** The key of one wait: the Ticket and the time of its Status. */
-const waitKey = (ticket: { epic: string; num: number; statusAt: string | null }): string => `${ticket.epic}\0${ticket.num}\0${ticket.statusAt ?? ''}`
+const waitKey = (ticket: { epic: string; num: number; statusAt?: string | null }): string => `${ticket.epic}\0${ticket.num}\0${ticket.statusAt ?? ''}`
 
 /** The notes of the waits for the owner, from the Stage snapshots of each Project. */
 export class WaitsNotices {
@@ -32,13 +33,17 @@ export class WaitsNotices {
 
   constructor(private readonly display: { show(note: TicketNote): void }) {}
 
-  read(snapshot: PipelineSnapshot): void {
+  /**
+   * Reads a snapshot of the Project followed as `root`. That spelling is the key, not
+   * `snapshot.root`: the Stage hub answers path.resolve's, which on Windows differs from the list's.
+   */
+  read(snapshot: PipelineSnapshot, root = snapshot.root): void {
     // The workflow model failed and the snapshot names no Ticket: neither a start nor a change.
     if (snapshot.tickets.length === 0 && snapshot.error !== null) return
-    const seen = this.seen.get(snapshot.root)
+    const seen = this.seen.get(root)
     const waiting = snapshot.tickets.filter((ticket) => ticket.waits === 'owner')
     if (seen === undefined) {
-      this.seen.set(snapshot.root, new Set(waiting.map(waitKey)))
+      this.seen.set(root, new Set(waiting.map(waitKey)))
       return
     }
     for (const ticket of waiting) {
@@ -65,8 +70,10 @@ export class WaitsNotices {
 /**
  * Follows the Stages of every Project of `projects()` (read again each `intervalMs` for Projects
  * that came or went) and shows the notes of the waits for the owner on `display` (a NoteDisplay,
- * so the focus rule and the 10 s of a Session's note hold for them too). Answers the
- * function that stops it; the app calls it on quit.
+ * so the focus rule and the 10 s of a Session's note hold for them too). A Project whose Stages
+ * could not be read is tried again after a pause that doubles from `intervalMs` up to
+ * MAX_INTERVAL_MS, as the PR tracker's does. Answers the function that stops it; the app calls it on
+ * quit (installNotifications's stop, on `will-quit`).
  */
 export function installWaitsNotifications(
   hub: WaitsHub,
@@ -78,6 +85,9 @@ export function installWaitsNotifications(
   const notices = new WaitsNotices(display)
   /** The Projects followed, by root; each subscriber knows whether its Project had a snapshot yet. */
   const followed = new Map<string, { got: boolean }>()
+  /** The Projects whose Stages could not be read: the pause in ticks, and the ticks still to wait. */
+  const retries = new Map<string, { pause: number; left: number }>()
+  const maxPause = Math.max(1, Math.ceil(MAX_INTERVAL_MS / intervalMs))
   let stopped = false
 
   const follow = (root: string): void => {
@@ -86,7 +96,7 @@ export function installWaitsNotifications(
     const read = (snapshot: PipelineSnapshot): void => {
       if (stopped || followed.get(root) !== state) return
       state.got = true
-      notices.read(snapshot)
+      notices.read(snapshot, root)
     }
     const subscriber: StageSubscriber = { id: SUBSCRIBER_ID, send: read }
     hub.open(root, subscriber).then(
@@ -95,8 +105,11 @@ export function installWaitsNotifications(
         if (!state.got) read(snapshot)
       },
       (error: unknown) => {
-        log(`[waits-notify] ${root}: the Stages could not be read; tried again in a minute`, error)
-        if (followed.get(root) !== state) return
+        // The Project left the list (and maybe came back) meanwhile: this answer is no one's.
+        if (stopped || followed.get(root) !== state) return
+        const pause = Math.min(maxPause, (retries.get(root)?.pause ?? 0.5) * 2)
+        retries.set(root, { pause, left: pause })
+        log(`[waits-notify] ${root}: the Stages could not be read; tried again in ${Math.round((pause * intervalMs) / 1000)} s`, error)
         followed.delete(root)
         void hub.close(root, SUBSCRIBER_ID).catch(() => undefined)
       },
@@ -112,7 +125,13 @@ export function installWaitsNotifications(
   const tick = (): void => {
     if (stopped) return
     const roots = new Set(projects().map((project) => project.path))
-    for (const root of roots) if (!followed.has(root)) follow(root)
+    for (const root of [...retries.keys()]) if (!roots.has(root)) retries.delete(root)
+    for (const root of roots) {
+      if (followed.has(root)) continue
+      const retry = retries.get(root)
+      if (retry !== undefined && --retry.left > 0) continue
+      follow(root)
+    }
     for (const root of [...followed.keys()]) if (!roots.has(root)) unfollow(root)
   }
 

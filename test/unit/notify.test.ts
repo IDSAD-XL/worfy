@@ -954,6 +954,25 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline ticket 06)',
     expect(w.shown).toEqual([])
   })
 
+  it('a snapshot with Tickets and an error (gh unavailable, the Profile unread) still notifies: the error only marks facts missing', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read({ ...snapshot([owner('worfy-link', 16, 'приёмка')]), error: 'gh is unavailable' })
+    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 16 ждёт тебя'])
+  })
+
+  it('two Projects with the same epic and NN, both waiting within 10 s: each gives its notification', () => {
+    const w = waits()
+    w.notices.read(snapshot([], '/projects/a'))
+    w.notices.read(snapshot([], '/projects/b'))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'a')], '/projects/a'))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'b')], '/projects/b'))
+    expect(w.shown.map((each) => [each.note.projectRoot, each.note.title])).toEqual([
+      ['/projects/a', 'worfy-link 16 ждёт тебя'],
+      ['/projects/b', 'worfy-link 16 ждёт тебя'],
+    ])
+  })
+
   it('the old rules of showing: none while a worfy window has focus, and one per Ticket in 10 s', () => {
     const w = waits()
     w.notices.read(snapshot([]))
@@ -1095,6 +1114,175 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline ticket 06)',
       expect(closed.slice(2).sort()).toEqual(['/projects/a', '/projects/c'])
       await vi.advanceTimersByTimeAsync(120_000)
       expect(hub.open).toHaveBeenCalledTimes(4)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /** A Stage hub whose every open waits for the test: `answer(i, …)` resolves the i-th, `fail(i)` rejects it. */
+  function heldHub() {
+    const opens: { root: string; subscriber: StageSubscriber; resolve: (snapshot: PipelineSnapshot) => void; reject: (error: Error) => void }[] = []
+    const closed: string[] = []
+    const hub = {
+      open: (root: string, subscriber: StageSubscriber) =>
+        new Promise<PipelineSnapshot>((resolve, reject) => {
+          opens.push({ root, subscriber, resolve, reject })
+        }),
+      close: async (root: string) => {
+        closed.push(root)
+        return true
+      },
+    }
+    return { hub, opens, closed }
+  }
+
+  it('a Project removed from the list and added again starts afresh: what began to wait while it was gone gives none', async () => {
+    vi.useFakeTimers()
+    try {
+      const { hub, opens } = heldHub()
+      let list = [{ path: ROOT }]
+      const shown: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+      opens[0]!.resolve(snapshot([]))
+      await vi.advanceTimersByTimeAsync(0)
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      list = [{ path: ROOT }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(opens).toHaveLength(2)
+      opens[1]!.resolve(snapshot([owner('e', 1, 'began while gone')]))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(shown).toEqual([])
+      opens[1]!.subscriber.send(snapshot([owner('e', 1, 'began while gone'), owner('e', 2, 'new')]))
+      expect(shown).toEqual(['e 02 ждёт тебя'])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the Stage hub answers in its own spelling of the root (path.resolve, C:\\… on Windows): a Project removed and added again still starts afresh', async () => {
+    vi.useFakeTimers()
+    try {
+      const { hub, opens } = heldHub()
+      const listed = 'C:/Users/owner/worfy'
+      const resolved = 'C:\\Users\\owner\\worfy'
+      let list = [{ path: listed }]
+      const shown: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+      opens[0]!.resolve(snapshot([], resolved))
+      await vi.advanceTimersByTimeAsync(0)
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      list = [{ path: listed }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      opens[1]!.resolve(snapshot([owner('e', 1, 'began while gone')], resolved))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(shown).toEqual([])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the answer of an open made before the Project left the list and came back changes nothing: the new open is the start', async () => {
+    vi.useFakeTimers()
+    try {
+      const { hub, opens } = heldHub()
+      let list = [{ path: ROOT }]
+      const shown: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      list = [{ path: ROOT }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(opens).toHaveLength(2)
+      // The old open answers late, with an older snapshot: were it the start, e 1 would look new.
+      opens[0]!.resolve(snapshot([]))
+      await vi.advanceTimersByTimeAsync(0)
+      opens[1]!.resolve(snapshot([owner('e', 1, 'already')]))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(shown).toEqual([])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a rejection of an open made before the Project left the list and came back lets the new follow be: it is not closed and still notifies', async () => {
+    vi.useFakeTimers()
+    try {
+      const { hub, opens, closed } = heldHub()
+      let list = [{ path: ROOT }]
+      const shown: string[] = []
+      const logs: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: (note: { title: string }) => shown.push(note.title) }, 60_000, (message) => logs.push(message))
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(closed).toEqual([ROOT])
+      list = [{ path: ROOT }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      opens[1]!.resolve(snapshot([]))
+      await vi.advanceTimersByTimeAsync(0)
+      opens[0]!.reject(new Error('the Stages could not be computed'))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(closed).toEqual([ROOT])
+      expect(logs).toEqual([])
+      opens[1]!.subscriber.send(snapshot([owner('e', 1, 'new')]))
+      expect(shown).toEqual(['e 01 ждёт тебя'])
+      // Nor is the Project opened again: it is followed.
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(opens).toHaveLength(2)
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a Project whose Stages keep failing is tried again after a pause that doubles up to 32 minutes; one warn line per try', async () => {
+    vi.useFakeTimers()
+    try {
+      let opens = 0
+      let fails = true
+      const hub = {
+        open: vi.fn(async () => {
+          opens += 1
+          if (fails) throw new Error('the Stages could not be computed')
+          return snapshot([])
+        }),
+        close: vi.fn(async () => true),
+      }
+      let list = [{ path: ROOT }]
+      const logs: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: () => undefined }, 60_000, (message) => logs.push(message))
+      await vi.advanceTimersByTimeAsync(0)
+      // Tries at minutes 0, 1, 3, 7, 15, 31, 63, then every 32 minutes: 95, 127.
+      const at: number[] = [0]
+      for (let minute = 1; minute <= 127; minute += 1) {
+        const before = opens
+        await vi.advanceTimersByTimeAsync(60_000)
+        if (opens > before) at.push(minute)
+      }
+      expect(at).toEqual([0, 1, 3, 7, 15, 31, 63, 95, 127])
+      expect(logs).toHaveLength(9)
+      expect(logs.at(-1)).toContain('tried again in 1920 s')
+      // Gone from the list and back: the pause starts over.
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      list = [{ path: ROOT }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(opens).toBe(10)
+      expect(logs.at(-1)).toContain('tried again in 60 s')
+      // A read that succeeds ends the tries: the Project is followed.
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(opens).toBe(11)
+      fails = false
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(opens).toBe(12)
+      await vi.advanceTimersByTimeAsync(40 * 60_000)
+      expect(opens).toBe(12)
+      expect(logs).toHaveLength(11)
+      stop()
     } finally {
       vi.useRealTimers()
     }

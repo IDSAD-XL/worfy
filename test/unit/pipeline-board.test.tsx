@@ -496,6 +496,41 @@ describe('stuck Tickets on the board and in the section (worfy-pipeline ticket 0
     expect(cardOf('worfy-pipeline', 7).dataset.stuck).toBe('true')
   })
 
+  // The clock of the board and the section ticks each minute: with setInterval faked too, a minute
+  // passes without a new snapshot.
+  const atWithClock = (time: string) => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date(time))
+  }
+
+  it('a card that passes the threshold while the board is open gets its frame a minute later, without a new snapshot', async () => {
+    atWithClock('2026-10-17T11:59:30Z')
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="worfy" snapshot={worfySnapshot()} titles={TITLES} onOpenTicket={() => undefined} />)
+    expect(cardOf('worfy-pipeline', 6).dataset.stuck).toBeUndefined()
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(cardOf('worfy-pipeline', 6).dataset.stuck).toBe('true')
+    expect(cardOf('worfy-pipeline', 6).title).toContain('stuck: on CI for 2 h')
+  })
+
+  it('a row of the section that passes the threshold gets its frame a minute later, without a new snapshot', async () => {
+    atWithClock('2026-10-17T11:59:30Z')
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
+    render(<PipelineSection />)
+    // vi.waitFor polls with the real timers: setInterval is faked here.
+    await vi.waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
+    const row = (num: number) => screen.getAllByTestId('pipeline-row').find((each) => each.dataset.project === 'worfy-00000001' && each.dataset.ticket === String(num))!
+    expect(row(6).dataset.stuck).toBeUndefined()
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(row(6).dataset.stuck).toBe('true')
+    expect(row(6).title).toContain('stuck: on CI for 2 h')
+  })
+
   it('a row of the section past the threshold has the frame and the time in its tooltip', async () => {
     at('2026-10-17T13:00:00Z')
     preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })

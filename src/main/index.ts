@@ -131,7 +131,8 @@ function start(): void {
       // hour (worfy-windows ticket 17), for the Projects in worfy's list; and the notification of a
       // Ticket of those Projects that comes to wait for the owner (worfy-pipeline ticket 06).
       inStep('installNotifications', () => {
-        installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: stageHub, projects: () => projectStore().list() })
+        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: stageHub, projects: () => projectStore().list() })
+        app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
       })
