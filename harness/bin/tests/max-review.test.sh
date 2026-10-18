@@ -129,15 +129,16 @@ check "a MAX-REVIEW: REJECTED PR comment is not counted as a REJECTED round" \
     test "$(jq -n --arg b "$v_rej" '[$b | select(startswith("REJECTED"))] | length')" = 0
 check "a gate: MAX-REVIEW: REJECTED commit is not counted as a gate: REJECTED round" \
     test "$(printf 'gate: %s\n' "$v_rej" | grep -c '^gate: REJECTED')" = 0
-# worfy reads a PR's verdict with the VERDICT regex of src/main/github/prs.ts: MAX-REVIEW: must not match it.
+# worfy reads PR comments only for the narrow round's journal, with the NARROW regex of
+# src/main/github/prs.ts; the verdict is the review mark (ADR-0067). MAX-REVIEW: must not match it.
 PRS="${PRS_FILE:-$REPO/src/main/github/prs.ts}"
-re="$(sed -n 's|^const VERDICT = /\(.*\)/u$|\1|p' "$PRS")"
-check "prs.ts VERDICT regex found" test -n "$re"
+re="$(sed -n 's|^const NARROW = /\(.*\)/u$|\1|p' "$PRS")"
+check "prs.ts NARROW regex found" test -n "$re"
 matches() { RE="$1" perl -e 'exit(($ARGV[0] =~ /$ENV{RE}/) ? 0 : 1)' "$2"; }
 no_match() { ! matches "$@"; }
-check "worfy's PR verdict reader sees NARROW: REJECTED (the regex works here)" matches "$re" 'NARROW: REJECTED: x'
-check "worfy's PR verdict reader does not see MAX-REVIEW: REJECTED" no_match "$re" "$v_rej"
-check "worfy's PR verdict reader does not see MAX-REVIEW: VERIFIED" no_match "$re" 'MAX-REVIEW: VERIFIED'
+check "worfy's PR comment reader sees NARROW: REJECTED (the regex works here)" matches "$re" 'NARROW: REJECTED: x'
+check "worfy's PR comment reader does not see MAX-REVIEW: REJECTED" no_match "$re" "$v_rej"
+check "worfy's PR comment reader does not see MAX-REVIEW: VERIFIED" no_match "$re" 'MAX-REVIEW: VERIFIED'
 
 # --- 11. Behaviour: the resume blocks of epic-wave on real verdicts ---------------------------------------
 # Each block is cut out of the How to resume section and run. Full mode: a repository whose ticket branch

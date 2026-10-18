@@ -305,10 +305,11 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     const shots = await snapshotThemes(window, 'epic-frame-elk')
     console.log(`epic frame by ELK: ${shots.light} ${shots.dark}`)
 
-    // `ticket claim` rewrites the Status line; the chip follows without a restart.
+    // `ticket claim` rewrites the Status line; the Card follows without a restart.
     const first = join(repo, '.scratch', 'worfy-mvp', 'issues', readdirSync(join(repo, '.scratch', 'worfy-mvp', 'issues')).find((f) => f.startsWith('01-'))!)
-    // The moment the chip changes is taken inside the page by a MutationObserver, so the polling
-    // interval of Playwright's assertions is not counted. Both clocks are this machine's.
+    // The moment the Card's state changes (its data-state, which the stepper follows) is taken inside
+    // the page by a MutationObserver, so the polling interval of Playwright's assertions is not
+    // counted. Both clocks are this machine's.
     await window.evaluate(() => {
       const page = globalThis as unknown as {
         document: { querySelector(selector: string): object | null; body: object }
@@ -332,7 +333,8 @@ test('the worfy-mvp Epic: columns by level, places and routes by ELK in a worker
     const elapsed = shownAt! - started
     console.log(`status change shown after ${elapsed} ms`)
     expect(elapsed).toBeLessThanOrEqual(1_000)
-    await expect(ticketNode(window, 1).getByText('claimed')).toBeVisible()
+    // The Card names the Stage the claim moved it to (worfy-pipeline ticket 05), not the status word.
+    await expect(ticketNode(window, 1)).toHaveAttribute('aria-label', 'Ticket 01, Implementing')
     // Wave 1 is taken: nothing is ready now.
     await expect(window.getByTestId('ticket-ready')).toHaveCount(0)
     await expect(window.locator('[data-testid="ticket-node"][data-ready="true"]')).toHaveCount(0)
@@ -584,7 +586,7 @@ const hexToRgb = (hex: string): string => {
   return `rgb(${r}, ${g}, ${b})`
 }
 
-test('state chips use the F tokens in both themes and always carry a label; the done stack, collapsing and the sidebar work', async () => {
+test('the steppers use the F tokens in both themes and always carry a label; the done stack, collapsing and the sidebar work', async () => {
   makeClaudeHome()
   const repo = makeProject((dir) => {
     const issues = join(dir, 'demo', 'issues')
@@ -613,31 +615,45 @@ test('state chips use the F tokens in both themes and always carry a label; the 
     await expect(ticketNode(window, 5)).toContainText('is not a list of tickets')
     await expect(frame.getByText('Needs attention')).toBeVisible()
 
-    const chips = [
-      { num: 1, status: 'done', label: 'done', bg: '--done-bg', fg: '--done-text' },
-      { num: 2, status: 'working', label: 'claimed', bg: '--working-bg', fg: '--working-text' },
-      { num: 3, status: 'blocked', label: 'blocked', bg: '--blocked-bg', fg: '--blocked-text' },
-      { num: 4, status: 'open', label: 'open', bg: '--surface-raised', fg: '--text-secondary' },
+    // The stepper of each Card in place of the old state chip (worfy-pipeline ticket 05): the
+    // Stage's name as a chip in the old chip's colours, the current dot in the F token of its state
+    // (blocked: the ring), and on the blocked Card a flag with the reason.
+    const steps = [
+      { num: 1, stage: 'Done', bg: '--done-bg', fg: '--done-text', dot: '--ready-dot', ring: false },
+      { num: 2, stage: 'Implementing', bg: '--working-bg', fg: '--working-text', dot: '--working-dot', ring: false },
+      { num: 3, stage: 'Implementing', bg: '--blocked-bg', fg: '--blocked-text', dot: '--blocked-ring', ring: true },
+      { num: 4, stage: 'Queued', bg: '--surface-raised', fg: '--text-secondary', dot: '--border-strong', ring: false },
     ]
+    const colorsOf = (element: Locator, names: string[]) =>
+      element.evaluate(
+        (node, names) => {
+          const { document, getComputedStyle } = globalThis as unknown as PageGlobals
+          const root = getComputedStyle(document.documentElement)
+          const style = getComputedStyle(node) as unknown as { backgroundColor: string; color: string; borderTopColor: string }
+          return { bg: style.backgroundColor, fg: style.color, border: style.borderTopColor, tokens: names.map((name) => root.getPropertyValue(name)) }
+        },
+        names,
+      )
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
-      for (const chip of chips) {
-        const element = ticketNode(window, chip.num).locator(`.w-chip[data-status="${chip.status}"]`)
-        await expect(element).toHaveText(chip.label)
-        // Every state chip has an icon next to its label.
-        await expect(element.locator('svg')).toHaveCount(1)
-        const colors = await element.evaluate(
-          (node, names) => {
-            const { document, getComputedStyle } = globalThis as unknown as PageGlobals
-            const root = getComputedStyle(document.documentElement)
-            const style = getComputedStyle(node)
-            return { bg: style.backgroundColor, fg: style.color, tokenBg: root.getPropertyValue(names.bg), tokenFg: root.getPropertyValue(names.fg) }
-          },
-          { bg: chip.bg, fg: chip.fg },
-        )
-        expect(colors.bg, `${scheme} ${chip.status} background`).toBe(hexToRgb(colors.tokenBg))
-        expect(colors.fg, `${scheme} ${chip.status} text`).toBe(hexToRgb(colors.tokenFg))
+      for (const step of steps) {
+        const stepper = ticketNode(window, step.num).getByTestId('ticket-stepper')
+        await expect(ticketNode(window, step.num)).toHaveAttribute('aria-label', `Ticket ${String(step.num).padStart(2, '0')}, ${step.stage}`)
+        const label = stepper.getByTestId('stepper-label')
+        await expect(label).toHaveText(step.stage)
+        // Done carries the check of the done chip (F-SPEC: done is text plus a check icon).
+        await expect(label.locator('svg')).toHaveCount(step.stage === 'Done' ? 1 : 0)
+        const chip = await colorsOf(label, [step.bg, step.fg])
+        expect(chip.bg, `${scheme} Ticket ${step.num} Stage background`).toBe(hexToRgb(chip.tokens[0]!))
+        expect(chip.fg, `${scheme} Ticket ${step.num} Stage text`).toBe(hexToRgb(chip.tokens[1]!))
+        const dot = await colorsOf(stepper.locator('[data-state="current"]'), [step.dot])
+        expect(step.ring ? dot.border : dot.bg, `${scheme} Ticket ${step.num} current dot`).toBe(hexToRgb(dot.tokens[0]!))
       }
+      const flag = ticketNode(window, 3).getByTestId('stepper-blocked')
+      await expect(flag).toHaveAttribute('title', 'blocked: needs Stripe test keys')
+      const flagColors = await colorsOf(flag, ['--blocked-bg', '--blocked-text'])
+      expect(flagColors.bg, `${scheme} blocked flag background`).toBe(hexToRgb(flagColors.tokens[0]!))
+      expect(flagColors.fg, `${scheme} blocked flag text`).toBe(hexToRgb(flagColors.tokens[1]!))
       await window.screenshot({ path: test.info().outputPath(`epic-frame-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })

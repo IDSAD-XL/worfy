@@ -8,7 +8,9 @@ import { useChecks, useTicketChecks } from './use-checks'
 import '../epic-frame.css'
 import './checks-badges.css'
 
-// Gate, PR, CI and the reviewer's verdict on a Ticket, and the gate on a Session (ticket 17).
+// Gate, PR, CI and the reviewer's verdict on a Ticket, and the gate on a Session (ticket 17). Under
+// the Ticket's stepper (worfy-pipeline ticket 05) they are the details of its Stage. The verdict is
+// the `review` mark on the PR's head commit (ADR-0067), as main reads it into the snapshot.
 //
 // The snapshot comes from use-checks.ts, one copy per Project for all badges — per repository in a
 // Project over several, where a Ticket's badges come from its own repository's copy. Colours are
@@ -57,7 +59,7 @@ function PullBadges({ pull }: { pull: PullRequest }) {
         {label}
       </span>
       {pull.ci ? <Chip status={CI[pull.ci]} label={`CI ${pull.ci}`} testId="checks-ci" value={pull.ci} /> : null}
-      {pull.verdict ? <Chip status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} title={pull.verdict} /> : null}
+      {pull.verdict ? <Chip status={pull.verdict === 'VERIFIED' ? 'ready' : 'blocked'} label={pull.verdict} testId="checks-verdict" value={pull.verdict} title={`${pull.verdict} — the review mark on the PR's head commit`} /> : null}
     </>
   )
 }

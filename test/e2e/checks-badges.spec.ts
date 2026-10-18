@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { launchApp } from './helpers'
-import { catScript } from '../harness-node'
+import { catScript, profileJsonScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
 // what the gate and Claude Code leave behind: gate/config.json, a red marker for the worktree of
@@ -185,7 +185,8 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     JSON.stringify({ pid: claude.pid, sessionId: S7, cwd: worktree07, kind: 'interactive', entrypoint: 'cli', status: 'busy', name: 'ticket-07' }),
   )
 
-  // GitHub: PR #31 on demo/08 with CI running and a VERIFIED comment.
+  // GitHub: PR #31 on demo/08 with CI running and a review success mark on its head commit — the
+  // verdict comes from the mark (ADR-0067), so the comments say the opposite of each mark.
   mkdirSync(ghDir)
   writeFileSync(
     join(ghDir, 'prs.json'),
@@ -198,8 +199,9 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
         statusCheckRollup: [
           { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' },
           { __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' },
+          { __typename: 'StatusContext', context: 'review', state: 'SUCCESS' },
         ],
-        comments: [{ body: 'REJECTED\n- x' }, { body: 'VERIFIED\nall lenses clean' }],
+        comments: [{ body: 'REJECTED\n- x' }],
       },
       // PR #1234 on demo/10, the blocked Ticket: a four-digit number, and both its actions
       // ("Ship ticket", "Open PR") next to the badges.
@@ -208,8 +210,11 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
         headRefName: 'demo/10',
         state: 'OPEN',
         url: 'https://github.com/o/r/pull/1234',
-        statusCheckRollup: [{ __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' }],
-        comments: [{ body: 'REJECTED\n- y' }],
+        statusCheckRollup: [
+          { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
+          { __typename: 'StatusContext', context: 'review', state: 'FAILURE' },
+        ],
+        comments: [{ body: 'VERIFIED\nall lenses clean' }],
       },
     ]),
   )
@@ -244,6 +249,14 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
     await expect(ticket(8).getByTestId('checks-ci')).toHaveText('CI running')
     await expect(ticket(8).getByTestId('checks-verdict')).toHaveText('VERIFIED')
     await expect(ticket(9).locator('[data-testid^="checks-"]')).toHaveCount(0)
+    // The stepper above the badges, in place of the status word: Ticket 08 is on CI (its checks run),
+    // Ticket 09 is Queued; the Project has no Profile, so the default Pipeline of seven Stages.
+    await expect(ticket(8)).toHaveAttribute('aria-label', 'Ticket 08, CI')
+    await expect(ticket(8).getByTestId('stepper-label')).toHaveText('CI')
+    await expect(ticket(8).locator('[data-step]')).toHaveCount(7)
+    await expect(ticket(9)).toHaveAttribute('aria-label', 'Ticket 09, Queued')
+    await expect(ticket(8).getByText('claimed', { exact: true })).toHaveCount(0)
+    expect(await clippedBy(ticket(8).locator('.w-stepper__dots')), 'the dots of the stepper are cut by no box around them').toEqual([])
     // A gate, a PR, CI and a verdict on a 204 px Ticket: the PR number and the CI chip are whole,
     // inside the Ticket Node and inside every box that clips them. The gate and the verdict may be
     // cut, then with "…" and their text in a tooltip; the row's tooltip lists everything.
@@ -341,6 +354,252 @@ test('gh missing: «gh unavailable» on the Tickets in work, and the app goes on
     // The app goes on: the Canvas still answers, the Ticket opens nothing broken.
     await window.evaluate(() => (globalThis as unknown as { dispatchEvent: (event: Event) => boolean }).dispatchEvent(new Event('focus')))
     await expect(ticket(9)).toBeVisible()
+  } finally {
+    await launched.close()
+  }
+})
+
+// ── the stepper of a nine-Stage Pipeline on a 204 px Card (worfy-pipeline ticket 05) ──────────
+
+/** worfy's own Pipeline (spec.md of worfy-pipeline, owner's decision 4): nine Stages. */
+const WORFY_PIPELINE = [
+  { kind: 'queued' },
+  { kind: 'implementing' },
+  { kind: 'ci' },
+  { kind: 'agent-review' },
+  { kind: 'check', name: 'windows' },
+  { kind: 'gate-merge' },
+  { kind: 'deploy' },
+  { kind: 'closing' },
+  { kind: 'done' },
+]
+
+interface StepperTicket {
+  num: number
+  status: string
+  state: string
+  reason?: string
+  repo?: string
+}
+
+/** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline (or `pipeline`) and `repos`, launched. */
+async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repos: (repo: string) => { name: string; path: string }[], pipeline: unknown[] = WORFY_PIPELINE) {
+  const dataDir = join(scratch, 'data')
+  const claudeHome = join(scratch, 'claude-home')
+  const ghDir = join(scratch, 'gh')
+  const repo = join(scratch, 'demo')
+  const issues = join(repo, '.scratch', 'demo', 'issues')
+  for (const dir of [issues, join(claudeHome, 'bin'), ghDir, join(dataDir, PROJECT)]) mkdirSync(dir, { recursive: true })
+  writeFileSync(join(repo, '.scratch', 'demo', 'spec.md'), '# Demo\n')
+  for (const t of tickets) writeFileSync(join(issues, `${String(t.num).padStart(2, '0')}-ticket-${t.num}.md`), ticketFile(t.num, t.status))
+  writeFileSync(join(repo, '.gitignore'), '.claude/\n')
+  git(repo, 'init', '-q')
+  git(repo, 'add', '.')
+  git(repo, 'commit', '-q', '-m', 'init')
+  const projectRepos = repos(repo)
+  for (const each of projectRepos) {
+    if (each.path === repo) continue
+    mkdirSync(each.path, { recursive: true })
+    writeFileSync(join(each.path, 'a'), 'a')
+    git(each.path, 'init', '-q')
+    git(each.path, 'add', '.')
+    git(each.path, 'commit', '-q', '-m', 'init')
+  }
+  const answer = join(claudeHome, 'epic-status.json')
+  const json = (t: StepperTicket) => ({ ...ticketJson(t.num, t.status, t.state), ...(t.reason ? { blockedReason: t.reason } : {}), ...(t.repo ? { repo: t.repo } : {}) })
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: tickets.map(json) }))
+  writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
+  const profile = { _resolved: { name: 'worfy', mode: 'full', workflow_folder: repo, workspace: repo, repos: projectRepos, pipeline }, workflow: { e2e_lock: join(scratch, 'no-lock') } }
+  writeFileSync(join(claudeHome, 'bin', 'profile'), profileJsonScript(JSON.stringify(profile)))
+  for (const script of ['epic-status', 'profile']) chmodSync(join(claudeHome, 'bin', script), 0o755)
+  writeFileSync(join(ghDir, 'prs.json'), JSON.stringify(pulls))
+  writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }], activeId: PROJECT }))
+  writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes: [], viewport: { x: 40, y: 40, zoom: 0.8 } }))
+  return launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), GH_STUB_DIR: ghDir, GH_STUB_LOG: join(ghDir, 'calls.jsonl') } })
+}
+
+/**
+ * Whether the Stage's name and the stepper are whole: nothing cut, nothing past the stepper's edge,
+ * the top row inside the Card. Fractional widths: `scrollWidth` and `clientWidth` round to whole
+ * pixels and read 50 and 50 for a name that needs 42.66 px and has 42. Each pair is [needs, has] in
+ * CSS pixels; the content is a Range's rectangle, which keeps the whole width of text cut with «…»;
+ * for the stepper it is its parts' boxes, as the stepper measures itself.
+ */
+const stepperFit = (ticket: Locator) =>
+  ticket.getByTestId('ticket-stepper').evaluate((element) => {
+    // The test tsconfig has no DOM lib: the few page types used here.
+    type Rect = { width: number; left: number; right: number }
+    type Box = { getBoundingClientRect(): Rect; offsetWidth: number; children: ArrayLike<Box>; querySelector(selector: string): Box | null; closest(selector: string): Box | null }
+    const page = globalThis as unknown as { document: { createRange(): { selectNodeContents(node: Box): void; getBoundingClientRect(): Rect } }; getComputedStyle(node: Box): Record<string, string> }
+    const stepper = element as unknown as Box
+    const card = stepper.closest('[data-testid="ticket-node"]')!
+    // React Flow's zoom scales every rectangle: back to CSS pixels by the Card's own width.
+    const scale = card.getBoundingClientRect().width / card.offsetWidth
+    const round = (value: number) => Math.round((value / scale) * 100) / 100
+    const frame = (box: Box, sides: string[]) => {
+      const style = page.getComputedStyle(box)
+      return sides.reduce((sum, side) => sum + (parseFloat(style[`padding${side}`] ?? '') || 0) + (parseFloat(style[`border${side}Width`] ?? '') || 0), 0) * scale
+    }
+    const needs = (box: Box) => {
+      const range = page.document.createRange()
+      range.selectNodeContents(box)
+      return range.getBoundingClientRect().width
+    }
+    const pair = (box: Box | null) => (box === null ? null : [round(needs(box)), round(box.getBoundingClientRect().width - frame(box, ['Left', 'Right']))])
+    const rect = card.getBoundingClientRect()
+    const inner = { left: rect.left + frame(card, ['Left']), right: rect.right - frame(card, ['Right']) }
+    const top = Array.from(card.querySelector('.w-ticket__top')!.children, (child) => child.getBoundingClientRect())
+    return {
+      label: pair(stepper.querySelector('[data-testid="stepper-label"]')),
+      count: pair(stepper.querySelector('[data-testid="stepper-count"]')),
+      blocked: pair(stepper.querySelector('[data-testid="stepper-blocked"]')),
+      ready: pair(card.querySelector('[data-testid="ticket-ready"]')),
+      // The stepper's parts, not their text: a name cut with «…» stays inside its own box.
+      stepper: (() => {
+        const parts = Array.from(stepper.children, (child) => child.getBoundingClientRect())
+        return [round(Math.max(...parts.map((each) => each.right)) - Math.min(...parts.map((each) => each.left))), round(stepper.getBoundingClientRect().width)]
+      })(),
+      row: [round(Math.max(...top.map((each) => each.right)) - inner.left), round(inner.right - inner.left)],
+      card: card.offsetWidth,
+    }
+  })
+
+/** needs ≤ has, with the 1/64 px of layout rounding. */
+const whole = (pair: number[] | null | undefined, what: string, fit: unknown) => {
+  expect(pair, `${what} is drawn: ${JSON.stringify(fit)}`).not.toBeNull()
+  expect(pair![0], `${what} is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(pair![1]! + 0.02)
+}
+
+const HEAD = (n: number) => String(n).repeat(40).slice(0, 40)
+const ok = { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' }
+const review = (state: string) => ({ __typename: 'StatusContext', context: 'review', state })
+const openPull = (num: number, branch: string, rollup: unknown[]) => ({ number: num, headRefName: branch, state: 'OPEN', url: `https://github.com/o/r/pull/${num}`, headRefOid: HEAD(num % 9 + 1), statusCheckRollup: rollup, comments: [] })
+
+test('nine Stages on a 204 px Card: the Stage name is never cut — rework, blocked, both, Check «windows»; the narrow form when the full one does not fit', async () => {
+  const tickets: StepperTicket[] = [
+    { num: 2, status: 'claimed — 2026-10-17', state: 'work' },
+    { num: 3, status: 'blocked — needs Stripe test keys', state: 'blocked', reason: 'needs Stripe test keys' },
+    { num: 4, status: 'claimed — 2026-10-17', state: 'work' },
+    { num: 5, status: 'blocked — waits for the owner', state: 'blocked', reason: 'waits for the owner' },
+    { num: 6, status: 'claimed — 2026-10-17', state: 'work' },
+  ]
+  const pulls = [
+    openPull(41, 'demo/02', [ok, review('FAILURE')]),
+    openPull(43, 'demo/04', [ok, review('SUCCESS')]),
+    openPull(44, 'demo/05', [ok, review('FAILURE')]),
+    openPull(45, 'demo/06', [{ __typename: 'CheckRun', name: 'e2e', status: 'IN_PROGRESS', conclusion: '' }]),
+  ]
+  const launched = await launchNineStages(tickets, pulls, () => [])
+  try {
+    const { window } = launched
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
+    const ticket = (num: number): Locator => window.locator(`[data-testid="ticket-node"][data-ticket="${num}"]`)
+    const expected = [
+      { num: 2, stage: 'Implementing', rework: true, blocked: false },
+      { num: 3, stage: 'Implementing', rework: false, blocked: true },
+      { num: 4, stage: 'Check «windows»', rework: false, blocked: false },
+      { num: 5, stage: 'Implementing', rework: true, blocked: true },
+      { num: 6, stage: 'CI', rework: false, blocked: false },
+    ]
+    for (const each of expected) {
+      const card = ticket(each.num)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
+      await expect(card.getByTestId('stepper-rework')).toHaveCount(each.rework ? 1 : 0)
+      await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
+      const fit = await stepperFit(card)
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
+      whole(fit.label, `the Stage name on Ticket ${each.num}`, fit)
+      whole(fit.stepper, `the stepper of Ticket ${each.num}`, fit)
+      whole(fit.row, `the top row of Ticket ${each.num}`, fit)
+      if (fit.count !== null) whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
+    }
+    // Nine dots, the name and its flags do not fit 204 px for these: the narrow form with «N/M».
+    await expect(ticket(5).getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+    await expect(ticket(5).getByTestId('stepper-count')).toHaveText('2/9')
+    await expect(ticket(4).getByTestId('stepper-count')).toHaveText('5/9')
+    // A short name keeps the full form: the dots and who it waits for.
+    await expect(ticket(6).getByTestId('ticket-stepper')).not.toHaveAttribute('data-narrow', 'true')
+    await expect(ticket(6).locator('[data-step]')).toHaveCount(9)
+    await expect(ticket(6).getByTestId('stepper-waits')).toHaveText('agent')
+  } finally {
+    await launched.close()
+  }
+})
+
+test('nine Stages, a repository chip and the Ready chip in one row of a 204 px Card: the Stage name and «N/M» stay whole to the fraction of a pixel, the repository chip gives way', async () => {
+  // The names of the round-2 review: «Queued» needed 42.66 px and got 42 beside each of them.
+  const names = ['app', 'web-client', 'application-server']
+  const launched = await launchNineStages(
+    names.map((repo, at) => ({ num: at + 1, status: 'open', state: 'open', repo })),
+    [],
+    (repo) => names.map((name, at) => ({ name, path: at === 0 ? repo : join(scratch, name) })),
+  )
+  try {
+    const { window } = launched
+    for (const [at, name] of names.entries()) {
+      const card = window.locator(`[data-testid="ticket-node"][data-ticket="${at + 1}"]`)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${at + 1}, Queued`, { timeout: 20_000 })
+      await expect(card.getByTestId('ticket-repo')).toHaveAttribute('data-repo', name)
+      await expect(card.getByTestId('ticket-ready')).toBeVisible()
+      await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+      await expect(card.getByTestId('stepper-label')).toHaveText('Queued')
+      await expect(card.getByTestId('stepper-count')).toHaveText('1/9')
+      const fit = await stepperFit(card)
+      expect(fit.card, `the Card of ${name} has the default width`).toBe(204)
+      whole(fit.label, `the Stage name beside ${name}`, fit)
+      whole(fit.count, `«N/M» beside ${name}`, fit)
+      whole(fit.stepper, `the stepper beside ${name}`, fit)
+      whole(fit.row, `the top row beside ${name}`, fit)
+    }
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a Stage name too long even for the narrow form, beside a repository chip: the name is cut with «…», and «N/M», the blocked «!» and Ready stay whole inside the 204 px Card', async () => {
+  // Check names and labels have no length limit (pipeline.ts): a long one in a Project over several repositories.
+  const pipeline = WORFY_PIPELINE.map((stage) =>
+    stage.kind === 'queued' ? { kind: 'queued', label: 'Waiting to start' } : stage.kind === 'check' ? { kind: 'check', name: 'windows-full-e2e' } : stage,
+  )
+  const launched = await launchNineStages(
+    [
+      { num: 1, status: 'open', state: 'open', repo: 'application-server' },
+      { num: 2, status: 'blocked — waits for the owner', state: 'blocked', reason: 'waits for the owner', repo: 'web-client' },
+    ],
+    [openPull(42, 'demo/02', [ok, review('SUCCESS')])],
+    (repo) => [
+      { name: 'application-server', path: repo },
+      { name: 'web-client', path: join(scratch, 'web-client') },
+    ],
+    pipeline,
+  )
+  try {
+    const { window } = launched
+    const cards = [
+      { num: 1, stage: 'Waiting to start', count: '1/9', blocked: false, ready: true },
+      { num: 2, stage: 'Check «windows-full-e2e»', count: '5/9', blocked: true, ready: false },
+    ]
+    for (const each of cards) {
+      const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card.getByTestId('ticket-repo')).toBeVisible()
+      await expect(card.getByTestId('ticket-ready')).toHaveCount(each.ready ? 1 : 0)
+      await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
+      await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+      await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
+      await expect(card.getByTestId('stepper-count')).toHaveText(each.count)
+      const fit = await stepperFit(card)
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
+      // The last resort: the name gives way, with «…» (the tooltip has it whole).
+      expect(fit.label![0], `the Stage name on Ticket ${each.num} is cut: ${JSON.stringify(fit)}`).toBeGreaterThan(fit.label![1]! + 1)
+      await expect(card.getByTestId('stepper-label')).toHaveCSS('text-overflow', 'ellipsis')
+      whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
+      if (each.blocked) whole(fit.blocked, `the blocked «!» on Ticket ${each.num}`, fit)
+      if (each.ready) whole(fit.ready, `the Ready chip on Ticket ${each.num}`, fit)
+      whole(fit.stepper, `the stepper of Ticket ${each.num}`, fit)
+      whole(fit.row, `the top row of Ticket ${each.num}`, fit)
+    }
   } finally {
     await launched.close()
   }
