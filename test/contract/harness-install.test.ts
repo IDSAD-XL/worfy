@@ -879,7 +879,7 @@ describe('a rename refused by a held-open file (Windows)', () => {
   /** A removal that a held-open file refuses for the folders `refused` names; others are removed. */
   const refusingRemove = (refused: (path: string) => boolean) => (path: string): Promise<void> => {
     if (refused(path)) return Promise.reject(heldOpen('EBUSY'))
-    rmSync(path, { recursive: true, force: true })
+    removeTestTree(path)
     return Promise.resolve()
   }
 
@@ -953,7 +953,7 @@ describe('a rename refused by a held-open file (Windows)', () => {
     return {
       steps,
       renameDir: (from: string, to: string) => attempt(`rename ${name(from)} -> ${name(to)}`, () => renameSync(from, to)),
-      removeDir: (path: string) => attempt(`remove ${name(path)}`, () => rmSync(path, { recursive: true, force: true })),
+      removeDir: (path: string) => attempt(`remove ${name(path)}`, () => removeTestTree(path)),
     }
   }
 

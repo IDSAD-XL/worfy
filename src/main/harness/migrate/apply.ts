@@ -18,7 +18,7 @@
 // and `confirm` saying yes; every path written or removed is checked to be inside the Claude home
 // or the Harness home, and .claude.json is the one file outside them.
 import { execFileSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, parse, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -103,7 +103,7 @@ export function writeAtomically(path: string, text: string): void {
     renameSync(temp, path)
   } catch (error) {
     // A rename refused (on Windows a file held open without delete sharing): no temporary file is left next to it.
-    rmSync(temp, { force: true })
+    removeFile(temp)
     throw error
   }
 }
