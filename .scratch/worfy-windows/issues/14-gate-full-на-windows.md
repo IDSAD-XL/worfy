@@ -481,3 +481,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - **ПК** (Git Bash, jq 1.8.2 для Windows, внешний `gh` — stand-in, 0 вызовов): main `ee6c253` — exit 1, 262 ok, REFUSED; ветка — **exit 0, 314 ok, 0 FAIL**, одна строка skip zsh.
 - **Мутанты** (каждый по одному, файл восстановлен): без `tr -d '\r'` — exit 1, 1 FAIL («a successful Deployment of a commit that contains the merge — deployed»); без `refusing_gh_exe` — exit 1, снова REFUSED; без пропуска zsh — exit 1, 22 FAIL «zsh: …». Каждая из трёх правок нужна.
 - На Mac test должен остаться зелёным с zsh-случаями (там `SHELLS=(bash zsh)`, `refusing_gh_exe` ничего не делает, `tr` ничего не меняет).
+
+### Сверка статуса (Session на Mac, 2026-10-18)
+
+- Влиты срезы 1, 2, 3a–3e (#299, #304, #407, #411, #413, #463, #481); ни один из десяти пунктов «Готово, когда» не отмечен, все ждут итоговой проверки — `pnpm test` exit 0 на ПК, пять test-ов macOS и `grep Meta` с `pnpm test:e2e` на Mac (срез 2 сделал правку, отметки нет), e2e `terminal.spec.ts` и `pnpm test:package` на ПК, `harness-scripts.test.ts` через Git Bash, gate full на ПК и на Mac по итогу, `ci.yml` и ручной прогон job `windows` с согласия владельца; статус не меняется.

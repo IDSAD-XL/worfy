@@ -1,7 +1,8 @@
 # 17 — Очередь gate на Mac: команда /worfy:gate-queue, действие «Process gate queue», уведомление
 
 Type: task
-Status: claimed 2026-10-18T04:25Z
+Status: done 2026-10-18T11:18Z
+PR: #480
 Branch: worfy-windows/17
 Blocked by: 07
 Source: решения владельца 2026-10-08: Q32 (команда Harness `/worfy:gate-queue` проходит все PR с меткой `needs-mac-gate`; Autopilot на Mac запускает её перед каждой Wave и когда больше нечего делать; в worfy — действие «Process gate queue»; уведомление, если PR ждёт больше часа), Q30 (метка `needs-mac-gate`), Q31 (Windows проверяет main после мержа), Q33 (раздел «Mac checks» в описании PR и отчёт Session на Mac в PR); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate», и «Соглашения», «Метка needs-mac-gate» ([spec.md](../spec.md)); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; ADR Ticket-а 07 (уточняет ADR-0056; файл создаёт Ticket 07); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет Status Ticket-ов); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (домены IPC); [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) (конец Wave Autopilot); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски)
