@@ -32,7 +32,7 @@ vi.mock('electron', () => {
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
 const { NOTIFY_INTERVAL_MS, Notifier, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
-const { waitingPrs } = await import('../../src/main/github/gate-queue')
+const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
 
@@ -736,6 +736,18 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
     expect(shown).toEqual([])
   })
 
+  it('two Projects, each read twice: two notifications, not four; one Project\'s read keeps the other\'s marks', () => {
+    const shown: WindowNote[] = []
+    const notices = new GateQueueNotices({ focused: () => false, show: (note) => shown.push(note), open: () => undefined })
+    const waiting = waitingPrs([labelled([{ oid: 'c1', committedDate: new Date(START).toISOString() }])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN)
+    const other = { root: '/Users/test/auction', name: 'auction' }
+    for (let round = 0; round < 2; round += 1) {
+      notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
+      notices.read(other, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
+    }
+    expect(shown.map((note) => note.title)).toEqual(['worfy', 'auction'])
+  })
+
   it('a click raises the window and opens no Session: no note waits for the renderer, no notify.open', () => {
     const g = gate()
     g.wait(61 * MIN)
@@ -767,6 +779,35 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
     electron.shown.length = 0
     withQuietWindows(undefined, () => electronWindowNoteDeps.show({ title: 'worfy', body: 'PR #480 waits', sessionId: null }, () => undefined))
     expect(electron.shown).toEqual([{ title: 'worfy', body: 'PR #480 waits' }])
+  })
+
+  it('with its default tick, the watcher gets a new read within a minute of the reader\'s 5-minute interval, though another caller read in between', async () => {
+    vi.useFakeTimers()
+    try {
+      const refreshes: number[] = []
+      let readAt = -Infinity
+      // The reader's own rule: its last read until GATE_QUEUE_INTERVAL_MS is over.
+      const reader = {
+        read: () => {
+          if (Date.now() - readAt >= GATE_QUEUE_INTERVAL_MS) {
+            readAt = Date.now()
+            refreshes.push(readAt)
+          }
+          return Promise.resolve({ role: 'serve' as const, label: 'needs-mac-gate', gh: { state: 'ok' as const }, waiting: [] })
+        },
+      }
+      const stop = installGateQueueNotifications(reader, () => [{ path: ROOT, name: 'worfy' }], { focused: () => false, show: () => undefined, open: () => undefined })
+      // The menu of the Project reads too, between two ticks: the reader's interval then counts from it.
+      await vi.advanceTimersByTimeAsync(MIN / 2)
+      void reader.read()
+      await vi.advanceTimersByTimeAsync(31 * MIN)
+      stop()
+      const gaps = refreshes.slice(1).map((at, index) => at - refreshes[index]!)
+      expect(gaps.length).toBeGreaterThanOrEqual(4)
+      for (const gap of gaps) expect(gap).toBeLessThanOrEqual(GATE_QUEUE_INTERVAL_MS + MIN)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('the watcher reads every Project of the list each interval, and stops', async () => {

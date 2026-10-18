@@ -250,6 +250,12 @@ export class Notifier {
 }
 
 export const GATE_QUEUE_NOTICE_MS = 60 * 60_000
+/**
+ * How often the watcher asks the reader. The reader answers its last read until its own interval
+ * (GATE_QUEUE_INTERVAL_MS) is over, so a tick as long as that interval would make the real period
+ * up to twice it; a tick of one minute keeps it within a minute of the reader's.
+ */
+export const GATE_QUEUE_TICK_MS = 60_000
 const PR_TITLE_LIMIT = 80
 
 /** The text of the notification of a PR that waits in the gate queue, by this Machine's role. */
@@ -291,13 +297,13 @@ export class GateQueueNotices {
 /**
  * Reads the gate queue of every Project in worfy's list each `intervalMs` (the reader itself runs
  * gh at most once per its interval) and notifies of the PRs that wait over an hour. Answers the
- * function that stops it.
+ * function that stops it; the app calls it on quit.
  */
 export function installGateQueueNotifications(
   reader: { read(root: string): Promise<GateQueueRead> },
   projects: () => readonly { path: string; name: string }[],
   deps: WindowNoteDeps = electronWindowNoteDeps,
-  intervalMs = 5 * 60_000,
+  intervalMs = GATE_QUEUE_TICK_MS,
 ): () => void {
   const notices = new GateQueueNotices(deps)
   let running = false

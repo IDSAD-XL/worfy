@@ -726,7 +726,7 @@ it in one Bash call with timeout 600000 (if not taken, repeat), and release it o
 too:
 
 ```bash
-L=<orchestrator scratchpad>/main.lock                 # one path for all parallel waves (see below)
+L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"   # the repository's shared path (see below)
 until mkdir "$L" 2>/dev/null; do
   if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck; BSD and GNU find alike
   sleep 30
@@ -735,11 +735,12 @@ done; echo LOCKED
 rmdir "$L"
 ```
 
-The orchestrator's scratchpad works when all waves run from one session. Different sessions have
-different scratchpads, and locks there do not see each other — then use the repository's shared
-path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`. Either lock is seen only on its own
-machine: a session on another machine does not see it and merges on its own, so the order across
-machines comes from the fetch and rebase before each merge (above), not from the lock.
+The path is the repository's shared git folder, the same in every worktree of the repository and
+for every session: the waves of one session, a wave of another session, and the merges of skill
+`/worfy:gate-queue` all see the same lock. A scratchpad would not do — each session has its own,
+and locks there do not see each other. The lock is seen only on its own machine: a session on
+another machine does not see it and merges on its own, so the order across machines comes from the
+fetch and rebase before each merge (above), not from the lock.
 
 **PRs with the cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the project has
 one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request` a PR with the

@@ -422,7 +422,8 @@ check "epic-wave section 4: the BEHIND push holds a lease on the PR's head" in_ 
 check "epic-wave section 4: CI again after the BEHIND push" in_ "$ew4" 'then wait for CI again with the CI wait block below'
 check "epic-wave section 4: BEHIND no longer means only wait" in_ "$ew4" '`BEHIND` no longer means only "wait".'
 check "epic-wave section 4: git fetch before each merge" in_ "$ew4" 'Before each merge run `git -C <repo> fetch`.'
-check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'Either lock is seen only on its own machine'
+check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'The lock is seen only on its own machine'
+check "epic-wave section 4: the main-branch lock is at the repository's shared path, as gate-queue's" in_ "$ew4" 'L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"'
 check "epic-wave section 4: no BEHIND among the states that only wait" lacks "$EW" 'BLOCKED, UNSTABLE, BEHIND — wait'
 check "ship-ticket section 6: the Windows paragraph launches through explorer.exe" in_ "$st6" 'explorer.exe "$(cygpath -w <path to the .exe>)"'
 check "ship-ticket section 6: the Windows paragraph checks the process path with Get-Process" in_ "$st6" \

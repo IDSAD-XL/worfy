@@ -421,6 +421,20 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
 
+  it('a save without gateQueue (a Linked machine on an older build) keeps the saved template (worfy-windows ticket 17)', async () => {
+    const { project } = await addOk(makeRepo('auction'))
+    const file = join(dataDir, project.id, 'settings.json')
+    const own = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '/my-gate-queue' } }
+    expect(await value('projects.settings.set', { id: project.id, settings: own })).toStrictEqual(own)
+    const older = { actionTemplates: { shipTicket: '/y {NN}', runWave: '' } }
+    const kept = { actionTemplates: { shipTicket: '/y {NN}', runWave: '', gateQueue: '/my-gate-queue' } }
+    expect(await value('projects.settings.set', { id: project.id, settings: older })).toStrictEqual(kept)
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(kept)
+    // No saved gateQueue either (a file of a build from before it): the default of the Harness found now.
+    writeFileSync(file, JSON.stringify(older))
+    expect(await value('projects.settings.set', { id: project.id, settings: older })).toStrictEqual({ actionTemplates: { ...older.actionTemplates, gateQueue: '' } })
+  })
+
   it('does not save a template with an unknown placeholder', async () => {
     const { project } = await addOk(makeRepo('auction'))
     const file = join(dataDir, project.id, 'settings.json')

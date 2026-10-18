@@ -130,7 +130,8 @@ function start(): void {
       // hour (worfy-windows ticket 17), for the Projects in worfy's list.
       inStep('installNotifications', () => {
         installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink())
-        installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
+        const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
+        app.on('will-quit', stopGateQueueNotices)
       })
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.

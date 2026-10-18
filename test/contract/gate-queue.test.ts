@@ -40,15 +40,35 @@ describe('rule 1: the PRs that wait for the machine with serve', () => {
     expect(waiting[1]).toMatchObject({ since: '2026-10-18T08:00:00Z', lastCommit: 'oid21' })
   })
 
-  it('counts only a report by the GitHub account, only a comment that starts with the report line, a green report too', () => {
+  it('counts only a red report by the GitHub account, only a comment that starts with the report line', () => {
     const prs = [
       pr(31, '2026-10-18T06:00:00Z', '2026-10-18T05:30:00Z', [comment('mallory', '2026-10-18T07:00:00Z', RED)]),
       pr(32, '2026-10-18T06:00:00Z', '2026-10-18T06:30:00Z', [comment('mac-bot', '2026-10-18T07:00:00Z', 'See the Mac checks report: red above')]),
-      pr(33, '2026-10-18T06:00:00Z', '2026-10-18T09:00:00Z', [comment('mac-bot', '2026-10-18T09:30:00Z', 'Mac checks report: green\nall fine')]),
     ]
     expect(waitingPrs(prs, 'Mac checks', 'mac-bot', NOW).map((each) => each.number)).toEqual([31, 32])
     // Without an account no report counts: every labelled PR waits.
     expect(waitingPrs(THREE, 'Mac checks', null, NOW).map((each) => each.number)).toEqual([23, 21, 22])
+  })
+
+  it('a green report newer than the last commit ends no wait: the PR is still open because its merge failed', () => {
+    // As #33 of harness/bin/tests/gate-queue.test.sh: green at 09:30, then `gh pr merge` failed (a conflict with
+    // main, the network, a --match-head-commit refusal or a lock timeout). The serving machine takes it again.
+    const failedMerge = pr(33, '2026-10-18T06:00:00Z', '2026-10-18T09:00:00Z', [comment('mac-bot', '2026-10-18T09:30:00Z', 'Mac checks report: green\nall fine')])
+    expect(waitingPrs([failedMerge], 'Mac checks', 'mac-bot', NOW)).toEqual([
+      { number: 33, title: 'PR 33', url: 'https://github.com/o/r/pull/33', since: '2026-10-18T09:00:00Z', lastCommit: 'oid33', waitedMs: 3 * 3_600_000 },
+    ])
+  })
+
+  it('a red report at the same second as the last commit is not newer: the PR still waits', () => {
+    const tie = pr(35, '2026-10-18T06:00:00Z', '2026-10-18T09:00:00Z', [comment('mac-bot', '2026-10-18T09:00:00Z', RED)])
+    const newer = pr(36, '2026-10-18T06:00:00Z', '2026-10-18T09:00:00Z', [comment('mac-bot', '2026-10-18T09:00:01Z', RED)])
+    expect(waitingPrs([tie, newer], 'Mac checks', 'mac-bot', NOW).map((each) => each.number)).toEqual([35])
+  })
+
+  it('a PR from a fork never waits, as the skill skips it', () => {
+    const fork = { ...pr(34, '2026-10-18T06:00:00Z', '2026-10-18T07:00:00Z'), isCrossRepository: true }
+    const own = { ...pr(37, '2026-10-18T06:00:00Z', '2026-10-18T07:00:00Z'), isCrossRepository: false }
+    expect(waitingPrs([fork, own], 'Mac checks', 'mac-bot', NOW).map((each) => each.number)).toEqual([37])
   })
 
   it('a PR without commits waits since its creation; a PR whose time cannot be read is left out', () => {
@@ -69,7 +89,7 @@ interface Harness {
 }
 
 /** A reader over a fake bin/profile (`gate`: the printed cross_machine_gate, or an exit code) and a fake gh. */
-function harness(gate: unknown, options: { ghFails?: () => boolean; account?: string | null } = {}): Harness {
+function harness(gate: unknown, options: { ghFails?: () => boolean; account?: string | null; prs?: unknown } = {}): Harness {
   let now = NOW
   const gh: Harness['gh'] = []
   const profile: Harness['profile'] = []
@@ -92,7 +112,7 @@ function harness(gate: unknown, options: { ghFails?: () => boolean; account?: st
       gh.push({ args, cwd, env })
       if (args[0] === 'auth') return Promise.resolve('gho_mac_token\n')
       if (options.ghFails?.() === true) return Promise.reject(new Error('HTTP 502: Bad Gateway (https://api.github.com/graphql)'))
-      return Promise.resolve(JSON.stringify(THREE))
+      return Promise.resolve(JSON.stringify(options.prs ?? THREE))
     },
   })
   return {
@@ -144,7 +164,7 @@ describe('the read of the queue', () => {
     ])
     expect(prLists(h)).toEqual([
       {
-        args: ['pr', 'list', '--state', 'open', '--label', 'needs-mac-gate', '--limit', '100', '--json', 'number,title,url,createdAt,commits,comments'],
+        args: ['pr', 'list', '--state', 'open', '--label', 'needs-mac-gate', '--limit', '100', '--json', 'number,title,url,createdAt,isCrossRepository,commits,comments'],
         cwd: ROOT,
         env: { GH_TOKEN: 'gho_mac_token' },
       },
@@ -152,6 +172,11 @@ describe('the read of the queue', () => {
     // Read-only: the token of the account, the list, nothing else.
     expect(h.gh.map((call) => call.args.slice(0, 2).join(' '))).toEqual(['auth token', 'pr list'])
     expect(h.gh[0]?.args).toEqual(['auth', 'token', '-u', 'mac-bot'])
+  })
+
+  it('a fork PR in the gh answer is not in the queue; a missing isCrossRepository reads as false', async () => {
+    const h = harness(GATE, { prs: [{ ...THREE[0], isCrossRepository: true }, { ...THREE[2], isCrossRepository: null }] })
+    expect((await h.reader.read(ROOT)).waiting.map((each) => each.number)).toEqual([23])
   })
 
   it('request: the same read, the role is request', async () => {

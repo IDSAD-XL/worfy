@@ -1033,7 +1033,8 @@ export class Autopilot {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
     }
-    await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
+    // The gate queue's turn has no Wave and no Tickets: no run-stopping, run-stopped (`user-stop`) follows the turn.
+    if (run.gateQueue === null) await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
     // Gone already with the continuation after a Limits wait (resume), or to go with it.
     if (run.stopSent || run.limits?.until != null || run.session === null) return
     try {

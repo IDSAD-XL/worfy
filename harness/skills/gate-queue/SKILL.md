@@ -40,19 +40,25 @@ esac
 
 ## 2. The waiting PRs
 
-A PR waits for this machine when it is open, carries the label, and has no report newer than its
-last commit. A report is a comment whose first line starts with `<checks_section> report: ` —
-`<checks_section> report: green` or `<checks_section> report: red` (step 5 below writes it). Only a
-report by `F github.account` counts: that is the account the sessions of both machines run `gh` as,
-and anyone can write a comment that starts the same way; with no `github.account` no report counts
-and every labelled PR waits. The wait counts from the later of two moments: the PR's creation
-(`createdAt`) and its last commit (`committedDate`). A PR with a report newer than its last commit
-waits for the `request` machine instead: a red report means that machine fixes and pushes, and
-another gate full here would change nothing. Its line says so, and the pass does not touch it.
+A PR waits for this machine when it is open, carries the label, comes from a branch of this
+repository, and has no red report newer than its last commit (rule 1). A report is a comment whose
+first line starts with `<checks_section> report: ` — `<checks_section> report: green` or
+`<checks_section> report: red` (step 5 below writes it). Only a report by `F github.account`
+counts: that is the account the sessions of both machines run `gh` as, and anyone can write a
+comment that starts the same way; with no `github.account` no report counts and every labelled PR
+waits. "Newer" is strictly later: a report at the same second as the last commit does not end the
+wait. The wait counts from the later of two moments: the PR's creation (`createdAt`) and its last
+commit (`committedDate`).
 
-Only PRs from a branch of this repository are checked: a PR from a fork is not checked out and the
-commands of its section are not run — anyone with a fork writes that description, and this machine
-would run it as shell. The block prints such a PR as `<N> fork: skipped`.
+A PR with a red report newer than its last commit waits for the `request` machine instead: that
+machine fixes and pushes, and another gate full here would change nothing. Its line says so, and the
+pass does not touch it. A green report ends no wait: the same pass merges a green PR, so a PR still
+open after one is a PR whose merge failed (a conflict with the main branch, the network, the head
+moved, the lock) — nothing for the other machine to fix, and the next pass takes it from the start.
+
+A PR from a fork is not checked out and the commands of its section are not run — anyone with a fork
+writes that description, and this machine would run it as shell. The block prints such a PR as
+`<N> fork: skipped`, and it does not wait.
 
 The block filters with `gh`'s own `--jq`, without an external `jq` (Git Bash on Windows has none),
 and prints one line a PR, oldest wait first:
@@ -63,12 +69,12 @@ GQ_SECTION=$(F cross_machine_gate.checks_section) GQ_ACCOUNT=$(F github.account)
   gh pr list --state open --label "$(F cross_machine_gate.label)" --limit 100 \
   --json number,headRefName,headRefOid,isCrossRepository,createdAt,commits,comments --jq '
   [.[] | (.commits[-1].committedDate // .createdAt) as $pushed
-   | ([.comments[] | select(.author.login == ($ENV.GQ_ACCOUNT | rtrimstr("\r")) and (.body | startswith(($ENV.GQ_SECTION | rtrimstr("\r")) + " report: "))) | .createdAt] | max) as $report
-   | . + {since: ([.createdAt, $pushed] | max), waits: ($report == null or $report < $pushed)}]
+   | ([.comments[] | select(.author.login == ($ENV.GQ_ACCOUNT | rtrimstr("\r")) and (.body | startswith(($ENV.GQ_SECTION | rtrimstr("\r")) + " report: red"))) | .createdAt] | max) as $red
+   | . + {since: ([.createdAt, $pushed] | max), waits: ($red == null or $red <= $pushed)}]
   | sort_by(.since) | .[]
   | if .isCrossRepository then "\(.number) fork: skipped"
     elif .waits then "\(.number) \(.headRefName) \(.headRefOid) since \(.since)"
-    else "\(.number) waits for the requesting machine: its report is newer than its last commit" end'; echo "EXIT=$?"
+    else "\(.number) waits for the requesting machine: its red report is newer than its last commit" end'; echo "EXIT=$?"
 ```
 
 No line before `EXIT=0` — say `queue empty` and stop. A line `<N> <branch> <head> since <time>` is a
@@ -146,29 +152,38 @@ gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.chec
    `<checks_section> report: green` or `<checks_section> report: red`; then the verdict line of
    `check` and its exit code, each command of the section with its exit code and the tail of its
    output, and with red the reason. Green — `check`, every command of the section and CI are green.
-   **No merge without the report.** The block posts it with `gh pr comment` and merges only when the
-   first line is green, `gh pr comment` gave exit code 0 and `check` gave exit code 0 (`<check exit>`,
-   step 2). `--match-head-commit <new head>` (the last line of step 1) refuses the merge if the branch
-   moved after the checks. Red or a rebase conflict — the report with the reason, the label stays, no
-   merge. The merge goes under the main-branch lock of skill `/worfy:epic-wave`, section 4, at its
-   shared path (`--git-common-dir`): this pass may run in a session other than the wave's. Run the
-   block in one Bash call with timeout 600000 (if the lock is not taken in that time, repeat). Then
+   **No merge without the report.** The first block posts it, once:
+
+```bash
+gh pr comment <N> --body-file <scratchpad>/pr-<N>-report.md; echo "comment EXIT=$?"
+```
+
+   The second block merges only when the report's first line is green, `gh pr comment` gave exit
+   code 0 (`<comment exit>`) and `check` gave exit code 0 (`<check exit>`, step 2).
+   `--match-head-commit <new head>` (the last line of step 1) refuses the merge if the branch moved
+   after the checks. Red or a rebase conflict — the report with the reason, the label stays, no
+   merge. The merge goes under the main-branch lock of skill `/worfy:epic-wave`, section 4, at the
+   same path (`--git-common-dir`): this pass may run in a session other than the wave's, so both
+   skills take the repository's shared path. A lock younger than 90 minutes is someone's merge: the
+   block waits for it. The `trap` releases the lock on any exit, an error and a stopped call too. Run
+   the block in one Bash call with timeout 600000; if the lock is not taken in that time, repeat this
+   block only — the report is already posted. A failed merge leaves the label and the PR waits again
+   (step 2); its row in the table says `green, merge failed` with `merge EXIT`. Then
    `git -C <repo> worktree remove --force <scratchpad>/pr-<N>`:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-R=<scratchpad>/pr-<N>-report.md; v=$(head -n 1 "$R" | tr -d '\r')
-gh pr comment <N> --body-file "$R"; c=$?; echo "comment EXIT=$c"
-if [ "$c" = 0 ] && [ "$v" = "$(F cross_machine_gate.checks_section) report: green" ] && [ "<check exit>" = 0 ]; then
+v=$(head -n 1 <scratchpad>/pr-<N>-report.md | tr -d '\r')
+if [ "<comment exit>" = 0 ] && [ "$v" = "$(F cross_machine_gate.checks_section) report: green" ] && [ "<check exit>" = 0 ]; then
   L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"   # the main-branch lock, shared path
   until mkdir "$L" 2>/dev/null; do
     if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck
     sleep 30
   done
+  trap 'rmdir "$L" 2>/dev/null' EXIT; trap 'exit 130' INT TERM HUP   # released on every exit
   gh pr merge <N> --squash --match-head-commit <new head>; m=$?; echo "merge EXIT=$m"
-  rmdir "$L"
   [ "$m" = 0 ] && { gh pr edit <N> --remove-label "$(F cross_machine_gate.label)"; echo "EXIT=$?"; }
-else echo "no merge: report [$v], gh pr comment exit $c, check exit <check exit>"; fi
+else echo "no merge: report [$v], gh pr comment exit <comment exit>, check exit <check exit>"; fi
 ```
 
 The `request` machine does not run its own gate full again on the rebased branch before the merge:
@@ -183,6 +198,7 @@ A table, one row a PR of the list, in the order of the list:
 | PR | Verdict | Merge or report |
 |---|---|---|
 | #482 | green | merged, label removed |
+| #484 | green, merge failed (`merge EXIT=1`) | <URL of the report comment>; waits for the next pass |
 | #485 | red: `pnpm icons` exit 1 | <URL of the report comment> |
 | #486 | waits for the requesting machine | — |
 | #487 | fork: skipped | — |

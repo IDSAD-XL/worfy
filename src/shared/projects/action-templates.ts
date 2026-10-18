@@ -152,6 +152,25 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 
+/**
+ * The settings in an answer of `projects.settings.get` and `projects.settings.defaults` and in
+ * `projects.settings.changed`. A Linked machine on a build from before "Process gate queue" answers
+ * without `gateQueue`; it reads as an empty template (no button), since that build has no
+ * `actions.gateQueue` to run it.
+ */
+export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
+  actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.default('') }),
+})
+
+/**
+ * The settings `projects.settings.set` takes. A Linked machine on an older build sends no
+ * `gateQueue`; main keeps the saved one, or the default (writeProjectSettings).
+ */
+export const projectSettingsInputSchema = projectSettingsSchema.extend({
+  actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
+})
+export type ProjectSettingsInput = z.output<typeof projectSettingsInputSchema>
+
 /** What a new Project starts with: the defaults of the Harness found on the machine. */
 export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {
   return { actionTemplates: defaultActionTemplates(harness) }

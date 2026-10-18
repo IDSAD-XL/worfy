@@ -12,7 +12,7 @@ import { ASK_RUNS_TIMEOUT_MS, AutopilotRunsLink, type RunsLinkService } from '..
 import { MessageRegistry, type LinkMessage, type MessageHandler } from '../../src/main/link/messages'
 import type { BackgroundTask } from '../../src/shared/agent/background-tasks'
 import type { AgentEvent, QueueSnapshot, SessionState } from '../../src/shared/agent/events'
-import type { JournalEventFields } from '../../src/shared/autopilot/journal'
+import { journalEventSchema, type JournalEventFields } from '../../src/shared/autopilot/journal'
 import type { AutopilotState, HarnessBehind } from '../../src/shared/ipc/autopilot'
 import type { PullRequest } from '../../src/shared/ipc/checks'
 import type { OrchestratorView } from '../../src/shared/ipc/orchestrator'
@@ -1266,6 +1266,8 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
 
 describe('the gate queue before the run stops for want of a Wave (worfy-windows ticket 17)', () => {
   const GATE_TEXT = '/worfy:gate-queue'
+  /** The fields the journal file adds to each line (src/main/autopilot/journal.ts), for the real schema. */
+  const JOURNAL_COMMON = { at: '2026-10-18T10:00:00.000Z', run: '2026-10-18T10-00-00-000Z-abcdef', project: PROJECT, epic: EPIC }
   /** A stand-in whose "Process gate queue" answers `text` (null: not the machine with serve, or no template); each call counted. */
   function gated(text: string | null, overrides: Partial<AutopilotDeps> = {}) {
     const s = standIn(overrides)
@@ -1391,6 +1393,24 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     expect(lines(s)).toEqual([{ kind: 'run-stopped', reason: 'no-ready-wave' }])
   })
 
+  it('a Force stop while the role and the template are read: no gate-queue, the template is not sent', async () => {
+    const { s } = gated(GATE_TEXT)
+    let forced: Promise<unknown> = Promise.resolve()
+    s.deps.waves.autopilotGateQueue = () => {
+      forced = s.autopilot.forceStop(PROJECT)
+      return Promise.resolve(GATE_TEXT)
+    }
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    await forced
+    await settle()
+    expect(s.sent).toEqual([])
+    expect(s.journal.map((line) => line.kind)).not.toContain('gate-queue')
+    expect(lines(s)).toEqual([{ kind: 'run-stopped', reason: 'no-ready-wave' }])
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped' })
+  })
+
   it('a Stop during the gate queue\'s turn is graceful, as in a Wave: STOP_TEXT behind the turn, user-stop after it', async () => {
     const { s } = gated(GATE_TEXT)
     done(s, 1, 2, 3)
@@ -1407,7 +1427,9 @@ describe('the gate queue before the run stops for want of a Wave (worfy-windows 
     s.emit(result())
     await settle()
     expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
-    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'run-stopping', 'run-stopped'])
+    // No run-stopping: the turn has no Wave, and a run-stopping with wave 0 would not pass the journal's schema.
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'run-stopped'])
+    for (const line of s.journal) expect(journalEventSchema.safeParse({ ...line, ...JOURNAL_COMMON }).error?.issues ?? []).toEqual([])
   })
 
   it('a Force stop during the gate queue\'s turn: the Session is halted, run-stopped says user-force-stop', async () => {

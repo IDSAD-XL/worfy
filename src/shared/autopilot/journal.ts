@@ -102,7 +102,9 @@
 //                                    gate queue" template first (worfy-windows ticket 17,
 //                                    ADR-0069); text: what it sent. Once per run. Its turn ends by
 //                                    the rules of a Wave's turn (background tasks, the Limits);
-//                                    run-stopped follows with the reason it was to stop with.
+//                                    run-stopped follows with the reason it was to stop with. A
+//                                    Stop during it writes no run-stopping: run-stopped
+//                                    (`user-stop`) follows the turn.
 //                                    Journals written before ticket 17 have none
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with

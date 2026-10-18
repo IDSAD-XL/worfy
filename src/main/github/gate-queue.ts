@@ -9,10 +9,12 @@
 //   changes.
 // - The PRs: one `gh pr list --state open --label <label>` in the Project's root, with GH_TOKEN of
 //   the Project's GitHub account (accountAuth); the global gh account is never switched.
-// - Rule 1, the same as harness/skills/gate-queue/SKILL.md, step 2: a labelled PR waits while it has
-//   no report newer than its last commit. A report is a comment by the Project's GitHub account
-//   whose first line starts with `<checks_section> report: `. The wait counts from the later of the
-//   PR's creation and its last commit.
+// - Rule 1, the same as harness/skills/gate-queue/SKILL.md, step 2: a labelled PR from a branch of
+//   this repository waits while it has no red report strictly newer than its last commit (a tie
+//   still waits). A red report is a comment by the Project's GitHub account whose first line starts
+//   with `<checks_section> report: red`. A green report ends no wait: a PR still open after one had
+//   its merge fail, and the serving machine takes it again. A fork PR never waits. The wait counts
+//   from the later of the PR's creation and its last commit.
 // - One read per Project per GATE_QUEUE_INTERVAL_MS. When gh fails the interval doubles, up to
 //   GATE_QUEUE_MAX_INTERVAL_MS; the first success brings it back.
 import { z } from 'zod'
@@ -23,7 +25,7 @@ import { accountAuth, type GhRunner } from './prs'
 export const GATE_QUEUE_INTERVAL_MS = 5 * 60_000
 export const GATE_QUEUE_MAX_INTERVAL_MS = 30 * 60_000
 export const GATE_QUEUE_LIMIT = 100
-export const GATE_QUEUE_FIELDS = 'number,title,url,createdAt,commits,comments'
+export const GATE_QUEUE_FIELDS = 'number,title,url,createdAt,isCrossRepository,commits,comments'
 export const CROSS_MACHINE_GATE_FIELD = 'cross_machine_gate'
 
 export type CrossMachineRole = 'serve' | 'request'
@@ -71,12 +73,14 @@ export async function readCrossMachineGate(profile: ProfileRunner, root: string)
 
 // ── rule 1 ───────────────────────────────────────────────────────────────────
 
-/** A labelled PR as `gh pr list --json number,title,url,createdAt,commits,comments` gives it. */
+/** A labelled PR as `gh pr list --json number,title,url,createdAt,isCrossRepository,commits,comments` gives it. */
 export interface QueuePr {
   number: number
   title: string
   url: string
   createdAt: string
+  /** A PR from a fork; the skill skips it, so it never waits. */
+  isCrossRepository?: boolean | undefined
   commits: readonly { oid?: string | null | undefined; committedDate?: string | null | undefined }[]
   comments: readonly { author?: { login: string } | null | undefined; createdAt: string; body: string }[]
 }
@@ -95,14 +99,17 @@ export interface WaitingPr {
 }
 
 /**
- * Rule 1 (harness/skills/gate-queue/SKILL.md, step 2): the PRs of `prs` without a report newer than
- * their last commit, the oldest wait first. Only a comment by `account` counts as a report; with no
- * account no report counts and every PR waits. A PR whose times cannot be read is left out.
+ * Rule 1 (harness/skills/gate-queue/SKILL.md, step 2): the PRs of `prs` from a branch of this
+ * repository without a red report strictly newer than their last commit, the oldest wait first. Only
+ * a comment by `account` counts as a report; with no account no report counts and every PR waits. A
+ * green report ends no wait (its merge failed if the PR is still open). A fork PR and a PR whose
+ * times cannot be read are left out.
  */
 export function waitingPrs(prs: readonly QueuePr[], checksSection: string, account: string | null, now: number): WaitingPr[] {
-  const prefix = `${checksSection} report: `
+  const prefix = `${checksSection} report: red`
   const waiting: (WaitingPr & { sinceMs: number })[] = []
   for (const pr of prs) {
+    if (pr.isCrossRepository === true) continue
     const last = pr.commits.at(-1)
     const created = Date.parse(pr.createdAt)
     const committed = last?.committedDate == null ? Number.NaN : Date.parse(last.committedDate)
@@ -123,6 +130,10 @@ const prListSchema = z.array(
     title: z.string(),
     url: z.string(),
     createdAt: z.string(),
+    isCrossRepository: z
+      .boolean()
+      .nullish()
+      .transform((cross) => cross ?? false),
     commits: z
       .array(z.object({ oid: z.string().nullish(), committedDate: z.string().nullish() }))
       .nullish()

@@ -112,6 +112,20 @@ function machinesBridge(options: { link: LinkState; linked: LinkedState; refusin
   const calls: [string, unknown][] = []
   const listeners = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let next = 1
+  /** The gate queue's answers, the same on this Machine and on a Linked one. */
+  const gate = (channel: string): unknown => {
+    if (options.gateRole === undefined) return { ok: false, error: `unexpected ${channel}` }
+    if (channel === 'actions.gateQueue') return { ok: true, value: { sessionId: 'orch-1', text: '/worfy:gate-queue', delivery: 'sent' } }
+    return {
+      ok: true,
+      value: {
+        role: options.gateRole,
+        label: options.gateRole === null ? null : 'needs-mac-gate',
+        waiting: [],
+        gh: options.gateRole === null ? { state: 'skipped', reason: 'no cross_machine_gate' } : { state: 'ok' },
+      },
+    }
+  }
   const answer = (channel: string, input: unknown): unknown => {
     switch (channel) {
       case 'projects.list':
@@ -125,23 +139,14 @@ function machinesBridge(options: { link: LinkState; linked: LinkedState; refusin
       case 'linked.open':
         return { ok: true, value: { projectId: (input as { projectId: string | null }).projectId } }
       case 'gateQueue.get':
-        if (options.gateRole === undefined) return { ok: false, error: 'unexpected gateQueue.get' }
-        return {
-          ok: true,
-          value: {
-            role: options.gateRole,
-            label: options.gateRole === null ? null : 'needs-mac-gate',
-            waiting: [],
-            gh: options.gateRole === null ? { state: 'skipped', reason: 'no cross_machine_gate' } : { state: 'ok' },
-          },
-        }
       case 'actions.gateQueue':
-        return { ok: true, value: { sessionId: 'orch-1', text: '/worfy:gate-queue', delivery: 'sent' } }
+        return gate(channel)
       case 'linked.invoke': {
         const call = input as { machine: string; channel: string }
         if (options.refusing?.includes(call.machine)) {
           return { ok: true, value: { ok: false, error: 'Linked machines cannot work with the Projects of Z: access is off' } }
         }
+        if (call.channel === 'gateQueue.get' || call.channel === 'actions.gateQueue') return { ok: true, value: gate(call.channel) }
         return { ok: true, value: { ok: true, value: listOf(call.machine === M ? 'm' : 'z') } }
       }
       default:
@@ -369,6 +374,23 @@ describe('the Projects of Linked machines', () => {
       await waitFor(() => expect(screen.getByTestId('projects-notice').textContent).toBe('Sent to the Orchestrator of studio two: /worfy:gate-queue'))
       expect(calls.filter(([channel]) => channel === 'actions.gateQueue')).toEqual([['actions.gateQueue', { projectId: 'studio-two-00000002' }]])
       expect(screen.queryByRole('menu', { name: 'Project' })).toBeNull()
+    })
+
+    it('a row of a Linked machine: the role is read on that Machine, and the click runs the gate queue there', async () => {
+      const { calls } = await loadModules({ link: linkState([{ id: M, name: 'Mini' }]), linked: linkedState([{ id: M, sharing: 'yes' }]), gateRole: 'serve' })
+      const { default: ProjectsSection } = await import('../../src/renderer/shell/sidebar/ProjectsSection')
+      render(<ProjectsSection />)
+      await waitFor(() => expect(screen.getAllByTestId('project-row')).toHaveLength(4))
+      const row = within(screen.getAllByTestId('machine-group')[1]!).getAllByTestId('project-row')[1]!
+      expect(row.getAttribute('data-project-id')).toBe('m-two-00000002')
+      fireEvent.contextMenu(row)
+      await waitFor(() => expect(items()).toContain('Process gate queue'))
+      expect(calls).toContainEqual(['linked.invoke', { machine: M, channel: 'gateQueue.get', input: { projectId: 'm-two-00000002' } }])
+      // Not on this Machine: it has no Project of that id.
+      expect(calls.filter(([channel, input]) => channel === 'gateQueue.get' && (input as { projectId: string }).projectId === 'm-two-00000002')).toEqual([])
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Process gate queue' }))
+      await waitFor(() => expect(calls).toContainEqual(['linked.invoke', { machine: M, channel: 'actions.gateQueue', input: { projectId: 'm-two-00000002' } }]))
+      expect(calls.filter(([channel]) => channel === 'actions.gateQueue')).toEqual([])
     })
 
     it.each([

@@ -12,6 +12,7 @@ import {
   savedProjectSettingsSchema,
   type HarnessKind,
   type ProjectSettings,
+  type ProjectSettingsInput,
 } from '../../shared/projects/action-templates'
 import { currentHarness } from '../harness/locate'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
@@ -30,9 +31,14 @@ export function readProjectSettings(projectDataDir: string, harness: HarnessKind
   return saved === undefined ? defaultProjectSettings(harness) : migrateProjectSettings(saved, harness)
 }
 
-/** Saves the settings; a template with an unknown placeholder throws and nothing is written. */
-export function writeProjectSettings(projectDataDir: string, settings: ProjectSettings, harness: HarnessKind = currentHarness().kind): ProjectSettings {
-  writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, settings)
+/**
+ * Saves the settings; a template with an unknown placeholder throws and nothing is written. Settings
+ * without `gateQueue` (a Linked machine on a build from before "Process gate queue") keep the saved
+ * one, or the default when none is saved.
+ */
+export function writeProjectSettings(projectDataDir: string, settings: ProjectSettingsInput, harness: HarnessKind = currentHarness().kind): ProjectSettings {
+  const gateQueue = settings.actionTemplates.gateQueue ?? readProjectSettings(projectDataDir, harness).actionTemplates.gateQueue
+  writeJsonFile(settingsPath(projectDataDir), projectSettingsSchema, { ...settings, actionTemplates: { ...settings.actionTemplates, gateQueue } })
   return readProjectSettings(projectDataDir, harness)
 }
 

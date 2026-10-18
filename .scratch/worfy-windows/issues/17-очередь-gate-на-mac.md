@@ -253,3 +253,22 @@ Wave 7) общих файлов нет: src/main/github/prs.ts и test/fixtures/
 
 **Не сделано здесь:** пункты «(вручную)» — упакованная сборка, palette, меню и уведомление на Mac;
 Windows-ПК: `pnpm lint`, `pnpm typecheck`, `pnpm test` и три shell-теста — их список в описании PR.
+
+**Доработка после review (раунд 1).**
+
+- Правило 1 — одно в skill-е и в worfy: PR ждёт, пока у него нет красного отчёта строго новее
+  последнего commit-а. Зелёный отчёт ожидание не снимает: если PR после него ещё открыт, мерж не
+  прошёл, и следующий проход берёт его заново. Отчёт в ту же секунду, что и commit, — PR ждёт.
+  PR из fork-а не ждёт и в worfy тоже (`isCrossRepository`).
+- Блок отчёта и блок мержа в шаге 5 skill-а разделены: повтор после timeout lock-а не пишет второй
+  отчёт; lock снимает `trap`. Lock main-ветки у `gate-queue`, `epic-wave` (раздел 4) и
+  `ship-ticket` — один путь, `<git-common-dir>/main.lock`.
+- Linked machine старой сборки: ответ `projects.settings.get` без `gateQueue` принимается (пустой
+  шаблон), `projects.settings.set` без него сохраняет прежний шаблон.
+- Autopilot: Force stop во время чтения шаблона не шлёт `/worfy:gate-queue`; Stop во время хода
+  очереди не пишет `run-stopping` (с `wave` 0 его не принимает схема журнала).
+- Уведомления: tick раз в минуту (период чтения — от 5 до 6 минут), останов на `will-quit`; отметки
+  одного Project-а не стираются чтением другого.
+- Проверки: три shell-теста — 0 (50, 152, 336); `pnpm lint && pnpm typecheck` — 0; `pnpm test` — 0
+  (6079 passed, 70 skipped); gate fast — 0, `[gate] зелено`. Mutation testing: 16 mutant-ов
+  доработки, все убиты.

@@ -127,23 +127,29 @@ list_case() { # list_case <name> <want> <PR json lines...>
 list_case "three PRs: no report, a red report newer and one older than the last commit" \
     "23 feature-23 oid23 since 2026-10-18T07:30:00Z
 21 feature-21 oid21 since 2026-10-18T08:00:00Z
-22 waits for the requesting machine: its report is newer than its last commit
+22 waits for the requesting machine: its red report is newer than its last commit
 EXIT=0" \
     "$(pr 21 2026-10-18T08:00:00Z 2026-10-18T07:00:00Z)" \
     "$(pr 22 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T10:00:00Z "$RED")")" \
     "$(pr 23 2026-10-18T06:00:00Z 2026-10-18T07:30:00Z "$(comment mac-bot 2026-10-18T07:00:00Z "$RED")")"
 # A report by another account does not count (anyone can write one); a comment that only mentions the report is not one;
-# a green report newer than the last commit also stops the wait; a fork PR is skipped, never checked out.
-list_case "a report by another account, a comment that is not a report, a green report, a fork" \
+# a green report newer than the last commit ends no wait: the PR is still open, so its merge failed (a conflict with
+# main, the network, the lock), and the next pass takes it again; a fork PR is skipped, never checked out.
+list_case "a report by another account, a comment that is not a report, a green report whose merge failed, a fork" \
     "31 feature-31 oid31 since 2026-10-18T06:00:00Z
 32 feature-32 oid32 since 2026-10-18T06:30:00Z
 34 fork: skipped
-33 waits for the requesting machine: its report is newer than its last commit
+33 feature-33 oid33 since 2026-10-18T09:00:00Z
 EXIT=0" \
     "$(pr 31 2026-10-18T06:00:00Z 2026-10-18T05:30:00Z "$(comment mallory 2026-10-18T07:00:00Z "$RED")")" \
     "$(pr 32 2026-10-18T06:00:00Z 2026-10-18T06:30:00Z "$(comment mac-bot 2026-10-18T07:00:00Z $'See the Mac checks report: red above')")" \
     "$(pr 33 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z $'Mac checks report: green\nall fine')")" \
     "$(pr 34 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z | jq -c '.isCrossRepository = true')"
+# A red report at the same second as the last commit is not newer than it: the PR waits (the same rule as worfy's reader).
+list_case "a red report at the same second as the last commit -> still waits" \
+    "35 feature-35 oid35 since 2026-10-18T09:00:00Z
+EXIT=0" \
+    "$(pr 35 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:00:00Z "$RED")")"
 list_case "a PR whose commits list is empty waits since its creation" \
     "41 feature-41 oid41 since 2026-10-18T06:00:00Z
 EXIT=0" \

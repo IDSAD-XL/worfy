@@ -276,9 +276,10 @@ ci_case CI=pass "[$(j unit pass),$(j deploy pass),$(st deploy fail)]"
 # The main-branch lock of skills/epic-wave, section 4. The loop is bounded: each round counts, and after three the
 # block exits with IDLE — so a loop that spins without sleeping (BSD `stat -f %m` under GNU stat fails, and
 # `|| continue` skips the sleep) ends the case instead of hanging the run. `sleep 30` becomes a no-op.
-BL="$(SKILL="$WAVE" block '<orchestrator scratchpad>/main.lock')"
+BL="$(SKILL="$WAVE" block "--git-common-dir)/main.lock\"   # the repository's shared path")"
 [ -n "$BL" ] || bad "main-branch lock block not found in $WAVE"
-BL="${BL//<orchestrator scratchpad>/$T/lk}"
+LKR="$T/lkrepo"; git init -q "$LKR"; LK="$(cd "$LKR/.git" && pwd -P)/main.lock"
+BL="${BL//<repo>/$LKR}"
 pat='until mkdir "$L" 2>/dev/null; do'
 rep='until mkdir "$L" 2>/dev/null; do n=$((n+1)); [ "$n" -le 3 ] || { echo IDLE; exit 7; };'
 BL="${BL//"$pat"/$rep}"
@@ -286,16 +287,17 @@ BL="${BL//sleep 30/:}"
 [[ "$BL" == *'echo IDLE'* && "$BL" != *'sleep 30'* ]] || bad "main-branch lock block: the round bound did not go in: [$BL]"
 two_hours_ago="$(perl -MPOSIX -e 'print strftime("%Y%m%d%H%M", localtime(time - 7200))')"
 for sh in "${SHELLS[@]}"; do
-    rm -rf "$T/lk"; mkdir -p "$T/lk/main.lock"; touch -t "$two_hours_ago" "$T/lk/main.lock"
+    rmdir "$LK" 2>/dev/null; mkdir "$LK"; touch -t "$two_hours_ago" "$LK"
     got="$($sh -c "$BL" 2>&1)"; rc=$?
-    [ "$rc" = 0 ] && [ "$got" = LOCKED ] && [ ! -e "$T/lk/main.lock" ] \
-        && ok "$sh: main-branch lock: a lock two hours old is removed and taken again (LOCKED), then released" \
+    [ "$rc" = 0 ] && [ "$got" = LOCKED ] && [ ! -e "$LK" ] \
+        && ok "$sh: main-branch lock: a lock two hours old in the repository's git folder is removed and taken again (LOCKED), then released" \
         || bad "$sh: main-branch lock, stale: exit $rc [$got]"
-    rm -rf "$T/lk"; mkdir -p "$T/lk/main.lock"
+    rmdir "$LK" 2>/dev/null; mkdir "$LK"
     got="$($sh -c "$BL" 2>&1)"; rc=$?
-    [ "$rc" = 7 ] && [ "$got" = IDLE ] && [ -d "$T/lk/main.lock" ] \
+    [ "$rc" = 7 ] && [ "$got" = IDLE ] && [ -d "$LK" ] \
         && ok "$sh: main-branch lock: a fresh lock stays, the block waits" || bad "$sh: main-branch lock, fresh: exit $rc [$got]"
 done
+rmdir "$LK"
 
 # The branches of the last 14 days, skills/continuous-audit: origin/old (a commit 20 days ago) is left out,
 # origin/new (1 day ago) is read; epic-status is a stub that answers for the ref it is given.
@@ -348,6 +350,7 @@ done
 [ -n "${GH_FAIL_ON:-}" ] && [[ " $* " == *" $GH_FAIL_ON "* ]] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
 [ -n "${GH_BODY_RAW:-}" ] && [[ " $* " == *" --json body "* ]] && { cat "$GH_BODY_RAW"; exit 0; }
 [ -n "${GH_LOCK:-}" ] && [[ " $* " == *" pr merge "* ]] && { [ -d "$GH_LOCK" ] && echo held || echo free; } >>"$GH_LOCK_LOG"
+[ -n "${GH_TERM_ON:-}" ] && [[ " $* " == *" $GH_TERM_ON "* ]] && { kill -TERM "$PPID"; exit 1; }   # the call is stopped
 if [ -n "$f" ]; then set -o pipefail; jq -r "$f" "$GH_JSON" | tr -d '\r'; exit $?; fi
 exit 0
 EOF
@@ -573,47 +576,100 @@ for sh in "${SHELLS[@]}"; do
     done
 done
 git -C "$CM/cwdwt" rebase --abort 2>/dev/null; git -C "$CR" worktree remove --force "$CM/cwdwt"
-# The real tree of the PR, its conflict resolved and staged: the rebase goes on and the push holds the lease.
+# The other machine pushes to the branch while this one resolves the conflict: the lease on the listed head refuses
+# the push, origin keeps the other machine's commit, and the tree is removed.
+echo resolved >"$CM/pr-11/f.txt"; git -C "$CM/pr-11" add f.txt
+git -C "$CM/other" fetch -q origin && git -C "$CM/other" checkout -q -B feature origin/feature && echo moved >"$CM/other/m.txt" \
+    && git -C "$CM/other" add m.txt && git -C "$CM/other" "${G[@]}" commit -q -m "moved while resolving" && git -C "$CM/other" push -q origin feature 2>/dev/null
+moved="$(git -C "$CM/origin.git" rev-parse feature)"
+got="$("${SENV[@]}" bash -c "$BCT" 2>&1)"
+[ "$(tail -n 1 <<<"$got")" != EXIT=0 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$moved" ] && [ ! -e "$CM/pr-11" ] \
+    && ok "conflict follow-up block: the branch moved while the conflict was resolved -> push refused, the other machine's commit stays" \
+    || bad "conflict follow-up block, branch moved: [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -1 feature)"
+[ ! -e "$CM/pr-11" ] || git -C "$CR" worktree remove --force "$CM/pr-11"
+# The pass again from the list, on the moved head: the conflict again, resolved and staged in the PR's real tree; the
+# rebase goes on and the push holds the lease.
+got="$(serve_rebase 11 "$moved")"
+[ "$(tail -n 1 <<<"$got")" != EXIT=0 ] && [ -d "$CM/pr-11" ] || bad "serve rebase block, the conflict again: [$got]"
+BCT="${BCT//$before/$moved}"
 echo resolved >"$CM/pr-11/f.txt"; git -C "$CM/pr-11" add f.txt
 got="$("${SENV[@]}" bash -c "$BCT" 2>&1)"
 [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && git -C "$CM/origin.git" merge-base --is-ancestor main feature \
-    && [ "$(git -C "$CM/origin.git" show feature:f.txt)" = resolved ] \
+    && [ "$(git -C "$CM/origin.git" show feature:f.txt)" = resolved ] && git -C "$CM/origin.git" cat-file -e feature:m.txt \
     && ok "conflict follow-up block: the PR's tree, conflict resolved -> rebase continued, pushed with the lease" || bad "conflict follow-up block, resolved: [$got]"
 new="$(git -C "$CM/origin.git" rev-parse feature)"
 [ ! -e "$CM/pr-11" ] || git -C "$CR" worktree remove --force "$CM/pr-11"
 
-# The report-and-merge block: the merge only after a green report that reached the PR and a green check, and only
-# of the head the checks ran on; the merge under the main-branch lock at its shared path, released after it.
-BMG="$(SKILL="$GQF" blockf 'pr-<N>-report.md')"
-[ -n "$BMG" ] || bad "serve report-and-merge block not found in $GQF"
+# The report block posts the report once; the merge block merges only after a green report that reached the PR and a
+# green check, and only the head the checks ran on, under the main-branch lock at its shared path, released by a trap.
+BCM="$(SKILL="$GQF" blockf 'gh pr comment <N> --body-file')"
+[ -n "$BCM" ] || bad "serve report block not found in $GQF"
+BCM="${BCM//<scratchpad>/$T}"; BCM="${BCM//<N>/7}"
+printf 'Mac checks report: green\nverdict line\n' >"$T/pr-7-report.md"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"; got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BCM" 2>&1)"
+    [ "$got" = "comment EXIT=0" ] && [ "$(cat "$T/ghx.log")" = "pr comment 7 --body-file $T/pr-7-report.md" ] \
+        && ok "$sh: report block: one gh pr comment with the report file" || bad "$sh: report block: [$got] gh [$(cat "$T/ghx.log")]"
+    : >"$T/ghx.log"; got="$("${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=comment $sh -c "$BCM" 2>/dev/null)"
+    [ "$got" = "comment EXIT=1" ] && ok "$sh: report block: a failed comment gives its exit code" || bad "$sh: report block, failed: [$got]"
+done
+BMG="$(SKILL="$GQF" blockf '<comment exit>')"
+[ -n "$BMG" ] || bad "serve merge block not found in $GQF"
+[[ "$BMG" != *'gh pr comment <N>'* ]] && ok "merge block: no gh pr comment — a repeat after a lock timeout posts no second report" || bad "merge block posts a comment"
 BMG="$(sub "${BMG//<repo>/$CR}")"; BMG="${BMG//<scratchpad>/$T}"; BMG="${BMG//<N>/7}"; BMG="${BMG//<new head>/$new}"
-merge_case() { # merge_case <want: merge|none> <name> <first line of the report> <check exit> [env assignment]
-    local want="$1" name="$2" b="${BMG//<check exit>/$4}" sh got; printf '%s\nverdict line\n' "$3" >"$T/pr-7-report.md"
+LCK="$(cd "$CR/.git" && pwd -P)/main.lock"
+mb() { local b="${BMG//<check exit>/$1}"; printf '%s' "${b//<comment exit>/$2}"; }   # mb <check exit> <comment exit>
+merge_case() { # merge_case <want: merge|none> <name> <first line of the report> <check exit> <comment exit> [env assignment]
+    local want="$1" name="$2" b sh got; b="$(mb "$4" "$5")"; printf '%s\nverdict line\n' "$3" >"$T/pr-7-report.md"
     for sh in "${SHELLS[@]}"; do
         : >"$T/ghx.log"; : >"$T/lock.log"
-        got="$("${SENV[@]}" "${XENV[@]}" GH_LOCK="$CR/.git/main.lock" GH_LOCK_LOG="$T/lock.log" ${5:-} $sh -c "$b" 2>&1)"
+        got="$("${SENV[@]}" "${XENV[@]}" GH_LOCK="$LCK" GH_LOCK_LOG="$T/lock.log" ${6:-} $sh -c "$b" 2>&1)"
         if [ "$want" = merge ]; then
-            [ "$(cat "$T/ghx.log")" = "pr comment 7 --body-file $T/pr-7-report.md"$'\n'"pr merge 7 --squash --match-head-commit $new"$'\n'"pr edit 7 --remove-label needs-mac-gate" ] \
-                && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$CR/.git/main.lock" ] \
-                && ok "$sh: report-and-merge block, $name -> comment, merge of the checked head, label removed" || bad "$sh: report-and-merge, $name: [$got] gh [$(cat "$T/ghx.log")]"
+            [ "$(cat "$T/ghx.log")" = "pr merge 7 --squash --match-head-commit $new"$'\n'"pr edit 7 --remove-label needs-mac-gate" ] \
+                && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$LCK" ] \
+                && ok "$sh: merge block, $name -> merge of the checked head under the lock, label removed, lock released" || bad "$sh: merge block, $name: [$got] gh [$(cat "$T/ghx.log")]"
         else
-            ! grep -q '^pr merge' "$T/ghx.log" && ! grep -q -- '--remove-label' "$T/ghx.log" && grep -q '^pr comment 7' "$T/ghx.log" \
-                && ok "$sh: report-and-merge block, $name -> no merge, the label stays" || bad "$sh: report-and-merge, $name: [$got] gh [$(cat "$T/ghx.log")]"
+            [ ! -s "$T/ghx.log" ] && [ ! -e "$LCK" ] \
+                && ok "$sh: merge block, $name -> no merge, the label stays, no lock taken" || bad "$sh: merge block, $name: [$got] gh [$(cat "$T/ghx.log")]"
         fi
+        rmdir "$LCK" 2>/dev/null   # a lock left by a broken block would hold the next case in its wait
     done
 }
-merge_case merge "green report, check 0" "Mac checks report: green" 0
-merge_case none "the comment failed" "Mac checks report: green" 0 GH_FAIL_ON=comment
-merge_case none "red report" "Mac checks report: red" 0
-merge_case none "check exit 2" "Mac checks report: green" 2
+merge_case merge "green report, comment 0, check 0" "Mac checks report: green" 0 0
+merge_case none "the comment failed" "Mac checks report: green" 0 1
+merge_case none "red report" "Mac checks report: red" 0 0
+merge_case none "check exit 2" "Mac checks report: green" 2 0
 printf 'Mac checks report: green\n' >"$T/pr-7-report.md"
-: >"$T/ghx.log"; "${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=merge bash -c "${BMG//<check exit>/0}" >/dev/null 2>&1
-! grep -q -- '--remove-label' "$T/ghx.log" && [ ! -e "$CR/.git/main.lock" ] && ok "report-and-merge block: the merge failed -> the label stays, the lock is released" || bad "report-and-merge, merge failed: [$(cat "$T/ghx.log")] lock $(ls -d "$CR/.git/main.lock" 2>&1)"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"; got="$("${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=merge $sh -c "$(mb 0 0)" 2>/dev/null)"
+    [ "$got" = "merge EXIT=1" ] && ! grep -q -- '--remove-label' "$T/ghx.log" && [ ! -e "$LCK" ] \
+        && ok "$sh: merge block: the merge failed -> merge EXIT=1, the label stays, the trap releases the lock" || bad "$sh: merge block, merge failed: [$got] gh [$(cat "$T/ghx.log")] lock $(ls -d "$LCK" 2>&1)"
+    rmdir "$LCK" 2>/dev/null   # a lock left by a broken block would hold the next case in its wait
+    # The call is stopped during the merge (a TERM to the shell): the trap still releases the lock.
+    : >"$T/ghx.log"; "${SENV[@]}" "${XENV[@]}" GH_TERM_ON=merge $sh -c "$(mb 0 0)" >/dev/null 2>&1; rc=$?
+    [ "$rc" = 130 ] && [ ! -e "$LCK" ] && ok "$sh: merge block: the call stopped during the merge -> exit 130, the trap releases the lock" \
+        || bad "$sh: merge block, stopped: exit $rc lock $(ls -d "$LCK" 2>&1)"
+    rmdir "$LCK" 2>/dev/null
+done
 # A lock left by a session that died (older than 90 minutes) is taken over; the merge runs under it and releases it.
-mkdir "$CR/.git/main.lock" && touch -t 202601010000 "$CR/.git/main.lock"; : >"$T/ghx.log"; : >"$T/lock.log"
-"${SENV[@]}" "${XENV[@]}" GH_LOCK="$CR/.git/main.lock" GH_LOCK_LOG="$T/lock.log" bash -c "${BMG//<check exit>/0}" >/dev/null 2>&1
-grep -q '^pr merge 7' "$T/ghx.log" && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$CR/.git/main.lock" ] \
-    && ok "report-and-merge block: a stuck lock (older than 90 min) is taken over, the merge runs under it" || bad "report-and-merge, stuck lock: gh [$(cat "$T/ghx.log")] lock [$(cat "$T/lock.log")]"
+mkdir "$LCK" && touch -t 202601010000 "$LCK"; : >"$T/ghx.log"; : >"$T/lock.log"
+"${SENV[@]}" "${XENV[@]}" GH_LOCK="$LCK" GH_LOCK_LOG="$T/lock.log" bash -c "$(mb 0 0)" >/dev/null 2>&1
+grep -q '^pr merge 7' "$T/ghx.log" && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$LCK" ] \
+    && ok "merge block: a stuck lock (older than 90 min) is taken over, the merge runs under it" || bad "merge block, stuck lock: gh [$(cat "$T/ghx.log")] lock [$(cat "$T/lock.log")]"
+rmdir "$LCK" 2>/dev/null
+# A live lock (a merge of another session, minutes old) is waited for: no merge while it is there; the merge goes once
+# its holder releases it. A stub sleep releases it on its first call, as the other session would, and says so when
+# the lock is already gone by then: the block took the live lock for a stuck one and removed it.
+SLP="$T/sleepstub"; mkdir -p "$SLP"
+printf '#!/usr/bin/env bash\necho "sleep $*" >>"$SLEEP_LOG"\ngrep -q "^pr merge" "$GH_LOG" && echo "merged during the wait" >>"$SLEEP_LOG"\n[ -d "$LIVE_LOCK" ] || echo "the live lock was gone before its holder let it go" >>"$SLEEP_LOG"\nrmdir "$LIVE_LOCK" 2>/dev/null\nexit 0\n' >"$SLP/sleep"; chmod +x "$SLP/sleep"
+for sh in "${SHELLS[@]}"; do
+    mkdir "$LCK"; : >"$T/ghx.log"; : >"$T/lock.log"; : >"$T/sleep.log"
+    "${SENV[@]}" "${XENV[@]}" PATH="$SLP:$GHX:$PATH" SLEEP_LOG="$T/sleep.log" LIVE_LOCK="$LCK" GH_LOCK="$LCK" GH_LOCK_LOG="$T/lock.log" $sh -c "$(mb 0 0)" >/dev/null 2>&1
+    [ "$(cat "$T/sleep.log")" = "sleep 30" ] && grep -q '^pr merge 7' "$T/ghx.log" && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$LCK" ] \
+        && ok "$sh: merge block: a live lock is waited for (one sleep 30, no merge during it), then taken; the merge runs under it" \
+        || bad "$sh: merge block, live lock: sleep [$(cat "$T/sleep.log")] gh [$(cat "$T/ghx.log")] lock [$(cat "$T/lock.log")]"
+    rmdir "$LCK" 2>/dev/null
+done
 
 # The request machine's report lookup: only a report by github.account counts.
 BRR="$(SKILL="$WAVE" blockf 'report: ([.comments[]')"
