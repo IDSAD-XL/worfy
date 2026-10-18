@@ -13,6 +13,10 @@
 #   - the same while the gate waits for git or for the resolver, or before it starts a script;
 #     git that a signal ended without the gate is "could not verify", not an answer; a signal
 #     that comes after the verdict is written ends the gate with the code of that verdict;
+#   - the same moments made inside the gate process (fake.cjs), so that they run on Windows too:
+#     a signal right after the verdict file is in place, git or a resolver ended by a signal alone
+#     or by Node for output past the limit, a signal while HEAD is read for the verdict file;
+#   - an error inside the gate leaves the nokey-broken marker that stop.mjs reads;
 #   - node not found: the answer is the one of the launcher gate.sh;
 #   - a worktree path with a space, a quote and a backslash still gives a parseable file;
 #   - a second run overwrites the file; no temporary files are left in the state folder.
@@ -249,6 +253,11 @@ out="$(cd "$K" && PATH="$npmbad" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&
 verdict "two packages in the plan, the second fails -> outcome red, exit 2" "$K" '.outcome == "red" and .exit == 2 and .key == "k"'
 if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): k/packages/a:check (прошло: k/.:check)"* ]]; then ok "two packages: the line names the second as failed and the first as passed"
 else bad "two packages: rc=$rc, out: ${out:0:300}"; fi
+# The run is red, and still the package whose scripts all passed is green for its content: its
+# cache entry is written, the failed package gets none.
+k_cache="$(cd "$STATE/cache" && ls | grep "^k__$(tag "$K")__" | tr '\n' ' ')"
+if [[ "$k_cache" == "k__$(tag "$K")__.__fast__"*" " ]] && [[ "$k_cache" != *"__packages_a__"* ]]; then ok "two packages, the second fails: the root that passed is cached, packages/a is not"
+else bad "two packages, the second fails: cache entries of k: ${k_cache:-none}"; fi
 # A package manager that is there but cannot be started has checked nothing: that is not a
 # script that passed.
 echo 1 >"$N/n.txt"
@@ -447,11 +456,20 @@ EOF
 touched
 out="$(cd "$R" && GATE_SCOPE=all REAL_RESOLVE="$REAL_RESOLVE" CLAUDE_GATE_RESOLVE="$T/plan-crash.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "plan resolver crashed -> outcome unverified, exit 3, key t" "$R" '.outcome == "unverified" and .exit == 3 and .key == "t"'
+# A resolver that exits with a code is named by that code: in the line, the reason and the marker.
+verdict "plan resolver crashed -> the reason names its exit code" "$R" '.reason == "the plan resolver gate-resolve.mjs exited with code 5"'
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер плана gate-resolve.mjs завершился с кодом 5 — "* ]] \
+    && grep -qF "Could not verify: the plan resolver exited with code 5." "$STATE/unverified-t-$(tag "$R")" 2>/dev/null; then
+    ok "plan resolver crashed: exit 3, the line and the unverified marker name exit code 5"
+else bad "plan resolver crashed: rc=$rc, marker: $(head -c 200 "$STATE/unverified-t-$(tag "$R")" 2>/dev/null), out: ${out:0:300}"; fi
 
 # --- 5. The registry resolver crashed; the project is not registered -------------------
 printf '#!/usr/bin/env node\nthrow new Error("boom")\n' >"$T/crash.mjs"
 out="$(cd "$R" && CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "registry resolver crashed -> outcome unverified, exit 3, key null" "$R" '.outcome == "unverified" and .exit == 3 and .key == null'
+verdict "registry resolver crashed -> the reason names exit code 1, then the first line of its stderr" "$R" '.reason | startswith("the registry resolver gate-resolve.mjs exited with code 1: ")'
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер gate-resolve.mjs завершился с кодом 1"* ]]; then ok "registry resolver crashed: exit 3, the line names exit code 1"
+else bad "registry resolver crashed: rc=$rc, out: ${out:0:300}"; fi
 out="$(cd "$U" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "not registered -> outcome unverified, exit 3, key null" "$U" '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast"'
 
@@ -465,7 +483,7 @@ if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then why="node i
 elif [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
 else
     mkdir -p "$T/bin"
-    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat; do
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat sort; do
         p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
     done
     NONODE="$T/bin"
@@ -568,6 +586,8 @@ mode ok
 # no verdict line, no red marker, no cache entry, and the verdict file of the run before is
 # removed. Not on Windows: a .cmd file cannot end by a signal, and SIGTERM there kills node
 # without a word.
+# The names and the content of the cache files: a stopped run must leave them as they were.
+cachesum() { (cd "$STATE/cache" && ls && cat ./* 2>/dev/null) | cksum; }
 if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM for a .cmd file or for node"; else
     # (a) The script ends by a signal of its own: SIGTERM, and SIGKILL as an out-of-memory kill.
     for how in term kill9; do
@@ -587,8 +607,6 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
     if [[ "$out" == *"said before the kill"* ]]; then ok "a script ended by a signal: what it wrote before the signal is in the report"
     else bad "a script ended by a signal: its output is lost (out: ${out:0:400})"; fi
 
-    # The names and the content of the cache files: a stopped run must leave them as they were.
-    cachesum() { (cd "$STATE/cache" && ls && cat ./* 2>/dev/null) | cksum; }
     # stopped <description> <exit code> <worktree> <key> <cache before>: the run that set $rc and
     # $out ended as a stopped one and left nothing.
     stopped() {
@@ -712,6 +730,7 @@ import { pathToFileURL } from "node:url"
 let slow = ""
 try { slow = fs.readFileSync("$T/slow", "utf8").trim() } catch {}
 const which = process.argv[2] === "--which"
+fs.appendFileSync("$T/resolver-calls", which ? "which\n" : "plan\n")
 if ((slow === "which" && which) || (slow === "plan" && !which)) {
     fs.writeFileSync("$T/in-slow", process.pid + "\n")
     for (let i = 0; i < 1000 && !fs.existsSync("$T/go"); i++) await new Promise((resolve) => setTimeout(resolve, 20))
@@ -736,8 +755,11 @@ EOF
     #   group:SIG       SIG to the process group, as Ctrl-C or a hook that ran out of time;
     #   gate:SIG        SIG to the gate alone, then the call goes on and ends well;
     #   child           SIGTERM to the waiting process alone;
-    #   child+gate:SIG  SIGTERM to the waiting process alone, SIG to the gate 0.1 s later: the
-    #                   parts of a group signal can come one after another.
+    #   child+gate:SIG  SIGTERM to the waiting process alone, SIG to the gate 0.3 s later: the
+    #                   parts of a group signal can come one after another. 0.3 s, not less: the
+    #                   gate waits 0.5 s for its own signal after a child ended by one, and with a
+    #                   shorter gap a gate that did not wait at all still passed one run in two
+    #                   under load.
     # Sets $rc and $out.
     at() {
         local what="$1" action="$2" wt="$3" how="$4" pid child
@@ -762,7 +784,7 @@ EOF
                 group:*) kill -s "${action#group:}" -- "-$pid" ;;
                 gate:*) kill -s "${action#gate:}" "$pid"; : >"$T/go" ;;
                 child) kill -s TERM "$child" ;;
-                child+gate:*) kill -s TERM "$child"; sleep 0.1; kill -s "${action#child+gate:}" "$pid" 2>/dev/null ;;
+                child+gate:*) kill -s TERM "$child"; sleep 0.3; kill -s "${action#child+gate:}" "$pid" 2>/dev/null ;;
             esac
         fi
         wait "$pid"; rc=$?
@@ -782,15 +804,22 @@ EOF
             bad "$1: rc=$rc (expected $2), verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), state folder changed: $([ "$(statesum)" = "$4" ] && echo no || echo yes), out: ${out:0:300}"
         fi
     }
-    # couldnt <description> <worktree> <state before> <text>: the run said «[gate] ПРОВЕРИТЬ НЕ
-    # УДАЛОСЬ: <text>» with code 3, no green and no "nothing ran", and wrote nothing.
+    # couldnt <description> <worktree> <state before> <text> [nomarker]: the run said «[gate]
+    # ПРОВЕРИТЬ НЕ УДАЛОСЬ: <text>» with code 3, no green and no "nothing ran", left no verdict file
+    # and wrote nothing but the marker nokey-broken-<tag>-anon with <text>, which stop.mjs reads.
+    # With nomarker it wrote no marker either (git ended before the gate knows the worktree). The
+    # marker is removed after the check.
     couldnt() {
-        local t; t="$(tag "$2")"
+        local t m marked=yes; t="$(tag "$2")"; m="$STATE/nokey-broken-$t-anon"
+        if [ "${5:-}" = nomarker ]; then [ ! -e "$m" ] || marked=no
+        else grep -qF "$4" "$m" 2>/dev/null || marked=no; fi
+        local marker; marker="$(head -c 200 "$m" 2>/dev/null)"
+        rm -f "$m"
         if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $4"* ]] && [[ "$out" != *"[gate] зелено"* && "$out" != *"[gate] ничего не прогналось"* ]] \
-            && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(statesum)" = "$3" ]; then
-            ok "$1: exit 3, «ПРОВЕРИТЬ НЕ УДАЛОСЬ: $4», nothing written"
+            && [ "$marked" = yes ] && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(statesum)" = "$3" ]; then
+            ok "$1: exit 3, «ПРОВЕРИТЬ НЕ УДАЛОСЬ: $4», $([ "${5:-}" = nomarker ] && echo "no marker" || echo "the nokey-broken marker"), nothing else written"
         else
-            bad "$1: rc=$rc, verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), state folder changed: $([ "$(statesum)" = "$3" ] && echo no || echo yes), out: ${out:0:300}"
+            bad "$1: rc=$rc, marker: ${marker:-none}, verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), state folder changed: $([ "$(statesum)" = "$3" ] && echo no || echo yes), out: ${out:0:300}"
         fi
     }
     started() { # <description> <expected content of $T/started, lines joined by spaces>
@@ -808,6 +837,7 @@ EOF
     mode logbad
     out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
     verdict "before a signal in git: the edit that fails, no signal -> red" "$R" '.outcome == "red" and .exit == 2'
+    rm -f "$STATE/nokey-broken-$(tag "$R")-anon"   # left by sections 5 and 6: couldnt below looks for a new one
     before="$(statesum)"
     for sig in TERM INT; do
         want=143; [ "$sig" = INT ] && want=130
@@ -821,7 +851,7 @@ EOF
     at "diff HEAD --" child "$R" node GATE_SCOPE=all
     couldnt "git diff HEAD of the fingerprint ended by a signal the gate did not get" "$R" "$before" "git diff HEAD -- . was ended by the signal SIGTERM"
     at "diff HEAD --" child+gate:TERM "$R" node GATE_SCOPE=all
-    untouched "git diff HEAD ended by SIGTERM, the gate's own SIGTERM 0.1 s later" 143 "$R" "$before"
+    untouched "git diff HEAD ended by SIGTERM, the gate's own SIGTERM 0.3 s later" 143 "$R" "$before"
     # The gate alone gets the signal, git answers well: the script must not start.
     at "diff HEAD --" gate:TERM "$R" node GATE_SCOPE=all
     untouched "SIGTERM to the gate alone in git diff HEAD" 143 "$R" "$before"
@@ -834,16 +864,20 @@ EOF
     untouched "SIGTERM to the group in git status" 143 "$R" "$before"
     at "status --porcelain" child "$R" node
     couldnt "git status ended by a signal the gate did not get" "$R" "$before" "git -c core.quotePath=false status --porcelain was ended by the signal SIGTERM"
-    # The git call that finds the worktree, before the gate has handlers: still not an answer.
+    # The git call that finds the worktree, before the gate has handlers: still not an answer. The
+    # gate does not know the worktree yet, so it leaves no marker.
     at "rev-parse --show-toplevel" child "$R" node GATE_SCOPE=all
-    couldnt "git rev-parse --show-toplevel ended by a signal the gate did not get" "$R" "$before" "git rev-parse --show-toplevel was ended by the signal SIGTERM"
+    couldnt "git rev-parse --show-toplevel ended by a signal the gate did not get" "$R" "$before" "git rev-parse --show-toplevel was ended by the signal SIGTERM" nomarker
+    # The second call, the one that finds the repository: the gate knows the worktree by then.
+    at "rev-parse --git-common-dir" child "$R" node GATE_SCOPE=all
+    couldnt "git rev-parse --git-common-dir ended by a signal the gate did not get" "$R" "$before" "git rev-parse --git-common-dir was ended by the signal SIGTERM"
 
     # (b) The resolver: the call that names the project (which) and the one that makes the plan.
     for call in which plan; do
         at "$call" group:TERM "$R" node GATE_SCOPE=all
         untouched "SIGTERM to the group while the resolver ($call) runs" 143 "$R" "$before"
         at "$call" child+gate:TERM "$R" node GATE_SCOPE=all
-        untouched "the resolver ($call) ended by SIGTERM, the gate's own SIGTERM 0.1 s later" 143 "$R" "$before"
+        untouched "the resolver ($call) ended by SIGTERM, the gate's own SIGTERM 0.3 s later" 143 "$R" "$before"
     done
     # The gate gets the signal while it reads HEAD for the verdict of each other ending: the plan
     # resolver crashed, the plan is empty, no edits, not registered.
@@ -857,19 +891,30 @@ EOF
     before="$(statesum)"
     at "rev-parse -q --verify HEAD" gate:TERM "$U" node
     untouched "SIGTERM to the gate alone in git rev-parse HEAD of a project not registered" 143 "$U" "$before"
-    # The resolver ended alone is the crashed resolver it always was.
+    # The gate alone gets the signal while the resolver names the project, and the resolver ends
+    # well: the gate sees the signal right after it and does not start the resolver of the plan.
+    # (With one turn of the event loop in stopIfTold instead of two, the signal waited until the
+    # plan resolver had run: the same exit code, but one more child started after the gate was told
+    # to stop.)
+    rm -f "$T/resolver-calls"
+    at which gate:TERM "$R" node GATE_SCOPE=all
+    untouched "SIGTERM to the gate alone while the resolver (which) runs" 143 "$R" "$before"
+    if [ "$(tr '\n' ' ' <"$T/resolver-calls" 2>/dev/null)" = "which " ]; then ok "SIGTERM to the gate alone while the resolver (which) runs: the plan resolver did not start"
+    else bad "SIGTERM to the gate alone while the resolver (which) runs: resolver calls: $(tr '\n' ' ' <"$T/resolver-calls" 2>/dev/null)"; fi
+    # The resolver ended alone is the crashed resolver it always was; the line names the signal.
     at which child "$R" node GATE_SCOPE=all
-    verdict "the resolver (which) ended by a signal the gate did not get -> outcome unverified, exit 3" "$R" '.outcome == "unverified" and .exit == 3 and .key == null'
-    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер gate-resolve.mjs завершился с кодом 1"* ]] && [ -s "$STATE/nokey-broken-$(tag "$R")-anon" ]; then
-        ok "the resolver (which) ended alone: exit 3, the line and the marker of a crashed resolver"
+    verdict "the resolver (which) ended by a signal the gate did not get -> outcome unverified, exit 3" "$R" \
+        '.outcome == "unverified" and .exit == 3 and .key == null and (.reason | startswith("the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"))'
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$STATE/nokey-broken-$(tag "$R")-anon" ]; then
+        ok "the resolver (which) ended alone: exit 3, the line names the signal, the marker of a crashed resolver"
     else bad "the resolver (which) ended alone: rc=$rc, out: ${out:0:300}"; fi
     rm -f "$STATE/nokey-broken-$(tag "$R")-anon"
 
-    # (c) A script ended by a signal alone, the gate's own signal 0.1 s later: stopped, not red.
+    # (c) A script ended by a signal alone, the gate's own signal 0.3 s later: stopped, not red.
     mode hold; touched
     before="$(statesum)"
     at script child+gate:TERM "$R" node GATE_SCOPE=all
-    untouched "a script ended by SIGTERM, the gate's own SIGTERM 0.1 s later" 143 "$R" "$before"
+    untouched "a script ended by SIGTERM, the gate's own SIGTERM 0.3 s later" 143 "$R" "$before"
 
     # (d) A signal that comes after the verdict is written does not change it: the gate exits with
     # the code of that verdict. The project is not registered, so the gate writes its two lines to
@@ -951,6 +996,237 @@ if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОС
 else bad "an error inside the gate: rc=$rc, out: ${out:0:400}"; fi
 if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "an error inside the gate: no verdict file"
 else bad "an error inside the gate: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
+# stop.mjs tells the model about "could not verify" only through a marker.
+if [ "$(tr -d '\r' <"$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null)" = "boom of the test. The gate itself failed and checked nothing — this is not green." ]; then
+    ok "an error inside the gate: the nokey-broken marker of the worktree, with the first line of the error"
+else bad "an error inside the gate: marker: $(head -c 300 "$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null)"; fi
+# A green run in the same tree and session takes that marker away: stop.mjs must not tell the
+# model "not verified" after the gate has checked the work. The marker of another session stays.
+echo "of another session" >"$STATE/nokey-broken-$(tag "$R")-other"
+touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено"* ]] && [ ! -e "$STATE/nokey-broken-$(tag "$R")-anon" ] && [ -s "$STATE/nokey-broken-$(tag "$R")-other" ]; then
+    ok "a green run after an error inside the gate: the nokey-broken marker of its session is gone, another session's stays"
+else bad "a green run after an error inside the gate: rc=$rc, markers: $(ls "$STATE" | grep "^nokey-broken-$(tag "$R")" | tr '\n' ' '), out: ${out:0:200}"; fi
+rm -f "$STATE/nokey-broken-$(tag "$R")-anon" "$STATE/nokey-broken-$(tag "$R")-other"
+
+# --- 9f. The same moments, made inside the gate: on every system --------------------------
+# Windows cannot send node a signal its handler sees, and a child that a signal ended alone, or
+# whose output went past the limit, is slow to make for real. fake.cjs, loaded before the gate,
+# makes them in the gate process. GATE_FAKE_CALL is a regular expression over the arguments of a
+# spawnSync call; GATE_FAKE says what happens to that call:
+#   signal        the child is reported ended by SIGTERM, alone (no signal to the gate);
+#   enobufs       the child is reported ended by Node for output past maxBuffer (ENOBUFS, SIGTERM);
+#   enobufs-pending  the same, and the gate gets SIGTERM when the event loop next goes round;
+#   fail          the child is reported to have exited with code 128;
+#   emit          the call runs, then the gate gets SIGTERM;
+#   after-verdict the gate gets SIGTERM with the first line it prints after its verdict file is
+#                 in place.
+# GATE_FAKE_EMIT_ON and GATE_FAKE_WAITS are described in the file below.
+# The handler of the gate runs at once, where a real signal waits until the event loop looks for
+# events: so the checks also hold for code that would wait where the gate does not wait today.
+cat >"$T/fake.cjs" <<'EOF'
+const child = require("node:child_process")
+const fs = require("node:fs")
+const path = require("node:path")
+if (/gate\.mjs$/.test(process.argv[1] || "")) {
+    const what = process.env.GATE_FAKE
+    const call = new RegExp(process.env.GATE_FAKE_CALL || "^$")
+    const realSpawnSync = child.spawnSync
+    child.spawnSync = (file, args = [], options) => {
+        if (!call.test(args.join(" "))) return realSpawnSync(file, args, options)
+        if (what === "signal") return { pid: 0, output: [null, "", ""], stdout: "", stderr: "", status: null, signal: "SIGTERM" }
+        if (what === "enobufs" || what === "enobufs-pending") {
+            // enobufs-pending: the gate was also told to stop while it waited; that signal is
+            // delivered when the event loop next goes round, as a real one is.
+            if (what === "enobufs-pending") setImmediate(() => process.emit("SIGTERM"))
+            const error = Object.assign(new Error("spawnSync ENOBUFS"), { code: "ENOBUFS" })
+            return { pid: 0, output: [null, "x", ""], stdout: "x", stderr: "", status: null, signal: "SIGTERM", error }
+        }
+        if (what === "fail") return { pid: 0, output: [null, "", ""], stdout: "", stderr: "", status: 128, signal: null }
+        const run = realSpawnSync(file, args, options)
+        if (what === "emit") process.emit("SIGTERM")
+        return run
+    }
+    // The gate counts the file as written once the rename has returned; the signal comes with the
+    // first line the gate prints after that, its verdict line or the reason.
+    let renamed = false
+    const realRename = fs.renameSync
+    fs.renameSync = (from, to) => {
+        realRename(from, to)
+        if (/^verdict-/.test(path.basename(String(to)))) renamed = true
+    }
+    // GATE_FAKE_EMIT_ON: SIGTERM comes, once, with the first line the gate prints that matches
+    // this regular expression (whatever GATE_FAKE is).
+    let emitOn = process.env.GATE_FAKE_EMIT_ON ? new RegExp(process.env.GATE_FAKE_EMIT_ON) : null
+    for (const stream of [process.stdout, process.stderr]) {
+        const realWrite = stream.write.bind(stream)
+        stream.write = (...args) => {
+            if (what === "after-verdict" && renamed) {
+                renamed = false
+                process.emit("SIGTERM")
+            }
+            if (emitOn && emitOn.test(String(args[0]))) {
+                emitOn = null
+                process.emit("SIGTERM")
+            }
+            return realWrite(...args)
+        }
+    }
+    // GATE_FAKE_WAITS: a file that gets one line for each wait of STOP_WAIT_MS (500 ms) the gate
+    // starts — the wait for its own signal after a child that a signal ended.
+    if (process.env.GATE_FAKE_WAITS) {
+        const realSetTimeout = globalThis.setTimeout
+        globalThis.setTimeout = (fn, ms, ...rest) => {
+            if (ms === 500) fs.appendFileSync(process.env.GATE_FAKE_WAITS, "500\n")
+            return realSetTimeout(fn, ms, ...rest)
+        }
+    }
+    require("node:module").syncBuiltinESMExports()
+}
+EOF
+# fake <worktree> <GATE_FAKE> <GATE_FAKE_CALL> [VAR=value...]: runs `node gate.mjs fast` with
+# fake.cjs and stdin from /dev/null; sets $rc and $out.
+fake() {
+    local wt="$1" what="$2" call="$3"; shift 3
+    out="$(cd "$wt" && env GATE_FAKE="$what" GATE_FAKE_CALL="$call" NODE_OPTIONS="--require \"$T/fake.cjs\"" "$@" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+}
+# The waits of 0.5 s that $T/waits recorded (GATE_FAKE_WAITS).
+waitcount() { if [ -f "$T/waits" ]; then grep -c . "$T/waits"; else echo 0; fi; }
+VR="$STATE/verdict-$(tag "$R").json"
+MR="$STATE/nokey-broken-$(tag "$R")-anon"
+# (a) A signal right after the verdict file is in place: the gate exits with the code of that
+# verdict, whatever the gate does between writing it and returning.
+mode bad; touched
+fake "$R" after-verdict "" GATE_SCOPE=all
+verdict "SIGTERM right after a red verdict file is in place -> the file stays: red, exit 2" "$R" '.outcome == "red" and .exit == 2'
+if [ "$rc" -eq 2 ]; then ok "SIGTERM right after a red verdict file is in place: exit 2, the code of that verdict"
+else bad "SIGTERM right after a red verdict file is in place: rc=$rc (expected 2), out: ${out:0:300}"; fi
+mode ok
+fake "$U" after-verdict ""
+verdict "SIGTERM right after an unverified verdict file is in place -> the file stays: unverified, exit 3" "$U" '.outcome == "unverified" and .exit == 3'
+if [ "$rc" -eq 3 ]; then ok "SIGTERM right after an unverified verdict file is in place: exit 3, the code of that verdict"
+else bad "SIGTERM right after an unverified verdict file is in place: rc=$rc (expected 3), out: ${out:0:300}"; fi
+# The same for each other place that writes an outcome: the plan resolver crashed (3), green (0),
+# no changes (0), an empty plan (0).
+cat >"$T/no-plan.mjs" <<EOF
+import { spawnSync } from "node:child_process"
+if (process.argv[2] !== "--which") process.exit(0)
+const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+# after <description> <worktree> <outcome> <exit> [VAR=value...]
+after() {
+    local d="$1" wt="$2" outcome="$3" want="$4"; shift 4
+    fake "$wt" after-verdict "" "$@"
+    verdict "SIGTERM right after the verdict file is in place ($d) -> the file stays: $outcome, exit $want" "$wt" '.outcome == $o and .exit == ($e | tonumber)' --arg o "$outcome" --arg e "$want"
+    if [ "$rc" -eq "$want" ]; then ok "SIGTERM right after the verdict file is in place ($d): exit $want"
+    else bad "SIGTERM right after the verdict file is in place ($d): rc=$rc (expected $want), out: ${out:0:300}"; fi
+}
+touched
+after "the plan resolver crashed" "$R" unverified 3 GATE_SCOPE=all CLAUDE_GATE_RESOLVE="$T/plan-crash.mjs" REAL_RESOLVE="$REAL_RESOLVE"
+touched
+after "green" "$R" green 0 GATE_SCOPE=all
+after "no changes" "$Q" none 0
+touched
+after "an empty plan" "$R" none 0 GATE_SCOPE=all CLAUDE_GATE_RESOLVE="$T/no-plan.mjs" REAL_RESOLVE="$REAL_RESOLVE"
+# (b) git that finds the repository, ended alone: the gate knows the worktree by then, so the
+# verdict file of the run before goes and the marker is left.
+touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "before git rev-parse --git-common-dir ends alone: a green file" "$R" '.outcome == "green"'
+fake "$R" signal "rev-parse --git-common-dir" GATE_SCOPE=all
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git rev-parse --git-common-dir was ended by the signal SIGTERM"* ]] && [ ! -e "$VR" ]; then
+    ok "git rev-parse --git-common-dir ended alone: exit 3, the line, the green file of the run before is removed"
+else bad "git rev-parse --git-common-dir ended alone: rc=$rc, verdict: $(head -c 200 "$VR" 2>/dev/null), out: ${out:0:300}"; fi
+if grep -qF "git rev-parse --git-common-dir was ended by the signal SIGTERM. The gate itself failed" "$MR" 2>/dev/null; then ok "git rev-parse --git-common-dir ended alone: the nokey-broken marker"
+else bad "git rev-parse --git-common-dir ended alone: marker: $(head -c 200 "$MR" 2>/dev/null)"; fi
+rm -f "$MR"
+# (c) The first git, the one that finds the worktree: before it answers the gate knows neither the
+# verdict file nor the tag, so both stay as they are (the header of gate.mjs says so).
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+fake "$R" signal "rev-parse --show-toplevel" GATE_SCOPE=all
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git rev-parse --show-toplevel was ended by the signal SIGTERM"* ]] && [ -e "$VR" ] && [ ! -e "$MR" ]; then
+    ok "git rev-parse --show-toplevel ended alone: exit 3, the line; the verdict file of the run before stays, no marker"
+else bad "git rev-parse --show-toplevel ended alone: rc=$rc, verdict file: $([ -e "$VR" ] && echo there || echo gone), marker: $([ -e "$MR" ] && echo there || echo none), out: ${out:0:300}"; fi
+# (d) git whose output went past the limit: Node ended it, no signal came from outside.
+touched
+fake "$R" enobufs "status --porcelain" GATE_SCOPE=all
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git -c core.quotePath=false status --porcelain wrote more output than the gate reads, and Node ended it"* ]] \
+    && [[ "$out" != *"was ended by the signal"* ]] && [ ! -e "$VR" ] && [ -s "$MR" ]; then
+    ok "git with output past the limit: exit 3, the line says so and names no signal, no verdict file, the marker"
+else bad "git with output past the limit: rc=$rc, out: ${out:0:300}"; fi
+rm -f "$MR"
+# The same git, and the gate was told to stop while it waited: the run is stopped — 143, no marker,
+# no "could not verify" line.
+touched
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+fake "$R" enobufs-pending "status --porcelain" GATE_SCOPE=all
+if [ "$rc" -eq 143 ] && [ ! -e "$MR" ] && [ ! -e "$VR" ] && [[ "$out" != *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"* ]]; then
+    ok "git past the output limit while the gate was told to stop: exit 143, no marker, no verdict file, no line"
+else bad "git past the output limit while the gate was told to stop: rc=$rc (expected 143), marker: $([ -e "$MR" ] && echo there || echo none), out: ${out:0:300}"; fi
+rm -f "$MR"
+# A signal after the error is written down (with its second line) does not change it: 3.
+fake "$R" enobufs "status --porcelain" GATE_SCOPE=all GATE_FAKE_EMIT_ON="The gate itself failed"
+if [ "$rc" -eq 3 ] && [ -s "$MR" ]; then ok "SIGTERM after an error of the gate is written down: exit 3, the marker stays"
+else bad "SIGTERM after an error of the gate is written down: rc=$rc (expected 3), marker: $([ -e "$MR" ] && echo there || echo none), out: ${out:0:300}"; fi
+rm -f "$MR"
+# git that finds the repository fails without a signal (exit 128): the gate takes the folder for
+# one outside git — exit 0, no line — and removes the verdict file of the run before.
+out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "before git rev-parse --git-common-dir fails: a green file" "$R" '.outcome == "green"'
+fake "$R" fail "rev-parse --git-common-dir" GATE_SCOPE=all
+if [ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$VR" ] && [ ! -e "$MR" ]; then ok "git rev-parse --git-common-dir exits 128: exit 0, no output, the verdict file of the run before is removed"
+else bad "git rev-parse --git-common-dir exits 128: rc=$rc, verdict file: $([ -e "$VR" ] && echo there || echo gone), out: ${out:0:300}"; fi
+# (e) The resolvers ended by a signal alone or past the output limit: the line says what ended them.
+rm -f "$T/waits"
+fake "$R" signal "--which" GATE_SCOPE=all GATE_FAKE_WAITS="$T/waits"
+if [ "$(waitcount)" = 1 ]; then ok "the resolver (which) ended by a signal alone: the gate waits 0.5 s once for its own signal"
+else bad "the resolver (which) ended by a signal alone: waits of 0.5 s: $(waitcount)"; fi
+verdict "the resolver (which) ended by a signal alone -> unverified, the reason names the signal" "$R" \
+    '.outcome == "unverified" and .exit == 3 and .key == null and .reason == "the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"'
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$MR" ]; then
+    ok "the resolver (which) ended by a signal alone: exit 3, the line names the signal, the marker"
+else bad "the resolver (which) ended by a signal alone: rc=$rc, out: ${out:0:300}"; fi
+rm -f "$MR"
+rm -f "$T/waits"
+fake "$R" enobufs "--which" GATE_SCOPE=all GATE_FAKE_WAITS="$T/waits"
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs wrote more output than the gate reads"* ]]; then
+    ok "the resolver (which) past the output limit: exit 3, the line says so"
+else bad "the resolver (which) past the output limit: rc=$rc, out: ${out:0:300}"; fi
+# The reason is exactly that: not the "spawnSync ENOBUFS" of Node's error. And no signal came from
+# outside, so the gate does not wait half a second for one.
+verdict "the resolver (which) past the output limit -> the reason says so and nothing more" "$R" \
+    '.reason == "the registry resolver gate-resolve.mjs wrote more output than the gate reads, and Node ended it"'
+if [ "$(waitcount)" = 0 ]; then ok "the resolver (which) past the output limit: no 0.5 s wait for a signal"
+else bad "the resolver (which) past the output limit: waits of 0.5 s: $(waitcount)"; fi
+rm -f "$MR"
+UR="$STATE/unverified-t-$(tag "$R")"
+for how in signal enobufs; do
+    words="was ended by the signal SIGTERM"; [ "$how" = enobufs ] && words="wrote more output than the gate reads, and Node ended it"
+    touched
+    rm -f "$T/waits"
+    fake "$R" "$how" "gate-resolve\.mjs (?!--which)" GATE_SCOPE=all GATE_FAKE_WAITS="$T/waits"
+    waits=0; [ "$how" = signal ] && waits=1
+    if [ "$(waitcount)" = "$waits" ]; then ok "the plan resolver ($how): $waits wait(s) of 0.5 s for the gate's own signal"
+    else bad "the plan resolver ($how): waits of 0.5 s: $(waitcount) (expected $waits)"; fi
+    verdict "the plan resolver ($how) -> unverified, exit 3, the reason says what ended it" "$R" \
+        '.outcome == "unverified" and .exit == 3 and .key == "t" and .reason == "the plan resolver gate-resolve.mjs " + $w' --arg w "$words"
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the plan resolver gate-resolve.mjs $words — "* ]] && grep -qF "Could not verify: the plan resolver $words." "$UR" 2>/dev/null; then
+        ok "the plan resolver ($how): exit 3, the line and the unverified marker say what ended it"
+    else bad "the plan resolver ($how): rc=$rc, marker: $(head -c 200 "$UR" 2>/dev/null), out: ${out:0:300}"; fi
+done
+rm -f "$UR"
+# (f) Two packages: the root passes, packages/a fails, and the gate gets SIGTERM while it reads
+# HEAD for the verdict file. The run is stopped: no verdict file, and the cache is as it was —
+# the new green of the root is written only with the outcome.
+echo 2 >"$K/n.txt"
+before="$(cachesum)"
+fake "$K" emit "rev-parse -q --verify HEAD" GATE_SCOPE=all PATH="$npmbad"
+if [ "$rc" -eq 143 ] && [ ! -e "$STATE/verdict-$(tag "$K").json" ] && [ "$(cachesum)" = "$before" ] && [[ "$out" == *"[gate] scope"* ]]; then
+    ok "two packages, SIGTERM while HEAD is read for the verdict: exit 143, no verdict file, no new cache entry"
+else bad "two packages, SIGTERM while HEAD is read for the verdict: rc=$rc (expected 143), cache changed: $([ "$(cachesum)" = "$before" ] && echo no || echo yes), out: ${out:0:300}"; fi
+rm -f "$K/n.txt"
 
 # --- 9d. The current folder was deleted -------------------------------------------------
 # Not a git folder any more: exit 0 and silence, as outside git. Windows does not let a folder

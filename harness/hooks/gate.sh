@@ -1,37 +1,68 @@
 #!/usr/bin/env bash
 # The launcher of the quality gate, under the old name of the gate. The gate is gate.mjs, run by
 # node (worfy-windows ticket 03). This file does three things and decides nothing else:
-#   1. it finds node: the one on PATH; only when PATH has none, the places a hook with a bare
-#      PATH misses — /opt/homebrew/bin, then /usr/local/bin (where the installer of nodejs.org
-#      puts node; a program started from Finder has neither folder on PATH), then the version of
-#      nvm whose name sorts last (~/.nvm/versions/node/*/bin);
+#   1. it finds a node that can run gate.mjs — version NODE_MIN or newer, checked by starting it:
+#      the one on PATH; only when PATH has none such, the places a hook with a bare PATH misses —
+#      /opt/homebrew/bin, then /usr/local/bin (where the installer of nodejs.org puts node; a
+#      program started from Finder has neither folder on PATH), then the versions of nvm
+#      (~/.nvm/versions/node/v*/bin), newest version first: v24 before v9, not the order of
+#      the names as text;
 #   2. it starts gate.mjs with the same arguments and stdin and ends with its exit code;
-#   3. with no node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
+#   3. with no such node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
 #      ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден», exit code 3, the marker nokey-broken-<tag>-<session>
-#      for stop.mjs and an "unverified" verdict file in place of the one of the run before.
+#      for stop.mjs and an "unverified" verdict file in place of the one of the run before. When
+#      a node was found but failed the check, the line says «no node 18 or newer: <its path> is
+#      older or did not start» instead, with the same code, marker and file.
 #      Outside a git worktree it says nothing and exits with 0, as the gate does.
 #
 # Who calls it:
 #   - hooks.json (TaskCompleted, TeammateIdle), by its path. A hook command that named `node`
 #     fails with code 127 where node is not on PATH, before anything can replace the verdict
 #     file, and worfy goes on showing the outcome of an earlier run — a green one too;
-#   - a profile moved from the old Harness, which names this file in commands.verify and in
-#     rules.md ("bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full"); agents run that line as
-#     it is written. Rules, skills, agents and bin/ name gate.mjs, and so does a new profile.
+#   - a profile that names this file in commands.verify and in rules.md ("bash
+#     ~/.claude/worfy-harness/plugin/hooks/gate.sh full"), as profiles moved from the old Harness
+#     do; agents run that line as it is written. It stays a working spelling: where node is not on
+#     PATH it answers «node не найден» with code 3, where `node …/gate.mjs` fails with 127. Rules,
+#     skills, agents and bin/ name gate.mjs, and so does a new profile.
 #
 # This file is a departure from ADR-0055 item 2 (a hook command names `node`, not a script
 # started by its first line) and from "a way without bash outside tests" of worfy-windows ticket
 # 03. It exists because nothing else can replace a stale verdict when node is missing. That this
-# file is the entry point of the hook is the owner's decision of 2026-10-14. worfy-windows ticket
-# 46 takes the old name out of the profiles.
+# file is the entry point of the hook is the owner's decision of 2026-10-14.
 set -u
 
-node="$(command -v node 2>/dev/null)" || node=""
+# The oldest node the launcher starts gate.mjs with: 18 has all gate.mjs uses (top-level await,
+# String.replaceAll, fs.rmSync). An older node would fail on gate.mjs and leave a stale verdict.
+NODE_MIN=18
+# usable <file>: an executable file that runs as node NODE_MIN or newer. It is started to say so.
+# The first executable file that fails the check is kept in `refused`, for the answer below.
+refused=""
+usable() {
+    [ -f "$1" ] && [ -x "$1" ] || return 1
+    "$1" -e "process.exit(Number(process.versions.node.split('.')[0]) >= $NODE_MIN ? 0 : 1)" </dev/null >/dev/null 2>&1 && return 0
+    [ -n "$refused" ] || refused="$1"
+    return 1
+}
+node=""
+candidate="$(command -v node 2>/dev/null)" && usable "$candidate" && node="$candidate"
 if [ -z "$node" ]; then
-    # The last one found wins, so the order here is the reverse of the order of choice.
-    for d in "${HOME:-}"/.nvm/versions/node/*/bin /usr/local/bin /opt/homebrew/bin; do
-        [ -f "$d/node" ] && [ -x "$d/node" ] && node="$d/node"
+    for d in /opt/homebrew/bin /usr/local/bin; do
+        usable "$d/node" && { node="$d/node"; break; }
     done
+fi
+if [ -z "$node" ]; then
+    # The versions of nvm, newest first: each folder v<major>.<minor>.<patch> as one number to sort by.
+    re_version='/v([0-9]+)\.([0-9]+)\.([0-9]+)/bin$'
+    versions=""
+    for d in "${HOME:-}"/.nvm/versions/node/v*/bin; do
+        [[ "$d" =~ $re_version ]] || continue
+        versions+="$(( 10#${BASH_REMATCH[1]} * 1000000 + 10#${BASH_REMATCH[2]} * 1000 + 10#${BASH_REMATCH[3]} )) $d"$'\n'
+    done
+    if [ -n "$versions" ]; then
+        while IFS=' ' read -r _ d; do
+            [ -n "$d" ] && usable "$d/node" && { node="$d/node"; break; }
+        done < <(printf '%s' "$versions" | sort -rn)
+    fi
 fi
 if [ -n "$node" ]; then
     # `pwd -W` is Git Bash on Windows: C:/…, a path node reads with no help from the shell.
@@ -123,7 +154,15 @@ json_str() {
 }
 
 text="node не найден"
+reason="node not found"
 explain="Repository: $repo. The gate does not work without node — this is not green: the work was not verified by the gate."
+# A node was found but did not pass the check: older than NODE_MIN, or it did not start. Said so,
+# with its path: "node не найден" would be wrong while node is there.
+if [ -n "$refused" ]; then
+    text="no node $NODE_MIN or newer: $refused is older or did not start"
+    reason="$text"
+    explain="Repository: $repo. The gate needs node $NODE_MIN or newer — this is not green: the work was not verified by the gate."
+fi
 if [ -n "$tag" ]; then
     # The marker is per tree and per session; with no session it is "anon" (see notVerified in gate.mjs).
     printf '%s. %s\n' "$text" "$explain" >"$STATE/nokey-broken-$tag-${SESSION:-anon}" 2>/dev/null || true
@@ -134,8 +173,8 @@ if [ -n "$tag" ]; then
     [ -n "$head" ] && head="$(json_str "$head")" || head="null"
     tmp="$(mktemp "$STATE/.verdict-$tag.XXXXXX" 2>/dev/null)" || tmp=""
     if [ -z "$tmp" ] ||
-        ! printf '{"version":1,"outcome":"unverified","profile":%s,"worktree":%s,"key":null,"head":%s,"exit":3,"at":"%s","reason":"node not found"}\n' \
-            "$(json_str "$PROFILE")" "$(json_str "$repo")" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$tmp" 2>/dev/null ||
+        ! printf '{"version":1,"outcome":"unverified","profile":%s,"worktree":%s,"key":null,"head":%s,"exit":3,"at":"%s","reason":%s}\n' \
+            "$(json_str "$PROFILE")" "$(json_str "$repo")" "$head" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(json_str "$reason")" >"$tmp" 2>/dev/null ||
         ! mv -f "$tmp" "$verdict" 2>/dev/null; then
         [ -n "$tmp" ] && rm -f "$tmp" 2>/dev/null
         rm -f "$verdict" 2>/dev/null

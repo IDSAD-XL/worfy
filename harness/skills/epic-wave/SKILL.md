@@ -430,7 +430,10 @@ neither green nor red: the line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: 
 registered, registry unreadable, resolver crashed). On exit code 3 the ticket is not
 merged: the verdict is `REJECTED: gate 3 — <line>`. It does not go back to the implementer and
 does not use up a round — it is a broken environment, not broken code: the ticket leaves the wave
-as a `blocked` row with that reason, and a human fixes it.
+as a `blocked` row with that reason, and a human fixes it. `EXIT=127` — node is not on PATH and
+the gate never started: the same as exit code 3, with the reason "node not found". 128 + the signal
+number — `EXIT=129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped and this run wrote nothing: that is no
+verdict, and the ticket is not merged on it.
 Then the verifier re-reads every `file:line` in `claims`, compares `exit_code` in `commands` with
 its own run, and looks for a refutation of the report's strongest sentence (the test passed before
 the change too). Owner rules the verifier gets in its brief: an acceptance item that cannot be

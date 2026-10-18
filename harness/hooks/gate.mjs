@@ -69,22 +69,29 @@
 // gate): the gate exits with 128 + the number of the signal (SIGHUP 129, SIGINT 130, SIGTERM
 // 143, Ctrl+Break of Windows 149) and writes no marker, no cache entry and no verdict file; the
 // verdict file of the run before is removed, its markers stay.
-// The gate looks for that signal wherever it waited (see "a signal while the gate waits"): after
-// each call to git, the resolver or a script, before the cache answers and before a script starts,
-// and once more right before the outcome is written down. Ctrl-C reaches the gate and the child it
+// The gate looks for that signal (see "a signal while the gate waits"): after each call to the
+// resolver or a script, after a call to git that a signal ended, before the cache answers and
+// before a script starts, and once more right before the outcome is written down. A signal that
+// comes during a call to git that ends well is seen at the next of these places, before any answer
+// of that git is taken for a verdict or written down. Ctrl-C reaches the gate and the child it
 // waits for, so the child's answer is never read before the handler of the gate has had its turn:
 // the empty output of a killed `git diff` is not a clean tree, and a killed script does not make
 // the run red. A child that a signal ended alone — no signal to the gate within half a second — is
 // no answer either: a git ends the run as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git … was ended by the
-// signal …» with code 3, the resolver as a resolver that crashed (code 3), a script as a failed
-// script (code 2). Once the outcome is being written down, a signal no longer changes it: the gate
+// signal …» with code 3, the resolver as a resolver that crashed (code 3, the line names the
+// signal), a script as a failed script (code 2). A git or a resolver whose output went past the
+// limit the gate reads is ended by Node itself with SIGTERM: the line says so, not "the signal". Once the outcome is being written down, a signal no longer changes it: the gate
 // exits with the code of that outcome.
 // Two moments are left: a signal before the handlers exist — the first tens of milliseconds of
 // the process, or the up to 2 s the gate waits on an open stdin that sends nothing — ends the
 // process by the signal's default action. The code is the same, but the verdict file of an earlier
 // run may still be in place.
-// An error inside the gate itself ends as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3 and no
-// verdict file.
+// An error inside the gate itself — a git that a signal ended alone among them — ends as «[gate]
+// ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3, the marker nokey-broken-<tag>-<session> and no verdict file:
+// the file of the run before is removed. One call is before all that: the first call to git, the
+// one that finds the worktree. Until it answers, the gate knows neither the worktree's verdict file
+// nor its tag, so an error there (git ended alone) leaves the verdict file of the run before in
+// place and no marker.
 //
 // Without node this file cannot run, so the hooks do not start it themselves: hooks.json calls
 // gate.sh, a launcher in bash next to this file. The launcher finds node — on PATH, else in the
@@ -141,6 +148,7 @@ let verdictFile = ""
 let verdictWritten = false
 let head = null // the SHA of HEAD for the verdict file, read by `settle`
 let settled = false // the outcome is about to be written down: a signal no longer stops the run
+let outcomeCode // the exit code of the outcome being written down, set by `settle`
 let code // the exit code of the run, once main has returned
 
 // --- a signal while the gate waits -------------------------------------------------------------
@@ -166,9 +174,12 @@ async function stopIfTold(childSignal) {
 // Called right before the outcome is written down, and nothing after it starts a child: what the
 // verdict file needs from git is read first, then a pending signal still ends the run as stopped.
 // After it the outcome is written in one go, and a signal only ends the gate with that outcome's code.
-async function settle() {
+// `exit` is that code: the signal handler takes it from here, not from the return of main, so it
+// holds even if the code between `settle` and the return of main ever waits for something.
+async function settle(exit) {
     head = gitText("rev-parse", "-q", "--verify", "HEAD") || null
     await stopIfTold()
+    outcomeCode = exit
     settled = true
 }
 
@@ -213,6 +224,8 @@ function readHookInput() {
 // --- git ---------------------------------------------------------------------------------
 // A git that a signal ended gave no answer: its empty output would read as "no edits" or "nothing
 // changed", and the cache would answer for a tree it never saw. The run ends at the catch below main.
+// So does a git whose output went past GIT_OUTPUT_MAX: Node ends such a child itself with SIGTERM,
+// and its cut output is no answer either, but no signal came from outside.
 function git(args, options = {}) {
     const run = spawnSync(GIT, ["-C", repo, ...args], {
         encoding: "utf8",
@@ -221,9 +234,24 @@ function git(args, options = {}) {
         windowsHide: true,
         ...options,
     })
+    if (tooMuchOutput(run)) throw new Error(`git ${args.join(" ")} ${OUTPUT_PAST_LIMIT}`)
     if (run.signal) throw endedBySignal(`git ${args.join(" ")}`, run.signal)
     return run
 }
+
+// A child whose output went past `maxBuffer`: Node ended it with SIGTERM itself, so its `signal`
+// names no signal that came from outside.
+const tooMuchOutput = (run) => run.error?.code === "ENOBUFS"
+const OUTPUT_PAST_LIMIT = "wrote more output than the gate reads, and Node ended it"
+// How a child that failed ended, in English, for a reason: past the output limit, by a signal from
+// outside, or with an exit code.
+function howEnded(run) {
+    if (tooMuchOutput(run)) return OUTPUT_PAST_LIMIT
+    if (run.signal) return `was ended by the signal ${run.signal}`
+    return `exited with code ${run.status ?? 1}`
+}
+// The signal from outside that ended a child, if one did: what `stopIfTold` waits on.
+const outsideSignal = (run) => (tooMuchOutput(run) ? null : run.signal)
 const gitOk = (...args) => git(args).status === 0
 // The output without its last line break, or empty when git failed.
 const gitText = (...args) => {
@@ -312,7 +340,7 @@ function removeOld(dir, mine) {
 //   explain — an explanation for the model. Both go into the marker: "<text>. <explain>".
 //   reason — the reason in English for the verdict file.
 async function notVerified(kind, text, explain, reason) {
-    await settle()
+    await settle(3)
     writeMarker(path.join(STATE, `nokey-${kind}-${tag}-${SESSION || "anon"}`), `${text}. ${explain}\n`)
     writeVerdict("unverified", 3, reason)
     complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + text)
@@ -687,26 +715,29 @@ async function main() {
     // What is checked is the worktree; what is identified is the repository as a whole.
     repo = worktreeRoot() ?? ""
     if (!repo) return 0
-    const canon = repositoryRoot(repo)
-    if (!canon) return 0
     tag = worktreeTag(repo)
 
     // The verdict file tells the outcome of the last run or nothing: a run that ends without writing
     // it (the write or the rename failed — a full disk — or any exit before writeVerdict) removes the
-    // previous run's file, or worfy would show that outcome over what this run printed.
+    // previous run's file, or worfy would show that outcome over what this run printed. The first
+    // call to git, the one that finds the worktree, is the only one before this handler: until it
+    // answers the gate does not know which file is the worktree's.
     verdictFile = path.join(STATE, `verdict-${tag}.json`)
     process.on("exit", () => {
         if (!verdictWritten) remove(verdictFile)
     })
     // SIGBREAK is Ctrl+Break in a console of Windows (signal 21); nothing sends it elsewhere.
     // Once the outcome is written down (see `settle`) the run has ended: the signal only cuts its
-    // output short, and the gate exits with the code of that outcome.
+    // output short, and the gate exits with the code of that outcome, 3 if `settle` was given none.
     for (const [signal, stopped] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143], ["SIGBREAK", 149]]) {
         process.on(signal, () => {
             endRunning()
-            process.exit(settled ? code : stopped)
+            process.exit(settled ? (outcomeCode ?? 3) : stopped)
         })
     }
+
+    const canon = repositoryRoot(repo)
+    if (!canon) return 0
 
     // Markers without a project key (project not determined) older than a week are garbage from
     // abandoned sessions and deleted worktrees; so are the temporary files (.run-…, .verdict-…)
@@ -715,17 +746,20 @@ async function main() {
     removeOld(BLOCKS, (name) => name.includes("__"))
 
     const which = spawnSync(process.execPath, [RESOLVE, "--which", canon], { encoding: "utf8", windowsHide: true })
-    await stopIfTold(which.signal)
+    await stopIfTold(outsideSignal(which))
     if (which.status !== 0) {
         // A crashed resolver (broken registry, broken node) is not "a directory outside
         // the repositories" and not "not registered". Staying silent and exiting with 0 is not allowed either.
-        const rc = which.status ?? 1
-        const why = (which.stderr || which.error?.message || "").split(/\r?\n/)[0]
+        // A resolver that a signal or the output limit ended has no exit code: the line says
+        // what ended it, in English, as the line of a git that a signal ended does.
+        const ended = howEnded(which)
+        const byCode = !which.signal && !tooMuchOutput(which)
+        const why = (which.stderr || (byCode ? which.error?.message : "") || "").split(/\r?\n/)[0]
         return notVerified(
             "broken",
-            "резолвер gate-resolve.mjs завершился с кодом " + rc,
+            byCode ? "резолвер gate-resolve.mjs завершился с кодом " + (which.status ?? 1) : `the registry resolver gate-resolve.mjs ${ended}`,
             `Repository: ${repo}. ${why ? `Reason: ${why}. ` : ""}Project not determined, nothing was checked — this is not green.`,
-            `the registry resolver gate-resolve.mjs exited with code ${rc}${why ? `: ${why}` : ""}`
+            `the registry resolver gate-resolve.mjs ${ended}${why ? `: ${why}` : ""}`
         )
     }
     // A repository outside the registry: there used to be a silent `exit 0` here, and "the gate is silent"
@@ -786,7 +820,7 @@ async function main() {
 
     changed = changedPaths()
     if (!scopeWhy && !changed.length) {
-        await settle()
+        await settle(0)
         writeVerdict("none", 0, `no changes relative to the merge-base ${short} with ${baseRef}`)
         say("[gate] ничего не прогналось (" + PROFILE + "): нет изменений относительно merge-base " + short + " с " + baseRef + ". Это не «зелено».")
         return 0
@@ -800,15 +834,20 @@ async function main() {
         maxBuffer: GIT_OUTPUT_MAX,
         windowsHide: true,
     })
-    await stopIfTold(planned.signal)
+    await stopIfTold(outsideSignal(planned))
     if (planned.status !== 0) {
         // A crashed resolver would give an empty plan, and an empty plan reads as "nothing
         // touched". That is not so: verification failed. The red marker is left alone.
-        const rc = planned.status ?? 1
-        await settle()
-        writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify: the plan resolver exited with code ${rc}.\n`)
-        writeVerdict("unverified", 3, `the plan resolver gate-resolve.mjs exited with code ${rc}`)
-        complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер плана gate-resolve.mjs завершился с кодом " + rc + " — ничего не проверено, это не «зелено».")
+        const ended = howEnded(planned)
+        const byCode = !planned.signal && !tooMuchOutput(planned)
+        await settle(3)
+        writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify: the plan resolver ${ended}.\n`)
+        writeVerdict("unverified", 3, `the plan resolver gate-resolve.mjs ${ended}`)
+        complain(
+            "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " +
+                (byCode ? "резолвер плана gate-resolve.mjs завершился с кодом " + (planned.status ?? 1) : `the plan resolver gate-resolve.mjs ${ended}`) +
+                " — ничего не проверено, это не «зелено»."
+        )
         return 3
     }
     // One line per package: its folder, its name, the scripts, the paths of the fingerprint and
@@ -836,7 +875,7 @@ async function main() {
     // Before the cache is looked at and before any verdict: a green cache hit must not hide a warning.
     sizeWarnings()
     if (!plan.length) {
-        await settle()
+        await settle(0)
         writeVerdict("none", 0, "the changes touch no checked package")
         say("[gate] ничего не прогналось (" + PROFILE + "): изменения не затрагивают проверяемые пакеты. Это не «зелено».")
         return 0
@@ -901,7 +940,11 @@ async function main() {
         if (wsOk && fp) greens.push([cacheFile, fp])
     }
 
-    await settle()
+    // Red is code 2; the environment unavailable, green and nothing ran are all code 0.
+    await settle(failedLabels ? 2 : 0)
+    // Only after `settle`: a run stopped before it writes no cache entry. And whatever the outcome:
+    // a package whose scripts all passed is green for its fingerprint, even when another package
+    // of the same run is red.
     for (const [cacheFile, fp] of greens) writeMarker(cacheFile, `${fp}\n`)
     if (failedLabels) {
         writeMarker(redMarker, `${utcNow()}\n`)
@@ -925,6 +968,9 @@ async function main() {
         // Otherwise a red state could be washed away by editing a document.
         remove(redMarker)
         remove(unverifiedMarker)
+        // The "could not verify" marker an error of the gate or a crashed resolver left in this
+        // tree and session: a green run has shown that the gate works here now.
+        remove(path.join(STATE, `nokey-broken-${tag}-${SESSION || "anon"}`))
         let blocks = []
         try {
             blocks = fs.readdirSync(BLOCKS)
@@ -956,10 +1002,20 @@ try {
     // A git that a signal ended (see `git`) is such an error, unless the signal came to the gate
     // too: then its handler ends the run as stopped while the gate waits here. Such an error
     // comes only before `settle` has finished.
+    // Once the worktree is known (`tag`), the error leaves the marker of a resolver that crashed,
+    // nokey-broken-<tag>-<session>: stop.mjs tells the model about it as about any "could not verify".
+    // The loop goes round for every error, not only for a child ended by a signal: the gate may
+    // have been told to stop while it waited on a git that then failed in another way (past the
+    // output limit, say), and such a run is stopped, not "could not verify".
     verdictWritten = false
-    if (error?.childSignal) await stopIfTold(error.childSignal)
-    complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + String(error?.message ?? error).split(/\r?\n/)[0])
-    complain("The gate itself failed and checked nothing — this is not green.")
+    await stopIfTold(error?.childSignal)
+    outcomeCode = 3
+    settled = true
+    const text = String(error?.message ?? error).split(/\r?\n/)[0]
+    const explain = "The gate itself failed and checked nothing — this is not green."
+    if (tag) writeMarker(path.join(STATE, `nokey-broken-${tag}-${SESSION || "anon"}`), `${text}. ${explain}\n`)
+    complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + text)
+    complain(explain)
     code = 3
 }
 await written(process.stdout)
