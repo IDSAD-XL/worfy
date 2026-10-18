@@ -19,7 +19,7 @@ import type { ShellEvent } from '../../src/main/terminal/osc'
 import { REPLAY_LIMIT, TerminalRegistry, type TerminalSink } from '../../src/main/terminal/pty'
 import { ShellIntegration, SOCKET_PATH_MAX, socketPath } from '../../src/main/terminal/shell-integration'
 import { removeTestTree } from '../remove'
-import { needsZsh, zshPath } from '../zsh'
+import { needsPosix, needsZsh, zshPath } from '../zsh'
 
 const KEY = 'terminal-1'
 const WAIT = { timeout: 10_000, interval: 20 }
@@ -459,7 +459,8 @@ describe("worfy's folder", () => {
     expect(integration.path).toBe(dir)
   })
 
-  it('the socket path in it fits zsh (103 bytes); with a long TMPDIR the folder goes to /tmp; it is removed with worfy', async () => {
+  it('the socket path in it fits zsh (103 bytes); with a long TMPDIR the folder goes to /tmp; it is removed with worfy', async (context) => {
+    needsPosix(context)
     const usual = new ShellIntegration()
     integrations.push(usual)
     const dir = await usual.prepare()
@@ -479,7 +480,8 @@ describe("worfy's folder", () => {
 })
 
 describe('no integration where it does not belong', () => {
-  it('a shell that is not zsh (/bin/sh): no ZDOTDIR of worfy, no sequences, no state', async () => {
+  it('a shell that is not zsh (/bin/sh): no ZDOTDIR of worfy, no sequences, no state', async (context) => {
+    needsPosix(context)
     const { open, integration } = await start({ shell: '/bin/sh', env: { PS1: '$ ' } })
     const t = await open()
     t.type('echo "zd:${ZDOTDIR-none}:$WORFY_SHELL_NONCE:"\r')

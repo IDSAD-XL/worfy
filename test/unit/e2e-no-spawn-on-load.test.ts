@@ -58,12 +58,12 @@ const HOOK_MEMBERS = new Set(['beforeEach', 'afterEach', 'beforeAll', 'afterAll'
 /** The members of a test that are a describe: `test.describe`. */
 const DESCRIBE_MEMBERS = new Set(['describe', 'suite'])
 
-/** Every .ts file under a folder. */
+/** Every .ts and .tsx file under a folder. */
 function sources(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) return sources(path)
-    return entry.name.endsWith('.ts') ? [path] : []
+    return /\.tsx?$/.test(entry.name) ? [path] : []
   })
 }
 

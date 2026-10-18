@@ -28,3 +28,11 @@ export function zshPath(): string {
 export function needsZsh(context: { skip: (condition: boolean, note?: string) => void }): void {
   context.skip(NO_ZSH, NO_ZSH_ON_WINDOWS)
 }
+
+/** Why a test that starts /bin/sh, or expects the folder /tmp, is skipped on Windows. */
+export const NO_POSIX_ON_WINDOWS = 'the test starts /bin/sh or expects the folder /tmp; Windows has neither'
+
+/** Skips a vitest test that needs /bin/sh or /tmp on Windows, with the reason: `needsPosix(context)` first in the test. */
+export function needsPosix(context: { skip: (condition: boolean, note?: string) => void }): void {
+  context.skip(process.platform === 'win32', NO_POSIX_ON_WINDOWS)
+}

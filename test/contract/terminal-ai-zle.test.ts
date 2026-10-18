@@ -18,7 +18,7 @@ import { encodeMessage, parseShellMessage } from '../../src/main/terminal-ai/pro
 import { HISTORY_FEATURE, ShellLink, type FeatureLoader, type ShellAsk, type ShellFeature, type ShellReply } from '../../src/main/terminal-ai/shell-link'
 import { DEFAULT_TERMINAL_AI_SETTINGS, type TerminalAiSettings } from '../../src/shared/terminal-ai/settings'
 import { removeTestTree } from '../remove'
-import { needsZsh, zshPath } from '../zsh'
+import { needsPosix, needsZsh, zshPath } from '../zsh'
 
 /**
  * Runs a script as a program the shell starts: a zsh without startup files. Not /bin/sh: dash, which
@@ -672,7 +672,8 @@ describe('the socket', () => {
     expect(shown(t.text())).not.toMatch(/zsh: |zsocket|sysread|No such file|not found/)
   })
 
-  it('a shell that is not zsh gets no socket and no token', async () => {
+  it('a shell that is not zsh gets no socket and no token', async (context) => {
+    needsPosix(context)
     const admitted: string[] = []
     const door: AssistDoor = {
       admit: (key) => {
