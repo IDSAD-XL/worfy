@@ -194,6 +194,16 @@ describe('the Session a notification opens', () => {
     expect(notificationTarget({ sessionId: 'nobody', projectRoot: null }, project)).toBeNull()
   })
 
+  it('on Windows, finds a registry Session whose note spells the Project root with `\\` while the Project list keeps git\'s `C:/` (worfy-windows ticket 49)', async () => {
+    const { notificationTarget } = await import('../../src/renderer/session/notification-target')
+    const project = { id: 'worfy-d5750da7', path: 'C:/Users/Alexey/worfy' }
+    const found = { nodeId: 'session:ext-1', projectId: 'worfy-d5750da7', external: { sessionId: 'ext-1' } }
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\worfy' }, project)).toEqual(found)
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'c:\\Users\\Alexey\\worfy\\' }, project)).toEqual(found)
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\worfy-two' }, project)).toBeNull()
+    expect(notificationTarget({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\Alexey\\Worfy' }, project)).toBeNull()
+  })
+
   it('a note of Linked machine A finds the Session Node of A\'s Project in a window on A; the same id without a Machine finds the Session of this Machine', async () => {
     // The window's views are of one Machine: here the Node that runs sdk-7.
     answers['sessions.views'] = () => ({ views: [nodeView({ state: 'busy' })] })
@@ -357,6 +367,39 @@ describe('the notification overlay', () => {
       expect(await projectOfNote({ sessionId: 'orchestrator-1', projectRoot: null, machineId: 'machine-a' }, 'machine-a')).toBe('beta')
       answers['linked.invoke'] = () => ({ ok: false, error: 'projects.list: Mini is unreachable' })
       expect(await projectOfNote({ sessionId: 'sdk-9', projectRoot: null, machineId: 'machine-a' }, 'machine-a')).toBeNull()
+    })
+
+    // worfy-windows ticket 49: a Windows Machine lists git's `C:/…`, its notes carry path.resolve's `C:\…`.
+    const OF_WINDOWS = {
+      projects: [
+        { id: 'beta', name: 'beta', path: 'C:/Users/test/beta', branch: 'main' },
+        { id: 'gamma', name: 'gamma', path: 'C:/Users/test/gamma', branch: 'main' },
+      ],
+      activeId: 'beta',
+      revision: 3,
+    }
+
+    it('a Session from the registry of a Windows Machine: its Project is found by a root spelled with `\\`', async () => {
+      answers['projects.list'] = () => PROJECTS
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_WINDOWS, 'sessions.views': () => ({ views: [] }) })
+      const { projectOfNote } = await import('../../src/renderer/session/notification-target')
+      expect(await projectOfNote({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\test\\gamma', machineId: 'machine-a' }, 'machine-a')).toBe('gamma')
+      expect(await projectOfNote({ sessionId: 'ext-1', projectRoot: 'c:\\Users\\test\\gamma\\', machineId: 'machine-a' }, 'machine-a')).toBe('gamma')
+      expect(await projectOfNote({ sessionId: 'ext-1', projectRoot: 'C:\\Users\\test\\gammas', machineId: 'machine-a' }, 'machine-a')).toBe('beta')
+    })
+
+    it('in a window on a Windows Machine, opens a registry Session of a Project other than the active one when the note spells its root with `\\`', async () => {
+      window.history.replaceState(null, '', '/?machine=machine-a&project=beta')
+      onLinkedMachine('machine-a', { 'projects.list': () => OF_WINDOWS, 'sessions.views': () => ({ views: [] }) })
+      answers['notify.pending'] = () => ({ note: { sessionId: 'ext-1', projectRoot: 'C:\\Users\\test\\gamma', machineId: 'machine-a' } })
+      const { navigation } = await import('../../src/renderer/projects/useProjects')
+      navigation.replace = () => undefined
+      navigation.load = () => {
+        throw new Error('the window must not load again')
+      }
+      const h = await mountOverlay()
+      await vi.waitFor(() => expect(h.opened()).toMatchObject({ view: 'session', opened: { nodeId: 'session:ext-1', projectId: 'gamma', external: { sessionId: 'ext-1' } } }))
+      expect(asked).toContainEqual({ channel: 'linked.open', input: { machine: 'machine-a', projectId: 'gamma' } })
     })
 
     it('after the load on that Machine, looks for the Session in every Project of it and opens it with its Project', async () => {
