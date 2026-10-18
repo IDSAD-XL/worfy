@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -13,9 +13,10 @@ import {
   processAlive,
   projectDirName,
   type ClaudeHomeChange,
+  type RegistryRoot,
 } from '../../src/main/claude-home/registry'
 import { readNewLines } from '../../src/main/claude-home/tail'
-import { ClaudeHomeSubscriptions, claudeHomeHandlers, type Subscriber } from '../../src/main/ipc/claude-home'
+import { ClaudeHomeSubscriptions, claudeHomeHandlers, type LiveSessionsListener, type Subscriber } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { parseTranscriptLines } from '../../src/shared/transcript/parse'
@@ -663,10 +664,10 @@ function fakeSender(id: number) {
   return { sender, sent, destroy }
 }
 
-async function ipcOver(registry: ClaudeHomeRegistry) {
+async function ipcOver(registry: ClaudeHomeRegistry, listeners?: ReadonlySet<LiveSessionsListener>) {
   const handlers = new Map<string, Listener>()
   const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
-  const subscriptions = new ClaudeHomeSubscriptions(registry)
+  const subscriptions = new ClaudeHomeSubscriptions(registry, listeners)
   closers.push(() => subscriptions.closeAll())
   await registerIpc(ipc, { modules: { './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
   const call = async (channel: string, input: unknown, sender?: Subscriber): Promise<IpcResult<unknown>> => {
@@ -798,7 +799,8 @@ describe('claudeHome IPC channels', () => {
     // change); the test looks for the append, not for an exact list.
     const mentionsS1 = (entry: { payload: unknown }) => (entry.payload as { transcripts: string[] }).transcripts.includes(S1)
     await vi.waitFor(() => expect(window.sent.filter(mentionsS1)).toHaveLength(1), { timeout: 3000, interval: 20 })
-    expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: resolve(DEMO), transcripts: [S1] } })
+    // The root as the window sent it (ticket 57): on Windows resolve(DEMO) would be C:\Users\….
+    expect(window.sent.find(mentionsS1)).toMatchObject({ channel: 'worfy:claudeHome.changed', payload: { projectRoot: DEMO, transcripts: [S1] } })
 
     window.destroy()
     await new Promise((done) => setTimeout(done, 50))
@@ -830,7 +832,7 @@ describe('claudeHome IPC channels', () => {
     const payloads = () => window.sent.map((entry) => entry.payload as { projectRoot: string; transcripts: string[] })
     await vi.waitFor(() => expect(payloads().some((payload) => payload.transcripts.includes(S6))).toBe(true), { timeout: 3000, interval: 20 })
     await new Promise((done) => setTimeout(done, 400))
-    expect(payloads().every((payload) => payload.projectRoot === resolve(CYRILLIC))).toBe(true)
+    expect(payloads().every((payload) => payload.projectRoot === CYRILLIC)).toBe(true)
   })
 
   it('starts no watcher for a window that is already gone', async () => {
@@ -854,9 +856,114 @@ describe('claudeHome IPC channels', () => {
     const window = fakeSender(11)
     expect((await call('claudeHome.sessions', { projectRoot: DEMO }, window.sender)).ok).toBe(true)
     // `sessions` may be true as well when FSEvents replays the fixture copy; the append is what counts.
-    await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: resolve(DEMO), transcripts: [S1] }) }), {
+    await vi.waitFor(() => expect(window.sent).toContainEqual({ channel: 'worfy:claudeHome.changed', payload: expect.objectContaining({ projectRoot: DEMO, transcripts: [S1] }) }), {
       timeout: 3000,
       interval: 20,
     })
+  })
+})
+
+// worfy-windows ticket 57: the window looks the root of claudeHome.changed up by the string it
+// subscribed with. On Windows that is git's `C:/…` from the Project list, while path.resolve gives
+// `C:\…`; an event in main's spelling was dropped by all three readers in the window.
+describe('claudeHome.changed carries the root as the window sent it', () => {
+  /** A registry whose watchers the test fires by hand; it records the roots it was asked to watch. */
+  function handRegistry() {
+    const watchers: { root: RegistryRoot; onChange: (change: ClaudeHomeChange) => void; closed: boolean }[] = []
+    const registry = {
+      watch: async (root: RegistryRoot, onChange: (change: ClaudeHomeChange) => void) => {
+        const watcher = { root, onChange, closed: false }
+        watchers.push(watcher)
+        return { ready: Promise.resolve(), close: async () => void (watcher.closed = true) }
+      },
+      sessions: async () => ({ live: [], history: [] }),
+      live: async () => [],
+    } as unknown as ClaudeHomeRegistry
+    const fire = (change: ClaudeHomeChange) => {
+      for (const watcher of watchers) if (!watcher.closed) watcher.onChange(change)
+    }
+    return { registry, watchers, fire }
+  }
+  const changes = (sent: readonly { channel: string; payload: unknown }[]) => sent.filter((entry) => entry.channel === 'worfy:claudeHome.changed').map((entry) => entry.payload)
+
+  it('a window that asked with C:/p gets C:/p back; the registry still watches the resolved root', async () => {
+    const { registry, watchers, fire } = handRegistry()
+    const { call } = await ipcOver(registry)
+    const window = fakeSender(21)
+    expect((await call('claudeHome.sessions', { projectRoot: 'C:/p' }, window.sender)).ok).toBe(true)
+    expect(watchers.map((watcher) => watcher.root)).toEqual([resolve('C:/p')])
+
+    fire({ sessions: false, transcripts: [S1] })
+    expect(changes(window.sent)).toEqual([{ projectRoot: 'C:/p', sessions: false, transcripts: [S1] }])
+  })
+
+  it('spellings of one root from one window: each gets its events in its own spelling and closes on its own; the live Sessions go out under the resolved root', async () => {
+    const { registry, fire } = handRegistry()
+    const reported: string[] = []
+    const { call, subscriptions } = await ipcOver(registry, new Set<LiveSessionsListener>([(root) => void reported.push(root)]))
+    const window = fakeSender(22)
+    // C:/p and C:/p/ resolve to one root on any system; C:\p joins them on Windows.
+    for (const projectRoot of ['C:/p', 'C:/p/', 'C:\\p']) expect((await call('claudeHome.sessions', { projectRoot }, window.sender)).ok).toBe(true)
+    // The same spelling again adds no watcher.
+    expect((await call('claudeHome.sessions', { projectRoot: 'C:/p' }, window.sender)).ok).toBe(true)
+    expect(subscriptions.size).toBe(3)
+
+    fire({ sessions: true, transcripts: [] })
+    expect(changes(window.sent).map((payload) => (payload as { projectRoot: string }).projectRoot).sort()).toEqual(['C:/p', 'C:/p/', 'C:\\p'])
+    // Three reports when the watchers became ready and three for the change, each under the
+    // resolved root: one Project, one key for the notifications (src/main/notify.ts).
+    await vi.waitFor(() => expect(reported).toHaveLength(6))
+    expect(new Set(reported)).toEqual(new Set([resolve('C:/p'), resolve('C:\\p')]))
+
+    expect(await call('claudeHome.close', { projectRoot: 'C:/p' }, window.sender)).toStrictEqual({ ok: true, value: { closed: true } })
+    expect(subscriptions.size).toBe(2)
+    window.sent.length = 0
+    fire({ sessions: false, transcripts: [S1] })
+    expect(changes(window.sent).map((payload) => (payload as { projectRoot: string }).projectRoot).sort()).toEqual(['C:/p/', 'C:\\p'])
+  })
+
+  it('a Linked machine\'s call: git runs at the real path its check answered, the Claude home folders and the live Sessions go by the spelling it sent', async () => {
+    const dir = await realpath(await tempDir())
+    const project = join(dir, 'project')
+    const alias = join(dir, 'alias')
+    await mkdir(project)
+    await symlink(project, alias, process.platform === 'win32' ? 'junction' : 'dir')
+    // Claude Code named the folder after the cwd it started in: the alias, as the Project list has it.
+    const home = join(dir, 'claude')
+    await mkdir(join(home, 'projects', projectDirName(alias)), { recursive: true })
+    await writeFile(join(home, 'projects', projectDirName(alias), `${S1}.jsonl`), await readFile(join(FIXTURE, 'projects', projectDir(DEMO), `${S1}.jsonl`)))
+    const gitAt: string[] = []
+    const registry = new ClaudeHomeRegistry({
+      home,
+      listWorktrees: async (root) => {
+        gitAt.push(root)
+        return []
+      },
+      isAlive: alive(),
+    })
+    const fires: ((change: ClaudeHomeChange) => void)[] = []
+    vi.spyOn(registry, 'watch').mockImplementation(async (_root, onChange) => {
+      fires.push(onChange)
+      return { ready: Promise.resolve(), close: async () => undefined }
+    })
+    const reported: string[] = []
+    const subscriptions = new ClaudeHomeSubscriptions(registry, new Set<LiveSessionsListener>([(root) => void reported.push(root)]))
+    closers.push(() => subscriptions.closeAll())
+    const handlers = new Map<string, Listener>()
+    const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+    await registerIpc(ipc, { modules: { './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, undefined, () => [{ path: project }]) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+    // A client of a link connection has a string id (src/main/link/caller.ts).
+    const sent: { channel: string; payload: unknown }[] = []
+    const linked: Subscriber = { id: 'link:machine-b/1', send: (channel, payload) => void sent.push({ channel, payload }), isDestroyed: () => false, once: () => undefined }
+    const event = { senderFrame: { url: APP_URL }, sender: linked } as unknown as IpcMainInvokeEvent
+    const result = (await handlers.get(`${IPC_CHANNEL_PREFIX}claudeHome.sessions`)?.(event, { projectRoot: alias })) as IpcResult<{ history: { sessionId: string }[] }>
+    if (!result.ok) throw new Error(result.error)
+    expect(result.value.history.map((session) => session.sessionId)).toEqual([S1])
+    // git only at the checked real path: a link swapped after the check does not lead it elsewhere.
+    expect(new Set(gitAt)).toEqual(new Set([project]))
+    await vi.waitFor(() => expect(reported).toEqual([alias]))
+
+    for (const fire of fires) fire({ sessions: false, transcripts: [S1] })
+    expect(changes(sent)).toEqual([{ projectRoot: alias, sessions: false, transcripts: [S1] }])
   })
 })
