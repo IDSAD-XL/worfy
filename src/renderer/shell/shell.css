@@ -57,6 +57,17 @@
   border-bottom: 1px solid var(--toolbar-border);
   -webkit-app-region: drag;
 }
+/* In a window narrower than 1400 px the View switch shows its icons alone, so the switch, the toolbar
+   items and the search field stay whole next to a long Project name; each segment keeps its name as
+   aria-label and tooltip (SegmentedControl). Other segmented controls keep their labels. */
+@media (max-width: 1400px) {
+  .w-toolbar .w-segmented__label {
+    display: none;
+  }
+  .w-toolbar .w-segmented__item {
+    padding: 0 10px;
+  }
+}
 /* Without the sidebar the traffic lights sit over the toolbar: keep clear of them. They do not move
    with the interface scale, so the room is 80 px of the window, not 80 CSS px
    (settings/interface-scale.ts writes --interface-scale on <html>). */
