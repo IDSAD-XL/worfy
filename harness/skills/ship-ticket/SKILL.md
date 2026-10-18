@@ -280,14 +280,18 @@ separately.
 Test runners run once only, never in watch mode (vitest — `vitest run`): a watch process never
 exits, and the agent hangs.
 The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"`
-— always with stdin closed: the script is written for a hook and first drains stdin with `cat`, so
-without stdin it hangs forever (that is how ticket 63 stood for ten hours).
+— always with stdin closed: the script is written for a hook and first reads the hook's JSON from
+stdin. On an open stdin that sends nothing it waits 2 s before it starts, and a signal in those
+2 s may leave the verdict of an earlier run in place (the bash gate before it waited on `cat`
+forever: that is how ticket 63 stood for ten hours).
 Gate exit codes: `0` — green, only if the output has the line `[gate] зелено (…)` (exit code 0
 with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
 unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the
 line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry
-unreadable, resolver crashed). On exit code 3 do not merge and do not call the ticket
-done: the reason goes into the report as "not verified", and a human fixes it.
+unreadable, resolver crashed); `127` — node is not on PATH and the gate never started; `130` or
+`143` (128 + a signal) — the gate itself was stopped and this run wrote nothing. On exit code 3,
+127, 130 or 143 do not merge and do not call the ticket done: the work is not verified, the code
+goes into the report as "not verified", and on 3 or 127 a human fixes the environment.
 
 With `local-green` a green step 6 is the ticket's finish as far as code goes: next are step 7
 (review) and step 11 (close, with the local merge), steps 8–10 are skipped.

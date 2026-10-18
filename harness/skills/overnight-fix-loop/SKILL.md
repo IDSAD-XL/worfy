@@ -207,13 +207,15 @@ The gate is `gate.mjs fast`: the root lint plus `typecheck` and `test` of the ch
 **and** the line `[gate] зелено (…)`; exit 0 with the line «ничего не прогналось» or «окружение
 недоступно» is not a check. Exit 2 is red (`[gate] красно`). Exit 3 is unverified, neither green nor red: the line
 `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry unreadable,
-resolver crashed). A red gate, exit 3, and exit 0 without the «зелено» line — `FAILURE.md` with that
-line, no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
+resolver crashed). Exit 127 — node is not on PATH and the gate never started. Exit 130 or 143
+(128 + a signal) — the gate itself was stopped and this run wrote nothing. A red gate, exit 3, 127,
+130 or 143, and exit 0 without the «зелено» line — `FAILURE.md` with that line and the exit code,
+no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
 the push in 1g sends only commits. Rebuilds that the profile section requires before
 `typecheck` and the gate — once before the gate; after each mutation — only if the section says so.
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"   # stdin closed, otherwise the script waits on cat forever
+node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null; echo "EXIT=$?"   # stdin closed: on an open one the gate first waits 2 s for the hook's JSON
 ```
 
 ### 1f. Review — the orchestrator runs a `worfy:reviewer` agent after the implementer's report

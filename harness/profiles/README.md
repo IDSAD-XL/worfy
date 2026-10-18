@@ -130,7 +130,7 @@ the way the project really runs them.
 | `commands.lint` / `typecheck` / `test` / `build` | string | how the project runs them from the root | all |
 | `commands.test_one` | string | a targeted run of one test, with the placeholder `<файл>` (file) | implementer, reviewer |
 | `commands.contract` / `e2e` | string \| null | suites not included in `test` | implementer, reviewer |
-| `commands.verify` | string | the full local check in one line; agents append `; echo "EXIT=$?"`. A line that runs the gate names `node <plugin>/hooks/gate.mjs`; `bash <plugin>/hooks/gate.sh` is the old spelling, found in profiles moved from the old Harness | implementer, reviewer |
+| `commands.verify` | string | the full local check in one line; agents append `; echo "EXIT=$?"`. A line that runs the gate names `node <plugin>/hooks/gate.mjs` or `bash <plugin>/hooks/gate.sh`, the spelling of profiles moved from the old Harness. Both work; where node is not on PATH, `gate.sh` answers "could not verify: node not found" with code 3 and replaces the verdict file, while `node …/gate.mjs` fails with 127 before the gate starts | implementer, reviewer |
 | `commands.prepare_tree` | string | what to do in a freshly created worktree before running checks | orchestrator, reviewer |
 | `commands.requires` | strings | what must be up (Docker, a database, the stack) | implementer, reviewer |
 | `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<пакет>` (package name) and `<файл>` (path from the package root, `test_one` only); `names` — package directory → name for `<пакет>` (`{"apps/api": "@auction/api"}`). No field — the root's commands | overnight-fix-loop |

@@ -324,8 +324,10 @@ describe('the move', () => {
     expect(existsSync(join(sandbox.harnessHome, 'worktree-sessions', 'sandbox-repos-worfy-0000aaaa.json'))).toBe(true)
     // The node of PATH, as a hook runs the gate — not process.execPath: that is Electron here (the
     // tests run under its Node), and in the closed environment of the sandbox it would start as
-    // an app and never return. The time limit makes a start that hangs a failed test.
-    const gate = run(findNode(), [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, timeout: 60_000 })
+    // an app and never return. The time limit makes a start that hangs a failed test. SIGKILL, not
+    // the SIGTERM of spawnSync: the gate has a handler of its own for SIGTERM, and that handler does
+    // not run while the gate itself waits in spawnSync for git or a script that hangs.
+    const gate = run(findNode(), [join(REPO, 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: sandbox.repos.worfy, timeout: 60_000, killSignal: 'SIGKILL' })
     expect(`${gate.stdout}${gate.stderr}`).not.toMatch(/не зарегистрирован|not registered/)
     expect(gate.status).toBe(0)
   })
