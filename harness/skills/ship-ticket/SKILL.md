@@ -514,12 +514,17 @@ and the section, through `--body-file`. The section lists the commands of the ti
 items (worfy: «Готово, когда») that run on the machine with `serve` beyond its `check` — the ticket
 marks them itself, the skill does not decide which — one line each, with its expected result:
 ``- `<command>` — <expected result>``. No such item — the single line `none`. Write those lines into
-`<section file>` first; the block prints `label` or `no-label`:
+`<section file>` first; the block prints `label` or `no-label`, or a line starting with `ERROR:`
+when `gh` failed or listed no files (right after `gh pr create` the list can still be empty): run the
+block again then, never take that for `no-label`:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 role=$(F cross_machine_gate.role)
-if [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"; else
+if [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
+elif ! files=$(gh pr view <N> --json files --jq '.files[].path'); then echo "ERROR: gh pr view <N> failed: run the block again"
+elif [ -z "$files" ]; then echo "ERROR: PR <N> lists no files yet: run the block again"
+else
   exempt=$(F cross_machine_gate.exempt | sed -n 's/^ *"\(.*\)",\{0,1\}$/\1/p')   # one path a line; no field — nothing is exempt
   need=no-label
   while IFS= read -r f; do
@@ -527,17 +532,21 @@ if [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.rol
     while IFS= read -r e; do
       [ -n "$e" ] || continue
       case "$e" in */) case "$f" in "$e"*) hit=yes ;; esac ;; *) [ "$f" = "$e" ] && hit=yes ;; esac
-    done <<EOF
+    done <<EXEMPT
 $exempt
-EOF
+EXEMPT
     [ "$hit" = yes ] || need=label
-  done < <(gh pr view <N> --json files --jq '.files[].path')
+  done <<FILES
+$(printf '%s\n' "$files" | tr -d '\r')
+FILES
   echo "$need"
   if [ "$need" = label ]; then
     sec=$(F cross_machine_gate.checks_section); B=<scratchpad>/pr-<N>-body.md
-    gh pr view <N> --json body --jq .body >"$B"
-    grep -qxF "## $sec" "$B" || { printf '\n## %s\n\n' "$sec"; cat <section file>; } >>"$B"
-    gh pr edit <N> --add-label "$(F cross_machine_gate.label)" --body-file "$B"; echo "EXIT=$?"
+    if ! gh pr view <N> --json body --jq .body >"$B"; then echo "ERROR: gh pr view <N> --json body failed: run the block again"
+    else
+      tr -d '\r' <"$B" | grep -qxF "## $sec" || { printf '\n## %s\n\n' "$sec"; cat <section file>; } >>"$B"
+      gh pr edit <N> --add-label "$(F cross_machine_gate.label)" --body-file "$B"; echo "EXIT=$?"
+    fi
   fi
 fi
 ```
@@ -696,7 +705,7 @@ DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
 [ -n "$r" ] && [ "$r" != null ] && [ -e "$T/${r%/}/$E" ] && DOCS+=("${r%/}/$E")
 [ -n "$h" ] && [ "$h" != null ] && [ -e "$T/$h" ] && DOCS+=("$h")
 M=$(F worktree.base); [ "$M" = null ] && M=
-[ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null)
+[ -n "$M" ] || M=$(F layout.repos | jq -r --arg r "$(basename "$(cd <repo> && pwd -P)")" '.[$r].default_branch // empty' 2>/dev/null | tr -d '\r')
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
 [ -n "$M" ] || for c in main master; do git -C <repo> rev-parse -q --verify "refs/heads/$c" >/dev/null && { M=$c; break; }; done
 M=${M#origin/}

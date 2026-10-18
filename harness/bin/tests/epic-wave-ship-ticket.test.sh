@@ -448,7 +448,14 @@ check "epic-wave section 1: gh pr comment comes before gh pr merge" before "$ew1
 check "epic-wave section 1: a PR without the section is red" in_ "$ew1" 'red, with the reason "no `<checks_section>` section"'
 check "epic-wave section 1: request — gate full on the fresh base in a detached worktree, before the dispatch" in_ "$ew1" \
     'With `request` — first a gate full on the fresh base, before any ticket is dispatched'
-check "epic-wave section 1: request — the worktree of the base is detached" in_ "$ew1" 'worktree add --detach <scratchpad>/base-gate origin/<base>'
+check "epic-wave section 1: request — the worktree of the base is detached" in_ "$ew1" 'worktree add --detach <scratchpad>/base-gate "$B"'
+# worktree.base is already a remote branch (origin/main): origin/<base> would name origin/origin/main.
+for f in "$EW" "$ST"; do
+    check "$(name_of "$f"): no origin/<base>" lacks "$f" 'origin/<base>'
+done
+check "epic-wave section 4: the BEHIND rebase is for PRs merged outside wave-gate" in_ "$ew4" \
+    'A PR merged outside `wave-gate` (with `"each"`, or one out of the set) in state `BEHIND`'
+check "epic-wave section 4: the PRs of a wave-gate set are not rebased" in_ "$ew4" 'PRs of a `wave-gate` set are not rebased'
 check "epic-wave section 1: request — fix the base first" in_ "$ew1" 'Red — **fix the base first**'
 check "epic-wave section 1: the cross-machine gate comes before the preflight" before "$ew1" 'The cross-machine gate comes first' 'bin/preflight" --epic <epic>'
 for w in checks_section --body-file '`none`'; do

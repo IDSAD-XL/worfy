@@ -26,6 +26,12 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 # The shells every block runs under. Git Bash on Windows has no zsh (worfy ADR-0055): there the zsh cases are
 # skipped with one line. On macOS and Linux a missing zsh is a failure, not a skip.
 SHELLS=(bash zsh)
+# native <dir>: the path as a Node script on Windows reads it (C:/…, `pwd -W` of Git Bash); unchanged elsewhere.
+# Paths written into the temporary registry and profiles go through it: the Node profile cannot match /tmp/….
+native() { (cd "$1" && pwd -W 2>/dev/null) || printf '%s' "$1"; }
+# jq for Windows ends its lines with CRLF. The test's own jq calls drop the CR; the skill blocks must drop it
+# themselves, and the CRLF section below runs them with a jq that writes CRLF on any system.
+jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
 case "$(uname -s)" in
     MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
 esac
@@ -122,8 +128,8 @@ SH="$T/silent"; SR="$SH/repo"; SW="$SH/wf"; SHH="$SH/hh"
 mkdir -p "$SH/home" "$SHH/gate" "$SHH/projects/sp" "$SW/.scratch/pay-flow/issues"
 git -C "$SH" init -q -b main repo && git -C "$SR" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
 git -C "$SR" branch fix/local-only && git -C "$SR" update-ref refs/remotes/origin/fix/pushed HEAD
-printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"}]}\n' "$SR" >"$SHH/gate/config.json"
-printf '{"schema":2,"name":"sp","mode":"silent","workflow":{"folder":"%s"}}\n' "$SW" >"$SHH/projects/sp/profile.json"
+printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"}]}\n' "$(native "$SR")" >"$SHH/gate/config.json"
+printf '{"schema":2,"name":"sp","mode":"silent","workflow":{"folder":"%s"}}\n' "$(native "$SW")" >"$SHH/projects/sp/profile.json"
 tk() { printf '# %s — t\n\nStatus: %s\n%b' "$1" "$2" "${3:-}" >"$SW/.scratch/pay-flow/issues/$1-t.md"; }
 # These blocks define F themselves (the real profile), so the F line stays in.
 blockf() { awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL"; }
@@ -174,6 +180,21 @@ for sh in "${SHELLS[@]}"; do
     [[ "$got" == *"EXIT=0"* ]] && [ -z "$(git -C "$SW" status --porcelain)" ] && [ "$(git -C "$SW" log -1 --format=%s)" = "pay-flow: wave of tickets 02, 02 — statuses, state file" ] \
         && [ -z "$(git -C "$SW" remote)" ] && ok "$sh: Workflow folder block commits locally, no remote" || bad "$sh: Workflow folder commit: [$got]"
 done
+# Git for Windows prints --show-toplevel as C:/… while `pwd -P` of Git Bash says /c/…: a stand-in git that spells
+# the top level that way. The block must still see the Workflow folder as a repository of its own.
+WG="$T/wingit"; mkdir -p "$WG"; REAL_GIT="$(type -P git)"
+printf '#!/usr/bin/env bash\ncase " $* " in *" --show-toplevel "*) out=$("%s" "$@") || exit $?; printf "C:%%s\\n" "$out" ;; *) exec "%s" "$@" ;; esac\n' "$REAL_GIT" "$REAL_GIT" >"$WG/git"
+chmod +x "$WG/git"
+reset_tickets
+got="$(cd "$SH" && "${SENV[@]}" PATH="$WG:$PATH" bash -c "$(sub "$B7")" 2>&1)"
+[[ "$(PATH="$WG:$PATH" git -C "$SW" rev-parse --show-toplevel)" == C:* ]] && [[ "$got" == *"EXIT=0"* ]] && [ -z "$(git -C "$SW" status --porcelain)" ] \
+    && ok "Workflow folder block: a top level spelled C:/… (Git for Windows) still commits" || bad "Workflow folder with a C:/ top level: [$got] [$(git -C "$SW" status --porcelain)]"
+# A folder inside another repository is not a repository of its own.
+git -C "$T" init -q outer && mkdir -p "$T/outer/sub" && echo x >"$T/outer/sub/f"
+c="$(sub "$B7")"; c="${c//'W=$(F _resolved.workflow_folder)'/W=$T/outer/sub}"
+got="$(cd "$SH" && "${SENV[@]}" bash -c "$c" 2>&1)"
+[[ "$got" == *"not a git repository of its own"* ]] && [ -z "$(git -C "$T/outer" log --oneline 2>/dev/null)" ] \
+    && ok "Workflow folder block: a folder inside another repository -> nothing to commit" || bad "Workflow folder inside another repository: [$got]"
 mv "$SW/.git" "$SH/wf.git"
 got="$(cd "$SH" && "${SENV[@]}" bash -c "$(sub "$B7")" 2>&1)"
 [[ "$got" == *"not a git repository of its own"* ]] && ok "Workflow folder block: a folder without its own git -> nothing to commit" || bad "Workflow folder without git: [$got]"
@@ -187,7 +208,7 @@ cat >"$GHS/gh" <<'EOF'
 echo "$*" >>"$GH_LOG"
 if [ "$1 $2" = "pr checks" ]; then
   f=""; while [ $# -gt 0 ]; do [ "$1" = --jq ] && f=$2; shift; done
-  jq -r "$f" "$GH_CHECKS"; exit $?
+  set -o pipefail; jq -r "$f" "$GH_CHECKS" | tr -d '\r'; exit $?
 fi
 exit 0
 EOF
@@ -308,9 +329,9 @@ done
 # gh: `--jq <filter>` applies the filter (real jq) to $GH_JSON, `--body-file <f>` keeps a copy of <f> in $GH_BODY_OUT,
 # every call is logged. No token reaches it, and nothing reaches GitHub.
 CM="$T/cm"; CR="$CM/repo"; mkdir -p "$CM" "$SHH/projects/cm"
-git -C "$CM" init -q -b main repo
-printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"},{"key":"cm","match":"%s","profile":"cm"}]}\n' "$SR" "$CR" >"$SHH/gate/config.json"
-printf '%s\n' '{"schema":2,"name":"cm","mode":"full","tickets":{"branch":"<эпик>/<NN>"},"cross_machine_gate":{"label":"needs-mac-gate","role":"request","exempt":[".scratch/","docs/","HANDOFF.md"],"checks_section":"Mac checks"}}' >"$SHH/projects/cm/profile.json"
+git -C "$CM" init -q --bare -b main origin.git && git -C "$CM" clone -q origin.git repo 2>/dev/null
+printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"},{"key":"cm","match":"%s","profile":"cm"}]}\n' "$(native "$SR")" "$(native "$CR")" >"$SHH/gate/config.json"
+printf '%s\n' '{"schema":2,"name":"cm","mode":"full","tickets":{"branch":"<эпик>/<NN>"},"worktree":{"base":"origin/main"},"cross_machine_gate":{"label":"needs-mac-gate","role":"request","exempt":[".scratch/","docs/","HANDOFF.md"],"checks_section":"Mac checks"}}' >"$SHH/projects/cm/profile.json"
 GHX="$T/ghx"; mkdir -p "$GHX"
 cat >"$GHX/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -321,7 +342,9 @@ for a in "$@"; do
   [ "$prev" = --body-file ] && cp "$a" "$GH_BODY_OUT"
   prev=$a
 done
-if [ -n "$f" ]; then jq -r "$f" "$GH_JSON"; exit $?; fi
+[ -n "${GH_FAIL:-}" ] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
+[ -n "${GH_BODY_RAW:-}" ] && [[ " $* " == *" --json body "* ]] && { cat "$GH_BODY_RAW"; exit 0; }
+if [ -n "$f" ]; then set -o pipefail; jq -r "$f" "$GH_JSON" | tr -d '\r'; exit $?; fi
 exit 0
 EOF
 chmod +x "$GHX/gh"
@@ -357,6 +380,27 @@ label_case label "one file outside exempt" 'Old description.' docs/adr/0069-x.md
 label_case label "a folder entry covers only paths under it (docsx/)" 'Old description.' docsx/a.md
 label_case label "a file entry is the whole path (HANDOFF.md.bak)" 'Old description.' HANDOFF.md.bak
 label_case label "a description that already has the section gets no second one" $'Old description.\n\n## Mac checks\n\n- `pnpm icons` — exit 0' harness/x.sh
+label_error_case() { # label_error_case <name> <env assignment> <ERROR text> <file>...: gh fails or lists no files -> ERROR, never no-label
+    local name="$1" e="$2" msg="$3" sh got; shift 3
+    jq -n --arg body 'Old description.' '{body: $body, files: [$ARGS.positional[] | {path: .}]}' --args "$@" >"$T/ghx.json"
+    for sh in "${SHELLS[@]}"; do
+        : >"$T/ghx.log"; rm -f "$T/ghx-body.md"
+        got="$("${SENV[@]}" "${XENV[@]}" $e $sh -c "$BLB" 2>&1)"
+        grep -q "^ERROR: .*$msg" <<<"$got" && [[ "$got" != *no-label* ]] && ! grep -q '^pr edit' "$T/ghx.log" \
+            && ok "$sh: label block, $name -> ERROR, no label decision, gh pr edit not called" || bad "$sh: label block, $name: [$got] gh [$(cat "$T/ghx.log")]"
+    done
+}
+label_error_case "gh answers HTTP 502" GH_FAIL=1 'failed' harness/x.sh
+label_error_case "the PR lists no files yet" GH_FAIL= 'lists no files'
+# A description edited on the web comes with CRLF: its section is found, no second one is added.
+jq -n '{body: "Old description.", files: [{path: "harness/x.sh"}]}' >"$T/ghx.json"
+printf 'Old description.\r\n\r\n## Mac checks\r\n\r\n- `pnpm icons` — exit 0\r\n' >"$T/ghx-crlf-body.md"
+for sh in "${SHELLS[@]}"; do
+    : >"$T/ghx.log"; rm -f "$T/ghx-body.md"
+    got="$("${SENV[@]}" "${XENV[@]}" GH_BODY_RAW="$T/ghx-crlf-body.md" $sh -c "$BLB" 2>&1)"
+    [ "$got" = $'label\nEXIT=0' ] && [ "$(tr -d '\r' <"$T/ghx-body.md" | grep -c '^## Mac checks$')" = 1 ] \
+        && ok "$sh: label block, a CRLF description that has the section gets no second one" || bad "$sh: label block, CRLF description: [$got] body [$(cat "$T/ghx-body.md" 2>&1)]"
+done
 
 # The checks section block of skills/epic-wave, section 1: the section's lines up to the next heading.
 BCS="$(SKILL="$WAVE" blockf 'no-section')"
@@ -376,7 +420,35 @@ section_case "CRLF line ends" "$TWO" \
     $'Intro.\r\n\r\n## Mac checks\r\n\r\n- `pnpm icons` — exit 0\r\n- `git add --renormalize . && git status --porcelain` — empty output\r\n'
 section_case "none" none $'## Summary\n\nx\n\n## Mac checks\n\nnone\n'
 section_case "no section" no-section $'## Summary\n\nNo checks here.\n\n## Windows checks\n\n- `x` — exit 0'
-section_case "a heading of another level ends it too" '- `a` — exit 0' $'## Mac checks\n- `a` — exit 0\n### Notes\n- `b` — exit 0'
+section_case "a level-1 heading ends it too" '- `a` — exit 0' $'## Mac checks\n- `a` — exit 0\n# Notes\n- `b` — exit 0'
+section_case "a level-3 heading stays in the section" $'- `a` — exit 0\n### Notes\n- `b` — exit 0' $'## Mac checks\n- `a` — exit 0\n### Notes\n- `b` — exit 0\n## Next\n- `c`'
+section_case "a # comment inside a code block stays in the section" $'```bash\n# comment\npnpm icons\n```\n- `b` — exit 0' \
+    $'## Mac checks\n\n```bash\n# comment\npnpm icons\n```\n- `b` — exit 0\n\n## Next\n- `c`'
+section_case "an empty section" no-section $'## Mac checks\n\n## Windows checks\n\n- `x` — exit 0'
+
+# The serve rebase block and the request fresh-base block of skills/epic-wave section 1, with F worktree.base
+# origin/main as in the live profile: the PR branch is rebased onto origin/main and pushed; the detached worktree
+# of the base is created on origin/main and removed.
+G=(-c user.email=t@t -c user.name=t)
+git -C "$CR" "${G[@]}" commit -q --allow-empty -m base && git -C "$CR" push -q origin main 2>/dev/null
+git -C "$CR" checkout -q -b feature && echo f >"$CR/f.txt" && git -C "$CR" add f.txt && git -C "$CR" "${G[@]}" commit -q -m feature \
+    && git -C "$CR" push -q origin feature 2>/dev/null && git -C "$CR" checkout -q main
+git -C "$CM" clone -q origin.git other 2>/dev/null && git -C "$CM/other" "${G[@]}" commit -q --allow-empty -m moved && git -C "$CM/other" push -q origin main 2>/dev/null
+git -C "$CR" worktree add -q "$CM/prwt" feature 2>/dev/null && git -C "$CR" branch -q --set-upstream-to=origin/feature feature
+BSV="$(SKILL="$WAVE" blockf 'push --force-with-lease; echo')"
+[ -n "$BSV" ] || bad "serve rebase block not found in $WAVE"
+BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<PR worktree>/$CM/prwt}"
+got="$("${SENV[@]}" bash -c "$BSV" 2>&1)"
+tip="$(git -C "$CM/other" rev-parse HEAD)"
+[ "$(grep -c '^EXIT=0$' <<<"$got")" = 2 ] && [ "$(git -C "$CM/prwt" rev-parse HEAD~1)" = "$tip" ] \
+    && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$(git -C "$CM/prwt" rev-parse HEAD)" ] \
+    && ok "serve rebase block: base origin/main — rebased onto the moved origin/main and pushed" || bad "serve rebase block: [$got]"
+BRQ="$(SKILL="$WAVE" blockf 'base-gate "$B"')"
+[ -n "$BRQ" ] || bad "request fresh-base block not found in $WAVE"
+BRQ="$(sub "${BRQ//<repo>/$CR}")"; BRQ="${BRQ//<scratchpad>/$CM}"; BRQ="${BRQ//<F commands.prepare_tree>/git rev-parse HEAD}"
+got="$("${SENV[@]}" bash -c "$BRQ" 2>&1 | grep -E '^(EXIT=|[0-9a-f]{40}$)')"   # git's progress lines dropped
+[ "$got" = "EXIT=0"$'\n'"$tip"$'\n'"EXIT=0" ] && [ ! -e "$CM/base-gate" ] \
+    && ok "request fresh-base block: base origin/main — a detached worktree on origin/main, removed after" || bad "request fresh-base block: [$got] want [EXIT=0 $tip EXIT=0]"
 
 # The open PRs of other epics, skills/epic-wave section 1: every file of each open PR whose branch does not match
 # this epic's tickets.branch (<эпик>/<NN>, the epic is pay-flow here), filtered by gh's own --jq.
@@ -399,6 +471,30 @@ for sh in "${SHELLS[@]}"; do
         || bad "$sh: open PRs of other epics: got [$got] want [$want]"
 done
 echo "stub gh calls of the cross-machine and open-PR cases: $(wc -l <"$T/ghx-all.log" | tr -d ' ')"
+
+# --- jq for Windows writes CRLF: the blocks that read jq's output, run with a jq that turns LF into CRLF ----------
+CRJ="$T/crlfjq"; mkdir -p "$CRJ"; REAL_JQ="$(type -P jq)"   # type -P: the jq() function above would make command -v print "jq" and the wrapper call itself
+[[ "$REAL_JQ" == /* ]] || { echo "FAIL: no jq binary on PATH" >&2; exit 1; }
+printf '#!/usr/bin/env bash\nset -o pipefail\n"%s" "$@" | perl -pe '"'"'s/\\n/\\r\\n/'"'"'\n' "$REAL_JQ" >"$CRJ/jq"
+chmod +x "$CRJ/jq"
+[ "$(printf '[1]' | "$CRJ/jq" -c . | od -An -c | tr -d ' \n')" = '[1]\r\n' ] && ok "the CRLF jq writes CRLF" || bad "the CRLF jq: $(printf '[1]' | "$CRJ/jq" -c . | od -c | head -n 1)"
+got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "${STUB//'modules) echo "{}"'/modules) echo '{\"skip\":[\"lots\"]}'}"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
+want="$(printf '%s\n' apps/api/src/auctions apps/web/src/catalog)"
+[ "$got" = "$want" ] && ok "CRLF jq: module-choice block with modules.skip (overnight-fix-loop)" || bad "CRLF jq: module-choice block: [$got]"
+got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
+[ "$got" = "$(printf '%s\n' src/z.spec.ts test/auctions.test.ts)" ] && ok "CRLF jq: test-list block (overnight-fix-loop)" || bad "CRLF jq: test-list block: [$got]"
+got="$(HOME="$H" HARNESS_HOME= PATH="$CRJ:$PATH" bash -c "$B3" 2>&1)"
+want="$(printf 'p3: p3-docs, p3-tickets, p3-memory — p3\np1: c1, c2 — docs of p1\np2:  — no qmd field\nc1\t/x/one\nc2\t/x/two\np3-docs\t"/x/three"')"
+[ "$got" = "$want" ] && ok "CRLF jq: qmd collections block" || bad "CRLF jq: qmd block: [$got]"
+rm -f "$AU/tmp/live-tickets.jsonl"
+(cd "$AU/repo" && CLAUDE_PLUGIN_ROOT="$AU/plugin" TMPDIR="$AU/tmp" PATH="$CRJ:$PATH" bash -c "$BA" >/dev/null 2>&1)
+[ "$(cat "$AU/tmp/live-tickets.jsonl" 2>&1)" = '["origin/new","e","01","s","t"]' ] && ok "CRLF jq: branches-of-14-days block writes no CR" || bad "CRLF jq: branches-of-14-days: [$(od -c "$AU/tmp/live-tickets.jsonl" | head -n 3)]"
+last="${SHELLS[${#SHELLS[@]}-1]}"
+reset_tickets; git -C "$SW" -c user.email=t@t -c user.name=t add -A >/dev/null 2>&1
+want="$(printf '1\twork\tfix/pay-button-%s\tlocal branch\n2\twork\tfix/local-only\tlocal branch\n3\twork\tfix/pushed\ton origin only\n4\twork\t-\tno Branch: line\n5\twork\tfix/gone\tno such branch' "$last")"
+tk 01 claimed "Branch: fix/pay-button-$last\n"
+got="$(cd "$SH" && "${SENV[@]}" PATH="$CRJ:$PATH" bash -c "$(sub "$B6")" 2>&1)"
+[ "$got" = "$want" ] && ok "CRLF jq: the Silent resume block (epic-wave)" || bad "CRLF jq: resume block: got [$(printf '%s' "$got" | od -c | head -n 4)]"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"
