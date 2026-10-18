@@ -55,11 +55,14 @@ machine fixes and pushes, and another gate full here would change nothing. Its l
 pass does not touch it. A green report ends no wait: the same pass merges a green PR, so a PR still
 open after one is a PR whose merge failed (a conflict with the main branch, the network, the head
 moved, the lock) — nothing for the other machine to fix, and the next pass takes it from the start.
-Once, not without end: a PR with two green reports newer than its last commit had its merge fail
-twice on one head (a rebase onto a main branch that has not moved keeps the head and its commit
-date), and a third gate full would change nothing. Its line is `<N> needs owner: …`; the pass does
+Once, not without end: a PR with two green reports on its current head had its merge fail twice on
+that head (a rebase onto a main branch that has not moved keeps the head), and a third gate full
+would change nothing. A report names its head on the second line, `head: <SHA>` (step 5), and the
+count matches it against `headRefOid`, not against dates: a rebase may keep an older commit date,
+and then the reports of the old head would still count. A report without a head line counts for no
+head. Its line is `<N> needs owner: …`; the pass does
 not touch it, and its row in the table says `needs owner` with the reason, for the owner to look at
-the failed merge. A new commit — a rebase onto a moved main branch or a push — makes it wait again.
+the failed merge. A new head — a rebase onto a moved main branch or a push — makes it wait again.
 
 A PR from a fork is not checked out and the commands of its section are not run — anyone with a fork
 writes that description, and this machine would run it as shell. The block prints such a PR as
@@ -74,10 +77,10 @@ GQ_SECTION=$(F cross_machine_gate.checks_section) GQ_ACCOUNT=$(F github.account)
   gh pr list --state open --label "$(F cross_machine_gate.label)" --limit 100 \
   --json number,headRefName,headRefOid,isCrossRepository,createdAt,commits,comments --jq '
   ($ENV.GQ_ACCOUNT | rtrimstr("\r")) as $account | ($ENV.GQ_SECTION | rtrimstr("\r")) as $section
-  | [.[] | (.commits[-1].committedDate // .createdAt) as $pushed
+  | [.[] | (.commits[-1].committedDate // .createdAt) as $pushed | .headRefOid as $head
    | [.comments[] | select(.author.login == $account)] as $own
    | ([$own[] | select(.body | startswith($section + " report: red")) | .createdAt] | max) as $red
-   | ([$own[] | select((.body | startswith($section + " report: green")) and .createdAt > $pushed)] | length) as $green
+   | ([$own[] | select((.body | startswith($section + " report: green")) and (.body | contains("\nhead: " + $head)))] | length) as $green
    | . + {since: ([.createdAt, $pushed] | max), waits: ($red == null or $red <= $pushed), stuck: ($green >= 2)}]
   | sort_by(.since) | .[]
   | if .isCrossRepository then "\(.number) fork: skipped"
@@ -158,7 +161,8 @@ gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.chec
 
 4. CI on the new head — the CI wait block of skill `/worfy:epic-wave`, section 4 (with `F workflow.ci` `batch`: `mergeable`).
 5. The report, before any merge, in `<scratchpad>/pr-<N>-report.md`. Its first line is
-   `<checks_section> report: green` or `<checks_section> report: red`; then the verdict line of
+   `<checks_section> report: green` or `<checks_section> report: red`; its second line is
+   `head: <new head>` (the last line of step 1), the head the checks ran on; then the verdict line of
    `check` and its exit code, each command of the section with its exit code and the tail of its
    output, and with red the reason. Green — `check`, every command of the section and CI are green.
    **No merge without the report.** The first block posts it, once:

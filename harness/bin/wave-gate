@@ -31,7 +31,8 @@
 //   e2e_lock   path of the e2e lock directory (profile workflow.e2e_lock), or null — no lock
 //   prepare    shell command that readies a fresh tree (profile commands.prepare_tree), or null
 //   cross_machine_label  the label of a PR that waits for the gate of the other machine (profile
-//              cross_machine_gate.label), or null — the project has no such label
+//              cross_machine_gate.label), or null — the project has no such label; missing (a state file
+//              written before the field) — needs-mac-gate
 //   main_lock  optional path of the main-branch lock; <git common dir>/main.lock by default
 // `check` adds: base (SHA of <remote>/<branch>), excluded [{number, reason}], set (numbers), prefixes
 // [{number, head, commit, tree}] — the tree after each PR of the set, runs [{role, size, tree, outcome, …}],
@@ -150,6 +151,9 @@ function load(file) {
     if (typeof st.repo !== "string" || !path.isAbsolute(st.repo) || !fs.existsSync(st.repo)) fail(`${file}: "repo" must be the absolute path of a checkout`)
     if (typeof st.branch !== "string" || !st.branch) fail(`${file}: "branch" must name the main branch`)
     if (st.remote !== undefined && (typeof st.remote !== "string" || !st.remote)) fail(`${file}: "remote" must be a remote name`)
+    // A state file written before cross_machine_label existed has none: such a file meant the label wave-gate
+    // used then, needs-mac-gate. null still means the project has no such label.
+    if (!("cross_machine_label" in st)) st.cross_machine_label = "needs-mac-gate"
     for (const key of ["e2e_lock", "prepare", "cross_machine_label"])
         if (!(key in st) || (st[key] !== null && (typeof st[key] !== "string" || !st[key])))
             fail(`${file}: "${key}" must be present: a string or null (a missing one would silently run without it)`)

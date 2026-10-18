@@ -151,21 +151,24 @@ EXIT=0" \
     "$(pr 32 2026-10-18T06:00:00Z 2026-10-18T06:30:00Z "$(comment mac-bot 2026-10-18T07:00:00Z $'See the Mac checks report: red above')")" \
     "$(pr 33 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z $'Mac checks report: green\nall fine')")" \
     "$(pr 34 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z | jq -c '.isCrossRepository = true')"
-# Two green reports newer than the last commit (worfy-windows ticket 59): the merge failed twice on one head — a rebase
-# onto an unchanged main branch keeps the head and its commit date — so a third gate full would change nothing. The PR
-# needs the owner and is not waiting; one green report on that head still waits, and so does a PR whose second green
-# report is older than its last commit (a new head after the rebase). Reports by another account do not count.
-GREEN=$'Mac checks report: green\nall fine'
-list_case "two green reports on one head -> needs owner; one, or one before the last commit -> still waits" \
+# Two green reports on the PR's current head (worfy-windows ticket 59): the merge failed twice on one head, so a third
+# gate full would change nothing. The report names its head on the second line (`head: <SHA>`), and the count matches
+# it against headRefOid, not dates: a rebase may keep an older commit date, and then reports of the old head would
+# count. One green report on the head still waits; so does a PR whose reports name another head (66: its commit date
+# is older than both reports), a report without a head line, and a report by another account.
+green() { printf 'Mac checks report: green\nhead: %s\nall fine' "$1"; }
+list_case "two green reports on the current head -> needs owner; one, or reports of another head -> still waits" \
     "62 feature-62 oid62 since 2026-10-18T07:00:00Z
 63 feature-63 oid63 since 2026-10-18T08:00:00Z
+66 feature-66 oid66 since 2026-10-18T08:15:00Z
 64 feature-64 oid64 since 2026-10-18T08:30:00Z
 61 needs owner: the merge failed after two green reports on head oid61, the gate is not run again
 EXIT=0" \
-    "$(pr 61 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T10:30:00Z "$GREEN")")" \
-    "$(pr 62 2026-10-18T06:00:00Z 2026-10-18T07:00:00Z "$(comment mac-bot 2026-10-18T07:30:00Z "$GREEN")")" \
-    "$(pr 63 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z "$(comment mac-bot 2026-10-18T07:30:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T08:30:00Z "$GREEN")")" \
-    "$(pr 64 2026-10-18T06:00:00Z 2026-10-18T08:30:00Z "$(comment mallory 2026-10-18T09:00:00Z "$GREEN")" "$(comment mac-bot 2026-10-18T09:30:00Z "$GREEN")")"
+    "$(pr 61 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z "$(green oid61)")" "$(comment mac-bot 2026-10-18T10:30:00Z "$(green oid61)")")" \
+    "$(pr 62 2026-10-18T06:00:00Z 2026-10-18T07:00:00Z "$(comment mac-bot 2026-10-18T07:30:00Z "$(green oid62)")")" \
+    "$(pr 63 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z "$(comment mac-bot 2026-10-18T08:30:00Z "$(green oid63)")" "$(comment mac-bot 2026-10-18T09:30:00Z $'Mac checks report: green\nall fine')")" \
+    "$(pr 64 2026-10-18T06:00:00Z 2026-10-18T08:30:00Z "$(comment mallory 2026-10-18T09:00:00Z "$(green oid64)")" "$(comment mac-bot 2026-10-18T09:30:00Z "$(green oid64)")")" \
+    "$(pr 66 2026-10-18T06:00:00Z 2026-10-18T08:15:00Z "$(comment mac-bot 2026-10-18T09:30:00Z "$(green oid-old)")" "$(comment mac-bot 2026-10-18T10:30:00Z "$(green oid-old)")")"
 # A red report at the same second as the last commit is not newer than it: the PR waits (the same rule as worfy's reader).
 list_case "a red report at the same second as the last commit -> still waits" \
     "35 feature-35 oid35 since 2026-10-18T09:00:00Z

@@ -269,6 +269,18 @@ S="$W/state.json"; XLABEL=null state "$S" null 1 2,label=needs-mac-gate
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" 's.set')" = "[1,2]" ] && [ "$(q "$S" 's.excluded.length')" = 0 ] \
     && ok "label: null (no cross-machine gate in the profile) takes no PR out by a label" || bad "label null: exit $rc set $(q "$S" s.set 2>&1)"
+# A state file written before the field existed has no cross_machine_label: the label is then needs-mac-gate, the one
+# wave-gate used before it took the label from the profile — for check and for merge.
+new_world xlabel-old 1:a.txt 2:b.txt 3:c.txt
+S="$W/state.json"; state "$S" null 1 2,label=needs-mac-gate 3
+node -e 'const fs=require("fs"),f=process.argv[1],s=JSON.parse(fs.readFileSync(f,"utf8"));delete s.cross_machine_label;fs.writeFileSync(f,JSON.stringify(s))' "$S"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.set')" = "[1,3]" ] && [ "$(q "$S" 's.excluded.map(e=>e.number+":"+e.reason).join(" ")')" = "2:needs-mac-gate" ] \
+    && ok "label: an old state file without cross_machine_label — check takes the needs-mac-gate PR out" || bad "label old: exit $rc set $(q "$S" s.set 2>&1) $(cat "$W/out")"
+node -e 'const fs=require("fs"),f=process.argv[1],s=JSON.parse(fs.readFileSync(f,"utf8"));delete s.cross_machine_label;fs.writeFileSync(f,JSON.stringify(s))' "$S"
+"$WG" merge "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 3 " ] \
+    && ok "label: an old state file without cross_machine_label — merge merges 1 and 3, not the needs-mac-gate PR" || bad "label old merge: exit $rc merged [$(cat "$GH_LOG")] $(cat "$W/out")"
 
 # --- red, then green on the repeat: flaky ----------------------------------------------
 new_world flaky 1:a.txt 2:b.txt
@@ -750,9 +762,9 @@ new_world input 1:a.txt
 S="$W/state.json"; printf '{"repo":"%s","branch":"main","prs":[]}\n' "$(tn "$W/repo")" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "e2e_lock" "$W/out" && ok "input: e2e_lock missing -> exit 1 naming it" || bad "input: exit $rc $(cat "$W/out")"
-printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"prs":[]}\n' "$(tn "$W/repo")" >"$S"
+printf '{"repo":"%s","branch":"main","e2e_lock":null,"prepare":null,"cross_machine_label":5,"prs":[]}\n' "$(tn "$W/repo")" >"$S"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" -eq 1 ] && grep -q "cross_machine_label" "$W/out" && ok "input: cross_machine_label missing -> exit 1 naming it" || bad "input: cross_machine_label missing: exit $rc $(cat "$W/out")"
+[ "$rc" -eq 1 ] && grep -q "cross_machine_label" "$W/out" && ok "input: cross_machine_label not a string -> exit 1 naming it" || bad "input: cross_machine_label 5: exit $rc $(cat "$W/out")"
 "$WG" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 1 ] && ok "input: no command -> exit 1" || bad "input: no command exit $rc"
 
