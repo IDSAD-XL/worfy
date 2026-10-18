@@ -14,7 +14,7 @@
 // load in the window's session storage (carryNote).
 import { z } from 'zod'
 import { create } from 'zustand'
-import { notifyOpenSchema, type NotifyOpen } from '../../shared/ipc/notify'
+import { notifyOpenSchema, type NotifyOpen, type SessionOpen } from '../../shared/ipc/notify'
 import { sameProjectRoot } from '../../shared/paths'
 import { invokeOn } from '../ipc'
 import { orchestratorViewOf } from '../canvas/nodes/orchestrator-view'
@@ -25,8 +25,8 @@ import { sessionNodeViewOf } from './node-sessions'
 /** How long a note waits for its Session to become known in this window. */
 export const NOTE_WAIT_MS = 10_000
 
-/** The Machine of a note's Session: null — this Machine. */
-export const noteMachine = (note: NotifyOpen): string | null => note.machineId ?? null
+/** The Machine of a note's Session: null — this Machine, as for a Ticket's note (worfy-pipeline ticket 06). */
+export const noteMachine = (note: NotifyOpen): string | null => ('machineId' in note ? (note.machineId ?? null) : null)
 
 /**
  * The Session view to open for a notification, or null when this window knows no Node for it.
@@ -34,7 +34,7 @@ export const noteMachine = (note: NotifyOpen): string | null => note.machineId ?
  * here, though a Session of the same id may run on this one. `project` is the Project a Session from
  * the registry is looked for in.
  */
-export function notificationTarget(note: NotifyOpen, project: { id: string; path: string } | undefined, machine: string | null = null): OpenedSession | null {
+export function notificationTarget(note: SessionOpen, project: { id: string; path: string } | undefined, machine: string | null = null): OpenedSession | null {
   if (noteMachine(note) !== machine) return null
   const node = sessionNodeViewOf(note.sessionId)
   if (node !== undefined) return { nodeId: node.nodeId, projectId: node.projectId }
@@ -70,7 +70,7 @@ export function dropNote(pending: PendingNote): void {
  * (an Orchestrator, a Session closed meanwhile) the Machine's active Project, where the window
  * keeps looking; null when the Machine does not answer or has no Project.
  */
-export async function projectOfNote(note: NotifyOpen, machine: string): Promise<string | null> {
+export async function projectOfNote(note: SessionOpen, machine: string): Promise<string | null> {
   const list = await invokeOn(machine, 'projects.list')
   if (!list.ok) {
     console.error(`a notification of Machine ${machine}: projects.list failed:`, list.error)

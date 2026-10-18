@@ -34,6 +34,10 @@
 // names no Session: a click raises worfy's window and opens nothing (WindowNote). The focus rule is
 // the same: while a worfy window has focus the note waits for the next read of the queue.
 //
+// A Ticket that comes to wait for the owner (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts)
+// gets one note of no Session, a TicketNote: shown here by NoteDisplay's rules, counted by Project
+// and Ticket, and not sent to the Linked machines. A click opens the Pipeline board of its Project.
+//
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
 // a notification from the bundle of the process, so a Notification sets no icon of its own: `icon`
@@ -51,6 +55,7 @@ import { emit } from './ipc/index'
 import { pendingOpens, type PendingOpens } from './notify-pending'
 import { quietWindows, type QuietWindows } from './quiet-windows'
 import { createMainWindow } from './window'
+import { installWaitsNotifications, type WaitsHub } from './workflow/waits-notify'
 
 export const NOTIFY_INTERVAL_MS = 10_000
 
@@ -70,6 +75,22 @@ export interface Note extends SharedNote {
   /** The Linked machine whose Session this is (worfy-link ticket 13); absent for a Session of this Machine. */
   machineId?: string
 }
+
+/**
+ * A notification of no Session, of a Ticket of this Machine that came to wait for the owner
+ * (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts): a click opens the Pipeline board
+ * of its Project. Shown by the rules of a Session's note, counted by Project and Ticket.
+ */
+export interface TicketNote {
+  title: string
+  body: string
+  sessionId: null
+  projectRoot: string
+  ticket: { epic: string; num: number }
+}
+
+/** What NoteDisplay shows: a Session's note, or a Ticket's. */
+export type DisplayNote = Note | TicketNote
 
 /** A notification of no Session (the gate queue): a click raises worfy's window and opens nothing. */
 export interface WindowNote {
@@ -94,14 +115,14 @@ export interface NoteLink {
   receive(handler: (machineId: string, note: SharedNote) => void): () => void
 }
 
-/** The Electron parts of notifications; tests pass their own. */
-export interface NotifyDeps {
+/** The Electron parts of notifications, for notes of kind `N`; tests pass their own. */
+export interface NotifyDeps<N extends DisplayNote = Note> {
   /** Whether a worfy window has focus now. */
   focused(): boolean
   /** Shows a system notification; `onClick` runs when the user clicks it. */
-  show(note: Note, onClick: () => void): void
-  /** Raises the window and opens the Session of the note. */
-  open(note: Note): void
+  show(note: N, onClick: () => void): void
+  /** Raises the window and opens the Session of the note, or the Pipeline board of a Ticket's. */
+  open(note: N): void
   now(): number
 }
 
@@ -122,21 +143,26 @@ function inputLine(toolName: string, input: unknown): string {
 /** The key of a Session in NoteDisplay: its Machine (empty for this one) and its id. */
 const keyOf = (machineId: string | undefined, sessionId: string): string => `${machineId ?? ''}\0${sessionId}`
 
+/** The key of a note in NoteDisplay: its Session's, or for a Ticket's note one no Session id can take. */
+const noteKey = (note: DisplayNote): string =>
+  note.sessionId === null ? `\0ticket\0${note.projectRoot}\0${note.ticket.epic}\0${note.ticket.num}` : keyOf(note.machineId, note.sessionId)
+
 /**
  * This Machine's rules for showing a note, whichever Machine decided on it: nothing while a worfy
  * window of this Machine has focus, and at most one notification per Session in
- * NOTIFY_INTERVAL_MS, counted by Machine and Session. A note held back by focus is not counted.
+ * NOTIFY_INTERVAL_MS, counted by Machine and Session (a Ticket's note by Project and Ticket). A
+ * note held back by focus is not counted.
  */
-export class NoteDisplay {
+export class NoteDisplay<N extends DisplayNote = Note> {
   /** When each Session last showed a notification here, by keyOf. */
   private readonly last = new Map<string, number>()
 
-  constructor(private readonly deps: NotifyDeps) {}
+  constructor(private readonly deps: NotifyDeps<N>) {}
 
-  show(note: Note): void {
+  show(note: N): void {
     if (this.deps.focused()) return
     const now = this.deps.now()
-    const key = keyOf(note.machineId, note.sessionId)
+    const key = noteKey(note)
     const last = this.last.get(key)
     if (last !== undefined && now - last < NOTIFY_INTERVAL_MS) return
     this.last.set(key, now)
@@ -334,10 +360,15 @@ const shown = new Set<Notification>()
 const watched = new Set<number>()
 
 /** Keeps the note for a window whose renderer is not there yet; forgotten with the window. */
-function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void {
+function holdFor(window: BrowserWindow, note: DisplayNote, pending: PendingOpens): void {
   const contents = window.webContents
   const id = contents.id
-  pending.hold(id, { sessionId: note.sessionId, projectRoot: note.projectRoot, ...(note.machineId === undefined ? {} : { machineId: note.machineId }) })
+  pending.hold(
+    id,
+    note.sessionId === null
+      ? { view: 'pipeline', projectRoot: note.projectRoot, epic: note.ticket.epic, num: note.ticket.num }
+      : { sessionId: note.sessionId, projectRoot: note.projectRoot, ...(note.machineId === undefined ? {} : { machineId: note.machineId }) },
+  )
   if (watched.has(id)) return
   watched.add(id)
   contents.once('destroyed', () => {
@@ -349,11 +380,12 @@ function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void
 /**
  * Raises worfy and opens the Session of a clicked notification: in the open window, or in a new
  * one when none is open (macOS keeps the app running without windows). A note of a Linked
- * machine's Session keeps its Machine: the window's renderer opens it on that Machine. A
- * WindowNote only raises (or opens) the window.
+ * machine's Session keeps its Machine: the window's renderer opens it on that Machine. A Ticket's
+ * note opens the Pipeline board of its Project the same way. A WindowNote only raises (or opens)
+ * the window.
  */
 export function openNote(
-  note: Note | WindowNote,
+  note: DisplayNote | WindowNote,
   pending: PendingOpens = pendingOpens,
   createWindow: () => BrowserWindow = createMainWindow,
   quiet: QuietWindows = quietWindows(),
@@ -376,7 +408,7 @@ export function openNote(
   // it now. An overlay that is not mounted yet (a page still loading, or loaded but before the
   // Canvas) misses the signal and takes the note when it mounts. So the outcome does not depend on
   // webContents.isLoading(), which is also true while a Card iframe loads.
-  if (note.sessionId === null) return
+  if (note.sessionId === null && !('ticket' in note)) return
   holdFor(window, note, pending)
   if (existing !== undefined) emit(window.webContents, notifyOpen, {})
 }
@@ -398,7 +430,7 @@ function showSystem(note: { title: string; body: string }, onClick: () => void):
 }
 
 /** Electron's notifications and windows. */
-export const electronNotifyDeps: NotifyDeps = {
+export const electronNotifyDeps: NotifyDeps<DisplayNote> = {
   focused: () => BrowserWindow.getFocusedWindow() !== null,
   show: showSystem,
   open: (note) => openNote(note),
@@ -414,15 +446,19 @@ export const electronWindowNoteDeps: WindowNoteDeps = {
 
 /**
  * Starts notifications for the app: every Session of `registry`, and the registry watchers the
- * windows run; with `link`, the notes go to the Linked machines too and theirs are shown here.
- * Answers the function that stops them.
+ * windows run; with `link`, the notes go to the Linked machines too and theirs are shown here;
+ * with `waits`, the Tickets of the listed Projects that come to wait for the owner
+ * (src/main/workflow/waits-notify.ts). Answers the function that stops them.
  */
 export function installNotifications(
   registry: Pick<SessionRegistry, 'observe'>,
   liveSessions: Set<(projectRoot: string, live: readonly LiveSession[]) => void>,
   deps: NotifyDeps = electronNotifyDeps,
   link?: NoteLink,
+  /** The Stage hub and the Project list; `deps` shows and opens the Tickets' notes, Electron's by default. */
+  waits?: { hub: WaitsHub; projects: () => readonly { readonly path: string }[]; deps?: NotifyDeps<TicketNote> },
 ): () => void {
+  const stopWaits = waits === undefined ? undefined : installWaitsNotifications(waits.hub, waits.projects, new NoteDisplay<TicketNote>(waits.deps ?? electronNotifyDeps))
   const notifier = new Notifier(deps, link)
   const stop = registry.observe((sessionId, event) => notifier.sessionEvent(sessionId, event))
   const onLive = (projectRoot: string, live: readonly LiveSession[]) => notifier.externalSessions(projectRoot, live)
@@ -432,5 +468,6 @@ export function installNotifications(
     stop()
     liveSessions.delete(onLive)
     stopReceiving?.()
+    stopWaits?.()
   }
 }
