@@ -39,25 +39,31 @@ export interface PipelineHandlersOptions {
   projects?: () => readonly { readonly path: string }[]
 }
 
-/** The handlers over a hub; a Linked machine reaches only the Projects of the list (src/main/link/caller.ts). */
+/**
+ * The handlers over a hub; a Linked machine reaches only the Projects of the list (src/main/link/caller.ts).
+ * The hub computes a Project under its resolved root, and its snapshots carry that root; each client
+ * gets them with the root as it sent it, since the window looks the root up by its own string. On
+ * Windows the window keeps git's `C:/…` while path.resolve gives `C:\…` (worfy-windows ticket 63).
+ */
 export function pipelineHandlers(options: PipelineHandlersOptions): HandlerModule {
   const projects = options.projects ?? (() => projectStore().list())
   /** The client holding each id leaves every Project when it is destroyed or another client takes its id. */
   const holders = new ClientHolders((id) => void options.hub.drop(id))
-  const subscriberOf = (client: Client | undefined): StageSubscriber => {
+  /** The client that called, as a subscriber of the root it spelled `asSent`. */
+  const subscriberOf = (client: Client | undefined, asSent: string): StageSubscriber => {
     if (client === undefined) throw new Error('pipeline.get: the call came from no client')
     if (!holders.hold(client)) throw new Error('pipeline.get: the client is gone')
     return {
       id: client.id,
       send: (snapshot) => {
-        if (!client.isDestroyed()) emit(client, pipelineChanged, snapshot)
+        if (!client.isDestroyed()) emit(client, pipelineChanged, { ...snapshot, root: asSent })
       },
     }
   }
   return [
-    defineHandler(pipelineGet, ({ root }, { event }) => {
+    defineHandler(pipelineGet, async ({ root }, { event }) => {
       const checked = resolve(insideProjects(event, resolve(root), projects, 'the Project root'))
-      return options.hub.open(checked, subscriberOf(clientOf(event)))
+      return { ...(await options.hub.open(checked, subscriberOf(clientOf(event), root))), root }
     }),
     defineHandler(pipelineClose, async ({ root }, { event }) => {
       const client = clientOf(event)
