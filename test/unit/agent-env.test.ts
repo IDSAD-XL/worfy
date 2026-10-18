@@ -31,6 +31,7 @@ import {
   REGISTRY_SCRIPT,
   REGISTRY_SUBKEY_VAR,
   registryVars,
+  runFile,
   stderrLine,
   shellBaseEnv,
   SYSTEM_PATH,
@@ -545,9 +546,10 @@ describe('findOnPath and the registry reader', () => {
     expect(parseRegistryValues(`#< CLIXML\r\nDWord ${b64('Flag')} ${b64('1')}\r\nwarning: something\r\n`)).toEqual([])
   })
 
-  // worfy-windows ticket 21: one text for every key. From Electron a script that decodes base64 —
-  // its own text with -EncodedCommand, or a string with FromBase64String — costs about a second
-  // more the first time a process runs it; this one is handed over as text and only encodes.
+  // worfy-windows ticket 21: one text for every key. On the owner's PC, from Electron, a script that
+  // decodes base64 — its own text with -EncodedCommand, or a string with FromBase64String — cost
+  // about a second more the first time a process ran it; this one is handed over as text and only
+  // encodes.
   it('the registry script is one text: it opens the key the environment names through the .NET API, reads values unexpanded, and prints only String and ExpandString, in base64', () => {
     expect(REGISTRY_SCRIPT).toBe(
       [
@@ -578,7 +580,8 @@ describe('findOnPath and the registry reader', () => {
   })
 
   it('the key goes into two variables as it is written, whatever is in its name; a key of another hive is refused', () => {
-    const subkey = 'Software\\it’s ‘quoted’ "and" $(more); Ключ'
+    // A / is part of the name of a key, not a separator (worfy-windows ticket 29).
+    const subkey = 'Software\\it’s ‘quoted’ "and" $(more); Ключ a/b'
     expect(registryVars(`HKCU\\${subkey}`)).toEqual({ WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: subkey })
     expect(registryVars(PERSISTENT_ENV_KEYS[0])).toEqual({ WORFY_REGISTRY_HIVE: 'CurrentUser', WORFY_REGISTRY_SUBKEY: 'Environment' })
     expect(registryVars(PERSISTENT_ENV_KEYS[1])).toEqual({ WORFY_REGISTRY_HIVE: 'LocalMachine', WORFY_REGISTRY_SUBKEY: 'SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment' })
@@ -632,16 +635,52 @@ describe('findOnPath and the registry reader', () => {
     ])
   })
 
-  it("the reader's error says the timeout, the script's own message, or the last line of stderr", async () => {
+  it("the reader's error says the timeout, the script's own message, or the first line of stderr", async () => {
     const read = (answer: Parameters<typeof runner>[0]) => powershellRegRead('C:\\Windows', runner(answer).run)(PERSISTENT_ENV_KEYS[0])
     await expect(read({ error: { killed: true, code: null } })).rejects.toThrow(/could not read HKCU\\Environment: timed out after 10 s$/)
     await expect(read({ error: { code: 1 }, stdout: `Error ${b64('no such key: Ключ')}\r\n` })).rejects.toThrow(/: no such key: Ключ$/)
-    await expect(read({ error: { code: 1 }, stderr: 'first\r\nAccess is denied.\r\n\r\n' })).rejects.toThrow(/: exit 1: Access is denied\.$/)
+    await expect(read({ error: { code: 1 }, stderr: '\r\nAccess is denied.\r\nsecond\r\n\r\n' })).rejects.toThrow(/: exit 1: Access is denied\.$/)
     // powershell.exe writes a redirected error stream as CLIXML: its first Error string is the message.
     const clixml = '#< CLIXML\r\n<Objs Version="1.1.0.1"><Obj S="progress" RefId="0"></Obj><S S="Error">Get-Item : Cannot find path &apos;x&apos;._x000D__x000A_</S><S S="Error">At line:2 char:1_x000D__x000A_</S></Objs>'
     await expect(read({ error: { code: 1 }, stderr: clixml })).rejects.toThrow(/: exit 1: Get-Item : Cannot find path 'x'\.$/)
     expect(stderrLine('#< CLIXML\r\n<Objs Version="1.1.0.1"></Objs>')).toBeNull()
+    expect(stderrLine(' \r\n\r\n')).toBeNull()
     await expect(read({ error: { code: 'ENOENT' } })).rejects.toThrow(/: exit ENOENT$/)
+  })
+
+  // worfy-windows ticket 29: the stderr of `throw 'boom'` from powershell.exe, measured on the
+  // owner's PC (Windows 11, Russian locale) from Node 24.21.0 with the output redirected. With
+  // -Command it is plain text, 176 characters, the message on its first line and the line of the
+  // script on the second, in the OEM code page, so not UTF-8 (U+FFFD here); with -EncodedCommand it
+  // is CLIXML, 477 characters, the same lines as Error strings.
+  const OEM_POSITION = '\uFFFD\uFFFD\u0BAA\uFFFD:1 \uFFFD\uFFFD\uFFFD\uFFFD:1'
+  const BOOM_TEXT = `boom\r\n${OEM_POSITION}\r\n+ throw 'boom'\r\n+ ~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (boom:String) [], RuntimeException\r\n    + FullyQualifiedErrorId : boom\r\n \r\n`
+  const BOOM_CLIXML =
+    '#< CLIXML\r\n<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">' +
+    [`boom`, OEM_POSITION, "+ throw 'boom'", '+ ~~~~~~~~~~~~', '    + CategoryInfo          : OperationStopped: (boom:String) [], RuntimeException', '    + FullyQualifiedErrorId : boom', ' ']
+      .map((line) => `<S S="Error">${line}_x000D__x000A_</S>`)
+      .join('') +
+    '</Objs>'
+
+  it('takes the message of a failure from the first line of stderr, plain text (-Command) or CLIXML (-EncodedCommand)', async () => {
+    expect([BOOM_TEXT.length, BOOM_CLIXML.length]).toEqual([176, 477])
+    expect(stderrLine(BOOM_TEXT)).toBe('boom')
+    expect(stderrLine(BOOM_CLIXML)).toBe('boom')
+    await expect(powershellRegRead('C:\\Windows', runner({ error: { code: 1 }, stderr: BOOM_TEXT }).run)(PERSISTENT_ENV_KEYS[0])).rejects.toThrow(/: exit 1: boom$/)
+  })
+
+  // worfy-windows ticket 29: the scripts get their data only through the environment runFile hands
+  // on; were it lost, the script of the live Session check would read no pids at all.
+  it('runFile starts the program with the environment it is given', async () => {
+    // Under `pnpm test` process.execPath is Electron, a Node only with ELECTRON_RUN_AS_NODE: checked
+    // first, so that even a runFile that dropped `env` starts no Electron window.
+    expect(process.versions.electron === undefined || process.env.ELECTRON_RUN_AS_NODE === '1').toBe(true)
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', WORFY_RUN_FILE_TEST: 'given Ключ' }
+    const script = 'process.stdout.write(String(process.env.WORFY_RUN_FILE_TEST))'
+    const answer = await new Promise<{ error: unknown; stdout: string }>((resolve) =>
+      runFile(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 10_000, windowsHide: true, env }, (error, stdout) => resolve({ error, stdout })),
+    )
+    expect(answer).toEqual({ error: null, stdout: 'given Ключ' })
   })
 })
 
