@@ -10,18 +10,19 @@
 //   the way Claude Code does; on Windows the same rule: `C:\a\b` → `C--a-b`, evidence of
 //   worfy-windows ticket 01, section 12). A list reads only the head and the tail of each file.
 // - one rule for both: a Session belongs to the Project when its cwd is the root, a worktree, or
-//   a folder inside either. Folder names lose the difference between `/` and `-`, so a transcript
-//   in a folder named like the root, a worktree or a subfolder of the Project is kept only when
-//   the cwd its first records name lies inside the Project (the worktree `/p/A/evil` shares its
-//   folder with `/p/A-evil`, worfy-link ticket 32). Only the folders of worktrees under
-//   <root>/.claude/worktrees/ are taken by their name alone.
+//   a folder inside either. Folder names lose the difference between `/`, `-` and any character
+//   outside [A-Za-z0-9], so no folder is the Project's by its name alone: a transcript in a folder
+//   named like the root, a worktree or a folder inside them is kept by the cwd its first record
+//   that names one gives (the worktree `/p/A/evil` shares its folder with `/p/A-evil`, worfy-link
+//   ticket 32). A transcript whose cwd is unknown is shown to this Machine's own callers and not to
+//   a Linked machine (RegistryRoot, `strict`).
 //
 // Nothing here writes: no cache file, no marker files, no lock under the Claude home. The history
 // entries read from transcripts are kept in memory (HistoryCache). The watcher only reads directory
 // listings.
 import { execFile } from 'node:child_process'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
-import { basename, join, posix, relative, resolve, sep, win32 } from 'node:path'
+import { join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { watch, type FSWatcher } from 'chokidar'
 import { z } from 'zod'
@@ -52,31 +53,22 @@ export function projectDirName(cwd: string): string {
   return `${name.slice(0, MAX_DIR_NAME)}-${Math.abs(hash32(path)).toString(36)}`
 }
 
-/** Prefix of the folders of worktrees under <root>/.claude/worktrees/, including removed ones. */
-const worktreeDirPrefix = (root: string): string => `${projectDirName(root)}--claude-worktrees-`
-
 /**
- * How a folder under projects/ relates to the Project with these roots: `project` — the folder of
- * a (possibly removed) worktree under <root>/.claude/worktrees/; `root` — named exactly like a
- * root or a worktree; `subfolder` — named like a folder inside a root or worktree; `none`.
+ * How a folder under projects/ relates to the Project with these roots: `root` — named exactly
+ * like a root or a worktree; `subfolder` — named like a folder inside a root or worktree, a removed
+ * worktree under <root>/.claude/worktrees/ among them; `none`.
  *
- * A name stands for several paths (`/proj/a` and `/proj-a` share one), so for `root` and
- * `subfolder` each transcript's cwd decides (cwdDecides). An exact name is no proof either: the
- * worktree `/p/A/evil` shares its folder with `/p/A-evil`, which lies outside the Project
- * (worfy-link ticket 32).
+ * A name stands for several paths: every character outside [A-Za-z0-9] is `-`, so `/proj/a` and
+ * `/proj-a`, `/p/A/evil` and `/p/A-evil`, `/p/Ä` and `/p/Ö` share one. No name is proof alone:
+ * each transcript's cwd decides (belongs), for both matches (worfy-link ticket 32).
  */
-type DirMatch = 'project' | 'root' | 'subfolder' | 'none'
+type DirMatch = 'root' | 'subfolder' | 'none'
 
 function dirMatch(dirName: string, roots: readonly string[]): DirMatch {
-  const [root] = roots
-  if (root !== undefined && dirName.startsWith(worktreeDirPrefix(root))) return 'project'
   if (roots.some((path) => projectDirName(path) === dirName)) return 'root'
   if (roots.some((path) => dirName.startsWith(`${projectDirName(path)}-`))) return 'subfolder'
   return 'none'
 }
-
-/** Whether the transcripts of a folder of this match are kept only when their cwd lies inside the roots. */
-const cwdDecides = (match: DirMatch): boolean => match === 'root' || match === 'subfolder'
 
 /**
  * Is `path` the folder `root` or inside it? Both are resolved by the rules of `platform`. On Windows
@@ -91,8 +83,19 @@ export function isInsidePath(path: string, root: string, platform: NodeJS.Platfo
   return inner === outer || inner.startsWith(outer.endsWith(paths.sep) ? outer : `${outer}${paths.sep}`)
 }
 
-/** Is `cwd` the root, a worktree or a folder inside one of them? */
-const inProject = (cwd: string, roots: readonly string[]): boolean => roots.some((root) => isInsidePath(cwd, root))
+/**
+ * Is `cwd` the root, a worktree or a folder inside one of them? Both sides in NFC, as the folder
+ * names are: macOS hands out a name in NFD as often as in NFC.
+ */
+const inProject = (cwd: string, roots: readonly string[]): boolean => roots.some((root) => isInsidePath(cwd.normalize('NFC'), root.normalize('NFC')))
+
+/**
+ * Whether a transcript of a folder of the Project (dirMatch) is the Project's, by the cwd it
+ * started in. A known cwd decides. An unknown one (no record names it within the reach of
+ * scanStartCwd) shows the transcript to this Machine's own callers, as before, and hides it from
+ * a Linked machine (`strict`, RegistryRoot): there it is no proof the Session is the Project's.
+ */
+const belongs = (cwd: string | undefined, roots: readonly string[], strict: boolean): boolean => (cwd === undefined ? !strict : inProject(cwd, roots))
 
 // ---------------------------------------------------------------------------------------------
 // Dependencies that touch the system, replaceable in tests
@@ -502,7 +505,7 @@ async function historyEntry(path: string, sessionId: string): Promise<ReadEntry 
     title: title === undefined ? undefined : oneLine(title),
     firstAt: firstString(head, 'timestamp'),
     lastAt: lastString(tail, undefined, 'timestamp') ?? lastString(head, undefined, 'timestamp'),
-    cwd: firstString(head, 'cwd'),
+    cwd: firstString(head, 'cwd') ?? (await startCwd(path)),
     gitBranch: lastString(both, undefined, 'gitBranch'),
     entrypoint: firstString(head, 'entrypoint'),
     size,
@@ -572,10 +575,67 @@ class HistoryCache {
   }
 }
 
-/** The cwd a transcript was started in (first record that names one), or undefined. */
+/**
+ * How far scanStartCwd reads for the first record that names a cwd. The records before it carry
+ * no cwd but may carry the whole first prompt: a `queue-operation` enqueue holds its text, a pasted
+ * screenshot in base64 makes it megabytes. Past either bound the cwd is unknown.
+ */
+const CWD_SCAN_BYTES = 32 * 1024 * 1024
+const CWD_SCAN_LINES = 1000
+const CWD_SCAN_CHUNK = 256 * 1024
+
+/** Where scanStartCwd stopped: the cwd, or how far it read complete lines and whether a bound stopped it. */
+interface CwdScan {
+  cwd?: string
+  /** The byte after the last complete line read; a later scan of the grown file goes on from here. */
+  end: number
+  lines: number
+  /** A bound of the scan was reached: the cwd stays unknown however the file grows. */
+  capped: boolean
+}
+
+/**
+ * The cwd the first record that names one gives, read line by line from `from` (a byte after a
+ * line, with `lines` lines before it), up to CWD_SCAN_BYTES and CWD_SCAN_LINES. A last line
+ * still being written is not read. Throws when the file cannot be opened.
+ */
+async function scanStartCwd(path: string, from = 0, lines = 0): Promise<CwdScan> {
+  const file = await open(path, 'r')
+  try {
+    let position = from
+    let end = from
+    let count = lines
+    let partial: Buffer[] = []
+    for (;;) {
+      if (position >= CWD_SCAN_BYTES || count >= CWD_SCAN_LINES) return { end, lines: count, capped: true }
+      const chunk = await readRange(file, position, Math.min(CWD_SCAN_CHUNK, CWD_SCAN_BYTES - position))
+      if (chunk.length === 0) return { end, lines: count, capped: false }
+      let start = 0
+      for (let at = chunk.indexOf(0x0a); at !== -1; at = chunk.indexOf(0x0a, start)) {
+        const line = partial.length === 0 ? chunk.subarray(start, at) : Buffer.concat([...partial, chunk.subarray(start, at)])
+        partial = []
+        start = at + 1
+        end = position + start
+        count += 1
+        // Only a line that may name it is parsed: a prompt in base64 is not.
+        if (line.includes('"cwd"')) {
+          const cwd = firstString(records([line.toString('utf8')]), 'cwd')
+          if (cwd !== undefined) return { cwd, end, lines: count, capped: false }
+        }
+        if (count >= CWD_SCAN_LINES) return { end, lines: count, capped: true }
+      }
+      if (start < chunk.length) partial.push(chunk.subarray(start))
+      position += chunk.length
+    }
+  } finally {
+    await file.close()
+  }
+}
+
+/** The cwd a transcript was started in (first record that names one), or undefined when none is known. */
 async function startCwd(path: string): Promise<string | undefined> {
   try {
-    return firstString((await headAndTail(path)).head, 'cwd')
+    return (await scanStartCwd(path)).cwd
   } catch {
     return undefined
   }
@@ -611,12 +671,16 @@ export interface WatchOptions {
  * names them after the cwd it started in, so the spelling of the Project list. `gitAt` is the real
  * path a Linked machine's call was checked on (src/main/link/caller.ts): git lists the worktrees
  * there, so a link swapped in after the check does not lead git elsewhere, and the folders named
- * after the real path count too. A string is both.
+ * after the real path count too. A string is both. `strict` marks a Linked machine's call: a
+ * transcript whose cwd is unknown is not shown to it (belongs).
  */
-export type RegistryRoot = string | { readonly path: string; readonly gitAt: string }
+export type RegistryRoot = string | { readonly path: string; readonly gitAt: string; readonly strict?: boolean }
 
 /** The spelling of a RegistryRoot that names its folders. */
 export const rootPath = (root: RegistryRoot): string => (typeof root === 'string' ? root : root.path)
+
+/** Whether the call is a Linked machine's (RegistryRoot). */
+const strictOf = (root: RegistryRoot): boolean => typeof root !== 'string' && root.strict === true
 
 export interface ClaudeHomeWatch {
   /** Resolves once the initial scan is done and changes are being reported. */
@@ -661,16 +725,16 @@ export class ClaudeHomeRegistry {
 
   /**
    * Transcript folders of the Project: its root, its worktrees, removed worktrees of the root and
-   * folders inside any of them. `checkCwd` marks folders whose transcripts may belong to a folder
-   * outside the Project (dirMatch); their transcripts are kept only when their cwd lies inside it.
+   * folders inside any of them, with how each was matched (dirMatch). Any of them may be a folder
+   * outside the Project too, so its transcripts are kept by their cwd (belongs).
    */
-  async transcriptDirs(roots: readonly string[]): Promise<{ path: string; checkCwd: boolean }[]> {
+  async transcriptDirs(roots: readonly string[]): Promise<{ path: string; match: Exclude<DirMatch, 'none'> }[]> {
     const entries = await listDir(this.projectsDir)
     this.historyCache.keepDirs(new Set(entries.filter((entry) => entry.isDirectory).map((entry) => join(this.projectsDir, entry.name))))
     return entries
       .flatMap((entry) => {
         const match = entry.isDirectory ? dirMatch(entry.name, roots) : 'none'
-        return match === 'none' ? [] : [{ path: join(this.projectsDir, entry.name), checkCwd: cwdDecides(match) }]
+        return match === 'none' ? [] : [{ path: join(this.projectsDir, entry.name), match }]
       })
       .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
@@ -678,14 +742,15 @@ export class ClaudeHomeRegistry {
   /** Live Sessions and the history of the Project at `projectRoot`. */
   async sessions(projectRoot: RegistryRoot): Promise<ProjectSessions> {
     const roots = await this.roots(projectRoot)
+    const strict = strictOf(projectRoot)
     const [live, dirs] = await Promise.all([liveSessions(this.home, roots, this.isAlive), this.transcriptDirs(roots)])
     const liveIds = new Set(live.map((session) => session.sessionId))
     const files = (
       await Promise.all(
-        dirs.map(async ({ path: dir, checkCwd }) => {
+        dirs.map(async ({ path: dir }) => {
           const found = (await listDir(dir)).flatMap((entry) => {
             const match = entry.isFile ? TRANSCRIPT.exec(entry.name) : null
-            return match?.[1] ? [{ dir, name: entry.name, sessionId: match[1], checkCwd }] : []
+            return match?.[1] ? [{ dir, name: entry.name, sessionId: match[1] }] : []
           })
           this.historyCache.keepFiles(dir, new Set(found.map((file) => file.name)))
           return found
@@ -693,10 +758,10 @@ export class ClaudeHomeRegistry {
       )
     ).flat()
     const history = (
-      await mapLimit(files, HISTORY_READS, async ({ dir, name, sessionId, checkCwd }): Promise<HistorySession | undefined> => {
+      await mapLimit(files, HISTORY_READS, async ({ dir, name, sessionId }): Promise<HistorySession | undefined> => {
         const entry = await this.historyCache.entry(dir, name, sessionId)
         if (entry === undefined) return undefined
-        if (checkCwd && (entry.cwd === undefined || !inProject(entry.cwd, roots))) return undefined
+        if (!belongs(entry.cwd, roots, strict)) return undefined
         return { ...entry, live: liveIds.has(sessionId) }
       })
     )
@@ -710,17 +775,20 @@ export class ClaudeHomeRegistry {
     return liveSessions(this.home, await this.roots(projectRoot), this.isAlive)
   }
 
-  /** Path of a Session's transcript among the Project's folders, or null. */
+  /**
+   * Path of a Session's transcript among the Project's folders, or null. For this Machine's own
+   * callers a transcript whose cwd is unknown is found: the Orchestrator starts a new Session when
+   * its saved one is not found (src/main/agent/orchestrator.ts), and that cannot be undone.
+   */
   async transcriptPath(projectRoot: RegistryRoot, sessionId: string): Promise<string | null> {
     if (!TRANSCRIPT.test(`${sessionId}.jsonl`)) return null
     const roots = await this.roots(projectRoot)
-    for (const { path: dir, checkCwd } of await this.transcriptDirs(roots)) {
+    const strict = strictOf(projectRoot)
+    for (const { path: dir } of await this.transcriptDirs(roots)) {
       const entries = await listDir(dir)
       if (!entries.some((entry) => entry.isFile && entry.name === `${sessionId}.jsonl`)) continue
       const path = join(dir, `${sessionId}.jsonl`)
-      if (!checkCwd) return path
-      const cwd = await startCwd(path)
-      if (cwd !== undefined && inProject(cwd, roots)) return path
+      if (belongs(await startCwd(path), roots, strict)) return path
     }
     return null
   }
@@ -766,20 +834,36 @@ export class ClaudeHomeRegistry {
       if (timer) clearTimeout(timer)
       timer = setTimeout(flush, debounceMs)
     }
-    // Verdicts for transcripts in `root` and `subfolder` folders: does the cwd they start in lie
-    // inside the Project? Kept once known, so a removed file is still reported. Filled for the
-    // files of `subfolder` folders that exist when watching starts (`prefilled`), because the
-    // watcher skips them until they change. Those of `root` folders get theirs at their first
-    // change: they are most of a Project's transcripts, and reading all their heads at each watch
-    // start costs too much. One removed before it ever changed is judged by the cwd the last list
-    // read (HistoryCache): a client lists the Sessions right after it subscribes.
+    // Verdicts of the transcripts: does the cwd they start in lie inside the Project (belongs)?
+    // Kept once the cwd is known, or once scanStartCwd gave up on it, so an append does not read
+    // the file's start again and a removed file is still judged. A file whose first records name
+    // no cwd yet is scanned on from where the last scan stopped (`scans`). Filled for the files of
+    // `subfolder` folders that exist when watching starts (`prefilled`), because the watcher skips
+    // them until they change. Those of `root` folders get theirs at their first change: they are
+    // most of a Project's transcripts, and scanning them all at each watch start costs too much.
+    // One removed before it ever changed is judged by the cwd the last list read (HistoryCache): a
+    // client lists the Sessions right after it subscribes.
+    const strict = strictOf(projectRoot)
     const verdicts = new Map<string, boolean>()
+    const scans = new Map<string, { end: number; lines: number }>()
     const startsInProject = async (path: string): Promise<boolean> => {
       const known = verdicts.get(path)
       if (known !== undefined) return known
-      const cwd = await startCwd(path)
-      if (cwd === undefined) return false
-      const verdict = inProject(cwd, roots)
+      let scan: CwdScan
+      try {
+        const from = scans.get(path)
+        // A file shorter than where the last scan stopped was rewritten: from its start again.
+        const resume = from !== undefined && from.end <= (await stat(path)).size ? from : { end: 0, lines: 0 }
+        scan = await scanStartCwd(path, resume.end, resume.lines)
+      } catch {
+        return belongs(undefined, roots, strict) // removed meanwhile, or unreadable
+      }
+      if (scan.cwd === undefined && !scan.capped) {
+        scans.set(path, { end: scan.end, lines: scan.lines })
+        return belongs(undefined, roots, strict)
+      }
+      scans.delete(path)
+      const verdict = belongs(scan.cwd, roots, strict)
       verdicts.set(path, verdict)
       return verdict
     }
@@ -791,26 +875,21 @@ export class ClaudeHomeRegistry {
       }
       const [dirName = '', fileName = ''] = relative(projectsDir, path).split(sep)
       const sessionId = TRANSCRIPT.exec(fileName)?.[1]
-      if (!sessionId) return
-      if (!cwdDecides(dirMatch(dirName, roots))) {
-        transcripts.add(sessionId)
-        schedule()
-        return
-      }
+      if (!sessionId || dirMatch(dirName, roots) === 'none') return
       const report = (inside: boolean) => {
         if (!inside) return
         transcripts.add(sessionId)
         schedule()
       }
-      // A removed file can no longer be read: its verdict comes from the cache, and a file whose cwd
-      // was never known is reported, since an extra reread is cheaper than a stale history.
-      if (removed) {
-        void prefilled.then(() => {
-          const listed = this.historyCache.cwdOf(join(projectsDir, dirName), fileName)
-          report(verdicts.get(path) ?? (listed === undefined ? true : inProject(listed, roots)))
-        })
+      if (!removed) {
+        void startsInProject(path).then(report)
+        return
       }
-      else void startsInProject(path).then(report)
+      // A removed file can no longer be read: its verdict, else the cwd of the last list, else unknown.
+      void prefilled.then(() => {
+        scans.delete(path)
+        report(verdicts.get(path) ?? belongs(this.historyCache.cwdOf(join(projectsDir, dirName), fileName), roots, strict))
+      })
     }
 
     const watcher: FSWatcher = watch(this.home, { ignoreInitial: true, depth: 2, ignored, persistent: true })
@@ -822,7 +901,7 @@ export class ClaudeHomeRegistry {
     // Started after the watcher, so a file is either seen here or reported by the watcher.
     const prefilled: Promise<void> = this.transcriptDirs(roots)
       .then(async (dirs) => {
-        const checked = dirs.filter((dir) => dirMatch(basename(dir.path), roots) === 'subfolder')
+        const checked = dirs.filter((dir) => dir.match === 'subfolder')
         const files = await Promise.all(
           checked.map(async ({ path: dir }) => (await listDir(dir)).filter((entry) => entry.isFile && TRANSCRIPT.test(entry.name)).map((entry) => join(dir, entry.name))),
         )

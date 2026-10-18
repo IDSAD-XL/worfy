@@ -8,7 +8,7 @@
 //
 // Everything lives in a temporary folder: the Claude home, the Projects and the folder beside them.
 // git is never run: the worktrees come from a stand-in lister.
-import { appendFile, mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -86,7 +86,9 @@ async function world(options: { evilWorktree?: boolean } = {}) {
     },
     isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
   })
-  const client = (id: string | number): Client => ({ id, send: () => undefined, isDestroyed: () => false, once: () => undefined }) as unknown as Client
+  const sent: { to: string | number; channel: string; payload: unknown }[] = []
+  const client = (id: string | number): Client =>
+    ({ id, send: (channel: string, payload: unknown) => void sent.push({ to: id, channel, payload }), isDestroyed: () => false, once: () => undefined }) as unknown as Client
   /** A client of a link connection has a string id (src/main/link/caller.ts); a window a number. */
   const linked = client('link:machine-b/1')
   const window = client(7)
@@ -96,7 +98,7 @@ async function world(options: { evilWorktree?: boolean } = {}) {
     const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
     return (await listener(event, input)) as IpcResult<unknown>
   }
-  return { project, beside, missing, sub, worktree, home, registry, call, window, evilTranscript, ownTranscript }
+  return { project, beside, missing, sub, worktree, home, registry, call, window, linked, sent, evilTranscript, ownTranscript }
 }
 
 /** Every channel that answers with Sessions or a transcript of `root`, asked about the Session EVIL. */
@@ -177,5 +179,181 @@ describe('the Claude home folder named exactly like a root is shared with a fold
     // The change of EVIL came first: had it been reported, it would be in by now.
     await new Promise((done) => setTimeout(done, 200))
     expect(changes.flatMap((change) => change.transcripts)).not.toContain(EVIL)
+  })
+})
+
+/**
+ * A Claude home and the IPC of claudeHome and bindings over it, for Projects laid out by the test.
+ * `worktreesOf` stands for `git worktree list` of a root.
+ */
+async function bench(dir: string, projects: readonly string[], worktreesOf: (root: string) => readonly string[] = () => []) {
+  const home = join(dir, 'claude')
+  await mkdir(join(home, 'sessions'), { recursive: true })
+  const write = async (cwd: string | undefined, sessionId: string, lines: readonly string[], folderOf = cwd) => {
+    const folder = join(home, 'projects', projectDirName(folderOf ?? ''))
+    await mkdir(folder, { recursive: true })
+    await writeFile(join(folder, `${sessionId}.jsonl`), `${lines.join('\n')}\n`)
+    return join(folder, `${sessionId}.jsonl`)
+  }
+  const registry = new ClaudeHomeRegistry({ home, listWorktrees: async (root) => [...worktreesOf(root)], isAlive: async () => true })
+  const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
+  closers.push(() => subscriptions.closeAll())
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+  const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
+  const list = () => projects.map((path) => ({ path }))
+  await registerIpc(ipc, {
+    modules: {
+      './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, undefined, list),
+      './bindings.ts': async () => bindingsHandlers(() => ({}) as BindingStore, () => registry, undefined, list),
+    },
+    isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
+  })
+  const sent: { to: string | number; channel: string; payload: unknown }[] = []
+  const client = (id: string | number): Client =>
+    ({ id, send: (channel: string, payload: unknown) => void sent.push({ to: id, channel, payload }), isDestroyed: () => false, once: () => undefined }) as unknown as Client
+  const linked = client('link:machine-b/1')
+  const window = client(7)
+  const call = async (channel: string, input: unknown, sender: Client): Promise<IpcResult<unknown>> => {
+    const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
+    if (!listener) throw new Error(`no handler for ${channel}`)
+    const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
+    return (await listener(event, input)) as IpcResult<unknown>
+  }
+  const history = async (root: string, sender: Client): Promise<string[]> => {
+    const result = await call('claudeHome.sessions', { projectRoot: root }, sender)
+    if (!result.ok) throw new Error(result.error)
+    return (result.value as { history: { sessionId: string }[] }).history.map((entry) => entry.sessionId).sort()
+  }
+  const found = async (root: string, sessionId: string, sender: Client): Promise<boolean> => {
+    const transcript = await call('claudeHome.transcript', { projectRoot: root, sessionId }, sender)
+    return transcript.ok && (transcript.value as { found: boolean }).found
+  }
+  return { home, registry, write, call, history, found, linked, window, sent }
+}
+
+const enqueue = (sessionId: string, content: string): string =>
+  JSON.stringify({ type: 'queue-operation', operation: 'enqueue', timestamp: '2026-01-10T09:00:07.000Z', sessionId, content })
+const dequeue = (sessionId: string): string => JSON.stringify({ type: 'queue-operation', operation: 'dequeue', timestamp: '2026-01-10T09:00:14.000Z', sessionId })
+
+describe('no folder is the Project\'s by its name alone (worfy-link ticket 32, round 2)', () => {
+  it('a link to the root, a worktree as root and a non-ASCII root get no Session of the look-alike worktree folders outside, from a Linked machine or a window', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    const wt = join(project, 'wt')
+    const link = join(project, 'link')
+    const umlaut = join(dir, 'p', 'Ä')
+    await mkdir(wt, { recursive: true })
+    await mkdir(umlaut, { recursive: true })
+    await symlink(project, link, process.platform === 'win32' ? 'junction' : 'dir')
+    const { write, history, found, call, linked, window } = await bench(dir, [project, umlaut], (root) => (root === project || root === wt ? [project, wt] : []))
+    // Each root's `<name>--claude-worktrees-` prefix is also that of worktrees of a folder outside.
+    const outside = [
+      { root: link, cwd: join(dir, 'p', 'A-link', '.claude', 'worktrees', 'x'), id: 'a1111111-1111-4111-8111-111111111111' },
+      { root: wt, cwd: join(dir, 'p', 'A-wt', '.claude', 'worktrees', 'x'), id: 'a2222222-2222-4222-8222-222222222222' },
+      { root: umlaut, cwd: join(dir, 'p', 'Ö', '.claude', 'worktrees', 'x'), id: 'a3333333-3333-4333-8333-333333333333' },
+    ]
+    for (const { root, cwd, id } of outside) {
+      expect(projectDirName(cwd).startsWith(`${projectDirName(root)}--claude-worktrees-`)).toBe(true)
+      await write(cwd, id, [userLine(SECRET, cwd, `${id}-u`)])
+    }
+    // A removed worktree of the Project keeps its history: its cwd lies inside the root.
+    const removed = join(project, '.claude', 'worktrees', 'gone')
+    const REMOVED = 'a4444444-4444-4444-8444-444444444444'
+    await write(removed, REMOVED, [userLine('a prompt in a removed worktree', removed, `${REMOVED}-u`)])
+
+    for (const sender of [linked, window]) {
+      for (const { root, id } of outside) {
+        const label = `${root} ${sender === linked ? 'linked' : 'window'}`
+        expect(await history(root, sender), label).not.toContain(id)
+        expect(await found(root, id, sender), label).toBe(false)
+        expect(leaks(await call('bindings.signals', { projectRoot: root, sessionId: id }, sender)), label).toBe(false)
+      }
+      expect(await history(project, sender)).toEqual([REMOVED])
+      expect(await found(project, REMOVED, sender)).toBe(true)
+    }
+  })
+
+  it('a cwd in NFD under a root in NFC is inside the root', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'Café'.normalize('NFC'))
+    await mkdir(project, { recursive: true })
+    const { write, history, linked, window } = await bench(dir, [project])
+    const id = 'c1111111-1111-4111-8111-111111111111'
+    const cwd = project.normalize('NFD')
+    expect(cwd).not.toBe(project)
+    await write(cwd, id, [userLine('a prompt in the café', cwd, `${id}-u`)])
+    for (const sender of [linked, window]) expect(await history(project, sender)).toEqual([id])
+  })
+})
+
+describe('the cwd of a transcript is the first record that names one', () => {
+  /** Project /p/A with transcripts whose first records name no cwd. */
+  async function prompts() {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    await mkdir(project, { recursive: true })
+    const it = await bench(dir, [project])
+    const LONG = 'd1111111-1111-4111-8111-111111111111'
+    const HUGE = 'd2222222-2222-4222-8222-222222222222'
+    const NONE = 'd3333333-3333-4333-8333-333333333333'
+    // As Claude desktop writes it: the enqueue record carries the whole prompt and no cwd.
+    const long = 'x'.repeat(40 * 1024)
+    await it.write(project, LONG, [enqueue(LONG, long), dequeue(LONG), userLine(long, project, `${LONG}-u`)])
+    const huge = 'data:image/png;base64,' + 'A'.repeat(1200 * 1024)
+    await it.write(project, HUGE, [enqueue(HUGE, huge), dequeue(HUGE), userLine(huge, project, `${HUGE}-u`)])
+    // No record names a cwd yet: a Session whose first prompt is still queued.
+    const none = await it.write(undefined, NONE, [enqueue(NONE, long), dequeue(NONE)], project)
+    return { ...it, project, LONG, HUGE, NONE, none }
+  }
+
+  it('a 40 KB queued prompt or a screenshot over 1 MB before the first cwd: the Session is the Project\'s, for a window and a Linked machine', async () => {
+    const { project, history, found, linked, window, LONG, HUGE, NONE } = await prompts()
+    expect(await history(project, window)).toEqual([LONG, HUGE, NONE].sort())
+    expect(await history(project, linked)).toEqual([LONG, HUGE].sort())
+    for (const sender of [linked, window]) for (const id of [LONG, HUGE]) expect(await found(project, id, sender), id).toBe(true)
+  })
+
+  it('no cwd known: a window lists, reads and watches the Session and the Orchestrator finds its transcript; a Linked machine gets none of it', async () => {
+    const { home, project, registry, history, found, call, linked, window, NONE, none } = await prompts()
+    await writeFile(join(home, 'sessions', '41001.json'), JSON.stringify({ pid: 41001, sessionId: NONE, cwd: project, status: 'busy' }))
+    expect(await history(project, window)).toContain(NONE)
+    expect(await found(project, NONE, window)).toBe(true)
+    // The Orchestrator resumes its saved Session by this lookup (src/main/agent/app-orchestrators.ts).
+    expect(await registry.transcriptPath(project, NONE)).toBe(none)
+    expect(await call('claudeHome.live', { projectRoot: project }, window)).toMatchObject({ ok: true, value: { live: [{ sessionId: NONE }] } })
+    expect(await history(project, linked)).not.toContain(NONE)
+    expect(await found(project, NONE, linked)).toBe(false)
+    // bindings.signals goes by the same rule: it hands the registry the checked root of a Linked machine.
+    expect(await call('bindings.signals', { projectRoot: project, sessionId: NONE }, window)).toMatchObject({ ok: true, value: { found: true } })
+    expect(await call('bindings.signals', { projectRoot: project, sessionId: NONE }, linked)).toMatchObject({ ok: true, value: { found: false } })
+
+    const local: ClaudeHomeChange[] = []
+    const remote: ClaudeHomeChange[] = []
+    const watches = [await registry.watch(project, (change) => local.push(change), { debounceMs: 20 }), await registry.watch({ path: project, gitAt: project, strict: true }, (change) => remote.push(change), { debounceMs: 20 })]
+    for (const watch of watches) closers.push(() => watch.close())
+    await Promise.all(watches.map((watch) => watch.ready))
+    await appendFile(none, `${dequeue(NONE)}\n`)
+    await vi.waitFor(() => expect(local.flatMap((change) => change.transcripts)).toContain(NONE), { timeout: 3000, interval: 20 })
+    await new Promise((done) => setTimeout(done, 200))
+    expect(remote.flatMap((change) => change.transcripts)).not.toContain(NONE)
+  })
+})
+
+describe('a transcript removed before it ever changed', () => {
+  it('is judged by the cwd the list read: <Project>-evil reaches no subscriber, the worktree\'s own does', async () => {
+    const { missing, call, linked, window, sent, evilTranscript, ownTranscript } = await world({ evilWorktree: true })
+    for (const sender of [linked, window]) expect(await call('claudeHome.sessions', { projectRoot: missing }, sender)).toMatchObject({ ok: true })
+    await rm(evilTranscript)
+    await rm(ownTranscript ?? '')
+    const reported = (to: string | number) =>
+      sent.filter((entry) => entry.to === to && entry.channel === 'worfy:claudeHome.changed').flatMap((entry) => (entry.payload as { transcripts: string[] }).transcripts)
+    await vi.waitFor(() => {
+      for (const sender of [linked, window]) expect(reported(sender.id)).toContain(OWN)
+    }, { timeout: 3000, interval: 20 })
+    await new Promise((done) => setTimeout(done, 200))
+    for (const sender of [linked, window]) expect(reported(sender.id)).not.toContain(EVIL)
   })
 })

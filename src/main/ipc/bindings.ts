@@ -7,9 +7,9 @@ import { resolve } from 'node:path'
 import { EMPTY_AGENT_SIGNALS } from '../../shared/binding/resolve'
 import { bindingsChanged, bindingsGet, bindingsRemove, bindingsSet, bindingsSignals } from '../../shared/ipc/bindings'
 import { BindingSignalReader } from '../claude-home/binding-signals'
-import { ClaudeHomeRegistry, gitWorktrees } from '../claude-home/registry'
+import { ClaudeHomeRegistry, gitWorktrees, type RegistryRoot } from '../claude-home/registry'
 import { clientOf, type Client } from '../clients'
-import { projectRootOf } from '../link/caller'
+import { isRemoteCall, projectRootOf } from '../link/caller'
 import { bindingStore, type BindingStore } from '../layout/bindings'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -52,8 +52,10 @@ export function bindingsHandlers(
       const root = resolve(projectRoot)
       // A Claude home folder name stands for several paths: a Linked machine names a Project root
       // or one of its worktrees, not any folder inside (src/main/link/caller.ts, projectRootOf).
-      await projectRootOf(event, root, projects, gitWorktrees, 'the Project root')
-      const path = await transcripts().transcriptPath(root, sessionId)
+      // git runs at the real path the check answered; the root is `strict` (RegistryRoot), as in
+      // src/main/ipc/claude-home.ts.
+      const at: RegistryRoot = isRemoteCall(event) ? { path: root, gitAt: await projectRootOf(event, root, projects, gitWorktrees, 'the Project root'), strict: true } : root
+      const path = await transcripts().transcriptPath(at, sessionId)
       if (path === null) return { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] }
       return { found: true, ...(await reader.session(path)) }
     }),

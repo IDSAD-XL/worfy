@@ -12,7 +12,7 @@ import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
-import { projectRootOf } from '../link/caller'
+import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import {
@@ -160,12 +160,14 @@ export function claudeHomeHandlers(
    * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
    * Claude home folders are still found by the resolved spelling (RegistryRoot). A Linked machine
    * names a Project root or one of its worktrees, not any folder inside: a Claude home folder name
-   * stands for several paths (src/main/link/caller.ts, projectRootOf).
+   * stands for several paths (src/main/link/caller.ts, projectRootOf). Its root is `strict`: a
+   * transcript whose cwd is unknown is not shown to it.
    */
   const rootOf = async (projectRoot: string, event: { readonly sender?: unknown }): Promise<RegistryRoot> => {
     const root = resolve(projectRoot)
+    if (!isRemoteCall(event)) return root
     const checked = await projectRootOf(event, root, projects, (at) => registry.worktrees(at), 'the Project root')
-    return checked === root ? root : { path: root, gitAt: checked }
+    return { path: root, gitAt: checked, strict: true }
   }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
