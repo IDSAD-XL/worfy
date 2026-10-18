@@ -474,8 +474,8 @@ BSV="$(SKILL="$WAVE" blockf 'P=<scratchpad>/pr-<N>')"
 [ -n "$BSV" ] || bad "serve rebase block not found in $WAVE"
 BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<scratchpad>/$CM}"; BSV="${BSV//<branch>/feature}"
 serve_rebase() { local b="${BSV//<N>/$1}"; b="${b//<head>/$2}"; "${SENV[@]}" bash -c "$b" 2>&1; }
-got="$(serve_rebase 7 "$rework")"; new="$(tail -n 1 <<<"$got")"
-[ "$(grep -c '^EXIT=0$' <<<"$got")" = 3 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$new" ] \
+got="$(serve_rebase 7 "$rework")"; new="$(grep -E '^[0-9a-f]{40}$' <<<"$got" | tail -n 1)"
+[ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$new" ] \
     && git -C "$CM/origin.git" merge-base --is-ancestor "$tip" "$new" && git -C "$CM/origin.git" cat-file -e "$new:r.txt" 2>/dev/null \
     && ok "serve rebase block: a stale local branch — the rework is kept, rebased onto origin/main, pushed, new head printed" \
     || bad "serve rebase block, stale local branch: [$got] origin feature has r.txt: $(git -C "$CM/origin.git" cat-file -e feature:r.txt 2>&1 && echo yes)"
@@ -487,20 +487,33 @@ cat >"$RG/git" <<RACE
 #!/usr/bin/env bash
 if [ -e "$T/race" ] && [[ " \$* " == *" push "* ]]; then
   rm -f "$T/race"
-  "$REAL_GIT" -C "$CM/other" fetch -q origin && "$REAL_GIT" -C "$CM/other" checkout -q -B feature origin/feature && echo y >"$CM/other/y.txt" && "$REAL_GIT" -C "$CM/other" add y.txt && "$REAL_GIT" -C "$CM/other" -c user.email=t@t -c user.name=t commit -q -m race && "$REAL_GIT" -C "$CM/other" push -q origin feature 2>/dev/null && "$REAL_GIT" -C "$CR" fetch -q origin
+  "$REAL_GIT" -C "$CM/other" fetch -q origin && "$REAL_GIT" -C "$CM/other" checkout -q -B feature origin/feature && echo \$\$ >"$CM/other/y.txt" && "$REAL_GIT" -C "$CM/other" add y.txt && "$REAL_GIT" -C "$CM/other" -c user.email=t@t -c user.name=t commit -q -m race && "$REAL_GIT" -C "$CM/other" push -q origin feature 2>/dev/null && "$REAL_GIT" -C "$CR" fetch -q origin
 fi
 exec "$REAL_GIT" "\$@"
 RACE
 chmod +x "$RG/git"
 b="${BSV//<N>/8}"; b="${b//<head>/$new}"; got="$("${SENV[@]}" PATH="$RG:$PATH" bash -c "$b" 2>&1)"
-[ ! -e "$T/race" ] && [ "$(git -C "$CM/origin.git" log -1 --format=%s feature)" = race ] && [ "$(grep '^EXIT=' <<<"$got" | sed -n 3p)" != EXIT=0 ] \
-    && ok "serve rebase block: a push while the block runs — the push is refused, origin keeps that push" || bad "serve rebase block, push while the block runs: [$got]"
+[ ! -e "$T/race" ] && [ "$(git -C "$CM/origin.git" log -1 --format=%s feature)" = race ] && [ "$(tail -n 1 <<<"$got")" != EXIT=0 ] && [ ! -e "$CM/pr-8" ] \
+    && ok "serve rebase block: a push while the block runs — the push is refused, origin keeps that push, the tree is removed" || bad "serve rebase block, push while the block runs: [$got]"
 new="$(git -C "$CM/origin.git" rev-parse feature)"
-git -C "$CR" worktree remove --force "$CM/pr-8"
+[ ! -e "$CM/pr-8" ] || git -C "$CR" worktree remove --force "$CM/pr-8"
+# The pass again from the list after a refused push — the same PR, the same scratchpad — while the other machine
+# pushes once more: the retry starts from origin's branch, and both pushes of the other machine stay on origin.
+: >"$T/race"
+b="${BSV//<N>/10}"; b="${b//<head>/$new}"; got1="$("${SENV[@]}" PATH="$RG:$PATH" bash -c "$b" 2>&1)"
+git -C "$CM/other" fetch -q origin && git -C "$CM/other" checkout -q -B feature origin/feature && echo z >"$CM/other/z.txt" \
+    && git -C "$CM/other" add z.txt && git -C "$CM/other" "${G[@]}" commit -q -m second && git -C "$CM/other" push -q origin feature 2>/dev/null
+second="$(git -C "$CM/origin.git" rev-parse feature)"
+got="$(serve_rebase 10 "$second")"
+[ "$(tail -n 1 <<<"$got1")" != EXIT=0 ] && [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && git -C "$CM/origin.git" merge-base --is-ancestor "$second" feature \
+    && ok "serve rebase block: a retry after a refused push — the other machine's commits stay on origin" \
+    || bad "serve rebase block, retry: first [$(tail -n 1 <<<"$got1")] retry [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -3 feature | tr '\n' ' ')"
+new="$(git -C "$CM/origin.git" rev-parse feature)"
+[ ! -e "$CM/pr-10" ] || git -C "$CR" worktree remove --force "$CM/pr-10"
 # worktree.base null: the main branch, not `git rebase null` (and the request block below the same).
 jq '.worktree.base = null' <<<"$CMP" >"$SHH/projects/cm/profile.json"
 got="$(serve_rebase 9 "$new")"
-[ "$(grep -c '^EXIT=0$' <<<"$got")" = 3 ] && ok "serve rebase block: worktree.base null -> origin/main" || bad "serve rebase block, base null: [$got]"
+[ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && ok "serve rebase block: worktree.base null -> origin/main" || bad "serve rebase block, base null: [$got]"
 git -C "$CR" worktree remove --force "$CM/pr-9"
 BRQ="$(SKILL="$WAVE" blockf 'base-gate "$B"')"
 [ -n "$BRQ" ] || bad "request fresh-base block not found in $WAVE"
@@ -512,6 +525,15 @@ for base in null origin/main; do
         && ok "request fresh-base block: base $base — a detached worktree on origin/main, removed after" || bad "request fresh-base block, base $base: [$got] want [EXIT=0 $tip EXIT=0]"
 done
 printf '%s\n' "$CMP" >"$SHH/projects/cm/profile.json"
+# A rebase conflict stops the block before the push: nothing half-rebased reaches origin.
+git -C "$CM/other" checkout -q main && git -C "$CM/other" pull -q origin main 2>/dev/null; echo conflict >"$CM/other/f.txt" \
+    && git -C "$CM/other" add f.txt && git -C "$CM/other" "${G[@]}" commit -q -m conflict && git -C "$CM/other" push -q origin main 2>/dev/null
+before="$(git -C "$CM/origin.git" rev-parse feature)"
+got="$(serve_rebase 11 "$before")"
+[ "$(tail -n 1 <<<"$got")" != EXIT=0 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$before" ] \
+    && ok "serve rebase block: a rebase conflict stops the block — origin keeps the branch, nothing half-rebased is pushed" \
+    || bad "serve rebase block, conflict: [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -1 feature)"
+[ ! -e "$CM/pr-11" ] || git -C "$CR" worktree remove --force "$CM/pr-11"
 
 # The report-and-merge block: the merge only after a green report that reached the PR and a green check, and only
 # of the head the checks ran on.
@@ -578,9 +600,14 @@ echo "stub gh calls of the cross-machine and open-PR cases: $(wc -l <"$T/ghx-all
 # --- jq for Windows writes CRLF: the blocks that read jq's output, run with a jq that turns LF into CRLF ----------
 CRJ="$T/crlfjq"; mkdir -p "$CRJ"; REAL_JQ="$(type -P jq)"   # type -P: the jq() function above would make command -v print "jq" and the wrapper call itself
 [[ "$REAL_JQ" == /* ]] || { echo "FAIL: no jq binary on PATH" >&2; exit 1; }
-printf '#!/usr/bin/env bash\nset -o pipefail\n"%s" "$@" | perl -pe '"'"'s/\\n/\\r\\n/'"'"'\n' "$REAL_JQ" >"$CRJ/jq"
-chmod +x "$CRJ/jq"
+# One CR a line whatever the inner jq ends its lines with: jq for Windows already writes CRLF, and a wrapper that
+# only turned LF into CRLF gave CR CR LF there. perl, not sed: BSD sed has no \r.
+mkcrjq() { printf '#!/usr/bin/env bash\nset -o pipefail\n"%s" "$@" | perl -pe '"'"'s/\\r*\\n/\\r\\n/'"'"'\n' "$2" >"$1/jq"; chmod +x "$1/jq"; }
+mkcrjq "$CRJ" "$REAL_JQ"
 [ "$(printf '[1]' | "$CRJ/jq" -c . | od -An -c | tr -d ' \n')" = '[1]\r\n' ] && ok "the CRLF jq writes CRLF" || bad "the CRLF jq: $(printf '[1]' | "$CRJ/jq" -c . | od -c | head -n 1)"
+mkdir -p "$T/crlfjq2"; mkcrjq "$T/crlfjq2" "$CRJ/jq"
+[ "$(printf '[1]' | "$T/crlfjq2/jq" -c . | od -An -c | tr -d ' \n')" = '[1]\r\n' ] && ok "the CRLF jq over a jq that already writes CRLF: one CR a line" \
+    || bad "the CRLF jq over a CRLF jq: $(printf '[1]' | "$T/crlfjq2/jq" -c . | od -c | head -n 1)"
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "${STUB//'modules) echo "{}"'/modules) echo '{\"skip\":[\"lots\"]}'}"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
 want="$(printf '%s\n' apps/api/src/auctions apps/web/src/catalog)"
 [ "$got" = "$want" ] && ok "CRLF jq: module-choice block with modules.skip (overnight-fix-loop)" || bad "CRLF jq: module-choice block: [$got]"

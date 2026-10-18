@@ -140,19 +140,24 @@ For each PR, in that order, with `<N>`, `<branch>` and `<head>` from its line:
    `F worktree.base` (already a remote branch, `origin/main`) and pushed. `-B` resets a local branch
    left from an earlier pass: the other machine may have pushed a rework since, and a rebase of the
    old local branch would push it away. The push holds a lease on `<head>`: if the branch moved after
-   the list, it is refused — start the pass again from the list. The last line is the new head: the
-   checks run on it and the merge is matched against it. A conflict only in the state file
-   (`F docs.handoff.path`) the session resolves itself: the session that merges resolves it. Any
-   other conflict is red, with the conflicting files as the reason:
+   the list, it is refused and the worktree removed — start the pass again from the list. The steps
+   are joined with `&&`: a failed step stops the block, so a rebase never runs in a tree of an earlier
+   try and nothing half-rebased is pushed; a tree `<scratchpad>/pr-<N>` left from an earlier try of
+   this PR is removed first. The line before `EXIT=0` is the new head: the checks run on it and the
+   merge is matched against it. A conflict stops the block with the tree kept: a conflict only in the
+   state file (`F docs.handoff.path`) the session resolves itself (the session that merges resolves
+   it), then `git -C "$P" rebase --continue` and the push line with the same lease. Any other conflict
+   is red, with the conflicting files as the reason:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
 P=<scratchpad>/pr-<N>
-git -C <repo> fetch origin && git -C <repo> worktree add -B <branch> "$P" origin/<branch>; echo "EXIT=$?"
-git -C "$P" rebase "$B"; echo "EXIT=$?"
-git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch>; echo "EXIT=$?"
-git -C "$P" rev-parse HEAD
+gone() { [ ! -e "$P" ] || git -C <repo> worktree remove --force "$P"; }   # the tree of an earlier try of this PR
+git -C <repo> fetch origin && gone && git -C <repo> worktree add -B <branch> "$P" origin/<branch> \
+  && git -C "$P" rebase "$B" \
+  && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { gone; false; }; } \
+  && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
 ```
 
 2. `F cross_machine_gate.check` in that worktree (`<PR worktree>` — `<scratchpad>/pr-<N>`), the way section 4 runs a gate full of one PR — the
