@@ -75,6 +75,7 @@ const appended: JournalEventFields[] = [
   { kind: 'human-input', source: 'worfy', what: 'Send queued' },
   { kind: 'background-tasks', tasks: [] },
   { kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
+  { kind: 'gate-queue', text: '/worfy:gate-queue' },
   { kind: 'run-stopped', reason: 'user-stop', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { kind: 'orchestrator-returned' },
   { kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: 'local_bash', description: null }] },

@@ -41,6 +41,7 @@ vi.mock('../../src/main/window', () => ({
 
 vi.mock('../../src/main/notify', () => ({
   installNotifications: () => steps.push('notifications'),
+  installGateQueueNotifications: () => () => undefined,
   electronNotifyDeps: {},
 }))
 

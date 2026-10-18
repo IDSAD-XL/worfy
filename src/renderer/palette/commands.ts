@@ -12,12 +12,15 @@
 // The unchecked "(вручную)" checks of every Ticket (shared/workflow/manual-checks.ts) are rows of
 // their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
+// "Process gate queue" (worfy-windows ticket 17, `actions.gateQueue`) is there only on the machine
+// whose Profile gives it the role `serve` of the cross-machine gate; its detail counts the waiting PRs.
 // On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
-// would change the Project — New …, Tidy up, Run wave, Ship ticket — carry the read-only hint and
+// would change the Project — New …, Tidy up, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
 // their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
 import type { HistorySession } from '../../shared/ipc/claude-home'
+import type { GateQueueView } from '../../shared/ipc/gate-queue'
 import { failureReason } from '../../shared/ipc/channels'
 import { epicNodeId, SOURCE_NODE_KINDS, ticketNodeId } from '../../shared/layout/derived'
 import type { LayoutNode } from '../../shared/layout/types'
@@ -73,6 +76,10 @@ export interface CommandContext {
   createItems: readonly PaletteCreateItem[]
   /** The read-only hint of the window's screen (useReadOnly); null or absent — the Project can be changed. */
   readOnly?: string | null | undefined
+  /** The Project's cross-machine gate queue (useGateQueue); absent — not read (yet), no command. */
+  gateQueue?: GateQueueView | undefined
+  /** Now, in milliseconds, for the age of the oldest wait; Date.now() when absent. */
+  now?: number | undefined
 }
 
 const nn = (num: number): string => String(num).padStart(2, '0')
@@ -98,7 +105,22 @@ function sessionTitle(node: LayoutNode, history: readonly HistorySession[]): str
   return sessionId === undefined ? 'New session' : `Session ${sessionId.slice(0, 8)}`
 }
 
-function actionCommands({ project, createItems, readOnly }: CommandContext): PaletteCommand[] {
+/** How long ago `since` was, in whole hours, or minutes under an hour. */
+function age(since: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60_000))
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h`
+}
+
+/** The detail of "Process gate queue": how many PRs wait and since when, or why the queue is unknown. */
+export function gateQueueDetail(queue: GateQueueView, now: number): string {
+  if (queue.gh.state === 'failed') return `gh failed: ${queue.gh.reason}`
+  const [oldest] = queue.waiting
+  if (oldest === undefined) return 'queue empty'
+  const count = queue.waiting.length === 1 ? '1 PR waiting' : `${queue.waiting.length} PRs waiting`
+  return `${count}, oldest ${age(oldest.since, now)}`
+}
+
+function actionCommands({ project, createItems, readOnly, gateQueue, now }: CommandContext): PaletteCommand[] {
   if (!project) return []
   const projectId = project.id
   const hint = readOnly ?? undefined
@@ -146,6 +168,21 @@ function actionCommands({ project, createItems, readOnly }: CommandContext): Pal
       return undefined
     },
   })
+  if (gateQueue?.role === 'serve') {
+    commands.push({
+      id: 'gate-queue',
+      group: 'Action',
+      title: 'Process gate queue',
+      detail: gateQueueDetail(gateQueue, now ?? Date.now()),
+      keys: ['gate queue', ...(gateQueue.label === null ? [] : [gateQueue.label])],
+      readOnly: hint,
+      // The same call as "Process gate queue" in the Project menu (shell/sidebar/ProjectsSection.tsx).
+      run: async () => {
+        const result = await invoke('actions.gateQueue', { projectId })
+        return result.ok ? undefined : failureReason('actions.gateQueue', result.error)
+      },
+    })
+  }
   return commands
 }
 

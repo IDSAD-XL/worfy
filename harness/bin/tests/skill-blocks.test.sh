@@ -9,7 +9,8 @@
 # marks out, the same command in both skills and in agents/implementer.md.
 # Last, the blocks that run alike on BSD and GNU tools (worfy-windows ticket 07): the main-branch lock of
 # skills/epic-wave, the branches of the last 14 days of skills/continuous-audit, the label and the checks section of
-# the cross-machine gate (skills/ship-ticket step 8, skills/epic-wave section 1), with a stub gh.
+# the cross-machine gate (skills/ship-ticket step 8; the serve pass of skills/gate-queue, worfy-windows ticket 17;
+# the request blocks of skills/epic-wave section 1), with a stub gh.
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
 # SKILL_FILE — check another copy of SKILL.md.
 set -u
@@ -139,7 +140,7 @@ reset_tickets() {
 git -C "$SW" init -q -b main
 SENV=(env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR -u CLAUDE_PROFILE_BIN -u CLAUDE_TICKET_BIN HOME="$SH/home" HARNESS_HOME="$SHH" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
       GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t)
-SHIP="$SKILLS/ship-ticket/SKILL.md" WAVE="$SKILLS/epic-wave/SKILL.md"
+SHIP="$SKILLS/ship-ticket/SKILL.md" WAVE="$SKILLS/epic-wave/SKILL.md" GQF="$SKILLS/gate-queue/SKILL.md"
 sub() { local c="$1"; c="${c//<repo>/$SR}"; c="${c//<epic>/pay-flow}"; printf '%s' "$c"; }
 
 B5="$(SKILL="$SHIP" blockf 'silent-check" -C <repo> "$b"')"
@@ -346,6 +347,7 @@ done
 [ -n "${GH_FAIL:-}" ] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
 [ -n "${GH_FAIL_ON:-}" ] && [[ " $* " == *" $GH_FAIL_ON "* ]] && { echo "HTTP 502: Bad Gateway (https://api.github.com/graphql)" >&2; exit 1; }
 [ -n "${GH_BODY_RAW:-}" ] && [[ " $* " == *" --json body "* ]] && { cat "$GH_BODY_RAW"; exit 0; }
+[ -n "${GH_LOCK:-}" ] && [[ " $* " == *" pr merge "* ]] && { [ -d "$GH_LOCK" ] && echo held || echo free; } >>"$GH_LOCK_LOG"
 if [ -n "$f" ]; then set -o pipefail; jq -r "$f" "$GH_JSON" | tr -d '\r'; exit $?; fi
 exit 0
 EOF
@@ -424,9 +426,11 @@ for sh in "${SHELLS[@]}"; do
         && ok "$sh: label block, a CRLF description that has the section gets no second one" || bad "$sh: label block, CRLF description: [$got] body [$(cat "$T/ghx-body.md" 2>&1)]"
 done
 
-# The checks section block of skills/epic-wave, section 1: the section's lines up to the next heading.
-BCS="$(SKILL="$WAVE" blockf 'no-section')"
-[ -n "$BCS" ] || bad "checks section block not found in $WAVE"
+# The checks section block of skills/gate-queue, step 3: the section's lines up to the next heading. The pass is written
+# only there: skills/epic-wave section 1 runs skills/gate-queue and has no copy of the block.
+BCS="$(SKILL="$GQF" blockf 'no-section')"
+[ -n "$BCS" ] || bad "checks section block not found in $GQF"
+[ -z "$(SKILL="$WAVE" blockf 'no-section')" ] && ok "the checks section block is not in $WAVE" || bad "the checks section block is still in $WAVE"
 BCS="$(sub "${BCS//<repo>/$CR}")"; BCS="${BCS//<N>/7}"
 section_case() { # section_case <name> <want> <body>
     jq -n --arg body "$3" '{body: $body}' >"$T/ghx.json"
@@ -448,7 +452,7 @@ section_case "a # comment inside a code block stays in the section" $'```bash\n#
     $'## Mac checks\n\n```bash\n# comment\npnpm icons\n```\n- `b` — exit 0\n\n## Next\n- `c`'
 section_case "an empty section" no-section $'## Mac checks\n\n## Windows checks\n\n- `x` — exit 0'
 
-# The serve pass of skills/epic-wave section 1 against a bare origin, with F worktree.base origin/main as in the
+# The serve pass of skills/gate-queue against a bare origin, with F worktree.base origin/main as in the
 # live profile. The list skips fork PRs. The rebase block takes the branch as origin has it (a stale local branch
 # from an earlier pass would push a rework away), pushes with a lease on the listed head, prints the new head.
 G=(-c user.email=t@t -c user.name=t)
@@ -459,19 +463,19 @@ git -C "$CM" clone -q origin.git other 2>/dev/null && git -C "$CM/other" "${G[@]
 git -C "$CM/other" checkout -q feature 2>/dev/null && echo r >"$CM/other/r.txt" && git -C "$CM/other" add r.txt \
     && git -C "$CM/other" "${G[@]}" commit -q -m rework && git -C "$CM/other" push -q origin feature 2>/dev/null   # the rework of the request machine
 tip="$(git -C "$CM/origin.git" rev-parse main)"; rework="$(git -C "$CM/origin.git" rev-parse feature)"
-BSL="$(SKILL="$WAVE" blockf 'isCrossRepository')"
-[ -n "$BSL" ] || bad "serve list block not found in $WAVE"
+BSL="$(SKILL="$GQF" blockf 'isCrossRepository')"
+[ -n "$BSL" ] || bad "serve list block not found in $GQF"
 BSL="$(sub "${BSL//<repo>/$CR}")"
-printf '%s\n' '[{"number":7,"headRefName":"feature","headRefOid":"'"$rework"'","isCrossRepository":false},
- {"number":8,"headRefName":"evil","headRefOid":"0123","isCrossRepository":true}]' >"$T/ghx.json"
+printf '%s\n' '[{"number":7,"headRefName":"feature","headRefOid":"'"$rework"'","isCrossRepository":false,"createdAt":"2026-10-18T06:00:00Z","commits":[{"committedDate":"2026-10-18T07:00:00Z"}],"comments":[]},
+ {"number":8,"headRefName":"evil","headRefOid":"0123","isCrossRepository":true,"createdAt":"2026-10-18T08:00:00Z","commits":[],"comments":[]}]' >"$T/ghx.json"
 for sh in "${SHELLS[@]}"; do
     : >"$T/ghx.log"
     got="$("${SENV[@]}" "${XENV[@]}" $sh -c "$BSL" 2>&1)"
-    [ "$got" = "7 feature $rework"$'\n'"8 fork: skipped"$'\n'"EXIT=0" ] && grep -q -- '--json number,headRefName,headRefOid,isCrossRepository' "$T/ghx.log" \
+    [ "$got" = "7 feature $rework since 2026-10-18T07:00:00Z"$'\n'"8 fork: skipped"$'\n'"EXIT=0" ] && grep -q -- '--json number,headRefName,headRefOid,isCrossRepository' "$T/ghx.log" \
         && ok "$sh: serve list block: a fork PR is skipped, the others come with their head" || bad "$sh: serve list block: [$got]"
 done
-BSV="$(SKILL="$WAVE" blockf 'gone() {')"
-[ -n "$BSV" ] || bad "serve rebase block not found in $WAVE"
+BSV="$(SKILL="$GQF" blockf 'gone() {')"
+[ -n "$BSV" ] || bad "serve rebase block not found in $GQF"
 BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<scratchpad>/$CM}"; BSV="${BSV//<branch>/feature}"
 serve_rebase() { local b="${BSV//<N>/$1}"; b="${b//<head>/$2}"; "${SENV[@]}" ${RSH:-bash} -c "$b" 2>&1; }   # RSH: the shell
 got="$(serve_rebase 7 "$rework")"; new="$(grep -E '^[0-9a-f]{40}$' <<<"$got" | tail -n 1)"
@@ -554,8 +558,8 @@ got="$(serve_rebase 11 "$before")"
     || bad "serve rebase block, conflict: [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -1 feature)"
 # The second block after a resolved state-file conflict. With the path lost (a fresh shell: P empty or unset) and the
 # current folder a tree with a resolved rebase of its own, it refuses and pushes nothing.
-BCT="$(SKILL="$WAVE" blockf 'rebase --continue')"
-[ -n "$BCT" ] || bad "conflict follow-up block not found in $WAVE"
+BCT="$(SKILL="$GQF" blockf 'rebase --continue')"
+[ -n "$BCT" ] || bad "conflict follow-up block not found in $GQF"
 BCT="$(sub "${BCT//<repo>/$CR}")"; BCT="${BCT//<scratchpad>/$CM}"; BCT="${BCT//<branch>/feature}"; BCT="${BCT//<N>/11}"; BCT="${BCT//<head>/$before}"
 git -C "$CR" worktree add -q --detach "$CM/cwdwt" "$before" 2>/dev/null; git -C "$CM/cwdwt" rebase -q origin/main >/dev/null 2>&1
 echo resolved >"$CM/cwdwt/f.txt"; git -C "$CM/cwdwt" add f.txt
@@ -579,17 +583,18 @@ new="$(git -C "$CM/origin.git" rev-parse feature)"
 [ ! -e "$CM/pr-11" ] || git -C "$CR" worktree remove --force "$CM/pr-11"
 
 # The report-and-merge block: the merge only after a green report that reached the PR and a green check, and only
-# of the head the checks ran on.
-BMG="$(SKILL="$WAVE" blockf 'pr-<N>-report.md')"
-[ -n "$BMG" ] || bad "serve report-and-merge block not found in $WAVE"
+# of the head the checks ran on; the merge under the main-branch lock at its shared path, released after it.
+BMG="$(SKILL="$GQF" blockf 'pr-<N>-report.md')"
+[ -n "$BMG" ] || bad "serve report-and-merge block not found in $GQF"
 BMG="$(sub "${BMG//<repo>/$CR}")"; BMG="${BMG//<scratchpad>/$T}"; BMG="${BMG//<N>/7}"; BMG="${BMG//<new head>/$new}"
 merge_case() { # merge_case <want: merge|none> <name> <first line of the report> <check exit> [env assignment]
     local want="$1" name="$2" b="${BMG//<check exit>/$4}" sh got; printf '%s\nverdict line\n' "$3" >"$T/pr-7-report.md"
     for sh in "${SHELLS[@]}"; do
-        : >"$T/ghx.log"
-        got="$("${SENV[@]}" "${XENV[@]}" ${5:-} $sh -c "$b" 2>&1)"
+        : >"$T/ghx.log"; : >"$T/lock.log"
+        got="$("${SENV[@]}" "${XENV[@]}" GH_LOCK="$CR/.git/main.lock" GH_LOCK_LOG="$T/lock.log" ${5:-} $sh -c "$b" 2>&1)"
         if [ "$want" = merge ]; then
             [ "$(cat "$T/ghx.log")" = "pr comment 7 --body-file $T/pr-7-report.md"$'\n'"pr merge 7 --squash --match-head-commit $new"$'\n'"pr edit 7 --remove-label needs-mac-gate" ] \
+                && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$CR/.git/main.lock" ] \
                 && ok "$sh: report-and-merge block, $name -> comment, merge of the checked head, label removed" || bad "$sh: report-and-merge, $name: [$got] gh [$(cat "$T/ghx.log")]"
         else
             ! grep -q '^pr merge' "$T/ghx.log" && ! grep -q -- '--remove-label' "$T/ghx.log" && grep -q '^pr comment 7' "$T/ghx.log" \
@@ -603,7 +608,12 @@ merge_case none "red report" "Mac checks report: red" 0
 merge_case none "check exit 2" "Mac checks report: green" 2
 printf 'Mac checks report: green\n' >"$T/pr-7-report.md"
 : >"$T/ghx.log"; "${SENV[@]}" "${XENV[@]}" GH_FAIL_ON=merge bash -c "${BMG//<check exit>/0}" >/dev/null 2>&1
-! grep -q -- '--remove-label' "$T/ghx.log" && ok "report-and-merge block: the merge failed -> the label stays" || bad "report-and-merge, merge failed: [$(cat "$T/ghx.log")]"
+! grep -q -- '--remove-label' "$T/ghx.log" && [ ! -e "$CR/.git/main.lock" ] && ok "report-and-merge block: the merge failed -> the label stays, the lock is released" || bad "report-and-merge, merge failed: [$(cat "$T/ghx.log")] lock $(ls -d "$CR/.git/main.lock" 2>&1)"
+# A lock left by a session that died (older than 90 minutes) is taken over; the merge runs under it and releases it.
+mkdir "$CR/.git/main.lock" && touch -t 202601010000 "$CR/.git/main.lock"; : >"$T/ghx.log"; : >"$T/lock.log"
+"${SENV[@]}" "${XENV[@]}" GH_LOCK="$CR/.git/main.lock" GH_LOCK_LOG="$T/lock.log" bash -c "${BMG//<check exit>/0}" >/dev/null 2>&1
+grep -q '^pr merge 7' "$T/ghx.log" && [ "$(cat "$T/lock.log")" = held ] && [ ! -e "$CR/.git/main.lock" ] \
+    && ok "report-and-merge block: a stuck lock (older than 90 min) is taken over, the merge runs under it" || bad "report-and-merge, stuck lock: gh [$(cat "$T/ghx.log")] lock [$(cat "$T/lock.log")]"
 
 # The request machine's report lookup: only a report by github.account counts.
 BRR="$(SKILL="$WAVE" blockf 'report: ([.comments[]')"

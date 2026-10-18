@@ -78,8 +78,8 @@ describe('the plan of the form', () => {
   it('Q19 matches the plugin: the 3 agents and 7 skills of the old Harness are the ones harness/ carries', () => {
     expect(readdirSync(join(REPO, 'harness', 'agents')).sort()).toEqual([...HARNESS_AGENTS].sort())
     // connect-project came with the plugin (worfy-harness ticket 24), max-review with worfy-review ticket 07:
-    // the old Harness never had them, so the migration plan does not offer to remove them.
-    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project', 'max-review'].sort())
+    // gate-queue with worfy-windows ticket 17: the old Harness never had them, so the migration plan does not offer to remove them.
+    expect(readdirSync(join(REPO, 'harness', 'skills')).sort()).toEqual([...HARNESS_SKILLS, 'connect-project', 'gate-queue', 'max-review'].sort())
   })
 
   it('names the ten hook records of the old Harness, the Harness files, the qmd group, the state and three Profiles — and nothing personal', () => {

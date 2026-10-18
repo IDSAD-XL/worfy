@@ -1264,6 +1264,182 @@ describe('the narrow fix round from the PR comments (worfy-harness ticket 20)', 
   })
 })
 
+describe('the gate queue before the run stops for want of a Wave (worfy-windows ticket 17)', () => {
+  const GATE_TEXT = '/worfy:gate-queue'
+  /** A stand-in whose "Process gate queue" answers `text` (null: not the machine with serve, or no template); each call counted. */
+  function gated(text: string | null, overrides: Partial<AutopilotDeps> = {}) {
+    const s = standIn(overrides)
+    const calls: string[] = []
+    s.deps.waves.autopilotGateQueue = (projectId) => {
+      calls.push(projectId)
+      return Promise.resolve(text)
+    }
+    return { s, calls }
+  }
+  const answer = (text: string): AgentEvent => ({ ...(result() as object), text }) as unknown as AgentEvent
+  const lines = (s: StandIn) =>
+    s.journal.map((line) => ({
+      kind: line.kind,
+      ...('reason' in line ? { reason: line.reason } : {}),
+      ...('text' in line && line.kind === 'gate-queue' ? { text: line.text } : {}),
+      ...('tickets' in line && line.kind === 'run-stopped' && line.tickets !== undefined ? { tickets: line.tickets } : {}),
+      ...('lastText' in line && line.lastText !== undefined ? { lastText: line.lastText } : {}),
+    }))
+
+  it('serve, no ready Wave at the start: the template goes, gate-queue is journaled, and run-stopped with no-ready-wave follows its turn', async () => {
+    const { s, calls } = gated(GATE_TEXT)
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.sent).toEqual([GATE_TEXT])
+    expect(calls).toEqual([PROJECT])
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }])
+    // The turn goes on: the run waits for its end, as for a Wave.
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
+    s.state = 'idle'
+    s.emit(answer('queue empty'))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'no-ready-wave' })
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'no-ready-wave' }])
+    expect(s.power).toEqual(['start', 'stop'])
+    expect(s.orchestrator).toEqual(['unattended true', 'unattended false'])
+    // Once per run.
+    expect(calls).toHaveLength(1)
+  })
+
+  it('serve, after the last Wave: blocked-tickets with its Tickets and the Wave\'s last answer, after the gate queue\'s turn; no second wave-finished', async () => {
+    const { s, calls } = gated(GATE_TEXT)
+    s.tickets = [t(1, 'open'), t(2, 'open'), t(3, 'blocked', [1, 2])]
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2)
+    s.emit(result())
+    await settle()
+    expect(s.sent).toEqual([GATE_TEXT])
+    expect(lines(s)).toEqual([{ kind: 'wave-started' }, { kind: 'wave-finished' }, { kind: 'gate-queue', text: GATE_TEXT }])
+    s.state = 'idle'
+    s.emit(answer('merged #470'))
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'blocked-tickets', wave: 1 })
+    expect(lines(s)).toEqual([
+      { kind: 'wave-started' },
+      { kind: 'wave-finished' },
+      { kind: 'gate-queue', text: GATE_TEXT },
+      { kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['03'], lastText: 'done' },
+    ])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('the gate queue\'s turn makes a Ticket ready: the run still stops with the reason it had, no Wave goes', async () => {
+    const { s } = gated(GATE_TEXT)
+    s.tickets = [t(1, 'open'), t(2, 'blocked')]
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1)
+    s.emit(result())
+    await settle()
+    // The merge of the queue unblocked 02.
+    s.tickets = s.tickets.map((each) => (each.num === 2 ? { ...each, state: 'open' as const } : each))
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'blocked-tickets' })
+    expect(s.resumes).toHaveLength(1)
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'wave-finished', 'gate-queue', 'run-stopped'])
+  })
+
+  it('request, no field or no template (null): no gate-queue, the run stops at once', async () => {
+    const { s, calls } = gated(null)
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(calls).toEqual([PROJECT])
+    expect(s.sent).toEqual([])
+    expect(lines(s)).toEqual([{ kind: 'run-stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('a Stop by the owner: no gate-queue, though no Wave is left', async () => {
+    const { s, calls } = gated(GATE_TEXT)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2, 3)
+    s.state = 'busy'
+    await s.autopilot.stop(PROJECT)
+    s.queue.shift()
+    s.emit(result())
+    s.emit({ type: 'prompt', text: STOP_TEXT })
+    await settle()
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(calls).toEqual([])
+    expect(s.sent).toEqual([STOP_TEXT])
+    expect(s.journal.map((line) => line.kind)).not.toContain('gate-queue')
+  })
+
+  it('a Stop while the role and the template are read: no gate-queue, the run stops with its reason', async () => {
+    const { s } = gated(GATE_TEXT)
+    s.deps.waves.autopilotGateQueue = () => {
+      void s.autopilot.stop(PROJECT)
+      return Promise.resolve(GATE_TEXT)
+    }
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(s.sent).toEqual([])
+    expect(lines(s)).toEqual([{ kind: 'run-stopped', reason: 'no-ready-wave' }])
+  })
+
+  it('a Stop during the gate queue\'s turn is graceful, as in a Wave: STOP_TEXT behind the turn, user-stop after it', async () => {
+    const { s } = gated(GATE_TEXT)
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(await s.autopilot.stop(PROJECT)).toMatchObject({ status: 'running', stopping: true })
+    expect(s.sent).toEqual([GATE_TEXT, STOP_TEXT])
+    expect(s.halts).toBe(0)
+    s.queue.shift()
+    s.emit(result())
+    s.emit({ type: 'prompt', text: STOP_TEXT })
+    await settle()
+    s.state = 'idle'
+    s.emit(result())
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-stop' })
+    expect(s.journal.map((line) => line.kind)).toEqual(['gate-queue', 'run-stopping', 'run-stopped'])
+  })
+
+  it('a Force stop during the gate queue\'s turn: the Session is halted, run-stopped says user-force-stop', async () => {
+    const { s } = gated(GATE_TEXT)
+    done(s, 1, 2, 3)
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    expect(await s.autopilot.forceStop(PROJECT)).toMatchObject({ status: 'stopped', reason: 'user-force-stop', resumable: [] })
+    expect(s.halts).toBe(1)
+    expect(lines(s)).toEqual([{ kind: 'gate-queue', text: GATE_TEXT }, { kind: 'run-stopped', reason: 'user-force-stop' }, { kind: 'orchestrator-returned' }])
+  })
+
+  it('limits-timeout: no gate-queue', async () => {
+    const far = Date.now() + 30 * 24 * 3_600_000
+    const limits = {
+      state: () => ({ windows: { seven_day: { utilization: 1, resetsAt: far / 1000, status: 'rejected', receivedAt: Date.now(), source: 'sdk' as const } } }),
+      observeSession: () => () => undefined,
+      send: () => undefined,
+    }
+    const { s, calls } = gated(GATE_TEXT, { limits })
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    done(s, 1, 2, 3)
+    s.state = 'idle'
+    s.emit({ ...(result() as object), isError: true, subtype: 'error_during_execution', text: null, error: "You've hit your limit" } as unknown as AgentEvent)
+    await settle()
+    expect(s.autopilot.state(PROJECT)).toMatchObject({ status: 'stopped', reason: 'limits-timeout' })
+    expect(calls).toEqual([])
+    expect(s.journal.map((line) => line.kind)).toEqual(['wave-started', 'limits-hit', 'run-stopped'])
+  })
+})
+
 describe('a Session that fails while the run opens its workflow watch', () => {
   it('ends the run, closes the watch, and keeps no run behind', async () => {
     let unwatched = 0

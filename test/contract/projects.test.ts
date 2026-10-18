@@ -152,8 +152,8 @@ function stubProfile(answer: { code: number; workspace: string | null; old?: boo
   return calls
 }
 
-const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' }
-const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}' }
+const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' }
+const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue' }
 
 beforeEach(async () => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-projects-')))
@@ -193,7 +193,7 @@ describe('projects.add', () => {
     const { project } = await addOk(repo)
     expect(project.id).toBe(`auction-${createHash('sha256').update(repo).digest('hex').slice(0, 8)}`)
     const settings = JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')) as unknown
-    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' } })
+    expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' } })
     expect(existsSync(join(dataDir, 'projects.json'))).toBe(true)
   })
 
@@ -283,7 +283,7 @@ describe('projects.add', () => {
   it('keeps the settings of a repository that is added again', async () => {
     const repo = makeRepo('auction')
     const { project } = await addOk(repo)
-    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '' } }
+    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN}', runWave: '', gateQueue: '' } }
     await value('projects.settings.set', { id: project.id, settings: changed })
     await addOk(repo)
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(changed)
@@ -394,9 +394,9 @@ describe('projects.settings', () => {
   it('gives a new Project the default templates and keeps a change across a restart', async () => {
     const { project } = await addOk(makeRepo('auction'))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
-      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' },
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' },
     })
-    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN} on {branch}', runWave: '' } }
+    const changed = { actionTemplates: { shipTicket: '/ship {epic}/{NN} on {branch}', runWave: '', gateQueue: '' } }
     expect(await value('projects.settings.set', { id: project.id, settings: changed })).toStrictEqual(changed)
 
     await start()
@@ -411,12 +411,12 @@ describe('projects.settings', () => {
     writeFileSync(file, old)
     await start()
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({
-      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}' },
+      actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' },
     })
     // Reading does not write: the file stays as the stable copy left it.
     expect(readFileSync(file, 'utf8')).toBe(old)
 
-    const own = { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave wave {wave} of {epic}' } }
+    const own = { actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave wave {wave} of {epic}', gateQueue: '' } }
     writeFileSync(file, JSON.stringify(own))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
@@ -425,7 +425,7 @@ describe('projects.settings', () => {
     const { project } = await addOk(makeRepo('auction'))
     const file = join(dataDir, project.id, 'settings.json')
     const before = readFileSync(file, 'utf8')
-    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/ship-ticket {foo}', runWave: '' } } })
+    const result = await call('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/ship-ticket {foo}', runWave: '', gateQueue: '' } } })
     expect(result.ok).toBe(false)
     expect(!result.ok && result.error).toMatch(/Unknown placeholder \{foo\}/)
     expect(readFileSync(file, 'utf8')).toBe(before)
@@ -451,7 +451,7 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual({ actionTemplates: PLUGIN_TEMPLATES })
     expect(readFileSync(file, 'utf8')).toBe(saved)
 
-    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '' } }
+    const own = { actionTemplates: { shipTicket: 'my ship {NN}', runWave: '', gateQueue: '' } }
     writeFileSync(file, JSON.stringify(own))
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(own)
   })
@@ -472,7 +472,7 @@ describe('projects.settings', () => {
     const { project } = await addOk(makeRepo('auction'))
     await value('projects.settings.get', { id: project.id })
     await value('projects.settings.defaults')
-    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '' } } })
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '' } } })
     expect(listing(claudeHome)).toEqual(before)
   })
 
@@ -483,7 +483,7 @@ describe('projects.settings', () => {
     expect(await value('projects.settings.get', { id: project.id })).not.toHaveProperty('terminalShell')
     expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('terminalShell')
 
-    const chosen = { actionTemplates: { shipTicket: '/x {NN}', runWave: '' }, terminalShell: 'git-bash' }
+    const chosen = { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '' }, terminalShell: 'git-bash' }
     expect(await value('projects.settings.set', { id: project.id, settings: chosen })).toStrictEqual(chosen)
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(chosen)
     expect(await value('projects.settings.get', { id: project.id })).toStrictEqual(chosen)
@@ -499,9 +499,9 @@ describe('projects.settings', () => {
     const result = await value('projects.settings.set', {
       id: project.id,
       junk: 1,
-      settings: { actionTemplates: { shipTicket: '', runWave: '', smuggled: 'x' }, other: 'y' },
+      settings: { actionTemplates: { shipTicket: '', runWave: '', smuggled: 'x', gateQueue: '' }, other: 'y' },
     })
-    expect(result).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '' } })
+    expect(result).toStrictEqual({ actionTemplates: { shipTicket: '', runWave: '', gateQueue: '' } })
     const stored = readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')
     expect(stored).not.toContain('smuggled')
     expect(stored).not.toContain('other')
@@ -518,7 +518,7 @@ describe('the repository of a Project', () => {
     const { project } = await addOk(join(repo))
     await addOk(other)
     await value('projects.select', { id: project.id })
-    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '' } } })
+    await value('projects.settings.set', { id: project.id, settings: { actionTemplates: { shipTicket: '/x {NN}', runWave: '', gateQueue: '' } } })
     await value('projects.list')
     await value('projects.remove', { id: project.id })
 

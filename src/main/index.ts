@@ -8,11 +8,13 @@ import { installProcessGone } from './diagnostics/process-gone'
 import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners } from './ipc/claude-home'
+import { sharedGateQueue } from './ipc/gate-queue'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
-import { electronNotifyDeps, installNotifications } from './notify'
+import { electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
+import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
 import { dataRoot, setBuildKind } from './storage/paths'
@@ -124,7 +126,12 @@ function start(): void {
       inStep('startOrchestrators', () => startOrchestrators())
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on
       // the Linked machines once the link has started (worfy-link ticket 13).
-      inStep('installNotifications', () => installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink()))
+      // With them, the notification of a PR in the cross-machine gate queue that has waited over an
+      // hour (worfy-windows ticket 17), for the Projects in worfy's list.
+      inStep('installNotifications', () => {
+        installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink())
+        installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
+      })
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
