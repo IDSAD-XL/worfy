@@ -106,7 +106,9 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
     setFit({ shape, tight: overflows(ref.current) })
   }, [narrow, fit, shape])
   // The box changed width (the Card was resized, a chip beside it came or went): measure again.
-  // Its width does not depend on the form drawn in it: the stepper takes the row's free space.
+  // The stepper takes the row's free space, so its width does not depend on the form drawn in it,
+  // except beside the repository chip: there both share the row's lack of room by their widths, but
+  // the Card already asks for the narrow form and no measure runs.
   useEffect(() => {
     const element = ref.current
     if (element === null || typeof ResizeObserver === 'undefined') return

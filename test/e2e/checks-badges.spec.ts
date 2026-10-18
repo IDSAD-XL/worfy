@@ -382,8 +382,8 @@ interface StepperTicket {
   repo?: string
 }
 
-/** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline and `repos`, launched. */
-async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repos: (repo: string) => { name: string; path: string }[]) {
+/** A Project whose Profile (a stand-in bin/profile) has the nine-Stage Pipeline (or `pipeline`) and `repos`, launched. */
+async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repos: (repo: string) => { name: string; path: string }[], pipeline: unknown[] = WORFY_PIPELINE) {
   const dataDir = join(scratch, 'data')
   const claudeHome = join(scratch, 'claude-home')
   const ghDir = join(scratch, 'gh')
@@ -409,7 +409,7 @@ async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repo
   const json = (t: StepperTicket) => ({ ...ticketJson(t.num, t.status, t.state), ...(t.reason ? { blockedReason: t.reason } : {}), ...(t.repo ? { repo: t.repo } : {}) })
   writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: tickets.map(json) }))
   writeFileSync(join(claudeHome, 'bin', 'epic-status'), catScript(answer))
-  const profile = { _resolved: { name: 'worfy', mode: 'full', workflow_folder: repo, workspace: repo, repos: projectRepos, pipeline: WORFY_PIPELINE }, workflow: { e2e_lock: join(scratch, 'no-lock') } }
+  const profile = { _resolved: { name: 'worfy', mode: 'full', workflow_folder: repo, workspace: repo, repos: projectRepos, pipeline }, workflow: { e2e_lock: join(scratch, 'no-lock') } }
   writeFileSync(join(claudeHome, 'bin', 'profile'), profileJsonScript(JSON.stringify(profile)))
   for (const script of ['epic-status', 'profile']) chmodSync(join(claudeHome, 'bin', script), 0o755)
   writeFileSync(join(ghDir, 'prs.json'), JSON.stringify(pulls))
@@ -422,7 +422,8 @@ async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repo
  * Whether the Stage's name and the stepper are whole: nothing cut, nothing past the stepper's edge,
  * the top row inside the Card. Fractional widths: `scrollWidth` and `clientWidth` round to whole
  * pixels and read 50 and 50 for a name that needs 42.66 px and has 42. Each pair is [needs, has] in
- * CSS pixels; the content is a Range's rectangle, which keeps the whole width of text cut with «…».
+ * CSS pixels; the content is a Range's rectangle, which keeps the whole width of text cut with «…»;
+ * for the stepper it is its parts' boxes, as the stepper measures itself.
  */
 const stepperFit = (ticket: Locator) =>
   ticket.getByTestId('ticket-stepper').evaluate((element) => {
@@ -451,7 +452,13 @@ const stepperFit = (ticket: Locator) =>
     return {
       label: pair(stepper.querySelector('[data-testid="stepper-label"]')),
       count: pair(stepper.querySelector('[data-testid="stepper-count"]')),
-      stepper: pair(stepper),
+      blocked: pair(stepper.querySelector('[data-testid="stepper-blocked"]')),
+      ready: pair(card.querySelector('[data-testid="ticket-ready"]')),
+      // The stepper's parts, not their text: a name cut with «…» stays inside its own box.
+      stepper: (() => {
+        const parts = Array.from(stepper.children, (child) => child.getBoundingClientRect())
+        return [round(Math.max(...parts.map((each) => each.right)) - Math.min(...parts.map((each) => each.left))), round(stepper.getBoundingClientRect().width)]
+      })(),
       row: [round(Math.max(...top.map((each) => each.right)) - inner.left), round(inner.right - inner.left)],
       card: card.offsetWidth,
     }
@@ -544,6 +551,54 @@ test('nine Stages, a repository chip and the Ready chip in one row of a 204 px C
       whole(fit.count, `«N/M» beside ${name}`, fit)
       whole(fit.stepper, `the stepper beside ${name}`, fit)
       whole(fit.row, `the top row beside ${name}`, fit)
+    }
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a Stage name too long even for the narrow form, beside a repository chip: the name is cut with «…», and «N/M», the blocked «!» and Ready stay whole inside the 204 px Card', async () => {
+  // Check names and labels have no length limit (pipeline.ts): a long one in a Project over several repositories.
+  const pipeline = WORFY_PIPELINE.map((stage) =>
+    stage.kind === 'queued' ? { kind: 'queued', label: 'Waiting to start' } : stage.kind === 'check' ? { kind: 'check', name: 'windows-full-e2e' } : stage,
+  )
+  const launched = await launchNineStages(
+    [
+      { num: 1, status: 'open', state: 'open', repo: 'application-server' },
+      { num: 2, status: 'blocked — waits for the owner', state: 'blocked', reason: 'waits for the owner', repo: 'web-client' },
+    ],
+    [openPull(42, 'demo/02', [ok, review('SUCCESS')])],
+    (repo) => [
+      { name: 'application-server', path: repo },
+      { name: 'web-client', path: join(scratch, 'web-client') },
+    ],
+    pipeline,
+  )
+  try {
+    const { window } = launched
+    const cards = [
+      { num: 1, stage: 'Waiting to start', count: '1/9', blocked: false, ready: true },
+      { num: 2, stage: 'Check «windows-full-e2e»', count: '5/9', blocked: true, ready: false },
+    ]
+    for (const each of cards) {
+      const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${each.num}, ${each.stage}`, { timeout: 20_000 })
+      await expect(card.getByTestId('ticket-repo')).toBeVisible()
+      await expect(card.getByTestId('ticket-ready')).toHaveCount(each.ready ? 1 : 0)
+      await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
+      await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+      await expect(card.getByTestId('stepper-label')).toHaveText(each.stage)
+      await expect(card.getByTestId('stepper-count')).toHaveText(each.count)
+      const fit = await stepperFit(card)
+      expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
+      // The last resort: the name gives way, with «…» (the tooltip has it whole).
+      expect(fit.label![0], `the Stage name on Ticket ${each.num} is cut: ${JSON.stringify(fit)}`).toBeGreaterThan(fit.label![1]! + 1)
+      await expect(card.getByTestId('stepper-label')).toHaveCSS('text-overflow', 'ellipsis')
+      whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
+      if (each.blocked) whole(fit.blocked, `the blocked «!» on Ticket ${each.num}`, fit)
+      if (each.ready) whole(fit.ready, `the Ready chip on Ticket ${each.num}`, fit)
+      whole(fit.stepper, `the stepper of Ticket ${each.num}`, fit)
+      whole(fit.row, `the top row of Ticket ${each.num}`, fit)
     }
   } finally {
     await launched.close()

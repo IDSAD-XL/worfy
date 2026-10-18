@@ -173,6 +173,25 @@ test/e2e/checks-badges.spec.ts test/e2e/epic-frame.spec.ts` — exit 0 (9 passed
 
 - В полном виде «кого ждёт» может сжаться до одной метки «·» («Implementing ·..»): у `.w-stepper__waits`
   `flex: 1 1 0` (`stepper.css`), замер на него не смотрит. Прятать его, когда не помещается.
-- Комментарий над ResizeObserver в `Stepper.tsx` говорит, что ширина коробки не зависит от вида
-  stepper-а; рядом с chip-ом репозитория (`flexShrink: 100`) и теперь при `flex-shrink: 0` узкого вида
-  — зависит. Сейчас безвредно: в этом случае узкий вид задаёт Card, и замер не идёт.
+- Комментарий над ResizeObserver в `Stepper.tsx` говорил, что ширина коробки не зависит от вида
+  stepper-а; рядом с chip-ом репозитория — зависит. Исправлен в четвёртом круге (ниже).
+
+Четвёртый круг (разрешение владельца 2026-10-18, «27 ок»; одна находка [med] ревью третьего круга,
+head до него a065de16, ветка перед ним перенесена на `origin/main` 3b26e1f9):
+
+- [med] `flex-shrink: 0` узкого stepper-а ломал правило «имя Stage режется только в последнюю очередь»:
+  когда не помещается даже узкий вид, вся строка уходила за край Card и обрезалась без «…» — пропадали
+  «N/M», «!» blocked и Ready (Queued с `label` «Waiting to start», chip репозитория и Ready — 214.61 px в
+  182 px, замер e2e). Длина `name` Check-а и `label` не ограничена (`src/shared/workflow/pipeline.ts`).
+  - `stepper.css`: правило `flex-shrink: 0` убрано, узкий stepper снова сжимается.
+  - `TicketNode.tsx`: `flexShrink` chip-а репозитория — 100000 вместо 100. Flex делит нехватку места
+    пропорционально `flexShrink` × ширина: при 100 stepper отдавал 0.4 px имени («Queued» рядом с `app`),
+    при 100000 — меньше 1/64 px, пока chip не сжат до padding. Потом сжимается stepper, и имя режется «…».
+  - `Stepper.tsx`: комментарий над ResizeObserver говорит, когда ширина коробки зависит от вида.
+  - Test-ы: `test/e2e/checks-badges.spec.ts` — новый test «a Stage name too long even for the narrow
+    form…»: Pipeline с Queued `label` «Waiting to start» и Check `windows-full-e2e`, Project из двух
+    репозиториев, Card 204 px — Queued с Ready и blocked Check: имя режется «…», «N/M», «!» и Ready целые,
+    верхняя строка внутри Card. Красный на CSS третьего круга (строка 214.61 в 182). Mutant
+    `flexShrink: 100` — красный test «nine Stages, a repository chip and the Ready chip…» (42.49 в 42.09).
+    `test/unit/ticket-stepper.test.tsx` — test «the box narrows by less than a pixel» (200 → 199.7 px);
+    mutant `Math.round` на ширине ResizeObserver — красный.

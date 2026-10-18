@@ -54,8 +54,12 @@ function StateChip({ ticket }: { ticket: Ticket }) {
 /**
  * The chip is cut with "…" past this width; its tooltip has the whole name. It gives way before the
  * stepper beside it (flexShrink): the Stage is the Card's state, the repository's name is in the tooltip.
+ * Flex shares a row's lack of room in proportion to flexShrink times width, so at 100 the stepper
+ * still gave up 0.4 px of the Stage's name («Queued» beside `app`); at 100000 it gives up under
+ * 1/64 px, a layout pixel's smallest step, until the chip is down to its padding. Only then does the
+ * stepper shrink, and the name is cut with «…» while «N/M», its flags and Ready stay whole.
  */
-const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, flexShrink: 100, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
+const REPO_CHIP_STYLE = { display: 'block', minWidth: 0, maxWidth: 84, flexShrink: 100000, overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '16px' } as const
 
 /** The Ticket's repository, shown only in a Project with more than one. */
 function RepoChip({ root, repo }: { root: string; repo: string | null | undefined }) {

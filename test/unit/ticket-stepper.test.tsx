@@ -330,6 +330,18 @@ describe('Stepper measures whether the full form fits', () => {
     expect(isNarrow()).toBe(true)
   })
 
+  it('the box narrows by less than a pixel: measured again, and the full form no longer fits', () => {
+    room = 200
+    need = () => 199.9
+    labelCut = false
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci')} />)
+    expect(isNarrow()).toBe(false)
+    room = 199.7
+    act(() => observers[0]!.callback())
+    expect(isNarrow()).toBe(true)
+  })
+
   it('stops observing when the stepper is gone', () => {
     room = 160
     need = () => 230
