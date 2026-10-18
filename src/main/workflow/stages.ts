@@ -199,13 +199,13 @@ export class StageReader {
     return open === null ? [] : marksFromStatuses(open.markStatuses, open.headSha)
   }
 
-  /** Branch name → head SHA of the repository's local branches. */
   /** Whether `folder` is in a git work tree, as gh needs to find the repository of its PRs. */
   private async isInWorkTree(folder: string): Promise<boolean> {
     const inside = await this.git(folder, ['rev-parse', '--is-inside-work-tree'])
     return inside.code === 0 && inside.stdout.trim() === 'true'
   }
 
+  /** Branch name → head SHA of the repository's local branches. */
   private async branchHeads(repo: string): Promise<Map<string, string>> {
     const listed = await this.git(repo, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads'])
     const heads = new Map<string, string>()
