@@ -2,7 +2,7 @@
 
 Type: task
 Status: blocked
-Blocked reason: решение владельца — вернуть системную консоль (0 смертей из 96 на ПК) или исправление в node-pty upstream (mutex вокруг списка pty); и crash dump шага 6, который меняет настройки Windows
+Blocked reason: решение владельца по node-pty (замер 2026-10-18, по 144 круга): (1) закрепить `node-pty@1.2.0-beta.15` — 0 смертей, conhost на системной консоли остаётся; (2) свой patch к 1.1.0 — 0 смертей и 0 conhost, нужна сборка бинаря Windows в CI; (3) остаться на 1.1.0 — 8 смертей из 144. В upstream ничего не отправлять без слова владельца
 Waits: owner
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «Not this PR — I file tickets»); замер Session на Windows-ПК при работе над [Ticket-ом 22](22-conhost-остаётся-после-exit-в-terminal.md) (PR #280). Первый шаг — воспроизвести и измерить на Windows-ПК.

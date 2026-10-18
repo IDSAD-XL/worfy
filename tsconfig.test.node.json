@@ -30,6 +30,7 @@
     "test/setup-contract.ts",
     "test/stale-leftovers.ts",
     "test/zsh.ts",
+    "test/windows-runner.ts",
     "test/unit/**/*.ts",
     "test/contract/**/*.ts",
     "test/e2e/**/*.ts",

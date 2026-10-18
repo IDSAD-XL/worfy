@@ -2,7 +2,7 @@
 
 Type: task
 Status: blocked 2026-10-18T05:01Z
-Blocked reason: пропуск влит (#474); нужен test условия пропуска и один ручной job windows-tests.yml — по слову владельца
+Blocked reason: пропуск и test его условия готовы; нужен один ручной job windows-tests.yml — по слову владельца
 Waits: owner
 Branch: worfy-windows/41-warm-up
 Blocked by: —
@@ -189,3 +189,9 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - Влит как `f1ac65af` после `[gate] зелено (full)` на Mac. Первый gate full был красным только на `test`, пока Session на Mac писала Profile под `~/.claude` (test-ы со снимком `~/.claude`); `pnpm test` на том же дереве `a6352cae` — exit 0, 6009 passed / 0 failed.
 - Ревью на Mac, круг 2 (medium): одна находка low — условие пропуска не проверено test-ом. Mutant без проверки платформы на Linux CI (там тоже `GITHUB_ACTIONS=true`) молча пропускает 10 test-ов `terminal.test.ts` и остаётся зелёным. Это же требует раздел «Тесты» этого Ticket-а.
 - Осталось: (1) test условия пропуска (на ПК ложно, на runner-е истинно); (2) один ручной job `windows-tests.yml` с пропуском — по слову владельца.
+
+### Test условия пропуска (2026-10-18)
+
+- Условие и причина пропуска вынесены из `test/contract/terminal-harness.ts` в `test/windows-runner.ts`: `windowsPowerShellOffRunner(platform, env)` читает систему и окружение при вызове (по умолчанию — `process.platform` и `process.env`), `needsWindowsPowerShellOffRunner(context)` зовёт его. Harness реэкспортирует оба имени, 18 test-ов не менялись.
+- `test/unit/windows-runner.test.ts`: `win32` + `GITHUB_ACTIONS=true` — пропуск; `win32` без переменной или с `false` — нет; `linux` и `darwin` с `GITHUB_ACTIONS=true` — нет (в пакетном CI на Linux переменная тоже `true`); helper передаёт условие этой машины и причину с «ticket 41». На ПК условие ложно.
+- Мутант без проверки системы (`return env['GITHUB_ACTIONS'] === 'true'`) — test красный (результаты — ниже, в описании PR).
