@@ -931,7 +931,8 @@ describe('claudeHome.changed carries the root as the window sent it', () => {
     // Claude Code named the folder after the cwd it started in: the alias, as the Project list has it.
     const home = join(dir, 'claude')
     await mkdir(join(home, 'projects', projectDirName(alias)), { recursive: true })
-    await writeFile(join(home, 'projects', projectDirName(alias), `${S1}.jsonl`), await readFile(join(FIXTURE, 'projects', projectDir(DEMO), `${S1}.jsonl`)))
+    // Its records name that cwd: a transcript of the folder named like the root is kept by its cwd (worfy-link ticket 32).
+    await writeFile(join(home, 'projects', projectDirName(alias), `${S1}.jsonl`), `${userLine('a prompt in the alias', alias, `${S1}-u`)}\n`)
     const gitAt: string[] = []
     const registry = new ClaudeHomeRegistry({
       home,

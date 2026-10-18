@@ -1,7 +1,8 @@
 # 32 — Linked machine может прочитать историю Claude Session папки вне Project-а
 
 Type: bug
-Status: open
+Status: claimed 2026-10-18T19:55Z
+Branch: worfy-link/32
 Blocked by: —
 Source: ревью корректности Ticket-а worfy-windows 57, круг 2 (ПК владельца, 2026-10-18), чтение кода.
 Дефект есть и до 57 (на `f7ea055f`); 57 его не создаёт и не чинит. Запуском не проверено.

@@ -11,15 +11,17 @@
 //   worfy-windows ticket 01, section 12). A list reads only the head and the tail of each file.
 // - one rule for both: a Session belongs to the Project when its cwd is the root, a worktree, or
 //   a folder inside either. Folder names lose the difference between `/` and `-`, so a transcript
-//   in a folder that only starts like a subfolder of the Project is kept only when the cwd its
-//   first records name lies inside the Project.
+//   in a folder named like the root, a worktree or a subfolder of the Project is kept only when
+//   the cwd its first records name lies inside the Project (the worktree `/p/A/evil` shares its
+//   folder with `/p/A-evil`, worfy-link ticket 32). Only the folders of worktrees under
+//   <root>/.claude/worktrees/ are taken by their name alone.
 //
 // Nothing here writes: no cache file, no marker files, no lock under the Claude home. The history
 // entries read from transcripts are kept in memory (HistoryCache). The watcher only reads directory
 // listings.
 import { execFile } from 'node:child_process'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
-import { join, posix, relative, resolve, sep, win32 } from 'node:path'
+import { basename, join, posix, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
 import { watch, type FSWatcher } from 'chokidar'
 import { z } from 'zod'
@@ -54,20 +56,27 @@ export function projectDirName(cwd: string): string {
 const worktreeDirPrefix = (root: string): string => `${projectDirName(root)}--claude-worktrees-`
 
 /**
- * How a folder under projects/ relates to the Project with these roots: `project` — the folder
- * of the root, of a worktree, or of a (possibly removed) worktree under <root>/.claude/worktrees/;
- * `subfolder` — named like a folder inside a root or worktree, which another Project's folder can
- * be too (`/proj/a` and `/proj-a` share one name), so each transcript's cwd decides; `none`.
+ * How a folder under projects/ relates to the Project with these roots: `project` — the folder of
+ * a (possibly removed) worktree under <root>/.claude/worktrees/; `root` — named exactly like a
+ * root or a worktree; `subfolder` — named like a folder inside a root or worktree; `none`.
+ *
+ * A name stands for several paths (`/proj/a` and `/proj-a` share one), so for `root` and
+ * `subfolder` each transcript's cwd decides (cwdDecides). An exact name is no proof either: the
+ * worktree `/p/A/evil` shares its folder with `/p/A-evil`, which lies outside the Project
+ * (worfy-link ticket 32).
  */
-type DirMatch = 'project' | 'subfolder' | 'none'
+type DirMatch = 'project' | 'root' | 'subfolder' | 'none'
 
 function dirMatch(dirName: string, roots: readonly string[]): DirMatch {
   const [root] = roots
   if (root !== undefined && dirName.startsWith(worktreeDirPrefix(root))) return 'project'
-  if (roots.some((path) => projectDirName(path) === dirName)) return 'project'
+  if (roots.some((path) => projectDirName(path) === dirName)) return 'root'
   if (roots.some((path) => dirName.startsWith(`${projectDirName(path)}-`))) return 'subfolder'
   return 'none'
 }
+
+/** Whether the transcripts of a folder of this match are kept only when their cwd lies inside the roots. */
+const cwdDecides = (match: DirMatch): boolean => match === 'root' || match === 'subfolder'
 
 /**
  * Is `path` the folder `root` or inside it? Both are resolved by the rules of `platform`. On Windows
@@ -553,6 +562,11 @@ class HistoryCache {
     return read.entry
   }
 
+  /** The cwd the last read of the transcript `name` in `dir` found; undefined when none is known. */
+  cwdOf(dir: string, name: string): string | undefined {
+    return this.dirs.get(dir)?.get(name)?.entry.cwd
+  }
+
   private drop(dir: string, name: string): void {
     this.dirs.get(dir)?.delete(name)
   }
@@ -632,6 +646,11 @@ export class ClaudeHomeRegistry {
     return join(this.home, 'sessions')
   }
 
+  /** The git worktrees of the Project at `root`, other than the root itself; the lister the registry was given. */
+  worktrees(root: string): Promise<string[]> {
+    return this.listWorktrees(root)
+  }
+
   /** The Project root, its real path when one is given, and its worktrees, absolute and normalised. */
   async roots(projectRoot: RegistryRoot): Promise<string[]> {
     const root = resolve(rootPath(projectRoot))
@@ -642,8 +661,8 @@ export class ClaudeHomeRegistry {
 
   /**
    * Transcript folders of the Project: its root, its worktrees, removed worktrees of the root and
-   * folders inside any of them. `checkCwd` marks folders whose transcripts may belong to another
-   * Project; their transcripts are kept only when their cwd lies inside the Project.
+   * folders inside any of them. `checkCwd` marks folders whose transcripts may belong to a folder
+   * outside the Project (dirMatch); their transcripts are kept only when their cwd lies inside it.
    */
   async transcriptDirs(roots: readonly string[]): Promise<{ path: string; checkCwd: boolean }[]> {
     const entries = await listDir(this.projectsDir)
@@ -651,7 +670,7 @@ export class ClaudeHomeRegistry {
     return entries
       .flatMap((entry) => {
         const match = entry.isDirectory ? dirMatch(entry.name, roots) : 'none'
-        return match === 'none' ? [] : [{ path: join(this.projectsDir, entry.name), checkCwd: match === 'subfolder' }]
+        return match === 'none' ? [] : [{ path: join(this.projectsDir, entry.name), checkCwd: cwdDecides(match) }]
       })
       .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   }
@@ -747,9 +766,13 @@ export class ClaudeHomeRegistry {
       if (timer) clearTimeout(timer)
       timer = setTimeout(flush, debounceMs)
     }
-    // Verdicts for transcripts in `subfolder` folders: does the cwd they start in lie inside the
-    // Project? Kept once known, so a removed file is still reported. Filled for the files that exist
-    // when watching starts (`prefilled`), because the watcher skips them until they change.
+    // Verdicts for transcripts in `root` and `subfolder` folders: does the cwd they start in lie
+    // inside the Project? Kept once known, so a removed file is still reported. Filled for the
+    // files of `subfolder` folders that exist when watching starts (`prefilled`), because the
+    // watcher skips them until they change. Those of `root` folders get theirs at their first
+    // change: they are most of a Project's transcripts, and reading all their heads at each watch
+    // start costs too much. One removed before it ever changed is judged by the cwd the last list
+    // read (HistoryCache): a client lists the Sessions right after it subscribes.
     const verdicts = new Map<string, boolean>()
     const startsInProject = async (path: string): Promise<boolean> => {
       const known = verdicts.get(path)
@@ -769,7 +792,7 @@ export class ClaudeHomeRegistry {
       const [dirName = '', fileName = ''] = relative(projectsDir, path).split(sep)
       const sessionId = TRANSCRIPT.exec(fileName)?.[1]
       if (!sessionId) return
-      if (dirMatch(dirName, roots) === 'project') {
+      if (!cwdDecides(dirMatch(dirName, roots))) {
         transcripts.add(sessionId)
         schedule()
         return
@@ -781,7 +804,12 @@ export class ClaudeHomeRegistry {
       }
       // A removed file can no longer be read: its verdict comes from the cache, and a file whose cwd
       // was never known is reported, since an extra reread is cheaper than a stale history.
-      if (removed) void prefilled.then(() => report(verdicts.get(path) ?? true))
+      if (removed) {
+        void prefilled.then(() => {
+          const listed = this.historyCache.cwdOf(join(projectsDir, dirName), fileName)
+          report(verdicts.get(path) ?? (listed === undefined ? true : inProject(listed, roots)))
+        })
+      }
       else void startsInProject(path).then(report)
     }
 
@@ -794,7 +822,7 @@ export class ClaudeHomeRegistry {
     // Started after the watcher, so a file is either seen here or reported by the watcher.
     const prefilled: Promise<void> = this.transcriptDirs(roots)
       .then(async (dirs) => {
-        const checked = dirs.filter((dir) => dir.checkCwd)
+        const checked = dirs.filter((dir) => dirMatch(basename(dir.path), roots) === 'subfolder')
         const files = await Promise.all(
           checked.map(async ({ path: dir }) => (await listDir(dir)).filter((entry) => entry.isFile && TRANSCRIPT.test(entry.name)).map((entry) => join(dir, entry.name))),
         )
