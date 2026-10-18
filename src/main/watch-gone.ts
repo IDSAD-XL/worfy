@@ -19,10 +19,11 @@ import { watch } from 'node:fs'
  */
 export type NodeWatch = (path: string, recursive: boolean, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
 
+/** The handle it returns is Node's FSWatcher itself. */
 export const watchWithNode: NodeWatch = (path, recursive, onEvent, onError) => {
   const watcher = watch(path, { recursive }, (_event, name) => onEvent(name === null ? null : String(name)))
   watcher.on('error', onError)
-  return { close: () => watcher.close() }
+  return watcher
 }
 
 /** Whether the name an event carries is the watched folder itself, which is gone: a full path. */

@@ -50,18 +50,26 @@ const MUTANTS = [
   ['m05_docs_no_name_is_a_full_path', DOCS, '    const full = this.options.isAbsolute ?? nativePath.isAbsolute\n', '    const full = this.options.isAbsolute ?? (() => false)\n', DT],
   ['m06_limits_no_name_is_a_full_path', LIM, '      const full = this.options.isAbsolute ?? isAbsolute\n', '      const full = this.options.isAbsolute ?? (() => false)\n', LT],
   ['m07_the_root_is_always_there', DOCS, '(this.options.rootThere ?? isFolder)', '(this.options.rootThere ?? (async () => true))', DT],
-  ['m08_the_wait_for_the_root_is_100_times_longer', DOCS, 'this.options.retryMs ?? ROOT_RETRY_MS)', 'this.options.retryMs ?? ROOT_RETRY_MS * 100)', DT],
+  ['m08_the_wait_for_the_root_is_100_times_longer', DOCS, '    return this.options.retryMs ?? ROOT_RETRY_MS\n', '    return this.options.retryMs ?? ROOT_RETRY_MS * 100\n', DT],
   ['m09_limits_closes_at_the_50th_event', LIM, '          if (namesTheFolder(name, full)) {\n', '          if (namesTheFolder(name, full) && ((this as any).seen = ((this as any).seen ?? 0) + 1) >= 50) {\n', LT],
   // Item 2: a watch of the documents that fails.
   ['m10_a_failed_watch_is_only_said', DOCS, '        this.drop()\n      },\n    )\n', '      },\n    )\n', DT],
-  ['m11_an_error_of_a_closed_watch_is_taken', DOCS, '        if (this.watcher !== mine.handle) return\n        // Node has closed', '        // Node has closed', DT],
+  ['m11_an_error_of_a_closed_watch_is_taken', DOCS, '      (error) => {\n        if (this.watcher !== mine.handle) return\n', '      (error) => {\n', DT],
   // Item 3: a root that is a folder and cannot be watched.
-  ['m12_a_refusal_is_said_every_time', DOCS, '            if (!notThere(error) && !this.refused) {\n', '            if (!notThere(error)) {\n', DT],
-  ['m13_a_missing_root_is_said_too', DOCS, '            if (!notThere(error) && !this.refused) {\n', '            if (!this.refused) {\n', DT],
+  ['m12_a_failure_is_said_every_time', DOCS, '    if (this.failing) return\n', '', DT],
+  ['m13_a_missing_root_is_said_too', DOCS, '            if (!notThere(error)) this.fail(', '            this.fail(', DT],
   ['m14_documents_not_read_while_refused', DOCS, '            this.request()\n            this.waitForRoot()\n', '            this.waitForRoot()\n', DT],
   // The shared rule (watch-gone.ts).
   ['m15_any_name_names_the_folder', GONE, '  return name !== null && isAbsolute(name)\n', '  return name !== null\n', [...GT, ...DT, ...LT]],
   ['m16_emfile_counts_as_not_there', GONE, "['ENOENT', 'ENOTDIR']", "['ENOENT', 'ENOTDIR', 'EMFILE']", [...GT, ...DT]],
+  // The review of d9fb032: runs of failures, Linux, and the real fs.watch.
+  ['m17_no_new_run_after_an_event', DOCS, '        if (this.watcher !== mine.handle) return\n        this.failing = false\n', '        if (this.watcher !== mine.handle) return\n', DT],
+  ['m18_no_new_run_after_a_retry_period', DOCS, 'if (this.watcher === mine.handle) this.failing = false', 'if (this.watcher === mine.handle) void 0', DT],
+  ['m19_a_new_run_at_every_watch_made', DOCS, '    this.watcher = mine.handle\n', '    this.watcher = mine.handle\n    this.failing = false\n', DT],
+  ['m20_an_error_ends_the_watch_on_linux', DOCS, "  return platform !== 'linux'\n", '  return true\n', DT],
+  ['m21_an_error_never_ends_the_watch_by_default', DOCS, 'this.options.errorEnds ?? errorEndsWatch(process.platform)', 'this.options.errorEnds ?? false', DT],
+  ['m22_the_node_watch_is_always_recursive', GONE, '{ recursive }', '{ recursive: true }', GT],
+  ['m23_the_node_watch_error_is_not_listened_to', GONE, "  watcher.on('error', onError)\n", '', GT],
 ]
 
 const pauseSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)

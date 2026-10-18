@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DocsWatcher, ROOT_RETRY_MS, type Docs, type WatchRoot } from '../../src/main/docs/watch'
+import { DocsWatcher, errorEndsWatch, ROOT_RETRY_MS, type Docs, type DocsWatchOptions, type WatchRoot } from '../../src/main/docs/watch'
 import { removeTestTree } from '../remove'
 
 /** The time between two looks for the root, in these tests. */
@@ -80,7 +80,8 @@ interface Started {
   there: { now: boolean; asked: number }
 }
 
-async function start(model: Stand): Promise<Started> {
+/** `extra` overrides the options; the stand-in watch dies at an error, as on macOS and Windows. */
+async function start(model: Stand, extra: Partial<DocsWatchOptions> = {}): Promise<Started> {
   const changes: Docs[] = []
   const there = { now: true, asked: 0 }
   const watcher = await DocsWatcher.start({
@@ -94,6 +95,8 @@ async function start(model: Stand): Promise<Started> {
       return there.now
     },
     retryMs: RETRY,
+    errorEnds: true,
+    ...extra,
   })
   watchers.push(watcher)
   return { watcher, changes, there }
@@ -212,6 +215,71 @@ describe('DocsWatcher and a root that is removed', () => {
     await until(() => expect(model.made).toHaveLength(2))
     expect(model.made[1]!.closed).toBe(false)
     expect(error).toHaveBeenCalledTimes(1)
+
+    // That watch works for a while; then the root goes, and cannot be watched again: a new run of
+    // failures, said again.
+    await pause(RETRY * 5)
+    const refusedBefore = model.refused()
+    model.refuse('EMFILE', 1_000_000)
+    model.made[1]!.event(ITSELF)
+    await until(() => expect(error).toHaveBeenCalledTimes(2))
+    await until(() => expect(model.refused()).toBeGreaterThan(refusedBefore + 3))
+    expect(error).toHaveBeenCalledTimes(2)
+    expect(model.made).toHaveLength(2)
+  })
+
+  it('a watch that fails again and again is said once; after a watch has worked — an event, or a retry period — a failure is said again', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    await start(model, { retryMs: 200 })
+    const failure = Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' })
+    model.made[0]!.fail(failure)
+    await until(() => expect(model.made).toHaveLength(2))
+    // Made anew and failed at once: the same run of failures.
+    model.made[1]!.fail(failure)
+    await until(() => expect(model.made).toHaveLength(3))
+    expect(error).toHaveBeenCalledTimes(1)
+
+    // This one delivers an event before it fails: it worked.
+    model.made[2]!.event('HANDOFF.md')
+    model.made[2]!.fail(failure)
+    expect(error).toHaveBeenCalledTimes(2)
+    await until(() => expect(model.made).toHaveLength(4))
+    // This one lasts a retry period without an event: it worked too.
+    await pause(300)
+    model.made[3]!.fail(failure)
+    expect(error).toHaveBeenCalledTimes(3)
+  })
+
+  it('on Linux an error of the watch is only said: the watch goes on, and is not made anew', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    const { changes } = await start(model, { errorEnds: false })
+    const failure = Object.assign(new Error('ENOSPC: inotify watch limit reached'), { code: 'ENOSPC' })
+    model.made[0]!.fail(failure)
+    expect(error.mock.calls).toEqual([[`[docs] the watch of ${root} reported an error; it goes on`, failure]])
+    expect(model.made[0]!.closed).toBe(false)
+    writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed\n')
+    model.made[0]!.event('HANDOFF.md')
+    await until(() => expect(changes).toHaveLength(1))
+    await pause(RETRY * 5)
+    expect(model.made).toHaveLength(1)
+  })
+
+  it('unless told otherwise, an error ends the watch as this system does', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const model = stand()
+    await start(model, { errorEnds: undefined })
+    model.made[0]!.fail(new Error('EPERM: operation not permitted, watch'))
+    expect(model.made[0]!.closed).toBe(errorEndsWatch(process.platform))
+  })
+
+  it('an error ends the watch on macOS and Windows, not on Linux', () => {
+    expect(errorEndsWatch('darwin')).toBe(true)
+    expect(errorEndsWatch('win32')).toBe(true)
+    expect(errorEndsWatch('linux')).toBe(false)
   })
 
   it('a watch that fails is said with its error and made anew while the root is a folder; the watch that failed is heard no more', async () => {
