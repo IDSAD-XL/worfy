@@ -79,6 +79,8 @@ describe('terminal channels on a real pty', () => {
     }
   })
 
+  // On Windows the console asks for the cursor position after a resize; the harness answers as a
+  // screen does (CURSOR_ANSWER in terminal-harness.ts), or PowerShell would echo nothing more.
   it('resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows', async (context) => {
     needsWindowsPowerShellOffRunner(context)
     const h = await harness()
