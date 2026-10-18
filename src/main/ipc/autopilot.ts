@@ -119,7 +119,11 @@ export function sharedAutopilot(): Autopilot {
       observe: (sink) => sharedRegistry().observe(sink),
       observeInput: (listener) => sharedRegistry().observeInput(listener),
     },
-    waves: { autopilotWave: (projectId, epic, resume) => sharedLauncher().autopilotWave(projectId, epic, resume), autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId) },
+    waves: {
+      autopilotWave: (projectId, epic, resume) => sharedLauncher().autopilotWave(projectId, epic, resume),
+      autopilotRefusal: (projectId) => sharedLauncher().autopilotRefusal(projectId),
+      autopilotGateQueue: (projectId) => sharedLauncher().autopilotGateQueue(projectId),
+    },
     journal: (start) => openRun(start),
     keepAwake: () => new KeepAwake(),
     harnessDrift: harnessDriftWatch({ packaged: app.isPackaged, harnessVersion: () => bundledHarnessVersion() }),

@@ -422,17 +422,22 @@ check "epic-wave section 4: the BEHIND push holds a lease on the PR's head" in_ 
 check "epic-wave section 4: CI again after the BEHIND push" in_ "$ew4" 'then wait for CI again with the CI wait block below'
 check "epic-wave section 4: BEHIND no longer means only wait" in_ "$ew4" '`BEHIND` no longer means only "wait".'
 check "epic-wave section 4: git fetch before each merge" in_ "$ew4" 'Before each merge run `git -C <repo> fetch`.'
-check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'Either lock is seen only on its own machine'
+check "epic-wave section 4: the main-branch lock is seen only on its own machine" in_ "$ew4" 'The lock is seen only on its own machine'
+check "epic-wave section 4: the main-branch lock is at the repository's shared path, as gate-queue's" in_ "$ew4" 'L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"'
 check "epic-wave section 4: no BEHIND among the states that only wait" lacks "$EW" 'BLOCKED, UNSTABLE, BEHIND — wait'
 check "ship-ticket section 6: the Windows paragraph launches through explorer.exe" in_ "$st6" 'explorer.exe "$(cygpath -w <path to the .exe>)"'
 check "ship-ticket section 6: the Windows paragraph checks the process path with Get-Process" in_ "$st6" \
     '`powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"`'
 check "ship-ticket section 6: the agent's environment on Windows is named" in_ "$st6" 'NoDefaultCurrentDirectoryInExePath=1'
-# The label.
-for w in cross_machine_gate --label --force-with-lease --remove-label 'gh pr comment'; do
-    check "epic-wave section 1: the serve pass has '$w'" in_ "$ew1" "$w"
+# The label. With serve, section 1 runs skill gate-queue (worfy-windows ticket 17): the pass is written only there, and
+# section 1 keeps no copy of it (section 4 still has its own BEHIND rebase with --force-with-lease; not looked at here).
+check "epic-wave section 1: cross_machine_gate" in_ "$ew1" cross_machine_gate
+check "epic-wave section 1: with serve, /worfy:gate-queue before the preflight" in_ "$ew1" 'With `serve` — before the preflight, run skill `/worfy:gate-queue`'
+check "epic-wave section 1: the gate queue before the preflight" before "$ew1" '/worfy:gate-queue' 'bin/preflight" --epic <epic>'
+check "epic-wave section 1: the gate queue's table goes into the wave report" in_ "$ew1" 'Its table goes into the wave report (section 5)'
+for w in --force-with-lease --remove-label 'report: green' 'gh pr merge' 'isCrossRepository'; do
+    check "epic-wave section 1: no serve pass block left ('$w')" bash -c '[[ "$1" != *"$2"* ]]' _ "$ew1" "$w"
 done
-check "epic-wave section 1: the labelled PRs go one at a time" in_ "$ew1" 'the open PRs with the label, **one at a time**'
 check "epic-wave section 1: request — a merged PR closes its ticket" in_ "$ew1" '`MERGED` — the ticket is closed by skill `/worfy:ship-ticket`, step 11'
 check "epic-wave section 1: request — a red report newer than the push sends the ticket back to work" in_ "$ew1" \
     'A red report newer than the last push (`report.at` later than `pushed`) — the ticket is back in work: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" open <epic> <NN>`'
@@ -442,13 +447,8 @@ check "epic-wave section 4: with request a labelled PR is not merged here" in_ "
 check "ship-ticket section 8: --add-label" in_ "$st8" '--add-label "$(F cross_machine_gate.label)"'
 check "ship-ticket section 9: a labelled PR is not merged by this machine" in_ "$st9" \
     'With `F cross_machine_gate.role` `request` a PR with the label `F cross_machine_gate.label` is not merged by this machine'
-# The checks section and the report (Q33); gate full on the fresh base (Q31).
-for w in checks_section 'report: green' 'report: red'; do
-    check "epic-wave section 1: the serve pass has '$w'" in_ "$ew1" "$w"
-done
-check "epic-wave section 1: no merge without the report" in_ "$ew1" '**No merge without the report.**'
-check "epic-wave section 1: gh pr comment comes before gh pr merge" before "$ew1" 'gh pr comment <N>' 'gh pr merge <N>'
-check "epic-wave section 1: a PR without the section is red" in_ "$ew1" 'red, with the reason "no `<checks_section>` section"'
+# The checks section and the report (Q33) are in skills/gate-queue (gate-queue.test.sh); gate full on the fresh base (Q31).
+check "epic-wave section 1: request — the report is looked up by the checks section" in_ "$ew1" 'sec=$(F cross_machine_gate.checks_section)'
 check "epic-wave section 1: request — gate full on the fresh base in a detached worktree, before the dispatch" in_ "$ew1" \
     'With `request` — first a gate full on the fresh base, before any ticket is dispatched'
 check "epic-wave section 1: request — the worktree of the base is detached" in_ "$ew1" 'worktree add --detach <scratchpad>/base-gate "$B"'

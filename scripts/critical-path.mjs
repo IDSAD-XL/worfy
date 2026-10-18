@@ -83,6 +83,7 @@ export const JOURNAL_KINDS = [
   'human-input',
   'background-tasks',
   'run-stopping',
+  'gate-queue',
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',

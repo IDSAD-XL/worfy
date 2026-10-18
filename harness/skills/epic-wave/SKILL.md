@@ -122,105 +122,10 @@ skipped: the profile has no `cross_machine_gate`" and go on with the preflight. 
 own profile, so the role is that machine's; the label and the section name come from the profile,
 never from this text.
 
-With `serve` — before the preflight, the open PRs with the label, **one at a time** (merge in turn,
-section 4). Only PRs from a branch of this repository: a PR from a fork is not checked out and the
-commands of its section are not run — anyone with a fork writes that description, and this machine
-would run it as shell. The block prints such a PR as `<N> fork: skipped`, and the wave report names
-it:
-
-```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-gh pr list --state open --label "$(F cross_machine_gate.label)" --json number,headRefName,headRefOid,isCrossRepository \
-  --jq '.[] | if .isCrossRepository == false then "\(.number) \(.headRefName) \(.headRefOid)" else "\(.number) fork: skipped" end'; echo "EXIT=$?"
-```
-
-For each PR, in that order, with `<N>`, `<branch>` and `<head>` from its line:
-
-1. A worktree of its own on the PR's branch as origin has it, rebased onto the fresh base
-   `F worktree.base` (already a remote branch, `origin/main`) and pushed. `-B` resets a local branch
-   left from an earlier pass: the other machine may have pushed a rework since, and a rebase of the
-   old local branch would push it away. The push holds a lease on `<head>`: if the branch moved after
-   the list, it is refused and the worktree removed — start the pass again from the list. The steps
-   are joined with `&&`: a failed step stops the block, so a rebase never runs in a tree of an earlier
-   try and nothing half-rebased is pushed; a tree `<scratchpad>/pr-<N>` left from an earlier try of
-   this PR is removed first, and `git worktree prune` drops one deleted by hand that git still lists.
-   The line before `EXIT=0` is the new head: the checks run on it and the merge is matched against it.
-   A conflict stops the block with the tree kept. A conflict only in the state file
-   (`F docs.handoff.path`) the session resolves itself (the session that merges resolves it), stages
-   the file and finishes with the second block below. Any other conflict is red, with the conflicting
-   files as the reason:
-
-```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
-P=<scratchpad>/pr-<N>
-gone() { [ ! -e "$P" ] || git -C <repo> worktree remove --force "$P"; }   # the tree of an earlier try of this PR
-git -C <repo> fetch origin && gone && git -C <repo> worktree prune && git -C <repo> worktree add -B <branch> "$P" origin/<branch> \
-  && git -C "$P" rebase "$B" \
-  && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { gone; false; }; } \
-  && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
-```
-
-   The second block, after the state-file conflict is resolved and staged. Each Bash call starts a
-   fresh shell, so nothing of the block above is defined here: the path is written out again, and the
-   block refuses unless it is the PR's worktree — `git -C ""` acts in the current folder and would
-   push that folder's HEAD into `<branch>`:
-
-```bash
-P=<scratchpad>/pr-<N>                                   # written out: nothing carries over between Bash calls
-if [ -n "$P" ] && [ -d "$P" ] && case "$(git -C "$P" rev-parse --git-dir 2>/dev/null)" in */worktrees/pr-<N>) true ;; *) false ;; esac; then
-  GIT_EDITOR=true git -C "$P" rebase --continue \
-    && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { git -C <repo> worktree remove --force "$P"; false; }; } \
-    && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
-else echo "REFUSED: '$P' is not the worktree of PR <N>: nothing pushed"; fi
-```
-
-2. `F cross_machine_gate.check` in that worktree (`<PR worktree>` — `<scratchpad>/pr-<N>`), the way section 4 runs a gate full of one PR — the
-   screen check, the e2e lock — with that command in place of the block's last line. Its verdict line
-   and exit code go into the report.
-3. The commands of the PR's section `F cross_machine_gate.checks_section`, each run in that worktree
-   with its exit code. The block prints the section's lines up to the next heading: a command and its
-   expected result a line, `none` when the section says there is nothing to run, `no-section` when the
-   PR has no such section or it is empty — red, with the reason "no `<checks_section>` section". Only a
-   heading of level 1 or 2 outside a code block ends the section, so a `# comment` in a code block
-   stays in it:
-
-```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.checks_section)" '
-  { sub(/\r$/, "") }
-  /^```/ { fence = !fence }
-  $0 == h { on = 1; next }
-  on && !fence && /^##? / { on = 0 }
-  on && NF { print; n++ }
-  END { if (!n) print "no-section" }'
-```
-
-4. CI on the new head — the CI wait block of section 4 (with `F workflow.ci` `batch`: `mergeable`).
-5. The report, before any merge, in `<scratchpad>/pr-<N>-report.md`. Its first line is
-   `<checks_section> report: green` or `<checks_section> report: red`; then the verdict line of
-   `check` and its exit code, each command of the section with its exit code and the tail of its
-   output, and with red the reason. Green — `check`, every command of the section and CI are green.
-   **No merge without the report.** The block posts it with `gh pr comment` and merges only when the
-   first line is green, `gh pr comment` gave exit code 0 and `check` gave exit code 0 (`<check exit>`,
-   step 2). `--match-head-commit <new head>` (the last line of step 1) refuses the merge if the branch
-   moved after the checks. Red or a rebase conflict — the report with the reason, the label stays, no
-   merge. Then `git -C <repo> worktree remove --force <scratchpad>/pr-<N>`:
-
-```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
-R=<scratchpad>/pr-<N>-report.md; v=$(head -n 1 "$R" | tr -d '\r')
-gh pr comment <N> --body-file "$R"; c=$?; echo "comment EXIT=$c"
-if [ "$c" = 0 ] && [ "$v" = "$(F cross_machine_gate.checks_section) report: green" ] && [ "<check exit>" = 0 ]; then
-  gh pr merge <N> --squash --match-head-commit <new head>; m=$?; echo "merge EXIT=$m"
-  [ "$m" = 0 ] && { gh pr edit <N> --remove-label "$(F cross_machine_gate.label)"; echo "EXIT=$?"; }
-else echo "no merge: report [$v], gh pr comment exit $c, check exit <check exit>"; fi
-```
-
-The `request` machine does not run its own gate full again on the rebased branch before the merge:
-it checks the main branch at the start of its next wave (below). This session takes no tickets of
-the other machine's epic and does not change their status. Each PR of the pass — its verdict, the
-merge or the report — goes into the wave report (section 5).
+With `serve` — before the preflight, run skill `/worfy:gate-queue`: it processes the open PRs with
+the label that wait for this machine, one at a time, and merges each or leaves a red report in it.
+The pass is written only there. Its table goes into the wave report (section 5); then go on with
+the preflight.
 
 With `request` — first a gate full on the fresh base, before any ticket is dispatched: a worktree of
 its own on the base, detached, and the gate full of section 4 in it (the screen check, the e2e lock,
@@ -821,7 +726,7 @@ it in one Bash call with timeout 600000 (if not taken, repeat), and release it o
 too:
 
 ```bash
-L=<orchestrator scratchpad>/main.lock                 # one path for all parallel waves (see below)
+L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"   # the repository's shared path (see below)
 until mkdir "$L" 2>/dev/null; do
   if [ -n "$(find "$L" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$L"; fi   # older than 90 min — stuck; BSD and GNU find alike
   sleep 30
@@ -830,17 +735,18 @@ done; echo LOCKED
 rmdir "$L"
 ```
 
-The orchestrator's scratchpad works when all waves run from one session. Different sessions have
-different scratchpads, and locks there do not see each other — then use the repository's shared
-path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`. Either lock is seen only on its own
-machine: a session on another machine does not see it and merges on its own, so the order across
-machines comes from the fetch and rebase before each merge (above), not from the lock.
+The path is the repository's shared git folder, the same in every worktree of the repository and
+for every session: the waves of one session, a wave of another session, and the merges of skill
+`/worfy:gate-queue` all see the same lock. A scratchpad would not do — each session has its own,
+and locks there do not see each other. The lock is seen only on its own machine: a session on
+another machine does not see it and merges on its own, so the order across machines comes from the
+fetch and rebase before each merge (above), not from the lock.
 
 **PRs with the cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the project has
 one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request` a PR with the
 label `F cross_machine_gate.label` is not merged on this machine, whatever its gate says: in the wave
 report it is "waits for the machine with `serve`", with its number. With `serve` such PRs are merged
-by section 1, before the wave, not here.
+by skill `/worfy:gate-queue` (section 1), before the wave, not here.
 
 **People in the Pipeline.** With `awaiting-merge` the wave merges no PR, and with `human-review` no PR
 whose review decision is not `APPROVED` (section 0): the ticket waits for people, and the wave goes on

@@ -22,7 +22,8 @@ import { useClaudeHome } from '../claude-home/useClaudeHome'
 import { useDocs } from '../docs/useDocs'
 import { useCanvasRequests } from '../find/canvas-requests'
 import { rankItems } from '../find/search-index'
-import { invoke, readableReason } from '../ipc'
+import { invoke, readableReason, windowMachine } from '../ipc'
+import { useGateQueue } from '../projects/useGateQueue'
 import { activeProject, useProjects, useReadOnly } from '../projects/useProjects'
 import { openSession, useNavigation } from '../session/navigation'
 import { label, matches } from '../shortcuts/match'
@@ -363,6 +364,8 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
   const { state: docs } = useDocs(project.id)
   const layout = useLayout(project.id).state
   const readOnly = useReadOnly()
+  // Read when the palette opens, on the window's Machine (worfy-windows ticket 17).
+  const gateQueue = useGateQueue(windowMachine(), project.id)
   const commands = useMemo(
     () =>
       buildCommands({
@@ -376,8 +379,9 @@ function ProjectPalette({ project, projects, onClose }: PanelProps) {
         tagFilter,
         createItems,
         readOnly,
+        gateQueue,
       }),
-    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly],
+    [project, projects, view, model, layout, history, docs, tagFilter, createItems, readOnly, gateQueue],
   )
   const transcripts = useMemo(() => ({ projectId: project.id, projectRoot: project.path }), [project.id, project.path])
   return <PaletteBody commands={commands} empty="Nothing matches" onClose={onClose} transcripts={transcripts} />

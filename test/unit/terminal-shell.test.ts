@@ -177,7 +177,7 @@ describe('terminalEnv: LANG by the system', () => {
 })
 
 describe('the setting terminalShell of a Project', () => {
-  const templates = { shipTicket: '', runWave: '' }
+  const templates = { shipTicket: '', runWave: '', gateQueue: '' }
 
   it('is not added to settings that do not have it, is kept when it names a shell, and anything else is refused when saved', () => {
     expect(projectSettingsSchema.parse({ actionTemplates: templates })).toStrictEqual({ actionTemplates: templates })
@@ -205,7 +205,7 @@ describe('the setting terminalShell of a Project', () => {
     try {
       writeFileSync(settingsPath(dir), JSON.stringify({ actionTemplates: { shipTicket: 'my own {epic} {NN}', runWave: 'my wave' }, terminalShell: 'wsl' }))
       const read = readProjectSettings(dir, 'none')
-      expect(read.actionTemplates).toEqual({ shipTicket: 'my own {epic} {NN}', runWave: 'my wave' })
+      expect(read.actionTemplates).toEqual({ shipTicket: 'my own {epic} {NN}', runWave: 'my wave', gateQueue: '/worfy:gate-queue' })
       expect(read.terminalShell).toBeUndefined()
       expect(readdirSync(dir)).toEqual(['settings.json'])
     } finally {
@@ -216,7 +216,7 @@ describe('the setting terminalShell of a Project', () => {
   // Review of PR #239: what is read forgives such a shell, what is saved does not.
   it('saving settings that name a shell this version does not know is refused and writes nothing; a known one is saved', () => {
     const dir = mkdtempSync(join(tmpdir(), 'worfy-settings-shell-'))
-    const own = { shipTicket: 'my own {epic} {NN}', runWave: 'my wave' }
+    const own = { shipTicket: 'my own {epic} {NN}', runWave: 'my wave', gateQueue: '' }
     try {
       for (const terminalShell of ['wsl', 'cmd', '', 3, null]) {
         expect(() => writeProjectSettings(dir, { actionTemplates: own, terminalShell: terminalShell as never }, 'none'), String(terminalShell)).toThrow()

@@ -4,9 +4,11 @@
 // gets only the contract's keys back.
 import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it } from 'vitest'
+import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, type LaunchDeps } from '../../src/main/actions/launch'
 import { actionsHandlers } from '../../src/main/ipc/actions'
 import { appUrlMatcher, emit, registerIpc } from '../../src/main/ipc/index'
 import { actionsLaunchesChanged } from '../../src/shared/ipc/actions'
+import { defaultActionTemplates } from '../../src/shared/projects/action-templates'
 import { failureReason, handlerFailure, IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 
@@ -24,6 +26,10 @@ async function register(options: { devServerUrl?: string } = {}) {
     runWave: async (...args: [string, string]) => {
       calls.push(['runWave', ...args])
       return { sessionId: 'o1', text: '/epic-wave волна 1 эпика e', delivery: 'queued' as const, extra: 1 }
+    },
+    gateQueue: async (projectId: string) => {
+      calls.push(['gateQueue', projectId])
+      return { sessionId: 'o1', text: '/worfy:gate-queue', delivery: 'sent' as const, extra: 1 }
     },
     launched: (projectId: string) => {
       calls.push(['launched', projectId])
@@ -171,4 +177,62 @@ describe('the sender check with a dev server', () => {
       expect(() => appUrlMatcher({ indexHtml: INDEX_HTML, devServerUrl })).toThrow('not an http(s) URL')
     },
   )
+})
+
+describe('actions.gateQueue (worfy-windows ticket 17)', () => {
+  it('passes only the Project, and answers only the contract keys', async () => {
+    const { invoke, calls } = await register()
+    const result = await invoke('actions.gateQueue', { projectId: 'p', text: '/rm -rf' })
+    expect(result).toStrictEqual({ ok: true, value: { sessionId: 'o1', text: '/worfy:gate-queue', delivery: 'sent' } })
+    expect(calls).toStrictEqual([['gateQueue', 'p']])
+    for (const input of [{ projectId: '' }, { projectId: 7 }, {}, undefined]) {
+      const refused = await invoke('actions.gateQueue', input)
+      expect(!refused.ok && refused.error, JSON.stringify(input)).toMatch(/actions\.gateQueue: invalid input/)
+    }
+    expect(calls).toHaveLength(1)
+  })
+
+  /** The real launcher behind the channel, over a fake Orchestrator: what it sends, or why not. */
+  async function withLauncher(role: 'serve' | 'request' | null, template: string, autopilot = false) {
+    const sent: string[] = []
+    const deps: LaunchDeps = {
+      projectRoot: () => '/repo',
+      settings: () => ({ actionTemplates: { ...defaultActionTemplates('plugin'), gateQueue: template } }),
+      branch: async () => 'main',
+      workflow: async (root) => ({ root, epics: [], tickets: [], error: null, branchErrors: [] }),
+      sessions: { create: () => { throw new Error('no Session is created') } },
+      orchestrators: { open: async (projectId) => ({ projectId, nodeId: 'orch-node', sessionId: 'orch-1', state: 'idle', error: null, model: null, costUsd: 0, statusBlock: null, version: 1 }) },
+      registry: { get: () => ({ send: (text: string) => (sent.push(text), 'sent' as const), sdkId: null, state: 'idle' as const }) },
+      bindings: { setLaunch: () => undefined },
+      gateRole: async () => role,
+    }
+    const launcher = new ActionLauncher(deps)
+    if (autopilot) launcher.attachAutopilot({ running: () => true })
+    const handlers = new Map<string, Listener>()
+    await registerIpc(
+      { handle: (channel, listener) => handlers.set(channel, listener as Listener) },
+      { modules: { './actions.ts': async () => actionsHandlers(() => launcher) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) },
+    )
+    const listener = handlers.get(`${IPC_CHANNEL_PREFIX}actions.gateQueue`)!
+    const result = (await listener({ senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent, { projectId: 'p' })) as IpcResult<unknown>
+    return { result, sent }
+  }
+
+  it('on serve sends /worfy:gate-queue to the Project\'s Orchestrator', async () => {
+    const { result, sent } = await withLauncher('serve', '/worfy:gate-queue')
+    expect(result).toStrictEqual({ ok: true, value: { sessionId: 'orch-1', text: '/worfy:gate-queue', delivery: 'sent' } })
+    expect(sent).toEqual(['/worfy:gate-queue'])
+  })
+
+  it.each([
+    ['request', 'request' as const, '/worfy:gate-queue', false, gateQueueRoleHint('request')],
+    ['no cross_machine_gate', null, '/worfy:gate-queue', false, gateQueueRoleHint(null)],
+    ['an empty template', 'serve' as const, '', false, 'Set the Process gate queue template in Project settings'],
+    ['Autopilot running', 'serve' as const, '/worfy:gate-queue', true, GATE_QUEUE_AUTOPILOT_HINT],
+  ])('%s: refused with the reason, nothing sent', async (_name, role, template, autopilot, reason) => {
+    const { result, sent } = await withLauncher(role, template, autopilot)
+    expect(result.ok).toBe(false)
+    expect(failureReason('actions.gateQueue', (result as { error: string }).error)).toBe(reason)
+    expect(sent).toEqual([])
+  })
 })

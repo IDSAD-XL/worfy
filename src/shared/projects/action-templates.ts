@@ -1,5 +1,5 @@
-// Action templates: the text of the message that the "Ship ticket" and "Run wave" actions send
-// (ticket 23). Each Project runs its own process, so the text is a Project setting. worfy does not
+// Action templates: the text of the message that the "Ship ticket", "Run wave" and "Process gate
+// queue" actions send (ticket 23; worfy-windows ticket 17). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
 
@@ -16,13 +16,14 @@ export const PLACEHOLDER_DESCRIPTIONS: Readonly<Record<Placeholder, string>> = {
   tickets: "the wave's ticket numbers",
 }
 
-export const ACTIONS = ['shipTicket', 'runWave'] as const
+export const ACTIONS = ['shipTicket', 'runWave', 'gateQueue'] as const
 export type Action = (typeof ACTIONS)[number]
 
 /** UI names of the actions (docs/design/BRIEF.md). */
 export const ACTION_LABELS: Readonly<Record<Action, string>> = {
   shipTicket: 'Ship ticket',
   runWave: 'Run wave',
+  gateQueue: 'Process gate queue',
 }
 
 /**
@@ -35,21 +36,25 @@ export type HarnessKind = (typeof HARNESS_KINDS)[number]
 /**
  * The defaults with the old Harness in ~/.claude: its skills go by their bare names. "Run wave"
  * names the Wave's Tickets, not the number of the Wave in the plan (ADR-0033): the number depended
- * on the spec's table and on Tickets that should not be in the Wave.
+ * on the spec's table and on Tickets that should not be in the Wave. The old Harness has no skill
+ * for the gate queue, so "Process gate queue" is not configured with it.
  */
 export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/ship-ticket {epic} {NN}',
   runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}',
+  gateQueue: '',
 }
 
 /**
  * The defaults with the Harness plugin, and with no Harness found (Sessions of worfy then carry
  * its own plugin inline, ADR-0040): a plugin's skill is called only with its prefix. "Run wave" is
- * the Autopilot command that harness/skills/epic-wave/SKILL.md declares, `tickets NN, NN of epic X`.
+ * the Autopilot command that harness/skills/epic-wave/SKILL.md declares, `tickets NN, NN of epic X`;
+ * "Process gate queue" is harness/skills/gate-queue/SKILL.md, without placeholders.
  */
 export const PLUGIN_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/worfy:ship-ticket {epic} {NN}',
   runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}',
+  gateQueue: '/worfy:gate-queue',
 }
 
 /**
@@ -74,6 +79,8 @@ export const LEGACY_RUN_WAVE_TEMPLATE = '/epic-wave волна {wave} эпика
 const KNOWN_DEFAULTS: Readonly<Record<Action, ReadonlySet<string>>> = {
   shipTicket: new Set([LEGACY_HARNESS_TEMPLATES.shipTicket, PLUGIN_HARNESS_TEMPLATES.shipTicket]),
   runWave: new Set([LEGACY_HARNESS_TEMPLATES.runWave, LEGACY_RUN_WAVE_TEMPLATE, PLUGIN_HARNESS_TEMPLATES.runWave]),
+  // The old Harness's empty default is not here: an empty template may be the owner's own choice.
+  gateQueue: new Set([PLUGIN_HARNESS_TEMPLATES.gateQueue]),
 }
 
 /** Why Autopilot does not run with a "Run wave" template that does not name the Wave's Tickets (ADR-0033). */
@@ -113,6 +120,7 @@ export const actionTemplateSchema = z.string().superRefine((template, context) =
 export const actionTemplatesSchema = z.object({
   shipTicket: actionTemplateSchema,
   runWave: actionTemplateSchema,
+  gateQueue: actionTemplateSchema,
 })
 export type ActionTemplates = z.output<typeof actionTemplatesSchema>
 
@@ -134,12 +142,34 @@ export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
 /**
  * The settings as `settings.json` is read: a `terminalShell` this version does not know (a data
- * folder of a later worfy, a hand edit) reads as not chosen, and the rest of the file stays. What
- * is saved goes through projectSettingsSchema, which refuses such a value.
+ * folder of a later worfy, a hand edit) reads as not chosen, and the rest of the file stays. A file
+ * saved before "Process gate queue" existed has no `gateQueue`: migrateProjectSettings gives it the
+ * default. What is saved goes through projectSettingsSchema, which refuses such a value.
  */
 export const savedProjectSettingsSchema = projectSettingsSchema.extend({
+  actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
   terminalShell: terminalShellSettingSchema.optional().catch(undefined),
 })
+export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
+
+/**
+ * The settings in an answer of `projects.settings.get` and `projects.settings.defaults` and in
+ * `projects.settings.changed`. A Linked machine on a build from before "Process gate queue" answers
+ * without `gateQueue`; it reads as an empty template (no button), since that build has no
+ * `actions.gateQueue` to run it.
+ */
+export const projectSettingsAnswerSchema = projectSettingsSchema.extend({
+  actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.default('') }),
+})
+
+/**
+ * The settings `projects.settings.set` takes. A Linked machine on an older build sends no
+ * `gateQueue`; main keeps the saved one, or the default (writeProjectSettings).
+ */
+export const projectSettingsInputSchema = projectSettingsSchema.extend({
+  actionTemplates: actionTemplatesSchema.extend({ gateQueue: actionTemplateSchema.optional() }),
+})
+export type ProjectSettingsInput = z.output<typeof projectSettingsInputSchema>
 
 /** What a new Project starts with: the defaults of the Harness found on the machine. */
 export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {
@@ -150,15 +180,18 @@ export function defaultProjectSettings(harness: HarnessKind): ProjectSettings {
  * Saved settings as they are read: a template equal to any default an action has had — the old
  * Harness's, the plugin's, the "Run wave" one before ADR-0033 — reads as the default of the Harness
  * found now (worfy-harness ticket 12), so a Project keeps sending what that Harness understands.
- * Every other template, the owner's own (an empty one too), stays as it was saved.
+ * A template the file does not have (`gateQueue`, saved before worfy-windows ticket 17) is that
+ * default too. Every other template, the owner's own (an empty one too), stays as it was saved.
  */
-export function migrateProjectSettings(settings: ProjectSettings, harness: HarnessKind): ProjectSettings {
+export function migrateProjectSettings(settings: SavedProjectSettings, harness: HarnessKind): ProjectSettings {
   const defaults = defaultActionTemplates(harness)
   const current = settings.actionTemplates
-  const next = { ...current }
+  const next: Record<Action, string> = { ...defaults }
   for (const action of ACTIONS) {
-    if (KNOWN_DEFAULTS[action].has(current[action])) next[action] = defaults[action]
+    const saved = current[action]
+    next[action] = saved === undefined || KNOWN_DEFAULTS[action].has(saved) ? defaults[action] : saved
   }
-  if (ACTIONS.every((action) => next[action] === current[action])) return settings
+  // Every template saved and none changed: the saved object itself, as before.
+  if (ACTIONS.every((action) => next[action] === current[action])) return settings as ProjectSettings
   return { ...settings, actionTemplates: next }
 }
