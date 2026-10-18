@@ -5,7 +5,7 @@
 // name, and before the fix the documents stayed as they were read. Each case runs on its own
 // system only; the same cases on a stand-in watch, for any system, are in
 // test/unit/docs-watch-root-gone.test.ts.
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, renameSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -137,7 +137,7 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: the root is removed o
     }
 
     back()
-    await vi.waitFor(() => expect(changes.at(-1)?.handoff).not.toBeNull(), { timeout: 3000, interval: 50 })
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: 3000, interval: 50 })
     // Followed, not only read once: a later change comes through.
     const version = changes.at(-1)?.handoff?.version
     writeFileSync(join(root, 'HANDOFF.md'), '# handoff, changed once more\n')
@@ -145,4 +145,48 @@ describe.runIf(MACOS)('DocsWatcher on macOS, real folders: the root is removed o
     // The watch was kept: the line of a root that is gone is a Windows one.
     expect(warn).not.toHaveBeenCalled()
   }, 20_000)
+})
+
+/**
+ * Roots written otherwise than the folder on the disk: macOS names the event of the root by the
+ * last name of its real path, so the watcher has to know that name. `folder` is made on the disk
+ * and holds the documents; `written` is the root the watcher is given.
+ */
+const WRITTEN: { as: string; written: () => string; folder: () => string }[] = [
+  {
+    as: 'a symlink to the folder',
+    written: () => {
+      symlinkSync(join(dir, 'realproj'), join(dir, 'link'))
+      return join(dir, 'link')
+    },
+    folder: () => join(dir, 'realproj'),
+  },
+  { as: 'the folder in another case', written: () => join(dir, 'project'), folder: () => join(dir, 'Project') },
+]
+
+describe.runIf(MACOS)('DocsWatcher on macOS, real folders: a root written otherwise than on the disk', () => {
+  it.for(WRITTEN)('$as: renamed away, the documents read as gone; renamed back, they are read again', { timeout: 20_000 }, async ({ written, folder }, context) => {
+    removeTestTree(root)
+    const disk = folder()
+    mkdirSync(join(disk, 'docs', 'adr'), { recursive: true })
+    writeFileSync(join(disk, 'HANDOFF.md'), '# handoff\n')
+    writeFileSync(join(disk, 'docs', 'adr', '0001-first.md'), '# First\n\nДата: 2026-10-18. Статус: принят.\n')
+    const given = written()
+    // A volume that tells case apart has no folder `project` here: nothing to check.
+    if (!existsSync(given)) {
+      context.skip()
+      return
+    }
+    const changes: Docs[] = []
+    const watcher = await DocsWatcher.start({ root: given, onChange: (docs) => changes.push(docs) })
+    watchers.push(watcher)
+    expect(watcher.current.handoff).not.toBeNull()
+    await pause(1200)
+
+    renameSync(disk, join(dir, 'moved'))
+    await vi.waitFor(() => expect(changes.at(-1)).toEqual({ handoff: null, adrs: [] }), { timeout: 3000, interval: 50 })
+    renameSync(join(dir, 'moved'), disk)
+    await vi.waitFor(() => expect(changes.at(-1)?.handoff?.path).toBe('HANDOFF.md'), { timeout: 3000, interval: 50 })
+    expect(changes.at(-1)?.adrs).toHaveLength(1)
+  })
 })
