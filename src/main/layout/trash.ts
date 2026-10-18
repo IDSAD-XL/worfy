@@ -17,6 +17,13 @@
 // the links on the way to it are read (worfy-windows ticket 20), and the look itself is lstat,
 // which does not follow: a Card folder that is a link goes to the trash as the link it is, and
 // comes back as one; its title is not read through it when it leads off the machine.
+//
+// The data folder of the Project and its `trash` folder are trusted (worfy-windows ticket 33): no
+// link on the way to them is read before they are used. Both are worfy's own (ADR-0005), outside
+// every repository; an agent is given the Cards folder alone, not the folders around it. A link to
+// a share in place of either was put there by the user, who has then chosen that share for worfy's
+// data. So put() makes `<data>\trash\<label>` before the Card is looked at, and restore() and
+// purge() use the trash folder as they find it.
 import { randomBytes } from 'node:crypto'
 import { lstatSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'node:fs'
 import * as nativePath from 'node:path'

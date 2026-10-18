@@ -1,7 +1,9 @@
 # 17 — Очередь gate на Mac: команда /worfy:gate-queue, действие «Process gate queue», уведомление
 
 Type: task
-Status: open
+Status: done 2026-10-18T11:18Z
+PR: #480
+Branch: worfy-windows/17
 Blocked by: 07
 Source: решения владельца 2026-10-08: Q32 (команда Harness `/worfy:gate-queue` проходит все PR с меткой `needs-mac-gate`; Autopilot на Mac запускает её перед каждой Wave и когда больше нечего делать; в worfy — действие «Process gate queue»; уведомление, если PR ждёт больше часа), Q30 (метка `needs-mac-gate`), Q31 (Windows проверяет main после мержа), Q33 (раздел «Mac checks» в описании PR и отчёт Session на Mac в PR); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate», и «Соглашения», «Метка needs-mac-gate» ([spec.md](../spec.md)); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; ADR Ticket-а 07 (уточняет ADR-0056; файл создаёт Ticket 07); [ADR-0002](../../../docs/adr/0002-worfy-is-a-view-over-the-workflow.md) (worfy не пишет Status Ticket-ов); [ADR-0006](../../../docs/adr/0006-ipc-contract-by-declaration-merging.md) (домены IPC); [ADR-0024](../../../docs/adr/0024-autopilot-wave-end-and-keep-awake.md) (конец Wave Autopilot); [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски)
 
@@ -199,4 +201,75 @@ Wave 7) общих файлов нет: src/main/github/prs.ts и test/fixtures/
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в ветке `worfy-windows/17`. PR — платформенный (ADR-0056: трогает скрипты Harness), метка
+`needs-mac-gate`; gate full и мерж — Session на Mac.
+
+**Красные прогоны до кода** (раздел «Тесты»):
+
+- `bash harness/bin/tests/gate-queue.test.sh` без `harness/skills/gate-queue/SKILL.md`: `passed 0,
+  failed 1`, exit code 1 (файла skill-а нет).
+- `pnpm -s test test/contract/gate-queue.test.ts` без модуля:
+
+  ```
+  FAIL  |contract| test/contract/gate-queue.test.ts [ test/contract/gate-queue.test.ts ]
+  Error: Cannot find module '../../src/main/github/gate-queue' imported from .../test/contract/gate-queue.test.ts
+   Test Files  1 failed (1)
+  ```
+
+**Что вышло.**
+
+- `/worfy:gate-queue` — `harness/skills/gate-queue/SKILL.md`. Проход очереди перенесён из раздела 1
+  `epic-wave` (перебазирование, проверка, отчёт, мерж), а не скопирован; `epic-wave` раздел 1 при
+  `serve` теперь зовёт skill. Мерж в skill-е идёт под lock-ом main-ветки (`<git-common-dir>/main.lock`).
+- worfy: чтение очереди (`src/main/github/gate-queue.ts`, раз в 5 минут, при сбое `gh` интервал
+  удваивается до 30 минут), IPC `gateQueue.get`, действие `actions.gateQueue` («Process gate queue»)
+  в palette и в меню Project-а только при `serve`, уведомление о PR, который ждёт больше часа,
+  шаг Autopilot перед `run-stopped` с `no-ready-wave` и `blocked-tickets` (событие журнала
+  `gate-queue`).
+
+**Где код разошёлся с текстом Ticket-а** (сделано по коду):
+
+- Блок выбора PR берёт ещё `headRefName`, `headRefOid` и `isCrossRepository`: проход Ticket-а 07
+  нуждается в ветке и голове PR и пропускает PR из fork-ов.
+- Отчётом считается только комментарий аккаунта `github.account`, как в блоке `request` Ticket-а 07.
+  Без аккаунта отчёт не засчитывается, и ждут все PR с меткой.
+- Test пункта меню Project-а — в `test/unit/use-projects.test.tsx`, а не в `test/unit/shell.test.tsx`:
+  меню Project-а и его тесты живут там (`shell.test.tsx` подменяет секции sidebar-а).
+- Файлы вне раздела «Где в коде», без которых не проходит `pnpm test`: `scripts/critical-path.mjs`
+  (список событий журнала), `src/main/ipc/autopilot.ts` (проводка шага Autopilot),
+  `test/contract/harness-migrate.test.ts`, `test/unit/terminal-shell.test.ts`,
+  `test/contract/projects.test.ts`, `test/unit/project-settings-shell.test.tsx` (третий шаблон
+  действия), `test/unit/link-access.test.ts` (метки read и write новых каналов),
+  `test/contract/autopilot-journal.test.ts`, `test/contract/app-user-model-id.test.ts` (mock модуля
+  notify).
+
+**Проверки на Mac** (exit code):
+
+- `bash harness/bin/tests/gate-queue.test.sh` — 0 (48 проверок, stub `gh` вызван 12 раз);
+  `skill-blocks.test.sh` — 0 (141); `epic-wave-ship-ticket.test.sh` — 0 (335).
+- `pnpm lint && pnpm typecheck` — 0; `pnpm test` — 0 (6061 passed, 70 skipped).
+- Mutation testing новых строк: 36 mutant-ов, 35 убиты (один — зависанием test-а на 240 s: lock
+  main-ветки не снят). Выжил один: проверка Stop до чтения шаблона повторяла проверку после
+  чтения. Лишняя проверка убрана, test-ы после этого — exit 0.
+
+**Не сделано здесь:** пункты «(вручную)» — упакованная сборка, palette, меню и уведомление на Mac;
+Windows-ПК: `pnpm lint`, `pnpm typecheck`, `pnpm test` и три shell-теста — их список в описании PR.
+
+**Доработка после review (раунд 1).**
+
+- Правило 1 — одно в skill-е и в worfy: PR ждёт, пока у него нет красного отчёта строго новее
+  последнего commit-а. Зелёный отчёт ожидание не снимает: если PR после него ещё открыт, мерж не
+  прошёл, и следующий проход берёт его заново. Отчёт в ту же секунду, что и commit, — PR ждёт.
+  PR из fork-а не ждёт и в worfy тоже (`isCrossRepository`).
+- Блок отчёта и блок мержа в шаге 5 skill-а разделены: повтор после timeout lock-а не пишет второй
+  отчёт; lock снимает `trap`. Lock main-ветки у `gate-queue`, `epic-wave` (раздел 4) и
+  `ship-ticket` — один путь, `<git-common-dir>/main.lock`.
+- Linked machine старой сборки: ответ `projects.settings.get` без `gateQueue` принимается (пустой
+  шаблон), `projects.settings.set` без него сохраняет прежний шаблон.
+- Autopilot: Force stop во время чтения шаблона не шлёт `/worfy:gate-queue`; Stop во время хода
+  очереди не пишет `run-stopping` (с `wave` 0 его не принимает схема журнала).
+- Уведомления: tick раз в минуту (период чтения — от 5 до 6 минут), останов на `will-quit`; отметки
+  одного Project-а не стираются чтением другого.
+- Проверки: три shell-теста — 0 (50, 152, 336); `pnpm lint && pnpm typecheck` — 0; `pnpm test` — 0
+  (6079 passed, 70 skipped); gate fast — 0, `[gate] зелено`. Mutation testing: 16 mutant-ов
+  доработки, все убиты.

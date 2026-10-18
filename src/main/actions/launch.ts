@@ -1,4 +1,5 @@
-// "Ship ticket" and "Run wave" (ticket 23; contract in src/shared/ipc/actions.ts).
+// "Ship ticket", "Run wave" (ticket 23) and "Process gate queue" (worfy-windows ticket 17); the
+// contract is in src/shared/ipc/actions.ts.
 //
 // worfy starts the work with the same skills as the terminal and does not know what they do
 // (ADR 0002): the text comes from the Project's action template (`<Project data folder>/settings.json`,
@@ -18,6 +19,11 @@
 //   Wave's Tickets ({tickets}, ADR-0033); the text, those Tickets and the skipped ones come from
 //   one read of the workflow model, so the run's journal names exactly what went. A run after a
 //   Stop passes the interrupted Wave's Tickets (worfy-week ticket 17): those still in work join it.
+// - Process gate queue: the template's text (no placeholders, /worfy:gate-queue by default) goes to
+//   the Project's Orchestrator, as "Run wave" does. Only on the machine whose Profile gives it the
+//   role `serve` of the cross-machine gate (ADR-0069), read again on every click; refused while
+//   Autopilot runs in the Project, which sends it itself when it has no Wave (src/main/autopilot/run.ts).
+//   worfy only sends the text: the skill rebases, checks, comments and merges (ADR-0002).
 //
 // The agent is then bound to what it was launched for, with source `launch` (resolve.ts): once
 // Claude Code has reported the session id that names its transcript, the Binding goes into
@@ -57,6 +63,12 @@ export interface LaunchDeps {
   /** The app's live Sessions, by any of their ids. */
   registry: { get(sessionId: string): LaunchedSession }
   bindings: { setLaunch(projectId: string, agent: BindingAgent, target: BindingTarget): unknown }
+  /**
+   * This Machine's role in the cross-machine gate of the Project at `root`, read from its Profile
+   * again (src/main/github/gate-queue.ts); null without cross_machine_gate. Without it "Process gate
+   * queue" is refused.
+   */
+  gateRole?(root: string): Promise<'serve' | 'request' | null>
   /** Told whenever a Project's launched Tickets change (a launch, its Session closing). */
   onLaunchesChange?(snapshot: LaunchesSnapshot): void
   /**
@@ -96,6 +108,22 @@ export interface AutopilotWaveResult extends RunWaveResult {
 
 /** Why "Run wave" by hand is refused while Autopilot runs in the Project. */
 export const AUTOPILOT_RUNNING_HINT = 'Autopilot is running in this Project: stop it to run a Wave by hand'
+
+/** Why "Process gate queue" by hand is refused while Autopilot runs in the Project. */
+export const GATE_QUEUE_AUTOPILOT_HINT = 'Autopilot is running in this Project: it processes the gate queue itself'
+
+/** Why "Process gate queue" is refused on a machine whose role is not `serve`. */
+export function gateQueueRoleHint(role: 'request' | null): string {
+  return role === 'request'
+    ? 'This machine has the role request in the cross-machine gate: the machine with serve processes the gate queue'
+    : 'The Profile of this machine has no cross_machine_gate: there is no gate queue'
+}
+
+export interface GateQueueResult {
+  sessionId: string
+  text: string
+  delivery: 'sent' | 'queued'
+}
 
 const POLL_MS = 250
 /** How often the Sessions "Ship ticket" launched are looked at to see whether they have closed. */
@@ -173,6 +201,45 @@ export class ActionLauncher {
     if (this.autopilot?.running(projectId) === true) throw new Error(AUTOPILOT_RUNNING_HINT)
     const { sessionId, text, delivery } = await this.sendWave(projectId, epic, false)
     return { sessionId, text, delivery }
+  }
+
+  /**
+   * "Process gate queue": the Project's template to its Orchestrator. Refused, with the reason, when
+   * Autopilot runs in the Project, when this Machine's role (read again now) is not `serve`, or when
+   * the template is empty.
+   */
+  async gateQueue(projectId: string): Promise<GateQueueResult> {
+    if (this.autopilot?.running(projectId) === true) throw new Error(GATE_QUEUE_AUTOPILOT_HINT)
+    const text = await this.gateQueueText(projectId)
+    if (text.refusal !== null) throw new Error(text.refusal)
+    const view = await this.deps.orchestrators.open(projectId)
+    if (view.sessionId === null) throw new Error('The Orchestrator has no Session')
+    const delivery = this.deps.registry.get(view.sessionId).send(text.text)
+    return { sessionId: view.sessionId, text: text.text, delivery }
+  }
+
+  /**
+   * The text Autopilot sends its Orchestrator before it stops for want of a Wave (src/main/autopilot/run.ts):
+   * the "Process gate queue" template on a `serve` machine; null when the role is not `serve`, the
+   * template is empty, or the role cannot be read.
+   */
+  async autopilotGateQueue(projectId: string): Promise<string | null> {
+    try {
+      const text = await this.gateQueueText(projectId)
+      return text.refusal === null ? text.text : null
+    } catch (error) {
+      console.warn(`[actions] ${projectId}: no gate queue for Autopilot`, error)
+      return null
+    }
+  }
+
+  private async gateQueueText(projectId: string): Promise<{ text: string; refusal: null } | { text: null; refusal: string }> {
+    const root = this.deps.projectRoot(projectId)
+    const role = this.deps.gateRole === undefined ? null : await this.deps.gateRole(root)
+    if (role !== 'serve') return { text: null, refusal: gateQueueRoleHint(role) }
+    const template = this.deps.settings(projectId).actionTemplates.gateQueue
+    if (!isActionConfigured(template)) return { text: null, refusal: emptyTemplateHint('gateQueue') }
+    return { text: template.trim(), refusal: null }
   }
 
   /**

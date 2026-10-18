@@ -20,16 +20,35 @@
 // name the folder itself by its `\\?\` path, so the handle is closed at the first of them.
 //
 // A look at the root that fails is not the end: the root is looked at again every RETRY_DELAY_MS
-// until it is watched or properly waited for. That covers a root that is a link to a folder of
-// this machine which is not there (there is no folder above to wait at: the link is in place), a
-// root that goes between two calls, and a watch the system refuses. Whenever the root is watched
-// again after the start it is reported: anything may have changed while nothing was watched.
+// until it is watched or properly waited for, and every SLOW_RETRY_DELAY_MS once RETRY_SLOW_AFTER
+// looks in a row have failed. That covers a root that is a link to a folder of this machine which
+// is not there (there is no folder above to wait at: the link is in place; the log says so once),
+// a root that goes between two calls, and a watch the system refuses. Whenever the root is watched
+// again after the start it is reported: anything may have changed while nothing was watched. So is
+// a root that was not there at the first look and is watched by the time start() answers.
+//
+// An error of the watch of the root is said and the root is looked at again at once, up to
+// ROOT_ERRORS_BEFORE_PAUSE times in a row; after that the watch is made again with the pauses of a
+// failed look, and nothing more is said until a watch has worked (worfy-windows ticket 33: an error
+// that comes after every new watch filled the log). A watch has worked when it reported a change
+// below the root, or lived the time between two looks with no error; an event that says the root
+// itself went is no sign of it. While the watch fails each time it is made, a new watch reports
+// the root only when the stamps (lstat's mtime and size) of the entries in the folders `enter`
+// names differ from those at the last watch: every pause would otherwise say that anything may
+// have changed, and the caller would read everything again each time. A link is stamped by what
+// it leads to as well — only a link the look has found local and watches; a folder it leads to
+// is stamped as the folders under the root are. A change of a file deeper than those folders that
+// adds or removes no entry is not seen by the stamps.
+//
+// Links below the root are read with the real path of the root among the allowed folders: under a
+// root on a mapped network drive realpath answers the share's UNC path, and the walk would take
+// every link there for one that leads off the machine.
 //
 // What it cannot see: a link put in place between the walk and the watch (the same gap as in
 // remote-links.ts); and a link deeper than the folders `enter` names.
-import { watch as watchNode } from 'node:fs'
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { UNCHECKED, walkLinks, type LinkFs, type PathRules } from './remote-links'
+import { namesTheFolder, notThere, watchWithNode, type NodeWatch } from './watch-gone'
 
 /** What a path is, by lstat: a link is a link whatever it leads to. */
 export type EntryKind = 'folder' | 'file' | 'link'
@@ -51,11 +70,10 @@ export interface WatchFs {
   list: (path: string) => Promise<{ name: string; kind: EntryKind }[]>
   realpath: (path: string) => Promise<string>
   isFolder: (path: string) => Promise<boolean>
-  /**
-   * Watches a folder (with everything below it when `recursive`) or a file. `onEvent` gets the
-   * name the system reports, relative to the path, or null when it reports none.
-   */
-  watch: (path: string, recursive: boolean, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => WatchHandle
+  /** What changes when the entry at the path changes (lstat's mtime and size); null when nothing is there. Never follows a link. */
+  stamp: (path: string) => Promise<string | null>
+  /** Watches a folder (with everything below it when `recursive`) or a file (watch-gone.ts). */
+  watch: NodeWatch
 }
 
 const kindOf = (entry: { isSymbolicLink: () => boolean; isDirectory: () => boolean }): EntryKind => (entry.isSymbolicLink() ? 'link' : entry.isDirectory() ? 'folder' : 'file')
@@ -73,11 +91,12 @@ export const nodeWatchFs: WatchFs = {
       (stats) => stats.isDirectory(),
       () => false,
     ),
-  watch: (path, recursive, onEvent, onError) => {
-    const watcher = watchNode(path, { recursive }, (_event, name) => onEvent(name === null ? null : String(name)))
-    watcher.on('error', onError)
-    return { close: () => watcher.close() }
-  },
+  stamp: (path) =>
+    lstat(path).then(
+      (stats) => `${stats.mtimeMs}:${stats.size}`,
+      () => null,
+    ),
+  watch: watchWithNode,
 }
 
 export interface LinkSafeWatchOptions {
@@ -109,6 +128,8 @@ export interface LinkSafeWatchOptions {
   scanDelayMs?: number
   /** The time until a root that could not be watched is looked at again (default 2 s). */
   retryDelayMs?: number
+  /** The same time once RETRY_SLOW_AFTER looks in a row have failed (default 30 s). */
+  slowRetryDelayMs?: number
 }
 
 /** What the watch does about its root. */
@@ -120,11 +141,21 @@ export const SCAN_DELAY_MS = 100
 /** The time until a root that could not be watched is looked at again. */
 export const RETRY_DELAY_MS = 2000
 
+/** The time until the root is looked at again once RETRY_SLOW_AFTER looks in a row have failed. */
+export const SLOW_RETRY_DELAY_MS = 30_000
+
+/** How many looks in a row may fail before the time between two looks grows. */
+export const RETRY_SLOW_AFTER = 5
+
+/** How many errors of the root watch in a row, with no event in between, make it again at once. */
+export const ROOT_ERRORS_BEFORE_PAUSE = 3
+
 /** How deep below the root links are looked for at most, whatever `enter` says: a loop of links ends there. */
 export const MAX_SCAN_DEPTH = 8
 
 interface LinkWatch {
   target: string
+  folder: boolean
   handle: WatchHandle
 }
 
@@ -135,9 +166,6 @@ interface Found {
   visited: Set<string>
   stale: () => boolean
 }
-
-/** Whether a failed call says that nothing is at the path. */
-const notThere = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException | null)?.code ?? '')
 
 export class LinkSafeWatch {
   private readonly fs: WatchFs
@@ -157,6 +185,14 @@ export class LinkSafeWatch {
   private started = false
   /** Whether the failure of the looks that are being repeated has been said. */
   private said = false
+  /** The looks in a row that failed: past RETRY_SLOW_AFTER the next one waits longer. */
+  private failures = 0
+  /** The errors of the root watch in a row, with no watch in between that worked. */
+  private rootErrors = 0
+  /** The stamps of the root at the last watch while its watch keeps failing; null when it does not. */
+  private lastStamps: string | null = null
+  /** Whether the first look found no root: start() then reports it when it answers 'watching'. */
+  private absentAtStart = false
   private closed = false
 
   constructor(private readonly options: LinkSafeWatchOptions) {
@@ -168,6 +204,10 @@ export class LinkSafeWatch {
   async start(): Promise<WatchState> {
     await this.enqueue(() => this.attach())
     this.started = true
+    // The root came during the start — the wait found it by its second look — and its watch
+    // began after what was written there: no event names it, and the caller may have read the
+    // root before it came.
+    if (this.absentAtStart && this.current === 'watching') this.options.onChange(this.options.root)
     return this.current
   }
 
@@ -261,11 +301,19 @@ export class LinkSafeWatch {
         this.said = true
         this.options.onError(error)
       }
-      this.retryTimer = setTimeout(() => {
-        this.retryTimer = null
-        void this.enqueue(() => this.attach())
-      }, this.options.retryDelayMs ?? RETRY_DELAY_MS)
+      this.failures++
+      this.retryLater(this.failures)
     }
+  }
+
+  /** Looks at the root again after a pause: the long one once `inARow` reaches RETRY_SLOW_AFTER. */
+  private retryLater(inARow: number): void {
+    this.endRetry()
+    const delay = inARow < RETRY_SLOW_AFTER ? (this.options.retryDelayMs ?? RETRY_DELAY_MS) : (this.options.slowRetryDelayMs ?? SLOW_RETRY_DELAY_MS)
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null
+      void this.enqueue(() => this.attach())
+    }, delay)
   }
 
   private async look(): Promise<void> {
@@ -282,33 +330,102 @@ export class LinkSafeWatch {
       if (this.started) this.options.onError(new Error(`${root} now leads off this machine: it is no longer watched`))
       return
     }
-    if ((await this.fs.kind(root)) === null) {
+    const kind = await this.fs.kind(root)
+    if (kind === null) {
+      if (!this.started) this.absentAtStart = true
       await this.waitFor(root)
       return
     }
-    const real = await this.fs.realpath(root)
+    const real = await this.fs.realpath(root).catch((error: unknown) => {
+      // A root that is a link to a folder that is not there is no root that is not there: there is
+      // no folder above to wait at, and nothing will say when it comes. The log says it once.
+      if (kind === 'link' && notThere(error)) throw new Error(`${root} is a link that leads nowhere: it is looked at again until it leads to a folder`)
+      throw error
+    })
     if (this.closed) return
     this.rootReal = real
     const mine: { handle: WatchHandle | null } = { handle: null }
+    const madeAt = Date.now()
+    let reported = false
+    /** Whether this watch has worked: it reported a change below the root, or lived the time between two looks. */
+    const worked = (): boolean => reported || Date.now() - madeAt >= (this.options.retryDelayMs ?? RETRY_DELAY_MS)
     mine.handle = this.fs.watch(
       real,
       true,
       (name) => {
         if (this.rootWatch !== mine.handle) return
-        if (name !== null && this.paths.isAbsolute(name)) return this.lost()
+        // The root itself went: no sign that the watch works.
+        if (namesTheFolder(name, this.paths.isAbsolute)) return this.lost()
+        reported = true
         this.report(name === null ? root : this.paths.join(root, name))
       },
       (error) => {
         if (this.rootWatch !== mine.handle) return
-        this.options.onError(error)
-        this.lost()
+        // The only place the run of errors ends: a watch that worked starts a new one.
+        if (worked()) {
+          this.rootErrors = 0
+          this.lastStamps = null
+        }
+        this.rootErrors++
+        if (this.rootErrors <= ROOT_ERRORS_BEFORE_PAUSE) {
+          this.options.onError(error)
+          return this.lost()
+        }
+        // An error that comes after every new watch: the watch is made again after a pause, and
+        // the log has said enough. The root is not reported here: the next watch reports it if
+        // its stamps have changed meanwhile.
+        if (this.rootErrors === ROOT_ERRORS_BEFORE_PAUSE + 1) this.options.onError(new Error(`the watch of ${root} fails each time it is made: it is made again after a pause, and not said again until it works`))
+        this.detach()
+        this.current = 'waiting'
+        this.retryLater(this.rootErrors - ROOT_ERRORS_BEFORE_PAUSE)
       },
     )
     this.rootWatch = mine.handle
     this.current = 'watching'
-    this.said = false
     await this.scan()
-    if (this.started && this.rootWatch === mine.handle) this.options.onChange(root)
+    if (this.rootWatch !== mine.handle) return
+    if (this.started) {
+      if (this.rootErrors === 0) this.options.onChange(root)
+      else {
+        // The watch has failed lately: the stamps tell the next watch whether anything changed
+        // while none was in place. Up to the pause the root is reported all the same.
+        const stamps = await this.stamps()
+        if (this.rootWatch !== mine.handle) return
+        if (this.rootErrors <= ROOT_ERRORS_BEFORE_PAUSE || stamps !== this.lastStamps) this.options.onChange(root)
+        this.lastStamps = stamps
+      }
+    }
+    // The look has succeeded to its end: a failure after this is a new one, and is said.
+    this.said = false
+    this.failures = 0
+  }
+
+  /** The stamps of the entries in the folders `enter` names, as one text; links are not followed. */
+  private async stamps(): Promise<string> {
+    const lines: string[] = []
+    const visit = async (shown: string, real: string, depth: number): Promise<void> => {
+      let entries: { name: string; kind: EntryKind }[]
+      try {
+        entries = await this.fs.list(real)
+      } catch {
+        lines.push(`${shown} unreadable`)
+        return
+      }
+      for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+        const path = this.paths.join(shown, entry.name)
+        lines.push(`${path} ${entry.kind} ${await this.fs.stamp(this.paths.join(real, entry.name))}`)
+        if (entry.kind === 'folder' && depth + 1 < MAX_SCAN_DEPTH && this.entered(path)) await visit(path, this.paths.join(real, entry.name), depth + 1)
+      }
+    }
+    await visit(this.options.root, this.rootReal, 0)
+    // What the local links lead to: the look has just walked each one and found it local, and
+    // the target is a real path. A link that leads off the machine has no watch, so is not here.
+    const links = [...this.linkWatches].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    for (const [path, link] of links) {
+      lines.push(`${path} -> ${await this.fs.stamp(link.target)}`)
+      if (link.folder && this.entered(path)) await visit(path, link.target, 1)
+    }
+    return lines.join('\n')
   }
 
   /** The root is gone, or its watch failed: it is waited for again, and said to have changed. */
@@ -342,7 +459,7 @@ export class LinkSafeWatch {
       false,
       (name) => {
         // Only the next name on the way matters: a repository root changes all the time.
-        if (name === null || this.paths.isAbsolute(name) || name.split(this.paths.sep)[0]!.toLowerCase() === next) again()
+        if (name === null || namesTheFolder(name, this.paths.isAbsolute) || name.split(this.paths.sep)[0]!.toLowerCase() === next) again()
       },
       again,
     )
@@ -354,6 +471,9 @@ export class LinkSafeWatch {
     if ((await this.fs.kind(this.paths.join(at, missing[0]!))) !== null) return this.attach()
     // A proper wait: nothing is failing any more.
     this.said = false
+    this.failures = 0
+    this.rootErrors = 0
+    this.lastStamps = null
   }
 
   /** Called only by a watch that is still the current one: after close there is none. */
@@ -420,7 +540,8 @@ export class LinkSafeWatch {
       }
       if (entry.kind !== 'link' || !(below || this.options.wanted(path))) continue
       const link = this.paths.join(real, entry.name)
-      if ((await walkLinks(link, this.options.allowed, { paths: this.paths, links: this.options.links })) !== 'local') {
+      // `real` starts with the real path of the root, which may be the UNC path of a mapped drive.
+      if ((await walkLinks(link, [...this.options.allowed, this.rootReal], { paths: this.paths, links: this.options.links })) !== 'local') {
         found.left.add(path)
         continue
       }
@@ -462,7 +583,7 @@ export class LinkSafeWatch {
         folder,
         (name) => {
           if (this.linkWatches.get(path)?.handle !== mine.handle) return
-          if (name !== null && this.paths.isAbsolute(name)) return gone()
+          if (namesTheFolder(name, this.paths.isAbsolute)) return gone()
           this.report(folder && name !== null ? this.paths.join(path, name) : path)
         },
         (error) => {
@@ -474,6 +595,6 @@ export class LinkSafeWatch {
       this.options.onError(error)
       return
     }
-    this.linkWatches.set(path, { target, handle: mine.handle })
+    this.linkWatches.set(path, { target, folder, handle: mine.handle })
   }
 }

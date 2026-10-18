@@ -6,6 +6,8 @@ import { posix, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CardInfo } from '../../src/shared/ipc/cards'
 import { CARD_LINK_DEPTH, CardStore, type CardFs } from '../../src/main/cards/store'
+import { RETRY_DELAY_MS, SLOW_RETRY_DELAY_MS } from '../../src/main/link-safe-watch'
+import { countFsCalls } from '../contract/counted-fs'
 import { FILE, FOLDER, linkTo, windowsDisk, type DiskEntry, type WindowsDisk } from './windows-disk'
 
 const PROJECT = 'demo-0a1b2c3d'
@@ -59,8 +61,16 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
   it('watches the Cards folder with one handle, makes no folder, and reports a change of a file of a Card by the id of the Card', async () => {
     const disk = windowsDisk(TWO_CARDS)
     const { store, seen } = makeStore(disk)
-    expect(await store.info(PROJECT, 'c1')).toMatchObject({ exists: true, title: 'a title', revision: 0 })
-    await watching(disk, [`${CARDS} (recursive)`])
+    // A folder made through node:fs would not be in the model: the calls are counted, and a mkdir
+    // fails before it reaches the disk (worfy-windows ticket 33).
+    const counted = countFsCalls({ refuse: ['mkdir'] })
+    try {
+      expect(await store.info(PROJECT, 'c1')).toMatchObject({ exists: true, title: 'a title', revision: 0 })
+      await watching(disk, [`${CARDS} (recursive)`])
+    } finally {
+      counted.restore()
+    }
+    expect(counted.calls.filter((call) => call.startsWith('mkdir '))).toEqual([])
 
     disk.put(`${CARDS}\\c1\\js\\deep\\more.js`, FILE)
     await changed(seen, 'c1')
@@ -104,6 +114,81 @@ describe('the watch of the Cards of a Project, by the rules of Windows', () => {
       ['c1', 1],
       ['c2', 1],
     ])
+  })
+
+  it('a report with no name for the Cards folder of one Project reads again the Cards asked about in that Project only', async () => {
+    const other = 'other-0a1b2c3d'
+    const otherData = 'C:\\data\\other'
+    const disk = windowsDisk({ ...TWO_CARDS, [`${otherData}\\cards\\c9\\index.html`]: FILE })
+    const store = new CardStore({ dataDirOf: (id) => (id === PROJECT ? DATA : otherData), projectIds: () => [PROJECT, other], delayMs: 0, paths: win32, links: disk.links, fs: cardFs(disk), watchFs: disk.fs })
+    stores.push(store)
+    const seen: CardInfo[] = []
+    store.onChange((info) => seen.push(info))
+    await store.info(PROJECT, 'c1')
+    await store.info(other, 'c9')
+    await watching(disk, [`${CARDS} (recursive)`, `${otherData}\\cards (recursive)`])
+    disk.nameless(`${otherData}\\cards`)
+    await changed(seen, 'c9')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(seen.map((info) => [info.projectId, info.cardId, info.revision])).toEqual([[other, 'c9', 1]])
+  })
+
+  it('a swap file or a backup file of an editor in a Card is no change of the Card, as with chokidar', async () => {
+    const disk = windowsDisk(TWO_CARDS)
+    const { store, seen } = makeStore(disk)
+    await store.info(PROJECT, 'c1')
+    await watching(disk, [`${CARDS} (recursive)`])
+    disk.put(`${CARDS}\\c1\\.index.html.swp`, FILE)
+    disk.put(`${CARDS}\\c1\\js\\.app.js.swx`, FILE)
+    disk.put(`${CARDS}\\c1\\index.html~`, FILE)
+    disk.put(`${CARDS}\\c1\\.index.html.subl123.tmp`, FILE)
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(seen).toEqual([])
+    disk.put(`${CARDS}\\c1\\index.html`, FILE)
+    await changed(seen, 'c1')
+    expect(seen).toEqual([expect.objectContaining({ cardId: 'c1', revision: 1 })])
+  })
+
+  it('a watch of the Cards folder that fails each time it is made: the Cards are not read again at every pause, but a Card written meanwhile is', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk(TWO_CARDS)
+      const failure = new Error('EPERM: operation not permitted, watch')
+      const watchFs = {
+        ...disk.fs,
+        watch: (...args: Parameters<WindowsDisk['fs']['watch']>) => {
+          const handle = disk.fs.watch(...args)
+          if (args[0] === CARDS) setTimeout(() => args[3](failure), 0)
+          return handle
+        },
+      }
+      const store = new CardStore({ dataDirOf: () => DATA, projectIds: () => [PROJECT], delayMs: 0, paths: win32, links: disk.links, fs: cardFs(disk), watchFs })
+      stores.push(store)
+      const seen: CardInfo[] = []
+      store.onChange((info) => seen.push(info))
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      try {
+        await store.info(PROJECT, 'c1')
+        // Made again at once up to the pause: those reports read the Card again, a bounded number of times.
+        await vi.advanceTimersByTimeAsync(100)
+        const before = seen.length
+        expect(before).toBeGreaterThan(0)
+        // Four short pauses and two long ones: nothing changed, no new revision.
+        await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 4 + SLOW_RETRY_DELAY_MS * 2)
+        expect(seen).toHaveLength(before)
+        // Written while no watch is in place: the next watch finds it, and the Card is read again once.
+        disk.putQuietly(`${CARDS}\\c1\\index.html`, FILE)
+        await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+        expect(seen).toHaveLength(before + 1)
+        expect(seen.at(-1)).toMatchObject({ cardId: 'c1', revision: seen[before - 1]!.revision + 1 })
+        await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS * 2)
+        expect(seen).toHaveLength(before + 1)
+      } finally {
+        errors.mockRestore()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a Cards folder that is removed while watched: the Cards that were asked about are reported as gone', async () => {

@@ -186,6 +186,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // does for its own active Project: the caller changes nothing.
     'docs.open',
     'docs.read',
+    // Read-only gh, as checks.get: the cross-machine gate queue (worfy-windows ticket 17).
+    'gateQueue.get',
     'layout.get',
     'orchestrator.view',
     // Read-only git and gh, the marks files and the e2e lock, as checks.get; subscribing and leaving count as reading.
@@ -204,6 +206,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'workflow.open',
   ]
   const WRITE_CALLS = [
+    // Sends the "Process gate queue" template into the Orchestrator, as Run wave (worfy-windows ticket 17).
+    'actions.gateQueue',
     'actions.runWave',
     'actions.shipTicket',
     // Copies files to the Project machine's disk.

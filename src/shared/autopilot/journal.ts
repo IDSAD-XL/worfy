@@ -96,6 +96,16 @@
 //                                    run-stopped once the turn and the background tasks are over;
 //                                    reason: `user-stop`; wave and tickets as in wave-started;
 //                                    inWork: the Tickets of the Wave in work at the Stop
+//   gate-queue     text              the run had no Wave to send (it was to stop with `no-ready-wave`
+//                                    or `blocked-tickets`) on the machine with the role `serve` of
+//                                    the cross-machine gate, and sent the Orchestrator the "Process
+//                                    gate queue" template first (worfy-windows ticket 17,
+//                                    ADR-0069); text: what it sent. Once per run. Its turn ends by
+//                                    the rules of a Wave's turn (background tasks, the Limits);
+//                                    run-stopped follows with the reason it was to stop with. A
+//                                    Stop during it writes no run-stopping: run-stopped
+//                                    (`user-stop`) follows the turn.
+//                                    Journals written before ticket 17 have none
 //   run-stopped    reason, tasks?,   the run ended; reason: why, in a few words; tasks: the
 //                  tickets?,         background tasks alive then, when any were; tickets: with
 //                  lastText?         `blocked-tickets`, the Tickets it stopped on (as skipped of
@@ -163,6 +173,7 @@ export const JOURNAL_EVENT_KINDS = [
   'human-input',
   'background-tasks',
   'run-stopping',
+  'gate-queue',
   'run-stopped',
   'orchestrator-returned',
   'tasks-killed',
@@ -231,6 +242,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),
+  event('gate-queue', { text }),
   event('run-stopped', { reason: text, tasks: tasks.optional(), tickets: z.array(text).optional(), lastText: z.string().max(LAST_TEXT_MAX).optional() }),
   event('orchestrator-returned', {}),
   event('tasks-killed', { reason: text, tasks }),

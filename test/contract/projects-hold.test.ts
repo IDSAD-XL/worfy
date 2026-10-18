@@ -73,6 +73,23 @@ const { registerIpc } = await import('../../src/main/ipc/index')
 const { docsHub } = await import('../../src/main/ipc/docs')
 const { startOrchestrators } = await import('../../src/main/agent/app-orchestrators')
 startOrchestrators()
+// The documents of a held Project open and close in the background (keepHeld in
+// src/main/ipc/docs.ts); a watcher that is still starting reads HANDOFF.md once it is ready and
+// changes the Layout by what it finds. The calls are kept to be waited for at the end (by hand: a
+// vi.spyOn here had no calls left by the time afterAll ran).
+const docsCalls: Promise<unknown>[] = []
+const openDocs = docsHub.open.bind(docsHub)
+const closeDocs = docsHub.close.bind(docsHub)
+docsHub.open = (...args) => {
+  const answer = openDocs(...args)
+  docsCalls.push(answer)
+  return answer
+}
+docsHub.close = (...args) => {
+  const answer = closeDocs(...args)
+  docsCalls.push(answer)
+  return answer
+}
 
 type Listener = (event: IpcMainInvokeEvent, input: unknown) => unknown
 const handlers = new Map<string, Listener>()
@@ -113,6 +130,10 @@ async function hold(client: LinkClient, screen: string, projectId: string | null
 const activeOnDisk = (): string | null => (JSON.parse(readFileSync(join(dataDir, 'projects.json'), 'utf8')) as { activeId: string | null }).activeId
 
 afterAll(async () => {
+  // Every open and close the tests started has answered, and with it every change of the Layout it
+  // makes: a watcher still starting when the folder went read HANDOFF.md as gone, hid its Node, and
+  // the save of that change made the folder again after saveLayoutNow() (worfy-windows ticket 32).
+  await Promise.allSettled(docsCalls)
   await docsHub.closeAll()
   // The file left its folder in the temporary folder of the user (worfy-windows ticket 26).
   await saveLayoutNow()

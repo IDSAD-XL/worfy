@@ -40,6 +40,12 @@ export const CARD_CHANGE_DELAY_MS = 100
  */
 export const CARD_LINK_DEPTH = 2
 
+/**
+ * A swap file or a backup file of an editor (`.index.html.swp`, `index.html~`, `.x.subl12.tmp`):
+ * the pattern chokidar skips with its `atomic` option, tested on the whole path as chokidar does.
+ */
+export const EDITOR_TEMP_FILE = /\..*\.(sw[px])$|~$|\.subl.*\.tmp/
+
 /** How much of index.html is read to find its <title>. */
 const TITLE_READ_LIMIT = 64 * 1024
 const TITLE_LENGTH_LIMIT = 200
@@ -225,6 +231,8 @@ export class CardStore {
       // folder that is not there yet is waited for — so nothing is asked through a link on the way.
       const names = (path: string): string[] => this.paths.relative(dir, path).split(this.paths.sep)
       const ofCard = (path: string): boolean => CARD_ID_PATTERN.test(names(path)[0] ?? '')
+      // chokidar, the watch everywhere else, skips these names: no Card changes by them.
+      const changes = (path: string): boolean => ofCard(path) && !EDITOR_TEMP_FILE.test(path)
       const watcher = new LinkSafeWatch({
         root: dir,
         // The Cards folder is the only place these paths may go: also when it lies on a share itself.
@@ -234,7 +242,7 @@ export class CardStore {
         fs: this.options.watchFs,
         // Links are looked for among the Cards, in a Card, and in the folders right inside it.
         enter: (path) => ofCard(path) && names(path).length <= CARD_LINK_DEPTH,
-        wanted: ofCard,
+        wanted: changes,
         onChange: (path) => {
           // The Cards folder itself: it went, it is watched again, or Windows lost events and says
           // so by a report with no name. Any Card may have changed unseen, and nothing else reads

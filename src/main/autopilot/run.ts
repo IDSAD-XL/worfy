@@ -184,8 +184,15 @@ export interface AutopilotDeps {
    * Sends "Run wave" to the Orchestrator (ActionLauncher.autopilotWave), with the Tickets of an
    * interrupted Wave to take along when still in work (`resume`); `autopilotRefusal` says why the
    * Project's template cannot drive a run, before it starts (ADR-0033), or null.
+   * `autopilotGateQueue` (ActionLauncher.autopilotGateQueue) gives the text of "Process gate queue"
+   * on the machine with the role `serve` of the cross-machine gate, else null: the run sends it once
+   * before it stops for want of a Wave (worfy-windows ticket 17).
    */
-  waves: { autopilotWave(projectId: string, epic: string, resume: readonly number[]): Promise<AutopilotWaveResult>; autopilotRefusal(projectId: string): string | null }
+  waves: {
+    autopilotWave(projectId: string, epic: string, resume: readonly number[]): Promise<AutopilotWaveResult>
+    autopilotRefusal(projectId: string): string | null
+    autopilotGateQueue?(projectId: string): Promise<string | null>
+  }
   /**
    * Opens the run's journal; writes its `run-started` line, with the run's origin key, `override`
    * when the start went past a run of another Machine, and the Linked machines it could not ask.
@@ -354,6 +361,12 @@ class Run {
   stopSent = false
   /** After a Force stop: the Tickets of the Wave it interrupted (AutopilotState.resumable). */
   interrupted: number[] = []
+  /**
+   * The gate queue's turn before the run stops for want of a Wave (worfy-windows ticket 17): the stop
+   * it was sent instead of, while its turn goes on; null otherwise. Once per run: whatever ends the
+   * turn ends the run (endGateQueue).
+   */
+  gateQueue: { reason: AutopilotStopReason; tickets: number[] | undefined; lastText: string | null } | null = null
   /** The key of the Project's origin (origin.ts); null without one: Linked machines are not told about the run. */
   origin: string | null = null
   /** The Linked machines the start could not ask (AutopilotState.unasked). */
@@ -829,7 +842,9 @@ export class Autopilot {
     for (const effect of effects) {
       switch (effect.kind) {
         case 'send-wave':
-          await this.sendWave(run)
+          // The gate queue's turn ended and the Tickets changed meanwhile: the run still stops as it was going to.
+          if (run.gateQueue !== null) await this.endGateQueue(run, null)
+          else await this.sendWave(run)
           break
         case 'wave-started': {
           const sent = run.sent
@@ -845,7 +860,8 @@ export class Autopilot {
           break
         }
         case 'wave-finished':
-          await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber) })
+          // The end of the gate queue's turn is not a Wave's.
+          if (run.gateQueue === null) await this.write(run, { kind: effect.kind, wave: effect.wave, tickets: effect.tickets.map(ticketNumber) })
           break
         case 'stopping':
           await this.beginStopping(run, effect)
@@ -855,11 +871,71 @@ export class Autopilot {
           await this.write(run, { kind: 'session-error', session: run.session?.id ?? null, message: effect.message })
           break
         case 'stopped':
-          await this.end(run, effect.reason, effect.tickets)
+          if (run.gateQueue !== null) await this.endGateQueue(run, effect)
+          else if (!(await this.gateQueueTurn(run, effect))) await this.end(run, effect.reason, effect.tickets)
           break
       }
     }
     if (run.cycle.phase !== 'stopped') this.publish(run.projectId)
+  }
+
+  /**
+   * The run has no Wave to send (`no-ready-wave`, `blocked-tickets`): on the machine with `serve`
+   * the Orchestrator first gets "Process gate queue", once per run, and `gate-queue` goes to the
+   * journal (worfy-windows ticket 17). Its turn is followed as a Wave's without Tickets: the end of
+   * the turn, background tasks, a Limits wait, a graceful Stop. Not after a Stop or on quit. Answers
+   * whether the turn went; when it did not, the run stops now.
+   */
+  private async gateQueueTurn(run: Run, effect: { reason: AutopilotStopReason; tickets?: number[] }): Promise<boolean> {
+    const gateQueue = this.deps.waves.autopilotGateQueue
+    if (effect.reason !== 'no-ready-wave' && effect.reason !== 'blocked-tickets') return false
+    if (gateQueue === undefined) return false
+    const text = await gateQueue.call(this.deps.waves, run.projectId)
+    // A Stop, a Force stop or the quit before the step, or while the role and the template were read.
+    if (text === null || run.stopRequested || run.rushed || this.quitting || run.session === null) return false
+    const saved = { reason: effect.reason, tickets: effect.tickets, lastText: run.lastText }
+    run.cycle = { ...run.cycle, phase: 'turn', tickets: [], reason: null, inWork: [] }
+    run.gateQueue = saved
+    run.lastText = null
+    run.wavePrompt = messageLabel(text, [])
+    run.waveTurn = null
+    run.sending = true
+    run.promptsWhileSending.clear()
+    try {
+      await this.write(run, { kind: 'gate-queue', text })
+      run.session.send(text)
+    } catch (error) {
+      // The Session is gone: the run stops as it was going to.
+      console.warn(`[autopilot] ${run.projectId}: could not send the gate queue to the Orchestrator`, error)
+      await this.endGateQueue(run, null)
+      return true
+    } finally {
+      run.sending = false
+    }
+    for (const [turn, prompt] of run.promptsWhileSending) {
+      if (prompt !== run.wavePrompt) continue
+      run.waveTurn = turn
+      break
+    }
+    run.promptsWhileSending.clear()
+    return true
+  }
+
+  /**
+   * The gate queue's turn is over: the run stops with the reason it had before it (`stopped` null,
+   * or another stop for want of a Wave), with the Wave's last answer; any other stop — a Stop, a
+   * Force stop, an error, the Limits — stops it with its own reason.
+   */
+  private async endGateQueue(run: Run, stopped: { reason: AutopilotStopReason; tickets?: number[] } | null): Promise<void> {
+    const saved = run.gateQueue
+    if (saved === null) return
+    run.gateQueue = null
+    const own = stopped !== null && stopped.reason !== 'no-ready-wave' && stopped.reason !== 'blocked-tickets' && stopped.reason !== 'no-progress'
+    const reason = own ? stopped.reason : saved.reason
+    const tickets = own ? stopped.tickets : saved.tickets
+    if (!own) run.lastText = saved.lastText
+    run.cycle = { ...run.cycle, phase: 'stopped', reason }
+    await this.end(run, reason, tickets)
   }
 
   private async sendWave(run: Run): Promise<void> {
@@ -957,7 +1033,8 @@ export class Autopilot {
       await this.feed(run, { type: 'stop', reason: 'user-stop' })
       return
     }
-    await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
+    // The gate queue's turn has no Wave and no Tickets: no run-stopping, run-stopped (`user-stop`) follows the turn.
+    if (run.gateQueue === null) await this.write(run, { kind: 'run-stopping', reason: 'user-stop', wave: effect.wave, tickets: effect.tickets.map(ticketNumber), inWork: effect.inWork.map(ticketNumber) })
     // Gone already with the continuation after a Limits wait (resume), or to go with it.
     if (run.stopSent || run.limits?.until != null || run.session === null) return
     try {

@@ -85,9 +85,9 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [x] `preflight.test.sh`, новые случаи — чистые функции на входах из шапки (`:31-34`): `adrScan` по `0001-a.md 0001-b.md` — `highest 0001 · duplicates 0001`; `adrCollisions` по двум веткам с номером `0098` — `0098: origin/a, origin/b`; `migLast` по `{"entries":[{"idx":"0077"}]}` — `77`; вывод `worktree-lock status` с `holds … ← this` и чужим `also …` — разобран, как в `check_lock`.
 - [x] Сверка на Mac, worktree worfy: `git worktree add --detach "$T/old" origin/main`, затем из worktree worfy `bash "$T/old/harness/bin/preflight" --no-fetch --epic worfy-windows` и `node harness/bin/preflight --no-fetch --epic worfy-windows` — вывод совпадает построчно, коды выхода равны (через раздел Mac checks PR, Q33).
 - [x] `bash harness/bin/tests/preflight.test.sh` и `bash harness/bin/tests/harness-home.test.sh` — exit 0 на Mac и в `pnpm test`.
-- [ ] Те же два test-а — exit 0 в Git Bash на Windows-ПК; случай тайм-аута проходит и там (внук погашен через `taskkill /T`).
+- [x] Те же два test-а — exit 0 в Git Bash на Windows-ПК; случай тайм-аута проходит и там (внук погашен через `taskkill /T`).
 - [ ] Windows-ПК, worktree worfy, Git Bash: `node harness/bin/preflight --epic worfy-windows; echo EXIT=$?` — с настоящим `git fetch`; последняя строка `GO` или `BLOCKED: …` с настоящими причинами, exit 0 или 1, не больше 20 строк. Вывод — в Итог.
-- [ ] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
+- [x] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
 
@@ -181,3 +181,7 @@ Session на Mac (implementer), 2026-10-18. macOS 25.6, bash 3.2.57, Node 24.19.
   `e2e migrations`; строка коллизии не печатается — `e2e ADR`; без предела 4 строк — `e2e PRs` (7 строк PR, 21
   строка); без причины для gh, которого нет, — оба случая 4g; без выхода по сигналу git — 4f; запасной таймер
   pipe 60 s — 6b (`124 late 15052 ms`); декодер с потерей байт — `e2e subject` и `decode/encode`.
+
+### Мерж и сверка (Session на Mac, 2026-10-18)
+
+- PR #456 влит как `9b5e2cd7` после `GATE_SCOPE=all` gate full на Mac, exit 0, `[gate] зелено (full)` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/456#issuecomment-6243697542)); ПК на `bde22e3`: `preflight.test.sh` exit 0, 34 ok / 0 FAIL, случай тайм-аута проходит, `harness-home.test.sh` exit 0, 42 / 0 ([вердикт ПК](https://github.com/IDSAD-XL/worfy/pull/456#issuecomment-6243521403)). Осталось: на Windows-ПК живой `node harness/bin/preflight --epic worfy-windows` с настоящим `git fetch` — вывода в PR нет, статус не меняется.

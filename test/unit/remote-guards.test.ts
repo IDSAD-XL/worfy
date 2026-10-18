@@ -141,7 +141,7 @@ describe('the trash and the files of a Card', () => {
     expect(disk.contacts).toEqual([])
   })
 
-  it('under POSIX rules no link is read: the look and the read are as before', () => {
+  it('under POSIX rules no link is read: each path is looked at by `there` (an lstat), and the title is read from index.html', () => {
     const disk = windowsDisk({})
     const seen: string[] = []
     const fs = { there: (path: string) => (seen.push(`there ${path}`), true), readText: (path: string) => (seen.push(`read ${path}`), '<title>T</title>') }

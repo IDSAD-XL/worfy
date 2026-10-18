@@ -10,12 +10,13 @@
 // after a short quiet period; DocsHub shares one watcher per Project between the windows that
 // opened it. Nothing here writes a file: the watch only listens, the rest only reads.
 import { createHash } from 'node:crypto'
-import { watch, type FSWatcher } from 'node:fs'
+import { realpathSync } from 'node:fs'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { resolve, sep } from 'node:path'
 import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState } from '../../shared/ipc/docs'
 import { isInside, leadsToRemote, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
+import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
 /** A larger file is refused: HANDOFF and ADRs are short text. */
 export const DOC_SIZE_MAX = 1024 * 1024
@@ -177,18 +178,28 @@ const sameDocs = (a: Docs, b: Docs): boolean => JSON.stringify(a) === JSON.strin
 /** A watch of the root with everything below it; `close` ends it. */
 export type WatchRoot = (root: string, onEvent: (filename: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
 
-const watchRootWithNode: WatchRoot = (root, onEvent, onError) => {
-  // One recursive watch of the root (FSEvents on macOS).
-  const watcher: FSWatcher = watch(root, { recursive: true }, (_event, filename) => onEvent(filename))
-  watcher.on('error', onError)
-  return watcher
-}
+// One recursive watch of the root (FSEvents on macOS).
+const watchRootWithNode: WatchRoot = (root, onEvent, onError) => watchWithNode(root, true, onEvent, onError)
 
 const isFolder = (path: string): Promise<boolean> =>
   stat(path).then(
     (stats) => stats.isDirectory(),
     () => false,
   )
+
+/**
+ * The last name of a folder as the system gives it in the events of its watch: that of its real
+ * path, a symlink followed and the case of the disk (`…/link` to `…/realproj` gives `realproj`,
+ * `…/project` of the folder `Project` gives `Project`). The name as written when there is no real
+ * path to take.
+ */
+function nameOnDisk(folder: string): string {
+  try {
+    return nativePath.basename(realpathSync.native(folder))
+  } catch {
+    return nativePath.basename(folder)
+  }
+}
 
 /** The time between two looks for a root that is gone. */
 export const ROOT_RETRY_MS = 2000
@@ -207,6 +218,20 @@ export interface DocsWatchOptions {
   rootThere?: (root: string) => Promise<boolean>
   /** The time between two looks for a root that is gone (default ROOT_RETRY_MS). */
   retryMs?: number
+  /** Whether an `error` of the watch means it is dead (default errorEndsWatch of this system). */
+  errorEnds?: boolean
+}
+
+/**
+ * Whether an `error` of the recursive fs.watch on `platform` means the watch is dead. On macOS and
+ * Windows Node closes the one handle before it reports the error. On Linux Node 24 makes the
+ * recursive watch in JavaScript, one inotify watch per folder: it reports the failure of one
+ * folder (a readdir or a watch that failed) and the others go on. There the watch is kept and the
+ * error only logged, as before worfy-windows ticket 36; closing it would make it anew, with a full
+ * walk of the tree, every ROOT_RETRY_MS.
+ */
+export function errorEndsWatch(platform: NodeJS.Platform): boolean {
+  return platform !== 'linux'
 }
 
 /**
@@ -214,9 +239,27 @@ export interface DocsWatchOptions {
  *
  * A root that is removed (worfy-windows ticket 27): Windows neither closes the watch nor reports
  * an error — it sends an endless run of events that name the folder itself by its `\\?\` path,
- * 87 000 a second on the owner's PC, a whole processor core. The watch is closed at the first of
- * them, the documents are read once more (they read as gone), and the root is looked for every
- * ROOT_RETRY_MS: when it is a folder again it is watched again and read.
+ * some 87 000 to 147 000 a second on the owner's PC (261 206 and 441 116 in 3 s in two probes), a
+ * whole processor core (watch-gone.ts). The watch is closed at the first of them, the documents are
+ * read once more (they read as gone), and the root is looked for every ROOT_RETRY_MS: when it is a
+ * folder again it is watched again and read. A watch that fails on macOS or Windows (worfy-windows
+ * ticket 36) is dead — Node closes its handle before it reports the error — and is met the same
+ * way, with the error in the log once per run of failures (errorEndsWatch).
+ *
+ * On macOS (worfy-windows ticket 38) the watch of a root that is removed or renamed neither closes
+ * nor fails, and sends one event, named by the last name of the root's real path (nameOnDisk):
+ * not a full path, so the watch is kept. That name asks for a read, which finds no documents.
+ * FSEvents follows the path, not the folder: the same watch tells of a root made again or renamed
+ * back by the same name, and that read finds them again; the folder renamed away is not followed.
+ * A file directly under the root with the root's own name gives the same name: one read more, sent
+ * nowhere when nothing changed.
+ * A parent of the root removed or renamed, and renamed back, gives no event at all (measured):
+ * the documents stay as they were read.
+ *
+ * On Linux (read in the sources of Node 24, not run) a root that is removed comes as one event
+ * named '' and Node's recursive watch closes its inner watches itself, with neither `close` nor
+ * `error`: the documents stay as they were read and the root is not waited for. worfy has no
+ * Linux build (ADR-0054), so nothing is done about it.
  */
 export class DocsWatcher {
   private docs: Docs | null = null
@@ -227,6 +270,11 @@ export class DocsWatcher {
   private running: Promise<void> | null = null
   private pending = false
   private closed = false
+  /**
+   * Whether the watch is failing — it could not be made, or it failed — and that has been said.
+   * Cleared once a watch has worked: it delivered an event, or it lasted a retry period.
+   */
+  private failing = false
 
   private constructor(private readonly options: DocsWatchOptions) {}
 
@@ -264,6 +312,9 @@ export class DocsWatcher {
     const { root } = this.options
     const full = this.options.isAbsolute ?? nativePath.isAbsolute
     const mine: { handle: { close: () => void } | null } = { handle: null }
+    // On macOS the root itself, removed, renamed away, made again or renamed back, comes as one
+    // event named by its last name on the disk (see the header of DocsWatcher).
+    const itself = nameOnDisk(root)
     // Events for any other path of the repository (node_modules, .git, out/) are dropped by name
     // here, before any read.
     mine.handle = (this.options.watch ?? watchRootWithNode)(
@@ -271,25 +322,54 @@ export class DocsWatcher {
       (filename) => {
         // A watch that was closed may still have events on the way.
         if (this.watcher !== mine.handle) return
-        // A name under the root is never a full path: this one names the root itself, which is gone.
-        if (filename !== null && full(filename)) return this.lost()
-        if (filename === null || isWatchedPath(filename)) this.schedule()
+        this.failing = false
+        // A name under the root is not a full path: this one names the root itself, which is gone.
+        if (namesTheFolder(filename, full)) return this.lost()
+        if (filename === null || filename === itself || isWatchedPath(filename)) this.schedule()
       },
-      (error) => console.error('[docs] watcher error', error),
+      (error) => {
+        if (this.watcher !== mine.handle) return
+        if (!(this.options.errorEnds ?? errorEndsWatch(process.platform))) return console.error(`[docs] the watch of ${root} reported an error; it goes on`, error)
+        // Node has closed the handle before it says this: nothing more comes from this watch.
+        this.fail(`[docs] the watch of ${root} failed: its documents are not followed until it is made anew`, error)
+        this.drop()
+      },
     )
     this.watcher = mine.handle
     // The event stream starts a moment after watch() returns, and a change in that moment is not
     // reported. A few reads after the start pick such a change up; each one sends nothing unless
     // something changed.
     for (const delay of SETTLE_READS_MS) this.settle.push(setTimeout(() => this.request(), delay))
+    // A watch that lasts a retry period has worked: a failure after that is a new one, and said.
+    this.settle.push(
+      setTimeout(() => {
+        if (this.watcher === mine.handle) this.failing = false
+      }, this.retryMs()),
+    )
+  }
+
+  /** Says a failure of the watch, once per run of failures. */
+  private fail(line: string, error: unknown): void {
+    if (this.failing) return
+    this.failing = true
+    console.error(line, error)
+  }
+
+  private retryMs(): number {
+    return this.options.retryMs ?? ROOT_RETRY_MS
   }
 
   /** The root is gone: its watch is closed, its documents are read as they are now, and it is waited for. */
   private lost(): void {
+    console.warn(`[docs] the folder ${this.options.root} is gone: its documents are not watched until it is back`)
+    this.drop()
+  }
+
+  /** Closes the watch of the root, reads the documents as they are now, and waits for the root. */
+  private drop(): void {
     this.watcher?.close()
     this.watcher = null
     for (const timer of this.settle.splice(0)) clearTimeout(timer)
-    console.warn(`[docs] the folder ${this.options.root} is gone: its documents are not watched until it is back`)
     this.request()
     this.waitForRoot()
   }
@@ -308,12 +388,16 @@ export class DocsWatcher {
             // With the reads that follow every start of the watch: nothing tells of what was
             // written before it began.
             this.watch()
-          } catch {
-            // Gone again between the look and the watch.
+          } catch (error) {
+            // Gone again between the look and the watch; or a folder that cannot be watched now
+            // (too many handles open, no access), said once. Its documents are read at every look
+            // meanwhile: they are on the disk, and must not stay "gone" until the watch is made.
+            if (!notThere(error)) this.fail(`[docs] cannot watch ${this.options.root}: its documents are not followed until it can be`, error)
+            this.request()
             this.waitForRoot()
           }
         })
-    }, this.options.retryMs ?? ROOT_RETRY_MS)
+    }, this.retryMs())
   }
 
   private schedule(): void {

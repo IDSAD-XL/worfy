@@ -1,7 +1,9 @@
 # 49 — Корень Project-а на Windows в двух написаниях: `C:/…` в списке Project-ов, `C:\…` в уведомлениях; сравнение через один helper, id Project-а не меняется
 
 Type: task
-Status: open
+Status: done 2026-10-18T11:18Z
+PR: #489
+Branch: worfy-windows/49-root-two-spellings
 Blocked by: —
 Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/store.ts` (комментарий к PR #304; срез 3d Ticket-а [14](14-gate-full-на-windows.md) — только test-ы); подозрение на дефект продукта найдено чтением кода, запуском не подтверждено. Код перечитан на Mac по main `1c1beadd`.
 
@@ -100,4 +102,72 @@ Source: отчёт Session на Windows-ПК 2026-10-14 о `src/main/projects/st
 
 ## Итог
 
-—
+Session на Windows-ПК, 2026-10-18, ветка `worfy-windows/49-root-two-spellings` от main `8013250`.
+
+**Причина (по коду, строки перечитаны на этом main).** Список Project-ов хранит строку git `C:/…`
+(`store.ts:223-224`, `:231`, id — `:266`). Main отвечает на `claudeHome.sessions` с
+`resolve(projectRoot)` (`claude-home.ts:147-148`), на Windows это `C:\…`; с ним идут подписка (`:157`),
+`reportLive` (`:53-66`), слушатель `notify.ts:316` → `externalSessions` (`:195-209`), заметка с
+`projectRoot` = `C:\…` (`:203`). Окно сравнивало строками: `notification-target.ts:42`, `:80`,
+`NotificationTarget.tsx:75` (теперь `:76`). Запуском дефект не подтверждён (пункт 1 ниже).
+
+**Пункт 1 (прогон с уведомлением) — не сделан.** Нужны запуск приложения, Session `claude` и щелчок
+по уведомлению, то есть окна и фокус; бриф запрещает запускать приложение и открывать окна. Остаётся
+владельцу (до и после правки).
+
+**Пункт 2 — решение:** хранится строка git `C:/…`, как сегодня. Хранимое написание не меняется,
+id и папки данных Project-ов те же; к одному виду приводит только сравнение.
+
+**Пункт 3 — сделан.** `sameProjectRoot(a, b)` в `src/shared/paths.ts`: два Windows-абсолютных пути
+(`isWindowsAbsolutePath`) равны, если отличаются только `/` против `\`, регистром буквы диска или
+разделителем в конце (корень диска `C:/` остаётся `C:/`); остальная часть пути — с учётом регистра.
+Любые другие пути, POSIX тоже, сравниваются как есть: на macOS/Linux `/a\b` и `/a/b` — разные пути,
+поведение там не меняется. Зовут три места: `notification-target.ts:43` (`notificationTarget`), `:81`
+(`projectOfNote`), `NotificationTarget.tsx:76`.
+
+**Пункт 4 — остальные сравнения корня** (поиск `=== root`, `root ===`, `.path ===`, `projectRoot ===`
+в `src/main`, `src/renderer`, `src/shared`):
+- Два источника, не исправлено (вне трёх мест тикета): событие `claudeHome.changed` несёт
+  `projectRoot` = `C:\…` из main (`claude-home.ts:82`), а окно держит ключи по `project.path` `C:/…`:
+  `useClaudeHome.ts:176` (`users.has(root)`), `binding/store.ts:132` (`signalsKey`),
+  `claude-home/subagents.ts` `onChanged` (`keyOf`). На Windows push-изменения реестра, видимо,
+  отбрасываются, и окно узнаёт о них только по polling (`LIVE_POLL_MS`/`SUBAGENT_POLL_MS` = 2 с, пока
+  есть live Session). Запуском не проверено. Предложение — отдельный ticket: main отдаёт в событии
+  корень так, как его прислало окно, или окно сравнивает через `sameProjectRoot`.
+- Два источника, но оба приведены `realpath` (одно написание): `agent/attachments.ts:59-63`,
+  `link/caller.ts:53-54` (`realInsideProjects`, `insideProjects`), `mcp/canvas-server.ts:375-381`
+  (`projectForCwd`).
+- Один источник (кэш или ключ по тому же значению): `autopilot/harness-drift.ts:155`,
+  `canvas/overlays/CardBridge.tsx:120`, `:159`, `canvas/sources/epics.ts:400`,
+  `palette/CommandPalette.tsx:301`, `link-safe-watch.ts:362`, `notify.ts` ключ `external`
+  (`:198`, `:207`; всегда resolved-корень main), `byRoot[root]` в `useClaudeHome.ts`, `usePipeline.ts`,
+  `useWorkflow.ts`. Остальные совпадения поиска — проверки на `null`/`undefined`, не сравнение корней.
+
+**Пункт 5 — сделан.** `projectId` не тронут. Contract test в `test/unit/project-store.test.ts`:
+`projectId('C:/Users/Alexey/worfy')` = `worfy-d5750da7` на любой системе (для сравнения: hash
+написания `C:\Users\Alexey\worfy` — `7a537a68`, то есть другая папка данных).
+
+**Test-ы.** `test/unit/platform-paths.test.ts` — таблица пар (8 равных, 9 разных, в обе стороны),
+включая пары из «Готово, когда». `test/unit/permission-card.test.tsx` — `notificationTarget` (Project
+`C:/…`, заметка `C:\…` и `c:\…\` — найдена; `…\worfy-two` и `…\Worfy` — нет), `projectOfNote` для
+Windows Machine, overlay в окне на Linked machine: Session из реестра в неактивном Project-е по
+корню с `\` открывается вместе с `linked.open`.
+
+**Red run** (test-ы до правки, `node scripts/vitest-electron.mjs` три файла): exit 1, 20 failed / 55
+passed — 17 `sameProjectRoot is not a function`, 3 assertion (`null` вместо Session, `'beta'` вместо
+`'gamma'`, окно осталось на canvas). Contract test `projectId` зелёный сразу (он закрепляет
+поведение, не чинит).
+
+**Green run на ПК:** те же три файла + `e2e-no-spawn-on-load.test.ts` + `no-rmsync.test.ts` — exit 0,
+5 files, 138 passed. `pnpm lint` — exit 0. `pnpm typecheck` — exit 0. `gate.sh fast` — exit 3
+(профиля Harness на ПК нет намеренно; не green и не red).
+
+**Мутанты** (по одному, файл восстановлен байт в байт, sha256 сверен): M1 helper сравнивает строками
+— killed (10 failed); M2 без снятия `/` в конце — killed (3); M3 весь путь без учёта регистра — killed
+(2); M4 POSIX-пути тоже нормализуются — killed (3); M5 регистр буквы диска не приводится — killed (2);
+M6 `notificationTarget` снова `===` — killed (2); M7 `projectOfNote` снова `===` — killed (1); M8
+overlay снова `===` — killed (1); M9 `projectId` хэширует написание с `\` — killed (1). 9/9.
+
+**Осталось Mac-у и владельцу.** Пункт 1 (прогон с уведомлением до и после) — владелец на ПК.
+`pnpm test` полностью на Mac, `gate full`, Linux CI и ручной job «Windows tests» — Mac. Решение по
+`claudeHome.changed` (пункт 4, первый список) — Mac.

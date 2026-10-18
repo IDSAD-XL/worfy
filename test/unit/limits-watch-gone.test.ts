@@ -3,12 +3,18 @@
 // folder itself by its `\\?\` path — recursive or not, measured: 442 394 events and a whole
 // processor core in 3 s. The watch of the system is a stand-in here and the rule for a full path is
 // path.win32's, so the case runs on any system.
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LimitsTracker, STATUSLINE_FILE, type WatchFolder } from '../../src/main/agent/limits'
 import { removeTestTree } from '../remove'
+
+/** The name Windows gives in the events of a watched folder that is gone. */
+const ITSELF = '\\\\?\\C:\\Users\\dev\\AppData\\Roaming\\worfy'
+/** What the status line bridge writes: 42 % of the five-hour window used. */
+const STATUSLINE = JSON.stringify({ five_hour: { used_percentage: 42, resets_at: 2_000_000_000 } })
+const gone = (dataDir: string): string => `[limits] the data folder ${dataDir} is gone: the status line file is no longer watched, only looked at every 1000 ms`
 
 const dirs: string[] = []
 const trackers: LimitsTracker[] = []
@@ -20,7 +26,8 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
-function started(): { tracker: LimitsTracker; dataDir: string; watches: { closed: boolean; event: (name: string | null) => void }[]; reads: () => number } {
+/** `systemRule`: no rule for a full path is given, the tracker takes the system's. */
+function started({ systemRule = false } = {}): { tracker: LimitsTracker; dataDir: string; watches: { closed: boolean; event: (name: string | null) => void }[]; reads: () => number } {
   const dataDir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-limits-gone-')))
   dirs.push(dataDir)
   const watches: { closed: boolean; event: (name: string | null) => void }[] = []
@@ -29,7 +36,7 @@ function started(): { tracker: LimitsTracker; dataDir: string; watches: { closed
     watches.push(one)
     return { close: () => void (one.closed = true) }
   }
-  const tracker = new LimitsTracker({ dataDir, watch, isAbsolute: win32.isAbsolute })
+  const tracker = new LimitsTracker({ dataDir, watch, ...(systemRule ? {} : { isAbsolute: win32.isAbsolute }) })
   trackers.push(tracker)
   const read = vi.spyOn(tracker, 'readStatusline')
   tracker.watchStatusline()
@@ -59,15 +66,54 @@ describe('the watch of the status line file and a data folder that is gone', () 
     vi.useFakeTimers()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { dataDir, watches, reads } = started()
-    for (let times = 0; times < 50; times++) watches[0]!.event('\\\\?\\C:\\Users\\dev\\AppData\\Roaming\\worfy')
+    watches[0]!.event(ITSELF)
     expect(watches[0]!.closed).toBe(true)
-    expect(warn.mock.calls).toEqual([[`[limits] the data folder ${dataDir} is gone: the status line file is no longer watched, only looked at every 1000 ms`]])
+    for (let times = 1; times < 50; times++) watches[0]!.event(ITSELF)
+    expect(warn.mock.calls).toEqual([[gone(dataDir)]])
     // What the closed watch still sends is dropped: no read is scheduled.
     watches[0]!.event(STATUSLINE_FILE)
     watches[0]!.event(null)
     await vi.advanceTimersByTimeAsync(200)
     expect(reads()).toBe(1)
     expect(watches).toHaveLength(1)
+  })
+
+  it('the slow poll goes on after the watch was closed: a file written then is read', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { tracker, dataDir, watches, reads } = started()
+    watches[0]!.event(ITSELF)
+    expect(watches[0]!.closed).toBe(true)
+    writeFileSync(join(dataDir, STATUSLINE_FILE), STATUSLINE)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(reads()).toBe(2)
+    expect(tracker.snapshot().windows.five_hour?.utilization).toBe(0.42)
+  })
+
+  it('the slow poll reads the file of a data folder that was removed and made again', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { tracker, dataDir, watches, reads } = started()
+    removeTestTree(dataDir)
+    watches[0]!.event(ITSELF)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(reads()).toBe(1)
+    mkdirSync(dataDir)
+    writeFileSync(join(dataDir, STATUSLINE_FILE), STATUSLINE)
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(reads()).toBe(2)
+    expect(tracker.snapshot().windows.five_hour?.utilization).toBe(0.42)
+    expect(watches).toHaveLength(1)
+  })
+
+  it('takes the rule for a full path from the system when none is given: an event that names the folder by its path closes the watch', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { watches, dataDir } = started({ systemRule: true })
+    watches[0]!.event('worfy')
+    expect(watches[0]!.closed).toBe(false)
+    watches[0]!.event(dataDir)
+    expect(watches[0]!.closed).toBe(true)
+    expect(warn.mock.calls).toEqual([[gone(dataDir)]])
   })
 
   it('stop after the watch was closed that way does not fail, and a new start watches again', () => {

@@ -15,6 +15,7 @@
 import { z } from 'zod'
 import { create } from 'zustand'
 import { notifyOpenSchema, type NotifyOpen } from '../../shared/ipc/notify'
+import { sameProjectRoot } from '../../shared/paths'
 import { invokeOn } from '../ipc'
 import { orchestratorViewOf } from '../canvas/nodes/orchestrator-view'
 import { sessionNodeId } from '../claude-home/session-nodes'
@@ -39,7 +40,7 @@ export function notificationTarget(note: NotifyOpen, project: { id: string; path
   if (node !== undefined) return { nodeId: node.nodeId, projectId: node.projectId }
   const orchestrator = orchestratorViewOf(note.sessionId)
   if (orchestrator !== undefined) return { nodeId: orchestrator.nodeId, projectId: orchestrator.projectId }
-  if (note.projectRoot !== null && project !== undefined && project.path === note.projectRoot) {
+  if (note.projectRoot !== null && project !== undefined && sameProjectRoot(project.path, note.projectRoot)) {
     return { nodeId: sessionNodeId(note.sessionId), projectId: project.id, external: { sessionId: note.sessionId } }
   }
   return null
@@ -77,7 +78,7 @@ export async function projectOfNote(note: NotifyOpen, machine: string): Promise<
   }
   const { projects, activeId } = list.value
   const root = note.projectRoot
-  if (root !== null) return projects.find((project) => project.path === root)?.id ?? activeId
+  if (root !== null) return projects.find((project) => sameProjectRoot(project.path, root))?.id ?? activeId
   for (const project of projects) {
     const views = await invokeOn(machine, 'sessions.views', { projectId: project.id })
     const runs = views.ok && views.value.views.some((view) => view.state !== 'closed' && (view.sessionId === note.sessionId || view.sdkSessionId === note.sessionId))

@@ -8,6 +8,10 @@
 //
 // What it cannot see:
 // - a link put in place after the walk and before the caller's realpath. The two are separate steps.
+// - a network drive mapped to a letter (worfy-windows ticket 33). `Z:\…` reads as a path of a disk
+//   of this machine: a link to it is 'local', and the walk calls lstat on `Z:\…`, which goes to the
+//   host of the share. Such a drive is one the user has mapped and signed in to, so the host is
+//   theirs; a link cannot map a drive. realpath of a path on it answers the UNC path of the share.
 //
 // A path written with a device prefix — `\\?\C:\…`, `\\?\UNC\host\share\…`, `\??\C:\…` — that
 // holds a `..` is refused as remote (worfy-windows ticket 20). path.win32 takes `..` out of such a

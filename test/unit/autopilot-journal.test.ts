@@ -39,6 +39,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(34), kind: 'human-input', source: 'worfy', what: 'message to the Orchestrator' },
   { ...base, at: at(35), kind: 'background-tasks', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { ...base, at: at(36), kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },
+  { ...base, at: at(37), kind: 'gate-queue', text: '/worfy:gate-queue' },
   stopped,
   { ...base, at: at(40), kind: 'orchestrator-returned' },
   { ...base, at: at(41), kind: 'tasks-killed', reason: 'app-quit', tasks: [{ id: 'task-2', type: null, description: null }] },
@@ -59,6 +60,12 @@ describe('parseJournal', () => {
   it('reads harness-behind (worfy-harness ticket 21), and a journal without it as before', () => {
     expect(parseJournal(line(started) + line(harnessBehind) + line(waveStarted))).toEqual({ events: [started, harnessBehind, waveStarted], skipped: 0 })
     expect(parseJournal(line(started) + line(waveStarted) + line(stopped))).toEqual({ events: [started, waveStarted, stopped], skipped: 0 })
+  })
+
+  it('reads gate-queue (worfy-windows ticket 17), and skips one without its text', () => {
+    const gateQueue: JournalEvent = { ...base, at: at(8), kind: 'gate-queue', text: '/worfy:gate-queue' }
+    expect(parseJournal(line(started) + line(gateQueue) + line(stopped))).toEqual({ events: [started, gateQueue, stopped], skipped: 0 })
+    expect(parseJournal(line(started) + line({ ...gateQueue, text: undefined }) + line({ ...gateQueue, text: '' }) + line(stopped))).toEqual({ events: [started, stopped], skipped: 2 })
   })
 
   const narrowStarted: JournalEvent = { ...base, at: at(2), kind: 'narrow-round', ticket: '02', outcome: 'started', text: 'NARROW: [med] src/a.ts:1 — x' }

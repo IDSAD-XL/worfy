@@ -2,7 +2,7 @@
 // and what main does on a click (src/main/actions/launch.ts) — over fakes of the Sessions, the
 // Orchestrator, the registry and the Bindings store. Nothing here starts an agent or writes a file.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ActionLauncher, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
+import { ActionLauncher, GATE_QUEUE_AUTOPILOT_HINT, gateQueueRoleHint, type LaunchDeps, type LaunchedSession } from '../../src/main/actions/launch'
 import { launchedHint, runWaveState, shipTicketState } from '../../src/shared/actions/render-template'
 import type { LaunchesSnapshot } from '../../src/shared/ipc/actions'
 import { AUTOPILOT_TEMPLATE_HINT, DEFAULT_ACTION_TEMPLATES, LEGACY_RUN_WAVE_TEMPLATE, type ActionTemplates } from '../../src/shared/projects/action-templates'
@@ -181,7 +181,16 @@ afterEach(async () => {
 })
 
 function launcher(
-  change: { templates?: Partial<ActionTemplates>; other?: Partial<ActionTemplates>; tickets?: Ticket[]; model?: Partial<WorkflowModel>; orchestrator?: FakeSession; waitMs?: number; workflow?: LaunchDeps['workflow'] } = {},
+  change: {
+    templates?: Partial<ActionTemplates>
+    other?: Partial<ActionTemplates>
+    tickets?: Ticket[]
+    model?: Partial<WorkflowModel>
+    orchestrator?: FakeSession
+    waitMs?: number
+    workflow?: LaunchDeps['workflow']
+    gateRole?: LaunchDeps['gateRole']
+  } = {},
 ) {
   const templates = { ...DEFAULT_ACTION_TEMPLATES, ...change.templates }
   const otherTemplates = { ...DEFAULT_ACTION_TEMPLATES, ...change.other }
@@ -221,6 +230,7 @@ function launcher(
     },
     bindings: { setLaunch: (projectId, agent, target) => bindings.push({ projectId, agent, target }) },
     onLaunchesChange: (snapshot) => changes.push(snapshot),
+    ...(change.gateRole === undefined ? {} : { gateRole: change.gateRole }),
     pollMs: 1,
     waitMs: change.waitMs ?? 1000,
   }
@@ -420,5 +430,49 @@ describe('ActionLauncher.autopilotWave (ticket 30)', () => {
     expect(launcher().launch.autopilotRefusal('p')).toBeNull()
     // An empty template is the button's own reason, not this one.
     expect(launcher({ templates: { runWave: '' } }).launch.autopilotRefusal('p')).toBe('Set the Run wave template in Project settings')
+  })
+})
+
+describe('ActionLauncher.gateQueue (worfy-windows ticket 17)', () => {
+  const QUEUE = { gateQueue: '/worfy:gate-queue' }
+
+  it('on serve, sends the template to the Project\'s Orchestrator, the role read again on each click', async () => {
+    const roots: string[] = []
+    const { launch, orchestrator } = launcher({ templates: QUEUE, gateRole: async (root) => (roots.push(root), 'serve') })
+    expect(await launch.gateQueue('p')).toEqual({ sessionId: 'orch-1', text: '/worfy:gate-queue', delivery: 'sent' })
+    await launch.gateQueue('p')
+    expect(orchestrator.sent).toEqual(['/worfy:gate-queue', '/worfy:gate-queue'])
+    expect(roots).toEqual(['/repo-p', '/repo-p'])
+    // A busy Orchestrator gets it into its queue, as Run wave.
+    const busy = launcher({ templates: QUEUE, gateRole: async () => 'serve', orchestrator: new FakeSession(true) })
+    expect((await busy.launch.gateQueue('p')).delivery).toBe('queued')
+  })
+
+  it('refuses with the reason, and sends nothing, on request, without the field, with an empty template and while Autopilot runs', async () => {
+    const request = launcher({ templates: QUEUE, gateRole: async () => 'request' })
+    await expect(request.launch.gateQueue('p')).rejects.toThrow(gateQueueRoleHint('request'))
+    const none = launcher({ templates: QUEUE, gateRole: async () => null })
+    await expect(none.launch.gateQueue('p')).rejects.toThrow(gateQueueRoleHint(null))
+    // A launcher that cannot read the role at all refuses the same way.
+    const unwired = launcher({ templates: QUEUE })
+    await expect(unwired.launch.gateQueue('p')).rejects.toThrow(gateQueueRoleHint(null))
+    const empty = launcher({ templates: { gateQueue: '  ' }, gateRole: async () => 'serve' })
+    await expect(empty.launch.gateQueue('p')).rejects.toThrow('Set the Process gate queue template in Project settings')
+    const running = launcher({ templates: QUEUE, gateRole: async () => 'serve' })
+    running.launch.attachAutopilot({ running: (projectId) => projectId === 'p' })
+    await expect(running.launch.gateQueue('p')).rejects.toThrow(GATE_QUEUE_AUTOPILOT_HINT)
+    expect(GATE_QUEUE_AUTOPILOT_HINT).toBe('Autopilot is running in this Project: it processes the gate queue itself')
+    for (const each of [request, none, unwired, empty, running]) expect(each.orchestrator.sent).toEqual([])
+    expect(gateQueueRoleHint('request')).toContain('request')
+    expect(gateQueueRoleHint(null)).toContain('cross_machine_gate')
+  })
+
+  it('autopilotGateQueue gives the text on serve with a template, null otherwise, and sends nothing itself', async () => {
+    const serve = launcher({ templates: QUEUE, gateRole: async () => 'serve' })
+    expect(await serve.launch.autopilotGateQueue('p')).toBe('/worfy:gate-queue')
+    expect(serve.orchestrator.sent).toEqual([])
+    expect(await launcher({ templates: QUEUE, gateRole: async () => 'request' }).launch.autopilotGateQueue('p')).toBeNull()
+    expect(await launcher({ templates: { gateQueue: '' }, gateRole: async () => 'serve' }).launch.autopilotGateQueue('p')).toBeNull()
+    expect(await launcher({ templates: QUEUE, gateRole: () => Promise.reject(new Error('profile broke')) }).launch.autopilotGateQueue('p')).toBeNull()
   })
 })

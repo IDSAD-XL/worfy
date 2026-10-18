@@ -9,6 +9,7 @@ import { ClientRegistry, type Client } from '../../src/main/clients'
 import { defineHandler, emit, type HandlerModule } from '../../src/main/ipc/index'
 import { projectsAccessMessage, RemoteCalls, type RemoteEvent } from '../../src/main/link/remote-calls'
 import { definitionOf, eventChannel, invokeChannel } from '../../src/shared/ipc/channels'
+import { projectsSettingsChanged, projectsSettingsGet } from '../../src/shared/ipc/projects'
 import { LinkBench, type BenchMachine } from './link-bench'
 
 // Test-only channels of B, as a domain file declares them.
@@ -259,6 +260,26 @@ describe('events of a Linked machine', () => {
     expect(warnings).toEqual([`[link] Machine ${bId} answered "remote.echo" outside its schema; refused`])
     connection.call = () => Promise.resolve({ ok: true, value: { echoed: 'x', by: 'b', extra: 'stripped' } })
     expect(await calls.call(bId, 'remote.echo', { text: 'x' })).toEqual({ ok: true, value: { echoed: 'x', by: 'b' } })
+  })
+
+  it('takes the settings of a Linked machine on a build from before "Process gate queue": no gateQueue reads as an empty template (worfy-windows ticket 17)', async () => {
+    const warnings: string[] = []
+    const { a, b, calls, bId, aId } = await linkedPair((message) => warnings.push(message))
+    b.service.settings.set({ projectsAccess: true })
+    await a.service.connect(bId)
+    await until(calls, () => calls.machines()[0]?.sharing === 'yes')
+    const connection = a.service.connectionTo(bId)
+    if (connection === undefined) throw new Error('not connected')
+    const older = { actionTemplates: { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '' } }
+    const read = { actionTemplates: { ...older.actionTemplates, gateQueue: '' } }
+    connection.call = () => Promise.resolve({ ok: true, value: older })
+    expect(await calls.call(bId, projectsSettingsGet.name, { id: 'p1' })).toEqual({ ok: true, value: read })
+    const heard: RemoteEvent[] = []
+    calls.on('event', (event) => heard.push(event))
+    b.service.connectionTo(aId)?.send({ t: 'event', channel: projectsSettingsChanged.name, payload: { id: 'p1', settings: older } })
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(heard).toEqual([{ machine: bId, channel: projectsSettingsChanged.name, payload: { id: 'p1', settings: read } }])
+    expect(warnings).toEqual([])
   })
 
   it("does not pass on B's broadcast of a channel this side does not call on a Linked machine", async () => {

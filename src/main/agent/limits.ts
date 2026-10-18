@@ -13,12 +13,13 @@
 //
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
 // to the windows). This module writes nowhere else: not to ~/.claude, not to a Project's repository.
-import { existsSync, mkdirSync, readFileSync, statSync, watch, type FSWatcher } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { emptyLimits, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitsStateSchema, mergeLimits, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
 import { observeMessages } from '../mcp/canvas-server'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
+import { namesTheFolder, watchWithNode } from '../watch-gone'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { EventSink, QueryFactory } from './session'
 
@@ -37,11 +38,7 @@ const STATUSLINE_POLL_MS = 1000
 /** A watch of one folder, not of what is below it; `close` ends it. */
 export type WatchFolder = (dir: string, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => { close: () => void }
 
-const watchFolderWithNode: WatchFolder = (dir, onEvent, onError) => {
-  const watcher: FSWatcher = watch(dir, (_event, name) => onEvent(name))
-  watcher.on('error', onError)
-  return watcher
-}
+const watchFolderWithNode: WatchFolder = (dir, onEvent, onError) => watchWithNode(dir, false, onEvent, onError)
 
 export interface LimitsTrackerOptions {
   /** WORFY_DATA_DIR. */
@@ -168,11 +165,11 @@ export class LimitsTracker {
         (name) => {
           // A watch that was closed may still have events on the way.
           if (this.watcher !== mine.handle) return
-          // A name in the folder is never a full path: this one names the folder itself, which is
+          // A name in the folder is not a full path: this one names the folder itself, which is
           // gone. Windows then neither closes the watch nor fails it — it sends such events without
-          // end, a whole processor core (worfy-windows ticket 27). The watch is closed at the first
-          // of them; the slow poll below still looks at the file.
-          if (name !== null && full(name)) {
+          // end, a whole processor core (worfy-windows ticket 27, watch-gone.ts). The watch is
+          // closed at the first of them; the slow poll below still looks at the file.
+          if (namesTheFolder(name, full)) {
             mine.handle?.close()
             this.watcher = null
             console.warn(`[limits] the data folder ${dataDir} is gone: the status line file is no longer watched, only looked at every ${STATUSLINE_POLL_MS} ms`)
