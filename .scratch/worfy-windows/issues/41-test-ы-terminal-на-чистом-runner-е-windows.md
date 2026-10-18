@@ -1,7 +1,9 @@
 # 41 — Test-ы Terminal с настоящей оболочкой не проходят на чистом runner-е Windows
 
 Type: task
-Status: open
+Status: blocked
+Blocked reason: замер шага 1 — запуск ручного job-а `windows-tests.yml` на ветке `worfy-windows/41-probe`, решение владельца
+Waits: owner
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «The clean Windows runner cannot judge this PR»); логи ручного job-а «Windows tests»: запуск 38364376194 (main) и 38364372348 (ветка PR #280)
 
@@ -117,4 +119,26 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 
 ## Итог
 
-—
+### Что готово на Windows-ПК (2026-10-18) и чего ждём
+
+Замер шага 1 должен идти на runner-е, а запуск ручного job-а `windows-tests.yml` — решение владельца: ни Session на ПК, ни Session на Mac его запускать не могут. **Ждём:** один короткий запуск `windows-tests.yml` на ветке `worfy-windows/41-probe` (`6370f6c`) с `files=test/contract/terminal-probe-41.test.ts` (по желанию вместе с `test/contract/terminal.test.ts` — воспроизвести 15 падений рядом с замером). Ветку не менять.
+
+- **Проба** `test/contract/terminal-probe-41.test.ts` (временная, на ветке `worfy-windows/41-probe`, PR нет):
+  - запускает `powershell.exe` через сам harness Terminal-а (`test/contract/terminal-harness.ts`): то же окружение `windowsEnv`, `-NoLogo -NoProfile`, временная папка Project-а; ширина pty 80 и 200 столбцов; `pwsh` — контроль на тех же ширинах;
+  - сразу после open печатает `Write-Output ('probe-' + (6*7))`, как `run`, затем строку с `$PSVersionTable.PSVersion`, `$Host.Name`, версией PSReadLine, кодировкой консоли и `$PSStyle`; если за 30 s вывода нет — всё равно печатает вторую строку (читается ли ввод позже);
+  - каждый кусок вывода — строка `[probe41 …]` JSON с ms от open, до 60 s; итог по сценарию, версии оболочек без pty, переменные образа runner-а;
+  - каждый случай проходит, когда запись собрана: job зелёный;
+  - пишет через `process.stdout.write`: в job-е без TTY reporter vitest по умолчанию выбрасывает `console.log` прошедших test-ов (проверено под Node из Electron, как идёт job: 739 строк пробы в логе).
+- **Проба на ПК** (Windows 11 Pro 10.0.26200, Node 24.21.0 из Electron 44.5.1, node-pty 1.1.0; exit 0):
+
+| Оболочка, ширина | Echo команды | Вывод команды | Версия | PSReadLine |
+|---|---|---|---|---|
+| `powershell.exe`, 80 | 576 ms | 705 ms | 5.1.26100.9711 | 2.0.0 |
+| `powershell.exe`, 200 | 922 ms | 1039 ms | 5.1.26100.9711 | 2.0.0 |
+| `pwsh.exe`, 80 | 609 ms | 647 ms | 7.6.6 | 2.4.5 |
+| `pwsh.exe`, 200 | 597 ms | 635 ms | 7.6.6 | 2.4.5 |
+
+  Host — ConsoleHost, кодировка консоли — cp866 (культура ru-RU). Ни одна оболочка не вышла до закрытия.
+- **15 test-ов из списка на ПК проходят.** После PR #280 они разделены: 10 в `test/contract/terminal.test.ts` (exit 0: 44 прошло, 3 пропущено — случай только macOS и два «не на Windows»), 5 в `test/contract/terminal-windows.test.ts` (exit 0: 13 прошло). Test с `gh auth login` настоящий `gh` не достаёт: на Path оболочки только временный home test-а со stub-ом `gh.cmd` и системные папки.
+- **Вывод для причины:** на ПК Windows PowerShell 5.1 отвечает меньше чем за 1,1 s на обеих ширинах, так что разница — в среде runner-а (образ, версия PSReadLine, консоль), а не в harness-е вообще. Назвать её может только замер на runner-е.
+- **Попутно для [Ticket-а 40](40-node-pty-падает-при-одновременном-kill.md):** четыре брошенные оболочки `powershell.exe -NoLogo -NoProfile` с headless-консолями 80×24 от прогонов test-ов Terminal-а 2026-10-17 — запись там.
