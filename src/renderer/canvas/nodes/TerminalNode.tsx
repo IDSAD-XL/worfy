@@ -45,8 +45,10 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 // position, focus reports (worfy-windows ticket 39). Those answers go to the shell marked `reply`,
 // and main leaves the size where it is (terminal-user-input.ts tells them from typing). A view
 // that redraws the kept output sends none of the answers xterm.js gives to the requests in it:
-// the program had its answers when those requests came. The view attaches once xterm.js has parsed
-// the kept output; output that comes meanwhile waits and is answered as live.
+// the program had its answers when those requests came — unless no view was mounted then: such a
+// request stays unanswered (ticket 39, «Итог»). The view attaches once xterm.js has parsed the
+// kept output; output that comes meanwhile waits and is answered as live, and what the user types
+// or clicks meanwhile is sent once the view attaches.
 //
 // The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
 // for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
@@ -275,9 +277,12 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     let attached = false
     // Until terminal.open answers; output that comes meanwhile waits in `queued`.
     let opening = true
-    // While xterm.js parses the kept output: output waits in `queued` too, and the answers xterm.js
-    // gives meanwhile go nowhere.
+    // While xterm.js parses the kept output: output waits in `queued` too, what the user types or
+    // clicks waits in `pending`, and the answers xterm.js gives meanwhile go nowhere.
     let replaying = false
+    const pending: (() => void)[] = []
+    // The shell of the open answer: an exit during the parse shows it in the header.
+    let shellName = ''
     // How much of the shell's output this view has written: main numbers every chunk by the
     // length of all output up to its end, so a chunk that the replay already holds is skipped.
     let written = 0
@@ -302,8 +307,10 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       if (replaying) {
         replaying = false
         for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+        // Typed for a shell that is gone.
+        pending.length = 0
       }
-      setStatus((current) => ({ state: 'exited', shell: current.state === 'running' ? current.shell : '', exitCode: payload.exitCode }))
+      setStatus((current) => ({ state: 'exited', shell: current.state === 'running' ? current.shell : shellName, exitCode: payload.exitCode }))
     })
     // A new shell started elsewhere (Restart on another screen, or in the other view of focus mode):
     // a view that shows the exit opens again, with a new terminal whose count of written output
@@ -319,6 +326,8 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const typed = terminal.onData((keys) => {
       const user = userInput.take()
       if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
+      // Typed while the kept output is parsed: sent once the view attaches.
+      else if (replaying && user) pending.push(() => void invoke('terminal.input', { ...ref, data: keys }))
     })
     // Fits the terminal to the Node: xterm.js resizes only when the size differs.
     const refit = () => {
@@ -349,7 +358,11 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // A click in the terminal gives the pty this screen's size (Q14). Captured before xterm.js
     // handles the press; only the view that sets the size in this window sends it.
     const onPress = () => {
-      if (attached && isLastView(key, view)) void invoke('terminal.takeSize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      if (!isLastView(key, view)) return
+      const take = () => void invoke('terminal.takeSize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      if (attached) take()
+      // A click while the kept output is parsed: sent once the view attaches.
+      else if (replaying) pending.push(take)
     }
     element.addEventListener('mousedown', onPress, true)
 
@@ -384,11 +397,13 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         replaying = false
         attached = true
         for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+        for (const send of pending.splice(0)) send()
         setStatus({ state: 'running', shell, pid })
         // The size may have changed while the shell was starting.
         if (isLastView(key, view) && (terminal.cols !== size.cols || terminal.rows !== size.rows)) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
       }
       replaying = true
+      shellName = shell
       // Attached in the callback, once xterm.js has parsed the kept output, not before: what it
       // answers to the requests in it goes nowhere. The end of the parse, not a timer, is the line.
       if (replay === '') attach()

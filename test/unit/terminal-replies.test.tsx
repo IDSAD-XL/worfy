@@ -17,9 +17,10 @@
 // part of its interface this test calls (Registry). tsc does not compare that part with pty.ts: a
 // change there shows here when the test runs. The handler's own call of `write` with `reply` is
 // typed against the registry (src/main/ipc/terminal.ts) and tested in test/contract/terminal.test.ts.
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Terminal as XtermTerminal } from '@xterm/xterm'
+import { watchUserInput } from '../../src/renderer/canvas/nodes/terminal-user-input'
 import { terminalInput, terminalOpen, terminalResize, terminalTakeSize } from '../../src/shared/ipc/terminal'
 
 /** What the registry sends a subscriber (TerminalSink of src/main/terminal/pty.ts). */
@@ -54,6 +55,11 @@ const OTHER_SIZE = { cols: 120, rows: 40 }
 
 /** The xterm.js instances of the Nodes, in the order they were made. */
 const xterms = vi.hoisted(() => [] as XtermTerminal[])
+/**
+ * Runs once, right after the next write that has a callback has been handed to xterm.js and before
+ * xterm.js parses it: the Node's write of the kept output, when the test sets it before mounting.
+ */
+const whileReplaying = vi.hoisted(() => ({ run: null as ((xterm: XtermTerminal) => void) | null }))
 /** The renderer IPC client as the Node sees it; each test points it at its registry. */
 const wire = vi.hoisted(() => {
   const invoke: (channel: string, input: unknown) => Promise<unknown> = () => Promise.reject(new Error('no registry'))
@@ -70,6 +76,13 @@ vi.mock('@xterm/xterm', async () => {
     }
     // xterm.js does not draw in jsdom; its parser, buffer and answers work without a screen.
     override open(): void {}
+    override write(data: string | Uint8Array, callback?: () => void): void {
+      super.write(data, callback)
+      const run = whileReplaying.run
+      if (callback === undefined || run === null) return
+      whileReplaying.run = null
+      run(this)
+    }
   }
   return { ...real, Terminal }
 })
@@ -203,13 +216,13 @@ async function terminal(options: { otherScreen: boolean; duringOpen?: (pty: Stan
       return { ok: false, error: String(error) }
     }
   }
-  return { registry, pty }
+  return { registry, pty, other }
 }
 
-/** Mounts the Node and waits until it shows the running shell and xterm.js has parsed all it was given. */
-async function mount() {
+/** Mounts the Node and waits until it shows the shell in `state` and xterm.js has parsed all it was given. */
+async function mount(state: 'running' | 'exited' = 'running') {
   const shown = render(<TerminalNode {...nodeProps} />)
-  await waitFor(() => expect(screen.getByTestId('terminal-node').dataset.state).toBe('running'))
+  await waitFor(() => expect(screen.getByTestId('terminal-node').dataset.state).toBe(state))
   const xterm = xterms.at(-1)
   if (xterm === undefined) throw new Error('no xterm.js')
   await parsed(xterm)
@@ -229,6 +242,7 @@ async function print(pty: StandInPty, xterm: XtermTerminal, text: string): Promi
 
 beforeEach(() => {
   xterms.length = 0
+  whileReplaying.run = null
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -258,7 +272,7 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
   })
 
   it('an answer to a live request and a focus report reach the shell and leave the size; typing takes it', async () => {
-    const { pty } = await terminal()
+    const { pty, registry, other } = await terminal()
     const { xterm } = await mount()
     pty.calls.length = 0
 
@@ -278,6 +292,12 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
       ['resize', VIEW_SIZE.cols, VIEW_SIZE.rows],
       ['write', 'ls\r'],
     ])
+
+    // An answer after typing is an answer again: the mark of the typed keys does not stay.
+    await act(() => registry.takeSize(KEY, OTHER_SIZE.cols, OTHER_SIZE.rows, other))
+    pty.calls.length = 0
+    await print(pty, xterm, `${ESC}[c`)
+    expect(pty.calls).toEqual([['write', DEVICE_ATTRIBUTES]])
   })
 
   it('a view mounted again writes nothing while it redraws the kept output; a live request after that is answered', async () => {
@@ -305,4 +325,75 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
     expect(pty.resizes).toEqual([])
   })
+
+  it('output that comes while the kept output is parsed is shown after it, in order, and its request is answered once', async () => {
+    const { pty } = await terminal()
+    pty.print(`first|${ESC}[c`)
+    pty.calls.length = 0
+    whileReplaying.run = () => {
+      pty.print('second|')
+      pty.print(`third|${ESC}[c`)
+    }
+
+    const { xterm } = await mount()
+
+    expect(firstLine(xterm)).toBe('first|second|third|')
+    expect(pty.writes).toEqual([DEVICE_ATTRIBUTES])
+    expect(pty.resizes).toEqual([])
+  })
+
+  it('keys typed while the kept output is parsed reach the shell once the view attaches, and take the size', async () => {
+    const { pty } = await terminal()
+    pty.print(`first|${ESC}[c`)
+    pty.calls.length = 0
+    whileReplaying.run = (xterm) => xterm.input('x')
+
+    await mount()
+
+    expect(pty.calls).toEqual([
+      ['resize', VIEW_SIZE.cols, VIEW_SIZE.rows],
+      ['write', 'x'],
+    ])
+  })
+
+  it('a click while the kept output is parsed takes the size once the view attaches', async () => {
+    const { pty } = await terminal()
+    pty.print(`first|${ESC}[c`)
+    pty.calls.length = 0
+    whileReplaying.run = () => fireEvent.mouseDown(screen.getByTestId('terminal-screen'))
+
+    await mount()
+
+    expect(pty.calls).toEqual([['resize', VIEW_SIZE.cols, VIEW_SIZE.rows]])
+  })
+
+  it('a shell that exits while the kept output is parsed: its last output is shown, the header keeps its name, nothing is written', async () => {
+    const { pty } = await terminal()
+    pty.print(`first|${ESC}[c`)
+    pty.calls.length = 0
+    whileReplaying.run = (xterm) => {
+      pty.print(`bye|${ESC}[c`)
+      xterm.input('x')
+      pty.kill()
+    }
+
+    const { xterm, shown } = await mount('exited')
+
+    expect(firstLine(xterm)).toBe('first|bye|')
+    expect(shown.container.querySelector('.w-terminal__shell')?.textContent).toBe('sh')
+    expect(pty.calls).toEqual([])
+  })
 })
+
+describe('watchUserInput', () => {
+  it('an xterm.js that does not say which data is the user’s: all of it counts as typed, as before ticket 39', () => {
+    const watch = watchUserInput({} as XtermTerminal)
+    expect([watch.take(), watch.take()]).toEqual([true, true])
+    watch.dispose()
+  })
+})
+
+/** The first row of the normal buffer, as text. */
+function firstLine(xterm: XtermTerminal): string | undefined {
+  return xterm.buffer.active.getLine(0)?.translateToString(true)
+}
