@@ -2,11 +2,12 @@
 // registerIpc (the same wrapper the app uses) over a mocked `electron`, the shared store from
 // src/main/layout/store.ts called directly as later parts of main (MCP tools) will call it, and a
 // temporary WORFY_DATA_DIR. main is the only writer of layout.json (ADR-0003).
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { layoutSchema, type Layout, type LayoutOpInput, type LayoutState } from '../../src/shared/layout/types'
 import type { LayoutChange, LayoutStore } from '../../src/main/layout/store'
@@ -46,9 +47,9 @@ let store: LayoutStore
 
 /**
  * Loads src/main/ipc/layout.ts afresh, as an app start does, over the current data dir; with
- * `trash`, src/main/ipc/trash.ts too.
+ * `trash`, src/main/ipc/trash.ts too, and with `projects`, src/main/ipc/projects.ts.
  */
-async function start(trash = false): Promise<void> {
+async function start({ trash = false, projects = false }: { trash?: boolean; projects?: boolean } = {}): Promise<void> {
   // The store of the start before this one may still hold a change back, and saveLayoutNow() in
   // afterEach reaches the store of the last start alone. Left to its timer, the save came after the
   // folder was gone and made it again (worfy-windows ticket 32). It is written now.
@@ -64,6 +65,7 @@ async function start(trash = false): Promise<void> {
       modules: {
         './layout.ts': () => import('../../src/main/ipc/layout').then((module) => module.default),
         ...(trash ? { './trash.ts': () => import('../../src/main/ipc/trash').then((module) => module.default) } : {}),
+        ...(projects ? { './projects.ts': () => import('../../src/main/ipc/projects').then((module) => module.default) } : {}),
       },
       isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }),
     },
@@ -72,10 +74,14 @@ async function start(trash = false): Promise<void> {
   store = (await import('../../src/main/layout/store')).layoutStore()
 }
 
-async function call(channel: string, input?: unknown): Promise<IpcResult<unknown>> {
+/**
+ * Calls a handler as a window of this Machine does; with `sender`, as that client does (a string id
+ * is a client without a window, such as a Linked machine's, src/main/link/caller.ts).
+ */
+async function call(channel: string, input?: unknown, sender: { id?: string } = {}): Promise<IpcResult<unknown>> {
   const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
   if (!listener) throw new Error(`no handler for ${channel}`)
-  const event = { senderFrame: { url: APP_URL }, sender: {} } as unknown as IpcMainInvokeEvent
+  const event = { senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent
   return (await listener(event, input)) as IpcResult<unknown>
 }
 
@@ -244,6 +250,99 @@ describe('layout store: operations', () => {
   })
 })
 
+// The Layout is written a moment after the last change (LAYOUT_SAVE_DELAY_MS), and the write asks
+// the list of Projects for the file. A change still waiting when its Project left the list was
+// never written: the write found no Project, logged that, and every quit logged it again
+// (worfy-windows ticket 31). projects.remove writes it first and then forgets the Layout.
+describe('layout store: projects.remove of a Project with a change not yet written', () => {
+  let gitRepo: string
+  let id: string
+  let errors: MockInstance<typeof console.error>
+  /** What the Layout store logged as an error. */
+  const layoutErrors = () => errors.mock.calls.filter(([message]) => String(message).startsWith('[layout]'))
+
+  beforeEach(async () => {
+    // projects.add reads which Harness the Claude home has; not the one of the machine running the test.
+    vi.stubEnv('WORFY_CLAUDE_HOME', join(scratch, 'claude-home'))
+    vi.stubEnv('WORFY_HARNESS_HOME', '')
+    gitRepo = join(scratch, 'auction')
+    mkdirSync(gitRepo)
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: gitRepo, env })
+    gitRepo = realpathSync(gitRepo)
+    await start({ projects: true })
+    const added = await call('projects.add', { path: gitRepo })
+    if (!added.ok) throw new Error(`projects.add failed: ${added.error}`)
+    id = (added.value as { project: { id: string } }).project.id
+    errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    errors.mockRestore()
+    vi.unstubAllEnvs()
+  })
+
+  it('the change is in layout.json once projects.remove answers; quitting writes and logs nothing after that', async () => {
+    await applied(note('n1'), id)
+    store.flushAll()
+    // A second change, still waiting for its write, and the Project leaves the list at once.
+    await applied({ op: 'move', id: 'n1', x: 7000, y: 9000 }, id)
+    expect(await call('projects.remove', { id })).toMatchObject({ ok: true })
+
+    expect(nodeOf(onDisk(id), 'n1')).toMatchObject({ x: 7000, y: 9000 })
+    expect(layoutErrors()).toEqual([])
+
+    // Nothing is left to write: a write after this point would make the file again.
+    removeTestTree(layoutFile(id))
+    expect(electron.quitListeners.length).toBeGreaterThan(0)
+    for (const listener of electron.quitListeners) listener()
+    expect(existsSync(layoutFile(id))).toBe(false)
+    expect(layoutErrors()).toEqual([])
+  })
+
+  it('added again in the same run, the Project\'s Layout is read from layout.json, not from memory', async () => {
+    await applied(note('n1'), id)
+    expect(await call('projects.remove', { id })).toMatchObject({ ok: true })
+
+    // The file changes while the Project is out of the list (a backup put back, another copy of worfy).
+    const saved = onDisk(id)
+    writeFileSync(layoutFile(id), JSON.stringify({ ...saved, nodes: saved.nodes.map((node) => ({ ...node, x: node.x + 5000 })) }))
+
+    expect(await call('projects.add', { path: gitRepo })).toMatchObject({ ok: true })
+    const n1 = nodeOf((await value('layout.get', { projectId: id })).layout, 'n1')
+    expect(n1?.x).toBe((nodeOf(saved, 'n1')?.x ?? 0) + 5000)
+    expect(layoutErrors()).toEqual([])
+  })
+
+  it('added again in the same run, the Layout goes on after the last revision a screen saw, so the screen takes it', async () => {
+    await applied(note('n1'), id)
+    await applied({ op: 'move', id: 'n1', x: 100, y: 0 }, id)
+    const last = (await applied({ op: 'move', id: 'n1', x: 200, y: 0 }, id)).revision
+    expect(await call('projects.remove', { id })).toMatchObject({ ok: true })
+    expect(await call('projects.add', { path: gitRepo })).toMatchObject({ ok: true })
+
+    // A screen keeps the Layout it last saw and drops a state with a lower revision (useLayout.ts).
+    const read = await value('layout.get', { projectId: id })
+    expect(read.revision).toBeGreaterThan(last)
+    expect(nodeOf(read.layout, 'n1')).toMatchObject({ x: 200, y: 0 })
+    expect((await applied({ op: 'move', id: 'n1', x: 300, y: 0 }, id)).revision).toBe(read.revision + 1)
+  })
+
+  it('a Linked machine\'s projects.remove of the active Project is still refused, and its Layout stays in memory as it was', async () => {
+    await applied(note('n1'), id)
+    const before = (await applied({ op: 'move', id: 'n1', x: 100, y: 0 }, id)).revision
+    const refused = await call('projects.remove', { id }, { id: 'link:mac/1' })
+    expect(refused).toEqual({ ok: false, error: expect.stringMatching(/is the active Project of this Machine/) })
+
+    // The same entry, not one read again: a forget on the refused path would read the file anew, one revision on.
+    expect((await value('layout.get', { projectId: id })).revision).toBe(before)
+    expect(nodeOf((await applied({ op: 'move', id: 'n1', x: 3000, y: 4000 }, id)).layout, 'n1')).toMatchObject({ x: 3000, y: 4000 })
+    store.flushAll()
+    expect(nodeOf(onDisk(id), 'n1')).toMatchObject({ x: 3000, y: 4000 })
+    expect(layoutErrors()).toEqual([])
+  })
+})
+
 describe('layout store: schema at the boundary', () => {
   it.each([
     ['a move with a string coordinate', { op: 'move', id: 'n1', x: '10', y: 0 }],
@@ -381,8 +480,10 @@ describe('layout store: saving', () => {
     const writes: Layout[] = []
     const local = new LayoutStore(() => join(dataDir, PROJECT), { write: (_file, layout) => writes.push(layout) })
 
+    // Six operations half a quiet period apart: 750 ms, shorter than LAYOUT_SAVE_MAX_DELAY_MS
+    // (a longer stream is written while it goes on, the test below).
     local.apply(PROJECT, note('n1'))
-    for (let n = 0; n < 20; n++) {
+    for (let n = 0; n < 6; n++) {
       local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
       vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS / 2)
     }
@@ -390,7 +491,7 @@ describe('layout store: saving', () => {
 
     vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS)
     expect(writes).toHaveLength(1)
-    expect(nodeOf(writes[0] as Layout, 'n1')).toMatchObject({ x: 19, y: 19 })
+    expect(nodeOf(writes[0] as Layout, 'n1')).toMatchObject({ x: 5, y: 5 })
 
     // Nothing pending: no second write.
     vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS * 10)
@@ -438,6 +539,79 @@ describe('layout store: saving', () => {
       // Saved now: nothing more to write.
       local.flushAll()
       expect(writes).toHaveLength(1)
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  it('operations with no quiet period between them are still written, LAYOUT_SAVE_MAX_DELAY_MS at the latest after the first one', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore, LAYOUT_SAVE_DELAY_MS, LAYOUT_SAVE_MAX_DELAY_MS } = await import('../../src/main/layout/store')
+    const started = Date.now()
+    const writes: { at: number; layout: Layout }[] = []
+    const local = new LayoutStore(() => join(dataDir, PROJECT), { write: (_file, layout) => writes.push({ at: Date.now() - started, layout }) })
+
+    // Twelve operations 100 ms apart (1.1 s from the first to the last): each comes before the
+    // quiet period ends, so without the bound nothing was written while they came.
+    local.apply(PROJECT, note('n1'))
+    for (let n = 1; n < 12; n++) {
+      vi.advanceTimersByTime(100)
+      local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
+    }
+    expect(writes.length).toBeGreaterThanOrEqual(1)
+    expect(writes[0]?.at).toBeLessThanOrEqual(LAYOUT_SAVE_MAX_DELAY_MS)
+
+    // When they stop, the last one is written after the usual quiet period, and nothing after that.
+    vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS)
+    expect(nodeOf(writes.at(-1)?.layout as Layout, 'n1')).toMatchObject({ x: 11, y: 11 })
+    const count = writes.length
+    vi.advanceTimersByTime(LAYOUT_SAVE_MAX_DELAY_MS * 2)
+    expect(writes).toHaveLength(count)
+  })
+
+  it('the bound holds for every stretch of a long stream, not only the first: 2.5 s of operations give a second write by 2 × LAYOUT_SAVE_MAX_DELAY_MS', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore, LAYOUT_SAVE_MAX_DELAY_MS } = await import('../../src/main/layout/store')
+    const started = Date.now()
+    const writes: number[] = []
+    const local = new LayoutStore(() => join(dataDir, PROJECT), { write: () => writes.push(Date.now() - started) })
+
+    // One operation every 100 ms for 2.5 s; the one at 1000 ms comes right after the first write.
+    local.apply(PROJECT, note('n1'))
+    for (let n = 1; n <= 25; n++) {
+      vi.advanceTimersByTime(100)
+      local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
+    }
+    expect(writes.length).toBeGreaterThanOrEqual(2)
+    expect(writes[1]).toBeLessThanOrEqual(2 * LAYOUT_SAVE_MAX_DELAY_MS)
+    local.flushAll()
+  })
+
+  it('forget() of a Layout whose write failed says the unsaved changes are lost, after the failed write said so', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore } = await import('../../src/main/layout/store')
+    let attempts = 0
+    const local = new LayoutStore(() => join(dataDir, PROJECT), {
+      write: () => {
+        attempts += 1
+        throw new Error('EACCES: permission denied')
+      },
+    })
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      local.apply(PROJECT, note('n1'))
+      local.flush(PROJECT)
+      local.forget(PROJECT)
+      expect(logged.mock.calls.map(([message]) => String(message))).toEqual([
+        `[layout] could not save the Layout of ${PROJECT}`,
+        `[layout] the Layout of ${PROJECT} had unsaved changes when its Project left the list; they are lost`,
+      ])
+      expect(attempts).toBe(1)
+
+      // Forgotten: no timer and no quit writes it again.
+      vi.advanceTimersByTime(10_000)
+      local.flushAll()
+      expect(attempts).toBe(1)
     } finally {
       logged.mockRestore()
     }
@@ -740,7 +914,7 @@ describe('layout store: the screen a change comes from', () => {
   })
 
   it('trash.put and trash.restore with a screen give a layout.changed with it; without one, null', async () => {
-    await start(true)
+    await start({ trash: true })
     await applied(note('n1'))
     await applied(note('n2', { x: 400 }))
     electron.sent.length = 0
