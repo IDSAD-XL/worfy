@@ -93,6 +93,13 @@ export default defineConfig(
     rules: { 'no-empty': ['error', { allowEmptyCatch: true }] },
   },
   {
+    // A CommonJS module of the Harness (hooks/eval-env.cjs), so that the CommonJS scripts of bin/
+    // can require it as well as the ES modules can import it.
+    files: ['harness/**/*.cjs'],
+    languageOptions: { sourceType: 'commonjs', globals: { ...globals.node, ...globals.commonjs } },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['src/renderer/**/*.{ts,tsx}', 'test/**/*.tsx'],
     languageOptions: { globals: globals.browser },
     extends: [reactHooks.configs.flat.recommended],

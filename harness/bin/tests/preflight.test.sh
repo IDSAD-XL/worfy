@@ -167,6 +167,8 @@ if on_windows; then
     echo "skip 4e: Git Bash on Windows delivers no TERM or INT to a node process"
 else
     mkdir -p "$T/pfcopy" && cp "$BIN/preflight" "$BIN/profile" "$BIN/worktree-lock" "$T/pfcopy/"
+    # The scripts require ../hooks/eval-env.cjs, as in the plugin, where hooks/ lies next to bin/.
+    mkdir -p "$T/hooks" && cp "$HOOKS/eval-env.cjs" "$T/hooks/"
     printf '#!/usr/bin/env bash\nsleep 300 &\necho $! >"$SLEEPER"\nwait\n' >"$T/pfcopy/epic-status"; chmod +x "$T/pfcopy/epic-status"
     for sig in TERM:143 INT:130; do
         rm -f "$T/sleeper.pid"

@@ -31,26 +31,14 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const { execFileSync } = require("node:child_process")
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 
 // os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
 const CLAUDE = path.join(os.homedir(), ".claude")
-// The Harness state on this machine (ADR-0040 item 5); the gate registry lives there.
-const HARNESS_HOME = process.env.HARNESS_HOME || path.join(CLAUDE, "worfy-harness")
-// Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
-const gateConfig = () => {
-    const current = path.join(HARNESS_HOME, "gate", "config.json")
-    const legacy = path.join(CLAUDE, "gate", "config.json")
-    return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
-}
-const CFG = process.env.CLAUDE_GATE_CONFIG || gateConfig()
 // The plugin root: the folder above bin/, found from this script's real file (not a symlink).
 const PLUGIN_ROOT = path.dirname(path.dirname(fs.realpathSync(__filename)))
 const RESOLVE = process.env.CLAUDE_GATE_RESOLVE || path.join(PLUGIN_ROOT, "hooks", "gate-resolve.mjs")
-// Where a profile is looked for, in order: $HARNESS_HOME/projects/<name>/, then (transition, schema 1)
-// ~/.claude/profiles/<name>/. CLAUDE_PROFILES_DIR (tests) replaces both.
-const PROFILE_DIRS = process.env.CLAUDE_PROFILES_DIR
-    ? [process.env.CLAUDE_PROFILES_DIR]
-    : [path.join(HARNESS_HOME, "projects"), path.join(CLAUDE, "profiles")]
 // This Harness's own scripts: the folder this script lives in.
 const BIN = path.dirname(fs.realpathSync(__filename))
 
@@ -115,10 +103,26 @@ try {
     usage(`no such directory: ${target}`)
 }
 
+// The Harness state on this machine (ADR-0040 item 5); the gate registry lives there. It is asked
+// for the directory being resolved: a relative EVAL_HARNESS_HOME is taken from its git common dir.
+const HARNESS_HOME = harnessHome(abs)
+// Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
+const gateConfig = () => {
+    const current = path.join(HARNESS_HOME, "gate", "config.json")
+    const legacy = path.join(CLAUDE, "gate", "config.json")
+    return !fs.existsSync(current) && fs.existsSync(legacy) ? legacy : current
+}
+const CFG = process.env.CLAUDE_GATE_CONFIG || gateConfig()
+// Where a profile is looked for, in order: $HARNESS_HOME/projects/<name>/, then (transition, schema 1)
+// ~/.claude/profiles/<name>/. CLAUDE_PROFILES_DIR (tests) replaces both.
+const PROFILE_DIRS = process.env.CLAUDE_PROFILES_DIR
+    ? [process.env.CLAUDE_PROFILES_DIR]
+    : [path.join(HARNESS_HOME, "projects"), path.join(CLAUDE, "profiles")]
+
 // --- canonical root: as in gate.mjs -----------------------------------------------
 const git = (...a) => {
     try {
-        return execFileSync("git", ["-C", abs, ...a], {
+        return execFileSync(GIT, ["-C", abs, ...a], {
             encoding: "utf8",
             stdio: ["ignore", "pipe", "ignore"],
         }).trim()

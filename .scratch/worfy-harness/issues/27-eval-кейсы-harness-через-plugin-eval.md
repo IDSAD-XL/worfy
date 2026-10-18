@@ -56,7 +56,8 @@ Source: решения владельца 2026-10-08, пересмотр E3: в�
     (`--ablation with-without`), это удваивает цену; `--ablation none` его выключает;
   - коды выхода: 0 — все кейсы не ниже порога; 1 — кейс ниже порога, кейс не загрузился или папке
     plugin-а нет доверия (без `--trust-plugin`); 2 — прогон частичный: потолок `--max-cost-usd` или
-    отказ учётки; 130 и 143 — прерван;
+    отказ учётки; 128 + номер сигнала — остановлен сигналом (130 SIGINT, 129 SIGHUP, 143 SIGTERM),
+    оставшийся вызов не запускается;
   - отчёт: `<evals>/results/<время>/aggregate-result.json` (`schemaVersion: 1`, `partial`,
     `aggregates.overallScore`, `aggregates.casesPassed`, `costUsd`, `claudeVersion`) и самодостаточный
     `report.html`; с подпиской claude.ai отчёт ещё публикуется приватным artifact-ом, `--no-publish`
@@ -170,7 +171,7 @@ Mac.
   На настоящем Harness тот же вызов — код 0.
   Не проверено: на настоящем Harness `status-block` уже ниже 0.8 (шаг 0: 0.5), а git в песочнице не
   работает; mutation отложена до решения про git, см. «Итог».
-- [ ] Полный прогон `pnpm eval:harness`: код 0 или 1, не 2, 130, 143; `partial: false`. Каждый кейс
+- [ ] Полный прогон `pnpm eval:harness`: код 0 или 1, не 2 и не 128 + номер сигнала (130, 129, 143); `partial: false`. Каждый кейс
   не ниже 0.8 или разобран в «Итог» как нарушение правила Harness с предложением Ticket-а.
   Не проверено: полный прогон не запускался — без git в песочнице ни один кейс не дойдёт до
   проверяемого правила, см. «Итог».
@@ -305,3 +306,13 @@ Xcode Command Line Tools. Настройки песочницы, которые 
 
 - Как дать прогонам eval git — вариант (б): правка Harness отдельным Ticket-ом 28 (`scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает; скрипты берут путь к git и `HARNESS_HOME` из `EVAL_*`). Платная часть этого Ticket-а идёт после Ticket-а 28.
 - Когда гонять полный набор: перед мержем PR, который правит правила, — кейсы изменённых файлов; полный набор — по событию (смена закреплённой модели, новая версия Claude Code, обновление Stable copy). Связь «кейс → файлы правил» и строка итога eval в PR — Ticket 29.
+
+### Ticket 28 (2026-10-18)
+
+[Ticket 28](28-git-и-harness-home-в-прогонах-eval.md) сделал вариант (б) бесплатно: `pnpm eval:harness` кладёт копию
+git (папка `git --exec-path` без `git-credential-*`) в `harness/evals/results/<время>-git/`, ставит её первой в
+`PATH` прогонов и задаёт `EVAL_GIT` и `EVAL_HARNESS_HOME=worfy-harness`; скрипты Harness берут git и папку
+состояния через `harness/hooks/eval-env.cjs`, фикстура пишет реестр и Profile `demo` в `.git/worfy-harness` рабочей
+папки. Платная проба шага 5 Ticket-а 28 (`--case epic-wave-tickets --runs 1`) не запускалась: по решению
+Orchestrator-а её делает этот Ticket первым платным run-ом. Если песочница закроет и копию в `results/`
+(`denyRead`) — вопрос владельцу со строками `<tmp>/config/settings.json` прогона.

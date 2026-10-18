@@ -1,7 +1,8 @@
 # 28 — git и HARNESS_HOME в прогонах eval: копия git от `eval:harness`, переменные `EVAL_GIT` и `EVAL_HARNESS_HOME` в скриптах Harness
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T03:35Z
+Branch: worfy-harness/28
 Blocked by:
 Source: решение владельца 2026-10-10 по Ticket-у 27 (eval-кейсы Harness через `claude plugin eval`), вопрос «как дать прогонам eval git», вариант б — правка Harness отдельным Ticket-ом: `scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает, скрипты Harness берут путь к git и `HARNESS_HOME` из переменных `EVAL_*`; [Ticket 27](27-eval-кейсы-harness-через-plugin-eval.md), раздел «Итог» (препятствие и пробы); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние машины в `HARNESS_HOME`, по умолчанию `~/.claude/worfy-harness/`); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
@@ -118,39 +119,44 @@ Ticket 27); сам полный прогон набора — Ticket 27; пра�
 
 ## Готово, когда
 
-- [ ] `bash harness/bin/tests/eval-env.test.sh` — код 0. В `PATH` test-а `git` — stub, который
+- [x] `bash harness/bin/tests/eval-env.test.sh` — код 0. В `PATH` test-а `git` — stub, который
   выходит с кодом 97; с `EVAL_GIT=<обёртка над настоящим git, пишет свои аргументы в лог>`
   `preflight`, `epic-status --json`, `profile -C <репозиторий> --name`, `ticket` (чтение Status),
   `gate.sh fast`, `worktree-lock claim`/`release`, `silent-check`, `epic-board --out <tmp> --no-open`
   дают тот же код и вывод, что с настоящим git в `PATH`, и каждый оставил строки в логе обёртки.
-- [ ] Тот же test: `EVAL_HARNESS_HOME=worfy-harness`, `HARNESS_HOME` не задан — `profile -C` находит
+- [x] Тот же test: `EVAL_HARNESS_HOME=worfy-harness`, `HARNESS_HOME` не задан — `profile -C` находит
   Profile из `<репозиторий>/.git/worfy-harness/` (код 0); `gate.sh fast` пишет `gate/state/` туда же;
   `worktree-lock claim` — `worktree-sessions/` туда же; `$HOME/.claude` временного `HOME` не создан.
   `HARNESS_HOME=<папка>` при заданном `EVAL_HARNESS_HOME` — побеждает `HARNESS_HOME`; абсолютный
   `EVAL_HARNESS_HOME` берётся как есть; относительный вне git-репозитория — путь по умолчанию.
-- [ ] Тот же test: `grep -nE 'execFileSync\("git"|spawnSync\("git"|execFileSync\(.git.,'
+- [x] Тот же test: `grep -nE 'execFileSync\("git"|spawnSync\("git"|execFileSync\(.git.,'
   harness/bin/{profile,ticket,worktree-lock,silent-check,epic-board} harness/hooks/gate-resolve.mjs`
   — код 1 (git по имени из Node-скриптов не зовётся).
-- [ ] `bash harness/bin/tests/harness-home.test.sh` — код 0 без изменений в нём: без `EVAL_*` всё как
+  Список шире: после переноса на Node ещё `bin/preflight`, `bin/epic-status`, `hooks/gate.mjs`,
+  `hooks/gate-paths.mjs`, `hooks/stop.mjs`; шаблон ловит и `spawn`, `execFile`, `withTimeout(…, "git"`.
+- [x] `bash harness/bin/tests/harness-home.test.sh` — код 0 без изменений в нём: без `EVAL_*` всё как
   было.
-- [ ] `test/contract/harness-evals.test.ts`, stub вместо `claude`: stub пишет в лог `EVAL_GIT`,
+- [x] `test/contract/harness-evals.test.ts`, stub вместо `claude`: stub пишет в лог `EVAL_GIT`,
   `EVAL_HARNESS_HOME` и `PATH`; первая папка `PATH` — папка `EVAL_GIT`; `"$EVAL_GIT" --version` из
   stub-а с `PATH=/usr/bin:/bin` — код 0; в копии нет файлов `git-credential-*`;
   `EVAL_HARNESS_HOME` — `worfy-harness`; после выхода скрипта папки копии нет.
-- [ ] Тот же contract test: если `git --exec-path` не дал папку (в `PATH` test-а stub `git` с кодом 1),
+- [x] Тот же contract test: если `git --exec-path` не дал папку (в `PATH` test-а stub `git` с кодом 1),
   `eval:harness` выходит с кодом 1 и не вызывает `claude` (лог stub-а пуст).
-- [ ] Тот же contract test: scaffold каждого кейса с `EVAL_HARNESS_HOME=worfy-harness` во временном
+- [x] Тот же contract test: scaffold каждого кейса с `EVAL_HARNESS_HOME=worfy-harness` во временном
   `HOME` — код 0, реестр в `<рабочая папка>/.git/worfy-harness/gate/config.json`,
   `$HOME/.claude` не создан; `bin/profile -C <рабочая папка> --name` с тем же окружением — `demo`,
   код 0. Без переменной — как сейчас (существующие проверки зелёные).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; ни один test не запускает настоящий Claude
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0; ни один test не запускает настоящий Claude
   Code, не обращается к модели и не пишет в `~/.claude` (все `HOME` — временные папки).
-- [ ] `gate.sh fast` на ветке — код 0 и строка `[gate] зелено (…)`.
+- [x] `gate.sh fast` на ветке — код 0 и строка `[gate] зелено (…)`.
 - [ ] (вручную, платно) `pnpm eval:harness -- --case epic-wave-tickets --runs 1` — код 0 или 1, не 2;
   в транскрипте нет «not a git repository», `preflight` дошёл до последней строки; цена и ответ — в
   «Итог». Снимки `~/.claude` (список `projects`, хэши `settings.json` и `installed_plugins.json`) до и
   после совпали.
-- [ ] Ticket 27: `Blocked by` и «Итог» обновлены (шаг 6).
+  Не проверено: по брифу Orchestrator-а платный run здесь не запускался — его делает Ticket 27 первым
+  платным run-ом.
+- [x] Ticket 27: `Blocked by` и «Итог» обновлены (шаг 6). `Blocked by: 05, 06, 07, 11, 28` и статус `open`
+  там уже стояли; в «Итог» добавлен раздел «Ticket 28».
 
 ## Тесты
 
@@ -190,4 +196,66 @@ Ticket 27); сам полный прогон набора — Ticket 27; пра�
 
 ## Итог
 
-Заполняется при закрытии.
+Состояние на 2026-10-18: бесплатная часть сделана, PR с меткой `needs-mac-gate` (платформенный PR,
+ADR-0056: правит скрипты Harness). Ветка `worfy-harness/28`. Платная проба шага 5 не запускалась —
+её делает Ticket 27.
+
+**Что сдвинулось с момента записи Ticket-а.** Скрипты Harness переписаны на Node (worfy-windows 04,
+05, 06), и места из «Что происходит» теперь такие:
+
+- `bin/preflight`, `bin/epic-status` — Node, не bash: git зовут `spawnSync` (`preflight:131`,
+  `epic-status:101`, `:153`, `:498`) и `withTimeout(…, "git", …)` для `git fetch` (`preflight:492`),
+  это `spawn` Node, а не `perl … exec`. Функция bash `git()` для них не нужна: путь из helper-а.
+- `hooks/stop.sh` → `hooks/stop.mjs`; `hooks/session-start.sh` → `session-start.mjs`. `stop.mjs` и
+  `gate-resolve.mjs` берут папку состояния и реестр из `hooks/gate-paths.mjs`, правка там — без
+  правки самих файлов.
+- `hooks/gate.sh` — теперь только запуск `gate.mjs`; Gate — `hooks/gate.mjs` (git — `:216`) и
+  `hooks/gate-paths.mjs` (`harnessHome`, git — `:46`). Без node `gate.sh` отвечает сам: там
+  `git()` через `EVAL_GIT` и правило `EVAL_HARNESS_HOME` на bash — вызвать `node eval-env.cjs` без
+  node нельзя.
+- `bin/profile`: `HARNESS_HOME` (`:38`) считался до разбора `-C`; теперь — после, от папки `-C`.
+  `bin/ticket`: `HARNESS_HOME` — в `markLocal` (Silent mode, `:741`). `bin/epic-board`: `:34`, git — `:39`.
+  `bin/worktree-lock`: git — `:46`, `HARNESS_HOME` — `:77`. `bin/silent-check`: git — `:191`.
+- `test/contract/harness-evals.test.ts` теперь гоняет `eval-harness.mjs` на копии `harness/` во
+  временной папке (`HARNESS_DIR`): копия git пишется в `<evals>/results/`, и под настоящим `harness/`
+  она мешала `harness-install.test.ts`, который в то же время копирует `harness/` (красный в первом
+  полном прогоне: ENOENT на `evals/results/…-git/git-core/git-add`).
+- Вне «Где в коде», по необходимости: `eslint.config.js` (блок для `harness/**/*.cjs` — без него
+  `pnpm lint` красный: `require`, `module`, `process` не определены), `bin/tests/preflight.test.sh`
+  и `hooks/tests/gate-shim.test.sh` (копируют скрипты по одному — теперь и `hooks/eval-env.cjs`).
+
+**Как падал первый test.** `bash harness/bin/tests/eval-env.test.sh` на main с готовым test-ом: 33 из
+40 красные. `preflight` с `EVAL_GIT` при git в `PATH` с кодом 97 — код 2 и «not a git repository»,
+тот же отказ, что в прогоне eval; `epic-status`, `silent-check`, `epic-board`, `gate` — другой вывод
+или код 2; у всех скриптов — ни одной строки в логе обёртки; с `EVAL_HARNESS_HOME` реестр искался в
+`$HOME/.claude/worfy-harness`; `gate.sh` без node молча выходил с 0; grep нашёл git по имени в 10
+местах. После правки — 40 из 40.
+
+**Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — код 0 (285 файлов, 6022 test-а);
+`eval-env.test.sh`, `harness-home.test.sh` (без правок), `preflight.test.sh`, `gate-shim.test.sh` —
+код 0 по одному; `gate.mjs fast` — код 0, `[gate] зелено (fast): worfy/.:lint worfy/.:typecheck
+worfy/.:test`. Mutants `scripts/eval-harness.mjs` и `demo-project.sh` (фильтр `git-credential*`, порядок
+`PATH`, удаление копии, `EVAL_HARNESS_HOME`, проверка `git --exec-path`, папка состояния фикстуры) —
+каждый делает contract test красным.
+
+**Копия git.** Папка `git --exec-path` Command Line Tools — 172 имени, из них 146 symlink на один
+бинарник `../../bin/git`. Копия держит каждый файл один раз: второе имя того же файла (symlink или
+hard link, как в `/usr/lib/git-core` Linux) — symlink внутри копии; без `git-credential*`.
+
+**Fix round 1 (PR #476).** Ревью нашло пять блокирующих пробелов и восемь мелких; все закрыты test-ом,
+каждый mutant в своём дереве, файл восстановлен из копии:
+
+- Фикстура (`demo-project.sh`) больше не читает `HARNESS_HOME`: без `EVAL_HARNESS_HOME` состояние —
+  `$HOME/.claude/worfy-harness`, как в шаге 4; с ним — папка из `eval-env.cjs` без `HARNESS_HOME`.
+  Прогон не получает `HARNESS_HOME` (sandbox передаёт `PATH` и `EVAL_*`), поэтому фикстура его не
+  учитывает. Отказ на чужой реестр (`gate/config.json` уже есть) — exit 1, файл байт в байт.
+- `eval-harness.mjs`: SIGHUP, как SIGINT и SIGTERM, не убивает скрипт; копия git удаляется в своём
+  `finally`, даже если удаление копии плагина бросило; код выхода по сигналу — 128 + номер.
+  Test-ы: сигналы, «копия не отвечает `--version`», «файл git не копируется», `--exec-path` копии,
+  системный gitconfig не читается, соседняя папка в `results/` остаётся.
+- `eval-env.test.sh`: Gate — на ветке с изменениями без `GATE_SCOPE=all`, stderr сравнивается;
+  `worktree-lock status`; `profile -C` и `worktree-lock` из другой папки; `ticket mark` Silent,
+  `epic-board` без `--out`, `worktree-create.sh`, `gate.sh` с абсолютным `EVAL_HARNESS_HOME`; список
+  для grep собирается из всех Node-скриптов `bin/` и `hooks/`. `shortcut-ledger` и `wave-gate` зовут
+  git через helper; `project-connect` и `qmd-collections` — названные исключения (работают с
+  состоянием владельца, в кейсах eval не запускаются).

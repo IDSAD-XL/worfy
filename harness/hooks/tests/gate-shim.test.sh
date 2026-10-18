@@ -144,7 +144,7 @@ if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then 
 PLUGIN="$T/plugin"
 LAUNCHER="$PLUGIN/hooks/gate.sh"
 mkdir -p "$PLUGIN/hooks"
-cp "$GATE" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$PLUGIN/hooks/"
+cp "$GATE" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$HOOKS/eval-env.cjs" "$PLUGIN/hooks/"
 if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
     echo "note: node is in /opt/homebrew/bin or /usr/local/bin: the checks below run a copy of gate.sh that does not look there"
     sed 's#/usr/local/bin /opt/homebrew/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$SHIM" >"$LAUNCHER"

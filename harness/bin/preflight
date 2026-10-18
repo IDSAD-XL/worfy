@@ -52,6 +52,8 @@ const os = require("node:os")
 const path = require("node:path")
 const { spawn, spawnSync } = require("node:child_process")
 const { isUtf8 } = require("node:buffer")
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 
 const WIN = process.platform === "win32"
 const USAGE = "usage: preflight [--epic <epic>] [--no-fetch]"
@@ -128,7 +130,7 @@ function cutChars(s, n) {
 // ?"), so preflight exits here, with 128 + the signal number, as the shell's trap did.
 const STOP_SIGNALS = new Set(["SIGINT", "SIGTERM", "SIGHUP"])
 function git(args, { stderr = "ignore", raw = false } = {}) {
-    const r = spawnSync("git", args, { stdio: ["ignore", "pipe", stderr], maxBuffer: 1 << 28, windowsHide: true })
+    const r = spawnSync(GIT, args, { stdio: ["ignore", "pipe", stderr], maxBuffer: 1 << 28, windowsHide: true })
     if (STOP_SIGNALS.has(r.signal)) process.exit(128 + os.constants.signals[r.signal])
     if (r.error || r.status !== 0) return null
     const s = decode(r.stdout)
@@ -413,7 +415,9 @@ async function loadProfile() {
         : { code: 127, stdout: "", stderr: "" }
     const why = firstLine(chomp(r.stderr))
     if (r.code === 3)
-        die(`project not registered in ${process.env.HARNESS_HOME || "~/.claude/worfy-harness"}/gate/config.json (or its entry has no profile): ${why}`)
+        die(
+            `project not registered in ${process.env.HARNESS_HOME || (process.env.EVAL_HARNESS_HOME ? harnessHome(ROOT) : "~/.claude/worfy-harness")}/gate/config.json (or its entry has no profile): ${why}`,
+        )
     if (r.code !== 0) die(`profile unreadable (profile, exit ${r.code}): ${why}`)
     let v
     try {
@@ -489,7 +493,7 @@ async function checkFetch() {
     // line would break the 20-line limit, and without it a fetch failure is a mystery.
     const hint = GH_WARN ? ` · ${GH_WARN}` : ""
     if (!FETCH) return warn(`fetch skipped${hint}`)
-    const r = await withTimeout(FETCH_TIMEOUT, "git", ["fetch", "origin", "--prune", "--quiet"], { stdout: "ignore" })
+    const r = await withTimeout(FETCH_TIMEOUT, GIT, ["fetch", "origin", "--prune", "--quiet"], { stdout: "ignore" })
     if (r.code === 0) {
         if (GH_WARN) warn(GH_WARN)
     } else if (r.code === 124) block(`fetch failed: timed out after ${FETCH_TIMEOUT} s${hint}`)

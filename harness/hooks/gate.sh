@@ -45,6 +45,9 @@ fi
 # worfy look for the marker and the verdict file by those names.
 PROFILE="${1:-fast}"
 
+# The git of an eval run: EVAL_GIT, else git from PATH (eval-env.cjs says the same for node).
+git() { command "${EVAL_GIT:-git}" "$@"; }
+
 # What is checked is the worktree. Outside git, or without git, there is nothing to say.
 repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 [ -n "$repo" ] || exit 0
@@ -52,7 +55,16 @@ repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 # The home folder as node gives it (os.homedir): USERPROFILE on Windows, HOME elsewhere.
 home="${HOME:-}"
 case "${OSTYPE:-}" in msys* | cygwin*) home="${USERPROFILE:-$home}" ;; esac
-STATE="${CLAUDE_GATE_STATE:-${HARNESS_HOME:-$home/.claude/worfy-harness}/gate/state}"
+# The Harness state: HARNESS_HOME, else EVAL_HARNESS_HOME of an eval run (a relative one from the
+# git common directory), else ~/.claude/worfy-harness — the rule of eval-env.cjs, here without node.
+hh="${HARNESS_HOME:-}"
+if [ -z "$hh" ] && [ -n "${EVAL_HARNESS_HOME:-}" ]; then
+    case "$EVAL_HARNESS_HOME" in
+        /* | [A-Za-z]:[\\/]*) hh="$EVAL_HARNESS_HOME" ;;
+        *) common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] && hh="$common/$EVAL_HARNESS_HOME" ;;
+    esac
+fi
+STATE="${CLAUDE_GATE_STATE:-${hh:-$home/.claude/worfy-harness}/gate/state}"
 mkdir -p "$STATE" 2>/dev/null
 
 # The tag of the worktree: the first 8 hex digits of the SHA-1 of its root as git prints it.

@@ -23,6 +23,8 @@ import os from "node:os"
 import path from "node:path"
 import crypto from "node:crypto"
 import { execFileSync } from "node:child_process"
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
 
 const cmd = process.argv[2]
 const HOOK = ["claim", "beat", "release"].includes(cmd)
@@ -43,7 +45,7 @@ const main = () => {
 
     const git = (args, cwd) => {
         try {
-            return execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim()
+            return execFileSync(GIT, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim()
         } catch {
             return ""
         }
@@ -73,8 +75,9 @@ const main = () => {
     // A hash suffix of the full path: on its own the slug collapses Auction-sale-loop,
     // Auction/sale-loop and Auction_sale_loop into one name.
     const slug = `${root.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.createHash("sha1").update(root).digest("hex").slice(0, 8)}`
-    // Harness state on this machine: $HARNESS_HOME/worktree-sessions (ADR-0040 item 5).
-    const dir = path.join(process.env.HARNESS_HOME || path.join(home, ".claude", "worfy-harness"), "worktree-sessions")
+    // Harness state on this machine: $HARNESS_HOME/worktree-sessions (ADR-0040 item 5); in an eval
+    // run, EVAL_HARNESS_HOME of the tree's repository.
+    const dir = path.join(harnessHome(cwd), "worktree-sessions")
     const file = path.join(dir, `${slug}.json`)
     const now = Date.now()
 

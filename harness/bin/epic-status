@@ -40,6 +40,8 @@
 const fs = require("node:fs")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
+// The git to start: EVAL_GIT of an eval run, else git from PATH.
+const { git: GIT } = require("../hooks/eval-env.cjs")
 
 // Bytes as a string: the UTF-8 bytes of `s`, one per character.
 const B = (s) => Buffer.from(s, "utf8").toString("latin1")
@@ -98,7 +100,7 @@ const isDir = (p) => {
 const chomp = (s) => s.replace(/\n+$/, "")
 
 const git = (cwd, args) => {
-    const r = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 })
+    const r = spawnSync(GIT, ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1 << 28 })
     return { ok: !r.error && r.status === 0, stdout: r.error ? "" : chomp(r.stdout || "") }
 }
 
@@ -150,7 +152,7 @@ function refTree(entries, gitDir) {
     let blobs = null
     const load = (ids) => {
         // One process for all the tickets of the tree.
-        const r = spawnSync("git", ["-C", gitDir, "cat-file", "--batch"], {
+        const r = spawnSync(GIT, ["-C", gitDir, "cat-file", "--batch"], {
             input: ids.join("\n") + "\n",
             stdio: ["pipe", "pipe", "ignore"],
             maxBuffer: 1 << 30,
@@ -495,7 +497,7 @@ function main() {
             if (rel === "") fail(3, `epic-status: tickets root is the repository root ${scratchGit} — --ref is not supported`)
             // A silent failure here is indistinguishable from "the branch has no tickets", and these are
             // different answers: the first is a broken tool, the second a fact about the branch.
-            const ls = spawnSync("git", ["-C", scratchGit, "ls-tree", "-r", "-z", JSON_REF, "--", rel], {
+            const ls = spawnSync(GIT, ["-C", scratchGit, "ls-tree", "-r", "-z", JSON_REF, "--", rel], {
                 stdio: ["ignore", "pipe", "ignore"],
                 maxBuffer: 1 << 28,
             })

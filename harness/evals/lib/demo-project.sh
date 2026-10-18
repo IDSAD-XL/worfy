@@ -15,12 +15,15 @@
 #                           01-alpha … 04-delta, each with its own files
 #   ./.git/demo-origin.git  with local-green: a bare repository as `origin`, so preflight can fetch
 #                           without network; with pr-green-ci there is no origin at all
-#   $HOME/.claude/worfy-harness/
-#                           the gate registry and the schema 2 profile `demo` — the Harness state of
-#                           the run's temporary HOME (`claude plugin eval` sets HOME for the scaffold)
+#   the Harness state       the gate registry and the schema 2 profile `demo`, where the Harness scripts
+#                           of the run look for them: with EVAL_HARNESS_HOME (pnpm eval:harness sets
+#                           worfy-harness) in the folder hooks/eval-env.cjs names — ./.git/worfy-harness,
+#                           the one place the sandbox of the run lets it write; without it in
+#                           $HOME/.claude/worfy-harness/ of the run's temporary HOME (`claude plugin eval`
+#                           sets HOME for the scaffold)
 #
 # Bash, not Node: it is test code (ADR-0055). Runs as the owner outside the sandbox, so it writes
-# only into the current folder and $HOME, and refuses a HOME that already has a gate registry.
+# only into the current folder and $HOME, and refuses a state folder that already has a gate registry.
 set -euo pipefail
 
 finish="${1:-}"
@@ -29,8 +32,11 @@ case "$finish" in local-green | pr-green-ci) ;; *) echo "usage: demo-project.sh 
 case "$variant" in none | blocked | ui | reviewer) ;; *) echo "demo-project.sh: unknown variant '$variant'" >&2; exit 2 ;; esac
 
 work="$(pwd -P)"
-state="$HOME/.claude/worfy-harness"
-[ ! -e "$state/gate/config.json" ] || { echo "demo-project.sh: $state already has a gate registry" >&2; exit 1; }
+# The folder the Harness scripts of the run will use. A run gets no HARNESS_HOME (its sandbox passes
+# PATH and the EVAL_* variables), so it is ignored here too: with EVAL_HARNESS_HOME the folder
+# hooks/eval-env.cjs names, asked once the repository exists (a relative value is taken from its
+# .git); without it $HOME/.claude/worfy-harness.
+eval_env="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hooks" && pwd -P)/eval-env.cjs"
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
 export GIT_AUTHOR_NAME=demo GIT_AUTHOR_EMAIL=demo@example.invalid
@@ -167,6 +173,9 @@ ticket 03 charlie 'charlie: функция negate' "$blocker03" negate 'возв
 ticket 04 delta 'delta: функция tripel' '—' triple 'возвращает `n * 3`' 'triple(2)' 6
 
 git init -q -b main
+if [ -n "${EVAL_HARNESS_HOME:-}" ]; then state="$(env -u HARNESS_HOME node "$eval_env" harness-home)"
+else state="$HOME/.claude/worfy-harness"; fi
+[ -n "$state" ] && [ ! -e "$state/gate/config.json" ] || { echo "demo-project.sh: $state already has a gate registry" >&2; exit 1; }
 git add -A
 git commit -q -m "demo: sum and epic demo"
 

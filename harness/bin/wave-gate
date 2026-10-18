@@ -92,6 +92,8 @@
 const fs = require("fs")
 const path = require("path")
 const { spawn, spawnSync } = require("child_process")
+// The git to start, with the variable of an eval run (EVAL_GIT).
+const { git: GIT } = require("../hooks/eval-env.cjs")
 
 const GATE_SCRIPT = path.join(__dirname, "..", "hooks", "gate.mjs")
 const TREE_NAME = "worfy-wave-gate"
@@ -120,7 +122,7 @@ const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
 const held = { locks: new Map(), child: null, pidFile: null, tree: null, repo: null, awake: null }
 
 function git(args, cwd, { allowFail = false } = {}) {
-    const r = spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
+    const r = spawnSync(GIT, args, { cwd, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
     if (r.error) fail(`git ${args.join(" ")}: ${r.error.message}`)
     if (!allowFail && r.status !== 0) fail(`git ${args.join(" ")} (exit ${r.status}): ${(r.stderr || "").trim().split("\n")[0]}`)
     return r

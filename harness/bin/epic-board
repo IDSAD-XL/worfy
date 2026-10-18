@@ -14,8 +14,9 @@
 'use strict';
 const { execFileSync, execFile, spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+const { git: GIT, harnessHome } = require('../hooks/eval-env.cjs');
 
 const argv = process.argv.slice(2);
 // argv[i+1] of a flag that comes last is undefined, not the default: a trailing --days silently
@@ -31,12 +32,11 @@ const die = m => { process.stderr.write('epic-board: ' + m + '\n'); process.exit
 const DAYS = Number(opt('--days', 14));
 if (!Number.isFinite(DAYS) || DAYS < 0) die('--days needs a non-negative number');
 // The snapshot is Harness state on this machine: $HARNESS_HOME/state (ADR-0040 item 5).
-const HARNESS_HOME = process.env.HARNESS_HOME || path.join(os.homedir(), '.claude', 'worfy-harness');
-const OUT = opt('--out', path.join(HARNESS_HOME, 'state', 'epic-board.html'));
+const OUT = opt('--out', path.join(harnessHome(), 'state', 'epic-board.html'));
 const NO_OPEN = argv.includes('--no-open');
 let BASE = 'main';
 
-const git = (...a) => execFileSync('git', a, { encoding: 'utf8', maxBuffer: 1 << 28 }).trim();
+const git = (...a) => execFileSync(GIT, a, { encoding: 'utf8', maxBuffer: 1 << 28 }).trim();
 
 // ── which branches to read ───────────────────────────────────────────────────
 // Not merged into main and with activity within DAYS days. A branch is not the unit of display:
