@@ -6,10 +6,10 @@
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; осталась приёмка 16. Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
-- `worfy-windows` (порт под Windows; spec, ADR 0054–0057, 0062, 0063, 0069): `epic-status` — 44/61; 2026-10-18 влиты 13, 17, 29–34, 36–38, 49, 52, 58; 06 (#456) ждёт живой `preflight` на ПК, 07 — Q31 и запуск worfy на ПК.
+- `worfy-windows` (порт под Windows; spec, ADR 0054–0057, 0062, 0063, 0069, 0071): `epic-status` — 44/66; 2026-10-18 влиты 13, 17, 29–34, 36–38, 40, 48, 49, 52, 57, 58, 63; 06 (#456) ждёт живой `preflight` на ПК, 07 — Q31 и запуск worfy на ПК.
 - `worfy-windows`, ПК: gate fast — lint и typecheck до закрытия 14; worktree-ы — в `C:/Users/Alexey/worfy-wt`, вне `%TEMP%` (Q25, 52); новые 61 (low, предупреждение о Project-е в `%TEMP%`) и 62 (остатки ревью).
-- #498 (`worfy-windows` 40, node-pty beta.15) вливается до 39; Stable copy на Windows между ними не ставить: OpenConsole beta.15 кладёт ~10 `ESC[6n` (запрос позиции курсора) на resize в вывод, re-mount view Terminal шлёт их ответы shell-у как ввод.
-- Решено без владельца (2026-10-18, ночь): ответ main на `ESC[6n` без смонтированной view — в PR 39, без него 39 не вливать (и две открытые view на beta.15); #498 — первым.
+- `worfy-windows` 40 (node-pty beta.15) влит #498; Stable copy на Windows — после 39 (#512): beta.15 на resize кладёт ~10 `ESC[6n` в вывод, re-mount view Terminal шлёт ответы shell-у как ввод; ответ main на `ESC[6n` — в #512.
+- `worfy-windows` 65, 66, ADR-0071 (2026-10-19): сначала main зелёный на Windows (65, 14), затем 66 — полный `pnpm test` на Windows-runner-е; его зелёный run — `check/windows` для платформенных PR без Terminal, окон, e2e и упаковки.
 - `worfy-terminal-ai` ([spec](.scratch/worfy-terminal-ai/spec.md), ADR-0058): влиты 01–08, 10–14 (11 — связь shell-а закрыта на время команды, `bye`; 12 — `transcript-date` у полуночи; 13 — ⌘I шлёт строку; 14 — zle на Linux); 09 — приёмка; 15 (low) — связь у программ prompt-а. Долги — «Итог» 11–13.
 - `worfy-terminal-ssh` (Terminal AI в SSH session; [spec](.scratch/worfy-terminal-ssh/spec.md), подтверждён владельцем 2026-10-18): 0/10; spike 01 blocked — ждёт сервер.
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15 (11 — [PR #328](https://github.com/IDSAD-XL/worfy/pull/328); 14 — ⌘[ в реестре сочетаний, #449; 15 — подписи composer-а, #450); остался 12 — приёмка.
@@ -52,7 +52,7 @@
 ## Дальше
 
 - `worfy-harness` 27 — после решения владельца: первый платный run `epic-wave-tickets` и пересчёт цены; 29 — карта «кейс eval → файлы правил».
-- `worfy-windows`, очередь (2026-10-18, ночь): #498, затем 39; #499 — после job; 57, 15, 42, 43, 59, 62; 47, 48 — Mac; 14, 16 — итог на ПК; 61 — low; 56, 60 — в своих PR.
+- `worfy-windows`, очередь ПК (2026-10-19): 39 (#512), затем 65, затем 14 (часть unit/contract), потом 66; #499 — после job; 15, 42, 43, 59, 62, 64; 47 — Mac; 16 — итог на ПК; 61 — low; 56, 60 — в своих PR.
 - `worfy-link` 27–31 (вне LAN через Tailscale, ADR-0070) — после очереди `worfy-windows`: 27 и 28, затем 29 и 31; 30 — позже.
 - Приёмки `worfy-harness` 26 и `worfy-link` 16 (связь dev-сборки со Stable copy) — вместе с владельцем, не в Autopilot.
 - Ручные проверки на Stable copy одним блоком, пока владельца нет за Mac-ом: `worfy-week` 02, 05, 08–12, 15–18, `worfy-harness` 18 (две Session после `pnpm install:stable`), 19, 21, 24, 25 (проверка 08 закрывает и 03, проверка 10 — и `worfy-daily` 11). Шаги — пункты «(вручную)» Ticket-ов.
