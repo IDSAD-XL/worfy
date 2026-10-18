@@ -276,7 +276,10 @@ export HARNESS_HOME="$T/fresh-legacy"
 LEGACY="$HOME/.claude/gate/config.json"
 mkdir -p "$(dirname "$LEGACY")" "$HOME/.claude/profiles/legacy"
 repo "$T/legacy"
-printf '{"repos":[{"key":"legacy","match":"%s","profile":"legacy","pm":"npm","root":{},"workspace":{}}],"note":"kept"}\n' "$T/legacy" >"$LEGACY"
+# The match as node reads it: C:/… in Git Bash on Windows (cygpath exists there), unchanged elsewhere. A /tmp/… path
+# written into the file is not translated, and bin/profile would not find the project there.
+LEGACY_MATCH="$(cygpath -m "$T/legacy" 2>/dev/null || printf '%s' "$T/legacy")"
+printf '{"repos":[{"key":"legacy","match":"%s","profile":"legacy","pm":"npm","root":{},"workspace":{}}],"note":"kept"}\n' "$LEGACY_MATCH" >"$LEGACY"
 printf '{"schema":2,"name":"legacy","mode":"full"}\n' >"$HOME/.claude/profiles/legacy/profile.json"
 cp "$LEGACY" "$T/legacy-registry.0"
 check "before: bin/profile knows the old registry's project" 0 "legacy" "$PROFILE" -C "$T/legacy" --name
