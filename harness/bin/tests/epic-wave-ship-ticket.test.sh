@@ -506,6 +506,12 @@ SHELLS=(bash zsh)
 if on_windows && ! command -v zsh >/dev/null 2>&1; then
     SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"
 fi
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
+# (worfy-windows ticket 59, the review of PR #481).
+case "$(uname -s)" in
+    MINGW* | MSYS*) ;;
+    *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
+esac
 home_before="$(real_home_snapshot "$HOME" "$T")"
 REAL_HOME="$HOME"
 skill_block() { # skill_block <file> <marker>: the ```bash blocks of <file> that contain <marker>, without the F() line

@@ -27,7 +27,8 @@ T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 # The gate exports its own registry to the tests it runs; this test has its own.
 unset CLAUDE_GATE_CONFIG CLAUDE_GATE_RESOLVE CLAUDE_GATE_STATE CLAUDE_PROFILES_DIR PROJECT_CONNECT_FAIL_AT PROJECT_CONNECT_QMD_BIN
-export HOME="$T/home"
+# USERPROFILE: node's os.homedir() on Windows, where bin/profile and project-connect look for the old registry.
+export HOME="$T/home" USERPROFILE="$T/home"
 export HARNESS_HOME="$T/home/.claude/worfy-harness"
 export CLAUDE_CONFIG_DIR="$T/home/.claude"
 mkdir -p "$HOME" "$T/bin"
@@ -266,6 +267,45 @@ check "a Full draft into a fresh Harness home is written" 0 '"workflowFolder": n
 [ "$(commits)" -eq 1 ] && ok "the fresh Harness home has one commit" || bad "fresh Harness home commits: $(commits)"
 check "the fresh Harness home ignores the plugin copy" 0 "!/gate/config.json" cat "$HARNESS_HOME/.gitignore"
 check "bin/profile -C prints full" 0 "full" "$PROFILE" -C "$T/solo" --field mode
+
+# --- only the old registry, ~/.claude/gate/config.json (worfy-windows ticket 59) ---------------
+# bin/profile reads the old registry while HARNESS_HOME has none. The first Connect writes the new one, which from then
+# on shadows the old: the Projects of the old registry are carried into it, so they stay known. The old file itself is
+# not touched, and its entries count for the checks (a taken key or match).
+export HARNESS_HOME="$T/fresh-legacy"
+LEGACY="$HOME/.claude/gate/config.json"
+mkdir -p "$(dirname "$LEGACY")" "$HOME/.claude/profiles/legacy"
+repo "$T/legacy"
+# The match as node reads it: C:/… in Git Bash on Windows (cygpath exists there), unchanged elsewhere. A /tmp/… path
+# written into the file is not translated, and bin/profile would not find the project there.
+LEGACY_MATCH="$(cygpath -m "$T/legacy" 2>/dev/null || printf '%s' "$T/legacy")"
+printf '{"repos":[{"key":"legacy","match":"%s","profile":"legacy","pm":"npm","root":{},"workspace":{}}],"note":"kept"}\n' "$LEGACY_MATCH" >"$LEGACY"
+printf '{"schema":2,"name":"legacy","mode":"full"}\n' >"$HOME/.claude/profiles/legacy/profile.json"
+cp "$LEGACY" "$T/legacy-registry.0"
+check "before: bin/profile knows the old registry's project" 0 "legacy" "$PROFILE" -C "$T/legacy" --name
+draft taken full null "$T/legacy" >"$T/taken.json"
+check "a match that is in the old registry is refused" 1 "already in the gate registry" "$CONNECT" --check <"$T/taken.json"
+repo "$T/after-legacy"
+draft after-legacy full null "$T/after-legacy" >"$T/after-legacy.json"
+check "a Full draft with only the old registry is written" 0 '"workflowFolder": null' "$CONNECT" <"$T/after-legacy.json"
+check "the new registry has the old registry's project and the new one" 0 "legacy after-legacy" \
+    node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).repos; process.stdout.write(r.map(e=>e.key).join(" "))' "$HARNESS_HOME/gate/config.json"
+check "the new registry keeps the old registry's other fields" 0 '"note": "kept"' cat "$HARNESS_HOME/gate/config.json"
+check "after: bin/profile still knows the old registry's project" 0 "legacy" "$PROFILE" -C "$T/legacy" --name
+check "after: bin/profile knows the new project" 0 "after-legacy" "$PROFILE" -C "$T/after-legacy" --name
+cmp -s "$LEGACY" "$T/legacy-registry.0" && ok "the old registry is not changed" || bad "the old registry changed: $(cat "$LEGACY")"
+export HARNESS_HOME="$T/fresh-legacy-broken"
+printf '{"repos": {}}\n' >"$LEGACY"
+repo "$T/after-broken"
+draft after-broken full null "$T/after-broken" >"$T/after-broken.json"
+# The path as the message prints it: on Windows (cygpath exists there) node's C:\… spelling, JSON-escaped, so every
+# backslash doubled; unchanged elsewhere.
+if command -v cygpath >/dev/null 2>&1; then LEGACY_SHOWN="$(cygpath -w "$LEGACY")"; LEGACY_SHOWN="${LEGACY_SHOWN//\\/\\\\}"
+else LEGACY_SHOWN="$LEGACY"; fi
+check "a broken old registry is refused with its path, nothing is written" 1 "$LEGACY_SHOWN cannot be read" "$CONNECT" <"$T/after-broken.json"
+[ ! -e "$HARNESS_HOME/gate/config.json" ] && ok "a broken old registry: no new registry is written" || bad "a broken old registry: $(cat "$HARNESS_HOME/gate/config.json")"
+rm -rf "$T/home/.claude/gate" "$T/home/.claude/profiles"
+export HARNESS_HOME="$T/fresh"
 
 # --- qmd: run only with qmd and downloaded models ----------------------------------
 export QMD_INDEX_YML="$T/qmd/index.yml"

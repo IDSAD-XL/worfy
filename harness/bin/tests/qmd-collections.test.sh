@@ -185,6 +185,87 @@ cmp -s "$PROFILE" "$C/profile.0" && [ ! -e "$H/.cache/qmd/x-main" ] && [ ! -e "$
     && ok "auction-like: the profile unchanged, no new collections, no copy cloned, no qmd run" || bad "auction-like: profile or copy changed"
 clean_repos && ok "auction-like: the project's repository is untouched" || bad "auction-like: git status dirty"
 
+# --- refresh.lock left by a killed holder (worfy-windows ticket 59) ----------------------------
+# worfy kills qmd-collections with its process group at a time limit or on quit; the lock it held stays. qmd-mcp
+# drops such a lock only when it starts, so qmd-collections looks at the holder itself: a pid that is not running,
+# or no pid after two minutes, is an abandoned lock and is taken; a running holder is waited for.
+setup lockdead x "$FULL"
+LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
+sh -c 'exit 0' & dead=$!; wait "$dead"
+printf '%s' "$dead" >"$LK/pid"
+start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
+[ "$rc" -eq 0 ] && [ "$took" -lt 20 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
+    && [ -z "$(ls -d "$LK".abandoned-* 2>/dev/null)" ] \
+    && ok "refresh.lock of a pid that is not running: moved aside and deleted, qmd update ran, the lock released" \
+    || bad "dead holder: rc=$rc took=${took}s calls [$(cat "$QMD_CALLS" 2>/dev/null)] out=[$(cat "$C/out")]"
+setup lockold x "$FULL"
+LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"; touch -t 202601010000 "$LK"
+start=$(date +%s); collect x; rc=$?; took=$(( $(date +%s) - start ))
+[ "$rc" -eq 0 ] && [ "$took" -lt 20 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
+    && [ -z "$(ls -d "$LK".abandoned-* 2>/dev/null)" ] \
+    && ok "refresh.lock without a pid, older than two minutes: moved aside and deleted, qmd update ran" \
+    || bad "old lock without pid: rc=$rc took=${took}s out=[$(cat "$C/out")]"
+for holder in live young; do
+    setup "lock$holder" x "$FULL"
+    LK="$H/.cache/qmd/refresh.lock"; mkdir -p "$LK"
+    hp=""
+    if [ "$holder" = live ]; then sleep 60 & hp=$!; printf '%s' "$hp" >"$LK/pid"; fi
+    collect x & cp_pid=$!
+    for _ in $(seq 1 30); do grep -q "added to" "$C/out" 2>/dev/null && break; sleep 0.2; done
+    sleep 2
+    waiting=no; kill -0 "$cp_pid" 2>/dev/null && [ ! -e "$QMD_CALLS" ] && [ -d "$LK" ] && waiting=yes
+    rm -rf "$LK"; [ -n "$hp" ] && kill "$hp" 2>/dev/null
+    wait "$cp_pid"; rc=$?
+    [ "$waiting" = yes ] && [ "$rc" -eq 0 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null \
+        && ok "refresh.lock of a $holder holder: waited for, then taken once it was released" \
+        || bad "$holder holder: waiting=$waiting rc=$rc out=[$(cat "$C/out")]"
+done
+# qmd-refresh without --wait leaves the update to a background subshell. The pid in the lock must be that
+# subshell's, not the pid of the qmd-refresh that has already exited: a dead pid reads as an abandoned lock.
+case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) WIN=1 ;; *) WIN=0 ;; esac
+if ! command -v zsh >/dev/null 2>&1; then
+    echo "skip the background qmd-refresh case: no zsh here (Git Bash on Windows), it runs on macOS and Linux"
+else
+setup lockrefresh x "$FULL"
+mkdir -p "$H/.cache/qmd" "$C/slowbin" "$C/mem"; LK="$H/.cache/qmd/refresh.lock"
+printf '#!/bin/sh\n[ "$1" = update ] && sleep 8\nexit 0\n' >"$C/slowbin/qmd"; chmod +x "$C/slowbin/qmd"
+printf 'collections:\n  mem:\n    path: %s\n' "$C/mem" >"$C/refresh.yml"
+HOME="$H" HARNESS_HOME="$HH" PATH="$C/slowbin:$PATH" QMD_INDEX_YML="$C/refresh.yml" QMD_REFRESH_SYNC=/usr/bin/true \
+    zsh "$BIN/qmd-refresh" --force --quiet; rc_refresh=$?
+sleep 1
+collect x & cp_pid=$!
+for _ in $(seq 1 30); do grep -q "added to" "$C/out" 2>/dev/null && break; sleep 0.2; done
+sleep 2
+waiting=no; kill -0 "$cp_pid" 2>/dev/null && [ ! -e "$QMD_CALLS" ] && [ -d "$LK" ] && waiting=yes
+wait "$cp_pid"; rc=$?
+[ "$rc_refresh" -eq 0 ] && [ "$waiting" = yes ] && [ "$rc" -eq 0 ] && grep -q '^update ' "$QMD_CALLS" 2>/dev/null && [ ! -e "$LK" ] \
+    && ok "a background qmd-refresh holds refresh.lock: qmd-collections waits for it, then runs qmd update" \
+    || bad "background qmd-refresh: refresh rc=$rc_refresh waiting=$waiting rc=$rc out=[$(cat "$C/out")]"
+fi
+# worfy ends a running Harness script on its exit with SIGTERM to the script's process group. qmd-collections then
+# lets go of refresh.lock, so the next qmd-refresh or qmd-collections is not kept waiting for a holder that is gone.
+# Not on Windows: worfy ends a script there with taskkill /T /F, no signal reaches it, and the abandoned-lock cases
+# above cover the lock it leaves.
+[ "$WIN" = 1 ] && echo "skip the signal cases: Windows has no process-group signals, worfy uses taskkill /F there"
+for sig in $([ "$WIN" = 1 ] || echo TERM INT HUP); do
+    setup "lock$sig" x "$FULL"
+    mkdir -p "$C/slowbin"; LK="$H/.cache/qmd/refresh.lock"
+    printf '#!/bin/sh\n[ "$1" = update ] && { echo update >>"%s"; sleep 30; }\nexit 0\n' "$C/updating" >"$C/slowbin/qmd"
+    chmod +x "$C/slowbin/qmd"
+    set -m   # the run gets its own process group, as worfy starts it
+    ( HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$C/slowbin:$PATH" exec node "$SCRIPT" x >"$C/out" 2>&1 ) &
+    np=$!
+    set +m
+    for _ in $(seq 1 100); do [ -e "$C/updating" ] && break; sleep 0.1; done
+    held=no; [ -d "$LK" ] && held=yes
+    kill -s "$sig" -- "-$np" 2>/dev/null
+    wait "$np"; rc=$?
+    [ "$held" = yes ] && [ "$rc" -ne 0 ] && [ ! -e "$LK" ] \
+        && ok "SIG$sig to the process group of qmd-collections during qmd update: refresh.lock released (exit $rc)" \
+        || bad "SIG$sig: held=$held rc=$rc lock left=$([ -e "$LK" ] && echo yes || echo no) out=[$(cat "$C/out")]"
+    kill -s KILL -- "-$np" 2>/dev/null
+done
+
 # --- usage ------------------------------------------------------------------------------------
 node "$SCRIPT" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 2 ] && ok "no project name: exit 2" || bad "no project name: exit $rc"

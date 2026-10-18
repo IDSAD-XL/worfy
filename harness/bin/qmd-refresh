@@ -176,7 +176,10 @@ mkdir "$LOCK" 2>/dev/null || { say "qmd-refresh: an update is already running"; 
 
 run_update() {
   trap 'rm -rf "$LOCK" 2>/dev/null' EXIT TERM INT HUP
-  print -r -- "$$" > "$LOCK/pid" 2>/dev/null || true
+  # The pid of the holder. In the background subshell $$ is still the pid of this script, which exits at
+  # once, and a dead pid reads as an abandoned lock (qmd-collections, qmd-mcp): there only the parent
+  # writes the pid, the subshell's own ($!).
+  [[ "$WAIT" == 1 ]] && { print -r -- "$$" > "$LOCK/pid" 2>/dev/null || true }
   # The stamp goes BEFORE update: a note written during indexing will be newer and
   # get into the next pass instead of being lost.
   : > "$INDEXED"

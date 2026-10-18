@@ -884,15 +884,15 @@ F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
 PRS=(<PR numbers in merge order>)              # the "ready" lines of the Checks block: VERIFIED, CI green (batch: MERGEABLE)
 PLATFORM=(<platform PR numbers>)               # its "ready, PLATFORM" lines; none: PLATFORM=()
-node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" "$(F cross_machine_gate.label)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
 const fs = require("fs"), { execFileSync } = require("child_process")
-const [file, repo, branch, lock, prepare, mainLock, count, ...rest] = process.argv.slice(2)
+const [file, repo, branch, lock, prepare, label, mainLock, count, ...rest] = process.argv.slice(2)
 const platform = rest.slice(+count), val = (v) => (v === "" || v === "null" ? null : v)
 const prs = rest.slice(0, +count).map((n) => {
   const p = JSON.parse(execFileSync("gh", ["pr", "view", n, "--json", "number,headRefOid,labels"], { cwd: repo, encoding: "utf8" }))
   return { number: p.number, head: p.headRefOid, labels: p.labels.map((l) => l.name), platform: platform.includes(n) }
 })
-fs.writeFileSync(file, JSON.stringify({ repo, branch, e2e_lock: val(lock), prepare: val(prepare), main_lock: mainLock, prs }, null, 2) + "\n")
+fs.writeFileSync(file, JSON.stringify({ repo, branch, e2e_lock: val(lock), prepare: val(prepare), cross_machine_label: val(label), main_lock: mainLock, prs }, null, 2) + "\n")
 NODE
 echo "EXIT=$?"
 ```
