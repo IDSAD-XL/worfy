@@ -183,6 +183,20 @@ Test Linked machine (`:925`) теперь на настоящем registry: па
     `claude-home-search` «stops at the file limit…» — timeout 15 s; в финальном запуске и во всех
     остальных он прошёл, мутант search не затрагивает.
 
+### Круг 3 (ревью `a49320eb..1431fdac`, одна находка medium)
+
+Круг 2 удалил единственный test двух других читателей события в окне, а пункт «тот же случай для
+`binding/store.ts` и `claude-home/subagents.ts`» стоял отмеченным. Теперь
+`test/contract/claude-home-window-root.test.tsx` проверяет все три читателя из конца в конец (handler-ы
+main → подставной sender → `bridge.on` → hook): `useSessionSignals` (рядом с `useClaudeHome`, который
+подписывает окно) и `useSubagentTree` после изменения транскрипта под `C:/p` снова спрашивают
+`bindings.signals` и `claudeHome.subagents`; `bindings.signals` отвечает подстановка в bridge — это handler
+другого домена. На исходнике main `f7ea055f` оба test-а красные: exit code 1, 128 test-ов, 13 упало — 7
+давних и 6 новых. Мутанты: ключ в `binding/store.ts:132` и в `subagents.ts:135` приведён к `\` — по
+11 упало, в каждом случае красный свой test (полный набор, `cmp` 0, `git diff --quiet` 0). Финальный
+запуск: exit code 1, 260 test-ов, 10 упало, `diff` имён с базой пуст; `CI=true pnpm lint` и
+`CI=true pnpm typecheck` — exit code 0.
+
 **Не проверено.**
 
 - Три прежние проверки событий с настоящим watcher-ом (`DEMO`, `CYRILLIC` вместо `resolve(…)`) на ПК
