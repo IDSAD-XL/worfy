@@ -153,7 +153,7 @@ interface FakeMain {
 let main: FakeMain
 
 /** This Machine's preload over the answers of main: Projects, Pipelines and workflow models by root. */
-function preload(options: { projects: ProjectsState; pipelines: Record<string, PipelineSnapshot>; models: Record<string, WorkflowModel> }): void {
+function preload(options: { projects: ProjectsState; pipelines: Record<string, PipelineSnapshot>; models: Record<string, WorkflowModel>; answers?: Record<string, () => unknown> }): void {
   const handlers = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
   let projects = options.projects
   let next = 0
@@ -165,6 +165,8 @@ function preload(options: { projects: ProjectsState; pipelines: Record<string, P
   }
   const answer = (channel: string, input: unknown): IpcResult<unknown> => {
     const root = (input as { root?: string } | undefined)?.root ?? ''
+    const own = options.answers?.[channel]
+    if (own !== undefined) return { ok: true, value: own() }
     switch (channel) {
       case 'projects.list':
         return { ok: true, value: projects }
@@ -443,5 +445,117 @@ describe('the Pipeline section of the sidebar', () => {
     fireEvent.click(screen.getAllByTestId('pipeline-row').find((row) => row.dataset.project === 'atakama-00000002')!)
     await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
     expect(main.calls.filter((call) => call.channel === 'projects.select')).toHaveLength(selects)
+  })
+})
+
+describe('stuck Tickets on the board and in the section (worfy-pipeline ticket 06)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  // At 13:00 worfy-pipeline 06 has been on CI since its check started at 10:00, 05 in rework since
+  // the failed review at 10:00 — both past 2 h; 04 waits for the owner since 09:00, under 24 h.
+  const at = (time: string) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(time))
+  }
+
+  it('a card past the threshold of its Stage has the «stuck» frame and its time on the Stage in the tooltip; the others do not', async () => {
+    at('2026-10-17T13:00:00Z')
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="worfy" snapshot={worfySnapshot()} titles={TITLES} onOpenTicket={() => undefined} />)
+    expect(cardOf('worfy-pipeline', 6).dataset.stuck).toBe('true')
+    expect(cardOf('worfy-pipeline', 6).title).toContain('stuck: on CI for 3 h')
+    expect(cardOf('worfy-pipeline', 5).dataset.stuck).toBe('true')
+    expect(cardOf('worfy-pipeline', 5).title).toContain('stuck: on Implementing for 3 h')
+    // Waits: owner — 24 h.
+    expect(cardOf('worfy-pipeline', 4).dataset.stuck).toBeUndefined()
+    expect(cardOf('worfy-pipeline', 4).title).not.toContain('stuck')
+    // Queued and Done have no threshold.
+    expect(cardOf('worfy-pipeline', 7).dataset.stuck).toBeUndefined()
+  })
+
+  it('an hour earlier nothing is stuck', async () => {
+    at('2026-10-17T11:59:00Z')
+    const { PipelineBoardView } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoardView name="worfy" snapshot={worfySnapshot()} titles={TITLES} onOpenTicket={() => undefined} />)
+    expect(screen.getAllByTestId('pipeline-card').filter((card) => card.dataset.stuck === 'true')).toEqual([])
+  })
+
+  it('a pipeline.changed that brings a Ticket onto a Stage it entered long ago frames it at once', async () => {
+    at('2026-10-17T11:00:00Z')
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot() }, models: { [WORFY_ROOT]: worfyModel() } })
+    const { PipelineBoard } = await import('../../src/renderer/pipeline/PipelineBoard')
+    render(<PipelineBoard project={PROJECTS.projects[0]} />)
+    await waitFor(() => expect(columnOf(cardOf('worfy-pipeline', 7))).toBe('queued'))
+    expect(cardOf('worfy-pipeline', 7).dataset.stuck).toBeUndefined()
+    const claimed = worfySnapshot()
+    claimed.tickets = claimed.tickets.map((each) => (each.num === 7 ? ticket('worfy-pipeline', 7, WORFY, { status: 'work', statusAt: '2026-10-17T08:00Z' }) : each))
+    act(() => main.emit('pipeline.changed', claimed))
+    expect(columnOf(cardOf('worfy-pipeline', 7))).toBe('implementing')
+    expect(cardOf('worfy-pipeline', 7).dataset.stuck).toBe('true')
+  })
+
+  it('a row of the section past the threshold has the frame and the time in its tooltip', async () => {
+    at('2026-10-17T13:00:00Z')
+    preload({ projects: PROJECTS, pipelines: { [WORFY_ROOT]: worfySnapshot(), [ATAKAMA_ROOT]: atakamaSnapshot() }, models: { [WORFY_ROOT]: worfyModel(), [ATAKAMA_ROOT]: atakamaModel() } })
+    const { default: PipelineSection } = await import('../../src/renderer/shell/sidebar/PipelineSection')
+    render(<PipelineSection />)
+    await waitFor(() => expect(screen.getAllByTestId('pipeline-row')).toHaveLength(4))
+    const row = (num: number) => screen.getAllByTestId('pipeline-row').find((each) => each.dataset.project === 'worfy-00000001' && each.dataset.ticket === String(num))!
+    expect(row(6).dataset.stuck).toBe('true')
+    expect(row(6).title).toContain('stuck: on CI for 3 h')
+    expect(row(4).dataset.stuck).toBeUndefined()
+    expect(row(4).title).not.toContain('stuck')
+  })
+})
+
+describe('a click on a notification of a Ticket that waits for the owner (worfy-pipeline ticket 06)', () => {
+  it('opens the Pipeline board of its Project: another Project is selected first', async () => {
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: ATAKAMA_ROOT, epic: 'atakama', num: 3 } }) },
+    })
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    expect(useNavigation.getState().view).toBe('canvas')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
+    expect(main.calls).toContainEqual({ channel: 'projects.select', input: { id: 'atakama-00000002' } })
+  })
+
+  it('of the active Project: only the view changes', async () => {
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: WORFY_ROOT, epic: 'worfy-pipeline', num: 4 } }) },
+    })
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(useNavigation.getState().view).toBe('pipeline'))
+    expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
+  })
+
+  it('of a Project no longer in the list: nothing opens', async () => {
+    preload({
+      projects: PROJECTS,
+      pipelines: {},
+      models: {},
+      answers: { 'sessions.views': () => ({ views: [] }), 'notify.pending': () => ({ note: { view: 'pipeline', projectRoot: '/projects/gone', epic: 'e', num: 1 } }) },
+    })
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { default: NotificationTarget } = await import('../../src/renderer/canvas/overlays/NotificationTarget')
+    const { useNavigation } = await import('../../src/renderer/session/navigation')
+    const { usePendingNote } = await import('../../src/renderer/session/notification-target')
+    render(<NotificationTarget />)
+    await waitFor(() => expect(main.calls.some((call) => call.channel === 'projects.list')).toBe(true))
+    await waitFor(() => expect(error).toHaveBeenCalled())
+    expect(usePendingNote.getState().pending).toBeNull()
+    expect(useNavigation.getState().view).toBe('canvas')
+    expect(main.calls.filter((call) => call.channel === 'projects.select')).toEqual([])
   })
 })

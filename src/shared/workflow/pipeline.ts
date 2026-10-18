@@ -31,7 +31,7 @@ export const pipelineStageSchema = z.object({
   name: z.string().regex(CHECK_NAME).optional(),
   /** The Stage's name on the board, instead of the catalogue's. */
   label: z.string().min(1).optional(),
-  /** `<number>h` or `<number>m`: how long a Ticket may stay before it counts as stuck (ticket 06). */
+  /** `<number>h` or `<number>m`: how long a Ticket may stay before it counts as stuck (stuckAfterMs). */
   stuck_after: z.string().regex(/^\d+[hm]$/u).optional(),
   /** `deploy` only: the GitHub Deployment environment; without it the Stage waits for the commit status `deploy`. */
   environment: z.string().min(1).optional(),
@@ -176,6 +176,8 @@ export const ticketStageSchema = z.object({
   waits: z.string().nullable(),
   /** When the Ticket entered the Stage, ISO; from structured times only, null when none is known. */
   enteredAt: z.string().nullable(),
+  /** The time of its `Status:` line as the file has it: with Waits, the key of one wait (ticket 06). */
+  statusAt: z.string().nullable(),
 })
 export type TicketStage = z.infer<typeof ticketStageSchema>
 
@@ -290,5 +292,57 @@ export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): 
     sub,
     waits: current.kind === 'done' ? null : (facts.waits ?? (TEAM_KINDS.has(current.kind) ? 'team' : 'agent')),
     enteredAt: entered === null ? null : new Date(entered).toISOString(),
+    statusAt: facts.statusAt,
   }
+}
+
+// ── stuck ────────────────────────────────────────────────────────────────────
+
+const MINUTE_MS = 60_000
+const HOUR_MS = 60 * MINUTE_MS
+
+/** The Stages of the agents: stuck after 2 h unless the Profile says otherwise (spec, owner's decision 7). */
+const AGENT_KINDS: ReadonlySet<StageKind> = new Set(['implementing', 'agent-review', 'ci', 'gate-merge'])
+export const AGENT_STUCK_MS = 2 * HOUR_MS
+/** The Stages of people, and any Stage that waits for the owner or the team: 24 h. */
+export const PEOPLE_STUCK_MS = 24 * HOUR_MS
+
+/**
+ * How long a Ticket may stand on `stage` while it waits for `waits` before it counts as stuck, in
+ * ms: the Profile's `stuck_after`, else 24 h for Human review, Awaiting merge and any Stage that
+ * waits for the owner or the team, else 2 h for the Stages of the agents. Null: the Stage has no
+ * threshold (Queued, a Check, Deploy, Closing without `stuck_after`; Done always).
+ */
+export function stuckAfterMs(stage: PipelineStage, waits: string | null): number | null {
+  if (stage.kind === 'done') return null
+  const own = stage.stuck_after === undefined ? null : /^(\d+)([hm])$/u.exec(stage.stuck_after)
+  if (own) return Number(own[1]) * (own[2] === 'h' ? HOUR_MS : MINUTE_MS)
+  if (TEAM_KINDS.has(stage.kind) || waits === 'owner' || waits === 'team') return PEOPLE_STUCK_MS
+  return AGENT_KINDS.has(stage.kind) ? AGENT_STUCK_MS : null
+}
+
+export interface Stuck {
+  /** Whether the Ticket has stood on its Stage for its threshold or longer. */
+  stuck: boolean
+  /** How long it has stood there: now − enteredAt. */
+  forMs: number
+  /** The threshold (stuckAfterMs); null when the Stage has none. */
+  afterMs: number | null
+}
+
+/** How long a Ticket has stood on `stage` at `now` and whether that makes it stuck; null without a known `enteredAt`. */
+export function stuckOf(stage: PipelineStage, ticket: Pick<TicketStage, 'waits' | 'enteredAt'>, now: number): Stuck | null {
+  const entered = timeOf(ticket.enteredAt)
+  if (entered === null) return null
+  const forMs = Math.max(0, now - entered)
+  const afterMs = stuckAfterMs(stage, ticket.waits)
+  return { stuck: afterMs !== null && forMs >= afterMs, forMs, afterMs }
+}
+
+/** The time on a Stage in words, as the tooltips say it: «on CI for 3 h». */
+export function onStageFor(title: string, ms: number): string {
+  const minutes = Math.floor(ms / MINUTE_MS)
+  const hours = Math.floor(ms / HOUR_MS)
+  const time = hours < 1 ? `${minutes} min` : hours < 48 ? `${hours} h` : `${Math.floor(hours / 24)} d`
+  return `on ${title} for ${time}`
 }

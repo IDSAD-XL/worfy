@@ -4,9 +4,12 @@
 // NotifyDeps.
 import { describe, expect, it, vi } from 'vitest'
 import type { QueuePr } from '../../src/main/github/gate-queue'
-import type { WindowNote } from '../../src/main/notify'
+import type { TicketNote, WindowNote } from '../../src/main/notify'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
+import type { PipelineColumn, PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
+import { stageId, stageLabel, type PipelineStage } from '../../src/shared/workflow/pipeline'
+import type { StageSubscriber } from '../../src/main/workflow/stages'
 import { APP_URL } from '../app-url'
 
 const electron = vi.hoisted(() => ({
@@ -31,7 +34,7 @@ vi.mock('electron', () => {
 // The real window module loads the app's page; openNote gets its own window factory.
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
-const { NOTIFY_INTERVAL_MS, Notifier, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -49,6 +52,7 @@ function withQuietWindows(value: string | undefined, body: () => void): void {
   }
 }
 const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
+const { WaitsNotices, installWaitsNotifications } = await import('../../src/main/workflow/waits-notify')
 type Note = Parameters<ConstructorParameters<typeof Notifier>[0]['show']>[0]
 
 type Result = Extract<AgentEvent, { type: 'result' }>
@@ -111,6 +115,8 @@ function harness() {
     notifier,
     shown,
     opened,
+    focused: () => focused,
+    now: () => now,
     focus: (value: boolean) => {
       focused = value
     },
@@ -829,6 +835,266 @@ describe('the gate queue: a PR that has waited over an hour (worfy-windows ticke
       stop()
       await vi.advanceTimersByTimeAsync(5_000)
       expect(reads).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('a Ticket that comes to wait for the owner (worfy-pipeline ticket 06)', () => {
+  const ROOT = '/projects/worfy'
+  const PIPELINE: PipelineColumn[] = (
+    [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'ci' }, { kind: 'agent-review' }, { kind: 'gate-merge' }, { kind: 'closing' }, { kind: 'done' }] as PipelineStage[]
+  ).map((stage) => ({ ...stage, id: stageId(stage), title: stageLabel(stage) }))
+
+  /** A Ticket on Stage `kind` of the Pipeline above, with its Waits and Status time. */
+  const onStage = (epic: string, num: number, kind: string, extra: Partial<PipelineTicket> = {}): PipelineTicket => {
+    const index = PIPELINE.findIndex((column) => column.id === kind)
+    return {
+      epic,
+      num,
+      stage: kind,
+      index,
+      kind: PIPELINE[index]!.kind,
+      passed: PIPELINE.slice(0, index).map((column) => column.id),
+      skipped: [],
+      blocked: null,
+      rework: false,
+      sub: null,
+      waits: 'agent',
+      enteredAt: null,
+      statusAt: '2026-10-18T09:00Z',
+      ...extra,
+    }
+  }
+  const snapshot = (tickets: PipelineTicket[], root = ROOT): PipelineSnapshot => ({ root, pipeline: PIPELINE, tickets, error: null })
+  const owner = (epic: string, num: number, reason: string | null, statusAt = '2026-10-18T10:00Z', kind = 'implementing'): PipelineTicket =>
+    onStage(epic, num, kind, { waits: 'owner', blocked: { reason }, statusAt })
+
+  function waits() {
+    const h = harness()
+    const shown: { note: TicketNote; click: () => void }[] = []
+    const opened: TicketNote[] = []
+    const display = new NoteDisplay<TicketNote>({ focused: () => h.focused(), show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note), now: () => h.now() })
+    return { focus: h.focus, wait: h.wait, shown, opened, notices: new WaitsNotices(display) }
+  }
+
+  it('a Ticket going into Waits: owner gives one notification: «<epic> NN ждёт тебя» with the Blocked reason', () => {
+    const w = waits()
+    w.notices.read(snapshot([onStage('worfy-link', 16, 'implementing')]))
+    expect(w.shown).toEqual([])
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-link 16 ждёт тебя', 'приёмка']])
+    expect(w.shown[0]!.note).toMatchObject({ projectRoot: ROOT, ticket: { epic: 'worfy-link', num: 16 } })
+  })
+
+  it('without a Blocked reason the text is the name of the Stage', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read(snapshot([owner('worfy-pipeline', 6, null, '2026-10-18T10:00Z', 'ci')]))
+    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-pipeline 06 ждёт тебя', 'CI']])
+  })
+
+  it('the same wait seen again — the same snapshot, a Stage that moved — gives no second notification; a new Status time does', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    w.wait(NOTIFY_INTERVAL_MS)
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка', '2026-10-18T10:00Z', 'ci')]))
+    expect(w.shown).toHaveLength(1)
+    // It stopped waiting and came back with a new `ticket block`: a new wait.
+    w.notices.read(snapshot([onStage('worfy-link', 16, 'implementing')]))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'ещё раз', '2026-10-18T12:00Z')]))
+    expect(w.shown.map((each) => each.note.body)).toEqual(['приёмка', 'ещё раз'])
+  })
+
+  it('a wait that leaves and comes back with the same Status time is the same wait: no second notification', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    w.notices.read(snapshot([]))
+    w.wait(NOTIFY_INTERVAL_MS)
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    expect(w.shown).toHaveLength(1)
+  })
+
+  it('on the start of worfy, Tickets already waiting for the owner give none; one that comes to wait later does', () => {
+    const w = waits()
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка'), onStage('worfy-link', 17, 'ci')]))
+    expect(w.shown).toEqual([])
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка'), owner('worfy-link', 17, 'merge')]))
+    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 ждёт тебя'])
+  })
+
+  it('the first snapshot of each Project is its own start; Projects do not share their waits', () => {
+    const w = waits()
+    w.notices.read(snapshot([owner('e', 1, 'a')], '/projects/a'))
+    w.notices.read(snapshot([owner('e', 1, 'b')], '/projects/b'))
+    expect(w.shown).toEqual([])
+    w.notices.read(snapshot([owner('e', 1, 'a'), owner('e', 2, 'a2')], '/projects/a'))
+    expect(w.shown.map((each) => each.note.projectRoot)).toEqual(['/projects/a'])
+  })
+
+  it('a snapshot without Tickets because the workflow model failed is no start: what waits after it gives none', () => {
+    const w = waits()
+    w.notices.read({ ...snapshot([]), error: 'the workflow model is empty: no epics' })
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    expect(w.shown).toEqual([])
+    // Nor does a failed read in the middle make the waits after it new.
+    w.notices.read({ ...snapshot([]), error: 'the workflow model is empty: no epics' })
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    expect(w.shown).toEqual([])
+  })
+
+  it('Waits: team or a Machine gives none; only the owner', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read(snapshot([onStage('e', 1, 'ci', { waits: 'team' }), onStage('e', 2, 'ci', { waits: 'Windows PC' })]))
+    expect(w.shown).toEqual([])
+  })
+
+  it('the old rules of showing: none while a worfy window has focus, and one per Ticket in 10 s', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.focus(true)
+    w.notices.read(snapshot([owner('e', 1, 'a')]))
+    expect(w.shown).toEqual([])
+    w.focus(false)
+    w.notices.read(snapshot([owner('e', 1, 'a'), owner('e', 2, 'b')]))
+    // A different Ticket is counted on its own.
+    expect(w.shown.map((each) => each.note.title)).toEqual(['e 02 ждёт тебя'])
+    w.notices.read(snapshot([owner('e', 1, 'a'), owner('e', 2, 'b', '2026-10-18T11:00Z')]))
+    expect(w.shown).toHaveLength(1)
+  })
+
+  it('a click opens the Pipeline board of the Project: the note waits for the window as a Pipeline note, with no Session', () => {
+    const w = waits()
+    w.notices.read(snapshot([]))
+    w.notices.read(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    w.shown[0]!.click()
+    expect(w.opened).toEqual([w.shown[0]!.note])
+
+    const pending = new PendingOpens()
+    const open = fakeWindow(9)
+    electron.windows = [open.window]
+    openNote(w.shown[0]!.note, pending, vi.fn() as never, NORMAL_WINDOWS)
+    expect(open.sent).toEqual([{ channel: 'worfy:notify.open', payload: {} }])
+    expect(pending.take(9)).toEqual({ view: 'pipeline', projectRoot: ROOT, epic: 'worfy-link', num: 16 })
+    electron.windows = []
+  })
+
+  it('the Pipeline note passes notify.pending at the IPC boundary', async () => {
+    const { notifyOpenSchema } = await import('../../src/shared/ipc/notify')
+    expect(notifyOpenSchema.parse({ view: 'pipeline', projectRoot: ROOT, epic: 'worfy-link', num: 16, extra: 1 })).toEqual({ view: 'pipeline', projectRoot: ROOT, epic: 'worfy-link', num: 16 })
+    expect(notifyOpenSchema.safeParse({ view: 'pipeline', projectRoot: ROOT }).success).toBe(false)
+    expect(notifyOpenSchema.parse({ sessionId: 's1', projectRoot: null })).toEqual({ sessionId: 's1', projectRoot: null })
+  })
+
+  it('a snapshot that comes before main answered the open is the start; the older answer after it changes nothing', async () => {
+    let answer: (snapshot: PipelineSnapshot) => void = () => undefined
+    let subscriber: StageSubscriber | undefined
+    const hub = {
+      open: (_root: string, each: StageSubscriber) => {
+        subscriber = each
+        return new Promise<PipelineSnapshot>((resolve) => {
+          answer = resolve
+        })
+      },
+      close: async () => true,
+    }
+    const shown: string[] = []
+    const stop = installWaitsNotifications(hub, () => [{ path: ROOT }], { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+    await Promise.resolve()
+    // The newer snapshot first: e 1 waits already, so it is part of the start.
+    subscriber!.send(snapshot([owner('e', 1, 'newer')]))
+    // The answer of the open is older: e 2 waited then; it is not taken for a new wait.
+    answer(snapshot([owner('e', 2, 'older')]))
+    await Promise.resolve()
+    await Promise.resolve()
+    subscriber!.send(snapshot([owner('e', 1, 'newer'), owner('e', 3, 'new')]))
+    expect(shown).toEqual(['e 03 ждёт тебя'])
+    stop()
+    // A snapshot after the stop shows nothing.
+    subscriber!.send(snapshot([owner('e', 4, 'late')]))
+    expect(shown).toEqual(['e 03 ждёт тебя'])
+  })
+
+  it('installNotifications with the Stage hub follows the listed Projects, shows the notes by its deps, and lets them go when stopped', async () => {
+    let subscriber: StageSubscriber | undefined
+    const hub = {
+      open: vi.fn(async (_root: string, each: StageSubscriber) => {
+        subscriber = each
+        return snapshot([])
+      }),
+      close: vi.fn(async () => true),
+    }
+    const shown: TicketNote[] = []
+    const deps = { focused: () => false, show: (note: TicketNote) => shown.push(note), open: vi.fn(), now: () => 1 }
+    const stop = installNotifications({ observe: () => () => undefined }, new Set(), undefined, undefined, { hub, projects: () => [{ path: ROOT }], deps })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(hub.open).toHaveBeenCalledWith(ROOT, expect.objectContaining({ id: 'waits-notify' }))
+    subscriber!.send(snapshot([owner('worfy-link', 16, 'приёмка')]))
+    expect(shown.map((note) => note.title)).toEqual(['worfy-link 16 ждёт тебя'])
+    stop()
+    expect(hub.close).toHaveBeenCalledWith(ROOT, 'waits-notify')
+  })
+
+  it('watches the Stages of every Project of the list: the first snapshot is the start, the later ones notify; a Project gone from the list is let go', async () => {
+    vi.useFakeTimers()
+    try {
+      const subscribers = new Map<string, StageSubscriber>()
+      const closed: string[] = []
+      const first: Record<string, PipelineSnapshot> = {
+        '/projects/a': snapshot([owner('e', 1, 'already')], '/projects/a'),
+        '/projects/b': snapshot([], '/projects/b'),
+      }
+      const hub = {
+        open: vi.fn(async (root: string, subscriber: StageSubscriber) => {
+          subscribers.set(root, subscriber)
+          const answer = first[root]
+          if (answer === undefined) throw new Error(`the Stages of ${root} could not be computed`)
+          return answer
+        }),
+        close: vi.fn(async (root: string) => {
+          closed.push(root)
+          subscribers.delete(root)
+          return true
+        }),
+      }
+      let list = [{ path: '/projects/a' }, { path: '/projects/b' }]
+      const shown: string[] = []
+      const display = { show: (note: { title: string }) => shown.push(note.title) }
+      const stop = installWaitsNotifications(hub, () => list, display, 60_000)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(hub.open).toHaveBeenCalledTimes(2)
+      expect(shown).toEqual([])
+
+      subscribers.get('/projects/a')!.send(snapshot([owner('e', 1, 'already'), owner('e', 2, 'new')], '/projects/a'))
+      expect(shown).toEqual(['e 02 ждёт тебя'])
+
+      // The next tick opens nothing twice; a Project gone from the list is closed.
+      list = [{ path: '/projects/a' }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(hub.open).toHaveBeenCalledTimes(2)
+      expect(closed).toEqual(['/projects/b'])
+
+      // A Project whose Stages could not be computed is let go of and tried again on the next tick.
+      list = [{ path: '/projects/a' }, { path: '/projects/c' }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(hub.open).toHaveBeenCalledTimes(3)
+      expect(closed).toEqual(['/projects/b', '/projects/c'])
+      first['/projects/c'] = snapshot([owner('e', 3, 'was there')], '/projects/c')
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(hub.open).toHaveBeenCalledTimes(4)
+      expect(shown).toEqual(['e 02 ждёт тебя'])
+
+      stop()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(closed.slice(2).sort()).toEqual(['/projects/a', '/projects/c'])
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(hub.open).toHaveBeenCalledTimes(4)
     } finally {
       vi.useRealTimers()
     }

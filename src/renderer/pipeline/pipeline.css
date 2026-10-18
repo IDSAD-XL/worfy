@@ -130,6 +130,12 @@
 .w-pipeline-card[data-blocked='true'] {
   border-color: var(--blocked-ring);
 }
+/* Stuck past the threshold of its Stage (worfy-pipeline ticket 06): a dashed frame, apart from blocked's solid one. */
+.w-pipeline-card[data-stuck='true'],
+.w-row.w-pipeline-row[data-stuck='true'] {
+  outline: 1px dashed var(--blocked-ring);
+  outline-offset: -1px;
+}
 .w-pipeline-card__head {
   display: flex;
   align-items: center;

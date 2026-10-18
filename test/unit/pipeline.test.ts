@@ -4,10 +4,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PIPELINE,
+  onStageFor,
   pipelineSchema,
   stageId,
   stageLabel,
   stageOf,
+  stuckAfterMs,
+  stuckOf,
   type PipelineStage,
   type PullFacts,
   type StageFacts,
@@ -179,6 +182,7 @@ describe('stageOf', () => {
       sub: null,
       waits: 'agent',
       enteredAt: '2026-10-17T11:00:00.000Z',
+      statusAt: '2026-10-17T09:00Z',
     })
   })
 
@@ -219,5 +223,87 @@ describe('the catalogue', () => {
     expect(pipelineSchema.safeParse(WORFY).success).toBe(true)
     expect(pipelineSchema.safeParse(ATAKAMA).success).toBe(true)
     expect(pipelineSchema.safeParse([{ kind: 'queued' }, { kind: 'check', name: 'windows' }, { kind: 'check', name: 'linux' }, { kind: 'done' }]).success).toBe(true)
+  })
+})
+
+const HOUR = 60 * 60_000
+const MIN = 60_000
+
+describe('stuck: the threshold of a Stage (worfy-pipeline ticket 06)', () => {
+  it.each([
+    ['implementing', 2 * HOUR],
+    ['agent-review', 2 * HOUR],
+    ['ci', 2 * HOUR],
+    ['gate-merge', 2 * HOUR],
+    ['human-review', 24 * HOUR],
+    ['awaiting-merge', 24 * HOUR],
+  ] as const)('by default %s: %d ms', (kind, ms) => {
+    expect(stuckAfterMs({ kind }, kind === 'human-review' || kind === 'awaiting-merge' ? 'team' : 'agent')).toBe(ms)
+  })
+
+  it.each(['queued', 'deploy', 'closing', 'done'] as const)('by default %s has none', (kind) => {
+    expect(stuckAfterMs({ kind }, 'agent')).toBeNull()
+  })
+
+  it('a Check has none by default', () => {
+    expect(stuckAfterMs({ kind: 'check', name: 'windows' }, 'agent')).toBeNull()
+  })
+
+  it('Waits: team on CI — 24 h; Waits: owner on Implementing — 24 h; on a Check without a threshold — 24 h', () => {
+    expect(stuckAfterMs({ kind: 'ci' }, 'team')).toBe(24 * HOUR)
+    expect(stuckAfterMs({ kind: 'implementing' }, 'owner')).toBe(24 * HOUR)
+    expect(stuckAfterMs({ kind: 'check', name: 'windows' }, 'owner')).toBe(24 * HOUR)
+    // A Machine is waited for like an agent.
+    expect(stuckAfterMs({ kind: 'ci' }, 'Windows PC')).toBe(2 * HOUR)
+  })
+
+  it("the Profile's stuck_after wins over every default, in hours or minutes", () => {
+    expect(stuckAfterMs({ kind: 'ci', stuck_after: '3h' }, 'team')).toBe(3 * HOUR)
+    expect(stuckAfterMs({ kind: 'check', name: 'windows', stuck_after: '30m' }, 'agent')).toBe(30 * MIN)
+    expect(stuckAfterMs({ kind: 'deploy', stuck_after: '1h' }, 'agent')).toBe(HOUR)
+  })
+
+  it('Done is never stuck, whatever the Profile says', () => {
+    expect(stuckAfterMs({ kind: 'done', stuck_after: '1h' }, null)).toBeNull()
+  })
+})
+
+describe('stuckOf', () => {
+  const NOW = Date.parse('2026-10-17T15:00:00Z')
+  const on = (enteredAt: string | null, waits: string | null = 'agent') => ({ waits, enteredAt })
+
+  it('the time is now − enteredAt; stuck from the threshold on', () => {
+    expect(stuckOf({ kind: 'ci' }, on('2026-10-17T12:00:00.000Z'), NOW)).toEqual({ stuck: true, forMs: 3 * HOUR, afterMs: 2 * HOUR })
+    expect(stuckOf({ kind: 'ci' }, on('2026-10-17T13:00:00.000Z'), NOW)).toEqual({ stuck: true, forMs: 2 * HOUR, afterMs: 2 * HOUR })
+    expect(stuckOf({ kind: 'ci' }, on('2026-10-17T13:00:01.000Z'), NOW)).toMatchObject({ stuck: false })
+  })
+
+  it('Waits: team on CI is stuck only after 24 h', () => {
+    expect(stuckOf({ kind: 'ci' }, on('2026-10-17T12:00:00.000Z', 'team'), NOW)).toMatchObject({ stuck: false, afterMs: 24 * HOUR })
+    expect(stuckOf({ kind: 'ci' }, on('2026-10-16T15:00:00.000Z', 'team'), NOW)).toMatchObject({ stuck: true })
+  })
+
+  it('a Stage without a threshold is never stuck, but still says how long', () => {
+    expect(stuckOf({ kind: 'deploy' }, on('2026-10-10T15:00:00.000Z'), NOW)).toEqual({ stuck: false, forMs: 7 * 24 * HOUR, afterMs: null })
+  })
+
+  it('without enteredAt the Ticket is not stuck: null', () => {
+    expect(stuckOf({ kind: 'ci' }, on(null), NOW)).toBeNull()
+  })
+
+  it('a stage of the Stages computed from facts: stageOf and stuckOf together', () => {
+    const stage = stageOf(facts({ pr: pr({ checks: [running] }) }), WORFY)
+    expect(stage.stage).toBe('ci')
+    expect(stuckOf(WORFY[stage.index]!, stage, Date.parse('2026-10-17T12:00:01Z'))).toMatchObject({ stuck: true })
+    expect(stuckOf(WORFY[stage.index]!, stage, Date.parse('2026-10-17T11:59:59Z'))).toMatchObject({ stuck: false })
+  })
+})
+
+describe('onStageFor', () => {
+  it('says the Stage and the time in minutes, hours or days', () => {
+    expect(onStageFor('CI', 3 * HOUR + 59 * MIN)).toBe('on CI for 3 h')
+    expect(onStageFor('Agent review', 45 * MIN)).toBe('on Agent review for 45 min')
+    expect(onStageFor('Human review', 3 * 24 * HOUR)).toBe('on Human review for 3 d')
+    expect(onStageFor('CI', 47 * HOUR)).toBe('on CI for 47 h')
   })
 })

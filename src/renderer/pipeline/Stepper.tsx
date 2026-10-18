@@ -2,13 +2,16 @@
 // the Project's Pipeline — passed, current, future, and a Check passed by a `skipped` mark drawn
 // apart — then the current Stage's name and who the Ticket waits for. `blocked` is a flag on the
 // current step with its reason in the tooltip; `rework` (Implementing again after a failed mark) is
-// a flag on Implementing. A narrow one shows only the current Stage and «N/M»: when the caller says
+// a flag on Implementing; a Ticket stuck past its Stage's threshold has a frame and its time on the
+// Stage in the tooltip. A narrow one shows only the current Stage and «N/M»: when the caller says
 // so, and when the full one does not fit — the dots, the Stage's name and its flags measured in the
 // box the stepper has, again whenever that box changes width. The Stage comes from main
 // (`pipeline.get`, usePipeline.ts); the stepper only draws it.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PipelineColumn } from '../../shared/ipc/pipeline'
 import type { TicketStage } from '../../shared/workflow/pipeline'
+import { useNow } from '../limits/useLimits'
+import { stuckLine } from './board'
 import './stepper.css'
 
 export interface StepperProps {
@@ -29,7 +32,7 @@ function stepState(column: PipelineColumn, at: number, stage: TicketStage): Step
 }
 
 /** The whole picture in words: the stepper may be cut at the Card's edge, and the dots carry no text. */
-function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage): string {
+function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage, stuck: string | null): string {
   const head = [pipeline[stage.index]?.title ?? stage.stage]
   if (stage.rework) head.push('rework')
   if (stage.sub !== null) head.push(stage.sub)
@@ -39,6 +42,7 @@ function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage): 
   const skipped = pipeline.filter((column) => stage.skipped.includes(column.id)).map((column) => column.title)
   if (skipped.length > 0) lines.push(`skipped: ${skipped.join(', ')}`)
   if (stage.blocked !== null) lines.push(blockedTitle(stage.blocked.reason))
+  if (stuck !== null) lines.push(stuck)
   return lines.join('\n')
 }
 
@@ -95,6 +99,10 @@ const shapeOf = (pipeline: readonly PipelineColumn[], stage: TicketStage): strin
 
 export default function Stepper({ pipeline, stage, narrow = false }: StepperProps) {
   const title = pipeline[stage.index]?.title ?? stage.stage
+  // Stuck past the threshold of the Stage (worfy-pipeline ticket 06): a frame, which takes no room
+  // from the dots, and the time in the tooltip; found again on every new Stage and every minute.
+  const now = useNow()
+  const stuck = stuckLine(pipeline[stage.index], stage, now)
   const ref = useRef<HTMLSpanElement>(null)
   // What the full form was last measured for, and whether it overflowed. A stale measure draws the
   // full form, which the layout effect measures before the browser paints it.
@@ -132,7 +140,8 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
       data-kind={stage.kind}
       data-blocked={stage.blocked !== null ? 'true' : undefined}
       data-narrow={compact ? 'true' : undefined}
-      title={stepperTitle(pipeline, stage)}
+      data-stuck={stuck === null ? undefined : 'true'}
+      title={stepperTitle(pipeline, stage, stuck)}
     >
       {compact ? null : (
         <span className="w-stepper__dots" aria-hidden="true">
