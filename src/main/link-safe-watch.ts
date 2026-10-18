@@ -35,8 +35,10 @@
 // itself went is no sign of it. While the watch fails each time it is made, a new watch reports
 // the root only when the stamps (lstat's mtime and size) of the entries in the folders `enter`
 // names differ from those at the last watch: every pause would otherwise say that anything may
-// have changed, and the caller would read everything again each time. A change of a file deeper
-// than those folders that adds or removes no entry is not seen by the stamps.
+// have changed, and the caller would read everything again each time. A link is stamped by what
+// it leads to as well — only a link the look has found local and watches; a folder it leads to
+// is stamped as the folders under the root are. A change of a file deeper than those folders that
+// adds or removes no entry is not seen by the stamps.
 //
 // Links below the root are read with the real path of the root among the allowed folders: under a
 // root on a mapped network drive realpath answers the share's UNC path, and the walk would take
@@ -160,6 +162,7 @@ export const MAX_SCAN_DEPTH = 8
 
 interface LinkWatch {
   target: string
+  folder: boolean
   handle: WatchHandle
 }
 
@@ -425,6 +428,13 @@ export class LinkSafeWatch {
       }
     }
     await visit(this.options.root, this.rootReal, 0)
+    // What the local links lead to: the look has just walked each one and found it local, and
+    // the target is a real path. A link that leads off the machine has no watch, so is not here.
+    const links = [...this.linkWatches].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    for (const [path, link] of links) {
+      lines.push(`${path} -> ${await this.fs.stamp(link.target)}`)
+      if (link.folder && this.entered(path)) await visit(path, link.target, 1)
+    }
     return lines.join('\n')
   }
 
@@ -595,6 +605,6 @@ export class LinkSafeWatch {
       this.options.onError(error)
       return
     }
-    this.linkWatches.set(path, { target, handle: mine.handle })
+    this.linkWatches.set(path, { target, folder, handle: mine.handle })
   }
 }

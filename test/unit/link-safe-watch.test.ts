@@ -1149,6 +1149,133 @@ describe('a look that fails again and again', () => {
       vi.useRealTimers()
     }
   })
+
+  it('in the pause no watch is left open: neither of the root nor of a link', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk({ ...TICKETS, [`${ROOT}\\linked`]: linkTo('C:\\other\\epic'), 'C:\\other\\epic\\spec.md': FILE })
+      const broken = erring(disk, () => 'error')
+      const { watch } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      await vi.advanceTimersByTimeAsync(10)
+      expect(watch.state).toBe('waiting')
+      expect(watch.watched()).toEqual({ root: null, waitingAt: null, links: {} })
+      expect(disk.open()).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('an edit behind a local link while no watch is in place — of a file it leads to, or of a file in a folder it leads to — is reported by the next watch', async () => {
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk({
+        ...TICKETS,
+        [`${ROOT}\\linked`]: linkTo('C:\\other\\epic'),
+        'C:\\other\\epic\\spec.md': FILE,
+        [`${ROOT}\\demo\\issues\\02-b.md`]: linkTo('C:\\other\\02-b.md'),
+        'C:\\other\\02-b.md': FILE,
+      })
+      const broken = erring(disk, () => 'error')
+      const { changes } = await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      // Past the four short pauses: the long one has begun, and nothing changed.
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * RETRY_SLOW_AFTER)
+      const quiet = changes.length
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(changes).toHaveLength(quiet)
+      // The file a link leads to: its own stamp changes, the link's does not.
+      disk.putQuietly('C:\\other\\02-b.md', FILE)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(changes).toHaveLength(quiet + 1)
+      // A file in the folder a link leads to.
+      disk.putQuietly('C:\\other\\epic\\spec.md', FILE)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(changes).toHaveLength(quiet + 2)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(changes).toHaveLength(quiet + 2)
+      expect(disk.contacts).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a link to a share is not stamped through: only lstat and readlink name it', async () => {
+    vi.useFakeTimers()
+    try {
+      const link = `${ROOT}\\away`
+      const disk = windowsDisk({ ...TICKETS, [link]: linkTo(`${EVIL}\\epic`) })
+      const broken = erring(disk, () => 'error')
+      await start(disk, ROOT, [REPO, ROOT], { fs: broken.fs })
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * RETRY_SLOW_AFTER + SLOW_RETRY_DELAY_MS)
+      expect(disk.calls).toContain(`stamp ${link}`)
+      expect(disk.contacts).toEqual([])
+      // The stamp of the link itself is an lstat of the link: it does not follow it.
+      expect(through(disk, link).filter((call) => !call.startsWith('stamp '))).toEqual([])
+      // Nor is what it leads to stamped: the model would not count a call made right on the share.
+      expect(disk.calls.filter((call) => call.toLowerCase().includes(EVIL.toLowerCase()))).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('close while the stamps are taken: the root is not reported after the close, and no watch is made', async () => {
+    const disk = windowsDisk(TICKETS)
+    let made = 0
+    const broken = erring(disk, () => (++made === 1 ? 'error' : 'quiet'))
+    let release = (): void => undefined
+    let reached = (): void => undefined
+    const gate = new Promise<void>((done) => (release = done))
+    const asked = new Promise<void>((done) => (reached = done))
+    let armed = true
+    const fs: WatchFs = {
+      ...broken.fs,
+      stamp: async (path) => {
+        if (armed) {
+          armed = false
+          reached()
+          await gate
+        }
+        return disk.fs.stamp(path)
+      },
+    }
+    const { watch, changes, errors } = await start(disk, ROOT, [REPO, ROOT], { fs })
+    // The first watch fails; the next one, in place, takes the stamps.
+    await asked
+    expect(changes).toEqual([ROOT])
+    const watches = disk.calls.filter((call) => call.startsWith('watch ')).length
+    watch.close()
+    release()
+    await watch.settled()
+    await pause(20)
+    expect(changes).toEqual([ROOT])
+    expect(errors).toEqual([broken.failure])
+    expect(disk.calls.filter((call) => call.startsWith('watch '))).toHaveLength(watches)
+    expect(disk.open()).toEqual([])
+  })
+
+  it('a proper wait ends a run of failed looks too: a failure after it waits the short time again', async () => {
+    const TARGET = 'C:\\other\\scratch'
+    vi.useFakeTimers()
+    try {
+      const disk = windowsDisk({ [`${REPO}\\README.md`]: FILE, [ROOT]: linkTo(TARGET) })
+      await start(disk)
+      const looks = (): number => disk.calls.filter((call) => call === `realpath ${ROOT}`).length
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * (RETRY_SLOW_AFTER - 1))
+      expect(looks()).toBe(RETRY_SLOW_AFTER)
+      // The link goes: the next look, after the long time, waits properly at the folder above.
+      disk.remove(ROOT)
+      await vi.advanceTimersByTimeAsync(SLOW_RETRY_DELAY_MS)
+      expect(disk.open()).toEqual([REPO])
+      // It comes back, leading nowhere: the look fails, and the next one is the short time away.
+      disk.put(ROOT, linkTo(TARGET))
+      await vi.advanceTimersByTimeAsync(0)
+      const after = looks()
+      expect(after).toBe(RETRY_SLOW_AFTER + 1)
+      await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS)
+      expect(looks()).toBe(after + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('the links of a root on a mapped network drive', () => {
