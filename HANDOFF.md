@@ -1,8 +1,8 @@
-# Передача контекста — снимок на 2026-10-16 (UTC), main @ af4bf07
+# Передача контекста — снимок на 2026-10-18 (UTC), main @ f7ea055
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 31/49; версия `0.3.0` (26, PR #323); 28 влит #476; 27 (платная часть eval) blocked, PR #496 (run отказан, 0 USD) — влить или сложить с повторным run; 29 — после 27; открыты 31, 33, 34, 36, 38–49.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 31/49; версия `0.3.0` (26, PR #323); 28 влит #476; 27 — eval прогнан (18.07 USD), PR #496 в ревью; 29 — после 27; открыты 31, 33, 34, 36, 38–49.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; осталась приёмка 16. Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
