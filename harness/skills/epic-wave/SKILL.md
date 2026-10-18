@@ -63,6 +63,38 @@ Two fields set the shape of the wave:
   on the main branch after the wave is merged (section 4, "Batch CI on the main branch"). Every place
   below that waits for CI on a PR says what changes with `batch`.
 
+**The Pipeline** — `F _resolved.pipeline` (worfy ADR-0067): the Stages a ticket goes through, in order.
+Without `workflow.pipeline` in the profile it is the default — `queued`, `implementing`, `ci`,
+`agent-review`, `gate-merge`, `closing`, `done` — and the wave goes as written below. Read it with
+the profile; the block prints one Stage per line, a Check with its name (`check windows`):
+
+```bash
+set -o pipefail; "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field _resolved.pipeline | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { for (const t of JSON.parse(s)) console.log(t.kind + (t.name ? " " + t.name : "")) })'; echo "EXIT=$?"
+```
+
+`queued`, `implementing`, `ci`, `closing` and `done` change nothing below: CI stays as
+`F workflow.ci` says. The other Stages:
+
+- `agent-review` — the review by agents (section 3) runs where the Pipeline puts it. After `ci` (the
+  default, worfy): on the PR, as section 3 says. Before `ci` (a project whose PR hands the work to
+  people, such as a Silent mode project reviewed by its team): on the ticket's branch, before any PR —
+  the brief tells the implementer to stop after its checks (`/worfy:ship-ticket`, step 6) and open no
+  PR; the review mark goes on the branch's head (in Full mode the branch is pushed first, without a
+  PR: the mark is a commit status); after `review success` the orchestrator asks the implementer
+  through `SendMessage` to open the PR from that same head (step 8). No `agent-review` in the Pipeline
+  — no review by agents: section 3 is skipped, and the report says so ("no review by agents: the
+  Pipeline has no agent-review"); the merge waits for the other Stages only.
+- `check` — Check «<name>»: a PR merges only while its head carries the mark `check/<name>` `success`
+  or `skipped`, for every Check of the Pipeline (section 4, "Checks before merge"). Which PRs need
+  the check is the project's rule (`rules.md`); the wave waits for the mark, not for the rule.
+- `human-review`, `awaiting-merge` — people. With `human-review` the wave does not merge a PR before
+  its review decision is `APPROVED` (`gh pr view <N> --json reviewDecision`); with `awaiting-merge`
+  it never merges: people do. Such a ticket stays `claimed` with its PR open, the wave goes on without
+  it, and its report row says whom it waits for (section 5): it is not `blocked`.
+- `gate-merge` — the merge by the orchestrator, section 4 (`F workflow.merge`, `F workflow.merge_gate`).
+- `deploy` — after the merge the ticket is not closed (`ticket done`) until its merge commit is
+  deployed (section 4, "Deploy before close").
+
 **Silent mode** — `F _resolved.mode` prints `silent`. The rules are in skill `/worfy:ship-ticket`,
 section 0: the workflow files live in the Workflow folder `F _resolved.workflow_folder`, and branches,
 commits, PRs and code comments carry no trace of the workflow. For the wave that means: the statuses go
@@ -254,7 +286,16 @@ A question instead of a report (a disputed spec, a conflict that cannot be resol
 CI or a local check red after two attempts) is resolved by an answer through `SendMessage` to the
 same agent.
 
+With `agent-review` before `ci` in the Pipeline (section 0) the brief's `Goal:` line ends with "no
+PR: stop after step 6 with the branch pushed; the review by agents comes first", and the PR is
+asked for through `SendMessage` after `review success`.
+
 ## 3. Verification gate
+
+Only with `agent-review` in the Pipeline (section 0); without it this section is skipped and the
+report says so. With `agent-review` before `ci` there is no PR yet: the verifier works on the
+ticket's branch, the checks of the PR below wait for step 8, and the review mark goes on the
+branch's head.
 
 For every returned report — agent `worfy:reviewer` (name `verify-<NN>`, lens "implementer's
 report", the brief gives the path to the worktree). By then the implementer's worktree is idle and
@@ -617,6 +658,70 @@ The orchestrator's scratchpad works when all waves run from one session. Differe
 different scratchpads, and locks there do not see each other — then use the repository's shared
 path: `$(git -C <repo> rev-parse --git-common-dir)/main.lock`.
 
+**People in the Pipeline.** With `awaiting-merge` the wave merges no PR, and with `human-review` no PR
+whose review decision is not `APPROVED` (section 0): the ticket waits for people, and the wave goes on
+without it.
+
+**Checks before merge** (a `check` Stage in the Pipeline, section 0). Before a PR merges — in a set,
+the old way or one after another — every Check of the Pipeline has its mark on the PR's head:
+`check/<name>` `success` or `skipped`. The orchestrator sets the marks, on the head SHA
+(`gh pr view <N> --json headRefOid`):
+
+```bash
+(cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/ticket" mark <epic> <NN> check/<name> skipped --sha "$sha"); echo "EXIT=$?"   # or pending, success, failure
+```
+
+- `skipped` — the project's rules (`rules.md`) say the PR does not need this check.
+- `pending` — the PR needs it and the check is asked for. `success` or `failure` — its verdict. A
+  check another session runs (worfy: `windows`, the session on the Windows PC) reports the commit it
+  checked, the exit code of its gate full and the gate's verdict line: exit code 0 and the line
+  `[gate] зелено (…)` on the PR's head — `success`; red — `failure`: the PR is not merged and goes
+  back to its implementer as a rework round with that report; "could not verify", or a report on
+  another commit — no new mark, and the PR waits.
+- A mark is bound to its commit: after a push or a rebase the new head has no marks, and the PR waits again.
+  So a PR merged the old way (a rebase and its own gate full) is rebased before its check is asked for,
+  and the block below runs again right before its `gh pr merge`.
+
+The block reads the marks on the head of each ready PR — in Full mode the commit statuses of the
+head, in Silent mode the marks file of its ticket — and prints one line per PR: `ready` (every Check
+`success` or `skipped`; with no Check in the Pipeline every PR is ready), `ready, PLATFORM` (ready,
+and at least one Check `success`, not `skipped`), `waits` (a Check with no mark on the head, or
+`pending`) or `failed` (a Check `failure`):
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+E=<epic>
+CANDIDATES=(<PR>:<NN> pairs in merge order)   # VERIFIED, CI green on the head (batch: mergeable MERGEABLE); <NN> — the PR's ticket
+PL=$(F _resolved.pipeline); MODE=$(F _resolved.mode); NAME=$(F _resolved.name); rc=0
+for c in "${CANDIDATES[@]}"; do
+  n=${c%%:*}; nn=${c#*:}; st='[]'
+  head=$(cd <repo> && gh pr view "$n" --json headRefOid --jq .headRefOid) || { echo "PR $n: no head from gh — waits"; rc=1; continue; }
+  if [ "$MODE" != silent ]; then
+    st=$(cd <repo> && gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | {context, state, description}]') \
+      || { echo "PR $n: no commit statuses from gh — waits"; rc=1; continue; }
+  fi
+  node - "$PL" "$MODE" "$NAME" "$E" "$nn" "$n" "$head" "$st" <<'NODE' || rc=1
+const fs = require("fs"), os = require("os"), path = require("path")
+const [pl, mode, project, epic, nn, n, head, st] = process.argv.slice(2)
+const checks = JSON.parse(pl).filter((s) => s.kind === "check").map((s) => "check/" + s.name)
+const marks = new Map()
+if (mode === "silent") {   // the marks file of bin/ticket mark; the last mark of a kind on this head wins
+  const file = path.join(process.env.HARNESS_HOME || path.join(os.homedir(), ".claude", "worfy-harness"), "runs", project, "marks", `${epic}-${nn}.json`)
+  for (const m of fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).marks : []) if (m.sha === head) marks.set(m.kind, m.verdict)
+} else for (const s of JSON.parse(st)) marks.set(s.context, s.state === "success" && s.description === "skipped" ? "skipped" : s.state)
+const got = checks.map((c) => [c, marks.get(c) || "none"]), is = (...v) => ([, x]) => v.includes(x)
+const verdict = got.some(is("failure", "error")) ? "failed" : !got.every(is("success", "skipped")) ? "waits" : got.some(is("success")) ? "ready, PLATFORM" : "ready"
+console.log(`PR ${n} ${head.slice(0, 7)} ${got.map(([c, v]) => c + "=" + v).join(" ") || "no Check in the Pipeline"} — ${verdict}`)
+NODE
+done; echo "EXIT=$rc"
+```
+
+`EXIT=1` — `gh` gave no head or no statuses for a PR (its line says which), and that PR waits. Only
+the PRs whose line says `ready` — `ready` or `ready, PLATFORM` — go into `PRS=(…)` of a set (below),
+and the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too; with `"each"` or no
+`F workflow.merge_gate` the same lines decide which PR may merge. A `waits` PR waits for its mark
+and the next set; a `failed` PR goes to rework.
+
 **Gate before merge** (`pr-green-ci`). What the project requires before a PR with code is merged
 is `F workflow.merge_gate`:
 
@@ -627,13 +732,13 @@ is `F workflow.merge_gate`:
 - `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate` (worfy
   ADR-0065), as below.
 
-The set is the wave's PRs with `VERIFIED` and green CI on their head, in merge order (with
-`F workflow.ci` `batch`: `VERIFIED` and `mergeable` `MERGEABLE` — no CI on the head, and red or
-missing checks do not keep a PR out). Mark the
-platform PRs — those the project's rules send to another platform's verdict (worfy: ADR-0056,
-item 2). They and the PRs with the label `needs-mac-gate` stay out of the set, and so do the PRs
-`wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a red set): each of them
-is merged the old way, as with `"each"`, plus the other platform's verdict for a platform PR. A PR
+The set is the wave's PRs with `VERIFIED` (no `agent-review` in the Pipeline — without it) and green
+CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `mergeable`
+`MERGEABLE` — no CI on the head, and red or missing checks do not keep a PR out), that the block of
+"Checks before merge" calls `ready`. `PLATFORM=(…)` lists those it calls `ready, PLATFORM`: a Check
+ran on them, it was not `skipped`. They and the PRs with the label `needs-mac-gate` stay out of the
+set, and so do the PRs `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a
+red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head. A PR
 that becomes ready after `check` started waits for the next set. PRs of the set are not rebased and
 their CI is not run again before the merge: CI was green on the head, and each merge runs CI on the
 push to the main branch (with `batch` there is no CI on a head or on a push: one CI run on the main
@@ -680,8 +785,8 @@ of the main-branch lock above:
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
-PRS=(<PR numbers in merge order>)              # VERIFIED, CI green on the head (batch: mergeable MERGEABLE)
-PLATFORM=(<platform PR numbers>)               # none: PLATFORM=()
+PRS=(<PR numbers in merge order>)              # the "ready" lines of the Checks block: VERIFIED, CI green (batch: MERGEABLE)
+PLATFORM=(<platform PR numbers>)               # its "ready, PLATFORM" lines; none: PLATFORM=()
 node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
 const fs = require("fs"), { execFileSync } = require("child_process")
 const [file, repo, branch, lock, prepare, mainLock, count, ...rest] = process.argv.slice(2)
@@ -828,6 +933,37 @@ The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `co
 staging password never goes into command arguments — only the way `F deploy.production_check`
 passes it.
 
+**Deploy before close** (a `deploy` Stage in the Pipeline, section 0). A merged ticket closes
+(`ticket done`, item 4) only when its merge commit is deployed: a commit that carries the deploy mark
+has the merge commit among its ancestors. Who deploys and when is the project's rule (`rules.md`;
+worfy: the orchestrator's `pnpm install:stable`, which marks the commit it installed). With
+`environment` on the Stage the mark is a successful GitHub Deployment of that environment; without
+it, the commit status `deploy` `success` — Full mode only: in Silent mode only a Deployment counts.
+The block, for each merged PR, after the deploy:
+
+```bash
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+M=<main branch>; merge=$(cd <repo> && gh pr view <N> --json mergeCommit --jq .mergeCommit.oid) || echo "PR <N>: no merge commit from gh"
+env=$(node -e 'const d = JSON.parse(process.argv[1]).find((s) => s.kind === "deploy"); process.stdout.write((d && d.environment) || "")' "$(F _resolved.pipeline)")
+git -C <repo> fetch -q origin "$M"; deployed=
+if [ -n "$env" ]; then          # the Deployments of the environment, the newest first; the latest status of one counts
+  while read -r id sha; do
+    git -C <repo> merge-base --is-ancestor "$merge" "$sha" 2>/dev/null || continue
+    [ "$(cd <repo> && gh api "repos/{owner}/{repo}/deployments/$id/statuses" --jq '.[0].state')" = success ] && { deployed=$sha; break; }
+  done < <(cd <repo> && gh api "repos/{owner}/{repo}/deployments?environment=$env&per_page=20" --jq '.[] | "\(.id) \(.sha)"')
+else                            # the commit status deploy, from the tip of the main branch down to the merge commit
+  while read -r sha; do
+    [ "$(cd <repo> && gh api "repos/{owner}/{repo}/commits/$sha/status" --jq '[.statuses[] | select(.context == "deploy" and .state == "success")] | length')" -gt 0 ] 2>/dev/null && { deployed=$sha; break; }
+  done < <(git -C <repo> rev-list --first-parent "$merge^..origin/$M" 2>/dev/null)
+fi
+echo "DEPLOYED=${deployed:-none}"
+```
+
+`DEPLOYED=<sha>` — deployed: the ticket closes in item 4. `DEPLOYED=none` — not yet: the ticket stays
+`claimed` with its PR merged, item 4 does not close it, and its report row says "waits for deploy";
+the wave goes on, and the wave or the session that finds the ticket deployed closes it (section "How
+to resume a wave").
+
 4. The documents PR — last, after production is verified. `ticket` edits ticket files in the worktree
    where it runs, so the wave's statuses and one state-file edit per wave go on its branch.
    With `local-green` there is no documents PR: each ticket's `ticket done` and result section are
@@ -900,7 +1036,7 @@ else echo "the Workflow folder is not a git repository of its own: the files are
 
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket; with local-green — without --pr
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>                  # for each merged ticket (with deploy in the Pipeline — each DEPLOYED one); with local-green — without --pr
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "<reason it was rejected by the gate>"   # for each removed one; the reason in the docs' language
 ```
 
@@ -942,6 +1078,9 @@ the verifier's answer yourself before quoting it.
 
 With `F workflow.ci` `batch` one line goes under the table: `CI on <main branch>: <URL> — green`,
 `— red: <failing jobs and tests>`, `— not verified: <why>`, or `— none: the wave merged no code`.
+A ticket the wave does not merge or close because of its Pipeline (section 0) has in the "Gate"
+column its verdict and whom it waits for: `waits: check/<name>`, `waits: people (human-review)`,
+`waits: people (awaiting-merge)` or `waits: deploy`; it is not a `blocked` row.
 The "PR" and "Production" columns are "—" with `local-green` and without `deploy`. The "Rework"
 column shows a narrow round as "+ narrow"; a narrow round that ended in `NARROW: REJECTED` is a
 `blocked` row.
@@ -1007,8 +1146,11 @@ the gate (section 3); count rework rounds by the PR comments. A `NARROW:` commen
 round has been given; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is the ticket's verdict,
 and with no such verdict yet the narrow round's gate is ahead. A ticket marked `Risk: high` whose PR
 has no `MAX-REVIEW:` comment gets `/worfy:max-review` before its merge (section 4); otherwise the last
-`MAX-REVIEW: …` comment is its verdict. A merged PR while `state` is not
-`done` — the documents PR is still ahead (section 4, item 4).
+`MAX-REVIEW: …` comment is its verdict. An open PR with `VERIFIED` waits for what the Pipeline puts
+before the merge (section 0): its Checks — the block of "Checks before merge" says which mark is
+missing — or people. A merged PR while `state` is not
+`done` — the documents PR is still ahead (section 4, item 4); with `deploy` in the Pipeline, first the
+block of "Deploy before close": `DEPLOYED=none` keeps the ticket open.
 
 With `local-green` there is no PR, and the state is read from the `gate:` commits on the ticket's
 branch: no last `gate: VERIFIED` — run the gate (section 3); if it is red, the implementer has not

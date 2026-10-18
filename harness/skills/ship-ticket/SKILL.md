@@ -54,6 +54,25 @@ field is absent): CI on the PR head, waited for in step 8; `batch` (worfy ADR-00
 run on a PR and is not a merge condition, it runs once on the main branch after the wave is merged
 (skill `/worfy:epic-wave`, section 4, "Batch CI on the main branch").
 
+**The Pipeline** — `F _resolved.pipeline` (worfy ADR-0067): the Stages the ticket goes through, in
+order; without `workflow.pipeline` in the profile — the default `queued`, `implementing`, `ci`,
+`agent-review`, `gate-merge`, `closing`, `done`. Read it right away; the block prints one Stage per
+line, a Check with its name (`check windows`):
+
+```bash
+set -o pipefail; "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field _resolved.pipeline | node -e 'let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => { for (const t of JSON.parse(s)) console.log(t.kind + (t.name ? " " + t.name : "")) })'; echo "EXIT=$?"
+```
+
+What each Stage means is in skill `/worfy:epic-wave`, section 0; for this loop:
+- Steps 7 and 8 go in the order of the Pipeline. `agent-review` before `ci` — step 7, then step 8,
+  as numbered: the PR is opened only after `review success` on the branch's head, from that head.
+  `agent-review` after `ci` (the default) — step 8 first (the PR and its CI), then step 7 on the PR's
+  head. With no `agent-review` in the Pipeline — step 7 is skipped, and that is said.
+- `check` — step 9 merges only while the PR's head carries `check/<name>` `success` or `skipped`.
+- `human-review` — step 9 waits for the review decision `APPROVED`; `awaiting-merge` — no step 9:
+  people merge, and the ticket stays `claimed` with its PR open until they do.
+- `deploy` — step 11 closes the ticket only after its merge commit is deployed.
+
 **Silent mode** — `F _resolved.mode` prints `silent` (contract: `profiles/README.md`, "Full mode and
 Silent mode"). The workflow files — the ticket, the epic spec, the state file, ADRs, the glossary,
 lessons, evidence screenshots — live in the Workflow folder `F _resolved.workflow_folder`, not in the
@@ -294,6 +313,9 @@ ticket's result section: that is an honest gap, not a review finding.
 
 ## 7. Review agents on the diff
 
+Only with `agent-review` in the Pipeline (section 0), at its place there: before step 8 when the
+Pipeline puts it before `ci`, on the PR's head after step 8 when after.
+
 A WIP commit first: the reviewer's worktree takes only what is committed; it will not see an
 uncommitted change and will review old code. In Silent mode its message describes the change, like any
 other commit of the repository.
@@ -454,7 +476,8 @@ narrow fix round for such a ticket — skill `/worfy:epic-wave`, section 3.
 ## 8. PR and green CI
 
 Only with `workflow.finish: pr-green-ci`; with `local-green` — "step 8 skipped: the project
-finishes on locally green checks".
+finishes on locally green checks". With `agent-review` before `ci` in the Pipeline (section 0) the PR
+is opened only after `review success` on the branch's head (step 7), from that same head.
 
 In Silent mode the PR title and description tell what the change does and why, the way a colleague
 would write them: no ticket, epic, ADR or Workflow folder; the story of the ticket goes into its
@@ -526,6 +549,13 @@ Status and merge are never joined in one command: the pipe swallows the exit cod
 waves or workflows run in parallel, a merge and any commit to the main branch go one at a time,
 under the shared lock `mkdir <scratchpad>/main.lock` (the command and the rule for a stuck lock —
 skill `/worfy:epic-wave`, section 4).
+
+The Pipeline (section 0) comes first. With `awaiting-merge` there is no merge here: people merge, and
+the ticket waits for them. With `human-review` the merge waits for
+`gh pr view <N> --json reviewDecision` to say `APPROVED`. With a `check` Stage the PR merges only
+while its head carries every `check/<name>` `success` or `skipped`: the marks, who sets them and the
+block that reads them — skill `/worfy:epic-wave`, section 4, "Checks before merge"; a PR whose line
+there is not `ready` waits, and a `failed` one goes back to rework.
 
 The gate the project requires before this merge is `F workflow.merge_gate` — skill
 `/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
@@ -649,6 +679,11 @@ the fast-forward. With `pr-green-ci`:
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN> --pr <N>     # with local-green — without --pr (step 3 above)
 ```
+
+With `deploy` in the Pipeline (section 0) `ticket done` waits for the deploy: skill
+`/worfy:epic-wave`, section 4, "Deploy before close" — who deploys, and the block that says whether
+the merge commit is deployed. `DEPLOYED=none` — the ticket stays `claimed` with its PR merged, and
+the report says "waits for deploy".
 
 The state file is `F docs.handoff` (`path`, `kind`, `check`). No field — "the project has no state
 file, nothing to update". If it exists, it is the only state file — a snapshot for whoever picks
