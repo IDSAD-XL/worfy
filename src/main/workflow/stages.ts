@@ -123,8 +123,12 @@ export class StageReader {
     const tickets = model?.tickets ?? []
 
     // Which repository each Ticket in work is checked in: the root, or its `Repo:` in a Project over several.
+    // The root only when it is inside a git work tree: a Profile that could not be read names no
+    // repositories, and the root of a Project over several (Atakama) is a plain folder — gh and git
+    // never run there.
     const several = profile.repos.length > 1
-    const repoOf = (ticket: Ticket): string | null => (several ? (profile.repos.find((repo) => repo.name === ticket.repo)?.path ?? null) : root)
+    const rootRepo = !several && tickets.some(inWork) && (await this.isInWorkTree(root)) ? root : null
+    const repoOf = (ticket: Ticket): string | null => (several ? (profile.repos.find((repo) => repo.name === ticket.repo)?.path ?? null) : rootRepo)
     const byRepo = new Map<string, Ticket[]>()
     for (const ticket of tickets.filter(inWork)) {
       const repo = repoOf(ticket)
@@ -196,6 +200,12 @@ export class StageReader {
   }
 
   /** Branch name → head SHA of the repository's local branches. */
+  /** Whether `folder` is in a git work tree, as gh needs to find the repository of its PRs. */
+  private async isInWorkTree(folder: string): Promise<boolean> {
+    const inside = await this.git(folder, ['rev-parse', '--is-inside-work-tree'])
+    return inside.code === 0 && inside.stdout.trim() === 'true'
+  }
+
   private async branchHeads(repo: string): Promise<Map<string, string>> {
     const listed = await this.git(repo, ['for-each-ref', '--format=%(refname:lstrip=2)%09%(objectname)', 'refs/heads'])
     const heads = new Map<string, string>()

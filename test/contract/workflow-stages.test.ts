@@ -17,11 +17,12 @@ import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { pipelineHandlers } from '../../src/main/ipc/pipeline'
 import { markFilePath } from '../../src/main/workflow/marks'
 import { readPipelineProfile, type PipelineProfile } from '../../src/main/workflow/profile'
-import { readE2eLock, StageHub, type StageSources } from '../../src/main/workflow/stages'
+import { readE2eLock, StageHub, StageReader, type StageSources } from '../../src/main/workflow/stages'
 import { WorkflowHub } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import type { PipelineSnapshot, PipelineTicket } from '../../src/shared/ipc/pipeline'
-import type { PipelineStage } from '../../src/shared/workflow/pipeline'
+import { DEFAULT_PIPELINE, type PipelineStage } from '../../src/shared/workflow/pipeline'
+import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const WORKFLOW_STUB = join(__dirname, '..', 'fixtures', 'workflow-stub')
 const ownEnv = (): Promise<NodeJS.ProcessEnv> => Promise.resolve(process.env)
@@ -350,6 +351,53 @@ describe('Deploy by the commit status deploy (Full mode, no environment)', () =>
     const { hub } = hubOver(world, fullProfile(world), gh.gh)
     await hub.open(world.repo, { id: 1, send: () => undefined })
     expect(gh.calls.every((args) => args[0] === 'pr')).toBe(true)
+  })
+})
+
+describe('where gh and git run', () => {
+  /** A model with one claimed Ticket of Epic `demo`, without a `Repo:` line. */
+  const claimedModel = (root: string): WorkflowModel => {
+    const claimed: Ticket = { epic: 'demo', num: 3, slug: 'third', title: '03 — Ticket 3', statusRaw: 'claimed 2026-10-17T09:00Z', state: 'work', blockedRaw: '—', blockedNums: [], blockedParsed: true, files: [], filesListed: false, fromBranch: null }
+    return { root, epics: [{ epic: 'demo', hasSpec: true, hasMap: false, title: 'Demo' }], tickets: [claimed], error: null, branchErrors: [] }
+  }
+
+  /** A reader whose Profile could not be read; the folders the PR reads go to are recorded. */
+  const readerWithoutProfile = (asked: string[]): StageReader =>
+    new StageReader({
+      workflow: { open: () => Promise.reject(new Error('unused')), close: () => Promise.resolve(false), model: () => Promise.resolve(null) },
+      prs: {
+        read: (folder) => {
+          asked.push(folder)
+          return Promise.resolve({ gh: { available: true, error: null }, pulls: [] } as unknown as Awaited<ReturnType<StageSources['prs']['read']>>)
+        },
+      },
+      profile: () => Promise.resolve({ ok: false, reason: 'profile exit code 1' }),
+      deployments: { environment: () => Promise.resolve([]), deployMarks: () => Promise.resolve([]) } as unknown as StageSources['deployments'],
+      harnessHome: join(dir, 'harness-home'),
+    })
+
+  it('a Profile that could not be read and a root that is a plain folder over repositories: gh runs nowhere', async () => {
+    // Like Atakama: the Project's root holds the repositories and is none itself.
+    const root = join(dir, 'atakama')
+    for (const name of ['api', 'web']) {
+      mkdirSync(join(root, name), { recursive: true })
+      git(join(root, name), 'init', '-q', '-b', 'main')
+    }
+    const asked: string[] = []
+    const snapshot = await readerWithoutProfile(asked).read(root, claimedModel(root))
+    expect(asked).toEqual([])
+    expect(snapshot.pipeline.map((column) => column.kind)).toEqual(DEFAULT_PIPELINE.map((stage) => stage.kind))
+    expect(snapshot.tickets).toMatchObject([{ epic: 'demo', num: 3, stage: 'implementing' }])
+    expect(snapshot.error).toContain('the Profile could not be read')
+  })
+
+  it('a Profile that could not be read and a root in a git repository: gh runs in the root, as before', async () => {
+    const root = join(dir, 'single')
+    mkdirSync(root)
+    git(root, 'init', '-q', '-b', 'main')
+    const asked: string[] = []
+    await readerWithoutProfile(asked).read(root, claimedModel(root))
+    expect(asked).toEqual([root])
   })
 })
 
