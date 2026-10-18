@@ -1,7 +1,9 @@
 # 01 — Spike: обёртка `ssh` и OSC 633 через SSH на одном из серверов владельца
 
 Type: research
-Status: open
+Status: blocked 2026-10-18T14:07Z
+Blocked reason: ждёт сервер владельца для spike-а
+Waits: owner
 Blocked by: —
 Source: решения владельца 2026-10-18: пункты 2 (только память, ничего на диске Remote host-а), 7 (канал — OSC 633 с nonce в потоке терминала), 8 (обёртка `ssh`, `ssh -t host <команда с интеграцией в base64>`, никакого ввода скрипта в открытую сессию), 9 (пароли) ([spec.md](../spec.md)); допущение 4 (nonce в `ps`); риски 1–7, 9
 

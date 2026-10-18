@@ -1,9 +1,7 @@
 # 41 — Test-ы Terminal с настоящей оболочкой не проходят на чистом runner-е Windows
 
 Type: task
-Status: blocked 2026-10-18T05:01Z
-Blocked reason: пропуск и test его условия готовы; нужен один ручной job windows-tests.yml — по слову владельца
-Waits: owner
+Status: done 2026-10-18T14:07Z
 Branch: worfy-windows/41-warm-up
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «The clean Windows runner cannot judge this PR»); логи ручного job-а «Windows tests»: запуск 38364376194 (main) и 38364372348 (ветка PR #280)
@@ -90,8 +88,9 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 ## Готово, когда
 
 - [x] Причина названа по замеру на runner-е; вывод замера — в «Итоге».
-- [ ] Ручной job на `test/contract/terminal.test.ts`: 0 упавших — либо 15 test-ов пропущены с
-      причиной, и это записано в `windows-tests.yml` и в test-файле.
+- [x] Ручной job на `test/contract/terminal.test.ts`: 0 упавших — либо 15 test-ов пропущены с
+      причиной, и это записано в `windows-tests.yml` и в test-файле. (Запуск 39132363984 на main
+      `cf506ee0`: success, 39 прошло, 21 пропущено — «Итог».)
 - [x] На ПК владельца те же test-ы идут и зелёные: пропуск их там не выключает.
 - [x] `gate full` зелёный на Mac.
 
@@ -195,3 +194,9 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - Условие и причина пропуска вынесены из `test/contract/terminal-harness.ts` в `test/windows-runner.ts`: `windowsPowerShellOffRunner(platform, env)` читает систему и окружение при вызове (по умолчанию — `process.platform` и `process.env`), `needsWindowsPowerShellOffRunner(context)` зовёт его. Harness реэкспортирует оба имени, 18 test-ов не менялись.
 - `test/unit/windows-runner.test.ts`: `win32` + `GITHUB_ACTIONS=true` — пропуск; `win32` без переменной или с `false` — нет; `linux` и `darwin` с `GITHUB_ACTIONS=true` — нет (в пакетном CI на Linux переменная тоже `true`); helper передаёт условие этой машины и причину с «ticket 41». На ПК условие ложно.
 - Мутант без проверки системы (`return env['GITHUB_ACTIONS'] === 'true'`) — test красный (результаты — ниже, в описании PR).
+
+### Ручной job с пропуском (2026-10-18)
+
+- **Runner: запуск [39132363984](https://github.com/IDSAD-XL/worfy/actions/runs/39132363984)** (`windows-tests.yml`,
+  `workflow_dispatch`, main `cf506ee0`): success — 39 test-ов прошло, 21 пропущено, 0 упало. Пропуск
+  Windows PowerShell 5.1 на runner-е работает. Ticket закрыт.
