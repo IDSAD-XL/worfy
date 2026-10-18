@@ -383,7 +383,8 @@ function patiently(step) {
  * rmdir, which removes such a junction as a link, and is listed only when the answer is "not
  * empty" and, when the volume of the folder it lies in is known, it is on that volume; an entry a
  * listing names and lstat does not see (such a junction whose volume is gone) is asked to go with
- * one rmdir (worfy-windows ticket 45). The price: a folder that is busy
+ * one rmdir (worfy-windows ticket 45); a path given that is such a junction stays, taken as gone:
+ * only a listing says it is there. The price: a folder that is busy
  * itself is waited for before its entries and keeps them when it stays busy; the next run of this
  * script removes what is left. rmSync is not used there. Under the Node Electron 44 carries —
  * the tests run this script under it — its `recursive` goes through a junction and empties the

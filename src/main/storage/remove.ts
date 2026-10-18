@@ -46,7 +46,11 @@
 // An entry its folder lists and lstat says is not there (ENOENT, ENOTDIR) is asked to go with one
 // rmdir, whatever it answers. A junction by GUID whose volume is detached, or whose target folder
 // is gone, answers ENOENT to lstat, and kept its folder from going at every removal; rmdir removes
-// it as the link it is (measured, worfy-windows ticket 45). That rmdir lists nothing.
+// it as the link it is (measured, worfy-windows ticket 45). That rmdir lists nothing. A path given
+// to removeTree that is such a junction stays: lstat answers ENOENT, and the walk takes the path as
+// gone and returns. The rmdir is kept to entries of the walk, which their folder's listing names:
+// for the path given nothing says something is there, and every call with a path that is not there
+// would make one more rmdir.
 // The price: a folder that is busy itself is waited for before its entries — the walk before came
 // to it last — and keeps what it holds while it stays busy. Once the waits of the removal are
 // spent, half a second, it fails; the walk before removed the entries first, and succeeded when

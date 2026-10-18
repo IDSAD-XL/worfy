@@ -16,7 +16,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES, removeFile, removeTree } from '../../src/main/storage/remove'
 
@@ -118,9 +118,10 @@ describe('removeTree and removeFile over real folders', () => {
     const mountvol = spawnSync('mountvol', [`${drive}\\`, '/L'], { encoding: 'latin1' })
     const guids = String(mountvol.stdout).match(/\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\/g) ?? []
     expect([mountvol.status, guids.length]).toEqual([0, 1])
+    // The folder of this test is never the root of a disk, so the target is a folder below it.
+    // The main guard is the marker read back through the junction, below.
+    expect(real.length).toBeGreaterThan(3)
     const target = `${guids[0]}${real.slice(3)}\\outside`
-    // The folder outside of this test, never the root of the volume.
-    expect(target.endsWith(`\\${basename(real)}\\outside`)).toBe(true)
     const at = join(tree, 'sub', 'linked')
     const made = spawnSync(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'mklink', '/J', at, target], { encoding: 'latin1' })
     expect(made.status, `${made.stdout}${made.stderr}`).toBe(0)
@@ -131,6 +132,8 @@ describe('removeTree and removeFile over real folders', () => {
     expect(readFileSync(join(at, 'marker.txt'), 'utf8')).toBe(marker)
     unlinkSync(join(outside, 'marker.txt'))
     expect(lstatSync(at).isDirectory()).toBe(true)
+    // On the volume of its folder: the volume rule says nothing, so this is the first rmdir's test.
+    expect(lstatSync(at).dev).toBe(lstatSync(join(tree, 'sub')).dev)
     removeTree(tree)
     expect(existsSync(tree)).toBe(false)
     outsideIsWhole()

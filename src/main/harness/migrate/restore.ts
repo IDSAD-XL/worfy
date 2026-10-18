@@ -112,7 +112,8 @@ import { fileURLToPath } from 'node:url'
 // GUID of a volume is a folder to lstat (worfy-windows ticket 35): a folder is first asked to go
 // with one rmdir and is listed only when the answer is "not empty" and, when the volume of the
 // folder it lies in is known, it is on that volume; an entry a listing names and lstat does not see
-// (such a junction whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45);
+// (such a junction whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45),
+// and a path given that is such a junction stays, taken as gone: only a listing says it is there;
 // a folder that is busy itself keeps what it holds. Off Windows fs.rmSync is
 // used, and it goes into a folder a volume is mounted on (worfy-windows ticket 44; measured on
 // macOS: the files of the volume were removed). So a folder is looked through first, and with a
