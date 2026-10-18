@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DeploymentReader } from '../../src/main/github/deployments'
@@ -476,6 +476,45 @@ describe('pipeline IPC channels', () => {
     expect(!outside.ok && outside.error).toMatch(/outside the Projects of this Machine/)
     expect(hub.roots).toEqual([])
     expect((await call('pipeline.get', { root: world.repo }, 'link:machine/1')).ok).toBe(true)
+  })
+})
+
+describe('one computation per Project root, however it is spelled (worfy-pipeline ticket 06)', () => {
+  it('on Windows the notification follows C:/… (the Project list) and a window C:\\… (path.resolve): both share one computation', async () => {
+    const opened: string[] = []
+    const closed: string[] = []
+    const sources: StageSources = {
+      workflow: {
+        open: async (root) => {
+          opened.push(root)
+          return null as never
+        },
+        close: async (root) => {
+          closed.push(root)
+          return true
+        },
+        model: async () => null,
+      },
+      prs: { read: async () => ({ pulls: [], gh: { state: 'ok' } }) as never },
+      profile: async () => ({ ok: false, reason: 'no Profile in this test' }),
+      deployments: { environment: async () => [], deployMarks: async () => [] },
+      harnessHome: dir,
+      paths: win32,
+    }
+    const hub = new StageHub(sources)
+    cleanups.push(async () => hub.closeAll())
+    const sent: string[] = []
+    const fromList = await hub.open('C:/Users/owner/worfy', { id: 'waits-notify', send: () => sent.push('waits-notify') })
+    const fromWindow = await hub.open('C:\\Users\\owner\\worfy', { id: 7, send: () => sent.push('window') })
+    expect(opened).toEqual(['C:\\Users\\owner\\worfy'])
+    expect(hub.roots).toEqual(['C:\\Users\\owner\\worfy'])
+    expect(fromWindow).toBe(fromList)
+    // Either spelling lets its own subscriber go; the computation stops with the last of them.
+    expect(await hub.close('C:\\Users\\owner\\worfy', 'waits-notify')).toBe(true)
+    expect(closed).toEqual([])
+    expect(await hub.close('C:/Users/owner/worfy', 7)).toBe(true)
+    expect(closed).toEqual(['C:\\Users\\owner\\worfy'])
+    expect(hub.roots).toEqual([])
   })
 })
 

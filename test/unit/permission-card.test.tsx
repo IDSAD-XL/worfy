@@ -301,7 +301,7 @@ describe('the notification overlay', () => {
     answers['notify.pending'] = () => ({ note: null })
     const h = await mountOverlay()
     act(() => h.target.holdNote({ sessionId: 'sdk-late', projectRoot: null }, Date.now() - h.target.NOTE_WAIT_MS + 30))
-    expect(h.target.usePendingNote.getState().pending?.note.sessionId).toBe('sdk-late')
+    expect(h.target.usePendingNote.getState().pending?.note).toMatchObject({ sessionId: 'sdk-late' })
     await vi.waitFor(() => expect(h.target.usePendingNote.getState().pending).toBeNull())
     expect(handlers.has('sessions.changed')).toBe(true)
     act(() => handlers.get('sessions.changed')?.(nodeView({ nodeId: 'node-late', sessionId: 'sdk-late', sdkSessionId: 'sdk-late', state: 'busy', version: 2 })))
@@ -501,6 +501,6 @@ describe('the notification overlay', () => {
     const first = usePendingNote.getState().pending
     holdNote({ sessionId: 'b', projectRoot: null })
     if (first !== null) dropNote(first)
-    expect(usePendingNote.getState().pending?.note.sessionId).toBe('b')
+    expect(usePendingNote.getState().pending?.note).toMatchObject({ sessionId: 'b' })
   })
 })

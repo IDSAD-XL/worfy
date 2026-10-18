@@ -1,7 +1,7 @@
 # 06 — Застрявшие Ticket-ы выделены; уведомление, когда Ticket ждёт владельца
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T15:59Z
 Blocked by: 04, 05
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 1, 7, 8 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).

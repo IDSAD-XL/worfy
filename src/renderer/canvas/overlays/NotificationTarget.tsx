@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { sameProjectRoot } from '../../../shared/paths'
 import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, addressFor, navigation, openProject, useProjects } from '../../projects/useProjects'
+import { openPipelineOf } from '../../pipeline/open'
 import { openSession } from '../../session/navigation'
 import { ensureProject, useSessionNodeViews } from '../../session/node-sessions'
 import {
@@ -21,7 +22,8 @@ import { useOrchestratorViews } from '../nodes/orchestrator-view'
 // main has already raised the window and keeps the note. This overlay takes it with
 // `notify.pending` when it mounts and again on each `notify.open` signal, so a signal sent before it
 // mounted loses nothing. The note then waits until this window knows the Session's Node
-// (session/notification-target.ts). Draws nothing.
+// (session/notification-target.ts). Draws nothing. A note of a Ticket that waits for the owner
+// (worfy-pipeline ticket 06) opens the Pipeline board of its Project instead of a Session.
 //
 // A note of a Linked machine's Session (worfy-link ticket 13) opens it among the Projects of that
 // Machine, the way the sidebar opens a Linked machine's Project (worfy-link ticket 09): a window on
@@ -59,10 +61,11 @@ export default function NotificationTarget() {
     if (pending === null) return
     latest.current = pending
     const machine = windowMachine()
-    const wanted = noteMachine(pending.note)
+    const note = pending.note
+    const wanted = noteMachine(note)
     if (wanted !== machine) {
       dropNote(pending)
-      void (wanted === null ? Promise.resolve(null) : projectOfNote(pending.note, wanted)).then((projectId) => {
+      void (wanted === null || 'view' in note ? Promise.resolve(null) : projectOfNote(note, wanted)).then((projectId) => {
         // A newer click came meanwhile: it decides where the window goes.
         if (latest.current !== pending) return
         // The note waits across the load of this window on its Machine.
@@ -71,10 +74,26 @@ export default function NotificationTarget() {
       })
       return
     }
+    // A Ticket that waits for the owner (worfy-pipeline ticket 06): the Pipeline board of its
+    // Project, once this window knows its Projects.
+    if ('view' in note) {
+      if (projects !== undefined) {
+        dropNote(pending)
+        const target = projects.projects.find((each) => sameProjectRoot(each.path, note.projectRoot))
+        if (target === undefined) console.warn(`a notification of ${note.epic} ${note.num}: ${note.projectRoot} is no longer in the list of Projects`)
+        else
+          void openPipelineOf(target.id, projects.activeId ?? undefined).then((problem) => {
+            if (problem !== undefined) console.error('a notification could not open the Pipeline of its Project:', problem)
+          })
+        return
+      }
+      const timer = setTimeout(() => dropNote(pending), Math.max(0, pending.until - Date.now()))
+      return () => clearTimeout(timer)
+    }
     // On a Linked machine a Session from the registry is looked for in any of its Projects.
-    const root = pending.note.projectRoot
+    const root = note.projectRoot
     const where = machine === null || root === null ? project : (projects?.projects.find((each) => sameProjectRoot(each.path, root)) ?? project)
-    const target = notificationTarget(pending.note, where, machine)
+    const target = notificationTarget(note, where, machine)
     if (target !== null) {
       dropNote(pending)
       if (machine !== null && target.projectId !== projects?.activeId) {

@@ -9,8 +9,9 @@ import type { ProjectView } from '../../shared/ipc/projects'
 import { epicNodeId, ticketNodeId } from '../../shared/layout/derived'
 import { focusCanvasNode } from '../find/canvas-requests'
 import { setView } from '../session/navigation'
+import { useNow } from '../limits/useLimits'
 import { useWorkflow } from '../workflow/useWorkflow'
-import { ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
+import { stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from './board'
 import { usePipeline } from './usePipeline'
 import './pipeline.css'
 
@@ -24,12 +25,15 @@ function byColumn(snapshot: PipelineSnapshot): Map<string, PipelineTicket[]> {
 interface TicketCardProps {
   ticket: PipelineTicket
   title: string | undefined
+  /** The tooltip line of a stuck Ticket (stuckLine); null while it is not stuck. */
+  stuck: string | null
   onOpen: () => void
 }
 
 /** One Ticket on the board: what it is, who it waits for, and its flags. */
-function TicketCard({ ticket, title, onOpen }: TicketCardProps) {
+function TicketCard({ ticket, title, stuck, onOpen }: TicketCardProps) {
   const blocked = ticket.blocked === null ? null : ticket.blocked.reason ? `Blocked: ${ticket.blocked.reason}` : 'Blocked'
+  const name = title === undefined ? ticketRef(ticket) : `${ticketRef(ticket)} — ${title}`
   return (
     <li>
       <button
@@ -40,7 +44,8 @@ function TicketCard({ ticket, title, onOpen }: TicketCardProps) {
         data-ticket={ticket.num}
         data-stage={ticket.stage}
         data-blocked={ticket.blocked === null ? undefined : 'true'}
-        title={title === undefined ? ticketRef(ticket) : `${ticketRef(ticket)} — ${title}`}
+        data-stuck={stuck === null ? undefined : 'true'}
+        title={stuck === null ? name : `${name}\n${stuck}`}
         onClick={onOpen}
       >
         <span className="w-pipeline-card__head">
@@ -86,10 +91,12 @@ interface ColumnProps {
   column: PipelineColumn
   tickets: readonly PipelineTicket[]
   titles: Readonly<Record<string, string>>
+  /** The board's clock, for stuckLine. */
+  now: number
   onOpenTicket: (ticket: { epic: string; num: number }) => void
 }
 
-function Column({ column, tickets, titles, onOpenTicket }: ColumnProps) {
+function Column({ column, tickets, titles, now, onOpenTicket }: ColumnProps) {
   // Done is folded into its count until a click opens it; the choice lasts as long as the board.
   const [doneOpen, setDoneOpen] = useState(false)
   const folded = column.kind === 'done' && !doneOpen
@@ -109,7 +116,13 @@ function Column({ column, tickets, titles, onOpenTicket }: ColumnProps) {
       {folded ? null : (
         <ul className="w-pipeline-column__cards">
           {tickets.map((ticket) => (
-            <TicketCard key={ticketKeyOf(ticket)} ticket={ticket} title={titles[ticketKeyOf(ticket)]} onOpen={() => onOpenTicket({ epic: ticket.epic, num: ticket.num })} />
+            <TicketCard
+              key={ticketKeyOf(ticket)}
+              ticket={ticket}
+              title={titles[ticketKeyOf(ticket)]}
+              stuck={stuckLine(column, ticket, now)}
+              onOpen={() => onOpenTicket({ epic: ticket.epic, num: ticket.num })}
+            />
           ))}
         </ul>
       )}
@@ -129,6 +142,9 @@ export interface PipelineBoardViewProps {
 /** The board of one snapshot, without IPC. */
 export function PipelineBoardView({ name, snapshot, titles, onOpenTicket }: PipelineBoardViewProps) {
   const columns = byColumn(snapshot)
+  // Stuck is found again on every snapshot, which draws the board anew, and every minute by this
+  // clock. shortcut: a snapshot is judged by a clock up to a minute old, so a Ticket may be framed up to a minute late; take the time of the snapshot when that minute matters.
+  const now = useNow()
   return (
     <div className="w-pipeline" data-testid="pipeline-board" data-root={snapshot.root}>
       <h2 className="w-pipeline__heading">{name}</h2>
@@ -139,7 +155,7 @@ export function PipelineBoardView({ name, snapshot, titles, onOpenTicket }: Pipe
       ) : null}
       <div className="w-pipeline__columns">
         {snapshot.pipeline.map((column) => (
-          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} onOpenTicket={onOpenTicket} />
+          <Column key={column.id} column={column} tickets={columns.get(column.id) ?? []} titles={titles} now={now} onOpenTicket={onOpenTicket} />
         ))}
       </div>
     </div>

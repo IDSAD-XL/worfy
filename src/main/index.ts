@@ -13,6 +13,7 @@ import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
+import { stageHub } from './ipc/pipeline'
 import { electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
@@ -127,9 +128,11 @@ function start(): void {
       // Notifications when a Session ends its turn or asks for permission (ticket 21), here and on
       // the Linked machines once the link has started (worfy-link ticket 13).
       // With them, the notification of a PR in the cross-machine gate queue that has waited over an
-      // hour (worfy-windows ticket 17), for the Projects in worfy's list.
+      // hour (worfy-windows ticket 17), for the Projects in worfy's list; and the notification of a
+      // Ticket of those Projects that comes to wait for the owner (worfy-pipeline ticket 06).
       inStep('installNotifications', () => {
-        installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink())
+        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: stageHub, projects: () => projectStore().list() })
+        app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
       })

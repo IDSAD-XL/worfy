@@ -14,6 +14,7 @@
 // an open Ticket is Queued and a done one Done whatever else is true.
 import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { z } from 'zod'
@@ -23,6 +24,7 @@ import { DEFAULT_PIPELINE, stageId, stageLabel, stageOf, type DeployFact, type M
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { repoOfPullUrl, type DeploymentReader, type Deployed } from '../github/deployments'
 import type { PrRead, TrackedPull } from '../github/prs'
+import type { PathRules } from '../remote-links'
 import { marksFromStatuses, SilentMarks } from './marks'
 import type { PipelineProfile } from './profile'
 import type { WorkflowSubscriber } from './watch'
@@ -64,6 +66,8 @@ export interface StageSources {
   /** How often the PRs are asked again; the tracker's own interval (60 s) by default. */
   intervalMs?: number
   log?: (message: string) => void
+  /** The path rules of the platform; path.win32 in tests on any system. */
+  paths?: Pick<PathRules, 'resolve'>
 }
 
 /** Something that receives `pipeline.changed`: a client of the app. */
@@ -324,7 +328,9 @@ let watchIds = 0
 
 /**
  * One computation per Project root, shared by its subscribers; it watches the workflow model as a
- * subscriber of the workflow hub of its own, and stops when its last subscriber leaves.
+ * subscriber of the workflow hub of its own, and stops when its last subscriber leaves. A root is
+ * keyed by path.resolve, as the workflow hub keys it: on Windows the Project list keeps git's
+ * `C:/…` and a window asks for `C:\…`, and both are one computation.
  */
 export class StageHub {
   private readonly projects = new Map<string, { stages: ProjectStages; ready: Promise<void> }>()
@@ -332,7 +338,8 @@ export class StageHub {
   constructor(private readonly sources: StageSources) {}
 
   /** Starts computing `root` for `subscriber` (once per subscriber) and returns the current snapshot. */
-  async open(root: string, subscriber: StageSubscriber): Promise<PipelineSnapshot> {
+  async open(asked: string, subscriber: StageSubscriber): Promise<PipelineSnapshot> {
+    const root = this.keyOf(asked)
     let project = this.projects.get(root)
     if (!project) {
       watchIds += 1
@@ -353,7 +360,8 @@ export class StageHub {
   }
 
   /** Stops `subscriber`'s interest in `root`; returns false when it was not subscribed. */
-  async close(root: string, subscriberId: number | string): Promise<boolean> {
+  async close(asked: string, subscriberId: number | string): Promise<boolean> {
+    const root = this.keyOf(asked)
     const project = this.projects.get(root)
     if (!project || !project.stages.subscribers.delete(subscriberId)) return false
     if (project.stages.subscribers.size === 0) {
@@ -362,6 +370,10 @@ export class StageHub {
       await project.stages.close()
     }
     return true
+  }
+
+  private keyOf(root: string): string {
+    return (this.sources.paths ?? nativePath).resolve(root)
   }
 
   /** Drops a subscriber from every Project, e.g. when its window is gone. */
