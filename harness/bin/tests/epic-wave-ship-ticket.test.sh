@@ -500,6 +500,12 @@ T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 . "$HARNESS/bin/tests/real-home.sh"
 . "$HARNESS/bin/tests/gh-stand-in.sh"
+# The shells every block of section 9 runs under. Git Bash on Windows has no zsh (worfy ADR-0055): there the zsh
+# cases are skipped with one line. On macOS and Linux a missing zsh is a failure, not a skip.
+SHELLS=(bash zsh)
+if on_windows && ! command -v zsh >/dev/null 2>&1; then
+    SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"
+fi
 home_before="$(real_home_snapshot "$HOME" "$T")"
 REAL_HOME="$HOME"
 skill_block() { # skill_block <file> <marker>: the ```bash blocks of <file> that contain <marker>, without the F() line
@@ -527,9 +533,10 @@ case "${args[0]:-} ${args[1]:-}" in
     *) echo "gh stand-in: unknown call: ${args[*]}" >&2; exit 1 ;;
 esac
 [ -f "$f" ] || { echo "gh stand-in: no answer for: ${args[*]}" >&2; exit 1; }
-if [ -n "$jqf" ]; then jq -rc "$jqf" "$f"; else cat "$f"; fi
+# jq for Windows ends its lines with CRLF; gh itself prints LF.
+if [ -n "$jqf" ]; then jq -rc "$jqf" "$f" | tr -d '\r'; exit "${PIPESTATUS[0]}"; else cat "$f"; fi
 EOF
-chmod +x "$GHS/gh"
+chmod +x "$GHS/gh"; refusing_gh_exe "$GHS/gh"
 echo '{"statuses":[]}' >"$GH_DATA/no-status.json"
 ( PATH="$GHS:$PATH"; gh_guard - "$GHS/gh" - ) || exit 1
 RUN_ENV=(env HOME="$T/home" HARNESS_HOME="$(node_path "$T/hh")" PATH="$GHS:$PATH" GH_LOG="$GH_LOG" GH_DATA="$GH_DATA" GH_TOKEN=worfy-test-no-token GH_CONFIG_DIR="$T/gh-config")
@@ -551,7 +558,7 @@ printf '%s\n' "$PIPELINE"
 EOF
 chmod +x "$T/plugin/bin/profile"
 WORFY_PL='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"check","name":"windows"},{"kind":"gate-merge"},{"kind":"deploy"},{"kind":"closing"},{"kind":"done"}]'
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     got="$("${RUN_ENV[@]}" CLAUDE_PLUGIN_ROOT="$T/plugin" REPO_WANT=/r PIPELINE="$WORFY_PL" $sh -c "${PL_EW//<repo>//r}" 2>&1)"
     check "$sh: the Pipeline block prints one Stage per line, a Check with its name" test "$got" = 'queued
 implementing
@@ -592,7 +599,7 @@ statuses 14 'check/windows:failure:failure'
 statuses 105 'check/windows:success:success'        # a mark on an old head of PR 5
 statuses 16 'check/windows:pending:pending'
 line() { grep "^PR $1 " <<<"$2"; }
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     : >"$GH_LOG"
     got="$(run_checks "$sh" full "$WORFY_PL" '1:01 2:02 3:03 4:04 5:05 6:06')"
     check "$sh: Check without a mark on the head — the PR waits, out of the set" bash -c '[[ "$1" == *"check/windows=none — waits" ]]' _ "$(line 1 "$got")"
@@ -681,7 +688,7 @@ run_deploy() { # run_deploy <sh> <pipeline JSON>
 st_file() { printf '{"statuses":[%s]}\n' "$2" >"$GH_DATA/status-$1.json"; }
 NOENV="$WORFY_PL"
 ENV_PL='[{"kind":"queued"},{"kind":"gate-merge"},{"kind":"deploy","environment":"stable"},{"kind":"done"}]'
-for sh in bash zsh; do
+for sh in "${SHELLS[@]}"; do
     rm -f "$GH_DATA"/status-*.json "$GH_DATA"/deployment*.json
     st_file "$(c 3)" '{"context":"deploy","state":"success","description":"installed"}'
     got="$(run_deploy "$sh" "$NOENV")"
