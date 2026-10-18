@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 03, 08, 10, 11, 12
-Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md)
+Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md); решение владельца 2026-10-19: часть unit/contract (пункт 1 «Что делаем» — main зелёный на Windows) идёт первой, от неё зависит [Ticket 66](66-полный-unit-contract-на-windows-runner.md) (полный `pnpm test` на Windows-runner-е, [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md)); `harness-evals` — [Ticket 65](65-harness-evals-на-windows.md)
 
 ## Что происходит
 
