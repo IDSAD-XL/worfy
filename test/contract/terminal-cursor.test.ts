@@ -8,10 +8,13 @@
 // it and records what it is typed; no process starts.
 import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CursorAnswers, isCursorAnswer, SCROLLBACK } from '../../src/main/terminal/cursor-answers'
+import { join } from 'node:path'
+import { CursorAnswers, isCursorAnswer, SCROLLBACK, screenWorker } from '../../src/main/terminal/cursor-answers'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
+/** A stand-in of @xterm/headless whose write throws "write data discarded". */
+const REFUSING_HEADLESS = join(import.meta.dirname, '..', 'fixtures', 'headless-refuses.cjs')
 const ESC = '\x1b'
 const REQUEST = `${ESC}[6n`
 
@@ -189,34 +192,52 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
 
   it('an answer main’s screen gives after the exit is not written, even while that screen is still there', async () => {
     // The screen is not taken apart here: only the check of the exit in the registry stands between the answer and the pty.
-    vi.spyOn(CursorAnswers.prototype, 'dispose').mockImplementation(() => undefined)
+    const kept: CursorAnswers[] = []
+    const dispose = vi.spyOn(CursorAnswers.prototype, 'dispose').mockImplementation(function (this: CursorAnswers) {
+      kept.push(this)
+    })
     const { pty } = await shell()
     pty.kill()
     // Off Windows the output after an exit is kept for the next open, and main's screen reads it.
     pty.print(REQUEST)
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(pty.writes).toEqual([])
+    // Taken apart now, so the worker of the screens ends as after any other test.
+    dispose.mockRestore()
+    for (const screen of kept) screen.dispose()
   })
 
   it('when main’s screen refuses output (xterm.js past 50 MB queued), every screen still gets it, main stops answering and the views’ answers reach the shell', async () => {
-    const headless = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const outputs: string[] = []
-    const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void outputs.push(data) })
-    const write = vi.spyOn(headless.Terminal.prototype, 'write').mockImplementation(() => {
-      throw new Error('write data discarded, use flow control to avoid losing data')
-    })
-    pty.print(`$ ${REQUEST}`)
-    expect(outputs).toEqual([`$ ${REQUEST}`])
-    write.mockRestore()
+    // The screen's xterm.js is a stand-in whose write throws as xterm.js does past 50 MB queued.
+    screenWorker.headless = REFUSING_HEADLESS
+    try {
+      const outputs: string[] = []
+      const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void outputs.push(data) })
+      pty.print(`$ ${REQUEST}`)
+      expect(outputs).toEqual([`$ ${REQUEST}`])
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledTimes(1))
 
-    // The view answers, marked: with main silent now, its answer goes to the shell.
-    registry.write(KEY, `${ESC}[1;3R`, a, { reply: true })
-    pty.print(REQUEST)
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(pty.writes).toEqual([`${ESC}[1;3R`])
-    expect(outputs).toEqual([`$ ${REQUEST}`, REQUEST])
-    expect(warn).toHaveBeenCalledTimes(1)
+      // The view answers, marked: with main silent now, its answer goes to the shell.
+      registry.write(KEY, `${ESC}[1;3R`, a, { reply: true })
+      pty.print(REQUEST)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(pty.writes).toEqual([`${ESC}[1;3R`])
+      expect(outputs).toEqual([`$ ${REQUEST}`, REQUEST])
+    } finally {
+      screenWorker.headless = undefined
+    }
+  })
+
+  it('main’s screen parses in a worker thread: xterm.js of the main thread reads none of the output, and the answers still come in order', async () => {
+    const headless = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
+    const write = vi.spyOn(headless.Terminal.prototype, 'write')
+    const { registry, pty, a } = await shell()
+    pty.print(`ab${REQUEST}`)
+    registry.resize(KEY, 120, 40, a)
+    pty.print(`${ESC}[30;1Hx${REQUEST}`)
+    expect(await writtenSoon(pty, 2)).toEqual([`${ESC}[1;3R`, `${ESC}[30;2R`])
+    expect(write).not.toHaveBeenCalled()
   })
 })
 

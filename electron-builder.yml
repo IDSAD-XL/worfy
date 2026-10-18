@@ -44,9 +44,13 @@ npmRebuild: false
 # (@anthropic-ai/claude-agent-sdk-<platform>-<arch>/claude); a file inside app.asar cannot be
 # spawned (ADR-0008). electron-builder's smart unpack copies executables out on its own; the
 # explicit pattern keeps the build from depending on that heuristic.
+# @xterm/headless is loaded by path in a worker thread that answers the shells' cursor-position
+# requests (src/main/terminal/cursor-answers.ts, worfy-windows ticket 39); the worker does not
+# count on reading inside app.asar.
 asarUnpack:
   - node_modules/node-pty/**
   - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+  - node_modules/@xterm/headless/**
 
 mac:
   target: dir

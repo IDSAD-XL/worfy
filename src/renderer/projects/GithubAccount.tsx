@@ -274,6 +274,11 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
 
     let active = true
     let attached = false
+    // The kept output is being parsed: the view attaches when xterm.js is done with it, so what
+    // xterm.js answers to the old requests in it goes nowhere, and the user's keys wait (as a
+    // Terminal Node does, worfy-windows ticket 39).
+    let replaying = false
+    const pending: string[] = []
     let written = 0
     const queued: { data: string; end: number }[] = []
     const write = (chunk: string, end: number): void => {
@@ -284,6 +289,10 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
     }
     const finish = (exitCode: number): void => {
       attached = false
+      // Exited while the kept output was parsed: its last output is shown, the keys go nowhere.
+      if (replaying) for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+      replaying = false
+      pending.length = 0
       setStatus({ state: 'exited', exitCode })
       exited()
     }
@@ -301,6 +310,7 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
     const typed = terminal.onData((data) => {
       const user = userInput.take(data)
       if (attached) void invoke('projects.connect.signInInput', { signInId, data, ...(user ? {} : { reply: true }) })
+      else if (replaying && user) pending.push(data)
     })
     const resized = terminal.onResize(({ cols, rows }) => {
       if (attached) void invoke('projects.connect.signInResize', { signInId, cols, rows })
@@ -312,16 +322,25 @@ export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string
         return
       }
       const { replay, end, exited: ended } = result.value
-      if (replay !== '') terminal.write(replay)
       written = end
       if (ended !== null) {
+        if (replay !== '') terminal.write(replay)
         finish(ended.exitCode)
         return
       }
-      attached = true
-      for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
-      setStatus({ state: 'running' })
-      terminal.focus()
+      const attach = (): void => {
+        // The view went, or gh exited while the kept output was parsed.
+        if (!active || !replaying) return
+        replaying = false
+        attached = true
+        for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+        for (const data of pending.splice(0)) void invoke('projects.connect.signInInput', { signInId, data })
+        setStatus({ state: 'running' })
+        terminal.focus()
+      }
+      replaying = true
+      if (replay === '') attach()
+      else terminal.write(replay, attach)
     })
     return () => {
       active = false

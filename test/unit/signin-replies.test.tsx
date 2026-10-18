@@ -12,6 +12,10 @@ const ESC = '\x1b'
 const SIGN_IN = 'signin-view-1'
 
 const xterms = vi.hoisted(() => [] as XtermTerminal[])
+/** What `projects.connect.signIn` answers: the kept output of the sign-in. */
+const opened = vi.hoisted(() => ({ replay: '' }))
+/** Runs once, right after the next write of a non-empty text is handed to xterm.js and before xterm.js parses it. */
+const whileParsing = vi.hoisted(() => ({ run: null as ((xterm: XtermTerminal) => void) | null }))
 const wire = vi.hoisted(() => ({
   calls: [] as { channel: string; input: unknown }[],
   handlers: new Map<string, (payload: unknown) => void>(),
@@ -26,6 +30,13 @@ vi.mock('@xterm/xterm', async () => {
     }
     // xterm.js does not draw in jsdom; its parser, buffer and answers work without a screen.
     override open(): void {}
+    override write(data: string | Uint8Array, callback?: () => void): void {
+      super.write(data, callback)
+      const run = whileParsing.run
+      if (run === null || data.length === 0) return
+      whileParsing.run = null
+      run(this)
+    }
   }
   return { ...real, Terminal }
 })
@@ -42,7 +53,7 @@ vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.mock('../../src/renderer/ipc', () => ({
   invoke: (channel: string, input: unknown) => {
     wire.calls.push({ channel, input })
-    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: '', end: 0, exited: null } })
+    if (channel === 'projects.connect.signIn') return Promise.resolve({ ok: true, value: { replay: opened.replay, end: opened.replay.length, exited: null } })
     return Promise.resolve({ ok: true, value: undefined })
   },
   invokeOn: () => Promise.resolve({ ok: false, error: 'not served here' }),
@@ -56,6 +67,8 @@ const { SignInTerminal } = await import('../../src/renderer/projects/GithubAccou
 
 beforeEach(() => {
   xterms.length = 0
+  opened.replay = ''
+  whileParsing.run = null
   wire.calls.length = 0
   wire.handlers.clear()
   vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined }))
@@ -81,5 +94,17 @@ describe('the sign-in view (worfy-windows ticket 39)', () => {
       { signInId: SIGN_IN, data: `${ESC}[1;28R`, reply: true },
       { signInId: SIGN_IN, data: '\r' },
     ])
+  })
+
+  it('the requests in the kept output were answered when they came: the view attaches once it has parsed it, and a key typed meanwhile is sent then', async () => {
+    opened.replay = `? Where do you use GitHub? ${ESC}[c${ESC}[6n`
+    whileParsing.run = (xterm) => xterm.input('x')
+    render(<SignInTerminal signInId={SIGN_IN} onExit={() => undefined} onClose={() => undefined} />)
+    await waitFor(() => expect(screen.getByTestId('connect-signin').dataset.state).toBe('running'))
+    const xterm = xterms.at(-1)
+    if (xterm === undefined) throw new Error('no xterm.js')
+    await act(() => new Promise<void>((resolve) => xterm.write('', resolve)))
+
+    expect(inputs()).toEqual([{ signInId: SIGN_IN, data: 'x' }])
   })
 })
