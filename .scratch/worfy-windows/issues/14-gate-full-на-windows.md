@@ -470,3 +470,14 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 | ветка | 0 | 86 | 0 | 1 |
 
 - Пропуск — прежний `skipIf(win32)` test-а профиля shell-а, не из этого среза. `pnpm lint`, `pnpm typecheck` — exit 0. Полный `pnpm test` на ПК не прогонялся: срез меняет только этот файл.
+
+### Срез 3e — `epic-wave-ship-ticket.test.sh`, раздел 9, на Windows (2026-10-18)
+
+- **Что падало.** На Windows test доходил до раздела 9 (Pipeline, worfy ADR-0067) и останавливался: `REFUSED: node would start nothing for gh (no override variable), not a stand-in` — 262 ok, exit 1, на main и на ветке PR #461 одинаково. За этим guard-ом ждали ещё две вещи: jq для Windows пишет CRLF, и в Git Bash нет zsh.
+- **Что сделано (только test, `harness/bin/tests/epic-wave-ship-ticket.test.sh`):**
+  - после stub-а `gh` — `refusing_gh_exe "$GHS/gh"` (`gh-stand-in.sh`): на Windows рядом лежит `gh.exe` — копия `false`, поэтому node, который ищет только `gh.com`/`gh.exe`, получает отказ, а не настоящий `gh`; так же сделано в `gh-override.test.sh`;
+  - stub `gh` убирает `\r` из вывода `jq -rc` и возвращает код jq (`PIPESTATUS`): настоящий `gh` печатает LF;
+  - три цикла `for sh in bash zsh` идут по `SHELLS`: в Git Bash на Windows без zsh — `bash` и одна строка `skip zsh: …`, как в `skill-blocks.test.sh`; на macOS и Linux нет zsh — по-прежнему падение.
+- **ПК** (Git Bash, jq 1.8.2 для Windows, внешний `gh` — stand-in, 0 вызовов): main `ee6c253` — exit 1, 262 ok, REFUSED; ветка — **exit 0, 314 ok, 0 FAIL**, одна строка skip zsh.
+- **Мутанты** (каждый по одному, файл восстановлен): без `tr -d '\r'` — exit 1, 1 FAIL («a successful Deployment of a commit that contains the merge — deployed»); без `refusing_gh_exe` — exit 1, снова REFUSED; без пропуска zsh — exit 1, 22 FAIL «zsh: …». Каждая из трёх правок нужна.
+- На Mac test должен остаться зелёным с zsh-случаями (там `SHELLS=(bash zsh)`, `refusing_gh_exe` ничего не делает, `tr` ничего не меняет).
