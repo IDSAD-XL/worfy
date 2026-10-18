@@ -16,7 +16,7 @@
 // ticket 37).
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
@@ -242,6 +242,59 @@ export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: '
       })
     })
   }
+}
+
+/** Starts a process as node's `spawn` does; a test hands one that records the call and starts it. */
+export type SpawnProcess = (command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams
+
+export interface HarnessScriptRunOptions {
+  /** What the script reads on its stdin; an empty stdin when absent. */
+  stdin?: string
+  /** When the script is killed (SIGKILL); it then ends with code null. */
+  timeoutMs: number
+  /** node's spawn when absent. */
+  spawn?: SpawnProcess
+}
+
+/**
+ * One run of the Harness script `script` with `args` and `env` (`env` already has HARNESS_HOME:
+ * scriptEnv), started as harnessScriptCommand says, for the scripts that read stdin or run for
+ * minutes: `project-connect` (src/main/projects/connect.ts) and `qmd-collections`
+ * (src/main/harness/qmd.ts). Up to 1 MiB of each output is kept. Resolves with the exit code
+ * whatever it is (null when it was killed at `timeoutMs` or by a signal); rejects with a
+ * HarnessScriptStartError when the script or node is missing (or, on Windows, the script is not
+ * Node), and with the start error otherwise.
+ */
+export async function runHarnessScript(script: string, args: readonly string[], env: HarnessScriptEnv, options: HarnessScriptRunOptions): Promise<ProfileRun> {
+  const command = await harnessScriptCommand(script, args, env)
+  const start = options.spawn ?? spawn
+  return new Promise((resolvePromise, reject) => {
+    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    let timedOut = false
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGKILL')
+    }, options.timeoutMs)
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (stdout.length < MAX_OUTPUT) stdout += chunk.toString('utf8')
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length < MAX_OUTPUT) stderr += chunk.toString('utf8')
+    })
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
+    child.on('close', (code, signal) => {
+      clearTimeout(timer)
+      // The runner's own kill at `timeoutMs` is a timeout, not a signal from elsewhere (ProfileRun).
+      resolvePromise({ code, signal: timedOut ? null : signal, stdout, stderr })
+    })
+    child.stdin.on('error', () => undefined)
+    child.stdin.end(options.stdin ?? '')
+  })
 }
 
 /** The MCP servers a Session in the Project gets, and where the list came from. */

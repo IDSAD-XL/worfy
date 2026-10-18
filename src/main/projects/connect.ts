@@ -5,7 +5,8 @@
 //    resolves to its root, as ProjectStore does —, or a folder outside git with at least two git
 //    repositories among its direct subfolders (`multi-repo`, like Atakama). A folder the Harness
 //    already knows (`bin/profile -C` exits 0; for a multi-repo folder with `_resolved.workspace`)
-//    needs no draft: the caller adds it to the list at once.
+//    needs no draft: the caller adds it to the list at once. A `bin/profile` that gave no answer (not
+//    started, no node, stopped at its time limit) is the step's error, not a new folder (profileKnows).
 // 2. The mode: Full or Silent; a multi-repo folder is Silent only.
 // 3. The Harness check, from the same installer state as the first-run screen (worfy-harness ticket
 //    19): the plugin installed, enabled, of this build's version. Otherwise no Session starts.
@@ -29,6 +30,8 @@
 //
 // Everything that reaches outside — git, gh, the two Harness scripts, the installer, Claude Code,
 // the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
+// connectScriptRunner is the app's `connect`: it starts bin/project-connect through the shared
+// launcher of the Harness scripts (src/main/workflow/profile.ts), as `node <script>`.
 import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
@@ -40,7 +43,9 @@ import type { QueryHandle, QueryRequest } from '../agent/session'
 import { readGithubAccounts } from '../github/accounts'
 import { defaultAttribution } from '../harness/attribution'
 import type { GhRunner } from '../github/prs'
-import type { ProfileRunner } from '../workflow/profile'
+import { scriptEnv, type HarnessLocation } from '../harness/locate'
+import type { HarnessScriptEnv } from '../harness/script-env'
+import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
 import type { GitRunner } from './store'
 
 /** The only tools the draft Session uses: it reads files and answers with its structured output. */
@@ -93,6 +98,32 @@ export interface ScriptRun {
 
 /** Runs `bin/project-connect` with `args` and `stdin`; rejects only when it cannot be started. */
 export type ConnectScript = (args: readonly string[], stdin: string) => Promise<ScriptRun>
+
+/** How long bin/project-connect may take: the write commits in git and may set up qmd collections. */
+export const CONNECT_TIMEOUT_MS = 120_000
+
+export interface ConnectScriptSource {
+  /** The Harness on the machine, looked for on every run (src/main/harness/locate.ts). */
+  harness: () => HarnessLocation
+  /** The login shell's environment (src/main/agent/env.ts): node is on its PATH. */
+  env: () => Promise<HarnessScriptEnv>
+  /** node's spawn when absent; a test hands one that records the call. */
+  spawn?: SpawnProcess
+  timeoutMs?: number
+}
+
+/**
+ * The app's ConnectScript: `bin/project-connect` of the Harness on the machine, with HARNESS_HOME,
+ * started as every Harness script is (runHarnessScript): `node <script> …`, never the file itself,
+ * which Windows cannot run by its `#!` line (worfy-windows ticket 30).
+ */
+export function connectScriptRunner(source: ConnectScriptSource): ConnectScript {
+  return async (args, stdin) => {
+    const harness = source.harness()
+    const env = scriptEnv(harness, await source.env())
+    return runHarnessScript(join(harness.binDir, 'project-connect'), args, env, { stdin, timeoutMs: source.timeoutMs ?? CONNECT_TIMEOUT_MS, spawn: source.spawn })
+  }
+}
 
 /** What adding the folder to the list answered (ProjectStore.add, through the caller). */
 export type AddOutcome = { status: 'added'; projectId: string; notice: string | null } | { status: 'rejected'; reason: string }
@@ -193,13 +224,28 @@ export async function inspectFolder(folder: string, git: GitRunner): Promise<Fol
   }
 }
 
-/** Whether the Harness already knows the folder: `bin/profile -C <root>` exits 0 (a multi-repo folder also needs `_resolved.workspace`). */
+/**
+ * Whether the Harness already knows the folder: `bin/profile -C <root>` exits 0 (a multi-repo folder
+ * also needs `_resolved.workspace`). Any other exit code is the script's answer "not known": 3 (no
+ * registered project), and also 1, which a fresh Harness gives while it has no gate registry yet
+ * (bin/project-connect creates it with the first Project). A script that gave no answer throws
+ * instead (worfy-windows ticket 30): it was not started (no script, no node — HarnessScriptStartError
+ * —, ENOENT), the system found no interpreter for it (exit code 127 or 126), or it was killed at its
+ * time limit or by a signal (code null). Such a folder is not "new": the caller says why it cannot tell.
+ */
 export async function profileKnows(folder: ConnectFolder, profile: ProfileRunner): Promise<boolean> {
-  let run: ScriptRun
+  let run: ProfileRun
   try {
     run = await profile(folder.root, ['-C', folder.root, '--json'])
-  } catch {
-    return false
+  } catch (error) {
+    throw new Error(`bin/profile could not be run: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  if (run.code === null) {
+    throw new Error(run.signal ? `bin/profile was ended by ${run.signal}` : 'bin/profile did not answer in time and was stopped')
+  }
+  if (environmentExit(run.code)) {
+    const detail = scriptFailureDetail(run.stderr)
+    throw new Error(`bin/profile could not be run: exit code ${String(run.code)}${detail ? `: ${detail}` : ''}`)
   }
   if (run.code !== 0) return false
   if (folder.kind === 'git') return true
@@ -412,7 +458,13 @@ export class ProjectConnector {
   async inspect(path: string): Promise<InspectOutcome> {
     const inspected = await inspectFolder(path, this.deps.git)
     if (!inspected.ok) return { status: 'rejected', reason: inspected.reason }
-    const known = await profileKnows(inspected.folder, this.deps.profile)
+    let known: boolean
+    try {
+      known = await profileKnows(inspected.folder, this.deps.profile)
+    } catch (error) {
+      // Not "new": the form would draft a Profile the Harness may already have (worfy-windows ticket 30).
+      return { status: 'rejected', reason: `The Harness could not tell whether it knows ${inspected.folder.root}: ${error instanceof Error ? error.message : String(error)}` }
+    }
     return { status: known ? 'known' : 'new', folder: inspected.folder }
   }
 
@@ -546,7 +598,13 @@ export class ProjectConnector {
 
     const written = await this.script([], draft)
     if (!written.ok) return { status: 'refused', issues: written.issues }
-    if (!(await profileKnows(folder, this.deps.profile))) {
+    let found: boolean
+    try {
+      found = await profileKnows(folder, this.deps.profile)
+    } catch (error) {
+      return { status: 'rejected', reason: `The profile was written, but the Harness could not be asked about ${folder.root}: ${error instanceof Error ? error.message : String(error)}. The folder was not added.` }
+    }
+    if (!found) {
       return { status: 'rejected', reason: `The profile was written, but the Harness does not find it from ${folder.root} (bin/profile -C). The folder was not added.` }
     }
     const added = await this.deps.add(folder.root, { keepActive: options.keepActive === true })

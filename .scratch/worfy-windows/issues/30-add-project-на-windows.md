@@ -99,4 +99,30 @@ Source: ручная проверка владельца на Windows-ПК 2026-
 
 ## Итог
 
-—
+Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash; test-ы через `node scripts/vitest-electron.mjs` (Node из Electron), как в CI. Ветка `worfy-windows/30-add-project` от main `ee6c253`. Пункты 1–3 «Что делаем». **На macOS и Linux с ПК ничего не запускалось.**
+
+- **Общий запуск со stdin — `runHarnessScript`** (`src/main/workflow/profile.ts`). Команду даёт тот же `harnessScriptCommand` Ticket-а 05: `node <скрипт> …`, node из PATH окружения скрипта; нет скрипта, нет node, на Windows не-Node скрипт старого Harness — `HarnessScriptStartError` до запуска. Сверх `harnessScriptRunner`: stdin, свой timeout с SIGKILL (код `null`, signal не ставится — как в `ProfileRun`), подменяемый `spawn` для test-ов.
+- **`bin/project-connect`.** `connectScriptRunner` (`src/main/projects/connect.ts`) — `connect` из `ConnectDeps` по умолчанию: Harness, `scriptEnv` (HARNESS_HOME), `runHarnessScript`. `connectScript` в `src/main/ipc/projects.ts` — теперь одна строка вызова, свой `spawn` убран. Через него идут все три шага формы: `--facts`, `--schema-only`/`--check`, запись.
+- **`bin/qmd-collections`.** `setupCollections` (`src/main/harness/qmd.ts`) идёт через `runHarnessScript`; сбой запуска — `code: null` и причина в `output` (как раньше у ENOENT). Вызовы `npm` (`qmd.ts`, `first-run/actions.ts`) не тронуты — Ticket 15.
+- **`profileKnows`** различает ответ и его отсутствие. Бросает ошибку, когда `bin/profile` не запустился (reject runner-а: `HarnessScriptStartError`, ENOENT), когда система не нашла интерпретатор (exit code 127/126) и когда процесс убит (код `null`: timeout или signal). Шаг «Folder» (`ProjectConnector.inspect`) отдаёт тогда `rejected` с причиной `The Harness could not tell whether it knows <root>: …` — окно показывает её так же, как другие ошибки шага (`ProjectsSection.tsx`, `fail(answer.reason)`), UI не менялся. Шаг записи после `bin/project-connect` отвечает своей причиной (`…could not be asked about…`), а не «Harness не находит Profile».
+- **Отклонение от буквы пункта 3:** любой другой exit code, кроме 0, остаётся ответом «не знает», не ошибкой. Причина: свежий Harness без `gate/config.json` отвечает exit 1 на любую папку (`gate-resolve.mjs` → 4 → `profile` → 1), а `bin/project-connect` создаёт реестр при первой записи. Ошибка на exit 1 сломала бы первый «Add project» на новой машине.
+- **Test-ы.**
+  - `test/unit/profile-knows.test.ts` (новый, 14): сбой запуска, timeout, signal, 127/126 — reject; exit 3 и exit 1 — `false`; exit 0 и `_resolved.workspace` — как раньше.
+  - `test/contract/projects-connect.test.ts` (+5): `connectScriptRunner` с подменённым `spawn` — команда `NODE` из PATH окружения, первый аргумент — путь скрипта, затем аргументы; stdin и HARNESS_HOME доходят до stand-in-а без бита исполнения. Ещё: настоящий `harness/bin/project-connect --schema-only` через него; нет скрипта/нет node — `HarnessScriptStartError`, `spawn` не вызван; сбой запуска — причина шага «Draft»; шаг «Folder» при сбое `bin/profile` — `rejected`, draft Session не стартует.
+  - `test/contract/harness-qmd.test.ts` (+2): `qmd-collections` запускается как `node <скрипт> <project>`; без node — `code: null` и `node not found in PATH: …`.
+- **Как упали новые test-ы** (сначала test-ы, код временно в поведении main: запуск самого файла, `catch → false` в `profileKnows`, `qmd.ts` из `ee6c253`): 16 новых test-ов из 21 красные; 5 зелёных — случаи «скрипт ответил», где поведение и не менялось. `profileKnows`: `promise resolved "false" instead of rejecting` (9 случаев); `inspect`: `{ status: 'new' }` вместо `rejected`. `connectScriptRunner`: `Error: spawn …\harness-bin\project-connect ENOENT` — Windows не запускает файл с `#!` (тот же текст, что у владельца 2026-10-13); у настоящего `harness/bin/project-connect` — тоже ENOENT. `qmd-collections`: `{ code: null }` вместо `{ code: 0 }`, и `expected [] to deeply equal [ { … } ]` — `spawn` с node не вызывался.
+
+| Прогон на ПК | Exit | Итог |
+|---|---|---|
+| `pnpm install --frozen-lockfile` | 0 | — |
+| vitest: `profile-knows`, `projects-connect`, `harness-qmd`, `e2e-no-spawn-on-load` (ветка) | 1 | 15 упало, 102 прошли из 117; все новые зелёные, `e2e-no-spawn-on-load` зелёный |
+| то же: `projects-connect` + `harness-qmd` на main `ee6c253` | 1 | 15 упало, 33 прошли из 48 — те же 15 имён |
+| vitest: остальные файлы, где есть изменённые модули (`first-run-checks`, `harness-script-command`, `harness-script-wiring`, `link-access`, `projects-hold`, `projects`, `workflow-profile`, `workflow-stages`, `agent-options`), ветка | 1 | 36 упало, 229 прошли, 26 пропущено |
+| те же 9 файлов на main `ee6c253` | 1 | 36 упало, 229 прошли, 26 пропущено — те же имена |
+| `pnpm lint` | 0 | — |
+| `pnpm typecheck` | 0 | — |
+
+- Новых падений по именам нет. Старые падения на ПК — Windows-специфика test-ов, не этого Ticket-а: stub-ы `#!/bin/sh` (`harness-qmd`: node/npm/qmd stand-in-ы не запускаются; старый случай `setupCollections` со stub-ом `#!/bin/sh` на Windows теперь падает с `NOT_NODE` вместо ENOENT — то же имя), пути `C:\` против `/` (`projects-connect` draft/write, `projects`, `first-run-checks`).
+- `gate` не запускался: Harness profile на этом ПК нет намеренно, и gate пишет своё состояние в `~/.claude`, куда этой Session писать нельзя.
+
+**Ждёт владельца:** пункты 1–3 «Готово, когда» на ПК — форма целиком руками: новая папка до «Review» и записи, знакомая папка сразу в список, ошибка шага «Folder» при сбое скрипта. Для этого Harness должен стоять на машине (Ticket 13), а эта Session в профиль владельца не пишет. Ещё — `gate full` на Mac. e2e (`projects-connect.spec.ts`) на ПК не запускались: окна приложения не открывались.

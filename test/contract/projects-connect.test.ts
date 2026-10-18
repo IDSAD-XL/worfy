@@ -24,6 +24,7 @@ import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {
   activityOf,
   applyChoices,
+  connectScriptRunner,
   DRAFT_DISALLOWED_TOOLS,
   DRAFT_TOOLS,
   draftCanUseTool,
@@ -37,7 +38,9 @@ import {
 } from '../../src/main/projects/connect'
 import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
-import type { ProfileRunner } from '../../src/main/workflow/profile'
+import type { HarnessLocation } from '../../src/main/harness/locate'
+import { HarnessScriptStartError, type ProfileRunner, type SpawnProcess } from '../../src/main/workflow/profile'
+import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
 
@@ -327,6 +330,86 @@ describe('a folder the Harness already knows', () => {
     const answer = (workspace: string | null): ProfileRunner => () => Promise.resolve({ code: 0, stdout: JSON.stringify({ _resolved: { workspace } }), stderr: '' })
     expect((await connectorWith({ profile: answer(null) }).connector.inspect(workspace)).status).toBe('new')
     expect((await connectorWith({ profile: answer(workspace) }).connector.inspect(workspace)).status).toBe('known')
+  })
+
+  // worfy-windows ticket 30: on Windows a bin/profile that was not started read as "unknown", and a
+  // connected folder went into the form as a new one.
+  it('bin/profile that did not start or did not answer: the Folder step shows why, not a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const noNode: ProfileRunner = () => Promise.reject(new HarnessScriptStartError('NODE_NOT_FOUND', 'node not found in PATH: /h/bin/profile is not run'))
+    const { connector, requests } = connectorWith({ profile: noNode })
+    expect(await connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile could not be run: node not found in PATH: /h/bin/profile is not run` })
+    expect(requests).toHaveLength(0)
+
+    const timedOut = connectorWith({ profile: () => Promise.resolve({ code: null, stdout: '', stderr: '' }) })
+    expect(await timedOut.connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile did not answer in time and was stopped` })
+  })
+})
+
+describe('bin/project-connect is started as node <script> (worfy-windows ticket 30)', () => {
+  /** A stand-in of the script: prints its arguments, its stdin and HARNESS_HOME. Not executable: only `node <file>` runs it. */
+  const echoScript = nodeScript(
+    "let stdin = ''\nprocess.stdin.on('data', (chunk) => (stdin += chunk))\nprocess.stdin.on('end', () => process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), stdin, harnessHome: process.env.HARNESS_HOME })))",
+  )
+  const location = (binDir: string): HarnessLocation => ({ kind: 'plugin', binDir, gateDir: join(harnessHome, 'gate'), harnessHome, checked: [join(home, '.claude', 'bin', 'epic-status'), join(binDir, 'epic-status')] })
+  /** node's spawn, recording what it was asked to start. */
+  const recording = (): { spawn: SpawnProcess; calls: { command: string; args: string[] }[] } => {
+    const calls: { command: string; args: string[] }[] = []
+    return {
+      calls,
+      spawn: (command, args, options) => {
+        calls.push({ command, args: [...args] })
+        return spawn(command, args, options)
+      },
+    }
+  }
+
+  it('the command is node from the PATH of the scripts, the script path is its first argument, then the arguments and stdin', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    writeFileSync(join(binDir, 'project-connect'), echoScript)
+    const { spawn: start, calls } = recording()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), spawn: start })
+    const run = await connect(['--facts', join(scratch, 'shop')], '{"draft":1}')
+    expect(calls).toEqual([{ command: NODE, args: [join(binDir, 'project-connect'), '--facts', join(scratch, 'shop')] }])
+    expect(run.code).toBe(0)
+    expect(JSON.parse(run.stdout)).toEqual({ argv: ['--facts', join(scratch, 'shop')], stdin: '{"draft":1}', harnessHome })
+  })
+
+  it('the real bin/project-connect answers --schema-only through it', async () => {
+    const { spawn: start, calls } = recording()
+    const connect = connectScriptRunner({ harness: () => location(BIN), env: () => Promise.resolve(sandboxEnv()), spawn: start })
+    const run = await connect(['--schema-only'], '{}')
+    expect(calls.map((call) => call.args[0])).toEqual([join(BIN, 'project-connect')])
+    expect(run.code).toBe(1)
+    expect((JSON.parse(run.stdout) as { errors: { path: string }[] }).errors.map((issue) => issue.path)).toEqual(['profile', 'rules', 'gate'])
+  })
+
+  it('no script, or no node on the PATH: a HarnessScriptStartError, and nothing is started', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { spawn: start, calls } = recording()
+    const missing = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), spawn: start })
+    await expect(missing(['--check'], '{}')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    writeFileSync(join(binDir, 'project-connect'), echoScript)
+    const emptyDir = join(scratch, 'empty')
+    mkdirSync(emptyDir)
+    const noNode = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([emptyDir])), spawn: start })
+    await expect(noNode(['--check'], '{}')).rejects.toMatchObject({ code: 'NODE_NOT_FOUND' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('a start failure of the script is the form step\'s reason', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { connector } = connectorWith({ connect: connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])) }) })
+    expect(await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)).toEqual({
+      status: 'failed',
+      reason: `bin/project-connect could not be run: no Harness script at ${join(binDir, 'project-connect')}`,
+      issues: [],
+    })
   })
 })
 

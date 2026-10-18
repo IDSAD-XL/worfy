@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -40,10 +39,10 @@ import { clientOf, type Client } from '../clients'
 import { signInRegistry, type GhProgram } from '../github/accounts'
 import { ghRunner } from '../github/prs'
 import { bundledHarnessDir } from '../harness/bundled'
-import { currentHarness, harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
+import { currentHarness, harnessHomes, locateHarness } from '../harness/locate'
 import { isRemoteCall } from '../link/caller'
 import { browseFolder } from '../projects/browse'
-import { ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
+import { connectScriptRunner, ProjectConnector, type ConnectScript, type DraftQueryFactory } from '../projects/connect'
 import { projectHolds } from '../projects/holds'
 import { readProjectSettings, writeProjectSettings } from '../projects/settings'
 import { projectStore, runGit } from '../projects/store'
@@ -57,37 +56,14 @@ const store = projectStore()
 
 // ── connecting a Project (worfy-harness ticket 24, src/main/projects/connect.ts) ──────────────
 
-/** How long bin/project-connect may take: the write commits in git and may set up qmd collections. */
-const CONNECT_TIMEOUT_MS = 120_000
-const MAX_OUTPUT = 1024 * 1024
-
-/** `bin/project-connect` of the Harness on the machine, with the login shell's PATH (node) and HARNESS_HOME. */
-const connectScript: ConnectScript = async (args, stdin) => {
-  const env = (await agentEnv()).env
-  const harness = locateHarness(harnessHomes(claudeHome()))
-  return new Promise((resolve, reject) => {
-    const child = spawn(join(harness.binDir, 'project-connect'), [...args], { env: scriptEnv(harness, env) as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    const timer = setTimeout(() => child.kill('SIGKILL'), CONNECT_TIMEOUT_MS)
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT) stdout += chunk.toString('utf8')
-    })
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_OUTPUT) stderr += chunk.toString('utf8')
-    })
-    child.on('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      resolve({ code, stdout, stderr })
-    })
-    child.stdin.on('error', () => undefined)
-    child.stdin.end(stdin)
-  })
-}
+/**
+ * `bin/project-connect` of the Harness on the machine, with the login shell's PATH (node) and
+ * HARNESS_HOME, started as `node <script>` by the shared launcher (worfy-windows ticket 30).
+ */
+const connectScript: ConnectScript = connectScriptRunner({
+  harness: () => locateHarness(harnessHomes(claudeHome())),
+  env: async () => (await agentEnv()).env,
+})
 
 /** The draft Session's Claude Code: the SDK with the draft's options, as a Session outside every Project (no canvas). */
 const sdkDraftQuery: DraftQueryFactory = async (request) => {
