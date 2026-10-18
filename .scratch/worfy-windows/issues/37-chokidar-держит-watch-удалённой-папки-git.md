@@ -1,7 +1,8 @@
 # 37 — Watch веток git через chokidar на Windows держит handle удалённой папки
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T13:40Z
+Branch: worfy-windows/37-chokidar-handle
 Blocked by: —
 Source: первый круг ревью PR #281 на Mac, 2026-10-13 ([комментарий в PR #281](https://github.com/IDSAD-XL/worfy/pull/281#issuecomment-6145538673), раздел «Not this PR — tickets I file»); «Итог» [Ticket-а 27](27-docswatcher-на-удалённом-корне-project-а.md): как chokidar ведёт себя на Windows при удалённой папке `.git`, не мерилось. Первый шаг — замер на Windows-ПК.
 
@@ -70,13 +71,13 @@ Source: первый круг ревью PR #281 на Mac, 2026-10-13 ([комм
 
 ## Готово, когда
 
-- [ ] Замер сделан. В «Итоге» таблица по шагам 2–5: число событий `raw`, процессорное время за 3 s,
+- [x] Замер сделан. В «Итоге» таблица по шагам 2–5: число событий `raw`, процессорное время за 3 s,
       версии Windows, Node и git.
-- [ ] Если поток есть: те же шаги после правки дают около 0 ms; в логе одна строка о пропавшей папке.
-- [ ] Если поток есть: test на подменном watcher-е идёт на любой системе и был красным до правки;
+- [x] Если поток есть: те же шаги после правки дают около 0 ms; в логе одна строка о пропавшей папке.
+- [x] Если поток есть: test на подменном watcher-е идёт на любой системе и был красным до правки;
       мутант «watcher не закрыт» красный.
 - [ ] Если потока нет: числа в «Итоге», код не менялся.
-- [ ] `claude-home/registry.ts` назван в «Итоге» Ticket-а 27.
+- [x] `claude-home/registry.ts` назван в «Итоге» Ticket-а 27.
 - [ ] `gate full` зелёный на Mac; ручной job «Windows tests» на test-файлах правки — без новых
       падений относительно main.
 
@@ -112,4 +113,66 @@ Source: первый круг ревью PR #281 на Mac, 2026-10-13 ([комм
 
 ## Итог
 
-—
+Ветка `worfy-windows/37-chokidar-handle` от main `cf506ee`, Windows-ПК, 2026-10-18.
+
+### Замер до правки (пункт 1)
+
+Windows 11 Pro 10.0.26200.9711, Node 24.21.0 (та же версия, что в Electron 44.5.1), git 2.45.1.windows.1, chokidar 5.0.0. Скрипт: `chokidar.watch` на `.git\refs\heads`, `.git\packed-refs`, `.git\worktrees` с тем же `ignored`, что в `watch.ts`, `ignoreInitial: true`, счётчик на `raw`, `ready`, пауза 300 ms; потом `rmdir /s /q` папки репозитория (exit code 0 везде) и 3 s. Папки — в `%TEMP%\worfy-01\t37m`, удалены после замера. Два прогона на случай, где их два.
+
+| Шаг | События `raw` за 3 s | CPU за 3 s | Какие handle шлют |
+| --- | --- | --- | --- |
+| 2: `pack-refs --all`, `refs\heads` пуста | 121 714; 123 874 | 3735 ms; 3969 ms | `.git`, `.git\refs\heads` |
+| 3: контроль, одна ветка файлом | 109 601; 108 395 | 3921 ms; 3843 ms | `.git`, `.git\refs\heads` |
+| 4: `git gc` до watch | 104 092 | 3891 ms | `.git`, `.git\refs\heads` |
+| 4: `git gc` во время watch | 93 364; 97 450 | 4063 ms; 3937 ms | `.git`, `.git\refs\heads` |
+| 4: `git worktree remove` последнего worktree, потом папка репозитория | 119 285; 112 157; 121 823 | 3765–4078 ms | `.git\worktrees`, `.git`, `.git\refs\heads` |
+| 4': только `git worktree remove`, репозиторий на месте | 98 703; 98 100 | 3765 ms; 3859 ms | `.git\worktrees` |
+| 5: копия `~/.claude` (глубина 2), удалена `projects\<папка>` с transcript-ом / пустая | 0 / 0 (и 0 во втором прогоне) | 0 ms / 0 ms | — |
+
+- **Поток есть во всех случаях git, и в контроле тоже** — на macOS контроль закрывал все handle. `.git` держится всегда: chokidar следит за ней ради файла `packed-refs` и пропавшей `worktrees`.
+- **Самый частый путь — без удаления репозитория:** `git worktree remove` последнего worktree удаляет `.git\worktrees`, и её handle шлёт поток, пока Project открыт.
+- Имя в событиях потока — полный путь самой папки (на всех 100 % событий, проверено по `watchedPath`), как в замере Ticket-а 27.
+- Папка удалена сразу после `ready` (без паузы): потока нет — chokidar ещё не открыл handle.
+- Шаг 5: копия `~/.claude` — синтетическая папка того же устройства (`projects\<папка>\<uuid>.jsonl`, `sessions\1.json`), сделанная для замера; настоящая `~/.claude` не читалась.
+- **Новый watch chokidar на пропавших путях** (риск из раздела «Риски»): `ready` приходит, следит за ближайшей папкой выше, 0 событий и 0 ms за 3 s. Папку репозитория создали снова — 0 событий (это «Вне скоупа»). Если пропала только `.git\worktrees`, новый watch видит следующий `git worktree add` (держит contract test).
+
+### Причина
+
+chokidar ставит на каждую папку не рекурсивный `fs.watch` и закрывает handle только через папку выше или когда ушла последняя известная запись и `readdir` не прошёл. На Windows handle удалённой папки не закрывается и не шлёт `error`, а шлёт события с полным путём этой папки; chokidar их не проверяет.
+
+### Что изменилось
+
+- `src/main/workflow/watch.ts`: watch веток слушает `raw`. Первое имя — полный путь (правило `namesTheFolder` из `watch-gone.ts`) и событие от `fs.watch` (есть `watchedPath`; опрос `usePolling` не трогается) — одна строка `console.warn`: `[workflow] the folder <папка> is gone: the watch of the branches is made anew`. Затем watcher закрывается, после `close` заводится заново на тех же путях, и идёт чтение веток. `close()` во время этого — новый не заводится. Seam `isAbsolute` в `WatchOptions` для test-ов.
+- На macOS и Linux имена событий не бывают полным путём (кроме watch `/`, см. `watch-gone.ts`), поведение там не меняется.
+- Выбран вариант «закрыть и завести заново», не перевод на `fs.watch`: правка маленькая, chokidar сам ждёт пропавшие пути на папке выше.
+- Ticket 27, «Итог», пункт 4: дописан `claude-home/registry.ts` и ссылка сюда.
+
+### Test-ы
+
+- `test/unit/workflow-branches-gone.test.ts` (4, любая система): подменный chokidar, правило `path.win32`, настоящий `git init`.
+- `test/contract/workflow-branches-gone.test.ts` (4, только `win32`): настоящий chokidar и папки; `git worktree remove`, потом папка репозитория; папка после `pack-refs --all`, после `gc`, с одной веткой. Порог — меньше 300 ms CPU за 1 s, одна строка в логе на каждую пропажу; новый watch видит `git worktree add`.
+- Красные на коде main (`watch.ts` из `HEAD`, потом возвращён байт в байт): 6 упали, 2 прошли (2 прошедших — guard-ы, что лишнего не делается), exit code 1.
+- Мутанты (по одному, файл возвращён байт в байт, все убиты, exit code 1): watcher не закрыт — 7 красных из 8; не заведён заново — 3; нет однократного флага — 1; нет проверки `closed` после `close` — 1; любое имя считается пропажей — 2.
+
+### Те же шаги после правки (ПК)
+
+Через настоящий `WorkflowWatcher` под Electron 44.5.1 (временный test, не в commit), 3 s после удаления:
+
+| Случай | События `raw` | CPU | Строк в логе |
+| --- | --- | --- | --- |
+| `pack-refs --all` | 2 | 0 ms | 1 |
+| контроль, одна ветка | 4 | 0 ms | 1 |
+| `gc` до watch / во время | 2 / 2 | 30 ms / 0 ms | 1 / 1 |
+| `worktree remove`, потом репозиторий | 4 | 46 ms | 2 (по одной на пропажу) |
+| только `worktree remove` | 4 | 16 ms | 1 |
+
+### Прогоны на ПК
+
+- `node scripts/vitest-electron.mjs` на 10 файлах (два новых, `workflow-watch-retry`, `workflow-watch-links`, `workflow-reader`, `workflow-profile`, `workflow-remote-links`, `watch-gone`, `e2e-no-spawn-on-load`, `no-rmsync`): exit code 0, 258 passed, 3 skipped.
+- `pnpm lint`: exit code 0. `pnpm typecheck`: exit code 0.
+- `gate.sh fast`: exit code 3 — Harness-профиля на ПК нет, это не зелёный.
+
+### Осталось Mac и владельцу
+
+- `gate full` на Mac; ручной job «Windows tests» на двух новых test-файлах.
+- На Mac убедиться, что unit test проходит (contract test там пропускается).

@@ -24,6 +24,12 @@
 // realpath and stat on every link in a folder it watches, and a link to a share in a checked-out
 // repository would make the system contact that host when the Project is opened. There
 // link-safe-watch.ts watches it, and reads each link before anything follows it.
+//
+// The git refs are watched by chokidar on every system. On Windows a folder it watches that is
+// removed — `.git\worktrees` after `git worktree remove` of the last worktree, or the whole
+// repository — keeps its handle and sends events without end that name the folder by its full path
+// (worfy-windows ticket 37; the rule is watch-gone.ts's). The first such name closes the watch of
+// the branches and makes it anew on the same paths.
 import { execFile } from 'node:child_process'
 import { realpath } from 'node:fs/promises'
 import * as nativePath from 'node:path'
@@ -32,6 +38,7 @@ import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
 import type { HarnessScriptEnvRequest, HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
+import { namesTheFolder } from '../watch-gone'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
 import {
@@ -85,6 +92,11 @@ export interface WatchOptions {
    * elsewhere. Tests name one to run it on any system.
    */
   ticketsWatch?: 'links-read-first' | 'chokidar'
+  /**
+   * Whether a name in an event of the branches watch is a full path, which says the watched folder
+   * is gone; this system's rule by default. Tests give path.win32's to run the Windows case anywhere.
+   */
+  isAbsolute?: (name: string) => boolean
 }
 
 /**
@@ -356,11 +368,7 @@ export class WorkflowWatcher {
     const ready: Promise<void>[] = []
     const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
       ready.push(new Promise<void>((done) => watcher.once('ready', () => done())))
-      watcher.on('all', () => this.schedule(what))
-      // Without a listener chokidar's 'error' event throws, and every failed watch became an
-      // unhandled rejection.
-      watcher.on('error', (error) => console.error(`[workflow] ${what} watch error`, error))
-      this.watchers.push(watcher)
+      this.follow(watcher, what)
     }
     if ((this.options.ticketsWatch ?? (sep === '\\' ? 'links-read-first' : 'chokidar')) === 'links-read-first') {
       // The Project root is the user's own folder, also when it is a link to a share of theirs.
@@ -393,11 +401,54 @@ export class WorkflowWatcher {
         const parts = rel.split(sep)
         return parts.length > 2 || (parts.length === 2 && parts[1] !== 'HEAD')
       }
-      add(watch([join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees], { ignoreInitial: true, ignored }), 'branches')
+      add(this.watchBranches([join(common, 'refs', 'heads'), join(common, 'packed-refs'), worktrees], ignored), 'branches')
     }
     // chokidar's close removes the 'ready' listener, so a watch closed before it was ready never
     // gets the event: close() would then wait for this read for good.
     await Promise.race([Promise.all(ready), this.closing])
+  }
+
+  /** Reads again on every event of a chokidar watch, and holds it for `close`. */
+  private follow(watcher: FSWatcher, what: 'checkout' | 'branches'): void {
+    watcher.on('all', () => this.schedule(what))
+    // Without a listener chokidar's 'error' event throws, and every failed watch became an
+    // unhandled rejection.
+    watcher.on('error', (error) => console.error(`[workflow] ${what} watch error`, error))
+    this.watchers.push(watcher)
+  }
+
+  /**
+   * Watches the git refs of the branches. A `raw` event whose name is a full path comes from a
+   * watched folder that is gone (Windows; see the top of the file): the watch is closed and made
+   * anew on the same paths, which chokidar then follows from the nearest folder still there. Only
+   * fs.watch events carry `watchedPath`; a polled watch names every changed file by its full path
+   * and is left alone.
+   */
+  private watchBranches(paths: string[], ignored: (path: string) => boolean): FSWatcher {
+    const full = this.options.isAbsolute ?? isAbsolute
+    const watcher = watch(paths, { ignoreInitial: true, ignored })
+    let gone = false
+    watcher.on('raw', (_event, name, details) => {
+      const folder = (details as { watchedPath?: unknown } | null | undefined)?.watchedPath
+      if (gone || this.closed || typeof folder !== 'string' || !namesTheFolder(typeof name === 'string' ? name : null, full)) return
+      // The run of events goes on until the close below is through: one line, one new watch.
+      gone = true
+      // chokidar names a path it was given with `/` on Windows, one it found below with `\`.
+      console.warn(`[workflow] the folder ${nativePath.normalize(folder)} is gone: the watch of the branches is made anew`)
+      void this.remakeBranches(watcher, paths, ignored)
+    })
+    return watcher
+  }
+
+  private async remakeBranches(gone: FSWatcher, paths: string[], ignored: (path: string) => boolean): Promise<void> {
+    await gone.close().catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
+    // close() has closed every watch, this one too, and nothing more is watched after it.
+    if (this.closed) return
+    const at = this.watchers.indexOf(gone)
+    if (at !== -1) this.watchers.splice(at, 1)
+    this.follow(this.watchBranches(paths, ignored), 'branches')
+    // What the removal changed: a worktree or the whole repository is gone.
+    this.schedule('branches')
   }
 
   private schedule(what: 'checkout' | 'branches'): void {

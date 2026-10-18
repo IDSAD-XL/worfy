@@ -112,7 +112,9 @@ Session на Windows-ПК, 2026-10-13. Системный Node 24.21.0, pnpm 11.
 - `src/main/agent/limits.ts` — исправлен здесь.
 - `src/main/link-safe-watch.ts` (Ticket 20) — закрывает watch на первом событии с полным путём с самого начала; его test-ы это держат.
 
-Остальные наблюдатели идут через chokidar (ветки git в `src/main/workflow/watch.ts`; Tickets root и Card-ы на macOS и Linux). Как chokidar ведёт себя на Windows при удалённой папке `.git`, не мерилось.
+Остальные наблюдатели идут через chokidar (ветки git в `src/main/workflow/watch.ts`; `~/.claude` в `src/main/claude-home/registry.ts`, глубина 2, все системы; Tickets root и Card-ы на macOS и Linux). Как chokidar ведёт себя на Windows при удалённой папке `.git`, не мерилось.
+
+Дописано в [Ticket-е 37](37-chokidar-держит-watch-удалённой-папки-git.md) (2026-10-18): на Windows-ПК chokidar держит handle удалённой папки — `.git\worktrees` после `git worktree remove` последнего worktree или всей папки репозитория — и получает поток событий; watch веток git теперь закрывается и заводится заново. Watch `~/.claude` на копии, сделанной для замера, после удаления `projects\<папка>` получил 0 событий и 0 ms за 3 s.
 
 ### Test-ы и мутанты
 
