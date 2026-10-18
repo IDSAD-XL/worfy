@@ -15,7 +15,7 @@ import { readPipelineProfile } from '../workflow/profile'
 import { StageHub, type StageSources, type StageSubscriber } from '../workflow/stages'
 import { sharedPrTracker } from './checks'
 import { defineHandler, emit, type HandlerModule } from './index'
-import { workflowHub } from './workflow'
+import { OpenedRoots, workflowHub } from './workflow'
 
 /** The Profile's Pipeline through `bin/profile --json`, with the Harness scripts' environment of the app. */
 export function pipelineProfileSource(home: string, env: HarnessScriptEnvSource): StageSources['profile'] {
@@ -37,6 +37,8 @@ export const stageHub = new StageHub({
 export interface PipelineHandlersOptions {
   hub: Pick<StageHub, 'open' | 'close' | 'drop'>
   projects?: () => readonly { readonly path: string }[]
+  /** Where the opens' roots are kept; a test passes its own to see them. */
+  opened?: OpenedRoots
 }
 
 /**
@@ -47,8 +49,12 @@ export interface PipelineHandlersOptions {
  */
 export function pipelineHandlers(options: PipelineHandlersOptions): HandlerModule {
   const projects = options.projects ?? (() => projectStore().list())
+  const opened = options.opened ?? new OpenedRoots()
   /** The client holding each id leaves every Project when it is destroyed or another client takes its id. */
-  const holders = new ClientHolders((id) => void options.hub.drop(id))
+  const holders = new ClientHolders((id) => {
+    opened.forget(id)
+    void options.hub.drop(id)
+  })
   /** The client that called, as a subscriber of the root it spelled `asSent`. */
   const subscriberOf = (client: Client | undefined, asSent: string): StageSubscriber => {
     if (client === undefined) throw new Error('pipeline.get: the call came from no client')
@@ -63,12 +69,14 @@ export function pipelineHandlers(options: PipelineHandlersOptions): HandlerModul
   return [
     defineHandler(pipelineGet, async ({ root }, { event }) => {
       const checked = resolve(insideProjects(event, resolve(root), projects, 'the Project root'))
-      return { ...(await options.hub.open(checked, subscriberOf(clientOf(event), root))), root }
+      const subscriber = subscriberOf(clientOf(event), root)
+      opened.remember(subscriber.id, root, checked)
+      return { ...(await options.hub.open(checked, subscriber)), root }
     }),
+    // Not checked against the Projects: it closes under the root the open used (OpenedRoots).
     defineHandler(pipelineClose, async ({ root }, { event }) => {
       const client = clientOf(event)
-      const checked = resolve(insideProjects(event, resolve(root), projects, 'the Project root'))
-      return { closed: client === undefined ? false : await options.hub.close(checked, client.id) }
+      return { closed: client === undefined ? false : await options.hub.close(opened.take(client.id, root), client.id) }
     }),
   ]
 }

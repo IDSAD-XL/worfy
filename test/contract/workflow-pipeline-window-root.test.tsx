@@ -38,9 +38,19 @@ interface Hub {
   close(root: string, id: number | string): Promise<boolean>
   drop(id: number | string): Promise<void>
 }
+/** The roots the handlers remember from each open (OpenedRoots of src/main/ipc/workflow.ts). */
+interface OpenedRoots {
+  readonly size: number
+}
+interface HandlersOptions {
+  hub: Hub
+  projects: () => readonly { path: string }[]
+  opened: OpenedRoots
+}
 interface MainModules {
-  workflowHandlers: (options: { hub: Hub; projects: () => readonly { path: string }[] }) => unknown
-  pipelineHandlers: (options: { hub: Hub; projects: () => readonly { path: string }[] }) => unknown
+  workflowHandlers: (options: HandlersOptions) => unknown
+  pipelineHandlers: (options: HandlersOptions) => unknown
+  OpenedRoots: new () => OpenedRoots
   registerIpc: (ipc: { handle(channel: string, listener: Listener): void }, options: { modules: Record<string, () => Promise<unknown>>; isTrustedSender: unknown }) => Promise<void>
   appUrlMatcher: (options: { indexHtml: string }) => unknown
   removeTestTree: (path: string) => void
@@ -52,7 +62,7 @@ async function mainModules(): Promise<MainModules> {
   const ipcIndex: string = '../../src/main/ipc/index'
   const remove: string = '../remove'
   const [w, p, ipc, r] = (await Promise.all([workflow, pipeline, ipcIndex, remove].map((path) => import(/* @vite-ignore */ path)))) as MainModules[]
-  return { workflowHandlers: w!.workflowHandlers, pipelineHandlers: p!.pipelineHandlers, registerIpc: ipc!.registerIpc, appUrlMatcher: ipc!.appUrlMatcher, removeTestTree: r!.removeTestTree }
+  return { workflowHandlers: w!.workflowHandlers, pipelineHandlers: p!.pipelineHandlers, OpenedRoots: w!.OpenedRoots, registerIpc: ipc!.registerIpc, appUrlMatcher: ipc!.appUrlMatcher, removeTestTree: r!.removeTestTree }
 }
 
 const model = (root: string): WorkflowModel => ({ root, epics: [], tickets: [], error: null, branchErrors: [] })
@@ -89,6 +99,12 @@ let modules: MainModules
 let base = ''
 let project = ''
 let link = ''
+/** The Projects of this Machine, as the handlers read them on each call. */
+let listed: { path: string }[] = []
+/** The roots each half's handlers remember from the opens. */
+let remembered: { workflow: OpenedRoots; pipeline: OpenedRoots } = { workflow: { size: 0 }, pipeline: { size: 0 } }
+/** A call of the window's, straight to the handler. */
+let windowCall: (channel: string, root: string) => Promise<{ ok: boolean; value?: unknown }> = async () => ({ ok: false })
 
 beforeEach(async () => {
   vi.resetModules()
@@ -102,13 +118,15 @@ beforeEach(async () => {
   workflow = standInHub(model)
   pipeline = standInHub((root) => snapshot(root))
   handlers = new Map()
-  const projects = () => [{ path: link }]
+  remembered = { workflow: new modules.OpenedRoots(), pipeline: new modules.OpenedRoots() }
+  listed = [{ path: link }]
+  const projects = () => listed
   await modules.registerIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener) },
     {
       modules: {
-        './workflow.ts': async () => modules.workflowHandlers({ hub: workflow.hub, projects }),
-        './pipeline.ts': async () => modules.pipelineHandlers({ hub: pipeline.hub, projects }),
+        './workflow.ts': async () => modules.workflowHandlers({ hub: workflow.hub, projects, opened: remembered.workflow }),
+        './pipeline.ts': async () => modules.pipelineHandlers({ hub: pipeline.hub, projects, opened: remembered.pipeline }),
       },
       isTrustedSender: modules.appUrlMatcher({ indexHtml: INDEX_HTML }),
     },
@@ -125,6 +143,7 @@ beforeEach(async () => {
     once: () => undefined,
   }
   const event = { senderFrame: { url: pathToFileURL(INDEX_HTML).href }, sender }
+  windowCall = async (channel, root) => (await handlers.get(IPC_CHANNEL_PREFIX + channel)!(event, { root })) as { ok: boolean; value?: unknown }
   const bridge = {
     invoke: async (channel: string, input: unknown) => {
       const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
@@ -177,6 +196,7 @@ describe('the window that asked with C:/p gets the changes', () => {
 function linkClient(id: string) {
   const sent: { channel: string; payload: unknown }[] = []
   let destroyed = false
+  const onDestroyed: (() => void)[] = []
   const sender = {
     id,
     send: (channel: string, payload: unknown) => {
@@ -185,12 +205,21 @@ function linkClient(id: string) {
       sent.push({ channel, payload })
     },
     isDestroyed: () => destroyed,
-    once: () => sender,
+    once: (_event: 'destroyed', listener: () => void) => {
+      onDestroyed.push(listener)
+      return sender
+    },
   }
   const event = { senderFrame: { url: pathToFileURL(INDEX_HTML).href }, sender }
   return {
     sent,
+    /** Destroyed, but its 'destroyed' event not yet emitted: a change may still find its subscriber. */
     destroy: () => void (destroyed = true),
+    /** Destroyed, with the 'destroyed' event the handlers wait for. */
+    gone: () => {
+      destroyed = true
+      for (const listener of onDestroyed.splice(0)) listener()
+    },
     call: async (channel: string, root: string) => (await handlers.get(IPC_CHANNEL_PREFIX + channel)!(event, { root })) as { ok: boolean; value?: { root: string } },
   }
 }
@@ -248,5 +277,48 @@ describe('a client gone before a change is skipped; the others still get it', ()
     expect(() => pipeline.change(realpathSync.native(project), (key) => snapshot(key, 'gh is unavailable'))).not.toThrow()
     expect(gone.sent).toEqual([])
     expect(kept.sent).toEqual([{ channel: `${IPC_CHANNEL_PREFIX}pipeline.changed`, payload: snapshot(link, 'gh is unavailable') }])
+  })
+})
+
+// A close only lets the caller's own subscriber go and reads nothing, so it is not checked against
+// the Projects: an error would leave the watch running until the link drops. It closes under the key
+// the open used.
+describe.each([
+  { open: 'workflow.open', close: 'workflow.close', hub: () => workflow, roots: () => remembered.workflow },
+  { open: 'pipeline.get', close: 'pipeline.close', hub: () => pipeline, roots: () => remembered.pipeline },
+])('$close', ({ open, close, hub, roots }) => {
+  it('from a Linked machine, after the root left the Projects: closed, and the subscription is gone', async () => {
+    const root = sep === '\\' ? link.replaceAll('\\', '/') : `${link}/`
+    const client = linkClient('link:machine/1')
+    expect(await client.call(open, root)).toMatchObject({ ok: true })
+    expect(hub().opened()).toEqual([realpathSync.native(project)])
+    expect(roots().size).toBe(1)
+    listed = []
+    expect(await client.call(close, root)).toEqual({ ok: true, value: { closed: true } })
+    expect(hub().opened()).toEqual([])
+    // The open is forgotten: a second close finds nothing.
+    expect(roots().size).toBe(0)
+    expect(await client.call(close, root)).toEqual({ ok: true, value: { closed: false } })
+  })
+
+  it('a client that is gone leaves nothing remembered', async () => {
+    const client = linkClient('link:machine/1')
+    expect(await client.call(open, link)).toMatchObject({ ok: true })
+    expect(roots().size).toBe(1)
+    client.gone()
+    expect(roots().size).toBe(0)
+  })
+
+  it('from a Linked machine without an open, for a root outside the Projects: not closed, no error', async () => {
+    const client = linkClient('link:machine/1')
+    expect(await client.call(close, join(base, 'elsewhere'))).toEqual({ ok: true, value: { closed: false } })
+  })
+
+  it('from the window: as before, under path.resolve of the root it sent', async () => {
+    expect(await windowCall(open, ROOT)).toMatchObject({ ok: true })
+    expect(hub().opened()).toEqual([resolve(ROOT)])
+    expect(await windowCall(close, ROOT)).toEqual({ ok: true, value: { closed: true } })
+    expect(hub().opened()).toEqual([])
+    expect(await windowCall(close, ROOT)).toEqual({ ok: true, value: { closed: false } })
   })
 })
