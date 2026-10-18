@@ -18,6 +18,8 @@
 // (leave()); the shell is closed when the last one has left. The pty has one size: the size of the
 // subscriber that typed or clicked in the terminal last (Q14). A subscriber's resize is remembered
 // and applies only while it owns the size; typing (write) or a click (takeSize) makes it the owner.
+// An answer of a screen's terminal to the program (write with `reply`) does not (ticket 39 of
+// worfy-windows): it reaches the shell, and the size stays where it is.
 // When the owner leaves, the size goes to the subscriber that typed or clicked last, or else to the
 // one whose size came last.
 //
@@ -976,10 +978,15 @@ export class TerminalRegistry {
     return terminal
   }
 
-  /** Types into the shell; a subscriber that types takes the size of the pty first. */
-  write(key: string, data: string, client: TerminalClient | undefined): void {
+  /**
+   * Types into the shell; a subscriber that types takes the size of the pty first. An answer of the
+   * subscriber's terminal to the program (`reply`: a focus report, the device attributes, the
+   * cursor position) reaches the shell the same way and leaves the size where it is: the size
+   * belongs to the screen that typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39).
+   */
+  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
     const terminal = this.running(key)
-    this.touch(key, terminal, client)
+    if (options.reply !== true) this.touch(key, terminal, client)
     terminal.pty.write(data)
   }
 

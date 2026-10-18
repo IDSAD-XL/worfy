@@ -11,6 +11,7 @@ import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import { watchTypedLine, type TypedLineWatch } from './terminal-line'
 import { unscaleMouse } from './terminal-mouse'
+import { watchUserInput } from './terminal-user-input'
 import { addView, isLastView, type ShellView } from './terminal-views'
 import TerminalAiRequest from './TerminalAiRequest'
 import { failureReason } from '../../../shared/ipc/channels'
@@ -39,6 +40,13 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 // `terminal.takeSize` from the view that sets the size in its window. Restart on one screen starts
 // a new shell for all: main announces it (`terminal.started`), and a view showing the old exit
 // opens again.
+//
+// xterm.js also answers the program in the shell on its own: the device attributes, the cursor
+// position, focus reports (worfy-windows ticket 39). Those answers go to the shell marked `reply`,
+// and main leaves the size where it is (terminal-user-input.ts tells them from typing). A view
+// that redraws the kept output sends none of the answers xterm.js gives to the requests in it:
+// the program had its answers when those requests came. The view attaches once xterm.js has parsed
+// the kept output; output that comes meanwhile waits and is answered as live.
 //
 // The Canvas draws its Nodes inside a CSS transform: scale(zoom), which xterm.js does not account
 // for when it maps the mouse to cells; terminal-mouse.ts corrects the mouse events it reads.
@@ -267,6 +275,9 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     let attached = false
     // Until terminal.open answers; output that comes meanwhile waits in `queued`.
     let opening = true
+    // While xterm.js parses the kept output: output waits in `queued` too, and the answers xterm.js
+    // gives meanwhile go nowhere.
+    let replaying = false
     // How much of the shell's output this view has written: main numbers every chunk by the
     // length of all output up to its end, so a chunk that the replay already holds is skipped.
     let written = 0
@@ -281,11 +292,17 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     const offOutput = subscribe('terminal.output', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       if (attached) write(payload.data, payload.end)
-      else if (opening) queued.push(payload)
+      else if (opening || replaying) queued.push(payload)
     })
     const offExit = subscribe('terminal.exit', (payload) => {
       if (payload.projectId !== projectId || payload.nodeId !== id) return
       attached = false
+      // The shell exited while the kept output was parsed: what it printed last is shown, and the
+      // view does not attach.
+      if (replaying) {
+        replaying = false
+        for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+      }
       setStatus((current) => ({ state: 'exited', shell: current.state === 'running' ? current.shell : '', exitCode: payload.exitCode }))
     })
     // A new shell started elsewhere (Restart on another screen, or in the other view of focus mode):
@@ -296,8 +313,12 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       if (active && !opening && !attached) setRun((current) => ({ count: current.count + 1, restart: false }))
     })
 
+    // Typed, pasted or clicked data takes the size of the pty for this screen; an answer of xterm.js
+    // to the program goes as `reply` and does not (ADR-0053, decision 5).
+    const userInput = watchUserInput(terminal)
     const typed = terminal.onData((keys) => {
-      if (attached) void invoke('terminal.input', { ...ref, data: keys })
+      const user = userInput.take()
+      if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
     })
     // Fits the terminal to the Node: xterm.js resizes only when the size differs.
     const refit = () => {
@@ -350,18 +371,28 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         return
       }
       const { replay, end, shell, pid, exited } = result.value
-      if (replay !== '') terminal.write(replay)
       written = end
       if (exited !== null) {
+        if (replay !== '') terminal.write(replay)
         queued.length = 0
         setStatus({ state: 'exited', shell, exitCode: exited.exitCode })
         return
       }
-      attached = true
-      for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
-      setStatus({ state: 'running', shell, pid })
-      // The size may have changed while the shell was starting.
-      if (isLastView(key, view) && (terminal.cols !== size.cols || terminal.rows !== size.rows)) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      const attach = () => {
+        // The view went, or the shell exited while the kept output was parsed.
+        if (!active || !replaying) return
+        replaying = false
+        attached = true
+        for (const chunk of queued.splice(0)) write(chunk.data, chunk.end)
+        setStatus({ state: 'running', shell, pid })
+        // The size may have changed while the shell was starting.
+        if (isLastView(key, view) && (terminal.cols !== size.cols || terminal.rows !== size.rows)) void invoke('terminal.resize', { ...ref, cols: terminal.cols, rows: terminal.rows })
+      }
+      replaying = true
+      // Attached in the callback, once xterm.js has parsed the kept output, not before: what it
+      // answers to the requests in it goes nowhere. The end of the parse, not a timer, is the line.
+      if (replay === '') attach()
+      else terminal.write(replay, attach)
     })
 
     return () => {
@@ -373,6 +404,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
       offStarted()
       element.removeEventListener('mousedown', onPress, true)
       typed.dispose()
+      userInput.dispose()
       resized.dispose()
       observer.disconnect()
       stopUnscaling()

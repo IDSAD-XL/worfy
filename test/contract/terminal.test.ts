@@ -513,6 +513,33 @@ describe('the size of a Terminal on several screens: the screen that typed or cl
     await h.ok('terminal.resize', { ...ref, cols: 99, rows: 33 }, h.makeWindow())
     expect(pty.size).toEqual({ cols: 80, rows: 24 })
   })
+
+  it('an answer of a screen to the program (`reply`) reaches the shell and leaves the size; the same bytes typed take it (worfy-windows ticket 39)', async () => {
+    const h = await harness({ spawn })
+    const a = h.makeWindow()
+    const b = h.makeWindow()
+    await h.open(NODE, { cols: 80, rows: 24 }, a)
+    await h.open(NODE, { cols: 120, rows: 40 }, b)
+    const pty = SizePty.all[0]
+    if (pty === undefined) throw new Error('no pty')
+    pty.calls.length = 0
+
+    await h.ok('terminal.input', { ...ref, data: '\x1b[?1;2c', reply: true }, b)
+    await h.ok('terminal.input', { ...ref, data: '\x1b[O', reply: true }, b)
+    expect(pty.calls).toEqual([
+      ['write', '\x1b[?1;2c'],
+      ['write', '\x1b[O'],
+    ])
+
+    // `reply: false`, or none, is typing, as before the mark was there.
+    await h.ok('terminal.input', { ...ref, data: '\x1b[O', reply: false }, b)
+    expect(pty.calls.slice(2)).toEqual([
+      ['resize', 120, 40],
+      ['write', '\x1b[O'],
+    ])
+    const refused = await h.call('terminal.input', { ...ref, data: 'x', reply: 'yes' }, a)
+    expect(refused.ok).toBe(false)
+  })
 })
 
 /** The Layout, the Projects and the app as wireRegistry sees them, driven by the test. */
