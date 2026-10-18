@@ -16,6 +16,13 @@
   color: var(--text);
   white-space: nowrap;
 }
+/* The narrow form is already the shortest one: it keeps its width, and the repository chip beside it
+   gives way (its flexShrink, TicketNode.tsx). Shrinking by its share of the row's deficit cut the
+   Stage's name by less than a pixel («Queued» 42.66 px in 42); a name that does not shrink alone
+   moves that cut onto «N/M». */
+.w-stepper[data-narrow='true'] {
+  flex-shrink: 0;
+}
 .w-stepper__dots {
   flex: none;
   display: inline-flex;

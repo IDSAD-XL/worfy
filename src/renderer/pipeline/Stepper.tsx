@@ -44,10 +44,49 @@ function stepperTitle(pipeline: readonly PipelineColumn[], stage: TicketStage): 
 
 const blockedTitle = (reason: string | null): string => `blocked: ${reason ?? 'no reason given'}`
 
+const px = (value: string): number => parseFloat(value) || 0
+
+/**
+ * Whether `needs` pixels on screen run past an element's content box, in fractional pixels:
+ * `scrollWidth` and `clientWidth` round to whole pixels and miss a cut under 1 px («Queued» needs
+ * 42.66 px, gets 42, both read 50). The box is the element's rectangle less padding and border, on
+ * screen like `needs`, where React Flow's zoom scales both alike.
+ */
+function runsPast(element: HTMLElement, needs: number): boolean {
+  const box = element.getBoundingClientRect().width
+  const style = getComputedStyle(element)
+  const frame = px(style.paddingLeft) + px(style.paddingRight) + px(style.borderLeftWidth) + px(style.borderRightWidth)
+  // The used content width in CSS pixels (box-sizing: content-box), against the box on screen: the zoom.
+  const width = parseFloat(style.width)
+  const scale = Number.isFinite(width) && width + frame > 0 ? box / (width + frame) : 1
+  // Layout positions are multiples of 1/64 px: a smaller difference is rounding, not a cut.
+  return needs > box - frame * scale + 0.01
+}
+
+/** Whether the text of the Stage's name is cut: a Range's rectangle keeps the whole width of text cut with «…». */
+function labelCut(label: HTMLElement): boolean {
+  const range = document.createRange()
+  // No layout to measure (jsdom): nothing is cut.
+  if (typeof range.getBoundingClientRect !== 'function') return false
+  range.selectNodeContents(label)
+  return runsPast(label, range.getBoundingClientRect().width)
+}
+
+/**
+ * Whether the dots, the name and the flags run past the stepper's edge: from its first part's left
+ * to its last part's right. The parts' own boxes, not their text: who it waits for is meant to be
+ * cut with «…» inside its box.
+ */
+function partsRunPast(stepper: HTMLElement): boolean {
+  const parts = Array.from(stepper.children, (part) => part.getBoundingClientRect())
+  if (parts.length === 0) return false
+  return runsPast(stepper, Math.max(...parts.map((part) => part.right)) - Math.min(...parts.map((part) => part.left)))
+}
+
 /** Whether the full stepper does not fit its box: the Stage's name is cut, or the dots and flags run past the edge. */
 function overflows(stepper: HTMLElement): boolean {
   const label = stepper.querySelector<HTMLElement>('.w-stepper__label')
-  return stepper.scrollWidth > stepper.clientWidth || (label !== null && label.scrollWidth > label.clientWidth)
+  return partsRunPast(stepper) || (label !== null && labelCut(label))
 }
 
 /** Everything the full stepper's width depends on, besides its box. */
@@ -71,10 +110,12 @@ export default function Stepper({ pipeline, stage, narrow = false }: StepperProp
   useEffect(() => {
     const element = ref.current
     if (element === null || typeof ResizeObserver === 'undefined') return
-    let width = element.clientWidth
+    // Fractional, like the measure: a box narrower by less than a pixel can cut the name.
+    const widthOf = () => element.getBoundingClientRect().width
+    let width = widthOf()
     const observer = new ResizeObserver(() => {
-      if (element.clientWidth === width) return
-      width = element.clientWidth
+      if (widthOf() === width) return
+      width = widthOf()
       setFit(null)
     })
     observer.observe(element)

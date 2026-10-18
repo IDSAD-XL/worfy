@@ -418,12 +418,50 @@ async function launchNineStages(tickets: StepperTicket[], pulls: unknown[], repo
   return launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), GH_STUB_DIR: ghDir, GH_STUB_LOG: join(ghDir, 'calls.jsonl') } })
 }
 
-/** Whether the Stage's name and the stepper are whole: nothing cut, nothing past the stepper's edge. */
+/**
+ * Whether the Stage's name and the stepper are whole: nothing cut, nothing past the stepper's edge,
+ * the top row inside the Card. Fractional widths: `scrollWidth` and `clientWidth` round to whole
+ * pixels and read 50 and 50 for a name that needs 42.66 px and has 42. Each pair is [needs, has] in
+ * CSS pixels; the content is a Range's rectangle, which keeps the whole width of text cut with «…».
+ */
 const stepperFit = (ticket: Locator) =>
-  ticket.getByTestId('ticket-stepper').evaluate((stepper) => {
-    const label = stepper.querySelector('[data-testid="stepper-label"]')!
-    return { label: [label.scrollWidth, label.clientWidth], stepper: [stepper.scrollWidth, stepper.clientWidth], card: (stepper.closest('[data-testid="ticket-node"]') as unknown as { offsetWidth: number }).offsetWidth }
+  ticket.getByTestId('ticket-stepper').evaluate((element) => {
+    // The test tsconfig has no DOM lib: the few page types used here.
+    type Rect = { width: number; left: number; right: number }
+    type Box = { getBoundingClientRect(): Rect; offsetWidth: number; children: ArrayLike<Box>; querySelector(selector: string): Box | null; closest(selector: string): Box | null }
+    const page = globalThis as unknown as { document: { createRange(): { selectNodeContents(node: Box): void; getBoundingClientRect(): Rect } }; getComputedStyle(node: Box): Record<string, string> }
+    const stepper = element as unknown as Box
+    const card = stepper.closest('[data-testid="ticket-node"]')!
+    // React Flow's zoom scales every rectangle: back to CSS pixels by the Card's own width.
+    const scale = card.getBoundingClientRect().width / card.offsetWidth
+    const round = (value: number) => Math.round((value / scale) * 100) / 100
+    const frame = (box: Box, sides: string[]) => {
+      const style = page.getComputedStyle(box)
+      return sides.reduce((sum, side) => sum + (parseFloat(style[`padding${side}`] ?? '') || 0) + (parseFloat(style[`border${side}Width`] ?? '') || 0), 0) * scale
+    }
+    const needs = (box: Box) => {
+      const range = page.document.createRange()
+      range.selectNodeContents(box)
+      return range.getBoundingClientRect().width
+    }
+    const pair = (box: Box | null) => (box === null ? null : [round(needs(box)), round(box.getBoundingClientRect().width - frame(box, ['Left', 'Right']))])
+    const rect = card.getBoundingClientRect()
+    const inner = { left: rect.left + frame(card, ['Left']), right: rect.right - frame(card, ['Right']) }
+    const top = Array.from(card.querySelector('.w-ticket__top')!.children, (child) => child.getBoundingClientRect())
+    return {
+      label: pair(stepper.querySelector('[data-testid="stepper-label"]')),
+      count: pair(stepper.querySelector('[data-testid="stepper-count"]')),
+      stepper: pair(stepper),
+      row: [round(Math.max(...top.map((each) => each.right)) - inner.left), round(inner.right - inner.left)],
+      card: card.offsetWidth,
+    }
   })
+
+/** needs ≤ has, with the 1/64 px of layout rounding. */
+const whole = (pair: number[] | null | undefined, what: string, fit: unknown) => {
+  expect(pair, `${what} is drawn: ${JSON.stringify(fit)}`).not.toBeNull()
+  expect(pair![0], `${what} is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(pair![1]! + 0.02)
+}
 
 const HEAD = (n: number) => String(n).repeat(40).slice(0, 40)
 const ok = { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' }
@@ -464,8 +502,10 @@ test('nine Stages on a 204 px Card: the Stage name is never cut — rework, bloc
       await expect(card.getByTestId('stepper-blocked')).toHaveCount(each.blocked ? 1 : 0)
       const fit = await stepperFit(card)
       expect(fit.card, `Ticket ${each.num} is a Card of the default width`).toBe(204)
-      expect(fit.label[0], `the Stage name on Ticket ${each.num} is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.label[1]!)
-      expect(fit.stepper[0], `the stepper of Ticket ${each.num} runs past no edge: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.stepper[1]!)
+      whole(fit.label, `the Stage name on Ticket ${each.num}`, fit)
+      whole(fit.stepper, `the stepper of Ticket ${each.num}`, fit)
+      whole(fit.row, `the top row of Ticket ${each.num}`, fit)
+      if (fit.count !== null) whole(fit.count, `«N/M» on Ticket ${each.num}`, fit)
     }
     // Nine dots, the name and its flags do not fit 204 px for these: the narrow form with «N/M».
     await expect(ticket(5).getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
@@ -480,22 +520,31 @@ test('nine Stages on a 204 px Card: the Stage name is never cut — rework, bloc
   }
 })
 
-test('nine Stages, a repository chip and the Ready chip in one row: the Stage name stays whole, the repository chip gives way', async () => {
-  const launched = await launchNineStages([{ num: 1, status: 'open', state: 'open', repo: 'application-server' }], [], (repo) => [
-    { name: 'application-server', path: repo },
-    { name: 'web', path: join(scratch, 'web') },
-  ])
+test('nine Stages, a repository chip and the Ready chip in one row of a 204 px Card: the Stage name and «N/M» stay whole to the fraction of a pixel, the repository chip gives way', async () => {
+  // The names of the round-2 review: «Queued» needed 42.66 px and got 42 beside each of them.
+  const names = ['app', 'web-client', 'application-server']
+  const launched = await launchNineStages(
+    names.map((repo, at) => ({ num: at + 1, status: 'open', state: 'open', repo })),
+    [],
+    (repo) => names.map((name, at) => ({ name, path: at === 0 ? repo : join(scratch, name) })),
+  )
   try {
     const { window } = launched
-    const card = window.locator('[data-testid="ticket-node"][data-ticket="1"]')
-    await expect(card).toHaveAttribute('aria-label', 'Ticket 01, Queued', { timeout: 20_000 })
-    await expect(card.getByTestId('ticket-repo')).toBeVisible()
-    await expect(card.getByTestId('ticket-ready')).toBeVisible()
-    await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
-    await expect(card.getByTestId('stepper-count')).toHaveText('1/9')
-    const fit = await stepperFit(card)
-    expect(fit.label[0], `the Stage name is whole: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.label[1]!)
-    expect(fit.stepper[0], `the stepper runs past no edge: ${JSON.stringify(fit)}`).toBeLessThanOrEqual(fit.stepper[1]!)
+    for (const [at, name] of names.entries()) {
+      const card = window.locator(`[data-testid="ticket-node"][data-ticket="${at + 1}"]`)
+      await expect(card).toHaveAttribute('aria-label', `Ticket 0${at + 1}, Queued`, { timeout: 20_000 })
+      await expect(card.getByTestId('ticket-repo')).toHaveAttribute('data-repo', name)
+      await expect(card.getByTestId('ticket-ready')).toBeVisible()
+      await expect(card.getByTestId('ticket-stepper')).toHaveAttribute('data-narrow', 'true')
+      await expect(card.getByTestId('stepper-label')).toHaveText('Queued')
+      await expect(card.getByTestId('stepper-count')).toHaveText('1/9')
+      const fit = await stepperFit(card)
+      expect(fit.card, `the Card of ${name} has the default width`).toBe(204)
+      whole(fit.label, `the Stage name beside ${name}`, fit)
+      whole(fit.count, `«N/M» beside ${name}`, fit)
+      whole(fit.stepper, `the stepper beside ${name}`, fit)
+      whole(fit.row, `the top row beside ${name}`, fit)
+    }
   } finally {
     await launched.close()
   }

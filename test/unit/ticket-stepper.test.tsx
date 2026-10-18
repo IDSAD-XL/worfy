@@ -182,22 +182,40 @@ describe('Stepper', () => {
 // ── the full form only when it fits ─────────────────────────────────────────
 
 describe('Stepper measures whether the full form fits', () => {
-  /** The box the stepper has, and what its full form needs; jsdom has no layout, so both are set here. */
+  /**
+   * The box the stepper has, and what its full form needs; jsdom has no layout, so both are set
+   * here, as the rectangles the stepper measures (fractional, like the browser's): an element's
+   * own for its box, its parts' for what the full form needs, a Range over the name's text.
+   */
   let room: number
   let need: (stepper: HTMLElement) => number
   let labelCut: boolean
+  let labelNeeds = 80
   let observers: { callback: () => void }[]
 
+  const rect = (width: number) => ({ width, height: 16, top: 0, left: 0, right: width, bottom: 16, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect
   const layout = () => {
-    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains('w-stepper')) return room
-      if (this.classList.contains('w-stepper__label')) return labelCut && this.closest('[data-narrow]') === null ? 40 : 80
-      return 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('w-stepper')) return rect(room)
+      if (this.classList.contains('w-stepper__label')) return rect(labelCut && this.closest('[data-narrow]') === null ? 40 : 80)
+      // The parts of the stepper: the dots span what the full form needs, from the stepper's left edge.
+      if (this.classList.contains('w-stepper__dots')) return rect(need(this.closest<HTMLElement>('.w-stepper')!))
+      return rect(0)
     })
-    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains('w-stepper')) return this.querySelector('.w-stepper__dots') === null ? Math.min(room, 120) : Math.max(room, need(this))
-      if (this.classList.contains('w-stepper__label')) return 80
-      return 0
+    vi.spyOn(document, 'createRange').mockImplementation(() => {
+      let contents: Node | null = null
+      return {
+        selectNodeContents: (node: Node) => {
+          contents = node
+        },
+        getBoundingClientRect: () => {
+          const element = contents as HTMLElement
+          if (element.classList.contains('w-stepper__label')) return rect(labelNeeds)
+          // The whole text inside the stepper, who it waits for included, which is cut with «…» in its own box by design.
+          if (element.classList.contains('w-stepper')) return rect(1000)
+          return rect(0)
+        },
+      } as unknown as Range
     })
     observers = []
     vi.stubGlobal(
@@ -216,6 +234,7 @@ describe('Stepper measures whether the full form fits', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+    labelNeeds = 80
   })
 
   const stepper = () => screen.getByTestId('ticket-stepper')
@@ -234,7 +253,7 @@ describe('Stepper measures whether the full form fits', () => {
     expect(screen.getByTestId('stepper-blocked')).toBeTruthy()
   })
 
-  it('room enough: the full form with its dots', () => {
+  it('room enough: the full form with its dots, though the text of who it waits for runs past its own box', () => {
     room = 300
     need = () => 230
     labelCut = false
@@ -242,6 +261,7 @@ describe('Stepper measures whether the full form fits', () => {
     render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci')} />)
     expect(isNarrow()).toBe(false)
     expect(stepper().querySelectorAll('[data-step]')).toHaveLength(9)
+    expect(screen.getByTestId('stepper-waits')).toBeTruthy()
   })
 
   it('the dots fit but the Stage\'s name would be cut: narrow', () => {
@@ -283,6 +303,30 @@ describe('Stepper measures whether the full form fits', () => {
     // A callback at the same width — the first one an observer gives, or one after a child changed — keeps the form.
     need = () => 100
     act(() => observers[0]!.callback())
+    expect(isNarrow()).toBe(true)
+  })
+
+  // The round-2 review: «Queued» needed 42.66 px and got 42, and scrollWidth and clientWidth both read 50.
+  it('the dots overrun the box by less than a pixel: narrow; exactly as wide as the box: full', () => {
+    room = 200
+    need = () => 200.3
+    labelCut = false
+    layout()
+    const { unmount } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci')} />)
+    expect(isNarrow()).toBe(true)
+    unmount()
+    need = () => 200
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci')} />)
+    expect(isNarrow()).toBe(false)
+  })
+
+  it('the Stage\'s name is cut by less than a pixel: narrow', () => {
+    room = 300
+    need = () => 230
+    labelCut = false
+    labelNeeds = 80.3
+    layout()
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'queued')} />)
     expect(isNarrow()).toBe(true)
   })
 

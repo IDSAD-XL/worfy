@@ -1,9 +1,8 @@
 # 05 — Stepper на Card Ticket-а вместо слова статуса; бейдж вердикта — из отметки `review`
 
 Type: task
-Status: blocked 2026-10-18T03:03Z
-Blocked reason: второй REJECTED в PR #468: имя Stage обрезано на Card с chip-ами репозитория и Ready (проверка не видит переполнение < 1 px); третий круг — решение владельца
-Waits: owner
+Status: claimed 2026-10-18T13:53Z
+Branch: worfy-pipeline/05
 Blocked by: 03
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 2, 5 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).
@@ -147,3 +146,33 @@ e2e меняет только stub `gh` (commit status вместо коммен
 test/unit/checks-badges.test.tsx test/contract/github-prs.test.ts` — exit 0; `pnpm test:e2e
 test/e2e/checks-badges.spec.ts test/e2e/epic-frame.spec.ts` — exit 0 (9 passed), под замком e2e.
 Снимок `../evidence/05-stepper.png` — шаг проверяющего, не сделан.
+
+Третий круг (решение владельца 2026-10-18, одна находка [med] второго круга; head до него 94773dec,
+ветка перед ним перенесена на `origin/main`):
+
+- [med] Имя Stage резалось меньше чем на пиксель на Card 204 px с chip-ом репозитория и «Ready»
+  («Queued» — 42.49 px в 42.09 px рядом с `app`, замер e2e). Причина: узкий stepper сжимался на свою
+  долю нехватки места в строке (`flex-shrink` 1 против 100 у chip-а репозитория, доля пропорциональна
+  ширине), а проверка `scrollWidth > clientWidth` округляет до целых пикселей.
+  - `stepper.css`: узкий вид не сжимается (`.w-stepper[data-narrow='true'] { flex-shrink: 0 }`) —
+    место отдаёт chip репозитория. Вариант ревьюера «имя Stage `flex: none`» в одиночку переносит тот же
+    обрез на «N/M»: e2e на нём красный («the stepper beside app»: 74.37 px в 73.96 px).
+  - `Stepper.tsx`: замер полного вида — в дробных пикселях: текст имени Stage — `Range.getBoundingClientRect()`,
+    части stepper-а (точки, имя, пометки) — их прямоугольники, коробка — прямоугольник минус padding и
+    border с учётом zoom React Flow; ResizeObserver сравнивает дробную ширину. «Кого ждёт» в замер не
+    входит: он режется «…» в своей коробке по замыслу (первый вариант замера через Range по всему
+    stepper-у делал узким каждый Card с «кого ждёт» — его поймал e2e `epic-frame.spec.ts`).
+  - Test-ы: `test/e2e/checks-badges.spec.ts` — замер в дробных пикселях (имя Stage, «N/M», stepper,
+    верхняя строка внутри Card); test с chip-ами репозитория и «Ready» — три Ticket-а с именами
+    репозиториев ревьюера (`app`, `web-client`, `application-server`). Красный без правки CSS и на
+    варианте «только `flex: none`». `test/unit/ticket-stepper.test.tsx` — заглушки прямоугольников вместо
+    `scrollWidth`/`clientWidth`, два новых test-а на перерасход меньше пикселя; mutant-ы «целые пиксели в
+    замере», «Range по всему stepper-у», «ResizeObserver по `clientWidth`» — красные.
+
+Долг (пункты [low] второго круга, в этот круг не входят):
+
+- В полном виде «кого ждёт» может сжаться до одной метки «·» («Implementing ·..»): у `.w-stepper__waits`
+  `flex: 1 1 0` (`stepper.css`), замер на него не смотрит. Прятать его, когда не помещается.
+- Комментарий над ResizeObserver в `Stepper.tsx` говорит, что ширина коробки не зависит от вида
+  stepper-а; рядом с chip-ом репозитория (`flexShrink: 100`) и теперь при `flex-shrink: 0` узкого вида
+  — зависит. Сейчас безвредно: в этом случае узкий вид задаёт Card, и замер не идёт.
