@@ -1,7 +1,8 @@
 # 58 — Flaky test: «the deploy mark after a whole install» упирается в timeout 5 s под нагрузкой
 
 Type: bug
-Status: open
+Status: claimed 2026-10-18T13:03Z
+Branch: worfy-windows/58-deploy-mark-flaky
 Blocked by: —
 Source: gate full на Mac, 2026-10-18: test падал три раза за день, каждый раз в первом прогоне — PR #479,
 PR #480 и PR #489; повторный прогон того же дерева зелёный.
@@ -27,10 +28,10 @@ timeout по умолчанию — 5 s; своего `testTimeout`, как у �
 
 ## Готово, когда
 
-- [ ] Причина timeout в test-е названа комментарием рядом с правкой.
+- [x] Причина timeout в test-е названа комментарием рядом с правкой.
 - [ ] Три прогона `GATE_SCOPE=all` gate full на Mac под параллельной нагрузкой (другие test-ы на той же
       машине, как в gate full Wave) — каждый exit 0, строка `[gate] зелено (full)`; строки — в Итог.
-- [ ] Test-ы `describe` по-прежнему проверяют то же: mark один раз, после копии и метаданных; mark, который
+- [x] Test-ы `describe` по-прежнему проверяют то же: mark один раз, после копии и метаданных; mark, который
       бросает, не роняет установку.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac.
 
@@ -44,3 +45,33 @@ timeout по умолчанию — 5 s; своего `testTimeout`, как у �
 - `vitest.config.ts` (только читать: timeout проектов)
 
 ## Итог
+
+Причина найдена замером, а не догадкой. Каждый test `describe` запускает stand-in `lsregister` — shell-скрипт,
+который `useStandInBuild` (`test/unit/install-stable-harness.ts`) пишет заново перед каждым test-ом в новую
+временную папку. macOS проверяет новый исполняемый файл перед первым запуском: первый запуск такого скрипта —
+около 400 ms, второй запуск того же файла — 3 ms, `/bin/sh <скрипт>` и `/usr/bin/true` — 1–3 ms (замер
+`spawnSync` по шагам внутри vitest и отдельным скриптом). Остальные программы целой установки дешёвые: `git` —
+около 10 ms, `ps -axo` — 30 ms, `ditto` маленькой копии — 3 ms. Копия приложения в test-е и так из одного файла:
+уменьшать её нечего. Под нагрузкой gate full проверка нового файла растягивается на секунды, отсюда timeout 5 s.
+
+Правка — `test/unit/install-stable-functions.test.ts`, `describe` «the deploy mark after a whole install»:
+
+- свой `beforeEach` после `useStandInBuild()` на macOS ставит `WORFY_STABLE_LSREGISTER=/usr/bin/true`: эти
+  test-ы не смотрят, что зарегистрировано, а системная программа запускается сразу. `afterEach` из
+  `useStandInBuild` возвращает переменную, как была до test-а;
+- `{ timeout: 15_000 }` у `describe`, с комментарием: в test-ах остаются настоящие программы (`git`, `ps` дважды,
+  `ditto`; на Windows — дважды список процессов PowerShell), как у проекта `contract` с его 15 s. Глобальный
+  `testTimeout` не тронут.
+
+Время трёх test-ов (verbose reporter vitest), Mac, до → после:
+
+- без нагрузки, по 3 прогона: 496–1311 ms → 91–140 ms;
+- под нагрузкой (параллельно `pnpm typecheck` и `pnpm test test/unit/install-stable.test.ts`), по 5 прогонов,
+  каждый exit 0: до — 472–1205 ms, после — 101–180 ms.
+
+Что test-ы проверяют, не изменилось: пять mutant-ов `scripts/install-stable.mjs` (mark до записи файла
+метаданных, mark без `try/catch`, mark дважды, `prebuilt: false` всегда, чужой commit в mark) — каждый красный
+на этом `describe` (exit 1).
+
+Не сделано: три прогона `GATE_SCOPE=all` gate full под нагрузкой — бриф оркестратора велел gate fast, не gate
+full; это пункт для gate full Wave.
