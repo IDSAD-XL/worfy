@@ -25,7 +25,7 @@ vi.mock('node:fs/promises', async (original) => {
   return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
 })
 
-const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks } = await import('../../src/main/remote-links')
+const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks, walkLinksSync } = await import('../../src/main/remote-links')
 
 afterEach(() => {
   asked.lstat.length = 0
@@ -46,22 +46,28 @@ function fakeLinks(links: Record<string, string>, missing: readonly string[] = [
   const key = (path: string): string => path.toLowerCase()
   const table = new Map(Object.entries(links).map(([path, target]) => [key(path), target]))
   const among = (list: readonly string[] | undefined, path: string): boolean => (list ?? []).some((each) => key(each) === key(path))
+  const linksSync = {
+    isLink: (path: string): boolean | null => {
+      calls.push(`lstat ${path}`)
+      if (among(broken.denied, path)) throw failure('EACCES', path)
+      if (among(missing, path)) return null
+      return table.has(key(path)) || among(broken.unreadable, path)
+    },
+    readlink: (path: string): string => {
+      calls.push(`readlink ${path}`)
+      const target = table.get(key(path))
+      if (target === undefined) throw failure('EINVAL', path)
+      return target
+    },
+  }
   return {
     calls,
     links: {
-      isLink: async (path: string): Promise<boolean | null> => {
-        calls.push(`lstat ${path}`)
-        if (among(broken.denied, path)) throw failure('EACCES', path)
-        if (among(missing, path)) return null
-        return table.has(key(path)) || among(broken.unreadable, path)
-      },
-      readlink: async (path: string): Promise<string> => {
-        calls.push(`readlink ${path}`)
-        const target = table.get(key(path))
-        if (target === undefined) throw failure('EINVAL', path)
-        return target
-      },
+      isLink: async (path: string): Promise<boolean | null> => linksSync.isLink(path),
+      readlink: async (path: string): Promise<string> => linksSync.readlink(path),
     },
+    /** The same file system for walkLinksSync, writing to the same calls. */
+    linksSync,
   }
 }
 
@@ -347,6 +353,66 @@ describe('walkLinks', () => {
 
   it('gives the callers one wording for a path that could not be checked', () => {
     expect(UNCHECKED).toBe('cannot be checked: a link on the way to it cannot be read, or the links do not end')
+  })
+})
+
+// worfy-windows ticket 34. A symlink written as an absolute NT path from the root of the object
+// namespace — \Device\Mup\host\share, not \??\… — is followed by Windows to the host: on the PC
+// (Windows 11 26200, Node 24.21.0, Electron 44.5.1 and system Node) realpath, stat and readdir of
+// such a link took ~1.26 s and failed as a symlink to \\host\share does. Node's readlink hands the
+// text back as stored, so the walk sees `\Device\…` and path.win32.resolve would make C:\Device\… of
+// it. The same text in a relative link stays on the link's disk; readlink does not tell the two apart.
+describe('a link target written from the root of the NT namespace', () => {
+  const walkBoth = async (fs: ReturnType<typeof fakeLinks>, candidate: string): Promise<[string, string]> => [
+    await walkLinks(candidate, [REPO], { paths: win32, links: fs.links }),
+    walkLinksSync(candidate, [REPO], { paths: win32, links: fs.linksSync }),
+  ]
+
+  it.each([
+    // The four forms of the review of PR #274; each went to the host on the PC as an absolute link.
+    ['\\Device\\Mup\\evil\\share\\e'],
+    ['\\DosDevices\\UNC\\evil\\share'],
+    ['\\GLOBAL??\\UNC\\evil\\share'],
+    ['\\Device\\LanmanRedirector\\evil\\share'],
+    // Object names do not care for case: \device\mup\… and \global??\unc\… went to the host too.
+    ['\\device\\mup\\evil\\share'],
+    ['\\global??\\unc\\evil\\share'],
+    // The DosDevices folder of a logon session falls back to \GLOBAL??: measured on the PC as well.
+    ['\\Sessions\\0\\DosDevices\\00000000-0010c13d\\Global\\UNC\\evil\\share'],
+    ['\\Sessions\\0\\DosDevices\\00000000-0010c13d\\UNC\\evil\\share'],
+    // With forward slashes, like the device prefixes, and the bare name.
+    ['/Device/Mup/evil/share'],
+    ['\\Device'],
+  ])('a link to %s leads off the machine: both walks say remote, and nothing is asked after its readlink', async (target) => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+    expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md')).toEqual(['remote', 'remote'])
+    const once = ['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs', 'readlink C:\\p\\repo\\docs']
+    expect(fs.calls).toEqual([...once, ...once])
+  })
+
+  it('a relative link with the same text, to a folder of its own disk, is refused too; other rooted targets are walked on the disk', async () => {
+    // Readlink answers `\Device\x` alike for a relative link to C:\Device\x and for an absolute one
+    // into the NT namespace, so the first is refused with the second (the risk named in the ticket).
+    const same = fakeLinks({ 'C:\\p\\repo\\docs': '\\Device\\x' })
+    expect(await walkBoth(same, 'C:\\p\\repo\\docs\\a.md')).toEqual(['remote', 'remote'])
+    expect(same.calls.some((call) => call.includes('C:\\Device'))).toBe(false)
+    // A rooted target with another first name — or a name that only starts like one of those — is a
+    // folder from the root of the link's disk, as before. On the PC a relative `\Users\…` link led
+    // to C:\Users\…. A name with no leading separator is relative to the link's folder.
+    const rooted = {
+      '\\Users\\me\\notes': 'C:\\Users\\me\\notes\\a.md',
+      '\\Devices\\x': 'C:\\Devices\\x\\a.md',
+      '\\DeviceMup\\x': 'C:\\DeviceMup\\x\\a.md',
+      '\\GLOBAL\\x': 'C:\\GLOBAL\\x\\a.md',
+      '\\Session\\x': 'C:\\Session\\x\\a.md',
+      'Device\\Mup\\x': 'C:\\p\\repo\\Device\\Mup\\x\\a.md',
+      'C:\\Device\\Mup\\x': 'C:\\Device\\Mup\\x\\a.md',
+    }
+    for (const [target, reached] of Object.entries(rooted)) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+      expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md'), target).toEqual(['local', 'local'])
+      expect(fs.calls, target).toContain(`lstat ${reached}`)
+    }
   })
 })
 
