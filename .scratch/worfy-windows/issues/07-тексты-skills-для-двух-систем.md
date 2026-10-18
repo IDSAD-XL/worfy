@@ -1,7 +1,9 @@
 # 07 — Тексты skills для двух систем; перед Wave — открытые PR второго Epic-а
 
 Type: task
-Status: claimed 2026-10-17T23:28Z
+Status: blocked 2026-10-18T05:01Z
+Blocked reason: влит (#461); ждут живые проверки после мержа: метка и Q33 на первом PR с меткой (13 с ПК), Q31 на ПК, Profile ПК request — слово владельца в чате ПК
+Waits: owner
 Blocked by: 03, 12
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness — на Node, команды skills — для обеих систем), Q25 (Session-ы Mac и Windows общаются через репозиторий; перед Wave — открытые PR второго Epic-а), Q12 (мерж в main по очереди); решения владельца 2026-10-08: Q30 (метка `needs-mac-gate`: PR Session Windows с общим кодом проверяет и вливает Session Mac; spec.md, «Соглашения», «Метка needs-mac-gate»), Q31 (Windows проверяет main после мержа: gate full на свежем main в начале каждой своей Wave, красный — первым делом чинит; уточняет ADR-0056, пункт 6), Q33 (раздел «Mac checks» в описании PR; Session Mac выполняет его вместе с gate full и пишет отчёт в PR; без отчёта мержа нет); spec.md, «Решения владельца», «Как работает очередь needs-mac-gate» ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункт 6; [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions», пункты 4–6; [ADR-0044](../../../docs/adr/0044-harness-in-english-language-from-profile.md) (Harness по-английски); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -218,14 +220,14 @@ macOS PR #150 не добавил: `grep -rnE 'stat -f|date -v' harness/skills` 
 - [x] ADR этого Ticket-а в `docs/adr/`: в заголовке или первом абзаце — «уточняет ADR-0056»; есть Q30, Q31, Q32 и Q33, пять полей `cross_machine_gate`, отвергнутые варианты; Q31 записан как уточнение ADR-0056, пункт 6 (повтора gate full на Windows после rebase нет, main проверяется в начале Wave на Windows). `git diff origin/main -- docs/adr/0056-*.md` пуст.
 - [x] `harness/profiles/README.md`: в таблице `profile.json` — строки `cross_machine_gate.label`, `cross_machine_gate.role`, `cross_machine_gate.exempt`, `cross_machine_gate.check` и `cross_machine_gate.checks_section` с типом, смыслом и читателями (`epic-wave`, `ship-ticket`); правило exit 1 для поля — под таблицей.
 - [x] `bash harness/bin/tests/skill-blocks.test.sh`, `bash harness/bin/tests/epic-wave-ship-ticket.test.sh` и `bash harness/bin/tests/profile.test.sh` — exit 0 на Mac и в `pnpm test`.
-- [ ] Те же три test-а — exit 0 в Git Bash на Windows-ПК; случаи zsh печатают `skip`.
+- [x] Те же три test-а — exit 0 в Git Bash на Windows-ПК; случаи zsh печатают `skip`.
 - [x] Живая проверка: новый блок раздела 1 в репозитории worfy для Epic-а `worfy-windows` печатает открытые PR других Epic-ов с их файлами (или ничего). Вывод — в Итог.
 - [ ] Вручную: `profile --field cross_machine_gate.role` в репозитории worfy печатает `request` на Windows-ПК и `serve` на Mac (Mac — через раздел Mac checks PR, Q33); `--field cross_machine_gate.checks_section` на обеих — `Mac checks`.
 - [ ] Живая проверка метки. PR этого Ticket-а идёт по правилу вручную: метку ставит Session на Windows, вливает Session на Mac. Первый PR с меткой после его мержа, когда новые тексты skills стоят на обеих Machine, идёт по новым шагам: метку ставит раздел 8 `ship-ticket` на Windows-ПК, Session на Mac в разделе 1 `epic-wave` перебазирует, проверяет и вливает его или пишет комментарий. Годится PR Ticket-а, который не ждёт 07 (обычно 14): 15 и 16 ждут 07. Если такого PR не осталось — на Windows-ПК блок раздела 8 над влитым PR этого Ticket-а печатает `label`, на Mac блок раздела 1 печатает открытые PR с меткой или ничего. Номер PR, строка `[gate]` и итог — в Итог.
 - [ ] Живая проверка Q33 на том же PR с меткой: в описании PR есть раздел `## Mac checks` (команды или `none`); в PR есть отчёт Session на Mac с первой строкой `Mac checks report: green` или `Mac checks report: red`, строкой `[gate]` и кодами выхода команд раздела; мерж — позже отчёта по времени. Ссылки на описание и отчёт — в Итог.
 - [ ] Живая проверка Q31: на Windows-ПК первая Wave после мержа этого Ticket-а начинается с gate full на свежем main — строка вердикта и код выхода стоят в отчёте Wave раньше раздачи Ticket-ов. Выдержка из отчёта Wave — в Итог.
 - [ ] Windows-ПК, один раз: запуск по новому абзацу открывает установленный worfy, команда `Get-Process` печатает путь его `worfy.exe`. Выбранный способ запуска и вывод — в Итог.
-- [ ] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
+- [x] Mac: gate full зелёный (по правилу needs-mac-gate: проверяет и вливает Session на Mac).
 
 ## Тесты
 
@@ -313,3 +315,11 @@ worfy/.:test`. Три test-а Ticket-а отдельно — exit 0. До rebase
 и `Get-Process`; значения `cross_machine_gate` в Profile-ах обеих Machine (Profile — вне репозитория,
 пишет Orchestrator); живые проверки метки, Q31 и Q33 — после мержа; gate full на Mac — Session, которая
 вливает.
+
+### Мерж и проверки после него (Session на Mac, 2026-10-18)
+
+- PR #461 влит как `384cfb3a` после `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` на Mac. Четыре круга ревью на Mac; находка high третьего круга (повтор прохода serve затирал push другой Machine) закрыта цепочкой `&&` и уборкой worktree `pr-<N>`, test-ы краснеют на mutant-ах.
+- Windows-ПК на `d572a4c7`, без находок ([комментарий](https://github.com/IDSAD-XL/worfy/pull/461#issuecomment-6245503439)): `skill-blocks.test.sh` exit 0, 80 ok / 0 FAIL (main `c3340ae` — exit 1, 40 FAIL); `profile.test.sh` exit 0, 228 / 0; `epic-wave-ship-ticket.test.sh` 262 ok / 0 FAIL, затем отказ guard-а `gh` — так же на main, это срез ПК после мержа. zsh на ПК нет: test печатает `skip zsh: Git Bash on Windows has no zsh…`.
+- Profile Mac: записано `cross_machine_gate` = role `serve`, label `needs-mac-gate`, checks_section `Mac checks`, check `GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null` (решение владельца 2026-10-18). `profile --field cross_machine_gate.role` на Mac — `serve`, `--field cross_machine_gate.checks_section` — `Mac checks`, оба exit 0. Половина пункта для ПК (`request`) ждёт слова владельца в чате Windows Session.
+- Harness на Mac обновлён до `0.3.0+f1ac65af`: установленный `epic-wave/SKILL.md` содержит новые тексты.
+- Осталось: живые проверки метки и Q33 на первом PR с меткой после мержа (ожидается PR Ticket-а 13 с ПК), Q31 — первая Wave на ПК, запуск установленного worfy на ПК, Profile ПК.

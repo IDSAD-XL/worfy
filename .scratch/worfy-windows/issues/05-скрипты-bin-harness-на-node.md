@@ -1,7 +1,8 @@
 # 05 — Скрипты bin Harness на Node: profile, ticket, worktree-lock, epic-board, epic-status; worfy зовёт их через node
 
 Type: task
-Status: open
+Status: done 2026-10-18T05:01Z
+PR: #459
 Blocked by: 03, 09
 Source: решения владельца 2026-10-07: Q19 (скрипты Harness, которые зовут hooks и worfy, — на Node; bash — только в test-ах), Q1 (полный порт), Q24 (Windows 10 21H2+ и 11, x64) ([spec.md](../spec.md)); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node», пункты 1–4; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0007](../../../docs/adr/0007-claude-code-launch-environment.md) (окружение Claude Code — login shell пользователя); evidence Ticket-а 01 (`.scratch/worfy-windows/evidence/01-факты-windows.md`, файл создаёт Ticket 01)
 
@@ -141,7 +142,7 @@ Source: решения владельца 2026-10-07: Q19 (скрипты Harnes
 - [x] `test/contract/workflow-reader.test.ts`, новый случай: в `process.env` нет node, в окружении, переданном runner-у, есть — Epic-и и Ticket-ы читаются. На нынешнем main он красный.
 - [x] `test/contract/workflow-reader.test.ts`: нет файла `epic-status` — `not-found` с обоими путями (прежний случай `:339`); нет `node` в PATH окружения — `not-found` с текстом про node. `test/contract/workflow-profile.test.ts`: нет файла `profile` — отказ, а не exit 1.
 - [x] Windows-ПК, dev-сборка: Canvas Project-а worfy показывает рамки Epic-ов с Ticket-ами; снимок — `../evidence/05-epic-и-на-windows.png`. На Windows-ПК `node harness/bin/epic-board` открывает страницу в браузере по умолчанию.
-- [ ] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Упакованная сборка (`pnpm package`), запущенная с окружением launchd (`env -i`, как в skill `ship-ticket`, раздел 6), показывает рамки Epic-ов Project-а worfy: в PATH launchd node нет, в окружении агента — есть (через раздел Mac checks PR, Q33).
+- [x] Mac: gate full зелёный (`lint`, `typecheck`, `test`, `test:e2e`, `test:package`) (по правилу needs-mac-gate: проверяет и вливает Session на Mac). Упакованная сборка (`pnpm package`), запущенная с окружением launchd (`env -i`, как в skill `ship-ticket`, раздел 6), показывает рамки Epic-ов Project-а worfy: в PATH launchd node нет, в окружении агента — есть (через раздел Mac checks PR, Q33).
 
 ## Тесты
 
@@ -508,3 +509,8 @@ macOS, stub `gh` с журналом первым в PATH: test-ы — 0 выз�
 - **workflow-reader и workflow-profile, отказы (пункт отмечен).** Зелёные: reader `:373` (нет `epic-status` — оба места), reader `:455` (нет node в PATH — текст про node), profile `:287` (нет файла `profile` — отказ, а не exit 1).
 - **Упакованная сборка с окружением launchd (часть пункта про gate full).** `pnpm package` — EXIT=0. Запуск с `env -i …, PATH=/usr/bin:/bin:/usr/sbin:/sbin` (node в нём нет), своей папкой данных (`WORFY_DATA_DIR`) и stub `gh`: на Canvas Project-а worfy 11 рамок Epic-ов (например «worfy-windows 27/56», «worfy-polish 30/32»), панель первого запуска — node `OK 24.19.0`. Флаг `--user-data-dir` worfy не принимает — свою папку задаёт только `WORFY_DATA_DIR`.
 - Не отмечен: gate full — его прогоняет Session Mac перед merge.
+
+### Последний пункт на Mac (2026-10-18)
+
+- gate full зелёный на Mac на каждом влитом срезе (последний — PR #459) и на main `f1ac65af` (PR #474): `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package`.
+- Упакованная сборка: Stable copy на коммите `f1ac65a` (`pnpm install:stable`), запущена с окружением launchd (`env -i … PATH=/usr/bin:/bin:/usr/sbin:/sbin open -a`). В этом PATH node нет (`/usr/bin/node`, `/bin/node` — нет файла). Canvas показывает рамки Epic-ов Project-а worfy: `epic:worfy-mvp`, `epic:worfy-pipeline`, `epic:worfy-polish`, `epic:worfy-reliability`, `epic:worfy-review` (5 рамок, 108 записей в sidebar).
