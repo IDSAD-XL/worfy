@@ -25,7 +25,7 @@ vi.mock('node:fs/promises', async (original) => {
   return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
 })
 
-const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks } = await import('../../src/main/remote-links')
+const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks, walkLinksSync } = await import('../../src/main/remote-links')
 
 afterEach(() => {
   asked.lstat.length = 0
@@ -46,22 +46,28 @@ function fakeLinks(links: Record<string, string>, missing: readonly string[] = [
   const key = (path: string): string => path.toLowerCase()
   const table = new Map(Object.entries(links).map(([path, target]) => [key(path), target]))
   const among = (list: readonly string[] | undefined, path: string): boolean => (list ?? []).some((each) => key(each) === key(path))
+  const linksSync = {
+    isLink: (path: string): boolean | null => {
+      calls.push(`lstat ${path}`)
+      if (among(broken.denied, path)) throw failure('EACCES', path)
+      if (among(missing, path)) return null
+      return table.has(key(path)) || among(broken.unreadable, path)
+    },
+    readlink: (path: string): string => {
+      calls.push(`readlink ${path}`)
+      const target = table.get(key(path))
+      if (target === undefined) throw failure('EINVAL', path)
+      return target
+    },
+  }
   return {
     calls,
     links: {
-      isLink: async (path: string): Promise<boolean | null> => {
-        calls.push(`lstat ${path}`)
-        if (among(broken.denied, path)) throw failure('EACCES', path)
-        if (among(missing, path)) return null
-        return table.has(key(path)) || among(broken.unreadable, path)
-      },
-      readlink: async (path: string): Promise<string> => {
-        calls.push(`readlink ${path}`)
-        const target = table.get(key(path))
-        if (target === undefined) throw failure('EINVAL', path)
-        return target
-      },
+      isLink: async (path: string): Promise<boolean | null> => linksSync.isLink(path),
+      readlink: async (path: string): Promise<string> => linksSync.readlink(path),
     },
+    /** The same file system for walkLinksSync, writing to the same calls. */
+    linksSync,
   }
 }
 
@@ -347,6 +353,113 @@ describe('walkLinks', () => {
 
   it('gives the callers one wording for a path that could not be checked', () => {
     expect(UNCHECKED).toBe('cannot be checked: a link on the way to it cannot be read, or the links do not end')
+  })
+})
+
+// worfy-windows ticket 34, fix round 2 (review round 1 of PR #488). A symlink target written from a
+// drive-less root — one separator, then a name, not a share or a drive — is refused by its shape,
+// not by a list of names. On the PC (Windows 11 26200, Node 24.21.0 of Electron 44.5.1 and of the
+// system) a symlink to `\Device\Mup\host\share` and kin made realpath, stat and readdir look for the
+// host (~1.26 s), as a symlink to `\\host\share` does. A list of names let `\SystemRoot\…` (which
+// Windows resolves to C:\Windows\… by a step Node does not show), `\ArcName\…`, `\RPC Control\…`,
+// `\BaseNamedObjects\…`, `\Silos\…` and the Unicode case folds `\Devıce`, `\Seſſions` slip past; the
+// shape rule does not. readlink hands the text back as stored, the same for a relative link to
+// `C:\Device\…`, so that one is refused too. The path the caller asks about and an allowed folder
+// are not a link's stored target, so a drive-less name there is still read as a folder of the disk.
+describe('a link target written from a drive-less root (ticket 34)', () => {
+  const walkBoth = async (fs: ReturnType<typeof fakeLinks>, candidate: string, allowed: readonly string[] = [REPO]): Promise<[string, string]> => [
+    await walkLinks(candidate, allowed, { paths: win32, links: fs.links }),
+    walkLinksSync(candidate, allowed, { paths: win32, links: fs.linksSync }),
+  ]
+
+  it.each([
+    // The four forms of the review of PR #274; each went to the host on the PC as an absolute link.
+    ['\\Device\\Mup\\evil\\share\\e'],
+    ['\\DosDevices\\UNC\\evil\\share'],
+    ['\\GLOBAL??\\UNC\\evil\\share'],
+    ['\\Device\\LanmanRedirector\\evil\\share'],
+    // Object names do not care for case: \device\mup\… and \global??\unc\… went to the host too.
+    ['\\device\\mup\\evil\\share'],
+    ['\\global??\\unc\\evil\\share'],
+    // The DosDevices folder of a logon session falls back to \GLOBAL??: measured on the PC as well.
+    ['\\Sessions\\0\\DosDevices\\00000000-0010c13d\\Global\\UNC\\evil\\share'],
+    ['\\Sessions\\0\\DosDevices\\00000000-0010c13d\\UNC\\evil\\share'],
+    // A name list left these out (the HIGH of round 1). \SystemRoot resolves to C:\Windows by a step
+    // Node does not show; the others are object directories; the last two are Unicode case folds.
+    ['\\SystemRoot\\Temp\\evil'],
+    ['\\ArcName\\multi(0)disk(0)rdisk(0)partition(1)\\evil'],
+    ['\\RPC Control\\evil'],
+    ['\\BaseNamedObjects\\evil'],
+    ['\\Silos\\evil'],
+    ['\\Devıce\\Mup\\evil\\share'],
+    ['\\Seſſions\\0\\DosDevices\\x\\UNC\\evil\\share'],
+    // With forward slashes, and the bare name with nothing after it.
+    ['/Device/Mup/evil/share'],
+    ['\\Device'],
+    // The bare root, with either separator: one separator and nothing after it is still drive-less.
+    ['\\'],
+    ['/'],
+  ])('a link to %s leads off the machine: both walks say remote, and nothing is asked after its readlink', async (target) => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+    expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md')).toEqual(['remote', 'remote'])
+    const once = ['lstat C:\\p\\repo', 'lstat C:\\p\\repo\\docs', 'readlink C:\\p\\repo\\docs']
+    expect(fs.calls).toEqual([...once, ...once])
+  })
+
+  it('a relative link with the same text, to a folder of its own disk, is refused too', async () => {
+    // Readlink answers `\Device\x` alike for a relative link to C:\Device\x and for an absolute one
+    // into the NT namespace, so the first is refused with the second (the risk named in the ticket).
+    const same = fakeLinks({ 'C:\\p\\repo\\docs': '\\Device\\x' })
+    expect(await walkBoth(same, 'C:\\p\\repo\\docs\\a.md')).toEqual(['remote', 'remote'])
+    expect(same.calls.some((call) => call.includes('C:\\Device'))).toBe(false)
+  })
+
+  it('a target with no leading separator, or with a drive, is still walked on the disk', async () => {
+    // Only a drive-less rooted target is refused. A relative name is walked from the link's folder;
+    // a drive path is walked from that drive, as before. (Targets here resolve away from the link's
+    // own folder, so the walk does not read the link a second time.)
+    const walked = {
+      '..\\notes\\x': 'C:\\p\\notes\\x\\a.md',
+      'C:\\Device\\Mup\\x': 'C:\\Device\\Mup\\x\\a.md',
+      '\\\\?\\C:\\Device\\x': 'C:\\Device\\x\\a.md',
+    }
+    for (const [target, reached] of Object.entries(walked)) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+      expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md'), target).toEqual(['local', 'local'])
+      expect(fs.calls, target).toContain(`lstat ${reached}`)
+    }
+  })
+
+  it('the device prefixes a link target can carry are read as before: remote, or the disk they name', async () => {
+    // These are not touched by the drive-less-root rule; the device-prefix reading stands.
+    const remote = ['\\??\\UNC\\evil\\share\\x', '\\??\\GLOBALROOT\\Device\\Mup\\evil\\share', '\\\\?\\UNC\\evil\\share', '\\\\?\\GLOBALROOT\\Device\\Mup\\evil\\share', '\\\\.\\C:\\evil', '\\?\\evil\\share']
+    for (const target of remote) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+      expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md'), target).toEqual(['remote', 'remote'])
+    }
+    // \\?\C:\… and \??\C:\… name a local disk; both are walked there.
+    for (const target of ['\\\\?\\C:\\p\\repo\\real.md', '\\??\\C:\\p\\repo\\real.md']) {
+      const fs = fakeLinks({ 'C:\\p\\repo\\docs': target })
+      expect(await walkBoth(fs, 'C:\\p\\repo\\docs\\a.md'), target).toEqual(['local', 'local'])
+      expect(fs.calls, target).toContain('lstat C:\\p\\repo\\real.md')
+    }
+  })
+
+  it('a drive-less name in the path asked about, or an allowed folder, is a folder of the disk, not refused', async () => {
+    // The rule is for a link's stored target only. A \Device… candidate resolves to a folder of the
+    // current disk and is local; an allowed folder \Device\team is that folder, so the walk starts
+    // there and the link at \Device itself is never read. Win32.resolve fixes the disk letter, so
+    // the keys below match whatever disk the test runs on.
+    const deviceRoot = win32.resolve('\\Device') // <disk>:\Device
+    const teamRoot = win32.resolve('\\Device\\team') // <disk>:\Device\team
+
+    const plain = fakeLinks({})
+    expect(await walkBoth(plain, '\\Device\\Mup\\x\\a.md')).toEqual(['local', 'local'])
+    expect(plain.calls).toContain(`lstat ${deviceRoot}`)
+
+    const deviceLink = fakeLinks({ [deviceRoot]: '\\\\evil\\share' })
+    expect(await walkBoth(deviceLink, `${teamRoot}\\a.md`, ['\\Device\\team'])).toEqual(['local', 'local'])
+    expect(deviceLink.calls.includes(`readlink ${deviceRoot}`)).toBe(false)
   })
 })
 
