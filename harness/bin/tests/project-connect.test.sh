@@ -298,7 +298,11 @@ export HARNESS_HOME="$T/fresh-legacy-broken"
 printf '{"repos": {}}\n' >"$LEGACY"
 repo "$T/after-broken"
 draft after-broken full null "$T/after-broken" >"$T/after-broken.json"
-check "a broken old registry is refused with its path, nothing is written" 1 "$LEGACY cannot be read" "$CONNECT" <"$T/after-broken.json"
+# The path as the message prints it: on Windows (cygpath exists there) node's C:\… spelling, JSON-escaped, so every
+# backslash doubled; unchanged elsewhere.
+if command -v cygpath >/dev/null 2>&1; then LEGACY_SHOWN="$(cygpath -w "$LEGACY")"; LEGACY_SHOWN="${LEGACY_SHOWN//\\/\\\\}"
+else LEGACY_SHOWN="$LEGACY"; fi
+check "a broken old registry is refused with its path, nothing is written" 1 "$LEGACY_SHOWN cannot be read" "$CONNECT" <"$T/after-broken.json"
 [ ! -e "$HARNESS_HOME/gate/config.json" ] && ok "a broken old registry: no new registry is written" || bad "a broken old registry: $(cat "$HARNESS_HOME/gate/config.json")"
 rm -rf "$T/home/.claude/gate" "$T/home/.claude/profiles"
 export HARNESS_HOME="$T/fresh"
