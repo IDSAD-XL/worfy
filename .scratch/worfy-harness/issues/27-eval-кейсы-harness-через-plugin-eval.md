@@ -1,10 +1,10 @@
 # 27 — Eval-кейсы Harness: `claude plugin eval` проверяет, что Claude следует правилам Harness
 
 Type: task
-Status: blocked 2026-10-18T07:00Z
-Blocked reason: Claude Code отказывает в eval с Bash: в ~/.docker/bin/lib (Docker Model Runner) символические ссылки
+Status: blocked 2026-10-18T14:56Z
+Blocked reason: Claude Code отказывает в eval с Bash: символические ссылки остались в ~/.docker/bin.off/lib (папка внутри ~/.docker)
 Waits: owner
-Branch: worfy-harness/27-run
+Branch: worfy-harness/27-eval
 Blocked by: 05, 06, 07, 11, 28
 Source: решения владельца 2026-10-08, пересмотр E3: вопрос 34, вариант б («давай таки попробуем б» — eval-кейсы Harness через `claude plugin eval`), и вопрос 35 («Готово, когда» E3 без изменений) — номера Session «Несколько машин и порт под Windows», продолжают Q30–Q33 spec-а worfy-windows, это не Q34 и Q35 spec-а E3; решение владельца о дешёвом CI (2026-10-06, PR #42: CI — одна задача на Linux, e2e и `.app` — локально); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`), [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
@@ -388,3 +388,36 @@ here; keep the store's contents in one plain directory (its root may be a link)�
 Папки прогонов, которые Claude Code оставил после отказа, — `/private/tmp/e-GfBcZJ` и `/private/tmp/e-eRhVKz`
 (только чтение, `home/` и `tmp/` в них запечатаны, mode 000); вне worktree, не удалены — можно удалить руками
 (`chmod -R u+w` перед `rm -rf`).
+
+### Прогон 2026-10-18, вечер: отказ тот же, ссылки остались внутри `~/.docker`
+
+По слову владельца (2026-10-18, вопрос о `Bash` в прогонах, вариант (а)) папку `~/.docker/bin` переименовали в
+`~/.docker/bin.off`. Ветка `worfy-harness/27-eval` от `origin/main` `3b26e1f9`, worktree `.claude/worktrees/27-eval`.
+Первый платный шаг — один run `epic-wave-tickets` — Claude Code снова отклонил до старта агента.
+
+| Вызов | Кейс | Оценка | Run-ы | Цена, USD | Время | Код выхода |
+| --- | --- | --- | --- | --- | --- | --- |
+| `pnpm eval:harness -- --case epic-wave-tickets --runs 1 --concurrency 1 --max-cost-usd 6` (`main`, `Bash Write Edit`) | `epic-wave-tickets` | 0.00 (отказ) | 1 | 0.00 | 0 с (вызов целиком — 5 с) | 1 |
+
+Всего 0.00 USD (`costUsd: 0`, `partial: false`, `claudeVersion` 2.1.289). Отчёт —
+`harness/evals/results/2026-10-18T14-56-32-135Z-main/report.html` в worktree `.claude/worktrees/27-eval` (вне git).
+Снимок `~/.claude` (список `projects`, хэши `settings.json` и `plugins/installed_plugins.json`) после прогона совпал с
+исходным.
+
+Текст отказа — тот же, слово в слово: «the Docker (~/.docker, DOCKER_CONFIG) credential store on this machine holds a
+symbolic link inside it, so the Bash sandbox cannot reliably exclude it — a Bash-granting evaluation cannot run
+here; keep the store's contents in one plain directory (its root may be a link)».
+
+**Причина.** Claude Code обходит всю папку `~/.docker`, кроме списка пропуска (`cli-plugins`, `buildx`, `desktop`,
+`mutagen`, `scan`, `run`, `features.json`, `daemon.json`, `desktop-build`). Переименование оставило папку внутри
+`~/.docker`: `find ~/.docker -type l` находит те же 16 ссылок в `~/.docker/bin.off/lib` (`libggml.dylib`,
+`libllama.dylib` и другие). Остальные 15 ссылок — в `cli-plugins`, его Claude Code пропускает. Ничего больше не
+трогал: `~/.docker` по слову владельца возвращает он сам.
+
+**Что нужно для прогона.** Убрать `bin.off` из `~/.docker` — перенести, например, в `~/docker-bin.off`, вне
+`~/.docker`, — или заменить 16 ссылок копиями файлов (`cp -L`). Потом — те же три пункта с первым run-ом
+`epic-wave-tickets` и пересчётом цены (раздел «Прогон 2026-10-18» выше). Платного не потрачено ничего: бюджет одного
+круга (16–28 USD, потолок Ticket-а 25 USD) цел.
+
+Папка, которую Claude Code оставил после отказа, — `/private/tmp/e-qDEbbR` (только чтение, `home/` и `tmp/`
+запечатаны, mode 000); вне worktree, не удалена — можно удалить руками (`chmod -R u+w` перед `rm -rf`).
