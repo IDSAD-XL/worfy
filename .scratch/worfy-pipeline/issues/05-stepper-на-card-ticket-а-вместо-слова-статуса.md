@@ -1,7 +1,8 @@
 # 05 — Stepper на Card Ticket-а вместо слова статуса; бейдж вердикта — из отметки `review`
 
 Type: task
-Status: claimed 2026-10-18T13:53Z
+Status: done 2026-10-18T17:49Z
+PR: #468
 Branch: worfy-pipeline/05
 Blocked by: 03
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 2, 5 ([spec.md](../spec.md),
@@ -195,3 +196,9 @@ head до него a065de16, ветка перед ним перенесена �
     `flexShrink: 100` — красный test «nine Stages, a repository chip and the Ready chip…» (42.49 в 42.09).
     `test/unit/ticket-stepper.test.tsx` — test «the box narrows by less than a pixel» (200 → 199.7 px);
     mutant `Math.round` на ширине ResizeObserver — красный.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #468 влит как `786aee97`. Ревью — четыре круга: круги 1 и 2 — REJECTED (имя Stage режется на 9-Stage Pipeline); круг 3 (medium, [комментарий](https://github.com/IDSAD-XL/worfy/pull/468#issuecomment-6251286652)) — один medium (`flex-shrink: 0` узкого stepper-а); после трёх кругов владелец разрешил четвёртый (Q27); круг 4 (low, [комментарий](https://github.com/IDSAD-XL/worfy/pull/468#issuecomment-6251585019)) — без находок.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, head `c3ff2d02` после rebase на `01ae750e` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/468#issuecomment-6251990391)). `ticket-stepper` зелёный внутри `pnpm test`; `checks-badges.spec.ts` и `epic-frame.spec.ts` — внутри `test:e2e`.
+- Не платформенный PR: `check/windows` skipped, вердикта Windows нет. Linux CI — batch CI на main.

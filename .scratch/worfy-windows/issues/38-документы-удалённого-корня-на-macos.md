@@ -1,7 +1,8 @@
 # 38 — macOS: документы удалённого корня Project-а остаются как были
 
 Type: task
-Status: claimed 2026-10-18T11:19Z
+Status: done 2026-10-18T17:49Z
+PR: #491
 Branch: worfy-windows/38-docs-removed-root-macos
 Blocked by: —
 Source: первый круг ревью PR #281 на Mac, 2026-10-13 ([комментарий в PR #281](https://github.com/IDSAD-XL/worfy/pull/281#issuecomment-6145538673), разделы «The measurement the ticket left for the Mac» и «Not this PR — tickets I file») — измерено тремя reviewer-ами независимо; пункт 3 [Ticket-а 27](27-docswatcher-на-удалённом-корне-project-а.md)
@@ -160,3 +161,10 @@ Runner — `../evidence/38-mutants.mjs`: по одному, после кажд�
 
 - `gate full` на Mac и ручной job «Windows tests» — шаг Orchestrator-а; на Windows правка по чтению меняет только одно: файл прямо под корнем с именем корня даёт лишнее чтение.
 - Linux не запускался (пункт 4 — по чтению исходников Node).
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #491 влит как `3b26e1f9`. Ревью на Mac: medium круга 1 (имя корня из `basename` без `realpath`: symlink-корень и корень в другом регистре) исправлен; круг 2 ([комментарий](https://github.com/IDSAD-XL/worfy/pull/491#issuecomment-6250090425)) — без блокеров.
+- Вердикт Windows на `413d5709` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/491#issuecomment-6250717503)): `docs-watch-root-gone`, `docs-watch-root`, `watch-gone`, `docs`, `no-rmsync`, `e2e-no-spawn-on-load` — exit 0, 110 passed / 6 skipped (6 — блоки только для macOS); Windows-блок `docs-watch-root.test.ts` на настоящих папках прошёл. Регрессий нет.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, head `bfce8ae7` после rebase на `21306ec8` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/491#issuecomment-6251052794)). Linux CI — batch CI на main.
+- Осталось: Linux не запускался (пункт 4 — по чтению исходников Node).

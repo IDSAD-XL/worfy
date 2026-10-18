@@ -1,7 +1,8 @@
 # 37 — Watch веток git через chokidar на Windows держит handle удалённой папки
 
 Type: task
-Status: claimed 2026-10-18T13:40Z
+Status: done 2026-10-18T17:49Z
+PR: #493
 Branch: worfy-windows/37-chokidar-handle
 Blocked by: —
 Source: первый круг ревью PR #281 на Mac, 2026-10-13 ([комментарий в PR #281](https://github.com/IDSAD-XL/worfy/pull/281#issuecomment-6145538673), раздел «Not this PR — tickets I file»); «Итог» [Ticket-а 27](27-docswatcher-на-удалённом-корне-project-а.md): как chokidar ведёт себя на Windows при удалённой папке `.git`, не мерилось. Первый шаг — замер на Windows-ПК.
@@ -180,3 +181,9 @@ chokidar ставит на каждую папку не рекурсивный `
 
 - `gate full` на Mac; ручной job «Windows tests» на двух новых test-файлах.
 - На Mac убедиться, что unit test проходит (contract test там пропускается).
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #493 влит как `9a6eb065`. Ревью на Mac, круг 1 (high, [комментарий](https://github.com/IDSAD-XL/worfy/pull/493#issuecomment-6251078858)): high и medium нет, два low про test-ы — в [Ticket 62](62-остатки-ревью-2026-10-18-вечер.md).
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, head `425aa801` после rebase на `01ae750e` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/493#issuecomment-6251742499)). Unit test `workflow-branches-gone` на Mac зелёный; contract test там только для Windows и пропускается.
+- Вердикт Windows на `425aa801` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/493#issuecomment-6252049727)): contract и unit `workflow-branches-gone` + `no-rmsync` + `e2e-no-spawn-on-load` — exit 0, 4 файла, 74 passed; contract test идёт на настоящих папках и настоящем git. Регрессий нет. После gate main сдвинулся на #468 (`786aee97`, только Stepper в renderer), общих файлов нет. Linux CI — batch CI на main.

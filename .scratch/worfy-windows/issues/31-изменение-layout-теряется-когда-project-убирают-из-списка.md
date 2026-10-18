@@ -1,7 +1,8 @@
 # 31 — Изменение Layout теряется, когда Project убирают из списка раньше отложенной записи
 
 Type: task
-Status: claimed 2026-10-18T15:06Z
+Status: done 2026-10-18T17:49Z
+PR: #500
 Branch: worfy-windows/31
 Blocked by: —
 Source: «Итог» [Ticket-а 26](26-test-ы-на-windows-оставляют-папки-в-temp.md) (Windows Session назвала случай); первый круг ревью PR #276 на Mac, 2026-10-13 ([комментарий в PR #276](https://github.com/IDSAD-XL/worfy/pull/276#issuecomment-6138375749)) — воспроизведено двумя независимыми пробами
@@ -139,3 +140,10 @@ Windows Session, 2026-10-18, ветка `worfy-windows/31` от main 3c23d7a4. C
 - **Пункт 4 не сделан:** правило Windows Session запрещает править другие ticket-ы. Править нужно `26-…md:197`: «Теряется то, что изменено за последние 250 ms» → «всё, что изменено после последней записи; видно после перезапуска и нового добавления».
 - `gate full` на Mac не запускался.
 - В живом приложении (Electron с окном) не проверялось — только contract test-ы. Что экран действительно принимает Layout после нового добавления, проверено только через revision в main, без renderer-а.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #500 влит как `f7ea055f`. Ревью на Mac, круг 1 (high, [комментарий](https://github.com/IDSAD-XL/worfy/pull/500#issuecomment-6252693675)): блокеров нет, два low — в [Ticket 62](62-остатки-ревью-2026-10-18-вечер.md).
+- Вердикт Windows на `54296918` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/500#issuecomment-6252536315)): `layout-store`, `layout-pin-tag`, `viewport-store`, `trash`, `no-rmsync`, `e2e-no-spawn-on-load` — exit 0, 6 файлов, 160 passed / 1 skipped; `pnpm lint`, `pnpm typecheck` — exit 0. На результате слияния с main `da1a69a5` ПК не перезапускал.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac, head `2388da21` после rebase на `da1a69a5` — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([отчёт `Mac checks report: green`](https://github.com/IDSAD-XL/worfy/pull/500#issuecomment-6253106157)). Не платформенный PR: `check/windows` skipped. Linux CI — batch CI на main.
+- Пункт 4 (формулировка в «Итоге» Ticket-а 26) сделан в docs PR на Mac 2026-10-18.
