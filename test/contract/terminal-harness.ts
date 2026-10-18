@@ -2,14 +2,13 @@
 // scratch folders, and the harness that puts the `terminal.*` IPC channels on a real pseudo-terminal.
 // Split out of terminal.test.ts (worfy-windows ticket 22) to keep that file under the gate's
 // 1000-line bound; terminal.test.ts and terminal-windows.test.ts both use it.
-import { execFile, execFileSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterAll, afterEach, beforeAll, beforeEach, expect, vi } from 'vitest'
+import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { SYSTEM_PATH } from '../../src/main/agent/env'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { terminalHandlers } from '../../src/main/ipc/terminal'
@@ -41,7 +40,6 @@ export const IGNORE_HANGUP = `${WINDOWS ? '' : "trap '' HUP; "}${say('trap', 'pe
  * The environment of a shell of Windows in the tests: the system folders on the Path, so the shell
  * is Windows PowerShell, and every folder of the user in the temporary home, so no profile,
  * history or cache of the machine running the tests takes part. `path` goes first on the Path.
- * LOCALAPPDATA is the folder of the test file when useTerminalScratch made one, see `sharedLocalAppData`.
  */
 export function windowsEnv(home: string, path: readonly string[] = []): Record<string, string> {
   return {
@@ -56,7 +54,7 @@ export function windowsEnv(home: string, path: readonly string[] = []): Record<s
     USERPROFILE: home,
     HOME: home,
     APPDATA: join(home, 'AppData', 'Roaming'),
-    LOCALAPPDATA: sharedLocalAppData ?? join(home, 'AppData', 'Local'),
+    LOCALAPPDATA: join(home, 'AppData', 'Local'),
     TEMP: home,
     TMP: home,
     PWD: '/somewhere/else',
@@ -105,32 +103,11 @@ export let root: string
 export let home: string
 const registries: TerminalRegistry[] = []
 
-// One LOCALAPPDATA for the whole test file (worfy-windows ticket 41). On the clean Windows runner the
-// first command of a fresh Windows PowerShell 5.1 answered after 24-27 s, the second in about 200 ms
-// (run 39090844904): the first command searches every module, and PowerShell keeps that search
-// (ModuleAnalysisCache) under %LOCALAPPDATA%\Microsoft\Windows\PowerShell. An empty LOCALAPPDATA per
-// test paid it in every test; one per file, warmed once in beforeAll, pays it once. The rest of the
-// user's folders stay per test.
-let sharedLocalAppData: string | undefined
-// Whether the test that runs now has printed the timing of its first command (ticket 41).
+// Whether the test that runs now has printed the timing of its first command (worfy-windows ticket 41).
 let firstRunTimed = false
-const WARM_UP_TIMEOUT_MS = 80_000
 
 /** Gives every test of the file that calls it, once and at its top level, a fresh `root` and `home`, and closes what the test left. */
 export function useTerminalScratch(): void {
-  let shared: string | undefined
-  beforeAll(async () => {
-    shared = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-shared-')))
-    sharedLocalAppData = join(shared, 'Local')
-    await mkdir(sharedLocalAppData)
-    if (WINDOWS) await warmUp(join(shared, 'home'), sharedLocalAppData)
-  }, 90_000)
-
-  afterAll(async () => {
-    sharedLocalAppData = undefined
-    if (shared !== undefined) await rm(shared, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-  })
-
   beforeEach(async () => {
     firstRunTimed = false
     root = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-project-')))
@@ -146,21 +123,19 @@ export function useTerminalScratch(): void {
 }
 
 /**
- * Runs one command in Windows PowerShell with the environment of a test shell, so the module search
- * of its first command lands in the shared LOCALAPPDATA before the tests (ticket 41). A slow or failed
- * warm-up does not fail the file: it prints what happened, and the tests keep their own bounds.
+ * Why the tests on Windows PowerShell 5.1 are skipped on the GitHub runner (worfy-windows ticket 41):
+ * there every fresh process answers its first command after 24-32 s, and neither a warm-up nor a
+ * shared LOCALAPPDATA made the next process faster (runs 39090844904 and 39093912268).
  */
-async function warmUp(warmHome: string, localAppData: string): Promise<void> {
-  await mkdir(warmHome)
-  const powershell = win32.join(SYSTEM_ROOT, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-  const started = Date.now()
-  const code = await new Promise<number | string | null>((resolve) => {
-    execFile(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Write-Output warm'], { env: windowsEnv(warmHome), cwd: warmHome, timeout: WARM_UP_TIMEOUT_MS, windowsHide: true }, (error) => {
-      resolve(error === null ? 0 : ((error as NodeJS.ErrnoException & { code?: number | string }).code ?? error.signal ?? null))
-    })
-  })
-  const moduleAnalysisCache = existsSync(join(localAppData, 'Microsoft', 'Windows', 'PowerShell', 'ModuleAnalysisCache'))
-  process.stdout.write(`[warmup41] ${JSON.stringify({ ms: Date.now() - started, code, localAppData, moduleAnalysisCache })}\n`)
+export const NO_WINDOWS_POWERSHELL_ON_RUNNER = "worfy-windows ticket 41: on the clean GitHub Windows runner the first command of a fresh Windows PowerShell 5.1 answers after ~25 s; runs on the PC and owners' machines"
+
+/**
+ * Skips a vitest test whose shell is Windows PowerShell 5.1 on the GitHub Windows runner, with the
+ * reason: `needsWindowsPowerShellOffRunner(context)` first in the test. On macOS, Linux and a Windows
+ * PC the test runs.
+ */
+export function needsWindowsPowerShellOffRunner(context: { skip: (condition: boolean, note?: string) => void }): void {
+  context.skip(WINDOWS && process.env['GITHUB_ACTIONS'] === 'true', NO_WINDOWS_POWERSHELL_ON_RUNNER)
 }
 
 /** True while a process with this pid exists (a reaped child is gone). */

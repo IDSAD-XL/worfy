@@ -161,19 +161,23 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - **Шаг 2, вариант «test-ы идут на runner-е».** `windowsEnv` задаёт `PSModulePath` только с папкой модулей системы (`%SystemRoot%\System32\WindowsPowerShell\v1.0\Modules`) — так же, как он уже задаёт `Path` только из системных папок: test-ам Terminal-а другие модули не нужны, а поиск по одной папке короткий. Проверка — ещё один запуск ручного job-а на `test/contract/terminal.test.ts` и `test/contract/terminal-windows.test.ts` (решение владельца). Вариант «только ПК» (пропуск на runner-е) остаётся запасным.
 - **Не про test-ы, а про приложение:** worfy запускает Windows PowerShell с настоящим `LOCALAPPDATA` пользователя, кэш там уже есть — у пользователя первой команде ждать не нужно. На свежей системе с большим набором модулей первая команда может быть медленной и в приложении; не мерилось.
 
-### Шаг 2: один LOCALAPPDATA на test-файл и прогрев (2026-10-18)
+### Шаг 2: прогрев и общий LOCALAPPDATA не помогли, пропуск на runner-е (2026-10-18)
 
-- **Что изменилось** — только `test/contract/terminal-harness.ts`:
-  - `useTerminalScratch` в `beforeAll` (предел 90 s) создаёт одну временную папку на test-файл. `LOCALAPPDATA` всех оболочек файла — её `Local`, а не `AppData\Local` временного home каждого test-а. `USERPROFILE`, `HOME`, `APPDATA`, `TEMP`, `TMP` по-прежнему свои у каждого test-а. `afterAll` удаляет папку.
-  - Только на Windows там же — прогрев: `powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Output warm"` с окружением test-ной оболочки (`windowsEnv` с общим `LOCALAPPDATA`), предел 80 s. Медленный или упавший прогрев файл не валит: печатается строка `[warmup41] {ms, code, localAppData, moduleAnalysisCache}` (последнее — есть ли `Microsoft\Windows\PowerShell\ModuleAnalysisCache` в общей папке), а test-ы ждут, как раньше (5 s и 10 s).
-  - `run` на настоящей оболочке Windows печатает для первой команды каждого test-а `[first41] {test, ms, ok}`: ms от ввода команды до её вывода. Обе строки идут через `process.stdout.write`, чтобы попасть в лог job-а.
-- **ПК** (Windows 11 Pro 10.0.26200; `node scripts/vitest-electron.mjs <файл>`, как в job-е):
-
-| Файл | Ветка `worfy-windows/41-warm-up` | main (`1ef87f8`) |
-|---|---|---|
-| `test/contract/terminal.test.ts` | exit 0: 44 прошло, 3 пропущено, 32,2 s | exit 0: 44 прошло, 3 пропущено, 29,1 s |
-| `test/contract/terminal-windows.test.ts` | exit 0: 13 прошло, 43,6 s | exit 0: 13 прошло, 41,4 s |
-
-  Прогрев: 686 и 540 ms, код 0. `[first41]`: Windows PowerShell — 587–986 ms, Git Bash — 1246 ms; все `ok: true`.
-- **`moduleAnalysisCache: false` на ПК:** после прогрева кэша в общей папке нет. Отдельная проверка на ПК: `powershell.exe` с `LOCALAPPDATA` и `USERPROFILE` во временной папке ничего не пишет в её `Local` — ни после `Write-Output`, ни после поиска несуществующей команды с ожиданием 13 s; `ModuleAnalysisCache` настоящего профиля (от 16.10) при этом не меняется. Значит, Windows PowerShell 5.1, возможно, берёт папку кэша не из переменной `LOCALAPPDATA`, и объяснение шага 1 этим не подтверждено. На ПК первая команда и без кэша быстрая, так что решить может только runner: строки `[warmup41]` и `[first41]` в логе job-а.
-- **Ждём:** запуск ручного job-а `windows-tests.yml` на ветке `worfy-windows/41-warm-up` с `test/contract/terminal.test.ts` и `test/contract/terminal-windows.test.ts` (решение владельца). Если `[first41]` на runner-е по-прежнему 24–27 s — запасные варианты из шага 1: узкий `PSModulePath` или пропуск «только ПК».
+- **Вариант 1 — один `LOCALAPPDATA` на test-файл и прогрев** (коммит `4998df0`, только `test/contract/terminal-harness.ts`):
+  - `useTerminalScratch` в `beforeAll` (предел 90 s) создавал одну временную папку на test-файл. `LOCALAPPDATA` всех оболочек файла — её `Local`; `USERPROFILE`, `HOME`, `APPDATA`, `TEMP`, `TMP` оставались свои у каждого test-а. `afterAll` удалял папку.
+  - Только на Windows там же — прогрев: `powershell.exe -NoLogo -NoProfile -NonInteractive -Command "Write-Output warm"` с окружением test-ной оболочки, предел 80 s. Он печатал `[warmup41] {ms, code, localAppData, moduleAnalysisCache}` (последнее — есть ли `Microsoft\Windows\PowerShell\ModuleAnalysisCache` в общей папке) и файл не валил.
+  - `run` на настоящей оболочке Windows печатает для первой команды каждого test-а `[first41] {test, ms, ok}`: ms от ввода команды до её вывода. Строка идёт через `process.stdout.write`, чтобы попасть в лог job-а.
+  - ПК (`node scripts/vitest-electron.mjs <файл>`, как в job-е): `test/contract/terminal.test.ts` — exit 0, 44 прошло, 3 пропущено, 32,2 s (main `1ef87f8` — 29,1 s); `test/contract/terminal-windows.test.ts` — exit 0, 13 прошло, 43,6 s (main — 41,4 s). Прогрев 686 и 540 ms, код 0. `[first41]`: Windows PowerShell — 587–986 ms, Git Bash — 1246 ms, все `ok: true`. `moduleAnalysisCache: false` и на ПК: `powershell.exe` с временными `LOCALAPPDATA` и `USERPROFILE` ничего не пишет в их `Local`.
+- **Runner: запуск [39093912268](https://github.com/IDSAD-XL/worfy/actions/runs/39093912268)** (`windows-tests.yml`, ветка `worfy-windows/41-warm-up`, head `4998df0`, файлы `test/contract/terminal.test.ts` и `test/contract/terminal-windows.test.ts`): failure, 18 test-ов упали.
+  - `[warmup41]`: 32 156 ms и 23 792 ms (по одному на файл), код 0, `moduleAnalysisCache: false` оба раза.
+  - `[first41]` всех 16 test-ов на Windows PowerShell, которые его печатают: ~5000 ms, `ok: false`. Первая команда не ответила за 5 s, хотя прогрев в том же файле уже прошёл.
+  - Контроль на том же runner-е: `pwsh` — 1011 ms, `ok: true`; Git Bash — 762 ms, `ok: true`.
+  - **Вывод:** 24–32 s платит каждый новый процесс Windows PowerShell 5.1. Между процессами ничего не переиспользуется — ни через общий `LOCALAPPDATA`, ни после прогрева.
+- **Вариант 2 — пропуск только на runner-е** (решение владельца):
+  - Прогрев и общий `LOCALAPPDATA` убраны: `windowsEnv` снова даёт каждой оболочке `AppData\Local` её временного home.
+  - В `test/contract/terminal-harness.ts` — причина `NO_WINDOWS_POWERSHELL_ON_RUNNER` со ссылкой на этот ticket и `needsWindowsPowerShellOffRunner(context)` по образцу `needsPosix` из `test/zsh.ts`: `context.skip`, когда `process.platform === 'win32'` и `GITHUB_ACTIONS=true`. Вызов стоит первой строкой в 18 test-ах на Windows PowerShell: 8 в `test/contract/terminal-windows.test.ts`, 10 в `test/contract/terminal.test.ts`. Test-ы `pwsh` и Git Bash не тронуты и идут на runner-е. На macOS, Linux и Windows-ПК пропуска нет.
+  - Строка `[first41]` в `run` остаётся.
+  - **Пропуск на runner-е не прогонялся:** ещё одного запуска ручного job-а не было (решение владельца).
+- **ПК:** (заполнит Session)
+- **Открыто для владельца — узкий `PSModulePath` на runner-е.** На ПК Windows PowerShell 5.1 сам добавляет к `PSModulePath` папки модулей из `Program Files` и `System32`. На runner-е большие наборы модулей лежат в `C:\Modules` и подключаются через машинный `PSModulePath`. Узкий `PSModulePath` в `windowsEnv` мог бы вернуть эти test-ы на runner; там это не проверялось.
+- **Открытый вопрос про приложение:** на свежей машине с большим набором модулей первая команда Windows PowerShell 5.1 в worfy тоже может ждать ~25 s. По замеру выше между процессами, похоже, ничего не кэшируется, так что вывод шага 1 «у пользователя кэш уже есть» под вопросом. В приложении не мерилось.
