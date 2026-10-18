@@ -72,6 +72,10 @@ export const HELD_OUTPUT_MS = 50
 export const DESCENDANTS_TIMEOUT_MS = 3000
 /** The upper bound of closing a Terminal on Windows; after it the Terminal is closed without node-pty's exit event. */
 export const WINDOWS_CLOSE_BOUND_MS = 5000
+/** How often a shell of Windows is looked at for its pid while node-pty connects it (pidKnown). */
+export const PID_POLL_MS = 10
+/** How long a shell of Windows may go without a pid before its start counts as failed; node-pty itself gives up after 5 s. */
+export const PID_WAIT_MS = 10_000
 /**
  * How much later than `startedBy` the creation time of a shell may read and still be that shell.
  * `startedBy` is Date.now() of this process and the creation time is the kernel's: two clocks,
@@ -339,7 +343,7 @@ export function endDescendants(shell: StartedShell): Promise<DescendantsVerdict>
 
 /**
  * Takes the helper process out of node-pty's kill() on Windows; false when this is not a pty of
- * node-pty as 1.1.0 builds it.
+ * node-pty as 1.1.0 and 1.2.0-beta.15 build it.
  *
  * This is for a pty on the console of the system (a spawn of its own given to the registry; the
  * app itself starts shells on the console of the node-pty package, where kill() starts no helper —
@@ -406,7 +410,7 @@ export const spawnShellPty: SpawnPty = (file, args, options) => {
 
 /**
  * The exit code node-pty already has for a shell of Windows, before its exit event; undefined
- * while the shell runs, and for a pty that is not node-pty's as 1.1.0 builds it.
+ * while the shell runs, and for a pty that is not node-pty's as 1.1.0 and 1.2.0-beta.15 build it.
  *
  * node-pty sends the exit event when the output of the console closes. The console of the package
  * lives while any process is attached to it, so a shell that left a program behind
@@ -423,7 +427,7 @@ function exitCodeKnown(pty: PtyProcess): number | undefined {
 
 /**
  * Stops the thread in which node-pty reads the output of a console of Windows; false when this is
- * not a pty of node-pty as 1.1.0 builds it.
+ * not a pty of node-pty as 1.1.0 and 1.2.0-beta.15 build it.
  *
  * With the console of the package (spawnShellPty) kill() stops that thread only when output comes
  * after it, and none does once the shell is gone: one thread per Terminal stayed until worfy quit
@@ -589,6 +593,10 @@ export class TerminalRegistry {
   private readonly exitPollMs: number
   private readonly exitGraceMs: number
   private readonly shellListeners = new Set<ShellEventListener>()
+  /** Shells of Windows waiting for their pid (pidKnown), by key: what a close calls to take one apart at once. */
+  private readonly awaitingPid = new Map<string, () => void>()
+  /** Keys closed while their start had not reached the wait for the pid yet: it gives up at once. */
+  private readonly closedWhileStarting = new Set<string>()
 
   constructor(private readonly options: TerminalRegistryOptions) {
     this.spawnPty = options.spawn ?? spawnShellPty
@@ -684,6 +692,7 @@ export class TerminalRegistry {
       return { pid, shell: terminal.shell, replay: '', end: 0, started: true, exited: null }
     } finally {
       this.starting.delete(key)
+      this.closedWhileStarting.delete(key)
     }
   }
 
@@ -883,7 +892,56 @@ export class TerminalRegistry {
       exitPoll.unref?.()
     }
     if (request.command !== undefined) firstOutput = this.typeOnStart(key, terminal, request.command, () => ended)
+    if (this.platform === 'win32' && !(pty.pid > 0)) await this.pidKnown(key, terminal)
     return terminal
+  }
+
+  /**
+   * Waits until node-pty gives the pid of a shell of Windows; fails when the shell ends meanwhile,
+   * when the Terminal is closed meanwhile, or when no pid comes within PID_WAIT_MS — in the last
+   * two the pty is taken apart at once.
+   *
+   * node-pty 1.2 creates the shell only once its thread that reads the output is connected
+   * (connect() in the worker's onReady, lib/windowsPtyAgent.js): until then pty.pid is 0, and the
+   * shell is created after spawn has returned. So the moment the pid came is when the shell was
+   * running by (StartedShell.startedBy): the moment of spawn would be before the shell was created,
+   * and the helper of a close would take the shell for another process.
+   */
+  private pidKnown(key: string, terminal: Terminal): Promise<void> {
+    const since = Date.now()
+    return new Promise((resolve, reject) => {
+      // Every way out stops the look: one left running would move startedBy on and on.
+      const stop = (): void => {
+        clearInterval(look)
+        this.awaitingPid.delete(key)
+      }
+      // Ended without an exit event; on Windows finish() also takes the pty apart (release).
+      const giveUp = (why: string): void => {
+        stop()
+        terminal.closing = true
+        terminal.finish({ exitCode: 1, signal: null })
+        reject(new Error(why))
+      }
+      const look = setInterval(() => {
+        // First: a shell that got its pid and exited between two looks is not opened either, or
+        // the registry would keep a running Terminal that has ended.
+        if (terminal.finished) {
+          stop()
+          return reject(new Error(`the shell of ${key} ended while node-pty was starting it`))
+        }
+        if (terminal.pty.pid > 0) {
+          stop()
+          terminal.startedBy = Date.now()
+          return resolve()
+        }
+        if (Date.now() - since >= PID_WAIT_MS) giveUp(`node-pty gave no pid for the shell of ${key} within ${PID_WAIT_MS} ms`)
+      }, PID_POLL_MS)
+      // A close meanwhile does not wait for the pid: on Windows the quit waits for the shells
+      // only WINDOWS_QUIT_WAIT_MS (src/main/ipc/terminal.ts).
+      const closed = (): void => giveUp(`the shell of ${key} was closed while node-pty was starting it`)
+      this.awaitingPid.set(key, closed)
+      if (this.closedWhileStarting.has(key)) closed()
+    })
   }
 
   /**
@@ -986,6 +1044,11 @@ export class TerminalRegistry {
   /** Ends the shell of `key`, or forgets its exit; resolves once it has exited. Not running is not an error. */
   async close(key: string): Promise<void> {
     this.ended.delete(key)
+    // A shell of Windows still waiting for its pid is taken apart now, and one whose start has not
+    // reached that wait yet is taken apart when it does; its open fails (pidKnown).
+    const closeStarting = this.awaitingPid.get(key)
+    if (closeStarting !== undefined) closeStarting()
+    else if (this.starting.has(key)) this.closedWhileStarting.add(key)
     const terminal = this.terminals.get(key) ?? (await this.starting.get(key)?.catch(() => undefined))
     if (terminal === undefined) {
       if (!this.has(key)) this.audiences.delete(key)

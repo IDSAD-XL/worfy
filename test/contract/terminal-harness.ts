@@ -136,6 +136,28 @@ export function alive(pid: number): boolean {
   }
 }
 
+/**
+ * A cursor-position request (DSR 6) and what a screen answers to it: row and column, 1-based.
+ * xterm.js answers it in the app. The console of the node-pty package 1.2.0-beta.15
+ * (OpenConsole.exe 1.25.2603.03002) sends it about ten times after a resize, and PowerShell echoes
+ * nothing more until it is answered (measured on the owner's PC, PR #498).
+ */
+export const CURSOR_REQUEST = '\x1b[6n'
+export const CURSOR_ANSWER = '\x1b[1;1R'
+
+/** Counts the cursor-position requests in the output of one Terminal, a request split across chunks too. */
+export function cursorRequests(): (data: string) => number {
+  let carry = ''
+  return (data) => {
+    const seen = carry + data
+    let count = 0
+    for (let at = seen.indexOf(CURSOR_REQUEST); at !== -1; at = seen.indexOf(CURSOR_REQUEST, at + CURSOR_REQUEST.length)) count += 1
+    // What could be the start of the next request: shorter than a whole one, so never counted twice.
+    carry = seen.slice(-(CURSOR_REQUEST.length - 1))
+    return count
+  }
+}
+
 export interface HarnessOptions {
   killGraceMs?: number
   nodes?: string[]
@@ -195,7 +217,16 @@ export async function harness(options: HarnessOptions = {}) {
   const outputs: Output[] = []
   const exits: Exit[] = []
   let windows = 0
-  const makeWindow = () => {
+  // The window of the calls without a window of their own is the screen: it answers the cursor
+  // requests, once for each, as xterm.js does. Another window stays silent: two answers to one
+  // request are not what a test of a resize is about.
+  const screens = new Map<string, (data: string) => number>()
+  const answerCursor = (output: Output, from: ReturnType<typeof makeWindow>) => {
+    let requests = screens.get(output.nodeId)
+    if (requests === undefined) screens.set(output.nodeId, (requests = cursorRequests()))
+    for (let left = requests(output.data); left > 0; left--) void type(CURSOR_ANSWER, output.nodeId, from).catch(() => undefined)
+  }
+  const makeWindow = (screen = false) => {
     const window = Object.assign(new EventEmitter(), {
       id: ++windows,
       destroyed: false,
@@ -207,6 +238,7 @@ export async function harness(options: HarnessOptions = {}) {
         if (channel === `${IPC_CHANNEL_PREFIX}terminal.output`) {
           outputs.push(payload as Output)
           window.outputs.push(payload as Output)
+          if (screen) answerCursor(payload as Output, window)
         } else if (channel === `${IPC_CHANNEL_PREFIX}terminal.exit`) {
           exits.push(payload as Exit)
           window.exits.push(payload as Exit)
@@ -220,7 +252,7 @@ export async function harness(options: HarnessOptions = {}) {
     })
     return window
   }
-  const sender = makeWindow()
+  const sender = makeWindow(true)
   const call = async (channel: string, input?: unknown, from: ReturnType<typeof makeWindow> = sender): Promise<IpcResult<unknown>> => {
     const listener = handlers.get(IPC_CHANNEL_PREFIX + channel)
     if (!listener) throw new Error(`no handler for ${channel}`)

@@ -1,9 +1,8 @@
 # 40 — node-pty завершает процесс с кодом 3221225477 при одновременном kill()
 
 Type: task
-Status: blocked
-Blocked reason: решение владельца по node-pty (замер 2026-10-18, по 144 круга): (1) закрепить `node-pty@1.2.0-beta.15` — 0 смертей, conhost на системной консоли остаётся; (2) свой patch к 1.1.0 — 0 смертей и 0 conhost, нужна сборка бинаря Windows в CI; (3) остаться на 1.1.0 — 8 смертей из 144. В upstream ничего не отправлять без слова владельца
-Waits: owner
+Status: claimed 2026-10-18T13:42Z
+Branch: worfy-windows/40-node-pty-beta15
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «Not this PR — I file tickets»); замер Session на Windows-ПК при работе над [Ticket-ом 22](22-conhost-остаётся-после-exit-в-terminal.md) (PR #280). Первый шаг — воспроизвести и измерить на Windows-ПК.
 
@@ -82,12 +81,17 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 
 - [x] Замер на ПК: таблица по шагам 1–5 в «Итоге»; модуль падения назван — либо записано, почему
       его не удалось назвать.
-- [ ] Решение записано в «Итог». Если отчёт в upstream отправлен — ссылка там же.
-- [ ] Если очередь: test на подменном pty — `closeAll` с несколькими Terminal-ами зовёт `kill()` по
-      одному. До правки красный; мутант «очередь убрана» красный.
-- [ ] Если очередь: выход с 20 Terminal-ами укладывается в ожидание выхода — либо граница изменена
-      и записана.
-- [ ] ПК, проба шага 3 после правки: число кругов и падений рядом с числами до правки.
+- [x] Решение записано в «Итог». Если отчёт в upstream отправлен — ссылка там же.
+- [x] Если очередь: test на подменном pty — `closeAll` с несколькими Terminal-ами зовёт `kill()` по
+      одному. До правки красный; мутант «очередь убрана» красный. — Не нужно: решение владельца —
+      не очередь, а `node-pty@1.2.0-beta.15` («Итог», «Решение владельца»).
+- [x] Если очередь: выход с 20 Terminal-ами укладывается в ожидание выхода — либо граница изменена
+      и записана. — Не нужно, по той же причине.
+- [x] ПК, проба шага 3 после правки: число кругов и падений рядом с числами до правки. — Замер
+      beta.15 в «Итог» («Замер: исправление гонки»): 0 из 144 против 8 из 144.
+- [ ] Windows-ПК, проверка платформенного PR (Q23, ADR-0056): test-ы Terminal на beta.15 (список —
+      раздел «Windows checks» PR) и gate full — строка вердикта и код выхода. Этот PR — платформенный:
+      он меняет нативный модуль Windows.
 - [ ] `gate full` зелёный на Mac.
 
 ## Тесты
@@ -102,6 +106,7 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
   (`:879-893`), `closeWhere` и `closeAll` (`:896-903`), `leave` (`:790-806`).
 - `src/main/ipc/terminal.ts:174-200` — ожидание оболочек при выходе.
 - `node_modules/node-pty/src/win/conpty.cc` — только читать.
+- `package.json`, `pnpm-lock.yaml` — версия node-pty (решение владельца 2026-10-18).
 
 ## Вне скоупа
 
@@ -203,3 +208,66 @@ Session на Windows-ПК, 04:28–04:46, 192 круга за 17,5 min. Windows 
 - **Варианты для решения владельца:** (1) перейти на `node-pty@1.2.0-beta.15` (точная версия: `^1.1.0` beta не возьмёт) — падение уходит, conhost на системной консоли остаётся, но приложение на консоли из пакета, где его нет; (2) свой patch к 1.1.0 — нужна сборка Windows-бинаря в CI (prebuilt из npm его не содержит), и его надо поддерживать до релиза upstream; (3) остаться на 1.1.0 — падение остаётся. Что beta.15 меняет ещё (консоль из пакета 1.25, API, выход на Mac), не проверялось.
 - **Upstream:** текст для #965 (patch закрывает и #965) — черновик, в GitHub не отправлялся; отправка — только с разрешения владельца.
 - Не сделано: crash dump (шаг 6, настройки Windows); beta.15 в самом приложении и его test-ах; замер на `pwsh.exe`.
+
+### Решение владельца и переход на `node-pty@1.2.0-beta.15` (2026-10-18)
+
+**Решение владельца** (2026-10-18, чат Session на Mac): вариант (1) — закрепить `node-pty@1.2.0-beta.15`. Основание — замер выше: 0 смертей 3221225477 из 144 кругов против 8 из 144 на 1.1.0. Брошенный `conhost.exe` на системной консоли остаётся (открытый [microsoft/node-pty#965](https://github.com/microsoft/node-pty/issues/965)), но приложение работает на консоли из пакета (`useConptyDll: true`, `src/main/terminal/pty.ts:394`), где его нет. Очередь `kill()` в реестре не нужна; свой patch к 1.1.0 не делается. В upstream ничего не отправлено. Возврат на стабильный релиз, когда выйдет релиз с исправлением #965, — [Ticket 60](60-вернуться-на-стабильный-node-pty.md).
+
+**Что сделано (Session на Mac, ветка `worfy-windows/40-node-pty-beta15`).** Платформенный PR (ADR-0056, пункт 2): он меняет нативный модуль Windows, перед мержем — test-ы Terminal и gate full на Windows-ПК.
+- `package.json`: `"node-pty": "1.2.0-beta.15"` — точная версия, без `^` (`^1.1.0` beta не взял бы).
+- `pnpm-lock.yaml` — через `pnpm install`: specifier и version в `importers`, запись `packages` с новым integrity и запись `snapshots` (зависимость та же — `node-addon-api` 7.1.1). Других изменений в lockfile нет.
+- `src/main/terminal/pty.ts` — ожидание pid (см. ниже) и комментарии: поля node-pty, которые worfy достаёт (`_agent._getConsoleProcessList`, `_agent.inSocket`, `_agent.exitCode`, `_agent._conoutSocketWorker.dispose`), в beta.15 на месте (`lib/windowsPtyAgent.js`: `inSocket` `:99`, `_getConsoleProcessList` `:215`, `exitCode` `:233`, `_conoutSocketWorker` `:63`), и `kill()` консоли из пакета тот же: `inSocket.destroy()`, native `kill`, `dispose()` worker-а только на следующем выводе.
+- **macOS:** `postinstall` (`scripts/postinstall.mjs`, `electron-rebuild --only node-pty`) собрал `build/Release/pty.node` и `spawn-helper` под Electron 44.5.1 (ABI 149, `.forge-meta` = `arm64--149`); `loadNativeModule` beta.15 по-прежнему берёт `build/Release` раньше `prebuilds/`. Оболочка под `ELECTRON_RUN_AS_NODE=1` через beta.15 стартует и выходит с кодом 0.
+- **Упаковка:** `electron-builder.yml` не меняется — `asarUnpack: node_modules/node-pty/**` и `npmRebuild: false` берут то, что поставил pnpm; `test/e2e/packaged.spec.ts:347` ищет `build/Release/pty.node`, который beta.15 собирает так же. На Windows prebuild `prebuilds/win32-x64` beta.15 содержит `conpty.node`, `conpty_console_list.node` и `conpty/conpty.dll` + `OpenConsole.exe` (1.25.2603.03002); winpty (`pty.node`, `winpty.dll`, `winpty-agent.exe`) из пакета убран — worfy его не использует (Windows 10 1809+). `pnpm install:stable` не запускался.
+
+**Что beta.15 меняет на Windows помимо гонки** (прочитано в `lib/` beta.15):
+- **pid известен не сразу — исправлено в этом PR.** Оболочка создаётся в `conptyNative.connect()` (`lib/windowsPtyAgent.js:134-135`), а он ждёт, пока поток чтения вывода подключится (`onReady`, `:71`). До этого `pty.pid` — 0 (`lib/windowsTerminal.js:62`), обновляется на `ready_datapipe` (`:69`). `TerminalRegistry` отдавал pid сразу после spawn, а ответ `terminal.open` принимает только положительный pid (`src/shared/ipc/terminal.ts:58`, проверка ответа — `src/main/ipc/index.ts:157`): на Windows каждый Terminal не открылся бы («invalid output from the handler»). Теперь `start` на Windows ждёт pid (`pidKnown` в `src/main/terminal/pty.ts`: взгляд раз в `PID_POLL_MS` = 10 ms, предел `PID_WAIT_MS` = 10 s — больше собственного предела node-pty 5 s). Оболочка, которая завершилась раньше, и pid, который не пришёл за предел, — ошибка open; во втором случае pty разбирается (`finish` → `release`). На node-pty 1.1.0 и на macOS pid есть сразу — ожидания нет.
+- **Оболочка создаётся позже spawn — исправлено тем же.** `startedBy` теперь — момент, когда pid пришёл: helper закрытия считает процесс с pid оболочки чужим, если он создан позже `startedBy` + `SHELL_START_SLACK_MS` (100 ms), а момент spawn на beta.15 раньше создания оболочки. Test-ы — `test/unit/terminal-console.test.ts`, describe «a shell whose pid node-pty gives a moment after the start» (5 test-ов, 4 мутанта красные). На Windows это проверяют `test/contract/terminal-windows.test.ts` («terminal.close ends what runs in the shell», «close ends a program two levels under the shell»).
+- **Новый путь выхода.** Если поток вывода не подключился за 5 s (`CONNECTION_TIMEOUT`, `:24`) или `connect()` бросил, beta.15 сам шлёт событие exit с кодом -1 или кодом ошибки (`lib/windowsTerminal.js:57`); open такого Terminal-а теперь — ошибка (см. выше).
+
+**Проверки на Mac** (2026-10-18, `set -o pipefail`): `pnpm lint` — exit 0; `pnpm typecheck` — exit 0; test-ы Terminal (`test/contract/terminal.test.ts`, `test/contract/terminal-windows.test.ts` — на Mac пропущен, `test/contract/terminal-shell-integration.test.ts`, `test/unit/terminal-console.test.ts`, `test/unit/terminal-shell.test.ts`, `test/unit/terminal-wiring.test.ts`, `test/unit/console-request.test.ts`, `test/contract/postinstall.test.ts`) и `test/unit/no-rmsync.test.ts` — 8 файлов прошли, 1 пропущен, 184 test-а, exit 0; `pnpm test` — 290 файлов прошли, 6 пропущено, 6214 test-ов, exit 0; `pnpm test:e2e test/e2e/terminal.spec.ts` — 8 из 8, exit 0; gate fast после rebase на main `3c23d7a4` — exit 0, `[gate] зелено (fast)`. Два прошлых gate fast (до rebase, при чужих gate full на той же машине) были красными одним файлом — `test/contract/harness-scripts.test.ts` > `harness/bin/tests/wave-gate.test.sh` (один раз `spawnSync bash ETIMEDOUT`, один раз exit 1); отдельный запуск этого скрипта — 150 из 150. Это известный flaky test под нагрузкой (worfy-polish 30), правка его не касается. gate full на Mac не запускался (его запускает Orchestrator перед мержем).
+
+**Не проверено:** всё на Windows — test-ы Terminal на beta.15, ожидание pid на настоящем pty, gate full на ПК; `pnpm install:stable`.
+
+### Ревью на Mac, круг 1 (PR #498, 2026-10-18) — исправлено
+
+- **[med] Интервал ожидания pid не был под test-ом.** Если убрать `clearInterval(look)` в любой из трёх веток `pidKnown`, `test/unit/terminal-console.test.ts` оставался зелёным. Опасность в том, что живой интервал каждые 10 ms переписывает `startedBy`. Тогда helper закрытия (`endDescendants`) может принять за оболочку процесс, которому Windows потом выдала её pid, и завершить его дерево. Что сделано:
+  - все выходы из ожидания теперь идут через одну функцию `stop` (`clearInterval` и удаление из `awaitingPid`, `src/main/terminal/pty.ts:914-916`);
+  - первый test describe-а продвигает время на 1000 ms перед `close` и проверяет, что `startedBy` остался моментом прихода pid;
+  - test-ы неудачного open проверяют `vi.getTimerCount()` = 0.
+- **[low] Выход приложения во время старта Terminal-а.** На Windows выход ждёт оболочки `WINDOWS_QUIT_WAIT_MS` = 6 s. Раньше `close` стартующего Terminal-а сначала ждал pid (до 5 s у node-pty, до `PID_WAIT_MS` = 10 s у нас), а потом закрывался ещё до 5 s. Теперь так:
+  - `close` во время ожидания pid сразу разбирает pty, и open падает с ошибкой «was closed while node-pty was starting it» (`pty.ts:1049-1051`, `:942`);
+  - `close`, пришедший раньше spawn, оставляет метку `closedWhileStarting`. Ожидание pid видит её в самом начале и сразу сдаётся (`:943`). Метка снимается вместе с записью в `starting` (`:695`).
+- **Новые test-ы** (`test/unit/terminal-console.test.ts`): «a close while node-pty starts the shell takes the pty apart at once» (`:400`) и «a close that comes before the shell is spawned takes it apart as soon as the wait for its pid begins» (`:419`). Второй заодно проверяет, что следующий open того же key снова ждёт pid как обычно.
+- **Мутанты** — 10, все красные:
+  - нет `clearInterval` в `stop` — 5 test-ов;
+  - нет `stop()` в ветке pid — 1;
+  - нет `stop()` в ветке finished — 2;
+  - нет `stop()` в `giveUp` — 1;
+  - `close` не зовёт ожидающий старт — 1;
+  - `stop` не удаляет запись из `awaitingPid` — 1;
+  - нет `finish` в `giveUp` — 2;
+  - `close` не ставит метку — 1;
+  - метка не снимается — 1;
+  - ожидание не смотрит на метку — 1.
+- **Проверки на Mac после rebase на main `01ae750e`:**
+  - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0;
+  - те же 9 файлов Terminal, `no-rmsync` и `postinstall`: 8 прошли, 1 пропущен, 186 test-ов, exit 0;
+  - `pnpm test:e2e test/e2e/terminal.spec.ts` под замком — 8 из 8, exit 0;
+  - gate fast — exit 0, `[gate] зелено (fast)`. Первый запуск в этом круге упал одним файлом: `harness-scripts` > `wave-gate.test.sh`, `spawnSync bash ETIMEDOUT`, во время чужого gate full — тот же flaky test под нагрузкой (worfy-polish 30). Повтор, когда gate full не шёл, — зелёный. Это на голове `c27ded1d` (rebase на `da1a69a5`); после правки test-ов — в следующем подпункте.
+
+### Замер Windows-ПК на голове `cb443563` (комментарий PR #498, 2026-10-18) и что с ним сделано
+
+- **Ожидание pid на настоящем pty.** `pty.pid` был 0 сразу после spawn в 25 из 25 open; `open` вернул pid > 0 в 25 из 25, за 33,6–53,3 ms (медиана 35,2). 8 Terminal-ов разом — pid через 118,6–215,7 ms, 20 разом — через 282,5–651,0 ms. 72 круга закрытия 8 и 20 Terminal-ов разом через код worfy: 0 смертей 3221225477, 0 консолей через 2 s, все 768 open с pid > 0. Playwright, 3 круга по 6 Terminal-ов с resize — всё работает. Shell везде — `pwsh.exe`.
+- **Падал test `test/contract/terminal.test.ts` «resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows»** — 3 из 3 на PR, на main зелёный. Консоль из пакета beta.15 (OpenConsole 1.25.2603.03002) после resize шлёт около 10 запросов позиции курсора (`ESC[6n`). Test не отвечал, и PowerShell переставал отвечать эхом. В приложении отвечает xterm.js. Исправлено в harness test-ов: окно, от которого идут вызовы, отвечает на каждый запрос `ESC[1;1R`, как экран (`CURSOR_ANSWER`, `cursorRequests` в `test/contract/terminal-harness.ts`). Второе окно молчит. Сам test по-прежнему закрепляет ограничения размера. Ответ проверяет `test/contract/terminal-screen.test.ts` (2 test-а; 4 мутанта красные: без переноса между chunk-ами, ответ из каждого окна, без ответа, перенос целого запроса). На Windows исправление ещё не запускалось.
+- **[question] владельцу: pty без экрана и запросы позиции курсора.** Прочитано, на Windows не проверено.
+  - **Terminal Node вне видимой области.** Canvas не рисует невидимые Node (`onlyRenderVisibleElements`, `src/renderer/canvas/Canvas.tsx:542`). Вид Terminal-а уходит, а shell продолжает работать без xterm.js (`src/renderer/canvas/nodes/TerminalNode.tsx:368`). Resize идёт только от смонтированного вида (`TerminalNode.tsx:310`, `:317`, `:331`, `:364`) и при open другого окна (`src/main/terminal/pty.ts:667`), то есть тоже от вида. Pty, который получил resize и никто не ответил, по коду не найден. Но если консоль пошлёт `ESC[6n` в другой момент, пока ни одного вида нет, shell остановится так же, как в test-е.
+  - **Старые запросы в replay.** Вывод хранится как есть (`pty.ts:839`), main убирает из него только запрос атрибутов устройства (`console-request.ts`). Когда вид возвращается (Node снова в видимой области, перезагрузка окна, второе окно), xterm.js получает replay (`TerminalNode.tsx:353`). Он, вероятно, ответит на каждый старый `ESC[6n` из него: `attached` ставится сразу после `write`, а xterm.js разбирает текст позже (`:360`, `:299`). Так в shell попадут непрошеные `ESC[r;cR`. То же — у окна входа в GitHub (`src/renderer/projects/GithubAccount.tsx:310`). Только у него системная консоль, не из пакета (`src/main/github/accounts.ts:239`).
+  - **Два окна на один Terminal.** Отвечают оба xterm.js: на один запрос — два ответа.
+  - **Скрытый Terminal первого запуска** (`src/renderer/shell/FirstRunChecks.tsx:157-160`). Он открыт без вида, 80×24, с `gh auth login`, и показан после open. Resize приходит уже от вида.
+  - Ответчика в main я не делал: нужно ли отвечать на `ESC[6n` в main или убирать старые запросы из replay — решение владельца. Проверка на ПК: Terminal с resize увести из видимой области, вернуть и посмотреть, не появился ли в строке ввода текст вида `[1;1R`.
+- **Проверки на Mac после этих правок** (голова на main `da1a69a5`):
+  - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0;
+  - 10 файлов: 9 файлов Terminal (с новым `terminal-screen`), `no-rmsync` и `postinstall` — 9 прошли, 1 пропущен (`terminal-windows`, только Windows), 188 test-ов, exit 0;
+  - `pnpm test:e2e test/e2e/terminal.spec.ts` под замком — 8 из 8, exit 0;
+  - gate fast — exit 0, `[gate] зелено (fast)`.
