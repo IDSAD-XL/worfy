@@ -538,8 +538,9 @@ for sh in bash zsh; do
     check "$sh: Full mode reads the commit status of each head, writes nothing" \
         bash -c '[ "$(grep -c "^api repos/{owner}/{repo}/commits/.*/status" "$1")" = 6 ] && ! grep -qE -- "-X|--method|(^| )-f " "$1"' _ "$GH_LOG"
     got="$(run_checks "$sh" full '[{"kind":"queued"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"done"}]' '1:01 4:04')"
-    check "$sh: no Check in the Pipeline — every PR is ready, a failure of an unknown context changes nothing" \
-        bash -c '[[ "$(grep "^PR 1 " <<<"$1")" == *"no Check in the Pipeline — ready" ]] && [[ "$(grep "^PR 4 " <<<"$1")" == *"no Check in the Pipeline — ready" ]]' _ "$got"
+    NOCHECK="no Check in the Pipeline — ready (PLATFORM if the project's rules make it a platform PR)"
+    check "$sh: no Check in the Pipeline — every PR is ready, the line sends platform PRs to the project's rules" \
+        bash -c '[[ "$(grep "^PR 1 " <<<"$1")" == *"$2" ]] && [[ "$(grep "^PR 4 " <<<"$1")" == *"$2" ]]' _ "$got" "$NOCHECK"
     TWO='[{"kind":"queued"},{"kind":"check","name":"windows"},{"kind":"check","name":"linux"},{"kind":"gate-merge"},{"kind":"done"}]'
     got="$(run_checks "$sh" full "$TWO" '2:02')"
     check "$sh: two Checks, one without a mark — the PR waits" bash -c '[[ "$1" == *"check/windows=skipped check/linux=none — waits" ]]' _ "$(line 2 "$got")"
@@ -564,8 +565,18 @@ check "Check: the set takes only the ready PRs" in_ew4 'Only the PRs whose line 
 check "Check: PLATFORM=() is filled from the PRs whose Check is not skipped" in_ew4 'the `ready, PLATFORM` ones go into its `PLATFORM=(…)` too'
 check "Check: a push or a rebase leaves the marks on the old head" in_ew4 'after a push or a rebase the new head has no marks, and the PR waits again'
 check "Check: which PRs need a Check is the project's rule" in_ew4 'the project'"'"'s rules (`rules.md`) say the PR does not need this check'
-check "Check: no rule in words about which PRs wait for another platform's verdict" \
-    lacks "$EW" "those the project's rules send to another platform's verdict"
+# Without a `check` Stage (the default Pipeline, a profile not yet edited) the rule in words stays: platform PRs
+# keep out of the set, go into PLATFORM=() and merge the old way after the other platform's verdict.
+check "Check: no Check in the Pipeline — PLATFORM=() lists the platform PRs by the project's rules" \
+    in_ew4 '**With no `check` Stage in the Pipeline** the marks cannot tell them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project'"'"'s rules send to another platform'"'"'s verdict — and each of them merges the old way only after that verdict on its head'
+check "Check: no Check in the Pipeline — a platform PR merged the old way waits for the other platform's verdict" \
+    in_ew4 "(with no \`check\` Stage — plus the other platform's verdict for a platform PR)"
+check "Check: epic-wave section 0 keeps platform PRs waiting without a check Stage" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 0 | tr '\n' ' ' | tr -s ' ')" \
+    "With no \`check\` Stage in the Pipeline the platform PRs still wait: those the project's rules send to another platform's verdict go into \`PLATFORM=(…)\` and merge the old way after that verdict"
+check "Check: ship-ticket step 9 keeps platform PRs waiting without a check Stage" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$ST" 9 | tr '\n' ' ' | tr -s ' ')" \
+    "With no \`check\` Stage in the Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only after that verdict, the old way"
 for f in "$EW" "$ST"; do
     check "$(name_of "$f"): no ADR-0056 as the rule the skill waits by" lacks "$f" 'ADR-0056'
 done

@@ -79,7 +79,10 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
   отметки на head каждого готового PR (Full mode — commit status через `gh api …/commits/<sha>/status`,
   Silent mode — файл отметок в `HARNESS_HOME`). Строки блока: `ready`, `ready, PLATFORM`, `waits`,
   `failed`. В набор `wave-gate` идут только `ready`; `PLATFORM=(…)` блока набора заполняется из
-  `ready, PLATFORM` — PR, у которых Check не `skipped`. Ссылки на ADR-0056 в skill-ах больше нет.
+  `ready, PLATFORM` — PR, у которых Check не `skipped`. Без stage `check` в Pipeline — запасной путь:
+  платформенные PR по правилам Project-а («those the project's rules send to another platform's
+  verdict») идут в `PLATFORM=(…)` и вливаются по-старому после вердикта другой платформы. Ссылки на
+  ADR-0056 в skill-ах нет.
 - **Human review / Awaiting merge** — skill не мержит (с `human-review` — пока `reviewDecision` не
   `APPROVED`); Ticket остаётся `claimed` с открытым PR, Wave идёт дальше, в отчёте — `waits: people (…)`.
 - **Deploy** — абзац «Deploy before close» и блок `DEPLOYED=`: Ticket закрывается, только когда его
@@ -92,7 +95,9 @@ stub-ом Profile-а, stub-ом `gh`, который только читает, 
 что настоящий `~/.claude` не изменился. Шесть мутантов блоков (SHA не сверяется, `skipped` теряется,
 `none` считается готовым, `failure` не валит, Deployment без проверки предка, `rev-list` без нижней
 границы) — каждый ловится. `skill-blocks`, `agents-text`, `review-depth`, `silent-mode`,
-`decision-log`, `max-review`, `wave-gate` — exit 0.
+`decision-log`, `max-review`, `wave-gate` — exit 0. Круг доработки: пять мутантов запасного пути
+(убран абзац набора, убран вердикт для PR по-старому, убран пункт раздела 0, убрана подсказка в
+строке блока, убран абзац шага 9 `ship-ticket`) — каждый даёт EXIT=1.
 
 **Решено без владельца, подтвердить.**
 
@@ -104,7 +109,13 @@ stub-ом Profile-а, stub-ом `gh`, который только читает, 
 
 **Правка Profile-а worfy — шаг Orchestrator-а после мержа** (файлы вне репозитория:
 `~/.claude/worfy-harness/projects/worfy/`). Без неё Pipeline worfy — по умолчанию, без Check «windows» и
-Deploy, и поведение Wave не меняется.
+Deploy. Тогда действует запасной путь skill-ов: блок отметок пишет каждому PR
+`ready (PLATFORM if the project's rules make it a platform PR)`. Какие PR платформенные, Orchestrator
+по-прежнему решает по правилам Project-а и вносит их в `PLATFORM=(…)`. Такой PR вливается по-старому,
+только после вердикта Windows. Это держится на тексте `rules.md`, а не на отметке. **Правку
+`profile.json` и `rules.md` нужно сделать до первого `pnpm install:stable` с этой правкой или
+одновременно с ним.** Иначе Stable copy получит новые skill-ы, а новый абзац `rules.md` о Check
+«windows» без `workflow.pipeline` будет ссылаться на отметку, которую никто не ждёт.
 
 `profile.json`, в `workflow` (порядок из spec, «Решения владельца», пункт 4):
 

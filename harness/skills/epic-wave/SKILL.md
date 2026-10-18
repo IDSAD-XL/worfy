@@ -86,7 +86,10 @@ set -o pipefail; "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field _resolved
   Pipeline has no agent-review"); the merge waits for the other Stages only.
 - `check` — Check «<name>»: a PR merges only while its head carries the mark `check/<name>` `success`
   or `skipped`, for every Check of the Pipeline (section 4, "Checks before merge"). Which PRs need
-  the check is the project's rule (`rules.md`); the wave waits for the mark, not for the rule.
+  the check is the project's rule (`rules.md`); the wave waits for the mark, not for the rule. With
+  no `check` Stage in the Pipeline the platform PRs still wait: those the project's rules send to
+  another platform's verdict go into `PLATFORM=(…)` and merge the old way after that verdict
+  (section 4, "Gate before merge").
 - `human-review`, `awaiting-merge` — people. With `human-review` the wave does not merge a PR before
   its review decision is `APPROVED` (`gh pr view <N> --json reviewDecision`); with `awaiting-merge`
   it never merges: people do. Such a ticket stays `claimed` with its PR open, the wave goes on without
@@ -684,7 +687,8 @@ the old way or one after another — every Check of the Pipeline has its mark on
 
 The block reads the marks on the head of each ready PR — in Full mode the commit statuses of the
 head, in Silent mode the marks file of its ticket — and prints one line per PR: `ready` (every Check
-`success` or `skipped`; with no Check in the Pipeline every PR is ready), `ready, PLATFORM` (ready,
+`success` or `skipped`; with no Check in the Pipeline every PR is ready, and the project's rules
+pick the platform PRs — "Gate before merge" below), `ready, PLATFORM` (ready,
 and at least one Check `success`, not `skipped`), `waits` (a Check with no mark on the head, or
 `pending`) or `failed` (a Check `failure`):
 
@@ -710,7 +714,7 @@ if (mode === "silent") {   // the marks file of bin/ticket mark; the last mark o
   for (const m of fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")).marks : []) if (m.sha === head) marks.set(m.kind, m.verdict)
 } else for (const s of JSON.parse(st)) marks.set(s.context, s.state === "success" && s.description === "skipped" ? "skipped" : s.state)
 const got = checks.map((c) => [c, marks.get(c) || "none"]), is = (...v) => ([, x]) => v.includes(x)
-const verdict = got.some(is("failure", "error")) ? "failed" : !got.every(is("success", "skipped")) ? "waits" : got.some(is("success")) ? "ready, PLATFORM" : "ready"
+const verdict = !checks.length ? "ready (PLATFORM if the project's rules make it a platform PR)" : got.some(is("failure", "error")) ? "failed" : !got.every(is("success", "skipped")) ? "waits" : got.some(is("success")) ? "ready, PLATFORM" : "ready"
 console.log(`PR ${n} ${head.slice(0, 7)} ${got.map(([c, v]) => c + "=" + v).join(" ") || "no Check in the Pipeline"} — ${verdict}`)
 NODE
 done; echo "EXIT=$rc"
@@ -736,9 +740,13 @@ The set is the wave's PRs with `VERIFIED` (no `agent-review` in the Pipeline —
 CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `mergeable`
 `MERGEABLE` — no CI on the head, and red or missing checks do not keep a PR out), that the block of
 "Checks before merge" calls `ready`. `PLATFORM=(…)` lists those it calls `ready, PLATFORM`: a Check
-ran on them, it was not `skipped`. They and the PRs with the label `needs-mac-gate` stay out of the
+ran on them, it was not `skipped`. **With no `check` Stage in the Pipeline** the marks cannot tell
+them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project's rules
+send to another platform's verdict — and each of them merges the old way only after that verdict on
+its head (the other platform's gate full: exit code 0 and the line `[gate] зелено (…)`). They and the PRs with the label `needs-mac-gate` stay out of the
 set, and so do the PRs `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a
-red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head. A PR
+red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head
+(with no `check` Stage — plus the other platform's verdict for a platform PR). A PR
 that becomes ready after `check` started waits for the next set. PRs of the set are not rebased and
 their CI is not run again before the merge: CI was green on the head, and each merge runs CI on the
 push to the main branch (with `batch` there is no CI on a head or on a push: one CI run on the main

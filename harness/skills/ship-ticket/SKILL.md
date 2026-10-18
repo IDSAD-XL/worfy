@@ -69,6 +69,7 @@ What each Stage means is in skill `/worfy:epic-wave`, section 0; for this loop:
   `agent-review` after `ci` (the default) — step 8 first (the PR and its CI), then step 7 on the PR's
   head. With no `agent-review` in the Pipeline — step 7 is skipped, and that is said.
 - `check` — step 9 merges only while the PR's head carries `check/<name>` `success` or `skipped`.
+  With no `check` Stage a platform PR still waits for the other platform's verdict (step 9).
 - `human-review` — step 9 waits for the review decision `APPROVED`; `awaiting-merge` — no step 9:
   people merge, and the ticket stays `claimed` with its PR open until they do.
 - `deploy` — step 11 closes the ticket only after its merge commit is deployed.
@@ -555,7 +556,9 @@ the ticket waits for them. With `human-review` the merge waits for
 `gh pr view <N> --json reviewDecision` to say `APPROVED`. With a `check` Stage the PR merges only
 while its head carries every `check/<name>` `success` or `skipped`: the marks, who sets them and the
 block that reads them — skill `/worfy:epic-wave`, section 4, "Checks before merge"; a PR whose line
-there is not `ready` waits, and a `failed` one goes back to rework.
+there is not `ready` waits, and a `failed` one goes back to rework. With no `check` Stage in the
+Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only
+after that verdict, the old way: the same section, "Gate before merge".
 
 The gate the project requires before this merge is `F workflow.merge_gate` — skill
 `/worfy:epic-wave`, section 4, "Gate before merge". With `"wave"`, a single ticket outside a wave
