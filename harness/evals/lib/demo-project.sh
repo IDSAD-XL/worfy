@@ -15,12 +15,15 @@
 #                           01-alpha … 04-delta, each with its own files
 #   ./.git/demo-origin.git  with local-green: a bare repository as `origin`, so preflight can fetch
 #                           without network; with pr-green-ci there is no origin at all
-#   the Harness state       the gate registry and the schema 2 profile `demo`, where the Harness scripts
-#                           of the run look for them: with EVAL_HARNESS_HOME (pnpm eval:harness sets
-#                           worfy-harness) in the folder hooks/eval-env.cjs names — ./.git/worfy-harness,
-#                           the one place the sandbox of the run lets it write; without it in
-#                           $HOME/.claude/worfy-harness/ of the run's temporary HOME (`claude plugin eval`
-#                           sets HOME for the scaffold)
+#   the Harness state       the gate registry and the schema 2 profile `demo`, the same in both places the
+#                           Harness scripts of a run may look for them. `claude plugin eval` starts the
+#                           scaffold with PATH, HOME and TMPDIR only (claude 2.1.289), so the fixture cannot
+#                           tell which run follows:
+#                           - the folder hooks/eval-env.cjs names for EVAL_HARNESS_HOME — ./.git/worfy-harness
+#                             for `worfy-harness`, the value pnpm eval:harness gives every run and the one
+#                             taken when the scaffold has none; the one place the sandbox lets a run write;
+#                           - $HOME/.claude/worfy-harness/ of the run's temporary HOME (`claude plugin eval`
+#                             sets HOME for the scaffold), for a run without EVAL_HARNESS_HOME
 #
 # Bash, not Node: it is test code (ADR-0055). Runs as the owner outside the sandbox, so it writes
 # only into the current folder and $HOME, and refuses a state folder that already has a gate registry.
@@ -32,10 +35,10 @@ case "$finish" in local-green | pr-green-ci) ;; *) echo "usage: demo-project.sh 
 case "$variant" in none | blocked | ui | reviewer) ;; *) echo "demo-project.sh: unknown variant '$variant'" >&2; exit 2 ;; esac
 
 work="$(pwd -P)"
-# The folder the Harness scripts of the run will use. A run gets no HARNESS_HOME (its sandbox passes
-# PATH and the EVAL_* variables), so it is ignored here too: with EVAL_HARNESS_HOME the folder
-# hooks/eval-env.cjs names, asked once the repository exists (a relative value is taken from its
-# .git); without it $HOME/.claude/worfy-harness.
+# The folders the Harness scripts of the run may use. A run gets no HARNESS_HOME (its sandbox passes
+# PATH and the EVAL_* variables), so it is ignored here too: the folder hooks/eval-env.cjs names for
+# EVAL_HARNESS_HOME (worfy-harness when unset), asked once the repository exists (a relative value is
+# taken from its .git), and $HOME/.claude/worfy-harness.
 eval_env="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../hooks" && pwd -P)/eval-env.cjs"
 
 # The run's HOME is empty: git has no identity there, and the fixture must not depend on one.
@@ -173,9 +176,11 @@ ticket 03 charlie 'charlie: функция negate' "$blocker03" negate 'возв
 ticket 04 delta 'delta: функция tripel' '—' triple 'возвращает `n * 3`' 'triple(2)' 6
 
 git init -q -b main
-if [ -n "${EVAL_HARNESS_HOME:-}" ]; then state="$(env -u HARNESS_HOME node "$eval_env" harness-home)"
-else state="$HOME/.claude/worfy-harness"; fi
-[ -n "$state" ] && [ ! -e "$state/gate/config.json" ] || { echo "demo-project.sh: $state already has a gate registry" >&2; exit 1; }
+state="$(EVAL_HARNESS_HOME="${EVAL_HARNESS_HOME:-worfy-harness}" env -u HARNESS_HOME node "$eval_env" harness-home)"
+home_state="$HOME/.claude/worfy-harness"
+for dir in "$state" "$home_state"; do
+    [ -n "$dir" ] && [ ! -e "$dir/gate/config.json" ] || { echo "demo-project.sh: $dir already has a gate registry" >&2; exit 1; }
+done
 git add -A
 git commit -q -m "demo: sum and epic demo"
 
@@ -236,7 +241,19 @@ else
     base=main
 fi
 
-# --- the Harness state of the temporary HOME ----------------------------------------------
+# --- the Harness state, in the folder of EVAL_HARNESS_HOME, then copied to the temporary HOME ---
+# The package manager the gate starts for the registry entry below (`<pm> run test`). npm is no use
+# in an eval run on a Mac with node from nvm: npm's own files lie outside PATH in the home folder,
+# which the sandbox of the run does not let it read. It lives in .git, so git status does not show it.
+pm="$work/.git/demo-pm"
+cat >"$pm" <<'EOF'
+#!/bin/sh
+# The package manager of the demo fixture for the gate: `run test` starts the test script of package.json.
+# shortcut: knows only `run test`, redo when the gate registry entry of the fixture names another script.
+[ "$#" -eq 2 ] && [ "$1" = run ] && [ "$2" = test ] || { echo "demo-pm: only 'run test' is known, got: $*" >&2; exit 2; }
+exec node --test
+EOF
+chmod +x "$pm"
 mkdir -p "$state/gate" "$state/projects/demo"
 cat >"$state/gate/config.json" <<EOF
 {
@@ -245,7 +262,7 @@ cat >"$state/gate/config.json" <<EOF
       "key": "demo",
       "match": "$work",
       "profile": "demo",
-      "pm": "npm",
+      "pm": "$pm",
       "root": { "fast": ["test"], "full": ["test"] },
       "workspace": {},
       "root_if": "\\\\.(mjs|js)\$|(^|/)package\\\\.json\$"
@@ -312,3 +329,7 @@ cat >"$state/projects/demo/rules.md" <<'EOF'
 
 Учебный проект: функции в `src/`, test-ы в `test/`, запуск — `node --test`. Деплоя нет.
 EOF
+if [ "$home_state" != "$state" ]; then
+    mkdir -p "$home_state"
+    cp -R "$state/." "$home_state/"
+fi

@@ -5,10 +5,10 @@
 //
 // Two calls, because the cases need different shell grants:
 //   main — cases tagged `main`, with Bash, Write and Edit;
-//   gui  — cases tagged `gui` (no-os-screen-capture), with Bash only for git, node and the
-//          Harness scripts: an attempt at an OS screen capture is refused, not run. A real capture
-//          from a run started inside worfy would ask Screen Recording for the app, and granting it
-//          restarts the app (lesson 2026-10-07).
+//   gui  — cases tagged `gui` (no-os-screen-capture), with Bash only for git, node, the Harness
+//          scripts, `echo` and `set -o pipefail`: an attempt at an OS screen capture is refused,
+//          not run. A real capture from a run started inside worfy would ask Screen Recording for
+//          the app, and granting it restarts the app (lesson 2026-10-07).
 // The target is a temporary copy of harness/ whose plugin.json has no `dependencies`: in a run
 // only the plugin under test is installed, and Claude Code refuses to load a plugin whose
 // dependency (mattpocock-skills) is missing — then no case sees a single rule of the Harness.
@@ -83,6 +83,10 @@ const grants = (harness) => ({
     `Bash("${harness}/hooks/*)`,
     `Bash(bash ${harness}/hooks/*)`,
     `Bash(bash "${harness}/hooks/*)`,
+    // Claude Code checks each part of a compound command against these rules and lets neither of
+    // these through on its own (claude 2.1.289); the Harness asks for both around every check.
+    'Bash(echo *)',
+    'Bash(set -o pipefail)',
     'Write',
     'Edit',
   ],
