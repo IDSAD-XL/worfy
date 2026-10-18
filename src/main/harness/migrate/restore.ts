@@ -110,8 +110,10 @@ import { fileURLToPath } from 'node:url'
 // used: under the Node of Electron 44 its "recursive" goes through a junction and empties the
 // folder behind it, and it refuses a read-only file. A junction whose target is written with the
 // GUID of a volume is a folder to lstat (worfy-windows ticket 35): a folder is first asked to go
-// with one rmdir and is listed only when the answer is "not empty" and it is on the volume of the
-// folder it lies in; a folder that is busy itself keeps what it holds. Off Windows fs.rmSync is
+// with one rmdir and is listed only when the answer is "not empty" and, when the volume of the
+// folder it lies in is known, it is on that volume; an entry a listing names and lstat does not see
+// (such a junction whose volume is gone) is asked to go with one rmdir (worfy-windows ticket 45);
+// a folder that is busy itself keeps what it holds. Off Windows fs.rmSync is
 // used, and it goes into a folder a volume is mounted on (worfy-windows ticket 44; measured on
 // macOS: the files of the volume were removed). So a folder is looked through first, and with a
 // folder on another volume than the folder it lies in the removal ends with the code EXDEV and
@@ -172,8 +174,18 @@ function removeWalk(given, patience, outer) {
   try {
     seen = lstatSync(path)
   } catch (error) {
-    if (gone(error)) return
-    throw error
+    if (!gone(error)) throw error
+    // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
+    // answers so (worfy-windows ticket 45). One rmdir, which lists nothing, whatever it answers:
+    // the rmdir of its folder tells what stays.
+    if (outer !== undefined) {
+      try {
+        rmdirSync(path)
+      } catch {
+        // Nothing is there, or it stays and its folder fails as "not empty".
+      }
+    }
+    return
   }
   const folder = seen.isDirectory()
   // Removes the entry itself and asks again while the answer is "busy"; the waits that are left
@@ -200,8 +212,10 @@ function removeWalk(given, patience, outer) {
     return
   }
   // A junction that leads to a volume by its GUID is a folder to lstat, and a listing of it reads
-  // that volume (worfy-windows ticket 35). So a folder is listed only when both hold: it is on the
-  // volume of the folder it lies in, and it has answered "not empty" to one rmdir.
+  // that volume (worfy-windows ticket 35). So a folder is listed only when it has answered "not
+  // empty" to one rmdir and, when the volume of the folder it lies in is known, it is on that
+  // volume. For the path the caller gave that volume is unknown when its parent is a link to lstat
+  // or cannot be asked: then the first rmdir alone decides.
   let volume = outer
   if (volume === undefined) {
     try {

@@ -26,6 +26,7 @@ import {
   TRASH_CARD_IS_A_MOUNT,
   viaCopy,
   viaModule,
+  WITH_A_DETACHED_MOUNT,
   WITH_A_LINK,
   WITH_A_MOUNT,
   WITH_A_MOUNT_ON_ITS_VOLUME,
@@ -81,6 +82,12 @@ describe('the copies of the walk that cannot import the module', () => {
     ['a plain folder that is busy at first and then "not empty"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EBUSY', 'ENOTEMPTY'] }],
     ['a plain folder that refuses to go with an error that is not "busy"', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['EIO'] }],
     ['a folder gone between the look and the first rmdir', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['ENOENT'] }],
+    // worfy-windows ticket 45: the leftovers of the review of PR #287, and measurement 6.
+    ['a plain folder whose first rmdir answers ENOTDIR', WITH_A_LINK, '/data/card', { 'rmdir /data/card/assets': ['ENOTDIR'] }],
+    ['a mount behind an ordinary link to another volume, as the path itself', BEHIND_A_LINK_TO_ANOTHER_VOLUME, '/data/away/m', {}],
+    ['a mount whose volume is gone, inside the folder', WITH_A_DETACHED_MOUNT, '/data/card', {}],
+    ['a mount whose volume is gone, as the path itself', WITH_A_DETACHED_MOUNT, '/data/card/linked', {}],
+    ['a mount whose volume is gone that refuses to go', WITH_A_DETACHED_MOUNT, '/data/card', { 'rmdir /data/card/linked': ['EPERM'] }],
     // worfy-windows ticket 44: a folder a volume is mounted on, and the look that comes before rmSync off Windows.
     ['a mount point of macOS inside the folder', CARD_HOLDS_A_VOLUME, '/data/card', {}],
     ['a mount point of macOS as the path itself', CARD_HOLDS_A_VOLUME, '/data/card/vol', {}],

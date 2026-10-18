@@ -21,6 +21,7 @@ import {
   TRASH_CARD_IS_A_MOUNT,
   viaModule,
   VOLUME,
+  WITH_A_DETACHED_MOUNT,
   WITH_A_LINK,
   WITH_A_MOUNT,
   WITH_A_MOUNT_ON_ITS_VOLUME,
@@ -138,7 +139,17 @@ describe('removeTree over a model of the file system', () => {
       expect(m.calls).toEqual(['lstat /data/away/sub', 'lstat /data/away', 'rmdir /data/away/sub', 'readdir /data/away/sub', 'lstat /data/away/sub/f.txt', 'unlink /data/away/sub/f.txt', 'rmdir /data/away/sub'])
       expect(m.waits).toEqual([])
       expect(viaModule(m, '/data/away/empty', 'win32')).toBeNull()
-      expect(m.names()).toEqual(['/data', '/data/away', '/vol', '/vol/r'])
+      expect(m.names()).toEqual(['/data', '/data/away', '/home', '/home/notes', '/home/notes/keep.txt', '/vol', '/vol/r', '/vol/r/m'])
+    })
+
+    // worfy-windows ticket 45, from the review of PR #287: the path is a junction by GUID and its
+    // parent an ordinary link, so the volume of the parent is unknown, and the first rmdir decides.
+    it('a junction by GUID whose parent is an ordinary link to another volume: the parent tells no volume, and the first rmdir takes the junction — what is behind it stays', () => {
+      const m = model(BEHIND_A_LINK_TO_ANOTHER_VOLUME)
+      expect(viaModule(m, '/data/away/m', 'win32')).toBeNull()
+      expect(m.calls).toEqual(['lstat /data/away/m', 'lstat /data/away', 'rmdir /data/away/m'])
+      expect(m.waits).toEqual([])
+      expect(m.names()).toEqual(['/data', '/data/away', '/home', '/home/notes', '/home/notes/keep.txt', '/vol', '/vol/r', '/vol/r/empty', '/vol/r/sub', '/vol/r/sub/f.txt'])
     })
 
     it('when the parent folder cannot be asked for its volume, the first rmdir still decides', () => {
@@ -146,6 +157,66 @@ describe('removeTree over a model of the file system', () => {
       expect(viaModule(m, '/data/card/linked', 'win32')).toBeNull()
       expect(m.calls).toEqual(['lstat /data/card/linked', 'lstat /data/card', 'rmdir /data/card/linked'])
       expect(m.names()).toEqual(['/data', '/data/card', '/data/card/index.html', ...VOLUME])
+    })
+
+    // worfy-windows ticket 45, from the review of PR #287: an entry of the walk takes the volume of
+    // the folder it lies in from the walk, and asks for no parent of its own. Here the parent of the
+    // path given is not there to be asked, so an entry given no volume, or the volume of the path's
+    // parent, would ask one more lstat.
+    it('an entry of the walk is given the volume of its folder: no lstat of a parent for it, also when the parent of the path given is not there to be asked', () => {
+      const m = model(WITH_A_MOUNT, { 'lstat /data': ['ENOENT'] })
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(m.calls).toEqual([
+        'lstat /data/card',
+        'lstat /data',
+        'rmdir /data/card',
+        'readdir /data/card',
+        'lstat /data/card/index.html',
+        'unlink /data/card/index.html',
+        'lstat /data/card/linked',
+        'rmdir /data/card/linked',
+        'rmdir /data/card',
+      ])
+      expect(m.names()).toEqual(['/data', ...VOLUME])
+    })
+
+    // worfy-windows ticket 45, from the review of PR #287: what the first rmdir answers besides "not
+    // empty" and "busy". ENOENT is "gone": the folder is not listed. ENOTDIR is no "gone" there: it
+    // ends the removal of that folder, which keeps its files.
+    it('a plain folder whose first rmdir answers ENOENT is taken as gone and not listed; ENOTDIR there is an error, thrown at the end', () => {
+      const gone = model(WITH_A_LINK, { 'rmdir /data/card/assets': ['ENOENT'] })
+      // The model still holds the folder, so the Card stays "not empty" to the end of the waits.
+      expect(viaModule(gone, '/data/card', 'win32')).toBe('ENOTEMPTY')
+      expect(gone.calls).not.toContain('readdir /data/card/assets')
+      expect(gone.calls.filter((call) => call.includes('/data/card/assets'))).toEqual(['lstat /data/card/assets', 'rmdir /data/card/assets'])
+      expect(gone.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+      const notADir = model(WITH_A_LINK, { 'rmdir /data/card/assets': ['ENOTDIR'] })
+      expect(viaModule(notADir, '/data/card', 'win32')).toBe('ENOTDIR')
+      expect(notADir.calls.filter((call) => call.includes('/data/card/assets'))).toEqual(['lstat /data/card/assets', 'rmdir /data/card/assets'])
+      expect(notADir.waits).toEqual([])
+      expect(notADir.names()).toEqual(['/data', '/data/card', '/data/card/assets', '/data/card/assets/app.js', '/home', '/home/notes', '/home/notes/keep.txt'])
+    })
+
+    // worfy-windows ticket 45, measurement 6 of the review of PR #287: a junction by GUID whose
+    // volume is detached — or whose target folder is gone — answers ENOENT to lstat, while the
+    // listing of its folder names it; that folder answered "not empty" at every removal. Measured on
+    // the PC, under both Nodes: one rmdir removes the junction.
+    it('an entry the listing names and lstat does not see — a junction by GUID whose volume is gone — is asked to go with one rmdir, and its folder goes', () => {
+      const m = model(WITH_A_DETACHED_MOUNT)
+      expect(viaModule(m, '/data/card', 'win32')).toBeNull()
+      expect(through(m, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(m.waits).toEqual([])
+      expect(m.names()).toEqual(['/data'])
+      // As the path given it is a path that is not there: nothing is asked of it but lstat.
+      const itself = model(WITH_A_DETACHED_MOUNT)
+      expect(viaModule(itself, '/data/card/linked', 'win32')).toBeNull()
+      expect(itself.calls).toEqual(['lstat /data/card/linked'])
+      expect(itself.names()).toContain('/data/card/linked')
+      // Whatever that rmdir answers, nothing more is asked of the entry; its folder says what stays.
+      const refusing = model(WITH_A_DETACHED_MOUNT, { 'rmdir /data/card/linked': ['EPERM'] })
+      expect(viaModule(refusing, '/data/card', 'win32')).toBe('ENOTEMPTY')
+      expect(through(refusing, '/data/card/linked')).toEqual(['lstat /data/card/linked', 'rmdir /data/card/linked'])
+      expect(refusing.names()).toEqual(['/data', '/data/card', '/data/card/linked'])
     })
 
     it('an entry of the trash whose Card folder is such a link: the entry goes, the volume keeps its files', () => {

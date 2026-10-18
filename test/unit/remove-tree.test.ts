@@ -12,10 +12,11 @@
 //     same model and must make the same calls.
 // The model, its trees and the copies are in test/unit/remove-tree-model.ts; the tests of a volume
 // mounted in the tree off Windows are in test/unit/remove-tree-mounted.test.ts.
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { REMOVE_RETRIES, removeFile, removeTree } from '../../src/main/storage/remove'
 
@@ -99,6 +100,42 @@ describe('removeTree and removeFile over real folders', () => {
     outsideIsWhole()
   })
 
+  // worfy-windows ticket 45, item 1, made with the owner's word of 2026-10-18: one junction by
+  // volume GUID on the disk of %TEMP%, to a folder this test made, removed after the test. lstat
+  // calls such a junction a folder and gives the `dev` of its target — here the volume of the folder
+  // it lies in, so the volume rule says nothing and only the first rmdir keeps the walk out of it.
+  // Measured on the PC under both Nodes 24.21.0: mklink without elevation, lstat a folder with the
+  // `dev` of its folder, readlink EINVAL, removeTree leaves the target whole. Code without the first
+  // rmdir removes the files behind it: this test is never run against such code.
+  it.runIf(WINDOWS)('a junction by volume GUID to a folder of the same volume, inside the folder that is removed: the first rmdir takes it, and the folder behind it keeps its files', () => {
+    const tree = join(dir, 'tree')
+    mkdirSync(join(tree, 'sub'), { recursive: true })
+    writeFileSync(join(tree, 'sub', 'own.txt'), 'mine')
+    // The target is written from the long form of the path: %TEMP% may have a short 8.3 name in it.
+    const real = realpathSync.native(dir)
+    const drive = /^([A-Za-z]:)\\./.exec(real)?.[1]
+    expect(drive, real).toBeDefined()
+    const mountvol = spawnSync('mountvol', [`${drive}\\`, '/L'], { encoding: 'latin1' })
+    const guids = String(mountvol.stdout).match(/\\\\\?\\Volume\{[0-9a-fA-F-]{36}\}\\/g) ?? []
+    expect([mountvol.status, guids.length]).toEqual([0, 1])
+    const target = `${guids[0]}${real.slice(3)}\\outside`
+    // The folder outside of this test, never the root of the volume.
+    expect(target.endsWith(`\\${basename(real)}\\outside`)).toBe(true)
+    const at = join(tree, 'sub', 'linked')
+    const made = spawnSync(process.env['ComSpec'] ?? 'C:/Windows/System32/cmd.exe', ['/d', '/c', 'mklink', '/J', at, target], { encoding: 'latin1' })
+    expect(made.status, `${made.stdout}${made.stderr}`).toBe(0)
+    links.push(at)
+    // A marker of random content, read back through the junction, before anything is removed.
+    const marker = randomBytes(16).toString('hex')
+    writeFileSync(join(outside, 'marker.txt'), marker)
+    expect(readFileSync(join(at, 'marker.txt'), 'utf8')).toBe(marker)
+    unlinkSync(join(outside, 'marker.txt'))
+    expect(lstatSync(at).isDirectory()).toBe(true)
+    removeTree(tree)
+    expect(existsSync(tree)).toBe(false)
+    outsideIsWhole()
+  })
+
   it.each(FOLDER_LINKS)('a %s link to a folder as the path itself: only the link goes, by removeTree and by removeFile', (kind) => {
     for (const remove of [removeTree, removeFile]) {
       const at = join(dir, `link-${remove.name}`)
@@ -170,6 +207,7 @@ describe('removeTree and removeFile over real folders', () => {
   it.runIf(WINDOWS)('goes on past a folder that Windows will not let go — the working folder of a running program — removes the rest, and reports that folder at the end', async () => {
     const tree = join(dir, 'tree')
     mkdirSync(join(tree, 'held', 'inner'), { recursive: true })
+    writeFileSync(join(tree, 'held', 'inner', 'kept.txt'), 'kept')
     writeFileSync(join(tree, 'a.txt'), 'a')
     writeFileSync(join(tree, 'held', 'in.txt'), 'in')
     writeFileSync(join(tree, 'z.txt'), 'z')
@@ -200,6 +238,9 @@ describe('removeTree and removeFile over real folders', () => {
       // Everything that could go is gone; what holds the folder is left with its way to it.
       expect(readdirSync(tree)).toEqual(['held'])
       expect(readdirSync(join(tree, 'held'))).toEqual(['inner'])
+      // The price of the first rmdir (worfy-windows ticket 35; tested on real folders by ticket 45): the
+      // working folder of the program is busy itself, so it is never listed, and keeps what it holds.
+      expect(readdirSync(join(tree, 'held', 'inner'))).toEqual(['kept.txt'])
     } finally {
       const gone = new Promise((resolve) => holder.once('exit', resolve))
       holder.kill()
