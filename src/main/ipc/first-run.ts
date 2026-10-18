@@ -13,7 +13,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { firstRunChecks, firstRunClose, firstRunRun, firstRunStartup, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import { queryFactoryFromEnv } from '../agent/app-registry'
@@ -22,6 +22,7 @@ import type { AccountInfoLike } from '../agent/session'
 import { FirstRunActions, type Confirmation } from '../first-run/actions'
 import { ACCOUNT_TIMEOUT_MS, askAccount, oldHarnessPresent, runChecks, type Env, type ProjectProfile } from '../first-run/checks'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
+import { bridgeFile } from '../harness/status-line'
 import { projectStore } from '../projects/store'
 import { claudeHome, dataRoot, harnessHome } from '../storage/paths'
 import { profileRunner } from '../workflow/profile'
@@ -94,6 +95,9 @@ async function projectProfiles(env: Env): Promise<ProjectProfile[]> {
 
 const loginEnv = async (): Promise<Env> => (await agentEnv()).env
 
+/** The Limits bridge of this build (worfy-windows ticket 13); a dev build has none of its own. */
+const limitsBridge = (): string | null => (app.isPackaged ? bridgeFile(process.platform, process.resourcesPath) : null)
+
 async function checks(): Promise<FirstRunReport> {
   const env = await loginEnv()
   return runChecks({
@@ -105,6 +109,7 @@ async function checks(): Promise<FirstRunReport> {
     legacyHarness: () => oldHarnessPresent(planOptions()),
     homes: { harnessHome: harnessHome(), claudeHome: claudeHome() },
     projects: () => projectProfiles(env),
+    limitsBridge: limitsBridge(),
   })
 }
 
@@ -137,6 +142,7 @@ function appActions(): FirstRunActions {
     installHarness: (confirm) => appInstaller().install(confirm),
     projects: async () => projectProfiles(await loginEnv()),
     binDir: join(harnessHome(), 'plugin', 'bin'),
+    limits: { settingsFile: join(claudeHome(), 'settings.json'), bridge: limitsBridge(), platform: process.platform },
   })
   return actions
 }

@@ -12,6 +12,9 @@ import { removeTestTree } from '../remove'
 /** What the start did, in order: `id:<value>`, `notifications`, `window`. */
 const steps = vi.hoisted((): string[] => [])
 const electron = vi.hoisted(() => ({ isPackaged: true }))
+/** app.on of the mock, and the function that stops the gate queue's notifications. */
+const appOn = vi.hoisted(() => vi.fn())
+const stopGateQueueNotices = vi.hoisted(() => (): void => undefined)
 
 vi.mock('electron', () => ({
   app: {
@@ -22,7 +25,7 @@ vi.mock('electron', () => ({
     setPath: vi.fn(),
     setAppUserModelId: (id: string) => steps.push(`id:${id}`),
     whenReady: () => Promise.resolve(),
-    on: vi.fn(),
+    on: appOn,
     exit: vi.fn(),
     getVersion: () => '1.2.3',
   },
@@ -41,6 +44,7 @@ vi.mock('../../src/main/window', () => ({
 
 vi.mock('../../src/main/notify', () => ({
   installNotifications: () => steps.push('notifications'),
+  installGateQueueNotifications: () => stopGateQueueNotices,
   electronNotifyDeps: {},
 }))
 
@@ -107,5 +111,11 @@ describe('the start in src/main/index.ts', () => {
 
   it('on macOS sets none', async () => {
     expect(await start('darwin', true)).toEqual(['notifications', 'window'])
+  })
+
+  it("stops the gate queue's notifications on quit (worfy-windows ticket 17)", async () => {
+    appOn.mockClear()
+    await start('darwin', true)
+    expect(appOn.mock.calls).toContainEqual(['will-quit', stopGateQueueNotices])
   })
 })

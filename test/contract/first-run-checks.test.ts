@@ -102,6 +102,9 @@ function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): 
       oldHarnessPresent({ claudeHome, harnessHome, claudeJson: join(claudeHome, '.claude.json'), userHome: home, bridgeScript: null, offered: true, env }),
     homes: { harnessHome, claudeHome },
     projects: () => Promise.resolve([{ name: 'alpha', profile: null, collections: [] }]),
+    // The Mac list and its `brew install` commands on any machine; the Windows rows are
+    // test/unit/first-run-windows.test.ts (worfy-windows ticket 13).
+    system: { platform: 'darwin', release: '24.6.0', arch: 'arm64' },
     ...overrides,
   }
 }

@@ -8,6 +8,7 @@ import { useMachines } from '../../machines/useMachines'
 import { ConnectProject } from '../../projects/ConnectProject'
 import { FolderBrowser } from '../../projects/FolderBrowser'
 import { readOnlyHint, writeAction } from '../../projects/read-only'
+import { useGateQueue } from '../../projects/useGateQueue'
 import { acceptMachineProjects, openProject, useProjectGroups, useProjects, type ProjectGroup } from '../../projects/useProjects'
 import { ListRow, StatusChip } from '../../theme/primitives'
 import { openFirstRun } from '../first-run-store'
@@ -214,12 +215,14 @@ interface MenuProps {
   /** The read-only hint of the row's Machine (worfy-link ticket 25): "Remove from list" is inactive. */
   readOnly: string | null
   onSettings: () => void
+  /** "Process gate queue" (worfy-windows ticket 17): only on the machine with `serve` of the cross-machine gate. */
+  onGateQueue: (() => void) | null
   onRemove: () => void
   onClose: () => void
 }
 
 /** The context menu of a Project row. Escape, a click elsewhere or leaving the menu closes it. */
-function ProjectMenu({ x, y, readOnly, onSettings, onRemove, onClose }: MenuProps) {
+function ProjectMenu({ x, y, readOnly, onSettings, onGateQueue, onRemove, onClose }: MenuProps) {
   const menu = useRef<HTMLDivElement>(null)
   // The latest onClose, so the effect below runs once per opening and not on every render.
   const close = useRef(onClose)
@@ -261,6 +264,11 @@ function ProjectMenu({ x, y, readOnly, onSettings, onRemove, onClose }: MenuProp
       <button type="button" role="menuitem" className="w-row" onClick={onSettings}>
         Project settings…
       </button>
+      {onGateQueue !== null ? (
+        <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onGateQueue)}>
+          Process gate queue
+        </button>
+      ) : null}
       <button type="button" role="menuitem" className="w-row" {...writeAction(readOnly, onRemove)}>
         Remove from list
       </button>
@@ -412,6 +420,16 @@ export default function ProjectsSection() {
 
   // The Machine of the row whose menu is open: its Projects may be read-only (worfy-link ticket 25).
   const menuGroup = menu === undefined ? undefined : groups?.find((group) => group.machine === menu.machine)
+  // The gate queue of the row whose menu is open, read on its Machine at each opening.
+  const menuQueue = useGateQueue(menu?.machine ?? null, menu?.project.id)
+
+  /** "Process gate queue": the Project's template to its Orchestrator, on the row's Machine; main refuses with the reason. */
+  const gateQueue = async (machine: string | null, project: ProjectView): Promise<void> => {
+    setMessage(undefined)
+    const result = await invokeOn(machine, 'actions.gateQueue', { projectId: project.id })
+    if (result.ok) setMessage({ kind: 'notice', text: `Sent to the Orchestrator of ${project.name}: ${result.value.text}` })
+    else fail(result.error)
+  }
 
   const rowsOf = (group: Pick<ProjectGroup, 'machine' | 'projects' | 'selectedId'>) => (
     <ProjectRows
@@ -455,6 +473,14 @@ export default function ProjectsSection() {
                 setSettingsFor({ machine: menu.machine, project: menu.project })
                 setMenu(undefined)
               }}
+              onGateQueue={
+                menuQueue?.role === 'serve'
+                  ? () => {
+                      setMenu(undefined)
+                      void gateQueue(menu.machine, menu.project)
+                    }
+                  : null
+              }
               onRemove={() => {
                 setMenu(undefined)
                 void remove(menu.machine, menu.project)

@@ -1,7 +1,8 @@
 # 34 — Symlink с целью в виде NT-пути (`\Device\Mup\host\share`) считается локальным
 
 Type: task
-Status: open
+Status: claimed 2026-10-18T08:37Z
+Branch: worfy-windows/34-nt-path-symlink
 Blocked by: —
 Source: первый круг ревью PR #274 на Mac, 2026-10-13 ([комментарий в PR #274](https://github.com/IDSAD-XL/worfy/pull/274#issuecomment-6137826085), раздел «Low», пункт «Older than this PR, own tickets»); замеры junction в «Итоге» [Ticket-а 19](19-leadstoremote-в-docs-cards-и-workflow.md). Первый шаг — замер на Windows-ПК.
 

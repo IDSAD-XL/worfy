@@ -28,6 +28,12 @@
 // renderer opens the Session of the other Machine (src/renderer/canvas/overlays/NotificationTarget.tsx);
 // the Machine of the Project does nothing.
 //
+// The gate queue (worfy-windows ticket 17, ADR-0069): a PR with the cross-machine gate's label that
+// has waited over an hour by rule 1 (src/main/github/gate-queue.ts) gets one notification per PR and
+// last commit, on either machine (GateQueueNotices). Its title is the Project's name. Such a note
+// names no Session: a click raises worfy's window and opens nothing (WindowNote). The focus rule is
+// the same: while a worfy window has focus the note waits for the next read of the queue.
+//
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
 // a notification from the bundle of the process, so a Notification sets no icon of its own: `icon`
@@ -38,6 +44,7 @@ import { basename } from 'node:path'
 import { app, BrowserWindow, Notification } from 'electron'
 import type { AgentEvent } from '../shared/agent/events'
 import type { LiveSession } from '../shared/ipc/claude-home'
+import type { GateQueueRead } from './github/gate-queue'
 import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
 import { emit } from './ipc/index'
@@ -62,6 +69,21 @@ export interface SharedNote {
 export interface Note extends SharedNote {
   /** The Linked machine whose Session this is (worfy-link ticket 13); absent for a Session of this Machine. */
   machineId?: string
+}
+
+/** A notification of no Session (the gate queue): a click raises worfy's window and opens nothing. */
+export interface WindowNote {
+  title: string
+  body: string
+  sessionId: null
+}
+
+/** The Electron parts of the gate queue's notifications (GateQueueNotices); tests pass their own. */
+export interface WindowNoteDeps {
+  focused(): boolean
+  show(note: WindowNote, onClick: () => void): void
+  /** Raises worfy's window, or opens one; no Session opens. */
+  open(note: WindowNote): void
 }
 
 /** Where the notes of this Machine's Sessions go besides its own display (src/main/link/notes.ts). */
@@ -227,6 +249,84 @@ export class Notifier {
   }
 }
 
+export const GATE_QUEUE_NOTICE_MS = 60 * 60_000
+/**
+ * How often the watcher asks the reader. The reader answers its last read until its own interval
+ * (GATE_QUEUE_INTERVAL_MS) is over, so a tick as long as that interval would make the real period
+ * up to twice it; a tick of one minute keeps it within a minute of the reader's.
+ */
+export const GATE_QUEUE_TICK_MS = 60_000
+const PR_TITLE_LIMIT = 80
+
+/** The text of the notification of a PR that waits in the gate queue, by this Machine's role. */
+export function gateQueueNoteBody(pr: { number: number; title: string }, role: 'serve' | 'request'): string {
+  const title = clip(pr.title)
+  const short = title.length > PR_TITLE_LIMIT ? `${title.slice(0, PR_TITLE_LIMIT - 1)}…` : title
+  const next = role === 'serve' ? 'Run Process gate queue' : 'No machine has taken it yet'
+  return `PR #${pr.number} ${short} has waited for the gate queue for over an hour. ${next}`
+}
+
+/**
+ * The gate queue's notifications: one per PR and last commit once it has waited over an hour by
+ * rule 1, from the reads of the queue. While a worfy window has focus nothing is shown, and the PR
+ * waits for the next read; a read that failed changes nothing.
+ */
+export class GateQueueNotices {
+  /** What was shown, by `<root>\0<PR>\0<last commit>`. */
+  private readonly shown = new Set<string>()
+
+  constructor(private readonly deps: WindowNoteDeps) {}
+
+  read(project: { root: string; name: string }, queue: GateQueueRead): void {
+    if (queue.role === null || queue.gh.state !== 'ok') return
+    const prefix = `${project.root}\0`
+    const waiting = new Set<string>()
+    for (const pr of queue.waiting) {
+      const key = `${prefix}${pr.number}\0${pr.lastCommit ?? pr.since}`
+      waiting.add(key)
+      if (pr.waitedMs <= GATE_QUEUE_NOTICE_MS || this.shown.has(key) || this.deps.focused()) continue
+      this.shown.add(key)
+      const note: WindowNote = { title: project.name, body: gateQueueNoteBody(pr, queue.role), sessionId: null }
+      this.deps.show(note, () => this.deps.open(note))
+    }
+    // A PR that no longer waits (a report, a merge, a new commit) is forgotten.
+    for (const key of [...this.shown]) if (key.startsWith(prefix) && !waiting.has(key)) this.shown.delete(key)
+  }
+}
+
+/**
+ * Reads the gate queue of every Project in worfy's list each `intervalMs` (the reader itself runs
+ * gh at most once per its interval) and notifies of the PRs that wait over an hour. Answers the
+ * function that stops it; the app calls it on quit.
+ */
+export function installGateQueueNotifications(
+  reader: { read(root: string): Promise<GateQueueRead> },
+  projects: () => readonly { path: string; name: string }[],
+  deps: WindowNoteDeps = electronWindowNoteDeps,
+  intervalMs = GATE_QUEUE_TICK_MS,
+): () => void {
+  const notices = new GateQueueNotices(deps)
+  let running = false
+  const tick = async (): Promise<void> => {
+    if (running) return
+    running = true
+    try {
+      for (const project of projects()) {
+        try {
+          notices.read({ root: project.path, name: project.name }, await reader.read(project.path))
+        } catch (error) {
+          console.warn(`[gate-queue] ${project.path}: the queue could not be read`, error)
+        }
+      }
+    } finally {
+      running = false
+    }
+  }
+  const timer = setInterval(() => void tick(), intervalMs)
+  timer.unref()
+  return () => clearInterval(timer)
+}
+
 /** Notifications shown and not yet closed: a notification nobody holds may lose its click handler. */
 const shown = new Set<Notification>()
 
@@ -249,10 +349,11 @@ function holdFor(window: BrowserWindow, note: Note, pending: PendingOpens): void
 /**
  * Raises worfy and opens the Session of a clicked notification: in the open window, or in a new
  * one when none is open (macOS keeps the app running without windows). A note of a Linked
- * machine's Session keeps its Machine: the window's renderer opens it on that Machine.
+ * machine's Session keeps its Machine: the window's renderer opens it on that Machine. A
+ * WindowNote only raises (or opens) the window.
  */
 export function openNote(
-  note: Note,
+  note: Note | WindowNote,
   pending: PendingOpens = pendingOpens,
   createWindow: () => BrowserWindow = createMainWindow,
   quiet: QuietWindows = quietWindows(),
@@ -275,29 +376,40 @@ export function openNote(
   // it now. An overlay that is not mounted yet (a page still loading, or loaded but before the
   // Canvas) misses the signal and takes the note when it mounts. So the outcome does not depend on
   // webContents.isLoading(), which is also true while a Card iframe loads.
+  if (note.sessionId === null) return
   holdFor(window, note, pending)
   if (existing !== undefined) emit(window.webContents, notifyOpen, {})
+}
+
+/** Shows a system notification of `note`; `onClick` runs when the user clicks it. */
+function showSystem(note: { title: string; body: string }, onClick: () => void): void {
+  // Quiet windows (e2e tests only) never have the focus: without this, every finished turn of a
+  // test would put a banner on the screen.
+  if (!quietWindows().systemNotifications) return
+  if (!Notification.isSupported()) return
+  const notification = new Notification({ title: note.title, body: note.body })
+  shown.add(notification)
+  notification.on('click', () => {
+    shown.delete(notification)
+    onClick()
+  })
+  notification.on('close', () => shown.delete(notification))
+  notification.show()
 }
 
 /** Electron's notifications and windows. */
 export const electronNotifyDeps: NotifyDeps = {
   focused: () => BrowserWindow.getFocusedWindow() !== null,
-  show: (note, onClick) => {
-    // Quiet windows (e2e tests only) never have the focus: without this, every finished turn of a
-    // test would put a banner on the screen.
-    if (!quietWindows().systemNotifications) return
-    if (!Notification.isSupported()) return
-    const notification = new Notification({ title: note.title, body: note.body })
-    shown.add(notification)
-    notification.on('click', () => {
-      shown.delete(notification)
-      onClick()
-    })
-    notification.on('close', () => shown.delete(notification))
-    notification.show()
-  },
+  show: showSystem,
   open: (note) => openNote(note),
   now: () => Date.now(),
+}
+
+/** The same for the gate queue's notifications. */
+export const electronWindowNoteDeps: WindowNoteDeps = {
+  focused: () => BrowserWindow.getFocusedWindow() !== null,
+  show: showSystem,
+  open: (note) => openNote(note),
 }
 
 /**

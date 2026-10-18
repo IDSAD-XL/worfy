@@ -42,7 +42,8 @@ describe('removeTestTree', () => {
 })
 
 describe('saveLayoutNow', () => {
-  it('writes what the Layout store holds back, so that no save comes after the folder is gone and makes it again', async () => {
+  /** A data folder in `scratch` and a Layout store that holds one change back; the path of its layout.json. */
+  async function storeWithAChange(): Promise<{ file: string; delayMs: number }> {
     const dataDir = join(scratch, 'data')
     const repo = join(scratch, 'repo')
     mkdirSync(repo)
@@ -56,6 +57,19 @@ describe('saveLayoutNow', () => {
     layoutStore().apply(PROJECT, note)
     // The save waits for a quiet moment: nothing is on the disk yet.
     expect(existsSync(file)).toBe(false)
+    return { file, delayMs: LAYOUT_SAVE_DELAY_MS }
+  }
+
+  // The control case (worfy-windows ticket 32): what the helper is for happens without it.
+  it('without it, the save that comes after the removal makes the folder again', async () => {
+    const { file, delayMs } = await storeWithAChange()
+    removeTestTree(scratch)
+    await new Promise((resolve) => setTimeout(resolve, delayMs * 2))
+    expect(existsSync(file)).toBe(true)
+  })
+
+  it('writes what the Layout store holds back, so that no save comes after the folder is gone and makes it again', async () => {
+    const { file, delayMs: LAYOUT_SAVE_DELAY_MS } = await storeWithAChange()
 
     await saveLayoutNow()
     expect(existsSync(file)).toBe(true)

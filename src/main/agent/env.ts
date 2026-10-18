@@ -183,8 +183,9 @@ export const REGISTRY_SUBKEY_VAR = 'WORFY_REGISTRY_SUBKEY'
  * environment (registryVars), so nothing is quoted and nothing is decoded. Measured on the owner's
  * PC from the Node of Electron: a script that decodes base64 — handed over with -EncodedCommand,
  * or calling FromBase64String itself — costs about a second more the first time a process runs
- * its text, and again after worfy is started anew; a script as text that only encodes costs
- * 0.26 s every time. From the system Node there is no such difference.
+ * its text (1.2–1.3 s against 0.25–0.3 s; the very first such call of a process about 2.2 s), and
+ * again after worfy is started anew; a script as text that only encodes costs 0.25–0.32 s every
+ * time. From the system Node there is no difference of that size (at most 0.1 s).
  */
 export const REGISTRY_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
@@ -217,7 +218,7 @@ export function registryVars(key: string): Env {
   return { [REGISTRY_HIVE_VAR]: root, [REGISTRY_SUBKEY_VAR]: subkey.join('\\') }
 }
 
-/** The values in the output of registryScript; other lines are skipped. */
+/** The values in the output of REGISTRY_SCRIPT; other lines are skipped. */
 export function parseRegistryValues(output: string): RegValue[] {
   const values: RegValue[] = []
   for (const line of output.split(/\r?\n/)) {
@@ -276,7 +277,10 @@ const XML_ENTITIES: Record<string, string> = { lt: '<', gt: '>', quot: '"', apos
  * The line of stderr that says what failed. powershell.exe writes a redirected error stream as
  * CLIXML (`#< CLIXML` and one line of XML), even with -OutputFormat Text (checked on the owner's PC
  * for worfy-windows ticket 08): its message is the first line of the `<S S="Error">` strings.
- * Plain stderr gives its last line.
+ * A script given with -Command fails in plain text instead (measured on the owner's PC for
+ * worfy-windows ticket 29: `throw 'boom'` gave `boom` on the first line, the position in the script
+ * in the OEM code page on the second, `+ FullyQualifiedErrorId : boom` on the last), so plain
+ * stderr gives its first line that is not blank.
  */
 export function stderrLine(stderr: string): string | null {
   const clixml = stderr.trimStart().startsWith('#< CLIXML')
@@ -288,7 +292,7 @@ export function stderrLine(stderr: string): string | null {
         .replace(/&(lt|gt|quot|apos|amp);/g, (_, name: string) => XML_ENTITIES[name]!)
     : stderr
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '')
-  return (clixml ? lines[0] : lines.at(-1)) ?? null
+  return lines[0] ?? null
 }
 
 /** Why the reader failed: the timeout, the script's own Error line, or what stderr says. */
@@ -375,7 +379,7 @@ function putKey(values: RegValue[], env: Env): void {
  * stat fails with EACCES), and readlink names the program it starts (evidence of worfy-windows
  * ticket 01, section 25; ticket 10). A folder of that name and a link to nothing are neither.
  */
-const fileOrAlias: FileExists = (path) => {
+export const fileOrAlias: FileExists = (path) => {
   try {
     return statSync(path).isFile()
   } catch {

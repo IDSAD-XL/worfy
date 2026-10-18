@@ -46,9 +46,9 @@
 //
 // What it cannot see: a link put in place between the walk and the watch (the same gap as in
 // remote-links.ts); and a link deeper than the folders `enter` names.
-import { watch as watchNode } from 'node:fs'
 import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { UNCHECKED, walkLinks, type LinkFs, type PathRules } from './remote-links'
+import { namesTheFolder, notThere, watchWithNode, type NodeWatch } from './watch-gone'
 
 /** What a path is, by lstat: a link is a link whatever it leads to. */
 export type EntryKind = 'folder' | 'file' | 'link'
@@ -72,11 +72,8 @@ export interface WatchFs {
   isFolder: (path: string) => Promise<boolean>
   /** What changes when the entry at the path changes (lstat's mtime and size); null when nothing is there. Never follows a link. */
   stamp: (path: string) => Promise<string | null>
-  /**
-   * Watches a folder (with everything below it when `recursive`) or a file. `onEvent` gets the
-   * name the system reports, relative to the path, or null when it reports none.
-   */
-  watch: (path: string, recursive: boolean, onEvent: (name: string | null) => void, onError: (error: unknown) => void) => WatchHandle
+  /** Watches a folder (with everything below it when `recursive`) or a file (watch-gone.ts). */
+  watch: NodeWatch
 }
 
 const kindOf = (entry: { isSymbolicLink: () => boolean; isDirectory: () => boolean }): EntryKind => (entry.isSymbolicLink() ? 'link' : entry.isDirectory() ? 'folder' : 'file')
@@ -99,11 +96,7 @@ export const nodeWatchFs: WatchFs = {
       (stats) => `${stats.mtimeMs}:${stats.size}`,
       () => null,
     ),
-  watch: (path, recursive, onEvent, onError) => {
-    const watcher = watchNode(path, { recursive }, (_event, name) => onEvent(name === null ? null : String(name)))
-    watcher.on('error', onError)
-    return { close: () => watcher.close() }
-  },
+  watch: watchWithNode,
 }
 
 export interface LinkSafeWatchOptions {
@@ -173,9 +166,6 @@ interface Found {
   visited: Set<string>
   stale: () => boolean
 }
-
-/** Whether a failed call says that nothing is at the path. */
-const notThere = (error: unknown): boolean => ['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException | null)?.code ?? '')
 
 export class LinkSafeWatch {
   private readonly fs: WatchFs
@@ -365,7 +355,7 @@ export class LinkSafeWatch {
       (name) => {
         if (this.rootWatch !== mine.handle) return
         // The root itself went: no sign that the watch works.
-        if (name !== null && this.paths.isAbsolute(name)) return this.lost()
+        if (namesTheFolder(name, this.paths.isAbsolute)) return this.lost()
         reported = true
         this.report(name === null ? root : this.paths.join(root, name))
       },
@@ -469,7 +459,7 @@ export class LinkSafeWatch {
       false,
       (name) => {
         // Only the next name on the way matters: a repository root changes all the time.
-        if (name === null || this.paths.isAbsolute(name) || name.split(this.paths.sep)[0]!.toLowerCase() === next) again()
+        if (name === null || namesTheFolder(name, this.paths.isAbsolute) || name.split(this.paths.sep)[0]!.toLowerCase() === next) again()
       },
       again,
     )
@@ -593,7 +583,7 @@ export class LinkSafeWatch {
         folder,
         (name) => {
           if (this.linkWatches.get(path)?.handle !== mine.handle) return
-          if (name !== null && this.paths.isAbsolute(name)) return gone()
+          if (namesTheFolder(name, this.paths.isAbsolute)) return gone()
           this.report(folder && name !== null ? this.paths.join(path, name) : path)
         },
         (error) => {

@@ -1,7 +1,8 @@
 # 54 — Contract test-ы Terminal AI и shell integration не загружаются на Windows: `/bin/sh` при загрузке модуля в шести файлах `test/contract`
 
 Type: task
-Status: open
+Status: done 2026-10-18T11:20Z
+PR: #462
 Blocked by: 53
 Source: Session на Windows-ПК «Worfy тесты на ПК», найдено попутно при работе над
 [Ticket-ом 53](53-e2e-не-загружаются-на-windows-из-за-bin-sh.md) («Итог» на ветке `worfy-windows/53`,
@@ -69,16 +70,16 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 - [x] На Windows-ПК шесть файлов загружаются: `pnpm exec vitest run --project contract` по каждому —
       ни одного `spawnSync /bin/sh ENOENT`; test-ы zsh — skipped с причиной; test-ы без zsh идут.
       Числа passed, skipped и failed по файлам — в «Итог». Это проверяет Session на Windows-ПК.
-- [ ] На macOS те же test-ы идут, как раньше: число test-ов каждого из шести файлов (passed и
+- [x] На macOS те же test-ы идут, как раньше: число test-ов каждого из шести файлов (passed и
       skipped) то же, что на main; числа — в «Итог».
 - [x] Static check смотрит `test/contract`: красный на main (шесть вызовов найдены), зелёный после
       правки.
 - [x] Мутант: вернуть `const ZSH = execFileSync(…)` в один из шести файлов — static check красный.
-- [ ] Четыре nit-а из пункта 4 закрыты: на каждый — случай в таблице unit-test-а, красный до правки
+- [x] Четыре nit-а из пункта 4 закрыты: на каждый — случай в таблице unit-test-а, красный до правки
       static check и зелёный после (тёзка `start` из чужого модуля проходит; `new Promise` с вызовом
       найден; `import cp = require('child_process')` найден; `const { beforeAll } = test` —
       отложенный; нестатическое поле класса проходит, статическое найдено).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac; gate full — exit 0 и строка
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 на Mac; gate full — exit 0 и строка
       `[gate] зелено (full)` (оркестратор перед merge); Linux CI зелёный.
 
 ## Тесты
@@ -153,3 +154,8 @@ Source: Session на Windows-ПК «Worfy тесты на ПК», найдено
 
 - Пункт четырёх nit-ов: случаи в таблице unit-test-а есть и зелёные (45 passed), но «красный до правки static check» на ПК не воспроизводился — старая версия static check живёт в том же файле, что и таблица. Пункт не отмечен; проверка — на Mac или по истории commit-ов.
 - macOS: число test-ов по файлам, `pnpm lint`/`typecheck`/`test`, gate full, Linux CI.
+
+### Мерж и проверки на Mac (Session на Mac, 2026-10-18)
+
+- PR #462 влит как `fa06b266`. Ревью на Mac, круг 1 ([комментарий](https://github.com/IDSAD-XL/worfy/pull/462#issuecomment-6244196062)): шесть файлов на macOS — 14 / 22 / 28 / 35 / 49 / 20 test-ов, пропусков нет, как на main, все 168 имён совпадают; каждый из четырёх nit-ов #387 — случай в таблице, красный на static check main и зелёный на ветке.
+- Перед мержем `GATE_SCOPE=all` gate full на Mac — exit 0, `[gate] зелено (full): worfy/.:lint worfy/.:typecheck worfy/.:test worfy/.:test:e2e worfy/.:test:package` ([комментарий](https://github.com/IDSAD-XL/worfy/pull/462#issuecomment-6244540778)); Linux CI — batch CI run на main `e074b41f` (содержит `fa06b266`), run 39092198641, success.

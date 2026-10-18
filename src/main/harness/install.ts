@@ -112,6 +112,57 @@ export interface InstallerOptions {
   claudeHome?: string
   /** Copies a tree into an empty folder; tests inject a failing one. */
   copyTree?: (from: string, to: string) => Promise<void>
+  /** Renames a folder; tests inject one that fails as a file held open on Windows does. */
+  renameDir?: (from: string, to: string) => Promise<void>
+  /** Removes a folder tree; tests inject one that fails as a file held open on Windows does. */
+  removeDir?: (path: string) => Promise<void>
+  /** The system the renames and removals are retried for (retriedOnWindows); that of this process by default. */
+  platform?: NodeJS.Platform
+  /** How long a rename or removal that a held-open file refuses on Windows is tried again; 60 s by default. */
+  renameRetryMs?: number
+}
+
+/** Errors of a rename on Windows that a file held open causes — an antivirus scan, an editor, a running Claude Code. */
+const HELD_OPEN = new Set(['EPERM', 'EBUSY', 'EACCES'])
+/** The same for a removal of a tree, where a folder emptied a moment later answers ENOTEMPTY. */
+const HELD_OPEN_REMOVE = new Set([...HELD_OPEN, 'ENOTEMPTY'])
+/** How long graceful-fs tries a rename again on win32, and its largest pause. */
+export const RENAME_RETRY_MS = 60_000
+const RENAME_MAX_PAUSE_MS = 100
+/**
+ * The limit of the retries on a failure path: putting the previous copy back after the new one could
+ * not be put in place, and removing the staging folder after a failure (a staging folder left behind
+ * is removed by the next install). The rename that failed already waited its own RENAME_RETRY_MS,
+ * so the worst failure — the new copy refused, the copy put back, staging refused — takes about
+ * 60 + 10 + 10 = 80 s, not 180.
+ */
+export const ROLLBACK_RETRY_MS = 10_000
+
+const defaultRemove = (path: string): Promise<void> => rm(path, { recursive: true, force: true })
+
+/**
+ * Runs `operation`, and on Windows runs it again while it fails with one of `codes` — a file held
+ * open — as graceful-fs does for a rename on win32: pauses of 0, 10, 20 … 100 ms, until `retryMs`
+ * has passed since the first attempt. Then, and on any other error or system, the error of the last
+ * attempt is thrown.
+ */
+export async function retriedOnWindows(
+  operation: () => Promise<void>,
+  { platform = process.platform, retryMs = RENAME_RETRY_MS, codes = HELD_OPEN }: { platform?: NodeJS.Platform; retryMs?: number; codes?: ReadonlySet<string> } = {},
+): Promise<void> {
+  const started = Date.now()
+  let pause = 0
+  for (;;) {
+    try {
+      await operation()
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (platform !== 'win32' || code === undefined || !codes.has(code) || Date.now() - started >= retryMs) throw error
+    }
+    await new Promise((resolve) => setTimeout(resolve, pause))
+    pause = Math.min(pause + 10, RENAME_MAX_PAUSE_MS)
+  }
 }
 
 export type InstallOutcome = 'done' | 'declined' | 'nothing-to-do'
@@ -531,6 +582,19 @@ export class HarnessInstaller {
    * Replaces <harnessHome>/plugin with the copy of this build: the copy goes into a staging folder
    * next to it, then the old folder is renamed away and the staging folder into place. A failed
    * copy leaves the old folder untouched; files the new version dropped are gone with the old one.
+   *
+   * On Windows a rename or removal that a held-open file refuses (EPERM, EBUSY) is tried again for a
+   * while (retriedOnWindows, worfy-windows ticket 13):
+   * - the old folder cannot be set aside: the step `copy` fails, the old folder is where it was;
+   * - the new copy cannot be put in place: the old folder is renamed back first (for at most
+   *   ROLLBACK_RETRY_MS more), so plugin/ is missing no longer than needed, then the staging folder
+   *   goes, and the step `copy` fails with the first error. When that rename back fails too, the
+   *   message says so and the previous copy stays in `.plugin-old-*`, which the next install puts
+   *   back first (removeLeftovers);
+   * - on every failure path the staging folder is removed with retries of at most ROLLBACK_RETRY_MS:
+   *   the worst failure takes about 80 s;
+   * - the old folder cannot be removed after the swap: the new copy is in place, so the install goes
+   *   on; the folder is left with a warning and removed by the next install.
    */
   private async replaceCopy(): Promise<void> {
     const { harnessHome, bundledDir } = this.options
@@ -542,36 +606,93 @@ export class HarnessInstaller {
       try {
         await (this.options.copyTree ?? copyWhole)(bundledDir, staging)
       } catch (error) {
-        await rm(staging, { recursive: true, force: true })
+        await this.removeQuietly(staging, this.failureRetryMs())
         throw error
       }
       const old = join(harnessHome, `.plugin-old-${basename(staging).slice('.plugin-new-'.length)}`)
       const hadOld = existsSync(this.pluginDir)
-      if (hadOld) await rename(this.pluginDir, old)
+      if (hadOld) {
+        try {
+          await this.renameDir(this.pluginDir, old)
+        } catch (error) {
+          // Nothing moved: the previous copy is in place; only the staging folder goes.
+          await this.removeQuietly(staging, this.failureRetryMs())
+          throw error
+        }
+      }
       try {
-        await rename(staging, this.pluginDir)
+        await this.renameDir(staging, this.pluginDir)
       } catch (error) {
-        if (hadOld) await rename(old, this.pluginDir)
-        await rm(staging, { recursive: true, force: true })
+        if (!hadOld) {
+          await this.removeQuietly(staging, this.failureRetryMs())
+          throw error
+        }
+        // The previous copy goes back before anything else, as on main: no plugin/ for as short as possible.
+        try {
+          await this.renameDir(old, this.pluginDir, this.failureRetryMs())
+        } catch (rollback) {
+          await this.removeQuietly(staging, this.failureRetryMs())
+          throw new Error(`${messageOf(error)}; putting the previous copy back failed too (${messageOf(rollback)}): it is in ${old}, and the next install puts it back first`, {
+            cause: rollback,
+          })
+        }
+        await this.removeQuietly(staging, this.failureRetryMs())
         throw error
       }
-      if (hadOld) await rm(old, { recursive: true, force: true })
+      // The new copy is in place: a previous copy that cannot be removed now is removed by the next install.
+      if (hadOld) await this.removeQuietly(old)
     } catch (error) {
-      throw new StepError('copy', `copying the Harness to ${this.pluginDir} failed: ${error instanceof Error ? error.message : String(error)}`)
+      throw new StepError('copy', `copying the Harness to ${this.pluginDir} failed: ${messageOf(error)}`)
     }
   }
 
   /**
    * Folders an interrupted copy left in <harnessHome>. A copy that stopped between its two renames
    * left no plugin/ and the previous copy in `.plugin-old-*`: that copy goes back into place first,
-   * so a failure of the copy that follows still leaves it as it was.
+   * so a failure of the copy that follows still leaves it as it was. A folder that cannot be put
+   * back or removed, even after the retries on Windows, is skipped with a warning: it never fails
+   * the install, and a previous copy that could not be put back is not removed either.
    */
   private async removeLeftovers(): Promise<void> {
     const { harnessHome } = this.options
+    let kept: string | null = null
     const setAside = readdirSync(harnessHome).find((name) => name.startsWith('.plugin-old-'))
-    if (setAside !== undefined && !existsSync(this.pluginDir)) await rename(join(harnessHome, setAside), this.pluginDir)
+    if (setAside !== undefined && !existsSync(this.pluginDir)) {
+      try {
+        await this.renameDir(join(harnessHome, setAside), this.pluginDir)
+      } catch (error) {
+        kept = setAside
+        console.warn(`[harness] could not put the previous copy ${join(harnessHome, setAside)} back: ${messageOf(error)}`)
+      }
+    }
     for (const name of readdirSync(harnessHome)) {
-      if (name.startsWith('.plugin-new-') || name.startsWith('.plugin-old-')) await rm(join(harnessHome, name), { recursive: true, force: true })
+      if (name === kept || !(name.startsWith('.plugin-new-') || name.startsWith('.plugin-old-'))) continue
+      await this.removeQuietly(join(harnessHome, name))
+    }
+  }
+
+  /** A rename of the plugin folders, tried again on Windows while a held-open file refuses it. */
+  private renameDir(from: string, to: string, retryMs = this.options.renameRetryMs): Promise<void> {
+    const { platform, renameDir = rename } = this.options
+    return retriedOnWindows(() => renameDir(from, to), { ...(platform === undefined ? {} : { platform }), ...(retryMs === undefined ? {} : { retryMs }) })
+  }
+
+  /** The retry limit on a failure path: ROLLBACK_RETRY_MS, or the configured limit when it is shorter. */
+  private failureRetryMs(): number {
+    return Math.min(this.options.renameRetryMs ?? RENAME_RETRY_MS, ROLLBACK_RETRY_MS)
+  }
+
+  /** Removes a folder tree, tried again on Windows like a rename; a folder that still cannot go is left with a warning. */
+  private async removeQuietly(path: string, retryMs = this.options.renameRetryMs): Promise<void> {
+    const { platform, removeDir = defaultRemove } = this.options
+    try {
+      await retriedOnWindows(() => removeDir(path), {
+        codes: HELD_OPEN_REMOVE,
+        ...(platform === undefined ? {} : { platform }),
+        ...(retryMs === undefined ? {} : { retryMs }),
+      })
+    } catch (error) {
+      console.warn(`[harness] left ${path}: ${messageOf(error)}; the next install removes it`)
     }
   }
 

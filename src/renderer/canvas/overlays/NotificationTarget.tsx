@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { sameProjectRoot } from '../../../shared/paths'
 import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, addressFor, navigation, openProject, useProjects } from '../../projects/useProjects'
 import { openSession } from '../../session/navigation'
@@ -72,7 +73,7 @@ export default function NotificationTarget() {
     }
     // On a Linked machine a Session from the registry is looked for in any of its Projects.
     const root = pending.note.projectRoot
-    const where = machine === null || root === null ? project : (projects?.projects.find((each) => each.path === root) ?? project)
+    const where = machine === null || root === null ? project : (projects?.projects.find((each) => sameProjectRoot(each.path, root)) ?? project)
     const target = notificationTarget(pending.note, where, machine)
     if (target !== null) {
       dropNote(pending)

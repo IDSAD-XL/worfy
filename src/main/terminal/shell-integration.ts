@@ -123,6 +123,8 @@ export function tempBase(base: string): string {
  * On Windows a folder has neither an owner id nor mode bits to read — every folder shows 0o666
  * there — so a folder that is not a link is taken: the temporary folder of a user is the user's by
  * its access list. Read by the bits, no folder passed, and every prepare() made a new one.
+ * The app does not reach the Windows branch today: terminalShell() (./pty.ts) answers PowerShell or
+ * Git Bash there, never zsh, so prepare() is not called; tests set process.platform to run it.
  */
 async function ownFolder(dir: string): Promise<boolean> {
   try {
@@ -204,7 +206,8 @@ export class ShellIntegration {
     let dir = await this.making
     if (!(await ownFolder(dir))) {
       // Gone (dirhelper): made again under the same name; a folder of that name that is not ours
-      // (another user's, a link) is not used: a new one is made instead.
+      // is not used: a new one is made instead. Off Windows that is another user's folder, one
+      // others may open, or a link; on Windows only a link (a folder there is taken whoever made it).
       try {
         await mkdir(dir, { mode: 0o700 })
       } catch (error) {

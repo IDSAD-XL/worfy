@@ -1,4 +1,5 @@
-// The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas. worfy starts the
+// The `actions` domain (ticket 23): "Ship ticket" and "Run wave" from the Canvas, and "Process gate
+// queue" from the palette and the Project menu (worfy-windows ticket 17). worfy starts the
 // work with the same skills the terminal does and never writes a Ticket's status itself (ADR 0002):
 // main reads the Project's action template, fills it in (src/shared/actions/render-template.ts)
 // and sends the text — to a new Session in the Project's root, or to the Project's Orchestrator.
@@ -58,6 +59,23 @@ export const actionsRunWave = invokeChannel(
 )
 
 /**
+ * "Process gate queue" (worfy-windows ticket 17): sends the Project's template to its Orchestrator —
+ * into its queue while a turn runs. Refused, with the reason, when this Machine's role in the
+ * cross-machine gate is not `serve`, the template is empty, or Autopilot runs in the Project.
+ */
+export const actionsGateQueue = invokeChannel(
+  'actions.gateQueue',
+  z.object({ projectId }),
+  z.object({
+    sessionId: z.string().min(1),
+    text: z.string().min(1),
+    delivery: z.enum(['sent', 'queued']),
+  }),
+  'project',
+  'write',
+)
+
+/**
  * The Tickets of a Project that "Ship ticket" has a live Session for. Main keeps them from the
  * launch until that Session closes: the Ticket stays open until the launched agent runs
  * `ticket claim`, and a second launch meanwhile would put two agents on one Ticket. `revision`
@@ -79,6 +97,7 @@ declare module './channels' {
   interface IpcContract {
     'actions.shipTicket': typeof actionsShipTicket
     'actions.runWave': typeof actionsRunWave
+    'actions.gateQueue': typeof actionsGateQueue
     'actions.launches': typeof actionsLaunches
     'actions.launches.changed': typeof actionsLaunchesChanged
   }

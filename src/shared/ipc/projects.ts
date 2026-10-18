@@ -1,7 +1,7 @@
 // The `projects` domain: the list of Projects, the active one, and each Project's settings.
 // Handled in src/main/ipc/projects.ts (ADR-0006).
 import { z } from 'zod'
-import { projectSettingsSchema } from '../projects/action-templates'
+import { projectSettingsAnswerSchema, projectSettingsInputSchema } from '../projects/action-templates'
 import { eventChannel, invokeChannel } from './channels'
 
 /** A Project as the renderer sees it. */
@@ -99,13 +99,13 @@ export const projectsSelect = invokeChannel('projects.select', projectId, projec
 /** Removes the Project from the list; its data folder stays. */
 export const projectsRemove = invokeChannel('projects.remove', projectId, projectsStateSchema, 'project', 'write')
 
-export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsSchema, 'project', 'read')
+export const projectsSettingsGet = invokeChannel('projects.settings.get', projectId, projectSettingsAnswerSchema, 'project', 'read')
 
 /** Saves the settings; a template with an unknown placeholder fails the input schema. */
 export const projectsSettingsSet = invokeChannel(
   'projects.settings.set',
-  z.object({ id: z.string().min(1), settings: projectSettingsSchema }),
-  projectSettingsSchema,
+  z.object({ id: z.string().min(1), settings: projectSettingsInputSchema }),
+  projectSettingsAnswerSchema,
   'project',
   'write',
 )
@@ -114,7 +114,7 @@ export const projectsSettingsSet = invokeChannel(
  * The default settings for the Harness found on the machine now (worfy-harness ticket 12): what
  * "Reset to default" puts into the fields. Main looks for the Harness on every call.
  */
-export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsSchema, 'project', 'read')
+export const projectsSettingsDefaults = invokeChannel('projects.settings.defaults', z.void(), projectSettingsAnswerSchema, 'project', 'read')
 
 /**
  * A screen of a Linked machine shows Project `projectId` of this Machine (null: none any more;
@@ -132,7 +132,7 @@ export const projectsHold = invokeChannel(
 )
 
 /** Sent to every window after a Project's settings were saved, so the action buttons (ticket 23) follow at once. */
-export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsSchema }), 'project', 'read')
+export const projectsSettingsChanged = eventChannel('projects.settings.changed', z.object({ id: z.string().min(1), settings: projectSettingsAnswerSchema }), 'project', 'read')
 
 /** Sent to every window after any change of the list or of the active Project. */
 export const projectsChanged = eventChannel('projects.changed', projectsStateSchema, 'project', 'read')

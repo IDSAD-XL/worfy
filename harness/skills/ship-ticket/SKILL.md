@@ -616,8 +616,8 @@ gh pr merge <N> --squash
 
 Status and merge are never joined in one command: the pipe swallows the exit code. When several
 waves or workflows run in parallel, a merge and any commit to the main branch go one at a time,
-under the shared lock `mkdir <scratchpad>/main.lock` (the command and the rule for a stuck lock —
-skill `/worfy:epic-wave`, section 4).
+under the shared lock `mkdir "$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"`
+(the command and the rule for a stuck lock — skill `/worfy:epic-wave`, section 4).
 
 The Pipeline (section 0) comes first. With `awaiting-merge` there is no merge here: people merge, and
 the ticket waits for them. With `human-review` the merge waits for
@@ -630,7 +630,7 @@ after that verdict, the old way: the same section, "Gate before merge".
 
 With `F cross_machine_gate.role` `request` a PR with the label `F cross_machine_gate.label` is not
 merged by this machine: the machine with `serve` checks, reports and merges it (skill
-`/worfy:epic-wave`, section 1). The ticket is blocked with the reason —
+`/worfy:gate-queue`). The ticket is blocked with the reason —
 `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" block <epic> <NN> "waits for the machine with serve: <label>, PR #<N>"`
 (the reason in the docs' language) — and is closed when that PR is merged.
 

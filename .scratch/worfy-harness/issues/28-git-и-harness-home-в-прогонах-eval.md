@@ -1,7 +1,8 @@
 # 28 — git и HARNESS_HOME в прогонах eval: копия git от `eval:harness`, переменные `EVAL_GIT` и `EVAL_HARNESS_HOME` в скриптах Harness
 
 Type: task
-Status: claimed 2026-10-18T03:35Z
+Status: done 2026-10-18T11:18Z
+PR: #476
 Branch: worfy-harness/28
 Blocked by:
 Source: решение владельца 2026-10-10 по Ticket-у 27 (eval-кейсы Harness через `claude plugin eval`), вопрос «как дать прогонам eval git», вариант б — правка Harness отдельным Ticket-ом: `scripts/eval-harness.mjs` кладёт копию git в папку, которую песочница читает, скрипты Harness берут путь к git и `HARNESS_HOME` из переменных `EVAL_*`; [Ticket 27](27-eval-кейсы-harness-через-plugin-eval.md), раздел «Итог» (препятствие и пробы); [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (состояние машины в `HARNESS_HOME`, по умолчанию `~/.claude/worfy-harness/`); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { GateQueueView } from '../../src/shared/ipc/gate-queue'
 import type { LayoutNode } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
@@ -148,6 +149,54 @@ describe('palette commands', () => {
     expect(useNavigation.getState().view).toBe('canvas')
     await tidy!.run()
     expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 2 })
+  })
+
+  describe('Process gate queue (worfy-windows ticket 17)', () => {
+    const NOW = Date.parse('2026-10-18T12:00:00Z')
+    const pr = (number: number, since: string) => ({ number, title: `PR ${number}`, url: `https://github.com/o/r/pull/${number}`, since })
+    const queue = (role: 'serve' | 'request' | null, waiting: ReturnType<typeof pr>[] = []): GateQueueView => ({
+      role,
+      label: role === null ? null : 'needs-mac-gate',
+      waiting,
+      gh: role === null ? { state: 'skipped', reason: 'no cross_machine_gate' } : { state: 'ok' },
+    })
+    const gateCommand = (over: Partial<CommandContext>) => buildCommands(context({ now: NOW, ...over })).find((command) => command.id === 'gate-queue')
+
+    it('serve: in the Action group, the detail counts the waiting PRs and the oldest wait; found by "gate queue" and the label', async () => {
+      const two = queue('serve', [pr(470, '2026-10-18T09:00:00Z'), pr(472, '2026-10-18T10:30:00Z')])
+      expect(gateCommand({ gateQueue: two })).toMatchObject({ group: 'Action', title: 'Process gate queue', detail: '2 PRs waiting, oldest 3 h' })
+      expect(gateCommand({ gateQueue: queue('serve') })?.detail).toBe('queue empty')
+      expect(gateCommand({ gateQueue: queue('serve', [pr(470, '2026-10-18T11:20:00Z')]) })?.detail).toBe('1 PR waiting, oldest 40 min')
+      expect(gateCommand({ gateQueue: { ...queue('serve'), gh: { state: 'failed', reason: 'HTTP 502' } } })?.detail).toBe('gh failed: HTTP 502')
+      expect(rankItems(buildCommands(context({ gateQueue: two })), 'gate queue')[0]?.id).toBe('gate-queue')
+      expect(rankItems(buildCommands(context({ gateQueue: two })), 'needs-mac-gate')[0]?.id).toBe('gate-queue')
+      // Running it is the same call as the Project menu: actions.gateQueue of the Project.
+      const asked: { channel: string; input: unknown }[] = []
+      const globals = globalThis as { worfy?: WorfyBridge }
+      globals.worfy = {
+        invoke: (channel: string, input: unknown) => {
+          asked.push({ channel, input })
+          return Promise.resolve(channel === 'actions.gateQueue' ? { ok: false, error: 'The Orchestrator has no Session' } : { ok: true, value: {} })
+        },
+        on: () => 1,
+        off: () => undefined,
+      } as unknown as WorfyBridge
+      onTestFinished(() => {
+        delete globals.worfy
+      })
+      expect(await gateCommand({ gateQueue: two })!.run()).toContain('The Orchestrator has no Session')
+      expect(asked).toEqual([{ channel: 'actions.gateQueue', input: { projectId: 'p1' } }])
+    })
+
+    it('request, no field, or not read yet: no command', () => {
+      expect(gateCommand({ gateQueue: queue('request', [pr(470, '2026-10-18T09:00:00Z')]) })).toBeUndefined()
+      expect(gateCommand({ gateQueue: queue(null) })).toBeUndefined()
+      expect(gateCommand({})).toBeUndefined()
+    })
+
+    it('on a read-only screen it carries the hint', () => {
+      expect(gateCommand({ gateQueue: queue('serve'), readOnly: 'Mini gives this Machine read-only access' })?.readOnly).toBe('Mini gives this Machine read-only access')
+    })
   })
 
   it('without a Project keeps only the views, the first-run checks, Settings, Keyboard shortcuts and the Projects', () => {

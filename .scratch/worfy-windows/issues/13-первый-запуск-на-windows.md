@@ -1,7 +1,9 @@
 # 13 — Первый запуск на Windows: проверки машины и установщик Harness из E3
 
 Type: task
-Status: open
+Status: done 2026-10-18T11:18Z
+PR: #479
+Branch: worfy-windows/13-first-run
 Blocked by: 04, 05, 12
 Source: решения владельца 2026-10-07: Q18 (Git for Windows обязателен, подсказка `winget install Git.Git`), Q24 (Windows 10 21H2+ и 11, только x64), Q20 (Terminal на Windows — PowerShell: pwsh, иначе Windows PowerShell), Q19 (скрипты, которые зовут hooks и worfy, — на Node), Q22 (неподписанный установщик NSIS до E4); «Готово, когда» Epic-а, пункт 1 (подтверждено 2026-10-08); [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) «Harness scripts in Node»; [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (доставка Harness локальным marketplace); [ADR-0048](../../../docs/adr/0048-harness-plugin-spike-results.md) (команды `claude plugin`); Ticket-ы E3: [13](../../worfy-harness/issues/13-установщик-harness-из-app.md) (установщик Harness), [14](../../worfy-harness/issues/14-перенос-harness-из-claude-с-откатом.md) (форма переноса), [15](../../worfy-harness/issues/15-мост-limits-из-app.md) (мост Limits), [19](../../worfy-harness/issues/19-экран-первого-запуска.md) (экран первого запуска); [spec.md](../spec.md)
 
@@ -137,10 +139,10 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/first-run-windows.test.ts`, система `win32`, ответы проб подставлены: нет Git Bash — `fail` и `winget install Git.Git`; есть только `C:\Windows\System32\bash.exe` — `fail`; `node` v20 — `fail` и `winget install OpenJS.NodeJS.LTS`; нет `gh` — `winget install GitHub.cli`; нет `jq` — `warn` (не `fail`) и `winget install jqlang.jq`; нет `pwsh.exe`, есть `powershell.exe` — `warn` и `winget install Microsoft.PowerShell`; `os.release()` `10.0.19043` — `fail`, `10.0.19044` и `10.0.22631` — `ok`; архитектура `arm64` — `warn`. Test идёт на любой системе, в CI на Linux тоже.
-- [ ] Тот же test с системой `darwin`: строки и подсказки — как до этого Ticket-а (`brew install …`), строк Windows нет.
-- [ ] Unit: команда `statusLine` для `win32` — `node "<resources>/<файл моста>"` с `/` и прежней командой аргументом; для `darwin` — прежняя.
-- [ ] Contract `test/contract/harness-install.test.ts`: случай с настоящим встроенным бинарём идёт и на Windows. В песочнице (`CLAUDE_CONFIG_DIR` во временной папке) `claude.exe plugin list --json` показывает `worfy` включённым и с версией сборки; повторная установка — код 0; ключи `settings.json` песочницы на месте.
+- [x] Unit `test/unit/first-run-windows.test.ts`, система `win32`, ответы проб подставлены: нет Git Bash — `fail` и `winget install Git.Git`; есть только `C:\Windows\System32\bash.exe` — `fail`; `node` v20 — `fail` и `winget install OpenJS.NodeJS.LTS`; нет `gh` — `winget install GitHub.cli`; нет `jq` — `warn` (не `fail`) и `winget install jqlang.jq`; нет `pwsh.exe`, есть `powershell.exe` — `warn` и `winget install Microsoft.PowerShell`; `os.release()` `10.0.19043` — `fail`, `10.0.19044` и `10.0.22631` — `ok`; архитектура `arm64` — `warn`. Test идёт на любой системе, в CI на Linux тоже.
+- [x] Тот же test с системой `darwin`: строки и подсказки — как до этого Ticket-а (`brew install …`), строк Windows нет.
+- [x] Unit: команда `statusLine` для `win32` — `node "<resources>/<файл моста>"` с `/` и прежней командой аргументом; для `darwin` — прежняя.
+- [x] Contract `test/contract/harness-install.test.ts`: случай с настоящим встроенным бинарём идёт и на Windows. В песочнице (`CLAUDE_CONFIG_DIR` во временной папке) `claude.exe plugin list --json` показывает `worfy` включённым и с версией сборки; повторная установка — код 0; ключи `settings.json` песочницы на месте.
 - [ ] На Windows-ПК владельца после установки неподписанного NSIS (Ticket 12) экран первого запуска: все строки `ok`, `warn` — только у PowerShell, архитектуры или `jq`. Снимок — `../evidence/13-первый-запуск.png`.
 - [ ] Там же после Install: `claude plugin list --json` в PowerShell — `worfy` включён, версия равна версии сборки. Та же версия — в `%USERPROFILE%\.claude\worfy-harness\plugin\.claude-plugin\plugin.json`.
 - [ ] Hooks срабатывают: `claude -p "ok" --output-format stream-json --verbose` в PowerShell в клоне worfy. В `system/init` есть plugin `worfy`, есть `hook_response` hook-а `SessionStart` с `exit_code` 0. Вывод (без токенов) — в Итог.
@@ -174,12 +176,16 @@ Source: решения владельца 2026-10-07: Q18 (Git for Windows об�
 - `test/contract/first-run-checks.test.ts`
 - `test/contract/harness-install.test.ts`
 - `test/contract/harness-migrate.test.ts`
+- `src/main/harness/status-line.ts` — новый: команда `statusLine` моста Limits для обеих систем (добавлен исполнителем)
+- `src/main/ipc/first-run.ts`, `src/main/ipc/harness-migration.ts` — проводка моста этой сборки (добавлены исполнителем)
+- `src/renderer/shell/FirstRunChecks.tsx` (группа `Windows`), `src/renderer/shell/FirstRun.tsx` («this PC» вместо «this Mac» не на Mac) — добавлены исполнителем
+- `src/main/agent/options.ts` — `bundledClaudeBinary` в dev-run на Windows отдаёт `claude.exe` (добавлен исполнителем)
 
 Пути — из планов E3; на main `76f7ff8` и `8cabc65` все эти файлы, кроме новых test-ов, есть (evidence Ticket-а
 01, раздел 24).
 
 Только чтение: `src/main/agent/env.ts` (поиск Git Bash, Ticket 09), `src/main/agent/options.ts`
-(`claudeExecutablePath`, Ticket 09), `src/main/terminal/pty.ts` (выбор PowerShell, Ticket 10),
+(`claudeExecutablePath`, Ticket 09; исполнитель всё же поправил в нём `bundledClaudeBinary` — см. список выше и Итог), `src/main/terminal/pty.ts` (выбор PowerShell, Ticket 10),
 `src/main/harness/bundled.ts`, `src/main/storage/paths.ts`, файл моста Limits Ticket-а 08.
 `src/renderer/shell/FirstRun.tsx` меняется, только если общий код экрана не рисует новую проверку;
 тогда исполнитель добавляет файл в этот список. Окно ошибки старта (`src/main/startup-failure.ts`)
@@ -191,4 +197,123 @@ Ticket-а и правит `src/main/first-run/checks.ts` вслед за ним.
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-windows/13-first-run` от main `384cfb3`; код и прогоны — Session Claude Code на Windows-ПК владельца
+(Windows 11 Pro 10.0.26200, Node 24.21, x64). Push и PR — за orchestrator-ом.
+
+- **Проверки на Windows** (`src/main/first-run/checks.ts`). `CheckDeps` получил `system` (`platform`,
+  `release` = `os.release()`, `arch`), `probes` (`run` — запуск tool-а, `exists` — есть ли файл) и
+  `limitsBridge`; по умолчанию — эта машина. Строки только для `win32`: «Limits from terminal» (группа
+  Claude Code), группа `Windows` — «Windows version» (build < 19044 — `fail` «Windows 10 21H2 or newer is
+  required»), «Architecture» (не x64 — `warn`; архитектура машины, а не процесса: `PROCESSOR_ARCHITEW6432`, иначе
+  `PROCESSOR_ARCHITECTURE` окружения Session, которое Ticket 09 берёт из реестра HKLM. Предел: при `from:
+  'fallback'` (реестр не прочитан) переменная — из процесса worfy, и сборка x64 под эмуляцией на arm64 видит
+  `AMD64`; `os.machine()` не помогает — libuv берёт архитектуру процесса), «PowerShell» (`terminalShell` Ticket-а 10 с той же проверкой файла, что у Terminal, —
+  `fileOrAlias` из `env.ts`, видит alias MSIX в WindowsApps, которого не видит `existsSync`; нет `pwsh.exe` —
+  `warn` «Terminal uses Windows PowerShell» и `winget install Microsoft.PowerShell`); «Git Bash» после git
+  (как у Session: `CLAUDE_CODE_GIT_BASH_PATH`, если он задан, иначе `findGitBash` Ticket-а 09; переменная с файлом под
+  `%SystemRoot%` — например `System32\bash.exe`, запуск WSL — или с несуществующим файлом — `fail`; нет Git
+  Bash — `fail` и `winget install Git.Git`).
+  Подсказки на Windows — `winget install <id>` (`WINGET_IDS`), «not found on the PATH» вместо «… of the login
+  shell»: окружение — то, что `agentEnv()` на Windows уже собирает по Ticket-у 09 (реестр, не login shell).
+  `jq` на `win32` — `warn` с `winget install jqlang.jq` и строкой, что без него не работают шаги skills с
+  `jq`; на `darwin` — прежний `fail`. Список и подсказки Mac не менялись.
+- **`claude --version` на Windows**: `toolStart`/`windowsProgram` идут по `PATH` папка за папкой, в каждой —
+  `.exe`, `.bat`, `.cmd` в порядке `PATHEXT`, как командная строка; `.cmd`/`.bat` идут через
+  `%SystemRoot%\System32\cmd.exe` (`shell`), без `EINVAL`. cmd.exe раскрывает `%NAME%` в пути — папка с `%`
+  в имени будет прочитана как другая (записано в коде). По timeout проверка отвечает сразу, не ждёт закрытия
+  pipe-ов (их держит node.exe под cmd.exe), и гасит дерево: `taskkill /pid <pid> /T /F` на Windows, `SIGKILL`
+  на остальных. Unit-случай с настоящим `claude.cmd` на ПК прошёл.
+- **Установщик** (`src/main/harness/install.ts`): переименования и удаления папок plugin — через
+  `retriedOnWindows`: на `win32` при `EPERM`/`EBUSY`/`EACCES` (у удаления ещё `ENOTEMPTY`) повтор с паузой 0,
+  10 … 100 мс до 60 с, как `graceful-fs`. Старую папку не убрать в сторону — `error` на шаге `copy`, старая на
+  месте. Новую копию не поставить на место — сначала возвращается старая (как на main: `plugin/` нет как можно
+  меньше; не дольше `ROLLBACK_RETRY_MS` = 10 с), потом удаляется staging (тоже не дольше 10 с: остаток уберёт
+  следующая установка); худший случай — 60 + 10 + 10 ≈ 80 с; `error` на шаге `copy` с первой ошибкой; если и возврат не удался,
+  сообщение говорит об этом, `plugin/` нет, прежняя копия лежит в `.plugin-old-*`, и следующая установка ставит
+  её на место первой (`removeLeftovers`). Старую папку не удалить после замены — установка успешна, папка
+  остаётся с предупреждением в лог и уходит при следующей установке. `removeLeftovers` папку, которую не
+  удалить или не вернуть, пропускает с предупреждением и установку не роняет. Источник, цель и бинарь — прежние `bundledHarnessDir()`,
+  `harnessHome()/plugin`, `claudeExecutablePath()`. Попутно: `bundledClaudeBinary` в dev-run на Windows
+  отдавал `…\claude` без `.exe` — статус Harness в `pnpm dev` падал бы с ENOENT; теперь `claude.exe`.
+- **`statusLine`** — новый `src/main/harness/status-line.ts`: `bridgeFile` (`<resources>/statusline-bridge.mjs`
+  на Windows, `statusline-bridge.sh` на Mac), `bridgeCommand`/`withBridge` (Windows —
+  `node 'C:/…/statusline-bridge.mjs' '<прежняя команда>'`, Mac — прежняя строка формы переноса), `bridgeOf`
+  (обе формы считаются мостом, путь и в двойных кавычках прежних сборок). Форма переноса (`migrate/plan.ts`) строит строку той же функцией; запись —
+  общая `withStatusLineCommand` из `src/main/harness/status-line.ts`, её зовут `writeSettings` формы переноса и
+  новый `writeStatusLine` в `migrate/apply.ts`. Строка формы переноса на Mac — как на main
+  (`otherBuildBridge` в `migrate/plan.ts`): только вход `.sh`, в dev-сборке с относительным путём — строки нет,
+  форма `node "…/statusline-bridge.mjs"` на Mac не считается; на Windows — обе формы. Проверка
+  «Limits from terminal» на Windows: `ok`, когда `statusLine.command` зовёт мост этой сборки; иначе `warn` с
+  кнопкой «Set up…» (действие `limits-bridge`): окно подтверждения с файлом, прежней и новой командой, запись
+  только ключа `statusLine`; файл, изменённый после окна, — отказ. В dev-сборке — `warn` без кнопки.
+- **Аргумент и путь моста в `statusLine` на Windows** — POSIX single quotes (`'…'\''…'`, `shellWord`): в
+  двойных кавычках Git Bash раскрыл бы `$`, `$(…)` и backtick в папке установки. По Итогу Ticket-а 08 Claude Code
+  на Windows исполняет `statusLine` через Git Bash. Живой прогон `statusLine` в интерактивной Session не
+  делался (нужно окно Claude Code): если оболочка окажется cmd.exe, одинарные кавычки там не кавычки —
+  проверяет пункт Limits на ПК владельца.
+- **`plugin marketplace add` с путём `C:\…`**: настоящий `claude.exe` из `claude-agent-sdk-win32-x64` в
+  песочнице (`CLAUDE_CONFIG_DIR`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `TEMP` — во временной
+  папке, `PATH` — только System32, прокси на закрытый порт) принял путь с `\`; `plugin list --json` —
+  `worfy` включён, версия сборки; повтор команд — код 0; ключи `settings.json` песочницы на месте. Файлы
+  настоящего `%USERPROFILE%\.claude` (`settings.json`, `plugins/known_marketplaces.json`,
+  `plugins/installed_plugins.json`) до и после прогона — те же mtime и hash.
+- **Как падал первый test** (`test/unit/first-run-windows.test.ts` на коде main): без
+  `src/main/harness/status-line.ts` файл не загрузился (`Cannot find module '/src/main/harness/status-line'`, no
+  tests). С одним этим модулем, остальной код — main: 22 из 26 красные, например
+  `Error: no check git-bash: claude-login, claude-version, git, gh, node, jq, gh-auth, …` — строки Git Bash в
+  списке нет.
+- **Прогоны на ПК** (`node scripts/vitest-electron.mjs`, `gh` убран из `PATH`):
+  - `test/unit/first-run-windows.test.ts` — exit 0, 34 passed (вместе с настоящим `claude.cmd`);
+  - `test/contract/harness-install.test.ts` — exit 0, 54 passed, 0 skipped (настоящий `claude.exe`, повторы
+    переименования, неудаляемая старая копия и остатки, двойной отказ — замена и возврат);
+  - mutants (по одному, файлы возвращены байт в байт): без проверки `%SystemRoot%` в `findGitBash`
+    (`env.ts`) — 1 красный; `jq --version` с ошибкой на `win32` как `fail` — 1 красный;
+  - `test/unit/agent-env.test.ts` + `e2e-no-spawn-on-load` — exit 0, 112 passed, 4 skipped;
+  - `test/contract/first-run-checks.test.ts` + `test/contract/harness-migrate.test.ts` — exit 1, 38 failed /
+    47 passed / 11 skipped; на коде main на этом ПК — те же 38 failed, список совпадает строка в строку.
+    Причины не этого Ticket-а: stand-in-ы `first-run-tools` — `#!/bin/sh` (22), в fixture
+    `claude-home-legacy` `__SANDBOX__` заменяется путём с `\` внутри JSON и `$HOME/…` в командах (16) —
+    Ticket 14. В `first-run-checks.test.ts` `deps()` теперь передаёт `system: darwin`: иначе на Windows-хосте
+    два случая Mac (`brew install jq`, git/gh) стали бы `winget`;
+  - `test/unit/e2e-no-spawn-on-load.test.ts`, `agent-executable`, `settings-health`, `palette-commands`,
+    `connect-project`, `harness-migration-form`, `harness-migrate-renamed-hooks` — exit 0, 152 passed;
+  - `pnpm lint` — exit 0; `pnpm typecheck` — exit 0. Gate не запускался: на ПК нет registry Harness (exit 3
+    ожидаем), gate full — на Mac.
+- **Раунд ревью 2** (ревью c3839d2 на Mac, PR #479). Изменения: при отказе новой копии старая
+  возвращается в `plugin/` до удаления staging (порядок main); удаление staging на всех путях отказа — не
+  дольше `ROLLBACK_RETRY_MS`, худший случай ≈ 80 с вместо ≈ 130 с; неиспользуемый `renameRetried` удалён;
+  строка PowerShell ищет `pwsh.exe` через `fileOrAlias` (alias MSIX); таймер `runTool` вынесен в `killTool`
+  (тесты подменяют kill); путь моста на Windows — в одинарных кавычках (`shellWord`); `writeAtomically`
+  удаляет временный файл, если rename не удался. Новые tests: порядок отката, старая папка не уходит в
+  сторону, первая установка с отказом, единственная копия в `.plugin-old-*` не удаляется `removeLeftovers`,
+  граница ожидания (часы подменены), settings.json изменён во время окна, действие в состоянии
+  `unavailable`, нет файла моста, мост другой сборки, новый `statusLine` с `type: 'command'`, `$(…)` в пути,
+  alias `pwsh.exe` на этом ПК, папка `pwsh.exe`, зависший tool (ответ по timeout, потом kill дерева
+  cmd.exe → node.exe), архитектура не зависит от хоста (x86 → ia32). Mutants — 16 из 16 красные (по одному,
+  файлы возвращены байт в байт), среди них все выжившие из ревью.
+  Прогоны: `first-run-windows` + `harness-install` — exit 0, 103 passed; `first-run-checks` +
+  `harness-migrate` — exit 1, 38 failed / 47 passed / 11 skipped, список совпадает с main строка в строку;
+  `agent-env` + `e2e-no-spawn-on-load` — exit 0, 112 passed, 4 skipped; `pnpm lint` — 0; `pnpm typecheck` — 0.
+- **Раунд ревью 3** (ревью ede2de8 на Mac). `splitCommand` (`status-line.ts`) читает первое слово как POSIX
+  shell: части `'…'`, `"…"` (там `\` экранирует только `$`, backtick, `"`, `\`, перевод строки) и текст
+  без кавычек (там `\` экранирует пробел, кавычку, `\`, `$`, backtick — путь Windows без кавычек читается как
+  написан), склеенные в одно слово; незакрытая кавычка — текст до пробела, как прежде. Раньше путь моста с
+  `'` (`C:\Users\O'Brien`, `/Users/o'brien`) после `shellWord` (`'…'\''…'`) обрывался на второй кавычке:
+  `bridgeOf` давал null, строка Limits оставалась `warn`, и каждый Confirm заворачивал мост в мост ещё раз.
+  Новые tests (сначала красные на ede2de8: 4 failed / 44 passed): `'` в пути для формы Windows и Mac, round
+  trip (команда собрана, `bridgeOf` возвращает мост и прежнюю команду без изменений, для пяти разных
+  команд), второй Confirm находит мост и не пишет файл, сам `splitCommand`. В test зависшего tool-а
+  `afterEach` гасит `hang.js` по pid из его файла, только если в командной строке этого pid — `hang.js`
+  из папки этого test-а, и удаляет файл. Mutants `status-line.ts` — 9 из 9 красные (5 новых в
+  `splitCommand` и 4 прежних). Прогоны (тяжёлые — под общим lock `heavy.lock`): `first-run-windows` —
+  exit 0, 48 passed; `harness-install` — exit 0, 59 passed; `harness-migrate` + `first-run-checks` — exit 1,
+  38 failed / 47 passed / 11 skipped, список совпадает с main; `e2e-no-spawn-on-load` — exit 0, 48 passed;
+  `pnpm lint` — 0; `pnpm typecheck` — 0.
+- **Ждут ПК владельца** (не отмечены): установка NSIS и экран первого запуска со снимком, `claude plugin list`
+  в настоящем `%USERPROFILE%`, hooks в настоящей Session, Limits с настоящим `settings.json` (там же — в какой
+  оболочке Claude Code исполняет `statusLine`). Пункт gate — Mac (needs-mac-gate).
+- **Ревьюеру PR на Mac**: `test/contract/first-run-checks.test.ts`, `harness-migrate.test.ts` и
+  `harness-install.test.ts` (случай с настоящим `claude` на macOS) зелёные на Mac; экран First run на Mac —
+  тот же список, подзаголовок «this Mac»; строка формы переноса на Mac байт в байт прежняя.
+- **Вопрос владельцу** (E3 Ticket 15, не решён): предлагать мост Limits на Mac пользователю без `statusLine`?
+  Этот Ticket добавил проверку только на Windows.

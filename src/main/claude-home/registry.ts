@@ -119,12 +119,18 @@ export const PROCESS_IDS_VAR = 'WORFY_PROCESS_IDS'
  * The script of readWindowsProcessStarts: one line per running process of the pids asked for,
  * `<pid> <start as a FILETIME in decimal>`, or `<pid> ?` when the start cannot be read. The text is
  * constant (worfy-windows ticket 21): the pids come in PROCESS_IDS_VAR, and only what is all
- * digits is taken of it. With the pids in the text every new set of live Sessions was a script the
- * process had not run before — a second more from Electron (the numbers are at REGISTRY_SCRIPT of
+ * digits is taken of it. Before, the pids went into the text, handed over with -EncodedCommand:
+ * what cost a second more from Electron was PowerShell decoding a text it had not run before, and
+ * every new set of live Sessions was such a text (the numbers are at REGISTRY_SCRIPT of
  * src/main/agent/env.ts).
+ *
+ * Without PROCESS_IDS_VAR at all it exits with 2 (worfy-windows ticket 29): an environment lost on
+ * the way must fail the read, so the Sessions are `unknown`, not `gone` because no pid was found.
+ * readWindowsProcessStarts never starts it for an empty list.
  */
 export const PROCESS_STARTS_SCRIPT = [
   "$ErrorActionPreference = 'SilentlyContinue'",
+  `if ($null -eq $env:${PROCESS_IDS_VAR}) { exit 2 }`,
   `$ids = @([string]$env:${PROCESS_IDS_VAR} -split ',' | Where-Object { $_ -match '^[0-9]+$' } | ForEach-Object { [int]$_ })`,
   'if ($ids.Count -eq 0) { exit 0 }',
   'foreach ($process in Get-Process -Id $ids) {',
@@ -144,7 +150,8 @@ export const PROCESS_STARTS_SCRIPT = [
 export function readWindowsProcessStarts(systemRoot: string | undefined = process.env.SystemRoot, run: RunFile = runFile): WindowsProcessStarts {
   return (pids) =>
     new Promise((done, fail) => {
-      const ids = pids.filter((pid) => Number.isInteger(pid) && pid > 0)
+      // What the script can take: decimal digits (1e21 prints as 1e+21) that fit its [int].
+      const ids = pids.filter((pid) => Number.isSafeInteger(pid) && pid > 0 && pid <= 0x7fffffff)
       if (ids.length === 0) {
         done(new Map())
         return

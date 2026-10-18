@@ -3,6 +3,8 @@
 // per Session in 10 s; a click opens that Session. Electron's Notification is replaced by
 // NotifyDeps.
 import { describe, expect, it, vi } from 'vitest'
+import type { QueuePr } from '../../src/main/github/gate-queue'
+import type { WindowNote } from '../../src/main/notify'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { APP_URL } from '../app-url'
@@ -29,7 +31,8 @@ vi.mock('electron', () => {
 // The real window module loads the app's page; openNote gets its own window factory.
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
-const { NOTIFY_INTERVAL_MS, Notifier, electronNotifyDeps, installNotifications, openNote } = await import('../../src/main/notify')
+const { NOTIFY_INTERVAL_MS, Notifier, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
 
@@ -633,5 +636,201 @@ describe('notify.pending at the IPC boundary', () => {
     h.pending.hold(4, { sessionId: 's1', projectRoot: null })
     expect(await h.call(4, { sessionId: 'other' })).toMatchObject({ ok: false })
     expect(h.pending.take(4)).toEqual({ sessionId: 's1', projectRoot: null })
+  })
+})
+
+describe('the gate queue: a PR that has waited over an hour (worfy-windows ticket 17)', () => {
+  const ROOT = '/Users/test/worfy'
+  const PROJECT = { root: ROOT, name: 'worfy' }
+  const START = Date.parse('2026-10-18T06:00:00Z')
+  const MIN = 60_000
+  const labelled = (commits: { oid: string; committedDate: string }[]): QueuePr => ({
+    number: 480,
+    title: 'Gate queue',
+    url: 'https://github.com/o/r/pull/480',
+    createdAt: new Date(START).toISOString(),
+    commits,
+    comments: [],
+  })
+  /** The notices over a fake clock and fake Electron parts, fed reads made by rule 1 at that clock. */
+  function gate(role: 'serve' | 'request' = 'serve') {
+    let now = START
+    let focused = false
+    const commits = [{ oid: 'c1', committedDate: new Date(START).toISOString() }]
+    let pr = labelled(commits)
+    const shown: { note: WindowNote; click: () => void }[] = []
+    const opened: WindowNote[] = []
+    const notices = new GateQueueNotices({
+      focused: () => focused,
+      show: (note, click) => shown.push({ note, click }),
+      open: (note) => opened.push(note),
+    })
+    const read = (): void => notices.read(PROJECT, { role, label: 'needs-mac-gate', gh: { state: 'ok' }, waiting: waitingPrs([pr], 'Mac checks', 'mac-bot', now) })
+    return {
+      shown,
+      opened,
+      read,
+      wait: (ms: number) => {
+        now += ms
+      },
+      focus: (value: boolean) => {
+        focused = value
+      },
+      push: (oid: string) => {
+        commits.push({ oid, committedDate: new Date(now).toISOString() })
+        pr = labelled([...commits])
+      },
+    }
+  }
+
+  it('59 minutes: none; 61: one; the next read with the same commit: none; a new commit and another hour: one more', () => {
+    const g = gate()
+    g.wait(59 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(0)
+    g.wait(2 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(1)
+    g.wait(5 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(1)
+    // A new commit: the wait counts from it.
+    g.push('c2')
+    g.wait(30 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(1)
+    g.wait(31 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(2)
+  })
+
+  it('a focused worfy window: none; the next read after the focus is lost shows it', () => {
+    const g = gate()
+    g.wait(61 * MIN)
+    g.focus(true)
+    g.read()
+    expect(g.shown).toHaveLength(0)
+    g.focus(false)
+    g.wait(5 * MIN)
+    g.read()
+    expect(g.shown).toHaveLength(1)
+  })
+
+  it('the text on serve and on request; the title is the Project\'s name', () => {
+    const serve = gate('serve')
+    serve.wait(61 * MIN)
+    serve.read()
+    expect(serve.shown[0]?.note).toEqual({ title: 'worfy', body: 'PR #480 Gate queue has waited for the gate queue for over an hour. Run Process gate queue', sessionId: null })
+    const request = gate('request')
+    request.wait(61 * MIN)
+    request.read()
+    expect(request.shown[0]?.note.body).toBe('PR #480 Gate queue has waited for the gate queue for over an hour. No machine has taken it yet')
+  })
+
+  it('a read that failed, or a Project without the gate: nothing', () => {
+    const shown: unknown[] = []
+    const notices = new GateQueueNotices({ focused: () => false, show: (note) => shown.push(note), open: () => undefined })
+    const waiting = waitingPrs([labelled([])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN)
+    notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'failed', reason: 'HTTP 502' }, waiting })
+    notices.read(PROJECT, { role: null, label: null, gh: { state: 'skipped', reason: 'no field' }, waiting })
+    expect(shown).toEqual([])
+  })
+
+  it('two Projects, each read twice: two notifications, not four; one Project\'s read keeps the other\'s marks', () => {
+    const shown: WindowNote[] = []
+    const notices = new GateQueueNotices({ focused: () => false, show: (note) => shown.push(note), open: () => undefined })
+    const waiting = waitingPrs([labelled([{ oid: 'c1', committedDate: new Date(START).toISOString() }])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN)
+    const other = { root: '/Users/test/auction', name: 'auction' }
+    for (let round = 0; round < 2; round += 1) {
+      notices.read(PROJECT, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
+      notices.read(other, { role: 'serve', label: 'needs-mac-gate', gh: { state: 'ok' }, waiting })
+    }
+    expect(shown.map((note) => note.title)).toEqual(['worfy', 'auction'])
+  })
+
+  it('a click raises the window and opens no Session: no note waits for the renderer, no notify.open', () => {
+    const g = gate()
+    g.wait(61 * MIN)
+    g.read()
+    g.shown[0]?.click()
+    expect(g.opened).toEqual([g.shown[0]?.note])
+    const pending = new PendingOpens()
+    const open = fakeWindow(9, { minimized: true })
+    electron.windows = [open.window]
+    const create = vi.fn()
+    openNote(g.opened[0]!, pending, create, NORMAL_WINDOWS)
+    expect(create).not.toHaveBeenCalled()
+    expect(open.calls).toEqual(['restore', 'show', 'focus'])
+    expect(open.sent).toEqual([])
+    expect(pending.take(9)).toBeNull()
+    electron.windows = []
+  })
+
+  it('without a window: the click opens one, and still no Session', () => {
+    const pending = new PendingOpens()
+    const created = fakeWindow(10)
+    electron.windows = []
+    openNote({ title: 'worfy', body: 'PR #480', sessionId: null }, pending, () => created.window as never, NORMAL_WINDOWS)
+    expect(created.sent).toEqual([])
+    expect(pending.take(10)).toBeNull()
+  })
+
+  it('the Electron notification carries the note\'s title and body', () => {
+    electron.shown.length = 0
+    withQuietWindows(undefined, () => electronWindowNoteDeps.show({ title: 'worfy', body: 'PR #480 waits', sessionId: null }, () => undefined))
+    expect(electron.shown).toEqual([{ title: 'worfy', body: 'PR #480 waits' }])
+  })
+
+  it('with its default tick, the watcher gets a new read within a minute of the reader\'s 5-minute interval, though another caller read in between', async () => {
+    vi.useFakeTimers()
+    try {
+      const refreshes: number[] = []
+      let readAt = -Infinity
+      // The reader's own rule: its last read until GATE_QUEUE_INTERVAL_MS is over.
+      const reader = {
+        read: () => {
+          if (Date.now() - readAt >= GATE_QUEUE_INTERVAL_MS) {
+            readAt = Date.now()
+            refreshes.push(readAt)
+          }
+          return Promise.resolve({ role: 'serve' as const, label: 'needs-mac-gate', gh: { state: 'ok' as const }, waiting: [] })
+        },
+      }
+      const stop = installGateQueueNotifications(reader, () => [{ path: ROOT, name: 'worfy' }], { focused: () => false, show: () => undefined, open: () => undefined })
+      // The menu of the Project reads too, between two ticks: the reader's interval then counts from it.
+      await vi.advanceTimersByTimeAsync(MIN / 2)
+      void reader.read()
+      await vi.advanceTimersByTimeAsync(31 * MIN)
+      stop()
+      const gaps = refreshes.slice(1).map((at, index) => at - refreshes[index]!)
+      expect(gaps.length).toBeGreaterThanOrEqual(4)
+      for (const gap of gaps) expect(gap).toBeLessThanOrEqual(GATE_QUEUE_INTERVAL_MS + MIN)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the watcher reads every Project of the list each interval, and stops', async () => {
+    vi.useFakeTimers()
+    try {
+      const reads: string[] = []
+      const shown: WindowNote[] = []
+      const reader = {
+        read: (root: string) => {
+          reads.push(root)
+          return Promise.resolve({ role: 'serve' as const, label: 'needs-mac-gate', gh: { state: 'ok' as const }, waiting: waitingPrs([labelled([])], 'Mac checks', 'mac-bot', START + 2 * 60 * MIN) })
+        },
+      }
+      const stop = installGateQueueNotifications(reader, () => [{ path: ROOT, name: 'worfy' }, { path: '/Users/test/auction', name: 'auction' }], { focused: () => false, show: (note) => shown.push(note), open: () => undefined }, 1_000)
+      expect(reads).toEqual([])
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(reads).toEqual([ROOT, '/Users/test/auction'])
+      expect(shown.map((note) => note.title)).toEqual(['worfy', 'auction'])
+      stop()
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(reads).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

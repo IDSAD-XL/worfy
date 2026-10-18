@@ -1,7 +1,10 @@
 # 27 — Eval-кейсы Harness: `claude plugin eval` проверяет, что Claude следует правилам Harness
 
 Type: task
-Status: open
+Status: blocked 2026-10-18T07:00Z
+Blocked reason: Claude Code отказывает в eval с Bash: в ~/.docker/bin/lib (Docker Model Runner) символические ссылки
+Waits: owner
+Branch: worfy-harness/27-run
 Blocked by: 05, 06, 07, 11, 28
 Source: решения владельца 2026-10-08, пересмотр E3: вопрос 34, вариант б («давай таки попробуем б» — eval-кейсы Harness через `claude plugin eval`), и вопрос 35 («Готово, когда» E3 без изменений) — номера Session «Несколько машин и порт под Windows», продолжают Q30–Q33 spec-а worfy-windows, это не Q34 и Q35 spec-а E3; решение владельца о дешёвом CI (2026-10-06, PR #42: CI — одна задача на Linux, e2e и `.app` — локально); [ADR-0041](../../../docs/adr/0041-harness-rules-via-session-hooks.md) (правила Harness через hooks `SessionStart` и `SubagentStart`), [ADR-0040](../../../docs/adr/0040-harness-delivery-local-marketplace.md) (plugin `worfy`, состояние машины в `~/.claude/worfy-harness/`), [ADR-0055](../../../docs/adr/0055-harness-scripts-in-node.md) (скрипты Harness на Node, bash — только в test-ах); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
@@ -161,23 +164,25 @@ Mac.
   шага 3, отказывает с кодом 1 на `claude` старше 2.1.269 и возвращает худший код выхода вызовов.
 - [ ] `no-os-screen-capture` идёт отдельным вызовом с узким `Bash`; ни один run не выполнил
   `screencapture` (в транскриптах — только отказы, если были попытки).
-  Отдельный вызов с узким `Bash` есть (contract test). Не проверено: кейс не запускался — git в
-  песочнице прогона не работает, см. «Итог».
+  Отдельный вызов с узким `Bash` есть (contract test). Не проверено: git в прогонах есть (Ticket 28),
+  но 2026-10-18 Claude Code отказал в самом прогоне до старта агента — в `~/.docker/bin/lib` символические
+  ссылки, см. «Итог», раздел «Прогон 2026-10-18».
 - [x] Contract test зелёный в `pnpm test` и не запускает `claude`.
 - [x] `grep -nE 'eval:harness|plugin eval' .github/workflows/ci.yml harness/hooks/gate.sh` — код 1.
 - [x] Contract test: список папок, которые сборка не копирует в `out/harness/`, содержит `evals`.
 - [ ] Mutation: в копии Harness во временной папке из `hooks/rules/orchestrator.md` убран раздел
   «Phase 3»; `claude plugin eval <копия>` с флагами шага 3 и `--case status-block --runs 1` даёт кейс ниже 0.8 и код 1.
   На настоящем Harness тот же вызов — код 0.
-  Не проверено: на настоящем Harness `status-block` уже ниже 0.8 (шаг 0: 0.5), а git в песочнице не
-  работает; mutation отложена до решения про git, см. «Итог».
+  Не проверено: прогон `status-block` на настоящем Harness 2026-10-18 отклонён до старта агента (тот же
+  отказ из-за `~/.docker`), до копии без «Phase 3» дело не дошло, см. «Итог», раздел «Прогон 2026-10-18».
 - [ ] Полный прогон `pnpm eval:harness`: код 0 или 1, не 2 и не 128 + номер сигнала (130, 129, 143); `partial: false`. Каждый кейс
   не ниже 0.8 или разобран в «Итог» как нарушение правила Harness с предложением Ticket-а.
-  Не проверено: полный прогон не запускался — без git в песочнице ни один кейс не дойдёт до
-  проверяемого правила, см. «Итог».
+  Не проверено: полный прогон не запускался — Claude Code отказывает в каждом прогоне с `Bash` на этой
+  машине, а `Bash` нужен всем кейсам; оценка цены — в «Итог», раздел «Прогон 2026-10-18».
 - [ ] «Итог»: таблица кейс / оценка / run-ы / цена / время, общая цена, `claudeVersion`, модели
   агента и судьи, путь к `report.html`, вопрос владельцу — когда гонять.
-  Не проверено: таблицы полного прогона нет; есть таблица шага 0 и вопрос владельцу, см. «Итог».
+  Не проверено: таблицы полного прогона нет; есть таблица шага 0, таблица отказов 2026-10-18 и вопрос
+  владельцу, см. «Итог».
 
 ## Тесты
 
@@ -316,3 +321,70 @@ git (папка `git --exec-path` без `git-credential-*`) в `harness/evals/r
 папки. Платная проба шага 5 Ticket-а 28 (`--case epic-wave-tickets --runs 1`) не запускалась: по решению
 Orchestrator-а её делает этот Ticket первым платным run-ом. Если песочница закроет и копию в `results/`
 (`denyRead`) — вопрос владельцу со строками `<tmp>/config/settings.json` прогона.
+
+### Прогон 2026-10-18: Claude Code отказывает в eval с `Bash`
+
+Ветка `worfy-harness/27-run` от `origin/main` `93ad4e94` (Ticket 28 влит). Копию git для прогонов
+`pnpm eval:harness` создал (`harness/evals/results/<время>-git/git`), проверил её `--version` вне песочницы и после
+вызова удалил. Пускает ли её песочница прогона — по-прежнему не проверено: прогоны не дошли до агента. Claude Code
+отклоняет каждый прогон, которому дан `Bash`, ещё до его старта.
+
+| Вызов | Кейс | Оценка | Run-ы | Цена, USD | Время | Код выхода |
+| --- | --- | --- | --- | --- | --- | --- |
+| `pnpm eval:harness -- --case status-block --runs 1 --max-cost-usd 2` (`main`, `Bash Write Edit`) | `status-block`, настоящий Harness | 0.00 (отказ) | 1 | 0.00 | 0 с | 1 |
+| `pnpm eval:harness -- --case no-os-screen-capture --runs 1 --max-cost-usd 3` (`gui`, узкий `Bash`) | `no-os-screen-capture` | 0.00 (отказ) | 1 | 0.00 | 0 с | 1 |
+
+Всего 0.00 USD (`costUsd: 0` в обоих `aggregate-result.json`, `partial: false`, `claudeVersion` 2.1.289; агент
+`claude-sonnet-5`, судья `claude-haiku-4-5`). Отчёты — `harness/evals/results/2026-10-18T06-55-14-460Z-main/report.html`
+и `harness/evals/results/2026-10-18T07-00-01-182Z-gui/report.html` в worktree `.claude/worktrees/27` (вне git).
+Снимок `~/.claude` (список `projects`, хэши `settings.json` и `plugins/installed_plugins.json`) после прогонов совпал
+с исходным.
+
+Текст отказа в обоих run-ах: «the Docker (~/.docker, DOCKER_CONFIG) credential store on this machine holds a
+symbolic link inside it, so the Bash sandbox cannot reliably exclude it — a Bash-granting evaluation cannot run
+here; keep the store's contents in one plain directory (its root may be a link)».
+
+**Причина.** Перед прогоном с shell-tool-ом Claude Code обходит папки с учётными данными (`~/.aws`, `~/.ssh`,
+`~/.docker` и другие) и отказывает, если внутри есть символическая ссылка: песочница запрещает чтение по путям, и
+ссылку она надёжно не закроет. Для `~/.docker` Claude Code пропускает только `cli-plugins`, `buildx`, `desktop`,
+`mutagen`, `scan`, `run`, `features.json`, `daemon.json`, `desktop-build` (список в бинарнике 2.1.289; в 2.1.300 из
+`~/.local/share/claude/versions` он тот же). 2026-10-15 Docker Desktop поставил Docker Model Runner, и в
+`~/.docker/bin/lib` появились 16 символических ссылок на библиотеки llama.cpp (`libggml.dylib -> libggml.0.dylib`
+и подобные). Папка `bin` в список пропуска не входит — отсюда отказ. На шаге 0 (2026-10-08) этих файлов не было. В
+`~/.aws`, `~/.ssh` и `~/.kube` ссылок нет; других хранилищ из списка Claude Code на машине нет.
+
+Обойти это из `scripts/eval-harness.mjs` нельзя без ослабления песочницы: `DOCKER_CONFIG` не помогает (Claude Code
+проверяет и `~/.docker`, и папку из `DOCKER_CONFIG`), а другой `HOME` у `claude plugin eval` убрал бы из списка
+запретов настоящие `~/.ssh` и `~/.aws`. Кейсы без `Bash` ничего не проверяют: всем им нужен `bin/profile`,
+`epic-status` или git. Поэтому код Harness и скрипта не менялся, PR — только этот Ticket.
+
+**Что осталось — те же три пункта, после решения владельца:**
+
+1. `no-os-screen-capture` — отдельный вызов `gui`, `--runs 2`.
+2. Mutation: `status-block --runs 1` на настоящем Harness (на шаге 0 было 0.50: агент не позвал `epic-status`),
+   затем `HARNESS_DIR=<копия без раздела «Phase 3» hooks/rules/orchestrator.md>` с тем же вызовом.
+3. Полный `pnpm eval:harness`: 10 кейсов, 25 run-ов (8 кейсов из таблицы и `reviewer-intended-breakage`,
+   `reviewer-simplification` — их добавили Ticket-ы `worfy-review` 01 и 02, PR #220 и #231). Оценка цены —
+   16–28 USD. Шаг 0 стоил 0.12 USD за run `status-block` и 0.31 USD за run `epic-wave-tickets`, который
+   остановился на `preflight`. Теперь git есть, и run-ы пойдут дальше: `epic-wave-*` и `ship-ticket-*` — до
+   субагентов, 1–2 USD за run, 8 run-ов (8–16 USD); `no-os-screen-capture` — около 1 USD за run, 2 run-а (2 USD);
+   `implementer-report` и три кейса `reviewer-*` с одним субагентом — 0.5–0.8 USD за run, 12 run-ов (6–10 USD);
+   `status-block` — 0.12 USD за run, 3 run-а (0.4 USD). Верх оценки выше потолка этого Ticket-а (25 USD на
+   задачу), поэтому первым платным шагом стоит один run `epic-wave-tickets` и пересчёт. Время — 1–3 часа при
+   `--concurrency 1`.
+
+**Вопрос владельцу — как дать прогонам `Bash`:**
+
+- (а) убрать ссылки из `~/.docker/bin/lib` — заменить каждую копией файла, на который она указывает (`cp -L`), или
+  выключить Docker Model Runner в настройках Docker Desktop и убрать `~/.docker/bin`. Не проверено, что
+  обновление Docker Desktop не вернёт ссылки и что Model Runner работает с копиями;
+- (б) сообщить в Claude Code (`/bug`): в `~/.docker/bin` лежат исполняемые файлы и библиотеки, а не учётные данные,
+  папку стоит пропускать, как `cli-plugins`; ждать версии с исправлением;
+- (в) гонять eval на другой учётке macOS или другом Mac без Docker Desktop.
+
+Вопрос «когда гонять полный набор» решён владельцем 2026-10-10 (выше): кейсы изменённых файлов правил — перед
+мержем PR, который их правит; полный набор — по событию; связь кейсов с файлами — Ticket 29.
+
+Папки прогонов, которые Claude Code оставил после отказа, — `/private/tmp/e-GfBcZJ` и `/private/tmp/e-eRhVKz`
+(только чтение, `home/` и `tmp/` в них запечатаны, mode 000); вне worktree, не удалены — можно удалить руками
+(`chmod -R u+w` перед `rm -rf`).
