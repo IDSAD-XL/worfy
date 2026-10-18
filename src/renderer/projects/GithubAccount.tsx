@@ -16,6 +16,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { failureReason } from '../../shared/ipc/channels'
 import { githubChoice, type GithubAccountsStep, type GithubChoice } from '../../shared/ipc/projects'
+import { watchUserInput } from '../canvas/nodes/terminal-user-input'
 import { invoke, invokeOn, subscribe } from '../ipc'
 
 export interface GithubAccountProps {
@@ -247,8 +248,8 @@ export function GithubAccount({ root, machine, machineName, disabled, onChoose, 
 
 type SignInStatus = { state: 'starting' } | { state: 'running' } | { state: 'exited'; exitCode: number } | { state: 'failed'; message: string }
 
-/** `gh auth login` in main's pseudo-terminal: its output, the user's keys, its exit. */
-function SignInTerminal({ signInId, onExit, onClose }: { signInId: string; onExit: () => void; onClose: () => void }) {
+/** `gh auth login` in main's pseudo-terminal: its output, the user's keys, its exit. Exported for its test. */
+export function SignInTerminal({ signInId, onExit, onClose }: { signInId: string; onExit: () => void; onClose: () => void }) {
   const host = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<SignInStatus>({ state: 'starting' })
   const exited = useEffectEvent(() => onExit())
@@ -294,8 +295,12 @@ function SignInTerminal({ signInId, onExit, onClose }: { signInId: string; onExi
     const offExit = subscribe('projects.connect.signInExit', (payload) => {
       if (payload.signInId === signInId && active) finish(payload.exitCode)
     })
+    // An answer of xterm.js to gh goes marked as one: main answers gh's cursor-position requests
+    // itself and drops a marked answer to them (worfy-windows ticket 39).
+    const userInput = watchUserInput(terminal)
     const typed = terminal.onData((data) => {
-      if (attached) void invoke('projects.connect.signInInput', { signInId, data })
+      const user = userInput.take(data)
+      if (attached) void invoke('projects.connect.signInInput', { signInId, data, ...(user ? {} : { reply: true }) })
     })
     const resized = terminal.onResize(({ cols, rows }) => {
       if (attached) void invoke('projects.connect.signInResize', { signInId, cols, rows })
@@ -324,6 +329,7 @@ function SignInTerminal({ signInId, onExit, onClose }: { signInId: string; onExi
       offOutput()
       offExit()
       typed.dispose()
+      userInput.dispose()
       resized.dispose()
       terminal.dispose()
       void invoke('projects.connect.signInClose', { signInId })

@@ -6,8 +6,9 @@
 //
 // The real TerminalRegistry and @xterm/headless, over a stand-in pty that prints what the test gives
 // it and records what it is typed; no process starts.
+import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { isCursorAnswer, SCROLLBACK } from '../../src/main/terminal/cursor-answers'
+import { CursorAnswers, isCursorAnswer, SCROLLBACK } from '../../src/main/terminal/cursor-answers'
 import { ROWS_MAX, TerminalRegistry, type PtyProcess, type TerminalSink } from '../../src/main/terminal/pty'
 
 const KEY = JSON.stringify(['alpha-0000000a', 'terminal-node-1'])
@@ -48,12 +49,15 @@ class StandInPty implements PtyProcess {
 }
 
 const ptys: StandInPty[] = []
-afterEach(() => ptys.splice(0).forEach((pty) => pty.kill()))
+afterEach(() => {
+  ptys.splice(0).forEach((pty) => pty.kill())
+  vi.restoreAllMocks()
+})
 
 const nothing: TerminalSink = { output: () => undefined, exit: () => undefined, started: () => undefined }
 
 /** A registry of `platform` with a running stand-in shell, opened by client `a` with `size`. */
-async function shell(platform: NodeJS.Platform = 'linux', size = { cols: 80, rows: 24 }) {
+async function shell(platform: NodeJS.Platform = 'linux', size = { cols: 80, rows: 24 }, sink: TerminalSink = nothing) {
   const registry = new TerminalRegistry({
     env: async () => ({ SHELL: '/bin/sh' }),
     spawn: () => {
@@ -65,7 +69,7 @@ async function shell(platform: NodeJS.Platform = 'linux', size = { cols: 80, row
     endDescendants: () => undefined,
   })
   const a = {}
-  await registry.open(KEY, { cwd: '/', ...size }, a, nothing)
+  await registry.open(KEY, { cwd: '/', ...size }, a, sink)
   const pty = ptys.at(-1)
   if (pty === undefined) throw new Error('no pty')
   return { registry, pty, a }
@@ -155,6 +159,64 @@ describe('main answers the cursor-position requests (worfy-windows ticket 39)', 
     pty.print(REQUEST)
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(pty.writes).toEqual([])
+  })
+
+  it('output, a resize and a request back to back: the output is read at the old size, then the resize', async () => {
+    const { registry, pty, a } = await shell()
+    // `ESC[30;1H` on 24 rows stops at the last row; on a screen already 40 rows tall it would reach row 30.
+    pty.print(`${ESC}[30;1Hx`)
+    registry.resize(KEY, 120, 40, a)
+    pty.print(REQUEST)
+    expect(await writtenSoon(pty, 1)).toEqual([`${ESC}[24;2R`])
+  })
+
+  it('main’s screen is taken apart when the shell exits on its own and when it is closed', async () => {
+    const dispose = vi.spyOn(CursorAnswers.prototype, 'dispose')
+    for (const platform of ['linux', 'win32'] as const) {
+      const { pty } = await shell(platform)
+      expect(dispose).not.toHaveBeenCalled()
+      pty.kill()
+      expect(dispose).toHaveBeenCalledTimes(1)
+      dispose.mockClear()
+    }
+    const { registry, pty } = await shell()
+    // close() sends SIGHUP to a pid no process has; the stand-in shell exits as a shell would.
+    const closing = registry.close(KEY)
+    pty.kill()
+    await closing
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('an answer main’s screen gives after the exit is not written, even while that screen is still there', async () => {
+    // The screen is not taken apart here: only the check of the exit in the registry stands between the answer and the pty.
+    vi.spyOn(CursorAnswers.prototype, 'dispose').mockImplementation(() => undefined)
+    const { pty } = await shell()
+    pty.kill()
+    // Off Windows the output after an exit is kept for the next open, and main's screen reads it.
+    pty.print(REQUEST)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pty.writes).toEqual([])
+  })
+
+  it('when main’s screen refuses output (xterm.js past 50 MB queued), every screen still gets it, main stops answering and the views’ answers reach the shell', async () => {
+    const headless = createRequire(import.meta.url)('@xterm/headless') as typeof import('@xterm/headless')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const outputs: string[] = []
+    const { registry, pty, a } = await shell('linux', { cols: 80, rows: 24 }, { ...nothing, output: (data) => void outputs.push(data) })
+    const write = vi.spyOn(headless.Terminal.prototype, 'write').mockImplementation(() => {
+      throw new Error('write data discarded, use flow control to avoid losing data')
+    })
+    pty.print(`$ ${REQUEST}`)
+    expect(outputs).toEqual([`$ ${REQUEST}`])
+    write.mockRestore()
+
+    // The view answers, marked: with main silent now, its answer goes to the shell.
+    registry.write(KEY, `${ESC}[1;3R`, a, { reply: true })
+    pty.print(REQUEST)
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pty.writes).toEqual([`${ESC}[1;3R`])
+    expect(outputs).toEqual([`$ ${REQUEST}`, REQUEST])
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })
 

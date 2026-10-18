@@ -58,8 +58,9 @@ const xterms = vi.hoisted(() => [] as XtermTerminal[])
 /**
  * Runs once, right after the next write that has a callback has been handed to xterm.js and before
  * xterm.js parses it: the Node's write of the kept output, when the test sets it before mounting.
+ * `parsed` is that write's callback: a test may call it itself, to end the parse at a moment it picks.
  */
-const whileReplaying = vi.hoisted(() => ({ run: null as ((xterm: XtermTerminal) => void) | null }))
+const whileReplaying = vi.hoisted(() => ({ run: null as ((xterm: XtermTerminal, parsed: () => void) => void) | null }))
 /** The renderer IPC client as the Node sees it; each test points it at its registry. */
 const wire = vi.hoisted(() => {
   const invoke: (channel: string, input: unknown) => Promise<unknown> = () => Promise.reject(new Error('no registry'))
@@ -81,7 +82,7 @@ vi.mock('@xterm/xterm', async () => {
       const run = whileReplaying.run
       if (callback === undefined || run === null) return
       whileReplaying.run = null
-      run(this)
+      run(this, callback)
     }
   }
   return { ...real, Terminal }
@@ -407,12 +408,34 @@ describe('the answers of a screen to the program in the shell (worfy-windows tic
     expect(shown.container.querySelector('.w-terminal__shell')?.textContent).toBe('sh')
     expect(pty.calls).toEqual([])
   })
+
+  it('a view that goes while the kept output is parsed does not attach when the parse ends: what it typed before going is not sent', async () => {
+    const { pty } = await terminal()
+    pty.print(`first|${ESC}[c`)
+    pty.calls.length = 0
+    const view: { shown?: ReturnType<typeof render> } = {}
+    let ended = false
+    whileReplaying.run = (xterm, parsed) => {
+      xterm.input('x')
+      act(() => view.shown?.unmount())
+      // The end of the parse comes after the view went.
+      parsed()
+      ended = true
+    }
+
+    view.shown = render(<TerminalNode {...nodeProps} />)
+
+    await waitFor(() => expect(ended).toBe(true))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(pty.calls).toEqual([])
+  })
 })
 
 describe('watchUserInput', () => {
-  it('an xterm.js that does not say which data is the user’s: all of it counts as typed, as before ticket 39', () => {
+  it('an xterm.js that does not say which data is the user’s: a cursor-position answer counts as an answer (main answers those), the rest as typed', () => {
     const watch = watchUserInput({} as XtermTerminal)
-    expect([watch.take(), watch.take()]).toEqual([true, true])
+    // Shift+F3 is the same bytes as an answer: in this fallback it is taken for one.
+    expect([`${ESC}[1;2R`, `${ESC}[12;40R${ESC}[12;40R`, 'ls\r', `${ESC}[?1;2c`, `${ESC}[O`, `${ESC}[1;2Rx`].map((data) => watch.take(data))).toEqual([false, false, true, true, true, true])
     watch.dispose()
   })
 })

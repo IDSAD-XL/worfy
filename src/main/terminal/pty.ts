@@ -818,7 +818,7 @@ export class TerminalRegistry {
         } catch (error) {
           console.warn(`[terminal] ${key}: a cursor-position request could not be answered`, error)
         }
-      }),
+      }, key),
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
@@ -855,10 +855,12 @@ export class TerminalRegistry {
       // was not a close is kept for the next open, as before.
       if (ended && (terminal.closing || this.platform === 'win32')) return
       terminal.buffer.push(data)
-      terminal.cursor.feed(data)
       const { end } = terminal.buffer
       this.broadcast(key, 'sending the output', (each) => each.output(data, end))
       if (tracker !== null) for (const event of tracker.feed(data)) this.announce(key, event)
+      // After the screens and the tracker: main's own screen never holds the output back (it
+      // does not throw, cursor-answers.ts).
+      terminal.cursor.feed(data)
       // After the output went out: the command's echo comes after what the shell printed first.
       firstOutput?.()
       firstOutput = undefined
@@ -1004,7 +1006,8 @@ export class TerminalRegistry {
    */
   write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
     const terminal = this.running(key)
-    if (options.reply === true && isCursorAnswer(data)) return
+    // While main answers (not after its screen refused output, cursor-answers.ts).
+    if (options.reply === true && terminal.cursor.answering && isCursorAnswer(data)) return
     if (options.reply !== true) this.touch(key, terminal, client)
     terminal.pty.write(data)
   }

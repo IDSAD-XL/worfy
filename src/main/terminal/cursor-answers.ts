@@ -9,7 +9,9 @@
 // mounted would wait for ever.
 //
 // So main answers every such request itself, once, and drops the same answer when a view sends it
-// (`TerminalRegistry.write` with `reply`): one answer however many views are open, none or two. The
+// (`TerminalRegistry.write` with `reply`): one answer however many views are open, none or two.
+// This holds for every TerminalRegistry, the Terminal Nodes' and the "Sign in with gh" one
+// (src/main/ipc/projects.ts): each view marks its answers (terminal-user-input.ts). The
 // position is that of a screen of the pty's own size: main follows the output with xterm.js
 // without a display (@xterm/headless, the same parser and buffer as the views'), and its answer is
 // what xterm.js answers at that point of the output. Other requests (the device attributes, the
@@ -20,21 +22,21 @@
 // xterm.js pulls lines back from the scrollback into view, at most as many as the rows freed, so
 // the cursor row after a resize matches a view's (5000 lines of scrollback) while the scrollback
 // is deeper than the screen is tall (300 rows at most, clampSize).
+//
+// The screen may refuse output: xterm.js throws "write data discarded" once more than 50 MB wait
+// to be parsed. Then main stops answering for that shell (`answering` is false, a warning is
+// logged once) and the views' marked answers reach the shell again (TerminalRegistry.write): a
+// position from a screen that skipped output would be wrong, and the shell's output itself never
+// depends on this screen.
 import { createRequire } from 'node:module'
+import { isCursorAnswer } from '../../shared/terminal/cursor-answer'
+
+export { isCursorAnswer }
 
 type Headless = typeof import('@xterm/headless')
 
 /** Lines kept above the visible rows; see the head of the file. */
 export const SCROLLBACK = 1000
-
-/** What follows ESC in a cursor-position answer, as xterm.js gives it: `[<row>;<column>R`, or `[?…` for `ESC[?6n`. */
-const AFTER_ESC = /^\[\??\d+;\d+R$/
-
-/** Whether `data` is nothing but answers to cursor-position requests (`ESC[<row>;<column>R`, one or more). */
-export function isCursorAnswer(data: string): boolean {
-  const [before, ...answers] = data.split('\x1b')
-  return before === '' && answers.length > 0 && answers.every((answer) => AFTER_ESC.test(answer))
-}
 
 let headless: Headless | undefined
 /** The package is CommonJS that marks itself as a transpiled module: Node's import finds no named export in it. */
@@ -47,31 +49,54 @@ function loadHeadless(): Headless {
 export class CursorAnswers {
   private readonly screen: InstanceType<Headless['Terminal']>
   private disposed = false
+  /** The screen refused output: its position is no longer the shell's. */
+  private failed = false
 
-  constructor(size: { cols: number; rows: number }, answer: (data: string) => void) {
+  /** `name` is the shell's, for the warning when the screen refuses output. */
+  constructor(
+    size: { cols: number; rows: number },
+    answer: (data: string) => void,
+    private readonly name = 'terminal',
+  ) {
     const { Terminal } = loadHeadless()
     this.screen = new Terminal({ cols: size.cols, rows: size.rows, scrollback: SCROLLBACK, allowProposedApi: false })
     this.screen.onData((data) => {
-      if (!this.disposed && isCursorAnswer(data)) answer(data)
+      if (this.answering && isCursorAnswer(data)) answer(data)
     })
   }
 
-  /** Output of the shell, in the order it came. */
+  /** Whether main answers this shell's cursor requests: not after the screen refused output, nor after dispose. */
+  get answering(): boolean {
+    return !this.disposed && !this.failed
+  }
+
+  /** Output of the shell, in the order it came. Never throws: a refused chunk ends the answers instead. */
   feed(data: string): void {
-    if (!this.disposed) this.screen.write(data)
+    this.guard(() => this.screen.write(data))
   }
 
   /** The pty took a new size: applied after the output that came before it, as on a view. */
   resize(cols: number, rows: number): void {
-    if (this.disposed) return
-    this.screen.write('', () => {
-      if (!this.disposed) this.screen.resize(cols, rows)
-    })
+    this.guard(() =>
+      this.screen.write('', () => {
+        if (this.answering) this.screen.resize(cols, rows)
+      }),
+    )
   }
 
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
     this.screen.dispose()
+  }
+
+  private guard(step: () => void): void {
+    if (!this.answering) return
+    try {
+      step()
+    } catch (error) {
+      this.failed = true
+      console.warn(`[terminal] ${this.name}: main's screen refused output; the views answer the cursor-position requests from now on`, error)
+    }
   }
 }

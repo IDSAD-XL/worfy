@@ -325,7 +325,7 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
     // to the program goes as `reply` and does not (ADR-0053, decision 5).
     const userInput = watchUserInput(terminal)
     const typed = terminal.onData((keys) => {
-      const user = userInput.take()
+      const user = userInput.take(keys)
       if (attached) void invoke('terminal.input', { ...ref, data: keys, ...(user ? {} : { reply: true }) })
       // Typed while the kept output is parsed: sent once the view attaches.
       else if (replaying && user) pending.push(() => void invoke('terminal.input', { ...ref, data: keys }))
