@@ -5,7 +5,7 @@
 // and docs over registerIpc, a mocked `electron`, a temporary WORFY_DATA_DIR; the Orchestrators are
 // replaced by a recorder (a real one would start a Session).
 import { EventEmitter } from 'node:events'
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, describe, expect, it, vi } from 'vitest'
@@ -138,6 +138,13 @@ afterAll(async () => {
   // The file left its folder in the temporary folder of the user (worfy-windows ticket 26).
   await saveLayoutNow()
   removeTestTree(env.scratch)
+  // A change of the Layout that comes after saveLayoutNow() is saved a quarter of a second later and
+  // makes the folder again; the process of the file ended before that, so a test alone did not see
+  // it. 700 ms is the measurement of ticket 32 (worfy-windows ticket 59 keeps it here).
+  await new Promise((resolve) => setTimeout(resolve, 700))
+  const madeAgain = existsSync(env.scratch)
+  if (madeAgain) removeTestTree(env.scratch)
+  expect(madeAgain, 'the temporary folder was made again after its removal').toBe(false)
 })
 
 describe('projects.hold', () => {

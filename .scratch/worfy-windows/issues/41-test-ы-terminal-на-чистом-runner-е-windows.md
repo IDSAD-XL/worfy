@@ -2,7 +2,7 @@
 
 Type: task
 Status: done 2026-10-18T14:07Z
-Branch: worfy-windows/41-warm-up
+Branch: worfy-windows/41-skip-test
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «The clean Windows runner cannot judge this PR»); логи ручного job-а «Windows tests»: запуск 38364376194 (main) и 38364372348 (ветка PR #280)
 
@@ -101,8 +101,13 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 
 ## Где в коде
 
-- `test/contract/terminal.test.ts` — `windowsEnv` (`:62-81`), `spawnWithoutProfile` (`:84`), `harness`
-  (`:156-250`), `run` (`:245-248`).
+На main после PR #474 и #478 (поправка Ticket-а 59; строки — на `15d3ab40`):
+
+- `test/contract/terminal-harness.ts` — `windowsEnv` (`:44`), `spawnWithoutProfile` (`:70`), `harness`
+  (`:177`), `run` (`:276`); сюда harness Terminal-а переехал из `test/contract/terminal.test.ts` в PR #280.
+- `test/windows-runner.ts` — условие и причина пропуска (`windowsPowerShellOffRunner`,
+  `needsWindowsPowerShellOffRunner`); `test/unit/windows-runner.test.ts` — его test.
+- test-ы с пропуском: `test/contract/terminal.test.ts`, `test/contract/terminal-windows.test.ts`.
 - `.github/workflows/windows-tests.yml`; `test/contract/windows-tests-workflow.test.ts`.
 
 ## Вне скоупа

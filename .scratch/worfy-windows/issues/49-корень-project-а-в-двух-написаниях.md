@@ -134,6 +134,11 @@ id и папки данных Project-ов те же; к одному виду �
   отбрасываются, и окно узнаёт о них только по polling (`LIVE_POLL_MS`/`SUBAGENT_POLL_MS` = 2 с, пока
   есть live Session). Запуском не проверено. Предложение — отдельный ticket: main отдаёт в событии
   корень так, как его прислало окно, или окно сравнивает через `sameProjectRoot`.
+  **Поправка (ревью PR #489 на Mac, Ticket 59):** последствие здесь занижено. Пока live Session-ов нет,
+  окно список не опрашивает вовсе (таймер `useClaudeHome.ts` — только при `live.length > 0`): Session,
+  запущенная из PowerShell, в списке не появляется, транскрипт открытой Session не обновляется, по
+  таймеру перечитывается только транскрипт Subagent-а. Разбор и правка —
+  [Ticket 57](57-claudehome-changed-теряется-из-за-написания-корня.md).
 - Два источника, но оба приведены `realpath` (одно написание): `agent/attachments.ts:59-63`,
   `link/caller.ts:53-54` (`realInsideProjects`, `insideProjects`), `mcp/canvas-server.ts:375-381`
   (`projectForCwd`).

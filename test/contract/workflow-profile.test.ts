@@ -573,6 +573,26 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(layout).toMatchObject({ mode: 'full', workflowFolder: resolve('/repo'), ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
   })
 
+  // Mac review of PR #489 (worfy-windows ticket 59): the roots above are resolved already, so a
+  // readProjectLayout that kept the root as given passed them all.
+  it('a root that is not in its resolved form (`..`, a trailing separator): the scripts, the layout and the log line get the resolved root', async () => {
+    const given = join('/work', 'atakama', 'sub', '..') + '/'
+    const root = resolve(given)
+    expect(given).not.toBe(root)
+    const json = { mode: 'full', _resolved: { mode: 'full', workflow_folder: '/private/work/atakama', workspace: null, repos: [{ name: 'atakama', path: '/private/work/atakama' }] } }
+    const run = stubRun({ code: 0, stdout: JSON.stringify(json), stderr: '' })
+    const runTicket = stubRun({ code: 1, stdout: '', stderr: 'usage' })
+    const layout = await readProjectLayout({ root: given, claudeHome: '/h', env: {}, run, runTicket, log })
+    expect(layout).toMatchObject({ root, mode: 'full', workflowFolder: root, ticketsRoot: join(root, '.scratch') })
+    expect(run.calls).toEqual([[root, ['-C', root, '--json']]])
+    expect(runTicket.calls).toEqual([[root, ['root']]])
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).toMatch(workflowLine(given, 'the Tickets are read from'))
+    // Without a Profile too: the Full layout of the resolved root.
+    const none = await readProjectLayout({ root: given, claudeHome: '/h', env: {}, run: stubRun({ code: 3, stdout: '', stderr: '' }), log })
+    expect(none).toMatchObject({ root, workflowFolder: root, ticketsRoot: join(root, '.scratch'), failed: false })
+  })
+
   it.each<[string, ProfileRun, RegExp]>([
     ['exit code 1', { code: 1, stdout: '', stderr: 'usage' }, /ticket root failed with exit code 1: usage/],
     ['a timeout', { code: null, stdout: '', stderr: '' }, /ticket root failed with a timeout/],
@@ -781,5 +801,29 @@ describe('scriptFailureDetail', () => {
     // The cap holds for the joined lines too, and for an Error line.
     expect(scriptFailureDetail(`${'a'.repeat(300)}\n${'b'.repeat(300)}\n`)).toBe(`${'a'.repeat(300)} — ${'b'.repeat(97)}…`)
     expect(scriptFailureDetail(`Error: ${'e'.repeat(500)}\n`)).toBe(`Error: ${'e'.repeat(393)}…`)
+  })
+
+  // Mac review of PR #482 (worfy-windows ticket 59): bin/profile wraps the gate resolver's reason in
+  // a line with the resolver's path, and with two long paths the cap cut the line before the reason.
+  // Every caller — the profile reads, `ticket root`, the first-run check — gets the reason itself.
+  it('a gate resolver reason wrapped by bin/profile: the reason itself, whatever the length of the paths', () => {
+    const long = `/Users/someone/${'very-long-folder-name/'.repeat(12)}`
+    const reason = `registry ${long}gate/config.json is broken: the "repos" field must be an array`
+    const stderr = `profile: resolver ${long}plugin/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: ${reason}\n`
+    expect(stderr.length).toBeGreaterThan(400)
+    expect(scriptFailureDetail(stderr)).toBe(reason)
+    expect(scriptFailureDetail(`gate-resolve: ${reason}\n`)).toBe(reason)
+    // A crash of the resolver keeps its wrapping: it says where it crashed.
+    const crash = 'profile: resolver /h/r.mjs failed (exit 1) — project not determined: TypeError: boom\n'
+    expect(scriptFailureDetail(crash)).toBe(crash.trim())
+  })
+
+  it('a profile read that fails with such a reason names it', async () => {
+    const long = `/Users/someone/${'very-long-folder-name/'.repeat(12)}`
+    const reason = `registry ${long}gate/config.json is broken: the "repos" field must be an array`
+    const run: ProfileRunner = () => Promise.resolve({ code: 1, stdout: '', stderr: `profile: resolver ${long}plugin/hooks/gate-resolve.mjs failed (exit 4) — project not determined: gate-resolve: ${reason}\n` })
+    const layout = await readProjectLayout({ root: '/work/shop', claudeHome: '/nowhere/.claude', env: {}, run, log: () => undefined })
+    expect(layout.failed).toBe(true)
+    expect(layout.reason).toContain(reason)
   })
 })
