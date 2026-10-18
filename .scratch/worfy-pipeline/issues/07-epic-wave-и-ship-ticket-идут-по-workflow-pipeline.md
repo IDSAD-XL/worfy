@@ -1,7 +1,8 @@
 # 07 — `epic-wave` и `ship-ticket` идут по `workflow.pipeline`; правило Windows — Check «windows»
 
 Type: task
-Status: claimed 2026-10-17T23:37Z
+Status: done 2026-10-18T00:53Z
+PR: #460
 Blocked by: 02
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 4, 5, 11 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md);
@@ -151,3 +152,19 @@ Deploy. Тогда действует запасной путь skill-ов: бл
 ```
 
 С Stage `deploy` в `rules.md` нужен ещё абзац: кто и когда запускает `pnpm install:stable` после Wave.
+
+Ревью и merge (2026-10-18): гейт глубины low, два круга.
+- Круг 1 — `REJECTED` ([вердикт](https://github.com/IDSAD-XL/worfy/pull/460#issuecomment-6243648156)): [med] diff
+  убирал правило, которое держит платформенные PR вне набора до вердикта другой платформы; с Pipeline по умолчанию (без
+  Check «windows») платформенный PR после `pnpm install:stable` и до правки Profile-а влился бы без вердикта Windows-ПК,
+  а «Итог» утверждал, что поведение Wave не меняется.
+- Доработка: запасной путь для Pipeline без stage `check` (`epic-wave/SKILL.md:89-92`, `:743-749`;
+  `ship-ticket/SKILL.md:559-561`) — `PLATFORM=(…)` по правилам Project-а, `wave-gate` исключает такие PR; пять мутантов
+  запасного пути красные.
+- Круг 2 — `VERIFIED` ([вердикт](https://github.com/IDSAD-XL/worfy/pull/460#issuecomment-6243820230)); долги: [low]
+  `epic-wave/SKILL.md:797` — комментарий `# its "ready, PLATFORM" lines` (и перечень на `:724`) не упоминает запасной
+  путь; [low] `ship-ticket/SKILL.md:72` — строку можно удалить, test останется зелёным.
+- Не платформенный PR (spec, «Соглашения»): merge после gate full на Mac.
+
+`GATE_SCOPE=all` gate full — зелёный с первого прогона; влит — `62a4c4ab`. Batch CI run на main —
+зелёный: https://github.com/IDSAD-XL/worfy/actions/runs/39084438682.
