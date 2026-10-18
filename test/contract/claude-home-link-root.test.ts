@@ -18,7 +18,11 @@ import type { Client } from '../../src/main/clients'
 import { bindingsHandlers } from '../../src/main/ipc/bindings'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
+import { NodeSessions } from '../../src/main/agent/node-sessions'
+import { SessionSettingsStore } from '../../src/main/agent/session-settings'
+import { sessionsHandlers } from '../../src/main/ipc/sessions'
 import type { BindingStore } from '../../src/main/layout/bindings'
+import { LayoutStore } from '../../src/main/layout/store'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -321,8 +325,10 @@ describe('the cwd of a transcript is the first record that names one', () => {
     await writeFile(join(home, 'sessions', '41001.json'), JSON.stringify({ pid: 41001, sessionId: NONE, cwd: project, status: 'busy' }))
     expect(await history(project, window)).toContain(NONE)
     expect(await found(project, NONE, window)).toBe(true)
-    // The Orchestrator resumes its saved Session by this lookup (src/main/agent/app-orchestrators.ts).
-    expect(await registry.transcriptPath(project, NONE)).toBe(none)
+    // The Orchestrator resumes its saved Session by this lookup, as a caller of this Machine (src/main/agent/app-orchestrators.ts).
+    expect(await registry.transcriptPath({ path: project, local: true }, NONE)).toBe(none)
+    // A root without `local` is judged strictly: a caller that forgets to say gets nothing unknown.
+    expect(await registry.transcriptPath(project, NONE)).toBeNull()
     expect(await call('claudeHome.live', { projectRoot: project }, window)).toMatchObject({ ok: true, value: { live: [{ sessionId: NONE }] } })
     expect(await history(project, linked)).not.toContain(NONE)
     expect(await found(project, NONE, linked)).toBe(false)
@@ -332,7 +338,7 @@ describe('the cwd of a transcript is the first record that names one', () => {
 
     const local: ClaudeHomeChange[] = []
     const remote: ClaudeHomeChange[] = []
-    const watches = [await registry.watch(project, (change) => local.push(change), { debounceMs: 20 }), await registry.watch({ path: project, gitAt: project, strict: true }, (change) => remote.push(change), { debounceMs: 20 })]
+    const watches = [await registry.watch({ path: project, local: true }, (change) => local.push(change), { debounceMs: 20 }), await registry.watch({ path: project, gitAt: project }, (change) => remote.push(change), { debounceMs: 20 })]
     for (const watch of watches) closers.push(() => watch.close())
     await Promise.all(watches.map((watch) => watch.ready))
     await appendFile(none, `${dequeue(NONE)}\n`)
@@ -355,5 +361,103 @@ describe('a transcript removed before it ever changed', () => {
     }, { timeout: 3000, interval: 20 })
     await new Promise((done) => setTimeout(done, 200))
     for (const sender of [linked, window]) expect(reported(sender.id)).not.toContain(EVIL)
+  })
+})
+
+const summary = (text: string): string => JSON.stringify({ type: 'summary', summary: text, leafUuid: 'x' })
+
+describe('a folder that is only named like a folder inside the Project (round 3)', () => {
+  it('a window of /p/A gets no Session of the Project /p/A-evil whose cwd is unknown', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    const other = join(dir, 'p', 'A-evil')
+    for (const folder of [project, other]) await mkdir(folder, { recursive: true })
+    const { write, history, found, window, registry } = await bench(dir, [project, other])
+    const E = 'e1111111-1111-4111-8111-111111111111'
+    await write(undefined, E, [summary('a summary of the other Project')], other)
+    expect(await history(project, window)).not.toContain(E)
+    expect(await found(project, E, window)).toBe(false)
+    expect(await registry.transcriptPath({ path: project, local: true }, E)).toBeNull()
+    // The other Project's own window still has it: its folder is named exactly like its root.
+    expect(await history(other, window)).toContain(E)
+  })
+})
+
+describe('sessions.resumable from a Linked machine (round 3)', () => {
+  it('a Session whose cwd is unknown is resumable for a window, not for a Linked machine', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    await mkdir(project, { recursive: true })
+    const { write, registry, linked, window } = await bench(dir, [project])
+    const NONE = 'd3333333-3333-4333-8333-333333333333'
+    await write(undefined, NONE, [enqueue(NONE, 'a queued prompt'), dequeue(NONE)], project)
+    const nodeSessions = new NodeSessions({
+      layout: new LayoutStore((projectId) => join(dir, 'data', projectId), { delayMs: 0 }),
+      projectPath: () => project,
+      registry: {
+        start: () => {
+          throw new Error('no Session starts here')
+        },
+        list: () => [],
+      },
+      settings: new SessionSettingsStore((projectId) => join(dir, 'data', projectId)),
+      claude: (root) => registry.sessions(root),
+      isDirectory: async () => true,
+      broadcast: () => undefined,
+      publish: () => undefined,
+    })
+    const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
+    await registerIpc({ handle: (channel, listener) => void handlers.set(channel, listener) }, { modules: { './sessions.ts': async () => sessionsHandlers(() => nodeSessions) }, isTrustedSender: appUrlMatcher({ indexHtml: INDEX_HTML }) })
+    const ask = async (sender: Client) =>
+      (await handlers.get(`${IPC_CHANNEL_PREFIX}sessions.resumable`)?.({ senderFrame: { url: APP_URL }, sender } as unknown as IpcMainInvokeEvent, { projectId: 'p-0a1b2c3d', sessionIds: [NONE] })) as IpcResult<{ verdicts: Record<string, { resumable: boolean }> }>
+    expect(await ask(window)).toMatchObject({ ok: true, value: { verdicts: { [NONE]: { resumable: true } } } })
+    expect(await ask(linked)).toMatchObject({ ok: true, value: { verdicts: { [NONE]: { resumable: false, reason: 'unknown' } } } })
+  })
+})
+
+describe('the watcher scans on from where it stopped (round 3)', () => {
+  async function single() {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'worfy-link-root-')))
+    temps.push(dir)
+    const project = join(dir, 'p', 'A')
+    await mkdir(project, { recursive: true })
+    const it = await bench(dir, [project])
+    const id = 'f1111111-1111-4111-8111-111111111111'
+    const changes: ClaudeHomeChange[] = []
+    const watchOf = async (path: string) => {
+      const watch = await it.registry.watch({ path: project, gitAt: project }, (change) => changes.push(change), { debounceMs: 20 })
+      closers.push(() => watch.close())
+      await watch.ready
+      return path
+    }
+    const reported = () => changes.flatMap((change) => change.transcripts)
+    const settle = () => new Promise((done) => setTimeout(done, 400))
+    return { ...it, project, id, watchOf, reported, settle }
+  }
+
+  it('a line with the cwd written in two parts across the 256 KB chunk boundary is read whole', async () => {
+    const { write, project, id, watchOf, reported, settle } = await single()
+    const path = await watchOf(await write(undefined, id, [enqueue(id, 'x'.repeat(256 * 1024 - 200))], project))
+    await appendFile(path, `${enqueue(id, 'y')}\n`)
+    await settle()
+    expect(reported()).not.toContain(id)
+    const line = userLine('hello '.repeat(100), project, 'u')
+    await appendFile(path, line.slice(0, 300))
+    await settle()
+    expect(reported()).not.toContain(id)
+    await appendFile(path, `${line.slice(300)}\n`)
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
+  })
+
+  it('a file rewritten shorter than where the last scan stopped is scanned from its start again', async () => {
+    const { write, project, id, watchOf, reported, settle } = await single()
+    const path = await watchOf(await write(undefined, id, [enqueue(id, 'x'.repeat(300 * 1024))], project))
+    await appendFile(path, `${enqueue(id, 'y')}\n`)
+    await settle()
+    expect(reported()).not.toContain(id)
+    await writeFile(path, `${userLine('a prompt', project, 'u')}\n`)
+    await vi.waitFor(() => expect(reported()).toContain(id), { timeout: 3000, interval: 20 })
   })
 })

@@ -160,14 +160,14 @@ export function claudeHomeHandlers(
    * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
    * Claude home folders are still found by the resolved spelling (RegistryRoot). A Linked machine
    * names a Project root or one of its worktrees, not any folder inside: a Claude home folder name
-   * stands for several paths (src/main/link/caller.ts, projectRootOf). Its root is `strict`: a
-   * transcript whose cwd is unknown is not shown to it.
+   * stands for several paths (src/main/link/caller.ts, projectRootOf), and its root is judged
+   * strictly. A window's root is `local` (RegistryRoot).
    */
   const rootOf = async (projectRoot: string, event: { readonly sender?: unknown }): Promise<RegistryRoot> => {
     const root = resolve(projectRoot)
-    if (!isRemoteCall(event)) return root
+    if (!isRemoteCall(event)) return { path: root, local: true }
     const checked = await projectRootOf(event, root, projects, (at) => registry.worktrees(at), 'the Project root')
-    return { path: root, gitAt: checked, strict: true }
+    return { path: root, gitAt: checked }
   }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {

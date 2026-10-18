@@ -561,7 +561,8 @@ describe('watching the Claude home', () => {
     await appendFile(join(home, 'projects', projectDir(CYRILLIC), `${S6}.jsonl`), `${assistantLine('other project', 'o-1')}\n`)
     const worktreeDir = join(home, 'projects', projectDir(`${DEMO}/.claude/worktrees/99`))
     await mkdir(worktreeDir)
-    await writeFile(join(worktreeDir, 'new-session.jsonl'), `${assistantLine('in a new worktree', 'w-1')}\n`)
+    // Its first record names the cwd, as Claude Code writes it: no folder is the Project's by its name alone (worfy-link ticket 32).
+    await writeFile(join(worktreeDir, 'new-session.jsonl'), `${userLine('in a new worktree', `${DEMO}/.claude/worktrees/99`, 'w-1')}\n`)
     await log.waitFor((change) => change.transcripts.includes('new-session'))
     expect(log.changes.some((entry) => entry.change.transcripts.includes(S6))).toBe(false)
   })
@@ -608,11 +609,11 @@ describe('watching the Claude home', () => {
     await rm(join(dir, 'foreign.jsonl'))
     await rm(join(dir, 'ours.jsonl'))
     await rm(join(dir, 'unknown.jsonl'))
-    // A removal whose cwd was never known is reported: an extra reread costs less than a stale list.
+    // A transcript of a subfolder whose cwd was never known was never listed: its removal is not reported (worfy-link ticket 32).
     await log.waitFor((change) => change.transcripts.includes('ours'))
-    await log.waitFor((change) => change.transcripts.includes('unknown'))
     await new Promise((done) => setTimeout(done, 300))
     expect(log.changes.some((entry) => entry.change.transcripts.includes('foreign'))).toBe(false)
+    expect(log.changes.some((entry) => entry.change.transcripts.includes('unknown'))).toBe(false)
   })
 })
 
@@ -891,7 +892,7 @@ describe('claudeHome.changed carries the root as the window sent it', () => {
     const { call } = await ipcOver(registry)
     const window = fakeSender(21)
     expect((await call('claudeHome.sessions', { projectRoot: 'C:/p' }, window.sender)).ok).toBe(true)
-    expect(watchers.map((watcher) => watcher.root)).toEqual([resolve('C:/p')])
+    expect(watchers.map((watcher) => watcher.root)).toEqual([{ path: resolve('C:/p'), local: true }])
 
     fire({ sessions: false, transcripts: [S1] })
     expect(changes(window.sent)).toEqual([{ projectRoot: 'C:/p', sessions: false, transcripts: [S1] }])

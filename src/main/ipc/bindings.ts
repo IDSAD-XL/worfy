@@ -52,9 +52,9 @@ export function bindingsHandlers(
       const root = resolve(projectRoot)
       // A Claude home folder name stands for several paths: a Linked machine names a Project root
       // or one of its worktrees, not any folder inside (src/main/link/caller.ts, projectRootOf).
-      // git runs at the real path the check answered; the root is `strict` (RegistryRoot), as in
-      // src/main/ipc/claude-home.ts.
-      const at: RegistryRoot = isRemoteCall(event) ? { path: root, gitAt: await projectRootOf(event, root, projects, gitWorktrees, 'the Project root'), strict: true } : root
+      // git runs at the real path the check answered, and the root is judged strictly; a window's
+      // root is `local` (RegistryRoot), as in src/main/ipc/claude-home.ts.
+      const at: RegistryRoot = isRemoteCall(event) ? { path: root, gitAt: await projectRootOf(event, root, projects, gitWorktrees, 'the Project root') } : { path: root, local: true }
       const path = await transcripts().transcriptPath(at, sessionId)
       if (path === null) return { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] }
       return { found: true, ...(await reader.session(path)) }
