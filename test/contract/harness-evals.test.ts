@@ -6,8 +6,8 @@
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { constants, tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { constants, homedir, tmpdir } from 'node:os'
+import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 
@@ -52,8 +52,21 @@ const tempDir = (prefix: string): string => {
 }
 
 /**
+ * The environment of every child this file gives a home: `vars`, and HOME and USERPROFILE in the
+ * temporary `home`. Node on Windows takes its home from USERPROFILE and, without it, asks Windows
+ * for the account's profile folder — the real one, where the owner's ~/.claude/worfy-harness and
+ * ~/.claude/gate live. So a child with HOME alone would read and write the real Harness state there.
+ * HOME and USERPROFILE go last: no caller's variables replace them.
+ */
+const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ ...vars, HOME: home, USERPROFILE: home })
+
+/** The environment of a scaffold script: PATH and TMPDIR of this process, and `extra`. */
+const scaffoldEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
+  childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...extra })
+
+/**
  * Runs a case's scaffold script the way `claude plugin eval --scaffold` does: in an empty
- * workspace, with HOME in a temporary folder and only PATH, HOME and TMPDIR from this process
+ * workspace, with its home in a temporary folder and only PATH and TMPDIR from this process
  * (git in an empty HOME has no identity, so the fixture must not need one).
  */
 function scaffold(
@@ -70,18 +83,22 @@ function scaffold(
   const script = field(readFileSync(join(EVALS, name, 'case.yaml'), 'utf8'), 'scaffold_script') ?? ''
   const run = spawnSync('bash', [join(EVALS, name, script)], {
     cwd: work,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...extra },
+    env: scaffoldEnv(home, extra),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
   return { work, home, run }
 }
 
-/** Runs a Harness script against a scaffolded fixture with only the fixture's HOME (and `extra`). */
+/** The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`. */
+const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
+  childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', ...extra })
+
+/** Runs a Harness script against a scaffolded fixture with only the fixture's home (and `extra`). */
 const harness = (home: string, cwd: string, script: string, args: string[], extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> =>
   spawnSync(join(HARNESS, 'bin', script), args, {
     cwd,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', ...extra },
+    env: harnessEnv(home, extra),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -198,11 +215,12 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   })
 })
 
-// The fixture's own commands, with the fixture's HOME and no Electron variables.
+// The fixture's own commands, with the fixture's home and no Electron variables.
+const fixtureEnv = (home: string): NodeJS.ProcessEnv => childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir() })
 const inFixture = (home: string, cwd: string, command: string, args: string[]): SpawnSyncReturns<string> =>
   spawnSync(command, args, {
     cwd,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir() },
+    env: fixtureEnv(home),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -372,9 +390,8 @@ function stubSetup(
   writeFileSync(claude, STUB)
   chmodSync(claude, 0o755)
   const log = join(dir, 'calls.log')
-  const env = {
+  const env = childEnv(dir, {
     PATH: path(dir),
-    HOME: dir,
     ELECTRON_RUN_AS_NODE: '1',
     HARNESS_DIR: evaluated(),
     CLAUDE_BIN: claude,
@@ -382,7 +399,7 @@ function stubSetup(
     STUB_CODES: codes,
     STUB_LOG: log,
     ...extra,
-  }
+  })
   return { dir, log, env }
 }
 
@@ -437,6 +454,65 @@ const listAfter = (args: string[], option: string): string[] => {
   const end = args.findIndex((arg, i) => i >= from && arg.startsWith('--'))
   return args.slice(from, end === -1 ? undefined : end)
 }
+
+// Every child of this file gets its home from childEnv. A child that saw the owner's real home would
+// read the real Harness registry in ~/.claude/worfy-harness and ~/.claude/gate, and a Harness script
+// that writes would write there (worfy-windows ticket 65).
+describe('a child process sees the temporary home', () => {
+  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv][] = [
+    ['scaffold', (home) => scaffoldEnv(home)],
+    ['harness', (home) => harnessEnv(home)],
+    ['inFixture', (home) => fixtureEnv(home)],
+    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env],
+  ]
+  const insideTemp = (dir: string | undefined): boolean => {
+    const inside = relative(realpathSync(tmpdir()), dir ?? '')
+    return inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+  }
+
+  it.each(launchers)('%s: USERPROFILE is HOME, in a temporary folder', (_, envOf) => {
+    const env = envOf(tempDir('worfy-eval-home-'))
+    expect(insideTemp(env.HOME), String(env.HOME)).toBe(true)
+    expect(env.USERPROFILE).toBe(env.HOME)
+  })
+
+  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf) => {
+    const env = envOf(tempDir('worfy-eval-home-'))
+    const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], {
+      env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(child.status, child.stderr).toBe(0)
+    expect(child.stdout).toBe(env.HOME)
+    expect(child.stdout).not.toBe(homedir())
+  })
+
+  // A new spawn that writes its own home, past childEnv, makes this test red.
+  it('every spawn and spawnSync of this file that gives a home goes through childEnv', () => {
+    const source = readFileSync(__filename, 'utf8')
+    const lineOf = (index: number): string => source.slice(source.lastIndexOf('\n', index) + 1, source.indexOf('\n', index))
+    const helper = lineOf(source.indexOf('const childEnv = '))
+    expect(helper).toMatch(/\bHOME: home\b/)
+    expect(helper).toMatch(/\bUSERPROFILE: home\b/)
+    // A key HOME or USERPROFILE anywhere but in childEnv.
+    const keys = [...source.matchAll(/(?<![\w$])(?:HOME|USERPROFILE)\s*:/g)].map((match) => lineOf(match.index)).filter((line) => line !== helper)
+    expect(keys).toEqual([])
+    // A spawn or spawnSync call that names HOME or USERPROFILE itself.
+    const calls: string[] = []
+    for (const match of source.matchAll(/\bspawn(?:Sync)?\(/g)) {
+      let depth = 0
+      let end = match.index + match[0].length - 1
+      for (; end < source.length; end++) {
+        if (source[end] === '(') depth++
+        else if (source[end] === ')' && --depth === 0) break
+      }
+      calls.push(source.slice(match.index, end + 1))
+    }
+    expect(calls.length).toBeGreaterThan(5)
+    expect(calls.filter((call) => /(?<![\w$])(?:HOME|USERPROFILE)(?![\w$])/.test(call))).toEqual([])
+  })
+})
 
 describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub)', () => {
   it('refuses with exit code 1 on claude older than 2.1.269 and runs nothing', () => {
