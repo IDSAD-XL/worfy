@@ -143,21 +143,36 @@ For each PR, in that order, with `<N>`, `<branch>` and `<head>` from its line:
    the list, it is refused and the worktree removed — start the pass again from the list. The steps
    are joined with `&&`: a failed step stops the block, so a rebase never runs in a tree of an earlier
    try and nothing half-rebased is pushed; a tree `<scratchpad>/pr-<N>` left from an earlier try of
-   this PR is removed first. The line before `EXIT=0` is the new head: the checks run on it and the
-   merge is matched against it. A conflict stops the block with the tree kept: a conflict only in the
-   state file (`F docs.handoff.path`) the session resolves itself (the session that merges resolves
-   it), then `git -C "$P" rebase --continue` and the push line with the same lease. Any other conflict
-   is red, with the conflicting files as the reason:
+   this PR is removed first, and `git worktree prune` drops one deleted by hand that git still lists.
+   The line before `EXIT=0` is the new head: the checks run on it and the merge is matched against it.
+   A conflict stops the block with the tree kept. A conflict only in the state file
+   (`F docs.handoff.path`) the session resolves itself (the session that merges resolves it), stages
+   the file and finishes with the second block below. Any other conflict is red, with the conflicting
+   files as the reason:
 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
 P=<scratchpad>/pr-<N>
 gone() { [ ! -e "$P" ] || git -C <repo> worktree remove --force "$P"; }   # the tree of an earlier try of this PR
-git -C <repo> fetch origin && gone && git -C <repo> worktree add -B <branch> "$P" origin/<branch> \
+git -C <repo> fetch origin && gone && git -C <repo> worktree prune && git -C <repo> worktree add -B <branch> "$P" origin/<branch> \
   && git -C "$P" rebase "$B" \
   && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { gone; false; }; } \
   && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
+```
+
+   The second block, after the state-file conflict is resolved and staged. Each Bash call starts a
+   fresh shell, so nothing of the block above is defined here: the path is written out again, and the
+   block refuses unless it is the PR's worktree — `git -C ""` acts in the current folder and would
+   push that folder's HEAD into `<branch>`:
+
+```bash
+P=<scratchpad>/pr-<N>                                   # written out: nothing carries over between Bash calls
+if [ -n "$P" ] && [ -d "$P" ] && case "$(git -C "$P" rev-parse --git-dir 2>/dev/null)" in */worktrees/pr-<N>) true ;; *) false ;; esac; then
+  GIT_EDITOR=true git -C "$P" rebase --continue \
+    && { git -C "$P" push --force-with-lease=<branch>:<head> origin HEAD:<branch> || { git -C <repo> worktree remove --force "$P"; false; }; } \
+    && git -C "$P" rev-parse HEAD; echo "EXIT=$?"
+else echo "REFUSED: '$P' is not the worktree of PR <N>: nothing pushed"; fi
 ```
 
 2. `F cross_machine_gate.check` in that worktree (`<PR worktree>` — `<scratchpad>/pr-<N>`), the way section 4 runs a gate full of one PR — the

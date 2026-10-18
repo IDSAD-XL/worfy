@@ -470,10 +470,10 @@ for sh in "${SHELLS[@]}"; do
     [ "$got" = "7 feature $rework"$'\n'"8 fork: skipped"$'\n'"EXIT=0" ] && grep -q -- '--json number,headRefName,headRefOid,isCrossRepository' "$T/ghx.log" \
         && ok "$sh: serve list block: a fork PR is skipped, the others come with their head" || bad "$sh: serve list block: [$got]"
 done
-BSV="$(SKILL="$WAVE" blockf 'P=<scratchpad>/pr-<N>')"
+BSV="$(SKILL="$WAVE" blockf 'gone() {')"
 [ -n "$BSV" ] || bad "serve rebase block not found in $WAVE"
 BSV="$(sub "${BSV//<repo>/$CR}")"; BSV="${BSV//<scratchpad>/$CM}"; BSV="${BSV//<branch>/feature}"
-serve_rebase() { local b="${BSV//<N>/$1}"; b="${b//<head>/$2}"; "${SENV[@]}" bash -c "$b" 2>&1; }
+serve_rebase() { local b="${BSV//<N>/$1}"; b="${b//<head>/$2}"; "${SENV[@]}" ${RSH:-bash} -c "$b" 2>&1; }   # RSH: the shell
 got="$(serve_rebase 7 "$rework")"; new="$(grep -E '^[0-9a-f]{40}$' <<<"$got" | tail -n 1)"
 [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$new" ] \
     && git -C "$CM/origin.git" merge-base --is-ancestor "$tip" "$new" && git -C "$CM/origin.git" cat-file -e "$new:r.txt" 2>/dev/null \
@@ -499,17 +499,36 @@ new="$(git -C "$CM/origin.git" rev-parse feature)"
 [ ! -e "$CM/pr-8" ] || git -C "$CR" worktree remove --force "$CM/pr-8"
 # The pass again from the list after a refused push — the same PR, the same scratchpad — while the other machine
 # pushes once more: the retry starts from origin's branch, and both pushes of the other machine stay on origin.
-: >"$T/race"
-b="${BSV//<N>/10}"; b="${b//<head>/$new}"; got1="$("${SENV[@]}" PATH="$RG:$PATH" bash -c "$b" 2>&1)"
-git -C "$CM/other" fetch -q origin && git -C "$CM/other" checkout -q -B feature origin/feature && echo z >"$CM/other/z.txt" \
-    && git -C "$CM/other" add z.txt && git -C "$CM/other" "${G[@]}" commit -q -m second && git -C "$CM/other" push -q origin feature 2>/dev/null
-second="$(git -C "$CM/origin.git" rev-parse feature)"
-got="$(serve_rebase 10 "$second")"
-[ "$(tail -n 1 <<<"$got1")" != EXIT=0 ] && [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && git -C "$CM/origin.git" merge-base --is-ancestor "$second" feature \
-    && ok "serve rebase block: a retry after a refused push — the other machine's commits stay on origin" \
-    || bad "serve rebase block, retry: first [$(tail -n 1 <<<"$got1")] retry [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -3 feature | tr '\n' ' ')"
+retry_case() { # retry_case <shell> <N>
+    local sh="$1" n="$2" b got1 got second head
+    head="$(git -C "$CM/origin.git" rev-parse feature)"; : >"$T/race"
+    b="${BSV//<N>/$n}"; b="${b//<head>/$head}"; got1="$("${SENV[@]}" PATH="$RG:$PATH" $sh -c "$b" 2>&1)"
+    git -C "$CM/other" fetch -q origin && git -C "$CM/other" checkout -q -B feature origin/feature && echo "$sh $n" >"$CM/other/z.txt" \
+        && git -C "$CM/other" add z.txt && git -C "$CM/other" "${G[@]}" commit -q -m second && git -C "$CM/other" push -q origin feature 2>/dev/null
+    second="$(git -C "$CM/origin.git" rev-parse feature)"
+    got="$(RSH=$sh serve_rebase "$n" "$second")"
+    [ "$(tail -n 1 <<<"$got1")" != EXIT=0 ] && [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && git -C "$CM/origin.git" merge-base --is-ancestor "$second" feature \
+        && ok "$sh: serve rebase block: a retry after a refused push — the other machine's commits stay on origin" \
+        || bad "$sh: serve rebase block, retry: first [$(tail -n 1 <<<"$got1")] retry [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -3 feature | tr '\n' ' ')"
+    [ ! -e "$CM/pr-$n" ] || git -C "$CR" worktree remove --force "$CM/pr-$n"
+}
+# A tree left from an earlier try (no worktree remove by hand) is removed first; a tree deleted by hand that git still
+# lists is pruned first: both runs reach the rebase and the push.
+leftover_case() { # leftover_case <shell> <N>
+    local sh="$1" n="$2" head got got2 got3
+    head="$(git -C "$CM/origin.git" rev-parse feature)"
+    got="$(RSH=$sh serve_rebase "$n" "$head")"
+    got2="$(RSH=$sh serve_rebase "$n" "$head")"
+    [ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && [ "$(tail -n 1 <<<"$got2")" = EXIT=0 ] && grep -qE '^[0-9a-f]{40}$' <<<"$got2" \
+        && ok "$sh: serve rebase block: a tree left from an earlier try of the PR is removed first" || bad "$sh: serve rebase block, leftover tree: [$got2]"
+    rm -rf "$CM/pr-$n"
+    got3="$(RSH=$sh serve_rebase "$n" "$head")"
+    [ "$(tail -n 1 <<<"$got3")" = EXIT=0 ] && [ -d "$CM/pr-$n" ] \
+        && ok "$sh: serve rebase block: a tree deleted by hand that git still lists is pruned first" || bad "$sh: serve rebase block, tree deleted by hand: [$got3]"
+    [ ! -e "$CM/pr-$n" ] || git -C "$CR" worktree remove --force "$CM/pr-$n"
+}
+for sh in "${SHELLS[@]}"; do retry_case "$sh" 10; leftover_case "$sh" 12; done
 new="$(git -C "$CM/origin.git" rev-parse feature)"
-[ ! -e "$CM/pr-10" ] || git -C "$CR" worktree remove --force "$CM/pr-10"
 # worktree.base null: the main branch, not `git rebase null` (and the request block below the same).
 jq '.worktree.base = null' <<<"$CMP" >"$SHH/projects/cm/profile.json"
 got="$(serve_rebase 9 "$new")"
@@ -533,6 +552,30 @@ got="$(serve_rebase 11 "$before")"
 [ "$(tail -n 1 <<<"$got")" != EXIT=0 ] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$before" ] \
     && ok "serve rebase block: a rebase conflict stops the block — origin keeps the branch, nothing half-rebased is pushed" \
     || bad "serve rebase block, conflict: [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -1 feature)"
+# The second block after a resolved state-file conflict. With the path lost (a fresh shell: P empty or unset) and the
+# current folder a tree with a resolved rebase of its own, it refuses and pushes nothing.
+BCT="$(SKILL="$WAVE" blockf 'rebase --continue')"
+[ -n "$BCT" ] || bad "conflict follow-up block not found in $WAVE"
+BCT="$(sub "${BCT//<repo>/$CR}")"; BCT="${BCT//<scratchpad>/$CM}"; BCT="${BCT//<branch>/feature}"; BCT="${BCT//<N>/11}"; BCT="${BCT//<head>/$before}"
+git -C "$CR" worktree add -q --detach "$CM/cwdwt" "$before" 2>/dev/null; git -C "$CM/cwdwt" rebase -q origin/main >/dev/null 2>&1
+echo resolved >"$CM/cwdwt/f.txt"; git -C "$CM/cwdwt" add f.txt
+for sh in "${SHELLS[@]}"; do
+    for lost in 'P=' ':' "P=$CM/cwdwt"; do   # empty, unset, a path to another tree
+        pline="P=$CM/pr-11"; b="${BCT/$pline/$lost}"
+        got="$(cd "$CM/cwdwt" && "${SENV[@]}" $sh -c "$b" 2>&1)"
+        [[ "$got" == REFUSED:* ]] && [ "$(git -C "$CM/origin.git" rev-parse feature)" = "$before" ] \
+            && ok "$sh: conflict follow-up block: the path lost ([$lost]) -> refused, nothing pushed" \
+            || bad "$sh: conflict follow-up block, path lost [$lost]: [$got] origin feature $(git -C "$CM/origin.git" log --format=%s -1 feature)"
+    done
+done
+git -C "$CM/cwdwt" rebase --abort 2>/dev/null; git -C "$CR" worktree remove --force "$CM/cwdwt"
+# The real tree of the PR, its conflict resolved and staged: the rebase goes on and the push holds the lease.
+echo resolved >"$CM/pr-11/f.txt"; git -C "$CM/pr-11" add f.txt
+got="$("${SENV[@]}" bash -c "$BCT" 2>&1)"
+[ "$(tail -n 1 <<<"$got")" = EXIT=0 ] && git -C "$CM/origin.git" merge-base --is-ancestor main feature \
+    && [ "$(git -C "$CM/origin.git" show feature:f.txt)" = resolved ] \
+    && ok "conflict follow-up block: the PR's tree, conflict resolved -> rebase continued, pushed with the lease" || bad "conflict follow-up block, resolved: [$got]"
+new="$(git -C "$CM/origin.git" rev-parse feature)"
 [ ! -e "$CM/pr-11" ] || git -C "$CR" worktree remove --force "$CM/pr-11"
 
 # The report-and-merge block: the merge only after a green report that reached the PR and a green check, and only
