@@ -3,6 +3,7 @@
 // links to the stand-in shell scripts of test/fixtures/qmd-stub in a temporary folder, the only one on the PATH of the "login shell"
 // environment handed to the module; each writes its arguments and the variables it saw. HOME, the
 // Harness home and the Claude home are temporary too: nothing reaches the owner's folders.
+import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -18,6 +19,8 @@ import {
   readModelsAnswer,
   setupCollections,
 } from '../../src/main/harness/qmd'
+import type { SpawnProcess } from '../../src/main/workflow/profile'
+import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const REPO = join(import.meta.dirname, '..', '..')
@@ -261,5 +264,30 @@ describe('setupCollections', () => {
     symlinkSync(join(STUBS, 'qmd-collections'), join(scripts, 'qmd-collections'))
     const result = await setupCollections({ ...options(), binDir: scripts, project: 'worfy' })
     expect(result).toEqual({ code: 0, output: `args=worfy mark=login-shell hh=${harnessHome}\n` })
+  })
+
+  // worfy-windows ticket 30: Windows does not run the file by its `#!` line; the script goes through
+  // the launcher of every Harness script, as `node <script> <project>`.
+  it('starts the Node script as node <script> <project>, node from the PATH of the login shell', async () => {
+    const scripts = join(root, 'harness-bin')
+    mkdirSync(scripts)
+    // A Node stand-in, not executable: only `node <file>` runs it.
+    writeFileSync(join(scripts, 'qmd-collections'), nodeScript("process.stdout.write(`args=${process.argv.slice(2).join(' ')} mark=${process.env.LOGIN_MARK} hh=${process.env.HARNESS_HOME}\\n`)"))
+    const started: { command: string; args: string[] }[] = []
+    const spawnRecording: SpawnProcess = (command, args, spawnOptions) => {
+      started.push({ command, args: [...args] })
+      return spawn(command, args, spawnOptions)
+    }
+    const result = await setupCollections({ harnessHome, claudeHome, env: scriptsEnv([NODE_DIR], { HOME: home, LOGIN_MARK: 'login-shell' }), binDir: scripts, project: 'worfy', spawn: spawnRecording })
+    expect(started).toEqual([{ command: NODE, args: [join(scripts, 'qmd-collections'), 'worfy'] }])
+    expect(result).toEqual({ code: 0, output: `args=worfy mark=login-shell hh=${harnessHome}\n` })
+  })
+
+  it('no node on the PATH: nothing starts, code null and the reason', async () => {
+    const scripts = join(root, 'harness-bin')
+    mkdirSync(scripts)
+    writeFileSync(join(scripts, 'qmd-collections'), nodeScript('process.exitCode = 0'))
+    const result = await setupCollections({ harnessHome, claudeHome, env: scriptsEnv([bin], { HOME: home }), binDir: scripts, project: 'worfy' })
+    expect(result).toEqual({ code: null, output: `node not found in PATH: ${join(scripts, 'qmd-collections')} is not run` })
   })
 })

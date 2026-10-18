@@ -16,7 +16,7 @@
 // ticket 37).
 //
 // Nothing here writes: the script runs with the Project as cwd and only reads.
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, open, stat, type FileHandle } from 'node:fs/promises'
 import { basename, delimiter, isAbsolute, join } from 'node:path'
@@ -242,6 +242,134 @@ export function harnessScriptRunner(claudeHome: string, env: ProfileEnv, name: '
       })
     })
   }
+}
+
+/** Starts a process as node's `spawn` does; a test hands one that records the call and starts it. */
+export type SpawnProcess = (command: string, args: readonly string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams
+
+export interface HarnessScriptRunOptions {
+  /** What the script reads on its stdin; an empty stdin when absent. */
+  stdin?: string
+  /** When the script is killed (SIGKILL); it then ends with code null. */
+  timeoutMs: number
+  /** node's spawn when absent. */
+  spawn?: SpawnProcess
+  /**
+   * Kills the script (SIGKILL) when it aborts, as the time limit does: the app aborts it on quit. An
+   * aborted signal starts nothing.
+   */
+  signal?: AbortSignal
+}
+
+/**
+ * Kills `child` and the processes under it — project-connect runs qmd-collections, which runs
+ * `qmd update`; killed alone, the script would leave them writing profile.json with no commit to
+ * follow (harness/bin/project-connect, the qmd step). On Windows: `taskkill /T /F` by the full path,
+ * without a window; the pid is the runner's own child, still running. Elsewhere: SIGKILL to the
+ * process group the child leads (runHarnessScript starts it detached there). When that fails, the
+ * child alone.
+ */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid
+  const alone = (): void => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }
+  if (pid === undefined) return alone()
+  if (process.platform === 'win32') {
+    const taskkill = spawn(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
+    taskkill.on('error', alone)
+    taskkill.on('exit', (code) => {
+      if (code !== 0) alone()
+    })
+    return
+  }
+  try {
+    process.kill(-pid, 'SIGKILL')
+  } catch {
+    alone()
+  }
+}
+
+/** What runHarnessScript rejects with when its signal had aborted before the script started. */
+export const HARNESS_SCRIPT_ABORTED = 'not started: the run was stopped'
+
+/**
+ * One run of the Harness script `script` with `args` and `env` (`env` already has HARNESS_HOME:
+ * scriptEnv), started as harnessScriptCommand says, for the scripts that read stdin or run for
+ * minutes: `project-connect` (src/main/projects/connect.ts) and `qmd-collections`
+ * (src/main/harness/qmd.ts). Up to 1 MiB of each output is kept. Resolves with the exit code
+ * whatever it is (null when it was killed at `timeoutMs`, by `signal`, or by a signal from
+ * elsewhere); rejects with a HarnessScriptStartError when the script or node is missing (or, on
+ * Windows, the script is not Node), and with the start error otherwise. No console window opens on
+ * Windows.
+ */
+export async function runHarnessScript(script: string, args: readonly string[], env: HarnessScriptEnv, options: HarnessScriptRunOptions): Promise<ProfileRun> {
+  const command = await harnessScriptCommand(script, args, env)
+  if (options.signal?.aborted) throw new Error(HARNESS_SCRIPT_ABORTED)
+  const start = options.spawn ?? spawn
+  return new Promise((resolvePromise, reject) => {
+    // Outside Windows the script leads a process group of its own, so that a kill reaches what it
+    // started (killTree); on Windows `detached` would give it a console of its own.
+    const child = start(command.file, command.args, { env: env as NodeJS.ProcessEnv, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, detached: process.platform !== 'win32' })
+    let stdout = ''
+    let stderr = ''
+    /** The runner killed the script: at its time limit or on the signal. */
+    let killed = false
+    let settled = false
+    const stop = (): void => {
+      if (child.exitCode !== null || child.signalCode !== null) return
+      killed = true
+      killTree(child)
+    }
+    const done = (): void => {
+      settled = true
+      clearTimeout(timer)
+      options.signal?.removeEventListener('abort', stop)
+    }
+    const settle = (run: ProfileRun): void => {
+      if (settled) return
+      done()
+      resolvePromise(run)
+    }
+    const timer = setTimeout(() => {
+      // The script itself has ended, and only a process it left holds the pipes: its own exit code.
+      if (child.exitCode !== null || child.signalCode !== null) {
+        child.stdout.destroy()
+        child.stderr.destroy()
+        settle({ code: child.exitCode, signal: child.signalCode, stdout, stderr })
+        return
+      }
+      stop()
+    }, options.timeoutMs)
+    options.signal?.addEventListener('abort', stop, { once: true })
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (stdout.length < MAX_OUTPUT) stdout += chunk.toString('utf8')
+    })
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (stderr.length < MAX_OUTPUT) stderr += chunk.toString('utf8')
+    })
+    child.on('error', (error) => {
+      if (settled) return
+      done()
+      reject(error)
+    })
+    // After the runner's own kill the answer is given when the script exits, not on 'close': a
+    // process the script started with its stdio inherited (qmd-collections runs `qmd update`) may
+    // hold the pipes open long after, and the limit would not hold. The pipes are let go.
+    child.on('exit', () => {
+      if (!killed) return
+      child.stdout.destroy()
+      child.stderr.destroy()
+      settle({ code: null, signal: null, stdout, stderr })
+    })
+    child.on('close', (code, signal) => {
+      // After the runner's own kill 'exit' has answered already (node emits it before 'close'), so a
+      // signal here came from elsewhere (ProfileRun).
+      settle({ code, signal, stdout, stderr })
+    })
+    child.stdin.on('error', () => undefined)
+    child.stdin.end(options.stdin ?? '')
+  })
 }
 
 /** The MCP servers a Session in the Project gets, and where the list came from. */

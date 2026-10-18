@@ -9,8 +9,8 @@
 // wrote in the acceptance run of 2026-10-12. The form must get `off` for it, the person's own choice
 // must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
 // code names for a mode must be the one bin/profile prints for a Profile without the field.
-import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -24,6 +24,10 @@ import { proposeAttribution } from '../../src/main/harness/migrate/profiles'
 import {
   activityOf,
   applyChoices,
+  CONNECT_TIMEOUT_MS,
+  CONNECT_WRITE_TIMEOUT_MS,
+  connectScriptRunner,
+  connectTimeoutMs,
   DRAFT_DISALLOWED_TOOLS,
   DRAFT_TOOLS,
   draftCanUseTool,
@@ -37,7 +41,9 @@ import {
 } from '../../src/main/projects/connect'
 import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
-import type { ProfileRunner } from '../../src/main/workflow/profile'
+import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
+import { HarnessScriptStartError, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
+import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
 
@@ -140,6 +146,8 @@ function sandboxEnv(): NodeJS.ProcessEnv {
   return {
     ...env,
     HOME: home,
+    // node's os.homedir() on Windows: bin/profile looks for the old registry under it.
+    USERPROFILE: home,
     HARNESS_HOME: harnessHome,
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
     PROJECT_CONNECT_QMD: join(scratch, 'no-qmd'),
@@ -200,6 +208,7 @@ function connectorWith(overrides: Partial<ConnectDeps> & { script?: string; scri
     // No gh unless a test brings its stand-in (test/contract/gh-world.ts).
     gh: ghRunner({ command: join(scratch, 'no-gh') }),
     profile: realProfile,
+    gateRegistries: () => Promise.resolve(profileRegistryFiles(sandboxEnv())),
     connect: (args, stdin) => runScript('project-connect', args, stdin),
     harness: () => Promise.resolve(installed),
     query: (request) => {
@@ -327,6 +336,367 @@ describe('a folder the Harness already knows', () => {
     const answer = (workspace: string | null): ProfileRunner => () => Promise.resolve({ code: 0, stdout: JSON.stringify({ _resolved: { workspace } }), stderr: '' })
     expect((await connectorWith({ profile: answer(null) }).connector.inspect(workspace)).status).toBe('new')
     expect((await connectorWith({ profile: answer(workspace) }).connector.inspect(workspace)).status).toBe('known')
+  })
+
+  // worfy-windows ticket 30: on Windows a bin/profile that was not started read as "unknown", and a
+  // connected folder went into the form as a new one.
+  it('bin/profile that did not start or did not answer: the Folder step shows why, not a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const noNode: ProfileRunner = () => Promise.reject(new HarnessScriptStartError('NODE_NOT_FOUND', 'node not found in PATH: /h/bin/profile is not run'))
+    const { connector, requests } = connectorWith({ profile: noNode })
+    expect(await connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile could not be run: node not found in PATH: /h/bin/profile is not run` })
+    expect(requests).toHaveLength(0)
+
+    const timedOut = connectorWith({ profile: () => Promise.resolve({ code: null, stdout: '', stderr: '' }) })
+    expect(await timedOut.connector.inspect(repo)).toEqual({ status: 'rejected', reason: `The Harness could not tell whether it knows ${repo}: bin/profile did not answer in time and was stopped` })
+  })
+
+  // Mac review of PR #482: on main a machine without the Harness got "new", and the dialog's Harness
+  // step said what to install. The profile script is missing there (ENOENT): that stays so.
+  it('no profile script while the Harness step stops the dialog (not installed): a new folder, as before', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const missing: ProfileRunner = () => Promise.reject(new HarnessScriptStartError('ENOENT', `no Harness script at ${join(home, '.claude', 'bin', 'profile')}`))
+    const notInstalled = connectorWith({ profile: missing, harness: () => Promise.resolve({ ...installed, state: { kind: 'not-installed' } }) })
+    expect(await notInstalled.connector.inspect(repo)).toEqual({ status: 'new', folder: { kind: 'git', root: repo, repos: [{ name: 'shop', path: repo }], notice: null } })
+    expect(await notInstalled.connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)).toEqual({
+      status: 'harness',
+      reason: 'The Harness plugin is not installed. Install it on the first-run screen.',
+    })
+    expect(notInstalled.requests).toHaveLength(0)
+
+    // The Harness installed and enabled, and still no script: that is the Folder step's error.
+    const installedButMissing = connectorWith({ profile: missing })
+    expect((await installedButMissing.connector.inspect(repo)).status).toBe('rejected')
+  })
+
+  it('the real bin/profile with a broken old registry (~/.claude/gate/config.json, no new one; exit 1): an error, not a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    removeTestTree(join(harnessHome, 'gate', 'config.json'))
+    const legacy = join(home, '.claude', 'gate', 'config.json')
+    mkdirSync(join(home, '.claude', 'gate'), { recursive: true })
+    writeFileSync(legacy, '{"Repos":[]}\n')
+    const { connector, requests } = connectorWith()
+    const answer = await connector.inspect(repo)
+    expect(answer.status).toBe('rejected')
+    expect(answer.status === 'rejected' ? answer.reason : '').toContain(`registry ${legacy} is broken: the "repos" field must be an array`)
+    expect(requests).toHaveLength(0)
+  })
+
+  it('the real bin/profile of a fresh Harness (no gate registry, exit 1): a new folder', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    removeTestTree(join(harnessHome, 'gate', 'config.json'))
+    const { connector } = connectorWith()
+    expect((await connector.inspect(repo)).status).toBe('new')
+  })
+
+  it('the real bin/profile with a broken registry (exit 1, the registry there): the Folder step shows its reason', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    writeFileSync(join(harnessHome, 'gate', 'config.json'), '{"Repos":[]}\n')
+    const { connector, requests } = connectorWith()
+    const answer = await connector.inspect(repo)
+    expect(answer.status).toBe('rejected')
+    const reason = answer.status === 'rejected' ? answer.reason : ''
+    // The resolver's own reason, without bin/profile's wrapping: with the long paths of a
+    // temporary folder the wrapped line outgrew the limit of a reason and lost its end.
+    expect(reason).toBe(`The Harness could not tell whether it knows ${repo}: bin/profile failed with exit code 1: registry ${join(harnessHome, 'gate', 'config.json')} is broken: the "repos" field must be an array`)
+    expect(requests).toHaveLength(0)
+  })
+})
+
+/** Whether some process has the pid `pid` now (signal 0 only asks). */
+function pidInUse(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether the process `pid` runs and is still the grandchild named by `marker`: a pid that is in use
+ * again by another process is not it. The command line comes from `ps`, on Windows from
+ * Win32_Process.
+ */
+function grandchildRunning(pid: number, marker: string): boolean {
+  if (!pidInUse(pid)) return false
+  const commandLine =
+    process.platform === 'win32'
+      ? spawnSync(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`], { encoding: 'utf8', windowsHide: true }).stdout
+      : spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8' }).stdout
+  return (commandLine ?? '').includes(marker)
+}
+
+describe('bin/project-connect is started as node <script> (worfy-windows ticket 30)', () => {
+  /** A stand-in of the script: prints its arguments, its stdin and HARNESS_HOME. Not executable: only `node <file>` runs it. */
+  const echoScript = nodeScript(
+    "let stdin = ''\nprocess.stdin.on('data', (chunk) => (stdin += chunk))\nprocess.stdin.on('end', () => process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), stdin, harnessHome: process.env.HARNESS_HOME })))",
+  )
+  const location = (binDir: string): HarnessLocation => ({ kind: 'plugin', binDir, gateDir: join(harnessHome, 'gate'), harnessHome, checked: [join(home, '.claude', 'bin', 'epic-status'), join(binDir, 'epic-status')] })
+  /** node's spawn, recording what it was asked to start. */
+  const recording = (): { spawn: SpawnProcess; calls: { command: string; args: string[] }[] } => {
+    const calls: { command: string; args: string[] }[] = []
+    return {
+      calls,
+      spawn: (command, args, options) => {
+        calls.push({ command, args: [...args] })
+        return spawn(command, args, options)
+      },
+    }
+  }
+
+  it('the command is node from the PATH of the scripts, the script path is its first argument, then the arguments and stdin', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    writeFileSync(join(binDir, 'project-connect'), echoScript)
+    const { spawn: start, calls } = recording()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), spawn: start })
+    const run = await connect(['--facts', join(scratch, 'shop')], '{"draft":1}')
+    expect(calls).toEqual([{ command: NODE, args: [join(binDir, 'project-connect'), '--facts', join(scratch, 'shop')] }])
+    expect(run.code).toBe(0)
+    expect(JSON.parse(run.stdout)).toEqual({ argv: ['--facts', join(scratch, 'shop')], stdin: '{"draft":1}', harnessHome })
+  })
+
+  it('the real bin/project-connect answers --schema-only through it', async () => {
+    const { spawn: start, calls } = recording()
+    const connect = connectScriptRunner({ harness: () => location(BIN), env: () => Promise.resolve(sandboxEnv()), spawn: start })
+    const run = await connect(['--schema-only'], '{}')
+    expect(calls.map((call) => call.args[0])).toEqual([join(BIN, 'project-connect')])
+    expect(run.code).toBe(1)
+    expect((JSON.parse(run.stdout) as { errors: { path: string }[] }).errors.map((issue) => issue.path)).toEqual(['profile', 'rules', 'gate'])
+  })
+
+  it('no script, or no node on the PATH: a HarnessScriptStartError, and nothing is started', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { spawn: start, calls } = recording()
+    const missing = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), spawn: start })
+    await expect(missing(['--check'], '{}')).rejects.toMatchObject({ code: 'ENOENT' })
+
+    writeFileSync(join(binDir, 'project-connect'), echoScript)
+    const emptyDir = join(scratch, 'empty')
+    mkdirSync(emptyDir)
+    const noNode = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([emptyDir])), spawn: start })
+    await expect(noNode(['--check'], '{}')).rejects.toMatchObject({ code: 'NODE_NOT_FOUND' })
+    expect(calls).toHaveLength(0)
+  })
+
+  it('the time limit holds while a process the script started keeps its pipes open', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const alive = join(scratch, 'grandchild-alive')
+    const stop = join(scratch, 'grandchild-stop')
+    const tick = `${alive}.tick`
+    // The holder has the script's pipes, inherited: it writes the time to a file every 100 ms while
+    // it runs, and ends when the stop file appears (or after 30 s), removing its `alive` file. The
+    // runner kills the script's whole tree (killTree), so the holder is left outside it, as a daemon
+    // is: a short-lived process the script starts, detached, starts it detached and exits. Detached
+    // also takes both out of the job in which node keeps its children on Windows.
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [alive, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(alive, String(process.pid))',
+      'const end = () => { try { fs.unlinkSync(alive) } catch {} process.exit(0) }',
+      "setInterval(() => { fs.writeFileSync(alive + '.tick', String(Date.now())); if (fs.existsSync(stop)) end() }, 100)",
+      'setTimeout(end, 30000)',
+    ].join('; ')
+    const intermediate = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true }).unref()`
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(intermediate)}], { stdio: 'inherit', detached: true, windowsHide: true })`,
+        '  setInterval(() => undefined, 1000)',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 3000 })
+    try {
+      const started = Date.now()
+      const run = await connect([], '{}')
+      expect(run).toMatchObject({ code: null, signal: null })
+      expect(Date.now() - started).toBeLessThan(8000)
+      // The holder still runs (its time file moves on): the pipes were held when the answer came.
+      const before = readFileSync(tick, 'utf8')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(readFileSync(tick, 'utf8')).not.toBe(before)
+    } finally {
+      // The grandchild ends itself on the stop file; nothing is killed by a pid.
+      writeFileSync(stop, '')
+      for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(existsSync(alive)).toBe(false)
+  })
+
+  // Mutant review of PR #482: the write's limit, the error after the write, and the timer branch.
+  it('the write (no arguments) gets 30 minutes: after its commit it may run qmd-collections; the facts and the checks keep 120 s', () => {
+    expect(CONNECT_WRITE_TIMEOUT_MS).toBe(30 * 60_000)
+    expect(CONNECT_TIMEOUT_MS).toBe(120_000)
+    expect(connectTimeoutMs([])).toBe(CONNECT_WRITE_TIMEOUT_MS)
+    for (const args of [['--facts', '/work/shop'], ['--schema-only'], ['--check']]) expect(connectTimeoutMs(args)).toBe(CONNECT_TIMEOUT_MS)
+  })
+
+  it('bin/profile that fails after the Profile is written: the reason says so with what it said, not "does not find it"', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const written = connectorWith({
+      connect: () => Promise.resolve({ code: 0, stdout: '{}', stderr: '' }),
+      profile: () => Promise.resolve({ code: 1, stdout: '', stderr: 'profile: /h/projects/shop/profile.json is not valid JSON: Unexpected end of JSON input\n' }),
+    })
+    expect(await written.connector.write(repo, { profile: { mode: 'silent' }, rules: '', gate: [] })).toEqual({
+      status: 'rejected',
+      reason: `The profile was written, but the Harness could not be asked about ${repo}: bin/profile failed with exit code 1: profile: /h/projects/shop/profile.json is not valid JSON: Unexpected end of JSON input. The folder was not added.`,
+    })
+    expect(written.added).toEqual([])
+  })
+
+  it('the script ends by itself and only a process it started holds the pipes: at the limit, the script\'s own exit code', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const alive = join(scratch, 'grandchild-alive')
+    const stop = join(scratch, 'grandchild-stop')
+    // The grandchild holds the inherited pipes until the stop file appears (or 30 s); detached, so
+    // that on Windows it outlives the script (see the time-limit test above).
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [alive, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(alive, String(process.pid))',
+      'const end = () => { try { fs.unlinkSync(alive) } catch {} process.exit(0) }',
+      'setInterval(() => { if (fs.existsSync(stop)) end() }, 100)',
+      'setTimeout(end, 30000)',
+    ].join('; ')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        // unref: the script does not wait for it, as with a daemon it leaves behind.
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(alive)}, ${JSON.stringify(stop)}], { stdio: 'inherit', detached: true, windowsHide: true }).unref()`,
+        "  process.stdout.write('written')",
+        '  process.exitCode = 7',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 3000 })
+    try {
+      const started = Date.now()
+      const run = await connect([], '{}')
+      expect(run).toMatchObject({ code: 7, signal: null, stdout: 'written' })
+      expect(Date.now() - started).toBeLessThan(8000)
+      expect(existsSync(alive)).toBe(true)
+    } finally {
+      writeFileSync(stop, '')
+      for (let i = 0; i < 100 && existsSync(alive); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(existsSync(alive)).toBe(false)
+  })
+
+  // Mac review round 2 of PR #482: a test of the limit the runner is asked for, not of the constants.
+  it('with no limit in the source the write gets 30 minutes from runHarnessScript, --facts and --check 120 s', async () => {
+    const asked: { args: string[]; timeoutMs: number }[] = []
+    const run: typeof runHarnessScript = (_script, args, _env, options) => {
+      asked.push({ args: [...args], timeoutMs: options.timeoutMs })
+      return Promise.resolve({ code: 0, stdout: '{}', stderr: '' })
+    }
+    const connect = connectScriptRunner({ harness: () => location(join(scratch, 'harness-bin')), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), run })
+    await connect([], '{}')
+    await connect(['--facts', join(scratch, 'shop')], 'null')
+    await connect(['--check'], '{}')
+    expect(asked).toEqual([
+      { args: [], timeoutMs: 30 * 60_000 },
+      { args: ['--facts', join(scratch, 'shop')], timeoutMs: 120_000 },
+      { args: ['--check'], timeoutMs: 120_000 },
+    ])
+  })
+
+  // Mac review round 2: project-connect runs qmd-collections, which runs `qmd update`. A kill of
+  // the script alone left them running.
+  it('an abort kills the script and what it started: the grandchild does not outlive it', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const pidFile = join(scratch, 'grandchild-pid')
+    const stop = join(scratch, 'grandchild-stop')
+    const marker = `worfy-ticket30-grandchild-${process.pid}-${Date.now()}`
+    // Ends by itself on the stop file or after 30 s, so that a failing run leaves nothing for long.
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [pidFile, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(pidFile, String(process.pid))',
+      'setInterval(() => { if (fs.existsSync(stop)) process.exit(0) }, 100)',
+      'setTimeout(() => process.exit(0), 30000)',
+    ].join('; ')
+    // On Windows node keeps the processes it starts in a job that ends with it; the grandchild is
+    // detached there to be outside it, as a process a non-node program started would be. Elsewhere it
+    // stays in the script's process group, as qmd-collections and qmd update do.
+    const detached = process.platform === 'win32'
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(pidFile)}, ${JSON.stringify(stop)}, ${JSON.stringify(marker)}], { stdio: 'ignore', detached: ${String(detached)}, windowsHide: true })`,
+        '  setInterval(() => undefined, 1000)',
+        '})',
+        '',
+      ].join('\n'),
+    )
+    const quitting = new AbortController()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), signal: () => quitting.signal })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      quitting.abort()
+      expect(await running).toMatchObject({ code: null, signal: null })
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+    }
+  })
+
+  it('the signal (the app quits) kills a running script: code null, and the script is gone', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const tick = join(scratch, 'script-tick')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      ['#!/usr/bin/env node', `setInterval(() => require('node:fs').writeFileSync(${JSON.stringify(tick)}, String(Date.now())), 100)`, ''].join('\n'),
+    )
+    const quitting = new AbortController()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), signal: () => quitting.signal })
+    const running = connect([], '{}')
+    for (let i = 0; i < 100 && !existsSync(tick); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+    const started = Date.now()
+    quitting.abort()
+    expect(await running).toMatchObject({ code: null, signal: null })
+    expect(Date.now() - started).toBeLessThan(3000)
+    const last = readFileSync(tick, 'utf8')
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(readFileSync(tick, 'utf8')).toBe(last)
+    // An aborted signal starts nothing.
+    await expect(connect([], '{}')).rejects.toThrow('not started: the run was stopped')
+  })
+
+  it('a crash of bin/project-connect (exit 1, no issues): the refusal names its Error line, not the "Node.js vNN" line', async () => {
+    const crash = '/h/bin/project-connect:300\n    throw x\n    ^\n\nTypeError: boom\n    at Object.<anonymous> (/h/bin/project-connect:300:5)\n\nNode.js v24.21.0\n'
+    const { connector } = connectorWith({ connect: () => Promise.resolve({ code: 1, stdout: '', stderr: crash }) })
+    expect(await connector.check({} as ProfileDraft)).toEqual([{ path: '', kind: 'write', message: 'TypeError: boom' }])
+  })
+
+  it('a start failure of the script is the form step\'s reason', async () => {
+    const repo = makeRepo(join(scratch, 'shop'))
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { connector } = connectorWith({ connect: connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])) }) })
+    expect(await connector.draft({ draftId: 'd1', root: repo, mode: 'silent', workflowFolder: null }, () => undefined)).toEqual({
+      status: 'failed',
+      reason: `bin/project-connect could not be run: no Harness script at ${join(binDir, 'project-connect')}`,
+      issues: [],
+    })
   })
 })
 
