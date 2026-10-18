@@ -103,9 +103,13 @@ export let root: string
 export let home: string
 const registries: TerminalRegistry[] = []
 
+// Whether the test that runs now has printed the timing of its first command (worfy-windows ticket 41).
+let firstRunTimed = false
+
 /** Gives every test of the file that calls it, once and at its top level, a fresh `root` and `home`, and closes what the test left. */
 export function useTerminalScratch(): void {
   beforeEach(async () => {
+    firstRunTimed = false
     root = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-project-')))
     home = await realpath(await mkdtemp(join(tmpdir(), 'worfy-terminal-home-')))
   })
@@ -116,6 +120,22 @@ export function useTerminalScratch(): void {
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
     await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   })
+}
+
+/**
+ * Why the tests on Windows PowerShell 5.1 are skipped on the GitHub runner (worfy-windows ticket 41):
+ * there every fresh process answers its first command after 24-32 s, and neither a warm-up nor a
+ * shared LOCALAPPDATA made the next process faster (runs 39090844904 and 39093912268).
+ */
+export const NO_WINDOWS_POWERSHELL_ON_RUNNER = "worfy-windows ticket 41: on the clean GitHub Windows runner the first command of a fresh Windows PowerShell 5.1 answers after ~25 s; runs on the PC and owners' machines"
+
+/**
+ * Skips a vitest test whose shell is Windows PowerShell 5.1 on the GitHub Windows runner, with the
+ * reason: `needsWindowsPowerShellOffRunner(context)` first in the test. On macOS, Linux and a Windows
+ * PC the test runs.
+ */
+export function needsWindowsPowerShellOffRunner(context: { skip: (condition: boolean, note?: string) => void }): void {
+  context.skip(WINDOWS && process.env['GITHUB_ACTIONS'] === 'true', NO_WINDOWS_POWERSHELL_ON_RUNNER)
 }
 
 /** True while a process with this pid exists (a reaped child is gone). */
@@ -234,8 +254,18 @@ export async function harness(options: HarnessOptions = {}) {
   const type = (data: string, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => ok('terminal.input', { projectId: PROJECT, nodeId, data }, from)
   /** Runs a command and waits for the line its output starts with. */
   const run = async (command: string, expected: RegExp, nodeId = NODE, from?: ReturnType<typeof makeWindow>) => {
-    await type(`${command}\r`, nodeId, from)
-    await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
+    // On a real shell of Windows the first command of each test prints its time to output (ticket 41).
+    const timed = WINDOWS && options.spawn === undefined && !firstRunTimed
+    firstRunTimed ||= timed
+    const started = Date.now()
+    let ok = false
+    try {
+      await type(`${command}\r`, nodeId, from)
+      await vi.waitFor(() => expect(text(nodeId)).toMatch(expected), { timeout: 5000 })
+      ok = true
+    } finally {
+      if (timed) process.stdout.write(`[first41] ${JSON.stringify({ test: expect.getState().currentTestName, ms: Date.now() - started, ok })}\n`)
+    }
   }
   return { registry, call, ok, open, type, run, text, outputs, exits, sender, makeWindow, nodes, projectRoot, shellSetting }
 }

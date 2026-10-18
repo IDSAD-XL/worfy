@@ -20,7 +20,7 @@ import {
   type SpawnPty,
   type TerminalSink,
 } from '../../src/main/terminal/pty'
-import { alive, folderLine, harness, home, IGNORE_HANGUP, NODE, PROJECT, root, say, SAY_THE_FOLDER, sayTheSize, SHELL_NAME, SYSTEM_ROOT, useTerminalScratch, WINDOWS, windowsEnv, type OpenResult, type Window } from './terminal-harness'
+import { alive, folderLine, harness, home, IGNORE_HANGUP, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, sayTheSize, SHELL_NAME, SYSTEM_ROOT, useTerminalScratch, WINDOWS, windowsEnv, type OpenResult, type Window } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -79,7 +79,8 @@ describe('terminal channels on a real pty', () => {
     }
   })
 
-  it('resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows', async () => {
+  it('resize changes the size of the pty, clamped to 20–500 columns and 5–300 rows', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     await h.open(NODE, { cols: 90, rows: 30 })
     await h.run(sayTheSize('size'), /size=90x30\r?\n/)
@@ -91,7 +92,8 @@ describe('terminal channels on a real pty', () => {
     await h.run(sayTheSize('small'), /small=20x5\r?\n/)
   })
 
-  it('a second open attaches to the running shell and replays its output', async () => {
+  it('a second open attaches to the running shell and replays its output', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const first = await h.open()
     await h.run(say('mark', 'er-one'), /marker-one\r?\n/)
@@ -167,7 +169,8 @@ describe('terminal channels on a real pty', () => {
     await vi.waitFor(() => expect(alive(pid)).toBe(false), { timeout: 5000 })
   })
 
-  it('the shell exiting on its own reports its exit code and stays exited until open asks for a restart', async () => {
+  it('the shell exiting on its own reports its exit code and stays exited until open asks for a restart', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const { pid } = await h.open()
     await h.run(say('be', 'fore-exit'), /before-exit\r?\n/)
@@ -223,7 +226,8 @@ function received(window: Window, nodeId = NODE): string {
 }
 
 describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () => {
-  it('two clients that opened one Terminal both get every chunk with the same end; the second open does not take the output from the first', async () => {
+  it('two clients that opened one Terminal both get every chunk with the same end; the second open does not take the output from the first', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const a = h.makeWindow()
     const b = h.makeWindow()
@@ -241,7 +245,8 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     expect(afterAttach.length).toBeGreaterThan(0)
   })
 
-  it('a client that attaches to a running shell gets the replay and its end; the chunks after it do not repeat the replay', async () => {
+  it('a client that attaches to a running shell gets the replay and its end; the chunks after it do not repeat the replay', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const a = h.makeWindow()
     await h.open(NODE, { cols: 80, rows: 24 }, a)
@@ -260,7 +265,8 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     expect(received(b)).not.toContain('before')
   })
 
-  it('one of two clients destroyed: the shell lives on and the other gets its output; the last one destroyed: the shell is closed, not kept as exited', async () => {
+  it('one of two clients destroyed: the shell lives on and the other gets its output; the last one destroyed: the shell is closed, not kept as exited', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const a = h.makeWindow()
     const b = h.makeWindow()
@@ -301,7 +307,8 @@ describe('one Terminal on several screens (worfy-link ticket 05, ADR-0053)', () 
     expect(h.registry.hasExited(terminalKey(PROJECT, NODE))).toBe(false)
   })
 
-  it('Restart from A: B gets terminal.started with the new pid, and an open from B attaches to the new shell', async () => {
+  it('Restart from A: B gets terminal.started with the new pid, and an open from B attaches to the new shell', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const a = h.makeWindow()
     const b = h.makeWindow()
@@ -534,7 +541,8 @@ function wiring(projectIds: string[]) {
 }
 
 describe('terminal.open with a command (worfy-harness ticket 19)', () => {
-  it('the new shell gets `gh auth login` typed once it has started, and runs it; a shell opened without one gets nothing', async () => {
+  it('the new shell gets `gh auth login` typed once it has started, and runs it; a shell opened without one gets nothing', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     // The stand-ins go first on the PATH through $HOME/.profile, which a login shell reads after
     // /etc/profile: on macOS /etc/profile (path_helper) moves the system folders, Homebrew's
     // included, before what the PATH had, and a real gh would win.
@@ -770,7 +778,8 @@ describe('wireRegistry: the shells follow the Layout, the Projects and quitting'
     await vi.waitFor(() => expect(h.registry.size).toBe(0), { timeout: 3000 })
   })
 
-  it('will-quit waits for every shell, even one that ignores SIGHUP, then quits again', async () => {
+  it('will-quit waits for every shell, even one that ignores SIGHUP, then quits again', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness({ nodes: [NODE, 'node-2'], killGraceMs: 300 })
     const w = wiring([PROJECT])
     wireRegistry(h.registry, { ...w, quitWaitMs: 10_000 })
@@ -881,7 +890,8 @@ describe('terminal channels at the IPC boundary', () => {
     expect(resize.ok).toBe(false)
   })
 
-  it('drops keys the contract does not declare: a `cwd` from the renderer does not move the shell', async () => {
+  it('drops keys the contract does not declare: a `cwd` from the renderer does not move the shell', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     const elsewhere = await realpath(tmpdir())
     const opened = await h.ok<OpenResult>('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24, cwd: elsewhere, shell: '/bin/bash' })

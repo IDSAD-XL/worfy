@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { findGitBash, findOnPath } from '../../src/main/agent/env'
 import { terminalKey } from '../../src/main/ipc/terminal'
 import { endDescendants } from '../../src/main/terminal/pty'
-import { alive, consoleHosts, folderLine, harness, home, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
+import { alive, consoleHosts, folderLine, harness, home, needsWindowsPowerShellOffRunner, NODE, PROJECT, root, say, SAY_THE_FOLDER, SYSTEM_ROOT, threads, useTerminalScratch, WINDOWS, windowsEnv } from './terminal-harness'
 
 vi.mock('electron', () => ({ app: { on: vi.fn() }, BrowserWindow: { getAllWindows: () => [] } }))
 
@@ -19,7 +19,8 @@ useTerminalScratch()
 describe('terminal channels on a real pty', () => {
   // The shells of Windows on a real pseudo-console (worfy-windows ticket 10): only there.
   describe.runIf(WINDOWS)('on Windows', () => {
-    it('open starts Windows PowerShell with -NoLogo in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async () => {
+    it('open starts Windows PowerShell with -NoLogo in the Project root with TERM_PROGRAM=worfy; input reaches it, output comes back', async (context) => {
+      needsWindowsPowerShellOffRunner(context)
       const h = await harness()
       const opened = await h.open()
       expect(opened).toStrictEqual({ pid: opened.pid, shell: 'powershell.exe', replay: '', end: 0, started: true, exited: null })
@@ -59,6 +60,7 @@ describe('terminal channels on a real pty', () => {
     })
 
     it('terminal.close ends what runs in the shell: a program started in it, and one started with Start-Process', async (context) => {
+      needsWindowsPowerShellOffRunner(context)
       const node = findOnPath('node', process.env)
       if (node === null) context.skip('this machine has no node on its Path')
       await writeFile(join(root, 'keep.js'), 'setInterval(() => {}, 1000)\n')
@@ -113,6 +115,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
   })
 
   it('close ends a program two levels under the shell: the shell started cmd.exe, and cmd.exe the program', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const node = findOnPath('node', process.env)
     if (node === null) context.skip('this machine has no node on its Path')
     // The program says who it is by a file in the Project folder: its output goes to no terminal.
@@ -147,7 +150,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     }
   }, 60_000)
 
-  it('close leaves no conhost.exe behind and starts no helper process; it is done well inside its bound', async () => {
+  it('close leaves no conhost.exe behind and starts no helper process; it is done well inside its bound', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const fork = vi.spyOn(childProcess, 'fork')
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
     const before = consoleHosts()
@@ -170,7 +174,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
 
   // worfy-windows ticket 22. Under the console of the system each such shell left its conhost.exe
   // until worfy quit: node-pty forgets a pseudo-console the moment its shell exits.
-  it('a shell that exited on its own leaves no console host behind', async () => {
+  it('a shell that exited on its own leaves no console host behind', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness({ nodes: ['n1', 'n2', 'n3'] })
     const before = consoleHosts()
     for (const nodeId of ['n1', 'n2', 'n3']) {
@@ -187,7 +192,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
   // closes, and the console lives while any process is on it: measured on the PC, this shell was
   // reported 30 s after it had gone, when the program it left behind ended. The registry asks
   // node-pty for the exit code and reports the exit itself.
-  it('a shell that exits while a program it started still holds its console is reported as exited within seconds, with its exit code', async () => {
+  it('a shell that exits while a program it started still holds its console is reported as exited within seconds, with its exit code', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const h = await harness()
     await h.open()
     await h.run(say('rea', 'dy'), /ready\r?\n/)
@@ -203,7 +209,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
   // With the console of the package node-pty stops the thread that reads the output only when output
   // comes after kill(), and none does: the registry stops it (stopOutputWorker). Without that each
   // Terminal leaves one thread, so sixteen leave sixteen; a few come and go on their own.
-  it('neither a shell that exited on its own nor a closed one leaves a thread behind', async () => {
+  it('neither a shell that exited on its own nor a closed one leaves a thread behind', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const nodes = Array.from({ length: 16 }, (_, index) => `n${index}`)
     const h = await harness({ nodes })
     const before = threads()
@@ -219,7 +226,8 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     await vi.waitFor(() => expect(threads() - before).toBeLessThan(6), { timeout: 8000, interval: 500 })
   }, 120_000)
 
-  it('a shell that exited on its own is asked nothing by its pid afterwards: no helper process is started', async () => {
+  it('a shell that exited on its own is asked nothing by its pid afterwards: no helper process is started', async (context) => {
+    needsWindowsPowerShellOffRunner(context)
     const fork = vi.spyOn(childProcess, 'fork')
     const signals = vi.spyOn(process, 'kill')
     const h = await harness()
