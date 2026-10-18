@@ -1,7 +1,9 @@
 # 41 — Test-ы Terminal с настоящей оболочкой не проходят на чистом runner-е Windows
 
 Type: task
-Status: claimed 2026-10-18T03:28Z
+Status: blocked 2026-10-18T05:01Z
+Blocked reason: пропуск влит (#474); нужен test условия пропуска и один ручной job windows-tests.yml — по слову владельца
+Waits: owner
 Branch: worfy-windows/41-warm-up
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «The clean Windows runner cannot judge this PR»); логи ручного job-а «Windows tests»: запуск 38364376194 (main) и 38364372348 (ветка PR #280)
@@ -90,8 +92,8 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - [x] Причина названа по замеру на runner-е; вывод замера — в «Итоге».
 - [ ] Ручной job на `test/contract/terminal.test.ts`: 0 упавших — либо 15 test-ов пропущены с
       причиной, и это записано в `windows-tests.yml` и в test-файле.
-- [ ] На ПК владельца те же test-ы идут и зелёные: пропуск их там не выключает.
-- [ ] `gate full` зелёный на Mac.
+- [x] На ПК владельца те же test-ы идут и зелёные: пропуск их там не выключает.
+- [x] `gate full` зелёный на Mac.
 
 ## Тесты
 
@@ -181,3 +183,9 @@ Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комм
 - **ПК** (Windows 11 Pro 10.0.26200, `a0079cb`, `node scripts/vitest-electron.mjs <файл>`): с `GITHUB_ACTIONS=true` — `terminal.test.ts` exit 0, 34 прошло, 13 пропущено (3 прежних + 10 новых); `terminal-windows.test.ts` exit 0, 5 прошло, 8 пропущено; test-ы pwsh и Git Bash прошли. Без переменной — exit 0: 44 прошло, 3 пропущено и 13 прошло, как на main. `e2e-no-spawn-on-load.test.ts` exit 0 (48), `pnpm lint` и `pnpm typecheck` exit 0. Gate не запускался: реестра Harness на ПК нет намеренно.
 - **Открыто для владельца — узкий `PSModulePath` на runner-е.** На ПК Windows PowerShell 5.1 сам добавляет к `PSModulePath` папки модулей из `Program Files` и `System32`. На runner-е большие наборы модулей лежат в `C:\Modules` и подключаются через машинный `PSModulePath`. Узкий `PSModulePath` в `windowsEnv` мог бы вернуть эти test-ы на runner; там это не проверялось.
 - **Открытый вопрос про приложение:** на свежей машине с большим набором модулей первая команда Windows PowerShell 5.1 в worfy тоже может ждать ~25 s. По замеру выше между процессами, похоже, ничего не кэшируется, так что вывод шага 1 «у пользователя кэш уже есть» под вопросом. В приложении не мерилось.
+
+### Мерж PR #474 (Session на Mac, 2026-10-18)
+
+- Влит как `f1ac65af` после `[gate] зелено (full)` на Mac. Первый gate full был красным только на `test`, пока Session на Mac писала Profile под `~/.claude` (test-ы со снимком `~/.claude`); `pnpm test` на том же дереве `a6352cae` — exit 0, 6009 passed / 0 failed.
+- Ревью на Mac, круг 2 (medium): одна находка low — условие пропуска не проверено test-ом. Mutant без проверки платформы на Linux CI (там тоже `GITHUB_ACTIONS=true`) молча пропускает 10 test-ов `terminal.test.ts` и остаётся зелёным. Это же требует раздел «Тесты» этого Ticket-а.
+- Осталось: (1) test условия пропуска (на ПК ложно, на runner-е истинно); (2) один ручной job `windows-tests.yml` с пропуском — по слову владельца.
