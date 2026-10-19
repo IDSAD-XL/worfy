@@ -133,6 +133,14 @@ test('hovering a Session keeps its Ticket and Epic frame bright and dims the res
     await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [frame] })
     const second = await openSecondWindow(launched, { size: { width: 1200, height: 800 } })
     await canvasReady({ window: second }, { visible: [second.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`)] })
+    // The machine's own cursor may rest over either window. A Node that comes to lie under it while
+    // the Canvas settles (a frame that grows, a camera that moves) is hovered for real, and its
+    // Family dims the rest. Each window first gets the test's pointer at an empty corner of its
+    // Canvas, so only the test's own moves hover anything.
+    for (const page of [window, second]) {
+      const canvas = await box(page.locator('.react-flow'))
+      await page.mouse.move(canvas.x + 8, canvas.y + canvas.height - 8)
+    }
 
     const claim = `session:${CLAIM}`
     const folder = `session:${FOLDER}`
