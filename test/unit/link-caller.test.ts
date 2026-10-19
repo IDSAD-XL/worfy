@@ -3,7 +3,7 @@
 // Projects only, judged on real paths over a temporary folder with symbolic links.
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { insideProjects, isRemoteCall, realInsideProjects } from '../../src/main/link/caller'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
@@ -57,7 +57,12 @@ describe('inside the Projects, by real paths', () => {
     // gets the same folded path the system opens, so a Linked machine still cannot get out.
     expect(realInsideProjects(`${repo}/out-link/../Repo/src`, projects)).toBe(windows ? join(repo, 'Repo', 'src') : join(repo, 'src'))
     // The secret is not reachable that way on Windows either: the system opens <repo>/outside/secret.txt.
-    if (windows) expect(existsSync(`${repo}/out-link/../outside/secret.txt`)).toBe(false)
+    if (windows) {
+      expect(existsSync(`${repo}/out-link/../outside/secret.txt`)).toBe(false)
+      // And the check answers for that folded path, never for the file behind the link.
+      const answer = realInsideProjects(`${repo}/out-link/../outside/secret.txt`, projects)
+      expect(answer === null || answer.startsWith(`${repo}${sep}`), String(answer)).toBe(true)
+    }
     expect(realInsideProjects(`${outside}/in-link/../../outside/secret.txt`, projects)).toBeNull()
     expect(realInsideProjects(join(repo, 'out-link', 'secret.txt'), projects)).toBeNull()
     expect(realInsideProjects(join(repo, 'out-link'), projects)).toBeNull()

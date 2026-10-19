@@ -30,7 +30,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, posix, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, win32 } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
@@ -42,8 +42,8 @@ Limits wait, the rework rounds and the stops of the Autopilot run. Reads only.
 Input
   --journals <folder>  the Autopilot run journals (*.jsonl). Default: <data>/autopilot, where
                        <data> is WORFY_DATA_DIR when it is set, else
-                       ~/Library/Application Support/worfy (the macOS data folder). On Windows
-                       pass the folder (%APPDATA%\\worfy\\autopilot) or set WORFY_DATA_DIR.
+                       the app's data folder: ~/Library/Application Support/worfy on macOS,
+                       %APPDATA%\\worfy on Windows.
   --root <folder>      the Project's repository: the Status of .scratch/<epic>/issues/NN-*.md
                        gives the PR number and Tickets done without Autopilot. Optional.
   --epic <name>        one Epic. Default: every Epic the journals name.
@@ -107,13 +107,21 @@ const STEPS = [
 ]
 const MARK_TITLES = { start: 'claim', pr: 'PR', ci: 'CI', gate: 'Gate', merge: 'merge' }
 
-/** The journals folder: WORFY_DATA_DIR/autopilot when it is set, else that of the macOS data folder. */
-export function journalsFolder(env = process.env, home = homedir()) {
-  return join(dataFolder(env, home), 'autopilot')
+/**
+ * The journals folder: WORFY_DATA_DIR/autopilot when it is set, else that of the app's data folder on
+ * this system (the same rules as dataRoot in src/main/storage/paths.ts).
+ */
+export function journalsFolder(env = process.env, home = homedir(), platform = process.platform) {
+  return join(dataFolder(env, home, platform), 'autopilot')
 }
 
-function dataFolder(env, home) {
-  return env.WORFY_DATA_DIR ? resolve(env.WORFY_DATA_DIR) : posix.join(home, 'Library', 'Application Support', 'worfy')
+function dataFolder(env, home, platform) {
+  if (env.WORFY_DATA_DIR) return resolve(env.WORFY_DATA_DIR)
+  if (platform === 'win32') {
+    const appData = env.APPDATA !== undefined && win32.isAbsolute(env.APPDATA) ? env.APPDATA : win32.join(home, 'AppData', 'Roaming')
+    return win32.join(appData, 'worfy')
+  }
+  return posix.join(home, 'Library', 'Application Support', 'worfy')
 }
 
 /** Options from the arguments; throws with the reason when they are wrong. */

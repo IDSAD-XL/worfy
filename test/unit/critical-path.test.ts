@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix, relative, resolve } from 'node:path'
+import { join, posix, relative, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
@@ -35,7 +35,7 @@ interface Deps {
 }
 interface CriticalPath {
   criticalPath: (args: string[], deps: Deps) => Promise<number>
-  journalsFolder: (env: Record<string, string | undefined>, home: string) => string
+  journalsFolder: (env: Record<string, string | undefined>, home: string, platform?: NodeJS.Platform) => string
   JOURNAL_KINDS: readonly string[]
 }
 const { criticalPath, journalsFolder, JOURNAL_KINDS } = (await import(pathToFileURL(SCRIPT).href)) as CriticalPath
@@ -283,9 +283,12 @@ describe('critical-path: the command line', () => {
     expect(stdout).toContain('— (gh not available)')
   })
 
-  it('takes the journals folder from --journals, else WORFY_DATA_DIR, else the macOS data folder', () => {
+  it("takes the journals folder from --journals, else WORFY_DATA_DIR, else the app's data folder of the system", () => {
     expect(journalsFolder({ WORFY_DATA_DIR: 'data' }, '/home/u')).toBe(join(resolve('data'), 'autopilot'))
-    expect(journalsFolder({}, '/Users/u')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
+    // The same rules as dataRoot (src/main/storage/paths.ts): macOS, and Windows with or without APPDATA.
+    expect(journalsFolder({}, '/Users/u', 'darwin')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
+    expect(journalsFolder({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u\\AppData\\Roaming', 'worfy'), 'autopilot'))
+    expect(journalsFolder({}, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
   })
 
   it('refuses wrong arguments and a missing journals folder with exit 2', () => {
