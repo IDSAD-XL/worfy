@@ -13,8 +13,8 @@ focus mode), круг 1, находка вне диффа (security). Код п�
   `src/renderer/markdown/Markdown.tsx`. Щелчок по ссылке: `classifyLink` (`src/renderer/markdown/links.ts:75`)
   делит ссылки на `external` (только `https:`) и `file` (относительный или абсолютный путь). Ссылка `file`
   уходит в `shell.openInEditor` (`Markdown.tsx:49-52`).
-- `shell.openInEditor` (`src/main/ipc/shell.ts:73-80`) проверяет только, что файл существует и лежит в
-  Project-е или его worktree (`resolveProjectFile`, `:51-62`), и отдаёт его `shell.openPath` (`:76`).
+- `shell.openInEditor` (`src/main/ipc/shell.ts:76-83`) проверяет только, что файл существует и лежит в
+  Project-е или его worktree (`resolveProjectFile`, `:49-65`), и отдаёт его `shell.openPath` (`:80`).
   Проверки вида файла нет.
 - `shell.openPath` делает то же, что двойной щелчок в Finder или Explorer. Для `.command`, `.app`,
   `.terminal`, `.tool` на macOS и `.exe`, `.bat`, `.cmd`, `.lnk`, `.ps1` на Windows это **запуск**, а не
@@ -52,7 +52,7 @@ focus mode), круг 1, находка вне диффа (security). Код п�
 
 ## Где в коде
 
-- `src/main/ipc/shell.ts` (`:51-62`, `:73-80`)
+- `src/main/ipc/shell.ts` (`:49-65`, `:76-83`)
 - `src/shared/ipc/shell.ts` (ответ `shell.openInEditor`)
 - `src/renderer/markdown/Markdown.tsx` (`:41-53`)
 
@@ -60,7 +60,7 @@ focus mode), круг 1, находка вне диффа (security). Код п�
 
 ## Вне скоупа
 
-- Ссылки `https:` — уже только `shell.openExternal` с проверкой схемы (`shell.ts:65-70`).
+- Ссылки `https:` — уже только `shell.openExternal` с проверкой схемы (`shell.ts:67-73`).
 - Открыть Ticket в редакторе в Silent mode (Workflow folder вне Project-а) — [36](36-долг-после-review-pr-530.md).
 
 ## Итог

@@ -33,9 +33,9 @@ Source: ревью PR [#526](https://github.com/IDSAD-XL/worfy/pull/526) (Ticket
 - [ ] **Язык не того типа молча становится `en`.** `harness/bin/profile:269-271`: `language` профиля —
       число, массив или `null` — молча заменяется на `{}`, и все три языка становятся `en`. Одна строка
       stderr с путём профиля, как у сломанного `user.json`.
-- [ ] **Живые проверки читают настоящий `user.json` владельца.** `harness/bin/tests/profile.test.sh:56-57`
-      («auction language.reports ru», «… team ru») идут до синтетического `HARNESS_HOME` (`:150-153`) и
-      зависят от `$HARNESS_HOME/user.json` того, кто запускает. Запускать их с пустым временным
+- [ ] **Живые проверки читают настоящий `user.json` владельца.** `harness/bin/tests/profile.test.sh:56`
+      («auction language.reports ru») идёт до синтетического `HARNESS_HOME` (`:150-153`) и зависит от
+      `$HARNESS_HOME/user.json` того, кто запускает (`user.json` задаёт только `reports`). Запускать её с пустым временным
       `HARNESS_HOME` (реестр — как у остальных живых проверок).
 - [ ] **Test-ы inject-rules (`harness/hooks/tests/rules-hooks.test.sh`):**
       пробелы в конце файла правил срезаются (сейчас их срезает `$(…)` самого test-а); fixture из 600

@@ -26,7 +26,9 @@ Source: ревью PR [#536](https://github.com/IDSAD-XL/worfy/pull/536) (Ticket
 (`src/renderer/canvas/NodeChrome.tsx:62`), индексы Family один раз на объект связей
 (`src/renderer/canvas/family.ts:67`), поля `FamilyLinks` только для чтения (`family.ts:24-36`),
 комментарии `showWith` (`src/renderer/canvas/edge-types/StepEdge.tsx:11-14`,
-`src/renderer/canvas/sources/workflow-bindings.ts:62-65`), «Re-pack» под слоем focus mode (#539, круг 2).
+`src/renderer/canvas/sources/workflow-bindings.ts:62-65`), лишние перезапуски эффекта `EdgeFocus` (`links`
+строится через `useMemo` от строки, `src/renderer/canvas/overlays/EdgeFocus.tsx:29`), «Re-pack» под слоем
+focus mode (#539, круг 2).
 
 ## Что делаем
 
@@ -59,15 +61,14 @@ Source: ревью PR [#536](https://github.com/IDSAD-XL/worfy/pull/536) (Ticket
       (`NODE_COLOR_DEFAULT = 'var(--text-muted)'`): `test/unit/minimap-paint.test.tsx:41-44` сравнивает
       с самой константой, поэтому смена константы test не краснит. Сравнивать с литералом, как и заливку
       Ticket-а.
-- [ ] **#538, выбранная Session и Note под курсором.** `src/renderer/canvas/edge-focus.ts:76-83`
-      (`brightOf`): выбрана Session, курсор над Note — Note затемняется. Test закрепляет это поведение
-      (или правка, если так не задумано).
+- [ ] **#538, выбранная Session и Note под курсором.** `src/renderer/canvas/edge-focus.ts:76-84`
+      (`brightOf`): выбрана Session, курсор над Note — Note остаётся ярким, потому что набор ярких
+      начинается с `new Set(focused)` (`:81`), а Node под курсором входит в `focused`
+      (`src/renderer/canvas/overlays/EdgeFocus.tsx:53`). Test-а на этот случай нет — закрепить.
 - [ ] **#538, затемнение закреплённого Node-а.** `NodeChrome.tsx:77`: ветка `PinnedFrame` рисует
       затемнение — test-а нет.
 - [ ] **#538, Reduce motion.** `src/renderer/canvas/node-chrome.css:58-60`: `prefers-reduced-motion`
       выключает переход — test-а нет (e2e с `reducedMotion: 'reduce'` или unit на класс).
-- [ ] **#538, зависимости эффекта.** `src/renderer/canvas/overlays/EdgeFocus.tsx:54`: эффект зависит от
-      `links`; проверить, что новый объект связей на каждом рендере не перезапускает эффект впустую.
 - [ ] **#538, Show family и фильтр по тегу.** «Show family» (`src/renderer/canvas/overlays/SelectionToolbar.tsx:271-281`)
       подгоняет вид и под Node-ы, которые скрыл фильтр по тегу (`src/renderer/find/CanvasFind.tsx:177`).
       Решить: исключать их или так и задумано.
@@ -97,7 +98,7 @@ Source: ревью PR [#536](https://github.com/IDSAD-XL/worfy/pull/536) (Ticket
 - `src/main/layout/archive.ts`, `src/main/layout/store.ts`, `src/main/link/remote-calls.ts`
 - `src/renderer/canvas/overlays/minimap-paint.ts`
 - `src/renderer/canvas/edge-focus.ts`, `src/renderer/canvas/NodeChrome.tsx`, `src/renderer/canvas/node-chrome.css`,
-  `src/renderer/canvas/overlays/EdgeFocus.tsx`, `src/renderer/canvas/overlays/SelectionToolbar.tsx`
+  `src/renderer/canvas/overlays/SelectionToolbar.tsx`
 - `src/renderer/canvas/epic-arrangement.ts`, `src/renderer/canvas/elk/client.ts`, `src/renderer/canvas/sources/epics.ts`
   (файлы #539)
 

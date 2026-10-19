@@ -24,7 +24,7 @@ mode), круг 1: линза «корректность» и линза «те�
 - [ ] **Silent mode: «Open in editor» и ссылки в теле ничего не делают.** В Silent mode Ticket-ы лежат в
       Workflow folder вне Project-а. `tickets.read` разрешает места «корень Project-а, `ticketsRoot`,
       Workflow folder» (`src/main/ipc/tickets.ts:39`), а `shell.openInEditor` — только корень Project-а
-      и его worktree (`src/main/ipc/shell.ts:74-75`). Кнопка «Open in editor»
+      и его worktree (`src/main/ipc/shell.ts:77-78`). Кнопка «Open in editor»
       (`src/renderer/canvas/nodes/TicketNode.tsx:187-190`, вызов `:152`) и ссылки тела Ticket-а получают
       отказ, а окно пишет его только в console. Правка: Workflow folder — разрешённое место
       `shell.openInEditor` (вместе с проверкой вида файла Ticket-а 35); пока её нет — причина на плитке, а
@@ -44,8 +44,8 @@ mode), круг 1: линза «корректность» и линза «те�
 - [ ] **Test: `ticketsRoot` в Silent mode вне Workflow folder.** `readTicketFile`
       (`src/main/ipc/tickets.ts:35-48`): случай, когда `ticketsRoot` лежит вне Workflow folder, не
       проверен (`test/contract/tickets-read.test.ts`).
-- [ ] **Test: Esc закрывает focus mode.** `src/renderer/canvas/overlays/FocusEntry.tsx:86` — покрыто только e2e;
-      добавить unit.
+- [ ] **Test: Esc закрывает focus mode.** Обработка Esc — `src/renderer/focus/FocusMode.tsx:155-156`
+      (`escapePress`) и `:347-369`; покрыто только e2e — добавить unit.
 - [ ] **Test: устаревший ответ `tickets.read`.** `ticket-text.ts:35` (`if (!live) return`) — мутант без
       проверки выживает: ответ про прошлый Ticket, пришедший после смены фокуса, перезаписал бы текст.
 - [ ] **Test: ключ при смене slug.** `ticket-text.ts:38` и `:45` сравнивают ключ
@@ -63,13 +63,13 @@ mode), круг 1: линза «корректность» и линза «те�
 ## Тесты
 
 - Contract: `test/contract/tickets-read.test.ts`, `test/contract/shell.test.ts`.
-- Unit: test-ы `ticket-text`, `FocusEntry`, `TicketNode`; `test/unit/workflow-reader*` для `version`.
+- Unit: test-ы `ticket-text`, `FocusMode`, `TicketNode`; `test/unit/workflow-reader*` для `version`.
 
 ## Где в коде
 
 - `src/main/ipc/tickets.ts`, `src/main/ipc/shell.ts`, `src/shared/ipc/tickets.ts`
 - `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`,
-  `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/overlays/FocusEntry.tsx`
+  `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/focus/FocusMode.tsx`
 - `src/main/workflow/reader.ts`, `src/main/workflow/stages.ts`, `src/main/autopilot/run.ts` — только читать,
   если правка не нужна
 - `src/main/index.ts` (`will-quit`)

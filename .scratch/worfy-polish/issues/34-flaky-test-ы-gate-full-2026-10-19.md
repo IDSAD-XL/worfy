@@ -29,8 +29,7 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
   `spawn`, test ждёт только событие `spawn` (`:548-551`), а скрипт ищет программу через
   `ps -axo pid=,command=` (`scripts/install-stable.mjs:327`). Событие `spawn` не значит, что `ps` уже видит
   процесс с новым `command`; ожидания этого нет.
-- **e2e `family.spec.ts` — 1 раз.** `test/e2e/family.spec.ts:98` (test начинается здесь; `:101` —
-  подготовка fixture). Gate full PR #539 на Mac, 2026-10-19; отдельно — зелёный. Test ждёт
+- **e2e `family.spec.ts` — 1 раз.** `test/e2e/family.spec.ts:101`. Gate full PR #539 на Mac, 2026-10-19; отдельно — зелёный. Test ждёт
   `canvasReady` обоих окон (`:132`, `:135`), `expectOpacities` с опросом 20 s (`:80-82`) и
   `expect.poll(allOnCanvas)` (`:177`) с пределом по умолчанию 5 s (`playwright.config.ts` не задаёт
   `expect.timeout`). Какая проверка упала — не известно: текст ошибки потерян (gate хранит хвост вывода,
@@ -86,7 +85,7 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 
 - `test/contract/harness-evals.test.ts` (`:32`, `:617-619`, `:810`), `scripts/eval-harness.mjs` — только читать
 - `test/unit/install-stable.test.ts` (`:539-551`, `:782`), `scripts/install-stable.mjs` (`:327`) — только читать
-- `test/e2e/family.spec.ts` (`:80-82`, `:98`, `:177`)
+- `test/e2e/family.spec.ts` (`:80-82`, `:101`, `:177`)
 - `test/contract/terminal.test.ts` (`:63`)
 - `test/e2e/harness-install.spec.ts` (`:262`, `:297`)
 - `test/unit/first-run-windows.test.ts` (`:285-308`)
