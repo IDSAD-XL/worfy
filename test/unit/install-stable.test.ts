@@ -1,8 +1,9 @@
 // scripts/install-stable.mjs (worfy-windows ticket 12): the stable copy of worfy on macOS and on
-// Windows. The parts that decide by the system take it as a parameter, so both are tested here on
-// any machine; so is the swap of the copies, over a stand-in of the file system. Then the script
-// itself, over a stand-in build: its refusals on any system, whole installs on macOS and on
-// Windows (Linux has neither system's way to copy an app), and what only Windows has, with
+// Windows. The parts that decide by the system take it as a parameter, so both are tested on any
+// machine — in install-stable-functions.test.ts, with the swap of the copies over a stand-in of the
+// file system. This file runs the script itself, over a stand-in build: its refusals on any
+// system, whole installs on macOS and on Windows (Linux has neither system's way to copy an
+// app), and what only Windows has, with
 // %LOCALAPPDATA% pointed at a temporary folder. A whole install of a real build is run on macOS
 // by test/e2e/packaged.spec.ts.
 //
@@ -428,7 +429,8 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
     }, 60_000)
 
     // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
-    // whole tree; main had five tries for every entry. The script runs the walk again.
+    // whole tree; before PR #257 every entry had five tries of its own. The script runs the walk
+    // again (removeInRounds; its own tests, on any system, are in install-stable-functions.test.ts).
     it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the removal is the copy of removeTree too, run once', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')

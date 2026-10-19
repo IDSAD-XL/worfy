@@ -36,10 +36,11 @@ interface InstallStable {
   registerCommand: (platform: string, target: string, env: Env) => { command: string; args: string[] } | null
   LSREGISTER: string
   REMOVE_ROUNDS: number
+  removeInRounds: <T>(path: string, remove: (path: string) => T, wait?: (ms: number) => void) => T
 }
 export const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'install-stable.mjs')
-export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, registerCommand, LSREGISTER, REMOVE_ROUNDS } = (await import(
+export const { defaultTarget, installerDir, checkTarget, metadataPath, runningCopies, notACopy, leftoverName, leftovers, buildCommand, builtApp, swapIn, onDisk, installStable, stamp, registerCommand, LSREGISTER, REMOVE_ROUNDS, removeInRounds } = (await import(
   pathToFileURL(SCRIPT).href
 )) as InstallStable
 

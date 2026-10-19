@@ -52,7 +52,7 @@ const MAX_PID = 4_194_304
 /** How often and how long a step of the file system is tried again on Windows when a file is busy. */
 const RETRIES = 5
 const RETRY_MS = 100
-/** How many times a removal that busy entries stopped is run on Windows, each with its own five waits. */
+/** How many times a removal that busy entries stopped is run on Windows, each with its own five waits (removeInRounds). */
 export const REMOVE_ROUNDS = 5
 
 const rulesOf = (platform) => (platform === 'win32' ? win32 : posix)
@@ -375,6 +375,38 @@ function patiently(step) {
   }
 }
 
+/** Blocks the thread for `ms`: this script is one synchronous run. */
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * Runs a removal on Windows until it goes, REMOVE_ROUNDS times at most. The walk has five waits
+ * for a whole tree: the application needs that bound, a wait blocks its main process. This script
+ * is a command in a terminal and has the time, so a removal that busy entries stopped is run
+ * again, each run with its own waits: six files that are busy for one try each all go, as they
+ * did when every entry had five tries of its own (before PR #257). Only a "busy" answer runs it
+ * again; any other error ends it at once, and the last error is thrown.
+ *
+ * Before each new run it pauses RETRY_MS. The walk waits on unlink and rmdir, not on lstat and
+ * readdir: a removal stopped by a busy lstat had spent no wait, and would be run again at once.
+ * The walk's waits are made inside removeTree, between the marks, so this loop cannot tell
+ * whether the run before waited: it pauses every time, 400 ms at most.
+ *
+ * `remove(path)` is the removal (removeTree in the script) and `wait(ms)` the pause; both are
+ * parameters, as swapIn takes the file system, so a test runs this loop over a stand-in on any system.
+ */
+export function removeInRounds(path, remove, wait = pause) {
+  for (let round = 1; ; round++) {
+    try {
+      return remove(path)
+    } catch (error) {
+      if (round >= REMOVE_ROUNDS || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(error?.code)) throw error
+      wait(RETRY_MS)
+    }
+  }
+}
+
 /**
  * Removes a folder of Windows with what is in it, and never what a link in it leads to: a link —
  * a symlink or a junction, at the path itself or anywhere below — is not a folder to lstat, and is
@@ -571,17 +603,16 @@ function plainFile(path) {
  * Installs the copy; answers the line to print. Throws an Error with the reason otherwise.
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
+ * `removeFolder(path)` removes a copy, or what is left of one; removeTree by default. On Windows
+ * removeInRounds runs it again while the answer is "busy"; elsewhere it is run once.
  */
 export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
   /**
-   * Removes a copy, or what is left of one. On Windows the walk has five waits for a whole tree:
-   * the application needs that bound, a wait blocks its main process. This script is a command in
-   * a terminal and has the time, so a removal that busy entries stopped is run again, each run
-   * with its own waits: six files that are busy for one try each all go, as they did when every
-   * entry had five tries of its own.
+   * Removes a copy, or what is left of one. On Windows a removal that busy entries stopped is run
+   * again (removeInRounds).
    *
    * Off Windows the removal is the same function, run once (worfy-windows ticket 44). Until then
    * this line called rmSync itself, with five tries of its own, and so went past the look for a
@@ -589,16 +620,7 @@ export function installStable(argv, { platform = process.platform, env = process
    * have lost the files of that volume. A removal there does not wait inside, so running it again
    * at once would be no wait either; what could not be removed is left and named, as on Windows.
    */
-  const remove = (path) => {
-    if (platform !== 'win32') return removeFolder(path)
-    for (let round = 1; ; round++) {
-      try {
-        return removeFolder(path)
-      } catch (error) {
-        if (round >= REMOVE_ROUNDS || !['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES'].includes(error?.code)) throw error
-      }
-    }
-  }
+  const remove = (path) => (platform === 'win32' ? removeInRounds(path, removeFolder) : removeFolder(path))
   const why = (error) => (error instanceof Error ? error.message : String(error))
   const parent = rules.dirname(rules.resolve(target))
   mkdirSync(parent, { recursive: true })
