@@ -301,6 +301,34 @@ describe('the kind of the folder (step 1)', () => {
     expect(linked.ok && linked.folder.notice).toMatch(/is a worktree of .*the repository root is connected instead/)
   })
 
+  // Windows gives one folder several spellings: the short 8.3 name of a long account name, a subst
+  // drive, another letter case. git answers the spelling the disk has, so the folder the user typed
+  // is compared on that one too. Letter case is the spelling a test can make on any machine; on a
+  // case-sensitive disk it names another, missing folder.
+  it('another spelling of the folder is the same folder: a repository without a notice, a multi-repo folder with its repositories', async () => {
+    const workspace = join(scratch, 'atakama')
+    const server = makeRepo(join(workspace, 'server'))
+    const extension = makeRepo(join(workspace, 'extension'))
+    const spelled = join(scratch, 'ATAKAMA')
+    if (!existsSync(spelled)) {
+      expect(await inspectFolder(spelled, runGit)).toEqual({ ok: false, reason: `${spelled} does not exist.` })
+      return
+    }
+    expect(await inspectFolder(join(spelled, 'SERVER'), runGit)).toEqual({ ok: true, folder: { kind: 'git', root: realpathSync.native(server), repos: [{ name: 'server', path: realpathSync.native(server) }], notice: null } })
+    expect(await inspectFolder(spelled, runGit)).toEqual({
+      ok: true,
+      folder: {
+        kind: 'multi-repo',
+        root: realpathSync.native(workspace),
+        repos: [
+          { name: 'extension', path: realpathSync.native(extension) },
+          { name: 'server', path: realpathSync.native(server) },
+        ],
+        notice: null,
+      },
+    })
+  })
+
   it('a folder without repositories, or with only one, is refused with the reason', async () => {
     const plain = join(scratch, 'plain')
     mkdirSync(join(plain, 'docs'), { recursive: true })

@@ -184,9 +184,14 @@ export interface ConnectDeps {
 
 export type FolderInspection = { ok: true; folder: ConnectFolder } | { ok: false; reason: string }
 
+/**
+ * The real path in the spelling the disk has, the one git answers: the native realpath turns the
+ * 8.3 short name of a long account name, a subst drive or another letter case into it, where the
+ * plain one keeps the folder as it was typed and the same folder would compare as another.
+ */
 function realpathOrSelf(path: string): string {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
     return path
   }

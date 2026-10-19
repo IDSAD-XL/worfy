@@ -304,10 +304,16 @@ describe('projects.add', () => {
   it('takes another spelling of the repository root for the root itself: no notice, and one entry', async () => {
     const repo = makeRepo('auction')
     // Windows: other letter case and `/` (as a short 8.3 name or a `subst` drive, it is the same folder
-    // to git and to the native realpath, not to fs.realpathSync). Elsewhere: a symbolic link to the root.
+    // to git and to the native realpath, not to fs.realpathSync). A case-insensitive disk elsewhere
+    // (APFS by default): other letter case. A case-sensitive disk: a symbolic link to the root, which
+    // fs.realpathSync resolves too, so there the test does not tell the two realpaths apart.
     let other: string
+    const upper = join(scratch, 'AUCTION')
     if (process.platform === 'win32') {
       other = repo.toLowerCase().replaceAll('\\', '/')
+      expect(realpathSync(other)).not.toBe(repo)
+    } else if (existsSync(upper)) {
+      other = upper
       expect(realpathSync(other)).not.toBe(repo)
     } else {
       other = join(scratch, 'auction-link')
