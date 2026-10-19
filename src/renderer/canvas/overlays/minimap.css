@@ -10,7 +10,7 @@
   display: none;
 }
 /*
- * Node outlines: none, but an outlined kind's (MiniMapOverlay.tsx, OUTLINED_KINDS). The width is in
+ * Node outlines: none, but an outlined kind's (minimap-paint.ts, OUTLINED_KINDS). The width is in
  * screen pixels: the minimap's drawing is scaled to fit the Canvas, and a stroke in its units would
  * shrink with it.
  */

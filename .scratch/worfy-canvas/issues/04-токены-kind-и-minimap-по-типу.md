@@ -107,4 +107,14 @@ at least 3:1»; тёмный `--kind-epic` = #C8F25A — красный «no sta
 `vector-effect: non-scaling-stroke` в `minimap.css`). Ticket, Note, Card, Terminal, HANDOFF — как были.
 Рамка Epic-а рисуется под своими Ticket-ами: они серые поверх охры.
 
+**Круг 2 ревью.** Функции окраски Minimap вынесены из `MiniMapOverlay.tsx` в
+`src/renderer/canvas/overlays/minimap-paint.ts` (файл `.ts` glob overlay-ев `overlays/*.tsx` не подхватывает).
+Новый unit `test/unit/minimap-paint.test.tsx` (jsdom, идёт в Linux CI) проверяет по настоящему реестру типов:
+заливку по kind, контур Subagent-а без заливки, нейтральные Ticket, Note, Card, Terminal, HANDOFF и
+неизвестный kind, класс pinned рядом с классом контура. Он же проверяет текстом `minimap.css`: `stroke-width: 0`
+у всех, `vector-effect: non-scaling-stroke` и толщину в px у контура. Мутанты красные: пустой `OUTLINED_KINDS`,
+нет `vector-effect`, нет класса pinned, Session снова серый, заливка у Subagent-а. e2e
+`test/e2e/pin-tags.spec.ts` ждал у Orchestrator-а заливку по умолчанию `var(--text-muted)`; теперь
+`var(--kind-orchestrator)`.
+
 Снимки Minimap: [светлая](../evidence/04-minimap-kinds-light.png), [тёмная](../evidence/04-minimap-kinds-dark.png).
