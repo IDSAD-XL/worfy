@@ -299,6 +299,54 @@ describe('Settings → Pipeline', () => {
     expect(main.calls).not.toContain('pipeline.write')
   })
 
+  it('renaming a Check with marks asks before Save and names 2 Tickets; Cancel writes nothing, Save writes', async () => {
+    const { main } = await mount(custom())
+    await waitFor(() => expect(main.calls).toContain('pipeline.get'))
+    await act(async () => undefined)
+    type('Check «windows» name', 'linux')
+    fireEvent.click(save())
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog.textContent).toMatch(/Save with Check «windows» renamed\? 2 Tickets have a mark under the old name or stand on it\./)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(main.writes).toEqual([])
+    fireEvent.click(save())
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }))
+    await screen.findByTestId('pipeline-saved')
+    expect(main.writes).toEqual([{ root: ROOT, expected: FINGERPRINT, pipeline: PIPELINE.map((stage) => (stage.kind === 'check' ? { kind: 'check', name: 'linux' } : stage)) }])
+  })
+
+  it('a renamed Check is counted by the name it was read with: removing it asks and names 2 Tickets', async () => {
+    const { main } = await mount(custom())
+    await waitFor(() => expect(main.calls).toContain('pipeline.get'))
+    await act(async () => undefined)
+    type('Check «windows» name', 'linux')
+    fireEvent.click(screen.getByLabelText('Remove Check «linux»'))
+    expect(screen.getByRole('alertdialog').textContent).toMatch(/Remove Check «linux»\? 2 Tickets have its mark or stand on it\./)
+  })
+
+  it('a label changed, the Check name kept: Save writes without a question', async () => {
+    const { main } = await mount(custom())
+    await waitFor(() => expect(main.calls).toContain('pipeline.get'))
+    await act(async () => undefined)
+    type('Check «windows» label', 'Windows')
+    fireEvent.click(save())
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await screen.findByTestId('pipeline-saved')
+    expect(main.writes).toHaveLength(1)
+  })
+
+  it('a write answered too-old: the line about the old Harness and Update Harness, the form gone', async () => {
+    const { main } = await mount(custom())
+    main.write = { status: 'too-old' }
+    type('CI label', 'Builds')
+    fireEvent.click(save())
+    expect(await screen.findByText('The Harness is too old for the Pipeline editor.')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Update Harness' })).toBeTruthy()
+    expect(screen.queryByTestId('pipeline-save')).toBeNull()
+    expect(screen.queryByTestId('pipeline-stage')).toBeNull()
+    expect(main.writes).toHaveLength(1)
+  })
+
   it('a write main could not run: the reason, nothing taken', async () => {
     const { main } = await mount(custom())
     main.write = undefined as unknown as PipelineWriteResult
@@ -309,5 +357,57 @@ describe('Settings → Pipeline', () => {
     fireEvent.click(save())
     expect((await screen.findByTestId('pipeline-failed')).textContent).toMatch(/exit 9/)
     expect(save().disabled).toBe(false)
+  })
+})
+
+// The section as Settings mounts it (its default export) in a window on Linked machine M: the window
+// reads `?machine=` from its address, and its `project` channels go to M through `linked.invoke`.
+describe('Settings → Pipeline in a window on a Linked machine', () => {
+  const M = '22222222-2222-4222-8222-222222222222'
+  const PROJECT = 'shop-00000001'
+
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+  })
+
+  it('shows the Pipeline of M read-only, says to edit it on M, has no Save or Reset and writes nothing', async () => {
+    window.history.replaceState(null, '', `/?machine=${M}&project=${PROJECT}`)
+    const calls: string[] = []
+    const sent: string[] = []
+    const onM: Record<string, unknown> = {
+      'projects.list': { projects: [{ id: PROJECT, name: 'shop', path: '/repos/shop', branch: 'main' }], activeId: PROJECT, revision: 1 },
+      'pipeline.read': custom(),
+      'pipeline.get': { root: '/repos/shop', pipeline: [], tickets: [], error: null },
+    }
+    const bridge: WorfyBridge = {
+      invoke: (channel, input) => {
+        calls.push(channel)
+        if (channel === 'link.state') {
+          return Promise.resolve({ ok: true, value: { revision: 1, machine: { id: 'this', name: 'Studio' }, problem: null, listening: true, addresses: [], bonjour: false, linking: { open: false, code: null, expiresAt: null, linked: null, failure: null }, linked: [{ id: M, name: 'Mini', state: 'online', certificateChanged: false, access: 'all' }], discovered: [], projectsAccess: false, keepAwake: true } } as never)
+        }
+        if (channel === 'linked.invoke') {
+          const call = input as { channel: string }
+          sent.push(call.channel)
+          const answer = call.channel in onM ? { ok: true, value: onM[call.channel] } : { ok: false, error: `${call.channel}: not in this test` }
+          return Promise.resolve({ ok: true, value: answer } as never)
+        }
+        return Promise.resolve({ ok: false, error: `${channel}: not in this test` } as never)
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    ;(globalThis as { worfy?: WorfyBridge }).worfy = bridge
+    const section = await import('../../src/renderer/settings/PipelineSection')
+    render(<section.default />)
+    expect((await screen.findByTestId('pipeline-elsewhere')).textContent).toBe('This Pipeline belongs to a Project of Mini. Edit it in worfy on Mini.')
+    expect(screen.getAllByTestId('pipeline-readonly-stage').map((row) => row.textContent)).toEqual(['Queued', 'Implementing', 'CI', 'Check «windows»', 'Gate & merge', 'Done'])
+    expect(screen.queryByTestId('pipeline-save')).toBeNull()
+    expect(screen.queryByTestId('pipeline-reset')).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(Save|Reset to default)$/u })).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    // The read went to M; no write went anywhere.
+    expect(sent).toContain('pipeline.read')
+    expect(calls).not.toContain('pipeline.read')
+    expect([...calls, ...sent]).not.toContain('pipeline.write')
   })
 })

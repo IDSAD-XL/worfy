@@ -133,7 +133,7 @@ describe('the initial marks', () => {
     for (const name of signIn) expect(local, name).toContain(name)
   })
 
-  // worfy-pipeline ticket 08 (owner's decision Q5): only the Machine of a Project edits its Pipeline.
+  // worfy-pipeline ticket 08: only the Machine of a Project edits its Pipeline.
   // The write is `local`, closed to a Linked machine with full access too; the read is `project`,
   // `read`, so a Linked machine's window shows that Machine's Pipeline.
   it('the Pipeline editor: pipeline.write is `local`, pipeline.read is `project` and `read` (worfy-pipeline ticket 08)', () => {

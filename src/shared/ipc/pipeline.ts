@@ -57,12 +57,12 @@ export const pipelineChanged = eventChannel('pipeline.changed', pipelineSnapshot
 
 // ── the Pipeline editor (worfy-pipeline ticket 08) ───────────────────────────────
 
-/** The fingerprint `bin/profile-set --read` gives of `workflow.pipeline`: compare-and-write (owner's decision Q6). */
+/** The fingerprint `bin/profile-set --read` gives of `workflow.pipeline`: the write goes ahead only while the Profile still has the Pipeline the editor read. */
 export const pipelineFingerprintSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u)
 
 /** What the editor reads of a Project's Profile through `bin/profile-set --read`. */
 export const pipelineEditorReadSchema = z.discriminatedUnion('available', [
-  /** The Harness on the Machine has no `bin/profile-set`: it is older than the editor (Q8). */
+  /** The Harness on the Machine has no `bin/profile-set`: it is older than the editor. */
   z.object({ available: z.literal(false), reason: z.string() }),
   z.object({
     available: z.literal(true),
@@ -86,25 +86,25 @@ export const pipelineWriteInputSchema = z.object({
   root: absolutePathSchema,
   /** The fingerprint the editor read (`pipeline.read`); null when the Profile had no `workflow.pipeline`. */
   expected: pipelineFingerprintSchema.nullable(),
-  /** The new Pipeline; null resets it to the default: `bin/profile-set --reset` removes the field (Q4). */
+  /** The new Pipeline; null resets it to the default: `bin/profile-set --reset` removes the field. */
   pipeline: pipelineSchema.nullable(),
 })
 
 export const pipelineWriteResultSchema = z.discriminatedUnion('status', [
-  /** Written. `warning`: why the change was not committed in the Harness home's git; the write stays (Q7). */
+  /** Written. `warning`: why the change was not committed in the Harness home's git; the write stays. */
   z.object({ status: z.literal('saved'), fingerprint: pipelineFingerprintSchema.nullable(), warning: z.string().nullable() }),
-  /** The Profile's Pipeline is not the one the editor read: nothing written (Q6). */
+  /** The Profile's Pipeline is not the one the editor read: nothing written. */
   z.object({ status: z.literal('conflict') }),
   /** `bin/profile-set` refused the Pipeline (exit 1) with this reason: nothing written. */
   z.object({ status: z.literal('invalid'), reason: z.string() }),
-  /** The Harness has no `bin/profile-set` (Q8). */
+  /** The Harness has no `bin/profile-set`: the editor offers its Update. */
   z.object({ status: z.literal('too-old') }),
 ])
 export type PipelineWriteResult = z.infer<typeof pipelineWriteResultSchema>
 
 /**
  * Writes the Pipeline of a Project of this Machine through `bin/profile-set` (ADR-0073). `local`, not
- * `project`: main refuses it to every Linked machine, with full access too (owner's decision Q5) —
+ * `project`: main refuses it to every Linked machine, with full access too —
  * the Pipeline is edited only in worfy on the Machine the Project lives on.
  */
 export const pipelineWrite = invokeChannel('pipeline.write', pipelineWriteInputSchema, pipelineWriteResultSchema, 'local')

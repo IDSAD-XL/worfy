@@ -1,9 +1,8 @@
-// The rules of a project's Pipeline (worfy ADR-0067), shared by bin/profile, which reads the field,
-// and bin/profile-set, which writes it (worfy ADR-0073): one copy of the rules, so a Pipeline the
-// writer accepts is one the reader accepts.
+// The rules of a project's Pipeline, shared by bin/profile, which reads the field, and bin/profile-set,
+// which writes it: one copy of the rules, so a Pipeline the writer accepts is one the reader accepts.
 //
 // The Pipeline is the list of Stages a ticket goes through, built from a fixed catalogue of kinds.
-// Each kind has its predicate in code (worfy and the Harness check the same thing); the profile only
+// Each kind has its predicate in code, not in the profile; the profile only
 // picks kinds, orders them, renames them (label) and sets when a ticket counts as stuck
 // (stuck_after). check is an agent's mark with a name (check/<name>), deploy may name the GitHub
 // Deployment environment. Rules: queued first, done last, each kind once (check — once per name),

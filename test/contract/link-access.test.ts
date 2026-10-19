@@ -869,7 +869,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
   })
 })
 
-// worfy-pipeline ticket 08 (owner's decision Q5): the Pipeline is edited only on the Machine of its
+// worfy-pipeline ticket 08: the Pipeline is edited only on the Machine of its
 // Project. The write is `local`: refused to a Linked machine with full access too, before any
 // handler runs; the read is `project` and `read`.
 describe('the Pipeline editor', () => {

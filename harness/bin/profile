@@ -411,8 +411,8 @@ if (profile.cross_machine_gate !== undefined && profile.cross_machine_gate !== n
     if (g.role === "serve" && !text(g.check)) broken(`: role "serve" needs check, the command that checks a labelled PR's branch on this machine`)
 }
 
-// The Pipeline of the project (worfy ADR-0067): its rules live in lib/pipeline.cjs, shared with bin/profile-set,
-// which writes the field (worfy ADR-0073). A broken one is a broken profile: a guessed Pipeline would show a
+// The Pipeline of the project: its rules live in lib/pipeline.cjs, shared with bin/profile-set, which writes
+// the field. A broken one is a broken profile: a guessed Pipeline would show a
 // ticket on a Stage it is not on. No field (or null) — the default Pipeline; either way the result is
 // _resolved.pipeline, workflow.pipeline stays as written.
 const resolvedPipeline = resolvePipeline(profile.workflow)

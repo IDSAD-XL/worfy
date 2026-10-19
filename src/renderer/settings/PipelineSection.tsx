@@ -4,18 +4,17 @@
 // `environment`. No kinds or expressions of its own.
 //
 // The section never writes the Profile: main reads it and writes it through the Harness's
-// `bin/profile-set` (`pipeline.read`, `pipeline.write`; src/main/ipc/pipeline.ts). The decisions of
-// the owner of 2026-10-20:
-// - Q2: every field is checked before the write by the rules of the Harness (pipelineStageSchema and
+// `bin/profile-set` (`pipeline.read`, `pipeline.write`; src/main/ipc/pipeline.ts). Its rules:
+// - Every field is checked before the write by the rules of the Harness (pipelineStageSchema and
 //   pipelineSchema, which follow harness/lib/pipeline.cjs); the script's own reason shows when it
 //   still refuses.
-// - Q3: a change is never blocked. A line under Save says that every Stage is computed again; removing
-//   a Check that Tickets in work passed or stand on asks first and says how many.
-// - Q4: Reset to default asks first, then removes the field.
-// - Q6: the write goes ahead only over the Pipeline the section read; otherwise a line and Reload.
-// - Q7: a commit that failed in the Harness home's git leaves the write: a warning with its reason.
-// - Q8: a Harness without bin/profile-set: a line and the Harness item of the toolbar with its Update.
-// - Q5: only this Machine writes. A window that shows a Linked machine shows its Pipeline read-only
+// - A change is never blocked. A line under Save says that every Stage is computed again; removing
+//   or renaming a Check that Tickets in work passed or stand on asks first and says how many.
+// - Reset to default asks first, then removes the field.
+// - The write goes ahead only over the Pipeline the section read; otherwise a line and Reload.
+// - A commit that failed in the Harness home's git leaves the write: a warning with its reason.
+// - A Harness without bin/profile-set: a line and the Harness item of the toolbar with its Update.
+// - Only this Machine writes. A window that shows a Linked machine shows its Pipeline read-only
 //   and says where to edit it.
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { PipelineEditorRead } from '../../shared/ipc/pipeline'
@@ -31,11 +30,11 @@ import { Select, type SelectOption } from '../theme/Select'
 export const order = 70
 export const title = 'Pipeline'
 
-/** The line under Save (Q3). */
+/** The line under Save: a change is never blocked, every Stage is computed again. */
 export const RECOMPUTE_NOTE = 'The Stage of every Ticket will be computed again.'
-/** What a Harness without bin/profile-set gets (Q8). */
+/** What a Harness without bin/profile-set gets: a line and the Harness item with its Update. */
 export const HARNESS_TOO_OLD = 'The Harness is too old for the Pipeline editor.'
-/** The line of a conflict (Q6). */
+/** The line of a conflict: the Profile changed since the section read it; nothing was written. */
 export const CHANGED_SINCE_READ = 'The Pipeline has changed since it was read. Reload it.'
 
 /** The fields of a Stage the form edits as text; an empty one is not set. */
@@ -45,6 +44,8 @@ type TextField = 'name' | 'label' | 'stuck_after' | 'environment'
 interface Row {
   key: number
   kind: StageKind
+  /** A Check's name as the Profile had it when the section read it; null for a row added since. */
+  origin: string | null
   name: string
   label: string
   stuck_after: string
@@ -52,9 +53,10 @@ interface Row {
 }
 
 let nextKey = 1
-const rowOf = (stage: PipelineStage): Row => ({
+const rowOf = (stage: PipelineStage, read = false): Row => ({
   key: nextKey++,
   kind: stage.kind,
+  origin: read && stage.kind === 'check' ? (stage.name ?? null) : null,
   name: stage.name ?? '',
   label: stage.label ?? '',
   stuck_after: stage.stuck_after ?? '',
@@ -137,7 +139,7 @@ const styles = {
 } satisfies Record<string, CSSProperties>
 
 /** A confirmation the section waits for: removing a Check with marks, or the reset. */
-type Confirm = { kind: 'remove'; key: number; title: string; tickets: number } | { kind: 'reset' }
+type Confirm = { kind: 'remove'; key: number; title: string; tickets: number } | { kind: 'rename'; titles: string; tickets: number } | { kind: 'reset' }
 
 /** What came back from the last write, shown under the buttons. */
 type Outcome = { kind: 'saved'; warning: string | null } | { kind: 'conflict' } | { kind: 'invalid'; reason: string } | { kind: 'failed'; reason: string } | null
@@ -204,7 +206,7 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
         return
       }
       setRead(result.value)
-      if (result.value.available) setRows(result.value.pipeline.map(rowOf))
+      if (result.value.available) setRows(result.value.pipeline.map((stage) => rowOf(stage, true)))
     })
     return () => {
       active = false
@@ -262,12 +264,24 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
   const edit = (key: number, field: TextField, value: string): void => {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, [field]: value } : row)))
   }
-  /** The Tickets in work that passed the Check `id` or stand on it: they have its marks (Q3). */
+  /** The Tickets in work that passed the Check `id` or stand on it: they have its marks. */
   const ticketsOn = (id: string): number => (snapshot?.tickets ?? []).filter((ticket) => inWork(ticket) && (ticket.stage === id || ticket.passed.includes(id))).length
+  // The marks a Ticket has are named after the Check as it was read, whatever the field says now.
   const remove = (row: Row): void => {
-    const tickets = row.kind === 'check' && row.name !== '' ? ticketsOn(stageId(stageOf(row))) : 0
+    const tickets = row.origin === null ? 0 : ticketsOn(`check/${row.origin}`)
     if (tickets > 0) setConfirm({ kind: 'remove', key: row.key, title: kindTitle(row), tickets })
     else setRows((current) => current.filter((candidate) => candidate.key !== row.key))
+  }
+  /** The Checks renamed since the read whose old name no row has now: their marks stop counting. */
+  const renamedAway = (): string[] => {
+    const names = new Set(rows.filter((row) => row.kind === 'check').map((row) => row.name))
+    return rows.flatMap((row) => (row.origin !== null && row.name !== row.origin && !names.has(row.origin) ? [row.origin] : []))
+  }
+  const save = (): void => {
+    const away = renamedAway()
+    const tickets = away.reduce((sum, name) => sum + ticketsOn(`check/${name}`), 0)
+    if (tickets > 0) setConfirm({ kind: 'rename', titles: away.map((name) => stageLabel({ kind: 'check', name })).join(', '), tickets })
+    else void write(stages)
   }
   const add = (): void => {
     if (addKind === undefined) return
@@ -292,7 +306,7 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
       case 'saved': {
         const now = pipeline ?? [...DEFAULT_PIPELINE]
         setRead({ available: true, custom: pipeline !== null, pipeline: now, fingerprint: answer.fingerprint })
-        setRows(now.map(rowOf))
+        setRows(now.map((stage) => rowOf(stage, true)))
         setOutcome({ kind: 'saved', warning: answer.warning })
         return
       }
@@ -366,7 +380,7 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
         </div>
       )}
       <div style={styles.actions}>
-        <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={() => void write(stages)} data-testid="pipeline-save">
+        <button type="button" className="w-action w-action--primary" disabled={!canSave} aria-disabled={canSave ? undefined : 'true'} onClick={save} data-testid="pipeline-save">
           Save
         </button>
         <button type="button" className="w-action" disabled={!read.custom || busy} onClick={() => setConfirm({ kind: 'reset' })} data-testid="pipeline-reset">
@@ -381,7 +395,9 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
           <p style={{ margin: '0 0 var(--space-2)' }}>
             {confirm.kind === 'reset'
               ? 'Reset the Pipeline to the default? The Profile loses its own Pipeline.'
-              : `Remove ${confirm.title}? ${confirm.tickets} ${confirm.tickets === 1 ? 'Ticket has' : 'Tickets have'} its mark or stand on it.`}
+              : confirm.kind === 'rename'
+                ? `Save with ${confirm.titles} renamed? ${confirm.tickets} ${confirm.tickets === 1 ? 'Ticket has' : 'Tickets have'} a mark under the old name or stand on it.`
+                : `Remove ${confirm.title}? ${confirm.tickets} ${confirm.tickets === 1 ? 'Ticket has' : 'Tickets have'} its mark or stand on it.`}
           </p>
           <div style={styles.head}>
             <button
@@ -390,11 +406,12 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
               onClick={() => {
                 setConfirm(null)
                 if (confirm.kind === 'reset') void write(null)
+                else if (confirm.kind === 'rename') void write(stages)
                 else setRows((current) => current.filter((row) => row.key !== confirm.key))
               }}
               data-testid="pipeline-confirm-yes"
             >
-              {confirm.kind === 'reset' ? 'Reset' : 'Remove'}
+              {confirm.kind === 'reset' ? 'Reset' : confirm.kind === 'rename' ? 'Save' : 'Remove'}
             </button>
             <button type="button" className="w-action" onClick={() => setConfirm(null)} data-testid="pipeline-confirm-no">
               Cancel
