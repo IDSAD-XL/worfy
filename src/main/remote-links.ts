@@ -8,6 +8,8 @@
 //
 // What it cannot see:
 // - a link put in place after the walk and before the caller's realpath. The two are separate steps.
+//   With cachedLinks the walk of a folder is reused for the rest of one read (the workflow reader:
+//   hundreds of ms for an Auction-sized Project), so there the window is the whole read.
 // - a network drive mapped to a letter (worfy-windows ticket 33). `Z:\…` reads as a path of a disk
 //   of this machine: a link to it is 'local', and the walk calls lstat on `Z:\…`, which goes to the
 //   host of the share. Such a drive is one the user has mapped and signed in to, so the host is

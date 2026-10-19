@@ -471,14 +471,17 @@ describe('cachedLinks', () => {
   it('looks at a folder shared by several paths once, and gives each path the verdict it gets without the cache', async () => {
     const tree = () =>
       fakeLinks({ 'C:\\p\\repo\\docs\\evil.md': '\\\\evil\\share\\x', 'C:\\p\\repo\\docs\\moved': '..\\other' }, [], { denied: ['C:\\p\\repo\\docs\\denied'] })
-    const candidates = ['C:\\p\\repo\\docs\\a.md', 'C:\\p\\repo\\docs\\b.md', 'C:\\p\\repo\\docs\\evil.md', 'C:\\p\\repo\\docs\\moved\\c.md', 'C:\\p\\repo\\docs\\denied\\d.md']
+    // Two paths under the link `moved`: its target is read once too.
+    const candidates = ['C:\\p\\repo\\docs\\a.md', 'C:\\p\\repo\\docs\\b.md', 'C:\\p\\repo\\docs\\evil.md', 'C:\\p\\repo\\docs\\moved\\c.md', 'C:\\p\\repo\\docs\\moved\\e.md', 'C:\\p\\repo\\docs\\denied\\d.md']
     const plain = tree()
     const cached = tree()
     const expected = await walkAll(candidates, plain.links)
-    expect(expected).toEqual(['local', 'local', 'remote', 'local', 'unchecked'])
+    expect(expected).toEqual(['local', 'local', 'remote', 'local', 'local', 'unchecked'])
     expect(await walkAll(candidates, cachedLinks(cached.links))).toEqual(expected)
     expect(plain.calls.filter((call) => call === 'lstat C:\\p\\repo\\docs')).toHaveLength(candidates.length)
     expect(cached.calls.filter((call) => call === 'lstat C:\\p\\repo\\docs')).toHaveLength(1)
+    expect(plain.calls.filter((call) => call === 'readlink C:\\p\\repo\\docs\\moved')).toHaveLength(2)
+    expect(cached.calls.filter((call) => call === 'readlink C:\\p\\repo\\docs\\moved')).toHaveLength(1)
     expect(new Set(cached.calls).size).toBe(cached.calls.length)
     expect(new Set(cached.calls)).toEqual(new Set(plain.calls))
   })

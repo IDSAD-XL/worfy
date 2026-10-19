@@ -291,7 +291,8 @@ describe('linking two Machines by code', () => {
 
     const error = await rejection(a.service.pair({ host: '127.0.0.1', port, code: wrong }))
     expect(error.message).toBe(PAIRING_FAILED)
-    await expect.poll(() => b.pairingFailures.length).toBe(1)
+    // B gets the 4001 close frame of A, not a cut connection (1006): it names the code, not the network.
+    await expect.poll(() => b.pairingFailures).toEqual([PAIRING_FAILED])
     expect(b.service.pairingCode()?.code).not.toBe(right)
 
     const again = await rejection(a.service.pair({ host: '127.0.0.1', port, code: right }))
@@ -411,6 +412,7 @@ describe('a first pairing message with an invalid share', () => {
     // ws's own close timeout is 30 s: within 5 s it is service.ts's cut after a second, not one at once.
     expect(closedAt).not.toBe('still open')
     expect((closedAt as number) - sentAt).toBeGreaterThanOrEqual(900)
+    expect((closedAt as number) - sentAt).toBeLessThan(3000)
     // An unmasked close frame (opcode 8) with code 4001 came before the cut.
     const bytes = Buffer.concat(received)
     expect(bytes[0]).toBe(0x88)

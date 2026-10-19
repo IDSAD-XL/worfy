@@ -1164,7 +1164,7 @@ describe('workflow hub', () => {
 // ── size of an Auction-like Project ──────────────────────────────────────────
 
 describe('workflow reader on an Auction-sized Project', () => {
-  it('parses the answer, reads "Где в коде" and diffs 682 Tickets in ≤ 300 ms of its own time (450 ms on Windows)', async () => {
+  it('parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of its own time (450 ms on Windows)', async () => {
     const repo = join(dir, 'big')
     const { json, ticketCount } = generateScratch(repo)
     expect(ticketCount).toBe(682)
