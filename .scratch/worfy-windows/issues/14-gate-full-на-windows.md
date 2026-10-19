@@ -499,7 +499,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
   (цель `\\?\Volume{…}\…`) снимает только сам junction — файлы за ним остаются, как и у `rmdir` без
   ключей. Для ручной чистки `%TEMP%` от папок test-ов на ПК это безопасный способ.
 
-### Срез 4x — gate-state, harness-plugin, harness-qmd, harness-drift (2026-10-19)
+### Срез 3f — gate-state, harness-plugin, harness-qmd, harness-drift (2026-10-19)
 
 - `test/unit/gate-state.test.ts`: 9 failed / 89 passed → 98 passed, exit 0. `gateTag` сверяется с записанными значениями `printf %s <path> | shasum` (без `/bin/sh`); таблица `gateRunDir` и первый test `gateOutputs` с путями macOS идут с `platform` `'darwin'`, две строки с `homedir()` — на платформе машины. `listWorktrees` ждёт путь так, как его печатает git (`git rev-parse --show-toplevel`, `C:/…` на Windows): в `src/` все потребители либо сводят `\` и `/` (`worktreeOfCwd`, `comparable`), либо берут realpath (`onDisk`) или `projectDirName`, где `\` и `/` дают одно имя, — бага нет, `src/main/gate/state.ts` не менялся.
 - `test/contract/harness-plugin.test.ts`: 1 failed / 9 passed → 10 passed, exit 0. `listFiles` отдаёт пути с `/`, проверки шаблонов на Windows теперь настоящие.
