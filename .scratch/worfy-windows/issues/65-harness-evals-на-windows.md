@@ -138,6 +138,29 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
   - «exits with the worst code …» требует ровно два вызова, строки `main exited N` и `gui exited M` и пути результатов: их печатает только код после очистки. Так код 1 от сбоя очистки не сойдёт за «1,0 -> 1».
   - Test на `ELECTRON_RUN_AS_NODE=1` из `runClaude` не добавлен. Под Electron `eval-harness.mjs` сам работает только с этой переменной, и его `childEnv` передаёт её дальше. Под настоящим Node она ни на что не влияет. Убрать её из `runClaude` нельзя заметить ни одним test-ом.
   - На Windows stub через `.mjs` проверяет test «refuses with exit code 1 on claude older than 2.1.269 and runs nothing»: на шаге 1 он падал (`ENOENT`), после шага 2 зелёный.
+- **Раунд 2 ревью Session на Mac (`fda5c81e`).**
+  - Находка 1 (мутант T4 «`harnessEnv` без `ELECTRON_RUN_AS_NODE`» выживал). Новый test «%s: runs this process as Node (ELECTRON_RUN_AS_NODE=1)» для launcher-ов, которые запускают `process.execPath` (`harness` и env stub-а). Test «os.homedir()» больше не добавляет переменную сам этим launcher-ам — только `scaffold` и `inFixture`, которые запускают `bash` и `git`.
+  - Находка 2. `ELECTRON_RUN_AS_NODE` из `runClaude` убрана — пункт «Test на `ELECTRON_RUN_AS_NODE=1` из `runClaude` не добавлен» выше этим заменён. Под `pnpm eval:harness` (`node scripts/eval-harness.mjs`) `process.execPath` — node, переменная ему не нужна. Под Electron скрипт работает как Node только потому, что переменная уже есть в его env, а `childEnv` её сохраняет. Явная установка была мёртвым кодом: ни один test не мог её увидеть.
+  - Находка 3. Два test-а. На `win32`: `CLAUDE_BIN` = сам `process.execPath` (не `.mjs`) по своему пути отвечает на `--version` (`v24.21.0`), `--case no-such-case` пропускает оба вызова, exit 0. Вне `win32` (`skipIf(win32)`): `CLAUDE_BIN` = `claude-by-path.mjs` с `#!/bin/sh`, который запускает stub. Ядро запускает его по строке `#!`, а Node отказался бы разбирать его как JavaScript.
+  - Находка 4. Три новых launcher-а, вызывающий которых передаёт свои `HOME` и `USERPROFILE` (настоящий home, ключи собраны из имён): `scaffold`, `harness`, stub. Временный home побеждает. Поиск по исходнику требует `env` у каждого `spawn`/`spawnSync` (и запрещает `env: process.env`). Исключения — два read-only вызова настоящего git в репозитории (`git --exec-path` и `git check-ignore`) — перечислены регулярками, и каждое должно существовать. Комментарий над `describe` сужен до того, что верно.
+  - Мутанты на `fda5c81e`, Windows, по одному: копия файла, мутант, `node scripts/vitest-electron.mjs test/contract/harness-evals.test.ts`, возврат из копии, `git diff --quiet` = 0 после каждого.
+
+    | id | что меняет | итог | упало |
+    | --- | --- | --- | --- |
+    | E3a | `runClaude`: без проверки `win32` (`claude.endsWith('.mjs') ? …`) | выжил на Windows (там условие и так истинно); его ловит test «outside Windows starts a .mjs CLAUDE_BIN by its path» — на Mac не запускался | 0 |
+    | E3b | `runClaude`: без `.endsWith('.mjs')` (на `win32` любой claude через `process.execPath`) | убит | 1 (новый test на `win32`) |
+    | E3c | `runClaude`: без ветки `win32` (`false ? …`) | убит | 12 |
+    | E6 | проверка `--version` — `spawnSync(claude, …)` вместо `runClaude` | убит | 12 |
+    | E7 | вызовы run-ов — `spawnSync(claude, args, …)` вместо `runClaude` | убит | 9 |
+    | E8 | E6 и E7 вместе | убит | 12 |
+    | E12 | `git --exec-path` на `win32` — `spawnSync('git', …)` вместо `sh -c` | убит | 2 |
+    | E13 | проверка копии на `win32` — `spawnSync(<обёртка>, ['--version'])` вместо `sh <обёртка>` | убит | 11 |
+    | T4 | `harnessEnv` без `ELECTRON_RUN_AS_NODE` (только `-t "runs this process as Node"`: остальные test-ы открыли бы окно Electron) | убит | 2 из 4 |
+    | T5 | `harness()` запускает скрипт по пути, не через `process.execPath` | убит | 1 («epic-status sees the four tickets»; 20 test-ов `bin/profile` пропущены до пункта 4) |
+    | T6 | `frontMatter` — `\n` вместо `\r?\n` | убит | 20 |
+    | T7 | stub: `const windows = false` | убит | 9 |
+    | N1 | `childEnv`: `HOME`/`USERPROFILE` перед `...vars` | убит | 6 |
+    | N3 | `inFixture` без `env` (только `-t "names its environment"`) | убит | 1 |
 
 ### Проверка
 
@@ -153,6 +176,7 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
 | Мутант 4: только проверка `--version` без `sh` (поиск `git` через `sh` оставлен) | exit 1, `Tests 10 failed \| 51 passed \| 28 skipped (89)`; зелёный один «… `git --exec-path` gives no folder» — он проверяет только поиск |
 | То же, после правок ревью; снимок `~/.claude/worfy-harness` и `~/.claude/gate` до и после — одинаковый | **exit 0, `Tests 61 passed \| 28 skipped (89)`** |
 | Мутант 5: PATH без `/usr/bin`, `/bin`, `/mingw64/bin`, `/usr/local/bin` (нет `sh`), `-t "gives no folder"` | exit 1, `Tests 1 failed \| 88 skipped (89)`; до правки ревью этот test был зелёным |
+| То же, раунд 2: `8db4afa9` → `fda5c81e` | exit 0, `Tests 61 passed \| 28 skipped (89)` → **exit 0, `Tests 72 passed \| 29 skipped (101)`** (+11 test-ов; +1 пропуск — test вне `win32`) |
 | `test/unit/no-rmsync.test.ts`, `test/unit/e2e-no-spawn-on-load.test.ts` | exit 0, `Tests 63 passed (63)` |
 | `CI=true pnpm lint` / `CI=true pnpm typecheck` | exit 0 / exit 0 |
 | `git diff origin/main -- .gitattributes` | пусто |
@@ -365,4 +389,5 @@ MISSING gate
 - **Пункт 4 (путь `pm`, причина 3) ждёт мержа PR #496** и не сделан; вместе с ним — `match` (см. пункт 5).
 - На Mac не запускалось ничего: красный test шага 1 и мутант на Mac, `pnpm lint`, `pnpm typecheck`, `pnpm test` там — за Session на Mac. На Mac новый test «os.homedir()» зелёный и без `USERPROFILE` (Node там берёт `HOME`); test «USERPROFILE is HOME» красный без него на всех системах — по замыслу Ticket-а, не проверено запуском.
 - Ветка `.mjs` в `runClaude` (`eval-harness.mjs`) есть только на `win32`; на Mac она не идёт. На ПК её проходят все test-ы со stub-ом.
+- Раунд 2: test «outside Windows starts a .mjs CLAUDE_BIN by its path» на ПК пропущен и на Mac не запускался; мутант E3a на Mac не проверен. Снимок `find ~/.claude/worfy-harness ~/.claude/gate | sort | md5sum` до и после финального прогона одинаковый (`172741c2…`); со старта Session он изменился один раз — `gate/state/verdict-02c8f6a5.json` от gate worktree `14-migrate` (другая Session, 13:36), test-ы этого Ticket-а туда не пишут.
 - `1b390da3` на Mac не запускался: ветки `win32` в `eval-harness.mjs` и в stub-е там не идут, а усиленные проверки («… --version, exit 1)», «… gives no folder» с `exit 1)` и «два вызова, `main exited N`, `gui exited M`, пути результатов» в «exits with the worst code …») там должны быть зелёными — не проверено запуском. Ветки `win32` проходят только test-ы на ПК; workflow «Windows tests» не запускался.
