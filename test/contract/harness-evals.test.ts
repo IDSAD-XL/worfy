@@ -340,7 +340,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // npm cannot run in an eval run on this Mac: node and npm come from nvm, and npm's own files lie
   // outside PATH in the home folder, which the sandbox does not let a run read. The gate of the
   // fixture starts a package manager of its own, kept inside the fixture.
-  it('the gate of the fixture needs no npm: its package manager is a script inside the fixture, and gate fast is green', () => {
+  it.skipIf(!registryPathsMatch)('the gate of the fixture needs no npm: its package manager is a script inside the fixture, and gate fast is green', () => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold('status-block')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -361,7 +361,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
 
   // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks
   // sum, gate fast is red.
-  it('gate fast of the fixture is red (exit 2) when its tests fail', () => {
+  it.skipIf(!registryPathsMatch)('gate fast of the fixture is red (exit 2) when its tests fail', () => {
     const { work, home, run } = scaffold('reviewer-verdict')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
