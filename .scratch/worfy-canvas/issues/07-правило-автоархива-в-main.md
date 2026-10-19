@@ -46,19 +46,19 @@ Source: [spec.md](../spec.md), решения владельца 4–6;
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/archive-rule.test.ts`: кандидат по простою и по «Ticket done + 1 ч»; по test-у на
+- [x] Unit `test/unit/archive-rule.test.ts`: кандидат по простою и по «Ticket done + 1 ч»; по test-у на
       каждое исключение — живая, `unknown`, `pinned`, `keep`, Orchestrator, тронутая меньше порога назад;
       «Never» — пусто.
-- [ ] Contract `test/contract/layout-archive.test.ts`: `archive` и `restore` через `LayoutStore`;
+- [x] Contract `test/contract/layout-archive.test.ts`: `archive` и `restore` через `LayoutStore`;
       архивный Node не на плоскости; старый `layout.json` без новых полей читается; продолженная Session
       возвращается на прежнее место или на свободное; гонка — Session ожила между чтением реестра и
       записью партии — Node не остаётся в архиве; два окна одного Project-а — одна партия (архив делает
       main, не окно); операции таймера не попадают в историю ⌘Z окна.
-- [ ] Unit `test/unit/session-nodes.test.tsx`: архивный Node не создаётся заново; `openSession` шлёт
+- [x] Unit `test/unit/session-nodes.test.tsx`: архивный Node не создаётся заново; `openSession` шлёт
       `touch`.
-- [ ] Read-only экран Linked machine (ADR-0066) получает Layout с архивными Node-ами без ошибок (contract).
-- [ ] Мутанты красные: `unknown` считается не живой; `keep` не проверяется; архив через `hidden`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Read-only экран Linked machine (ADR-0066) получает Layout с архивными Node-ами без ошибок (contract).
+- [x] Мутанты красные: `unknown` считается не живой; `keep` не проверяется; архив через `hidden`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -92,4 +92,34 @@ Source: [spec.md](../spec.md), решения владельца 4–6;
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#536](https://github.com/IDSAD-XL/worfy/pull/536), ветка `worfy-canvas/07`.
+
+- **Layout.** Поля Node-а `archived` (`{ at, rule, batch }` или null), `keep`, `touchedAt` — необязательные:
+  старый `layout.json` читается без изменений, null тоже читается как «нет». Операции `archive`,
+  `restore`, `keep`, `touch`. **Отличие от «Что делаем», п. 2:** `archive` несёт список
+  `nodes: [{ id, rule }]` и один `batch`, а не список id и один `rule`: так прогон, в котором сработали
+  оба правила, — одна операция и одна партия (п. 5).
+- **`touchedAt`** main ставит на операции, присланной с экраном (`screen`): `move`, `moveMany`,
+  `resize`, `pin`, `hide`, `tag`, `patchData`, `keep`, — и всегда на `touch` и `restore` (иначе
+  Restore пользователя из Ticket-а 09 архивировался бы снова на следующем прогоне). Операции без экрана
+  (main, агенты, автоматические писатели renderer-а) его не ставят — это признак «операции
+  пользователя».
+- **Не на плоскости.** `onThePlane` — false для архивного Node-а; его же теперь используют
+  `sessionParents` (дерево Subagent-ов) и `agentNodes` (Binding-и) вместо своей копии условия. Canvas
+  не рисует архивный Node (`Canvas.tsx`), новый Session Node не ставится под архивным (`nextPlace`).
+- **Правило и таймер** — `src/main/layout/archive.ts`: `archiveCandidates` и `AutoArchiver`, запуск в
+  `src/main/index.ts` (не шаг старта: ошибка запуска не мешает worfy). Живые Session-ы читаются
+  последними и объединяются с тем, что за это время сообщили watcher-ы реестра; правило ещё раз
+  считается по Layout-у в момент записи — без `await` между ним и записью. Session-ы, которые worfy
+  ведёт сам (`sharedRegistry().list()`), считаются живыми. Binding для правила «Ticket done» main
+  разрешает так же, как renderer (`sessionBindings`: manual → launch → сигналы транскрипта).
+  Настройка — `archiveSettings()`, сейчас «Never» с пометкой `shortcut:`.
+- **⌘Z.** `history.ts` знает новые операции: следы для устаревания шагов; обратная — только у `keep`.
+  Restore и «Archive now» как шаги ⌘Z — Ticket-ы 08 и 09.
+- **Проверки.** 27 мутантов (правило, store, archiver, renderer): 26 красные, один эквивалентный —
+  без проверки `NaN` у `lastAt` (NaN и так не проходит порог). Все три мутанта из «Готово, когда»
+  красные. `gate.mjs fast` — «[gate] зелено (fast)», lint, typecheck, test под временными `HOME` и
+  `HARNESS_HOME`. e2e не гонялись: Ticket не добавляет и не меняет e2e-файлов, весь `test:e2e` —
+  gate full Orchestrator-а.
+- **Не сделано здесь:** Settings, команда, Keep-кнопка (08), история и popover (09), toast и порог
+  24 h по умолчанию (10).
