@@ -904,6 +904,76 @@ for sh in "${SHELLS[@]}"; do
     unset GATE_LOCK
 done
 
+# The heartbeat of the one-PR block, under bash and zsh: it ends once the lock folder is gone, also when the block's
+# shell was killed without its trap (kill -9); on a normal exit no heartbeat `sleep` is left behind; a live lock of
+# someone else stays. Its `sleep 300` is replaced by $STUBS/hbsleep, which appends its pid to $HB_PIDS and then
+# sleeps as asked, so the test knows every heartbeat sleep and kills any that is left by pid at the end.
+cat >"$STUBS/hbsleep" <<'EOF'
+#!/usr/bin/env bash
+echo "$$" >>"$HB_PIDS"
+exec sleep "$@"
+EOF
+chmod +x "$STUBS/hbsleep"
+HB_LOOP='while sleep 300;'
+[[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
+    || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
+alive_of() { local p; for p in $(cat "$@" 2>/dev/null); do kill -0 "$p" 2>/dev/null && printf '%s ' "$p"; done; return 0; }
+none_alive() { [ -z "$(alive_of "$@")" ]; }
+gone_pid() { ! kill -0 "$1" 2>/dev/null; }
+stop_tree() { kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; return 0; }
+LOCK_FAST5=$'\n    sleep 0.2; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 5 ] || exit 98\n'
+for sh in bash zsh; do
+    new_world "hb-$sh" 1:a.txt
+    L="$W/e2e.lock"; export GATE_LOCK="$L" HB_PIDS="$W/hb.pids"
+    STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
+    base="${BE//<N>/5}"; base="${base//<PR worktree>/$W/repo}"; base="${base//<repo>/$W/repo}"
+    base="${base//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
+    # A live lock (younger than 30 min) with someone else's holder.json: not removed, the block waits (here: 5 polls,
+    # then exit 98) and runs no gate.
+    mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
+    got="$($sh -c "$STUB"$'\n'"${base/"$LOCK_POLL"/$LOCK_FAST5}" 2>&1)"; rc=$?
+    [ "$rc" -eq 98 ] && [ "$(gate_count)" = 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
+        && ok "$sh: the one-PR gate full block: a live lock with someone else's holder.json stays, the block waits" \
+        || bad "$sh: the one-PR block, live lock: exit $rc, gates $(gate_count), lock [$(ls -A "$L" 2>&1)] [$got]"
+    rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
+    b0="${base/"$LOCK_POLL"/$LOCK_FAST}"
+    # The block's shell killed with kill -9 while the gate runs, then the lock removed: the heartbeat (0.5 s steps here)
+    # ends within 1 s. The gate's subshell outlives the shell: the test waits for the end of its 2 s sleep.
+    b="${b0/"$HB_LOOP"/while \"$STUBS/hbsleep\" 0.5;}"; b="${b/HB=\$!/HB=\$!; echo \$HB >\"$W/hb.pid\"}"
+    echo 2 >"$GATE_DIR/sleep"; : >"$GATE_DIR/lockwatch"
+    $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
+    hb=""
+    if until_ok 10 test -s "$W/hb.pid" && until_ok 10 grep -q '^start' "$GATE_DIR/lockwatch"; then
+        hb="$(cat "$W/hb.pid")"
+        kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+        rm -f "$L/holder.json"; rmdir "$L"
+        until_ok 1 gone_pid "$hb" && ok "$sh: the one-PR gate full block: after kill -9 of its shell and the lock removed, the heartbeat ends within 1 s" \
+            || bad "$sh: the one-PR block: the heartbeat $hb outlived its shell and the lock"
+    else
+        kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
+        bad "$sh: the one-PR block under kill -9: the lock and the gate were not reached [$(cat "$W/out")]"
+    fi
+    [ -n "$hb" ] && stop_tree "$hb"
+    until_ok 10 grep -q '^end' "$GATE_DIR/lockwatch" || bad "$sh: the one-PR block under kill -9: the stub gate did not end"
+    rm -f "$GATE_DIR/sleep" "$GATE_DIR/lockwatch" "$L/holder.json"; rmdir "$L" 2>/dev/null
+    # 40 normal runs, the gate an instant `true`, so the trap often fires while the heartbeat is still starting its
+    # first sleep: no heartbeat sleep is left after any of them. Needs pkill, as the block's trap does.
+    if command -v pkill >/dev/null 2>&1; then
+        : >"$HB_PIDS"; b="${b0/"$HB_LOOP"/while \"$STUBS/hbsleep\" 300;}"; gs="$STUBS/gate full"; b="${b//"$gs"/true}"; runs=0
+        for i in $(seq 1 40); do
+            got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; [[ "$got" == *"EXIT=0"* ]] && [ ! -e "$L" ] && runs=$((runs + 1))
+        done
+        until_ok 2 none_alive "$HB_PIDS"; left="$(alive_of "$HB_PIDS")"
+        [ "$runs" = 40 ] && [ -z "$left" ] && ok "$sh: the one-PR gate full block: no heartbeat sleep is left after 40 runs" \
+            || bad "$sh: the one-PR block: $runs of 40 runs green, heartbeat sleeps left: [$left]"
+        for p in $left; do kill "$p" 2>/dev/null; done
+    else
+        echo "skip $sh: no pkill on this machine: the 40-run heartbeat test is not run"
+    fi
+    for p in $(alive_of "$HB_PIDS"); do kill "$p" 2>/dev/null; done
+    unset GATE_LOCK HB_PIDS
+done
+
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"

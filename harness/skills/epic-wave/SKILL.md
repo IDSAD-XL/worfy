@@ -869,8 +869,8 @@ if [ -n "$L" ]; then
     sleep 20
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
-  ( while sleep 300; do touch -c "$L" 2>/dev/null || exit 0; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open
-  trap 'pkill -P $HB 2>/dev/null; kill $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # only our holder.json
+  ( while sleep 300; do [ -d "$L" ] || exit 0; touch -c "$L" 2>/dev/null; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open; ends once the lock is gone
+  trap 'kill -STOP $HB 2>/dev/null; pkill -P $HB 2>/dev/null; kill -KILL $HB 2>/dev/null; wait $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # stopped first: it starts no sleep pkill misses; only our holder.json
 fi
 (cd <PR worktree> && GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null); echo "EXIT=$?"
 ```

@@ -596,8 +596,36 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
     expectExit(run, 0)
     expect(readFileSync(join(scratch, 'ran'), 'utf8')).toBe(`held=1 lock=${lock}\n`)
     expect(existsSync(lock)).toBe(false)
-    // The heartbeat's `sleep 300` outlives the script; it must not hold this pipe open.
+    // No `sleep` of the heartbeat may hold this pipe open.
     expect(run.ms).toBeLessThan(5_000)
+  })
+
+  it('leaves no sleep of the heartbeat behind when the command ends', () => {
+    // The heartbeat's `sleep 300` records its pid and then sleeps for real. The command under the
+    // lock waits until that sleep has started, so the release always finds it running.
+    const pids = join(scratch, 'heartbeat-pids')
+    stubCommand('sleep', ['if [ "$1" = 300 ]; then echo "$$" >> "$HB_PIDS"; fi', 'PATH=$REAL_PATH exec sleep "$@"'])
+    const waitForHeartbeat = ['sh', '-c', 'n=0; until [ -s "$HB_PIDS" ]; do n=$((n + 1)); [ "$n" -le 100 ] || exit 9; sleep 0.05; done']
+    const run = sandbox(['lock-run', ...waitForHeartbeat], { env: { HB_PIDS: pids, REAL_PATH: process.env.PATH ?? '' } })
+    const started = existsSync(pids) ? readFileSync(pids, 'utf8').trim().split('\n').filter(Boolean).map(Number) : []
+    const alive = (): number[] =>
+      started.filter((pid) => {
+        try {
+          process.kill(pid, 0)
+          return true
+        } catch {
+          return false
+        }
+      })
+    try {
+      expectExit(run, 0)
+      expect(started.length).toBeGreaterThan(0)
+      // A killed process can take a moment to go: up to 2 seconds.
+      for (let i = 0; i < 20 && alive().length > 0; i++) spawnSync('sleep', ['0.1'])
+      expect(alive()).toEqual([])
+    } finally {
+      for (const pid of alive()) process.kill(pid, 'SIGKILL')
+    }
   })
 
   it('passes the exit code of a failing command through and still releases its own lock', () => {
