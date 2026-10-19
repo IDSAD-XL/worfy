@@ -560,3 +560,38 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
   - `wave-gate`: случай `resume` падает (`exit 3`, «no worktree left», «caffeinate left»), и файл не укладывается в 300 s.
 - Чего нет на ПК для `pnpm test`: `zsh` (Ticket 15). `jq` есть (`WinGet\Links\jq`), `git`, `node` есть.
 - `test/contract/e3-owner-check.test.ts`: 23 failed → 23 passed, exit 0 (и из PATH PowerShell). Stand-in `claude` — `claude.mjs`; `scripts/e3-owner-check.sh` запускает `.mjs` в `E3_CLAUDE` через `process.execPath` (node из `exec node -`, не Electron). Без правки скрипта test красный: 23 failed, `spawnSync …\claude.mjs EFTYPE`. Ожидаемые пути вида `~/.claude/…` строятся `join('~', …)`: скрипт печатает их через `path.join`, на Windows — `~\.claude\…`.
+
+### Срез 3l — close frame неудачного pairing, проверка ссылок один раз за чтение, длинное написание TEMP (2026-10-19)
+
+Что было красным на main после #528: полный `pnpm test` на `a3514683` на ПК (gh вне PATH) — 75 failed из 6705. Из них 26 закрыл #521, 30 — #528, 8 `.test.sh` — Ticket 71. Остальные 9 файлов прогнаны по одному, по два раза: красными без нагрузки остались два test-а, ниже. Срез разбит на две части (решение Session на Mac).
+
+**Часть 1 — этот PR.**
+- `link-server.test.ts` «closes a pairing socket that sends more than 65536 bytes with 1009»: красный 2/2, клиент видел 1006.
+  - Причина: `src/main/link/service.ts` в catch неудачного pairing сразу вызывал `ws.terminate()`. К этому моменту ws только поставил close frame в очередь (1009 — сообщение больше предела; 4001 — ошибка шага pairing, в том числе неверный код). На Windows обрыв этот frame теряет.
+  - Проба на голом `ws` вне приложения: с `terminate()` сразу после ошибки — 1006, 3 из 3; без него — 1009.
+  - Правка: `endFailedPairing` на обеих сторонах pairing. Сокет в состоянии CLOSING проходит close handshake. Если другая сторона не отвечает, через 1 s — `terminate()`, как в `connection.ts`. Для 1009 ws сам закрывает сокет сразу после frame (receiver в ошибке), так что секунда там не наступает; она нужна для 4001.
+  - Test-ы:
+    - test 1009 в `link-server` зелёный;
+    - новый `link-pairing.test.ts` «a peer that never answers the 4001 close gets the close frame and is cut off after a second»: frame 4001 пришёл, сокет оборван через ≥ 900 ms и < 3 s;
+    - test неверного кода проверяет, что B записал `PAIRING_FAILED`, то есть получил 4001, а не оборванное соединение.
+    - Mutant-ы «terminate сразу» и «без fallback» — красные.
+- `workflow-reader.test.ts`, Auction-sized: красный 2/2, 315–417 ms при пороге 300 ms. На Mac — 26–33 ms (Ticket worfy-mvp/10).
+  - Замер: с выключенной проверкой ссылок `leadsToRemote` (Ticket-ы 19 и 20) — 179–203 ms; проверка стоила около 140 ms. Она заново проходила по ссылкам каждую папку на пути к каждому файлу Тикета.
+  - Правка: `cachedLinks` в `src/main/remote-links.ts`. Ответы `isLink` и `readlink` на каждый путь берутся один раз за одно чтение `enrichSnapshot`. Кэш живёт в одном вызове: ссылка, поставленная между чтениями, видна следующему (test).
+  - После правки — 224–231 ms (под нагрузкой). Порог на win32 — 450 ms, на остальных — 300 ms, как было.
+  - Изменение поведения: ошибка `lstat` папки делает `unchecked` все пути под ней в этом чтении (отказ остаётся отказом). Окно гонки «ссылку поставили после проверки» теперь длиной во всё чтение; это записано в шапке `remote-links.ts`.
+  - `readDocs` (`src/main/docs/watch.ts`) кэш не берёт: `docs-remote-links.test.ts` требует один `lstat` на документ, а документов там десятки.
+- Длинное написание temp-папки. С `TEMP=TMP=W:\` (диск `subst`, замена 8.3 TEMP runner-а `C:\Users\RUNNER~1`) красными были и на main:
+  - `docs-remote-links.test.ts` «reads none of them through the link»;
+  - два test-а `selfProjectRefusal` в `autopilot.test.ts`.
+  - Продукт сравнивает длинные написания (`canonical()`, git), test-ы — короткие. Temp-папка теперь через `realpathSync.native`.
+- Результаты (ПК, gh вне PATH, head `aceda22a`):
+  - 9 файлов среза (`link-server`, `link-pairing`, `remote-links`, `workflow-remote-links`, `docs-remote-links`, `remote-guards`, `workflow-reader`, `autopilot`, `no-rmsync`): 333 passed, 1 skipped, exit 0 — и с обычным TEMP, и с `TEMP=W:\`.
+  - `CI=true pnpm lint` — 0, `CI=true pnpm typecheck` — 0.
+- Review (correctness, test coverage): high нет. Medium «инициатор pairing не держится test-ом» и low исправлены в этом PR.
+
+**Часть 2 — ждёт замера, ветка `worfy-windows/14-win32-timeouts`, не в этом PR.**
+- Лимиты на win32 для 15 test-ов по одному, около 2× замера: `check-handoff`, `check-lessons`, `canvas`, `github-prs`, `harness-evals`, `projects-connect`, `harness-install`. Плюс их список в worfy-polish 30.
+- Ждёт полного прогона на свободном ПК. Async test vitest останавливает на deadline, так что «15.2 s» в отчёте значит «больше 15 s». Предел без завершённого замера не ставится.
+- Полный прогон ветки 2026-10-19 20:15–21:00 не годится: на ПК шла игра, 91 failed, почти все timeout-ы, в файлах, которые зелёные поодиночке.
+- Найдено попутно: красный `harness-install` «a build whose Harness names no dependency» — не дефект. Его журнал вызовов чистит `clearCalls()` test-а перед ним, упавшего по timeout (`sb` — переменная модуля). Воспроизведено задержкой перед `clearCalls`.
