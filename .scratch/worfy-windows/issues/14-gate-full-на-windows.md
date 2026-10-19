@@ -525,8 +525,6 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - **8 новых skip на win32 (`itWithQmd`), снимет Ticket 15.** `qmd.ts` запускает `npm`/`node` по голому имени без shell и ищет файл `qmd` без расширения. Probe: `spawnSync('node', ['--version'])` с PATH из одной папки с `node.cmd` даёт `ENOENT` и с `SystemRoot`, и без него. Stand-in `qmd-collections` тоже `#!/bin/sh`. Test «write nothing» на Windows не ждёт `qmd --version`, остальное в нём проверяется.
 - **`link-access.test.ts`: было 3 failed / 20 passed (23), exit 1; стало 23 passed, exit 0.** Stand-in `epic-status` теперь `nodeScript` на всех системах. Мутант с `#!/bin/sh` снова роняет первый test на `workflow.changed`. В окружении Terminal на win32 добавлены `SystemRoot` и `windir`: без них PowerShell падает с 8009001d. Третье падение (`terminal.input` refused, :471) вызывала та же причина: shell умирал. После этого всплыла четвёртая причина: Enter теперь `\r`, а не `\n`. PSReadLine считает `\n` переносом строки (`>>`). На POSIX pty переводит `\r` в конец строки.
 
-### Срез 4 (src-paths) — три ошибки в `src/` на Windows (2026-10-19)
-
 ### Срез 3h — три ошибки в `src/` на Windows (2026-10-19)
 
 - **`claude-home/registry.ts`, `watch()`:** chokidar 5 на Windows отдаёт пути с `/`, поэтому `path === this.home` не совпадал, корень Claude home попадал в `ignored`, и не наблюдалось ничего. Теперь сравнение через `relative(this.home, path) === ''`; остальная часть callback-а и так идёт через `relative()`.
