@@ -12,7 +12,7 @@
 // (worfy-windows ticket 28: the gate's bound of 1000 lines).
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join, resolve, sep } from 'node:path'
+import { basename, delimiter, dirname, join, resolve, sep } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationStep } from '../../src/shared/ipc/harness-migration'
@@ -45,6 +45,23 @@ vi.mock('../../src/main/harness/install', async (importOriginal) => {
     }
   }
   return { ...real, HarnessInstaller: WatchedInstaller }
+})
+// node:fs as it is, except that realpathSync.native can be made to throw for the paths under one
+// folder, as it does on a volume the native call cannot read (some RAM or virtual drives).
+const nativeFails = vi.hoisted(() => ({ under: null as string | null }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const realpathSync = Object.assign((path: string) => actual.realpathSync(path), {
+    native: (path: string) => {
+      // git prints `/` on Windows, worfy's own paths have `\`.
+      const spelling = (path: string): string => path.replaceAll('\\', '/').toLowerCase()
+      if (nativeFails.under !== null && spelling(path).startsWith(spelling(nativeFails.under))) {
+        throw Object.assign(new Error(`EIO: i/o error, realpath '${path}'`), { code: 'EIO' })
+      }
+      return actual.realpathSync.native(path)
+    },
+  })
+  return { ...actual, realpathSync, default: { ...actual, realpathSync } }
 })
 
 useSandbox()
@@ -369,6 +386,39 @@ describe('the move', () => {
     // State, not history: the plugin copy, markers, locks, backups and Profile state are not committed.
     for (const file of committed) expect(file).not.toMatch(/^(plugin|backup-|worktree-sessions|gate\/state)|\/state\//)
     expect(manifest.commits.harnessHome).toBe(git(sandbox.harnessHome, 'rev-parse', 'HEAD').trim())
+  })
+
+  // On a disk that ignores letter case (macOS, Windows) the folders may come in another case than git
+  // prints them. The plain realpath keeps the case as typed, so before slice 3g of worfy-windows
+  // ticket 14 ~/.claude did not count as the top of its repository and its commit was skipped.
+  it('git: ~/.claude written in another letter case still gets its one commit', async (context) => {
+    const other = join(dirname(sandbox.root), basename(sandbox.root).toUpperCase())
+    context.skip(!existsSync(other), 'the disk tells letter case apart')
+    const shout = (path: string): string => other + path.slice(sandbox.root.length)
+    const homes = { claudeHome: shout(sandbox.claudeHome), harnessHome: shout(sandbox.harnessHome), claudeJson: shout(sandbox.claudeJson), userHome: shout(sandbox.home) }
+    const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
+    const result = await applyMigration(selection(plan(homes)), applyOptions(homes))
+    expect(result.outcome).toBe('done')
+    expect(git(sandbox.claudeHome, 'rev-list', '--count', `${head}..HEAD`).trim()).toBe('1')
+    expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
+  })
+
+  // The plain realpath keeps an 8.3 short name or a `subst` drive, so it can only stand in when the
+  // sandbox has neither (the runner's TEMP is C:\Users\RUNNER~1).
+  it('git: when realpath(3) cannot read ~/.claude, the plain realpath still finds it is the top of its repository', async (context) => {
+    context.skip(realpathSync(sandbox.root) !== realpathSync.native(sandbox.root), 'the sandbox is in an 8.3 short or subst spelling')
+    const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
+    nativeFails.under = sandbox.root
+    try {
+      expect(() => realpathSync.native(sandbox.claudeHome)).toThrow('EIO')
+      const result = await applyMigration(selection(plan()), applyOptions())
+      expect(result.outcome).toBe('done')
+    } finally {
+      nativeFails.under = null
+    }
+    // rev-list prints nothing when there is no new commit, and ''.split('\n') still has one item.
+    expect(git(sandbox.claudeHome, 'rev-list', '--count', `${head}..HEAD`).trim()).toBe('1')
+    expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
   })
 
   it('"Keep" on a row of each kind leaves that file or record untouched', async () => {

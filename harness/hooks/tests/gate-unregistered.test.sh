@@ -120,8 +120,11 @@ else
         || bad "8.3 spelling: match C:\\PROGRA~1 does not cover C:\\Program Files"
     MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$T/jn")" "$(cygpath -w "$T/reg")" >/dev/null
     node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({ repos: [{ key: "junction", match: process.argv[2] }] }))' "$T/config8.json" "$T/jn"
-    [ -z "$(which8 "$T/reg")" ] && ok "junction: a match through a junction stays as written" \
-        || bad "junction: a match through a junction covered the junction's target"
+    # Without the junction the check below would pass for nothing: first, $T/jn must lead to $T/reg.
+    if [ "$(node -p 'const fs = require("node:fs"); fs.realpathSync.native(process.argv[1]) === fs.realpathSync.native(process.argv[2])' "$T/jn" "$T/reg" 2>/dev/null)" != true ]; then
+        bad "junction: mklink /J made no junction $T/jn to $T/reg"
+    elif [ -z "$(which8 "$T/reg")" ]; then ok "junction: a match through a junction stays as written"
+    else bad "junction: a match through a junction covered the junction's target"; fi
     cmd //c rmdir "$(cygpath -w "$T/jn")"
 fi
 

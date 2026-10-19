@@ -44,6 +44,7 @@ import { readNewLines, type TailCursor } from '../claude-home/tail'
 
 const run = promisify(execFile)
 const realpathNative = promisify(realpath.native)
+const realpathPlain = promisify(realpath)
 
 /** A Windows path as git prints it: `/` for `\`, the drive letter in upper case (`C:/Users/x/worfy`). */
 const gitSpelling = (path: string): string => path.replaceAll('\\', '/').replace(/^[a-z]:/u, (drive) => drive.toUpperCase())
@@ -93,18 +94,34 @@ async function onDisk(path: string): Promise<string> {
 }
 
 /**
+ * A registry `match` in the spelling gate-resolve.mjs (its onDisk) compares: realpath(3) when that
+ * changes nothing but letter case. On Windows also when the plain realpath changes nothing but the
+ * separators and letter case: then `match` is an 8.3 short name or a `subst` drive, not a link, and
+ * realpath(3) expands it. Otherwise `match` as written.
+ */
+async function matchOnDisk(match: string, platform: NodeJS.Platform): Promise<string> {
+  try {
+    const native = await realpathNative(match)
+    if (native.toLowerCase() === match.toLowerCase()) return native
+    if (platform !== 'win32') return match
+    return (await realpathPlain(match)).toLowerCase() === win32.normalize(match).toLowerCase() ? native : match
+  } catch {
+    return match
+  }
+}
+
+/**
  * The gate key of a repository, as gate-resolve.mjs --which picks it: the entry whose `match` is
- * the root itself or a folder above it, the longest such `match` winning. Letter case of `match`
- * follows the disk the way the gate's resolver does it. On Windows `match` and the root are
- * compared with either separator and without regard to letter case.
+ * the root itself or a folder above it, the longest such `match` winning. `match` is spelled the
+ * way the gate's resolver spells it (matchOnDisk). On Windows `match` and the root are compared
+ * with either separator and without regard to letter case.
  */
 export async function gateKey(config: GateConfig | null, root: string, platform: NodeJS.Platform = process.platform): Promise<string | null> {
   if (config === null) return null
   const target = comparable(await onDisk(root), platform)
   let best: { key: string; length: number } | null = null
   for (const repo of config.repos) {
-    const native = await onDisk(repo.match)
-    const match = comparable(native.toLowerCase() === repo.match.toLowerCase() ? native : repo.match, platform)
+    const match = comparable(await matchOnDisk(repo.match, platform), platform)
     if (target !== match && !target.startsWith(`${match}/`)) continue
     if (best === null || match.length > best.length) best = { key: repo.key, length: match.length }
   }
