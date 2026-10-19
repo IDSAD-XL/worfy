@@ -104,7 +104,8 @@ function tree(): Record<string, string> {
 }
 
 beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-autopilot-')))
+  // The long spelling, as selfProjectRefusal's canonical() gives it under an 8.3 or subst TEMP.
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-autopilot-')))
   repo = join(scratch, 'repo')
   mkdirSync(join(repo, '.scratch', EPIC, 'issues'), { recursive: true })
   writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), '# demo\n')
@@ -826,7 +827,8 @@ describe('selfProjectRefusal with the git of this machine', () => {
   }
 
   beforeEach(() => {
-    space = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-self-git-')))
+    // The long spelling, as git names the common dir under an 8.3 or subst TEMP.
+    space = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-self-git-')))
     worfy = join(space, 'worfy')
     worktree = join(space, 'worfy-ticket')
     other = join(space, 'other')

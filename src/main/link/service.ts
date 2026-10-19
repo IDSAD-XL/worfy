@@ -145,6 +145,26 @@ export interface LinkServiceOptions {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/**
+ * Ends the socket of a failed pairing. One that is already closing (ws sent a close frame, e.g.
+ * 1009 for a message over the limit) gets its close handshake: cut at once, the close frame is
+ * lost on Windows and the peer sees 1006. A peer that never answers is cut off after a second.
+ */
+/**
+ * A pairing socket listens for 'error' for its whole life, as connection.ts does. nextFrame listens
+ * only while it waits for a frame, and an 'error' with no listener is an uncaught exception in the
+ * main process: a peer can send a malformed frame between two steps (in one TCP segment with a valid
+ * one) or while a failed pairing waits for its close handshake. 'close' follows the error.
+ */
+function holdPairingErrors(ws: WebSocket): void {
+  ws.on('error', () => undefined)
+}
+
+function endFailedPairing(ws: WebSocket): void {
+  if (ws.readyState === ws.CLOSING) setTimeout(() => ws.terminate(), 1000).unref()
+  else ws.terminate()
+}
+
 /** Every interface, IPv6 and IPv4; on a system without IPv6, IPv4 only. */
 const ALL_INTERFACES = '::'
 
@@ -309,6 +329,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         certificate: this.identity.certificate,
         ...(this.options.pairingStepTimeoutMs === undefined ? {} : { timeoutMs: this.options.pairingStepTimeoutMs }),
       })
+      holdPairingErrors(ws)
       let stored: LinkedMachineRecord | undefined
       try {
         await initiatePairing(ws, target.code, {
@@ -322,7 +343,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
           },
         })
       } catch (error) {
-        ws.terminate()
+        endFailedPairing(ws)
         throw error
       }
       if (stored === undefined) throw new PairingError('linking ended without a result')
@@ -657,6 +678,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   private async respond(ws: WebSocket, clientFingerprint: string, remoteAddress: string): Promise<void> {
     let stored: LinkedMachineRecord | undefined
+    holdPairingErrors(ws)
     this.pairingSockets.add(ws)
     try {
       await respondToPairing(ws, () => this.pairingWindow.take(), {
@@ -674,7 +696,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       ws.close(1000, 'linked')
       if (stored !== undefined) this.emit('linked', this.info(stored))
     } catch (error) {
-      ws.terminate()
+      endFailedPairing(ws)
       const message = error instanceof PairingError ? error.message : `linking failed: ${messageOf(error)}`
       this.warn(`[link] a pairing attempt from ${remoteAddress} failed: ${message}`)
       this.emit('pairing-failed', { message })

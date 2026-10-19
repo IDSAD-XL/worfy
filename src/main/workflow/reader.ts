@@ -21,7 +21,7 @@ import { versionOf } from '../docs/watch'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
-import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
+import { cachedLinks, leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
 import { layoutFailure, readProjectLayout, type ProjectLayout } from './folder'
 import { harnessScriptCommand, HarnessScriptStartError, NODE_NOT_FOUND, type HarnessScriptCommand } from './profile'
 import {
@@ -276,7 +276,9 @@ export async function enrichSnapshot(
   // The root is the folder the user opened: its real path is asked for as readDocs asks.
   const real = fs.realpath === undefined ? null : await fs.realpath(root).catch(() => null)
   const allowed = real === null ? [root, scratch] : [root, scratch, real]
-  const away = (path: string): Promise<boolean> => leadsToRemote(path, allowed, { paths, links: options.links })
+  // The walks of this read share their folders: each path is looked at once, and only in this read.
+  const links = cachedLinks(options.links)
+  const away = (path: string): Promise<boolean> => leadsToRemote(path, allowed, { paths, links })
   const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
 
   const epics = await Promise.all(

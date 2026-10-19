@@ -6,14 +6,14 @@ import { createHash } from 'node:crypto'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
+import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
 
@@ -1164,7 +1164,7 @@ describe('workflow hub', () => {
 // ── size of an Auction-like Project ──────────────────────────────────────────
 
 describe('workflow reader on an Auction-sized Project', () => {
-  it('parses the answer, reads "Где в коде" and diffs 682 Tickets in ≤ 300 ms of its own time', async () => {
+  it('parses the answer, reads the files section of each Ticket and diffs 682 Tickets in ≤ 300 ms of its own time (450 ms on Windows)', async () => {
     const repo = join(dir, 'big')
     const { json, ticketCount } = generateScratch(repo)
     expect(ticketCount).toBe(682)
@@ -1198,7 +1198,85 @@ describe('workflow reader on an Auction-sized Project', () => {
     }
     const best = Math.min(...samples)
     console.info(`[workflow] Auction-sized read, worfy's own share: ${samples.map((s) => s.toFixed(0)).join(', ')} ms`)
-    expect(best).toBeLessThanOrEqual(300)
+    // Windows on the PC, 2026-10-19, links checked once per folder in a read: best 224–330 ms (samples 224–432, CPU 75–95 % busy); 424–570 ms without that.
+    expect(best).toBeLessThanOrEqual(process.platform === 'win32' ? 450 : 300)
+  })
+})
+
+// On Windows each Ticket file and folder is checked for a link to a share before it is read
+// (src/main/remote-links.ts). The paths share their folders, and each folder is looked at once
+// per read. The path rules are path.win32 and the file system is replaced, so this runs anywhere.
+describe('workflow reader and the links on the way to the Tickets (Windows rules)', () => {
+  const ROOT = 'C:\\p\\repo'
+  const SCRATCH = 'C:\\p\\repo\\.scratch'
+  const ISSUES = 'C:\\p\\repo\\.scratch\\alpha\\issues'
+  const ticket = (num: number, slug: string): EpicStatusSnapshot['tickets'][number] => ({
+    epic: 'alpha',
+    num,
+    slug,
+    title: slug,
+    statusRaw: 'open',
+    state: 'open',
+    blockedRaw: null,
+    blockedNums: [],
+    blockedParsed: true,
+  })
+  const SNAPSHOT: EpicStatusSnapshot = {
+    ref: 'HEAD',
+    epics: [{ epic: 'alpha', hasSpec: true, hasMap: false }],
+    tickets: [ticket(1, 'first'), ticket(2, 'second'), ticket(3, 'third')],
+  }
+  const NAMES = ['01-first.md', '02-second.md', '03-third.md']
+  const ticketText = (file: string): string => ['# Ticket', '', '## Где в коде', '', '- `' + file + '`', ''].join('\n')
+
+  /** The Tickets of one Epic; `linked` maps a link to its target and may change between reads. */
+  function system() {
+    const lstat: string[] = []
+    const readText: string[] = []
+    const linked = new Map<string, string>()
+    const texts = new Map([[`${SCRATCH}\\alpha\\spec.md`, '# Alpha epic\n'], ...NAMES.map((name, index): [string, string] => [`${ISSUES}\\${name}`, ticketText(`src/${index}.ts`)])])
+    const options = {
+      paths: win32,
+      fs: {
+        readText: async (path: string): Promise<string | null> => (readText.push(path), texts.get(path) ?? null),
+        readdir: async (dir: string): Promise<string[]> => (dir === ISSUES ? NAMES : []),
+      },
+      links: {
+        isLink: async (path: string): Promise<boolean | null> => (lstat.push(path), linked.has(path)),
+        readlink: async (path: string): Promise<string> => linked.get(path)!,
+      },
+    }
+    return { lstat, readText, linked, options }
+  }
+
+  it('looks at each folder on the way to the Tickets once in a read, however many Tickets lie under it', async () => {
+    const fake = system()
+    const model = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, fake.options)
+    expect(model.tickets.map((each) => each.files)).toEqual([['src/0.ts'], ['src/1.ts'], ['src/2.ts']])
+    expect(model.epics.map((epic) => epic.title)).toEqual(['Alpha epic'])
+    // The spec, the folder of the issues and three Tickets: five walks over the same folders.
+    expect(fake.lstat.filter((path) => path === ISSUES)).toHaveLength(1)
+    expect(fake.lstat.filter((path) => path === SCRATCH)).toHaveLength(1)
+    expect(new Set(fake.lstat).size).toBe(fake.lstat.length)
+  })
+
+  it('sees a link to a share put in place between two reads: the second read does not read that Ticket', async () => {
+    const fake = system()
+    const first = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, fake.options)
+    expect(first.tickets.map((each) => each.filesListed)).toEqual([true, true, true])
+
+    fake.linked.set(`${ISSUES}\\01-first.md`, '\\\\evil\\share\\01-first.md')
+    fake.readText.length = 0
+    fake.lstat.length = 0
+    const second = await enrichSnapshot(ROOT, SNAPSHOT, SCRATCH, fake.options)
+    expect(second.tickets.map((each) => [each.files, each.filesListed])).toEqual([
+      [[], false],
+      [['src/1.ts'], true],
+      [['src/2.ts'], true],
+    ])
+    expect(fake.readText).not.toContain(`${ISSUES}\\01-first.md`)
+    // The second read looked at the folders again, not at answers kept from the first.
+    expect(fake.lstat).toContain(ISSUES)
   })
 })
 

@@ -331,7 +331,8 @@ describe.runIf(process.platform === 'win32')('the documents of a Project with re
   })
 
   it('reads none of them through the link: realpath, readdir, stat and readFile of Node are asked about no such path', async (context) => {
-    scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-docs-links-')))
+    // The spelling readDocs reaches: an 8.3 or subst TEMP (the runner's C:\Users\RUNNER~1) comes back long.
+    scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-docs-links-')))
     const byFile = join(scratch, 'by-file')
     const byFolder = join(scratch, 'by-folder')
     mkdirSync(join(byFile, 'docs', 'adr'), { recursive: true })
