@@ -400,6 +400,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 11 | `src/main/terminal/zsh/rc.d/10-assist.zsh`, `src/main/terminal-ai/socket.ts`, `test/contract/terminal-ai-zle.test.ts` | 6 |
 | 12 | `test/e2e/session-view.spec.ts` | 6 |
 | 13 | `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/canvas/nodes/TerminalNode.css`, `src/renderer/canvas/nodes/TerminalAiRequest.tsx`, `src/shared/ipc/terminal-ai-request.ts`, `src/main/ipc/terminal-ai-request.ts`, `src/main/terminal-ai/features/command-request.ts`, `test/unit/terminal-ai-request.test.tsx`, `test/contract/terminal-ai-request.test.ts`, `test/e2e/terminal-ai-request.spec.ts` | 6 |
+| 16 | `src/main/terminal-ai/assist.ts`, `src/main/terminal-ai/options.ts`, `test/contract/terminal-ai-assist.test.ts`, `.scratch/worfy-terminal-ai/spec.md` | 7 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -424,6 +425,10 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   Terminal-а; решение владельца 2026-10-16 по Consider Ticket-а 06) добавлен в ту же Wave: блокеров нет,
   общих файлов с 11 и 12 нет; 09 его, как 11 и 12, не ждёт. С открытым PR #328 (`worfy-ui` 11) общие
   `TerminalNode.tsx` и `TerminalAiRequest.tsx` — сверка перед claim.
+- **Wave 7 — 16, один.** Добавлен 2026-10-19 по live-проверке Ticket-а 09: assist-процесс
+  регистрируется в `~/.claude/sessions`, и spare может остаться без закрытия при отмене в узком окне.
+  Блокеров нет. С 09 общий `.scratch/worfy-terminal-ai/spec.md`, но 09 ждёт 16 (`Blocked by`) и
+  отмечает пункты после него.
 
 Сдвиги из-за общих файлов:
 
