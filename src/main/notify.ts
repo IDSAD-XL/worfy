@@ -34,8 +34,9 @@
 // names no Session: a click raises worfy's window and opens nothing (WindowNote). The focus rule is
 // the same: while a worfy window has focus the note waits for the next read of the queue.
 //
-// A Ticket that comes to wait for the owner (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts)
-// gets one note of no Session, a TicketNote: shown here by NoteDisplay's rules, counted by Project
+// A Ticket that comes to wait for the owner (worfy-pipeline tickets 06 and 09,
+// src/main/workflow/waits-notify.ts; read from the workflow model, so it runs no gh, git or
+// `bin/profile` of its own) gets one note of no Session, a TicketNote: shown here by NoteDisplay's rules, counted by Project
 // and Ticket, and not sent to the Linked machines. A click opens the Pipeline board of its Project.
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
@@ -455,7 +456,7 @@ export function installNotifications(
   liveSessions: Set<(projectRoot: string, live: readonly LiveSession[]) => void>,
   deps: NotifyDeps = electronNotifyDeps,
   link?: NoteLink,
-  /** The Stage hub and the Project list; `deps` shows and opens the Tickets' notes, Electron's by default. */
+  /** The workflow hub and the Project list; `deps` shows and opens the Tickets' notes, Electron's by default. */
   waits?: { hub: WaitsHub; projects: () => readonly { readonly path: string }[]; deps?: NotifyDeps<TicketNote> },
 ): () => void {
   const stopWaits = waits === undefined ? undefined : installWaitsNotifications(waits.hub, waits.projects, new NoteDisplay<TicketNote>(waits.deps ?? electronNotifyDeps))

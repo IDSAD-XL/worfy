@@ -17,7 +17,6 @@ import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
-import { stageHub } from './ipc/pipeline'
 import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
 import { bindingStore } from './layout/bindings'
@@ -137,9 +136,10 @@ function start(): void {
       // the Linked machines once the link has started (worfy-link ticket 13).
       // With them, the notification of a PR in the cross-machine gate queue that has waited over an
       // hour (worfy-windows ticket 17), for the Projects in worfy's list; and the notification of a
-      // Ticket of those Projects that comes to wait for the owner (worfy-pipeline ticket 06).
+      // Ticket of those Projects that comes to wait for the owner (worfy-pipeline tickets 06 and 09:
+      // read from the workflow hub, which watches the Ticket files and polls no gh or git).
       inStep('installNotifications', () => {
-        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: stageHub, projects: () => projectStore().list() })
+        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: workflowHub, projects: () => projectStore().list() })
         app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
