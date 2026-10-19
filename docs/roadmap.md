@@ -2,10 +2,11 @@
 
 Status: принята владельцем 2026-10-06; раздел E3 переписан по решениям владельца 2026-10-07; разделы
 `worfy-link` и `worfy-windows` добавлены по решениям владельца 2026-10-07, их «Готово, когда»
-подтверждены 2026-10-08; разделы `worfy-review`, `worfy-terminal-ai` и `worfy-ui` добавлены по решениям владельца 2026-10-09.
+подтверждены 2026-10-08; разделы `worfy-review`, `worfy-terminal-ai` и `worfy-ui` добавлены по решениям владельца 2026-10-09;
+раздел `worfy-browser` — по решениям владельца 2026-10-19.
 Source: итог проектирования 2026-10-06; [CONTEXT.md](../CONTEXT.md); ADR
 [0017](adr/0017-english-canonical-terms.md)–[0021](adr/0021-mcp-servers-allowlist-in-profile.md), 0040–0047 (E3);
-0052–0056 (`worfy-link` и `worfy-windows`); 0058 (`worfy-terminal-ai`).
+0052–0056 (`worfy-link` и `worfy-windows`); 0058 (`worfy-terminal-ai`); 0078 (`worfy-browser`).
 
 ## Куда идёт worfy
 
@@ -338,6 +339,46 @@ Select — Ticket 08; их ждёт раздел «Terminal AI» — Ticket 08 E
 **Не в `worfy-ui`:** смена сочетаний пользователем; свои меню worfy на общем Select; синхронизация
 Settings между Machine-ами.
 
+## worfy-browser — Browser Node на Canvas
+
+Спроектирован 2026-10-19 (решения владельца, четыре раунда вопросов). Epic `worfy-browser`, Ticket-ы —
+в [.scratch/worfy-browser/](../.scratch/worfy-browser/spec.md). Решение —
+[ADR-0078](adr/0078-browser-node.md); термины Browser и Browser profile — [CONTEXT.md](../CONTEXT.md).
+
+**Цель.** На Canvas Project-а открывается Browser — сайт или веб-приложение под сохранённым входом
+одной роли (Browser profile: «admin», «moderator», «user»). Им пользуется и пользователь, и Session-ы:
+по просьбе в чате и чтобы проверить Ticket глазами нужной роли. Итог проверки — найденные проблемы и
+Playwright-тесты, которые Session по ним пишет. Browser-ы, с которыми не работают, засыпают и не
+тормозят Canvas.
+
+**Готово, когда** (предложение docs-PR Epic-а, по ADR-0078):
+
+1. Прототип слоя Live Browser-ов проверен — pan, zoom, перекрытие Node-ов, drag, обрезка; итог («go»
+   или запасной вариант) записан.
+2. Browser открывается из меню Canvas, guest-страница — без preload и без `nodeIntegration`, только
+   на partition-ах Browser profile-ов; e2e-тест ловит поломку при обновлении Electron.
+3. Пользователь создаёт Browser profile Project-а, сам входит в аккаунт, задаёт список origin-ов и
+   флажок «доступен Autopilot».
+4. Session через MCP server `worfy-browser` (CDP) открывает Browser, кликает, печатает, читает
+   страницу, консоль и сеть — только по origin-ам из списка; пользователь перехватывает управление.
+5. Live одновременно не больше N (по умолчанию 3), остальные Asleep; пороги — в Settings.
+6. Browser Session-ы входит в её Family и уходит с Canvas вместе с ней.
+7. Второе окно и Linked machine видят Browser кадрами и передают ввод; read-only экран — только рамку.
+8. Агенты Wave в Autopilot проверяют acceptance criteria в Browser; без входа — «нужен вход под
+   <роль>».
+
+**Решения.** [ADR-0078](adr/0078-browser-node.md): хост — `<webview>` с `persist:` partition на
+Browser profile; управление — свой MCP server через CDP, не Claude in Chrome; Browser исполняется на
+Machine Project-а, Linked machine получает кадры; вход в аккаунт и создание Browser profile — только
+пользователь.
+
+**Порядок.** Первый — Ticket 01 (прототип слоя): он решает, как рисуется Browser, остальные ждут его
+итога. Дальше Wave-ы по `spec.md`. Платформенные ли PR, меняющие main, — по списку путей ADR-0071 при
+PR.
+
+**Не в `worfy-browser`:** вход Browser profile в Playwright-тесты (`storageState`); Dock со встроенным
+браузером; Browser как регрессионный набор в CI.
+
 ## E4 — Для других людей
 
 **Цель.** Любой человек ставит worfy вместе с Harness на свою машину и работает без помощи
@@ -360,7 +401,8 @@ Settings между Machine-ами.
 - Прямая запись worfy в репозиторий Project. Profile в репозиторий не попадает совсем: он целиком
   лежит на машине (ADR-0042).
 - Всё, что было вне worfy-mvp и не названо выше:
-  - Dock со встроенным браузером;
+  - Dock со встроенным браузером — сначала Browser Node (Epic `worfy-browser`, ADR-0078, пункт 17);
+    позже Dock сможет показывать тот же Browser;
   - управление с телефона;
   - другие провайдеры моделей;
   - несколько окон;
