@@ -5,9 +5,9 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { elkKey, setElkEngine, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
+import { elkKey, setElkEngine, useElkAnswers, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
 import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
-import source, { activityNow, arrangementOf, buildEpicNodes, epicsWithWork, saveArrangement, useArrangementUpkeep } from '../../src/renderer/canvas/sources/epics'
+import source, { activityNow, arrangementOf, buildEpicNodes, epicsWithWork, requestEpicLayouts, saveArrangement, useArrangementUpkeep } from '../../src/renderer/canvas/sources/epics'
 import { BINDING_ANCHOR_KIND } from '../../src/renderer/canvas/sources/workflow-bindings'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import type { LayoutOps } from '../../src/renderer/canvas/useLayout'
@@ -205,5 +205,44 @@ describe('the upkeep of the record (useArrangementUpkeep)', () => {
     expect(op.data.order).toEqual(['e06', ...names.filter((name) => name !== 'e06')])
     expect(op.data.columns).toBe(arrangementOf('upkeep-day')!.columns)
     expect(new Date(op.data.at).toDateString()).toBe(new Date().toDateString())
+  })
+
+  it('waits for no frame that is collapsed, and counts an answer for older inputs as no answer', () => {
+    setElkEngine({} as never)
+    // Epic e01 collapsed by the user: ELK lays out no collapsed frame.
+    const base = layoutWith({ order: names, columns: 3, at: new Date().toISOString() })
+    const frame = { id: 'epic:e01', kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data: { collapsed: true } }
+    const collapsed: Layout = { ...base, nodes: [...base.nodes, frame] }
+    const others = answers()
+    delete others.e01
+    buildEpicNodes('upkeep-collapsed', '/repo', model, collapsed, {}, [], others)
+    expect(arrangementOf('upkeep-collapsed')!.settled).toBe(true)
+    const old = answers()
+    old.e05 = { ...old.e05!, key: 'older inputs' }
+    buildEpicNodes('upkeep-old-key', '/repo', model, layoutWith({ order: names, columns: 3, at: new Date().toISOString() }), {}, [], old)
+    expect(arrangementOf('upkeep-old-key')!.settled).toBe(false)
+  })
+
+  it('a frame ELK failed to lay out is answered with the synchronous layout and holds nothing up', async () => {
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    setElkEngine({ layout: () => Promise.reject(new Error('ELK failed')) })
+    const layout = layoutWith({ order: names, columns: 11, at: '2026-01-01T08:00:00.000Z' })
+    sent.layout = layout
+    const early = buildEpicNodes('upkeep-failed', '/repo', model, layout, {})
+    expect(arrangementOf('upkeep-failed')!.settled).toBe(false)
+    const { rerender } = upkeep('upkeep-failed', early)
+    requestEpicLayouts('upkeep-failed')
+    await waitFor(() => expect(Object.keys(useElkAnswers.getState()['upkeep-failed'] ?? {})).toHaveLength(names.length))
+    const failed = useElkAnswers.getState()['upkeep-failed']!
+    const own = tickets.filter((t) => t.epic === 'e03')
+    expect(failed.e03!.key).toBe(elkKey(own, 'e03'))
+    expect(failed.e03!.folded).toEqual(layoutEpic({ tickets: own, collapsed: false, doneExpanded: false, name: 'e03' }))
+    const answered = buildEpicNodes('upkeep-failed', '/repo', model, layout, {}, [], failed)
+    expect(arrangementOf('upkeep-failed')!.settled).toBe(true)
+    rerender({ current: answered })
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    expect(sent.ops[0]).toMatchObject({ op: 'patchData', id: EPIC_ARRANGEMENT_ID })
+    expect(quiet).toHaveBeenCalled()
+    quiet.mockRestore()
   })
 })

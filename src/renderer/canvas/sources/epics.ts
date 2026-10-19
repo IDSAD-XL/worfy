@@ -385,9 +385,8 @@ const pendingColumns = new Map<string, number>()
  * per opening of the Project's Canvas, a record from another calendar day (or none) is computed
  * again, active first; afterwards, a K the hysteresis let change is written, so the next build
  * keeps it. Both wait until the frames show ELK's answers, so K is counted from the sizes drawn.
- * A read-only screen writes nothing.
- * shortcut: a frame whose ELK request failed keeps the screen from settling, so nothing is written
- * until its inputs change; redo when elk/client.ts reports a failed request.
+ * A frame whose ELK request failed counts as answered: elk/client.ts answers it with the
+ * synchronous layout. A read-only screen writes nothing.
  */
 export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
   const store = useStoreApi()
