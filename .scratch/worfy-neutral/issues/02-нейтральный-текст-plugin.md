@@ -1,7 +1,7 @@
 # 02 — Нейтральный текст plugin: без владельца, Auction, Atakama, номеров ADR и путей worfy
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T21:35Z
 Blocked by: 01
 Source: решения владельца 2026-10-19, Q1, Q7 ([spec.md](../spec.md), «Решения владельца», пункты 1, 7);
 [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md), пункт 1.

@@ -1,7 +1,8 @@
 # 01 — User personalization: язык отчётов в `user.json`, личные правила в `user/rules.md`
 
 Type: task
-Status: claimed 2026-10-19T11:48Z
+Status: done 2026-10-19T21:35Z
+PR: #526
 Branch: worfy-neutral/01
 Blocked by: —
 Source: решения владельца 2026-10-19, Q2, Q3 ([spec.md](../spec.md), «Решения владельца», пункты 2, 3);
@@ -71,4 +72,7 @@ Shell test-ы Harness во временных `HOME` и `HARNESS_HOME`; ни о�
 
 ## Итог
 
-Заполняется при закрытии.
+Merged #526 (`f69f4a26`, 2026-10-19). Язык отчётов `language.reports` берётся из `$HARNESS_HOME/user.json`,
+потом (ещё один release, `shortcut:`) из Profile, потом `en`. `hooks/inject-rules.mjs` добавляет
+`$HARNESS_HOME/user/rules.md` к части `common` под `## User rules` в SessionStart и SubagentStart. Языковые правила
+и разделы `## Terms` убраны из plugin.
