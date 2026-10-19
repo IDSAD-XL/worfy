@@ -61,10 +61,16 @@ const readPkg = (p) => {
 // stay as written). On a case-sensitive file system native changes nothing.
 // Windows: the registry may spell `match` with `\` or `/` and in any letter case, and the target
 // comes with `\` — isSameOrInside compares them whatever the separator and the case.
+// Windows also has spellings of one folder that are not links: an 8.3 short name
+// (C:\Users\RUNNER~1\…, the TEMP of an account with a long name) and a `subst` drive. native expands
+// them, the plain fs.realpathSync follows links but keeps those spellings: when the plain one changes
+// nothing but the separators and the case (path.normalize keeps a trailing slash, so such an entry
+// stays as written), native changed the spelling only, and its answer is taken.
 const onDisk = (p) => {
     try {
         const n = fs.realpathSync.native(p)
-        return n.toLowerCase() === p.toLowerCase() ? n : p
+        if (n.toLowerCase() === p.toLowerCase()) return n
+        return process.platform === "win32" && fs.realpathSync(p).toLowerCase() === path.normalize(p).toLowerCase() ? n : p
     } catch {
         return p
     }

@@ -146,10 +146,15 @@ function git(cwd: string, args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: gitEnv })
 }
 
-/** Whether `dir` is the top of a git work tree (not just inside one). */
+/**
+ * Whether `dir` is the top of a git work tree (not just inside one). Both sides go through
+ * realpathSync.native: on Windows git prints the long name of a folder, while `dir` may come in an
+ * 8.3 short spelling (`C:\Users\RUNNER~1\…`) or through a `subst` drive, which the plain
+ * realpathSync keeps; on macOS native also settles the letter case.
+ */
 function isRepoRoot(dir: string): boolean {
   try {
-    return realpathSync(git(dir, ['rev-parse', '--show-toplevel']).trim()) === realpathSync(dir)
+    return realpathSync.native(git(dir, ['rev-parse', '--show-toplevel']).trim()) === realpathSync.native(dir)
   } catch {
     return false
   }

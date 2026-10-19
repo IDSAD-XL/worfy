@@ -363,7 +363,7 @@ describe('the move', () => {
     expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
     expect(manifest.commits.claudeHome).toBe(git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim())
 
-    expect(realpathSync(git(sandbox.harnessHome, 'rev-parse', '--show-toplevel').trim())).toBe(sandbox.harnessHome)
+    expect(realpathSync.native(git(sandbox.harnessHome, 'rev-parse', '--show-toplevel').trim())).toBe(realpathSync.native(sandbox.harnessHome))
     const committed = git(sandbox.harnessHome, 'ls-tree', '-r', '--name-only', 'HEAD').trim().split('\n')
     expect(committed).toEqual(expect.arrayContaining(['.gitignore', 'gate/config.json', 'projects/worfy/profile.json', 'projects/worfy/rules.md', 'projects/atakama/bin/tickets.mjs']))
     // State, not history: the plugin copy, markers, locks, backups and Profile state are not committed.
