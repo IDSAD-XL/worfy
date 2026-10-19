@@ -13,7 +13,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
@@ -131,7 +131,7 @@ function makeRepo(path: string): string {
   writeFileSync(join(path, 'package.json'), '{"scripts":{"lint":"eslint .","test":"vitest run"}}\n')
   git(path, 'add', 'package.json')
   git(path, 'commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 /**
@@ -251,7 +251,7 @@ function harnessFiles(): Record<string, string> {
 const clean = (repo: string): string => git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')
 
 beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-connect-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-connect-')))
   home = join(scratch, 'home')
   harnessHome = join(home, '.claude', 'worfy-harness')
   mkdirSync(join(harnessHome, 'gate'), { recursive: true })
@@ -275,7 +275,7 @@ describe('the kind of the folder (step 1)', () => {
       ok: true,
       folder: {
         kind: 'multi-repo',
-        root: realpathSync(workspace),
+        root: realpathSync.native(workspace),
         repos: [
           { name: 'extension', path: extension },
           { name: 'server', path: server },
@@ -299,6 +299,34 @@ describe('the kind of the folder (step 1)', () => {
     const linked = await inspectFolder(worktree, runGit)
     expect(linked.ok && linked.folder).toMatchObject({ kind: 'git', root: repo })
     expect(linked.ok && linked.folder.notice).toMatch(/is a worktree of .*the repository root is connected instead/)
+  })
+
+  // Windows gives one folder several spellings: the short 8.3 name of a long account name, a subst
+  // drive, another letter case. git answers the spelling the disk has, so the folder the user typed
+  // is compared on that one too. Letter case is the spelling a test can make on any machine; on a
+  // case-sensitive disk it names another, missing folder.
+  it('another spelling of the folder is the same folder: a repository without a notice, a multi-repo folder with its repositories', async () => {
+    const workspace = join(scratch, 'atakama')
+    const server = makeRepo(join(workspace, 'server'))
+    const extension = makeRepo(join(workspace, 'extension'))
+    const spelled = join(scratch, 'ATAKAMA')
+    if (!existsSync(spelled)) {
+      expect(await inspectFolder(spelled, runGit)).toEqual({ ok: false, reason: `${spelled} does not exist.` })
+      return
+    }
+    expect(await inspectFolder(join(spelled, 'SERVER'), runGit)).toEqual({ ok: true, folder: { kind: 'git', root: realpathSync.native(server), repos: [{ name: 'server', path: realpathSync.native(server) }], notice: null } })
+    expect(await inspectFolder(spelled, runGit)).toEqual({
+      ok: true,
+      folder: {
+        kind: 'multi-repo',
+        root: realpathSync.native(workspace),
+        repos: [
+          { name: 'extension', path: realpathSync.native(extension) },
+          { name: 'server', path: realpathSync.native(server) },
+        ],
+        notice: null,
+      },
+    })
   })
 
   it('a folder without repositories, or with only one, is refused with the reason', async () => {
@@ -912,7 +940,7 @@ describe('the draft Session (step 4)', () => {
     const profile = outcome.draft.profile as Record<string, Record<string, unknown>>
     expect(profile.mode).toBe('silent')
     expect(profile.workflow?.folder).toBeNull()
-    expect(profile.worktree?.root).toBe(`${repo}/.claude/worktrees/`)
+    expect(profile.worktree?.root).toBe(join(repo, '.claude', 'worktrees') + '/')
     expect(profile.language).toEqual({ reports: 'ru', team: 'en', docs: 'en' })
     expect(profile.github).toEqual({ account: null })
     expect(outcome.draft.gate).toEqual([expect.objectContaining({ key: 'fake-project', match: repo, profile: 'fake-project' })])
@@ -1164,7 +1192,7 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect(profile.workflow?.folder).toBe(workspace)
     expect(profile.worktree?.root).toBeNull()
     // The skill proposes one entry per repository; the fake agent proposed one for the folder.
-    const both: ProfileDraft = { ...draft, profile: { ...draft.profile, name: 'ws' }, gate: [api, web].map((match) => ({ ...draft.gate[0], key: match.split('/').at(-1), match, profile: 'ws' })) }
+    const both: ProfileDraft = { ...draft, profile: { ...draft.profile, name: 'ws' }, gate: [api, web].map((match) => ({ ...draft.gate[0], key: basename(match), match, profile: 'ws' })) }
     expect(await run.connector.write(workspace, { ...both, profile: { ...both.profile, mode: 'full' } })).toEqual({ status: 'refused', issues: [{ path: 'profile.mode', kind: 'value', message: MULTI_REPO_FULL }] })
     expect(run.added).toEqual([])
     // Before the write the store refuses the folder: the Harness does not know it yet.

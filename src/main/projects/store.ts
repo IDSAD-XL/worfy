@@ -5,14 +5,15 @@
 // into it: the list, the settings and the data folder of a Project all live under worfy's data root.
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { mkdirSync, realpathSync, statSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { mkdirSync, statSync } from 'node:fs'
+import { basename, dirname, join, resolve as resolvePath } from 'node:path'
 import { z } from 'zod'
 import type { ProjectsState, ProjectView } from '../../shared/ipc/projects'
 import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { claudeHome, dataRoot } from '../storage/paths'
 import { readResolvedProfile } from '../workflow/profile'
+import { realpathOrSelf } from './real-path'
 import { ensureProjectSettings } from './settings'
 
 const storedProjectSchema = z.object({
@@ -72,7 +73,11 @@ const ID_HASH_LENGTH = 8
 const ID_HASH_PATTERN = new RegExp(`^[0-9a-f]{${ID_HASH_LENGTH}}$`)
 const ID_HASH_SUFFIX = new RegExp(`-([0-9a-f]{${ID_HASH_LENGTH}})$`)
 
-/** `<folder name>-<sha256(path)[0:8]>`: the Project's id and the name of its data folder. */
+/**
+ * `<folder name>-<sha256(path)[0:8]>`: the Project's id and the name of its data folder. `path` is the
+ * root as git (or the Harness) spells it, not the stored path: on Windows git writes `C:/…`, and
+ * Project ids saved before the stored path became `C:\…` must stay the same.
+ */
 export function projectId(repositoryRoot: string): string {
   const hash = createHash('sha256').update(repositoryRoot).digest('hex').slice(0, ID_HASH_LENGTH)
   return `${basename(repositoryRoot) || 'root'}-${hash}`
@@ -104,13 +109,6 @@ export interface ProjectsChange {
 
 type Resolved = { ok: true; root: string; notice: string | null } | { ok: false; reason: string }
 
-function realpathOrSelf(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
-  }
-}
 
 export class ProjectStore {
   private loaded: ProjectsFile | undefined
@@ -137,7 +135,9 @@ export class ProjectStore {
     if (!this.loaded) {
       const saved = readJsonFile(this.file, projectsFileSchema) ?? { projects: [], activeId: null }
       const activeId = saved.projects.some((project) => project.id === saved.activeId) ? saved.activeId : null
-      this.loaded = { projects: saved.projects, activeId }
+      // A list saved on Windows before the paths were resolved holds git's `C:/…` spelling.
+      const projects = saved.projects.map((project) => ({ ...project, path: resolvePath(project.path) }))
+      this.loaded = { projects, activeId }
     }
     return this.loaded
   }
@@ -231,9 +231,9 @@ export class ProjectStore {
     const root = basename(commonDir) === '.git' ? dirname(commonDir) : toplevel
     let notice: string | null = null
     if (realpathOrSelf(root) !== realpathOrSelf(toplevel)) {
-      notice = `${toplevel} is a worktree of ${root}; the repository root was added instead.`
+      notice = `${resolvePath(toplevel)} is a worktree of ${resolvePath(root)}; the repository root was added instead.`
     } else if (realpathOrSelf(folder) !== realpathOrSelf(root)) {
-      notice = `${folder} is inside the repository ${root}; the repository root was added instead.`
+      notice = `${folder} is inside the repository ${resolvePath(root)}; the repository root was added instead.`
     }
     return { ok: true, root, notice }
   }
@@ -250,7 +250,7 @@ export class ProjectStore {
         reason: `${folder} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
       }
     }
-    const notice = realpathOrSelf(folder) === realpathOrSelf(workspace) ? null : `${folder} is inside the Project ${workspace} over several repositories; its folder was added instead.`
+    const notice = realpathOrSelf(folder) === realpathOrSelf(workspace) ? null : `${folder} is inside the Project ${resolvePath(workspace)} over several repositories; its folder was added instead.`
     return { ok: true, root: workspace, notice }
   }
 
@@ -267,7 +267,8 @@ export class ProjectStore {
     // The git calls above awaited; re-read the list now, so a concurrent change is not lost.
     const { projects, activeId } = this.data()
     const existing = projects.find((project) => project.id === id)
-    const project = existing ?? { id, name: basename(resolved.root) || resolved.root, path: resolved.root }
+    const path = resolvePath(resolved.root)
+    const project = existing ?? { id, name: basename(path) || path, path }
 
     mkdirSync(this.dataDir(id), { recursive: true })
     ensureProjectSettings(this.dataDir(id))

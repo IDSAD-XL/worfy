@@ -32,7 +32,7 @@
 // the list — comes in through ConnectDeps, so the contract test runs the steps with stand-ins.
 // connectScriptRunner is the app's `connect`: it starts bin/project-connect through the shared
 // launcher of the Harness scripts (src/main/workflow/profile.ts), as `node <script>`.
-import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
@@ -46,6 +46,7 @@ import type { GhRunner } from '../github/prs'
 import { scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
 import { environmentExit, runHarnessScript, scriptFailureDetail, type ProfileRun, type ProfileRunner, type SpawnProcess } from '../workflow/profile'
+import { realpathOrSelf } from './real-path'
 import type { GitRunner } from './store'
 
 /** The only tools the draft Session uses: it reads files and answers with its structured output. */
@@ -184,14 +185,6 @@ export interface ConnectDeps {
 
 export type FolderInspection = { ok: true; folder: ConnectFolder } | { ok: false; reason: string }
 
-function realpathOrSelf(path: string): string {
-  try {
-    return realpathSync(path)
-  } catch {
-    return path
-  }
-}
-
 /** The root of the git repository `dir` is the root of, or null when `dir` is no repository root. */
 async function repositoryRoot(dir: string, git: GitRunner): Promise<string | null> {
   try {
@@ -223,7 +216,7 @@ export async function inspectFolder(folder: string, git: GitRunner): Promise<Fol
     // A linked worktree shares the main repository's .git folder: its parent is the repository root.
     const root = realpathOrSelf(basename(commonDir) === '.git' ? dirname(commonDir) : toplevel)
     let notice: string | null = null
-    if (root !== realpathOrSelf(toplevel)) notice = `${toplevel} is a worktree of ${root}; the repository root is connected instead.`
+    if (root !== realpathOrSelf(toplevel)) notice = `${realpathOrSelf(toplevel)} is a worktree of ${root}; the repository root is connected instead.`
     else if (realpathOrSelf(folder) !== root) notice = `${folder} is inside the repository ${root}; the repository root is connected instead.`
     return { ok: true, folder: { kind: 'git', root, repos: [{ name: basename(root) || root, path: root }], notice } }
   }

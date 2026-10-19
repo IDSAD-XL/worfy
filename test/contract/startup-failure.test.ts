@@ -2,6 +2,7 @@
 // `electron` module: one error window naming the step that failed, the error, what to try and
 // the data folder, then exit code 1. The window's own page load (src/main/window.ts) reports
 // through the same function instead of ending as an unhandled rejection.
+import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTestTree } from '../remove'
 
@@ -144,7 +145,8 @@ describe('reportStartupFailure', () => {
     expect(text).toContain(`Step: ${step} (${doing}) failed.`)
     expect(text).toContain(`Error: boom in ${step}`)
     expect(text).toMatch(/What to try: \S+/)
-    expect(text).toContain(`worfy's data folder: ${DATA_DIR}`)
+    // The app prints the folder resolved: C:\tmp\… on Windows.
+    expect(text).toContain(`worfy's data folder: ${resolve(DATA_DIR)}`)
     expect(electron.exit).toHaveBeenCalledTimes(1)
     expect(electron.exit).toHaveBeenCalledWith(1)
   })
@@ -230,8 +232,11 @@ describe('checkDataFolder', () => {
       writeFileSync(file, '')
       expect(() => checkDataFolder(file)).toThrow(/is a file, not a folder/)
       expect(() => checkDataFolder(join(file, 'inner'))).toThrow(/ENOTDIR/)
+      // Two missing levels: the walk up goes past the first missing folder.
+      expect(() => checkDataFolder(join(file, 'a', 'b'))).toThrow(/ENOTDIR/)
       expect(() => checkDataFolder(root)).not.toThrow()
       expect(() => checkDataFolder(join(root, 'not-yet'))).not.toThrow()
+      expect(() => checkDataFolder(join(root, 'x', 'y'))).not.toThrow()
     } finally {
       removeTestTree(root)
     }
@@ -248,7 +253,10 @@ describe('the start in src/main/index.ts', () => {
     for (const [path, factory] of Object.entries(mocks)) vi.doMock(path, factory)
     try {
       await import('../../src/main/index')
-      await vi.waitFor(() => expect(electron.showErrorBox).toHaveBeenCalled())
+      // The first start that gets past registerIpc imports every IPC module cold: about 2 s on
+      // Windows, more than waitFor's default of 1 s. A start still running after a timed-out test
+      // would show its window in the next one.
+      await vi.waitFor(() => expect(electron.showErrorBox).toHaveBeenCalled(), { timeout: 10_000 })
       return shownWindow().text
     } finally {
       for (const path of Object.keys(mocks)) vi.doUnmock(path)
