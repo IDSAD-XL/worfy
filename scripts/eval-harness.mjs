@@ -129,11 +129,22 @@ function claudeBinary() {
   }
 }
 
+/**
+ * spawnSync of claude. A CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows starts no
+ * script by its path, so it runs as a script of this process's own Node, with ELECTRON_RUN_AS_NODE=1
+ * for Electron's (the way worfy starts a `.mjs` WORFY_CLAUDE, src/main/program.ts). The SDK's binary
+ * and any other path start as they are.
+ */
+const runClaude = (claude, args, options) =>
+  claude.endsWith('.mjs')
+    ? spawnSync(process.execPath, [claude, ...args], { ...options, env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' } })
+    : spawnSync(claude, args, options)
+
 /** -1, 0 or 1: version a against version b, both [major, minor, patch]. */
 const compare = (a, b) => a.reduce((acc, n, i) => acc || Math.sign(n - b[i]), 0)
 
 function checkVersion(claude) {
-  const run = spawnSync(claude, ['--version'], { encoding: 'utf8', env: childEnv })
+  const run = runClaude(claude, ['--version'], { encoding: 'utf8', env: childEnv })
   if (run.error || run.status !== 0) fail(`${claude} --version failed: ${run.error?.message ?? run.stderr.trim()}`)
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
   if (!match) fail(`cannot read the version from "${run.stdout.trim()}"`)
@@ -307,7 +318,7 @@ try {
     // The target goes before --tag and --allow-tools: both take a list and would swallow it.
     const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', tag, '--allow-tools', ...grants(harness)[tag], ...passThrough]
     process.stdout.write(`eval:harness: ${tag} — claude ${args.join(' ')}\n`)
-    const run = spawnSync(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
+    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${tag} exited ${code}\n`)
     worst = Math.max(worst, code)

@@ -90,13 +90,26 @@ function scaffold(
   return { work, home, run }
 }
 
-/** The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`. */
+/**
+ * The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`;
+ * ELECTRON_RUN_AS_NODE, because the script runs under this process's Node (see `harness`).
+ */
 const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
-  childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', ...extra })
+  childEnv(home, {
+    PATH: process.env.PATH,
+    TMPDIR: process.env.TMPDIR ?? tmpdir(),
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    ELECTRON_RUN_AS_NODE: '1',
+    ...extra,
+  })
 
-/** Runs a Harness script against a scaffolded fixture with only the fixture's home (and `extra`). */
+/**
+ * Runs a Harness script against a scaffolded fixture with only the fixture's home (and `extra`).
+ * The scripts are Node scripts (`#!/usr/bin/env node`), started as `<this Node> <script>`: Windows
+ * starts no script by its path, only .exe and .com.
+ */
 const harness = (home: string, cwd: string, script: string, args: string[], extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> =>
-  spawnSync(join(HARNESS, 'bin', script), args, {
+  spawnSync(process.execPath, [join(HARNESS, 'bin', script), ...args], {
     cwd,
     env: harnessEnv(home, extra),
     encoding: 'utf8',
@@ -386,9 +399,18 @@ function stubSetup(
   extra: NodeJS.ProcessEnv,
 ): { dir: string; log: string; env: NodeJS.ProcessEnv } {
   const dir = tempDir('worfy-eval-stub-')
-  const claude = join(dir, 'claude')
-  writeFileSync(claude, STUB)
-  chmodSync(claude, 0o755)
+  // Windows starts no script by its path: there the stand-in is a `.mjs`, which eval-harness.mjs
+  // starts with its own Node, the way worfy starts a `.mjs` WORFY_CLAUDE (src/main/program.ts). The
+  // stub is CommonJS, so the `.mjs` only loads it. On macOS and Linux the stub is started by its
+  // path, as the real claude is.
+  const claude = join(dir, process.platform === 'win32' ? 'claude.mjs' : 'claude')
+  if (process.platform === 'win32') {
+    writeFileSync(join(dir, 'claude.cjs'), STUB)
+    writeFileSync(claude, "import './claude.cjs'\n")
+  } else {
+    writeFileSync(claude, STUB)
+    chmodSync(claude, 0o755)
+  }
   const log = join(dir, 'calls.log')
   const env = childEnv(dir, {
     PATH: path(dir),
