@@ -141,18 +141,25 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
   return sandbox
 }
 
+/**
+ * The time a sandbox hook may take: a fixture copy, four git repositories (twelve git calls) and the
+ * plugin copy. On a clean GitHub Windows runner it went over the default 10 s in 6 of 57 tests
+ * (run 39250749583, whole run 346 s); on the PC and on macOS it takes a few seconds.
+ */
+const SANDBOX_HOOK_MS = 60_000
+
 /** Makes a sandbox before each test of the file it is called in, and removes it after. */
 export function useSandbox(): void {
   beforeEach(() => {
     makeSandbox()
-  })
+  }, SANDBOX_HOOK_MS)
 
   // Not rmSync: the sandbox holds a git repository, whose objects are read-only files. Under the
   // Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed the test and
   // left the folder behind (worfy-windows tickets 23 and 26).
   afterEach(() => {
     removeTestTree(sandbox.root)
-  })
+  }, SANDBOX_HOOK_MS)
 }
 
 /**
