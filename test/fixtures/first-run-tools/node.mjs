@@ -10,7 +10,9 @@ if (args[0] === '--version') {
   process.stdout.write(`v${process.env.FAKE_NODE_VERSION || '22.11.0'}\n`)
 } else if (process.env.FAKE_NODE_REAL) {
   const run = spawnSync(process.env.FAKE_NODE_REAL, args, { stdio: 'inherit' })
-  process.exitCode = run.status ?? 1
+  // A real node ended by a signal ends the stand-in by the same signal, as `exec` does in ./node.
+  if (run.signal) process.kill(process.pid, run.signal)
+  else process.exitCode = run.status ?? 1
 } else {
   unsupported('node', args)
 }
