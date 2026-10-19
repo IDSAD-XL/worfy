@@ -5,11 +5,14 @@
 // Windows takes the home folder from it, not from HOME); the test finds the script it checks next to itself
 // (harness/), not under $HOME/.claude. Git in an empty HOME has no identity, so the author and
 // committer come from the environment.
+// On Windows `bash` is Git Bash, found explicitly (test/git-bash.ts): the first bash.exe on the PATH
+// may be the WSL launcher.
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -18,8 +21,11 @@ const TEST_DIRS = [join(HARNESS, 'bin', 'tests'), join(HARNESS, 'hooks', 'tests'
 
 // The ticket imports 5 tests under bin/tests and 3 under hooks/tests.
 const MIN_TESTS = 8
+const WINDOWS = process.platform === 'win32'
 // One file takes a few seconds; the limit is for a test that hangs (a script waiting on stdin).
-const FILE_TIMEOUT_MS = 120_000
+// On Windows every process start is slow: profile.test.sh and skill-blocks.test.sh alone take
+// 140-170 s there, so 120 s cut off files that would pass.
+const FILE_TIMEOUT_MS = WINDOWS ? 300_000 : 120_000
 
 const testFiles = TEST_DIRS.flatMap((dir) =>
   existsSync(dir)
@@ -32,21 +38,41 @@ const testFiles = TEST_DIRS.flatMap((dir) =>
 
 const tail = (text: string, lines: number): string => text.split('\n').slice(-lines).join('\n')
 
+// The qmd scripts of the Harness and their test are zsh scripts; Windows has no zsh.
+const NO_ZSH_UNTIL_TICKET_15 = 'qmd scripts are zsh until worfy-windows ticket 15'
+const ZSH_ONLY = new Set([join(HARNESS, 'bin', 'tests', 'qmd.test.sh')])
+
 describe('harness shell tests', () => {
   it(`finds at least ${MIN_TESTS} test files under harness/{bin,hooks}/tests`, () => {
     expect(testFiles.length).toBeGreaterThanOrEqual(MIN_TESTS)
   })
 
+  // The bash in the test's name, so the run's output shows which one ran the files.
+  let shown: string
+  try {
+    shown = gitBash()
+  } catch (error) {
+    shown = String(error)
+  }
+  it(`runs the shell tests with ${shown}`, () => {
+    const bash = gitBash()
+    if (WINDOWS) expect(bash.toLowerCase()).not.toContain('\\system32\\')
+    else expect(bash).toBe('bash')
+  })
+
   // Commands the Harness scripts need. The shell tests do not skip a check when one is missing,
   // they fail on it; this case names the missing command directly (ubuntu-latest has no zsh).
-  it.each(['bash', 'zsh', 'jq', 'git', 'node'])('%s is on PATH', (command) => {
-    const found = spawnSync('sh', ['-c', `command -v ${command}`], { encoding: 'utf8' })
+  it.for(['bash', 'zsh', 'jq', 'git', 'node'])('%s is on PATH', (command, context) => {
+    context.skip(WINDOWS && command === 'zsh', NO_ZSH_UNTIL_TICKET_15)
+    const found = spawnSync(WINDOWS ? gitBash() : 'sh', ['-c', `command -v ${command}`], { encoding: 'utf8' })
     expect(found.status, `${command} is not installed`).toBe(0)
   })
 
-  it.each(testFiles.map((file) => [file.slice(HARNESS.length + 1), file]))(
+  it.for(testFiles.map((file): [string, string] => [file.slice(HARNESS.length + 1), file]))(
     '%s exits 0 with an empty HOME',
-    (_name, file) => {
+    { timeout: FILE_TIMEOUT_MS + 10_000 },
+    ([, file], context) => {
+      context.skip(WINDOWS && ZSH_ONLY.has(file), NO_ZSH_UNTIL_TICKET_15)
       const home = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-home-')))
       try {
         const env: NodeJS.ProcessEnv = {
@@ -63,7 +89,7 @@ describe('harness shell tests', () => {
           GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
           GIT_CONFIG_NOSYSTEM: '1',
         }
-        const run = spawnSync('bash', [file], {
+        const run = spawnSync(gitBash(), [file], {
           cwd: home,
           env,
           encoding: 'utf8',
@@ -78,6 +104,5 @@ describe('harness shell tests', () => {
         removeTestTree(home)
       }
     },
-    FILE_TIMEOUT_MS + 10_000,
   )
 })
