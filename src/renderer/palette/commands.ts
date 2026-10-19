@@ -14,8 +14,10 @@
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 // "Process gate queue" (worfy-windows ticket 17, `actions.gateQueue`) is there only on the machine
 // whose Profile gives it the role `serve` of the cross-machine gate; its detail counts the waiting PRs.
+// "Re-pack" (worfy-canvas ticket 01, ADR-0075) asks the Canvas to put the Epic frames in the order
+// "active first" and count their columns again.
 // On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
-// would change the Project — New …, Tidy up, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
+// would change the Project — New …, Tidy up, Re-pack, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
 // their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
@@ -27,6 +29,7 @@ import type { LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
+import { requestRepack } from '../canvas/sources/epics'
 import { applyLayoutOp } from '../canvas/useLayout'
 import { createCanvasNode, focusCanvasNode, openAdr, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
@@ -165,6 +168,20 @@ function actionCommands({ project, createItems, readOnly, gateQueue, now }: Comm
     run: () => {
       setView('canvas')
       requestTidyUp(projectId)
+      return undefined
+    },
+  })
+  commands.push({
+    id: 'repack',
+    group: 'Action',
+    title: 'Re-pack',
+    detail: 'Epic frames: active first, columns counted again',
+    keys: ['repack', 'epic frames', 'columns'],
+    readOnly: hint,
+    // The Canvas writes the frames' order and columns (sources/epics.ts) through its LayoutOps: one step of ⌘Z.
+    run: () => {
+      setView('canvas')
+      requestRepack(projectId)
       return undefined
     },
   })

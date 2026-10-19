@@ -1,7 +1,8 @@
 # 01 — Рамки Epic-ов в K колонок: постоянный порядок, гистерезис K, команда «Re-pack»
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T16:37Z
+Branch: worfy-canvas/01
 Blocked by: —
 Source: [spec.md](../spec.md), решения владельца 1 и 2;
 [ADR-0075](../../../docs/adr/0075-epic-frames-in-columns-and-done-shelf.md) (рамки — полоса из K колонок;

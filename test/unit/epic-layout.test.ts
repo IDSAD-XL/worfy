@@ -603,6 +603,101 @@ describe('stackFrames', () => {
   })
 })
 
+// ADR-0075: the frames stand in a strip of K columns; frame `i` of the order goes to column `i mod K`.
+describe('stackFrames in K columns', () => {
+  const frames = [
+    { epic: 'a', width: 600, height: 300 },
+    { epic: 'b', width: 800, height: 200 },
+    { epic: 'c', width: 520, height: 400 },
+    { epic: 'd', width: 700, height: 100 },
+    { epic: 'e', width: 520, height: 250 },
+  ]
+  const COLUMN = 800 + FRAME_GAP
+
+  it('puts frame i in column i mod K, every column as wide as the widest frame, the frames of a column one under another', () => {
+    const placed = stackFrames(frames, [], 3)
+    expect(placed.get('a')!.auto).toEqual({ x: 0, y: 0 })
+    expect(placed.get('b')!.auto).toEqual({ x: COLUMN, y: 0 })
+    expect(placed.get('c')!.auto).toEqual({ x: 2 * COLUMN, y: 0 })
+    expect(placed.get('d')!.auto).toEqual({ x: 0, y: 300 + FRAME_GAP })
+    expect(placed.get('e')!.auto).toEqual({ x: COLUMN, y: 200 + FRAME_GAP })
+    for (const [index, frame] of frames.entries()) expect(placed.get(frame.epic)!.auto.x, frame.epic).toBe((index % 3) * COLUMN)
+    // Two columns: a, c, e on the left; b, d on the right.
+    const two = stackFrames(frames, [], 2)
+    expect(frames.map((frame) => two.get(frame.epic)!.auto)).toEqual([
+      { x: 0, y: 0 },
+      { x: COLUMN, y: 0 },
+      { x: 0, y: 300 + FRAME_GAP },
+      { x: COLUMN, y: 200 + FRAME_GAP },
+      { x: 0, y: 300 + FRAME_GAP + 400 + FRAME_GAP },
+    ])
+  })
+
+  it('a frame that grows moves only the frames below it in its own column', () => {
+    const before = stackFrames(frames, [], 2)
+    const after = stackFrames(frames.map((frame) => (frame.epic === 'a' ? { ...frame, height: 900 } : frame)), [], 2)
+    // a's column: c and e go down by 600; the other column stays.
+    expect(after.get('c')!.auto).toEqual({ x: 0, y: before.get('c')!.auto.y + 600 })
+    expect(after.get('e')!.auto).toEqual({ x: 0, y: before.get('e')!.auto.y + 600 })
+    for (const epic of ['a', 'b', 'd']) expect(after.get(epic), epic).toEqual(before.get(epic))
+  })
+
+  it('one column is the column of ADR-0032; more columns than frames is one column per frame', () => {
+    expect(stackFrames(frames, [], 1)).toEqual(stackFrames(frames))
+    expect(stackFrames(frames.slice(0, 2), [], 5)).toEqual(stackFrames(frames.slice(0, 2), [], 2))
+    for (const bad of [0, -1, Number.NaN]) expect(stackFrames(frames, [], bad)).toEqual(stackFrames(frames))
+  })
+
+  it('the strip of K columns keeps clear of the Nodes on the plane, as the column of ADR-0032 did', () => {
+    const strip = 3 * 800 + 2 * FRAME_GAP
+    // Tallest column: a over d (300 + gap + 100), b over e (200 + gap + 250), c (400).
+    const bottom = Math.max(300 + FRAME_GAP + 100, 200 + FRAME_GAP + 250, 400)
+    // A Node in the third column's x range, inside the strip's height, moves the whole strip right of it.
+    const inThird = { x: 2 * COLUMN + 10, y: bottom - 10, w: 100, h: 100 }
+    const placed = stackFrames(frames, [inThird], 3)
+    const x = inThird.x + inThird.w + FRAME_GAP
+    expect(frames.map((frame) => placed.get(frame.epic)!.auto.x)).toEqual([x, x + COLUMN, x + 2 * COLUMN, x, x + COLUMN])
+    // Right of the strip with the gap, or below its tallest column plus the gap: the strip stays at 0.
+    expect(stackFrames(frames, [{ x: strip + FRAME_GAP, y: 0, w: 100, h: 100 }], 3).get('a')!.auto.x).toBe(0)
+    expect(stackFrames(frames, [{ x: 2 * COLUMN, y: bottom + FRAME_GAP, w: 100, h: 100 }], 3).get('a')!.auto.x).toBe(0)
+    expect(stackFrames(frames, [{ x: 2 * COLUMN, y: bottom + FRAME_GAP - 1, w: 100, h: 100 }], 3).get('a')!.auto.x).toBe(2 * COLUMN + 100 + FRAME_GAP)
+    // Every frame of the strip clear of the Node.
+    const overlap = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+    for (const frame of frames) {
+      const at = placed.get(frame.epic)!
+      expect(overlap({ x: at.x, y: at.y, w: frame.width, h: frame.height }, inThird), frame.epic).toBe(false)
+    }
+  })
+
+  it('keeps room for each frame\'s open done stack in its own column', () => {
+    const withReserve = frames.map((frame) => (frame.epic === 'b' ? { ...frame, reserve: 1000 } : frame))
+    // The second column is now the tallest: 1000 + gap + 250. A Node just above that, in its x range, moves the strip.
+    const node = { x: COLUMN + 10, y: 1000 + FRAME_GAP + 250 + FRAME_GAP - 1, w: 50, h: 50 }
+    expect(stackFrames(withReserve, [node], 3).get('a')!.auto.x).toBe(node.x + node.w + FRAME_GAP)
+    expect(stackFrames(withReserve, [{ ...node, y: node.y + 1 }], 3).get('a')!.auto.x).toBe(0)
+    // The frames below b keep their place: the reserve does not push e down.
+    expect(stackFrames(withReserve, [], 3).get('e')!.auto.y).toBe(200 + FRAME_GAP)
+  })
+
+  it('takes no window size: the same frames and Nodes give the same places, whatever K is fed', () => {
+    // The signature has no viewport, zoom or window: (frames, plane, columns).
+    expect(stackFrames.length).toBeLessThanOrEqual(3)
+    const plane = [{ x: 40, y: 40, w: 360, h: 200 }]
+    const first = stackFrames(frames, plane, 2)
+    expect(stackFrames(frames.map((frame) => ({ ...frame })), [...plane], 2)).toEqual(first)
+  })
+
+  it('a frame with an offset in another column still yields to the frames of the strip', () => {
+    const moved = frames.map((frame) => (frame.epic === 'd' ? { ...frame, offset: { dx: COLUMN + 50, dy: -(300 + FRAME_GAP) + 20 } } : frame))
+    const placed = stackFrames(moved, [], 3)
+    expect(placed.get('d')!.auto).toEqual({ x: 0, y: 300 + FRAME_GAP })
+    const crowds = (a: Rect, b: Rect) => a.x < b.x + b.w + NODE_GAP && b.x < a.x + a.w + NODE_GAP && a.y < b.y + b.h + NODE_GAP && b.y < a.y + a.h + NODE_GAP
+    const d = placed.get('d')!
+    const b = placed.get('b')!
+    expect(crowds({ x: d.x, y: d.y, w: 700, h: 100 }, { x: b.x, y: b.y, w: 800, h: 200 })).toBe(false)
+  })
+})
+
 describe('progressOf', () => {
   it('counts states and splits 12 segments in proportion', () => {
     const tickets = [

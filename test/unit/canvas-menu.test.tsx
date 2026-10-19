@@ -1,6 +1,7 @@
 // The items of the Canvas context menu (src/renderer/canvas/overlays/): each comes from a Node
 // type file that exports `createLabel`. The menu itself is driven in test/e2e/terminal.spec.ts;
-// here it is drawn in React Flow in jsdom, with "Tidy up" (canvas/tidy.ts) and the Projects faked.
+// here it is drawn in React Flow in jsdom, with "Tidy up" (canvas/tidy.ts), "Re-pack"
+// (canvas/sources/epics.ts) and the Projects faked.
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,9 +18,24 @@ vi.mock('../../src/renderer/canvas/tidy', () => ({
   },
 }))
 
+const repack = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as string[], requests: [] as string[] }))
+
+vi.mock('../../src/renderer/canvas/sources/epics', () => ({
+  useRepack: (projectId: string) => {
+    if (!repack.projects.includes(projectId)) repack.projects.push(projectId)
+    return repack.run
+  },
+  useRepackRequests: (projectId: string, run: unknown) => {
+    if (run === repack.run && !repack.requests.includes(projectId)) repack.requests.push(projectId)
+  },
+}))
+
+const readOnly = vi.hoisted(() => ({ hint: null as string | null }))
+
 vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
   useProjects: () => ({ activeId: 'p1', projects: [{ id: 'p1', name: 'one', path: '/repo/one', branch: 'main' }] }),
+  useReadOnly: () => readOnly.hint,
 }))
 
 const Dummy = () => null
@@ -78,9 +94,12 @@ describe('the Canvas menu', () => {
   })
   afterEach(() => {
     if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
+    readOnly.hint = null
+    tidyUp.run.mockClear()
+    repack.run.mockClear()
   })
 
-  it('opens on a right click on the empty plane with the New items, a separator, then Tidy up, which runs the Canvas’s Tidy up (worfy-week/07)', async () => {
+  const openMenu = async () => {
     const { default: CanvasMenu } = await import('../../src/renderer/canvas/overlays/CanvasMenu')
     const { container } = render(
       <div style={{ width: 800, height: 600 }}>
@@ -93,15 +112,44 @@ describe('the Canvas menu', () => {
     )
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.contextMenu(container.querySelector('.react-flow__pane')!, { clientX: 100, clientY: 120 })
-    const menu = await screen.findByRole('menu', { name: 'Canvas' })
+    return screen.findByRole('menu', { name: 'Canvas' })
+  }
+
+  it('opens on a right click on the empty plane with the New items, a separator, then Tidy up, which runs the Canvas’s Tidy up (worfy-week/07)', async () => {
+    const menu = await openMenu()
     const rows = [...menu.children].map((child) => (child.getAttribute('role') === 'separator' ? '—' : child.textContent))
-    expect(rows.length).toBeGreaterThan(2)
-    expect(rows.slice(-2)).toEqual(['—', 'Tidy up'])
-    expect(rows.slice(0, -2).every((label) => label?.startsWith('New '))).toBe(true)
+    expect(rows.length).toBeGreaterThan(3)
+    expect(rows.slice(-3)).toEqual(['—', 'Tidy up', 'Re-pack'])
+    expect(rows.slice(0, -3).every((label) => label?.startsWith('New '))).toBe(true)
     expect(tidyUp.projects).toEqual([['p1', '/repo/one']])
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Tidy up' }))
     expect(tidyUp.run).toHaveBeenCalledTimes(1)
+    expect(repack.run).not.toHaveBeenCalled()
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('has Re-pack under Tidy up, which runs the Canvas’s Re-pack of the Epic frames and carries out the palette’s requests (worfy-canvas/01)', async () => {
+    await openMenu()
+    expect(repack.projects).toEqual(['p1'])
+    expect(repack.requests).toEqual(['p1'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Re-pack' }))
+    expect(repack.run).toHaveBeenCalledTimes(1)
+    expect(tidyUp.run).not.toHaveBeenCalled()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('on a read-only screen Tidy up and Re-pack are inactive with the hint, and a click runs neither', async () => {
+    const HINT = 'Mini gives this Machine read-only access'
+    readOnly.hint = HINT
+    await openMenu()
+    for (const name of ['Tidy up', 'Re-pack']) {
+      const item = screen.getByRole('menuitem', { name })
+      expect(item.getAttribute('aria-disabled'), name).toBe('true')
+      expect(item.getAttribute('title'), name).toBe(HINT)
+      fireEvent.click(item)
+    }
+    expect(tidyUp.run).not.toHaveBeenCalled()
+    expect(repack.run).not.toHaveBeenCalled()
   })
 })

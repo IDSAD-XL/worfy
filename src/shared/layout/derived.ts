@@ -19,6 +19,12 @@ export const TICKET_KIND = 'ticket'
  */
 export const SUBAGENT_KIND = 'subagent'
 export const SUBAGENT_TREE_KIND = 'subagent-tree'
+/**
+ * The order of the Epic frames and their number of columns, one record per Project (ADR-0075,
+ * src/renderer/canvas/epic-arrangement.ts): an invisible locked Node, not on the plane.
+ */
+export const EPIC_ARRANGEMENT_KIND = 'epic-arrangement'
+export const EPIC_ARRANGEMENT_ID = 'epic-arrangement'
 
 export const epicNodeId = (epic: string): string => `epic:${epic}`
 export const ticketNodeId = (epic: string, num: number): string => `ticket:${epic}/${num}`
@@ -27,7 +33,7 @@ export const subagentTreeNodeId = (sessionId: string): string => `subagents:${se
 export const subagentNodeId = (sessionId: string, key: string): string => `subagent:${sessionId}/${key}`
 
 /** Kinds that only a node source draws; a Layout Node of such a kind is not a Node on the Canvas. */
-export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND]
+export const SOURCE_NODE_KINDS: readonly string[] = [EPIC_FRAME_KIND, TICKET_KIND, SUBAGENT_KIND, SUBAGENT_TREE_KIND, EPIC_ARRANGEMENT_KIND]
 
 /**
  * A Layout Node that takes room on the plane: one rule for main, which places new Nodes
