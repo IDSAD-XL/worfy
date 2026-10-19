@@ -1,7 +1,8 @@
 # 04 — Токены `kind-*` в F-SPEC и `tokens.css`; Minimap по типу Node-а
 
 Type: task
-Status: claimed 2026-10-19T16:38Z
+Status: done 2026-10-19T21:39Z
+PR: #537
 Branch: worfy-canvas/04
 Blocked by: —
 Source: [spec.md](../spec.md), решения владельца 7 и 8;
