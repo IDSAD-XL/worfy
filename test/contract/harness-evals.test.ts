@@ -159,8 +159,14 @@ describe('harness/evals: the cases', () => {
   })
 })
 
+// Skipped on Windows: the fixture writes the "match" of its gate registry from `pwd -P` of Git Bash —
+// /tmp/…/work, while bin/profile on Node sees C:\…\work, so it answers "not in a registered project"
+// (exit 3). The same cause as the `pm` path of PR #496; item 4 of worfy-windows ticket 65, which
+// waits for that PR, lifts the skip. A Windows path in "match" makes all of these green on the PC.
+const registryPathsMatch = process.platform !== 'win32'
+
 describe('harness/evals: the fixture is a project the Harness recognises', () => {
-  it.each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, run.stderr).toBe(0)
     const profile = harness(home, work, 'profile', ['-C', work, '--name'])
@@ -170,7 +176,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
 
   // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness: the sandbox lets a run write
   // only into its working folder, so the fixture keeps the Harness state in its .git (ticket 28).
-  it.each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -470,6 +476,14 @@ const fakeGitPath = (dir: string, core: string): string => {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 // chmod has no say on Windows, and root reads and removes whatever it likes.
 const permissionsHold = process.platform !== 'win32' && process.getuid?.() !== 0
+// Windows starts no `#!/bin/sh` script by its path. eval-harness.mjs gives the runs a copy of git
+// behind such a wrapper and checks it with `<wrapper> --version`, so on Windows every run past the
+// version check stops at "the copy of git does not run" (exit 1); the fake `git` of fakeGitPath and
+// the failing one are such scripts too, and Windows takes the real git.exe from PATH instead. A test
+// that would pass there would pass for that wrong reason. `pnpm eval:harness` runs only on a Mac
+// (worfy-windows ticket 65, "Не входит"), and no ticket plans it for Windows: a ticket that does
+// lifts this skip.
+const gitCopyRuns = process.platform !== 'win32'
 
 const readManifestOf = (dir: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')) as Record<string, unknown>
@@ -548,7 +562,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(calls).toEqual([])
   })
 
-  it('makes two calls with the flags of the ticket and a narrow Bash for the gui case', () => {
+  it.skipIf(!gitCopyRuns)('makes two calls with the flags of the ticket and a narrow Bash for the gui case', () => {
     const { run, calls: logged } = evalHarness('2.1.289', '0,0')
     expect(run.status, run.stderr).toBe(0)
     expect(logged).toHaveLength(2)
@@ -575,7 +589,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(run.stdout).toMatch(/report\.html/)
   })
 
-  it('evaluates a removed copy of harness/ whose manifest has no dependencies', () => {
+  it.skipIf(!gitCopyRuns)('evaluates a removed copy of harness/ whose manifest has no dependencies', () => {
     const { run, calls } = evalHarness('2.1.289', '0,0')
     expect(run.status, run.stderr).toBe(0)
     const [first, second] = calls
@@ -592,7 +606,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(existsSync(target)).toBe(false)
   })
 
-  it('keeps other Harness copies off the PATH of the run', () => {
+  it.skipIf(!gitCopyRuns)('keeps other Harness copies off the PATH of the run', () => {
     const others = (home: string): string[] => [
       join(home, '.claude', 'bin'),
       join(home, '.claude', 'worfy-harness', 'plugin', 'bin'),
@@ -611,7 +625,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
 
   // The sandbox of a run refuses the git of Command Line Tools next to its git-credential-*, and reads
   // every folder of PATH (ticket 28).
-  it('gives the runs a copy of git without credential helpers, first on PATH, and removes it after', () => {
+  it.skipIf(!gitCopyRuns)('gives the runs a copy of git without credential helpers, first on PATH, and removes it after', () => {
     const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout.trim()
     expect(readdirSync(exec).filter((file) => file.startsWith('git-credential'))).not.toEqual([])
     // An earlier result next to the copy: only the copy goes.
@@ -647,7 +661,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(existsSync(join(earlier, 'aggregate-result.json'))).toBe(true)
   })
 
-  it('exits 1 and calls no claude when `git --exec-path` gives no folder', () => {
+  it.skipIf(!gitCopyRuns)('exits 1 and calls no claude when `git --exec-path` gives no folder', () => {
     const before = gitCopies()
     const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => {
       const gitStubDir = join(dir, 'failing-git')
@@ -662,7 +676,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(gitCopies()).toEqual(before)
   })
 
-  it('exits 1, calls no claude and removes the copy when the copy of git does not answer --version', () => {
+  it.skipIf(!gitCopyRuns)('exits 1, calls no claude and removes the copy when the copy of git does not answer --version', () => {
     const before = gitCopies()
     const core = join(tempDir('worfy-eval-core-'), 'git-core')
     mkdirSync(core)
@@ -764,7 +778,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     SCAFFOLD_TIMEOUT_MS,
   )
 
-  it.each([
+  it.skipIf(!gitCopyRuns).each([
     ['1,0', 1],
     ['0,2', 2],
     ['2,1', 2],
@@ -773,7 +787,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(evalHarness('2.1.289', codes).run.status).toBe(worst)
   })
 
-  it('passes the arguments after -- through and skips a call that selects no case', () => {
+  it.skipIf(!gitCopyRuns)('passes the arguments after -- through and skips a call that selects no case', () => {
     const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'status-block', '--runs', '1'])
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toHaveLength(1)
