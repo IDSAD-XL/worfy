@@ -68,7 +68,10 @@ describe('readJsonFile', () => {
     expect(readdirSync(file)).toEqual(['child'])
   })
 
-  it.skipIf(process.getuid?.() === 0)('throws when the file cannot be read for lack of permission, and keeps it', () => {
+  // Root reads any file; on Windows chmod 0o000 only sets the read-only flag, and the file stays
+  // readable, so there is no permission error to provoke. Lifted by no ticket: the premise does not
+  // hold on Windows.
+  it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('throws when the file cannot be read for lack of permission, and keeps it', () => {
     writeFileSync(file, JSON.stringify({ name: 'saved', count: 1 }))
     chmodSync(file, 0o000)
     try {

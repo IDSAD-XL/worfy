@@ -258,7 +258,8 @@ describe('the MCP servers of the Harness plugin', () => {
   it('gives the qmd server of this repository Harness the name the plugin tools carry in a terminal (fixture of ticket 01)', () => {
     const harness = join(import.meta.dirname, '..', '..', 'harness')
     const options = sessionOptions(input({ canvas: null, harnessPlugin: harness }))
-    expect(options.mcpServers).toEqual({ plugin_worfy_qmd: { type: 'stdio', command: join(harness, 'bin', 'qmd-mcp') } })
+    // .mcp.json says ${CLAUDE_PLUGIN_ROOT}/bin/qmd-mcp; the root is substituted as text, so the tail keeps its "/".
+    expect(options.mcpServers).toEqual({ plugin_worfy_qmd: { type: 'stdio', command: `${harness}/bin/qmd-mcp` } })
     const fixture = join(import.meta.dirname, '..', 'fixtures', 'sdk-messages', 'plugin-known-installed.jsonl')
     expect(readFileSync(fixture, 'utf8')).toContain('"mcp__plugin_worfy_qmd__')
   })

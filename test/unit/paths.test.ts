@@ -5,7 +5,7 @@ import { claudeHome, dataRoot, harnessHome, setBuildKind } from '../../src/main/
 
 describe('storage paths', () => {
   it('uses WORFY_DATA_DIR as the data root when it is set', () => {
-    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' })).toBe('/tmp/worfy-data')
+    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' })).toBe(resolve('/tmp/worfy-data'))
   })
 
   it('defaults the data root to ~/Library/Application Support/worfy', () => {
@@ -17,7 +17,7 @@ describe('storage paths', () => {
   })
 
   it('uses WORFY_CLAUDE_HOME as the Claude home when it is set', () => {
-    expect(claudeHome({ WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe('/tmp/claude-home')
+    expect(claudeHome({ WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe(resolve('/tmp/claude-home'))
   })
 
   it('defaults the Claude home to ~/.claude', () => {
@@ -39,19 +39,19 @@ describe('storage paths', () => {
 
 describe('Harness home (worfy-harness ticket 12)', () => {
   it('uses WORFY_HARNESS_HOME when it is set, resolved to an absolute path', () => {
-    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home', WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe('/tmp/harness-home')
+    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home', WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe(resolve('/tmp/harness-home'))
     expect(harnessHome({ WORFY_HARNESS_HOME: 'rel/harness' })).toBe(join(process.cwd(), 'rel', 'harness'))
   })
 
   it('defaults to <claudeHome()>/worfy-harness, so a temporary WORFY_CLAUDE_HOME never reaches the real one', () => {
-    expect(harnessHome({ WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe(join('/tmp/claude-home', 'worfy-harness'))
+    expect(harnessHome({ WORFY_CLAUDE_HOME: '/tmp/claude-home' })).toBe(join(resolve('/tmp/claude-home'), 'worfy-harness'))
     expect(harnessHome({})).toBe(join(homedir(), '.claude', 'worfy-harness'))
     expect(harnessHome({ WORFY_HARNESS_HOME: '' })).toBe(join(homedir(), '.claude', 'worfy-harness'))
   })
 
   it('sits in the Claude home it is given when the variable is not set', () => {
     expect(harnessHome({}, '/tmp/other-claude')).toBe(join('/tmp/other-claude', 'worfy-harness'))
-    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home' }, '/tmp/other-claude')).toBe('/tmp/harness-home')
+    expect(harnessHome({ WORFY_HARNESS_HOME: '/tmp/harness-home' }, '/tmp/other-claude')).toBe(resolve('/tmp/harness-home'))
   })
 })
 
@@ -68,8 +68,8 @@ describe('data root of the packaged app and of a dev run', () => {
   })
 
   it('lets WORFY_DATA_DIR win over the build kind, so e2e runs stay in their temporary folder', () => {
-    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' }, 'dev')).toBe('/tmp/worfy-data')
-    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' }, 'packaged')).toBe('/tmp/worfy-data')
+    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' }, 'dev')).toBe(resolve('/tmp/worfy-data'))
+    expect(dataRoot({ WORFY_DATA_DIR: '/tmp/worfy-data' }, 'packaged')).toBe(resolve('/tmp/worfy-data'))
   })
 
   it('switches the default of every later dataRoot() call once the entry point reports a dev run', () => {

@@ -1,15 +1,17 @@
 // Who made a call and whether a path lies inside the Projects of this Machine
 // (src/main/link/caller.ts, worfy-link ticket 08): a Linked machine works inside the listed
 // Projects only, judged on real paths over a temporary folder with symbolic links.
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { insideProjects, isRemoteCall, realInsideProjects } from '../../src/main/link/caller'
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { removeTestTree } from '../remove'
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-link-caller-')))
+// The native realpath, as the code under test uses: the temp folder may be spelled another way
+// (an 8.3 short name, a `subst` drive), and the expected paths must be spelled as the disk does.
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-link-caller-')))
 const repo = join(root, 'Repo')
 const sibling = join(root, 'Repo-evil')
 const outside = join(root, 'outside')
@@ -22,6 +24,7 @@ symlinkSync(outside, join(repo, 'out-link'))
 symlinkSync(join(repo, 'src'), join(outside, 'in-link'))
 symlinkSync(join(root, 'not-there-yet'), join(repo, 'dangling'))
 const projects = [{ path: repo }]
+const windows = process.platform === 'win32'
 
 afterAll(() => removeTestTree(root))
 
@@ -51,8 +54,17 @@ describe('inside the Projects, by real paths', () => {
     expect(realInsideProjects(`${repo}/../outside/secret.txt`, projects)).toBeNull()
     expect(realInsideProjects(`${repo}/src/../../outside`, projects)).toBeNull()
     expect(realInsideProjects(`${repo}/src/../src/a.ts`, projects)).toBe(join(repo, 'src', 'a.ts'))
-    // `..` after a link goes up from where the link leads, not from the link.
-    expect(realInsideProjects(`${repo}/out-link/../Repo/src`, projects)).toBe(join(repo, 'src'))
+    // `..` after a link goes up from where the link leads, not from the link. Windows folds `..`
+    // by the letters before it follows any link, so there it goes up from the link itself; the check
+    // gets the same folded path the system opens, so a Linked machine still cannot get out.
+    expect(realInsideProjects(`${repo}/out-link/../Repo/src`, projects)).toBe(windows ? join(repo, 'Repo', 'src') : join(repo, 'src'))
+    // The secret is not reachable that way on Windows either: the system opens <repo>/outside/secret.txt.
+    if (windows) {
+      expect(existsSync(`${repo}/out-link/../outside/secret.txt`)).toBe(false)
+      // And the check answers for that folded path, never for the file behind the link.
+      const answer = realInsideProjects(`${repo}/out-link/../outside/secret.txt`, projects)
+      expect(answer === null || answer.startsWith(`${repo}${sep}`), String(answer)).toBe(true)
+    }
     expect(realInsideProjects(`${outside}/in-link/../../outside/secret.txt`, projects)).toBeNull()
     expect(realInsideProjects(join(repo, 'out-link', 'secret.txt'), projects)).toBeNull()
     expect(realInsideProjects(join(repo, 'out-link'), projects)).toBeNull()
@@ -66,7 +78,8 @@ describe('inside the Projects, by real paths', () => {
     expect(realInsideProjects(join(outside, 'new'), projects)).toBeNull()
     expect(realInsideProjects(`${repo}/missing/../../outside/secret.txt`, projects)).toBeNull()
     expect(realInsideProjects(join(repo, 'dangling'), projects)).toBeNull()
-    expect(realInsideProjects(`${repo}/dangling/../x`, projects)).toBeNull()
+    // Windows folds `dangling/..` away by the letters, so the path is <repo>/x, the one the system opens.
+    expect(realInsideProjects(`${repo}/dangling/../x`, projects)).toBe(windows ? join(repo, 'x') : null)
     expect(realInsideProjects(join(repo, 'dangling', 'x'), projects)).toBeNull()
   })
 

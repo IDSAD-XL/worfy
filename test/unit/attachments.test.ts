@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { attach, recheck, userContent, type AttachTarget } from '../../src/main/agent/attachments'
 import { FILE_COPY_LIMIT_BYTES, IMAGE_LIMIT_BYTES, base64Length, messageLabel, messageText, typedText, type Attachment } from '../../src/shared/agent/attachments'
@@ -154,8 +154,8 @@ describe('attach: files', () => {
     if (!result.ok || result.attachment.kind !== 'file') throw new Error(`not attached: ${JSON.stringify(result)}`)
     const copy = result.attachment.path
     expect(result.attachment).toMatchObject({ name: 'notes.txt', size: 5, copied: true })
-    expect(copy.startsWith(target.attachmentsDir + '/')).toBe(true)
-    expect(copy.endsWith('/notes.txt')).toBe(true)
+    expect(copy.startsWith(target.attachmentsDir + sep)).toBe(true)
+    expect(copy.endsWith(sep + 'notes.txt')).toBe(true)
     expect(await readFile(copy, 'utf8')).toBe('notes')
     expect(await readFile(path, 'utf8')).toBe('notes')
     expect(tree(project)).toEqual(before)
@@ -196,7 +196,7 @@ describe('attach: files', () => {
     const result = await attach({ kind: 'dropped', name: 'log.txt', data: Buffer.from('dropped').toString('base64') }, target)
     if (!result.ok || result.attachment.kind !== 'file') throw new Error('not attached')
     expect(result.attachment).toMatchObject({ name: 'log.txt', size: 7, copied: true })
-    expect(result.attachment.path.startsWith(target.attachmentsDir + '/')).toBe(true)
+    expect(result.attachment.path.startsWith(target.attachmentsDir + sep)).toBe(true)
     expect(await readFile(result.attachment.path, 'utf8')).toBe('dropped')
   })
 
@@ -209,7 +209,7 @@ describe('attach: files', () => {
   it('a dropped name cannot leave the attachments folder', async () => {
     const result = await attach({ kind: 'dropped', name: '../../escape.txt', data: Buffer.from('x').toString('base64') }, target)
     if (!result.ok || result.attachment.kind !== 'file') throw new Error('not attached')
-    expect(result.attachment.path.startsWith(target.attachmentsDir + '/')).toBe(true)
+    expect(result.attachment.path.startsWith(target.attachmentsDir + sep)).toBe(true)
     expect(result.attachment.name).toBe('escape.txt')
     expect(existsSync(join(scratch, 'data', 'escape.txt'))).toBe(false)
   })

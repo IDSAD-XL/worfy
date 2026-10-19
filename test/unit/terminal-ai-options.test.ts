@@ -1,6 +1,6 @@
 // The options of the assist process (src/main/terminal-ai/options.ts): what the spare process starts
 // with at prewarm(), and what each feature sets at claim().
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ASSIST_SYSTEM_PROMPT, FEATURE_TIMEOUT_MS, claimOptions, coldQueryOptions, prewarmOptions } from '../../src/main/terminal-ai/options'
 import { DEFAULT_TERMINAL_AI_SETTINGS, TERMINAL_AI_FEATURES } from '../../src/shared/terminal-ai/settings'
@@ -39,8 +39,9 @@ describe('prewarmOptions', () => {
 
   it('runs the bundled Claude Code in the packaged app, the SDK finds it otherwise', () => {
     expect(prewarmOptions({ env: ENV, runtime: DEV })).not.toHaveProperty('pathToClaudeCodeExecutable')
+    // The path follows the runtime's platform (darwin here), not the machine that runs the test.
     expect(prewarmOptions({ env: ENV, runtime: PACKAGED }).pathToClaudeCodeExecutable).toBe(
-      join(PACKAGED.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk-darwin-arm64', 'claude'),
+      posix.join(PACKAGED.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk-darwin-arm64', 'claude'),
     )
   })
 })

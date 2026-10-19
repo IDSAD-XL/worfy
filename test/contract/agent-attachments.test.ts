@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { cpSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,7 +37,7 @@ let registries: SessionRegistry[] = []
 const snapshot = (dir: string): string[] =>
   existsSync(dir)
     ? (readdirSync(dir, { recursive: true }) as string[])
-        .filter((path) => !path.startsWith('.git/') && path !== '.git')
+        .filter((path) => !path.startsWith(`.git${sep}`) && path !== '.git')
         .sort()
         .map((path) => {
           const info = statSync(join(dir, path))
@@ -277,7 +277,7 @@ describe('agent.attach and agent.attachPick', () => {
     expect(results[1]).toEqual({ ok: true, attachment: { kind: 'file', name: 'inside.txt', path: join(project, 'inside.txt'), size: 2, copied: false } })
     expect(results[2]).toMatchObject({ ok: true, attachment: { kind: 'file', name: 'notes.txt', size: 5, copied: true } })
     const copy = (results[2] as { attachment: { path: string } }).attachment.path
-    expect(copy.startsWith(`${attachmentsDir}/`)).toBe(true)
+    expect(copy.startsWith(`${attachmentsDir}${sep}`)).toBe(true)
     expect(readFileSync(copy, 'utf8')).toBe('notes')
     expect(results[3]).toEqual({ ok: false, name: 'clip.txt', error: 'clip.txt is not a supported image: paste a PNG, JPEG, GIF or WebP' })
 

@@ -6,7 +6,7 @@
 import { spawnSync } from 'node:child_process'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix, relative, resolve } from 'node:path'
+import { join, posix, relative, resolve, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JOURNAL_EVENT_KINDS } from '../../src/shared/autopilot/journal'
@@ -28,6 +28,7 @@ interface GhResult {
 interface Deps {
   env: Record<string, string | undefined>
   home: string
+  platform?: NodeJS.Platform
   cwd: string
   gh: (args: string[], cwd: string) => Promise<GhResult>
   out: (text: string) => void
@@ -35,10 +36,11 @@ interface Deps {
 }
 interface CriticalPath {
   criticalPath: (args: string[], deps: Deps) => Promise<number>
-  journalsFolder: (env: Record<string, string | undefined>, home: string) => string
+  journalsFolder: (env: Record<string, string | undefined>, home: string, platform?: NodeJS.Platform) => string
+  defaultFolders: (deps: Pick<Deps, 'env' | 'home' | 'platform'>) => { journals: string; data: string }
   JOURNAL_KINDS: readonly string[]
 }
-const { criticalPath, journalsFolder, JOURNAL_KINDS } = (await import(pathToFileURL(SCRIPT).href)) as CriticalPath
+const { criticalPath, journalsFolder, defaultFolders, JOURNAL_KINDS } = (await import(pathToFileURL(SCRIPT).href)) as CriticalPath
 
 const dirs: string[] = []
 afterEach(() => {
@@ -283,9 +285,19 @@ describe('critical-path: the command line', () => {
     expect(stdout).toContain('— (gh not available)')
   })
 
-  it('takes the journals folder from --journals, else WORFY_DATA_DIR, else the macOS data folder', () => {
+  it("takes the journals folder from --journals, else WORFY_DATA_DIR, else the app's data folder of the system", () => {
     expect(journalsFolder({ WORFY_DATA_DIR: 'data' }, '/home/u')).toBe(join(resolve('data'), 'autopilot'))
-    expect(journalsFolder({}, '/Users/u')).toBe(posix.join('/Users/u', 'Library', 'Application Support', 'worfy', 'autopilot'))
+    // The same rules as dataRoot (src/main/storage/paths.ts): macOS, and Windows with or without APPDATA.
+    expect(journalsFolder({}, '/Users/u', 'darwin')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
+    expect(journalsFolder({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u\\AppData\\Roaming', 'worfy'), 'autopilot'))
+    expect(journalsFolder({}, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+    // APPDATA with a drive letter and a separator, or UNC, is taken as it is; anything else falls back to the home.
+    for (const appData of ['D:\\Roam', 'C:/Roam', '\\\\srv\\share\\Roam']) {
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join(appData, 'worfy'), 'autopilot'))
+    }
+    for (const appData of ['rel', '\\Roam', 'C:rel', '\\\\srv']) {
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+    }
   })
 
   it('refuses wrong arguments and a missing journals folder with exit 2', () => {
@@ -331,6 +343,44 @@ describe('critical-path: it writes nothing but --out', () => {
       expect(existsSync(out)).toBe(false)
     }
     expect(snapshot(m.dir)).toEqual(before)
+  })
+})
+
+describe('critical-path: --out into the data folder of the platform', () => {
+  const gh: Deps['gh'] = async () => ({ code: null, stdout: '', stderr: '', missing: true })
+
+  async function refusal(platform: NodeJS.Platform, env: Record<string, string>, home: string, out: string): Promise<{ code: number; err: string[] }> {
+    const err: string[] = []
+    const code = await criticalPath(['--journals', JOURNALS, '--out', out], { env, home, platform, cwd: tempDir(), gh, out: () => undefined, err: (l) => err.push(l) })
+    return { code, err }
+  }
+
+  // The guard takes the data folder from defaultFolders; both platforms run on every host, so one of them is never the host's.
+  it("names the folders of the platform in deps, not the host's", () => {
+    const winData = win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy')
+    expect(defaultFolders({ env: {}, home: 'C:\\Users\\u', platform: 'win32' })).toEqual({ journals: join(winData, 'autopilot'), data: winData })
+    const macData = posix.join('/Users/u', 'Library', 'Application Support', 'worfy')
+    expect(defaultFolders({ env: {}, home: '/Users/u', platform: 'darwin' })).toEqual({ journals: join(macData, 'autopilot'), data: macData })
+  })
+
+  it('refuses an --out inside ~/Library/Application Support/worfy on macOS', async () => {
+    const home = tempDir()
+    const out = join(home, 'Library', 'Application Support', 'worfy', 'limits.json')
+    const { code, err } = await refusal('darwin', {}, home, out)
+    expect(code).toBe(2)
+    expect(err.join('\n')).toContain('refused')
+    expect(existsSync(out)).toBe(false)
+  })
+
+  // The data folder is %APPDATA%\worfy only when APPDATA is a Windows path with a drive letter.
+  it.skipIf(process.platform !== 'win32')('refuses an --out inside %APPDATA%\\worfy on Windows', async () => {
+    const appData = tempDir()
+    mkdirSync(join(appData, 'worfy'))
+    const out = join(appData, 'worfy', 'limits.json')
+    const { code, err } = await refusal('win32', { APPDATA: appData }, tempDir(), out)
+    expect(code).toBe(2)
+    expect(err.join('\n')).toContain('refused')
+    expect(existsSync(out)).toBe(false)
   })
 })
 
