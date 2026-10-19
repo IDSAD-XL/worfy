@@ -273,6 +273,7 @@ describe('the state', () => {
     expect(calls()).toEqual([])
   })
 
+  // Windows: 16.2 s in a full run on the PC (2026-10-19); twice that.
   it('with the plugin folder reads `plugin list` once, and takes the dependency from the same list', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(bundle).install(yes)
@@ -281,7 +282,7 @@ describe('the state', () => {
     expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
     expect(status.dependencies).toEqual(dep('installed'))
     expect(commands()).toEqual([LIST])
-  })
+  }, process.platform === 'win32' ? 33_000 : undefined)
 
   it('a build whose Harness names no dependency has none to report', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
@@ -717,6 +718,7 @@ describe('errors', () => {
     expect(commands()).not.toContain(UNINSTALL_WORFY)
   })
 
+  // Windows: 12.9 s in a full run on the PC (2026-10-19); twice that.
   it('a non-zero exit of `claude plugin update` is an error naming `update`; the installed version is not uninstalled', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
     const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
@@ -730,7 +732,7 @@ describe('errors', () => {
     expect(treeOf(sb.pluginDir)).toEqual(treeOf(v2))
     const retry = await installer(v2).install(yes)
     expect(retry.status.state).toEqual({ kind: 'installed', version: V2, enabled: true })
-  })
+  }, process.platform === 'win32' ? 26_000 : undefined)
 
   it('an `update` that records the new version and exits non-zero uninstalls nothing either', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
@@ -790,6 +792,7 @@ describe('errors', () => {
     expect(result.status.dependencies).toEqual(dep('installed'))
   })
 
+  // Windows: 13.4 s in a full run on the PC (2026-10-19); twice that.
   it('a copy that fails half way leaves the previous plugin folder byte for byte, and no staging folder behind', async () => {
     const v1 = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(v1).install(yes)
@@ -807,8 +810,9 @@ describe('errors', () => {
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
     expect(writes()).toEqual([])
-  })
+  }, process.platform === 'win32' ? 27_000 : undefined)
 
+  // Windows: 13.5 s in a full run on the PC (2026-10-19); twice that.
   it('a copy interrupted between its two renames (the old folder set aside, the new one not in place) gets the old folder back before the next copy', async () => {
     const v1 = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(v1).install(yes)
@@ -822,7 +826,7 @@ describe('errors', () => {
     expect(result.status.state).toMatchObject({ kind: 'error', step: 'copy' })
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
-  })
+  }, process.platform === 'win32' ? 27_000 : undefined)
 })
 
 // worfy-windows ticket 13: on Windows a rename of the plugin folder can fail with EPERM or EBUSY

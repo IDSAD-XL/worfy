@@ -85,6 +85,7 @@ describe('check-handoff', () => {
     expect(stderr).not.toContain('файл длиннее')
   })
 
+  // Windows: 6.2 s in a full run on the PC (2026-10-19), sync, overran its 5 s limit; twice that.
   it('passes exactly 15360 bytes and fails on 15361', () => {
     const atLimit = sized(15360)
     expect(Buffer.byteLength(`${atLimit.join('\n')}\n`)).toBe(15360)
@@ -98,7 +99,7 @@ describe('check-handoff', () => {
     const fail = check(overLimit)
     expect(fail.status).toBe(1)
     expect(fail.stderr).toContain(`${fail.file}:${overLimit.length}: файл больше 15360 байт (15361)`)
-  })
+  }, process.platform === 'win32' ? 13_000 : undefined)
 
   it('counts the bytes and the lines of a CRLF working copy as git stores them, with LF', () => {
     // On Windows with core.autocrlf the file on disk ends its lines with CRLF: one more byte per line

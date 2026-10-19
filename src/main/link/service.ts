@@ -146,11 +146,6 @@ export interface LinkServiceOptions {
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /**
- * Ends the socket of a failed pairing. One that is already closing (ws sent a close frame, e.g.
- * 1009 for a message over the limit) gets its close handshake: cut at once, the close frame is
- * lost on Windows and the peer sees 1006. A peer that never answers is cut off after a second.
- */
-/**
  * A pairing socket listens for 'error' for its whole life, as connection.ts does. nextFrame listens
  * only while it waits for a frame, and an 'error' with no listener is an uncaught exception in the
  * main process: a peer can send a malformed frame between two steps (in one TCP segment with a valid
@@ -160,6 +155,11 @@ function holdPairingErrors(ws: WebSocket): void {
   ws.on('error', () => undefined)
 }
 
+/**
+ * Ends the socket of a failed pairing. One that is already closing (ws sent a close frame, e.g.
+ * 1009 for a message over the limit) gets its close handshake: cut at once, the close frame is
+ * lost on Windows and the peer sees 1006. A peer that never answers is cut off after a second.
+ */
 function endFailedPairing(ws: WebSocket): void {
   if (ws.readyState === ws.CLOSING) setTimeout(() => ws.terminate(), 1000).unref()
   else ws.terminate()
