@@ -3,16 +3,31 @@
 //   main area, so the layer covers the toolbar and the view and leaves the sidebar alone. Without a
 //   shell (a unit test of FocusMode) there is none, and the layer goes into <body>;
 // - `active` — whether focus mode is on screen in this window. The sidebar is shown or hidden apart
-//   for the two (shell/sidebar-visibility.ts).
+//   for the two (shell/sidebar-visibility.ts);
+// - `request` — the last request to open focus mode on given Nodes, from a Node itself (a double
+//   click on a Ticket card). The way in (canvas/overlays/FocusEntry.tsx) carries it out; `seq`
+//   makes a repeat a new request.
 // Nothing here is saved or sent to main.
 import { create } from 'zustand'
+
+export interface FocusRequest {
+  ids: readonly string[]
+  seq: number
+}
 
 export interface FocusState {
   slot: HTMLElement | null
   active: boolean
+  request: FocusRequest | null
 }
 
-export const useFocusState = create<FocusState>(() => ({ slot: null, active: false }))
+export const useFocusState = create<FocusState>(() => ({ slot: null, active: false, request: null }))
+
+/** Asks the Canvas on screen to open focus mode on these Nodes, as the Focus button opens it on the selection. */
+export function requestFocus(ids: readonly string[]): void {
+  if (ids.length === 0) return
+  useFocusState.setState((state) => ({ request: { ids: [...ids], seq: (state.request?.seq ?? 0) + 1 } }))
+}
 
 /** The shell names its main area while it is on screen, and null when it leaves. */
 export function setFocusSlot(slot: HTMLElement | null): void {

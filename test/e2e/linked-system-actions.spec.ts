@@ -5,7 +5,8 @@
 //   answered through Playwright's `filechooser`); the file goes to B as bytes, B keeps a copy in
 //   its data folder and hands its path to B's agent. B's file dialog is never called.
 // - an https:// link in B's HANDOFF opens in A's browser, not B's;
-// - a double click on a Ticket Node shows "File is on <B>": no editor opens on either Machine;
+// - a double click on a Ticket Node opens focus mode on it with its file read on B, and its
+//   "Open in editor" shows "File is on <B>": no editor opens on either Machine;
 // - View ▸ Show Minimap of A hides the Minimap in A's window only: every screen has its own.
 // Every system call is replaced in main of both apps by a recorder (dialog.showOpenDialog,
 // shell.openExternal, shell.openPath): no macOS window opens. Bonjour is off, the link server
@@ -18,7 +19,7 @@ import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { canvasReady, launchApp, linkThroughUi, machineIdOf, repoRoot, setProjectsAccess, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
-import { catScript } from '../harness-node'
+import { catScript, loginProfileWithNode } from '../harness-node'
 
 test.setTimeout(240_000)
 
@@ -58,7 +59,7 @@ function prepareB(scratch: string) {
   const issues = join(repo, '.scratch', EPIC, 'issues')
   mkdirSync(issues, { recursive: true })
   writeFileSync(join(repo, '.scratch', EPIC, 'spec.md'), '# Demo epic\n')
-  writeFileSync(join(issues, '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', 'Status: open', 'Blocked by: —', ''].join('\n'))
+  writeFileSync(join(issues, '01-ticket-1.md'), ['# 01 — Ticket 1', '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Что делаем', '', 'Written on B.', ''].join('\n'))
   writeFileSync(join(repo, 'HANDOFF.md'), ['# Handoff', '', `See [the PR](${PR_URL}).`, ''].join('\n'))
   git(repo, 'init', '-q')
   git(repo, 'add', '.')
@@ -81,7 +82,17 @@ function prepareB(scratch: string) {
   mkdirSync(join(dataDir, BETA), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: BETA, name: 'beta', path: realpathSync(repo) }], activeId: BETA }))
   const log = join(scratch, 'b-agent.log')
-  return { repo, dataDir, log, env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'message-input', WORFY_AGENT_LOG: log } }
+  // B's login shell is /bin/sh with a HOME of its own: its .profile puts node on PATH for the
+  // epic-status stand-in, and nothing reads the real home.
+  const home = join(scratch, 'b-home')
+  mkdirSync(home)
+  loginProfileWithNode(home)
+  return {
+    repo,
+    dataDir,
+    log,
+    env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'b-no-harness-home'), HOME: home, SHELL: '/bin/sh', WORFY_AGENT_SCRIPT: 'message-input', WORFY_AGENT_LOG: log },
+  }
 }
 
 /** What the recorders of `app` saw: the file dialogs, the addresses and the files opened. */
@@ -161,7 +172,7 @@ async function interceptsFileChooser(launched: LaunchedApp): Promise<boolean> {
   }
 }
 
-test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps the copy; a link opens in A; a Ticket file says where it is; the Minimap is A\'s own', async () => {
+test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps the copy; a link opens in A; a Ticket shows its file from B and its editor says where it is; the Minimap is A\'s own', async () => {
   const scratch = realpathSync(await mkdtemp(join(tmpdir(), 'worfy-link-12-')))
   const bSetup = prepareB(scratch)
   // A has a Project of its own, so its window starts on a Canvas.
@@ -211,15 +222,21 @@ test('in a window of A on a Project of B: "+" picks with A\'s dialog and B keeps
     expect((await recorded(b.app)).external).toEqual([])
     await evidence(a.window, 'link')
 
-    // ── A Ticket file of B: the hint, no editor anywhere ──
-    const ticket = a.window.locator('[data-testid="ticket-node"][data-ticket="1"]')
+    // ── A Ticket file of B: a double click shows it in focus mode, read on B; its editor gives the hint, no editor anywhere ──
+    const ticket = a.window.locator('.react-flow__node [data-testid="ticket-node"][data-ticket="1"]')
     await canvasReady(a, { visible: [ticket] })
     await ticket.dblclick()
-    await expect(ticket.getByTestId('file-elsewhere')).toHaveText(`File is on ${bName}`)
-    await expect(ticket.getByTestId('file-elsewhere')).toHaveAttribute('title', `File is on ${bName}`)
+    const focusLayer = a.window.getByTestId('focus-mode')
+    const focused = focusLayer.getByTestId('ticket-node')
+    await expect(focused.getByTestId('ticket-body')).toContainText('Written on B.')
+    await focused.getByRole('button', { name: 'Open in editor' }).click()
+    await expect(focused.getByTestId('file-elsewhere')).toHaveText(`File is on ${bName}`)
+    await expect(focused.getByTestId('file-elsewhere')).toHaveAttribute('title', `File is on ${bName}`)
     await evidence(a.window, 'file-elsewhere')
     expect((await recorded(a.app)).paths).toEqual([])
     expect((await recorded(b.app)).paths).toEqual([])
+    await a.window.keyboard.press('Escape')
+    await expect(focusLayer).toHaveCount(0)
 
     // ── "+" in the Orchestrator's Session of B ──
     const orchestrator = a.window.getByTestId('orchestrator-node')

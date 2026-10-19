@@ -1,6 +1,8 @@
 import { memo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import type { Ticket } from '../../../shared/workflow/types'
+import { requestFocus } from '../../focus/focus-state'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { invoke } from '../../ipc'
 import { useFileElsewhere } from '../../machines/useFileElsewhere'
 import Stepper from '../../pipeline/Stepper'
@@ -8,17 +10,22 @@ import { stageOfTicket, usePipeline } from '../../pipeline/usePipeline'
 import { StatusChip } from '../../theme/primitives'
 import { actions, badges, type SlotSubject } from '../badges'
 import { useProjectRepos } from '../badges/use-checks'
-import { ticketFile, ticketTitle, type AttentionReason } from '../epic-layout'
+import { ticketTitle, type AttentionReason } from '../epic-layout'
 import type { TicketNodeData } from '../sources/epics'
 import type { CanvasNodeProps } from './index'
+import { TicketBody } from './TicketBody'
+import { useTicketText } from './ticket-text'
 import '../epic-frame.css'
 
 // One Ticket inside its Epic frame: number, title, the stepper of its Stage (worfy-pipeline ticket
 // 05) — the status word only until main has computed the Stage, or when it could not — what blocks
-// it, and the two slots for badges (ticket 17) and actions (ticket 23). A double click opens the Ticket file in
-// the default editor through `shell.openInEditor`; in a window on a Linked machine it shows "File is
-// on <Machine>" in place of the blockers line instead (worfy-link ticket 12). The Node comes from
-// sources/epics.ts. A row that
+// it, and the two slots for badges (ticket 17) and actions (ticket 23). A double click on the card
+// opens focus mode on this Ticket (requestFocus of focus/focus-state.ts). In a tile of focus mode
+// (focus/focus-tile.ts) the Ticket shows its whole file as markdown under the same header
+// (TicketBody.tsx) and the title uncut, and "Open in editor" in the header opens the file — at the
+// path main found — in the default editor through `shell.openInEditor`; in a window on a Linked
+// machine that button shows "File is on <Machine>" in place of the blockers line instead (worfy-link
+// ticket 12). The card on the Canvas reads no file. The Node comes from sources/epics.ts. A row that
 // may be cut — the title past its line limit, the blockers line, the blocked reason — carries its
 // whole text in its tooltip. In a Project over several repositories (ADR-0045) a chip next to the
 // number names the Ticket's repository (its `Repo:` line), or says it has none.
@@ -114,7 +121,7 @@ function BlockersLine({ data }: { data: TicketNodeData }) {
   )
 }
 
-function TicketNode({ data, width }: CanvasNodeProps) {
+function TicketNode({ id, data, width }: CanvasNodeProps) {
   const node = data.node.data as TicketNodeData
   const { projectId, root, ticket, placed } = node
   const { snapshot } = usePipeline(root)
@@ -131,14 +138,18 @@ function TicketNode({ data, width }: CanvasNodeProps) {
   const title = ticketTitle(ticket)
 
   const file = useFileElsewhere({ className: 'w-ticket__meta' })
+  const inFocus = useInFocusTile()
+  // Only the focused Ticket reads its file; the card on the Canvas stays compact.
+  const read = useTicketText(inFocus ? { projectId, ticket } : null)
 
-  const open = () => {
+  const openInEditor = () => {
     // In a window on a Linked machine the Ticket file lies there: the hint instead of its editor.
     if (file.elsewhere) {
       file.show()
       return
     }
-    void invoke('shell.openInEditor', { projectId, path: ticketFile(root, ticket) }).then((result) => {
+    if (read.path === undefined) return
+    void invoke('shell.openInEditor', { projectId, path: read.path }).then((result) => {
       if (!result.ok) console.error(`shell.openInEditor ${ticket.epic}/${ticket.num} failed:`, result.error)
     })
   }
@@ -152,8 +163,9 @@ function TicketNode({ data, width }: CanvasNodeProps) {
       data-ticket={ticket.num}
       data-state={ticket.state}
       data-ready={placed.ready ? 'true' : undefined}
+      data-focused={inFocus ? 'true' : undefined}
       title={ticket.fromBranch ? `${status ?? ''} (in ${ticket.fromBranch})` : (status ?? undefined)}
-      onDoubleClick={open}
+      onDoubleClick={inFocus ? undefined : () => requestFocus([id])}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} className="w-ticket__handle" />
       <div className="w-ticket__top">
@@ -166,6 +178,17 @@ function TicketNode({ data, width }: CanvasNodeProps) {
             <span className="w-chip__dot" aria-hidden="true" />
             Ready
           </span>
+        ) : null}
+        {inFocus ? (
+          <button
+            type="button"
+            className="w-focus__button w-ticket__open"
+            onClick={openInEditor}
+            disabled={!file.elsewhere && read.path === undefined}
+            title={read.path ?? 'The Ticket file has not been read'}
+          >
+            Open in editor
+          </button>
         ) : null}
       </div>
       <div className="w-ticket__title" title={title}>
@@ -198,6 +221,7 @@ function TicketNode({ data, width }: CanvasNodeProps) {
           ) : null}
         </div>
       ) : null}
+      {inFocus ? <TicketBody projectId={projectId} read={read} /> : null}
       <Handle type="source" position={Position.Right} isConnectable={false} className="w-ticket__handle" />
     </article>
   )

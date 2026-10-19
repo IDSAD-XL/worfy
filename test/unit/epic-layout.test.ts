@@ -26,7 +26,6 @@ import {
   TICKET_WIDTH,
   TICKETS_TOP,
   type EpicLayout,
-  ticketFile,
   ticketTitle,
   type PlacedTicket,
 } from '../../src/renderer/canvas/epic-layout'
@@ -624,11 +623,9 @@ describe('progressOf', () => {
 })
 
 describe('Ticket text helpers', () => {
-  it('drops the leading number from a title and names the Ticket file', () => {
+  it('drops the leading number from a title', () => {
     expect(ticketTitle({ num: 7, title: '07 — Rate-limit the bid endpoint' })).toBe('Rate-limit the bid endpoint')
     expect(ticketTitle({ num: 11, title: 'Эпик рамкой на Холсте' })).toBe('Эпик рамкой на Холсте')
     expect(ticketTitle({ num: 3, title: '03 —' })).toBe('03 —')
-    expect(ticketFile('/r', { epic: 'worfy-mvp', num: 7, slug: 'движок-сессий' })).toBe('/r/.scratch/worfy-mvp/issues/07-движок-сессий.md')
-    expect(ticketFile('/r', { epic: 'e', num: 123, slug: 's' })).toBe('/r/.scratch/e/issues/123-s.md')
   })
 })

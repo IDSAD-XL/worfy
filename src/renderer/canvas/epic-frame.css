@@ -371,3 +371,38 @@
   stroke: var(--text-secondary);
   stroke-width: 1;
 }
+
+/* The focused Ticket (TicketNode.tsx in a tile of focus mode): "Open in editor" at the end of the
+   header row, the title uncut, and the whole file under the header (TicketBody.tsx). */
+.w-ticket[data-focused='true'] {
+  padding: 12px 16px;
+}
+.w-ticket[data-focused='true'] .w-ticket__top {
+  height: auto;
+}
+.w-ticket[data-focused='true'] .w-ticket__title {
+  display: block;
+}
+.w-ticket__open {
+  flex: none;
+  margin-left: auto;
+}
+.w-ticket__open:disabled {
+  color: var(--text-muted);
+}
+.w-ticket__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  user-select: text;
+  cursor: text;
+}
+.w-ticket__body-message {
+  margin: 0 0 8px;
+  font-size: var(--text-12);
+  color: var(--blocked-text);
+  overflow-wrap: anywhere;
+}

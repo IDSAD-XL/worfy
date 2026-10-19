@@ -1,6 +1,8 @@
 // The way into focus mode (../../focus/FocusMode.tsx): a "Focus" button below the selected Nodes,
 // and ⌘↩ while the Canvas is on screen. Focus mode starts with the Even preset over the selected
 // Nodes in their Layout order. Its tiling lives here, in memory only: leaving focus mode drops it.
+// A Node may ask for focus mode on itself (requestFocus of focus-state.ts: a double click on a
+// Ticket card); it opens the same way, over that Node alone.
 //
 // Focus mode covers the main area of the window and leaves the sidebar and the command palette
 // working, and both can ask the main area for something else: the Session view, or the Canvas
@@ -14,6 +16,7 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 import { useSessionFocus } from '../../claude-home/focus'
 import { useCanvasRequests } from '../../find/canvas-requests'
 import { FocusMode } from '../../focus/FocusMode'
+import { useFocusState } from '../../focus/focus-state'
 import { buildPreset, type TileTree } from '../../focus/split-tree'
 import { useNavigation } from '../../session/navigation'
 import { ariaKeys, isTextTarget, label, matches } from '../../shortcuts/match'
@@ -71,6 +74,17 @@ export default function FocusEntry() {
     const start = buildPreset('even', latestSelected.current)
     if (start !== null) setTree(start)
   }, [])
+
+  // Only a request made from now on: one made before this Canvas was mounted was meant for another.
+  useEffect(
+    () =>
+      useFocusState.subscribe((state, previous) => {
+        if (state.request === null || state.request === previous.request) return
+        const start = buildPreset('even', state.request.ids)
+        if (start !== null) setTree(start)
+      }),
+    [],
+  )
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -177,8 +177,10 @@ html[data-platform='linux'] .w-focus__bar[data-sidebar='hidden'] {
   flex: 1;
   min-height: 0;
 }
-/* The Node's own surface fills the tile; the frame already draws the border and shadow. */
-.w-focus__node > .w-node-surface {
+/* The Node's own surface fills the tile; the frame already draws the border and shadow. A Ticket's
+   card (epic-frame.css) is its surface too. */
+.w-focus__node > .w-node-surface,
+.w-focus__node > .w-ticket {
   position: absolute;
   inset: 0;
   width: auto;
