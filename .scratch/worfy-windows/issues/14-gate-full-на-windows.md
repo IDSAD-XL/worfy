@@ -611,4 +611,4 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 
 **Цель тикета (полный `pnpm test` с exit code 0 на Windows) пока заблокирована:**
 - Ticket 71 — `.test.sh` Harness-а, 8 красных в каждом полном прогоне;
-- до полного прогона с ×3 не проверено, что timeout-ы под нагрузкой ушли (worfy-polish 30, «Одна проблема нагрузки»).
+- контрольный полный прогон с ×3 сделан: `main` `2af91b51`, свободный ПК, 2026-10-20 00:29–00:54 — 9 failed: 8 = Ticket 71, 1 — разовый сбой `terminal-windows` (не timeout, worfy-polish 30); timeout-ов нет.
