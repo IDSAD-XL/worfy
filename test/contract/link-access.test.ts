@@ -39,6 +39,7 @@ import { notifyOpen } from '../../src/shared/ipc/notify'
 import { trashList } from '../../src/shared/ipc/trash'
 import type { LayoutOpInput } from '../../src/shared/layout/types'
 import { LinkBench, type BenchMachine } from './link-bench'
+import { nodeScript } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const env = await vi.hoisted(async () => {
@@ -108,17 +109,20 @@ git(second, 'commit', '-q', '-m', 'init')
 mkdirSync(join(dataDir, PROJECT), { recursive: true })
 mkdirSync(join(dataDir, OTHER), { recursive: true })
 // The workflow reader asks the Harness's epic-status (src/main/workflow/reader.ts); this stand-in
-// answers with Ticket 01 of Epic `demo` in the state its file says.
+// answers with Ticket 01 of Epic `demo` in the state its file says. A Node script, as the Harness's
+// own: worfy starts it as `node <script>`, and on Windows it runs no `#!/bin/sh` one (test/harness-node.ts).
 mkdirSync(join(env.scratch, 'claude-home', 'bin'), { recursive: true })
 writeFileSync(
   join(env.scratch, 'claude-home', 'bin', 'epic-status'),
-  [
-    '#!/bin/sh',
-    "status=$(sed -n 's/^Status: //p' .scratch/demo/issues/01-first.md | tail -n 1)",
-    'case "$status" in blocked*) state=blocked ;; *) state=open ;; esac',
-    `printf '{"ref":"main","epics":[{"epic":"demo","hasSpec":true,"hasMap":false}],"tickets":[{"epic":"demo","num":1,"slug":"first","title":"01 first","statusRaw":"%s","state":"%s","blockedRaw":null,"blockedNums":[],"blockedParsed":true,"ref":"."}]}' "$status" "$state"`,
-    '',
-  ].join('\n'),
+  nodeScript(
+    [
+      "const statuses = fs.readFileSync('.scratch/demo/issues/01-first.md', 'utf8').split(/\\r?\\n/).filter((line) => line.startsWith('Status: '))",
+      "const status = (statuses.at(-1) ?? '').slice('Status: '.length)",
+      "const state = status.startsWith('blocked') ? 'blocked' : 'open'",
+      "const ticket = { epic: 'demo', num: 1, slug: 'first', title: '01 first', statusRaw: status, state, blockedRaw: null, blockedNums: [], blockedParsed: true, ref: '.' }",
+      "process.stdout.write(JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: true, hasMap: false }], tickets: [ticket] }))",
+    ].join('\n'),
+  ),
   { mode: 0o755 },
 )
 mkdirSync(home, { recursive: true })
@@ -130,9 +134,14 @@ const projectsFileBefore = readFileSync(join(dataDir, 'projects.json'), 'utf8')
 
 // ---- B's handlers ------------------------------------------------------------------------------
 
-/** The Terminal of B: real shells (/bin/sh with an empty HOME), one per Node. */
+/**
+ * The Terminal of B: real shells (/bin/sh with an empty HOME; PowerShell on Windows), one per Node.
+ * On Windows the environment keeps SystemRoot and windir: PowerShell does not start without them
+ * (error 8009001d at loading its managed shell).
+ */
+const windowsRoot: Record<string, string> = process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot ?? '', windir: process.env.windir ?? process.env.SystemRoot ?? '' } : {}
 const terminals = new TerminalRegistry({
-  env: () => Promise.resolve({ SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
+  env: () => Promise.resolve({ ...windowsRoot, SHELL: '/bin/sh', PATH: SYSTEM_PATH, HOME: home, PS1: '$ ' }),
   killGraceMs: 1000,
 })
 const claudeHome = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
@@ -434,7 +443,10 @@ describe('access on', () => {
     writeFileSync(join(repo, 'HANDOFF.md'), '# Handoff\n\n- a line\n')
     expect(await callB('bindings.set', { projectId: PROJECT, sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } })).toMatchObject({ ok: true })
     claudeHomeWatchers[0]?.({ sessions: true, transcripts: [] })
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo link-$((40+2))\n' })).toEqual({ ok: true, value: undefined })
+    // Enter is `\r`, as a terminal sends it: the pty turns it into a line end for /bin/sh, and
+    // PowerShell's line editor takes only `\r` as Enter. `$((40+2))` is 42 in both shells, so the
+    // output has `link-42` while the echoed input does not.
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo link-$((40+2))\r' })).toEqual({ ok: true, value: undefined })
 
     const outputOf = (): string =>
       received
@@ -468,7 +480,7 @@ describe('switching access off', () => {
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
     expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
 
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\n' })).toMatchObject({ ok: true })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\r' })).toMatchObject({ ok: true })
     const outputOfA = (): string =>
       received
         .filter((event) => event.channel === 'terminal.output')
@@ -483,8 +495,8 @@ describe('switching access off', () => {
     expect(docsHub.projects).toEqual([])
     expect(claudeHomeSubscriptions.size).toBe(0)
 
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\n' })).toEqual(accessOff)
-    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\n' }, window)).toMatchObject({ ok: true })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\r' })).toEqual(accessOff)
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\r' }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-3'))
     expect(windowEvents.join('')).toContain('after-3')
     // The shell kept running for B's window; nothing of it went to A, and A's input never reached it.
@@ -599,7 +611,7 @@ describe('read-only access', () => {
     const windowCall = await windowIpc()
     expect(await windowCall('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }, window)).toMatchObject({ ok: true })
     expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((3+4))\n' })).toMatchObject({ ok: true })
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((3+4))\r' })).toMatchObject({ ok: true })
     const outputOfA = (): string =>
       received
         .filter((event) => event.channel === 'terminal.output')
@@ -613,12 +625,12 @@ describe('read-only access', () => {
     const second = linkClientsOfB()
     expect(second).toHaveLength(1)
     expect(second[0]).not.toBe(first[0])
-    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\n' })).toEqual(readOnly)
+    expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\r' })).toEqual(readOnly)
     expect(await callB('link.ping')).toMatchObject({ ok: true })
     expect(await callB('projects.list')).toMatchObject({ ok: true })
 
     // The shell runs on for B's window; its output does not reach A any more.
-    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\n' }, window)).toMatchObject({ ok: true })
+    expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\r' }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-9'))
     expect(windowEvents.join('')).toContain('after-9')
     expect(outputOfA()).not.toContain('after-9')
