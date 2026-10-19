@@ -12,7 +12,10 @@ the same answers and the same variables (`stand-in.mjs` holds the call log). On 
 the tests' node, so the checks find and start it as they find npm's `claude.cmd`; the installer runs
 `claude.mjs` by its path (src/main/program.ts). There `npm install -g` writes a `qmd.cmd` into
 `$FAKE_NPM_BIN` in place of the link. On macOS and Linux the `/bin/sh` scripts are used, as before;
-a change to one of them goes into its port too.
+a change to one of them goes into its port too. Not every port runs in a test yet: `npm.mjs` and
+`qmd.mjs` only serve the qmd cases, which are skipped on Windows until worfy-windows ticket 15, and the
+`FAKE_NODE_REAL` branch of `node.mjs` is unused there, since worfy starts a Harness script on Windows
+only with a `node.exe`.
 
 | variable | tool | meaning |
 |---|---|---|

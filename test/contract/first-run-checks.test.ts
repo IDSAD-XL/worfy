@@ -386,7 +386,9 @@ describe('first-run checks', () => {
      * takes only a node.exe for that, never the node.cmd stand-in, so the real node's folder follows
      * the stand-ins there: the screen's node row still finds the stand-in first.
      */
-    const withNode = (): Record<string, string> => loginEnv({ FAKE_NODE_REAL: NODE, ...(WINDOWS ? { PATH: `${bin};${realNode()}` } : {}) })
+    // On Windows worfy starts a Harness script only with a node.exe, never the node.cmd stand-in, so
+    // the stand-in needs no real node to hand calls to: the real node.exe comes after it on the PATH.
+    const withNode = (): Record<string, string> => loginEnv(WINDOWS ? { PATH: `${bin};${realNode()}` } : { FAKE_NODE_REAL: NODE })
 
     /** The old Harness in <claude home>/bin: its epic-status and, when given, a `profile` with this text. */
     const oldHarness = (profile?: string, mode = 0o755): string => {
@@ -460,13 +462,15 @@ describe('first-run checks', () => {
       expect(scripts).toMatchObject({ status: 'ok', detail: 'profile --help answered' })
     })
 
-    // A `#!` line that names no node is an older Harness's script: started by itself, as before.
+    // A `#!` line that names no node is an older Harness's script: on macOS and Linux started by
+    // itself, as before; on Windows, which starts no such script, refused as not a Node script.
     it('a script that is there but cannot be started (its interpreter line names no file): failed, not "no profile script"', async () => {
       tools(...ALL_TOOLS)
       oldHarness('#!/nonexistent/interpreter\n')
       const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
       expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
       expect(scripts.detail).toMatch(/^profile could not be started: /)
+      if (WINDOWS) expect(scripts.detail).toMatch(/is not a Node script/)
     })
   })
 
