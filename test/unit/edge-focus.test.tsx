@@ -217,6 +217,7 @@ describe('the chain of a Ticket', () => {
 describe('the Family of a focused Node', () => {
   const A = 'session:A'
   const B = 'session:B'
+  const C = 'session:C'
   const A1 = 'subagent:A/a1'
   const NOTE = 'note-1'
   const T1 = ticketNodeId(EPIC, 1)
@@ -249,12 +250,22 @@ describe('the Family of a focused Node', () => {
       anchor(B, 2, 8),
     ].map((node) => ({ ...node, selected: selected.has(node.id) }))
 
-  /** Each Node type's component counts its renders; NodeChrome draws again only with it. */
+  /** Each Node type's own component counts its renders (the Node's content). */
   const Counted = ({ id }: CanvasNodeProps) => {
     renders.set(id, (renders.get(id) ?? 0) + 1)
     return <div />
   }
-  const chromed = withNodeChrome(Counted)
+  const Chromed = withNodeChrome(Counted)
+  /** Every draw of anything in a Node — its content, NodeChrome or the dim marker — counted by a React Profiler. */
+  let draws = new Map<string, number>()
+  const chromed = (props: CanvasNodeProps) => (
+    <Profiler id={props.id} onRender={(id) => draws.set(id, (draws.get(id) ?? 0) + 1)}>
+      <Chromed {...props} />
+    </Profiler>
+  )
+  beforeEach(() => {
+    draws = new Map()
+  })
   const nodeTypes = Object.fromEntries([EPIC_FRAME_KIND, TICKET_KIND, 'session', SUBAGENT_KIND, 'note', BINDING_ANCHOR_KIND].map((type) => [type, chromed]))
 
   const canvas = (selected?: ReadonlySet<string>) => (
@@ -301,12 +312,23 @@ describe('the Family of a focused Node', () => {
   it('a Node whose answer did not change does not draw again', () => {
     const { container } = render(canvas())
     fireEvent.pointerOver(element(container, T1))
-    const before = new Map(renders)
+    const before = new Map(draws)
     // From Ticket 1's Family to Ticket 2's: the frame stays bright and the note stays dim.
     fireEvent.pointerOver(element(container, T2))
     expect(dimmed(container)).toEqual([A, A1, NOTE, T1].sort())
-    const changed = COUNTED.filter((id) => renders.get(id) !== before.get(id)).sort()
+    const changed = COUNTED.filter((id) => draws.get(id) !== before.get(id)).sort()
     expect(changed).toEqual([A, A1, B, T1, T2].sort())
+  })
+
+  it('a Node that dims or brightens does not draw its content again: only the marker changes', () => {
+    const { container } = render(canvas())
+    const before = new Map(renders)
+    fireEvent.pointerOver(element(container, T1))
+    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
+    fireEvent.pointerOver(element(container, T2))
+    fireEvent.pointerLeave(flowRoot(container))
+    expect(dimmed(container)).toEqual([])
+    expect(COUNTED.filter((id) => renders.get(id) !== before.get(id))).toEqual([])
   })
 
   it('a Binding line between two members of the bright Family is drawn; one with an end outside it is not', () => {
@@ -316,23 +338,25 @@ describe('the Family of a focused Node', () => {
         { epic: EPIC, num: 1 },
         { epic: EPIC, num: 2 },
       ],
-      sessions: [A, B],
+      sessions: [A, B, C],
       subagents: [{ nodeId: A1, sessionNodeId: A }],
       bindings: [
         { agentNodeId: A, target: { kind: 'ticket', epic: EPIC, num: 1 } },
         { agentNodeId: A1, target: { kind: 'epic', epic: EPIC } },
         { agentNodeId: B, target: { kind: 'ticket', epic: EPIC, num: 2 } },
+        { agentNodeId: C, target: { kind: 'epic', epic: EPIC } },
       ],
     }
-    const { result } = renderHook(() => [useAnyFocused([A, T1]), useAnyFocused([A1, FRAME]), useAnyFocused([B, T2])])
-    expect(result.current).toEqual([false, false, false])
-    // The frame focused: A's line to Ticket 1 and B's to Ticket 2 are within its Family.
+    const { result } = renderHook(() => [useAnyFocused([A, T1]), useAnyFocused([A1, FRAME]), useAnyFocused([B, T2]), useAnyFocused([C, FRAME])])
+    expect(result.current).toEqual([false, false, false, false])
+    // The frame focused: A's line to Ticket 1, B's to Ticket 2 and C's to the frame are within its Family.
     act(() => setEdgeFocus([FRAME], [], links))
-    expect(result.current).toEqual([true, true, true])
-    // Ticket 1 focused: A's lines are within its Family, B's is not.
+    expect(result.current).toEqual([true, true, true, true])
+    // Ticket 1 focused: A's lines are within its Family; B's has no end in it; C's line ends at the
+    // frame, which is in the Family, but C, bound to the whole Epic, is not.
     act(() => setEdgeFocus([T1], [], links))
-    expect(result.current).toEqual([true, true, false])
+    expect(result.current).toEqual([true, true, false, false])
     act(() => setEdgeFocus([], [], links))
-    expect(result.current).toEqual([false, false, false])
+    expect(result.current).toEqual([false, false, false, false])
   })
 })

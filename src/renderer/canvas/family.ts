@@ -36,38 +36,101 @@ export interface FamilyLinks {
 
 export const NO_LINKS: FamilyLinks = { epics: [], tickets: [], sessions: [], subagents: [], bindings: [] }
 
+/** FamilyLinks as lookups by Node id, so a Family costs its own size, not the Canvas's. */
+interface FamilyIndex {
+  /** Epic frame Node id → Epic. */
+  epicOfFrame: ReadonlyMap<string, string>
+  /** Ticket Node id → its Epic. */
+  epicOfTicket: ReadonlyMap<string, string>
+  /** Epic → its Ticket Node ids. */
+  ticketsOf: ReadonlyMap<string, readonly string[]>
+  sessions: ReadonlySet<string>
+  /** Subagent Node id → its Session Node id. */
+  sessionOf: ReadonlyMap<string, string>
+  /** Session Node id → its Subagent Node ids. */
+  subagentsOf: ReadonlyMap<string, readonly string[]>
+  /** Epic → the agents bound to it or to one of its Tickets. */
+  agentsOfEpic: ReadonlyMap<string, readonly string[]>
+  /** Ticket Node id → the agents bound to it. */
+  agentsOfTicket: ReadonlyMap<string, readonly string[]>
+  /** Agent Node id → what it is bound to. */
+  targetsOf: ReadonlyMap<string, readonly BindingTarget[]>
+}
+
+function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
+  const list = map.get(key)
+  if (list) list.push(value)
+  else map.set(key, [value])
+}
+
+/** One index per links object: the store and the toolbar keep the same object while nothing changed. */
+const indexes = new WeakMap<FamilyLinks, FamilyIndex>()
+
+function indexOf(links: FamilyLinks): FamilyIndex {
+  const known = indexes.get(links)
+  if (known) return known
+  const ticketsOf = new Map<string, string[]>()
+  const subagentsOf = new Map<string, string[]>()
+  const agentsOfEpic = new Map<string, string[]>()
+  const agentsOfTicket = new Map<string, string[]>()
+  const targetsOf = new Map<string, BindingTarget[]>()
+  for (const { epic, num } of links.tickets) push(ticketsOf, epic, ticketNodeId(epic, num))
+  for (const { nodeId, sessionNodeId } of links.subagents) push(subagentsOf, sessionNodeId, nodeId)
+  for (const { agentNodeId, target } of links.bindings) {
+    push(agentsOfEpic, target.epic, agentNodeId)
+    if (target.kind === 'ticket') push(agentsOfTicket, ticketNodeId(target.epic, target.num), agentNodeId)
+    push(targetsOf, agentNodeId, target)
+  }
+  const index: FamilyIndex = {
+    epicOfFrame: new Map(links.epics.map((epic) => [epicNodeId(epic), epic])),
+    epicOfTicket: new Map(links.tickets.map(({ epic, num }) => [ticketNodeId(epic, num), epic])),
+    ticketsOf,
+    sessions: new Set(links.sessions),
+    sessionOf: new Map(links.subagents.map(({ nodeId, sessionNodeId }) => [nodeId, sessionNodeId])),
+    subagentsOf,
+    agentsOfEpic,
+    agentsOfTicket,
+    targetsOf,
+  }
+  indexes.set(links, index)
+  return index
+}
+
 /** The Family of `nodeId`, the Node included; null when the Node has no relative on the Canvas. */
 export function familyOf(nodeId: string, links: FamilyLinks): ReadonlySet<string> | null {
-  const sessionOf = new Map(links.subagents.map(({ nodeId: id, sessionNodeId }) => [id, sessionNodeId]))
+  const index = indexOf(links)
   const family = new Set<string>([nodeId])
   const addSession = (session: string) => {
     family.add(session)
-    for (const subagent of links.subagents) if (subagent.sessionNodeId === session) family.add(subagent.nodeId)
+    for (const subagent of index.subagentsOf.get(session) ?? []) family.add(subagent)
   }
   /** A bound agent: a Session with its tree, a Subagent with its Session. */
   const addAgent = (agentNodeId: string) => {
-    const session = sessionOf.get(agentNodeId)
+    const session = index.sessionOf.get(agentNodeId)
     if (session === undefined) addSession(agentNodeId)
     else family.add(agentNodeId).add(session)
   }
-  const addTarget = (target: BindingTarget) => {
-    if (target.kind === 'ticket') family.add(ticketNodeId(target.epic, target.num))
-    family.add(epicNodeId(target.epic))
+  const addTargets = (agentNodeId: string) => {
+    for (const target of index.targetsOf.get(agentNodeId) ?? []) {
+      if (target.kind === 'ticket') family.add(ticketNodeId(target.epic, target.num))
+      family.add(epicNodeId(target.epic))
+    }
   }
 
-  const epic = links.epics.find((name) => epicNodeId(name) === nodeId)
-  const ticket = links.tickets.find(({ epic: name, num }) => ticketNodeId(name, num) === nodeId)
+  const epic = index.epicOfFrame.get(nodeId)
+  const ticketEpic = index.epicOfTicket.get(nodeId)
   if (epic !== undefined) {
-    for (const each of links.tickets) if (each.epic === epic) family.add(ticketNodeId(each.epic, each.num))
-    for (const { agentNodeId, target } of links.bindings) if (target.epic === epic) addAgent(agentNodeId)
-  } else if (ticket !== undefined) {
-    family.add(epicNodeId(ticket.epic))
-    for (const { agentNodeId, target } of links.bindings) if (target.kind === 'ticket' && target.epic === ticket.epic && target.num === ticket.num) addAgent(agentNodeId)
+    for (const ticket of index.ticketsOf.get(epic) ?? []) family.add(ticket)
+    for (const agent of index.agentsOfEpic.get(epic) ?? []) addAgent(agent)
+  } else if (ticketEpic !== undefined) {
+    family.add(epicNodeId(ticketEpic))
+    for (const agent of index.agentsOfTicket.get(nodeId) ?? []) addAgent(agent)
   } else {
-    const session = sessionOf.get(nodeId) ?? (links.sessions.includes(nodeId) ? nodeId : undefined)
+    const session = index.sessionOf.get(nodeId) ?? (index.sessions.has(nodeId) ? nodeId : undefined)
     if (session === undefined) return null
     addSession(session)
-    for (const { agentNodeId, target } of links.bindings) if (agentNodeId === session || agentNodeId === nodeId) addTarget(target)
+    addTargets(session)
+    if (nodeId !== session) addTargets(nodeId)
   }
   return family.size > 1 ? family : null
 }

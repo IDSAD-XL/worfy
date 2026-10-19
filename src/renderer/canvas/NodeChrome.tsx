@@ -8,8 +8,8 @@
 //
 // While a focused Node's Family is lit (worfy-canvas ticket 03, edge-focus.ts) a Node outside it
 // is dimmed: NodeChrome puts a marker into the Node's element and node-chrome.css lowers that
-// element's opacity. Each Node subscribes to its own yes/no answer and draws again only when it
-// changes.
+// element's opacity. Only the marker subscribes to the Node's own yes/no answer, so a change draws
+// the marker again, not the Node's content.
 import type { ComponentType, ReactNode } from 'react'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { useReadOnly } from '../projects/useProjects'
@@ -57,6 +57,11 @@ function PinnedFrame({ props, children }: { props: CanvasNodeProps; children: Re
   )
 }
 
+/** The dim marker, a direct child of React Flow's Node element: node-chrome.css dims that element through :has(). */
+function DimMarker({ id }: { id: string }) {
+  return useNodeDimmed(id) ? <span className="w-node-dimmed" data-testid="node-dimmed" hidden /> : null
+}
+
 export interface NodeChromeProps extends CanvasNodeProps {
   /** The Node type's own component. */
   Component: ComponentType<CanvasNodeProps>
@@ -66,10 +71,8 @@ export interface NodeChromeProps extends CanvasNodeProps {
 export function NodeChrome({ Component, ...props }: NodeChromeProps) {
   const { node } = props.data
   const readOnly = useReadOnly()
-  const dimmed = useNodeDimmed(props.id)
   const content = readOnly !== null && node.kind === TERMINAL_NODE_KIND ? <ReadOnlyTerminal id={props.id} hint={readOnly} /> : <Component {...props} />
-  // A direct child of React Flow's Node element: node-chrome.css dims that element through :has().
-  const dim = dimmed ? <span className="w-node-dimmed" data-testid="node-dimmed" hidden /> : null
+  const dim = <DimMarker id={props.id} />
   if (node.pinned)
     return (
       <>

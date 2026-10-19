@@ -103,3 +103,20 @@ Source: [spec.md](../spec.md), решение владельца 9 (Session-ы �
 - Mutation testing: Family без Subagent-ов Session — 8 test-ов красные; подписка Node-а на весь набор
   Family — красный счётчик рендеров; линии без Family — красный test линий; без тусклости — 4 красных.
 
+Круг 2 ревью (PR #538):
+
+- Линия Binding-а с одним концом в Family: в fixture `edge-focus.test.tsx` добавлена Session C,
+  привязанная к Epic-у; при наведении на Ticket её линия к рамке не рисуется (мутант `every` → `some`
+  красный).
+- `FamilySection`: unit `test/unit/show-family.test.tsx` — Note и два выделенных Node-а без кнопки,
+  клик по Session вызывает `fitView` с id Family и `maxZoom` текущего zoom, с Reduce motion
+  `duration: 0`; в `linked-read-only.test.tsx` кнопка активна на read-only экране рядом с неактивным Pin.
+- Подписка на тусклость вынесена в `DimMarker` (`NodeChrome.tsx`): смена тусклости рисует заново
+  только маркер, не содержимое Node-а (новый test со счётчиком рендеров содержимого).
+- `family.ts` строит индексы связей один раз на объект `links` (WeakMap): Family стоит O(своего
+  размера), а не O(Canvas) на каждый Node в фокусе.
+- Комментарии про `showWith` (`StepEdge.tsx`, `edges/bindings.ts`, `workflow-bindings.ts`) дописаны
+  правилом Family.
+- Mutation testing круга 2: Family без Subagent-ов Session (10 красных), `every` → `some`, кнопка при
+  нескольких выделенных, кнопка без Family, без `maxZoom`, без Reduce motion, подписка содержимого на
+  тусклость — каждый красный.

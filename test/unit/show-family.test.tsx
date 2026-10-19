@@ -1,0 +1,65 @@
+// "Show family" in the selection toolbar (worfy-canvas ticket 03): only for one selected Node that
+// has a Family; a click fits the camera to the Family, never zooming in past the current zoom, and
+// without the camera's animation when the system asks for less motion. React Flow's camera is a
+// stand-in that records the call.
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearEdgeFocus, setEdgeFocus } from '../../src/renderer/canvas/edge-focus'
+import type { FamilyLinks } from '../../src/renderer/canvas/family'
+import { FamilySection } from '../../src/renderer/canvas/overlays/SelectionToolbar'
+import { epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
+import type { LayoutNode } from '../../src/shared/layout/types'
+
+const camera = vi.hoisted(() => ({ fitView: vi.fn<(options?: unknown) => Promise<boolean>>(() => Promise.resolve(true)), getZoom: () => 0.7 }))
+vi.mock('@xyflow/react', async (importOriginal) => ({ ...(await importOriginal<typeof import('@xyflow/react')>()), useReactFlow: () => camera }))
+
+const A = 'session:A'
+const A1 = 'subagent:A/a1'
+const links: FamilyLinks = {
+  epics: ['e'],
+  tickets: [{ epic: 'e', num: 1 }],
+  sessions: [A],
+  subagents: [{ nodeId: A1, sessionNodeId: A }],
+  bindings: [{ agentNodeId: A, target: { kind: 'ticket', epic: 'e', num: 1 } }],
+}
+
+const node = (id: string, kind: string): LayoutNode => ({ id, kind, x: 0, y: 0, w: 100, h: 40, hidden: false, locked: false, pinned: false, tags: [], data: {} })
+const button = () => screen.queryByRole('button', { name: 'Show family' })
+
+beforeEach(() => {
+  camera.fitView.mockClear()
+  setEdgeFocus([], [], links)
+})
+afterEach(() => {
+  cleanup()
+  clearEdgeFocus()
+  vi.unstubAllGlobals()
+})
+
+describe('Show family', () => {
+  it('is not there for a Node without a Family, nor for two selected Nodes', () => {
+    render(<FamilySection nodes={[node('note-1', 'note')]} />)
+    expect(button()).toBeNull()
+    cleanup()
+    render(<FamilySection nodes={[node(A, 'session'), node(ticketNodeId('e', 1), 'ticket')]} />)
+    expect(button()).toBeNull()
+    expect(camera.fitView).not.toHaveBeenCalled()
+  })
+
+  it('fits the camera to the selected Session’s Family, zooming in no further than now', () => {
+    render(<FamilySection nodes={[node(A, 'session')]} />)
+    fireEvent.click(button()!)
+    expect(camera.fitView).toHaveBeenCalledTimes(1)
+    const options = camera.fitView.mock.calls[0]![0] as { nodes: { id: string }[]; maxZoom: number; duration: number }
+    expect(options.nodes.map(({ id }) => id).sort()).toEqual([A, A1, epicNodeId('e'), ticketNodeId('e', 1)].sort())
+    expect(options.maxZoom).toBe(0.7)
+    expect(options.duration).toBe(250)
+  })
+
+  it('with Reduce motion the camera jumps', () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)' }))
+    render(<FamilySection nodes={[node(ticketNodeId('e', 1), 'ticket')]} />)
+    fireEvent.click(button()!)
+    expect((camera.fitView.mock.calls[0]![0] as { duration: number }).duration).toBe(0)
+  })
+})
