@@ -31,8 +31,12 @@ const CASES: [name: string, tag: 'main' | 'gui'][] = [
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 const SCAFFOLD_TIMEOUT_MS = 60_000
 
-/** The YAML front matter of a case or grader file, as raw text ('' when there is none). */
-const frontMatter = (file: string): string => /^---\n([\s\S]*?)\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
+/**
+ * The YAML front matter of a case or grader file, as raw text ('' when there is none). Lines may end
+ * in CRLF: git for Windows checks harness/evals/ out with core.autocrlf, and the test reads the file
+ * as git gives it on the machine. `field` trims the `\r` off a value.
+ */
+const frontMatter = (file: string): string => /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
 const field = (yaml: string, key: string): string | undefined =>
   new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(yaml)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
 
