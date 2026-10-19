@@ -17,6 +17,12 @@ import { FRAME_GAP } from './epic-layout'
 export const TARGET_ASPECT = 1.6
 /** How far the strip's aspect ratio may drift from TARGET_ASPECT, as a share of it, before K is computed again. */
 export const ASPECT_TOLERANCE = 0.3
+/**
+ * When the previous K and the K computed afresh are both outside ASPECT_TOLERANCE (frames of very
+ * different widths), the fresh K replaces the previous one only if its strip is this many times
+ * closer to 16:10 (as a factor, see `offAspect`). A smaller margin lets K flip back and forth as a frame grows and shrinks.
+ */
+export const SWITCH_MARGIN = 1.3
 
 /** What K reads of a frame. */
 export interface ArrangedFrame {
@@ -65,22 +71,36 @@ function holdsAspect(frames: readonly ArrangedFrame[], columns: number): boolean
   return Math.abs(width / height / TARGET_ASPECT - 1) <= ASPECT_TOLERANCE
 }
 
+/** How far the strip with `columns` columns is from 16:10, as a factor: 1 on it, 2 when twice too wide or twice too tall. */
+export function offAspect(frames: readonly ArrangedFrame[], columns: number): number {
+  const { width, height } = stripSize(frames, columns)
+  if (height <= 0 || width <= 0) return Number.POSITIVE_INFINITY
+  const ratio = width / height / TARGET_ASPECT
+  return Math.max(ratio, 1 / ratio)
+}
+
 /**
  * K for the frames in their order (ADR-0075, point 3). Without a previous K:
  * `max(1, round(sqrt(S × 1.6) / W))`, where S is the sum of the frames' areas (each with its done
  * stack open) and W the widest frame plus FRAME_GAP, and never more columns than frames. With a
  * previous K the strip keeps it while its aspect ratio stays within 30 % of 16:10 (hysteresis), so
- * a new Ticket or a frame that grew rarely moves the frames to other columns.
+ * a new Ticket or a frame that grew rarely moves the frames to other columns. Past that the K
+ * computed afresh takes over when its strip is within 30 %, or else when it is clearly closer to
+ * 16:10 (SWITCH_MARGIN): with frames of very different widths neither K may be within 30 %, and
+ * comparing the two keeps K from flipping on every small change of a frame.
  */
 export function columnsFor(frames: readonly ArrangedFrame[], previous: number | null): number {
   if (frames.length === 0) return 1
+  const column = Math.max(...frames.map((frame) => frame.width)) + FRAME_GAP
+  const area = frames.reduce((sum, frame) => sum + frame.width * reservedHeight(frame), 0)
+  const fresh = usableColumns(Math.max(1, Math.round(Math.sqrt(area * TARGET_ASPECT) / column)), frames.length)
   if (previous !== null && Number.isInteger(previous) && previous >= 1) {
     const kept = usableColumns(previous, frames.length)
     if (holdsAspect(frames, kept)) return kept
+    if (holdsAspect(frames, fresh)) return fresh
+    if (offAspect(frames, kept) <= offAspect(frames, fresh) * SWITCH_MARGIN) return kept
   }
-  const column = Math.max(...frames.map((frame) => frame.width)) + FRAME_GAP
-  const area = frames.reduce((sum, frame) => sum + frame.width * reservedHeight(frame), 0)
-  return usableColumns(Math.max(1, Math.round(Math.sqrt(area * TARGET_ASPECT) / column)), frames.length)
+  return fresh
 }
 
 /** By name, by code unit: the same order on every screen, whatever its locale. */

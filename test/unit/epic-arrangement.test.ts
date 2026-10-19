@@ -6,11 +6,13 @@ import {
   arrange,
   ASPECT_TOLERANCE,
   columnsFor,
+  offAspect,
   orderFor,
   readArrangement,
   repack,
   sameDay,
   stripSize,
+  SWITCH_MARGIN,
   TARGET_ASPECT,
   type ArrangedFrame,
 } from '../../src/renderer/canvas/epic-arrangement'
@@ -78,14 +80,66 @@ describe('columnsFor', () => {
   })
 
   it('the boundary of the hysteresis is the 30 % itself', () => {
-    // Two frames side by side (K = 2): width 2 × 100 + 48 = 248; the height decides the aspect ratio.
+    // 11 frames 900 wide in 4 columns: 4 × 900 + 3 × 48 = 3744 wide, three frames and two gaps tall;
+    // the frames' height sets the aspect ratio of that strip. Above 30 % the K afresh, 3, is within it.
     const at = (ratio: number): ArrangedFrame[] => {
-      const height = 248 / (TARGET_ASPECT * ratio)
-      return [{ width: 100, height }, { width: 100, height }]
+      const height = (3744 / (TARGET_ASPECT * ratio) - 2 * FRAME_GAP) / 3
+      return Array.from({ length: 11 }, () => ({ width: 900, height }))
     }
-    expect(columnsFor(at(1 + ASPECT_TOLERANCE - 0.001), 2)).toBe(2)
-    expect(columnsFor(at(1 - ASPECT_TOLERANCE + 0.001), 2)).toBe(2)
-    expect(columnsFor(at(1 + ASPECT_TOLERANCE + 0.01), 2)).toBe(columnsFor(at(1 + ASPECT_TOLERANCE + 0.01), null))
+    for (const ratio of [1.299, 1.31]) expect(columnsFor(at(ratio), null)).toBe(3)
+    expect(columnsFor(at(1 + ASPECT_TOLERANCE - 0.001), 4)).toBe(4)
+    expect(columnsFor(at(1 - ASPECT_TOLERANCE + 0.001), 4)).toBe(4)
+    expect(columnsFor(at(1 + ASPECT_TOLERANCE + 0.01), 4)).toBe(3)
+  })
+
+  it('the tolerance is 30 % of 16:10, and a K outside it gives way only to one 1.3 times closer', () => {
+    expect(TARGET_ASPECT).toBe(1.6)
+    expect(ASPECT_TOLERANCE).toBe(0.3)
+    expect(SWITCH_MARGIN).toBe(1.3)
+  })
+
+  describe('frames of very different widths, where no K the formula gives is within 30 %', () => {
+    // Ten frames 700 wide and one 2400 wide: every column is 2400 wide, so the formula's K = 1
+    // makes a strip five times too tall, and K = 2 a strip still twice too tall.
+    const frames = (grow: number): ArrangedFrame[] =>
+      [700, 700, 700, 700, 700, 700, 700, 700, 700, 700, 2400].map((width, index) => ({ width, height: 400 + index * 60 + (index === 0 ? grow : 0) }))
+    const small = frames(47 * 40)
+    const grown = frames(48 * 40)
+
+    it('the formula alone flips between 1 and 2 columns as one frame grows by 40 and shrinks back', () => {
+      expect(columnsFor(small, null)).toBe(1)
+      expect(columnsFor(grown, null)).toBe(2)
+      expect(offAspect(small, 1)).toBeGreaterThan(1 + ASPECT_TOLERANCE)
+      expect(offAspect(grown, 2)).toBeGreaterThan(1 + ASPECT_TOLERANCE)
+    })
+
+    it('a kept K does not flip as the frame grows and shrinks back', () => {
+      let k = 2
+      for (const step of [small, grown, small, grown, small]) {
+        k = columnsFor(step, k)
+        expect(k).toBe(2)
+      }
+    })
+
+    it('K = 1 gives way once to the clearly closer K = 2 and does not come back', () => {
+      expect(columnsFor(small, 1)).toBe(1)
+      const seen = [grown, small, grown, small].map((step) => columnsFor(step, 1))
+      expect(seen).toEqual([2, 1, 2, 1])
+      let k = 1
+      const kept = [grown, small, grown, small].map((step) => (k = columnsFor(step, k)))
+      expect(kept).toEqual([2, 2, 2, 2])
+    })
+
+    it('the fresh K replaces a K outside 30 % only past the margin: 1.37 times closer does, 1.12 times does not', () => {
+      const close = frames(60 * 40)
+      expect(columnsFor(close, null)).toBe(2)
+      expect(offAspect(close, 6) / offAspect(close, 2)).toBeCloseTo(1.12, 2)
+      expect(columnsFor(close, 6)).toBe(6)
+      const far = frames(49 * 40)
+      expect(columnsFor(far, null)).toBe(2)
+      expect(offAspect(far, 6) / offAspect(far, 2)).toBeCloseTo(1.37, 2)
+      expect(columnsFor(far, 6)).toBe(2)
+    })
   })
 
   it('ignores a previous K that is not a whole number of columns', () => {
@@ -144,6 +198,13 @@ describe('arrange and repack', () => {
     expect(arrange(['d', 'c', 'b', 'a'], frames, { ...record, columns: 2 }).columns).toBe(2)
   })
 
+  it('passes the record\'s K to the hysteresis: 4 columns are kept for 11 frames where afresh it is 3', () => {
+    const eleven = 'abcdefghijk'.split('')
+    const even = new Map(eleven.map((epic) => [epic, { width: 900, height: 550, reserve: 580 }]))
+    expect(arrange(eleven, even, null).columns).toBe(3)
+    expect(arrange(eleven, even, { order: eleven, columns: 4, at: '2026-10-19T08:00:00.000Z' }).columns).toBe(4)
+  })
+
   it('repack puts the Epics with work first and computes K without the hysteresis', () => {
     expect(repack(['d', 'c', 'b', 'a'], frames, new Set(['d']))).toEqual({ order: ['d', 'a', 'b', 'c'], columns: 2 })
   })
@@ -167,6 +228,9 @@ describe('the record', () => {
     expect(sameDay(new Date(2026, 9, 19, 0, 5).toISOString(), now)).toBe(true)
     expect(sameDay(new Date(2026, 9, 18, 23, 59).toISOString(), now)).toBe(false)
     expect(sameDay(new Date(2025, 9, 19, 12).toISOString(), now)).toBe(false)
+    // A week before (the same day of the week) and a month before (the same day of the month).
+    expect(sameDay(new Date(2026, 9, 12, 12).toISOString(), now)).toBe(false)
+    expect(sameDay(new Date(2026, 8, 19, 12).toISOString(), now)).toBe(false)
     expect(sameDay('not a time', now)).toBe(false)
   })
 })

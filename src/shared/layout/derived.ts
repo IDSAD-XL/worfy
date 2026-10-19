@@ -21,7 +21,9 @@ export const SUBAGENT_KIND = 'subagent'
 export const SUBAGENT_TREE_KIND = 'subagent-tree'
 /**
  * The order of the Epic frames and their number of columns, one record per Project (ADR-0075,
- * src/renderer/canvas/epic-arrangement.ts): an invisible locked Node, not on the plane.
+ * src/renderer/canvas/epic-arrangement.ts): an invisible locked Node, not on the plane. It is an
+ * internal layout record, not an Epic frame or a Ticket: the canvas tools of the MCP server say so
+ * when an agent names it (src/main/mcp/canvas-server.ts).
  */
 export const EPIC_ARRANGEMENT_KIND = 'epic-arrangement'
 export const EPIC_ARRANGEMENT_ID = 'epic-arrangement'

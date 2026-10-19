@@ -32,7 +32,7 @@ import { invoke } from '../../ipc'
 import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
-import { elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
+import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
 import { arrange, readArrangement, repack, sameDay, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
 import {
   defaultCollapsed,
@@ -182,7 +182,7 @@ export function focusEpic(projectId: string, epic: string): void {
  */
 export function onEpicFocusRequest(listener: () => void): () => void {
   return useEpicsUi.subscribe((state, previous) => {
-    if (state.focus !== previous.focus) listener()
+    if (state.focus !== previous.focus || state.repack !== previous.repack) listener()
   })
 }
 
@@ -269,6 +269,11 @@ export interface ArrangementState {
   /** K the frames are drawn with now. */
   columns: number
   tickets: readonly Pick<Ticket, 'epic' | 'state'>[]
+  /**
+   * True when every open frame with Tickets shows ELK's answer for its current inputs (or the
+   * window has no ELK): the sizes are the ones drawn, not those of the synchronous layout before it.
+   */
+  settled: boolean
 }
 
 /** Per Project, the last build's arrangement. */
@@ -296,11 +301,12 @@ type AnchorLookup = ReadonlyMap<string, { type?: string | undefined; data: Recor
 /**
  * The Epics with work at this moment: the claimed Tickets, the live bound agents whose anchors are
  * on the Canvas, and the Project's Autopilot as main reports it.
- * shortcut: a live agent counts only once its Binding anchor is drawn, so the first opening of the
- * day can miss an agent whose transcript signals are still loading; redo when the Bindings get a
- * store that this source can read without React Flow.
+ * shortcut: a live agent counts only once its Binding anchor is drawn. On the first opening of the
+ * day the anchors are almost never there yet (they wait for the transcript signals and for the
+ * Ticket Nodes this source draws), so live agents count only on "Re-pack"; redo when the Bindings
+ * get a store that this source can read without React Flow.
  */
-async function activityNow(projectId: string, tickets: readonly Pick<Ticket, 'epic' | 'state'>[], nodes: AnchorLookup): Promise<Set<string>> {
+export async function activityNow(projectId: string, tickets: readonly Pick<Ticket, 'epic' | 'state'>[], nodes: AnchorLookup): Promise<Set<string>> {
   const live: string[] = []
   for (const node of nodes.values()) {
     if (node.type !== BINDING_ANCHOR_KIND) continue
@@ -378,14 +384,17 @@ const pendingColumns = new Map<string, number>()
  * Keeps the record up to date on a screen that may change the Layout, past the ⌘Z history: once
  * per opening of the Project's Canvas, a record from another calendar day (or none) is computed
  * again, active first; afterwards, a K the hysteresis let change is written, so the next build
- * keeps it. A read-only screen writes nothing.
+ * keeps it. Both wait until the frames show ELK's answers, so K is counted from the sizes drawn.
+ * A read-only screen writes nothing.
+ * shortcut: a frame whose ELK request failed keeps the screen from settling, so nothing is written
+ * until its inputs change; redo when elk/client.ts reports a failed request.
  */
-function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
+export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
   const store = useStoreApi()
   const checkedDay = useRef(false)
   useEffect(() => {
     const state = arrangements.get(projectId)
-    if (state === undefined || state.epics.length === 0 || readOnlyNow() !== null) return
+    if (state === undefined || state.epics.length === 0 || !state.settled || readOnlyNow() !== null) return
     if (!checkedDay.current) {
       checkedDay.current = true
       if (state.record === null || !sameDay(state.record.at, new Date())) {
@@ -604,7 +613,8 @@ export function buildEpicNodes(
   const record = readArrangement(layout.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
   const names = entries.map(({ epic }) => epic.epic)
   const arrangement = arrange(names, frames, record)
-  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets })
+  const settled = elkEngine() === null || entries.every(({ entry }) => entry.request === null || entry.inputs.answer?.key === entry.request.key)
+  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled })
   const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
   const plane = [...layout.nodes.filter(onThePlane), ...derived]
   const order = new Map(layout.nodes.map((node, index) => [node.id, index]))
