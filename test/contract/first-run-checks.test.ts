@@ -3,17 +3,16 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
-import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstRunActions, type Confirmation } from '../../src/main/first-run/actions'
-import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
+import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool, type AccountQuery, type CheckDeps, type ProjectProfile } from '../../src/main/first-run/checks'
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
-import { NODE, nodeScript } from '../harness-node'
+import { NODE, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
@@ -32,6 +31,20 @@ vi.mock('../../src/main/workflow/profile', async (original) => {
 
 const REPO = join(import.meta.dirname, '..', '..')
 const TOOLS = join(REPO, 'test', 'fixtures', 'first-run-tools')
+const WINDOWS = process.platform === 'win32'
+/**
+ * The Claude Code stand-in the installer runs by its path. On Windows the Node port: the installer
+ * starts a `.mjs` under worfy's own Node (src/main/program.ts), and Windows cannot start the `#!/bin/sh` one.
+ */
+const CLAUDE = join(TOOLS, WINDOWS ? 'claude.mjs' : 'claude')
+/**
+ * The cases that need qmd's rows and actions to find node, npm and qmd: not on Windows yet. qmd.ts
+ * starts `npm` and `node` by their bare names without a shell and looks for a file named `qmd` on the
+ * PATH, so it finds neither npm's npm.cmd and qmd.cmd nor these `.cmd` stand-ins; the
+ * qmd-collections stand-in below is a `#!/bin/sh` script, which worfy does not run on Windows either.
+ * worfy-windows ticket 15 (qmd on Windows) lifts this.
+ */
+const itWithQmd = it.skipIf(WINDOWS)
 /** The Claude Code version "this build" carries, as the checks are told. */
 const BUNDLED = '2.1.289'
 const BUNDLED_HARNESS = '1.2.0+abc1234'
@@ -67,14 +80,27 @@ afterEach(() => {
   removeTestTree(root)
 })
 
+/**
+ * Puts the stand-in `name` into the folder `dir`. On macOS and Linux a link to the `#!/bin/sh` one.
+ * On Windows a `<name>.cmd` that runs its Node port with the tests' node: the checks find a `.cmd` on
+ * the PATH and start it through cmd.exe, as they do npm's claude.cmd (checks.ts, toolStart).
+ */
+function putTool(name: string, dir: string): void {
+  if (WINDOWS) writeFileSync(join(dir, `${name}.cmd`), `@"${NODE}" "${join(TOOLS, `${name}.mjs`)}" %*\r\n`)
+  else symlinkSync(join(TOOLS, name), join(dir, name))
+}
+
 /** Puts these stand-ins on the PATH. */
 function tools(...names: string[]): void {
-  for (const name of names) symlinkSync(join(TOOLS, name), join(bin, name))
+  for (const name of names) putTool(name, bin)
 }
 const ALL_TOOLS = ['claude', 'gh', 'node', 'jq', 'git', 'npm']
 
 function loginEnv(extra: Record<string, string> = {}): Record<string, string> {
   return {
+    // A login shell's environment on Windows has SystemRoot: node, cmd.exe and the Electron run as
+    // node of the installer need it to start.
+    ...(WINDOWS && process.env.SystemRoot !== undefined ? { SystemRoot: process.env.SystemRoot } : {}),
     PATH: bin,
     HOME: home,
     FIRST_RUN_TOOLS_LOG: log,
@@ -89,7 +115,7 @@ function loginEnv(extra: Record<string, string> = {}): Record<string, string> {
 }
 
 const installer = (env: Record<string, string>): HarnessInstaller =>
-  new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: join(TOOLS, 'claude'), env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: true, claudeHome })
+  new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: CLAUDE, env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: true, claudeHome })
 
 function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): CheckDeps {
   return {
@@ -105,6 +131,9 @@ function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): 
     // The Mac list and its `brew install` commands on any machine; the Windows rows are
     // test/unit/first-run-windows.test.ts (worfy-windows ticket 13).
     system: { platform: 'darwin', release: '24.6.0', arch: 'arm64' },
+    // The tools still start as on this machine: on Windows a `.cmd` stand-in is found and run the
+    // way toolStart does it there, not by its bare name as on the Mac the rows describe.
+    ...(WINDOWS ? { probes: { run: (name: string, args: readonly string[], env: Record<string, string | undefined>, ms: number) => runTool(name, args, env, ms) } } : {}),
     ...overrides,
   }
 }
@@ -128,7 +157,7 @@ const calls = (): string[] => {
 async function baseline(): Promise<Record<string, CheckStatus>> {
   const scratch = join(root, 'baseline-bin')
   mkdirSync(scratch)
-  for (const name of ALL_TOOLS) symlinkSync(join(TOOLS, name), join(scratch, name))
+  for (const name of ALL_TOOLS) putTool(name, scratch)
   const report = await runChecks(deps(loginEnv({ PATH: scratch, FIRST_RUN_TOOLS_LOG: join(root, 'baseline.log') })))
   return statuses(report)
 }
@@ -300,18 +329,22 @@ describe('first-run checks', () => {
 
   // worfy-harness ticket 37: the row runs `profile --help` the way the Epics read runs the Harness
   // scripts — its runner and the scripts' environment (`scriptEnv`), not the screen's (`env`).
-  describe.skipIf(process.platform === 'win32')('the Harness scripts row', () => {
+  describe('the Harness scripts row', () => {
     /** The Harness of this repository as the installed plugin: its real `profile`. */
     const installPlugin = (): void => {
       mkdirSync(harnessHome, { recursive: true })
       symlinkSync(join(REPO, 'harness'), join(harnessHome, 'plugin'))
     }
-    /** A folder whose only entry is the real node, found on this process's PATH. */
+    /**
+     * A folder whose only entry is the real node, found on this process's PATH (NODE): `node`, or on
+     * Windows `node.exe`, the only name worfy takes for the node of a Harness script there (nodeOnPath).
+     */
     const realNode = (): string => {
-      const found = execFileSync('/bin/sh', ['-c', 'command -v node'], { encoding: 'utf8' }).trim()
       const dir = join(root, 'node-bin')
-      mkdirSync(dir)
-      symlinkSync(found, join(dir, 'node'))
+      if (!existsSync(dir)) {
+        mkdirSync(dir)
+        symlinkSync(NODE, join(dir, WINDOWS ? 'node.exe' : 'node'))
+      }
       return dir
     }
 
@@ -326,7 +359,7 @@ describe('first-run checks', () => {
     it("the screen's PATH has no node, the scripts' environment has: ok", async () => {
       tools('claude', 'gh', 'jq', 'git', 'npm')
       installPlugin()
-      const scripts = { PATH: `${realNode()}:/usr/bin:/bin`, HOME: home }
+      const scripts = scriptsEnv([realNode(), '/usr/bin', '/bin'], { HOME: home })
       const report = await runChecks(deps(loginEnv(), { scriptEnv: () => Promise.resolve(scripts) }))
       expect(checkOf(report, 'node').status).toBe('fail')
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'ok', detail: 'profile --help answered', hint: '', actions: [] })
@@ -349,9 +382,13 @@ describe('first-run checks', () => {
 
     /**
      * The screen's environment, whose node stand-in passes every call but --version to the real node:
-     * worfy runs the Harness scripts as `node <script>`, with the node on that PATH.
+     * worfy runs the Harness scripts as `node <script>`, with the node on that PATH. On Windows worfy
+     * takes only a node.exe for that, never the node.cmd stand-in, so the real node's folder follows
+     * the stand-ins there: the screen's node row still finds the stand-in first.
      */
-    const withNode = (): Record<string, string> => loginEnv({ FAKE_NODE_REAL: NODE })
+    // On Windows worfy starts a Harness script only with a node.exe, never the node.cmd stand-in, so
+    // the stand-in needs no real node to hand calls to: the real node.exe comes after it on the PATH.
+    const withNode = (): Record<string, string> => loginEnv(WINDOWS ? { PATH: `${bin};${realNode()}` } : { FAKE_NODE_REAL: NODE })
 
     /** The old Harness in <claude home>/bin: its epic-status and, when given, a `profile` with this text. */
     const oldHarness = (profile?: string, mode = 0o755): string => {
@@ -394,12 +431,16 @@ describe('first-run checks', () => {
       oldHarness(nodeScript('process.exitCode = 0'))
       runnerLimits.length = 0
       expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts').status).toBe('ok')
-      expect(checkOf(await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 300 })), 'harness-scripts').status).toBe('ok')
-      expect(runnerLimits).toEqual([15_000, 300])
+      // A limit a cold start of node keeps within: on a fresh Windows runner the first node.exe
+      // through a new link can take longer than the 0.3 s this case once gave.
+      expect(checkOf(await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 10_000 })), 'harness-scripts').status).toBe('ok')
+      expect(runnerLimits).toEqual([15_000, 10_000])
     })
 
     // A crash by a signal was read as a timeout before review round 2 of PR #311.
-    it('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
+    // Not on Windows, lifted by none: it has no signals to end a process by (process.kill with
+    // SIGSEGV throws ENOSYS there), and a crash ends it with an exit code instead.
+    it.skipIf(WINDOWS)('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
       tools(...ALL_TOOLS)
       // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
       oldHarness(nodeScript("fs.writeSync(2, 'Segmentation fault\\n')\nprocess.kill(process.pid, 'SIGSEGV')"))
@@ -423,13 +464,15 @@ describe('first-run checks', () => {
       expect(scripts).toMatchObject({ status: 'ok', detail: 'profile --help answered' })
     })
 
-    // A `#!` line that names no node is an older Harness's script: started by itself, as before.
+    // A `#!` line that names no node is an older Harness's script: on macOS and Linux started by
+    // itself, as before; on Windows, which starts no such script, refused as not a Node script.
     it('a script that is there but cannot be started (its interpreter line names no file): failed, not "no profile script"', async () => {
       tools(...ALL_TOOLS)
       oldHarness('#!/nonexistent/interpreter\n')
       const scripts = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
       expect(scripts).toMatchObject({ status: 'fail', hint: HARNESS_SCRIPT_HINTS.start })
       expect(scripts.detail).toMatch(/^profile could not be started: /)
+      if (WINDOWS) expect(scripts.detail).toMatch(/is not a Node script/)
     })
   })
 
@@ -439,7 +482,7 @@ describe('first-run checks', () => {
     mkdirSync(join(harnessHome, 'plugin', '.claude-plugin'), { recursive: true })
     writeFileSync(join(harnessHome, 'plugin', '.claude-plugin', 'plugin.json'), `{ "name": "worfy", "version": "${BUNDLED_HARNESS}" }\n`)
     writeFileSync(join(state, 'plugin-version'), `${BUNDLED_HARNESS}\n`)
-    const devRun = new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: join(TOOLS, 'claude'), env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: false, claudeHome })
+    const devRun = new HarnessInstaller({ bundledDir: bundle, harnessHome, claude: CLAUDE, env: { ...env, CLAUDE_CONFIG_DIR: claudeHome }, canInstall: false, claudeHome })
     const report = await runChecks(deps(env, { harness: () => devRun.status() }))
     expect(checkOf(report, 'harness-dependencies')).toMatchObject({ status: 'fail', actions: [] })
     expect(checkOf(report, 'harness-dependencies').hint).toContain('dev run')
@@ -462,7 +505,7 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'legacy-harness')).toMatchObject({ status: 'warn', actions: [{ id: 'migration-form' }] })
   })
 
-  it('qmd: missing warns with Install; the models wait for an answer with Download and Skip, and name the size', async () => {
+  itWithQmd('qmd: missing warns with Install; the models wait for an answer with Download and Skip, and name the size', async () => {
     tools(...ALL_TOOLS)
     let report = await runChecks(deps(loginEnv()))
     expect(checkOf(report, 'qmd')).toMatchObject({ status: 'warn', actions: [{ id: 'qmd-install' }] })
@@ -480,7 +523,7 @@ describe('first-run checks', () => {
     expect(checkOf(report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
   })
 
-  it('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
+  itWithQmd('qmd collections: a Project whose Profile names none warns with Set up; none connected is ok', async () => {
     tools(...ALL_TOOLS, 'qmd')
     mkdirSync(join(harnessHome, 'plugin', 'bin'), { recursive: true })
     writeFileSync(join(harnessHome, 'plugin', 'bin', 'qmd-collections'), '#!/bin/sh\n')
@@ -518,7 +561,9 @@ describe('first-run checks', () => {
     await runChecks(deps(env))
     expect(snapshot()).toEqual(before)
     // The checks did run the tools, and `claude plugin list` among them.
-    expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', 'qmd --version']))
+    // Not `qmd --version` on Windows: qmd.ts does not find a qmd.cmd yet (itWithQmd above, ticket 15).
+    const qmd = WINDOWS ? [] : ['qmd --version']
+    expect(calls()).toEqual(expect.arrayContaining(['claude --version', 'claude plugin list --json', 'gh auth status', 'node --version', 'jq --version', 'git --version', ...qmd]))
   })
 })
 
@@ -572,7 +617,7 @@ describe('first-run actions', () => {
     expect(calls().filter((line) => line.startsWith('qmd-collections'))).toEqual([])
   })
 
-  it('qmd collections: Confirm runs the script for each Project without collections, then the checks run again', async () => {
+  itWithQmd('qmd collections: Confirm runs the script for each Project without collections, then the checks run again', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
     const result = await actions(loginEnv(), [true], [], [ALPHA, { name: 'beta', profile: 'beta', collections: ['beta-docs'] }]).run('qmd-collections')
@@ -584,7 +629,7 @@ describe('first-run actions', () => {
     expect(log.slice(log.indexOf(ran[0] ?? '') + 1)).toEqual(expect.arrayContaining(['node --version', 'qmd --version']))
   })
 
-  it('qmd collections: a failing script makes the row fail with its output', async () => {
+  itWithQmd('qmd collections: a failing script makes the row fail with its output', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
     const result = await actions(loginEnv({ FAKE_COLLECTIONS_FAIL: 'qmd-collections: index.yml is not writable' }), [true], [], [ALPHA]).run('qmd-collections')
@@ -603,7 +648,7 @@ describe('first-run actions', () => {
     expect(checkOf(result.report, 'qmd').status).toBe('warn')
   })
 
-  it('names the command, the folder and the download before it runs, and runs the checks again after it', async () => {
+  itWithQmd('names the command, the folder and the download before it runs, and runs the checks again after it', async () => {
     tools(...ALL_TOOLS)
     const shown: Confirmation[] = []
     const result = await actions(loginEnv(), [true], shown).run('qmd-install')
@@ -619,7 +664,7 @@ describe('first-run actions', () => {
     expect(checkOf(result.report, 'qmd').status).toBe('ok')
   })
 
-  it('a failed action makes its row fail with the error, until the next attempt', async () => {
+  itWithQmd('a failed action makes its row fail with the error, until the next attempt', async () => {
     tools(...ALL_TOOLS)
     const env = loginEnv({ FAKE_NPM_FAIL: 'code EACCES: permission denied' })
     const runner = actions(env, [true, true])
@@ -655,7 +700,7 @@ describe('first-run actions', () => {
     expect(checkOf(skipped.report, 'qmd-models')).toMatchObject({ status: 'ok', detail: 'skipped' })
   })
 
-  it('a failed `qmd pull` makes the models row fail with its stderr', async () => {
+  itWithQmd('a failed `qmd pull` makes the models row fail with its stderr', async () => {
     tools(...ALL_TOOLS, 'qmd')
     const result = await actions(loginEnv({ FAKE_QMD_PULL_FAIL: 'pull: network down' }), [true]).run('qmd-models-download')
     expect(result.outcome).toBe('failed')
@@ -792,7 +837,7 @@ describe('first-run actions', () => {
     expect((await first).outcome).toBe('declined')
   })
 
-  it('a failed action stays on its row only while the check of the row does not pass; once it passes, the failure is dropped', async () => {
+  itWithQmd('a failed action stays on its row only while the check of the row does not pass; once it passes, the failure is dropped', async () => {
     tools(...ALL_TOOLS, 'qmd')
     collectionsScript()
     let projects: ProjectProfile[] = [ALPHA]
