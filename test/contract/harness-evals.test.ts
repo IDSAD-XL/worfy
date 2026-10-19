@@ -174,8 +174,8 @@ describe('harness/evals: the cases', () => {
 })
 
 // On Windows these need the paths of the fixture's gate registry ("match", "pm") in node's spelling,
-// C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh writes them from `pwd -W`
-// (worfy-windows ticket 65, step 4).
+// C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh writes them from node's
+// realpathSync.native (worfy-windows ticket 65, step 4).
 describe('harness/evals: the fixture is a project the Harness recognises', () => {
   it.each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
     const { work, home, run } = scaffold(name)
@@ -348,8 +348,12 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const registry = JSON.parse(readFileSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'), 'utf8')) as { repos: { pm: string }[] }
     const pm = registry.repos[0]?.pm ?? ''
-    expect(relative(work, pm).startsWith('..'), pm).toBe(false)
-    expect(existsSync(pm)).toBe(true)
+    expect(existsSync(pm), pm).toBe(true)
+    // Both sides in the long spelling: `work` keeps an 8.3 short name of TEMP (the runner's
+    // C:\Users\RUNNER~1) that the fixture's `pm` does not. Across drives `relative` gives an
+    // absolute path, not `..`, so that counts as outside too.
+    const inside = relative(realpathSync.native(work), realpathSync.native(pm))
+    expect(inside.startsWith('..') || isAbsolute(inside), pm).toBe(false)
     const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
       cwd: work,
       env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', ...evalHome }),
