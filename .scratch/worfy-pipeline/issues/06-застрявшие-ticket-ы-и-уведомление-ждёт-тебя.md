@@ -1,7 +1,8 @@
 # 06 — Застрявшие Ticket-ы выделены; уведомление, когда Ticket ждёт владельца
 
 Type: task
-Status: open
+Status: done 2026-10-19T07:50Z
+PR: #501
 Blocked by: 04, 05
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункты 1, 7, 8 ([spec.md](../spec.md),
 «Решения владельца»); [ADR-0067](../../../docs/adr/0067-pipeline-in-profile-and-sha-bound-agent-marks.md).
@@ -67,4 +68,15 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 
 ## Итог
 
-Заполняется при закрытии.
+PR #501 влит 2026-10-18, merge commit `15d3ab40`. Head `0d1a6c1b` (rebase на main `46716b04`): gate full на
+Mac — зелёный со второго запуска. Первый был красным на flaky test-е вне PR: `test/contract/terminal.test.ts`
+«open starts $SHELL -l … output comes back» (ожидание `vi.waitFor` в `test/contract/terminal-harness.ts:288`);
+файл отдельно — 6 из 6 зелёных. Не платформенный PR — `check/windows` skipped. Ревью: круг 1 (high) — две
+находки med и шесть low, все исправлены в `0d1a6c1b` (до rebase — `dbc899ec`); круг 2 (medium) — блокеров нет, 13 из 14 мутантов убиты.
+
+Долги (low):
+
+- `src/shared/workflow/pipeline.ts:349` — граница 48 ч в `onStageFor` (`hours < 48`): мутант `<= 48`
+  выживает. Нужен test `onStageFor('CI', 48 * HOUR_MS)` → `on CI for 2 d`.
+- Нет test-а на остановку уведомления «ждёт владельца» при выходе: `app.on('will-quit', stopNotifications)`,
+  `src/main/index.ts:135`.

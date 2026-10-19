@@ -60,3 +60,18 @@ describe('the scripts of package.json that build and install', () => {
     expect(existsSync(join(REPO, 'scripts', 'install-stable.sh'))).toBe(false)
   })
 })
+
+describe('@xterm/headless in the package (worfy-windows ticket 39)', () => {
+  // Every Terminal answers the cursor-position requests with it (src/main/terminal/cursor-answers.ts),
+  // loaded only when the first Terminal opens: the packaged e2e test opens none, so a package
+  // without it would pass that test and break every Terminal.
+  it('is a dependency of the app, at an exact version: electron-builder packs the dependencies', () => {
+    const manifest = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { dependencies: Record<string, string>; devDependencies?: Record<string, string> }
+    expect(manifest.dependencies['@xterm/headless']).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(manifest.devDependencies?.['@xterm/headless']).toBeUndefined()
+  })
+
+  it('sits outside app.asar: a worker thread loads it by path', () => {
+    expect(section('asarUnpack')).toContain('  - node_modules/@xterm/headless/**')
+  })
+})

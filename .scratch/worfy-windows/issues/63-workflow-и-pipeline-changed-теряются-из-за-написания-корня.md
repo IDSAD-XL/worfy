@@ -1,7 +1,9 @@
 # 63 — Windows: `workflow.changed` и `pipeline.changed` теряются, потому что main и окно пишут корень Project-а по-разному
 
 Type: bug
-Status: open
+Status: done 2026-10-19T07:50Z
+PR: #511
+Branch: worfy-windows/63
 Blocked by: —
 Source: ревью корректности Ticket-а 57 (ПК владельца, 2026-10-18): находка вне diff-а 57. Тот же
 класс дефекта, что 49 и 57: `C:\…` против `C:/…`.
@@ -36,5 +38,150 @@ Source: ревью корректности Ticket-а 57 (ПК владельц�
 
 ## Критерии готовности
 
-- [ ] test на `platform: 'win32'` красный до правки и зелёный после — для обеих дельт.
-- [ ] Вердикт ПК: test link-access «workflow.changed» на Windows зелёный (или названа другая причина).
+- [x] test на `platform: 'win32'` красный до правки и зелёный после — для обеих дельт.
+- [x] Вердикт ПК: test link-access «workflow.changed» на Windows зелёный (или названа другая причина).
+
+## Итог
+
+Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200. Ветка `worfy-windows/63` от main `3770da60`,
+затем merge main `9157c0a4` (Ticket 57 влит). Worktree `C:/Users/Alexey/worfy-wt/63`. Push не было, PR не
+открыт: по брифу — только локальные commit-ы.
+
+**Причина подтверждена.** Hub-ы держат Project под `path.resolve`, и всё, что они отдают, несёт этот корень:
+модель и дельты workflow (`src/main/workflow/watch.ts:271`, `reader.ts:458`), снимки Stage-ей
+(`src/main/workflow/stages.ts`, ключ hub-а). Handler-ы `workflow.open` и `pipeline.get` пересылали их окну как
+есть. Окно ищет корень своей строкой (`src/renderer/workflow/useWorkflow.ts:60`,
+`src/renderer/pipeline/usePipeline.ts:32`), а строка у него из списка Project-ов — `C:/…`. На Windows
+`resolve` даёт `C:\…`, и окно выбрасывало каждое изменение до перезагрузки.
+
+**Исправление** — тот же приём, что в 57: main по-прежнему держит Project под resolved корнем, но каждому
+клиенту отвечает и шлёт изменения с корнем в том написании, в каком клиент его прислал. Окно не менялось.
+
+- `src/main/ipc/workflow.ts`: handler-ы собирает `workflowHandlers({ hub, projects })`, как
+  `pipelineHandlers`, — чтобы test мог дать hub-заглушку; default export — те же handler-ы над
+  `workflowHub`. `workflow.changed` (`:36`) и ответ `workflow.open` (`:43`) несут корень клиента.
+- `src/main/ipc/pipeline.ts`: `pipeline.changed` (`:59`) и ответ `pipeline.get` (`:66`) несут корень клиента.
+  Ответ тоже: доска Pipeline-а ключуется по `snapshot.root` (`PipelineBoard.tsx:193`), иначе первый же
+  `pipeline.changed` пересоздавал бы её.
+- Linked machine идёт через те же handler-ы (`clientOf(event)`) и получает своё написание. У `pipeline.get`
+  hub по-прежнему открыт под real path, который ответил `insideProjects`; сигнатура `insideProjects` не менялась.
+
+**Test.** `test/contract/workflow-pipeline-window-root.test.tsx` (jsdom): настоящие handler-ы через
+`registerIpc`, hub-заглушки, которые отвечают и шлют с `resolve(root)`, как настоящие; окно — `useWorkflow` и
+`usePipeline` через мост. Корень окна `C:/p`: `resolve` пишет его иначе на любой системе, на этом ПК — `C:\p`.
+Четыре test-а: окно получает `workflow.changed` и `pipeline.changed`; Linked machine (`link:machine/1`,
+настоящая временная папка Project-а в другом написании) получает ответ и изменение со своим корнем.
+
+**Прогоны** (каждый с `test/unit/no-rmsync.test.ts` и `test/unit/e2e-no-spawn-on-load.test.ts`, через
+`node scripts/vitest-electron.mjs`):
+
+- Красный на коде main: с `pipeline.ts` main и `workflow.ts` без перезаписи корня — exit 1, 4 из 67 упали:
+  `expected [] to deeply equal [ { branch: 'demo/01', … } ]` (дельта workflow выброшена окном) и
+  `expected null to be 'gh is unavailable'` (снимок Pipeline-а выброшен). Чистый `workflow.ts` main не
+  экспортирует `workflowHandlers`, на нём test падает раньше, на `not a function`.
+- Зелёный: exit 0, 67 из 67.
+- Мутанты на результате merge, по одному, файл возвращён из копии байт в байт, `git diff --quiet -- src test` —
+  0 после каждого: без корня в `workflow.changed`, без корня в ответе `workflow.open`, без корня в
+  `pipeline.changed`, без корня в ответе `pipeline.get` — каждый exit 1, 2 test-а своей половины красные.
+- Связанные файлы (link-access, workflow-*, pipeline*, harness-script-env, claude-home-registry,
+  claude-home-window-root) на merge и на коде main `9157c0a4`: одни и те же 10 падений, новых нет,
+  исправленных нет. 3 в `test/contract/link-access.test.ts`, 7 в `test/contract/claude-home-registry.test.ts`
+  (watcher Claude home не присылает изменения за отведённое время).
+- `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался (по брифу).
+
+**Вердикт ПК по link-access «workflow.changed did not arrive»: другая причина, не написание корня.** С
+исправлением test падает так же. Корень там — `join(scratch, 'demo')`, уже в написании `resolve`, а сторона A
+проверяет только имена каналов. Причина в stand-in-е `epic-status`: test пишет его shell-скриптом
+`#!/bin/sh` (`test/contract/link-access.test.ts:116`), а на Windows `harnessScriptCommand` такой скрипт не
+запускает (`src/main/workflow/profile.ts:202`, `NOT_NODE`). Модель Project-а — ошибка и до правки файла
+Ticket-а, и после; `diffModels` разницы не находит, и дельты нет. Это вывод из кода и из того, что падение
+не изменилось; отдельной проверки ошибки модели в этом test-е не было. Два других падения link-access —
+терминал: PowerShell падает с «Ошибка 8009001d при загрузке управляемой оболочки», это окружение ПК.
+
+**Ответ `workflow.open`/`pipeline.get`** теперь тоже несёт корень клиента, а не resolved; мест в окне, которые
+ждали бы resolved корень в `model.root` или `snapshot.root`, не нашлось.
+
+**Два написания одного корня у одного клиента — не дефект для настоящих вызовов** (вывод ревью круга 1).
+Hub держит подписчика по id внутри Project-а: если бы один клиент открыл корень в двух написаниях, изменения
+шли бы только в последнем. Но все 16 вызовов `useWorkflow`/`usePipeline` берут `project.path` (git toplevel,
+`src/main/projects/store.ts:270`), так что у одного окна одно написание на Project; Linked machine тоже
+берёт его из своего списка Project-ов. Контракт Ticket-а 06 (`test/contract/workflow-stages.test.ts:482-518`) —
+два написания от двух подписчиков. Код не менялся.
+
+### Круг 2 (замечания ревью)
+
+- **F3: `workflow.open` от Linked machine открывает watch по real path.** Раньше handler отбрасывал путь,
+  который вернул `insideProjects`, и открывал hub по присланному корню: защита `link/caller.ts:61-63` от
+  ссылки, подменённой после проверки, для workflow не работала, а написание, отличное от real path, заводило
+  второй watcher. Теперь `workflow.open` и `workflow.close` берут путь, который ответил `insideProjects`
+  (`src/main/ipc/workflow.ts`, `watchedRoot`), как `pipeline.get`; ответ и изменения по-прежнему несут
+  написание клиента. Вызов окна это не трогает: `insideProjects` для него возвращает путь как пришёл
+  (`link/caller.ts:66`), и окно встречает Autopilot, waits-notify и Stage hub под тем же `resolve`. Цена: если
+  real path Project-а отличается от `resolve` пути из списка (junction, регистр букв), watch Linked machine —
+  отдельный от локальных подписчиков; у `pipeline.get` так было и раньше. `workflow.close` от Linked machine
+  теперь тоже проходит проверку: для корня вне Project-ов он отвечает ошибкой, а не `closed: false`.
+- **F1:** test Linked machine идёт через junction (`l` → `p`; вне Windows — symbolic link) в написании, которое
+  `resolve` меняет, и проверяет ключ hub-а: `realpathSync.native(project)`, для обеих половин, и `close` тем же
+  написанием.
+- **F2:** клиент, уничтоженный до изменения (его `send` бросает, как webContents Electron-а), пропускается без
+  исключения, другой клиент изменение получает — для `workflow.changed` и `pipeline.changed`.
+
+Прогоны круга 2:
+
+- Красный до правки F3: exit 1, 2 из 69 — оба test-а workflow (ключ hub-а не real path; другой клиент не
+  получил дельту). Зелёный после: exit 0, 69 из 69.
+- Мутанты, по одному, файл возвращён из копии байт в байт, `git diff --quiet` — 0 после каждого: `pipeline.get`
+  по `resolve(root)` вместо `checked` — 2 красных; без `isDestroyed` в `workflow.ts` — 1; без `isDestroyed` в
+  `pipeline.ts` — 1; `workflow.open` по присланному корню — 2; `workflow.close` по присланному корню — 1.
+- Связанные файлы (как в круге 1, плюс новый test): exit 1, 10 упали, 378 прошли; по именам те же 10, что
+  на main `9157c0a4`.
+- `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался.
+
+Ответы Mac на вопросы ревьюеру: про два написания одного корня у одного клиента и про корень клиента в
+ответе `workflow.open`/`pipeline.get` — оба решения оставить как есть.
+
+### Круг 3 (ревью Mac по PR #511)
+
+- **`close` больше не проходит через `insideProjects`.** Close только снимает подписчика самого клиента и
+  ничего не читает. Отказ же — например, когда корень ушёл из списка Project-ов, — оставлял watch Linked
+  machine живым до разрыва связи. Теперь handler-ы помнят, под каким корнем каждый open открыл hub, по паре
+  (id клиента, корень как прислан) — `OpenedRoots` в `src/main/ipc/workflow.ts` — и `close` закрывает под ним.
+  Без open — `resolve(root)`, и hub отвечает `closed: false`. Запись уходит при close и когда клиент
+  уничтожен или его id занял другой (`ClientHolders`), так что Map не растёт. Если open упал, запись остаётся
+  до close или ухода клиента: `StageHub.open` при неудаче оставляет подписчика в hub-е, и close должен попасть
+  в тот же ключ.
+- **Pipeline:** у `pipeline.close` проверка была, и сделано то же самое.
+- **Окно:** ключ hub-а при close тот же, что раньше: `insideProjects` для окна возвращает путь как пришёл,
+  а hub и раньше закрывал по `resolve(root)`.
+- **Test-ы** (`describe.each` по `workflow.close` и `pipeline.close`). Linked machine: open, корень убран из
+  списка, close → `closed: true`, подписки нет, запомненного нет, повторный close → `closed: false`. Close
+  без open для корня вне Project-ов → `closed: false`, без ошибки. Клиент ушёл — запомненного нет. Close из
+  окна — как раньше.
+
+Прогоны круга 3:
+
+- Красный до правки: exit 1, 4 из 75 упали — Linked machine после ухода корня из списка и close без open,
+  для обоих close (`… is outside the Projects of this Machine`). Close из окна зелёный и до правки.
+  Зелёный после: exit 0, 77 из 77.
+- Мутанты, по одному, файл возвращён из копии байт в байт, `git diff --quiet` — 0 после каждого. Все 7
+  пойманы:
+
+  | Мутант | Красных test-ов |
+  |---|---|
+  | `workflow.close` снова через `insideProjects` | 2 |
+  | `workflow.close` по `resolve(root)` вместо запомненного | 2 |
+  | `pipeline.close` снова через `insideProjects` | 2 |
+  | `pipeline.close` по `resolve(root)` вместо запомненного | 2 |
+  | запись не удаляется при close (`OpenedRoots.take`) | 2 |
+  | запись не забывается при уходе клиента, workflow | 1 |
+  | то же, pipeline | 1 |
+
+- Связанные файлы: exit 1, 10 упали, 386 прошли; по именам те же 10, что на main `9157c0a4`.
+- `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался. Тестов, открывающих окна, не было: только vitest
+  через `node scripts/vitest-electron.mjs`.
+
+### Мерж (2026-10-18)
+
+PR #511 влит 2026-10-18, merge commit `17d653e6`. Head `11f17445`: gate full на Mac — зелёный; Mac checks —
+261 passed, 1 skipped (только Windows); вердикт ПК — без регрессий (те же 10 падений, что на main, по именам),
+`check/windows` — `success`.

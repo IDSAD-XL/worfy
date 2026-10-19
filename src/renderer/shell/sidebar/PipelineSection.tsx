@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ProjectView } from '../../../shared/ipc/projects'
-import { readableReason, windowMachine } from '../../ipc'
-import { inWork, ticketKeyOf, ticketRef, titlesOf, waitsText } from '../../pipeline/board'
+import { readableReason } from '../../ipc'
+import { useNow } from '../../limits/useLimits'
+import { inWork, stuckLine, ticketKeyOf, ticketRef, titlesOf, waitsText } from '../../pipeline/board'
+import { openPipelineOf } from '../../pipeline/open'
 import { usePipeline } from '../../pipeline/usePipeline'
-import { activeProject, openProject, useProjects } from '../../projects/useProjects'
-import { setView } from '../../session/navigation'
+import { activeProject, useProjects } from '../../projects/useProjects'
 import { StatusChip } from '../../theme/primitives'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { SidebarSection } from '../SidebarSection'
@@ -31,6 +32,7 @@ interface ProjectInWorkProps {
 function ProjectInWork({ project, onShown, onOpen }: ProjectInWorkProps) {
   const { snapshot, error } = usePipeline(project.path)
   const { model } = useWorkflow(project.path)
+  const now = useNow()
   const tickets = snapshot?.tickets.filter(inWork) ?? []
   const known = error !== undefined || snapshot !== undefined
   const shown = error !== undefined || tickets.length > 0
@@ -40,7 +42,7 @@ function ProjectInWork({ project, onShown, onOpen }: ProjectInWorkProps) {
   if (!shown) return null
 
   const titles = titlesOf(model)
-  const stageTitles = new Map(snapshot?.pipeline.map((column) => [column.id, column.title]))
+  const columns = new Map(snapshot?.pipeline.map((column) => [column.id, column]))
   return (
     <li>
       <div className="w-pipeline-section__project" title={project.path}>
@@ -52,7 +54,9 @@ function ProjectInWork({ project, onShown, onOpen }: ProjectInWorkProps) {
         <ul className="w-pipeline-section__list">
           {tickets.map((ticket) => {
             const title = titles[ticketKeyOf(ticket)]
-            const stage = stageTitles.get(ticket.stage) ?? ticket.stage
+            const column = columns.get(ticket.stage)
+            const stage = column?.title ?? ticket.stage
+            const stuck = stuckLine(column, ticket, now)
             return (
               <li key={ticketKeyOf(ticket)}>
                 <button
@@ -62,7 +66,8 @@ function ProjectInWork({ project, onShown, onOpen }: ProjectInWorkProps) {
                   data-project={project.id}
                   data-epic={ticket.epic}
                   data-ticket={ticket.num}
-                  title={[`${ticketRef(ticket)}${title === undefined ? '' : ` — ${title}`}`, stage, ticket.blocked?.reason ? `Blocked: ${ticket.blocked.reason}` : null].filter(Boolean).join('\n')}
+                  data-stuck={stuck === null ? undefined : 'true'}
+                  title={[`${ticketRef(ticket)}${title === undefined ? '' : ` — ${title}`}`, stage, ticket.blocked?.reason ? `Blocked: ${ticket.blocked.reason}` : null, stuck].filter(Boolean).join('\n')}
                   onClick={() => onOpen(project)}
                 >
                   <span className="w-pipeline-row__line">
@@ -104,13 +109,8 @@ export default function PipelineSection() {
 
   const onOpen = (project: ProjectView) => {
     setFailure(null)
-    if (project.id === activeId) {
-      setView('pipeline')
-      return
-    }
-    void openProject(windowMachine(), project.id).then((refused) => {
-      if (refused === undefined) setView('pipeline')
-      else setFailure(`${project.name} could not be opened: ${readableReason(refused)}`)
+    void openPipelineOf(project.id, activeId).then((refused) => {
+      if (refused !== undefined) setFailure(`${project.name} could not be opened: ${readableReason(refused)}`)
     })
   }
 

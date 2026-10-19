@@ -7,12 +7,12 @@
 // a Session from the registry finishes its turn, src/main/notify.ts): once when the watcher starts,
 // and again after each change of the registry.
 import { resolve } from 'node:path'
-import { ClaudeHomeRegistry, type ClaudeHomeWatch } from '../claude-home/registry'
+import { ClaudeHomeRegistry, rootPath, type ClaudeHomeWatch, type RegistryRoot } from '../claude-home/registry'
 import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
-import { insideProjects } from '../link/caller'
+import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import {
@@ -49,10 +49,15 @@ export class ClaudeHomeSubscriptions {
     private readonly listeners: ReadonlySet<LiveSessionsListener> = liveSessionListeners,
   ) {}
 
-  /** Reads the Project's live Sessions for the listeners; nothing when there are none. */
-  private reportLive(projectRoot: string): void {
+  /**
+   * Reads the Project's live Sessions for the listeners; nothing when there are none. They get
+   * the resolved root in the spelling that names its folders, not a real path, so one Project is
+   * one key for the notifications (src/main/notify.ts) whichever client watches it.
+   */
+  private reportLive(root: RegistryRoot): void {
     if (this.listeners.size === 0) return
-    this.registry.live(projectRoot).then(
+    const projectRoot = rootPath(root)
+    this.registry.live(root).then(
       (live) => {
         for (const listener of this.listeners) {
           try {
@@ -66,20 +71,26 @@ export class ClaudeHomeSubscriptions {
     )
   }
 
-  /** Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone. */
-  async subscribe(subscriber: Subscriber, projectRoot: string): Promise<void> {
+  /**
+   * Starts watching `projectRoot` for `subscriber` unless it already does or the client is gone.
+   * `asSent` is the root as the client spelled it: its `claudeHome.changed` carries that spelling
+   * and `unsubscribe` takes it, since the window looks the root up by its own string. On Windows
+   * the window keeps git's `C:/…` while path.resolve gives `C:\…` (worfy-windows ticket 57).
+   */
+  async subscribe(subscriber: Subscriber, projectRoot: RegistryRoot, asSent = rootPath(projectRoot)): Promise<void> {
     // First: a new client under an old one's id takes the id over, ending the old one's watchers.
     // A destroyed client is not held: it never emits 'destroyed' again, its watcher would never be
     // closed, and a late call of an old client must not take the id back from a new one.
     if (!this.holders.hold(subscriber)) return
-    const key = `${subscriber.id}\0${projectRoot}`
+    // By the client's spelling: two spellings of one root get a watcher each, each event in its own.
+    const key = `${subscriber.id}\0${asSent}`
     if (!this.watches.has(key)) {
       const started: Promise<ClaudeHomeWatch | undefined> = this.registry
         .watch(projectRoot, (change) => {
           if (change.sessions) this.reportLive(projectRoot)
           if (subscriber.isDestroyed()) return
           try {
-            emit(subscriber, claudeHomeChanged, { projectRoot, ...change })
+            emit(subscriber, claudeHomeChanged, { projectRoot: asSent, ...change })
           } catch (error) {
             console.error('[claude-home] could not send a change', error)
           }
@@ -90,7 +101,7 @@ export class ClaudeHomeSubscriptions {
           return watch
         })
         .catch((error: unknown) => {
-          console.error(`[claude-home] could not watch ${projectRoot}`, error)
+          console.error(`[claude-home] could not watch ${rootPath(projectRoot)}`, error)
           // Only this watcher's entry: the key may hold a later subscription by now.
           if (this.watches.get(key) === started) this.watches.delete(key)
           return undefined
@@ -100,9 +111,9 @@ export class ClaudeHomeSubscriptions {
     await this.watches.get(key)
   }
 
-  /** Stops watching `projectRoot` for one client; false when it was not watching. */
-  async unsubscribe(subscriberId: ClientId, projectRoot: string): Promise<boolean> {
-    const key = `${subscriberId}\0${projectRoot}`
+  /** Stops watching the root spelled `asSent` for one client; false when it was not watching. */
+  async unsubscribe(subscriberId: ClientId, asSent: string): Promise<boolean> {
+    const key = `${subscriberId}\0${asSent}`
     const watch = this.watches.get(key)
     if (watch === undefined) return false
     this.watches.delete(key)
@@ -133,7 +144,8 @@ export class ClaudeHomeSubscriptions {
 
 /**
  * Builds the handler list over a registry; the default export uses the real Claude home. A call
- * from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts).
+ * from a Linked machine names the root of a Project of `projects` or one of its worktrees
+ * (src/main/link/caller.ts).
  */
 export function claudeHomeHandlers(
   registry: ClaudeHomeRegistry,
@@ -143,44 +155,52 @@ export function claudeHomeHandlers(
   search = new TranscriptSearch(registry),
 ): HandlerModule {
   const notFound = { found: false, events: [], cursor: { offset: 0, fileId: null }, reset: false, more: false }
-  /** The resolved root, checked for a call from a Linked machine. */
-  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): string => {
+  /**
+   * The resolved root. For a call from a Linked machine, also the real path its check answers:
+   * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
+   * Claude home folders are still found by the resolved spelling (RegistryRoot). A Linked machine
+   * names a Project root or one of its worktrees, not any folder inside: a Claude home folder name
+   * stands for several paths (src/main/link/caller.ts, projectRootOf), and its root is judged
+   * strictly. A window's root is `local` (RegistryRoot).
+   */
+  const rootOf = async (projectRoot: string, event: { readonly sender?: unknown }): Promise<RegistryRoot> => {
     const root = resolve(projectRoot)
-    insideProjects(event, root, projects, 'the Project root')
-    return root
+    if (!isRemoteCall(event)) return { path: root, local: true }
+    const checked = await projectRootOf(event, root, projects, (at) => registry.worktrees(at), 'the Project root')
+    return { path: root, gitAt: checked }
   }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
-      const root = rootOf(projectRoot, event)
+      const root = await rootOf(projectRoot, event)
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
-      if (client) await subscriptions.subscribe(client, root)
+      if (client) await subscriptions.subscribe(client, root, projectRoot)
       return registry.sessions(root)
     }),
-    defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(rootOf(projectRoot, event)) })),
+    defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(await rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
       const client = clientOf(event)
-      return { closed: client ? await subscriptions.unsubscribe(client.id, resolve(projectRoot)) : false }
+      return { closed: client ? await subscriptions.unsubscribe(client.id, projectRoot) : false }
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }, { event }) => {
-      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
-      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return { found: false, signals: [], files: [] }
       return { found: true, ...(await subagents.session(path)) }
     }),
     defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }, { event }) => {
-      const session = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: parseTranscriptLines(chunk.lines).map(timedEvent), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
-    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(rootOf(projectRoot, event), query)),
+    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
   ]
 }
 

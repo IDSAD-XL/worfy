@@ -1,7 +1,7 @@
 // The file system in memory that the tests of src/main/storage/remove.ts run over, the trees they
 // remove, and the copies of the removal that cannot import the module. Not a test file: it is
-// imported by test/unit/remove-tree.test.ts, test/unit/remove-tree-mounted.test.ts and
-// test/unit/trash-mounted.test.ts.
+// imported by test/unit/remove-tree-walk.test.ts, test/unit/remove-tree-copies.test.ts,
+// test/unit/remove-tree-mounted.test.ts and test/unit/trash-mounted.test.ts.
 import { readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { restoreScriptSource } from '../../src/main/harness/migrate/restore'
@@ -116,6 +116,9 @@ export function model(entries: Record<string, Entry>, failing: Record<string, st
       const path = real(asked)
       const entry = tree.get(path)
       if (entry === undefined) throw fail('ENOENT', asked)
+      // A mount whose volume is gone — detached, or the folder it leads to removed — is not there
+      // to lstat, while the listing of its folder still names it (measured, worfy-windows ticket 45).
+      if (entry.kind === 'mount' && !tree.has(real(entry.to))) throw fail('ENOENT', asked)
       // lstat does not follow a link: a link to a folder is not a folder. It does not see a mount:
       // that is a folder to it, on the volume the mount leads to. A mount point of macOS is a
       // folder to it as well, on the volume mounted there.
@@ -127,6 +130,7 @@ export function model(entries: Record<string, Entry>, failing: Record<string, st
       const entry = tree.get(path)
       // A walk that came here through a link or a mount would be reading what it leads to.
       const listed = entry?.kind === 'link' || entry?.kind === 'mount' ? real(entry.to) : path
+      if (entry?.kind === 'mount' && !tree.has(listed)) throw fail('ENOENT', asked)
       return [...tree.keys()].filter((each) => posix.dirname(each) === listed).map((each) => posix.basename(each))
     },
     unlinkSync: (asked) => {
@@ -194,6 +198,18 @@ export const WITH_A_MOUNT: Record<string, Entry> = {
   '/vol/deep/more.txt': { kind: 'file' },
 }
 export const VOLUME = ['/vol', '/vol/deep', '/vol/deep/more.txt', '/vol/keep.txt']
+/**
+ * The same Card, with a mount whose volume is gone (worfy-windows ticket 45): lstat and a listing of
+ * it answer ENOENT, the listing of the Card names it, and rmdir removes it. Measured on the PC under
+ * both Nodes, with a junction by GUID whose target folder was removed (ticket 45) and with one whose
+ * volume was detached (measurement 6 of ticket 45).
+ */
+export const WITH_A_DETACHED_MOUNT: Record<string, Entry> = {
+  '/data': { kind: 'folder' },
+  '/data/card': { kind: 'folder' },
+  '/data/card/index.html': { kind: 'file' },
+  '/data/card/linked': { kind: 'mount', to: '/vol' },
+}
 /** The same Card, with a mount that leads to a folder of its own volume: its `dev` says nothing. */
 export const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
   '/data': { kind: 'folder' },
@@ -204,7 +220,11 @@ export const WITH_A_MOUNT_ON_ITS_VOLUME: Record<string, Entry> = {
   '/home/notes': { kind: 'folder' },
   '/home/notes/keep.txt': { kind: 'file' },
 }
-/** A folder reached through an ordinary link to another volume: the link is the parent of what is removed. */
+/**
+ * A folder reached through an ordinary link to another volume: the link is the parent of what is
+ * removed. Beside the folder lies a mount (worfy-windows ticket 45) that leads back to a folder of
+ * the first volume.
+ */
 export const BEHIND_A_LINK_TO_ANOTHER_VOLUME: Record<string, Entry> = {
   '/data': { kind: 'folder' },
   '/data/away': { kind: 'link', to: '/vol/r' },
@@ -213,6 +233,10 @@ export const BEHIND_A_LINK_TO_ANOTHER_VOLUME: Record<string, Entry> = {
   '/vol/r/sub': { kind: 'folder' },
   '/vol/r/sub/f.txt': { kind: 'file' },
   '/vol/r/empty': { kind: 'folder' },
+  '/vol/r/m': { kind: 'mount', to: '/home/notes' },
+  '/home': { kind: 'folder' },
+  '/home/notes': { kind: 'folder' },
+  '/home/notes/keep.txt': { kind: 'file' },
 }
 /** An entry of the trash whose Card folder is a mount, and one whose Card folder holds a mount. */
 export const TRASH_CARD_IS_A_MOUNT: Record<string, Entry> = {

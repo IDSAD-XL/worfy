@@ -3,7 +3,7 @@
 // folders. The check only reads: refs, the working tree and .git stay as they were, and `git fetch`
 // is never run (ADR-0005; the Orchestrator fetches in the preflight of every Wave).
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -66,14 +66,27 @@ function snapshot(repo: string): { refs: string; status: string; fetchHead: bool
   return { refs: git(repo, 'for-each-ref'), status: git(repo, 'status', '--porcelain'), fetchHead: existsSync(join(repo, '.git', 'FETCH_HEAD')) }
 }
 
-/** A `git` that writes its arguments to a log, one call per line, and runs the real one. */
+/**
+ * A `git` that writes its arguments to a log, one call per line, and runs the real one from the
+ * PATH. It is a Node script: worfy starts a `.mjs` override as a script of its own Node
+ * (src/main/program.ts), so it runs on Windows too, which cannot start a `#!/bin/sh` file.
+ */
 function loggingGit(): { path: string; calls: () => string[] } {
   const dir = tempDir()
   const log = join(dir, 'calls.log')
-  const real = execFileSync('/bin/sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim()
-  const path = join(dir, 'git')
-  writeFileSync(path, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec '${real}' "$@"\n`)
-  chmodSync(path, 0o755)
+  const path = join(dir, 'git.mjs')
+  writeFileSync(
+    path,
+    [
+      "import { appendFileSync } from 'node:fs'",
+      "import { spawnSync } from 'node:child_process'",
+      'const args = process.argv.slice(2)',
+      `appendFileSync(${JSON.stringify(log)}, args.join(' ') + '\\n')`,
+      "const run = spawnSync('git', args, { stdio: 'inherit' })",
+      'process.exit(run.status ?? 1)',
+      '',
+    ].join('\n'),
+  )
   return { path, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
 }
 

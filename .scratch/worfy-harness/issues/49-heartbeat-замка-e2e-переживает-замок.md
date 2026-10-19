@@ -27,6 +27,11 @@ test-ов, сняты руками); первый круг ревью PR #497 н
   (`SKILL.md:866`, `find "$L" -maxdepth 0 -mmin +30`): мутант без `-mmin +30` выживает на main.
 - `harness/bin/wave-gate` (Node) этой ошибки не имеет: `fs.utimesSync` на пропавшей папке бросает, и
   `clearInterval` останавливает heartbeat (`harness/bin/wave-gate:213-220`).
+- **Тот же класс в `scripts/e3-sandbox.sh`** (добавлено 2026-10-19, ревью PR #509). Свой heartbeat замка
+  песочницы — `lock_run`, `scripts/e3-sandbox.sh:314`: `(while sleep 300; do touch "$LOCK" … || exit 0; done) &`.
+  Trap на выходе (`:317`) делает `kill` subshell-а, а его `sleep 300` остаётся с ppid 1 до 5 мин — после
+  каждого `pnpm test`, который зовёт скрипт. Плюс `touch` без `-c`: если замка уже нет, он создаёт на его
+  месте обычный файл (как в Profile-е до 2026-10-10).
 
 ## Что делаем
 
@@ -37,6 +42,8 @@ test-ов, сняты руками); первый круг ревью PR #497 н
    `pkill -P $HB`, или своя группа процессов у heartbeat-а и `kill` группы; выбрать при работе и замерить.
    С пунктом 1 сирота-`sleep` живёт не дольше 5 мин, но и это видно в списке процессов.
 3. Test на живой замок: замок моложе 30 мин с чужим `holder.json` блок не снимает и ждёт.
+4. `scripts/e3-sandbox.sh:314-317` — тот же способ, что в пунктах 1 и 2: heartbeat выходит без папки
+   замка (`touch -c` и проверка `-d`), а trap не оставляет его `sleep`.
 
 ## Готово, когда
 
@@ -46,6 +53,8 @@ test-ов, сняты руками); первый круг ревью PR #497 н
 - [ ] Тот же файл: после обычного выхода блока не остаётся ни одного `sleep` от heartbeat (N ≥ 40
       прогонов, 0 сирот). Красный на main, если гонка воспроизводится.
 - [ ] Тот же файл: замок моложе 30 мин не снимается; мутант без `-mmin +30` — красный.
+- [ ] После `lock_run` в `scripts/e3-sandbox.sh` не остаётся ни одного `sleep` от heartbeat (тот же
+      способ замера, что выше); test красный на main.
 - [ ] Строка замка в Profile-е worfy исправлена тем же способом (запись — владелец или `project-connect`).
 - [ ] `pnpm test` (`test/contract/harness-scripts.test.ts`) — exit 0 на Mac; gate full — exit 0 и строка
       `[gate] зелено (full)`.
@@ -56,10 +65,11 @@ test-ов, сняты руками); первый круг ревью PR #497 н
   `:870` — heartbeat, `:871` — trap).
 - `harness/bin/tests/wave-gate.test.sh:795-818` — test-ы этого блока.
 - `~/.claude/worfy-harness/projects/worfy/rules.md:60` — строка замка e2e в Profile-е (вне репозитория).
+- `scripts/e3-sandbox.sh:314-317` — heartbeat и trap `lock_run`; его test-ы — рядом с остальными test-ами
+  скрипта (найти при работе).
 
 ## Вне скоупа
 
-- `scripts/e3-sandbox.sh:314` — свой heartbeat с `touch` без `-c`; отдельный случай.
 - `harness/bin/wave-gate` — heartbeat на Node, ошибки нет.
 
 ## Риски

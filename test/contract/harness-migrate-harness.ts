@@ -54,9 +54,16 @@ function substitute(dir: string, root: string): void {
   }
 }
 
-/** `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging. */
-export function run(command: string, args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeout?: number } = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '', timeout: options.timeout })
+/**
+ * `timeout` (ms) ends a command that does not return: its status is then null, and the test fails instead of hanging.
+ * `killSignal` is the signal sent then (SIGTERM by default); a command that handles SIGTERM itself needs SIGKILL.
+ */
+export function run(
+  command: string,
+  args: string[],
+  options: { cwd?: string; env?: NodeJS.ProcessEnv; input?: string; timeout?: number; killSignal?: NodeJS.Signals } = {},
+): { status: number | null; stdout: string; stderr: string } {
+  const result = spawnSync(command, args, { encoding: 'utf8', cwd: options.cwd, env: options.env ?? sandbox.env, input: options.input ?? '', timeout: options.timeout, killSignal: options.killSignal })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 

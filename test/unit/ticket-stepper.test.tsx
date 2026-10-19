@@ -61,6 +61,7 @@ function on(pipeline: PipelineColumn[], id: string, over: Partial<PipelineTicket
     sub: null,
     waits: pipeline[index]!.kind === 'done' ? null : 'agent',
     enteredAt: null,
+    statusAt: null,
     ...over,
   }
 }
@@ -180,6 +181,67 @@ describe('Stepper', () => {
 })
 
 // ── the full form only when it fits ─────────────────────────────────────────
+
+describe('a stuck Ticket on the stepper (worfy-pipeline ticket 06)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('on CI for 3 h: the «stuck» frame and the time on the Stage in the tooltip', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-18T15:00:00Z'))
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { enteredAt: '2026-10-18T12:00:00.000Z' })} />)
+    const stepper = screen.getByTestId('ticket-stepper')
+    expect(stepper.dataset.stuck).toBe('true')
+    expect(stepper.title).toContain('stuck: on CI for 3 h')
+  })
+
+  it('under the threshold: no frame and no time; a minute later, past it: the frame, without a new snapshot', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-18T13:59:30Z'))
+    render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { enteredAt: '2026-10-18T12:00:00.000Z' })} />)
+    const stepper = screen.getByTestId('ticket-stepper')
+    expect(stepper.dataset.stuck).toBeUndefined()
+    expect(stepper.title).not.toContain('stuck')
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
+    expect(stepper.dataset.stuck).toBe('true')
+    expect(stepper.title).toContain('stuck: on CI for 2 h')
+  })
+
+  it('a new snapshot moves the Ticket to a Stage it entered long ago: stuck at once', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-18T15:00:00Z'))
+    const { rerender } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { enteredAt: '2026-10-18T14:30:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBeUndefined()
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'agent-review', { enteredAt: '2026-10-18T10:00:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBe('true')
+    expect(screen.getByTestId('ticket-stepper').title).toContain('stuck: on Agent review for 5 h')
+  })
+
+  it('Waits: team on CI is not stuck after 3 h, only after 24; a Stage without a threshold never; no enteredAt never', () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-18T15:00:00Z'))
+    const { rerender } = render(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { waits: 'team', enteredAt: '2026-10-18T12:00:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBeUndefined()
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { waits: 'team', enteredAt: '2026-10-17T14:00:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBe('true')
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'deploy', { enteredAt: '2026-10-01T00:00:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBeUndefined()
+    rerender(<Stepper pipeline={WORFY} stage={on(WORFY, 'ci', { enteredAt: null })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBeUndefined()
+  })
+
+  it("the Profile's stuck_after: 30 min on CI", () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] })
+    vi.setSystemTime(new Date('2026-10-18T15:00:00Z'))
+    const pipeline = WORFY.map((column) => (column.kind === 'ci' ? { ...column, stuck_after: '30m' } : column))
+    render(<Stepper pipeline={pipeline} stage={on(pipeline, 'ci', { enteredAt: '2026-10-18T14:15:00.000Z' })} />)
+    expect(screen.getByTestId('ticket-stepper').dataset.stuck).toBe('true')
+    expect(screen.getByTestId('ticket-stepper').title).toContain('stuck: on CI for 45 min')
+  })
+})
 
 describe('Stepper measures whether the full form fits', () => {
   /**

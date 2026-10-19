@@ -21,7 +21,7 @@ import { open, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TRANSCRIPT_SEARCH, type HistorySession, type TranscriptHit } from '../../shared/ipc/claude-home'
 import { mainThreadEvents, parseTranscriptLines } from '../../shared/transcript/parse'
-import type { ClaudeHomeRegistry } from './registry'
+import type { ClaudeHomeRegistry, RegistryRoot } from './registry'
 
 export interface SearchLimits {
   /** Transcripts read per search. */
@@ -121,7 +121,7 @@ export function snippetAround(text: string, index: number, length: number): stri
 }
 
 /** Transcript files of the Project's folders by Session id, in the registry's folder order. */
-async function transcriptFiles(registry: ClaudeHomeRegistry, projectRoot: string): Promise<Map<string, string>> {
+async function transcriptFiles(registry: ClaudeHomeRegistry, projectRoot: RegistryRoot): Promise<Map<string, string>> {
   const files = new Map<string, string>()
   for (const { path: dir } of await registry.transcriptDirs(await registry.roots(projectRoot))) {
     let names: string[]
@@ -149,7 +149,7 @@ export class TranscriptSearch {
   ) {}
 
   /** The Sessions of the Project at `projectRoot` whose conversation contains `query`, newest first. */
-  async search(projectRoot: string, query: string): Promise<SearchResult> {
+  async search(projectRoot: RegistryRoot, query: string): Promise<SearchResult> {
     const wanted = collapse(query)
     if (wanted.length < TRANSCRIPT_SEARCH.minQuery) return { hits: [], limited: false }
     const pattern = matcher(wanted)

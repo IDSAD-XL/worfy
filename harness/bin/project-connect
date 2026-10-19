@@ -279,6 +279,12 @@ const name = profile.name
 const projectsDir = path.join(HARNESS_HOME, "projects")
 const profileDir = path.join(projectsDir, name)
 const gateFile = path.join(HARNESS_HOME, "gate", "config.json")
+// Transition, as bin/profile and the gate read it: with no registry in HARNESS_HOME but one in the
+// old place, ~/.claude/gate/config.json, the old one is the registry. The write goes to the new
+// place and from then on shadows the old one, so it starts from the old registry's entries: the
+// Projects there stay known. The old file is only read.
+const legacyGateFile = path.join(require("node:os").homedir(), ".claude", "gate", "config.json")
+const readGateFile = !fs.existsSync(gateFile) && fs.existsSync(legacyGateFile) ? legacyGateFile : gateFile
 const defaultFolder = path.join(profileDir, "workflow")
 
 const realDir = (p) => {
@@ -293,14 +299,14 @@ const inside = (child, parent) => child === parent || child.startsWith(parent.en
 if (!NAME.test(name)) fail("profile.name", "value", "letters, digits, dots, dashes and underscores only, starting with a letter or a digit")
 else if (fs.existsSync(profileDir)) fail("profile.name", "conflict", `the name is taken: ${profileDir} exists`)
 
-// The registry as it is now: a broken one is not overwritten.
+// The registry as it is now (readGateFile): a broken one is not overwritten, nor carried over.
 let registry = null
-if (fs.existsSync(gateFile)) {
+if (fs.existsSync(readGateFile)) {
     try {
-        registry = JSON.parse(fs.readFileSync(gateFile, "utf8"))
+        registry = JSON.parse(fs.readFileSync(readGateFile, "utf8"))
         if (!isObject(registry) || !Array.isArray(registry.repos)) throw new Error('the "repos" field must be an array')
     } catch (e) {
-        fail("gate", "value", `the gate registry ${gateFile} cannot be read: ${e.message}`)
+        fail("gate", "value", `the gate registry ${readGateFile} cannot be read: ${e.message}`)
         refuse()
     }
 }

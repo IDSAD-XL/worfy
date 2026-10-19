@@ -267,6 +267,8 @@ async function hubs() {
 
   const registry = new ClaudeHomeRegistry({ home: CLAUDE_HOME_FIXTURE, listWorktrees: async () => [], isAlive: async () => false })
   const watches = vi.spyOn(registry, 'watch')
+  const second = join(scratch, 'проект')
+  mkdirSync(second)
   const subscriptions = new ClaudeHomeSubscriptions(registry, new Set())
   cleanups.push(() => subscriptions.closeAll())
 
@@ -295,8 +297,8 @@ async function hubs() {
   const call = await ipcOver({
     './workflow.ts': () => import('../../src/main/ipc/workflow').then((module) => module.default),
     './docs.ts': () => import('../../src/main/ipc/docs').then((module) => module.default),
-    // The fixture's Projects stand in the list: a client without a window works inside the listed Projects only.
-    './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, undefined, () => [{ path: CLAUDE_HOME_PROJECT }, { path: '/Users/test/проект' }]),
+    // A client without a window names the root of a listed Project, which exists (src/main/link/caller.ts, projectRootOf).
+    './claude-home.ts': async () => claudeHomeHandlers(registry, subscriptions, undefined, () => [{ path: repo }, { path: second }]),
     './bindings.ts': async () => bindingsHandlers(() => bindings, () => registry),
     './limits.ts': async () => limitsHandlers(() => limits),
   })
@@ -304,7 +306,7 @@ async function hubs() {
   const subscribe = async (client: unknown, root = repo, projectId = PROJECT): Promise<void> => {
     expect((await call('workflow.open', { root }, client)).ok).toBe(true)
     expect((await call('docs.open', { projectId }, client)).ok).toBe(true)
-    expect((await call('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT }, client)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: repo }, client)).ok).toBe(true)
     expect((await call('bindings.get', { projectId }, client)).ok).toBe(true)
     expect((await call('limits.open', undefined, client)).ok).toBe(true)
   }
@@ -371,8 +373,8 @@ describe('the hubs keep a client without a window until it is destroyed', () => 
     // A late call of the old client subscribes nothing and takes nothing back.
     expect(await call('workflow.open', { root: other }, old.client)).toMatchObject({ ok: false, error: expect.stringMatching(/the client is gone/) })
     expect(await call('docs.open', { projectId: OTHER }, old.client)).toMatchObject({ ok: false, error: expect.stringMatching(/the client is gone/) })
-    expect((await call('claudeHome.sessions', { projectRoot: CLAUDE_HOME_PROJECT }, old.client)).ok).toBe(true)
-    expect((await call('claudeHome.sessions', { projectRoot: '/Users/test/проект' }, old.client)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: repo }, old.client)).ok).toBe(true)
+    expect((await call('claudeHome.sessions', { projectRoot: join(scratch, 'проект') }, old.client)).ok).toBe(true)
     expect(watches).toHaveBeenCalledTimes(2)
     expect(workflowHub.roots).toEqual([repo])
     expect(docsHub.projects).toEqual([PROJECT])

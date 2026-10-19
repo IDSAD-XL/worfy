@@ -435,7 +435,7 @@ describe('B introduces itself only after A proved the code', () => {
 
   it(`refuses a worfy of link protocol 1, whose pake2 still carries B's details, by version and not as a wrong code`, async () => {
     // The pairing frames changed with protocol 2: an older worfy would otherwise fail the schema of pake2.
-    expect(LINK_PROTOCOL_VERSION).toBe(2)
+    expect(LINK_PROTOCOL_VERSION).toBe(3)
     const b = await bench.machine('beta')
     const c = await bench.machine('gamma')
     const code = await bench.codeOf(b)
@@ -443,7 +443,7 @@ describe('B introduces itself only after A proved the code', () => {
       openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c), protocolVersion: 1 }),
     )
     expect((error as LinkConnectError).kind).toBe('protocol')
-    expect(error.message).toMatch(/speaks link protocol 2, the connecting worfy speaks 1/)
+    expect(error.message).toMatch(/speaks link protocol 3, the connecting worfy speaks 1/)
     // The refusal comes before the attempt: the code is neither burnt nor counted.
     expect(b.service.pairingCode()?.code).toBe(code)
     expect(b.pairingFailures).toEqual([])

@@ -74,13 +74,27 @@ export const HARNESS_SCRIPT_TIMEOUT_MS = 15_000
 const DETAIL_LINES = 3
 const DETAIL_CHARS = 400
 
+/** A line of the gate resolver's own reason, with bin/profile's wrapping of it in front or without it. */
+const RESOLVER_REASON = /^(?:profile: resolver .+? failed \(exit \d+\) — project not determined: )?gate-resolve: /gm
+
 /**
- * What a failed Harness script's stderr says, short enough for a line of the window. A node crash
- * gives its Error line (`TypeError: …`), not the stack under it nor the `Node.js vNN` line node
- * prints last; other stderr gives its first lines. Empty when stderr says nothing.
+ * A script's stderr with the gate resolver's own reasons unwrapped: bin/profile reports a resolver
+ * failure as `profile: resolver <path> failed (exit N) — project not determined: gate-resolve:
+ * registry <path> is broken: …`, and with two long paths the line outgrows scriptFailureDetail's
+ * limit before the reason. Such a line, and a bare `gate-resolve: …` line, keep only the reason
+ * (`registry <path> is broken: …`). Every other line stays as it is, a crash of the resolver
+ * (`… project not determined: TypeError: …`) included: its wrapping says where it crashed.
+ */
+export const resolverReason = (stderr: string): string => stderr.replace(RESOLVER_REASON, '')
+
+/**
+ * What a failed Harness script's stderr says, short enough for a line of the window. A gate
+ * resolver reason comes without bin/profile's wrapping (resolverReason). A node crash gives its
+ * Error line (`TypeError: …`), not the stack under it nor the `Node.js vNN` line node prints last;
+ * other stderr gives its first lines. Empty when stderr says nothing.
  */
 export function scriptFailureDetail(stderr: string): string {
-  const lines = stderr
+  const lines = resolverReason(stderr)
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && !/^\^+$/.test(line))
@@ -269,14 +283,14 @@ export interface HarnessScriptRunOptions {
  * process group the child leads (runHarnessScript starts it detached there). When that fails, the
  * child alone.
  */
-function killTree(child: ChildProcess): void {
+export function killTree(child: KilledChild, system: KillSystem = KILL_SYSTEM): void {
   const pid = child.pid
   const alone = (): void => {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
   }
   if (pid === undefined) return alone()
-  if (process.platform === 'win32') {
-    const taskkill = spawn(join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
+  if (system.platform === 'win32') {
+    const taskkill = system.spawn(join(system.systemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe'), ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
     taskkill.on('error', alone)
     taskkill.on('exit', (code) => {
       if (code !== 0) alone()
@@ -284,9 +298,72 @@ function killTree(child: ChildProcess): void {
     return
   }
   try {
-    process.kill(-pid, 'SIGKILL')
+    system.kill(-pid, 'SIGKILL')
   } catch {
     alone()
+  }
+}
+
+/** What killTree needs of a child process. */
+export type KilledChild = Pick<ChildProcess, 'pid' | 'exitCode' | 'signalCode' | 'kill'>
+
+/** What killTree uses of the system; a test hands its own to reach the Windows branch on any system. */
+export interface KillSystem {
+  platform: NodeJS.Platform
+  /** %SystemRoot%, where taskkill.exe lies; C:\Windows when unset. */
+  systemRoot: string | undefined
+  spawn: (command: string, args: readonly string[], options: { stdio: 'ignore'; windowsHide: boolean }) => Pick<ChildProcess, 'on'>
+  /** process.kill: a negative pid is the process group. */
+  kill: (pid: number, signal: NodeJS.Signals) => void
+}
+
+const KILL_SYSTEM: KillSystem = {
+  get platform() {
+    return process.platform
+  },
+  get systemRoot() {
+    return process.env.SystemRoot
+  },
+  spawn: (command, args, options) => spawn(command, args, options),
+  kill: (pid, signal) => {
+    process.kill(pid, signal)
+  },
+}
+
+/**
+ * The Harness scripts that have not answered yet. Outside Windows each leads a process group of its
+ * own, so the Ctrl+C or SIGHUP of a terminal that started worfy does not reach it: Electron quits on
+ * those signals and node emits 'exit', and killRunningHarnessScripts ends them then, the scripts
+ * started with no signal of their own (qmd-collections, src/main/harness/qmd.ts) included. A script
+ * leaves the list when it has answered (done in runHarnessScript).
+ */
+const runningScripts = new Set<ChildProcess>()
+
+/**
+ * SIGTERM to the process group of every Harness script that has not answered — the script and what
+ * it started, or, when the script itself has exited, what still holds its pipes. Run on the 'exit'
+ * of the process, Cmd+Q included: SIGTERM, not SIGKILL, so that a script can let go of what it holds
+ * (qmd-collections releases refresh.lock on it), and process.kill is synchronous, as 'exit' needs. A
+ * script that ignores SIGTERM outlives worfy: 'exit' cannot wait to send SIGKILL after it. On
+ * Windows the scripts are not detached and killTree runs taskkill, a process of its own that may not
+ * start before the exit.
+ */
+export function killRunningHarnessScripts(): void {
+  for (const child of runningScripts) {
+    const running = child.exitCode === null && child.signalCode === null
+    if (process.platform === 'win32') {
+      if (running) killTree(child)
+    } else if (child.pid !== undefined) signalGroup(child.pid, 'SIGTERM')
+  }
+  runningScripts.clear()
+}
+
+/** `signal` to the process group `pid` leads; a group that has ended already is no error. */
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    // ESRCH: nothing is left in the group.
   }
 }
 
@@ -316,13 +393,29 @@ export async function runHarnessScript(script: string, args: readonly string[], 
     /** The runner killed the script: at its time limit or on the signal. */
     let killed = false
     let settled = false
+    runningScripts.add(child)
+    if (!process.listeners('exit').includes(killRunningHarnessScripts)) process.on('exit', killRunningHarnessScripts)
+    const exited = (): boolean => child.exitCode !== null || child.signalCode !== null
+    /** The script itself has ended, and only a process it left holds the pipes: its own exit code. */
+    const settleExited = (): void => {
+      child.stdout.destroy()
+      child.stderr.destroy()
+      settle({ code: child.exitCode, signal: child.signalCode, stdout, stderr })
+    }
     const stop = (): void => {
-      if (child.exitCode !== null || child.signalCode !== null) return
+      if (exited()) {
+        // The signal (the app quits): what the script left in its process group goes too. On Windows
+        // the tree is gone with the script (taskkill /T finds no parent), and its pid may be reused.
+        if (process.platform !== 'win32' && child.pid !== undefined) signalGroup(child.pid, 'SIGKILL')
+        settleExited()
+        return
+      }
       killed = true
       killTree(child)
     }
     const done = (): void => {
       settled = true
+      runningScripts.delete(child)
       clearTimeout(timer)
       options.signal?.removeEventListener('abort', stop)
     }
@@ -332,13 +425,10 @@ export async function runHarnessScript(script: string, args: readonly string[], 
       resolvePromise(run)
     }
     const timer = setTimeout(() => {
-      // The script itself has ended, and only a process it left holds the pipes: its own exit code.
-      if (child.exitCode !== null || child.signalCode !== null) {
-        child.stdout.destroy()
-        child.stderr.destroy()
-        settle({ code: child.exitCode, signal: child.signalCode, stdout, stderr })
-        return
-      }
+      // At the time limit a script that has ended is answered with its own exit code, and what it
+      // left runs on: the answer takes the script off the list, so neither the signal nor the exit
+      // of worfy reaches that group any more.
+      if (exited()) return settleExited()
       stop()
     }, options.timeoutMs)
     options.signal?.addEventListener('abort', stop, { once: true })

@@ -42,7 +42,7 @@ import {
 import { ghRunner } from '../../src/main/github/prs'
 import { ProjectStore, runGit } from '../../src/main/projects/store'
 import { profileRegistryFiles, type HarnessLocation } from '../../src/main/harness/locate'
-import { HarnessScriptStartError, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
+import { HarnessScriptStartError, killRunningHarnessScripts, type ProfileRunner, type runHarnessScript, type SpawnProcess } from '../../src/main/workflow/profile'
 import { NODE, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
 import { ghWorld } from './gh-world'
 import { removeTestTree } from '../remove'
@@ -655,6 +655,173 @@ describe('bin/project-connect is started as node <script> (worfy-windows ticket 
       expect(grandchildRunning(pid, marker)).toBe(false)
     } finally {
       writeFileSync(stop, '')
+    }
+  })
+
+  /**
+   * A stand-in of project-connect that starts a grandchild in its own process group (not detached,
+   * as qmd-collections runs `qmd update`), writes its pid and, with `exitCode`, exits at once while
+   * the grandchild holds the inherited pipes. The grandchild ends by itself on the stop file or
+   * after 30 s, so that a failing run leaves nothing for long.
+   */
+  const groupScript = (binDir: string, exitCode: number | null): { pidFile: string; stop: string; marker: string } => {
+    const pidFile = join(scratch, 'grandchild-pid')
+    const stop = join(scratch, 'grandchild-stop')
+    const marker = `worfy-ticket59-grandchild-${process.pid}-${Date.now()}`
+    const grandchild = [
+      "const fs = require('node:fs')",
+      'const [pidFile, stop] = process.argv.slice(1)',
+      'fs.writeFileSync(pidFile, String(process.pid))',
+      'setInterval(() => { if (fs.existsSync(stop)) process.exit(0) }, 100)',
+      'setTimeout(() => process.exit(0), 30000)',
+    ].join('; ')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "import('node:child_process').then((cp) => {",
+        `  cp.spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}, ${JSON.stringify(pidFile)}, ${JSON.stringify(stop)}, ${JSON.stringify(marker)}], { stdio: 'inherit', windowsHide: true })${exitCode === null ? '' : '.unref()'}`,
+        exitCode === null ? '  setInterval(() => undefined, 1000)' : `  process.exitCode = ${exitCode}`,
+        '})',
+        '',
+      ].join('\n'),
+    )
+    return { pidFile, stop, marker }
+  }
+
+  // Mac review of PR #482 (worfy-windows ticket 59): stop() returned at once when the script had
+  // exited, so the signal left its process group running with the pipes, and the run waited for the
+  // time limit.
+  it.skipIf(process.platform === 'win32')('the signal after the script has exited while its process group holds the pipes: the group is killed, the answer is the script\'s own exit code', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { pidFile, stop, marker } = groupScript(binDir, 7)
+    const quitting = new AbortController()
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), signal: () => quitting.signal, timeoutMs: 15_000 })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      // The script exits right after it starts the grandchild.
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      const started = Date.now()
+      quitting.abort()
+      expect(await running).toMatchObject({ code: 7, signal: null })
+      expect(Date.now() - started).toBeLessThan(3000)
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+      // The stop file goes with the scratch folder in afterEach: a grandchild of a failed run is ended here.
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        if (grandchildRunning(pid, marker)) process.kill(pid, 'SIGKILL')
+      }
+    }
+  })
+
+  // Mac review of PR #482 (worfy-windows ticket 59): the script leads a process group of its own, so
+  // the Ctrl+C or SIGHUP of a terminal that started worfy does not reach it. Electron quits on those
+  // signals and node emits 'exit'; the runner kills every script still running then — also
+  // qmd-collections, which runs with no signal of its own (src/main/harness/qmd.ts).
+  it.skipIf(process.platform === 'win32')('on the exit of worfy every Harness script still running is killed with its process group', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { pidFile, stop, marker } = groupScript(binDir, null)
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 15_000 })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      expect(process.listeners('exit')).toContain(killRunningHarnessScripts)
+      const started = Date.now()
+      killRunningHarnessScripts()
+      expect(await running).toMatchObject({ code: null })
+      expect(Date.now() - started).toBeLessThan(3000)
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+      // The stop file goes with the scratch folder in afterEach: a grandchild of a failed run is ended here.
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        if (grandchildRunning(pid, marker)) process.kill(pid, 'SIGKILL')
+      }
+    }
+  })
+
+  // Review round 1 of PR #507: SIGKILL on the exit left qmd-collections no chance to release
+  // refresh.lock. The exit sends SIGTERM, which a script can handle.
+  it.skipIf(process.platform === 'win32')('on the exit of worfy a running script gets SIGTERM, so it can clean up before it ends', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const ready = join(scratch, 'term-ready')
+    const cleaned = join(scratch, 'term-cleaned')
+    writeFileSync(
+      join(binDir, 'project-connect'),
+      [
+        '#!/usr/bin/env node',
+        "const fs = require('node:fs')",
+        `process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(cleaned)}, 'SIGTERM'); process.exit(143) })`,
+        `fs.writeFileSync(${JSON.stringify(ready)}, '')`,
+        'setTimeout(() => process.exit(0), 30000)',
+        '',
+      ].join('\n'),
+    )
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 15_000 })
+    const running = connect([], '{}')
+    for (let i = 0; i < 200 && !existsSync(ready); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+    killRunningHarnessScripts()
+    expect(await running).toMatchObject({ code: 143 })
+    expect(readFileSync(cleaned, 'utf8')).toBe('SIGTERM')
+  })
+
+  // Review round 1 of PR #507 (mutant M1): the script has exited, its process group still holds the
+  // pipes; the exit of worfy ends that group too.
+  it.skipIf(process.platform === 'win32')('on the exit of worfy the group of a script that has exited, still holding its pipes, is ended', { timeout: 20_000 }, async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    const { pidFile, stop, marker } = groupScript(binDir, 7)
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])), timeoutMs: 5000 })
+    try {
+      const running = connect([], '{}')
+      for (let i = 0; i < 200 && !existsSync(pidFile); i++) await new Promise((resolve) => setTimeout(resolve, 50))
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(grandchildRunning(pid, marker)).toBe(true)
+      const started = Date.now()
+      killRunningHarnessScripts()
+      expect(await running).toMatchObject({ code: 7 })
+      expect(Date.now() - started).toBeLessThan(3000)
+      for (let i = 0; i < 50 && pidInUse(pid); i++) await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(grandchildRunning(pid, marker)).toBe(false)
+    } finally {
+      writeFileSync(stop, '')
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, 'utf8'))
+        if (grandchildRunning(pid, marker)) process.kill(pid, 'SIGKILL')
+      }
+    }
+  })
+
+  // Review round 1 of PR #507 (mutant M4): a script that has answered leaves the list, so the exit of
+  // worfy signals no group of an old pid, which may belong to another process by then.
+  it('a script that has answered is not signalled on the exit of worfy', async () => {
+    const binDir = join(scratch, 'harness-bin')
+    mkdirSync(binDir)
+    writeFileSync(join(binDir, 'project-connect'), ['#!/usr/bin/env node', 'process.stdout.write(String(process.pid))', ''].join('\n'))
+    const connect = connectScriptRunner({ harness: () => location(binDir), env: () => Promise.resolve(scriptsEnv([NODE_DIR])) })
+    const run = await connect([], '{}')
+    const pid = Number(run.stdout)
+    expect(pid).toBeGreaterThan(0)
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      killRunningHarnessScripts()
+      expect(kill.mock.calls.filter(([target]) => target === pid || target === -pid)).toEqual([])
+    } finally {
+      kill.mockRestore()
     }
   })
 

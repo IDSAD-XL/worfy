@@ -381,7 +381,10 @@ function patiently(step) {
  * unlinked as the link it is. One junction is a folder to lstat: the one whose target is written
  * with the GUID of a volume (worfy-windows ticket 35). So a folder is first asked to go with one
  * rmdir, which removes such a junction as a link, and is listed only when the answer is "not
- * empty" and it is on the volume of the folder it lies in. The price: a folder that is busy
+ * empty" and, when the volume of the folder it lies in is known, it is on that volume; an entry a
+ * listing names and lstat does not see (such a junction whose volume is gone) is asked to go with
+ * one rmdir (worfy-windows ticket 45), and so is a path given that lstat does not see. The price:
+ * a folder that is busy
  * itself is waited for before its entries and keeps them when it stays busy; the next run of this
  * script removes what is left. rmSync is not used there. Under the Node Electron 44 carries —
  * the tests run this script under it — its `recursive` goes through a junction and empties the
@@ -395,7 +398,7 @@ function patiently(step) {
  * volume than the folder it lies in the removal ends with the code EXDEV and nothing removed.
  */
 // A copy of removeTree of src/main/storage/remove.ts (worfy-windows ticket 23): this script is one
-// file with no import of its own. test/unit/remove-tree.test.ts runs the copies and the module
+// file with no import of its own. test/unit/remove-tree-copies.test.ts runs the copies and the module
 // over the same trees.
 // <remove-tree>
 function removeTree(given) {
@@ -452,8 +455,16 @@ function removeWalk(given, patience, outer) {
   try {
     seen = lstatSync(path)
   } catch (error) {
-    if (gone(error)) return
-    throw error
+    if (!gone(error)) throw error
+    // An entry its folder lists, not there to lstat: a junction by GUID whose volume is gone
+    // answers so (worfy-windows ticket 45), the path given too. One rmdir, which lists nothing,
+    // whatever it answers: the rmdir of its folder tells what stays.
+    try {
+      rmdirSync(path)
+    } catch {
+      // Nothing is there, or it stays and its folder fails as "not empty".
+    }
+    return
   }
   const folder = seen.isDirectory()
   // Removes the entry itself and asks again while the answer is "busy"; the waits that are left
@@ -480,8 +491,10 @@ function removeWalk(given, patience, outer) {
     return
   }
   // A junction that leads to a volume by its GUID is a folder to lstat, and a listing of it reads
-  // that volume (worfy-windows ticket 35). So a folder is listed only when both hold: it is on the
-  // volume of the folder it lies in, and it has answered "not empty" to one rmdir.
+  // that volume (worfy-windows ticket 35). So a folder is listed only when it has answered "not
+  // empty" to one rmdir and, when the volume of the folder it lies in is known, it is on that
+  // volume. For the path the caller gave that volume is unknown when its parent is a link to lstat
+  // or cannot be asked: then the first rmdir alone decides.
   let volume = outer
   if (volume === undefined) {
     try {

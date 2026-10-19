@@ -3,7 +3,7 @@
 Type: task
 Status: open
 Blocked by: 03, 08, 10, 11, 12
-Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md)
+Source: решения владельца 2026-10-07: Q23 (Windows-раннера на PR нет; gate full на ПК владельца перед мержем платформенных PR; ручной job «Windows»), Q20 (Terminal на Windows — PowerShell, Git Bash — в настройках), Q24 (Windows 10 21H2+ и 11, x64); «Готово, когда» Epic-а, пункт 2 (подтверждено 2026-10-08); [ADR-0056](../../../docs/adr/0056-windows-checks-and-two-sessions.md) «Windows checks and two sessions»; [ADR-0054](../../../docs/adr/0054-full-windows-port.md) «Full Windows port»; [spec.md](../spec.md); решение владельца 2026-10-19: часть unit/contract (пункт 1 «Что делаем» — main зелёный на Windows) идёт первой, от неё зависит [Ticket 66](66-полный-unit-contract-на-windows-runner.md) (полный `pnpm test` на Windows-runner-е, [ADR-0071](../../../docs/adr/0071-windows-runner-counts-as-the-windows-verdict.md)); `harness-evals` — [Ticket 65](65-harness-evals-на-windows.md)
 
 ## Что происходит
 
@@ -498,3 +498,10 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - **Junction по GUID и `rmdir`.** Замер Ticket-а 45 (PR #499): `cmd /c rmdir /s /q` на junction по GUID
   (цель `\\?\Volume{…}\…`) снимает только сам junction — файлы за ним остаются, как и у `rmdir` без
   ключей. Для ручной чистки `%TEMP%` от папок test-ов на ПК это безопасный способ.
+
+### Срез 3f — gate-state, harness-plugin, harness-qmd, harness-drift (2026-10-19)
+
+- `test/unit/gate-state.test.ts`: 9 failed / 89 passed → 98 passed, exit 0. `gateTag` сверяется с записанными значениями `printf %s <path> | shasum` (без `/bin/sh`); таблица `gateRunDir` и первый test `gateOutputs` с путями macOS идут с `platform` `'darwin'`, две строки с `homedir()` — на платформе машины. `listWorktrees` ждёт путь так, как его печатает git (`git rev-parse --show-toplevel`, `C:/…` на Windows): в `src/` все потребители либо сводят `\` и `/` (`worktreeOfCwd`, `comparable`), либо берут realpath (`onDisk`) или `projectDirName`, где `\` и `/` дают одно имя, — бага нет, `src/main/gate/state.ts` не менялся.
+- `test/contract/harness-plugin.test.ts`: 1 failed / 9 passed → 10 passed, exit 0. `listFiles` отдаёт пути с `/`, проверки шаблонов на Windows теперь настоящие.
+- `test/contract/harness-qmd.test.ts`: 11 failed / 8 passed → 9 passed / 10 skipped, exit 0. Десять test-ов со stand-in-ами `/bin/sh` пропускаются на win32 с причиной «qmd scripts are zsh/sh until worfy-windows ticket 15» (в `it.for` — только строка с node-stand-in-ом); ключи `snapshot()` с `/`, test «skipping writes skipped» идёт на Windows.
+- `test/contract/harness-drift.test.ts`: 2 failed / 13 passed → 15 passed, exit 0. Логирующий git — Node-скрипт `git.mjs`; `src/main/autopilot/harness-drift.ts` запускает подмену git через `programStart` (`src/main/program.ts`). Без правки в `src/` новый test красный на Windows (`spawn EFTYPE`); без подмены (`git` не передан) запуск прежний.

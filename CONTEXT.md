@@ -84,6 +84,10 @@ _Avoid_: kit, обвязка, тулинг
 Описание Project для Harness: как проверять изменения, где лежат Ticket-ы, как называются ветки и worktree, по каким линзам ревьюить, какие MCP-серверы доступны агентам Project, от какого аккаунта GitHub работать, в каком режиме — Full mode или Silent mode — идёт работа. Profile целиком лежит на Machine пользователя; в репозитории Project его нет.
 _Avoid_: профиль, конфиг проекта, settings (Settings — настройки самого worfy, «Project settings…» — окно одного Project-а в worfy; ни то, ни другое не Profile)
 
+**User personalization**:
+Собственные настройки пользователя для Harness — вне plugin и вне Profile, одни для всех его Project-ов: язык отчётов (`language.reports` в `~/.claude/worfy-harness/user.json`) и личные правила (`~/.claude/worfy-harness/user/rules.md`, Harness подмешивает их в Session, не зная содержания). Языки команды и документов — не здесь, а в Profile ([ADR-0074](docs/adr/0074-harness-neutral-by-language-and-project.md)).
+_Avoid_: пользовательская персонализация, персонализация (без уточнения чья), user settings, настройки пользователя, Profile или Settings (как синоним)
+
 **Full mode**:
 Режим Project, в котором файлы workflow — Ticket-ы, spec Epic-а, HANDOFF, ADR, уроки — лежат в репозитории Project вместе с кодом и видны всем, кто с ним работает.
 _Avoid_: полный режим, открытый режим, public mode
@@ -175,6 +179,7 @@ _Avoid_: сервер (как название термина)
 - **Session** запускает **Subagent**-ов; **Subagent** может запускать своих.
 - У **Project** ровно один **Orchestrator**.
 - У **Project** ровно один **Profile**; **Harness** один на **Machine** и ведёт работу каждого Project по его **Profile**.
+- **User personalization** одна у пользователя на **Machine** и действует во всех его **Project**-ах; **Profile** задаёт языки команды и документов Project-а, **User personalization** — язык отчётов и личные правила.
 - У **Project** ровно одна **Machine**. Один репозиторий, подключённый на двух Machine, — это два разных Project-а, у каждого свой Canvas.
 - **Linked machine** видит **Project**-ы другой **Machine** и работает с ними, только если та включила доступ; при выключенном доступе Project-ов не видит. Session-ы, Terminal, Gate и Autopilot такого Project-а всё равно идут на его Machine.
 - У **Project** ровно один режим — **Full mode** или **Silent mode**; Project над несколькими репозиториями всегда в **Silent mode**.

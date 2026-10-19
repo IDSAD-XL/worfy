@@ -430,7 +430,10 @@ neither green nor red: the line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: 
 registered, registry unreadable, resolver crashed). On exit code 3 the ticket is not
 merged: the verdict is `REJECTED: gate 3 — <line>`. It does not go back to the implementer and
 does not use up a round — it is a broken environment, not broken code: the ticket leaves the wave
-as a `blocked` row with that reason, and a human fixes it.
+as a `blocked` row with that reason, and a human fixes it. `EXIT=127` — node is not on PATH and
+the gate never started: the same as exit code 3, with the reason "node not found". 128 + the signal
+number — `EXIT=129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself was stopped and this run wrote nothing: that is no
+verdict, and the ticket is not merged on it.
 Then the verifier re-reads every `file:line` in `claims`, compares `exit_code` in `commands` with
 its own run, and looks for a refutation of the report's strongest sentence (the test passed before
 the change too). Owner rules the verifier gets in its brief: an acceptance item that cannot be
@@ -881,15 +884,15 @@ F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
 PRS=(<PR numbers in merge order>)              # the "ready" lines of the Checks block: VERIFIED, CI green (batch: MERGEABLE)
 PLATFORM=(<platform PR numbers>)               # its "ready, PLATFORM" lines; none: PLATFORM=()
-node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.e2e_lock)" "$(F commands.prepare_tree)" "$(F cross_machine_gate.label)" <main lock> "${#PRS[@]}" "${PRS[@]}" "${PLATFORM[@]}" <<'NODE'
 const fs = require("fs"), { execFileSync } = require("child_process")
-const [file, repo, branch, lock, prepare, mainLock, count, ...rest] = process.argv.slice(2)
+const [file, repo, branch, lock, prepare, label, mainLock, count, ...rest] = process.argv.slice(2)
 const platform = rest.slice(+count), val = (v) => (v === "" || v === "null" ? null : v)
 const prs = rest.slice(0, +count).map((n) => {
   const p = JSON.parse(execFileSync("gh", ["pr", "view", n, "--json", "number,headRefOid,labels"], { cwd: repo, encoding: "utf8" }))
   return { number: p.number, head: p.headRefOid, labels: p.labels.map((l) => l.name), platform: platform.includes(n) }
 })
-fs.writeFileSync(file, JSON.stringify({ repo, branch, e2e_lock: val(lock), prepare: val(prepare), main_lock: mainLock, prs }, null, 2) + "\n")
+fs.writeFileSync(file, JSON.stringify({ repo, branch, e2e_lock: val(lock), prepare: val(prepare), cross_machine_label: val(label), main_lock: mainLock, prs }, null, 2) + "\n")
 NODE
 echo "EXIT=$?"
 ```

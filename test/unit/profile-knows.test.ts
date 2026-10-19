@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { ConnectFolder } from '../../src/shared/ipc/projects'
-import { profileKnows, resolverReason } from '../../src/main/projects/connect'
-import { HarnessScriptStartError, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
+import { profileKnows } from '../../src/main/projects/connect'
+import { HarnessScriptStartError, resolverReason, type ProfileRun, type ProfileRunner } from '../../src/main/workflow/profile'
 import { removeTestTree } from '../remove'
 
 let scratch: string

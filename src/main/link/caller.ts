@@ -56,6 +56,62 @@ export function realInsideProjects(path: string, projects: readonly { readonly p
   return inside ? target : null
 }
 
+/** The real path of a folder that exists; null when it does not or cannot be read. */
+function realExisting(path: string): string | null {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The real path of `path` when it exists and is the root of one of `projects` or one of the git
+ * worktrees `worktrees` lists for a root that holds it; null otherwise. Unlike realInsideProjects,
+ * a folder that is merely inside a Project, or a path that does not exist, does not pass: Claude
+ * Code names its folders after a path with every `/` turned into `-`, so a missing `<root>/evil`
+ * shares its folder with `<root>-evil`, which lies outside the Project (worfy-link ticket 32).
+ * A worktree outside every root is not asked for: it is outside the Projects, as for insideProjects.
+ */
+export async function realProjectRoot(
+  path: string,
+  projects: readonly { readonly path: string }[],
+  worktrees: (root: string) => Promise<readonly string[]>,
+): Promise<string | null> {
+  const target = realExisting(path)
+  if (target === null) return null
+  const roots = projects.flatMap((project) => {
+    const root = realExisting(project.path)
+    return root === null ? [] : [root]
+  })
+  if (roots.includes(target)) return target
+  for (const root of roots) {
+    if (!target.startsWith(root.endsWith(sep) ? root : root + sep)) continue
+    for (const worktree of await worktrees(root)) if (realExisting(worktree) === target) return target
+  }
+  return null
+}
+
+/**
+ * For a call from outside this Machine's screen, throws unless `path` is the root of a Project of
+ * the list or one of its worktrees (realProjectRoot), and answers its real path, as insideProjects
+ * does. For the handlers whose root names Claude home folders. A path outside every Project gets
+ * the refusal of insideProjects. A window's call passes untouched.
+ */
+export async function projectRootOf(
+  event: { readonly sender?: unknown },
+  path: string,
+  projects: () => readonly { readonly path: string }[],
+  worktrees: (root: string) => Promise<readonly string[]>,
+  what: string,
+): Promise<string> {
+  if (!isRemoteCall(event)) return path
+  insideProjects(event, path, projects, what)
+  const checked = await realProjectRoot(path, projects(), worktrees)
+  if (checked === null) throw new Error(`${what} ${path} is neither the root of a Project of this Machine nor one of its worktrees; a Linked machine asks for the Sessions of those only`)
+  return checked
+}
+
 /**
  * For a call from outside this Machine's screen, throws unless `path` lies inside a Project of
  * the list, and answers its real path: the caller uses that one, so a link swapped in after the

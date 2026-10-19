@@ -133,11 +133,22 @@ function claudeBinary() {
   }
 }
 
+/**
+ * spawnSync of claude. On Windows a CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows
+ * starts no script by its path, so it runs as a script of this process's own Node (the way worfy
+ * starts a `.mjs` WORFY_CLAUDE, src/main/program.ts). The environment stays childEnv: under
+ * `pnpm eval:harness` this process is plain node, and when it runs as Electron's Node it does so
+ * only because ELECTRON_RUN_AS_NODE=1 is in its own environment, which childEnv keeps. Elsewhere,
+ * and for the SDK's binary or any other path, claude starts by its path.
+ */
+const runClaude = (claude, args, options) =>
+  process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
+
 /** -1, 0 or 1: version a against version b, both [major, minor, patch]. */
 const compare = (a, b) => a.reduce((acc, n, i) => acc || Math.sign(n - b[i]), 0)
 
 function checkVersion(claude) {
-  const run = spawnSync(claude, ['--version'], { encoding: 'utf8', env: childEnv })
+  const run = runClaude(claude, ['--version'], { encoding: 'utf8', env: childEnv })
   if (run.error || run.status !== 0) fail(`${claude} --version failed: ${run.error?.message ?? run.stderr.trim()}`)
   const match = /(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
   if (!match) fail(`cannot read the version from "${run.stdout.trim()}"`)
@@ -216,7 +227,13 @@ const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
  * or the copy does not answer `--version`.
  */
 function gitCopy(dir) {
-  const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8', env: childEnv })
+  // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
+  // git.exe. There `sh` (Git for Windows; `bash` may be the one of WSL) looks git up on PATH, as the
+  // shell of a run does, and runs the wrapper.
+  const exec =
+    process.platform === 'win32'
+      ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env: childEnv })
+      : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env: childEnv })
   const source = exec.status === 0 ? exec.stdout.trim() : ''
   if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
   const core = join(dir, 'git-core')
@@ -259,7 +276,12 @@ function gitCopy(dir) {
     removeTree(dir)
     fail(`cannot copy ${source} into ${core}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const check = spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
+  // shortcut: on Windows the check keeps the PATH of the runs (the copied git.exe loads its DLLs
+  // from mingw64/bin of the real one through it), redo when the paid runs go to Windows.
+  const check =
+    process.platform === 'win32'
+      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: childEnv.PATH } })
+      : spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
   if (check.status !== 0) {
     removeTree(dir)
     fail(`the copy of git does not run (${wrapper} --version, exit ${check.status ?? check.error?.code}): ${(check.stderr ?? '').trim()}`)
@@ -311,7 +333,7 @@ try {
     // The target goes before --tag and --allow-tools: both take a list and would swallow it.
     const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', tag, '--allow-tools', ...grants(harness)[tag], ...passThrough]
     process.stdout.write(`eval:harness: ${tag} — claude ${args.join(' ')}\n`)
-    const run = spawnSync(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
+    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${tag} exited ${code}\n`)
     worst = Math.max(worst, code)

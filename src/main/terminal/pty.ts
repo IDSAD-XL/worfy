@@ -18,6 +18,10 @@
 // (leave()); the shell is closed when the last one has left. The pty has one size: the size of the
 // subscriber that typed or clicked in the terminal last (Q14). A subscriber's resize is remembered
 // and applies only while it owns the size; typing (write) or a click (takeSize) makes it the owner.
+// An answer of a screen's terminal to the program (write with `reply`) does not (ticket 39 of
+// worfy-windows): it reaches the shell, and the size stays where it is. Cursor-position requests
+// are answered by main itself, once, at the pty's size, and the screens' answers to them are
+// dropped (cursor-answers.ts).
 // When the owner leaves, the size goes to the subscriber that typed or clicked last, or else to the
 // one whose size came last.
 //
@@ -52,6 +56,7 @@ import { spawn as spawnNodePty } from 'node-pty'
 import { findGitBash, findOnPath, powershellScriptCommand, type Env, type FileExists } from '../agent/env'
 import type { TerminalShellSetting } from '../../shared/projects/action-templates'
 import { ConsoleRequests, DEVICE_ATTRIBUTES_ANSWER } from './console-request'
+import { CursorAnswers, isCursorAnswer } from './cursor-answers'
 import { OscCutScanner, ShellTracker, type ShellEvent, type ShellState } from './osc'
 import { integrationEnv, isZsh, newNonce, type AssistAdmission, type AssistDoor, type ShellIntegration } from './shell-integration'
 
@@ -369,6 +374,9 @@ export interface PtyProcess {
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(signal?: string): void
+  /** Stops and restarts reading the output (node-pty: its socket); main's screen holds a flood back with it (cursor-answers.ts). */
+  pause?(): void
+  resume?(): void
 }
 
 export type SpawnPty = (file: string, args: string[], options: { name: string; cols: number; rows: number; cwd: string; env: Env }) => PtyProcess
@@ -523,6 +531,8 @@ interface Terminal {
   tracker: ShellTracker | null
   /** The size the pty has now. */
   size: Size
+  /** Answers the cursor-position requests in the output, on every system (cursor-answers.ts). */
+  cursor: CursorAnswers
   exited: Promise<void>
   closing: boolean
   /** A moment by which the shell was running (StartedShell). */
@@ -730,6 +740,7 @@ export class TerminalRegistry {
       return
     }
     terminal.size = size
+    terminal.cursor.resize(size.cols, size.rows)
   }
 
   /** Types `command` once: on the shell's first output, or after COMMAND_DELAY_MS of silence. */
@@ -802,6 +813,31 @@ export class TerminalRegistry {
       buffer: new ReplayBuffer(),
       tracker,
       size: { cols, rows },
+      cursor: new CursorAnswers({ cols, rows }, (answer) => {
+        // Not for a Terminal that has ended: its pty takes no input.
+        if (ended) return
+        try {
+          pty.write(answer)
+        } catch (error) {
+          console.warn(`[terminal] ${key}: a cursor-position request could not be answered`, error)
+        }
+      }, key, {
+        // Held back while main's screen lags behind a flood (cursor-answers.ts, HIGH_WATER).
+        pause: () => {
+          try {
+            pty.pause?.()
+          } catch (error) {
+            console.warn(`[terminal] ${key}: pausing the output failed`, error)
+          }
+        },
+        resume: () => {
+          try {
+            pty.resume?.()
+          } catch (error) {
+            console.warn(`[terminal] ${key}: resuming the output failed`, error)
+          }
+        },
+      }),
       exited: new Promise((resolve) => (exitedResolve = resolve)),
       closing: false,
       startedBy,
@@ -809,6 +845,7 @@ export class TerminalRegistry {
         if (ended) return
         ended = true
         terminal.finished = true
+        terminal.cursor.dispose()
         if (exitPoll !== null) clearInterval(exitPoll)
         if (admission !== null) assist?.revoke(admission.token)
         if (this.terminals.get(key) === terminal) {
@@ -840,6 +877,9 @@ export class TerminalRegistry {
       const { end } = terminal.buffer
       this.broadcast(key, 'sending the output', (each) => each.output(data, end))
       if (tracker !== null) for (const event of tracker.feed(data)) this.announce(key, event)
+      // After the screens and the tracker: main's own screen never holds the output back (it
+      // does not throw, cursor-answers.ts).
+      terminal.cursor.feed(data)
       // After the output went out: the command's echo comes after what the shell printed first.
       firstOutput?.()
       firstOutput = undefined
@@ -976,10 +1016,18 @@ export class TerminalRegistry {
     return terminal
   }
 
-  /** Types into the shell; a subscriber that types takes the size of the pty first. */
-  write(key: string, data: string, client: TerminalClient | undefined): void {
+  /**
+   * Types into the shell; a subscriber that types takes the size of the pty first. An answer of the
+   * subscriber's terminal to the program (`reply`: a focus report, the device attributes) reaches
+   * the shell the same way and leaves the size where it is: the size belongs to the screen that
+   * typed or clicked last (ADR-0053, decision 5; worfy-windows ticket 39). An answer to a
+   * cursor-position request goes nowhere: main has answered that request itself (cursor-answers.ts).
+   */
+  write(key: string, data: string, client: TerminalClient | undefined, options: { reply?: boolean } = {}): void {
     const terminal = this.running(key)
-    this.touch(key, terminal, client)
+    // While main answers (not after its screen refused output, cursor-answers.ts).
+    if (options.reply === true && terminal.cursor.answering && isCursorAnswer(data)) return
+    if (options.reply !== true) this.touch(key, terminal, client)
     terminal.pty.write(data)
   }
 
@@ -1056,6 +1104,8 @@ export class TerminalRegistry {
     }
     if (!terminal.closing) {
       terminal.closing = true
+      // A pty paused for main's screen is read to its end: node-pty reports the exit only then.
+      terminal.cursor.letOutputFlow()
       const { pid } = terminal.pty
       if (this.platform === 'win32') {
         void this.endWindowsShell(key, terminal)
@@ -1130,6 +1180,7 @@ export class TerminalRegistry {
     }
     if (exited && !quiet) return
     terminal.released = true
+    terminal.cursor.letOutputFlow()
     try {
       terminal.pty.kill()
     } catch (error) {

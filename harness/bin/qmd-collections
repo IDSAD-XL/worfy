@@ -63,6 +63,8 @@ const ANSWER_FILE = path.join(HARNESS_HOME, "qmd-models")
 const EMBED_MODEL = "hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf"
 const RU_GENERATE_MODEL = "hf:AGmind/qmd-query-expansion-ru/qmd-query-expansion-ru-q4_k_m.gguf"
 const LOCK_WAIT_MS = 120_000
+// A lock with no pid in it this long after it was made was left by a holder that stopped before writing it (qmd-mcp).
+const LOCK_ABANDONED_MS = 120_000
 
 const say = (s) => process.stdout.write(`qmd-collections: ${s}\n`)
 const die = (code, s) => {
@@ -352,6 +354,28 @@ if (!qmd) {
 // The lock shared with qmd-mcp and qmd-refresh: `qmd update` checks out the shared copies.
 const LOCK = path.join(CACHE, "refresh.lock")
 fs.mkdirSync(CACHE, { recursive: true })
+// An abandoned lock, by the rule of qmd-mcp: the pid is written and that process is not running, or
+// no pid was written within two minutes. worfy kills this script with its process group (at a time
+// limit, on quit), and the lock it held stays; qmd-mcp drops such a lock only when it starts.
+const abandoned = (dir) => {
+    let pid = ""
+    try {
+        pid = fs.readFileSync(path.join(dir, "pid"), "utf8").trim()
+    } catch {}
+    if (/^\d+$/.test(pid)) {
+        try {
+            process.kill(Number(pid), 0)
+            return false
+        } catch (e) {
+            return e.code === "ESRCH" // EPERM: running, under another user
+        }
+    }
+    try {
+        return Date.now() - fs.statSync(dir).mtimeMs > LOCK_ABANDONED_MS
+    } catch {
+        return false // gone already: the next mkdir takes it
+    }
+}
 const deadline = Date.now() + LOCK_WAIT_MS
 let locked = false
 while (!locked) {
@@ -359,6 +383,29 @@ while (!locked) {
         fs.mkdirSync(LOCK)
         locked = true
     } catch {
+        if (abandoned(LOCK)) {
+            // Moved aside under a name of its own before it is deleted: another waiter may have taken the lock
+            // between the check and here, and a plain delete would take its lock away. The rename is atomic,
+            // the check is repeated on what was moved, and a live lock is put back.
+            const aside = `${LOCK}.abandoned-${process.pid}-${Date.now()}`
+            try {
+                fs.renameSync(LOCK, aside)
+            } catch {
+                continue // gone already, or moved aside by another waiter: the next mkdir decides
+            }
+            if (abandoned(aside)) say(`${LOCK} was left by a holder that is gone: taken`)
+            else {
+                // shortcut: a third process may mkdir the lock while the live one is aside, and then both hold
+                // it; three runs within milliseconds of each other is the only way there, redo with a lock file
+                // held by the OS (flock) once the Harness has a helper for one.
+                try {
+                    fs.renameSync(aside, LOCK)
+                    continue
+                } catch {}
+            }
+            fs.rmSync(aside, { recursive: true, force: true })
+            continue
+        }
         if (Date.now() > deadline) die(1, `${LOCK} is held for over ${LOCK_WAIT_MS / 1000} s — the collections are recorded, run \`qmd update\` later`)
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000)
     }
@@ -368,13 +415,26 @@ while (!locked) {
 // models of qmd-mcp, never with qmd's defaults.
 const qmdEnv = { ...process.env, QMD_EMBED_MODEL: EMBED_MODEL }
 if (P.language && P.language.docs === "ru") qmdEnv.QMD_GENERATE_MODEL = RU_GENERATE_MODEL
+// worfy ends a running script on its exit with SIGTERM to the script's process group; a terminal sends INT or
+// HUP to it. With a listener node does not die at once: `qmd update` in the same group ends, spawnSync returns
+// and `finally` lets go of the lock. A signal to this process alone waits for `qmd update` to end; the
+// listener then runs once the synchronous code is done, when `finally` has let go of the lock already and
+// another holder may have it: the listener removes the lock only while this script holds it.
+let holding = true
+const release = (signal) => {
+    if (holding) fs.rmSync(LOCK, { recursive: true, force: true })
+    process.exit(128 + require("node:os").constants.signals[signal])
+}
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, release)
 let updated
 try {
     fs.writeFileSync(path.join(LOCK, "pid"), String(process.pid))
     updated = run(qmd, ["update"], { cwd: HOME, stdio: "inherit", env: qmdEnv })
 } finally {
     fs.rmSync(LOCK, { recursive: true, force: true })
+    holding = false
 }
+if (updated.signal) die(1, `qmd update ended by ${updated.signal}`)
 if (updated.status !== 0) die(1, `qmd update exited ${updated.status}`)
 
 let agreed = false

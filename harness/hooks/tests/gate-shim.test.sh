@@ -7,9 +7,12 @@
 #   - it finds gate.mjs through a symlink to itself (not on Windows: Git Bash copies a file
 #     instead of linking it);
 #   - node is not on PATH but under ~/.nvm: the launcher finds it, and the gate runs;
+#   - which node it picks: /opt/homebrew/bin before /usr/local/bin before nvm; the newest version
+#     of nvm by number (v24 before v9); a node that is too old is passed over, on PATH or in nvm;
 #   - no node anywhere: the «node не найден» line, exit code 3, the marker and an "unverified"
 #     verdict file in place of the one of the run before — through the hook command of
-#     hooks.json, after a green run; outside git it is silent and exits with 0;
+#     hooks.json, after a green run; outside git it is silent and exits with 0; when the verdict
+#     file cannot be put in place, the file of the run before is removed;
 #   - its bash lines name the state folder and the worktree tag as gate-paths.mjs does: for a
 #     path with a space, one with Cyrillic letters and one reached through a symlink;
 #   - git has the file as executable: hooks.json starts it by its path.
@@ -129,7 +132,7 @@ NONODE="" why=""
 if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
 else
     mkdir -p "$T/bin"
-    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath; do
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort; do
         p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
     done
     NONODE="$T/bin"
@@ -147,9 +150,9 @@ mkdir -p "$PLUGIN/hooks"
 cp "$GATE" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$HOOKS/eval-env.cjs" "$PLUGIN/hooks/"
 if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
     echo "note: node is in /opt/homebrew/bin or /usr/local/bin: the checks below run a copy of gate.sh that does not look there"
-    sed 's#/usr/local/bin /opt/homebrew/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$SHIM" >"$LAUNCHER"
+    sed 's#/opt/homebrew/bin /usr/local/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$SHIM" >"$LAUNCHER"
     if [ -n "$NONODE" ] && ! grep -q '/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b' "$LAUNCHER"; then
-        why="gate.sh no longer names /usr/local/bin and /opt/homebrew/bin in one line: the test cannot take them out"; NONODE=""
+        why="gate.sh no longer names /opt/homebrew/bin and /usr/local/bin in one line: the test cannot take them out"; NONODE=""
     fi
 else
     cp "$SHIM" "$LAUNCHER"
@@ -203,6 +206,93 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     else bad "the hook command without node: marker $marker: $(head -c 300 "$marker" 2>/dev/null); state: $(ls "$T/state-hook" | tr '\n' ' ')"; fi
     if [ -z "$(find "$T/state-hook" -maxdepth 1 -type f -name '.verdict-*')" ]; then ok "the hook command without node: no temporary file is left"
     else bad "left in the state folder: $(find "$T/state-hook" -maxdepth 1 -type f -name '.verdict-*')"; fi
+    # The verdict file cannot be put in place (mv fails, as on a full disk): the green file of the
+    # run before goes too, and so does the temporary file. `mv` is a bash function exported to the
+    # launcher, so this works on every system.
+    mkdir -p "$T/state-mv"
+    verdict_mv="$T/state-mv/verdict-$(tag "$R").json"
+    mode ok
+    out="$(cd "$R" && CLAUDE_GATE_STATE="$T/state-mv" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+    if [ "$(jqr .outcome "$verdict_mv" 2>/dev/null)" = green ]; then ok "before a verdict file that cannot be put in place: a green file"
+    else bad "before a verdict file that cannot be put in place: rc=$rc, out: ${out:0:200}"; fi
+    out="$(cd "$R" && mv() { return 1; } && export -f mv && HOME="$T/home" USERPROFILE="$T/home" CLAUDE_GATE_STATE="$T/state-mv" PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?
+    out="$(printf '%s' "$out" | tr -d '\r')"
+    if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден" ] && [ ! -e "$verdict_mv" ] \
+        && [ -z "$(find "$T/state-mv" -maxdepth 1 -type f -name '.verdict-*')" ] && [ -s "$T/state-mv/nokey-broken-$(tag "$R")-anon" ]; then
+        ok "without node, the verdict file cannot be put in place: exit 3, the line, the marker; the green file of the run before and the temporary file are gone"
+    else bad "without node, the verdict file cannot be put in place: rc=$rc, files: $(ls -A "$T/state-mv" | tr '\n' ' '), out: ${out:0:300}"; fi
+
+    # --- 6a. Which node the launcher picks --------------------------------------------------
+    # ORDER is a copy of gate.sh whose two folders are folders of the test: $T/order/brew stands for
+    # /opt/homebrew/bin, $T/order/local for /usr/local/bin. Each "node" of the test writes its name
+    # to $T/order/used when it starts the gate and runs the real node; the version check the launcher
+    # makes (node -e …) is answered by the real node, or refused by an "old" one.
+    ORDER="$PLUGIN/hooks/gate-order.sh"
+    sed -e "s#/opt/homebrew/bin#$T/order/brew#" -e "s#/usr/local/bin#$T/order/local#" "$SHIM" >"$ORDER"
+    chmod +x "$ORDER"
+    real_node="$(command -v node)"
+    # fakenode <folder> <name> [old]
+    fakenode() {
+        mkdir -p "$1"
+        if [ "${3:-}" = old ]; then
+            printf '#!/bin/sh\n[ "$1" = -e ] && exit 1\necho %s >"%s/order/used"\nexec "%s" "$@"\n' "$2" "$T" "$real_node" >"$1/node"
+        else
+            printf '#!/bin/sh\n[ "$1" = -e ] || echo %s >"%s/order/used"\nexec "%s" "$@"\n' "$2" "$T" "$real_node" >"$1/node"
+        fi
+        chmod +x "$1/node"
+    }
+    NVM="$T/order/home/.nvm/versions/node"
+    fakenode "$T/order/brew" brew
+    fakenode "$T/order/local" local
+    fakenode "$NVM/v9.0.0/bin" v9
+    fakenode "$NVM/v24.1.0/bin" v24
+    fakenode "$T/order/oldpath" oldpath old
+    mkdir -p "$T/state-order"
+    # picks <description> <expected name> [PATH]: runs ORDER and checks that the gate ran green
+    # through the node of that name.
+    picks() {
+        rm -f "$T/order/used"
+        out="$(cd "$R" && HOME="$T/order/home" USERPROFILE="$T/order/home" CLAUDE_GATE_STATE="$T/state-order" GATE_SCOPE=all PATH="${3:-$NONODE}" "$BASH" "$ORDER" fast </dev/null 2>&1)"; rc=$?
+        local used; used="$(cat "$T/order/used" 2>/dev/null)"
+        if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]] && [ "$used" = "$2" ]; then ok "$1: the gate runs on the node of $2"
+        else bad "$1: used: ${used:-none} (expected $2), rc=$rc, out: ${out:0:300}"; fi
+    }
+    mode ok
+    picks "node in both folders and under nvm, none on PATH" brew
+    rm -f "$T/order/brew/node"
+    picks "node in /usr/local/bin and under nvm" local
+    rm -f "$T/order/local/node"
+    picks "nvm has v9.0.0 and v24.1.0" v24
+    # A folder on PATH in the spelling of the shell: C:/… on Windows would split at its colon.
+    oldpath="$T/order/oldpath"; [ "$WIN" -eq 1 ] && oldpath="$(cygpath -u "$oldpath")"
+    picks "an old node first on PATH (it refuses the version check)" v24 "$oldpath:$NONODE"
+    fakenode "$NVM/v24.1.0/bin" v24 old
+    picks "the newest node of nvm is too old" v9
+    # The version boundary itself, with copies of ORDER whose NODE_MIN is the major version of the
+    # real node, and one above it. Equal passes (v9 here runs the real node); above it nothing
+    # passes, and the answer names the node that was found and refused, not «node не найден».
+    major="$(node -p 'process.versions.node.split(".")[0]' | tr -d '\r')"
+    for min in "$major" "$((major + 1))"; do
+        sed "s#^NODE_MIN=18\$#NODE_MIN=$min#" "$ORDER" >"$PLUGIN/hooks/gate-min-$min.sh"
+        chmod +x "$PLUGIN/hooks/gate-min-$min.sh"
+    done
+    if ! grep -q "^NODE_MIN=$major\$" "$PLUGIN/hooks/gate-min-$major.sh"; then bad "gate.sh has no line NODE_MIN=18 to change"; else
+        ORDER_SAVED="$ORDER"
+        ORDER="$PLUGIN/hooks/gate-min-$major.sh"
+        picks "NODE_MIN equal to the major version of the real node ($major)" v9
+        ORDER="$PLUGIN/hooks/gate-min-$((major + 1)).sh"
+        mkdir -p "$T/state-min"
+        rm -f "$T/order/used"
+        out="$(cd "$R" && HOME="$T/order/home" USERPROFILE="$T/order/home" CLAUDE_GATE_STATE="$T/state-min" GATE_SCOPE=all PATH="$NONODE" "$BASH" "$ORDER" fast </dev/null 2>&1)"; rc=$?
+        out="$(printf '%s' "$out" | tr -d '\r')"
+        want="no node $((major + 1)) or newer: $NVM/v24.1.0/bin/node is older or did not start"
+        if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $want" ] && [ ! -e "$T/order/used" ] \
+            && [ "$(jqr .reason "$T/state-min/verdict-$(tag "$R").json" 2>/dev/null)" = "$want" ] \
+            && grep -qF "$want. Repository: $R. The gate needs node $((major + 1)) or newer" "$T/state-min/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then
+            ok "NODE_MIN above the real node: exit 3, the line, the reason and the marker name the node refused, the gate did not run"
+        else bad "NODE_MIN above the real node: rc=$rc, used: $(cat "$T/order/used" 2>/dev/null), reason: $(jqr .reason "$T/state-min/verdict-$(tag "$R").json" 2>/dev/null), out: ${out:0:300}"; fi
+        ORDER="$ORDER_SAVED"
+    fi
     # Outside git there is nothing to say, as for the gate itself.
     mkdir -p "$T/state-none"
     out="$(cd "$T/none" && HOME="$T/home" USERPROFILE="$T/home" CLAUDE_GATE_STATE="$T/state-none" PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?

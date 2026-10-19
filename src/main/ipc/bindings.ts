@@ -7,9 +7,9 @@ import { resolve } from 'node:path'
 import { EMPTY_AGENT_SIGNALS } from '../../shared/binding/resolve'
 import { bindingsChanged, bindingsGet, bindingsRemove, bindingsSet, bindingsSignals } from '../../shared/ipc/bindings'
 import { BindingSignalReader } from '../claude-home/binding-signals'
-import { ClaudeHomeRegistry } from '../claude-home/registry'
+import { ClaudeHomeRegistry, gitWorktrees, type RegistryRoot } from '../claude-home/registry'
 import { clientOf, type Client } from '../clients'
-import { insideProjects } from '../link/caller'
+import { isRemoteCall, projectRootOf } from '../link/caller'
 import { bindingStore, type BindingStore } from '../layout/bindings'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -20,7 +20,8 @@ export type TranscriptFinder = Pick<ClaudeHomeRegistry, 'transcriptPath'>
 
 /**
  * The handlers over a store, a transcript finder and a reader; tests pass their own. A call from a
- * Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts).
+ * Linked machine names the root of a Project of `projects` or one of its worktrees
+ * (src/main/link/caller.ts).
  */
 export function bindingsHandlers(
   store: () => BindingStore,
@@ -49,8 +50,12 @@ export function bindingsHandlers(
     defineHandler(bindingsRemove, ({ projectId, sessionId, agentId }) => store().remove(projectId, { sessionId, agentId })),
     defineHandler(bindingsSignals, async ({ projectRoot, sessionId }, { event }) => {
       const root = resolve(projectRoot)
-      insideProjects(event, root, projects, 'the Project root')
-      const path = await transcripts().transcriptPath(root, sessionId)
+      // A Claude home folder name stands for several paths: a Linked machine names a Project root
+      // or one of its worktrees, not any folder inside (src/main/link/caller.ts, projectRootOf).
+      // git runs at the real path the check answered, and the root is judged strictly; a window's
+      // root is `local` (RegistryRoot), as in src/main/ipc/claude-home.ts.
+      const at: RegistryRoot = isRemoteCall(event) ? { path: root, gitAt: await projectRootOf(event, root, projects, gitWorktrees, 'the Project root') } : { path: root, local: true }
+      const path = await transcripts().transcriptPath(at, sessionId)
       if (path === null) return { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] }
       return { found: true, ...(await reader.session(path)) }
     }),

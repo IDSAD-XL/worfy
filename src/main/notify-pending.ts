@@ -20,6 +20,10 @@ export class PendingOpens {
 
   /** Keeps `note` for the client; a later click replaces an earlier one. */
   hold(clientId: ClientId, note: NotifyOpen): void {
+    if ('view' in note) {
+      this.notes.set(clientId, { note: { view: note.view, projectRoot: note.projectRoot, epic: note.epic, num: note.num }, at: this.now() })
+      return
+    }
     // The Machine only when it is another one: a note of this Machine reads as it did before Linked machines.
     const machine = note.machineId === undefined || note.machineId === null ? {} : { machineId: note.machineId }
     this.notes.set(clientId, { note: { sessionId: note.sessionId, projectRoot: note.projectRoot, ...machine }, at: this.now() })

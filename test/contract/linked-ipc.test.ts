@@ -110,3 +110,115 @@ describe('linked.open', () => {
     ])
   })
 })
+
+describe('subscriptions of several windows on one Linked machine (worfy-windows ticket 64)', () => {
+  // The Linked machine serves all windows of this Machine with one client: a close goes there only
+  // when the last window lets go (two windows end to end: linked-shared-subscriptions.test.ts).
+  const closes = () => remote.calls.filter((entry) => entry.channel.endsWith('.close'))
+  const invoke = (window: Contents, channel: string, input: unknown) => call('linked.invoke', { machine: M, channel, input }, window)
+
+  it('answers the close of a window while another holds the subscription, and passes the last one on', async () => {
+    const [first, second] = [new Contents(51), new Contents(52)]
+    await invoke(first, 'claudeHome.sessions', { projectRoot: '/p' })
+    await invoke(second, 'claudeHome.sessions', { projectRoot: '/p' })
+    expect(await invoke(first, 'claudeHome.close', { projectRoot: '/p' })).toEqual({ ok: true, value: { ok: true, value: { closed: true } } })
+    expect(closes()).toEqual([])
+    await invoke(second, 'claudeHome.close', { projectRoot: '/p' })
+    expect(closes()).toEqual([{ machine: M, channel: 'claudeHome.close', input: { projectRoot: '/p' } }])
+  })
+
+  it('counts a window once however often it subscribes, and each channel apart', async () => {
+    const [first, second] = [new Contents(53), new Contents(54)]
+    await invoke(first, 'workflow.open', { root: '/w' })
+    await invoke(first, 'workflow.open', { root: '/w' })
+    await invoke(second, 'pipeline.get', { root: '/w' })
+    await invoke(first, 'workflow.close', { root: '/w' })
+    expect(closes()).toEqual([{ machine: M, channel: 'workflow.close', input: { root: '/w' } }])
+    await invoke(second, 'pipeline.close', { root: '/w' })
+    expect(closes().map((entry) => entry.channel)).toEqual(['workflow.close', 'pipeline.close'])
+  })
+
+  it('workflow and pipeline: spellings of one folder are one subscription, as on the Linked machine; the last close goes for each spelling sent', async () => {
+    const [first, second, third] = [new Contents(60), new Contents(61), new Contents(62)]
+    await invoke(first, 'workflow.open', { root: 'C:/Work/p' })
+    await invoke(second, 'workflow.open', { root: 'c:\\Work\\p\\' })
+    await invoke(third, 'workflow.open', { root: 'C:/Work/./x/../p//' })
+    await invoke(first, 'workflow.close', { root: 'C:/Work/p' })
+    await invoke(second, 'workflow.close', { root: 'c:\\Work\\p\\' })
+    expect(closes()).toEqual([])
+    await invoke(third, 'workflow.close', { root: 'C:/Work/./x/../p//' })
+    expect(closes().map((entry) => entry.input)).toEqual([{ root: 'C:/Work/./x/../p//' }, { root: 'C:/Work/p' }, { root: 'c:\\Work\\p\\' }])
+  })
+
+  it('a window that subscribes while the last close is on the way keeps the subscription: the other spellings are not closed after it', async () => {
+    const [first, second, third] = [new Contents(71), new Contents(72), new Contents(73)]
+    await invoke(first, 'pipeline.get', { root: '/r' })
+    await invoke(second, 'pipeline.get', { root: '/r/' })
+    await invoke(second, 'pipeline.close', { root: '/r/' })
+    await Promise.all([invoke(first, 'pipeline.close', { root: '/r' }), invoke(third, 'pipeline.get', { root: '/r' })])
+    expect(closes()).toEqual([{ machine: M, channel: 'pipeline.close', input: { root: '/r' } }])
+    await invoke(third, 'pipeline.close', { root: '/r' })
+    expect(closes()).toHaveLength(2)
+  })
+
+  it('claudeHome: each spelling is a subscription of its own, as on the Linked machine', async () => {
+    const [first, second] = [new Contents(63), new Contents(64)]
+    await invoke(first, 'claudeHome.sessions', { projectRoot: '/h' })
+    await invoke(second, 'claudeHome.sessions', { projectRoot: '/h/' })
+    await invoke(first, 'claudeHome.close', { projectRoot: '/h' })
+    expect(closes()).toEqual([{ machine: M, channel: 'claudeHome.close', input: { projectRoot: '/h' } }])
+  })
+
+  it('a close from a window not counted in answers closed:false here while other windows hold the subscription', async () => {
+    const [holder, stray] = [new Contents(65), new Contents(66)]
+    await invoke(holder, 'pipeline.get', { root: '/s' })
+    expect(await invoke(stray, 'pipeline.close', { root: '/s' })).toEqual({ ok: true, value: { ok: true, value: { closed: false } } })
+    expect(closes()).toEqual([])
+    await invoke(holder, 'pipeline.close', { root: '/s' })
+    expect(closes()).toEqual([{ machine: M, channel: 'pipeline.close', input: { root: '/s' } }])
+  })
+
+  it('counts each Linked machine apart for one Project path', async () => {
+    const OTHER = '5d0e2f4a-8b1c-4c3d-9e7f-1a2b3c4d5e6f'
+    const [first, second] = [new Contents(67), new Contents(68)]
+    await invoke(first, 'workflow.open', { root: '/m' })
+    await call('linked.invoke', { machine: OTHER, channel: 'workflow.open', input: { root: '/m' } }, second)
+    await invoke(first, 'workflow.close', { root: '/m' })
+    expect(closes()).toEqual([{ machine: M, channel: 'workflow.close', input: { root: '/m' } }])
+    second.emit('destroyed')
+    expect(closes()).toEqual([
+      { machine: M, channel: 'workflow.close', input: { root: '/m' } },
+      { machine: OTHER, channel: 'workflow.close', input: { root: '/m' } },
+    ])
+  })
+
+  it('does not count a window already destroyed, and does not pass its open on', async () => {
+    const [gone, alive] = [Object.assign(new Contents(69), { isDestroyed: () => true }), new Contents(70)]
+    expect(await invoke(gone, 'workflow.open', { root: '/d' })).toEqual({ ok: true, value: { ok: false, error: 'workflow.open: the window is gone' } })
+    expect(remote.calls).toEqual([])
+    await invoke(alive, 'workflow.open', { root: '/d' })
+    await invoke(alive, 'workflow.close', { root: '/d' })
+    expect(closes()).toEqual([{ machine: M, channel: 'workflow.close', input: { root: '/d' } }])
+  })
+
+  it('a window that closes or loads another page lets go; the close goes when it was the last', async () => {
+    const [first, second] = [new Contents(55), new Contents(56)]
+    await invoke(first, 'pipeline.get', { root: '/q' })
+    await invoke(second, 'pipeline.get', { root: '/q' })
+    first.emit('destroyed')
+    expect(closes()).toEqual([])
+    second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: true })
+    expect(closes()).toEqual([])
+    second.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
+    expect(closes()).toEqual([{ machine: M, channel: 'pipeline.close', input: { root: '/q' } }])
+    // Let go once: a close the window sends after its page went passes on as before.
+    await invoke(second, 'pipeline.close', { root: '/q' })
+    expect(closes()).toHaveLength(2)
+  })
+
+  it('a close without a subscription counted here passes on unchanged', async () => {
+    const window = new Contents(57)
+    await invoke(window, 'claudeHome.close', { projectRoot: '/never' })
+    expect(closes()).toEqual([{ machine: M, channel: 'claudeHome.close', input: { projectRoot: '/never' } }])
+  })
+})

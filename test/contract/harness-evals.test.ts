@@ -6,8 +6,8 @@
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
-import { constants, tmpdir, userInfo } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { constants, homedir, tmpdir, userInfo } from 'node:os'
+import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 
@@ -31,8 +31,12 @@ const CASES: [name: string, tag: 'main' | 'gui'][] = [
 // A scaffold script has 120 seconds inside `claude plugin eval`; here it takes about a second.
 const SCAFFOLD_TIMEOUT_MS = 60_000
 
-/** The YAML front matter of a case or grader file, as raw text ('' when there is none). */
-const frontMatter = (file: string): string => /^---\n([\s\S]*?)\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
+/**
+ * The YAML front matter of a case or grader file, as raw text ('' when there is none). Lines may end
+ * in CRLF: git for Windows checks harness/evals/ out with core.autocrlf, and the test reads the file
+ * as git gives it on the machine. `field` trims the `\r` off a value.
+ */
+const frontMatter = (file: string): string => /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? ''
 const field = (yaml: string, key: string): string | undefined =>
   new RegExp(`^\\s*${key}:\\s*(.+)$`, 'm').exec(yaml)?.[1]?.trim().replace(/^['"]|['"]$/g, '')
 
@@ -52,9 +56,22 @@ const tempDir = (prefix: string): string => {
 }
 
 /**
+ * The environment of every child this file gives a home: `vars`, and HOME and USERPROFILE in the
+ * temporary `home`. Node on Windows takes its home from USERPROFILE and, without it, asks Windows
+ * for the account's profile folder — the real one, where the owner's ~/.claude/worfy-harness and
+ * ~/.claude/gate live. So a child with HOME alone would read and write the real Harness state there.
+ * HOME and USERPROFILE go last: no caller's variables replace them.
+ */
+const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({ ...vars, HOME: home, USERPROFILE: home })
+
+/** The environment of a scaffold script: PATH and TMPDIR of this process, and `extra`. */
+const scaffoldEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
+  childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...extra })
+
+/**
  * Runs a case's scaffold script the way `claude plugin eval --scaffold` does: in an empty
- * workspace, with HOME in a temporary folder and a short fixed environment — PATH, HOME, TMPDIR and
- * TERM here; claude 2.1.289 also sets USERPROFILE, TMP, TEMP, GIT_CONFIG_NOSYSTEM, USER_TYPE and
+ * workspace, with its home (HOME and USERPROFILE) in a temporary folder and a short fixed environment —
+ * PATH, TMPDIR and TERM here; claude 2.1.289 also sets TMP, TEMP, GIT_CONFIG_NOSYSTEM, USER_TYPE and
  * NODE_ENV, and passes no EVAL_* (git in an empty HOME has no identity, so the fixture must not need one).
  */
 function scaffold(
@@ -71,18 +88,35 @@ function scaffold(
   const script = field(readFileSync(join(EVALS, name, 'case.yaml'), 'utf8'), 'scaffold_script') ?? ''
   const run = spawnSync('bash', [join(EVALS, name, script)], {
     cwd: work,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...(typeof extra === 'function' ? extra(work, home) : extra) },
+    env: scaffoldEnv(home, typeof extra === 'function' ? extra(work, home) : extra),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
   return { work, home, run }
 }
 
-/** Runs a Harness script against a scaffolded fixture with only the fixture's HOME (and `extra`). */
+/**
+ * The environment of a Harness script: the fixture's home, PATH, TMPDIR and LANG, and `extra`;
+ * ELECTRON_RUN_AS_NODE, because the script runs under this process's Node (see `harness`).
+ */
+const harnessEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv =>
+  childEnv(home, {
+    PATH: process.env.PATH,
+    TMPDIR: process.env.TMPDIR ?? tmpdir(),
+    LANG: process.env.LANG ?? 'C.UTF-8',
+    ELECTRON_RUN_AS_NODE: '1',
+    ...extra,
+  })
+
+/**
+ * Runs a Harness script against a scaffolded fixture with only the fixture's home (and `extra`).
+ * The scripts are Node scripts (`#!/usr/bin/env node`), started as `<this Node> <script>`: Windows
+ * starts no script by its path, only .exe and .com.
+ */
 const harness = (home: string, cwd: string, script: string, args: string[], extra: NodeJS.ProcessEnv = {}): SpawnSyncReturns<string> =>
-  spawnSync(join(HARNESS, 'bin', script), args, {
+  spawnSync(process.execPath, [join(HARNESS, 'bin', script), ...args], {
     cwd,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', ...extra },
+    env: harnessEnv(home, extra),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -139,8 +173,14 @@ describe('harness/evals: the cases', () => {
   })
 })
 
+// Skipped on Windows: the fixture writes the "match" of its gate registry from `pwd -P` of Git Bash —
+// /tmp/…/work, while bin/profile on Node sees C:\…\work, so it answers "not in a registered project"
+// (exit 3). The same cause as the `pm` path of PR #496. Step 4 of worfy-windows ticket 65, after PR
+// #496 merges, lifts the skip. A Windows path in "match" makes all of these green on the PC.
+const registryPathsMatch = process.platform !== 'win32'
+
 describe('harness/evals: the fixture is a project the Harness recognises', () => {
-  it.each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, run.stderr).toBe(0)
     const profile = harness(home, work, 'profile', ['-C', work, '--name'])
@@ -151,7 +191,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
   // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
   // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
-  it.each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
@@ -163,7 +203,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
   // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
   // the folder it names and nothing else — no copy in $HOME.
-  it.each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -212,7 +252,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const guard = join(EVALS, 'lib', 'state-guard.cjs')
     const work = tempDir('worfy-eval-guard-')
     const fake = tempDir('worfy-eval-guard-home-')
-    const env = { PATH: process.env.PATH, HOME: fake }
+    const env = childEnv(fake, { PATH: process.env.PATH })
     const check = (home: string, extra: NodeJS.ProcessEnv = {}) =>
       spawnSync(process.env.npm_node_execpath ?? 'node', [guard, home, work], { env: { ...env, ...extra }, encoding: 'utf8' })
     const real = check(userInfo().homedir)
@@ -243,7 +283,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     const work = tempDir('worfy-eval-realhome-work-')
     const run = spawnSync('bash', [join(EVALS, 'status-block', 'scaffold.sh')], {
       cwd: work,
-      env: { PATH: process.env.PATH, HOME: realHome, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...stub },
+      env: childEnv(realHome, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...stub }),
       encoding: 'utf8',
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
@@ -310,7 +350,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(existsSync(pm)).toBe(true)
     const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
       cwd: work,
-      env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', ...evalHome },
+      env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', ...evalHome }),
       encoding: 'utf8',
       input: '',
       timeout: SCAFFOLD_TIMEOUT_MS,
@@ -326,7 +366,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
       cwd: work,
-      env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', EVAL_HARNESS_HOME: 'worfy-harness' },
+      env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', EVAL_HARNESS_HOME: 'worfy-harness' }),
       encoding: 'utf8',
       input: '',
       timeout: SCAFFOLD_TIMEOUT_MS,
@@ -346,11 +386,12 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   })
 })
 
-// The fixture's own commands, with the fixture's HOME and no Electron variables.
+// The fixture's own commands, with the fixture's home and no Electron variables.
+const fixtureEnv = (home: string): NodeJS.ProcessEnv => childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir() })
 const inFixture = (home: string, cwd: string, command: string, args: string[]): SpawnSyncReturns<string> =>
   spawnSync(command, args, {
     cwd,
-    env: { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir() },
+    env: fixtureEnv(home),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -446,7 +487,7 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
 const { appendFileSync, chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
-const { dirname, join } = require('node:path')
+const { dirname, join, resolve } = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
 const log = process.env.STUB_LOG
@@ -454,14 +495,21 @@ const calls = existsSync(log) ? readFileSync(log, 'utf8').split('\\n').filter(Bo
 const manifest = JSON.parse(readFileSync(join(args[2], '.claude-plugin', 'plugin.json'), 'utf8'))
 const evals = readdirSync(join(args[2], 'evals'))
 const evalGit = process.env.EVAL_GIT || ''
-const runGit = (gitArgs, env = {}) => spawnSync(evalGit, gitArgs, { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', ...env } })
+// Windows starts no #!/bin/sh script by its path: there sh runs the wrapper, with the PATH of the run,
+// through which the copied git.exe loads its DLLs; git prints its exec path with forward slashes.
+const windows = process.platform === 'win32'
+const runGit = (gitArgs, env = {}) => windows
+  ? spawnSync('sh', [evalGit, ...gitArgs], { encoding: 'utf8', env: { PATH: process.env.PATH, ...env } })
+  : spawnSync(evalGit, gitArgs, { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', ...env } })
 const version = evalGit ? runGit(['--version']) : null
-const execPath = evalGit ? runGit(['--exec-path']).stdout.trim() : ''
+const execPathOut = evalGit ? runGit(['--exec-path']).stdout.trim() : ''
+const execPath = windows && execPathOut ? resolve(execPathOut) : execPathOut
 const systemConfig = evalGit && process.env.STUB_SYSTEM_CONFIG
   ? runGit(['config', '--get', 'worfy.probe'], { GIT_CONFIG_SYSTEM: process.env.STUB_SYSTEM_CONFIG, GIT_CONFIG_GLOBAL: '/dev/null' }).status
   : null
 const core = evalGit ? join(dirname(evalGit), 'git-core') : ''
-const gitFiles = core && existsSync(core) ? readdirSync(core) : []
+// On Windows the names of the commands, without .exe: git.exe is the command git.
+const gitFiles = core && existsSync(core) ? readdirSync(core).map((file) => (windows ? file.replace(/\\.exe$/, '') : file)) : []
 appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
   gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
@@ -516,13 +564,21 @@ function stubSetup(
   extra: NodeJS.ProcessEnv,
 ): { dir: string; log: string; env: NodeJS.ProcessEnv } {
   const dir = tempDir('worfy-eval-stub-')
-  const claude = join(dir, 'claude')
-  writeFileSync(claude, STUB)
-  chmodSync(claude, 0o755)
+  // Windows starts no script by its path: there the stand-in is a `.mjs`, which eval-harness.mjs
+  // starts with its own Node, the way worfy starts a `.mjs` WORFY_CLAUDE (src/main/program.ts). The
+  // stub is CommonJS, so the `.mjs` only loads it. On macOS and Linux the stub is started by its
+  // path, as the real claude is.
+  const claude = join(dir, process.platform === 'win32' ? 'claude.mjs' : 'claude')
+  if (process.platform === 'win32') {
+    writeFileSync(join(dir, 'claude.cjs'), STUB)
+    writeFileSync(claude, "import './claude.cjs'\n")
+  } else {
+    writeFileSync(claude, STUB)
+    chmodSync(claude, 0o755)
+  }
   const log = join(dir, 'calls.log')
-  const env = {
+  const env = childEnv(dir, {
     PATH: path(dir),
-    HOME: dir,
     ELECTRON_RUN_AS_NODE: '1',
     HARNESS_DIR: evaluated(),
     CLAUDE_BIN: claude,
@@ -530,7 +586,7 @@ function stubSetup(
     STUB_CODES: codes,
     STUB_LOG: log,
     ...extra,
-  }
+  })
   return { dir, log, env }
 }
 
@@ -563,7 +619,10 @@ const gitCopies = (): string[] => {
   return existsSync(results) ? readdirSync(results).filter((dir) => dir.endsWith('-git')) : []
 }
 
-/** A folder first on PATH whose `git` prints `core` for --exec-path and fails for anything else. */
+/**
+ * A folder first on PATH whose `git` prints `core` for --exec-path and fails for anything else. On
+ * Windows eval-harness.mjs finds it through `sh`; the PATH lookup of Windows itself takes git.exe.
+ */
 const fakeGitPath = (dir: string, core: string): string => {
   const bin = join(dir, 'fake-git')
   mkdirSync(bin)
@@ -585,6 +644,90 @@ const listAfter = (args: string[], option: string): string[] => {
   const end = args.findIndex((arg, i) => i >= from && arg.startsWith('--'))
   return args.slice(from, end === -1 ? undefined : end)
 }
+
+// Every child of this file that runs a scaffold script, a Harness script, git in a fixture or
+// eval-harness.mjs with the claude stub gets its home from childEnv. A child that saw the owner's
+// real home would read the real Harness registry in ~/.claude/worfy-harness and ~/.claude/gate, and
+// a Harness script that writes would write there (worfy-windows ticket 65). The tests' own git calls
+// that read the repository (the control `git --exec-path` and `git check-ignore`) run the real git
+// with this process's environment and write nothing.
+describe('a child process sees the temporary home', () => {
+  // The variables of a caller that names a home of its own: the real one. Built from names, so the
+  // scan below (no HOME or USERPROFILE key outside childEnv) does not count them.
+  const foreignHome = (): NodeJS.ProcessEnv => Object.fromEntries(['HOME', 'USERPROFILE'].map((name) => [name, homedir()]))
+  // startsNode: the environment starts this process's executable, which under Electron needs
+  // ELECTRON_RUN_AS_NODE to run as Node and not as an app window that never exits.
+  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv, startsNode: boolean][] = [
+    ['scaffold', (home) => scaffoldEnv(home), false],
+    ['scaffold, a caller with its own home', (home) => scaffoldEnv(home, foreignHome()), false],
+    ['harness', (home) => harnessEnv(home), true],
+    ['harness, a caller with its own home', (home) => harnessEnv(home, foreignHome()), true],
+    ['inFixture', (home) => fixtureEnv(home), false],
+    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env, true],
+    ['the claude stub, a caller with its own home', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', foreignHome()).env, true],
+  ]
+  const insideTemp = (dir: string | undefined): boolean => {
+    const inside = relative(realpathSync(tmpdir()), dir ?? '')
+    return inside !== '' && !inside.startsWith('..') && !isAbsolute(inside)
+  }
+
+  it.each(launchers)('%s: USERPROFILE is HOME, in a temporary folder', (_, envOf) => {
+    const env = envOf(tempDir('worfy-eval-home-'))
+    expect(insideTemp(env.HOME), String(env.HOME)).toBe(true)
+    expect(env.USERPROFILE).toBe(env.HOME)
+  })
+
+  it.each(launchers.filter(([, , startsNode]) => startsNode))('%s: runs this process as Node (ELECTRON_RUN_AS_NODE=1)', (_, envOf) => {
+    expect(envOf(tempDir('worfy-eval-home-')).ELECTRON_RUN_AS_NODE).toBe('1')
+  })
+
+  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf, startsNode) => {
+    const env = envOf(tempDir('worfy-eval-home-'))
+    // A launcher that starts this process's executable is used as it is: adding the variable here
+    // would hide its loss.
+    const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], {
+      env: startsNode ? env : { ...env, ELECTRON_RUN_AS_NODE: '1' },
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(child.status, child.stderr).toBe(0)
+    expect(child.stdout).toBe(env.HOME)
+    expect(child.stdout).not.toBe(homedir())
+  })
+
+  // A new spawn that writes its own home past childEnv, or that names no environment and so passes
+  // on the real home, makes this test red.
+  it('every spawn and spawnSync of this file names its environment, and only childEnv names a home', () => {
+    const source = readFileSync(__filename, 'utf8')
+    const lineOf = (index: number): string => source.slice(source.lastIndexOf('\n', index) + 1, source.indexOf('\n', index))
+    const helper = lineOf(source.indexOf('const childEnv = '))
+    expect(helper).toMatch(/\bHOME: home\b/)
+    expect(helper).toMatch(/\bUSERPROFILE: home\b/)
+    // A key HOME or USERPROFILE anywhere but in childEnv.
+    const keys = [...source.matchAll(/(?<![\w$])(?:HOME|USERPROFILE)\s*:/g)].map((match) => lineOf(match.index)).filter((line) => line !== helper)
+    expect(keys).toEqual([])
+    // A spawn or spawnSync call that names HOME or USERPROFILE itself.
+    const calls: string[] = []
+    // A call starts with a quote or a name, maybe on the next line: the pattern below is no call.
+    for (const match of source.matchAll(/\bspawn(?:Sync)?\((?=\s*['"\w])/g)) {
+      let depth = 0
+      let end = match.index + match[0].length - 1
+      for (; end < source.length; end++) {
+        if (source[end] === '(') depth++
+        else if (source[end] === ')' && --depth === 0) break
+      }
+      calls.push(source.slice(match.index, end + 1))
+    }
+    expect(calls.length).toBeGreaterThan(5)
+    expect(calls.filter((call) => /(?<![\w$])(?:HOME|USERPROFILE)(?![\w$])/.test(call))).toEqual([])
+    // A call that names no environment, or hands on this process's own, passes on the real home. The
+    // exceptions are the tests' own read-only git calls in the repository; each must still exist.
+    const readOnlyGit = [/^spawnSync\('git', \['--exec-path'\], \{ encoding: 'utf8' \}\)$/, /^spawnSync\('git', \['check-ignore', '-q', .*\], \{ cwd: REPO \}\)$/]
+    for (const known of readOnlyGit) expect(calls.filter((call) => known.test(call)), String(known)).toHaveLength(1)
+    const own = calls.filter((call) => !readOnlyGit.some((known) => known.test(call)))
+    expect(own.filter((call) => !/[{,]\s*env\s*[:,}]/.test(call) || /\benv\s*:\s*process\.env\b|\.\.\.process\.env\b/.test(call))).toEqual([])
+  })
+})
 
 describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub)', () => {
   it('refuses with exit code 1 on claude older than 2.1.269 and runs nothing', () => {
@@ -722,7 +865,9 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       return [gitStubDir, process.env.PATH ?? ''].join(delimiter)
     })
     expect(run.status).toBe(1)
-    expect(run.stderr).toMatch(/git --exec-path/)
+    // Exit 1 is the failing git's own answer; on Windows, a lookup that could not start it (no `sh`
+    // on PATH) would stop at ENOENT and make this test pass for that wrong reason.
+    expect(run.stderr).toMatch(/git --exec-path.*exit 1\)/)
     expect(calls).toEqual([])
     expect(gitCopies()).toEqual(before)
   })
@@ -735,7 +880,9 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     chmodSync(join(core, 'git'), 0o755)
     const { run, calls } = evalHarness('2.1.289', '0,0', [], (dir) => fakeGitPath(dir, core))
     expect(run.status).toBe(1)
-    expect(run.stderr).toMatch(/the copy of git does not run/)
+    // Exit 1 is the copy's own answer; on Windows, a check that started the `#!/bin/sh` wrapper by
+    // its path, not through sh, would stop at ENOENT and make this test pass for that wrong reason.
+    expect(run.stderr).toMatch(/the copy of git does not run \(.* --version, exit 1\)/)
     expect(calls).toEqual([])
     expect(gitCopies()).toEqual(before)
   })
@@ -781,6 +928,9 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   // A signal reaches the whole process group: claude ends, or catches it and exits 0;
   // eval-harness.mjs stays to remove its copies, starts no gui call (it is paid, and after SIGHUP
   // nobody could stop it) and reports 128 + the number of the signal.
+  // Skipped on Windows: it has no POSIX signals or process groups — process.kill with SIGINT, SIGTERM
+  // or SIGHUP ends the process outright, so no handler of eval-harness.mjs runs. Not a gap a ticket
+  // closes: `pnpm eval:harness` with the real claude runs only on a Mac (worfy-windows ticket 65).
   it.skipIf(process.platform === 'win32').each([
     ['SIGINT', 'ends on it'],
     ['SIGTERM', 'ends on it'],
@@ -835,7 +985,14 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     ['2,1', 2],
     ['130,0', 130],
   ])('exits with the worst code of the calls (%s -> %i)', (codes, worst) => {
-    expect(evalHarness('2.1.289', codes).run.status).toBe(worst)
+    const { run, calls } = evalHarness('2.1.289', codes)
+    expect(run.status, run.stderr).toBe(worst)
+    // The code comes from the calls: a run that stopped before claude, or whose clean-up threw after
+    // them (exit 1 too), is not "1,0 -> 1". The result paths are written only after the clean-up.
+    const [main, gui] = codes.split(',')
+    expect(calls).toHaveLength(2)
+    expect(run.stdout).toMatch(new RegExp(`main exited ${main}\\n[\\s\\S]*gui exited ${gui}\\n`))
+    expect(run.stdout).toMatch(/aggregate-result\.json/)
   })
 
   it('passes the arguments after -- through and skips a call that selects no case', () => {
@@ -846,6 +1003,29 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(listAfter(args, '--tag')).toEqual(['main'])
     expect(args.slice(-4)).toEqual(['--case', 'status-block', '--runs', '1'])
     expect(run.stdout).toMatch(/no gui case selected/)
+  })
+
+  // Only a `.mjs` CLAUDE_BIN on Windows starts through this process's executable. Here CLAUDE_BIN is
+  // that executable itself: by its path it answers --version (v<major>.<minor>.<patch>, newer than
+  // the minimum); as a script of itself it fails. A --case that matches nothing skips both calls.
+  it.runIf(process.platform === 'win32')('on Windows starts a CLAUDE_BIN that is no .mjs by its path', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: process.execPath })
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout).toMatch(/no main case selected/)
+    expect(calls).toEqual([])
+  })
+
+  // Outside Windows a `.mjs` CLAUDE_BIN starts by its path, as any other. This one is a `#!/bin/sh`
+  // script that runs the stub: the kernel runs it through its #! line, while Node would refuse it as
+  // JavaScript.
+  it.skipIf(process.platform === 'win32')('outside Windows starts a .mjs CLAUDE_BIN by its path', () => {
+    const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
+    const claude = join(dir, 'claude-by-path.mjs')
+    writeFileSync(claude, `#!/bin/sh\nexec '${join(dir, 'claude')}' "$@"\n`)
+    chmodSync(claude, 0o755)
+    const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+    expect(run.status, run.stderr).toBe(0)
+    expect(loggedCalls(log)).toHaveLength(2)
   })
 })
 

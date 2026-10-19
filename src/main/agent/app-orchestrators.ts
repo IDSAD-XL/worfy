@@ -37,7 +37,8 @@ export function sharedOrchestrators(): Orchestrators {
       // late write does not create its data folder again.
       settings: new SessionSettingsStore((projectId) => projectStore().dataDir(projectStore().get(projectId).id)),
       transcript: async (projectRoot, sdkSessionId) => {
-        const path = await claude.transcriptPath(projectRoot, sdkSessionId)
+        // A caller of this Machine: a saved Session whose cwd is unknown is still found (RegistryRoot).
+        const path = await claude.transcriptPath({ path: projectRoot, local: true }, sdkSessionId)
         return path === null ? null : readTranscriptFacts(path)
       },
       broadcast: (sessionId, event) => toEveryWindow((target) => emit(target, agentEvent, { sessionId, event })),
