@@ -278,6 +278,14 @@ node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.r
 
 ### Windows: test-ы, которым worfy-windows 14 (срез 3l) поднял timeout на win32 (2026-10-19)
 
+**Итог (2026-10-19, решение владельца).** Пределы по одному test-у сняты. Вместо них на Windows все пределы
+vitest по умолчанию умножены на 3, в одном месте — `vitest.config.ts` (`timeScale`): `node` и `jsdom` 15 s,
+`contract` 45 s, hook-и 30 s. На macOS и Linux значения прежние. Остались только два отдельных предела больше
+45 s: `harness-evals` «reviewer-simplification…» 53 s и `harness-migrate` «the qmd group…» 60 s. Причина —
+в полном run-е на Windows короткие test-ы идут в 4–5 раз дольше, чем в одиночку, и каждый раз другие
+упираются в предел (раздел «Одна проблема нагрузки» ниже); меньше worker-ов не помогает. Таблица ниже —
+история замеров, по которой это видно.
+
 Цель среза 3l — `pnpm test` с exit code 0 на Windows. Test-ы ниже краснели по timeout-у на PC.
 Предел поднят только на win32 и только у одного test-а: третий аргумент
 `it(…, fn, process.platform === 'win32' ? N : undefined)`, над test-ом — комментарий с замером.
@@ -344,11 +352,12 @@ test-ы — 1–4 s в одиночку — в полном run-е на Windows 
 | `workflow-reader.test.ts` «workflow watcher > reads during a steady stream of saves…» | 3.8 s / 3.7 s | 5.0 s | 5.4 s | timeout 15 s |
 
 В одиночку — `-t` и `--testTimeout=120000` на PC: github-prs на `main` `046b086c`, два других на `aa27fa89`.
-- [ ] Лечить причину, а не симптомы (worfy-windows 14). Сначала эксперимент на свободном PC: полный run того
-  же `main` с `--maxWorkers=8` (половина 16 логических ядер). Если timeout-ы уходят, а время run-а растёт
-  меньше чем на ~30 %, — `maxWorkers` только на win32 в `vitest.config.ts`, в одном месте. Иначе — testTimeout
-  30 s только на win32 у project `contract` в `vitest.config.ts` (2× default 15 s); пределы выше 30 s у
-  отдельных test-ов остаются.
+- [x] Эксперимент: полный run `aa27fa89` с `--maxWorkers=8` (vitest 5.0.3 по умолчанию берёт 15 на 16
+  логических ядрах), 2026-10-19 23:22–23:47. Время 1462 s против 1521 s; timeout-ов вне Ticket 71 — 4 против 2,
+  у других test-ов: `process-boundary` (`node`), `linked-read-only` (`jsdom`), `canvas` collectNodeTypes,
+  `harness-migrate` «the toolbar offer» (9.6–12.7 s в одиночку). Меньше worker-ов не лечит.
+- [x] Решение владельца: множитель ×3 на Windows для всех project-ов, без новых замеров (Итог в начале раздела).
+- [ ] Следующий полный run на свободном PC покажет, хватает ли ×3.
 
 «the state > a build whose Harness names no dependency has none to report»
 (`harness-install.test.ts`) в R1 упал на сравнении списка вызовов `claude`
@@ -359,7 +368,7 @@ test-а перед ним («with the plugin folder reads `plugin list` once…�
 нового test-а. Проверено мутантом: предыдущему test-у — timeout 500 ms и пауза перед `clearCalls()`,
 чтобы удаление пришлось на `install` следующего test-а. При паузе 200 ms следующий test падает с тем
 же сообщением, при 400 и 600 ms — с двумя и одним вызовом. Без timeout-а у предыдущего test-а этого
-нет: пока он укладывается в новый предел 33 s (R2: 16.2 s), сбоя нет и у следующего. Предел 33 s прячет
+нет: пока он укладывается в предел (33 s, с Итога — 45 s по умолчанию), сбоя нет и у следующего. Предел прячет
 утечку, но не лечит её: test, упавший по timeout-у, продолжает работать и чистит журнал вызовов
 следующего (`harness-install.test.ts:176`, `:223`, ревью PR #541). Открыто.
 
