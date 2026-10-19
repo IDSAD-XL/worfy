@@ -61,6 +61,7 @@ describe('check-lessons', () => {
     expect(violations(stderr)).toEqual([`${LESSONS}:5: «A lesson pointing at a deleted test»: test/deleted.txt — такого файла нет`])
   })
 
+  // Windows: 5.9 s in a full run on the PC (2026-10-19), sync, overran its 5 s limit; twice that.
   it('fails «проверки нет:» with an empty or blank reason and passes it with a reason', () => {
     const { status, stderr } = check('empty-reason')
     expect(status).toBe(1)
@@ -68,7 +69,7 @@ describe('check-lessons', () => {
       `${LESSONS}:5: «A gap with no reason»: «проверки нет:» без причины`,
       `${LESSONS}:9: «A gap with only spaces for a reason»: «проверки нет:» без причины`,
     ])
-  })
+  }, process.platform === 'win32' ? 12_000 : undefined)
 
   it('fails a line past the end of the file, and line 0', () => {
     const { status, stderr } = check('past-end')
