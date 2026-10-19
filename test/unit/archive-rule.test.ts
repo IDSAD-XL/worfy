@@ -8,7 +8,7 @@ import type { BindingTarget, BindingWorkflow } from '../../src/shared/binding/re
 import { layoutNodeSchema, type LayoutNode } from '../../src/shared/layout/types'
 import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
 import type { ManualBinding } from '../../src/shared/ipc/bindings'
-import { ARCHIVE_NEVER, archiveCandidates, archiveSettings, sessionBindings, TICKET_DONE_GRACE_MS, type ArchiveSettings } from '../../src/main/layout/archive'
+import { ARCHIVE_NEVER, archiveCandidates, archiveSettings, bindingsNeeded, sessionBindings, TICKET_DONE_GRACE_MS, type ArchiveSettings } from '../../src/main/layout/archive'
 
 const HOUR = 3_600_000
 const NOW = Date.parse('2026-10-19T12:00:00Z')
@@ -166,5 +166,21 @@ describe('the Binding of each Session, as main resolves it for the ticket-done r
     expect(Object.fromEntries(found)).toEqual({ m: ticket('e', 1), l: ticket('e', 2), claimed: ticket('e', 3), sub: null, gone: null })
     // A stored Binding needs no transcript.
     expect(read).toEqual(['/repo/claimed.jsonl', '/repo/sub.jsonl'])
+  })
+})
+
+describe('which Sessions need a Binding', () => {
+  it('only those past the grace and not past the idle threshold, and none without the ticket-done rule or under «Never»', () => {
+    const nodes = [session('old'), session('mid'), session('fresh'), session('pinned', { pinned: true }), session('live')]
+    const history = [last('old', 30 * HOUR), last('mid', 2 * HOUR), last('fresh', HOUR / 2), last('pinned', 2 * HOUR), last('live', 2 * HOUR)]
+    const live = [{ sessionId: 'live', status: 'unknown' }]
+    expect(bindingsNeeded(nodes, live, history, NOW, DAY)).toEqual(['mid'])
+    expect(bindingsNeeded(nodes, live, history, NOW, { idleMs: 24 * HOUR, ticketDone: false })).toEqual([])
+    expect(bindingsNeeded(nodes, live, history, NOW, ARCHIVE_NEVER)).toEqual([])
+  })
+
+  it('a Session idle past the threshold whose Ticket is done is archived by the idle rule: no Binding needed', () => {
+    const bindings = new Map([['a', ticket('e', 7)]])
+    expect(run({ nodes: [session('a')], history: [last('a', 30 * HOUR)], flow: workflow('done'), bindings })).toEqual([{ id: 'session:a', rule: 'idle' }])
   })
 })

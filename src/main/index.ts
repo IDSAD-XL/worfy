@@ -8,7 +8,6 @@ import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
 import { BindingSignalReader } from './claude-home/binding-signals'
-import { ClaudeHomeRegistry } from './claude-home/registry'
 import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
 import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
@@ -19,7 +18,7 @@ import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { stageHub } from './ipc/pipeline'
 import { workflowHub } from './ipc/workflow'
-import { archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
+import { archiveRegistry, archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
 import { electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
@@ -186,7 +185,7 @@ const ARCHIVE_WORKFLOW_SUBSCRIBER = 'auto-archive'
  * Session back at once. Returns the function that stops it.
  */
 function installAutoArchive(): () => void {
-  const registry = new ClaudeHomeRegistry({ home: claudeHome() })
+  const registry = archiveRegistry({ home: claudeHome() })
   const reader = new BindingSignalReader()
   // This Machine's own call (RegistryRoot): it sees what a window of the Project sees.
   const local = (path: string) => ({ path, local: true })

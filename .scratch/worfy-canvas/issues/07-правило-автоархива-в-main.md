@@ -121,5 +121,17 @@ PR [#536](https://github.com/IDSAD-XL/worfy/pull/536), ветка `worfy-canvas/
   красные. `gate.mjs fast` — «[gate] зелено (fast)», lint, typecheck, test под временными `HOME` и
   `HARNESS_HOME`. e2e не гонялись: Ticket не добавляет и не меняет e2e-файлов, весь `test:e2e` —
   gate full Orchestrator-а.
+- **Ревью, круг 2** (находки круга 1 PR #536):
+  - реестр автоархива (`archiveRegistry`) считает живым процесс, чьё состояние не удалось узнать
+    (`ps`/PowerShell не ответил): `isAlive` — «не `gone`», как у дерева Subagent-ов; contract test
+    на `unknown`, `alive` и `gone`;
+  - Canvas: test-рендер, что Node с `archived` не рисуется, а с `archived: null` — рисуется;
+  - contract test: после `restore` у Node-а есть `touchedAt`, и следующий прогон его не берёт;
+  - под «Never» прогон не читает ни реестр, ни транскрипты, пока в Layout-е нет архивных Node-ов
+    (ADR-0076, п. 7); с архивным Node-ом реестр читается, чтобы вернуть продолженную Session;
+  - Binding-и и модель workflow запрашиваются только для Session-ов, которые может взять одно
+    правило «Ticket done» (`bindingsNeeded`: прошёл час, но не порог простоя). Поэтому при обоих
+    правилах сразу теперь пишется `idle`, а не `ticket-done`.
+  - Мутанты круга 2 (9 новых и 5 прежних ключевых) — все красные.
 - **Не сделано здесь:** Settings, команда, Keep-кнопка (08), история и popover (09), toast и порог
   24 h по умолчанию (10).

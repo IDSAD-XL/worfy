@@ -357,6 +357,73 @@ describe('the archiver', () => {
   })
 })
 
+describe('round 2 of the review of PR #536', () => {
+  it('a Session whose process state cannot be told (ps did not answer) is live: the archive registry never takes it for finished', async () => {
+    const { archiveRegistry } = await import('../../src/main/layout/archive')
+    const home = join(scratch, 'claude-home')
+    mkdirSync(join(home, 'sessions'), { recursive: true })
+    writeFileSync(join(home, 'sessions', '4242.json'), JSON.stringify({ pid: 4242, sessionId: 'a', cwd: repo, status: 'idle' }))
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    const over = (state: 'alive' | 'gone' | 'unknown') => {
+      const registry = archiveRegistry({ home, processState: () => Promise.resolve(state), listWorktrees: () => Promise.resolve([]) })
+      return archiver({ live: (project) => registry.live({ path: project.path, local: true }) })
+    }
+    expect(await over('unknown').run({ id: PROJECT, path: repo })).toBe(0)
+    expect(await over('alive').run({ id: PROJECT, path: repo })).toBe(0)
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+    // The same entry with its process gone: finished, archived.
+    expect(await over('gone').run({ id: PROJECT, path: repo })).toBe(1)
+  })
+
+  it('a restored Node is touched, so the next run does not take it again', async () => {
+    apply(sessionNode('a'))
+    world.history = transcripts(['a', 30 * HOUR])
+    const one = archiver()
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(1)
+    apply({ op: 'restore', ids: ['session:a'] }, 'screen-1')
+    expect(nodeOf('session:a')?.touchedAt).toEqual(expect.any(Number))
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+  })
+
+  it('under «Never» a run reads no registry and no transcripts while no Node is archived', async () => {
+    apply(sessionNode('a'))
+    const live = vi.fn(noneLive)
+    const history = vi.fn(transcripts(['a', 300 * HOUR]))
+    const never = archiver({ live, history, settings: () => ({ idleMs: null, ticketDone: true }) })
+    await never.runAll()
+    expect(live).not.toHaveBeenCalled()
+    expect(history).not.toHaveBeenCalled()
+    // With a Node archived before, the registry is read: a resumed Session must come back.
+    apply({ op: 'archive', batch: 'b1', nodes: [{ id: 'session:a', rule: 'idle' }] })
+    await never.runAll()
+    expect(live).toHaveBeenCalledTimes(1)
+  })
+
+  it('Bindings are looked up only for the Sessions the ticket-done rule alone could take', async () => {
+    apply(sessionNode('old'))
+    apply(sessionNode('mid', 400, 0))
+    apply(sessionNode('fresh', 800, 0))
+    apply(sessionNode('pinned', 1200, 0))
+    apply({ op: 'pin', id: 'session:pinned', pinned: true, x: 1, y: 1, w: 300, h: 120 })
+    apply(sessionNode('kept', 1600, 0))
+    apply({ op: 'keep', id: 'session:kept', keep: true })
+    world.history = transcripts(['old', 30 * HOUR], ['mid', 2 * HOUR], ['fresh', HOUR / 2], ['pinned', 2 * HOUR], ['kept', 2 * HOUR])
+    const workflow = vi.fn(() => Promise.resolve({ epics: ['e'], tickets: [{ epic: 'e', num: 1, state: 'done' }] }))
+    const bindings = vi.fn((_project: unknown, ids: readonly string[]) => Promise.resolve(new Map(ids.map((id) => [id, { kind: 'ticket' as const, epic: 'e', num: 1 }]))))
+    const one = archiver({ workflow, bindings })
+    expect(await one.run({ id: PROJECT, path: repo })).toBe(2)
+    expect(bindings).toHaveBeenCalledTimes(1)
+    expect(bindings.mock.calls[0]?.[1]).toEqual(['mid'])
+    expect(changes(1, 'archive')[0]?.op).toEqual({ op: 'archive', batch: 'batch-1', nodes: [{ id: 'session:old', rule: 'idle' }, { id: 'session:mid', rule: 'ticket-done' }] })
+    // Nothing left that only a Binding could decide: no workflow model, no lookup.
+    await one.run({ id: PROJECT, path: repo })
+    expect(workflow).toHaveBeenCalledTimes(1)
+    expect(bindings).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('the undo history of a screen', () => {
   it('the timer\'s operations are no step of it: ⌘Z after an archive undoes the user\'s own move', async () => {
     const { applyRecorded, historyOf, noteLayoutChange, resetHistories } = await import('../../src/renderer/canvas/history')

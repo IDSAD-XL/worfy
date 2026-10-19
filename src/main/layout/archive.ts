@@ -20,6 +20,7 @@ import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
 import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { isArchived, type ArchiveRule, type LayoutNode } from '../../shared/layout/types'
+import { ClaudeHomeRegistry, processState, type RegistryOptions } from '../claude-home/registry'
 import { samePath } from '../harness/status-line'
 import type { LayoutStore } from './store'
 
@@ -74,17 +75,43 @@ const sessionOf = (node: LayoutNode): string | null => {
   return typeof id === 'string' && id !== '' ? id : null
 }
 
+/** A Session Node that passed the cheap checks of the rule, and how long its Session has been idle. */
+interface IdleSession {
+  node: LayoutNode
+  sessionId: string
+  idle: number
+}
+
+/**
+ * The Session Nodes the rule may take, before any threshold: of kind `session`, not archived,
+ * not pinned, without Keep, not touched less than `threshold` ago, naming a Session that is not
+ * live and whose transcript tells the time of its last record. Every entry of `live` is live,
+ * whatever its status — `unknown` too (not known — not closed, ADR-0031).
+ */
+function idleSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, threshold: number): IdleSession[] {
+  const alive = new Set(live.map((session) => session.sessionId))
+  const lastAt = new Map(history.map((session) => [session.sessionId, session.lastAt === undefined ? Number.NaN : Date.parse(session.lastAt)]))
+  const found: IdleSession[] = []
+  for (const node of nodes) {
+    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) continue
+    const sessionId = sessionOf(node)
+    if (sessionId === null || alive.has(sessionId)) continue
+    if (node.touchedAt != null && now - node.touchedAt < threshold) continue
+    const last = lastAt.get(sessionId)
+    if (last === undefined || Number.isNaN(last)) continue
+    found.push({ node, sessionId, idle: now - last })
+  }
+  return found
+}
+
 /**
  * The Session Nodes to archive now, in the order of the Layout (ADR-0076, points 1–2).
  *
- * A candidate is a Node of kind `session` whose Session is not live and that either idled past
- * `settings.idleMs` since the last record of its transcript (`idle`), or is bound to a Ticket the
- * workflow model says is done and had its last record over TICKET_DONE_GRACE_MS ago
- * (`ticket-done`, when `settings.ticketDone`). Never archived: a live Session — every entry of
- * `live`, whatever its status, `unknown` too (not known — not closed, ADR-0031); a pinned Node; a
- * Node with Keep; a Node the user touched less than `settings.idleMs` ago; a Session with no time
- * of its last record. The Orchestrator is another kind, so the rule does not see it. «Never»
- * (`idleMs` null) gives nothing. A Node already archived is not a candidate again.
+ * A candidate passes the cheap checks of idleSessions() and either idled past `settings.idleMs`
+ * since the last record of its transcript (`idle`), or, when `settings.ticketDone`, is bound to a
+ * Ticket the workflow model says is done and had its last record over TICKET_DONE_GRACE_MS ago
+ * (`ticket-done`). The Orchestrator is another kind, so the rule does not see it. «Never»
+ * (`idleMs` null) gives nothing.
  */
 export function archiveCandidates(
   nodes: readonly LayoutNode[],
@@ -97,25 +124,40 @@ export function archiveCandidates(
 ): ArchiveCandidate[] {
   const threshold = settings.idleMs
   if (threshold === null) return []
-  // Every Session in the registry is live, whatever its status says: `unknown` too.
-  const alive = new Set(live.map((session) => session.sessionId))
-  const lastAt = new Map(history.map((session) => [session.sessionId, session.lastAt === undefined ? Number.NaN : Date.parse(session.lastAt)]))
   const done = (target: BindingTarget | null | undefined): boolean =>
     target?.kind === 'ticket' && workflow !== undefined && workflow.tickets.some((ticket) => ticket.epic === target.epic && ticket.num === target.num && ticket.state === 'done')
+  return idleSessions(nodes, live, history, now, threshold).flatMap(({ node, sessionId, idle }): ArchiveCandidate[] => {
+    if (idle > threshold) return [{ id: node.id, sessionId, rule: 'idle' }]
+    if (settings.ticketDone && idle > TICKET_DONE_GRACE_MS && done(bindings.get(sessionId))) return [{ id: node.id, sessionId, rule: 'ticket-done' }]
+    return []
+  })
+}
 
-  const found: ArchiveCandidate[] = []
-  for (const node of nodes) {
-    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) continue
-    const sessionId = sessionOf(node)
-    if (sessionId === null || alive.has(sessionId)) continue
-    if (node.touchedAt != null && now - node.touchedAt < threshold) continue
-    const last = lastAt.get(sessionId)
-    if (last === undefined || Number.isNaN(last)) continue
-    const idle = now - last
-    if (settings.ticketDone && idle > TICKET_DONE_GRACE_MS && done(bindings.get(sessionId))) found.push({ id: node.id, sessionId, rule: 'ticket-done' })
-    else if (idle > threshold) found.push({ id: node.id, sessionId, rule: 'idle' })
-  }
-  return found
+/**
+ * The Sessions whose Binding can decide whether they are archived now: those only the ticket-done
+ * rule could take — past the grace but not past the idle threshold. Reading a Binding costs a
+ * transcript lookup (git and a folder walk), so it is asked for these alone.
+ */
+export function bindingsNeeded(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, settings: ArchiveSettings): string[] {
+  const threshold = settings.idleMs
+  if (threshold === null || !settings.ticketDone) return []
+  return idleSessions(nodes, live, history, now, threshold)
+    .filter(({ idle }) => idle > TICKET_DONE_GRACE_MS && idle <= threshold)
+    .map(({ sessionId }) => sessionId)
+}
+
+/**
+ * The registry of live Sessions the archive reads: a process whose state cannot be told (`ps` or
+ * PowerShell did not answer) counts as running, so its Session is never taken for finished
+ * (ADR-0031), as for the Subagent tree (src/main/claude-home/subagents.ts).
+ */
+export function archiveRegistry(options: { home: string; processState?: typeof processState; listWorktrees?: RegistryOptions['listWorktrees'] }): ClaudeHomeRegistry {
+  const state = options.processState ?? processState
+  return new ClaudeHomeRegistry({
+    home: options.home,
+    ...(options.listWorktrees === undefined ? {} : { listWorktrees: options.listWorktrees }),
+    isAlive: async (pid, procStart) => (await state(pid, procStart)) !== 'gone',
+  })
 }
 
 /** A Project of this Machine as the archive needs it. */
@@ -145,12 +187,8 @@ export interface AutoArchiveDeps {
   batchId(): string
 }
 
-/** Session ids of the Project's Session Nodes, archived or not. */
-const sessionIdsOf = (nodes: readonly LayoutNode[]): string[] =>
-  nodes.flatMap((node) => {
-    const id = node.kind === SESSION_NODE_KIND ? sessionOf(node) : null
-    return id === null ? [] : [id]
-  })
+/** The Project's archived Session Nodes. */
+const archivedSessionNodes = (nodes: readonly LayoutNode[]): LayoutNode[] => nodes.filter((node) => node.kind === SESSION_NODE_KIND && isArchived(node))
 
 const sameRoot = (a: string, b: string): boolean => samePath(process.platform, resolve(a), resolve(b))
 
@@ -185,16 +223,18 @@ export class AutoArchiver {
   async run(project: ArchiveProject): Promise<number> {
     const settings = this.deps.settings(project.id)
     if (settings.idleMs === null) {
-      // «Never»: nothing to archive, but a resumed Session still comes back.
-      await this.readLive(project)
+      // «Never» turns the archive off (ADR-0076, point 7): no registry, git or ps. Only Nodes
+      // archived before still come back when their Session is resumed.
+      if (archivedSessionNodes(this.deps.store.get(project.id).layout.nodes).length > 0) await this.readLive(project)
       return 0
     }
     const history = await this.deps.history(project)
     let workflow: BindingWorkflow | undefined
     let bindings: ReadonlyMap<string, BindingTarget | null> = new Map()
-    if (settings.ticketDone) {
+    const needed = bindingsNeeded(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), history, this.deps.now(), settings)
+    if (needed.length > 0) {
       workflow = await this.deps.workflow(project)
-      bindings = await this.deps.bindings(project, sessionIdsOf(this.deps.store.get(project.id).layout.nodes), workflow)
+      bindings = await this.deps.bindings(project, needed, workflow)
     }
     await this.readLive(project)
     // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
@@ -233,9 +273,7 @@ export class AutoArchiver {
     this.latestLive.set(project.id, live)
     this.seen.set(project.id, (this.seen.get(project.id) ?? 0) + 1)
     const alive = new Set(this.liveOf(project.id).map((session) => session.sessionId))
-    const back = this.deps.store
-      .get(project.id)
-      .layout.nodes.filter((node) => node.kind === SESSION_NODE_KIND && isArchived(node))
+    const back = archivedSessionNodes(this.deps.store.get(project.id).layout.nodes)
       .filter((node) => {
         const id = sessionOf(node)
         return id !== null && alive.has(id)
