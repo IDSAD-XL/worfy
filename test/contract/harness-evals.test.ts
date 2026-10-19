@@ -261,6 +261,11 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(check(fake).status).toBe(0)
     expect(check(fake, { HARNESS_HOME: join(fake, 'hh') }).status).toBe(1)
     expect(check(fake, { HARNESS_HOME: join(work, 'hh') }).status).toBe(0)
+    // A HARNESS_HOME that does not exist yet, spelled through another name of the fixture (a link
+    // here; an 8.3 short name on Windows, /var for /private/var on macOS), is still inside it.
+    const alias = join(tempDir('worfy-eval-guard-alias-'), 'work')
+    symlinkSync(work, alias, 'junction')
+    expect(check(fake, { HARNESS_HOME: join(alias, 'hh') }).status).toBe(0)
     expect(readdirSync(work)).toEqual([])
     expect(readdirSync(fake)).toEqual([])
   })

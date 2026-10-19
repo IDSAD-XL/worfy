@@ -15,11 +15,19 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 
+// The spelling on disk of a folder that may not exist yet: the nearest folder that does exist goes
+// through the native realpath (the long name of an 8.3 short one on Windows, /private/var for /var
+// on macOS), the missing rest is appended as written.
 const resolved = (dir) => {
-    try {
-        return fs.realpathSync(dir)
-    } catch {
-        return path.resolve(dir)
+    const absolute = path.resolve(dir)
+    const missing = []
+    for (let head = absolute; ; head = path.dirname(head)) {
+        try {
+            return path.join(fs.realpathSync.native(head), ...missing)
+        } catch {
+            if (path.dirname(head) === head) return absolute
+            missing.unshift(path.basename(head))
+        }
     }
 }
 
