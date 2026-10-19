@@ -527,6 +527,8 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 
 ### Срез 4 (src-paths) — три ошибки в `src/` на Windows (2026-10-19)
 
+### Срез 3h — три ошибки в `src/` на Windows (2026-10-19)
+
 - **`claude-home/registry.ts`, `watch()`:** chokidar 5 на Windows отдаёт пути с `/`, поэтому `path === this.home` не совпадал, корень Claude home попадал в `ignored`, и не наблюдалось ничего. Теперь сравнение через `relative(this.home, path) === ''`; остальная часть callback-а и так идёт через `relative()`.
 - **`projects/store.ts`:** git пишет корень как `C:/…`. Хранимый и показанный путь теперь `resolve(...)` (`C:\…`), и `projects.json` старого вида при чтении получает тот же `resolve`. Project id по-прежнему считается от корня в написании git: id уже сохранённых Project-ов на Windows не меняются, на macOS и Linux `resolve` ничего не меняет. Новый test в `projects.test.ts` загружает `projects.json` в написании git и проверяет тот же id, путь `C:\…` и отсутствие второй записи.
 - **`startup-failure.ts`, `checkDataFolder`:** на Windows `stat` пути под файлом даёт ENOENT, а не ENOTDIR. При ENOENT решает ближайший существующий путь выше: если это файл — ошибка ENOTDIR, как на macOS.
