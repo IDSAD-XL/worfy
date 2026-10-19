@@ -6,6 +6,14 @@ Stand-ins for the tools the first-run screen checks (worfy-harness ticket 19): `
 `<tool> <arguments>` to `$FIRST_RUN_TOOLS_LOG` when it is set. A test puts the tools it wants on
 the PATH (links in a temporary folder): a tool left out is "not installed".
 
+Windows cannot start a `#!/bin/sh` script, so each tool also has a Node port, `<tool>.mjs`, with
+the same answers and the same variables (`stand-in.mjs` holds the call log). On Windows
+`test/contract/first-run-checks.test.ts` puts a `<tool>.cmd` on the PATH that runs the port with
+the tests' node, so the checks find and start it as they find npm's `claude.cmd`; the installer runs
+`claude.mjs` by its path (src/main/program.ts). There `npm install -g` writes a `qmd.cmd` into
+`$FAKE_NPM_BIN` in place of the link. On macOS and Linux the `/bin/sh` scripts are used, as before;
+a change to one of them goes into its port too.
+
 | variable | tool | meaning |
 |---|---|---|
 | `FIRST_RUN_TOOLS_LOG` | all | the call log |
