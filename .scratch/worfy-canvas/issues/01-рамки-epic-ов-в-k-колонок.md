@@ -51,24 +51,24 @@ Source: [spec.md](../spec.md), решения владельца 1 и 2;
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/epic-arrangement.test.ts`: K для 1, 4, 11 и 30 рамок; гистерезис — K не меняется,
+- [x] Unit `test/unit/epic-arrangement.test.ts`: K для 1, 4, 11 и 30 рамок; гистерезис — K не меняется,
       пока соотношение сторон в пределах 30 %, и меняется за ними; `orderFor` — активные сначала, новый
       Epic в конце, исчезнувший выпадает; одинаковый вход — одинаковый выход (функции чистые).
-- [ ] Unit `test/unit/epic-layout.test.ts`: рамка `i` — в колонке `i mod K`; рост одной рамки сдвигает
+- [x] Unit `test/unit/epic-layout.test.ts`: рамка `i` — в колонке `i mod K`; рост одной рамки сдвигает
       только рамки ниже в той же колонке; полоса из K колонок обходит Node-ы на плоскости, как колонка
       ADR-0032; результат не зависит от размера окна (функция его не получает).
-- [ ] Unit `test/unit/palette-commands.test.tsx` и `test/unit/canvas-menu.test.tsx`: «Re-pack» есть, на
+- [x] Unit `test/unit/palette-commands.test.tsx` и `test/unit/canvas-menu.test.tsx`: «Re-pack» есть, на
       read-only экране — неактивна с подсказкой, как «Tidy up».
-- [ ] e2e `test/e2e/epic-columns.spec.ts`: фикстура из 11 Epic-ов — при «fit» полоса не выше 1,5 высоты
+- [x] e2e `test/e2e/epic-columns.spec.ts`: фикстура из 11 Epic-ов — при «fit» полоса не выше 1,5 высоты
       окна; два окна одного Project-а разного размера показывают рамки на одних местах; «Re-pack» и ⌘Z
       возвращают прежнюю раскладку; снимок `epic-columns` в обеих темах.
-- [ ] e2e `test/e2e/ship-ticket.spec.ts:331` зелёный без правки: «Ship ticket» ставит Session справа от
+- [x] e2e `test/e2e/ship-ticket.spec.ts:331` зелёный без правки: «Ship ticket» ставит Session справа от
       всей полосы, на высоте Ticket-а.
-- [ ] Мутанты красные: рамка — в самую короткую колонку вместо `i mod K`; без гистерезиса; запись
+- [x] Мутанты красные: рамка — в самую короткую колонку вместо `i mod K`; без гистерезиса; запись
       `epic-arrangement` шагом ⌘Z.
 - [ ] Снимок Project-а CanvasForAI (вручную, на Stable copy) — в «Итог»: по нему владелец решает судьбу
       Ticket-а 13.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -99,4 +99,37 @@ Source: [spec.md](../spec.md), решения владельца 1 и 2;
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/01`. Решение — [ADR-0075](../../../docs/adr/0075-epic-frames-in-columns-and-done-shelf.md), пункты 1–4 и 6.
+
+- Рамки стоят полосой из K колонок: рамка `i` порядка — в колонке `i mod K`, ширина колонки — самая
+  широкая рамка, между колонками и рамками `FRAME_GAP` (`stackFrames`, `src/renderer/canvas/epic-layout.ts`).
+  `frameColumnX` ищет место для всей полосы. K = 1 — прежняя колонка ADR-0032.
+- Чистые функции — `src/renderer/canvas/epic-arrangement.ts`: `columnsFor` (K по формуле, не больше
+  числа рамок; гистерезис 30 % от 16:10), `orderFor` (активные сначала, потом по имени — по коду
+  символа, не по локали; с прошлым порядком — он же, новый Epic в конец по имени, исчезнувший
+  выпадает), `arrange`, `repack`, `readArrangement`, `sameDay`. Размера окна, камеры и часов в
+  аргументах нет.
+- Запись `epic-arrangement` (Node Layout-а 1×1, `locked`, `data: { order, columns, at }`): вид — в
+  `SOURCE_NODE_KINDS`, источник рамок владеет им, на Canvas не рисуется. Экран с правом записи пишет её
+  мимо ⌘Z: один раз за открытие Canvas-а Project-а, если записи нет или `at` — другой календарный день
+  (порядок «активные сначала», K заново), и когда гистерезис меняет K. Read-only экран не пишет; без
+  записи все экраны рисуют по имени и K без гистерезиса.
+- Активность Epic-а: `work`-Ticket из модели workflow, живой агент с Binding (по anchor-ам Binding-ов
+  на Canvas), Autopilot из `autopilot.state`.
+- «Re-pack» — в палитре команд после «Tidy up» и в меню Canvas под «Tidy up»: одна операция
+  `patchData` через LayoutOps Canvas-а — один шаг ⌘Z. Палитра просит Canvas через запрос, его
+  выполняет меню Canvas (оно внутри LayoutOps). На read-only экране неактивна с подсказкой.
+- Тесты: unit `test/unit/epic-arrangement.test.ts`, `test/unit/epic-arrangement-record.test.tsx` (новые),
+  `test/unit/epic-layout.test.ts`, `test/unit/palette-commands.test.tsx`, `test/unit/canvas-menu.test.tsx`;
+  e2e `test/e2e/epic-columns.spec.ts` (новый, 3 test-а); `test/e2e/ship-ticket.spec.ts:331` зелёный без правки.
+- Мутанты красные: «в самую короткую колонку» (5 unit test-ов `epic-layout`), «без гистерезиса»
+  (2 unit test-а), «автоматическая запись шагом ⌘Z» (unit `epic-arrangement-record` и e2e «first opening»).
+- Снимки `epic-columns` (11 Epic-ов, K = 3): [светлая](../evidence/01-epic-columns-light.png),
+  [тёмная](../evidence/01-epic-columns-dark.png).
+- Снимок Project-а CanvasForAI — **не на Stable copy**: собранное приложение этой ветки во временной
+  папке данных, `epic-status` — снимок вывода настоящего `epic-status --json` по main (15 Epic-ов,
+  354 Ticket-а): [светлая](../evidence/01-canvasforai-light.png), [тёмная](../evidence/01-canvasforai-dark.png).
+  K = 4. Рамки очень разной ширины и высоты: worfy-terminal-ssh шириной во много колонок Ticket-ов
+  задаёт ширину всех колонок, worfy-harness — одна высокая колонка. Пустоты в полосе заметны —
+  материал для решения владельца по Ticket-у 13 (ELK `rectpacking`). Снимок на Stable copy остаётся
+  владельцу.
