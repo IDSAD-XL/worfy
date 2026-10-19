@@ -190,8 +190,8 @@ Epic готов, когда:
   `bin/profile-set`. Q2: форма проверяет каждое поле до записи теми же правилами; причина exit 1 скрипта —
   запасной показ. Q3: смена Pipeline не блокируется; строка под `Save` — Stage Ticket-ов посчитаются заново;
   удаление Check с отметками — подтверждение с числом Ticket-ов. Q4: `Reset to default` — `bin/profile-set`
-  удаляет поле, с подтверждением (дополняет ADR-0073, ADR не правится). Q5: правит только эта Machine, канал
-  записи `write` (ADR-0066); Project Linked machine — только чтение и строка, где править. Q6: compare-and-write
+  удаляет поле, с подтверждением (дополняет ADR-0073, ADR не правится). Q5: правит только эта Machine: канал
+  записи `local`, main отказывает Linked machine и с Full access; Project Linked machine — только чтение и строка, где править. Q6: compare-and-write
   по отпечатку прочитанного Pipeline; не совпал — «Pipeline изменился, перечитайте» и `Reload`. Q7: сбой
   commit-а в git папки Harness запись не отменяет — предупреждение с причиной. Q8: без `bin/profile-set` —
   «Harness слишком старый для редактора Pipeline» и кнопка `Update Harness`.
@@ -202,8 +202,8 @@ Epic готов, когда:
 - **10, Linked machine.** Q12: своё сообщение связи, только Machine, объявившим его при связи
   ([ADR-0079](../../docs/adr/0079-link-machines-announce-accepted-messages.md)). Q13: клик — вкладка Pipeline
   Project-а на той Machine, если окно Linked machine её показывает, иначе окно worfy с Project-ом. Q14:
-  уведомляет Machine Project-а; получатель бросает заметку о Project-е, открытом у себя; ключ — (Project, Epic,
-  NN, ключ Q11). Q15: `Waits: owner` — все Machine владельца с доступом от Read only; `Waits: <Machine>` —
+  уведомляет Machine Project-а; получатель бросает заметку о Project-е, открытом у себя: тот же репозиторий — нормализованный `origin` и путь
+  внутри него, без `origin` — id Project-а; ключ — (Project, Epic, NN, ключ Q11). Q15: `Waits: owner` — все Machine владельца с доступом от Read only; `Waits: <Machine>` —
   только она; `team`, `agent` — никому. Q16: в сообщении имя и id Project-а, не `projectRoot`.
 
 ## Не в этом Epic-е

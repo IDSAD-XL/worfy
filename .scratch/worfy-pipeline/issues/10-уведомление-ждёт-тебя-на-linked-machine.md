@@ -27,7 +27,10 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
   Machine есть (`notify.ts:370`). `pipeline.get` открыт Linked machines как `read`
   (`test/unit/link-access.test.ts:194-195`): окно Linked machine может показать вкладку Pipeline её Project-а.
 - Id Project-а — `<имя папки>-<sha256(путь)[0:8]>` (`src/main/projects/store.ts:81-84`): у одного репозитория
-  на двух Machine с разными путями id разные.
+  на двух Machine с разными путями id разные, поэтому «тот же Project» по id не узнать.
+- Нормализованный адрес `origin` уже есть: `originKey` (`src/main/autopilot/origin.ts:17`) убирает схему,
+  пользователя и порт, `.git` и `/` на конце, приводит к нижнему регистру (`git@github.com:o/r.git` и
+  `https://github.com/o/r` — оба `github.com/o/r`); `readOriginKey(root)` (`:61-64`) читает его у репозитория.
 
 ## Что делаем
 
@@ -35,13 +38,18 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
    своей схемой zod; пределы длины — как у `note`. `hello` получает `accepts` (ADR-0079, пункты 1–2);
    сообщение уходит только Machine, чей `accepts` его называет. Сборка старше уведомления не получает,
    связь с ней работает как прежде.
-2. **Что несёт сообщение (Q16).** Имя и id Project-а, `epic`, `num`, текст заметки и ключ ожидания (Q11,
-   Ticket 09). Абсолютного `projectRoot` в сообщении нет. Machine-отправителя получатель берёт из
+2. **Что несёт сообщение (Q16).** Имя и id Project-а, ключ совпадения Project-а (п. 3), `epic`, `num`, текст
+   заметки и ключ ожидания (Q11, Ticket 09). Абсолютного `projectRoot` в сообщении нет: ключ совпадения —
+   адрес remote и путь внутри репозитория, не локальный путь, так что Q16 соблюдён. Machine-отправителя получатель берёт из
    соединения, не из сообщения.
 3. **Кто уведомляет (Q14).** Уведомляет Machine, которой принадлежит Project. Получатель бросает заметку,
-   если у него в списке Project-ов есть Project с тем же id: этот Project он уже уведомил сам. Повторы
-   отсекает ключ (id Project-а, Epic, NN, ключ Q11). Предел: тот же репозиторий по другому пути на
-   получателе имеет другой id — тогда уведомят обе Machine. Записать в «Итог».
+   если у него в списке Project-ов есть тот же Project: его он уже уведомил сам. «Тот же Project» — тот же
+   репозиторий, а не тот же путь:
+   - **ключ совпадения** — `originKey` адреса `origin` репозитория Project-а и путь Project-а внутри
+     репозитория (относительно корня репозитория, через `/`; корень — пустой путь), когда `origin` есть;
+   - нет `origin` (или Project не в git-репозитории) — id Project-а;
+   - получатель считает тот же ключ для каждого Project-а своего списка и сравнивает целиком.
+   Повторы отсекает ключ (ключ совпадения, Epic, NN, ключ Q11).
 4. **Кому (Q15).**
    - `Waits: owner` — все Machine владельца: эта и каждая подключённая Linked machine с уровнем Read only
      или Full access (правило `LinkNotes.send`) и с `accepts`.
@@ -60,9 +68,15 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 - [ ] `pnpm test test/unit/notify.test.ts` — exit 0: `Waits: owner` — одна заметка у себя и одна отправка в
       stub `link`; `Waits: <имя этой Machine>` — заметка у себя, отправки нет; `Waits: <имя Linked machine>` —
       отправка только ей, у себя ничего; `team`, `agent` — ничего; приём заметки — показ с именем Machine;
-      приём заметки Project-а с id из своего списка — показа нет; та же заметка дважды — один показ.
+      приём заметки Project-а с ключом совпадения из своего списка — показа нет; та же заметка дважды — один
+      показ.
+- [ ] Там же: две Machine с одним репозиторием по разным путям (`/Users/a/worfy` и `C:/src/worfy`, `origin`
+      `git@github.com:o/worfy.git` и `https://github.com/o/worfy`), обе держат Project в списке, Ticket
+      переходит в `Waits: owner` — одно уведомление на каждой Machine (своё), заметка другой Machine
+      брошена: не два. Репозиторий без `origin` — совпадение по id Project-а.
 - [ ] `pnpm test test/unit/link-notify.test.ts` — exit 0: заметка Ticket-а проходит проверку сообщения; без
-      `epic`, `num` или id Project-а — отказ; поле `projectRoot` в ней не уходит; Machine без `accepts` или с
+      `epic`, `num`, id или ключа совпадения Project-а — отказ; поле `projectRoot` в ней не уходит, ключ
+      совпадения — без локального пути; Machine без `accepts` или с
       `accepts` без имени сообщения — отправки нет.
 - [ ] `test/contract/link-server.test.ts` — exit 0: `hello` с `accepts` и без него принимается; две настоящие
       link service — сообщение доходит до Machine, которая его назвала.
@@ -80,6 +94,7 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 
 - `src/main/notify.ts`
 - `src/main/link/notes.ts` — новое сообщение и отправка по `accepts`
+- ключ совпадения Project-а — на `originKey` и `readOriginKey` (`src/main/autopilot/origin.ts`), их не копировать
 - `src/main/link/messages.ts` — `accepts` в `hello`
 - `src/main/link/service.ts` — `accepts` подключённой Machine: из `hello` (`onHello`, `:638`), в памяти
 - `src/main/workflow/waits-notify.ts`

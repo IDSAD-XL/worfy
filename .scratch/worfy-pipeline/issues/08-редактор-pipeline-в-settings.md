@@ -35,8 +35,10 @@ Settings — поздний Ticket); [ADR-0067](../../../docs/adr/0067-pipeline-
   (`src/main/projects/connect.ts:33-34`).
 - Каналы IPC: `pipeline.get` и `pipeline.close` — `project`, `read` (`src/shared/ipc/pipeline.ts:48-54`).
   Канал `project` помечен `read` или `write` (ADR-0066, пункт 3); `write` при доступе Read only получает
-  отказ в `LinkIpcAdapter.call`. preload общий и списка каналов не знает (`src/preload/index.ts:1-3`,
-  ADR-0006) — его не править.
+  отказ в `LinkIpcAdapter.call`. Канал `local` закрыт Linked machine при любом уровне доступа, Full access
+  тоже (`src/shared/ipc/channels.ts:30-31`, `LINKED_MACHINE_ACCESS` — `:38`): адаптер отвечает
+  «`<канал>: not open to Linked machines`» (`src/main/link/ipc-adapter.ts:54`, `:234`). preload общий и
+  списка каналов не знает (`src/preload/index.ts:1-3`, ADR-0006) — его не править.
 - Кнопка обновления Harness в toolbar — `HarnessStatus` (`src/renderer/shell/toolbar/HarnessStatus.tsx:80`,
   действие `Update Harness`). Иконка вместо текста — `worfy-ui` 18, PR #543; на 2026-10-20 он открыт.
 - Где plugin Harness: `src/main/harness/locate.ts:68-74` (`<harnessHome>/plugin/bin`).
@@ -84,10 +86,12 @@ Settings — поздний Ticket); [ADR-0067](../../../docs/adr/0067-pipeline-
    - **Старый Harness (Q8):** в plugin нет `bin/profile-set` — раздел показывает «Harness слишком старый
      для редактора Pipeline» и кнопку `Update Harness` из toolbar (тот же компонент `HarnessStatus`; если
      PR #543 ещё не влит — кнопка в нынешнем виде, без иконки). Форма не показывается.
-4. **Запись только на этой Machine (Q5).** Запись из worfy — новый канал IPC `project` с пометкой `write`
-   (ADR-0066) в `src/shared/ipc/pipeline.ts`, обработчик в `src/main/ipc/pipeline.ts` зовёт
-   `bin/profile-set` общим запуском скриптов Harness, как `connect.ts`; renderer файл не пишет. Чтение
-   Pipeline для формы (значение поля, отпечаток, есть ли `bin/profile-set`) — канал `read`. Project
+4. **Запись только на этой Machine (Q5).** Запись из worfy — новый канал IPC `local` (не `project`/`write`)
+   в `src/shared/ipc/pipeline.ts`: main отказывает в нём любой Linked machine, и с Full access тоже, а не
+   только интерфейс его прячет. Обработчик в `src/main/ipc/pipeline.ts` зовёт `bin/profile-set` общим
+   запуском скриптов Harness, как `connect.ts`; renderer файл не пишет. Чтение Pipeline для формы
+   (значение поля, отпечаток, есть ли `bin/profile-set`) — канал `project`, `read`: им окно Linked machine
+   показывает Pipeline её Project-а. Project
    Linked machine (окно показывает Linked machine, `windowMachine()`, `src/renderer/ipc.ts:154`): раздел
    показывает Pipeline только для чтения и строку, где его править — в worfy на той Machine.
 
@@ -108,7 +112,10 @@ Settings — поздний Ticket); [ADR-0067](../../../docs/adr/0067-pipeline-
       `Reset to default` — подтверждение, затем вызов сброса; конфликт — строка и `Reload`; предупреждение
       commit-а; без `bin/profile-set` — текст о старом Harness и кнопка `Update Harness`; Project Linked
       machine — без кнопок записи и со строкой, где править.
-- [ ] `test/unit/link-access.test.ts` — новый канал записи в списке `write`, канал чтения — в списке `read`.
+- [ ] `test/unit/link-access.test.ts` — новый канал записи в списке `local`, канал чтения — `project`, `read`.
+- [ ] `test/contract/link-access.test.ts` — exit 0: вызов канала записи от Linked machine с Full access —
+      отказ «`<канал>: not open to Linked machines`», `bin/profile-set` (stub) не запущен, `profile.json`
+      прежний; тот же вызов из окна этой Machine доходит до обработчика.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 
 ## Тесты
@@ -130,7 +137,8 @@ Settings пишет через stub `bin/profile-set` во временной п
 - `src/main/ipc/pipeline.ts` — обработчики: чтение поля и отпечатка, вызов `bin/profile-set`
 - `src/renderer/settings/PipelineSection.tsx` (новый)
 - `test/unit/settings-pipeline.test.tsx` (новый)
-- `test/unit/link-access.test.ts` — новые каналы в поимённых списках
+- `test/unit/link-access.test.ts` — новые каналы в поимённых списках (запись — `local`)
+- `test/contract/link-access.test.ts` — отказ записи Linked machine с Full access
 
 ## Итог
 
