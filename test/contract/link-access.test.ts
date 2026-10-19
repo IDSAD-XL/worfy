@@ -7,7 +7,7 @@
 // Never run here: a real Claude Code or Agent SDK (agent.start is a counting stand-in), a native
 // dialog or the OS shell (both mocked), the network beyond 127.0.0.1, Bonjour.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -131,6 +131,13 @@ writeFileSync(
   JSON.stringify({ projects: [{ id: PROJECT, name: 'demo', path: repo }, { id: OTHER, name: 'other', path: join(env.scratch, 'other') }], activeId: PROJECT }),
 )
 const projectsFileBefore = readFileSync(join(dataDir, 'projects.json'), 'utf8')
+/**
+ * The Project folder in the spelling the disk has: what B works in for A's call
+ * (src/main/link/caller.ts). On Windows `repo` may be spelled otherwise — TEMP under the 8.3 short
+ * name of a long account name (C:\Users\RUNNER~1\…), or on a subst drive — and the call is served
+ * all the same, in this spelling.
+ */
+const realRepo = realpathSync.native(repo)
 
 // ---- B's handlers ------------------------------------------------------------------------------
 
@@ -317,13 +324,34 @@ function linkClientsOfB(): string[] {
     .filter((id) => id.startsWith(`link:${a.service.machine.id}/`))
 }
 
-/** Polls until `done` holds or five seconds pass. */
-async function until(done: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000
+/** Polls until `done` holds or `ms` pass (five seconds by default). */
+async function until(done: () => boolean, ms = 5000): Promise<void> {
+  const deadline = Date.now() + ms
   while (!done() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20))
 }
 
+/**
+ * The longest wait for a shell of the Terminal: its prompt, then the answer to a line. The first
+ * Windows PowerShell on a fresh Windows runner takes seconds to start.
+ */
+const SHELL_WAIT_MS = 30_000
+/** A test that waits for a shell: three waits of SHELL_WAIT_MS at most, and the rest of the test. */
+const SHELL_TEST_MS = 120_000
+/**
+ * The prompt of a shell in its output: `$ ` of /bin/sh (PS1 of the Terminal's environment above),
+ * `PS <folder>> ` of PowerShell. A line is typed only after it: the shell then reads what it is given.
+ */
+const PROMPT = /\$ |PS [^\r\n]*> /
+/** The end of a shell's output, escapes written out, for a failure message: vitest cuts the value it shows. */
+const tail = (output: string): string => JSON.stringify(output.slice(-1000))
+
 const channelsReceived = (): string[] => received.map((event) => event.channel)
+/** What A got of the Terminal's output. */
+const outputOfA = (): string =>
+  received
+    .filter((event) => event.channel === 'terminal.output')
+    .map((event) => (event.payload as { data: string }).data)
+    .join('')
 const note = (id: string): LayoutOpInput => ({ op: 'create', node: { id, kind: 'note', x: 0, y: 0, w: 220, h: 120, data: { text: id } } }) as LayoutOpInput
 
 // ---- the tests ---------------------------------------------------------------------------------
@@ -435,7 +463,7 @@ describe('access on', () => {
     expect(await callB('bindings.get', { projectId: PROJECT })).toMatchObject({ ok: true })
     const opened = await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })
     expect(opened).toMatchObject({ ok: true, value: { started: true } })
-    expect(workflowHub.roots).toEqual([repo])
+    expect(workflowHub.roots).toEqual([realRepo])
     expect(docsHub.projects).toEqual([PROJECT])
     expect(claudeHomeSubscriptions.size).toBe(1)
 
@@ -443,21 +471,18 @@ describe('access on', () => {
     writeFileSync(join(repo, 'HANDOFF.md'), '# Handoff\n\n- a line\n')
     expect(await callB('bindings.set', { projectId: PROJECT, sessionId: 's1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } })).toMatchObject({ ok: true })
     claudeHomeWatchers[0]?.({ sessions: true, transcripts: [] })
+    await until(() => PROMPT.test(outputOfA()), SHELL_WAIT_MS)
+    expect(outputOfA(), `the prompt of the shell, in ${tail(outputOfA())}`).toMatch(PROMPT)
     // Enter is `\r`, as a terminal sends it: the pty turns it into a line end for /bin/sh, and
     // PowerShell's line editor takes only `\r` as Enter. `$((40+2))` is 42 in both shells, so the
     // output has `link-42` while the echoed input does not.
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo link-$((40+2))\r' })).toEqual({ ok: true, value: undefined })
 
-    const outputOf = (): string =>
-      received
-        .filter((event) => event.channel === 'terminal.output')
-        .map((event) => (event.payload as { data: string }).data)
-        .join('')
     const wanted = ['workflow.changed', 'docs.changed', 'bindings.changed', 'claudeHome.changed', 'terminal.output']
-    await until(() => wanted.every((channel) => channelsReceived().includes(channel)) && outputOf().includes('link-42'))
+    await until(() => wanted.every((channel) => channelsReceived().includes(channel)) && outputOfA().includes('link-42'), SHELL_WAIT_MS)
     for (const channel of wanted) expect(channelsReceived(), channel).toContain(channel)
-    expect(outputOf()).toContain('link-42')
-  }, 20_000)
+    expect(outputOfA(), tail(outputOfA())).toContain('link-42')
+  }, SHELL_TEST_MS)
 })
 
 describe('switching access off', () => {
@@ -480,14 +505,11 @@ describe('switching access off', () => {
     expect(await callB('docs.open', { projectId: PROJECT })).toMatchObject({ ok: true })
     expect(await callB('claudeHome.sessions', { projectRoot: repo })).toMatchObject({ ok: true })
 
+    await until(() => PROMPT.test(windowEvents.join('')), SHELL_WAIT_MS)
+    expect(windowEvents.join(''), `the prompt of the shell, in ${tail(windowEvents.join(''))}`).toMatch(PROMPT)
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((1+1))\r' })).toMatchObject({ ok: true })
-    const outputOfA = (): string =>
-      received
-        .filter((event) => event.channel === 'terminal.output')
-        .map((event) => (event.payload as { data: string }).data)
-        .join('')
-    await until(() => outputOfA().includes('before-2'))
-    expect(outputOfA()).toContain('before-2')
+    await until(() => outputOfA().includes('before-2'), SHELL_WAIT_MS)
+    expect(outputOfA(), tail(outputOfA())).toContain('before-2')
 
     setAccess('off')
     await until(() => workflowHub.roots.length === 0 && docsHub.projects.length === 0 && claudeHomeSubscriptions.size === 0)
@@ -497,7 +519,7 @@ describe('switching access off', () => {
 
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\r' })).toEqual(accessOff)
     expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\r' }, window)).toMatchObject({ ok: true })
-    await until(() => windowEvents.join('').includes('after-3'))
+    await until(() => windowEvents.join('').includes('after-3'), SHELL_WAIT_MS)
     expect(windowEvents.join('')).toContain('after-3')
     // The shell kept running for B's window; nothing of it went to A, and A's input never reached it.
     expect(outputOfA()).not.toContain('after-3')
@@ -505,7 +527,7 @@ describe('switching access off', () => {
     expect(await callB('link.ping')).toMatchObject({ ok: true })
     // The connection stays: B still shows A online.
     expect(b.service.isConnected(a.service.machine.id)).toBe(true)
-  }, 20_000)
+  }, SHELL_TEST_MS)
 
   it('lets a call that already runs finish; the next one is refused', async () => {
     setAccess('all')
@@ -611,14 +633,11 @@ describe('read-only access', () => {
     const windowCall = await windowIpc()
     expect(await windowCall('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }, window)).toMatchObject({ ok: true })
     expect(await callB('terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 })).toMatchObject({ ok: true, value: { started: false } })
+    await until(() => PROMPT.test(windowEvents.join('')), SHELL_WAIT_MS)
+    expect(windowEvents.join(''), `the prompt of the shell, in ${tail(windowEvents.join(''))}`).toMatch(PROMPT)
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo before-$((3+4))\r' })).toMatchObject({ ok: true })
-    const outputOfA = (): string =>
-      received
-        .filter((event) => event.channel === 'terminal.output')
-        .map((event) => (event.payload as { data: string }).data)
-        .join('')
-    await until(() => outputOfA().includes('before-7'))
-    expect(outputOfA()).toContain('before-7')
+    await until(() => outputOfA().includes('before-7'), SHELL_WAIT_MS)
+    expect(outputOfA(), tail(outputOfA())).toContain('before-7')
 
     setAccess('read')
     // A fresh client: what the old one subscribed to is gone, and A subscribes again.
@@ -631,12 +650,12 @@ describe('read-only access', () => {
 
     // The shell runs on for B's window; its output does not reach A any more.
     expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\r' }, window)).toMatchObject({ ok: true })
-    await until(() => windowEvents.join('').includes('after-9'))
+    await until(() => windowEvents.join('').includes('after-9'), SHELL_WAIT_MS)
     expect(windowEvents.join('')).toContain('after-9')
     expect(outputOfA()).not.toContain('after-9')
     expect(windowEvents.join('')).not.toContain('sneaky')
     expect(b.service.isConnected(a.service.machine.id)).toBe(true)
-  }, 20_000)
+  }, SHELL_TEST_MS)
 
   it('a call that already runs finishes when the level drops; raised back to all, a write answers again', async () => {
     setAccess('all')
@@ -721,12 +740,12 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     }
     expect(calls.agentStart).toBe(0)
     expect(await callB('agent.start', { cwd: `${repo}/.scratch/../.scratch` })).toMatchObject({ ok: true })
-    expect(startedIn).toEqual([join(repo, '.scratch')])
+    expect(startedIn).toEqual([join(realRepo, '.scratch')])
 
     // B's own window starts a Session wherever it likes, as before.
     const windowCall = await windowIpc(['./agent.ts'])
     expect(await windowCall('agent.start', { cwd: outside }, window)).toMatchObject({ ok: true })
-    expect(startedIn).toEqual([join(repo, '.scratch'), outside])
+    expect(startedIn).toEqual([join(realRepo, '.scratch'), outside])
   })
 
   it('agent.attach by path reads nothing outside the Projects for A; inside it attaches; B\'s window attaches as before', async () => {
@@ -778,7 +797,7 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
 
     expect(await callB('claudeHome.live', { projectRoot: repo })).toMatchObject({ ok: true })
     expect(await callB('bindings.signals', { projectRoot: repo, sessionId })).toMatchObject({ ok: true, value: { found: false } })
-    expect(await callB('checks.get', { root: repo, branches: [] })).toMatchObject({ ok: true, value: { root: repo } })
+    expect(await callB('checks.get', { root: repo, branches: [] })).toMatchObject({ ok: true, value: { root: realRepo } })
 
     const windowCall = await windowIpc(['./claude-home.ts', './bindings.ts', './checks.ts'])
     expect(await windowCall('claudeHome.live', { projectRoot: outside }, window)).toMatchObject({ ok: true })

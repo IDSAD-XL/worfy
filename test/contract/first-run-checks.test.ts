@@ -431,8 +431,10 @@ describe('first-run checks', () => {
       oldHarness(nodeScript('process.exitCode = 0'))
       runnerLimits.length = 0
       expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts').status).toBe('ok')
-      expect(checkOf(await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 300 })), 'harness-scripts').status).toBe('ok')
-      expect(runnerLimits).toEqual([15_000, 300])
+      // A limit a cold start of node keeps within: on a fresh Windows runner the first node.exe
+      // through a new link can take longer than the 0.3 s this case once gave.
+      expect(checkOf(await runChecks(deps(withNode(), { harnessScriptTimeoutMs: 10_000 })), 'harness-scripts').status).toBe('ok')
+      expect(runnerLimits).toEqual([15_000, 10_000])
     })
 
     // A crash by a signal was read as a timeout before review round 2 of PR #311.
