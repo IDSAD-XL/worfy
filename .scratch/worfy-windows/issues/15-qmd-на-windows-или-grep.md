@@ -58,6 +58,12 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
     `src/main/first-run/actions.ts:81`), а на Windows это `npm.cmd`. Владелец увидел это на экране
     первого запуска 2026-10-13: `npm install -g @tobilu/qmd@2.8.3 exited null: spawn npm ENOENT`
     ([Ticket 30](30-add-project-на-windows.md), раздел о наблюдениях владельца).
+  - Тот же род — CLI, поставленные npm (`claude.cmd`, `npm.cmd`), запускаются без оболочки (добавлено
+    2026-10-19, ревью срезов 3g и 3k Ticket-а 14; строки на main `16931520`):
+    `scripts/e3-owner-check.sh:230` (`spawnSync("claude", …)`; после PR #528 — `:233`),
+    `src/main/harness/migrate/restore.ts:385` (`spawnSync('claude', …)`),
+    `src/main/first-run/actions.ts:91-93` (`npmPrefix`, `execFile('npm', ['prefix', '-g'], …)`). На Windows все три
+    получают `ENOENT`, когда `claude` или `npm` есть только как `.cmd`.
   - По docs Claude Code локальному MCP-серверу через `npx` на Windows нужна обёртка `cmd /c`.
     Серверу с командой `node` — настоящим `.exe` — она не нужна.
   - Claude Code кодирует путь `C:\a\b` в имя папки `projects` как `C--a-b` — каждый символ вне
