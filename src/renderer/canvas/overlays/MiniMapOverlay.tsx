@@ -1,31 +1,20 @@
 // The minimap at the bottom right of the Canvas (ticket 29; docs/design/BRIEF.md, Screen 1).
-// Nodes are drawn in the colour their Node type declares (a theme token, `minimapColor` in
-// nodes/index.ts); a click moves the viewport so that the clicked point is in the middle, dragging
-// pans. View ▸ Show Minimap (src/main/menu.ts) hides and shows it. While it is shown, pinned
-// Nodes keep out of its corner (pinning.ts, setMinimapCorner).
+// Nodes are painted by kind (minimap-paint.ts): the coloured kinds in their `kind-*` token
+// (ADR-0077), a Subagent as an outline in it, the rest in a neutral grey. A click moves the
+// viewport so that the clicked point is in the middle, dragging pans. View ▸ Show Minimap
+// (src/main/menu.ts) hides and shows it. While it is shown, pinned Nodes keep out of its corner
+// (pinning.ts, setMinimapCorner).
 import { useEffect } from 'react'
-import { MiniMap, useReactFlow, type Node } from '@xyflow/react'
+import { MiniMap, useReactFlow } from '@xyflow/react'
 import { create } from 'zustand'
 import { invoke, subscribe } from '../../ipc'
-import { nodeTypes, type CanvasFlowNode } from '../nodes'
 import { setMinimapCorner } from '../pinning'
+import { minimapPaint } from './minimap-paint'
 import './minimap.css'
 
 export const order = 10
 
-/** The colour of a Node whose type declares none (nodes/index.ts, `minimapColor`), or whose kind has no type. */
-const NODE_COLOR_DEFAULT = 'var(--text-muted)'
-
-/** The minimap colour of a Node: its Node type's, by its kind in the Layout (React Flow's type is the placeholder's for unknown kinds). */
-function minimapColor(node: Node): string {
-  const kind = (node as CanvasFlowNode).data.node.kind
-  return nodeTypes.get(kind)?.minimapColor ?? NODE_COLOR_DEFAULT
-}
-
-/** A pinned Node is not on the plane; it is left off the minimap. */
-function minimapClass(node: Node): string {
-  return (node as CanvasFlowNode).data.node.pinned ? 'w-minimap-node--pinned' : ''
-}
+const paint = minimapPaint()
 
 const useMinimapStore = create<{ visible: boolean }>(() => ({ visible: true }))
 let followed = false
@@ -74,10 +63,10 @@ export default function MiniMapOverlay() {
       position="bottom-right"
       ariaLabel="Minimap"
       pannable
-      nodeColor={minimapColor}
-      nodeStrokeWidth={0}
+      nodeColor={paint.fill}
+      nodeStrokeColor={paint.stroke}
       nodeBorderRadius={4}
-      nodeClassName={minimapClass}
+      nodeClassName={paint.className}
       bgColor="var(--surface)"
       maskColor="color-mix(in srgb, var(--canvas) 55%, transparent)"
       maskStrokeColor="var(--accent)"

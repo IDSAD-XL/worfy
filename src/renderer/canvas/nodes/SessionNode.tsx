@@ -53,7 +53,7 @@ import type { CanvasNodeProps } from './index'
 export const kind = 'session' satisfies typeof SESSION_KIND
 export const defaultWidth = 300 satisfies typeof SESSION_WIDTH
 export const defaultHeight = 120 satisfies typeof SESSION_HEIGHT
-export const minimapColor = 'var(--text-secondary)'
+export const minimapColor = 'var(--kind-session)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
