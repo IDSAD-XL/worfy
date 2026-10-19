@@ -61,7 +61,7 @@ describe('check-lessons', () => {
     expect(violations(stderr)).toEqual([`${LESSONS}:5: «A lesson pointing at a deleted test»: test/deleted.txt — такого файла нет`])
   })
 
-  // Windows: 12 s, 2x the 5.9 s it ran in the full run on the PC (2026-10-19), where it hit the 5 s limit; 0.8 s with six other files.
+  // Windows: 5.9 s in a full run on the PC (2026-10-19), sync, overran its 5 s limit; twice that.
   it('fails «проверки нет:» with an empty or blank reason and passes it with a reason', () => {
     const { status, stderr } = check('empty-reason')
     expect(status).toBe(1)

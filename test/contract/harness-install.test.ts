@@ -273,7 +273,7 @@ describe('the state', () => {
     expect(calls()).toEqual([])
   })
 
-  // Windows: 31 s, 2x the 15.2 s it ran in the full run on the PC (2026-10-19), where it hit the 15 s limit.
+  // Windows: 16.2 s in a full run on the PC (2026-10-19); twice that.
   it('with the plugin folder reads `plugin list` once, and takes the dependency from the same list', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(bundle).install(yes)
@@ -282,7 +282,7 @@ describe('the state', () => {
     expect(status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
     expect(status.dependencies).toEqual(dep('installed'))
     expect(commands()).toEqual([LIST])
-  }, process.platform === 'win32' ? 31_000 : undefined)
+  }, process.platform === 'win32' ? 33_000 : undefined)
 
   it('a build whose Harness names no dependency has none to report', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1, [])
@@ -670,7 +670,6 @@ describe('errors', () => {
     expect(commands()).not.toContain(UNINSTALL_WORFY)
   })
 
-  // Windows: 31 s, 2x the 15.2 s it ran in the full run on the PC (2026-10-19), where it hit the 15 s limit.
   it('a first `install` of worfy that records the plugin and exits non-zero: worfy is uninstalled, Claude Code lists it no more, and the error names `install` and the removal', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
     const result = await installer(bundle, { env: { ...sb.env, STUB_CLAUDE_FAIL_AFTER: INSTALL_WORFY } }).install(yes)
@@ -686,7 +685,7 @@ describe('errors', () => {
     // Not half installed: the state read afresh is "not installed", and the next try installs.
     expect((await installer(bundle).status()).state).toEqual({ kind: 'not-installed' })
     expect((await installer(bundle).install(yes)).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
-  }, process.platform === 'win32' ? 31_000 : undefined)
+  })
 
   it('the same with `uninstall` failing too: an error naming `uninstall`, with the tails of both commands', async () => {
     const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
@@ -719,7 +718,7 @@ describe('errors', () => {
     expect(commands()).not.toContain(UNINSTALL_WORFY)
   })
 
-  // Windows: 26 s, 2x its 12.9 s in the full run on the PC (2026-10-19).
+  // Windows: 12.9 s in a full run on the PC (2026-10-19); twice that.
   it('a non-zero exit of `claude plugin update` is an error naming `update`; the installed version is not uninstalled', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
     const v2 = makeBundle(join(sb.root, 'bundle-v2'), V2)
@@ -793,7 +792,7 @@ describe('errors', () => {
     expect(result.status.dependencies).toEqual(dep('installed'))
   })
 
-  // Windows: 21 s, 2x its 10.1 s in the full run on the PC (2026-10-19).
+  // Windows: 13.4 s in a full run on the PC (2026-10-19); twice that.
   it('a copy that fails half way leaves the previous plugin folder byte for byte, and no staging folder behind', async () => {
     const v1 = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(v1).install(yes)
@@ -811,9 +810,9 @@ describe('errors', () => {
     expect(treeOf(sb.pluginDir)).toEqual(before)
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
     expect(writes()).toEqual([])
-  }, process.platform === 'win32' ? 21_000 : undefined)
+  }, process.platform === 'win32' ? 27_000 : undefined)
 
-  // Windows: 27 s, 2x its 13.5 s in the full run on the PC (2026-10-19).
+  // Windows: 13.5 s in a full run on the PC (2026-10-19); twice that.
   it('a copy interrupted between its two renames (the old folder set aside, the new one not in place) gets the old folder back before the next copy', async () => {
     const v1 = makeBundle(join(sb.root, 'bundle-v1'), V1)
     await installer(v1).install(yes)
@@ -848,7 +847,6 @@ describe('a rename refused by a held-open file (Windows)', () => {
     return { tries, renameDir }
   }
 
-  // Windows: 46 s, 2x the 22.6 s it took run alone on the PC (2026-10-19), past the 15 s limit; 3.6 s in the full run.
   it('EBUSY twice, then free: the rename is tried again and the new version is installed', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)
     const { tries, renameDir } = refusingStaging('EBUSY', 2)
@@ -856,7 +854,7 @@ describe('a rename refused by a held-open file (Windows)', () => {
     expect(result.status.state).toMatchObject({ kind: 'installed', version: V2 })
     expect(tries).toEqual(['plugin -> .plugin-old-*', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin', '.plugin-new-* -> plugin'])
     expect(readdirSync(sb.harnessHome)).toEqual(['plugin'])
-  }, process.platform === 'win32' ? 46_000 : undefined)
+  })
 
   it('EPERM until the retry time is over: an error of `copy` naming EPERM, the previous copy back in place byte for byte, no command for worfy', async () => {
     await installer(makeBundle(join(sb.root, 'bundle-v1'), V1)).install(yes)

@@ -279,45 +279,73 @@ node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.r
 ### Windows: test-ы, которым worfy-windows 14 (срез 3l) поднял timeout на win32 (2026-10-19)
 
 Цель среза 3l — `pnpm test` с exit code 0 на Windows. Test-ы ниже краснели по timeout-у на PC.
-Каждому поднят timeout только на win32 и только у одного test-а: третий аргумент
+Предел поднят только на win32 и только у одного test-а: третий аргумент
 `it(…, fn, process.platform === 'win32' ? N : undefined)`, над test-ом — комментарий с замером.
 На других системах предел прежний (5 s у `node`/`jsdom`, 15 s у `contract` из `vitest.config.ts`);
-общий timeout файла, `describe` или конфига не менялся. Новое значение — примерно 2× самого долгого
-замера, округлено вверх до секунды. Замеры: полный `pnpm test` на `main` `a3514683` на PC (JSON-отчёт
-vitest), повторы файлов по одному (2 из 2) и один run семи файлов разом на ветке среза («с шестью
-другими файлами»). У test-а, упавшего по timeout-у, vitest пишет длительность вместе с работой после
-timeout-а, поэтому она может быть больше предела.
+общий timeout файла, `describe` или конфига не менялся.
 
-| Test | Файл | Было → стало (win32) | Замер |
+Правило (решение оркестратора, 2026-10-19):
+- новый предел на win32 — примерно 2× самой долгой завершённой длительности test-а в полном run-е;
+- vitest останавливает асинхронный test на пределе, поэтому записанная длительность асинхронного
+  test-а, упавшего по timeout-у, — не замер;
+- синхронный код vitest остановить не может: синхронный test доходит до конца, и его длительность —
+  замер, даже если она больше предела;
+- без завершённого замера предел не поднимается;
+- если 2× не больше предела файла по умолчанию, отдельного предела нет.
+
+Замеры — JSON-отчёты vitest двух полных `pnpm test` на PC:
+- R1 — `main` `a3514683`, 2026-10-19 18:49;
+- R2 — ветка среза, `32438dc3`, 2026-10-19 21:33, PC без другой нагрузки.
+
+Run-ы файлов по одному и run семи файлов разом в расчёт не идут: это не полный run. Исключение —
+два test-а `harness-migrate*`: в R2 они упали по timeout-у на 15 s, завершённого замера в полном run-е
+у них нет, и оркестратор решил мерить их в одиночку (`-t`, `--testTimeout=120000`, `main` `046b086c`,
+PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Для них предел — 2× времени в одиночку.
+
+| Файл | Test | Было → стало (win32) | Замер |
 |---|---|---|---|
-| «passes exactly 15360 bytes and fails on 15361» | `test/unit/check-handoff.test.ts:89` | 5 s → 13 s | полный run: 6.2 s, timeout; с шестью другими файлами: 0.8 s |
-| «fails «проверки нет:» with an empty or blank reason…» | `test/unit/check-lessons.test.ts:65` | 5 s → 12 s | полный run: 5.9 s, timeout; с шестью другими: 0.8 s |
-| «collectNodeTypes maps each kind to its component…» | `test/unit/canvas.test.tsx:50` | 5 s → 11 s | полный run: 5.0 s, timeout; с шестью другими: 5.1 s, timeout; по одному — зелёный 2 из 2 |
-| «PrTracker over the gh stub with 150 PRs, finds the PR of a branch outside the first 100…» | `test/contract/github-prs.test.ts:315` | 15 s → 34 s | полный run: 16.6 s, timeout; с шестью другими: 2.2 s |
-| «reviewer-simplification is the diff the case describes…» | `test/contract/harness-evals.test.ts:451` | 15 s → 54 s | полный run: 26.5 s, timeout; с шестью другими: 12.7 s |
-| «the cases > <case> > builds its fixture with exit code 0 in a temporary HOME» (все 10 случаев `describe.each`) | `test/contract/harness-evals.test.ts:155` | 15 s → 32 s | с шестью другими: 15.5 s у `reviewer-simplification`, timeout; полный run: 11.6 s. В список оркестратора не входил — найден run-ом среза |
-| «reviewer-intended-breakage is the diff the case describes > removes the check the ticket removes on purpose…» | `test/contract/harness-evals.test.ts:408` | 15 s → 33 s | с шестью другими: 16.2 s, timeout; полный run: 13.4 s. В список оркестратора не входил — найден run-ом среза |
-| «the GitHub account … after the account step the draft carries the chosen account…» | `test/contract/projects-connect.test.ts:1354` | 15 s → 31 s | полный run: 15.1 s, timeout; с шестью другими: 9.7 s |
-| «the state > with the plugin folder reads `plugin list` once…» | `test/contract/harness-install.test.ts:277` | 15 s → 31 s | полный run: 15.2 s, timeout |
-| «errors > a first `install` of worfy that records the plugin and exits non-zero…» | `test/contract/harness-install.test.ts:674` | 15 s → 31 s | полный run: 15.2 s, timeout |
-| «errors > a non-zero exit of `claude plugin update`…» | `test/contract/harness-install.test.ts:723` | 15 s → 26 s | полный run: 12.9 s |
-| «errors > a copy that fails half way…» | `test/contract/harness-install.test.ts:797` | 15 s → 21 s | полный run: 10.1 s |
-| «errors > a copy interrupted between its two renames…» | `test/contract/harness-install.test.ts:817` | 15 s → 27 s | полный run: 13.5 s |
-| «a rename refused by a held-open file (Windows) > EBUSY twice, then free…» | `test/contract/harness-install.test.ts:852` | 15 s → 46 s | по одному: 22.6 s, timeout (1 из 2 повторов); полный run: 3.6 s |
+| `test/unit/check-handoff.test.ts:89` | «passes exactly 15360 bytes and fails on 15361» | 5 s → 13 s | R1: 6.2 s, синхронный, завершён (вышел за предел 5 s); R2: 0.3 s, завершён |
+| `test/unit/check-lessons.test.ts:65` | «fails «проверки нет:» with an empty or blank reason…» | 5 s → 12 s | R1: 5.9 s, синхронный, завершён (вышел за предел 5 s); R2: 0.2 s, завершён |
+| `test/unit/canvas.test.tsx:50` | «collectNodeTypes > maps each kind to its component…» | 5 s → 7 s | R2: 3.4 s, асинхронный, завершён; R1: timeout на 5 s — не замер |
+| `test/contract/harness-evals.test.ts:155` | «the cases > <case> > builds its fixture with exit code 0 in a temporary HOME» (все 10 случаев `describe.each`, один предел) | 15 s → 24 s | R2: 11.7 s у `reviewer-intended-breakage`, завершён; R1: 11.6 s, завершён |
+| `test/contract/harness-evals.test.ts:408` | «reviewer-intended-breakage is the diff the case describes > removes the check the ticket removes on purpose…» | 15 s → 27 s | R1: 13.4 s, синхронный, завершён; R2: 6.3 s, завершён |
+| `test/contract/harness-evals.test.ts:451` | «reviewer-simplification is the diff the case describes > adds a thin wrapper…» | 15 s → 53 s | R1: 26.5 s, синхронный, завершён (вышел за предел 15 s) |
+| `test/contract/projects-connect.test.ts:1354` | «the GitHub account … > after the account step the draft carries the chosen account…» | 15 s → 26 s | R2: 12.7 s, асинхронный, завершён; R1: timeout — не замер |
+| `test/contract/harness-install.test.ts:277` | «the state > with the plugin folder reads `plugin list` once…» | 15 s → 33 s | R2: 16.2 s, асинхронный, завершён; R1: timeout — не замер |
+| `test/contract/harness-install.test.ts:722` | «errors > a non-zero exit of `claude plugin update`…» | 15 s → 26 s | R1: 12.9 s, завершён; R2: 9.1 s, завершён |
+| `test/contract/harness-install.test.ts:796` | «errors > a copy that fails half way…» | 15 s → 27 s | R2: 13.4 s, завершён; R1: 10.1 s, завершён |
+| `test/contract/harness-install.test.ts:816` | «errors > a copy interrupted between its two renames…» | 15 s → 27 s | R1: 13.5 s, завершён; R2: 5.8 s, завершён |
+| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 17 s | в одиночку: 8.3 s и 7.7 s (не полный run); R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 20 s | в одиночку: 9.9 s и 9.8 s (не полный run); R2: timeout на 15 s — не замер |
+
+Предел снят — 2× завершённого замера не больше 15 s (первая версия среза ставила его по длительности
+асинхронного test-а, упавшего по timeout-у, а это не замер):
+- `test/contract/github-prs.test.ts:314` «PrTracker over the gh stub > with 150 PRs, finds the PR of a
+  branch outside the first 100…» — было 34 s по 16.6 s в R1 (timeout). R2: 4.6 s, завершён; 2× = 9.2 s.
+- `test/contract/harness-install.test.ts:673` «errors > a first `install` of worfy that records the
+  plugin and exits non-zero…» — было 31 s по 15.2 s в R1 (timeout). R2: 5.4 s, завершён; 2× ≈ 11 s.
+- `test/contract/harness-install.test.ts:850` «a rename refused by a held-open file (Windows) > EBUSY
+  twice, then free…» — было 46 s по 22.6 s в run-е файла отдельно (timeout, и не полный run).
+  R2: 3.7 s, R1: 3.6 s, оба завершены; 2× = 7.4 s.
+
+Подозрение на зависание под нагрузкой — `test/contract/github-prs.test.ts:344` «starts at most 10
+branch lookups in one read…»: 1.2 s и 1.1 s в одиночку (`main` `046b086c`), 6.9 s в R1 (завершён), но
+больше 15 s в R2 (timeout). Причина не найдена, лимит не поднят: 2× любого завершённого замера меньше
+15 s.
 
 «the state > a build whose Harness names no dependency has none to report»
-(`harness-install.test.ts`) в полном run-е упал на сравнении списка вызовов `claude`
+(`harness-install.test.ts`) в R1 упал на сравнении списка вызовов `claude`
 (`expected [ …(3) ] to deeply equal [ 'plugin list --json', …(3) ]`). Это не своя ошибка, а след
-test-а перед ним, упавшего по timeout-у. `sb` — переменная модуля, `beforeEach` переписывает её для
-следующего test-а. Тело упавшего test-а продолжает работать: когда его `install` заканчивается, его
-`clearCalls()` удаляет журнал вызовов уже нового test-а. Проверено мутантом: предыдущему test-у —
-timeout 500 ms и пауза перед `clearCalls()`, чтобы удаление пришлось на `install` следующего test-а.
-При паузе 200 ms следующий test падает с тем же сообщением, при 400 и 600 ms — с двумя и одним
-вызовом. Без timeout-а у предыдущего test-а этого нет, так что новый предел 31 s лечит и его.
+test-а перед ним («with the plugin folder reads `plugin list` once…»), упавшего по timeout-у. `sb` —
+переменная модуля, `beforeEach` переписывает её для следующего test-а. Тело упавшего test-а
+продолжает работать: когда его `install` заканчивается, его `clearCalls()` удаляет журнал вызовов уже
+нового test-а. Проверено мутантом: предыдущему test-у — timeout 500 ms и пауза перед `clearCalls()`,
+чтобы удаление пришлось на `install` следующего test-а. При паузе 200 ms следующий test падает с тем
+же сообщением, при 400 и 600 ms — с двумя и одним вызовом. Без timeout-а у предыдущего test-а этого
+нет: пока он укладывается в новый предел 33 s (R2: 16.2 s), сбоя нет и у следующего.
 
-Корневая причина не устранена: почему эти test-ы на Windows идут в разы дольше, чем на Mac
-(запуск процессов, `git`, stub-ы `claude`/`gh` под Node Electron-а, нагрузка полного run-а), здесь не
-исследовано. Новые пределы — обход на win32, а не лечение. В том же полном run-е близко к пределу
-15 s шли и другие test-ы этих файлов, которым timeout не поднимали: один в `harness-evals.test.ts`
-(12.2 s) и три в `projects-connect.test.ts` (до 11.4 s); в run-е семи файлов разом у
-`harness-evals.test.ts` дольше 10 s шли 20 test-ов из 128.
+Корневая причина в этом тикете не устранена: почему эти test-ы на Windows идут в разы дольше, чем на
+Mac (запуск процессов, `git`, stub-ы `claude`/`gh` под Node Electron-а, нагрузка полного run-а), здесь
+не исследовано. Новые пределы — обход на win32, а не лечение. В R1 близко к пределу 15 s завершились
+и другие test-ы этих файлов, которым timeout не поднимали: один в `harness-evals.test.ts` (12.2 s) и
+три в `projects-connect.test.ts` (до 11.4 s).

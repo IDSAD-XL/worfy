@@ -151,13 +151,13 @@ describe('harness/evals: the cases', () => {
       for (const type of types) expect(['regex', 'tool_used', 'tool_order', 'file_exists', 'llm']).toContain(type)
     })
 
-    // Windows: 32 s, 2x the 15.5 s it ran with six other files on the PC (2026-10-19), where it hit the 15 s limit; 11.6 s in the full run.
+    // Windows: 11.7 s in a full run on the PC (2026-10-19), the slowest of the ten cases; twice that.
     it('builds its fixture with exit code 0 in a temporary HOME', () => {
       const { work, home, run } = scaffold(name)
       expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
       expect(existsSync(join(work, '.git'))).toBe(true)
       expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
-    }, process.platform === 'win32' ? 32_000 : undefined)
+    }, process.platform === 'win32' ? 24_000 : undefined)
   })
 
   // A grader of the steps matches the command the skill prescribes today: the gate is gate.mjs since
@@ -404,7 +404,7 @@ const inFixture = (home: string, cwd: string, command: string, args: string[]): 
   })
 
 describe('harness/evals: reviewer-intended-breakage is the diff the case describes', () => {
-  // Windows: 33 s, 2x the 16.2 s it ran with six other files on the PC (2026-10-19), where it hit the 15 s limit; 13.4 s in the full run.
+  // Windows: 13.4 s in a full run on the PC (2026-10-19), sync; twice that.
   it('removes the check the ticket removes on purpose, and hides a rounding defect behind green tests', () => {
     const { work, home, run } = scaffold('reviewer-intended-breakage')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -443,11 +443,11 @@ describe('harness/evals: reviewer-intended-breakage is the diff the case describ
       "import { percent } from './src/percent.mjs'; console.log(percent(2, 3), percent(1, 0))",
     ])
     expect(value.stdout.trim()).toBe('66.6 Infinity')
-  }, process.platform === 'win32' ? 33_000 : undefined)
+  }, process.platform === 'win32' ? 27_000 : undefined)
 })
 
 describe('harness/evals: reviewer-simplification is the diff the case describes', () => {
-  // Windows: 54 s, 2x the 26.5 s it ran in the full run on the PC (2026-10-19), where it hit the 15 s limit; 12.7 s with six other files.
+  // Windows: 26.5 s in a full run on the PC (2026-10-19), sync, overran its 15 s limit; twice that.
   it('adds a thin wrapper over an existing helper, and two near-copies under a shortcut comment', () => {
     const { work, home, run } = scaffold('reviewer-simplification')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -482,7 +482,7 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
     // The change itself works: a reviewer has nothing to report but its shape.
     const tests = inFixture(home, work, 'node', ['--test'])
     expect(tests.status, `${tests.stdout}\n${tests.stderr}`).toBe(0)
-  }, process.platform === 'win32' ? 54_000 : undefined)
+  }, process.platform === 'win32' ? 53_000 : undefined)
 })
 
 // A stand-in for claude: prints STUB_VERSION for --version; for every other call appends to
