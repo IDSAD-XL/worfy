@@ -133,5 +133,16 @@ PR [#536](https://github.com/IDSAD-XL/worfy/pull/536), ветка `worfy-canvas/
     правило «Ticket done» (`bindingsNeeded`: прошёл час, но не порог простоя). Поэтому при обоих
     правилах сразу теперь пишется `idle`, а не `ticket-done`.
   - Мутанты круга 2 (9 новых и 5 прежних ключевых) — все красные.
+- **Круг 3** (gate full красный в e2e):
+  - `no-overlap.spec.ts:182`: прогон автоархива при старте вызывал `store.get` для каждого
+    Project-а и так читал `layout.json` Project-а, который никто не открыл. Исправление сдвига
+    перекрытых Node-ов и строка лога `[layout] … moved Node` случались до того, как тест начинал
+    их ждать. Теперь под «Never» прогон берёт Layout только из памяти main (`LayoutStore.peek`) и
+    файл не читает; contract test на это, мутанты «читает layout.json» и «peek читает» красные.
+  - `binding.spec.ts:289`: перетаскивание Node-а на Card — работа пользователя с Node-ом, и main
+    ставит ему `touchedAt` (ADR-0076, п. 2). Ожидание теста дополнено этим полем, код не менялся.
+  - Весь `pnpm test:e2e` под `/tmp/worfy-e2e.lock` с временными `HOME` и `HARNESS_HOME`: временный
+    `HOME` нужен с node на PATH login shell-а (`.zshenv`), иначе `epic-status` не запускается и
+    падают 55 тестов, не связанных с правкой.
 - **Не сделано здесь:** Settings, команда, Keep-кнопка (08), история и popover (09), toast и порог
   24 h по умолчанию (10).
