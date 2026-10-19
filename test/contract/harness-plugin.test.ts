@@ -3,7 +3,7 @@
 // the files of ~/.claude that are not the Harness: personal scripts, tests of personal profiles'
 // code, agents and hooks of single projects, machine state.
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const REPO = join(__dirname, '..', '..')
@@ -29,7 +29,8 @@ const dependencyName = (dep: unknown): string | undefined => {
 const listFiles = (dir: string): string[] =>
   readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name)
-    return entry.isDirectory() ? listFiles(path) : [relative(HARNESS, path)]
+    // With `/` on every platform: the expectations and patterns below are written with it.
+    return entry.isDirectory() ? listFiles(path) : [relative(HARNESS, path).split(sep).join('/')]
   })
 
 describe('harness/.claude-plugin/plugin.json', () => {

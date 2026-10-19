@@ -19,6 +19,7 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { HarnessBehind } from '../../shared/ipc/autopilot'
+import { programStart } from '../program'
 
 /** The Harness plugin's name in harness/.claude-plugin/plugin.json (ADR-0040). */
 const PLUGIN_NAME = 'worfy'
@@ -49,20 +50,25 @@ export interface HarnessDriftInput {
   root: string
   /** The build's Harness version (bundledHarnessVersion()); undefined when the copy has none. */
   harnessVersion: string | undefined
-  /** The git to run; tests pass one that logs its calls. */
+  /** The git to run; tests pass one that logs its calls, a `.mjs` script (src/main/program.ts). */
   git?: string
 }
 
 const firstLine = (text: string): string => text.trim().split('\n')[0] ?? ''
 
-/** Runs a read-only git command in `root`; answers its stdout, or the first line of its error. */
-function gitIn(binary: string, root: string, args: string[]): Promise<{ ok: true; out: string } | { ok: false; error: string }> {
+/**
+ * Runs a read-only git command in `root`; answers its stdout, or the first line of its error.
+ * `override` is the git a test passes; a `.mjs` one starts as a script of worfy's own Node.
+ */
+function gitIn(override: string | undefined, root: string, args: string[]): Promise<{ ok: true; out: string } | { ok: false; error: string }> {
+  const start = programStart(override, 'git')
   // GIT_DIR and friends of the environment worfy was started from would point git elsewhere;
   // GIT_OPTIONAL_LOCKS=0 keeps git from refreshing the index on the way.
   const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
   env.GIT_OPTIONAL_LOCKS = '0'
+  Object.assign(env, start.env)
   return new Promise((done) => {
-    execFile(binary, args, { cwd: root, env, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }, (error, stdout, stderr) => {
+    execFile(start.file, [...start.args, ...args], { cwd: root, env, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }, (error, stdout, stderr) => {
       if (error === null) done({ ok: true, out: stdout.trim() })
       else done({ ok: false, error: firstLine(stderr) || firstLine(error.message) })
     })
@@ -90,7 +96,7 @@ export async function checkHarnessDrift(input: HarnessDriftInput): Promise<Harne
   }
   const notWorfy = await worfyPlugin(input.root)
   if (notWorfy !== null) return { kind: 'unknown', reason: notWorfy }
-  const git = (...args: string[]) => gitIn(input.git ?? 'git', input.root, args)
+  const git = (...args: string[]) => gitIn(input.git, input.root, args)
   const built = await git('cat-file', '-e', `${sha}^{commit}`)
   if (!built.ok) return { kind: 'unknown', reason: `the build commit ${sha} is not in ${input.root}: ${built.error}` }
   let main: { name: string; ref: string } | null = null
