@@ -66,6 +66,21 @@
   /* Colour 8 of the terminal palette (bright black): dimmed output and the Terminal AI Suggestion */
   --terminal-dim: #8e8e93;
 
+  /*
+   * Node kinds (ADR-0077): `band` is the kind's colour for the header band, the kind icon, the
+   * minimap and the far-zoom block; `-tint` is the pale header ground. Never status text, a status
+   * chip, a Node's body or an Edge. test/unit/kind-tokens.test.ts checks them against the F-SPEC
+   * table, for contrast and under colour-vision simulation.
+   */
+  --kind-orchestrator: #a0527f;
+  --kind-orchestrator-tint: #f6eaf1;
+  --kind-session: #2b8bc6;
+  --kind-session-tint: #e6f2fa;
+  /* A Subagent has the colour of its Session, drawn as an outline only. */
+  --kind-subagent: var(--kind-session);
+  --kind-epic: #9a7a00;
+  --kind-epic-tint: #f6f0d9;
+
   /* Segmented control, as drawn in the F mockups */
   --segment-track: #e2e2e6;
   --segment-thumb: #ffffff;
@@ -113,6 +128,13 @@
     --terminal-bg: #0b0a09;
     --terminal-text: #ece8e1;
     --terminal-dim: #9c968d;
+
+    --kind-orchestrator: #cc79a7;
+    --kind-orchestrator-tint: #2d2028;
+    --kind-session: #56b4e9;
+    --kind-session-tint: #1b2730;
+    --kind-epic: #f0e442;
+    --kind-epic-tint: #2a2716;
 
     --segment-track: #22201e;
     --segment-thumb: #3b3834;

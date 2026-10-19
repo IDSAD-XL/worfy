@@ -61,7 +61,8 @@ export type BindingAnchorData =
       /**
        * The agent works now: a Session (or the Orchestrator) whose Claude Code process runs, a
        * Subagent whose status is `running`. Its line is always drawn; another's only while its Node
-       * or its target's is hovered or selected (worfy-week ticket 05).
+       * or its target's is hovered or selected (worfy-week ticket 05), or while both are in the lit
+       * Family of a hovered or selected Node (worfy-canvas ticket 03).
        */
       live: boolean
     }

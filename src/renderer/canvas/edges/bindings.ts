@@ -4,7 +4,8 @@
 // a line ends; a line is drawn only when both ends are on the Canvas.
 //
 // The line of a working agent (a live Session, a running Subagent) is always drawn; another's only
-// while the agent's Node or its target's Node is hovered or selected (worfy-week ticket 05). The
+// while the agent's Node or its target's Node is hovered or selected (worfy-week ticket 05), or
+// while both are in the lit Family of a hovered or selected Node (worfy-canvas ticket 03). The
 // line is orthogonal with rounded corners (edge-types/StepEdge.tsx).
 import type { Edge } from '@xyflow/react'
 import { bindingReason, bindingTargetLabel } from '../../../shared/binding/resolve'

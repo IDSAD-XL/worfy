@@ -17,6 +17,7 @@ import '../epic-frame.css'
 export const kind = 'epic-frame'
 export const defaultWidth = 520
 export const defaultHeight = 56
+export const minimapColor = 'var(--kind-epic)'
 
 const pad = (num: number) => String(num).padStart(2, '0')
 

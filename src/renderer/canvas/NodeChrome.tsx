@@ -5,9 +5,15 @@
 // On the Canvas of a Linked machine that shares its Projects read-only (worfy-link ticket 25) a
 // Terminal Node is drawn as ReadOnlyTerminal.tsx instead of its own component, which would start
 // the shell there as it mounts.
+//
+// While a focused Node's Family is lit (worfy-canvas ticket 03, edge-focus.ts) a Node outside it
+// is dimmed: NodeChrome puts a marker into the Node's element and node-chrome.css lowers that
+// element's opacity. Only the marker subscribes to the Node's own yes/no answer, so a change draws
+// the marker again, not the Node's content.
 import type { ComponentType, ReactNode } from 'react'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { useReadOnly } from '../projects/useProjects'
+import { useNodeDimmed } from './edge-focus'
 import type { CanvasNodeProps } from './nodes'
 import { pinnedScreenPoint, screenToCanvas, usePinnedView } from './pinning'
 import { ReadOnlyTerminal } from './ReadOnlyTerminal'
@@ -51,6 +57,11 @@ function PinnedFrame({ props, children }: { props: CanvasNodeProps; children: Re
   )
 }
 
+/** The dim marker, a direct child of React Flow's Node element: node-chrome.css dims that element through :has(). */
+function DimMarker({ id }: { id: string }) {
+  return useNodeDimmed(id) ? <span className="w-node-dimmed" data-testid="node-dimmed" hidden /> : null
+}
+
 export interface NodeChromeProps extends CanvasNodeProps {
   /** The Node type's own component. */
   Component: ComponentType<CanvasNodeProps>
@@ -61,11 +72,19 @@ export function NodeChrome({ Component, ...props }: NodeChromeProps) {
   const { node } = props.data
   const readOnly = useReadOnly()
   const content = readOnly !== null && node.kind === TERMINAL_NODE_KIND ? <ReadOnlyTerminal id={props.id} hint={readOnly} /> : <Component {...props} />
-  if (node.pinned) return <PinnedFrame props={props}>{content}</PinnedFrame>
+  const dim = <DimMarker id={props.id} />
+  if (node.pinned)
+    return (
+      <>
+        <PinnedFrame props={props}>{content}</PinnedFrame>
+        {dim}
+      </>
+    )
   return (
     <>
       {content}
       <TagStrip tags={node.tags} />
+      {dim}
     </>
   )
 }
