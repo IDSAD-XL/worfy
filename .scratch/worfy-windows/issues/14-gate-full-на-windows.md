@@ -594,8 +594,14 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
   - Test-ы в `link-pairing.test.ts`: кривой frame во время close handshake и кривой frame одной записью с `pake1` — без uncaught exception; A, чей pairing провалился, шлёт 4001 и обрывает молчащую сторону через ≥ 900 ms и < 3 s (подставной B); pairing, упавший на не-JSON сообщении, обрывается сразу (< 700 ms).
   - Mutant-ы: без listener-а — 2 красных; `pair()` с `ws.terminate()` сразу — красный (раньше выживал и на Windows: короткий frame 4001 без непрочитанных данных уходит и при обрыве); условие CLOSING → `true` — красный.
   - 9 файлов среза: 337 passed, 1 skipped, exit 0, с обоими TEMP; lint и typecheck — 0.
-**Часть 2 — ждёт замера, ветка `worfy-windows/14-win32-timeouts`, не в этом PR.**
-- Лимиты на win32 для 15 test-ов по одному, около 2× замера: `check-handoff`, `check-lessons`, `canvas`, `github-prs`, `harness-evals`, `projects-connect`, `harness-install`. Плюс их список в worfy-polish 30.
-- Ждёт полного прогона на свободном ПК. Async test vitest останавливает на deadline, так что «15.2 s» в отчёте значит «больше 15 s». Предел без завершённого замера не ставится.
-- Полный прогон ветки 2026-10-19 20:15–21:00 не годится: на ПК шла игра, 91 failed, почти все timeout-ы, в файлах, которые зелёные поодиночке.
+**Часть 2 — PR #541, ветка `worfy-windows/14-win32-timeouts`.**
+- Лимиты timeout только на win32, по одному test-у, около 2× завершённого замера; над каждым — однострочный комментарий с замером. Остальные платформы — со своим default. Ни одного подъёма на весь файл или глобально.
+- Замеры (ПК, 2026-10-19): полный `pnpm test` на main a3514683; полный `pnpm test` ветки на свободном ПК (21:33–21:58, 13 failed); для двух test-ов harness-migrate — прогон в одиночку (`-t`, `--testTimeout=120000`) на main 046b086c с обоими TEMP.
+- Правило: sync test считается и при выходе за предел (vitest не может его остановить, время настоящее); async test, упавший по timeout, — не замер (vitest останавливает его на deadline). Где 2× не больше default 15 s, лимита нет.
+- 13 лимитов: `check-handoff` 13 s, `check-lessons` 12 s, `canvas` 7 s, `harness-evals` 24 / 27 / 53 s, `projects-connect` 26 s, `harness-install` 33 / 26 / 27 / 27 s, `harness-migrate-boundaries` «a second restore.mjs» и `harness-migrate` «the qmd group» — временно 60 s: в полном прогоне ветки оба шли дольше 15 s, в одиночку 8.3 s и 9.9 s; перемерить в следующем полном прогоне (worfy-polish 30, ревью #541).
+- Сняты: `github-prs` «150 PRs», `harness-install` «a first `install`… exits non-zero» и «EBUSY twice» — 2× меньше 15 s.
+- Без лимита: `github-prs` «starts at most 10 branch lookups» — 1.2 s в одиночку, 6.9 s в полном прогоне main, но больше 15 s в полном прогоне ветки. Похоже на ожидание под нагрузкой, а не на медленную работу; причина не найдена. Записан в worfy-polish 30.
+- `autopilot-background` «Force stop…» упал в полном прогоне ветки на порядке событий; в одиночку на main — 20 из 20 с обоими TEMP. Нагрузка, не timeout.
+- Полный прогон 2026-10-19 20:15–21:00 не годится: на ПК шла игра, 91 failed, почти все timeout-ы.
 - Найдено попутно: красный `harness-install` «a build whose Harness names no dependency» — не дефект. Его журнал вызовов чистит `clearCalls()` test-а перед ним, упавшего по timeout (`sb` — переменная модуля). Воспроизведено задержкой перед `clearCalls`.
+- Полный список с замерами — в worfy-polish 30, раздел «Windows: test-ы, которым worfy-windows 14 (срез 3l) поднял timeout на win32».

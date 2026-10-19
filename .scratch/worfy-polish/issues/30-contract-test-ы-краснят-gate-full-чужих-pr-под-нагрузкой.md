@@ -300,7 +300,11 @@ node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.r
 Run-ы файлов по одному и run семи файлов разом в расчёт не идут: это не полный run. Исключение —
 два test-а `harness-migrate*`: в R2 они упали по timeout-у на 15 s, завершённого замера в полном run-е
 у них нет, и оркестратор решил мерить их в одиночку (`-t`, `--testTimeout=120000`, `main` `046b086c`,
-PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Для них предел — 2× времени в одиночку.
+PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел временный — 60 s: в R2 оба шли дольше 15 s, а
+полный run бывает в разы медленнее, чем в одиночку (`github-prs` «starts at most 10 branch lookups»: 1.2 s
+в одиночку, 6.9 s в R1). 2× времени в одиночку (17 s и 20 s) мог не хватить полному run-у (ревью PR #541, круг 1).
+- [ ] Перемерить оба в следующем полном run-е на свободном PC с `--testTimeout=120000` и заменить 60 s на 2×
+  завершённого замера.
 
 | Файл | Test | Было → стало (win32) | Замер |
 |---|---|---|---|
@@ -315,8 +319,8 @@ PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Для них преде
 | `test/contract/harness-install.test.ts:722` | «errors > a non-zero exit of `claude plugin update`…» | 15 s → 26 s | R1: 12.9 s, завершён; R2: 9.1 s, завершён |
 | `test/contract/harness-install.test.ts:796` | «errors > a copy that fails half way…» | 15 s → 27 s | R2: 13.4 s, завершён; R1: 10.1 s, завершён |
 | `test/contract/harness-install.test.ts:816` | «errors > a copy interrupted between its two renames…» | 15 s → 27 s | R1: 13.5 s, завершён; R2: 5.8 s, завершён |
-| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 17 s | в одиночку: 8.3 s и 7.7 s (не полный run); R2: timeout на 15 s — не замер |
-| `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 20 s | в одиночку: 9.9 s и 9.8 s (не полный run); R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 60 s (временно) | в одиночку: 8.3 s и 7.7 s (не полный run); R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 60 s (временно) | в одиночку: 9.9 s и 9.8 s (не полный run); R2: timeout на 15 s — не замер |
 
 Предел снят — 2× завершённого замера не больше 15 s (первая версия среза ставила его по длительности
 асинхронного test-а, упавшего по timeout-у, а это не замер):
@@ -342,7 +346,9 @@ test-а перед ним («with the plugin folder reads `plugin list` once…�
 нового test-а. Проверено мутантом: предыдущему test-у — timeout 500 ms и пауза перед `clearCalls()`,
 чтобы удаление пришлось на `install` следующего test-а. При паузе 200 ms следующий test падает с тем
 же сообщением, при 400 и 600 ms — с двумя и одним вызовом. Без timeout-а у предыдущего test-а этого
-нет: пока он укладывается в новый предел 33 s (R2: 16.2 s), сбоя нет и у следующего.
+нет: пока он укладывается в новый предел 33 s (R2: 16.2 s), сбоя нет и у следующего. Предел 33 s прячет
+утечку, но не лечит её: test, упавший по timeout-у, продолжает работать и чистит журнал вызовов
+следующего (`harness-install.test.ts:176`, `:223`, ревью PR #541). Открыто.
 
 Корневая причина в этом тикете не устранена: почему эти test-ы на Windows идут в разы дольше, чем на
 Mac (запуск процессов, `git`, stub-ы `claude`/`gh` под Node Electron-а, нагрузка полного run-а), здесь
