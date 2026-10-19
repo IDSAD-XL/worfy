@@ -13,7 +13,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessStatus } from '../../src/shared/ipc/harness'
 import { githubChoice, withGithubAccount, type ProfileDraft } from '../../src/shared/ipc/projects'
@@ -912,7 +912,7 @@ describe('the draft Session (step 4)', () => {
     const profile = outcome.draft.profile as Record<string, Record<string, unknown>>
     expect(profile.mode).toBe('silent')
     expect(profile.workflow?.folder).toBeNull()
-    expect(profile.worktree?.root).toBe(`${repo}/.claude/worktrees/`)
+    expect(profile.worktree?.root).toBe(join(repo, '.claude', 'worktrees') + '/')
     expect(profile.language).toEqual({ reports: 'ru', team: 'en', docs: 'en' })
     expect(profile.github).toEqual({ account: null })
     expect(outcome.draft.gate).toEqual([expect.objectContaining({ key: 'fake-project', match: repo, profile: 'fake-project' })])
@@ -1164,7 +1164,7 @@ describe('the form and the write (steps 5 and 6)', () => {
     expect(profile.workflow?.folder).toBe(workspace)
     expect(profile.worktree?.root).toBeNull()
     // The skill proposes one entry per repository; the fake agent proposed one for the folder.
-    const both: ProfileDraft = { ...draft, profile: { ...draft.profile, name: 'ws' }, gate: [api, web].map((match) => ({ ...draft.gate[0], key: match.split('/').at(-1), match, profile: 'ws' })) }
+    const both: ProfileDraft = { ...draft, profile: { ...draft.profile, name: 'ws' }, gate: [api, web].map((match) => ({ ...draft.gate[0], key: basename(match), match, profile: 'ws' })) }
     expect(await run.connector.write(workspace, { ...both, profile: { ...both.profile, mode: 'full' } })).toEqual({ status: 'refused', issues: [{ path: 'profile.mode', kind: 'value', message: MULTI_REPO_FULL }] })
     expect(run.added).toEqual([])
     // Before the write the store refuses the folder: the Harness does not know it yet.

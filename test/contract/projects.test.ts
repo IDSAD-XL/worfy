@@ -191,10 +191,29 @@ describe('projects.add', () => {
     const repo = makeRepo('auction')
     const { createHash } = await import('node:crypto')
     const { project } = await addOk(repo)
-    expect(project.id).toBe(`auction-${createHash('sha256').update(repo).digest('hex').slice(0, 8)}`)
+    // The hash is of the root as git prints it: on Windows that is C:/…, not the stored C:\….
+    const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
+    expect(project.id).toBe(`auction-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`)
     const settings = JSON.parse(readFileSync(join(dataDir, project.id, 'settings.json'), 'utf8')) as unknown
     expect(settings).toStrictEqual({ actionTemplates: { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}', gateQueue: '' } })
     expect(existsSync(join(dataDir, 'projects.json'))).toBe(true)
+  })
+
+  it("keeps the id of a Project saved with git's spelling of the path, shows the resolved path and adds no second entry", async () => {
+    const repo = makeRepo('auction')
+    const { createHash } = await import('node:crypto')
+    // projects.json written before the stored path was resolved: on Windows it holds git's C:/… spelling.
+    const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
+    const id = `auction-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`
+    mkdirSync(dataDir, { recursive: true })
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name: 'auction', path: gitRoot }], activeId: id }))
+    await start()
+
+    expect((await value<State>('projects.list')).projects).toStrictEqual([{ id, name: 'auction', path: repo, branch: 'main' }])
+    const result = await addOk(repo)
+    expect(result.project).toStrictEqual({ id, name: 'auction', path: repo, branch: 'main' })
+    expect(result.notice).toBe('auction is already in the list.')
+    expect(result.state.projects.map((project) => project.id)).toStrictEqual([id])
   })
 
   it('resolves a subfolder to the repository root and says so', async () => {
@@ -637,7 +656,9 @@ describe('projects.browse', () => {
     expect(answer.folders?.at(-1)?.name).toBe('f1999')
   })
 
-  it('a folder that cannot be read is answered with ok:false, the reason and its parent; a missing one too', async () => {
+  // Skipped on Windows: chmod 0o000 does not take read access away on NTFS, so the folder stays
+  // readable. Lifted by none: the premise does not hold on Windows.
+  it.skipIf(process.platform === 'win32')('a folder that cannot be read is answered with ok:false, the reason and its parent', async () => {
     const locked = join(scratch, 'locked')
     mkdirSync(join(locked, 'inside'), { recursive: true })
     chmodSync(locked, 0o000)
@@ -646,6 +667,9 @@ describe('projects.browse', () => {
     } finally {
       chmodSync(locked, 0o755)
     }
+  })
+
+  it('a missing folder is answered with ok:false, the reason and its parent', async () => {
     expect(await value<Browsed>('projects.browse', { path: join(scratch, 'missing') })).toStrictEqual({
       ok: false,
       path: join(scratch, 'missing'),
@@ -658,6 +682,8 @@ describe('projects.browse', () => {
     const home = join(scratch, 'home')
     mkdirSync(join(home, 'code'), { recursive: true })
     vi.stubEnv('HOME', home)
+    // os.homedir() reads USERPROFILE on Windows and ignores HOME.
+    vi.stubEnv('USERPROFILE', home)
     const answer = await value<Browsed>('projects.browse', { path: null })
     expect(answer).toMatchObject({ ok: true, path: home, parent: scratch })
     expect(answer.folders?.map((folder) => folder.name)).toEqual(['code'])
