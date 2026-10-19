@@ -1,7 +1,7 @@
 // Limits from rate_limit_event messages and the status line bridge file:
 // src/shared/agent/limits.ts merges them per window and turns the result into the two bars.
 import { describe, expect, it } from 'vitest'
-import { emptyLimits, limitBars, limitUpdatesFromSdk, limitUpdatesFromStatusline, mergeLimits } from '../../src/shared/agent/limits'
+import { emptyLimits, limitBars, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitUpdatesFromUsage, mergeLimits } from '../../src/shared/agent/limits'
 
 const AT = Date.UTC(2026, 9, 5, 5, 0) // Mon 2026-10-05 05:00 UTC
 const TZ = 'UTC'
@@ -222,5 +222,32 @@ describe('limitBars', () => {
     expect(at(null, 'allowed')).toMatchObject({ level: 'normal', value: 'allowed' })
     expect(at(null, 'paused')).toMatchObject({ value: 'paused' })
     expect(at(null)).toMatchObject({ value: 'unknown' })
+  })
+})
+
+describe('limitUpdatesFromUsage (the answer of the SDK usage request)', () => {
+  it('reads the share 0..100 and the ISO reset time of both windows', () => {
+    const value = { rate_limits_available: true, rate_limits: { five_hour: { utilization: 10, resets_at: '2026-10-05T07:10:00.000Z' }, seven_day: { utilization: 8, resets_at: '2026-10-12T09:00:00Z' }, seven_day_opus: { utilization: 50, resets_at: null } } }
+    expect(limitUpdatesFromUsage(value, AT)).toEqual([
+      { window: 'five_hour', state: { utilization: 0.1, resetsAt: 1791184200, status: null, receivedAt: AT, source: 'usage' } },
+      { window: 'seven_day', state: { utilization: 0.08, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
+    ])
+  })
+
+  it('a missing share or an unreadable time counts as missing; a window with neither is skipped', () => {
+    const value = { rate_limits: { five_hour: { utilization: null, resets_at: 'not a time' }, seven_day: { utilization: 'x', resets_at: '2026-10-12T09:00:00Z' } } }
+    expect(limitUpdatesFromUsage(value, AT)).toEqual([{ window: 'seven_day', state: { utilization: null, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } }])
+  })
+
+  it('no rate limits (an API key, Bedrock, Vertex) and anything that is not an answer give nothing', () => {
+    for (const value of [null, undefined, 'text', 42, {}, { rate_limits_available: false, rate_limits: null }, { rate_limits: 'x' }]) {
+      expect(limitUpdatesFromUsage(value, AT)).toEqual([])
+    }
+  })
+
+  it('keeps an SDK status of the same window, as the status line does', () => {
+    const known = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.8, resetsAt: 1791795600, status: 'allowed_warning', receivedAt: AT - 1000, source: 'sdk' } }])
+    const next = mergeLimits(known, limitUpdatesFromUsage({ rate_limits: { seven_day: { utilization: 81, resets_at: '2026-10-12T09:00:00Z' } } }, AT))
+    expect(next.windows.seven_day).toEqual({ utilization: 0.81, resetsAt: 1791795600, status: 'allowed_warning', receivedAt: AT, source: 'usage' })
   })
 })

@@ -1,5 +1,5 @@
 // Limits: how much of the Claude subscription windows (5 hours, 7 days) is used, and when each
-// window resets. Two sources feed them:
+// window resets. Three sources feed them:
 //
 // - the Agent SDK's `rate_limit_event` (SDKRateLimitInfo). Ticket 06 saw it once per Session,
 //   before the first request, with `rate_limit_info.{status, rateLimitType, resetsAt}` and an
@@ -7,9 +7,12 @@
 //   `resetsAt` may be missing;
 // - the `rate_limits` object Claude Code passes to the status line command (2.1.284:
 //   `{five_hour: {used_percentage, resets_at}, seven_day: {...}}`), which
-//   scripts/statusline-bridge.mjs copies into <WORFY_DATA_DIR>/statusline-limits.json.
+//   scripts/statusline-bridge.mjs copies into <WORFY_DATA_DIR>/statusline-limits.json;
+// - the answer of the SDK's usage request (src/main/agent/limits-usage.ts), which main asks at most
+//   every 30 minutes when the two passive sources above have nothing fresh:
+//   `rate_limits.{five_hour, seven_day}.{utilization 0..100, resets_at ISO 8601}`.
 //
-// Both are read leniently into per-window updates; a newer update replaces the older one of the
+// All are read leniently into per-window updates; a newer update replaces the older one of the
 // same window, except that an update without a reset time keeps the one already known while it is
 // still ahead, and one without a status keeps the known status while the window is the same
 // (mergeLimits, the only place one update of a window replaces another). limitBars()
@@ -30,7 +33,7 @@ export const limitWindowStateSchema = z.object({
   status: z.string().nullable(),
   /** When worfy received the value, in milliseconds since the epoch. */
   receivedAt: z.number(),
-  source: z.enum(['sdk', 'statusline']),
+  source: z.enum(['sdk', 'statusline', 'usage']),
 })
 export type LimitWindowState = z.infer<typeof limitWindowStateSchema>
 
@@ -115,6 +118,30 @@ export function limitUpdatesFromStatusline(value: unknown, receivedAt: number): 
   })
 }
 
+const usageWindow = z.object({ utilization: optNum, resets_at: optStr }).nullish().catch(null)
+const usageAnswer = z.object({ rate_limits: z.object({ five_hour: usageWindow, seven_day: usageWindow }).nullish().catch(null) })
+
+/**
+ * The window updates in an answer of the SDK's usage request; [] when it has no `rate_limits`
+ * (an API key, Bedrock, Vertex) or is not an object. `utilization` is 0..100 and `resets_at` an
+ * ISO 8601 time; one that does not parse counts as missing.
+ */
+export function limitUpdatesFromUsage(value: unknown, receivedAt: number): LimitUpdate[] {
+  const parsed = usageAnswer.safeParse(value)
+  if (!parsed.success) return []
+  const limits = parsed.data.rate_limits
+  if (limits === null || limits === undefined) return []
+  return LIMIT_WINDOWS.flatMap((window): LimitUpdate[] => {
+    const reported = limits[window]
+    if (reported === null || reported === undefined) return []
+    const percent = orNull(reported.utilization)
+    const at = reported.resets_at === null || reported.resets_at === undefined ? Number.NaN : Date.parse(reported.resets_at)
+    const resetsAt = Number.isFinite(at) ? Math.round(at / 1000) : null
+    if (percent === null && resetsAt === null) return []
+    return [{ window, state: clean({ utilization: percent === null ? null : percent / 100, resetsAt, status: null, receivedAt, source: 'usage' }) }]
+  })
+}
+
 /** A negative or non-finite share or time from a source counts as missing. */
 function clean(state: LimitWindowState): LimitWindowState {
   const finite = (value: number | null): number | null => (value !== null && Number.isFinite(value) && value >= 0 ? value : null)
@@ -176,7 +203,7 @@ function sameWindow(a: LimitWindowState, b: LimitWindowState): boolean {
 // ---------------------------------------------------------------------------------------------
 // Display
 
-/** Data older than this is shown with "as of <time>". */
+/** Data older than this is drawn dimmed, with "as of <time>" as the bar's tooltip. */
 export const STALE_AFTER_MS = 60 * 60 * 1000
 /** Shares from which a bar takes the working and the blocked colour. */
 export const WORKING_FROM = 0.6
@@ -193,7 +220,7 @@ export interface LimitBar {
   value: string
   /** `resets 14:20` (5-hour) or `resets Thu 09:00` (7-day); null when unknown. */
   resets: string | null
-  /** `as of 13:05` when the data is older than an hour; null when fresh. */
+  /** `as of 13:05` when the data is older than an hour (the bar is dimmed, this is its tooltip); null when fresh. */
   asOf: string | null
   level: LimitLevel
 }

@@ -100,10 +100,12 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const subtitle = toolbar.locator('.w-toolbar__subtitle')
     await expect(name).toHaveText(`worfy — ${LONG_NAME}`)
     await expect(subtitle).toHaveText(`${LONG_NAME} · main`)
-    await expect(toolbar.getByTestId('limit-seven_day-note')).toContainText('as of')
+    // Old data: the bar is dimmed with "as of" as its tooltip, and no "as of" line (worfy-ui ticket 18).
+    await expect(toolbar.getByTestId('limit-seven_day')).toHaveAttribute('title', /^as of /)
+    await expect(toolbar.getByTestId('limit-seven_day')).not.toContainText('as of')
     await expect(toolbar.getByTestId('app-version')).toBeVisible()
     await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
-    await expect(toolbar.getByTestId('harness-action')).toHaveText('Install')
+    await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
     // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was.
     await expect(toolbar.getByTestId('app-version')).toHaveText(new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`))
 
@@ -113,9 +115,9 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const items: Record<string, Locator> = {
       view: toolbar.getByRole('group', { name: 'View' }),
       limits: toolbar.getByTestId('limits-meter'),
-      // worfy-harness ticket 13: "Harness not installed" with its Install button (the Claude home of launchApp is a sandbox).
-      harness: toolbar.getByTestId('harness-status'),
-      version: toolbar.getByTestId('app-version'),
+      // worfy-harness ticket 13: "Harness not installed" with its Install button (the Claude home of launchApp is a sandbox),
+      // and the app version under it in one column (worfy-ui ticket 18).
+      harness: toolbar.getByTestId('harness-column'),
       search: toolbar.locator('.w-toolbar__palette-hint'),
     }
     let previousRight = title.x + title.width
@@ -125,6 +127,13 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
       expect(found.x + found.width, `${item} ends inside the window (${width} px)`).toBeLessThanOrEqual(width)
       previousRight = found.x + found.width
     }
+    // The version is the second line of the Harness column: below the Harness line, inside the toolbar.
+    const harnessLine = await box(toolbar.getByTestId('harness-status'))
+    const version = await box(toolbar.getByTestId('app-version'))
+    const bar = await box(toolbar)
+    expect(version.y, 'the version is under the Harness line').toBeGreaterThanOrEqual(harnessLine.y + harnessLine.height - 1)
+    expect(version.y + version.height, 'the version is inside the toolbar').toBeLessThanOrEqual(bar.y + bar.height)
+    expect(bar.height, 'the toolbar keeps its height').toBe(52)
 
     // The name and the subtitle are cut with an ellipsis; the full text is their tooltip.
     for (const element of [name, subtitle.locator('.w-toolbar__subtitle-text')]) {

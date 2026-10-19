@@ -154,8 +154,9 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await first.close()
   }
 
-  // Back-date what was saved by two days: after the restart the bars carry "as of" with a weekday,
-  // the longest note the toolbar has to fit ("resets Thu 09:00 · as of Mon 04:53").
+  // Back-date what was saved by two days: after the restart the bars are dimmed and their tooltip
+  // says "as of" with a weekday; on screen they keep two lines of text, the label and the reset time
+  // (worfy-ui ticket 18: no "as of" line).
   const file = join(dataDir, 'limits.json')
   const saved = JSON.parse(readFileSync(file, 'utf8')) as { windows: Record<string, { receivedAt: number }> }
   for (const window of Object.values(saved.windows)) window.receivedAt -= 2 * 24 * 60 * 60 * 1000
@@ -167,7 +168,12 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     const sevenDay = meter(second.window).getByTestId('limit-seven_day')
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toContainText('as of')
+    for (const bar of [fiveHour, sevenDay]) {
+      await expect(bar).toHaveAttribute('data-stale', 'true')
+      await expect(bar).toHaveAttribute('title', /^as of [A-Z][a-z]{2} \d\d:\d\d$/)
+      await expect(bar).not.toContainText('as of')
+      expect(Number(await bar.evaluate((node) => (node as unknown as { style: { opacity: string } }).style.opacity))).toBeLessThan(1)
+    }
 
     // The notes fit their bars: the text of the 5-hour note, the 7-day note, the app version and
     // the search field do not overlap, and no note text is cut.
@@ -189,11 +195,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
       expect(boxes[name].cut, `${name} note is cut`).toBe(false)
       expect(boxes[name].y >= toolbar!.y && boxes[name].y + boxes[name].height <= toolbar!.y + toolbar!.height, `${name} note inside the toolbar`).toBe(true)
     }
-    // The full note is the tooltip; on screen the reset time and "as of" are two lines.
-    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveAttribute('title', /^resets \d\d:\d\d · as of [A-Z][a-z]{2} \d\d:\d\d$/)
-    await expect(fiveHour.getByTestId('limit-five_hour-resets')).toHaveText(/^resets \d\d:\d\d$/)
-    await expect(fiveHour.getByTestId('limit-five_hour-as-of')).toHaveText(/^as of [A-Z][a-z]{2} \d\d:\d\d$/)
-    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveAttribute('title', /^resets [A-Z][a-z]{2} \d\d:\d\d · as of [A-Z][a-z]{2} \d\d:\d\d$/)
+    // One line under the bar, the reset time; the bar is no taller than a fresh one (the toolbar never grows).
+    await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d$/)
+    await expect(sevenDay.getByTestId('limit-seven_day-note')).toHaveText(/^resets [A-Z][a-z]{2} \d\d:\d\d$/)
+    const staleHeight = (await fiveHour.boundingBox())!.height
+    expect(staleHeight, 'an old bar is two text lines and the meter').toBeLessThanOrEqual(40)
     await second.window.getByRole('banner').screenshot({ path: test.info().outputPath('toolbar-limits-as-of.png') })
 
     // The status line bridge's file, replaced by a rename as the script does it.
@@ -204,6 +210,10 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('91%')
     await expect(fiveHour).toHaveAttribute('data-level', 'blocked')
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toHaveText(/^resets \d\d:\d\d$/)
+    // Fresh again: no longer dimmed, no tooltip, and the same height as when it was old.
+    await expect(fiveHour).not.toHaveAttribute('data-stale', 'true')
+    await expect(fiveHour).not.toHaveAttribute('title', /as of/)
+    expect((await fiveHour.boundingBox())!.height).toBe(staleHeight)
     await expect(meter(second.window).getByTestId('limit-seven_day-value')).toHaveText('9%')
   } finally {
     await second.close()

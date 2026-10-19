@@ -7,7 +7,7 @@ import { useLimits, useNow } from '../../limits/useLimits'
 // src/renderer/limits/LimitBar.tsx and the Limits read through src/renderer/limits/useLimits.ts.
 // This is the only place worfy shows the Limits; the Session view's rail does not repeat them.
 
-// Before the app version (1000), which stays last.
+// Before the Harness item (500), which carries the app version.
 export const order = 100
 
 /** The bars of `state` at `now`, or "no data yet"; exported for tests, which pass their own state. */

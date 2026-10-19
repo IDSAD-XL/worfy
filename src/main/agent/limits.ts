@@ -10,6 +10,8 @@
 //   Contents/Resources; `statusLine` in ~/.claude/settings.json points at the entry once the user
 //   agrees to that row of the Harness migration form (ADR-0040, ADR-0047).
 //   This module only reads the file.
+// A third, active source asks Claude Code for the usage every 30 minutes while these two bring
+// nothing fresh: src/main/agent/limits-usage.ts, which records through record().
 //
 // A change is written to limits.json and sent to the subscribers (src/main/ipc/limits.ts sends it
 // to the windows). This module writes nowhere else: not to ~/.claude, not to a Project's repository.
