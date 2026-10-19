@@ -295,7 +295,9 @@ node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.r
 
 Замеры — JSON-отчёты vitest двух полных `pnpm test` на PC:
 - R1 — `main` `a3514683`, 2026-10-19 18:49;
-- R2 — ветка среза, `32438dc3`, 2026-10-19 21:33, PC без другой нагрузки.
+- R2 — ветка среза, `32438dc3`, 2026-10-19 21:33, PC без другой нагрузки;
+- R3 — `main` `aa27fa89` (после PR #541), 2026-10-19 22:55–23:20, PC без другой нагрузки: 10 failed —
+  8 `.test.sh` в `harness-scripts.test.ts` (Ticket 71) и 2 timeout-а на 15 s (ниже, «Одна проблема нагрузки»).
 
 Run-ы файлов по одному и run семи файлов разом в расчёт не идут: это не полный run. Исключение —
 два test-а `harness-migrate*`: в R2 они упали по timeout-у на 15 s, завершённого замера в полном run-е
@@ -303,8 +305,7 @@ Run-ы файлов по одному и run семи файлов разом в
 PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел временный — 60 s: в R2 оба шли дольше 15 s, а
 полный run бывает в разы медленнее, чем в одиночку (`github-prs` «starts at most 10 branch lookups»: 1.2 s
 в одиночку, 6.9 s в R1). 2× времени в одиночку (17 s и 20 s) мог не хватить полному run-у (ревью PR #541, круг 1).
-- [ ] Перемерить оба в следующем полном run-е на свободном PC с `--testTimeout=120000` и заменить 60 s на 2×
-  завершённого замера.
+- [x] Перемерено в R3: 15.5 s и 29.9 s, оба завершены. Пределы — 31 s и 60 s (2×), комментарии называют R3.
 
 | Файл | Test | Было → стало (win32) | Замер |
 |---|---|---|---|
@@ -319,8 +320,8 @@ PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел вре
 | `test/contract/harness-install.test.ts:722` | «errors > a non-zero exit of `claude plugin update`…» | 15 s → 26 s | R1: 12.9 s, завершён; R2: 9.1 s, завершён |
 | `test/contract/harness-install.test.ts:796` | «errors > a copy that fails half way…» | 15 s → 27 s | R2: 13.4 s, завершён; R1: 10.1 s, завершён |
 | `test/contract/harness-install.test.ts:816` | «errors > a copy interrupted between its two renames…» | 15 s → 27 s | R1: 13.5 s, завершён; R2: 5.8 s, завершён |
-| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 60 s (временно) | в одиночку: 8.3 s и 7.7 s (не полный run); R2: timeout на 15 s — не замер |
-| `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 60 s (временно) | в одиночку: 9.9 s и 9.8 s (не полный run); R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 31 s | R3: 15.5 s, завершён; в одиночку 8.3 s и 7.7 s; R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 60 s | R3: 29.9 s, завершён; в одиночку 9.9 s и 9.8 s; R2: timeout на 15 s — не замер |
 
 Предел снят — 2× завершённого замера не больше 15 s (первая версия среза ставила его по длительности
 асинхронного test-а, упавшего по timeout-у, а это не замер):
@@ -332,10 +333,22 @@ PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел вре
   twice, then free…» — было 46 s по 22.6 s в run-е файла отдельно (timeout, и не полный run).
   R2: 3.7 s, R1: 3.6 s, оба завершены; 2× = 7.4 s.
 
-Подозрение на зависание под нагрузкой — `test/contract/github-prs.test.ts:344` «starts at most 10
-branch lookups in one read…»: 1.2 s и 1.1 s в одиночку (`main` `046b086c`), 6.9 s в R1 (завершён), но
-больше 15 s в R2 (timeout). Причина не найдена, лимит не поднят: 2× любого завершённого замера меньше
-15 s.
+**Одна проблема нагрузки, а не зависание отдельного test-а** (решение оркестратора после R3). Короткие
+test-ы — 1–4 s в одиночку — в полном run-е на Windows идут в 4–5 раз дольше и иногда упираются в 15 s.
+В каждом run-е упирается другой набор, поэтому пределы по одному test-у здесь не сходятся.
+
+| Test | В одиночку (TEMP / W:\) | R1 | R2 | R3 |
+|---|---|---|---|---|
+| `github-prs.test.ts:344` «starts at most 10 branch lookups in one read…» | 1.2 s / 1.1 s | 6.9 s | timeout 15 s | 6.2 s |
+| `harness-evals.test.ts` «the fixture is a project the Harness recognises > epic-wave-tickets: a scaffold without EVAL_*…» | 3.2 s / 3.4 s | skipped | 5.1 s | timeout 15 s |
+| `workflow-reader.test.ts` «workflow watcher > reads during a steady stream of saves…» | 3.8 s / 3.7 s | 5.0 s | 5.4 s | timeout 15 s |
+
+В одиночку — `-t` и `--testTimeout=120000` на PC: github-prs на `main` `046b086c`, два других на `aa27fa89`.
+- [ ] Лечить причину, а не симптомы (worfy-windows 14). Сначала эксперимент на свободном PC: полный run того
+  же `main` с `--maxWorkers=8` (половина 16 логических ядер). Если timeout-ы уходят, а время run-а растёт
+  меньше чем на ~30 %, — `maxWorkers` только на win32 в `vitest.config.ts`, в одном месте. Иначе — testTimeout
+  30 s только на win32 у project `contract` в `vitest.config.ts` (2× default 15 s); пределы выше 30 s у
+  отдельных test-ов остаются.
 
 «the state > a build whose Harness names no dependency has none to report»
 (`harness-install.test.ts`) в R1 упал на сравнении списка вызовов `claude`

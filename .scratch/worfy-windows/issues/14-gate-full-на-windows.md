@@ -605,3 +605,8 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - Полный прогон 2026-10-19 20:15–21:00 не годится: на ПК шла игра, 91 failed, почти все timeout-ы.
 - Найдено попутно: красный `harness-install` «a build whose Harness names no dependency» — не дефект. Его журнал вызовов чистит `clearCalls()` test-а перед ним, упавшего по timeout (`sb` — переменная модуля). Воспроизведено задержкой перед `clearCalls`.
 - Полный список с замерами — в worfy-polish 30, раздел «Windows: test-ы, которым worfy-windows 14 (срез 3l) поднял timeout на win32».
+- Полный прогон `main` `aa27fa89` после PR #541 (2026-10-19 22:55–23:20, свободный ПК): 10 failed — 8 `.test.sh` в `harness-scripts.test.ts` (Ticket 71) и 2 timeout-а на 15 s у коротких test-ов (3–4 s в одиночку). Все пределы #541 выдержали. Двум test-ам harness-migrate пределы поставлены по этому прогону: 31 s и 60 s вместо временных 60 s.
+
+**Цель тикета (полный `pnpm test` с exit code 0 на Windows) пока заблокирована:**
+- Ticket 71 — `.test.sh` Harness-а, 8 красных в каждом полном прогоне;
+- проблема нагрузки: короткие test-ы в полном прогоне на Windows идут в 4–5 раз дольше, чем в одиночку, и каждый раз другие упираются в 15 s; пределы по одному test-у не сходятся (worfy-polish 30, «Одна проблема нагрузки»). Следующий шаг — эксперимент с `--maxWorkers=8`, потом `maxWorkers` или testTimeout 30 s у `contract` только на win32 в `vitest.config.ts`.
