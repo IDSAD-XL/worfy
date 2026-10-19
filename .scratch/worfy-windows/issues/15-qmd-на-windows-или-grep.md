@@ -135,6 +135,11 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - [ ] Путь А: на ПК владельца экран первого запуска ставит qmd с согласия, `qmd --version` — код 0; в Session worfy на Windows агент на вопрос об ADR зовёт `mcp__plugin_worfy_qmd__query` и находит файл в `docs/adr`. Снимок — `../evidence/15-qmd-windows.png`.
 - [ ] Путь Б: contract `test/contract/workflow-profile.test.ts` — на `win32` в `allowedMcpServers` Session-а нет сервера qmd, на `darwin` — есть; `node harness/bin/qmd-mcp` на ПК владельца — код не 0 и одна строка в stderr; строка qmd на экране первого запуска — `warn` с текстом про grep; в Session worfy на Windows агент находит ADR grep-ом по `docs/adr`. Снимок — `../evidence/15-qmd-windows.png`.
 - [ ] `bash harness/bin/tests/skill-blocks.test.sh` — код 0 на Mac и в Git Bash.
+- [ ] На `win32` в `test/contract/harness-qmd.test.ts` — 0 пропусков: helper `needsShStubs` (`:53`, вызовы
+      `:117`, `:128`) больше не нужен и удалён (ревью PR #519, low; добавлено 2026-10-20).
+- [ ] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
+      как сняты пропуски qmd на Windows: сейчас их не запускает ни один test ни на одной системе
+      (`test/fixtures/first-run-tools/README.md:15`; ревью PR #523, low 2; добавлено 2026-10-20).
 - [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) — код 0 на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac) и на ПК владельца; на Windows `harness-scripts.test.ts` гоняет `qmd.test.sh`, а не пропускает его.
 
 ## Тесты

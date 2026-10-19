@@ -46,6 +46,11 @@ Source: отзыв владельца 2026-10-19 после ручной при�
   `src/shared/agent/settings.ts:33`; меняется в composer-е, в Claude Code уходит через
   `src/main/agent/options.ts:325`). Зовёт ли Claude Code `canUseTool` для `AskUserQuestion` в этом
   режиме — главный неизвестный.
+- Факт к шагу 1 (log Stable `e61cb1fe`, 2026-10-19): Agent SDK пишет предупреждение
+  `CLAUDE_SDK_CAN_USE_TOOL_SHADOWED` — «canUseTool will not be invoked: permissionMode
+  'bypassPermissions' auto-approves every tool call». Значит, в `bypassPermissions` карточка вопроса
+  не может ехать на `canUseTool`; шаг 1 проверяет `onUserDialog` и hook `PreToolUse` для
+  `AskUserQuestion`.
 
 ## Что делаем
 

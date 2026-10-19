@@ -1,7 +1,8 @@
 # 03 — Подсветка Family при наведении и выделении; кнопка «Show family»
 
 Type: task
-Status: claimed 2026-10-19T16:37Z
+Status: done 2026-10-19T21:39Z
+PR: #538
 Branch: worfy-canvas/03
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 9 (Session-ы не двигаются сами); исследование

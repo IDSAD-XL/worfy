@@ -1,7 +1,8 @@
 # 32 — Linked machine может прочитать историю Claude Session папки вне Project-а
 
 Type: bug
-Status: claimed 2026-10-18T19:55Z
+Status: done 2026-10-19T21:39Z
+PR: #508
 Branch: worfy-link/32
 Blocked by: —
 Source: ревью корректности Ticket-а worfy-windows 57, круг 2 (ПК владельца, 2026-10-18), чтение кода.
@@ -47,7 +48,8 @@ Source: ревью корректности Ticket-а worfy-windows 57, круг
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#508](https://github.com/IDSAD-XL/worfy/pull/508) влит (`b0d6f636`). Находка low ниже перенесена в
+[worfy-windows 72](../../worfy-windows/issues/72-остатки-ревью-2026-10-19.md) (2026-10-20).
 
 Заметка до мержа PR #508 (находка low ревью, мерж не держит): ни один test в репозитории не берёт
 написание корня worktree, которое даёт git на Windows (`C:/…` из `git worktree list --porcelain`). Test на

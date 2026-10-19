@@ -70,6 +70,15 @@ Live-проверка 09 записала два дефекта. Разбор п
    Рекомендация исполнителя — (а) сейчас и (г), (б) — если владелец хочет, чтобы `~/.claude/sessions`
    не менялся вовсе, и замер покажет, что вход по подписке работает.
 
+   **Тот же выбор — для процесса Limits** (заметка 2026-10-20, ревью PR #543, `worfy-ui` 18).
+   `src/main/agent/limits-usage.ts` (приходит с #543) раз в 30 мин спрашивает у Claude Code расход
+   плана через Agent SDK `query()` с `persistSession: false` и `cwd` = папка assist-процессов
+   (`assistDir`). Transcript он не пишет, но регистрируется в `~/.claude/sessions` так же: `kind`
+   interactive, статус idle, с socket-ом для сообщений между сессиями, около 0,3 с на запуск, до 48 раз
+   в сутки. Другие сессии Claude Code в это время видят его и могут прислать ему сообщение. Ответ
+   владельца по пункту 2 применяется к обоим файлам, а при варианте (б) временный `CLAUDE_CONFIG_DIR`
+   нужен и в `usageOptions()` (`limits-usage.ts`).
+
 ## Готово, когда
 
 - [ ] Contract test (`test/contract/terminal-ai-assist.test.ts`, stand-in SDK из этого файла): отмена
@@ -92,5 +101,6 @@ Live-проверка 09 записала два дефекта. Разбор п
 
 - `src/main/terminal-ai/assist.ts` (`:440-442`, `take()` `:647-655`, `dropSpare()` `:669-673`).
 - `src/main/terminal-ai/options.ts` (`:58-79`) — только при варианте (б).
+- `src/main/agent/limits-usage.ts` (`usageOptions()`; файл приходит с PR #543) — только при варианте (б).
 - `test/contract/terminal-ai-assist.test.ts`
 - `.scratch/worfy-terminal-ai/spec.md` — «Риски», пункт 4.

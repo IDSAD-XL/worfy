@@ -140,3 +140,15 @@ exit 0, «[gate] зелено (fast)».
   «Готово, когда» о нём остаётся для Orchestrator-а; вместо него — замер выше.
 - Остаток после правки — ~70 s без нагрузки; если под нагрузкой Ticket-а 30 его не хватит, следующий
   шаг — разбить файл (пункт 1 «Что делаем»).
+
+### Повторы после мержа PR #497 (заметка 2026-10-20)
+
+- 2026-10-18, Implementer PR #496: `harness/bin/tests/wave-gate.test.sh` — timeout 120 s при load
+  average 9; отдельно и на повторе — зелёный.
+- 2026-10-19, gate full PR #539 на Mac: дочерний процесс `Killed` в сценарии resume
+  (`harness/bin/tests/wave-gate.test.sh:311-313`: stub gate убивает wave-gate, exit 137, потом снова
+  `check`); отдельно — зелёный за 98 s. Предел обёртки — `FILE_TIMEOUT_MS` 120 s, на Windows 300 s
+  (`test/contract/harness-scripts.test.ts:28`, один `it.for` на файл — `:70-73`).
+
+98 s без нагрузки — уже больше остатка ~70 s выше. Следующий шаг из «Не сделано» — разбить файл.
+Сводка flaky test-ов этого дня — [34](34-flaky-test-ы-gate-full-2026-10-19.md).

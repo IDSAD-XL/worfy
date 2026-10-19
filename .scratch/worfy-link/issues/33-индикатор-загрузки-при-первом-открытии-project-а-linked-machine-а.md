@@ -69,6 +69,17 @@ Source: отзыв владельца 2026-10-19 после ручной про�
    (`requestAnimationFrame`), а не по одному на Epic. Каждая правка — с замером до и после в «Итог».
    Правка, которой профиль не подтвердил, не делается.
 
+4. **`claudeHome.subagents` больше предела связи** (заметка 2026-10-20). В log-е Stable `e61cb1fe`
+   2026-10-19, с Windows-ПК на связи, дважды: «[link] the answer to claudeHome.subagents is 18390446
+   bytes, more than the 16777216 a link connection carries; Machine 83a67a58… gets an error instead».
+   Предел — `LINK_MAX_PAYLOAD` = 16 МБ (`src/main/link/messages.ts:29`), строка log-а —
+   `src/main/link/connection.ts:106`. Канал `claudeHome.subagents` (`src/shared/ipc/claude-home.ts:126`,
+   обработчик `src/main/ipc/claude-home.ts:191`) отдаёт сигналы всех Subagent-ов Session одним ответом,
+   без предела размера. У Session с большим деревом Subagent-ов Linked machine получает ошибку вместо
+   дерева. Правка: ответ по страницам или с пределом размера (сигналы урезаны, флаг «есть ещё»), чтобы
+   один ответ не выходил за предел связи. Если эта правка больше остального Ticket-а — вынести в
+   отдельный Ticket `worfy-link`, а здесь оставить ссылку.
+
 **Не входит:** ускорить загрузку до меньше 15–20 с — владелец это время принял. Сжатие или пакеты
 вызовов по связи — только если профиль покажет, что время уходит туда, и отдельным Ticket-ом.
 
@@ -85,6 +96,9 @@ Source: отзыв владельца 2026-10-19 после ручной про�
       какие остались и почему.
 - [ ] Если ответы ELK собираются по кадру — unit `test/unit/elk-client.test.tsx`: M ответов за кадр
       дают одно обновление `useElkAnswers`; мутант «по одному на ответ» — красный.
+- [ ] Пункт 4: contract test — Session с деревом Subagent-ов, чей ответ `claudeHome.subagents` больше
+      `LINK_MAX_PAYLOAD`, по связи даёт дерево (по страницам или урезанное с флагом), а не ошибку; мутант
+      «весь ответ одним куском» — красный.
 - [ ] Снимки индикатора в светлой и тёмной теме; `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0;
       gate full — exit 0 и строка `[gate] зелено (full)` (оркестратор перед merge).
 
@@ -105,6 +119,7 @@ Source: отзыв владельца 2026-10-19 после ручной про�
 - `src/renderer/canvas/sources/epics.ts`
 - `src/renderer/workflow/useWorkflow.ts`
 - `src/renderer/claude-home/useClaudeHome.ts`
+- `src/main/ipc/claude-home.ts` (`:191`, `claudeHome.subagents`), `src/shared/ipc/claude-home.ts` (`:126`) — пункт 4
 - `test/fixtures/` — fixture Project-а со многими Epic-ами (новая)
 - `test/unit/loading-progress.test.tsx` (новый)
 - `test/unit/elk-client.test.tsx`

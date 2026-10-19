@@ -76,3 +76,6 @@ Merged #526 (`f69f4a26`, 2026-10-19). Язык отчётов `language.reports`
 потом (ещё один release, `shortcut:`) из Profile, потом `en`. `hooks/inject-rules.mjs` добавляет
 `$HARNESS_HOME/user/rules.md` к части `common` под `## User rules` в SessionStart и SubagentStart. Языковые правила
 и разделы `## Terms` убраны из plugin.
+
+Находки low ревью круга 1, которые круг 2 не закрыл, — в [09](09-долг-после-review-pr-526.md); два места,
+которые пишут `language.reports` в новый Profile, — в 08 (2026-10-20).
