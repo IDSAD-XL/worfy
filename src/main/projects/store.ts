@@ -5,7 +5,7 @@
 // into it: the list, the settings and the data folder of a Project all live under worfy's data root.
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
-import { mkdirSync, realpathSync, statSync } from 'node:fs'
+import { mkdirSync, statSync } from 'node:fs'
 import { basename, dirname, join, resolve as resolvePath } from 'node:path'
 import { z } from 'zod'
 import type { ProjectsState, ProjectView } from '../../shared/ipc/projects'
@@ -13,6 +13,7 @@ import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { claudeHome, dataRoot } from '../storage/paths'
 import { readResolvedProfile } from '../workflow/profile'
+import { realpathOrSelf } from './real-path'
 import { ensureProjectSettings } from './settings'
 
 const storedProjectSchema = z.object({
@@ -108,23 +109,6 @@ export interface ProjectsChange {
 
 type Resolved = { ok: true; root: string; notice: string | null } | { ok: false; reason: string }
 
-/**
- * The folder's own spelling, for comparing a typed path with git's root. The native realpath, like git,
- * gives the long name of a short 8.3 one, the target of a `subst` drive and the letter case on disk;
- * fs.realpathSync keeps all three as typed. The JS realpath is the fallback for a drive the native call
- * cannot read.
- */
-function realpathOrSelf(path: string): string {
-  try {
-    return realpathSync.native(path)
-  } catch {
-    try {
-      return realpathSync(path)
-    } catch {
-      return path
-    }
-  }
-}
 
 export class ProjectStore {
   private loaded: ProjectsFile | undefined
