@@ -25,6 +25,7 @@ import {
   type WorfySessionNodeData,
 } from '../../shared/ipc/sessions'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
+import type { RegistryRoot } from '../claude-home/registry'
 import { placeDownFrom, placeNewNode } from '../layout/place'
 import { closeRefusal, resumeVerdict } from './resume'
 import type { EventSink, Session, SessionRegistry } from './session'
@@ -42,8 +43,11 @@ export interface NodeSessionsDeps {
     read(projectId: string, nodeId: string): SessionSettings | undefined
     write(projectId: string, nodeId: string, settings: SessionSettings): void
   }
-  /** What the Claude home knows of the Project's Sessions: live processes and each transcript's cwd. */
-  claude(projectRoot: string): Promise<{ live: readonly LiveSession[]; history: readonly { sessionId: string; cwd?: string | undefined }[] }>
+  /**
+   * What the Claude home knows of the Project's Sessions: live processes and each transcript's cwd.
+   * The root is `local` for a call of this Machine's own; otherwise it is judged strictly (RegistryRoot).
+   */
+  claude(projectRoot: RegistryRoot): Promise<{ live: readonly LiveSession[]; history: readonly { sessionId: string; cwd?: string | undefined }[] }>
   isDirectory(path: string): Promise<boolean>
   /** Gets every event of every Session here, e.g. to send it to the windows. */
   broadcast: EventSink
@@ -123,10 +127,14 @@ export class NodeSessions {
     return this.once([`session:${sessionId}`, ...(node ? [`node:${node.id}`] : [])], () => this.resumeOn(projectId, root, node, sessionId))
   }
 
-  /** The verdict of Resume for each Session: one read of the Claude home for all of them. */
-  async resumable(projectId: string, sessionIds: readonly string[]): Promise<Record<string, ResumeVerdict>> {
+  /**
+   * The verdict of Resume for each Session: one read of the Claude home for all of them. `local`
+   * for a caller of this Machine; a Linked machine's call (the default) learns nothing of a Session
+   * whose cwd is unknown (RegistryRoot).
+   */
+  async resumable(projectId: string, sessionIds: readonly string[], local = false): Promise<Record<string, ResumeVerdict>> {
     const root = this.deps.projectPath(projectId)
-    const claude = await this.deps.claude(root)
+    const claude = await this.deps.claude(local ? { path: root, local: true } : root)
     const running = this.runningIds()
     const verdicts: Record<string, ResumeVerdict> = {}
     for (const sessionId of new Set(sessionIds)) {
@@ -190,7 +198,9 @@ export class NodeSessions {
   }
 
   private async resumeOn(projectId: string, root: string, node: LayoutNode | undefined, sessionId: string): Promise<SessionNodeView> {
-    const claude = await this.deps.claude(root)
+    // `local` for any caller: a resume needs the access to write, which gives a Linked machine a
+    // Terminal in the Project as well (ADR-0052), so a strict read would guard nothing.
+    const claude = await this.deps.claude({ path: root, local: true })
     const verdict = await resumeVerdict({
       sessionId,
       projectRoot: root,

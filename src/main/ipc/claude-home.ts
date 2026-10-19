@@ -12,7 +12,7 @@ import { TranscriptSearch } from '../claude-home/search'
 import { SubagentReader, subagentTranscriptPath } from '../claude-home/subagents'
 import { readNewLines } from '../claude-home/tail'
 import { ClientHolders, clientOf, type Client, type ClientId } from '../clients'
-import { insideProjects } from '../link/caller'
+import { isRemoteCall, projectRootOf } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import {
@@ -144,7 +144,8 @@ export class ClaudeHomeSubscriptions {
 
 /**
  * Builds the handler list over a registry; the default export uses the real Claude home. A call
- * from a Linked machine names a root inside a Project of `projects` (src/main/link/caller.ts).
+ * from a Linked machine names the root of a Project of `projects` or one of its worktrees
+ * (src/main/link/caller.ts).
  */
 export function claudeHomeHandlers(
   registry: ClaudeHomeRegistry,
@@ -157,45 +158,49 @@ export function claudeHomeHandlers(
   /**
    * The resolved root. For a call from a Linked machine, also the real path its check answers:
    * git runs there, so a link swapped in after the check does not lead it elsewhere, while the
-   * Claude home folders are still found by the resolved spelling (RegistryRoot).
+   * Claude home folders are still found by the resolved spelling (RegistryRoot). A Linked machine
+   * names a Project root or one of its worktrees, not any folder inside: a Claude home folder name
+   * stands for several paths (src/main/link/caller.ts, projectRootOf), and its root is judged
+   * strictly. A window's root is `local` (RegistryRoot).
    */
-  const rootOf = (projectRoot: string, event: { readonly sender?: unknown }): RegistryRoot => {
+  const rootOf = async (projectRoot: string, event: { readonly sender?: unknown }): Promise<RegistryRoot> => {
     const root = resolve(projectRoot)
-    const checked = insideProjects(event, root, projects, 'the Project root')
-    return checked === root ? root : { path: root, gitAt: checked }
+    if (!isRemoteCall(event)) return { path: root, local: true }
+    const checked = await projectRootOf(event, root, projects, (at) => registry.worktrees(at), 'the Project root')
+    return { path: root, gitAt: checked }
   }
   return [
     defineHandler(claudeHomeSessions, async ({ projectRoot }, { event }) => {
-      const root = rootOf(projectRoot, event)
+      const root = await rootOf(projectRoot, event)
       // Watch first, read second: a change made while the files are read still produces an event.
       const client = clientOf(event)
       if (client) await subscriptions.subscribe(client, root, projectRoot)
       return registry.sessions(root)
     }),
-    defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(rootOf(projectRoot, event)) })),
+    defineHandler(claudeHomeLive, async ({ projectRoot }, { event }) => ({ live: await registry.live(await rootOf(projectRoot, event)) })),
     defineHandler(claudeHomeClose, async ({ projectRoot }, { event }) => {
       const client = clientOf(event)
       return { closed: client ? await subscriptions.unsubscribe(client.id, projectRoot) : false }
     }),
     defineHandler(claudeHomeTranscript, async ({ projectRoot, sessionId, cursor, maxBytes }, { event }) => {
-      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: mainThreadEvents(parseTranscriptLines(chunk.lines)), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
     defineHandler(claudeHomeSubagents, async ({ projectRoot, sessionId }, { event }) => {
-      const path = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const path = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       if (path === null) return { found: false, signals: [], files: [] }
       return { found: true, ...(await subagents.session(path)) }
     }),
     defineHandler(claudeHomeSubagentTranscript, async ({ projectRoot, sessionId, agentId, cursor, maxBytes }, { event }) => {
-      const session = await registry.transcriptPath(rootOf(projectRoot, event), sessionId)
+      const session = await registry.transcriptPath(await rootOf(projectRoot, event), sessionId)
       const path = session === null ? null : await subagentTranscriptPath(session, agentId)
       if (path === null) return notFound
       const chunk = await readNewLines(path, cursor, maxBytes === undefined ? {} : { maxBytes })
       return { found: true, events: parseTranscriptLines(chunk.lines).map(timedEvent), cursor: chunk.cursor, reset: chunk.reset, more: chunk.more }
     }),
-    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(rootOf(projectRoot, event), query)),
+    defineHandler(claudeHomeSearch, async ({ projectRoot, query }, { event }) => search.search(await rootOf(projectRoot, event), query)),
   ]
 }
 
