@@ -288,7 +288,12 @@ fi
 if (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE"; NONODE=""; fi
 if [ -z "$NONODE" ]; then echo "skip the checks of gate.sh without node: $why"; else
     mkdir -p "$T/plugin/hooks"
-    sed 's#/usr/local/bin /opt/homebrew/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$HOOKS/gate.sh" >"$T/plugin/hooks/gate.sh"
+    # Each folder on its own, whatever the order of the list: worfy-windows 48 (#510) turned it round,
+    # the pattern for the old order stopped matching, and a CI runner with /usr/local/bin/node ran it.
+    sed 's#/opt/homebrew/bin#/worfy-test-no-such-folder-a#g; s#/usr/local/bin#/worfy-test-no-such-folder-b#g' \
+        "$HOOKS/gate.sh" >"$T/plugin/hooks/gate.sh"
+    check "the copy of gate.sh looks in neither /opt/homebrew/bin nor /usr/local/bin" \
+        [ -z "$(grep -E '/opt/homebrew/bin|/usr/local/bin' "$T/plugin/hooks/gate.sh")" ]
     before="$(log_lines)"
     out="$(cd "$R2" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME=worfy-harness EVAL_GIT="$TP/evalgit/git" \
         PATH="$TP/broken:$NONODE" "$BASH" "$T/plugin/hooks/gate.sh" fast </dev/null 2>&1)"; rc=$?
