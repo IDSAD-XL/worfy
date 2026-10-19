@@ -292,7 +292,9 @@ describe('layoutEpic by ELK', () => {
         }
         await expectStackOpensInPlace(tickets, `run ${run}`)
       }
-    })
+      // 240 ELK layouts, about 30 ms each: 7.2 s alone on the Windows PC (2026-10-19), past the
+      // default 5 s. In the app ELK runs once per change, in a Web Worker.
+    }, 30_000)
 
     it('opens a stack of one done Ticket, a stack with nothing open beside it, and changes nothing without done Tickets', async () => {
       const one = [ticket(1, done), ticket(2, blocked(1)), ticket(3, blocked(1, 2)), ticket(4)]

@@ -3,7 +3,7 @@
 // a Project's runs, and no write anywhere but the data folder.
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { journalDir, listRuns, openRun, readRun } from '../../src/main/autopilot/journal'
 import { JOURNAL_EVENT_KINDS, type JournalEventFields } from '../../src/shared/autopilot/journal'
@@ -309,6 +309,7 @@ describe('writes only to WORFY_DATA_DIR', () => {
       ...before,
       scratch: [...before.scratch, 'data'].sort(),
     })
-    expect(Object.keys(snapshot(dataDir)).every((path) => path === 'autopilot/' || path.startsWith('autopilot/'))).toBe(true)
+    // Keys come from relative(), so they carry the separator of the system; a folder key ends in "/".
+    expect(Object.keys(snapshot(dataDir)).every((path) => path === 'autopilot/' || path.startsWith(`autopilot${sep}`))).toBe(true)
   })
 })

@@ -505,3 +505,14 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 - `test/contract/harness-plugin.test.ts`: 1 failed / 9 passed → 10 passed, exit 0. `listFiles` отдаёт пути с `/`, проверки шаблонов на Windows теперь настоящие.
 - `test/contract/harness-qmd.test.ts`: 11 failed / 8 passed → 9 passed / 10 skipped, exit 0. Десять test-ов со stand-in-ами `/bin/sh` пропускаются на win32 с причиной «qmd scripts are zsh/sh until worfy-windows ticket 15» (в `it.for` — только строка с node-stand-in-ом); ключи `snapshot()` с `/`, test «skipping writes skipped» идёт на Windows.
 - `test/contract/harness-drift.test.ts`: 2 failed / 13 passed → 15 passed, exit 0. Логирующий git — Node-скрипт `git.mjs`; `src/main/autopilot/harness-drift.ts` запускает подмену git через `programStart` (`src/main/program.ts`). Без правки в `src/` новый test красный на Windows (`spawn EFTYPE`); без подмены (`git` не передан) запуск прежний.
+
+### Срез 3i — пути в ожиданиях unit- и contract-test-ов (2026-10-19)
+
+Только test-ы, `src/` не менялся: ожидания строятся так же, как путь строит приложение (`resolve`, `join`, `posix.join` для runtime darwin, `sep`, текстовая подстановка `${CLAUDE_PLUGIN_ROOT}`). Windows-ПК, `node scripts/vitest-electron.mjs <файл>`, было → стало (failed/passed/skipped, exit code):
+
+- `paths` 6/12/0 → 0/18/0; `terminal-ai-options` 1/9 → 0/10; `agent-options` 1/31 → 0/32; `critical-path` 1/29 → 0/30; `attachments` 3/39 → 0/42; `agent-attachments` (contract) 1/27 → 0/28; `autopilot-journal` (contract) 1/15 → 0/16; `canvas-tools` (contract) 4/38 → 0/42 — все exit 1 → 0.
+- `json-file` 1/12/0 → 0/12/1: `chmod 0o000` на NTFS только ставит read-only, файл читается — skip на win32, посылка не держится на Windows.
+- `link-caller` 2/6 → 0/8: Windows сворачивает `..` по буквам до перехода по link-у; для win32 ожидание записано явно, и добавлена проверка, что `secret.txt` через `out-link/..` не открывается. Это не дыра: проверка получает тот же путь, что открывает система.
+- `node-pty` (contract) 1/0 → 0/1: на win32 `cmd.exe /c echo ok` с `SystemRoot`, escape-последовательности ConPTY срезаются; 5 прогонов подряд — exit 0.
+- `epic-layout` 1/31 → 0/32: property test (240 раскладок ELK) — 7,2 s в одиночку на ПК (три замера 7,18–7,24 s), timeout test-а 30 s. В приложении ELK работает в Web Worker, проблемы производительности в `src/` нет.
+- Фильтр `.git/` в `agent-attachments.test.ts` — в test-е, не в `src/`; теперь он отбрасывает и `.git\`.

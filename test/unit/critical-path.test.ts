@@ -285,7 +285,7 @@ describe('critical-path: the command line', () => {
 
   it('takes the journals folder from --journals, else WORFY_DATA_DIR, else the macOS data folder', () => {
     expect(journalsFolder({ WORFY_DATA_DIR: 'data' }, '/home/u')).toBe(join(resolve('data'), 'autopilot'))
-    expect(journalsFolder({}, '/Users/u')).toBe(posix.join('/Users/u', 'Library', 'Application Support', 'worfy', 'autopilot'))
+    expect(journalsFolder({}, '/Users/u')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
   })
 
   it('refuses wrong arguments and a missing journals folder with exit 2', () => {

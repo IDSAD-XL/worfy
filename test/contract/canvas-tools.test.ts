@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -759,7 +759,7 @@ describe('canvas in a Session', () => {
   const projectOf = async (cwd: string, overrides: Partial<CanvasDeps> = {}): Promise<string | null> => {
     const canvas = await server.canvasForSession({ cwd, resume: undefined }, { ...deps(), ...overrides })
     // `<data folder>/<Project id>/cards`
-    return canvas === null ? null : (canvas.attachment.cardsDir.split('/').at(-2) ?? null)
+    return canvas === null ? null : basename(dirname(canvas.attachment.cardsDir))
   }
 
   it('a folder whose name only starts with the Project root is not in the Project', async () => {
