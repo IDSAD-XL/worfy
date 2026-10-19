@@ -145,6 +145,16 @@ export interface LinkServiceOptions {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/**
+ * Ends the socket of a failed pairing. One that is already closing (ws sent a close frame, e.g.
+ * 1009 for a message over the limit) gets its close handshake: cut at once, the close frame is
+ * lost on Windows and the peer sees 1006. A peer that never answers is cut off after a second.
+ */
+function endFailedPairing(ws: WebSocket): void {
+  if (ws.readyState === ws.CLOSING) setTimeout(() => ws.terminate(), 1000).unref()
+  else ws.terminate()
+}
+
 /** Every interface, IPv6 and IPv4; on a system without IPv6, IPv4 only. */
 const ALL_INTERFACES = '::'
 
@@ -322,7 +332,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
           },
         })
       } catch (error) {
-        ws.terminate()
+        endFailedPairing(ws)
         throw error
       }
       if (stored === undefined) throw new PairingError('linking ended without a result')
@@ -674,7 +684,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
       ws.close(1000, 'linked')
       if (stored !== undefined) this.emit('linked', this.info(stored))
     } catch (error) {
-      ws.terminate()
+      endFailedPairing(ws)
       const message = error instanceof PairingError ? error.message : `linking failed: ${messageOf(error)}`
       this.warn(`[link] a pairing attempt from ${remoteAddress} failed: ${message}`)
       this.emit('pairing-failed', { message })

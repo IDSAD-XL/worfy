@@ -364,19 +364,20 @@ describe('linking two Machines by code', () => {
 })
 
 describe('a first pairing message with an invalid share', () => {
+  // As its pA, a point of the curve in the compressed encoding (33 bytes): RFC 9382 defines only
+  // the uncompressed one for P-256.
+  const pA = Buffer.from('04a56fa807caaa53a4d28dbb9853b9815c61a411118a6fe516a8798434751470f9010153ac33d0d5f2047ffdb1a3e42c9b4e6be662766e1eeb4116988ede5f912c', 'hex')
+  const compressedPake1 = JSON.stringify({ t: 'pake1', pA: Buffer.concat([Buffer.from([((pA[64] ?? 0) & 1) === 1 ? 0x03 : 0x02]), pA.subarray(1, 33)]).toString('base64') })
+
   it(`is closed with ${PAIRING_CLOSE_FAILED}; B stores nothing, burns the code and counts a failure`, async () => {
     const b = await bench.machine('beta')
     const c = await bench.machine('gamma')
     const code = await bench.codeOf(b)
     const failures = (): number => (b.service as unknown as { pairingWindow: { failures: number } }).pairingWindow.failures
     expect(failures()).toBe(0)
-    // A raw pairing connection that sends, as its pA, a point of the curve in the compressed
-    // encoding (33 bytes): RFC 9382 defines only the uncompressed one for P-256.
     const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: '/link/pair', key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
     const closed = new Promise<number>((resolve) => held.ws.once('close', (closeCode: number) => resolve(closeCode)))
-    const pA = Buffer.from('04a56fa807caaa53a4d28dbb9853b9815c61a411118a6fe516a8798434751470f9010153ac33d0d5f2047ffdb1a3e42c9b4e6be662766e1eeb4116988ede5f912c', 'hex')
-    const compressed = Buffer.concat([Buffer.from([((pA[64] ?? 0) & 1) === 1 ? 0x03 : 0x02]), pA.subarray(1, 33)])
-    held.ws.send(JSON.stringify({ t: 'pake1', pA: compressed.toString('base64') }))
+    held.ws.send(compressedPake1)
 
     expect(await closed).toBe(PAIRING_CLOSE_FAILED)
     await expect.poll(() => b.pairingFailures).toEqual([PAIRING_FAILED])
@@ -385,6 +386,36 @@ describe('a first pairing message with an invalid share', () => {
     expect(b.service.linkedMachines()).toEqual([])
     expect(bench.files(b).some((file) => file.path.endsWith('linked.json'))).toBe(false)
     expect(bench.files(b).some((file) => file.bytes.toString('utf8').includes('outgoing:'))).toBe(false)
+  })
+
+  it(`a peer that never answers the ${PAIRING_CLOSE_FAILED} close gets the close frame and is cut off after a second`, async () => {
+    const b = await bench.machine('beta')
+    const c = await bench.machine('gamma')
+    await bench.codeOf(b)
+    const held = await openLinkSocket({ host: '127.0.0.1', port: bench.portOf(b), path: PAIR_PATH, key: secretsOf(c)['machine-key'] ?? '', certificate: certificateOf(c) })
+    // ws on this side stops reading, so nothing answers B's close frame; the bytes are kept here.
+    const socket = (held.ws as unknown as { _socket: tls.TLSSocket })._socket
+    socket.removeAllListeners('data')
+    const received: Buffer[] = []
+    socket.on('data', (chunk: Buffer) => received.push(chunk))
+    let timer: NodeJS.Timeout | undefined
+    const closed = new Promise<number | 'still open'>((resolve) => {
+      timer = setTimeout(() => resolve('still open'), 5000)
+      socket.once('close', () => resolve(performance.now()))
+    })
+    const sentAt = performance.now()
+    held.ws.send(compressedPake1)
+    const closedAt = await closed
+    clearTimeout(timer)
+
+    // ws's own close timeout is 30 s: within 5 s it is service.ts's cut after a second, not one at once.
+    expect(closedAt).not.toBe('still open')
+    expect((closedAt as number) - sentAt).toBeGreaterThanOrEqual(900)
+    // An unmasked close frame (opcode 8) with code 4001 came before the cut.
+    const bytes = Buffer.concat(received)
+    expect(bytes[0]).toBe(0x88)
+    expect(bytes.readUInt16BE(2)).toBe(PAIRING_CLOSE_FAILED)
+    await expect.poll(() => b.pairingFailures).toEqual([PAIRING_FAILED])
   })
 })
 
