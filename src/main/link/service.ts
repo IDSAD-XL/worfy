@@ -150,6 +150,16 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
  * 1009 for a message over the limit) gets its close handshake: cut at once, the close frame is
  * lost on Windows and the peer sees 1006. A peer that never answers is cut off after a second.
  */
+/**
+ * A pairing socket listens for 'error' for its whole life, as connection.ts does. nextFrame listens
+ * only while it waits for a frame, and an 'error' with no listener is an uncaught exception in the
+ * main process: a peer can send a malformed frame between two steps (in one TCP segment with a valid
+ * one) or while a failed pairing waits for its close handshake. 'close' follows the error.
+ */
+function holdPairingErrors(ws: WebSocket): void {
+  ws.on('error', () => undefined)
+}
+
 function endFailedPairing(ws: WebSocket): void {
   if (ws.readyState === ws.CLOSING) setTimeout(() => ws.terminate(), 1000).unref()
   else ws.terminate()
@@ -319,6 +329,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
         certificate: this.identity.certificate,
         ...(this.options.pairingStepTimeoutMs === undefined ? {} : { timeoutMs: this.options.pairingStepTimeoutMs }),
       })
+      holdPairingErrors(ws)
       let stored: LinkedMachineRecord | undefined
       try {
         await initiatePairing(ws, target.code, {
@@ -667,6 +678,7 @@ export class LinkService extends EventEmitter<LinkServiceEvents> {
 
   private async respond(ws: WebSocket, clientFingerprint: string, remoteAddress: string): Promise<void> {
     let stored: LinkedMachineRecord | undefined
+    holdPairingErrors(ws)
     this.pairingSockets.add(ws)
     try {
       await respondToPairing(ws, () => this.pairingWindow.take(), {

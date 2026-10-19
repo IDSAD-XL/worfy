@@ -590,6 +590,10 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
   - `CI=true pnpm lint` — 0, `CI=true pnpm typecheck` — 0.
 - Review (correctness, test coverage): high нет. Medium «инициатор pairing не держится test-ом» и low исправлены в этом PR.
 
+- Review Session на Mac, круг 1 (PR #540): medium — пока сокет неудачного pairing ждёт close handshake (до 1 s), `'error'` никто не слушает; кривой frame от другой стороны (например, без mask) — uncaught `RangeError` в main process. То же на main, если первое сообщение и кривой frame пришли одним TCP-сегментом: между шагами `nextFrame` не слушает. Правка: `holdPairingErrors` — постоянный пустой listener `'error'` на всё время pairing, на обеих сторонах (как `connection.ts`).
+  - Test-ы в `link-pairing.test.ts`: кривой frame во время close handshake и кривой frame одной записью с `pake1` — без uncaught exception; A, чей pairing провалился, шлёт 4001 и обрывает молчащую сторону через ≥ 900 ms и < 3 s (подставной B); pairing, упавший на не-JSON сообщении, обрывается сразу (< 700 ms).
+  - Mutant-ы: без listener-а — 2 красных; `pair()` с `ws.terminate()` сразу — красный (раньше выживал и на Windows: короткий frame 4001 без непрочитанных данных уходит и при обрыве); условие CLOSING → `true` — красный.
+  - 9 файлов среза: 337 passed, 1 skipped, exit 0, с обоими TEMP; lint и typecheck — 0.
 **Часть 2 — ждёт замера, ветка `worfy-windows/14-win32-timeouts`, не в этом PR.**
 - Лимиты на win32 для 15 test-ов по одному, около 2× замера: `check-handoff`, `check-lessons`, `canvas`, `github-prs`, `harness-evals`, `projects-connect`, `harness-install`. Плюс их список в worfy-polish 30.
 - Ждёт полного прогона на свободном ПК. Async test vitest останавливает на deadline, так что «15.2 s» в отчёте значит «больше 15 s». Предел без завершённого замера не ставится.
