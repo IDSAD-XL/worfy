@@ -107,6 +107,30 @@ export const nodeLinksSync: LinkFsSync = {
 }
 
 /**
+ * `links` that ask about each path once: the first answer, or the first failure, is the answer to
+ * every later call for the same path, as written. For the many walks of one read, whose paths share
+ * their folders (a Ticket file under `<root>\.scratch\<epic>\issues\`): the walk reads the same
+ * answers as it would from `links`, so each verdict is the same. Made anew for each read and
+ * dropped after it, so a link put in place after one read is seen by the next.
+ */
+export function cachedLinks(links: LinkFs = nodeLinks): LinkFs {
+  const isLink = new Map<string, Promise<boolean | null>>()
+  const targets = new Map<string, Promise<string>>()
+  const once = <T>(answers: Map<string, Promise<T>>, path: string, ask: () => Promise<T>): Promise<T> => {
+    let answer = answers.get(path)
+    if (answer === undefined) {
+      answer = ask()
+      answers.set(path, answer)
+    }
+    return answer
+  }
+  return {
+    isLink: (path) => once(isLink, path, () => links.isLink(path)),
+    readlink: (path) => once(targets, path, () => links.readlink(path)),
+  }
+}
+
+/**
  * True when `path` is `base` itself or lies under it, by the rules of `paths`. Only a first segment
  * that is exactly `..` leaves `base`: a folder named `..drafts` inside it is still inside.
  *
