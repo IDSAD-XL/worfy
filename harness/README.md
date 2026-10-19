@@ -87,23 +87,24 @@ judge only short answers.
 
 Run, on a Mac, by hand, from the repository root:
 
-    pnpm eval:harness                                       # all eight cases
+    pnpm eval:harness                                       # all ten cases
     pnpm eval:harness -- --case status-block --runs 1       # one case, one run
 
 `scripts/eval-harness.mjs` evaluates a temporary copy of `harness/` without `dependencies` in
 `plugin.json` (a run installs nothing besides the plugin under test, and Claude Code does not load a
 plugin with a missing dependency). It makes two calls: the cases tagged `main` with `Bash`, `Write`
-and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node` and the
-Harness scripts. Both pass `--scaffold --trust-plugin --ablation none --threshold 0.8
+and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
+Harness scripts, `echo` and `set -o pipefail`. Both pass `--scaffold --trust-plugin --ablation none --threshold 0.8
 --max-cost-usd 30 --no-publish` and pinned `--model` and `--judge-model`; arguments after `--` go
 to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
 the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
 partial run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal
 (`130` SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining call is not started.
 
-Every run and every `llm` grader is a real model call on the owner's account. The cost of a full
-run is not measured yet: see the result section of ticket worfy-harness/27. One run of
-`status-block` costs about 0.12 USD, one run of an `epic-wave` case about 0.3 USD (`claude-sonnet-5`).
+Every run and every `llm` grader is a real model call on the owner's account. The full set (ten
+cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18 (ticket
+worfy-harness/27, result section): an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
+`reviewer` run about 0.25 USD, a `status-block` run about 0.12 USD.
 The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
 `aggregate-result.json`; `evals/results/` holds run transcripts and stays out of git and out of
 the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do not run the evals:

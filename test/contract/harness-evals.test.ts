@@ -5,8 +5,8 @@
 // temporary HOME, the fixture is a project the Harness scripts recognise (bin/profile exit 0,
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { constants, homedir, tmpdir } from 'node:os'
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import { constants, homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
@@ -70,12 +70,13 @@ const scaffoldEnv = (home: string, extra: NodeJS.ProcessEnv = {}): NodeJS.Proces
 
 /**
  * Runs a case's scaffold script the way `claude plugin eval --scaffold` does: in an empty
- * workspace, with its home in a temporary folder and only PATH and TMPDIR from this process
- * (git in an empty HOME has no identity, so the fixture must not need one).
+ * workspace, with its home (HOME and USERPROFILE) in a temporary folder and a short fixed environment —
+ * PATH, TMPDIR and TERM here; claude 2.1.289 also sets TMP, TEMP, GIT_CONFIG_NOSYSTEM, USER_TYPE and
+ * NODE_ENV, and passes no EVAL_* (git in an empty HOME has no identity, so the fixture must not need one).
  */
 function scaffold(
   name: string,
-  extra: NodeJS.ProcessEnv = {},
+  extra: NodeJS.ProcessEnv | ((work: string, home: string) => NodeJS.ProcessEnv) = {},
   prepare: (work: string, home: string) => void = () => {},
 ): { work: string; home: string; run: SpawnSyncReturns<string> } {
   const root = tempDir('worfy-eval-')
@@ -87,7 +88,7 @@ function scaffold(
   const script = field(readFileSync(join(EVALS, name, 'case.yaml'), 'utf8'), 'scaffold_script') ?? ''
   const run = spawnSync('bash', [join(EVALS, name, script)], {
     cwd: work,
-    env: scaffoldEnv(home, extra),
+    env: scaffoldEnv(home, typeof extra === 'function' ? extra(work, home) : extra),
     encoding: 'utf8',
     timeout: SCAFFOLD_TIMEOUT_MS,
   })
@@ -157,6 +158,19 @@ describe('harness/evals: the cases', () => {
       expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
     })
   })
+
+  // A grader of the steps matches the command the skill prescribes today: the gate is gate.mjs since
+  // the Harness scripts moved to Node (ADR-0055), and a grader that still looked for gate.sh failed a
+  // run that followed the skill (2026-10-18).
+  it('ship-ticket-local-green: the gate-fast grader matches the gate command of skills/ship-ticket', () => {
+    const skill = readFileSync(join(HARNESS, 'skills', 'ship-ticket', 'SKILL.md'), 'utf8')
+    const command = /`(node "\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate\.mjs" fast[^`]*)`/.exec(skill)?.[1] ?? ''
+    expect(command).not.toBe('')
+    const grader = frontMatter(join(EVALS, 'ship-ticket-local-green', 'graders', 'gate-fast.md'))
+    const pattern = new RegExp(field(grader, 'input_match') ?? '<none>')
+    expect(command.replace('${CLAUDE_PLUGIN_ROOT}', '/tmp/plugin/harness')).toMatch(pattern)
+    expect('node /tmp/plugin/harness/hooks/gate.mjs full </dev/null').not.toMatch(pattern)
+  })
 })
 
 // Skipped on Windows: the fixture writes the "match" of its gate registry from `pwd -P` of Git Bash —
@@ -174,8 +188,21 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(profile.stdout.trim()).toBe('demo')
   })
 
-  // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness: the sandbox lets a run write
-  // only into its working folder, so the fixture keeps the Harness state in its .git (ticket 28).
+  // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
+  // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
+  // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
+  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
+    const { work, home, run } = scaffold(name)
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
+    const profile = harness(home, work, 'profile', ['-C', work, '--name'], { EVAL_HARNESS_HOME: 'worfy-harness' })
+    expect(profile.status, profile.stderr).toBe(0)
+    expect(profile.stdout.trim()).toBe('demo')
+  })
+
+  // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
+  // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
+  // the folder it names and nothing else — no copy in $HOME.
   it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
@@ -189,24 +216,113 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(existsSync(join(home, '.claude'))).toBe(false)
   })
 
-  // A run gets no HARNESS_HOME (its sandbox passes PATH and EVAL_*), so the fixture ignores it.
-  it('without EVAL_HARNESS_HOME the state goes to $HOME/.claude/worfy-harness, HARNESS_HOME or not', () => {
-    const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
-    const { work, home, run } = scaffold('status-block', { HARNESS_HOME: elsewhere })
+  it('without EVAL_HARNESS_HOME the state goes to $HOME/.claude/worfy-harness and <fixture>/.git/worfy-harness', () => {
+    const { work, home, run } = scaffold('status-block')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(home, '.claude', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    expect(existsSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'))).toBe(true)
-    expect(existsSync(elsewhere)).toBe(false)
-    expect(existsSync(join(work, '.git', 'worfy-harness'))).toBe(false)
+    expect(readFileSync(join(home, '.claude', 'worfy-harness', 'projects', 'demo', 'profile.json'), 'utf8')).toBe(
+      readFileSync(join(work, '.git', 'worfy-harness', 'projects', 'demo', 'profile.json'), 'utf8'),
+    )
   })
 
-  it('with EVAL_HARNESS_HOME and HARNESS_HOME the state still goes to <fixture>/.git/worfy-harness', () => {
+  // A run gets no HARNESS_HOME; one set to a folder outside the fixture means a real shell, whose
+  // home folder is likely the real one: the scaffold writes nothing at all.
+  it.each(CASES.map(([name]) => name))('%s: refuses a HARNESS_HOME outside the fixture and writes nothing', (name) => {
     const elsewhere = join(tempDir('worfy-eval-hh-'), 'hh')
-    const { work, home, run } = scaffold('status-block', { HARNESS_HOME: elsewhere, EVAL_HARNESS_HOME: 'worfy-harness' })
+    const { work, home, run } = scaffold(name, { HARNESS_HOME: elsewhere })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stderr).toMatch(/HARNESS_HOME .* is outside the fixture/)
+    expect(readdirSync(work)).toEqual([])
+    expect(readdirSync(home)).toEqual([])
+    expect(existsSync(join(home, '.claude'))).toBe(false)
+    expect(existsSync(elsewhere)).toBe(false)
+  })
+
+  it('with EVAL_HARNESS_HOME and a HARNESS_HOME inside the fixture the state still goes to <fixture>/.git/worfy-harness', () => {
+    const { work, home, run } = scaffold('status-block', (work) => ({ HARNESS_HOME: join(work, 'hh'), EVAL_HARNESS_HOME: 'worfy-harness' }))
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
-    expect(existsSync(elsewhere)).toBe(false)
+    expect(existsSync(join(work, 'hh'))).toBe(false)
     expect(existsSync(join(home, '.claude'))).toBe(false)
+  })
+
+  // The guard of the fixture on its own: a HOME that is the user's real home folder (from the user
+  // database, whatever HOME says) is refused. Only the guard runs here, so nothing can be written.
+  it('state-guard.cjs refuses the real home folder and a HARNESS_HOME outside the fixture, and passes a temporary HOME', () => {
+    const guard = join(EVALS, 'lib', 'state-guard.cjs')
+    const work = tempDir('worfy-eval-guard-')
+    const fake = tempDir('worfy-eval-guard-home-')
+    const env = childEnv(fake, { PATH: process.env.PATH })
+    const check = (home: string, extra: NodeJS.ProcessEnv = {}) =>
+      spawnSync(process.env.npm_node_execpath ?? 'node', [guard, home, work], { env: { ...env, ...extra }, encoding: 'utf8' })
+    const real = check(userInfo().homedir)
+    expect(real.status, real.stderr).toBe(1)
+    expect(real.stderr).toMatch(/is the real home folder of this user/)
+    expect(check(fake).status).toBe(0)
+    expect(check(fake, { HARNESS_HOME: join(fake, 'hh') }).status).toBe(1)
+    expect(check(fake, { HARNESS_HOME: join(work, 'hh') }).status).toBe(0)
+    // A HARNESS_HOME that does not exist yet, spelled through another name of the fixture (a link
+    // here; an 8.3 short name on Windows, /var for /private/var on macOS), is still inside it.
+    const alias = join(tempDir('worfy-eval-guard-alias-'), 'work')
+    symlinkSync(work, alias, 'junction')
+    expect(check(fake, { HARNESS_HOME: join(alias, 'hh') }).status).toBe(0)
+    expect(readdirSync(work)).toEqual([])
+    expect(readdirSync(fake)).toEqual([])
+  })
+
+  // A stub loaded into every node the scaffold starts makes os.userInfo().homedir name a temporary
+  // folder, so the real-home refusal can be tested end to end without the real home.
+  const fakeRealHome = (): { stub: NodeJS.ProcessEnv; realHome: string } => {
+    const dir = tempDir('worfy-eval-userinfo-')
+    const stub = join(dir, 'userinfo-stub.cjs')
+    writeFileSync(
+      stub,
+      "const os = require('node:os'); const original = os.userInfo; os.userInfo = (options) => ({ ...original(options), homedir: process.env.EVAL_TEST_REAL_HOME })\n",
+    )
+    const realHome = realpathSync(tempDir('worfy-eval-realhome-'))
+    return { stub: { NODE_OPTIONS: `--require ${stub}`, EVAL_TEST_REAL_HOME: realHome }, realHome }
+  }
+
+  it('the scaffold refuses a HOME that is the real home folder and writes nothing there', () => {
+    const { stub, realHome } = fakeRealHome()
+    const work = tempDir('worfy-eval-realhome-work-')
+    const run = spawnSync('bash', [join(EVALS, 'status-block', 'scaffold.sh')], {
+      cwd: work,
+      env: childEnv(realHome, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), TERM: 'dumb', ...stub }),
+      encoding: 'utf8',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
+    expect(existsSync(join(realHome, '.claude', 'worfy-harness', 'gate'))).toBe(false)
+    expect(existsSync(join(realHome, '.claude', 'worfy-harness', 'projects'))).toBe(false)
+    expect(readdirSync(realHome)).toEqual([])
+    expect(readdirSync(work)).toEqual([])
+  })
+
+  it('state-guard.cjs refuses the real home folder through a link to it', () => {
+    const { stub, realHome } = fakeRealHome()
+    const link = join(tempDir('worfy-eval-link-'), 'home')
+    symlinkSync(realHome, link)
+    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), link, tempDir('worfy-eval-guard-')], {
+      env: { PATH: process.env.PATH, ...stub },
+      encoding: 'utf8',
+    })
+    expect(run.status, run.stderr).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
+  })
+
+  // macOS volumes are case-insensitive by default: /USERS/X is the folder /Users/x. Where the volume
+  // is case-sensitive (Linux CI) the other spelling is another, missing folder, and nothing to test.
+  const { realHome: caseHome } = fakeRealHome()
+  it.skipIf(!existsSync(caseHome.toUpperCase()))('state-guard.cjs refuses the real home folder spelled in another case', () => {
+    const { stub, realHome } = fakeRealHome()
+    const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), realHome.toUpperCase(), tempDir('worfy-eval-guard-')], {
+      env: { PATH: process.env.PATH, ...stub },
+      encoding: 'utf8',
+    })
+    expect(run.status, run.stderr).toBe(1)
+    expect(run.stderr).toMatch(/is the real home folder of this user/)
   })
 
   it.each([
@@ -224,6 +340,43 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(run.stderr).toMatch(/already has a gate registry/)
     expect(readFileSync(config, 'utf8')).toBe(registry)
     expect(existsSync(join(dirname(dirname(config)), 'projects'))).toBe(false)
+  })
+
+  // npm cannot run in an eval run on this Mac: node and npm come from nvm, and npm's own files lie
+  // outside PATH in the home folder, which the sandbox does not let a run read. The gate of the
+  // fixture starts a package manager of its own, kept inside the fixture.
+  it.skipIf(!registryPathsMatch)('the gate of the fixture needs no npm: its package manager is a script inside the fixture, and gate fast is green', () => {
+    const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
+    const { work, home, run } = scaffold('status-block')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const registry = JSON.parse(readFileSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'), 'utf8')) as { repos: { pm: string }[] }
+    const pm = registry.repos[0]?.pm ?? ''
+    expect(relative(work, pm).startsWith('..'), pm).toBe(false)
+    expect(existsSync(pm)).toBe(true)
+    const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
+      cwd: work,
+      env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', ...evalHome }),
+      encoding: 'utf8',
+      input: '',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
+    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+  })
+
+  // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks
+  // sum, gate fast is red.
+  it.skipIf(!registryPathsMatch)('gate fast of the fixture is red (exit 2) when its tests fail', () => {
+    const { work, home, run } = scaffold('reviewer-verdict')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {
+      cwd: work,
+      env: childEnv(home, { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: process.env.LANG ?? 'C.UTF-8', GATE_SCOPE: 'all', EVAL_HARNESS_HOME: 'worfy-harness' }),
+      encoding: 'utf8',
+      input: '',
+      timeout: SCAFFOLD_TIMEOUT_MS,
+    })
+    expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(2)
   })
 
   it('epic-status sees the four tickets of epic demo', () => {
@@ -611,6 +764,25 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(guiGrants).not.toContain('Bash')
     expect(guiGrants.filter((grant) => grant.startsWith('Bash(')).length).toBeGreaterThan(0)
     expect(guiGrants.filter((grant) => grant.includes(main[2] ?? '<no target>'))).not.toEqual([])
+    // Claude Code checks each part of a compound command against the rules, and does not let
+    // `echo "EXIT=$?"` or `set -o pipefail` through on its own (claude 2.1.289, dontAsk mode). The
+    // Harness asks for both around every check, so without these two the gui case cannot run one.
+    // The whole list: any wider rule (Bash(*), Bash(sh *), Bash(bash *)) would let a screen capture run.
+    const target = main[2] ?? '<no target>'
+    expect(guiGrants).toEqual([
+      'Bash(git *)',
+      'Bash(node *)',
+      `Bash(${target}/bin/*)`,
+      `Bash("${target}/bin/*)`,
+      `Bash(${target}/hooks/*)`,
+      `Bash("${target}/hooks/*)`,
+      `Bash(bash ${target}/hooks/*)`,
+      `Bash(bash "${target}/hooks/*)`,
+      'Bash(echo *)',
+      'Bash(set -o pipefail)',
+      'Write',
+      'Edit',
+    ])
     expect(run.stdout).toContain(join('harness', 'evals', 'results'))
     expect(run.stdout).toMatch(/aggregate-result\.json/)
     expect(run.stdout).toMatch(/report\.html/)
