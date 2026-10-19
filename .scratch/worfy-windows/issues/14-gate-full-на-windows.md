@@ -539,6 +539,7 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 ### Срез 4x — `harness-migrate`: sandbox и ожидаемые пути на Windows (2026-10-19)
 
 
+
 ### Срез 3g — `harness-migrate`: sandbox и ожидаемые пути на Windows (2026-10-19)
 
 - **Что падало.** Корень sandbox-а шёл в JSON fixture без экранирования («Bad escaped character»); fixture checkout-ится с CRLF (`core.autocrlf`), а test-ы сравнивают байты и строки; `findNode` искал `node` без `.exe`; `bin/profile` запускался по shebang; PATH `/usr/bin:/bin` для restore.mjs на Windows без git; ожидания с `/` там, где приложение пишет `join`/`resolve` (id строк `file:…`, `claudeJsonPath`, `rewriteHarnessPaths`, причина отказа, `shown()` с `~` — `%TEMP%` лежит в профиле), кавычки в `restoreCommand`.
