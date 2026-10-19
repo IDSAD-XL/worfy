@@ -13,7 +13,7 @@
 # worktree itself under .claude/worktrees/ of the repository. A project whose `worktree.root` lies
 # outside the repository (`<HARNESS_HOME>/worktrees/<project>/`) needs the tree there; with
 # a WorktreeCreate hook configured Claude Code does not create the tree at all — it runs the hook and
-# pins the subagent to the path the hook prints. Live probes 2026-10-08 (ticket 22, result section):
+# pins the subagent to the path the hook prints. Live probes 2026-10-08:
 # the subagent's cwd is the printed path, Edit, Write and git work there, and Claude Code never removes
 # such a tree. Those probes ran ANOTHER script (wt-create.sh) given through `claude -p --settings`;
 # this script through the plugin's hooks.json was never probed.

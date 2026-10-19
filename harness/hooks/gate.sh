@@ -26,7 +26,7 @@
 #     skills, agents and bin/ name gate.mjs, and so does a new profile.
 #
 # This file departs from two rules of the Harness: a hook command names `node`, not a script
-# started by its first line, and nothing outside tests needs bash. It exists because nothing else
+# started by its first line; and nothing outside tests needs bash. It exists because nothing else
 # can replace a stale verdict when node is missing. That this file is the entry point of the hook
 # was decided on 2026-10-14.
 set -u

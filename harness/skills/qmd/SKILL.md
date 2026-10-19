@@ -107,7 +107,7 @@ Example call:
 
 - Where a project keeps its lessons is the profile's `lessons` field: `repo:<path>` — in the repository (for example
   `docs/lessons/<topic>.md`; the state file then holds only the current state), `profile` — in
-  `~/.claude/worfy-harness/projects/<name>/lessons/` (collection `lessons`).
+  `~/.claude/worfy-harness/projects/<name>/lessons/` (in the index only if the user set up a collection for it).
 - A hit in `memory/MEMORY.md` is the table of contents of the memory files: open the memory file itself.
 - A new hybrid query costs 7–14 s, a repeat is instant. Do not run it one word at a time;
   put together one good call.

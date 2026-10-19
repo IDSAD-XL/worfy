@@ -390,7 +390,7 @@ const file = path.join(issuesDir, matches[0])
 // directory holds symbolic links to them. Writing went through rename over the link
 // and replaced it with a regular file: Status went into the copy, the source stayed
 // as it was, and from then on two files with the same name diverged (three cases in one night,
-// 2026-09-09 — tickets 29, 31, 33). We write to the link's target: the link stays intact, and
+// 2026-09-09). We write to the link's target: the link stays intact, and
 // there is one Status. A missing target is an error of the link, not of the ticket, so we
 // name it directly.
 let target

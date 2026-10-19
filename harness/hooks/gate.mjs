@@ -102,7 +102,7 @@
 // `node …/gate.mjs`: with no node on their PATH that command fails with code 127 before a line
 // of the gate runs and nothing is written, so a verdict file of an earlier run stays as it is.
 // The launcher departs from two rules of the Harness: a hook command names `node`, not a script
-// started by its first line, and nothing outside tests needs bash. It exists because nothing else
+// started by its first line; and nothing outside tests needs bash. It exists because nothing else
 // can replace a stale verdict when node is missing. That gate.sh is the entry point of the hook
 // was decided on 2026-10-14.
 //

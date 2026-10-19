@@ -236,7 +236,7 @@ done
 
 # Every topic of the old global rules (~/.claude/CLAUDE.md, imported as rules/global.md), from
 # "Default loop" to "Context hygiene", except "Standing authorization" (the user's own consent,
-# ticket 05 item 3). Each line: a topic and phrases that carry its rules.
+# which stays with the user). Each line: a topic and phrases that carry its rules.
 ORCH_TOPICS=(
     'Orchestrator role|orchestrator|main context'
     'Project profile|profile|`-C <path>`|--field|exit code|`0`|`3`|`1` / `2`|`4`'

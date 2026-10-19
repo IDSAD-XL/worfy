@@ -71,19 +71,21 @@ export HOME="$T/home" USERPROFILE="$T/home"
 # --- a project of several repositories: suite-api and suite-web below the common directory suite ----
 # (not git itself) share the profile suite, which mixes its rules and lessons into the session and
 # reminds about /retro after three sessions; scratch-tools is someone else's git repository in the
-# same directory, not in the registry. The profile acme sets inject_rules false.
+# same directory, not in the registry. The profile acme sets inject_rules false. The profiles lie
+# under the home folder, so the hook shows the path of the lessons log as ~/….
+SP="$HOME/sp"
 W="$T/work/suite"
-mkdir -p "$W/suite-api/elt" "$W/suite-web" "$W/scratch-tools" "$T/work/acme" "$T/sp/suite/lessons" "$T/sp/acme"
+mkdir -p "$W/suite-api/elt" "$W/suite-web" "$W/scratch-tools" "$T/work/acme" "$SP/suite/lessons" "$SP/acme"
 for r in "$W/suite-api" "$W/suite-web" "$W/scratch-tools" "$T/work/acme"; do git -C "$r" init -q; done
-echo '{"schema":1,"name":"suite","lessons":"profile","session":{"inject_rules":true,"retro_reminder_after":3}}' >"$T/sp/suite/profile.json"
-printf '## Personal working rules (never commit these to the repos)\nSUITE-RULE\n\n## Sources\nSUITE-SOURCE\n' >"$T/sp/suite/rules.md"
-printf '<!-- One line per lesson -->\n- a lesson\n' >"$T/sp/suite/lessons/lessons-index.md"
-echo '{"schema":1,"name":"acme","session":{"inject_rules":false}}' >"$T/sp/acme/profile.json"
-echo '# acme rules' >"$T/sp/acme/rules.md"
+echo '{"schema":1,"name":"suite","lessons":"profile","session":{"inject_rules":true,"retro_reminder_after":3}}' >"$SP/suite/profile.json"
+printf '## Personal working rules (never commit these to the repos)\nSUITE-RULE\n\n## Sources\nSUITE-SOURCE\n' >"$SP/suite/rules.md"
+printf '<!-- One line per lesson -->\n- a lesson\n' >"$SP/suite/lessons/lessons-index.md"
+echo '{"schema":1,"name":"acme","session":{"inject_rules":false}}' >"$SP/acme/profile.json"
+echo '# acme rules' >"$SP/acme/rules.md"
 printf '{"repos":[{"key":"api","match":"%s","profile":"suite"},{"key":"web","match":"%s","profile":"suite"},{"key":"acme","match":"%s","profile":"acme"}]}\n' \
     "$W/suite-api" "$W/suite-web" "$T/work/acme" >"$T/suite.json"
-srun() { CLAUDE_GATE_CONFIG="$T/suite.json" CLAUDE_PROFILES_DIR="$T/sp" run "$@"; }
-LOG="$T/sp/suite/state/pending-retro.log"
+srun() { CLAUDE_GATE_CONFIG="$T/suite.json" CLAUDE_PROFILES_DIR="$SP" run "$@"; }
+LOG="$SP/suite/state/pending-retro.log"
 R="$W/suite-api"
 out="$(srun "$START" "$R" "$R")"; rc=$?
 c="$(printf '%s' "$out" | ctx)"
@@ -91,7 +93,7 @@ c="$(printf '%s' "$out" | ctx)"
     && ok "suite repo: SessionStart JSON, exit 0" || bad "suite repo: rc=$rc out=${out:0:120}"
 [[ "$c" == *"## Personal working rules (never commit these to the repos)"$'\n'"SUITE-RULE"* ]] \
     && ok "suite repo: rules.md under profile heading" || bad "suite repo: rules heading missing"
-[[ "$c" == *"## Lessons learned so far (one-liners; full log in $T/sp/suite/lessons/lessons.md)"$'\n'"<!-- One line per lesson"* ]] \
+[[ "$c" == *"## Lessons learned so far (one-liners; full log in ~/sp/suite/lessons/lessons.md)"$'\n'"<!-- One line per lesson"* ]] \
     && ok "suite repo: lessons index injected" || bad "suite repo: lessons heading missing"
 [[ "$c" != *"## Sources"* && "$c" != *"SUITE-SOURCE"* ]] && ok "suite repo: Sources section stripped" || bad "suite repo: Sources leaked"
 [[ "$c" != *"Housekeeping"* ]] && ok "suite repo: no retro reminder without log" || bad "suite repo: reminder without log"
@@ -108,33 +110,33 @@ c="$(srun "$START" "$R" "$R" | ctx)"
 : >"$LOG"
 
 # active epic
-mkdir -p "$T/sp/suite/epics/ep1" && echo "MAP-OF-EP1" >"$T/sp/suite/epics/ep1/map.md"
-echo ep1 >"$T/sp/suite/state/active-epic"
+mkdir -p "$SP/suite/epics/ep1" && echo "MAP-OF-EP1" >"$SP/suite/epics/ep1/map.md"
+echo ep1 >"$SP/suite/state/active-epic"
 c="$(srun "$START" "$R" "$R" | ctx)"
 [[ "$c" == *"## Active epic: ep1"$'\n'"MAP-OF-EP1"* ]] && ok "active epic map injected" || bad "active epic map missing"
 # a large epic map is cut to the section limit and names the full file
-mkdir -p "$T/sp/suite/epics/big"
+mkdir -p "$SP/suite/epics/big"
 { echo "BIG-MAP-HEAD"; for i in $(seq 1 3000); do echo "line $i of a very large epic map, padding padding"; done; echo "BIG-MAP-TAIL"; } \
-    >"$T/sp/suite/epics/big/map.md"
-echo big >"$T/sp/suite/state/active-epic"
+    >"$SP/suite/epics/big/map.md"
+echo big >"$SP/suite/state/active-epic"
 c="$(srun "$START" "$R" "$R" | ctx)"
 sec="${c#*## Active epic: big}"
 [[ "$c" == *"## Active epic: big"$'\n'"BIG-MAP-HEAD"* && "$c" != *"BIG-MAP-TAIL"* \
-    && "$sec" == *"truncated, full text: $T/sp/suite/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
+    && "$sec" == *"truncated, full text: $SP/suite/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
     && ok "large epic map capped with a pointer to the full file ($(printf '%s' "$sec" | wc -c | tr -d ' ') bytes)" \
     || bad "large map not capped: section $(printf '%s' "$sec" | wc -c) bytes"
-rm -rf "$T/sp/suite/state/active-epic" "$T/sp/suite/epics/ep1" "$T/sp/suite/epics/big"
+rm -rf "$SP/suite/state/active-epic" "$SP/suite/epics/ep1" "$SP/suite/epics/big"
 c="$(srun "$START" "$R" "$R" | ctx)"
 [[ "$c" != *"truncated, full text"* ]] && ok "normal sections are not capped" || bad "small sections got a cut marker"
 # the boundary exactly at the end of a line: the whole line stays; a non-numeric limit means the default 20000
-mkdir -p "$T/sp/suite/epics/edge"; printf 'abc\ndefg\nhij\n' >"$T/sp/suite/epics/edge/map.md"
-echo edge >"$T/sp/suite/state/active-epic"
+mkdir -p "$SP/suite/epics/edge"; printf 'abc\ndefg\nhij\n' >"$SP/suite/epics/edge/map.md"
+echo edge >"$SP/suite/state/active-epic"
 c="$(CLAUDE_SESSION_SECTION_CAP=8 srun "$START" "$R" "$R" | ctx)"
 [[ "$c" == *"## Active epic: edge"$'\n'"abc"$'\n'"defg"$'\n'"… truncated"* ]] && ok "cut on a line boundary keeps the whole line" \
     || bad "boundary cut lost a line: $(printf '%s' "${c#*Active epic: edge}" | head -c 80)"
 c="$(CLAUDE_SESSION_SECTION_CAP=20k srun "$START" "$R" "$R" 2>&1 | ctx)"
 [[ "$c" == *"abc"$'\n'"defg"$'\n'"hij"* && "$c" != *"truncated, full text"* ]] && ok "non-numeric cap falls back to the default" || bad "non-numeric cap broke the hook"
-rm -rf "$T/sp/suite/state/active-epic" "$T/sp/suite/epics/edge"
+rm -rf "$SP/suite/state/active-epic" "$SP/suite/epics/edge"
 
 # the shared directory above the repositories (not git itself) — the same profile
 a="$(srun "$START" "$W" "$W")"; b="$(srun "$START" "$R" "$R")"
@@ -162,7 +164,7 @@ out="$(srun "$START" "$T/work/acme" "$T/work/acme")"; rc=$?
 [ "$rc" -eq 0 ] && [ -z "$out" ] && ok "acme: session-start prints nothing (inject_rules false)" \
     || bad "acme: rc=$rc out=${out:0:120}"
 out="$(srun "$END" "$T/work/acme" "$T/work/acme")"; rc=$?
-[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$T/sp/acme/state" ] \
+[ "$rc" -eq 0 ] && [ -z "$out" ] && [ ! -e "$SP/acme/state" ] \
     && ok "acme: session-end writes nothing" || bad "acme: session-end rc=$rc or wrote state"
 mkdir -p "$T/syn/p1" "$T/syn/p2" "$T/sp/quiet" "$T/sp/broken"
 git -C "$T/syn/p1" init -q; git -C "$T/syn/p2" init -q

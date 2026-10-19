@@ -67,8 +67,9 @@ point it at another copy. Registries, gate state and profiles are temporary fold
 against the live gate registry (`~/.claude/worfy-harness/gate/config.json`, or the older
 `~/.claude/gate/config.json`) run only with the real `HOME`: they take every project registered there
 whose directory exists; without a registry the test prints `skip …`. They only read `~/.claude`.
-`bin/tests/plugin-neutral.test.sh` keeps the plugin free of one person's names, paths and work
-projects and of the numbers of worfy's own decision records and tickets.
+`bin/tests/plugin-neutral.test.sh` keeps every file here free of one person's names, accounts, home
+paths and work projects, of the numbers of worfy's own decision records, tickets and waves, and of
+paths into the worfy app sources; the eval fixtures keep the ticket numbers of their own epic `demo`.
 
 ## Evals
 

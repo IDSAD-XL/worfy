@@ -283,7 +283,7 @@ The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </
 — always with stdin closed: the script is written for a hook and first reads the hook's JSON from
 stdin. On an open stdin that sends nothing it waits 2 s before it starts, and a signal in those
 2 s may leave the verdict of an earlier run in place (the bash gate before it waited on `cat`
-forever: that is how ticket 63 stood for ten hours).
+forever: a ticket once stood like that for ten hours).
 Gate exit codes: `0` — green, only if the output has the line `[gate] зелено (…)` (exit code 0
 with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
 unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the

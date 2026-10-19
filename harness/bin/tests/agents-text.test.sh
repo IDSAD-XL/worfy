@@ -116,8 +116,8 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
     || ok "implementer: no tools: line (all tools, as before)"
 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
-# Gate verdict words (their new text is ticket 09), Profile placeholders and the Profile heading
-# for the implementer's required reading (Profile contract, ticket 11), and the name a Profile
+# Gate verdict words (read by programs), Profile placeholders and the Profile heading
+# for the implementer's required reading (Profile contract), and the name a Profile
 # gives the lens "simplification".
 ALLOWED=(
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'

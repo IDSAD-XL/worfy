@@ -215,7 +215,7 @@ ticket, the file and the PR number. On one machine the rule means "a PR of anoth
 **What goes into the wave.** The request names the wave in one of these ways, and each is the
 owner's permission:
 - "tickets NN, NN of epic X" — the worfy Autopilot command, for example
-  `/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness` (the numbers have two digits at
+  `/worfy:epic-wave tickets 05, 06, 07, 08 of epic demo` (the numbers have two digits at
   least and are joined by a comma and a space), and its older form "Ticket-ы NN, NN эпика X" (Autopilot before the plugin, still in old transcripts and
   saved project templates) — exactly the listed tickets; the wave number of the plan does not
   matter. Check that each is `open`, its blockers are `done`, and the tickets share no files in
@@ -256,7 +256,7 @@ placeholder with the taken number in the first minutes, so the claim shows up in
 other sessions. A number goes to every ticket whose acceptance list (worfy: «Готово, когда»)
 requires an accepted ADR (`grep -n '^- \[ \].*ADR' <wave tickets>`), not only to the one that asks
 for a number itself: the brief "no number — do not create ADR files" with such an item takes the
-ticket out of the wave (worfy-daily, wave 1: ticket 03 and, after it, the whole epic). Migrations
+ticket out of the wave (it once took one ticket and, after it, the whole epic out of a wave). Migrations
 only via `F numbering.migrations.generate` on top of the base. Once the table is ready, dispatch
 right away, without waiting for confirmation.
 
@@ -1151,7 +1151,7 @@ for CI, not after. With `F workflow.ci` `batch` there is no CI to wait for: chec
 commit, is in the main branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
 live worktree is not litter but a false signal: worfy reads ticket status from worktree branches
-too, and `claimed` from a merged branch overrides `done` on main (worfy-daily, wave 6: "3 in work"
+too, and `claimed` from a merged branch overrides `done` on main (a board once showed "3 in work"
 after the merge).
 
 ## 5. Report

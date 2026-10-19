@@ -317,7 +317,7 @@ banned="$(cd "$HARNESS" && grep -nE '~/\.claude/(bin|hooks)|\$HOME/\.claude/(bin
 check "no ~/.claude/bin, ~/.claude/hooks or КОД= in the ticket's files" [ -z "$banned" ]
 [ -z "$banned" ] || printf '%s\n' "$banned" | sed -n '1,20p' | sed 's/^/     /'
 # Allowed Cyrillic, cut out before the search: the gate verdict lines (machine strings, read by
-# worfy and the skills; ticket 09 replaces them), the old Russian Status values that epic-status
+# worfy and the skills), the old Russian Status values that epic-status
 # and ticket still read, profile placeholders, and quoted Russian examples.
 ALLOWED="$T/allowed.txt"
 cat >"$ALLOWED" <<'EOF'

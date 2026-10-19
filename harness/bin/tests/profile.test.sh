@@ -131,6 +131,8 @@ else
     echo "skip case-insensitive checks: case-sensitive filesystem or Windows"
 fi
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
+# The summary without a flag ends with the profile's rules.md under its own heading.
+check "synthetic default briefing: rules.md section" 0 $'--- rules.md\n# demo rules' "$PROFILE" -C "$T/repo"
 # the old form of language is a string: read as {reports, team} with one language
 check "legacy string language -> language.team" 0 "en" "$PROFILE" -C "$T/repo" --field language.team
 check "legacy string language -> language.reports" 0 "en" "$PROFILE" -C "$T/repo" --field language.reports

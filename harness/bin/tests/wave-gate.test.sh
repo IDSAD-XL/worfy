@@ -257,8 +257,8 @@ S="$W/state.json"; state "$S" null 1 2,platform 3,label=needs-mac-gate 4
 ! grep -q "b.txt\|c.txt" "$GATE_DIR/log" && ok "platform: their changes are not in the gate's tree" || bad "platform: gate tree has them: $(cat "$GATE_DIR/log")"
 "$WG" merge "$S" >/dev/null 2>&1
 [ "$(awk '$2=="merge"{print $3}' "$GH_LOG" | tr '\n' ' ')" = "1 4 " ] && ok "platform: merge merges only 1 and 4" || bad "platform: merged $(cat "$GH_LOG")"
-# The label is the profile's cross_machine_gate.label from the state file, not a name in wave-gate (worfy-windows
-# ticket 59): another project's label takes its PR out, worfy's name is then an ordinary label; null — no such label.
+# The label is the profile's cross_machine_gate.label from the state file, not a name in wave-gate:
+# another project's label takes its PR out, worfy's name is then an ordinary label; null — no such label.
 new_world xlabel 1:a.txt 2:b.txt 3:c.txt
 S="$W/state.json"; XLABEL='"needs-pc-gate"' state "$S" null 1 2,label=needs-pc-gate 3,label=needs-mac-gate
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?

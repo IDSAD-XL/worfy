@@ -79,7 +79,7 @@ check "epic-wave description names '$new', '$old1', '$old2', '$old3'" \
     bash -c '[[ "$1" == *"$2"* && "$1" == *"$3"* && "$1" == *"$4"* && "$1" == *"$5"* ]]' _ "$desc" "$new" "$old1" "$old2" "$old3"
 check "epic-wave description names the new form first" \
     bash -c 'a="${1%%"$2"*}"; b="${1%%"$3"*}"; c="${1%%"$4"*}"; [ ${#a} -lt ${#b} ] && [ ${#a} -lt ${#c} ]' _ "$desc" "$new" "$old1" "$old2"
-check "epic-wave: the Autopilot command in full" has "$EW" '/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness'
+check "epic-wave: the Autopilot command in full" has "$EW" '/worfy:epic-wave tickets 05, 06, 07, 08 of epic demo'
 sec1="$(awk '/^## 1\./{p=1; next} /^## /{p=0} p' "$EW")"
 for form in "$new" "$old1" "$old2" "$old3"; do
     check "epic-wave section 1 (choosing the wave) names '$form'" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec1" "$form"
@@ -157,7 +157,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.'
 check "ship-ticket step 5: the licence closes the step" test "$(printf '%s\n' "$st5" | grep -v '^$' | tail -n 1)" = '```'
 
-# 7. Brief labels, shared with the agents of ticket 07.
+# 7. Brief labels, shared with the agents.
 brief="$(awk '/^```$/{if(inb){exit}; inb=1; next} inb' <(awk '/^## 2\./{p=1} /^## 3\./{p=0} p' "$EW"))"
 for label in 'Goal:' 'Repository:' 'Ticket: ' '; spec: ' 'Worktree:' 'Base:' 'Files:' 'Numbers:' \
     "Wave neighbours' files (do not touch):" 'Scratchpad:' 'Write to ~/.claude: allowed | forbidden' \
@@ -271,7 +271,7 @@ check "ship-ticket: an outside root is not supported yet" has "$ST" 'is not supp
 check "ship-ticket: no isolation: worktree path for an outside root" lacks "$ST" 'the orchestrator starts it with `isolation: "worktree"`'
 check "epic-wave: an outside root is not supported yet" has "$EW" 'is not supported yet. The plugin registers'
 check "epic-wave: no isolation: worktree for implementers" lacks "$EW" 'start each implementer with'
-check "implementer: an outside root is a false premise until ticket 24" has "$IM" 'hook that would put you there. It is a false premise of the brief'
+check "implementer: an outside root is a false premise" has "$IM" 'hook that would put you there. It is a false premise of the brief'
 check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <ветка>'
 check "implementer: the outside-root exception comes before the create-a-tree rule" eval '[ "$(grep -n -m1 -F "**\`worktree.root\` outside the repository**" "$IM" | cut -d: -f1)" -lt "$(grep -n -m1 -F "**First of all, create a working tree" "$IM" | cut -d: -f1)" ]'
 WC="${WORKTREE_CREATE_FILE:-$HARNESS/hooks/worktree-create.sh}"
@@ -475,12 +475,12 @@ done
 ALLOWED=(
     # The old Autopilot forms and the Russian request, which the skill still accepts.
     'Ticket-ы NN, NN эпика X' 'волна N эпика X' 'прогони волну N эпика X'
-    # Gate verdict words; ticket 09 changes them.
+    # Gate verdict words, read by programs.
     '[gate] зелено (fast): …' '[gate] зелено (…)' 'ничего не прогналось' 'окружение недоступно'
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …'
     # Labels of the status block, read by worfy.
     "${STATUS_LABELS[@]}"
-    # Placeholders in profile values (schema 1; ticket 11 changes them).
+    # Placeholders in profile values (schema 1).
     '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.
     '## Где в коде' '## Итог' 'Готово, когда' 'Ждёт владельца' 'Волны'

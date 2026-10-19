@@ -62,7 +62,7 @@ subdirectory (`<scratchpad>/<your name>/`) and do not run other agents' scripts 
 Delete only by a literal path (`rm -rf /tmp/x/trace`): no globs (`rm -rf *` after `cd`) and no
 variables in the path (`rm -rf $R/$d`). For such a command Claude Code asks for confirmation even in
 `bypassPermissions`, and in a Session without a human (Autopilot) the request is denied and the step
-breaks (worfy-daily, waves 6 and 8). Need a clean directory — make a new unique one (`mktemp -d`),
+breaks. Need a clean directory — make a new unique one (`mktemp -d`),
 do not clean an old one.
 
 **`parallel: "single"`** — you are the only implementer in the project: there is one local stack for

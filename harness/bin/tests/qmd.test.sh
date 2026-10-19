@@ -4,7 +4,7 @@
 #   - qmd-refresh: one broken profile / one missing copy do not stop the run —
 #     qmd update is still called; with --quiet (Stop hook) exit 0, without --quiet — 1;
 #     qmd embed only after the consent to the models;
-#   - qmd-mcp (ticket 17): without the answer "downloaded" no server; the Russian query expansion
+#   - qmd-mcp: without the answer "downloaded" no server; the Russian query expansion
 #     model only for a project with language.docs ru; the plugin's .mcp.json, the agents' qmd tools
 #     and the Stop hook.
 # Run: bash harness/bin/tests/qmd.test.sh; exit code 0 — everything passed.
