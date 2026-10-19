@@ -68,15 +68,28 @@ interface DrawnTicket {
   ticket: { epic: string; num: number }
 }
 
+/** What spotInputs finds on the Canvas. */
+export interface SpotInputs {
+  frames: SpotFrame[]
+  /** No frames: no strip. */
+  strip: SpotStrip | undefined
+  /** The frames the user moved off their automatic places, as drawn: they yield to a new Node (ADR-0038), so it keeps off them. */
+  moved: Rect[]
+}
+
 /**
  * The frames and the strip as React Flow draws them now. The strip's columns start at the frames'
  * automatic places (`auto`); each column is as wide as the widest frame, so the strip ends at the
- * rightmost column's left edge plus that width, wherever a narrower frame in it ends. No frames:
- * no strip.
+ * rightmost column's left edge plus that width, wherever a narrower frame in it ends. Its bottom
+ * counts each frame as drawn.
+ * shortcut: the bottom leaves out the room the strip keeps for an open done stack (and, with the
+ * Done shelf, the shelf), which frameColumnX counts; redo from epic-layout's strip once the Done
+ * shelf change lands.
  */
-export function spotInputs(nodes: Iterable<DrawnNode>): { frames: SpotFrame[]; strip: SpotStrip | undefined } {
+export function spotInputs(nodes: Iterable<DrawnNode>): SpotInputs {
   const frames = new Map<string, { epic: string; y: number; tickets: Map<number, number> }>()
   const tickets: { epic: string; num: number; y: number }[] = []
+  const moved: Rect[] = []
   let left = Infinity
   let lastColumn = -Infinity
   let widest = 0
@@ -88,12 +101,14 @@ export function spotInputs(nodes: Iterable<DrawnNode>): { frames: SpotFrame[]; s
       if (data === undefined) continue
       const width = node.width ?? 0
       const height = node.height ?? 0
+      const at = node.internals.positionAbsolute
       left = Math.min(left, data.auto.x)
       lastColumn = Math.max(lastColumn, data.auto.x)
       widest = Math.max(widest, width)
       top = Math.min(top, data.auto.y)
       bottom = Math.max(bottom, data.auto.y + height)
-      frames.set(data.epic.epic, { epic: data.epic.epic, y: node.internals.positionAbsolute.y, tickets: new Map() })
+      if (at.x !== data.auto.x || at.y !== data.auto.y) moved.push({ x: at.x, y: at.y, w: width, h: height })
+      frames.set(data.epic.epic, { epic: data.epic.epic, y: at.y, tickets: new Map() })
     } else if (node.type === TICKET_KIND) {
       const data = node.data.node?.data as DrawnTicket | undefined
       if (data === undefined) continue
@@ -103,7 +118,7 @@ export function spotInputs(nodes: Iterable<DrawnNode>): { frames: SpotFrame[]; s
   }
   for (const ticket of tickets) frames.get(ticket.epic)?.tickets.set(ticket.num, ticket.y)
   const strip = Number.isFinite(left) ? { x: left, right: lastColumn + widest, top, bottom } : undefined
-  return { frames: [...frames.values()], strip }
+  return { frames: [...frames.values()], strip, moved }
 }
 
 /**
@@ -114,4 +129,9 @@ export function spotInputs(nodes: Iterable<DrawnNode>): { frames: SpotFrame[]; s
 export function stripKeepOut(strip: SpotStrip): Rect {
   const grow = FRAME_GAP - NODE_GAP
   return { x: strip.x - grow, y: strip.top - grow, w: strip.right - strip.x + 2 * grow, h: strip.bottom - strip.top + 2 * grow }
+}
+
+/** Everything a Node placed from a spot keeps clear of besides the Layout's Nodes: the strip's band and the frames moved off it. */
+export function spotKeepOut({ strip, moved }: SpotInputs): Rect[] {
+  return strip === undefined ? [] : [stripKeepOut(strip), ...moved]
 }

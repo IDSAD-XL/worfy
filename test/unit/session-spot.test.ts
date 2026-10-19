@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { FRAME_GAP, frameColumnX, stackFrames } from '../../src/renderer/canvas/epic-layout'
-import { sessionSpot, spotInputs, stripKeepOut, type DrawnNode, type SpotStrip } from '../../src/renderer/canvas/session-spot'
+import { sessionSpot, spotInputs, spotKeepOut, stripKeepOut, type DrawnNode, type SpotStrip } from '../../src/renderer/canvas/session-spot'
 import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
-import { freePlace } from '../../src/shared/layout/free-place'
+import { crowds, freePlace } from '../../src/shared/layout/free-place'
 
 // Where a new Session with a Binding goes (worfy-canvas ticket 11): right of the whole strip of
 // Epic frames (ADR-0075), at the height of its Ticket or of its Epic frame's header.
@@ -113,5 +113,23 @@ describe('the strip as an obstacle', () => {
     const asked = { x: stripRight + FRAME_GAP, y: 0, w: 300, h: 120 }
     const place = freePlace(asked, [wall, stripKeepOut(strip!)])
     expect(frameColumnX(width, strip!.bottom, [wall, { ...asked, ...place }])).toBe(frameColumnX(width, strip!.bottom, [wall]))
+  })
+
+  it('keeps a Node placed from the spot off a frame the user moved there by hand', () => {
+    const { nodes, stripRight } = threeColumns()
+    // The user moved the last frame right of the strip, onto where the spot is.
+    const last = nodes.find((each) => each.id === epicNodeId('last'))!
+    const auto = (last.data.node!.data as { auto: { x: number; y: number } }).auto
+    const movedTo = { x: stripRight + FRAME_GAP, y: 0 }
+    const moved = { ...last, internals: { positionAbsolute: movedTo } }
+    const inputs = spotInputs([...nodes.filter((each) => each !== last), moved])
+    expect(inputs.moved).toEqual([{ ...movedTo, w: 250, h: 300 }])
+    expect(inputs.strip?.right).toBe(stripRight)
+    expect(auto).not.toEqual(movedTo)
+    const asked = { ...sessionSpot({ kind: 'epic', epic: 'wide' }, inputs.frames, inputs.strip)!, w: 300, h: 120 }
+    const place = { ...asked, ...freePlace(asked, spotKeepOut(inputs)) }
+    expect(crowds(place, inputs.moved[0]!)).toBe(false)
+    expect(frameColumnX(inputs.strip!.right - inputs.strip!.x, inputs.strip!.bottom, [place])).toBe(inputs.strip!.x)
+    expect(spotKeepOut(spotInputs([]))).toEqual([])
   })
 })

@@ -109,9 +109,9 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
       try {
         do {
           again.current = false
-          const { live: current, state: layout } = latest.current
+          const { live: current, state: layout, projectId: project, root: projectRoot } = latest.current
           if (current === undefined || layout === undefined) return
-          const seen = seenOf(latest.current.projectId)
+          const seen = seenOf(project)
           const nodes = layout.layout.nodes
           for (const node of nodes) if (typeof node.data.sessionId === 'string') seen.add(node.data.sessionId)
           const first = planSessionNodes({ live: current, nodes, worfyIds: worfySessionIds(nodes, []), seen })
@@ -119,13 +119,15 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
           // Only now ask main which Sessions it runs: a Session of worfy's whose Node does not name it yet.
           const worfyIds = worfySessionIds(nodes, await runningIds())
           // And what the new Sessions are bound to, at the moment their Nodes are made.
-          const { near, keepOut } = await bindingSpots({
-            root: latest.current.root,
+          const spots = await bindingSpots({
+            root: projectRoot,
             sessionIds: first.create.map((op) => String(op.node.data?.sessionId)).filter((id) => !worfyIds.has(id)),
             manual: latest.current.manual,
             model: latest.current.model,
             nodes: () => store.getState().nodeLookup.values(),
           })
+          // Spots read from another Project's Canvas place nothing: the Project changed during the reads.
+          const { near, keepOut } = latest.current.projectId === project ? spots : { near: undefined, keepOut: undefined }
           const plan = planSessionNodes({ live: current, nodes, worfyIds, seen, near, keepOut })
           // Not the user's gestures: sent without a step of the undo history (history.ts), as the other
           // automatic writers of the Layout do. The Canvas's LayoutOps would record them.

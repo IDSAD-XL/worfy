@@ -41,6 +41,12 @@ export const sessionNodeDataSchema = z.object({
   cwd: z.string(),
   /** The name Claude Code gave the Session when the Node was made. */
   name: z.string().optional(),
+  /**
+   * `binding`: the Node was placed by its Session's Binding, next to its Ticket or Epic right of the
+   * strip of Epic frames (worfy-canvas ticket 11). Such a Node is not where the next Session
+   * without a Binding goes under.
+   */
+  placed: z.literal('binding').optional(),
 })
 export type SessionNodeData = z.infer<typeof sessionNodeDataSchema>
 
@@ -206,9 +212,14 @@ export interface SessionNodesPlan {
   remove: string[]
 }
 
-/** Where the next new Session Node goes: under the last Session Node, else right of every Node. An archived Node is not on the Canvas and counts for neither. */
+/**
+ * Where the next new Session Node goes: under the last Session Node, else right of every Node. An
+ * archived Node is not on the Canvas and counts for neither. A Session Node its Binding placed by
+ * an Epic (`placed: 'binding'`) is not the last Session Node: the column of Sessions without a
+ * Binding does not follow it to that Epic.
+ */
 function nextPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
-  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned && !isArchived(node))
+  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned && !isArchived(node) && node.data.placed !== 'binding')
   if (sessions.length > 0) {
     const last = sessions.reduce((low, node) => (node.y + node.h > low.y + low.h ? node : low))
     return { x: last.x, y: last.y + last.h + STACK_GAP }
@@ -264,6 +275,7 @@ export function planSessionNodes({ live, nodes, worfyIds, seen, near, keepOut = 
       source: externalSource(session.entrypoint),
       cwd: session.cwd,
       ...(session.name === undefined ? {} : { name: session.name }),
+      ...(spot === undefined ? {} : { placed: 'binding' as const }),
     }
     const node = { id: sessionNodeId(id), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data }
     create.push({ op: 'create', node })
