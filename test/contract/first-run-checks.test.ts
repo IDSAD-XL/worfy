@@ -3,7 +3,6 @@
 // one on the PATH of the "login shell" environment handed to the checks: a tool left out is not
 // installed. HOME, the Claude home, the Harness home and the Project folder are temporary too, and
 // the tools log their calls outside them, so a test can tell that the checks wrote nothing.
-import { execFileSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -13,7 +12,7 @@ import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
-import { NODE, nodeScript } from '../harness-node'
+import { NODE, nodeScript, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
@@ -330,18 +329,22 @@ describe('first-run checks', () => {
 
   // worfy-harness ticket 37: the row runs `profile --help` the way the Epics read runs the Harness
   // scripts — its runner and the scripts' environment (`scriptEnv`), not the screen's (`env`).
-  describe.skipIf(process.platform === 'win32')('the Harness scripts row', () => {
+  describe('the Harness scripts row', () => {
     /** The Harness of this repository as the installed plugin: its real `profile`. */
     const installPlugin = (): void => {
       mkdirSync(harnessHome, { recursive: true })
       symlinkSync(join(REPO, 'harness'), join(harnessHome, 'plugin'))
     }
-    /** A folder whose only entry is the real node, found on this process's PATH. */
+    /**
+     * A folder whose only entry is the real node, found on this process's PATH (NODE): `node`, or on
+     * Windows `node.exe`, the only name worfy takes for the node of a Harness script there (nodeOnPath).
+     */
     const realNode = (): string => {
-      const found = execFileSync('/bin/sh', ['-c', 'command -v node'], { encoding: 'utf8' }).trim()
       const dir = join(root, 'node-bin')
-      mkdirSync(dir)
-      symlinkSync(found, join(dir, 'node'))
+      if (!existsSync(dir)) {
+        mkdirSync(dir)
+        symlinkSync(NODE, join(dir, WINDOWS ? 'node.exe' : 'node'))
+      }
       return dir
     }
 
@@ -356,7 +359,7 @@ describe('first-run checks', () => {
     it("the screen's PATH has no node, the scripts' environment has: ok", async () => {
       tools('claude', 'gh', 'jq', 'git', 'npm')
       installPlugin()
-      const scripts = { PATH: `${realNode()}:/usr/bin:/bin`, HOME: home }
+      const scripts = scriptsEnv([realNode(), '/usr/bin', '/bin'], { HOME: home })
       const report = await runChecks(deps(loginEnv(), { scriptEnv: () => Promise.resolve(scripts) }))
       expect(checkOf(report, 'node').status).toBe('fail')
       expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'ok', detail: 'profile --help answered', hint: '', actions: [] })
@@ -379,9 +382,11 @@ describe('first-run checks', () => {
 
     /**
      * The screen's environment, whose node stand-in passes every call but --version to the real node:
-     * worfy runs the Harness scripts as `node <script>`, with the node on that PATH.
+     * worfy runs the Harness scripts as `node <script>`, with the node on that PATH. On Windows worfy
+     * takes only a node.exe for that, never the node.cmd stand-in, so the real node's folder follows
+     * the stand-ins there: the screen's node row still finds the stand-in first.
      */
-    const withNode = (): Record<string, string> => loginEnv({ FAKE_NODE_REAL: NODE })
+    const withNode = (): Record<string, string> => loginEnv({ FAKE_NODE_REAL: NODE, ...(WINDOWS ? { PATH: `${bin};${realNode()}` } : {}) })
 
     /** The old Harness in <claude home>/bin: its epic-status and, when given, a `profile` with this text. */
     const oldHarness = (profile?: string, mode = 0o755): string => {
@@ -429,7 +434,9 @@ describe('first-run checks', () => {
     })
 
     // A crash by a signal was read as a timeout before review round 2 of PR #311.
-    it('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
+    // Not on Windows, lifted by none: it has no signals to end a process by (process.kill with
+    // SIGSEGV throws ENOSYS there), and a crash ends it with an exit code instead.
+    it.skipIf(WINDOWS)('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
       tools(...ALL_TOOLS)
       // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
       oldHarness(nodeScript("fs.writeSync(2, 'Segmentation fault\\n')\nprocess.kill(process.pid, 'SIGSEGV')"))
