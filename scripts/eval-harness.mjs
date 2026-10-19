@@ -223,7 +223,13 @@ const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
  * or the copy does not answer `--version`.
  */
 function gitCopy(dir) {
-  const exec = spawnSync('git', ['--exec-path'], { encoding: 'utf8', env: childEnv })
+  // Windows starts no `#!/bin/sh` script by its path, and its PATH lookup of `git` finds only
+  // git.exe. There `sh` (Git for Windows; `bash` may be the one of WSL) looks git up on PATH, as the
+  // shell of a run does, and runs the wrapper.
+  const exec =
+    process.platform === 'win32'
+      ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env: childEnv })
+      : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env: childEnv })
   const source = exec.status === 0 ? exec.stdout.trim() : ''
   if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
   const core = join(dir, 'git-core')
@@ -266,7 +272,12 @@ function gitCopy(dir) {
     removeTree(dir)
     fail(`cannot copy ${source} into ${core}: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const check = spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
+  // shortcut: on Windows the check keeps the PATH of the runs (the copied git.exe loads its DLLs
+  // from mingw64/bin of the real one through it), redo when the paid runs go to Windows.
+  const check =
+    process.platform === 'win32'
+      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: childEnv.PATH } })
+      : spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
   if (check.status !== 0) {
     removeTree(dir)
     fail(`the copy of git does not run (${wrapper} --version, exit ${check.status ?? check.error?.code}): ${(check.stderr ?? '').trim()}`)
