@@ -71,7 +71,9 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 **Mac + Windows: после приёмки Epic-а worfy-windows.**
 
 - [ ] (вручную) Mac и Windows связаны по коду: «Link a machine…» — в развёрнутой секции Machines боковой панели. Отзыв с каждой стороны сразу рвёт соединение.
+      частично принято владельцем 2026-10-19 («Итог»): связь Mac и Windows-ПК стабильна; отзыв не проверен.
 - [ ] (вручную) С Windows на Canvas Project-а Mac: правка, Session, Terminal (zsh на Mac), старт и Stop Autopilot. С Mac на Canvas Project-а Windows — то же (Terminal — PowerShell на Windows). Оба экрана обновляются вживую.
+      частично принято владельцем 2026-10-19 («Итог»): Project Mac-а открыт с Windows, правки синхронизируются; по отдельности Session, Terminal, Autopilot и обратное направление (Mac на Project Windows) владелец не называл.
 - [ ] (вручную) Session, запущенная с Windows, переживает закрытие окна worfy на Windows. «Add Project» с Windows на Mac — через просмотр папок Mac.
 - [ ] (вручную) Уведомления в обе стороны.
 - [ ] Команда: пока машины связаны, `powercfg /requests` на Windows показывает процесс worfy в разделе SYSTEM, а `pmset -g assertions` на Mac — assertion у worfy.
@@ -91,7 +93,39 @@ Source: «Готово, когда» Epic-а worfy-link ([spec.md](../spec.md));
 
 ## Итог
 
-Заполняется при закрытии.
+Заполняется при закрытии. Ниже — промежуточные записи.
+
+**Ручная проверка связи владельцем — принята частично (2026-10-19).** Машины — Mac (Stable copy из
+main `e61cb1fe`) и Windows-ПК владельца. Слова владельца: «я все протестил, все отлично. Коннект
+машин работает стабильно, все синхронизируется.»
+
+Принято:
+
+- связь Mac и Windows-ПК по коду держится стабильно — первый пункт раздела **Mac + Windows**, без
+  отзыва;
+- Project Mac-а, открытый с Windows-ПК, синхронизируется вживую — второй пункт того же раздела, в
+  части «оба экрана обновляются вживую».
+
+Слова владельца не покрывают, пункты остаются открытыми:
+
+- **Mac + Windows:**
+  - отзыв с каждой стороны;
+  - по отдельности Session, Terminal (zsh на Mac, PowerShell на Windows), старт и Stop Autopilot;
+  - направление Mac → Project Windows-ПК;
+  - Session переживает закрытие окна на Windows; «Add Project» с Windows на Mac;
+  - уведомления в обе стороны;
+  - `powercfg /requests` и `pmset -g assertions`;
+  - «спит» после сна Mac;
+  - отказ второго Autopilot.
+- **Mac: dev-сборка + Stable copy** — весь раздел, пункты 1–5 Epic-а и сквозной e2e
+  `test/e2e/linked-machines.spec.ts`.
+- Решения владельца 2026-10-16: живая проверка уровня Read only; Bonjour и запрос Local Network
+  (Ticket 02).
+
+Найдено на той же проверке: при первом открытии Project-а Mac-а с Windows-ПК Canvas 15–20 с тормозил
+при сдвиге. Владелец: время приемлемо, нужен видимый ход загрузки — новый
+[Ticket 33](33-индикатор-загрузки-при-первом-открытии-project-а-linked-machine-а.md). Связь при этом
+работала, приёмку он не держит; в `Blocked by` не добавлен.
 
 ## Решения владельца (2026-10-16)
 
