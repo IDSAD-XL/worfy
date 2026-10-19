@@ -144,10 +144,18 @@ Source: отзыв владельца 2026-10-19 по скриншоту toolbar
 - Ответ: `session.total_cost_usd: 0`, `total_api_duration_ms: 0`, `model_usage: {}`; сообщений
   из Query — ноль (ни `assistant`, ни `result`).
 - Пока процесс открыт: `sessions/<pid>.json` и `.key`. После `close()` их нет.
-- После закрытия в config dir только `.claude.json` и его `backups/…`. Нет `projects/` (нет
+- После закрытия в config dir только `.claude.json` и его `backups/…`. Ревью (круг 1) уточнило:
+  их Claude Code пишет только при первом старте в config dir, не при каждом. Нет `projects/` (нет
   транскрипта), нет `history.jsonl`, нет `sessions/`. Процессов с временной папкой не осталось.
+- Без сети каждый запуск оставлял файл около 150 KB в `telemetry/` (нашло ревью). Процессу
+  задан `DISABLE_TELEMETRY=1`, usage с ним отвечает (круг 2).
+- Hook-и и MCP-серверы в процессе не загружаются — это подтвердил probe ревьюера.
 - Пока процесс жив (меньше секунды), его запись в `sessions` с `cwd` в папке данных worfy не
   попадает ни в один Project (`src/main/claude-home/registry.ts`, `inProject`).
+- **Не решено в этом Ticket-е:** сама регистрация в `~/.claude/sessions` (kind `interactive`,
+  idle, socket примерно на 0,3 s). Это решение владельца в Ticket-е `worfy-terminal-ai` 16, пункт
+  2 (тот же вопрос для процесса Terminal AI); orchestrator добавляет туда
+  `src/main/agent/limits-usage.ts`.
 
 Без входа по подписке ответ — `rate_limits_available: false`, `rate_limits: null`. Ответ с
 настоящими `rate_limits` не наблюдался: настоящий `~/.claude` и Keychain не трогались. Форма
@@ -155,8 +163,12 @@ Source: отзыв владельца 2026-10-19 по скриншоту toolbar
 
 **Toolbar.**
 - `LimitBar.tsx`: строки «as of» больше нет. Под полосой одна строка `resets …`
-  (`data-testid limit-<окно>-note`). Данные старше часа → `opacity 0.55`, `data-stale="true"`,
-  native `title` «as of HH:MM» (или «as of Sat 05:00» для другого дня). Высота полосы та же.
+  (`data-testid limit-<окно>-note`, её `title` — полный текст строки). Данные старше часа →
+  `opacity 0.55`, `data-stale="true"`, native `title` «62% · as of HH:MM» (значение остаётся
+  читаемым, если «limit reached» обрезан; «as of Sat 05:00» для другого дня). Высота полосы та же.
+- `limits.json`: поле `source` читается мягко — неизвестный источник (новой сборки) читается как
+  `sdk`, а не откладывает весь файл. Иначе старая сборка теряла бы `rejected` и время сброса, по
+  которым ждут Autopilot (`resume-at.ts`) и Terminal AI (`limits-gate.ts`).
 - `HarnessStatus.tsx`: одна колонка `harness-column` — строка Harness, под ней `v…`
   (`data-testid app-version`, 11px, muted). `AppVersion.tsx` удалён, `app.version` читает
   `HarnessStatus`.
@@ -178,7 +190,13 @@ Source: отзыв владельца 2026-10-19 по скриншоту toolbar
 - `test/unit/limits-meter.test.tsx` — полоса без «as of», приглушение, `title`.
 - `test/unit/harness-status.test.tsx` — иконки, доступные имена, `title`, вторая строка версии.
 - Мутанты красные: тик без фильтра `usage` (пропускал бы тик после своего ответа), `stop()`
-  без abort, лог без «один раз».
+  без abort, лог без «один раз»; круг 2 — без `DISABLE_TELEMETRY`, `installLimitsRefresh` без
+  проверки `WORFY_AGENT=fake`.
+- Круг 2 добавил: интервал литералом (`1_800_000`), `installLimitsRefresh` с fake и vitest не
+  ставит ни одного таймера, отказ метода usage после тайм-аута и после выхода не даёт unhandled
+  rejection, `title` иконки Install, неизвестный `source` в `limits.json`. Из `toolbar.spec.ts`
+  убрана проверка высоты toolbar `toBe(52)`: высоту задаёт CSS, проверка ничего не ловила.
+  Вместо неё — строка Harness и версия внутри toolbar.
 - e2e под замком: `limits`, `toolbar`, `launch`, `harness-install`, `harness-migrate`,
   `select` — зелёные. `packaged.spec.ts` (одна строка: Install → `toHaveAccessibleName`) не
   запускался: это `@packaged`, его гоняет `test:package` в gate full.

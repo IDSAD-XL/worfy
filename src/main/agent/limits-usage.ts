@@ -19,7 +19,7 @@ import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { LIMIT_WINDOWS, limitUpdatesFromUsage, type LimitUpdate, type LimitsState } from '../../shared/agent/limits'
 
 /** How often the usage is asked, and how fresh the data must be for an ask to be skipped. */
-export const USAGE_REFRESH_MS = 30 * 60 * 1000
+export const USAGE_REFRESH_MS = 1_800_000
 /** How long one ask may take before its process is closed. */
 export const USAGE_TIMEOUT_MS = 30 * 1000
 
@@ -193,9 +193,13 @@ export interface UsageOptionsInput {
   executable: string | undefined
 }
 
-/** The options of the usage process: no transcript, no settings, no MCP, no tools, no API keys. */
+/**
+ * The options of the usage process: no transcript, no settings, no MCP, no tools, no API keys, no
+ * telemetry (without a network each start would leave a file of about 150 KB in telemetry/; the
+ * usage request still answers with it off).
+ */
 export function usageOptions({ env, cwd, executable }: UsageOptionsInput): Options {
-  const clean: Record<string, string | undefined> = { ...env }
+  const clean: Record<string, string | undefined> = { ...env, DISABLE_TELEMETRY: '1' }
   delete clean.ANTHROPIC_API_KEY
   delete clean.ANTHROPIC_AUTH_TOKEN
   return {

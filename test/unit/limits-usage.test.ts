@@ -2,7 +2,7 @@
 // SDK's usage every 30 minutes, with a fake clock and a stub reader, and the SDK reader over a fake
 // SDK. No Claude Code starts and nothing goes to the network.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { askUsage, LimitsRefresher, sdkUsageReader, USAGE_METHOD, USAGE_REFRESH_MS, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/agent/limits-usage'
+import { askUsage, installLimitsRefresh, LimitsRefresher, sdkUsageReader, USAGE_METHOD, USAGE_REFRESH_MS, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/agent/limits-usage'
 import { emptyLimits, mergeLimits, type LimitUpdate, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
 
 const START = Date.UTC(2026, 9, 19, 18, 0)
@@ -39,6 +39,23 @@ const both = (receivedAt: number, source: LimitWindowState['source']): LimitsSta
 const settle = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve()
 }
+
+describe('the interval', () => {
+  it('is 30 minutes', () => {
+    expect(USAGE_REFRESH_MS).toBe(1_800_000)
+  })
+})
+
+describe('installLimitsRefresh', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it.each([{ WORFY_AGENT: 'fake' }, { VITEST: 'true' }])('starts nothing with %o: no timer, no Claude Code', async (env) => {
+    vi.useFakeTimers()
+    const stop = await installLimitsRefresh(env)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(() => stop()).not.toThrow()
+  })
+})
 
 describe('LimitsRefresher', () => {
   let store: Store
@@ -252,6 +269,34 @@ describe('sdkUsageReader', () => {
     expect(close).toHaveBeenCalledTimes(1)
   })
 
+  it('a usage method that rejects after the timeout or the abort leaves no unhandled rejection', async () => {
+    const unhandled: unknown[] = []
+    const listener = (reason: unknown): void => void unhandled.push(reason)
+    process.on('unhandledRejection', listener)
+    try {
+      vi.useFakeTimers()
+      const late = (): Promise<unknown> => new Promise((_, reject) => setTimeout(() => reject(new Error('late failure')), 2000))
+      const timedOut = sdkUsageReader({ loadSdk: () => Promise.resolve(fakeSdk(late).sdk), options: () => Promise.resolve({}), timeoutMs: 1000 })
+      const first = expect(timedOut(new AbortController().signal)).rejects.toThrow(/did not answer/)
+      await vi.advanceTimersByTimeAsync(1000)
+      await first
+      const quit = new AbortController()
+      const aborted = sdkUsageReader({ loadSdk: () => Promise.resolve(fakeSdk(late).sdk), options: () => Promise.resolve({}) })(quit.signal)
+      const second = expect(aborted).rejects.toThrow(/quits/)
+      await vi.advanceTimersByTimeAsync(0)
+      quit.abort()
+      await second
+      // Both usage methods reject now, after nobody waits for them.
+      await vi.advanceTimersByTimeAsync(2000)
+      vi.useRealTimers()
+      await new Promise((resolve) => setImmediate(resolve))
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(unhandled).toEqual([])
+    } finally {
+      process.off('unhandledRejection', listener)
+    }
+  })
+
   it('closes the query at once when the app quits', async () => {
     const { sdk, close } = fakeSdk(() => new Promise(() => undefined))
     const read = sdkUsageReader({ loadSdk: () => Promise.resolve(sdk), options: () => Promise.resolve({}) })
@@ -277,7 +322,8 @@ describe('usageOptions', () => {
   it('no transcript, no settings, no MCP, no tools, no API keys, in the given folder', () => {
     const options = usageOptions({ env: { PATH: '/bin', ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't' }, cwd: '/data/terminal-ai', executable: undefined })
     expect(options).toMatchObject({ cwd: '/data/terminal-ai', persistSession: false, settingSources: [], mcpServers: {}, strictMcpConfig: true, tools: [], permissionMode: 'dontAsk' })
-    expect(options.env).toEqual({ PATH: '/bin' })
+    // No telemetry: without a network each start would leave a file in telemetry/.
+    expect(options.env).toEqual({ PATH: '/bin', DISABLE_TELEMETRY: '1' })
     expect(options.pathToClaudeCodeExecutable).toBeUndefined()
     expect(usageOptions({ env: {}, cwd: '/d', executable: '/app/claude' }).pathToClaudeCodeExecutable).toBe('/app/claude')
   })

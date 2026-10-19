@@ -1,7 +1,7 @@
 // Limits from rate_limit_event messages and the status line bridge file:
 // src/shared/agent/limits.ts merges them per window and turns the result into the two bars.
 import { describe, expect, it } from 'vitest'
-import { emptyLimits, limitBars, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitUpdatesFromUsage, mergeLimits } from '../../src/shared/agent/limits'
+import { emptyLimits, limitBars, limitsStateSchema, limitUpdatesFromSdk, limitUpdatesFromStatusline, limitUpdatesFromUsage, mergeLimits } from '../../src/shared/agent/limits'
 
 const AT = Date.UTC(2026, 9, 5, 5, 0) // Mon 2026-10-05 05:00 UTC
 const TZ = 'UTC'
@@ -249,5 +249,20 @@ describe('limitUpdatesFromUsage (the answer of the SDK usage request)', () => {
     const known = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.8, resetsAt: 1791795600, status: 'allowed_warning', receivedAt: AT - 1000, source: 'sdk' } }])
     const next = mergeLimits(known, limitUpdatesFromUsage({ rate_limits: { seven_day: { utilization: 81, resets_at: '2026-10-12T09:00:00Z' } } }, AT))
     expect(next.windows.seven_day).toEqual({ utilization: 0.81, resetsAt: 1791795600, status: 'allowed_warning', receivedAt: AT, source: 'usage' })
+  })
+})
+
+describe('limits.json with a source this build does not know', () => {
+  it('is read, not set aside: the status and the reset times stay, the source reads as sdk', () => {
+    const file = {
+      windows: {
+        seven_day: { utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'a-source-of-a-newer-build' },
+        five_hour: { utilization: 0.4, resetsAt: 1791184200, status: null, receivedAt: AT, source: 'statusline' },
+      },
+    }
+    const parsed = limitsStateSchema.safeParse(file)
+    expect(parsed.success).toBe(true)
+    expect(parsed.data?.windows.seven_day).toEqual({ utilization: null, resetsAt: 1791795600, status: 'rejected', receivedAt: AT, source: 'sdk' })
+    expect(parsed.data?.windows.five_hour?.source).toBe('statusline')
   })
 })

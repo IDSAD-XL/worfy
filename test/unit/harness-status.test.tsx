@@ -79,6 +79,11 @@ describe('HarnessStatusView', () => {
     expect(onInstall).toHaveBeenCalledTimes(1)
   })
 
+  it('the Install icon names the version and the folder it installs into in its tooltip', () => {
+    render(<HarnessStatusView status={status(STATES[0]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Install' }).getAttribute('title')).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/me/.claude/worfy-harness/plugin')
+  })
+
   it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', () => {
     render(<HarnessStatusView status={status(STATES[1]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+aaaaaaa')

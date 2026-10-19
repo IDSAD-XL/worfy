@@ -101,7 +101,7 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect(name).toHaveText(`worfy — ${LONG_NAME}`)
     await expect(subtitle).toHaveText(`${LONG_NAME} · main`)
     // Old data: the bar is dimmed with "as of" as its tooltip, and no "as of" line (worfy-ui ticket 18).
-    await expect(toolbar.getByTestId('limit-seven_day')).toHaveAttribute('title', /^as of /)
+    await expect(toolbar.getByTestId('limit-seven_day')).toHaveAttribute('title', / · as of /)
     await expect(toolbar.getByTestId('limit-seven_day')).not.toContainText('as of')
     await expect(toolbar.getByTestId('app-version')).toBeVisible()
     await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
@@ -132,8 +132,8 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const version = await box(toolbar.getByTestId('app-version'))
     const bar = await box(toolbar)
     expect(version.y, 'the version is under the Harness line').toBeGreaterThanOrEqual(harnessLine.y + harnessLine.height - 1)
+    expect(harnessLine.y, 'the Harness line is inside the toolbar').toBeGreaterThanOrEqual(bar.y)
     expect(version.y + version.height, 'the version is inside the toolbar').toBeLessThanOrEqual(bar.y + bar.height)
-    expect(bar.height, 'the toolbar keeps its height').toBe(52)
 
     // The name and the subtitle are cut with an ellipsis; the full text is their tooltip.
     for (const element of [name, subtitle.locator('.w-toolbar__subtitle-text')]) {

@@ -28,8 +28,9 @@ export const STALE_OPACITY = 0.55
 
 /**
  * One window: label and share (or status in words) on the first line, the bar, then the reset
- * time. Data older than an hour adds no line: the bar is dimmed and "as of <time>" is its tooltip,
- * so the toolbar never grows.
+ * time. Data older than an hour adds no line: the bar is dimmed and its tooltip is the value and
+ * "as of <time>" (`62% · as of 13:05`; the value stays readable when it is cut), so the toolbar
+ * never grows.
  */
 export function LimitBarView({ bar }: { bar: LimitBar }) {
   const valueColor = bar.level === 'blocked' ? 'var(--blocked-text)' : 'var(--text)'
@@ -39,7 +40,7 @@ export function LimitBarView({ bar }: { bar: LimitBar }) {
       data-testid={`limit-${bar.window}`}
       data-level={bar.level}
       data-stale={stale ? 'true' : undefined}
-      title={bar.asOf ?? undefined}
+      title={stale ? `${bar.value} · ${bar.asOf}` : undefined}
       style={{ display: 'flex', flexDirection: 'column', gap: 3, width: 104, ...(stale ? { opacity: STALE_OPACITY } : {}) }}
     >
       {/* One line: a status in words ("limit reached") is set in the UI font, which is narrower
@@ -64,19 +65,20 @@ const RESETS = 'resets '
 
 /**
  * The reset line, `resets Thu 09:00`: the word in the UI font, the time in mono, as in the F
- * mockup. A line wider than the bar ends with an ellipsis rather than running into the next bar.
+ * mockup. A line wider than the bar ends with an ellipsis rather than running into the next bar;
+ * the full line is its tooltip.
  */
 function ResetsLine({ text, testId }: { text: string; testId: string }) {
   const line: CSSProperties = { fontSize: 'var(--text-11)', lineHeight: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }
   if (!text.startsWith(RESETS)) {
     return (
-      <div style={{ ...line, ...mono }} data-testid={testId}>
+      <div style={{ ...line, ...mono }} title={text} data-testid={testId}>
         {text}
       </div>
     )
   }
   return (
-    <div style={line} data-testid={testId}>
+    <div style={line} title={text} data-testid={testId}>
       {RESETS}
       <span style={mono}>{text.slice(RESETS.length)}</span>
     </div>

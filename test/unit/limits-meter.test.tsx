@@ -49,7 +49,7 @@ describe('LimitsMeterView', () => {
     const sevenDay = screen.getByTestId('limit-seven_day')
     expect(sevenDay.textContent).toBe('7-daylimit reached')
     expect(sevenDay.dataset.stale).toBe('true')
-    expect(sevenDay.getAttribute('title')).toBe('as of 03:00')
+    expect(sevenDay.getAttribute('title')).toBe('limit reached · as of 03:00')
     expect(Number(sevenDay.style.opacity)).toBeLessThan(1)
   })
 
@@ -58,10 +58,12 @@ describe('LimitsMeterView', () => {
     render(<LimitsMeterView state={old} now={AT} timeZone={TZ} />)
     const fiveHour = screen.getByTestId('limit-five_hour')
     expect(fiveHour.textContent).toBe('5-hour62%resets 07:10')
-    expect(fiveHour.getAttribute('title')).toBe('as of Sat 05:00')
+    expect(fiveHour.getAttribute('title')).toBe('62% · as of Sat 05:00')
     // The children are the label line, the meter and the reset line; nothing else.
     expect(fiveHour.children).toHaveLength(3)
     expect(within(fiveHour).getByTestId('limit-five_hour-note').textContent).toBe('resets 07:10')
+    // The reset line carries its full text as the tooltip, in case it is cut.
+    expect(within(fiveHour).getByTestId('limit-five_hour-note').getAttribute('title')).toBe('resets 07:10')
     expect(within(fiveHour).queryByText(/as of/)).toBeNull()
   })
 })

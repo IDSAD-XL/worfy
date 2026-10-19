@@ -33,7 +33,12 @@ export const limitWindowStateSchema = z.object({
   status: z.string().nullable(),
   /** When worfy received the value, in milliseconds since the epoch. */
   receivedAt: z.number(),
-  source: z.enum(['sdk', 'statusline', 'usage']),
+  /**
+   * Where the value came from. Read leniently: a source this build does not know (one a newer build
+   * added) reads as `sdk` instead of setting the whole limits.json aside, which would lose a
+   * `rejected` status and the reset times Autopilot and Terminal AI wait by.
+   */
+  source: z.enum(['sdk', 'statusline', 'usage']).catch('sdk'),
 })
 export type LimitWindowState = z.infer<typeof limitWindowStateSchema>
 
@@ -203,7 +208,7 @@ function sameWindow(a: LimitWindowState, b: LimitWindowState): boolean {
 // ---------------------------------------------------------------------------------------------
 // Display
 
-/** Data older than this is drawn dimmed, with "as of <time>" as the bar's tooltip. */
+/** Data older than this is drawn dimmed, with "<value> · as of <time>" as the bar's tooltip. */
 export const STALE_AFTER_MS = 60 * 60 * 1000
 /** Shares from which a bar takes the working and the blocked colour. */
 export const WORKING_FROM = 0.6
@@ -220,7 +225,7 @@ export interface LimitBar {
   value: string
   /** `resets 14:20` (5-hour) or `resets Thu 09:00` (7-day); null when unknown. */
   resets: string | null
-  /** `as of 13:05` when the data is older than an hour (the bar is dimmed, this is its tooltip); null when fresh. */
+  /** `as of 13:05` when the data is older than an hour (the bar is dimmed, this ends its tooltip); null when fresh. */
   asOf: string | null
   level: LimitLevel
 }

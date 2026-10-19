@@ -168,9 +168,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     const sevenDay = meter(second.window).getByTestId('limit-seven_day')
     await expect(fiveHour.getByTestId('limit-five_hour-value')).toHaveText('62%')
     await expect(sevenDay.getByTestId('limit-seven_day-value')).toHaveText('limit reached')
+    // The tooltip keeps the value, so a cut "limit reached" stays readable.
+    await expect(fiveHour).toHaveAttribute('title', /^62% · as of [A-Z][a-z]{2} \d\d:\d\d$/)
+    await expect(sevenDay).toHaveAttribute('title', /^limit reached · as of [A-Z][a-z]{2} \d\d:\d\d$/)
     for (const bar of [fiveHour, sevenDay]) {
       await expect(bar).toHaveAttribute('data-stale', 'true')
-      await expect(bar).toHaveAttribute('title', /^as of [A-Z][a-z]{2} \d\d:\d\d$/)
       await expect(bar).not.toContainText('as of')
       expect(Number(await bar.evaluate((node) => (node as unknown as { style: { opacity: string } }).style.opacity))).toBeLessThan(1)
     }
