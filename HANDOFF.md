@@ -16,7 +16,7 @@
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 30/32 — 01–29, 31 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 4/9, влиты 01–03 (`wave-gate`, ADR-0065) и 08 (#433, ADR-0068): batch CI на `main` включён; 06 — stub-ы для Windows, 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
-- `worfy-pipeline` (Stage и «кого ждёт» у Ticket-ов; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 7/10, влиты 01–07; 08 — пишет `bin/profile-set` (ADR-0073); 09, 10 (low) — follow-up-ы 06; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
+- `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 7/10, влиты 01–07; решения владельца 2026-10-20 (Q1–Q16) в Ticket-ах; 08, 09 — к Wave, 10 (ADR-0079) — после 09 (оба трогают `waits-notify.ts`); `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 1/8 (01 — #526); 02 в работе; 03–06 ждут срезов `worfy-windows` 14; 07 и 08 — в конце.
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 0/13; Wave 1 — 01, 03, 04.
 - `worfy-browser` (Browser Node с ролями, [spec](.scratch/worfy-browser/spec.md), ADR-0078): 0/8; первым — 01, прототип слоя.
@@ -52,7 +52,7 @@
 
 ## Дальше
 
-- Очередь мержа (владелец, Q7, Q10): #517 → #496 (rebase, run его test-ов на Windows-runner-е; красное — ADR-0072) → #508 (rebase, gate full, `check/windows` по ADR-0072) → `worfy-pipeline` 08 — Session на Mac.
+- Очередь мержа (владелец, Q7, Q10) пройдена: #517, #496, #508 влиты; `worfy-pipeline` 08 — Session на Mac.
 - `worfy-harness` 50, 51 — правка правил и платный повтор кейса (eval с `Bash`: `~/.docker/bin` вынести на время run-а); 29 — карта «кейс eval → файлы правил».
 - `worfy-windows`, очередь ПК (2026-10-19): 65 (PR #517) → 14 (сначала часть unit/contract) → 43 → 47; потом 66; 15, 42, 62; 16 — итог на ПК; 61 — low; 60 — в своём PR.
 - `worfy-link` 27–31 (вне LAN через Tailscale, ADR-0070) — после очереди `worfy-windows`: 27 и 28, затем 29 и 31; 30 — позже.

@@ -2,9 +2,11 @@
 
 Type: task
 Status: open
-Blocked by: —
+Blocked by: 09
 Source: follow-up Ticket-а 06 (PR #501); решение владельца 2026-10-19, Q-c: #501 влит как есть, это — отдельный
-Ticket, приоритет low.
+Ticket, приоритет low; решения владельца 2026-10-20, grilling Q1–Q16 (здесь Q11–Q16; [spec.md](../spec.md),
+«Решения владельца», блок 2026-10-20); [ADR-0079](../../../docs/adr/0079-link-machines-announce-accepted-messages.md).
+После 09: оба Ticket-а меняют `src/main/workflow/waits-notify.ts`.
 
 ## Что происходит
 
@@ -14,38 +16,78 @@ Ticket, приоритет low.
   в `link` (`src/main/notify.ts:272-275`, `this.link?.send(note)`). Уведомления Ticket-ов идут мимо `link`:
   `installWaitsNotifications(…, new NoteDisplay<TicketNote>(…))` без него (`src/main/notify.ts:461`).
 - Сообщение связи `note` описывает только Session: `sessionId` — обязательная строка
-  (`src/main/link/notes.ts:27-37`), а у `TicketNote` `sessionId: null` и есть `ticket` (`src/main/notify.ts:84-90`).
+  (`src/main/link/notes.ts:27-38`), а у `TicketNote` `sessionId: null` и есть `ticket` (`src/main/notify.ts:84-90`).
+  `LinkNotes.send` шлёт каждой подключённой Linked machine с уровнем доступа не Off (`notes.ts:60-63`).
+- Механизма «какие сообщения понимает Machine» в `worfy-link` не было: только версия протокола с точным
+  совпадением (`src/main/link/messages.ts:20`, `src/main/link/server.ts:52-54`) и `hello` без списка
+  сообщений (`messages.ts:58-68`); незнакомое сообщение получатель бросает (`messages.ts:103`). Его вводит
+  [ADR-0079](../../../docs/adr/0079-link-machines-announce-accepted-messages.md): поле `accepts` в `hello`.
+- Клик по уведомлению Ticket-а открывает вкладку Pipeline: цель `pipeline` без Machine
+  (`src/main/notify.ts:369`, `pipelineOpenSchema` — `src/shared/ipc/notify.ts:31-36`); у цели Session
+  Machine есть (`notify.ts:370`). `pipeline.get` открыт Linked machines как `read`
+  (`test/unit/link-access.test.ts:194-195`): окно Linked machine может показать вкладку Pipeline её Project-а.
+- Id Project-а — `<имя папки>-<sha256(путь)[0:8]>` (`src/main/projects/store.ts:81-84`): у одного репозитория
+  на двух Machine с разными путями id разные.
 
 ## Что делаем
 
-1. Сообщение связи для заметки Ticket-а: вариант `note` с `ticket` (`epic`, `num`) и `projectRoot` или своё
-   сообщение; проверка zod на приёме, пределы длины — как у `note`.
-2. Machine Project-а шлёт заметку Ticket-а на Linked machines по тем же правилам, что заметку Session
-   (доступ, `isConnected`; ADR-0066 — read-only доступ получает заметки).
-3. Linked machine показывает её с именем Machine-отправителя. Что открывает клик (вкладка Pipeline удалённого
-   Project-а или окно worfy) — решить при работе по тому, что Linked machine уже показывает для Project-а другой
-   Machine, и записать в «Итог».
+1. **Своё сообщение связи (Q12, ADR-0079).** Новое сообщение для заметки Ticket-а, например `ticket-note`, со
+   своей схемой zod; пределы длины — как у `note`. `hello` получает `accepts` (ADR-0079, пункты 1–2);
+   сообщение уходит только Machine, чей `accepts` его называет. Сборка старше уведомления не получает,
+   связь с ней работает как прежде.
+2. **Что несёт сообщение (Q16).** Имя и id Project-а, `epic`, `num`, текст заметки и ключ ожидания (Q11,
+   Ticket 09). Абсолютного `projectRoot` в сообщении нет. Machine-отправителя получатель берёт из
+   соединения, не из сообщения.
+3. **Кто уведомляет (Q14).** Уведомляет Machine, которой принадлежит Project. Получатель бросает заметку,
+   если у него в списке Project-ов есть Project с тем же id: этот Project он уже уведомил сам. Повторы
+   отсекает ключ (id Project-а, Epic, NN, ключ Q11). Предел: тот же репозиторий по другому пути на
+   получателе имеет другой id — тогда уведомят обе Machine. Записать в «Итог».
+4. **Кому (Q15).**
+   - `Waits: owner` — все Machine владельца: эта и каждая подключённая Linked machine с уровнем Read only
+     или Full access (правило `LinkNotes.send`) и с `accepts`.
+   - `Waits: <имя Machine>` — только та Machine: имя этой Machine — уведомление здесь и никуда больше; имя
+     Linked machine — только ей, здесь не показывается. Имя сравнивается целиком, как его показывает
+     Settings → Machines.
+   - `team` и `agent` — уведомления «ждёт тебя» нет нигде, как сейчас.
+5. **Показ и клик (Q13).** Linked machine показывает заметку с именем Machine-отправителя. Клик открывает
+   вкладку Pipeline этого Project-а на той Machine (окно Linked machine, только чтение), если окно Linked
+   machine её показывает: цель `pipeline` получает Machine, как цель Session, а окно находит Project по id
+   в списке Project-ов той Machine. Если не показывает — клик открывает окно worfy с этим Project-ом.
+   Implementer проверяет, что есть, и записывает выбранный путь в «Итог».
 
 ## Готово, когда
 
-- [ ] `pnpm test test/unit/notify.test.ts` — exit 0: переход в `Waits: owner` — одна заметка у себя и одна
-      отправка в stub `link`; приём заметки Ticket-а — показ с именем Machine.
-- [ ] `pnpm test test/unit/link-notify.test.ts` — exit 0: заметка Ticket-а проходит проверку сообщения,
-      заметка без `ticket` и без `sessionId` — отказ.
+- [ ] `pnpm test test/unit/notify.test.ts` — exit 0: `Waits: owner` — одна заметка у себя и одна отправка в
+      stub `link`; `Waits: <имя этой Machine>` — заметка у себя, отправки нет; `Waits: <имя Linked machine>` —
+      отправка только ей, у себя ничего; `team`, `agent` — ничего; приём заметки — показ с именем Machine;
+      приём заметки Project-а с id из своего списка — показа нет; та же заметка дважды — один показ.
+- [ ] `pnpm test test/unit/link-notify.test.ts` — exit 0: заметка Ticket-а проходит проверку сообщения; без
+      `epic`, `num` или id Project-а — отказ; поле `projectRoot` в ней не уходит; Machine без `accepts` или с
+      `accepts` без имени сообщения — отправки нет.
+- [ ] `test/contract/link-server.test.ts` — exit 0: `hello` с `accepts` и без него принимается; две настоящие
+      link service — сообщение доходит до Machine, которая его назвала.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
-- [ ] (вручную) Mac и ПК связаны: `ticket block <epic> <NN> "приёмка" --waits owner` на ПК — уведомление на Mac.
+- [ ] (вручную) Mac и ПК связаны: `ticket block <epic> <NN> "приёмка" --waits owner` на ПК — уведомление на Mac;
+      клик — вкладка Pipeline Project-а ПК или окно worfy с ним, как записано в «Итог».
 
 ## Тесты
 
-Сначала падающие случаи в `test/unit/notify.test.ts` (stub `NoteLink`) и в `test/unit/link-notify.test.ts`.
+Сначала падающие случаи в `test/unit/notify.test.ts` (stub `NoteLink`), в `test/unit/link-notify.test.ts` и в
+`test/contract/link-server.test.ts` (`accepts` в `hello`; рядом с test-ом `sendMessage` двух service,
+`:429-431`).
 
 ## Где в коде
 
 - `src/main/notify.ts`
-- `src/main/link/notes.ts`
+- `src/main/link/notes.ts` — новое сообщение и отправка по `accepts`
+- `src/main/link/messages.ts` — `accepts` в `hello`
+- `src/main/link/service.ts` — `accepts` подключённой Machine: из `hello` (`onHello`, `:638`), в памяти
 - `src/main/workflow/waits-notify.ts`
+- `src/shared/ipc/notify.ts` — Machine в цели `pipeline`
+- `src/renderer/session/notification-target.ts` — открытие цели `pipeline` в окне Linked machine
 - `test/unit/notify.test.ts`
 - `test/unit/link-notify.test.ts`
+- `test/contract/link-server.test.ts`
 
 ## Итог
 
