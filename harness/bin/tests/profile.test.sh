@@ -573,6 +573,8 @@ uj notjson '{"language":'
 uj array '["ru"]'
 uj numeric '{"language":{"reports":5}}'
 uj empty '{}'
+uj blank ''
+mkdir -p "$T/u/bom" && printf '\357\273\277%s' '{"language":{"reports":"ru"}}' >"$T/u/bom/user.json" # PowerShell 5 Set-Content -Encoding UTF8
 eq "user.json ru, profile en -> ru" ru "$pu" "$T/u/ru" -C "$T/r/bare" --field language.reports
 eq "user.json ru, profile without language -> ru" ru "$pu" "$T/u/ru" -C "$T/r/both" --field language.reports
 eq "user.json does not set language.team (profile en)" en "$pu" "$T/u/ru" -C "$T/r/bare" --field language.team
@@ -587,6 +589,11 @@ eq "no language in the profile -> docs en" en "$pu" "$T/u/none" -C "$T/r/both" -
 eq "profile without language.docs -> docs en" en "$pu" "$T/u/none" -C "$T/r/bare" --field language.docs
 eq "user.json {} -> the profile's value" ru "$pu" "$T/u/empty" -C "$T/r/demo" --field language.reports
 check "user.json {}: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/empty" -C "$T/r/demo" --field language.reports
+check "no user.json: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/none" -C "$T/r/demo" --field language.reports
+eq "user.json with a byte order mark is read -> ru" ru "$pu" "$T/u/bom" -C "$T/r/bare" --field language.reports
+check "user.json with a byte order mark: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/bom" -C "$T/r/bare" --field language.reports
+eq "empty user.json -> the profile's value" ru "$pu" "$T/u/blank" -C "$T/r/demo" --field language.reports
+check "empty user.json: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/blank" -C "$T/r/demo" --field language.reports
 for c in notjson array numeric; do
     eq "broken user.json ($c), no language in the profile -> en, exit 0" en "$pu" "$T/u/$c" -C "$T/r/both" --field language.reports
     eq "broken user.json ($c), profile ru -> ru" ru "$pu" "$T/u/$c" -C "$T/r/demo" --field language.reports

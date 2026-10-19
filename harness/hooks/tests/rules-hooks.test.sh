@@ -202,7 +202,8 @@ for ev in SessionStart SubagentStart; do
     c="$(ctx)"
     n="$(printf '%s' "$c" | chars)"
     [ "$rc" -eq 0 ] && [ "$n" -le "$LIMIT" ] && ok "$ev: long user rules: $n characters <= $LIMIT" || bad "$ev: long user rules: rc=$rc, $n characters"
-    [[ "$c" == *"$HARNESS_HOME/user/rules.md"* || "$c" == *"$HH_N/user/rules.md"* ]] \
+    # On Windows the hook joins the path with "\", pwd -W spells it with "/": compare with "/" only.
+    [[ "$c" == *"$HARNESS_HOME/user/rules.md"* || "${c//\\//}" == *"$HH_N/user/rules.md"* ]] \
         && ok "$ev: long user rules: the path to the file is named" || bad "$ev: long user rules: no path to the file"
     [[ "$c" == *$'\n## User rules\n\nRule 1: keep'* ]] && ok "$ev: long user rules: the start of the file is kept" || bad "$ev: long user rules: the start of the file is missing"
     # The last kept rule is whole: the cut falls between lines, not inside one.

@@ -282,6 +282,9 @@ const userReports = (() => {
         if (e.code !== "ENOENT") err(`profile: ${USER_JSON} cannot be read (${e.code || e.message}) — ignored`)
         return undefined
     }
+    // Windows PowerShell 5 writes UTF-8 with a byte order mark; an empty file means nothing is set.
+    text = text.replace(/^\uFEFF/, "")
+    if (text.trim() === "") return undefined
     let user
     try {
         user = JSON.parse(text)
