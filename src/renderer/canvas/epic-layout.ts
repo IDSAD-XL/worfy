@@ -474,15 +474,6 @@ export function progressOf(tickets: readonly Pick<Ticket, 'state'>[]): Progress 
   return { ...counts, total, segments }
 }
 
-/**
- * The Ticket's file, `<root>/.scratch/<epic>/issues/<NN>-<slug>.md`. The workflow model does not
- * carry the path; the number is written with at least two digits, as the Tickets of every
- * Project worfy knows are named.
- */
-export function ticketFile(root: string, ticket: Pick<Ticket, 'epic' | 'num' | 'slug'>): string {
-  return `${root}/.scratch/${ticket.epic}/issues/${String(ticket.num).padStart(2, '0')}-${ticket.slug}.md`
-}
-
 /** The title without the number it usually starts with ("07 — Rate-limit bids" → "Rate-limit bids"); the number is shown apart. */
 export function ticketTitle(ticket: Pick<Ticket, 'num' | 'title'>): string {
   const stripped = ticket.title.replace(new RegExp(`^\\s*0*${ticket.num}\\s*[—–:.-]\\s*`), '').trim()

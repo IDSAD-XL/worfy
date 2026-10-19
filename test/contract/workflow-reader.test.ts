@@ -227,8 +227,25 @@ describe('workflow reader', () => {
     const model = await readCheckout(repo, epicStatusRunner(home, ownEnv))
     expect(JSON.stringify(model)).not.toContain('not-for-the-renderer')
     expect(Object.keys(model.tickets[0]!).sort()).toEqual(
-      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'waits'].sort(),
+      ['blockedNums', 'blockedParsed', 'blockedRaw', 'blockedReason', 'epic', 'fromBranch', 'files', 'filesListed', 'manualChecks', 'num', 'pr', 'slug', 'state', 'statusAt', 'statusError', 'statusRaw', 'title', 'version', 'waits'].sort(),
     )
+  })
+
+  it('gives each Ticket the version of its file text: an edit of the body alone is a change of the Ticket', async () => {
+    const repo = makeRepo(dir)
+    const { home } = makeClaudeHome(dir)
+    const first: WorkflowModel = { ...(await readCheckout(repo, epicStatusRunner(home, ownEnv))), branchErrors: [] }
+    const file = join(repo, '.scratch', 'demo', 'issues', '02-second.md')
+    const before = ticketOf(first, 2)?.version
+    expect(before).toMatch(/^[0-9a-f]{16}$/)
+    // Another Ticket's file has a version of its own.
+    expect(ticketOf(first, 1)?.version).not.toBe(before)
+    writeFileSync(file, `${readFileSync(file, 'utf8')}\n## Итог\n\nOnly the body changed.\n`)
+    const second: WorkflowModel = { ...(await readCheckout(repo, epicStatusRunner(home, ownEnv))), branchErrors: [] }
+    expect(ticketOf(second, 2)?.version).not.toBe(before)
+    expect(ticketOf(second, 1)?.version).toBe(ticketOf(first, 1)?.version)
+    const delta = diffModels(first, second)
+    expect(delta?.tickets.map((ticket) => ticket.num)).toEqual([2])
   })
 
   it('carries the "(вручную)" checks of each Ticket\'s "Готово, когда" section; a Ticket without them has []', async () => {

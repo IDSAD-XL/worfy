@@ -201,6 +201,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'terminal.shells',
     'terminalAi.fix.state',
     'terminalAi.request.state',
+    // The text of one Ticket file, for the focused Ticket (worfy-polish ticket 33), as docs.read.
+    'tickets.read',
     'trash.list',
     'workflow.close',
     'workflow.open',

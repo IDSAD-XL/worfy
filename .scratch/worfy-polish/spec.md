@@ -206,6 +206,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 27 | `src/main/agent/session.ts`, `src/main/agent/session/` | 6 |
 | 28 | `src/renderer/palette/CommandPalette.tsx`, `test/unit/palette-manual-check-row.test.tsx` | 6 |
 | 29 | `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`, `src/main/agent/app-registry.ts`, `src/main/claude-home/user-model.ts`, `src/shared/ipc/session-autocompact.ts`, `src/main/ipc/session-autocompact.ts`, `src/renderer/settings/SessionsSection.tsx`, `test/contract/agent-autocompact.test.ts`, `test/contract/app-settings.test.ts`, `test/unit/settings-sessions.test.tsx` | 6 |
+| 33 | `src/shared/ipc/tickets.ts`, `src/main/ipc/tickets.ts`, `src/main/workflow/reader.ts`, `src/shared/workflow/types.ts`, `src/renderer/focus/focus-tile.ts`, `src/renderer/focus/focus-state.ts`, `src/renderer/focus/FocusMode.tsx`, `src/renderer/focus/focus.css`, `src/renderer/canvas/overlays/FocusEntry.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/canvas/nodes/TicketBody.tsx`, `src/renderer/canvas/nodes/ticket-text.ts`, `src/renderer/canvas/epic-frame.css`, `src/renderer/canvas/epic-layout.ts`, `test/unit/epic-layout.test.ts`, `test/unit/ticket-focus.test.tsx`, `test/contract/tickets-read.test.ts`, `test/contract/workflow-reader.test.ts`, `test/unit/link-access.test.ts`, `test/e2e/ticket-focus.spec.ts`, `test/e2e/linked-system-actions.spec.ts` | 7 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
@@ -234,6 +235,8 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 - **Wave 6 — 27, 28, 29.** Добавлены 2026-10-16 по решению владельца, когда Wave 1–5 уже влиты.
   Блокеров нет. Общих файлов между ними нет: 27 — `session.ts` и папка `session/`, 28 — Command palette, 29 —
   настройки приложения, `app-registry.ts`, `user-model.ts` и раздел Sessions.
+- **Wave 7 — 33.** Добавлен 2026-10-19 по слову владельца (Ticket целиком в focus mode). Блокеров
+  нет; Ticket-ы 30–32 в таблицу не внесены, общих файлов с ними нет. Ticket и код — в одном PR.
 
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:145`): папка с `/` на
 конце пересекается с каждым файлом в ней. Если исполнителю нужен файл вне своего списка (например,

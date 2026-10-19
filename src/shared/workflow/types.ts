@@ -88,6 +88,12 @@ export const ticketSchema = epicStatusTicketSchema.extend({
    * as none: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid.
    */
   manualChecks: z.array(manualCheckSchema).optional(),
+  /**
+   * Changes whenever the text of the Ticket file changes (a hash of it), so an edit that changes
+   * nothing else is still sent as a change of the Ticket and its open view reads the text again.
+   * Absent when the file could not be read, and from an older worfy (a Linked machine).
+   */
+  version: z.string().optional(),
 })
 export type Ticket = z.infer<typeof ticketSchema>
 

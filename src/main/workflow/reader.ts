@@ -17,6 +17,7 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
 import { manualChecks } from '../../shared/workflow/manual-checks'
+import { versionOf } from '../docs/watch'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { harnessHomes, locateHarness, notFoundPaths, scriptEnv, type HarnessLocation } from '../harness/locate'
 import type { HarnessScriptEnv, HarnessScriptEnvSource } from '../harness/script-env'
@@ -217,7 +218,7 @@ export function firstHeading(markdown: string): string | null {
 }
 
 /** `NN-slug.md` → the key epic-status gives the Ticket: its number and slug (same rules as the script). */
-function issueKey(file: string): string | null {
+export function issueKey(file: string): string | null {
   if (!file.endsWith('.md')) return null
   const dash = file.indexOf('-')
   const prefix = dash === -1 ? file.slice(0, -3) : file.slice(0, dash)
@@ -303,7 +304,9 @@ export async function enrichSnapshot(
       const markdown = path ? await read(path) : null
       const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown)
       const checks = markdown === null ? [] : manualChecks(markdown)
-      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks }
+      // The version makes an edit of the text alone a change of the Ticket, so the focused Ticket reads it again.
+      const version = markdown === null ? {} : { version: versionOf(markdown) }
+      return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, ...version }
     }),
   )
 

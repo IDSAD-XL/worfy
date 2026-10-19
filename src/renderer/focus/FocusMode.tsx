@@ -11,6 +11,8 @@
 //
 // Each tile draws the Node's own component, so the Node keeps working there: its data comes from
 // the same React Flow store the Canvas uses, and what it changes goes to main as on the Canvas.
+// The component learns it is in a tile from FocusTileContext (focus-tile.ts): a Ticket shows its
+// whole file there.
 // The Canvas keeps its own copy of the Node mounted under the layer. On the read-only screen of a
 // Linked machine a Terminal tile is the stand-in the Canvas draws (ReadOnlyTerminal.tsx, worfy-link
 // ticket 26): the Terminal itself would start the shell there, which that Machine refuses.
@@ -38,6 +40,7 @@ import { useReadOnly } from '../projects/useProjects'
 import { SidebarToggle, useSidebarVisibility } from '../shell/sidebar-visibility'
 import { label, matches } from '../shortcuts/match'
 import { setFocusActive, useFocusState } from './focus-state'
+import { FocusTileContext } from './focus-tile'
 import {
   buildPreset,
   computeGeometry,
@@ -168,7 +171,12 @@ function TileNode({ node }: { node: CanvasFlowNode }) {
   const readOnly = useReadOnly()
   if (readOnly !== null && node.data.node.kind === TERMINAL_NODE_KIND) return <ReadOnlyTerminal id={node.id} hint={readOnly} />
   const Component = nodeTypes.get(node.data.node.kind)?.Component ?? UnknownNode
-  return <Component {...tileProps(node)} />
+  // The Node knows it has a tile's room (focus-tile.ts): the Ticket shows its whole file there.
+  return (
+    <FocusTileContext.Provider value={true}>
+      <Component {...tileProps(node)} />
+    </FocusTileContext.Provider>
+  )
 }
 
 interface PointerHandlers {
