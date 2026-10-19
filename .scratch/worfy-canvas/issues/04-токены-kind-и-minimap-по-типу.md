@@ -1,7 +1,8 @@
 # 04 — Токены `kind-*` в F-SPEC и `tokens.css`; Minimap по типу Node-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T16:38Z
+Branch: worfy-canvas/04
 Blocked by: —
 Source: [spec.md](../spec.md), решения владельца 7 и 8;
 [ADR-0077](../../../docs/adr/0077-node-kind-tokens.md) (цвет по типу Node-а: роли `kind-*`), пункты 1–4 и
@@ -43,13 +44,13 @@ P3, варианты 3a и 3d. Код перечитан по main `7dab925f`.
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/kind-tokens.test.ts`: три правила контраста и различимости проходят для обеих тем;
+- [x] Unit `test/unit/kind-tokens.test.ts`: три правила контраста и различимости проходят для обеих тем;
       токен вне таблицы Tokens F-SPEC — красный test (имена `--kind-*` в `tokens.css` и в F-SPEC совпадают).
-- [ ] e2e `test/e2e/minimap-kinds.spec.ts`: в Minimap у Session, Orchestrator, Subagent-а и рамки Epic-а
+- [x] e2e `test/e2e/minimap-kinds.spec.ts`: в Minimap у Session, Orchestrator, Subagent-а и рамки Epic-а
       цвет их роли (вычисленный `fill`/`stroke`); снимок `minimap-kinds` в обеих темах.
-- [ ] Мутанты красные: светлый `--kind-session` = Okabe–Ito #56B4E9 (2.31:1); `--kind-epic` тёмной темы =
+- [x] Мутанты красные: светлый `--kind-session` = Okabe–Ito #56B4E9 (2.31:1); `--kind-epic` тёмной темы =
       цвет ready.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -75,4 +76,35 @@ P3, варианты 3a и 3d. Код перечитан по main `7dab925f`.
 
 ## Итог
 
-Заполняется при закрытии.
+**Окончательные значения** — черновик ADR-0077, пункт 2, без сдвигов: все правила пункта 4 он проходит.
+`tint` в ADR не было — значения подобраны здесь.
+
+| Роль | band, светлая | tint, светлая | band, тёмная | tint, тёмная |
+| --- | --- | --- | --- | --- |
+| `kind-orchestrator` | #A0527F | #F6EAF1 | #CC79A7 | #2D2028 |
+| `kind-session` | #2B8BC6 | #E6F2FA | #56B4E9 | #1B2730 |
+| `kind-subagent` | = `kind-session`, только контур | — | = `kind-session` | — |
+| `kind-epic` | #9A7A00 | #F6F0D9 | #F0E442 | #2A2716 |
+
+Замеры (`test/unit/kind-tokens.test.ts`): `band` к `surface`/`surface raised` — от 3.35:1 (Session, светлая) до
+13.15:1; `--text`, `--text-secondary` и `--text-muted` на `tint` — от 5.11:1 (muted на тёмном tint Epic-а);
+наименьшая ΔE пары типов под симуляцией — 18.2 (Orchestrator и Epic, тританопия, светлая). Формулы
+проверены на цифрах самого ADR (3.35, 13.15, 18.2 — test «reproduce the figures ADR-0077 recorded»).
+
+**Правило сверх пункта 4 ADR.** Мутант «`--kind-epic` тёмной темы = цвет ready» ни одно правило пункта 4 не
+ловит (контраст высокий, ΔE с другими типами большая). Добавлено правило «цвет типа — не цвет статуса»: ΔE
+(CIE76, без симуляции) каждого `band` до `--ready-dot/-text`, `--working-dot/-text`, `--blocked-ring/-text` —
+не меньше 15 (наименьшее сейчас 23.1: Epic и ready, тёмная). Основание — ADR-0077, пункты 2–3 («оттенки
+статусов заняты»). Под протанопией Epic и ready по-прежнему близки (ΔE 8.0) — компромисс пункта 5.
+
+**Мутанты** (в своём worktree, восстановлены из копии): светлый `--kind-session` = #56B4E9 — красный «band
+at least 3:1»; тёмный `--kind-epic` = #C8F25A — красный «no status colour»; лишний `--kind-ticket` в
+`tokens.css` — красный «declares exactly the --kind-* tokens the table names»; значение в `tokens.css`
+не совпадает с F-SPEC — красный «every band and tint has the value of the table».
+
+**Minimap.** Session, Orchestrator, Epic frame — заливка `var(--kind-*)`; Subagent — контур 1.5 px цвета
+`--kind-subagent` без заливки (`OUTLINED_KINDS` в `MiniMapOverlay.tsx`; толщина в пикселях экрана,
+`vector-effect: non-scaling-stroke` в `minimap.css`). Ticket, Note, Card, Terminal, HANDOFF — как были.
+Рамка Epic-а рисуется под своими Ticket-ами: они серые поверх охры.
+
+Снимки Minimap: [светлая](../evidence/04-minimap-kinds-light.png), [тёмная](../evidence/04-minimap-kinds-dark.png).

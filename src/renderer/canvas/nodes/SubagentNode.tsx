@@ -19,7 +19,8 @@ import type { CanvasNodeProps } from './index'
 export const kind = 'subagent' satisfies typeof SUBAGENT_KIND
 export const defaultWidth = 260 satisfies typeof SUBAGENT_WIDTH
 export const defaultHeight = 84 satisfies typeof SUBAGENT_HEIGHT
-export const minimapColor = 'var(--border-strong)'
+// Drawn as an outline in this colour, without a fill (MiniMapOverlay.tsx, OUTLINED_KINDS; ADR-0077).
+export const minimapColor = 'var(--kind-subagent)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },

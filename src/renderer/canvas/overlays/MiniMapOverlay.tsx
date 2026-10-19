@@ -1,7 +1,8 @@
 // The minimap at the bottom right of the Canvas (ticket 29; docs/design/BRIEF.md, Screen 1).
 // Nodes are drawn in the colour their Node type declares (a theme token, `minimapColor` in
-// nodes/index.ts); a click moves the viewport so that the clicked point is in the middle, dragging
-// pans. View ▸ Show Minimap (src/main/menu.ts) hides and shows it. While it is shown, pinned
+// nodes/index.ts): the coloured kinds in their `kind-*` token (ADR-0077), a Subagent as an outline
+// in it, the rest in a neutral grey. A click moves the viewport so that the clicked point is in
+// the middle, dragging pans. View ▸ Show Minimap (src/main/menu.ts) hides and shows it. While it is shown, pinned
 // Nodes keep out of its corner (pinning.ts, setMinimapCorner).
 import { useEffect } from 'react'
 import { MiniMap, useReactFlow, type Node } from '@xyflow/react'
@@ -16,15 +17,34 @@ export const order = 10
 /** The colour of a Node whose type declares none (nodes/index.ts, `minimapColor`), or whose kind has no type. */
 const NODE_COLOR_DEFAULT = 'var(--text-muted)'
 
-/** The minimap colour of a Node: its Node type's, by its kind in the Layout (React Flow's type is the placeholder's for unknown kinds). */
-function minimapColor(node: Node): string {
-  const kind = (node as CanvasFlowNode).data.node.kind
-  return nodeTypes.get(kind)?.minimapColor ?? NODE_COLOR_DEFAULT
+/** Kinds drawn as an outline in their colour, with no fill (ADR-0077: a Subagent has its Session's colour, outline only). */
+const OUTLINED_KINDS: ReadonlySet<string> = new Set(['subagent'])
+const NO_COLOR = 'transparent'
+
+/** The Node's kind in the Layout (React Flow's type is the placeholder's for unknown kinds). */
+const kindOf = (node: Node): string => (node as CanvasFlowNode).data.node.kind
+
+/** The colour of a Node's kind: its Node type's. */
+function kindColor(node: Node): string {
+  return nodeTypes.get(kindOf(node))?.minimapColor ?? NODE_COLOR_DEFAULT
 }
 
-/** A pinned Node is not on the plane; it is left off the minimap. */
+/** The fill of a Node on the minimap: its kind's colour, none for an outlined kind. */
+function minimapColor(node: Node): string {
+  return OUTLINED_KINDS.has(kindOf(node)) ? NO_COLOR : kindColor(node)
+}
+
+/** The outline of a Node on the minimap: its kind's colour for an outlined kind, none for the rest. */
+function minimapStrokeColor(node: Node): string {
+  return OUTLINED_KINDS.has(kindOf(node)) ? kindColor(node) : NO_COLOR
+}
+
+/** A pinned Node is not on the plane; it is left off the minimap. An outlined kind gets its stroke width (minimap.css). */
 function minimapClass(node: Node): string {
-  return (node as CanvasFlowNode).data.node.pinned ? 'w-minimap-node--pinned' : ''
+  const classes = []
+  if ((node as CanvasFlowNode).data.node.pinned) classes.push('w-minimap-node--pinned')
+  if (OUTLINED_KINDS.has(kindOf(node))) classes.push('w-minimap-node--outline')
+  return classes.join(' ')
 }
 
 const useMinimapStore = create<{ visible: boolean }>(() => ({ visible: true }))
@@ -75,7 +95,7 @@ export default function MiniMapOverlay() {
       ariaLabel="Minimap"
       pannable
       nodeColor={minimapColor}
-      nodeStrokeWidth={0}
+      nodeStrokeColor={minimapStrokeColor}
       nodeBorderRadius={4}
       nodeClassName={minimapClass}
       bgColor="var(--surface)"
