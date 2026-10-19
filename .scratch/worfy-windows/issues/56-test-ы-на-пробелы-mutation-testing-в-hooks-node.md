@@ -1,7 +1,8 @@
 # 56 — Test-ы на четыре пробела, которые mutation testing нашёл в hooks на Node
 
 Type: task
-Status: open
+Status: done 2026-10-19T07:50Z
+PR: #504
 Blocked by: —
 Source: ревью PR #453 (Ticket 04, hooks Harness на Node) на Mac, круг 1, глубина high:
 [комментарий ревью](https://github.com/IDSAD-XL/worfy/pull/453#issuecomment-6242822528). Mutation
@@ -68,4 +69,9 @@ Mutation testing меняет одну строку кода и гоняет tes
 
 ## Итог
 
-Заполняется при закрытии.
+PR #504 добавил test-ы на четыре строки, которые не сторожил ни один test: в
+`harness/hooks/tests/gate-notverified.test.sh`, `harness/hooks/tests/gh-token-env.test.sh` и
+`harness/hooks/tests/session-hooks.test.sh` (код hooks не менялся).
+
+PR #504 влит 2026-10-18, merge commit `74455f70`. Head `71a53bec`: gate full на Mac — зелёный; на ПК (Git Bash) —
+зелёный; `check/windows` — `success`.

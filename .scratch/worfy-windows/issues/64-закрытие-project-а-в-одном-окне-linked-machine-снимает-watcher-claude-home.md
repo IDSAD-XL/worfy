@@ -1,7 +1,8 @@
 # 64 — Linked machine: закрытие Project-а в одном окне снимает watcher Claude home у всех её окон
 
 Type: bug
-Status: claimed 2026-10-18T23:20Z
+Status: done 2026-10-19T07:50Z
+PR: #513
 Branch: worfy-windows/64
 Blocked by: —
 Source: ревью корректности Ticket-а 57 (ПК владельца, 2026-10-18): находка вне diff-а 57, дефект был и
@@ -78,3 +79,16 @@ Mutation testing: 5 мутантов в `linked.ts`, 4 убиты, выжил о
 
 `docs.open` / `docs.close` ключуются на B тем же способом (client и `projectId`), дефект
 подтверждён ревью; Orchestrator заводит отдельный Ticket.
+
+### Мерж (2026-10-19)
+
+PR #513 влит 2026-10-19, merge commit `bfd15a32`. Head `c0c54a30` (rebase на `a280e649`): gate full на Mac —
+зелёный; не платформенный PR — `check/windows` skipped; ревью круга 2 — принято.
+
+- Долг (low, ревью круга 2): `src/main/ipc/linked.ts:232` — окно подписалось снова, пока close последнего
+  окна был в пути: `after` не шлёт close остальных написаний. На B с case-sensitive ФС, где `/x/P` и `/x/p` —
+  два Project-а, close второй папки не уходит, и watcher живёт до разрыва связи (события не теряются).
+  Правка: переносить старые написания в новую запись.
+- Вне diff-а: `src/main/workflow/watch.ts:581` — B держит одного подписчика на (client, root), и события
+  несут написание последнего open; сейчас недостижимо.
+- `docs.open` / `docs.close` на B — [Ticket 69](69-docs-open-и-close-на-linked-machine-по-общему-client-у.md).

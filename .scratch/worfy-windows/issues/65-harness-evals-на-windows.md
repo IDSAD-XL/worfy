@@ -10,6 +10,9 @@ Source: PR #496 (`worfy-harness` 27): замеры Session на Windows-ПК н�
 - `test/contract/harness-evals.test.ts` красный на Windows на main: на `74455f70` — exit 1, 52 упали,
   83 прошли, 8 пропущены (замер ПК). Сами eval-случаи (`pnpm eval:harness`, `claude plugin eval`) идут
   только на Mac и платные; этот test — их бесплатная часть, и на Windows он должен быть зелёным.
+  С веткой PR #496 упали 65 (замер ПК 2026-10-18 на `dc7b8c0b`). Порядок шагов в «Что делаем» — тот, что
+  дал этот замер: сначала временный home (`USERPROFILE` и `HOME`) каждому ребёнку `harness()`, потом
+  запуск через `node <скрипт>`, потом CRLF, потом путь `pm`.
 - **Причина 1: скрипт с shebang, запущенный по пути.** `harness()` (`:81-88`) делает
   `spawnSync(join(HARNESS, 'bin', script), …)`. На Windows Node без shell запускает только `.exe` и
   `.com`: `error.code === 'ENOENT'`, `status === null` — отсюда «expected null to be +0» у

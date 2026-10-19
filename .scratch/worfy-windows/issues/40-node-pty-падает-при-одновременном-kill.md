@@ -1,7 +1,8 @@
 # 40 — node-pty завершает процесс с кодом 3221225477 при одновременном kill()
 
 Type: task
-Status: claimed 2026-10-18T13:42Z
+Status: done 2026-10-19T07:50Z
+PR: #498
 Branch: worfy-windows/40-node-pty-beta15
 Blocked by: —
 Source: первый круг ревью PR #280 на Mac, 2026-10-13 ([комментарий в PR #280](https://github.com/IDSAD-XL/worfy/pull/280#issuecomment-6141613079), раздел «Not this PR — I file tickets»); замер Session на Windows-ПК при работе над [Ticket-ом 22](22-conhost-остаётся-после-exit-в-terminal.md) (PR #280). Первый шаг — воспроизвести и измерить на Windows-ПК.
@@ -271,3 +272,8 @@ Session на Windows-ПК, 04:28–04:46, 192 круга за 17,5 min. Windows 
   - 10 файлов: 9 файлов Terminal (с новым `terminal-screen`), `no-rmsync` и `postinstall` — 9 прошли, 1 пропущен (`terminal-windows`, только Windows), 188 test-ов, exit 0;
   - `pnpm test:e2e test/e2e/terminal.spec.ts` под замком — 8 из 8, exit 0;
   - gate fast — exit 0, `[gate] зелено (fast)`.
+
+### Мерж (2026-10-18)
+
+PR #498 влит 2026-10-18, merge commit `e5e92eb0`. Head `9861220b`: gate full на Mac — зелёный; вердикт ПК —
+зелёный (225 passed), `check/windows` — `success`.

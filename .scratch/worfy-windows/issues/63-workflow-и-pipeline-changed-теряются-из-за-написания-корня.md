@@ -1,7 +1,8 @@
 # 63 — Windows: `workflow.changed` и `pipeline.changed` теряются, потому что main и окно пишут корень Project-а по-разному
 
 Type: bug
-Status: claimed 2026-10-18T20:10Z
+Status: done 2026-10-19T07:50Z
+PR: #511
 Branch: worfy-windows/63
 Blocked by: —
 Source: ревью корректности Ticket-а 57 (ПК владельца, 2026-10-18): находка вне diff-а 57. Тот же
@@ -178,3 +179,9 @@ Hub держит подписчика по id внутри Project-а: если 
 - Связанные файлы: exit 1, 10 упали, 386 прошли; по именам те же 10, что на main `9157c0a4`.
 - `pnpm lint`, `pnpm typecheck` — exit 0. Gate не запускался. Тестов, открывающих окна, не было: только vitest
   через `node scripts/vitest-electron.mjs`.
+
+### Мерж (2026-10-18)
+
+PR #511 влит 2026-10-18, merge commit `17d653e6`. Head `11f17445`: gate full на Mac — зелёный; Mac checks —
+261 passed, 1 skipped (только Windows); вердикт ПК — без регрессий (те же 10 падений, что на main, по именам),
+`check/windows` — `success`.
