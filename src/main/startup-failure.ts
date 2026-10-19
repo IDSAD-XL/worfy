@@ -4,6 +4,7 @@
 // (src/main/window.ts) reports here too, so no failure of the start ends as a Dock icon without a
 // window or as an unhandled rejection.
 import { accessSync, constants, statSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { app, dialog } from 'electron'
 import { dataRoot } from './storage/paths'
 
@@ -134,9 +135,24 @@ export function checkDataFolder(folder: string): void {
   try {
     isFolder = statSync(folder).isDirectory()
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    // Windows answers ENOENT, not ENOTDIR, for a path under a file: the nearest existing folder
+    // above it decides, and a file there is refused as macOS refuses it.
+    if (underFile(folder)) throw Object.assign(new Error(`ENOTDIR: not a directory, stat '${folder}'`), { code: 'ENOTDIR' })
+    return
   }
   if (!isFolder) throw new Error(`${folder} is a file, not a folder`)
   accessSync(folder, constants.W_OK)
+}
+
+/** Whether the nearest existing path above `missing` is not a folder. */
+function underFile(missing: string): boolean {
+  for (let path = dirname(missing); path !== dirname(path); path = dirname(path)) {
+    try {
+      return !statSync(path).isDirectory()
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false
+    }
+  }
+  return false
 }
