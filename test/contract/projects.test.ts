@@ -49,7 +49,7 @@ function makeRepo(name: string, branch = 'main'): string {
   writeFileSync(join(dir, 'README.md'), name)
   git(dir, 'add', 'README.md')
   git(dir, 'commit', '-q', '-m', 'init')
-  return realpathSync(dir)
+  return realpathSync.native(dir)
 }
 
 /** Loads src/main/ipc/projects.ts afresh, as an app start does, over the current data dir. */
@@ -156,7 +156,7 @@ const LEGACY_TEMPLATES = { shipTicket: '/ship-ticket {epic} {NN}', runWave: '/ep
 const PLUGIN_TEMPLATES = { shipTicket: '/worfy:ship-ticket {epic} {NN}', runWave: '/worfy:epic-wave tickets {tickets} of epic {epic}', gateQueue: '/worfy:gate-queue' }
 
 beforeEach(async () => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-projects-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-projects-')))
   dataDir = join(scratch, 'data')
   claudeHome = join(scratch, 'claude-home')
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
@@ -299,6 +299,26 @@ describe('projects.add', () => {
     const again = await addOk(repo)
     expect(again.notice).toBe('auction is already in the list.')
     expect(again.state.projects).toHaveLength(1)
+  })
+
+  it('takes another spelling of the repository root for the root itself: no notice, and one entry', async () => {
+    const repo = makeRepo('auction')
+    // Windows: other letter case and `/` (as a short 8.3 name or a `subst` drive, it is the same folder
+    // to git and to the native realpath, not to fs.realpathSync). Elsewhere: a symbolic link to the root.
+    let other: string
+    if (process.platform === 'win32') {
+      other = repo.toLowerCase().replaceAll('\\', '/')
+      expect(realpathSync(other)).not.toBe(repo)
+    } else {
+      other = join(scratch, 'auction-link')
+      symlinkSync(repo, other)
+    }
+    const first = await addOk(other)
+    expect(first.notice).toBeNull()
+    expect(first.project.path).toBe(repo)
+    const again = await addOk(repo)
+    expect(again.notice).toBe('auction is already in the list.')
+    expect(again.state.projects.map((project) => project.id)).toStrictEqual([first.project.id])
   })
 
   it('keeps the settings of a repository that is added again', async () => {

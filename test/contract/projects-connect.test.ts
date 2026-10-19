@@ -131,7 +131,7 @@ function makeRepo(path: string): string {
   writeFileSync(join(path, 'package.json'), '{"scripts":{"lint":"eslint .","test":"vitest run"}}\n')
   git(path, 'add', 'package.json')
   git(path, 'commit', '-q', '-m', 'init')
-  return realpathSync(path)
+  return realpathSync.native(path)
 }
 
 /**
@@ -251,7 +251,7 @@ function harnessFiles(): Record<string, string> {
 const clean = (repo: string): string => git(repo, 'status', '--porcelain', '--ignored', '--untracked-files=all')
 
 beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-connect-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-connect-')))
   home = join(scratch, 'home')
   harnessHome = join(home, '.claude', 'worfy-harness')
   mkdirSync(join(harnessHome, 'gate'), { recursive: true })
@@ -275,7 +275,7 @@ describe('the kind of the folder (step 1)', () => {
       ok: true,
       folder: {
         kind: 'multi-repo',
-        root: realpathSync(workspace),
+        root: realpathSync.native(workspace),
         repos: [
           { name: 'extension', path: extension },
           { name: 'server', path: server },

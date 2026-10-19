@@ -108,11 +108,21 @@ export interface ProjectsChange {
 
 type Resolved = { ok: true; root: string; notice: string | null } | { ok: false; reason: string }
 
+/**
+ * The folder's own spelling, for comparing a typed path with git's root. The native realpath, like git,
+ * gives the long name of a short 8.3 one, the target of a `subst` drive and the letter case on disk;
+ * fs.realpathSync keeps all three as typed. The JS realpath is the fallback for a drive the native call
+ * cannot read.
+ */
 function realpathOrSelf(path: string): string {
   try {
-    return realpathSync(path)
+    return realpathSync.native(path)
   } catch {
-    return path
+    try {
+      return realpathSync(path)
+    } catch {
+      return path
+    }
   }
 }
 

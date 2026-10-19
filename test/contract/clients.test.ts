@@ -74,7 +74,7 @@ let repo: string
 let cleanups: (() => Promise<unknown> | unknown)[]
 
 beforeEach(() => {
-  scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-clients-')))
+  scratch = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-clients-')))
   dataDir = join(scratch, 'data')
   repo = join(scratch, 'demo')
   mkdirSync(join(repo, '.scratch', 'demo', 'issues'), { recursive: true })
