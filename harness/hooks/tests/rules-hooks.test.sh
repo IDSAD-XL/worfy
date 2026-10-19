@@ -22,6 +22,10 @@ bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
+# The Harness state folder, where inject-rules looks for the user's own rules file: a temporary one,
+# so the real user rules never reach these checks. Empty until section 3b puts a rules file there.
+export HARNESS_HOME="$T/hh"
+USER_RULES="$HARNESS_HOME/user/rules.md"
 
 # One additionalContext string is cut to a preview above this many characters (ADR-0041).
 LIMIT=10000
@@ -155,6 +159,61 @@ expect_quiet_failure "no part argument"
 run_inject ../hooks/hooks '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT=/x
 expect_quiet_failure "part name with a path"
 
+# --- 3b. The user's own rules ($HARNESS_HOME/user/rules.md) ------------------------------------
+# inject-rules appends the file to the part "common" under "## User rules", in SessionStart and in
+# SubagentStart, without reading its meaning. Without the file the part is unchanged (section 2).
+
+part_with_root() { sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/$1.md"; }
+mkdir -p "$HARNESS_HOME/user"
+printf 'Write reports in Klingon.\n\nKeep the token ${CLAUDE_PLUGIN_ROOT} as written.\n\n' >"$USER_RULES"
+for ev in SessionStart SubagentStart; do
+    run_inject common "{\"hook_event_name\":\"$ev\",\"cwd\":\"/tmp\"}" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+    want="$(part_with_root common)"$'\n\n## User rules\n\nWrite reports in Klingon.\n\nKeep the token ${CLAUDE_PLUGIN_ROOT} as written.'
+    [ "$rc" -eq 0 ] && [ "$(event)" = "$ev" ] && [ "$(ctx)" = "$want" ] \
+        && ok "$ev/common + user rules: the part, then '## User rules' and the file as written" \
+        || bad "$ev/common + user rules: rc=$rc, additionalContext differs: $(ctx | tail -n 4 | tr '\n' '|')"
+    [ ! -s "$T/err" ] && ok "$ev/common + user rules: nothing on stderr" || bad "$ev/common + user rules: stderr '$(head -c 200 "$T/err")'"
+done
+# Only the common part carries the user rules: it reaches the main session and every subagent.
+run_inject orchestrator '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+[ "$(ctx)" = "$(part_with_root orchestrator)" ] && ok "orchestrator part: no user rules" || bad "orchestrator part: changed by the user rules"
+
+# An empty file adds nothing.
+: >"$USER_RULES"
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+[ "$(ctx)" = "$(part_with_root common)" ] && [ ! -s "$T/err" ] \
+    && ok "empty user rules file: the part as before" || bad "empty user rules file: output changed"
+
+# A file the hook cannot read (a folder at that path): the part as before and one line on stderr.
+rm -f "$USER_RULES"
+mkdir "$USER_RULES"
+run_inject common '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+lines="$(wc -l <"$T/err" | tr -d ' ')"
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)" ] && [ "$lines" = 1 ] \
+    && ok "unreadable user rules: the part as before, one line on stderr" || bad "unreadable user rules: rc=$rc, $lines stderr lines"
+rmdir "$USER_RULES"
+
+# A file longer than the limit: the whole additionalContext stays within LIMIT, the file is cut
+# after a whole line, and a closing line names the file.
+node -e 'for (let i = 1; i <= 600; i++) process.stdout.write(`Rule ${i}: keep the Klingon words as they are in every report.\n`)' >"$USER_RULES"
+HH_N="$(cd "$HARNESS_HOME" && { pwd -W 2>/dev/null || pwd -P; })" # node's spelling of the folder
+for ev in SessionStart SubagentStart; do
+    run_inject common "{\"hook_event_name\":\"$ev\"}" CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+    c="$(ctx)"
+    n="$(printf '%s' "$c" | chars)"
+    [ "$rc" -eq 0 ] && [ "$n" -le "$LIMIT" ] && ok "$ev: long user rules: $n characters <= $LIMIT" || bad "$ev: long user rules: rc=$rc, $n characters"
+    # On Windows the hook joins the path with "\", pwd -W spells it with "/": compare with "/" only.
+    [[ "$c" == *"$HARNESS_HOME/user/rules.md"* || "${c//\\//}" == *"$HH_N/user/rules.md"* ]] \
+        && ok "$ev: long user rules: the path to the file is named" || bad "$ev: long user rules: no path to the file"
+    [[ "$c" == *$'\n## User rules\n\nRule 1: keep'* ]] && ok "$ev: long user rules: the start of the file is kept" || bad "$ev: long user rules: the start of the file is missing"
+    # The last kept rule is whole: the cut falls between lines, not inside one.
+    last="$(printf '%s\n' "$c" | grep '^Rule ' | tail -n 1)"
+    [[ "$last" =~ ^Rule\ [0-9]+:\ keep\ the\ Klingon\ words\ as\ they\ are\ in\ every\ report\.$ ]] \
+        && ok "$ev: long user rules: cut after a whole line (${last%%:*})" || bad "$ev: long user rules: cut inside a line: '$last'"
+    [[ "$c" != *'Rule 600:'* ]] && ok "$ev: long user rules: the tail is cut" || bad "$ev: long user rules: nothing was cut"
+done
+rm -f "$USER_RULES"
+
 # --- 4. Paths and names inside the parts -------------------------------------------------------
 
 all="$T/all.md"
@@ -197,14 +256,13 @@ ORCH_TOPICS=(
 )
 COMMON_TOPICS=(
     'Plain language|Plain language|never seen this project|smoke test|gloss it'
-    'Writing in Russian|Russian|stays in Latin|«ручка»|«задеплоить»|docs.context'
     'Metaphors|Metaphors|plainly'
     'Codes carry their meaning|Codes carry their meaning|backlog/18|next message explains again'
     "Restate, don't point back|Restate, don't point back|as above"
     'Short sentences|Short sentences'
     'Self-check before sending|Self-check before sending|joined today'
     'Scope|Casual chat'
-    'Which language|language.reports|language.team|With no profile'
+    "Which language|language.reports|language.team|With no profile|Personal language rules, if any, come from the user's rules file."
     'Evidence before "green"|Evidence before "green"|set -o pipefail|PreToolUse|exit code|not from reading the diff|Neither is reported as done'
     'Gate verdict|`2` is red|`3`|never green|is green only when|nothing ran|commands.verify|gate did not run'
     'Deployed|live endpoint'
@@ -263,9 +321,12 @@ for p in '[gate] зелено (…)' 'ничего не прогналось' '�
     grep -qF -- "$p" "$all" && ok "gate verdict words kept: $p" || bad "gate verdict words missing: $p"
 done
 
-# Cyrillic only in the status labels, the gate verdict words and the Russian examples of the
-# section on writing in Russian.
-ALLOWED='["Этап","Сейчас","Дальше","Жду","[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ","«ручка»","«проба»","«выкат»","«заглушка»","«задеплоить»","«прогнать»","«деплой»"]'
+# Cyrillic only in the status labels and the gate verdict words. Rules for writing in one language
+# live in the user's own rules file, not in the plugin.
+ALLOWED='["Этап","Сейчас","Дальше","Жду","[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
+for p in 'Writing in Russian' 'stays in Latin' '## Terms'; do
+    if grep -qF -- "$p" "$all"; then bad "parts carry the language rule '$p'"; else ok "parts carry no language rule '$p'"; fi
+done
 for f in ${parts[@]+"${parts[@]}"}; do
     left="$(node -e '
 let s = require("fs").readFileSync(0, "utf8")

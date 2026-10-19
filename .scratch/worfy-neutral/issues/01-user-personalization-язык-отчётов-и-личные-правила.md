@@ -1,7 +1,8 @@
 # 01 — User personalization: язык отчётов в `user.json`, личные правила в `user/rules.md`
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T11:48Z
+Branch: worfy-neutral/01
 Blocked by: —
 Source: решения владельца 2026-10-19, Q2, Q3 ([spec.md](../spec.md), «Решения владельца», пункты 2, 3);
 [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md), пункт 2; дополняет ADR-0044, пункт 2.

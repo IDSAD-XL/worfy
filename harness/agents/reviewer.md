@@ -15,8 +15,7 @@ file. Follow them.
 
 Language. Your answer — to the user and to the orchestrator — is in `language.reports`. If the brief
 tells you to leave PR comments, they are in `language.team`, like everything else the team sees.
-Project documents, if the brief asks you to write one, are in `language.docs`; while the profile has
-no such field, in the language the existing documents of the project are written in.
+Project documents, if the brief asks you to write one, are in `language.docs`.
 
 Reading profile values:
 - A Profile value that starts with `~/.claude/bin/` (schema 1) reads as `${CLAUDE_PLUGIN_ROOT}/bin/`
@@ -254,14 +253,3 @@ Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.m
 filter and the `shortcut:` comment.
 The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category
 names delete, merge and split. The third filter is this project's own rule.
-
-## Terms
-
-This section applies when the report or other text is written in Russian. Working terms are written
-in Latin script: endpoint, test, run (CI run), deploy, staging, guard, gate, seam, worktree, exit
-code, mutation testing, flaky test, shell, notice. The Russian metaphors used in their place —
-«ручка», «проба», «выкат», «прогон», «диверсия», «сторож», «ворота», «врезка», «грабли»,
-«ложная зелень» — must not appear in the report, in comments or in ticket text. The project glossary
-with definitions is in the profile, field `docs.context` (the file, the section, and the decision
-that introduced it). If the word you need is not in the glossary, or there is no glossary, describe
-the thing in plain words rather than coining a new one.

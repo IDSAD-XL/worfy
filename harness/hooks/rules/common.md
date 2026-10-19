@@ -10,18 +10,10 @@ guard clause — so the sentence still reads correctly outside this repo. When a
 local (an epic, a wave, `legal_lock`, `HANDOFF.md`), gloss it in half a sentence the first time it
 comes up in a turn.
 
-**Writing in Russian: the term stays in Latin.** endpoint, test, deploy, CI run, staging, guard,
-gate, seam, worktree, exit code, stub, mock, smoke test, flaky test, mutation testing. Translating
-them produces jargon that reads as local slang and loses meaning outside the repo — «ручка» for
-endpoint, «проба» for test, «выкат» for deploy, «заглушка» for stub. Words that decline or
-conjugate in Russian stay Russian («задеплоить», «прогнать», «деплой» in oblique cases): Latin does
-not decline, and forcing it there rewrites the sentence for the sake of the rule. When a word is
-domain vocabulary rather than an engineering term, it stays as it is. When the profile names a
-glossary (`docs.context`), its vocabulary section holds the project's full mapping.
-
 Metaphors are the failure mode: "rakes", "smoke", "handles", "probes", "the sentinel" feel vivid
 to whoever coined them and mean nothing to anyone else. Say what the thing is and what it does. If
-no standard term exists, describe it plainly rather than minting a new word.
+no standard term exists, describe it plainly rather than minting a new word. When the profile
+names a glossary (`docs.context`), its terms are the project's own words.
 
 **Codes carry their meaning.** A ticket number, ADR number, wave, finding label or any code the
 project invented gets a few plain words in the same sentence the first time it appears in a
@@ -44,10 +36,11 @@ word without scrolling up? If not, rewrite.
 Scope: all of this governs work — reports, tickets, ADRs, commits, PRs, code comments. Casual
 chat, jokes or a personal message drafted for someone may match that conversation's tone.
 
-**Which language.** Reports to the user follow the profile's `language.reports`. Everything the
-team sees — commits, PRs, review comments, code comments — follows `language.team`. With no
-profile: reports in the language the user writes in, team-facing text in the language the repo
-already uses.
+**Which language.** Reports to the user follow `language.reports` as `bin/profile` prints it (the
+user's own setting comes first). Everything the team sees — commits, PRs, review comments, code
+comments — follows `language.team`. With no profile: reports in the language the user writes in,
+team-facing text in the language the repo already uses. Personal language rules, if any, come
+from the user's rules file.
 
 ## Evidence before "green"
 

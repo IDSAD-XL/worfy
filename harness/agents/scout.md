@@ -64,14 +64,3 @@ Answer format — no more than 30 lines, findings only:
 - for a ticket map: entry points → call chain → conventions to follow → the list of files that will
   have to be edited, and those that must not be touched;
 - no retelling of the task and no description of the search process.
-
-## Terms
-
-This section applies when the report or other text is written in Russian. Working terms are written
-in Latin script: endpoint, test, run (CI run), deploy, staging, guard, gate, seam, worktree, exit
-code, mutation testing, flaky test, shell, notice. The Russian metaphors used in their place —
-«ручка», «проба», «выкат», «прогон», «диверсия», «сторож», «ворота», «врезка», «грабли»,
-«ложная зелень» — must not appear in the report, in comments or in ticket text. The project glossary
-with definitions is in the profile, field `docs.context` (the file, the section, and the decision
-that introduced it). If the word you need is not in the glossary, or there is no glossary, describe
-the thing in plain words rather than coining a new one.

@@ -264,9 +264,57 @@ else if (!ATTRIBUTIONS.includes(profile.attribution))
         1,
         `${pjPath}: "attribution" is "on" or "off", got ${JSON.stringify(profile.attribution)} — broken profile (a guessed value would decide whether commits and PRs carry the Claude attribution lines)`
     )
-// The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports` and
-// `language.team` (profiles/README.md), so the string is expanded into an object with both fields.
-if (typeof profile.language === "string") profile.language = { reports: profile.language, team: profile.language }
+// The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports`,
+// `language.team` and `language.docs` (profiles/README.md), so the string is expanded into all three.
+if (typeof profile.language === "string")
+    profile.language = { reports: profile.language, team: profile.language, docs: profile.language }
+if (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language)) profile.language = {}
+
+// User personalization (profiles/README.md): the language of reports belongs to the user, not to the
+// project, and lives in $HARNESS_HOME/user.json for every project. A broken file is one line on stderr and
+// the next value below: it must not stop an agent from reading the profile.
+const USER_JSON = path.join(HARNESS_HOME, "user.json")
+const userReports = (() => {
+    let text
+    try {
+        text = fs.readFileSync(USER_JSON, "utf8")
+    } catch (e) {
+        if (e.code !== "ENOENT") err(`profile: ${USER_JSON} cannot be read (${e.code || e.message}) — ignored`)
+        return undefined
+    }
+    // Windows PowerShell 5 writes UTF-8 with a byte order mark; an empty file means nothing is set.
+    text = text.replace(/^\uFEFF/, "")
+    if (text.trim() === "") return undefined
+    let user
+    try {
+        user = JSON.parse(text)
+    } catch {
+        err(`profile: ${USER_JSON} is not JSON — ignored`)
+        return undefined
+    }
+    if (user === null || typeof user !== "object" || Array.isArray(user)) {
+        err(`profile: ${USER_JSON} is not a JSON object — ignored`)
+        return undefined
+    }
+    if (user.language === undefined) return undefined
+    if (user.language === null || typeof user.language !== "object" || Array.isArray(user.language)) {
+        err(`profile: ${USER_JSON}: "language" must be an object such as {"reports": "en"} — ignored`)
+        return undefined
+    }
+    const reports = user.language.reports
+    if (reports === undefined) return undefined
+    if (typeof reports !== "string" || !reports.trim()) {
+        err(`profile: ${USER_JSON}: language.reports must be a language code such as "en", got ${JSON.stringify(reports)} — ignored`)
+        return undefined
+    }
+    return reports.trim()
+})()
+// language.reports: the user's file, then the profile's own field, then English. team and docs are the
+// project's; unset they are English.
+// shortcut: reads the profile's language.reports, remove after the next release (worfy-neutral 08)
+const profileReports = typeof profile.language.reports === "string" && profile.language.reports ? profile.language.reports : undefined
+profile.language.reports = userReports ?? profileReports ?? "en"
+for (const k of ["team", "docs"]) if (typeof profile.language[k] !== "string" || !profile.language[k]) profile.language[k] = "en"
 
 // The four Harness paths are constants of the Harness, not facts of the project. A reader that still
 // asks for them gets this Harness's own scripts: in schema 2 always (the file is not consulted), in
