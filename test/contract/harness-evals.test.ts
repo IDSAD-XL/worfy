@@ -560,8 +560,8 @@ describe('a child process sees the temporary home', () => {
     expect(keys).toEqual([])
     // A spawn or spawnSync call that names HOME or USERPROFILE itself.
     const calls: string[] = []
-    // A call starts with a quote or a name: the pattern below is no call.
-    for (const match of source.matchAll(/\bspawn(?:Sync)?\((?=['"\w])/g)) {
+    // A call starts with a quote or a name, maybe on the next line: the pattern below is no call.
+    for (const match of source.matchAll(/\bspawn(?:Sync)?\((?=\s*['"\w])/g)) {
       let depth = 0
       let end = match.index + match[0].length - 1
       for (; end < source.length; end++) {
@@ -577,7 +577,7 @@ describe('a child process sees the temporary home', () => {
     const readOnlyGit = [/^spawnSync\('git', \['--exec-path'\], \{ encoding: 'utf8' \}\)$/, /^spawnSync\('git', \['check-ignore', '-q', .*\], \{ cwd: REPO \}\)$/]
     for (const known of readOnlyGit) expect(calls.filter((call) => known.test(call)), String(known)).toHaveLength(1)
     const own = calls.filter((call) => !readOnlyGit.some((known) => known.test(call)))
-    expect(own.filter((call) => !/[{,]\s*env\s*[:,}]/.test(call) || /\benv\s*:\s*process\.env\b/.test(call))).toEqual([])
+    expect(own.filter((call) => !/[{,]\s*env\s*[:,}]/.test(call) || /\benv\s*:\s*process\.env\b|\.\.\.process\.env\b/.test(call))).toEqual([])
   })
 })
 
