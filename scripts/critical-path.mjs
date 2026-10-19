@@ -127,6 +127,11 @@ function dataFolder(env, home, platform = process.platform) {
   return posix.join(home, 'Library', 'Application Support', 'worfy')
 }
 
+/** The default journals folder and the worfy data folder of the system `deps` describes: its env, home and platform. */
+export function defaultFolders(deps) {
+  return { journals: journalsFolder(deps.env, deps.home, deps.platform), data: dataFolder(deps.env, deps.home, deps.platform) }
+}
+
 /** Options from the arguments; throws with the reason when they are wrong. */
 function parseArgs(args) {
   const options = { csv: false, help: false }
@@ -708,7 +713,8 @@ export async function criticalPath(args, deps = systemDeps()) {
     deps.out(`${HELP}\n`)
     return 0
   }
-  const journals = options.journals !== undefined ? resolve(deps.cwd, options.journals) : journalsFolder(deps.env, deps.home, deps.platform)
+  const folders = defaultFolders(deps)
+  const journals = options.journals !== undefined ? resolve(deps.cwd, options.journals) : folders.journals
   if (options.journals !== undefined && !isFolder(journals)) {
     deps.err(`critical-path: no journals folder: ${options.journals}`)
     return REFUSED
@@ -730,7 +736,7 @@ export async function criticalPath(args, deps = systemDeps()) {
   const out = options.out !== undefined ? resolve(deps.cwd, options.out) : undefined
   if (out !== undefined) {
     const claude = deps.env.CLAUDE_CONFIG_DIR ? resolve(deps.env.CLAUDE_CONFIG_DIR) : join(deps.home, '.claude')
-    const guarded = [journals, dataFolder(deps.env, deps.home, deps.platform), claude, ...(root !== undefined ? [root] : [])]
+    const guarded = [journals, folders.data, claude, ...(root !== undefined ? [root] : [])]
     if (guarded.some((dir) => inside(out, dir))) {
       deps.err(`critical-path: refused --out ${options.out}: the report never goes into the journals, the worfy data folder, the Project or ~/.claude`)
       return REFUSED

@@ -37,9 +37,10 @@ interface Deps {
 interface CriticalPath {
   criticalPath: (args: string[], deps: Deps) => Promise<number>
   journalsFolder: (env: Record<string, string | undefined>, home: string, platform?: NodeJS.Platform) => string
+  defaultFolders: (deps: Pick<Deps, 'env' | 'home' | 'platform'>) => { journals: string; data: string }
   JOURNAL_KINDS: readonly string[]
 }
-const { criticalPath, journalsFolder, JOURNAL_KINDS } = (await import(pathToFileURL(SCRIPT).href)) as CriticalPath
+const { criticalPath, journalsFolder, defaultFolders, JOURNAL_KINDS } = (await import(pathToFileURL(SCRIPT).href)) as CriticalPath
 
 const dirs: string[] = []
 afterEach(() => {
@@ -290,9 +291,11 @@ describe('critical-path: the command line', () => {
     expect(journalsFolder({}, '/Users/u', 'darwin')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
     expect(journalsFolder({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u\\AppData\\Roaming', 'worfy'), 'autopilot'))
     expect(journalsFolder({}, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
-    // APPDATA on another drive is taken as it is; a relative one or one without a drive letter falls back to the home.
-    expect(journalsFolder({ APPDATA: 'D:\\Roam' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('D:\\Roam', 'worfy'), 'autopilot'))
-    for (const appData of ['rel', '\\Roam']) {
+    // APPDATA with a drive letter and a separator, or UNC, is taken as it is; anything else falls back to the home.
+    for (const appData of ['D:\\Roam', 'C:/Roam', '\\\\srv\\share\\Roam']) {
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join(appData, 'worfy'), 'autopilot'))
+    }
+    for (const appData of ['rel', '\\Roam', 'C:rel', '\\\\srv']) {
       expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
     }
   })
@@ -351,6 +354,14 @@ describe('critical-path: --out into the data folder of the platform', () => {
     const code = await criticalPath(['--journals', JOURNALS, '--out', out], { env, home, platform, cwd: tempDir(), gh, out: () => undefined, err: (l) => err.push(l) })
     return { code, err }
   }
+
+  // The guard takes the data folder from defaultFolders; both platforms run on every host, so one of them is never the host's.
+  it("names the folders of the platform in deps, not the host's", () => {
+    const winData = win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy')
+    expect(defaultFolders({ env: {}, home: 'C:\\Users\\u', platform: 'win32' })).toEqual({ journals: join(winData, 'autopilot'), data: winData })
+    const macData = posix.join('/Users/u', 'Library', 'Application Support', 'worfy')
+    expect(defaultFolders({ env: {}, home: '/Users/u', platform: 'darwin' })).toEqual({ journals: join(macData, 'autopilot'), data: macData })
+  })
 
   it('refuses an --out inside ~/Library/Application Support/worfy on macOS', async () => {
     const home = tempDir()
