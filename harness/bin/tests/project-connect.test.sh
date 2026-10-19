@@ -23,7 +23,14 @@ REAL_HOME="$HOME"
 home_before="$(real_home_snapshot "$REAL_HOME")"
 
 T="$(mktemp -d)"
-T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
+# must be in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node).
+T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+# A path as bin/profile and project-connect print it: with backslashes on Windows (cygpath exists there),
+# unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+# The same path inside a JSON string, as project-connect prints it: each backslash doubled.
+jpath() { local p; p="$(printed "$1")"; printf '%s' "${p//\\/\\\\}"; }
 trap 'rm -rf "$T"' EXIT
 # The gate exports its own registry to the tests it runs; this test has its own.
 unset CLAUDE_GATE_CONFIG CLAUDE_GATE_RESOLVE CLAUDE_GATE_STATE CLAUDE_PROFILES_DIR PROJECT_CONNECT_FAIL_AT PROJECT_CONNECT_QMD_BIN
@@ -111,7 +118,7 @@ check "--facts: the default branch without origin/HEAD is the local main" 0 '"de
 git -C "$T/f-remote" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk
 check "--facts: the default branch follows origin/HEAD" 0 '"defaultBranch": "trunk"' "$CONNECT" --facts "$T/f-remote"
 mkdir -p "$T/f-remote/src"
-check "--facts of a subfolder answers for the repository root" 0 "\"folder\": \"$T/f-remote\"" "$CONNECT" --facts "$T/f-remote/src"
+check "--facts of a subfolder answers for the repository root" 0 "\"folder\": \"$(jpath "$T/f-remote")\"" "$CONNECT" --facts "$T/f-remote/src"
 repo "$T/f-plain"
 check "--facts of a repository without remotes: none, origin null" 0 '"remotes": [],' "$CONNECT" --facts "$T/f-plain"
 check "--facts of a repository without remotes: origin null" 0 '"origin": null' "$CONNECT" --facts "$T/f-plain"
@@ -120,7 +127,7 @@ repo "$T/f-ws/api"
 repo "$T/f-ws/web"
 mkdir -p "$T/f-ws/notes"
 check "--facts of a folder above two repositories: multi-repo" 0 '"kind": "multi-repo"' "$CONNECT" --facts "$T/f-ws"
-check "--facts lists both repositories" 0 "$T/f-ws/web" "$CONNECT" --facts "$T/f-ws"
+check "--facts lists both repositories" 0 "$(jpath "$T/f-ws/web")" "$CONNECT" --facts "$T/f-ws"
 mkdir -p "$T/f-none/docs"
 check "--facts of a folder without repositories is exit 1" 1 "holds no repositories" "$CONNECT" --facts "$T/f-none"
 check "--facts without a folder is exit 2" 2 "" "$CONNECT" --facts
@@ -133,10 +140,10 @@ repo "$T/shop"
 draft shop silent null "$T/shop" >"$T/shop.json"
 before="$(state)"
 check "--schema-only passes a draft by the schema" 0 '"ok": true' "$CONNECT" --schema-only <"$T/shop.json"
-check "--check passes and names the default Workflow folder" 0 "$HARNESS_HOME/projects/shop/workflow" "$CONNECT" --check <"$T/shop.json"
+check "--check passes and names the default Workflow folder" 0 "$(jpath "$HARNESS_HOME/projects/shop/workflow")" "$CONNECT" --check <"$T/shop.json"
 [ "$before" = "$(state)" ] && ok "--check and --schema-only write nothing" || bad "--check and --schema-only wrote into HARNESS_HOME"
 n0="$(commits)"
-check "a Silent draft is written" 0 '"profileDir": "'"$HARNESS_HOME/projects/shop"'"' bash -c 'set -o pipefail; "$1" <"$2" | tee "$3"' _ "$CONNECT" "$T/shop.json" "$T/shop.out"
+check "a Silent draft is written" 0 '"profileDir": "'"$(jpath "$HARNESS_HOME/projects/shop")"'"' bash -c 'set -o pipefail; "$1" <"$2" | tee "$3"' _ "$CONNECT" "$T/shop.json" "$T/shop.out"
 [ -f "$HARNESS_HOME/projects/shop/profile.json" ] && [ -f "$HARNESS_HOME/projects/shop/rules.md" ] && ok "profile.json and rules.md in projects/shop/" || bad "projects/shop/ is incomplete"
 check "the gate registry keeps the other project and adds shop" 0 "other shop" \
     node -e 'const r=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).repos; process.stdout.write(r.map(e=>e.key).join(" "))' "$HARNESS_HOME/gate/config.json"
@@ -144,7 +151,7 @@ check "bin/profile -C <repository> --field mode prints silent" 0 "silent" "$PROF
 check "bin/profile -C <repository> --name" 0 "shop" "$PROFILE" -C "$T/shop" --name
 [ "$(jq -r .attribution "$HARNESS_HOME/projects/shop/profile.json")" = off ] && [ "$("$PROFILE" -C "$T/shop" --field attribution)" = off ] \
     && ok "a Silent draft is written with attribution off, and bin/profile prints off" || bad "Silent attribution: $(jq -c .attribution "$HARNESS_HOME/projects/shop/profile.json")"
-check "the written workflow.folder is the default folder" 0 "$HARNESS_HOME/projects/shop/workflow" "$PROFILE" -C "$T/shop" --field workflow.folder
+check "the written workflow.folder is the default folder" 0 "$(printed "$HARNESS_HOME/projects/shop/workflow")" "$PROFILE" -C "$T/shop" --field workflow.folder
 [ -d "$HARNESS_HOME/projects/shop/workflow/.git" ] && ok "the default Workflow folder is created with git" || bad "no $HARNESS_HOME/projects/shop/workflow/.git"
 [ "$(commits)" -eq $((n0 + 1)) ] && ok "exactly one new commit in the git of HARNESS_HOME" || bad "commits: $n0 -> $(commits)"
 check "the commit holds the profile, rules.md and the registry" 0 "gate/config.json" git -C "$HARNESS_HOME" show --name-only --format= HEAD
@@ -152,7 +159,7 @@ check "the Harness home's history leaves the Workflow folder out" 0 "/projects/*
 [ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "HARNESS_HOME has nothing left uncommitted" || bad "HARNESS_HOME is dirty: $(git -C "$HARNESS_HOME" status --porcelain)"
 [ -z "$(git -C "$T/shop" status --porcelain --ignored --untracked-files=all)" ] && ok "the project's repository is untouched" || bad "the repository changed: $(git -C "$T/shop" status --porcelain --ignored --untracked-files=all)"
 [ "$(grep -cx '.claude/worktrees/' "$T/shop/.git/info/exclude")" = 1 ] && ok "Silent: .claude/worktrees/ is in .git/info/exclude once" || bad "exclude of shop: $(cat "$T/shop/.git/info/exclude")"
-check "the output names the exclude file" 0 "$T/shop/.git/info/exclude" cat "$T/shop.out"
+check "the output names the exclude file" 0 "$(jpath "$T/shop/.git/info/exclude")" cat "$T/shop.out"
 mkdir -p "$T/shop/.claude/worktrees/05/src"
 echo x >"$T/shop/.claude/worktrees/05/src/a.ts"
 [ -z "$(git -C "$T/shop" status --porcelain --untracked-files=all)" ] && ok "a ticket worktree folder does not show in git status" || bad "git status shows: $(git -C "$T/shop" status --porcelain --untracked-files=all)"
@@ -207,7 +214,7 @@ check "a repository that excludes the folder already is connected" 0 '"excludes"
 repo "$T/x-main"
 git -C "$T/x-main" worktree add -q -b side "$T/x-linked"
 draft xlinked silent null "$T/x-linked" >"$T/x-linked.json"
-check "a linked worktree as the match is connected" 0 "$T/x-main/.git/info/exclude" "$CONNECT" <"$T/x-linked.json"
+check "a linked worktree as the match is connected" 0 "$(jpath "$T/x-main/.git/info/exclude")" "$CONNECT" <"$T/x-linked.json"
 [ "$(grep -cx '.claude/worktrees/' "$T/x-main/.git/info/exclude")" = 1 ] && ok "the line went into the common git dir" || bad "common exclude: $(cat "$T/x-main/.git/info/exclude")"
 mkdir -p "$T/x-linked/.claude/worktrees/07"
 echo x >"$T/x-linked/.claude/worktrees/07/f"
@@ -250,8 +257,8 @@ check "the draft schema requires attribution" 0 "" jq -e '.properties.profile.re
 draft ws silent "\"$T/ws\"" "$T/ws/api" "$T/ws/web" >"$T/ws.json"
 check "a Silent project over two repositories is written" 0 '"gateKeys": [' "$CONNECT" <"$T/ws.json"
 check "both repositories have the profile ws" 0 "ws" "$PROFILE" -C "$T/ws/web" --name
-check "the folder above them resolves as the workspace" 0 "$T/ws" "$PROFILE" -C "$T/ws" --field _resolved.workspace
-check "its Workflow folder is the folder itself" 0 "$T/ws" "$PROFILE" -C "$T/ws/api" --field workflow.folder
+check "the folder above them resolves as the workspace" 0 "$(printed "$T/ws")" "$PROFILE" -C "$T/ws" --field _resolved.workspace
+check "its Workflow folder is the folder itself" 0 "$(printed "$T/ws")" "$PROFILE" -C "$T/ws/api" --field workflow.folder
 [ ! -e "$T/ws/.git" ] && ok "a chosen Workflow folder is taken as it is (no git init)" || bad "git init ran in $T/ws"
 for r in api web; do
     [ "$(grep -cx '.claude/worktrees/' "$T/ws/$r/.git/info/exclude")" = 1 ] && ok "multi-repo: $r excludes .claude/worktrees/" || bad "multi-repo exclude of $r"
@@ -317,23 +324,31 @@ echo "\$1" >>"$T/qmd-called"
 node -e 'const f=process.argv[1]; const p=JSON.parse(require("fs").readFileSync(f,"utf8")); p.qmd={collections:[process.argv[2]+"-docs"]}; require("fs").writeFileSync(f, JSON.stringify(p,null,2)+"\\n")' "\$HARNESS_HOME/projects/\$1/profile.json" "\$1"
 STUB
 chmod +x "$T/bin/qmd" "$T/bin/qmd-collections"
+# On Windows node starts neither the shell stub of qmd nor an extensionless shell stub of qmd-collections:
+# qmd is node itself there (`node --version` exits 0), and each qmd-collections stub runs through a node
+# stand-in, which project-connect starts with node. Elsewhere both are the shell stubs themselves.
+. "$(dirname "$0")/gh-stand-in.sh" # on_windows, node_stand_in
+QMD_STUB="$T/bin/qmd"
+on_windows && QMD_STUB="$(command -v node)"
+# stub_bin <shell stub>: prints what PROJECT_CONNECT_QMD_BIN names for that stub on this system.
+stub_bin() { if on_windows; then node_stand_in "$1" "$1.mjs"; printf '%s' "$1.mjs"; else printf '%s' "$1"; fi; }
 repo "$T/q1"
 draft q1 full null "$T/q1" >"$T/q1.json"
 check "qmd without downloaded models is skipped with the reason" 0 "models were not downloaded" \
-    env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections" "$CONNECT" <"$T/q1.json"
+    env PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-collections")" "$CONNECT" <"$T/q1.json"
 printf 'downloaded\n' >"$HARNESS_HOME/qmd-models"
 # A failure of the write itself, with qmd ready: qmd-collections never runs, nothing stays behind.
 repo "$T/q0"
 draft q0 full null "$T/q0" >"$T/q0.json"
 before="$(state)"
 check "a failed commit with qmd ready is exit 1" 1 "rolled back" \
-    env PROJECT_CONNECT_FAIL_AT=commit PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections" "$CONNECT" <"$T/q0.json"
+    env PROJECT_CONNECT_FAIL_AT=commit PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-collections")" "$CONNECT" <"$T/q0.json"
 [ ! -e "$T/qmd-called" ] && ok "qmd-collections did not run for a connection that was rolled back" || bad "qmd-collections ran: $(cat "$T/qmd-called")"
 [ "$before" = "$(state)" ] && ok "the failed commit left nothing in the fresh Harness home" || bad "the failed commit left changes"
 repo "$T/q2"
 draft q2 full null "$T/q2" >"$T/q2.json"
 check "qmd with downloaded models adds the collections" 0 '"status": "added"' \
-    env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-collections" "$CONNECT" <"$T/q2.json"
+    env PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-collections")" "$CONNECT" <"$T/q2.json"
 check "qmd-collections ran for q2 only" 0 "q2" cat "$T/qmd-called"
 check "the qmd field went into the one commit of q2" 0 "q2-docs" git -C "$HARNESS_HOME" show HEAD:projects/q2/profile.json
 [ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "nothing left uncommitted after qmd" || bad "uncommitted after qmd: $(git -C "$HARNESS_HOME" status --porcelain)"
@@ -344,7 +359,7 @@ chmod +x "$T/bin/qmd-fail"
 repo "$T/q3"
 draft q3 full null "$T/q3" >"$T/q3.json"
 check "a failing qmd-collections keeps the connection, with the reason" 0 "qmd-collections failed: broken" \
-    env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-fail" "$CONNECT" <"$T/q3.json"
+    env PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-fail")" "$CONNECT" <"$T/q3.json"
 [ "$(commits)" -eq $((n_q + 1)) ] && ok "q3 is one commit" || bad "q3 commits: $n_q -> $(commits)"
 check "a qmd-collections that wrote nothing leaves the profile without a qmd field" 1 "" bash -c 'git -C "$1" show HEAD:projects/q3/profile.json | grep -q "\"qmd\""' _ "$HARNESS_HOME"
 # qmd-collections writes index.yml and the profile field, then qmd update fails.
@@ -361,7 +376,7 @@ n_q="$(commits)"
 repo "$T/q4"
 draft q4 full null "$T/q4" >"$T/q4.json"
 check "qmd update failing after index.yml was written reports only that" 0 "the collections are set up, but qmd update failed: qmd update: refresh.lock is held" \
-    env PROJECT_CONNECT_QMD="$T/bin/qmd" PROJECT_CONNECT_QMD_BIN="$T/bin/qmd-late-fail" "$CONNECT" <"$T/q4.json"
+    env PROJECT_CONNECT_QMD="$QMD_STUB" PROJECT_CONNECT_QMD_BIN="$(stub_bin "$T/bin/qmd-late-fail")" "$CONNECT" <"$T/q4.json"
 check "the profile keeps its qmd field, committed" 0 "q4-docs" git -C "$HARNESS_HOME" show HEAD:projects/q4/profile.json
 [ "$(commits)" -eq $((n_q + 1)) ] && ok "q4 is one commit" || bad "q4 commits: $n_q -> $(commits)"
 [ -z "$(git -C "$HARNESS_HOME" status --porcelain)" ] && ok "nothing left uncommitted after the late qmd failure" || bad "uncommitted: $(git -C "$HARNESS_HOME" status --porcelain)"

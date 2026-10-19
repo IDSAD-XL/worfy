@@ -15,7 +15,9 @@ HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 GUARD="$HOOKS/guard.mjs"
 REAL_HOME="$HOME"
 . "$HARNESS/bin/tests/real-home.sh"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
+# must be in that spelling, or the guard does not find the project (/tmp/… is C:\tmp\… to node).
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
 trap 'rm -rf "$T"' EXIT
 before="$(real_home_snapshot "$REAL_HOME" "$T")"
 pass=0 fail=0
