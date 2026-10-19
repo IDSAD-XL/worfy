@@ -12,7 +12,7 @@
 // (worfy-windows ticket 28: the gate's bound of 1000 lines).
 import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { basename, delimiter, dirname, join, resolve, sep } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationStep } from '../../src/shared/ipc/harness-migration'
@@ -20,7 +20,7 @@ import { applyMigration, MIGRATION_STEPS } from '../../src/main/harness/migrate/
 import { removeTestTree } from '../remove'
 import { claudeJsonPath, HARNESS_AGENTS, hasLegacyHarness, HARNESS_SKILLS, QMD_WARNING, RUNNING_SESSIONS_WARNING, type PlanOptions } from '../../src/main/harness/migrate/plan'
 import { rewriteHarnessPaths } from '../../src/main/harness/migrate/profiles'
-import { applyOptions, backupDir, everything, findNode, git, hookCommands, makeSandbox, omit, plan, planOptions, read, readJson, REPO, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
+import { applyOptions, backupDir, everything, fileId, findNode, git, hookCommands, makeSandbox, omit, pathWithoutClaude, plan, planOptions, posix, read, readJson, REPO, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
 
 // The IPC module (src/main/ipc/harness-migration.ts) runs here without Electron: a dev build
 // (`app.isPackaged` false) whose dialog and installer are watched. hasLegacyHarness and the installer
@@ -45,6 +45,23 @@ vi.mock('../../src/main/harness/install', async (importOriginal) => {
     }
   }
   return { ...real, HarnessInstaller: WatchedInstaller }
+})
+// node:fs as it is, except that realpathSync.native can be made to throw for the paths under one
+// folder, as it does on a volume the native call cannot read (some RAM or virtual drives).
+const nativeFails = vi.hoisted(() => ({ under: null as string | null }))
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  const realpathSync = Object.assign((path: string) => actual.realpathSync(path), {
+    native: (path: string) => {
+      // git prints `/` on Windows, worfy's own paths have `\`.
+      const spelling = (path: string): string => path.replaceAll('\\', '/').toLowerCase()
+      if (nativeFails.under !== null && spelling(path).startsWith(spelling(nativeFails.under))) {
+        throw Object.assign(new Error(`EIO: i/o error, realpath '${path}'`), { code: 'EIO' })
+      }
+      return actual.realpathSync.native(path)
+    },
+  })
+  return { ...actual, realpathSync, default: { ...actual, realpathSync } }
 })
 
 useSandbox()
@@ -75,6 +92,12 @@ const LINK_TO_A_FOLDER = process.platform === 'win32' ? 'junction' : 'dir'
 const sub = (text: string): string => text.replaceAll('__SANDBOX__', sandbox.root)
 
 /**
+ * A path as the form shows it: under the user's home folder it starts with `~` (plan.ts, shown).
+ * The sandbox lies under it on Windows, where the temporary folder is in the profile folder.
+ */
+const shown = (path: string): string => (path.startsWith(homedir() + sep) ? `~${path.slice(homedir().length)}` : path)
+
+/**
  * The bridge file of a build on this system and the command the form writes for it with the
  * fixture's argument: the sh entry on macOS; on Windows the .mjs that node runs, its path with
  * forward slashes in double quotes (worfy-windows ticket 13).
@@ -102,7 +125,7 @@ describe('the plan of the form', () => {
     expect([...hooks, '$HOME/.claude/bin/qmd-refresh --quiet'].sort()).toEqual(HARNESS_HOOKS.map(sub).sort())
 
     const files = view.rows.filter((row) => row.group === 'files')
-    const removable = files.filter((row) => row.choices.includes('remove')).map((row) => row.id.slice('file:'.length))
+    const removable = files.filter((row) => row.choices.includes('remove')).map((row) => row.id)
     expect(removable.sort()).toEqual(
       [
         ...HARNESS_AGENTS.map((name) => `agents/${name}`),
@@ -110,20 +133,22 @@ describe('the plan of the form', () => {
         ...['epic-board', 'epic-status', 'preflight', 'profile', 'ticket', 'worktree-lock'].map((name) => `bin/${name}`),
         ...['gate-resolve.mjs', 'gate.sh', 'guard.mjs', 'session-end.sh', 'session-start.sh', 'stop.sh'].map((name) => `hooks/${name}`),
         'profiles/README.md',
-      ].sort(),
+      ]
+        .map(fileId)
+        .sort(),
     )
     // Names of Q19 the plugin does not carry: "Keep" only, marked.
     const kept = files.filter((row) => !row.choices.includes('remove'))
-    expect(kept.map((row) => row.id).sort()).toEqual(['file:bin/tests', 'file:bin/ТИКЕТЫ.md', 'file:hooks/tests'])
+    expect(kept.map((row) => row.id).sort()).toEqual(['bin/tests', 'bin/ТИКЕТЫ.md', 'hooks/tests'].map(fileId).sort())
     for (const row of kept) {
       expect(row.choices).toEqual(['keep'])
       expect(row.note).toContain('not in the plugin')
     }
 
     expect(qmd?.detail?.split('\n')).toEqual([
-      ...['qmd-mcp', 'qmd-refresh', 'qmd-sync-main'].map((name) => join(sandbox.claudeHome, 'bin', name)),
+      ...['qmd-mcp', 'qmd-refresh', 'qmd-sync-main'].map((name) => shown(join(sandbox.claudeHome, 'bin', name))),
       'Stop hook: $HOME/.claude/bin/qmd-refresh --quiet',
-      `mcpServers.qmd in ${sandbox.claudeJson}`,
+      `mcpServers.qmd in ${shown(sandbox.claudeJson)}`,
     ])
     expect(qmd?.defaultChoice).toBe('remove')
     expect(qmd?.note).toBe(QMD_WARNING)
@@ -184,9 +209,10 @@ describe('the plan of the form', () => {
   })
 
   it('.claude.json: inside a WORFY_CLAUDE_HOME sandbox, else in CLAUDE_CONFIG_DIR, else in the home folder', () => {
-    expect(claudeJsonPath({ WORFY_CLAUDE_HOME: '/s/.claude', CLAUDE_CONFIG_DIR: '/other' }, '/s/.claude', '/home/me')).toBe('/s/.claude/.claude.json')
-    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/me/.claude', '/home/me')).toBe('/cfg/.claude.json')
-    expect(claudeJsonPath({}, '/home/me/.claude', '/home/me')).toBe('/home/me/.claude.json')
+    // Joined with the separator of the system; CLAUDE_CONFIG_DIR resolved (on Windows `/cfg` gets a drive).
+    expect(claudeJsonPath({ WORFY_CLAUDE_HOME: '/s/.claude', CLAUDE_CONFIG_DIR: '/other' }, '/s/.claude', '/home/me')).toBe(join('/s/.claude', '.claude.json'))
+    expect(claudeJsonPath({ CLAUDE_CONFIG_DIR: '/cfg' }, '/home/me/.claude', '/home/me')).toBe(join(resolve('/cfg'), '.claude.json'))
+    expect(claudeJsonPath({}, '/home/me/.claude', '/home/me')).toBe(join('/home/me', '.claude.json'))
   })
 
   it('rewrites the paths of the old Harness in every form it is written in', () => {
@@ -205,7 +231,8 @@ describe('the plan of the form', () => {
     )
     expect(rewriteHarnessPaths(`${sandbox.claudeHome}/bin/ticket`, homes)).toBe(`${sandbox.claudeHome}/worfy-harness/plugin/bin/ticket`)
     const elsewhere = { claudeHome: sandbox.claudeHome, harnessHome: '/opt/harness' }
-    expect(rewriteHarnessPaths('~/.claude/gate/config.json', elsewhere)).toBe('/opt/harness/gate/config.json')
+    // The other home is resolved (on Windows it gets a drive); the rest of the path keeps its `/`.
+    expect(rewriteHarnessPaths('~/.claude/gate/config.json', elsewhere)).toBe(`${resolve('/opt/harness')}/gate/config.json`)
   })
 
   it('attribution: a value the old Profile names is proposed as written, in both modes', () => {
@@ -232,13 +259,15 @@ describe('the move', () => {
     // Every row of the old Harness removed; the sections of CLAUDE.md as the form proposes them.
     const sectionDefault = (id: string): MigrationChoice | undefined => view.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice
     const result = await applyMigration(selection(view, sectionDefault), applyOptions())
-    expect(result).toEqual({ outcome: 'done', backupDir: backupDir(), restoreCommand: `node ${join(backupDir(), 'restore.mjs')}` })
+    // A path with a character outside [\w./+@-] (on Windows the drive colon and the backslashes) is single-quoted.
+    const script = join(backupDir(), 'restore.mjs')
+    expect(result).toEqual({ outcome: 'done', backupDir: backupDir(), restoreCommand: process.platform === 'win32' ? `node '${script}'` : `node ${script}` })
 
     // Harness files: gone from ~/.claude, byte for byte in the backup.
     const after = treeOf(sandbox.claudeHome)
     const harnessRels = view.rows
       .filter((row) => row.group === 'files' && row.choices.includes('remove'))
-      .map((row) => row.id.slice('file:'.length))
+      .map((row) => posix(row.id.slice('file:'.length)))
       .concat(['bin/qmd-mcp', 'bin/qmd-refresh', 'bin/qmd-sync-main', 'gate/config.json', 'gate/state', 'worktree-sessions', 'profiles/atakama', 'profiles/auction', 'profiles/worfy'])
     const isHarness = (rel: string): boolean => harnessRels.some((root) => rel === root || rel === `${root}/` || rel.startsWith(`${root}/`))
     for (const rel of Object.keys(before).filter(isHarness)) expect(after[rel], rel).toBeUndefined()
@@ -309,14 +338,15 @@ describe('the move', () => {
     expect(readJson(join(sandbox.harnessHome, 'projects', 'atakama', 'profile.json')).commands).toEqual({ verify: 'bash ~/.claude/worfy-harness/plugin/hooks/gate.sh full </dev/null' })
     for (const rel of ['bin/tickets.mjs', 'lessons/lessons.md', 'state/pending-retro.log']) expect(existsSync(join(sandbox.harnessHome, 'projects', 'atakama', rel)), rel).toBe(true)
 
-    // bin/profile of harness/ (ticket 11) on the fixture repositories reads the form's mode.
+    // bin/profile of harness/ (ticket 11) on the fixture repositories reads the form's mode. Started
+    // as `node <script>`, as worfy starts the Harness scripts (ADR-0055): Windows has no shebang.
     const profileBin = join(REPO, 'harness', 'bin', 'profile')
-    const worfyMode = run(profileBin, ['-C', sandbox.repos.worfy, '--field', 'mode'])
+    const worfyMode = run(findNode(), [profileBin, '-C', sandbox.repos.worfy, '--field', 'mode'])
     expect(worfyMode).toMatchObject({ status: 0, stdout: 'silent\n' })
-    expect(run(profileBin, ['-C', sandbox.repos.worfy, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
-    expect(run(profileBin, ['-C', sandbox.repos.atakamaServer, '--field', 'mode'])).toMatchObject({ status: 0, stdout: 'silent\n' })
+    expect(run(findNode(), [profileBin, '-C', sandbox.repos.worfy, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
+    expect(run(findNode(), [profileBin, '-C', sandbox.repos.atakamaServer, '--field', 'mode'])).toMatchObject({ status: 0, stdout: 'silent\n' })
     // atakama moved with the proposed fields: Silent, so its attribution is off.
-    expect(run(profileBin, ['-C', sandbox.repos.atakamaServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
+    expect(run(findNode(), [profileBin, '-C', sandbox.repos.atakamaServer, '--field', 'attribution'])).toMatchObject({ status: 0, stdout: 'off\n' })
 
     // Gate: registry and markers in worfy-harness/gate/; gate.mjs of harness/ finds the project.
     expect(read(join(sandbox.harnessHome, 'gate', 'config.json'))).toBe(read(join(backupDir(), 'claude', 'gate', 'config.json')))
@@ -341,7 +371,8 @@ describe('the move', () => {
     expect(git(sandbox.claudeHome, 'rev-list', `${head}..HEAD`).trim().split('\n')).toHaveLength(1)
     const files = git(sandbox.claudeHome, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim().split('\n')
     const manifest = readJson(join(backupDir(), 'manifest.json')) as { claude: string[]; commits: { claudeHome: string; harnessHome: string } }
-    for (const file of files) expect(manifest.claude.some((rel) => file === rel || file.startsWith(`${rel}/`)), file).toBe(true)
+    // git writes paths with `/`; the manifest with the separator of the system.
+    for (const file of files) expect(manifest.claude.map(posix).some((rel) => file === rel || file.startsWith(`${rel}/`)), file).toBe(true)
     expect(files).toContain('settings.json')
     expect(files).toContain('bin/epic-status')
     expect(files).not.toContain('skills/cloudflare/SKILL.md')
@@ -349,12 +380,45 @@ describe('the move', () => {
     expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
     expect(manifest.commits.claudeHome).toBe(git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim())
 
-    expect(realpathSync(git(sandbox.harnessHome, 'rev-parse', '--show-toplevel').trim())).toBe(sandbox.harnessHome)
+    expect(realpathSync.native(git(sandbox.harnessHome, 'rev-parse', '--show-toplevel').trim())).toBe(realpathSync.native(sandbox.harnessHome))
     const committed = git(sandbox.harnessHome, 'ls-tree', '-r', '--name-only', 'HEAD').trim().split('\n')
     expect(committed).toEqual(expect.arrayContaining(['.gitignore', 'gate/config.json', 'projects/worfy/profile.json', 'projects/worfy/rules.md', 'projects/atakama/bin/tickets.mjs']))
     // State, not history: the plugin copy, markers, locks, backups and Profile state are not committed.
     for (const file of committed) expect(file).not.toMatch(/^(plugin|backup-|worktree-sessions|gate\/state)|\/state\//)
     expect(manifest.commits.harnessHome).toBe(git(sandbox.harnessHome, 'rev-parse', 'HEAD').trim())
+  })
+
+  // On a disk that ignores letter case (macOS, Windows) the folders may come in another case than git
+  // prints them. The plain realpath keeps the case as typed, so before slice 3g of worfy-windows
+  // ticket 14 ~/.claude did not count as the top of its repository and its commit was skipped.
+  it('git: ~/.claude written in another letter case still gets its one commit', async (context) => {
+    const other = join(dirname(sandbox.root), basename(sandbox.root).toUpperCase())
+    context.skip(!existsSync(other), 'the disk tells letter case apart')
+    const shout = (path: string): string => other + path.slice(sandbox.root.length)
+    const homes = { claudeHome: shout(sandbox.claudeHome), harnessHome: shout(sandbox.harnessHome), claudeJson: shout(sandbox.claudeJson), userHome: shout(sandbox.home) }
+    const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
+    const result = await applyMigration(selection(plan(homes)), applyOptions(homes))
+    expect(result.outcome).toBe('done')
+    expect(git(sandbox.claudeHome, 'rev-list', '--count', `${head}..HEAD`).trim()).toBe('1')
+    expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
+  })
+
+  // The plain realpath keeps an 8.3 short name or a `subst` drive, so it can only stand in when the
+  // sandbox has neither (the runner's TEMP is C:\Users\RUNNER~1).
+  it('git: when realpath(3) cannot read ~/.claude, the plain realpath still finds it is the top of its repository', async (context) => {
+    context.skip(realpathSync(sandbox.root) !== realpathSync.native(sandbox.root), 'the sandbox is in an 8.3 short or subst spelling')
+    const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
+    nativeFails.under = sandbox.root
+    try {
+      expect(() => realpathSync.native(sandbox.claudeHome)).toThrow('EIO')
+      const result = await applyMigration(selection(plan()), applyOptions())
+      expect(result.outcome).toBe('done')
+    } finally {
+      nativeFails.under = null
+    }
+    // rev-list prints nothing when there is no new commit, and ''.split('\n') still has one item.
+    expect(git(sandbox.claudeHome, 'rev-list', '--count', `${head}..HEAD`).trim()).toBe('1')
+    expect(git(sandbox.claudeHome, 'log', '-1', '--format=%s')).toMatch(/^Move the old Harness out of ~\/\.claude/)
   })
 
   it('"Keep" on a row of each kind leaves that file or record untouched', async () => {
@@ -364,7 +428,7 @@ describe('the move', () => {
     const options = { bridgeScript: join(resources, 'statusline-bridge.sh') }
     const view = plan(options)
     const stopHook = view.rows.find((row) => row.group === 'hooks' && row.label === '$HOME/.claude/hooks/stop.sh')
-    const kept = new Set(['file:agents/scout.md', 'file:hooks/stop.sh', stopHook?.id, 'status-line', 'profile:auction', 'claude-md:3:Default loop'])
+    const kept = new Set([fileId('agents/scout.md'), fileId('hooks/stop.sh'), stopHook?.id, 'status-line', 'profile:auction', 'claude-md:3:Default loop'])
     const before = treeOf(sandbox.claudeHome)
     const settingsBefore = readJson(join(sandbox.claudeHome, 'settings.json'))
     const result = await applyMigration(
@@ -420,7 +484,7 @@ describe('the move', () => {
     removeTestTree(sandbox.root)
     makeSandbox()
     const again = plan()
-    const keepScout = (id: string): MigrationChoice | undefined => (id === 'file:agents/scout.md' ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
+    const keepScout = (id: string): MigrationChoice | undefined => (id === fileId('agents/scout.md') ? 'keep' : (again.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice))
     expect((await applyMigration(selection(again, keepScout), applyOptions())).outcome).toBe('done')
     expect(offered()).toBe(true)
   })
@@ -446,20 +510,27 @@ describe('restore and refusals', () => {
   const snapshot = (): { tree: Record<string, string>; claudeJson: string; outside: Record<string, string> } => ({
     tree: treeOf(sandbox.claudeHome),
     claudeJson: read(sandbox.claudeJson),
-    outside: treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') || rel === 'claude-calls.log' }),
+    outside: treeOf(sandbox.root, { skip: (rel) => rel === 'home/.claude' || rel === 'claude-calls.log' }),
   })
 
+  // On Windows the stand-in claude is not called: restore.mjs starts `claude` by name without a shell
+  // (restore.ts, spawnSync), and there that finds only a claude.exe or claude.com, never the
+  // `#!/bin/sh` stand-in. So on Windows the run has no claude on PATH and the test checks the printed
+  // disable command instead of the stand-in's log; every other check runs on all systems.
   it('node restore.mjs, a separate process: exit 0, ~/.claude and .claude.json as before the move, the commit reverted, the plugin disabled', async () => {
     const before = snapshot()
     const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
     const result = await applyMigration(selection(plan()), applyOptions())
     expect(result.outcome).toBe('done')
     const node = findNode()
-    const env = { ...sandbox.env, PATH: [sandbox.stubDir, '/usr/bin', '/bin'].join(delimiter), STUB_CLAUDE_LOG: sandbox.stubLog }
+    const windows = process.platform === 'win32'
+    const PATH = windows ? pathWithoutClaude() : [sandbox.stubDir, '/usr/bin', '/bin'].join(delimiter)
+    const env = { ...sandbox.env, PATH, STUB_CLAUDE_LOG: sandbox.stubLog }
     const restored = run(node, [join(backupDir(), 'restore.mjs')], { env, cwd: sandbox.root })
     expect(restored.stderr).toBe('')
     expect(restored.status).toBe(0)
-    expect(read(sandbox.stubLog)).toBe('plugin disable worfy@worfy-harness --scope user\n')
+    if (windows) expect(restored.stdout).toContain('claude plugin disable worfy@worfy-harness --scope user')
+    else expect(read(sandbox.stubLog)).toBe('plugin disable worfy@worfy-harness --scope user\n')
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
     expect(read(sandbox.claudeJson)).toBe(before.claudeJson)
     expect(git(sandbox.claudeHome, 'rev-list', `${head}..HEAD`).trim().split('\n')).toHaveLength(2)
@@ -475,7 +546,7 @@ describe('restore and refusals', () => {
     const before = snapshot()
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     const node = findNode()
-    const restored = run(node, [join(backupDir(), 'restore.mjs')], { env: { ...sandbox.env, PATH: ['/usr/bin', '/bin'].join(delimiter) }, cwd: sandbox.root })
+    const restored = run(node, [join(backupDir(), 'restore.mjs')], { env: { ...sandbox.env, PATH: pathWithoutClaude() }, cwd: sandbox.root })
     expect(restored.status).toBe(0)
     expect(restored.stdout).toContain('claude plugin disable worfy@worfy-harness --scope user')
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
@@ -496,7 +567,7 @@ describe('restore and refusals', () => {
     expect(existsSync(backupDir())).toBe(false)
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
     expect(read(sandbox.claudeJson)).toBe(before.claudeJson)
-    expect(treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') || rel === 'claude-calls.log' })).toEqual(before.outside)
+    expect(treeOf(sandbox.root, { skip: (rel) => rel === 'home/.claude' || rel === 'claude-calls.log' })).toEqual(before.outside)
   })
 
   // worfy-windows ticket 23. A junction is the link to a folder that Windows lets any user make; a
@@ -577,12 +648,12 @@ describe('restore and refusals', () => {
     expect(await applyMigration(selection(view), applyOptions({ confirm: () => Promise.resolve(false) }))).toEqual({ outcome: 'declined' })
     expect((await applyMigration(selection(view), applyOptions({ offered: false }))).outcome).toBe('refused')
     const stale = selection(view)
-    delete stale.choices['file:agents/scout.md']
+    delete stale.choices[fileId('agents/scout.md')]
     expect(await applyMigration(stale, applyOptions())).toEqual({ outcome: 'refused', reason: '~/.claude changed since the form was opened: open it again' })
     const stopHook = view.rows.find((row) => row.label === '$HOME/.claude/hooks/stop.sh')?.id
     const broken = await applyMigration(selection(view, (id) => (id === stopHook ? 'keep' : undefined)), applyOptions())
-    expect(broken.outcome === 'refused' ? broken.reason : '').toContain('runs hooks/stop.sh, which would be removed')
-    const notOffered = selection(view, (id) => (id === 'file:bin/tests' ? 'remove' : undefined))
+    expect(broken.outcome === 'refused' ? broken.reason : '').toContain(`runs ${join('hooks', 'stop.sh')}, which would be removed`)
+    const notOffered = selection(view, (id) => (id === fileId('bin/tests') ? 'remove' : undefined))
     expect((await applyMigration(notOffered, applyOptions())).outcome).toBe('refused')
     expect(treeOf(sandbox.root, everything)).toEqual(before)
   })
@@ -604,11 +675,11 @@ describe('restore and refusals', () => {
   })
 
   it('a move writes nothing outside ~/.claude of the sandbox and nothing into the repositories of Projects (ADR-0005)', async () => {
-    const outside = treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') })
+    const outside = treeOf(sandbox.root, { skip: (rel) => rel === 'home/.claude' })
     const repos = treeOf(join(sandbox.root, 'repos'), everything)
     const result = await applyMigration(selection(plan()), applyOptions())
     expect(result.outcome).toBe('done')
-    expect(treeOf(sandbox.root, { skip: (rel) => rel === join('home', '.claude') })).toEqual(outside)
+    expect(treeOf(sandbox.root, { skip: (rel) => rel === 'home/.claude' })).toEqual(outside)
     expect(treeOf(join(sandbox.root, 'repos'), everything)).toEqual(repos)
     // Inside ~/.claude only the move's own places changed: no stray temporary files.
     expect(readdirSync(sandbox.claudeHome).filter((name) => name.includes('worfy-move'))).toEqual([])

@@ -3,19 +3,19 @@
 // of harness-migrate.test.ts for worfy-windows ticket 28 (the gate warns about a file longer than
 // 1000 lines); the sandbox and the helpers are in harness-migrate-harness.ts.
 import { existsSync, lstatSync, mkdirSync, readdirSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { applyMigration } from '../../src/main/harness/migrate/apply'
 import { treeHash } from '../../src/main/harness/migrate/restore'
-import { applyOptions, backupDir, everything, findNode, hookCommands, omit, plan, read, readJson, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
+import { applyOptions, backupDir, everything, findNode, hookCommands, omit, pathWithoutClaude, plan, read, readJson, run, sandbox, selection, treeOf, useSandbox } from './harness-migrate-harness'
 
 useSandbox()
 
 describe('boundaries, races and what changed after the move', () => {
   const node = (): string => findNode()
   const runRestore = (): { status: number | null; stdout: string; stderr: string } =>
-    run(node(), [join(backupDir(), 'restore.mjs'), '--keep-plugin'], { env: { ...sandbox.env, PATH: ['/usr/bin', '/bin'].join(delimiter) }, cwd: sandbox.root })
+    run(node(), [join(backupDir(), 'restore.mjs'), '--keep-plugin'], { env: { ...sandbox.env, PATH: pathWithoutClaude() }, cwd: sandbox.root })
 
   it('a Harness folder that is a symlink leading outside ~/.claude: refused, nothing written, the outside files untouched', async () => {
     const outside = join(sandbox.root, 'outside-hooks')
@@ -24,7 +24,8 @@ describe('boundaries, races and what changed after the move', () => {
     const before = treeOf(sandbox.root, everything)
     const result = await applyMigration(selection(plan()), applyOptions())
     expect(result.outcome).toBe('refused')
-    expect(result.outcome === 'refused' ? result.reason : '').toMatch(/^refusing hooks\/.+: its folder leads outside/)
+    // The path in the reason is joined with the separator of the system.
+    expect(result.outcome === 'refused' ? result.reason : '').toMatch(/^refusing hooks[\\/].+: its folder leads outside/)
     expect(treeOf(sandbox.root, everything)).toEqual(before)
   })
 

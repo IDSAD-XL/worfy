@@ -11,6 +11,7 @@ import { afterEach, beforeEach } from 'vitest'
 import type { HarnessState } from '../../src/shared/ipc/harness'
 import type { MigrationChoice, MigrationPlan, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import type { ApplyOptions } from '../../src/main/harness/migrate/apply'
+import { NODE } from '../harness-node'
 import { removeTestTree } from '../remove'
 import { buildPlan, hookRecords, type PlanOptions } from '../../src/main/harness/migrate/plan'
 
@@ -43,13 +44,19 @@ interface Sandbox {
 // value of that moment.
 export let sandbox: Sandbox
 
+// The fixture's files with `__SANDBOX__` replaced by the root — JSON-escaped in a .json file: a
+// Windows path has backslashes, which a JSON string spells `\\`. Line ends go back to the LF the
+// fixture is committed with (every file of it is text): Git for Windows with core.autocrlf checks
+// it out with CRLF, and the cases compare bytes and lines.
 function substitute(dir: string, root: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) substitute(path, root)
     else {
       const text = readFileSync(path, 'utf8')
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', root))
+      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
+      const fixed = text.replaceAll('\r\n', '\n').replaceAll('__SANDBOX__', value)
+      if (fixed !== text) writeFileSync(path, fixed)
     }
   }
 }
@@ -134,30 +141,38 @@ export function makeSandbox({ qmdInPlugin = false }: { qmdInPlugin?: boolean } =
   return sandbox
 }
 
+/**
+ * The time a sandbox hook may take: a fixture copy, four git repositories (twelve git calls) and the
+ * plugin copy. On a clean GitHub Windows runner it went over the default 10 s in 6 of 57 tests
+ * (run 39250749583, whole run 346 s); on the PC and on macOS it takes a few seconds.
+ */
+const SANDBOX_HOOK_MS = 60_000
+
 /** Makes a sandbox before each test of the file it is called in, and removes it after. */
 export function useSandbox(): void {
   beforeEach(() => {
     makeSandbox()
-  })
+  }, SANDBOX_HOOK_MS)
 
   // Not rmSync: the sandbox holds a git repository, whose objects are read-only files. Under the
   // Node of Electron 44 on Windows rmSync stops at such a file with EPERM, which failed the test and
   // left the folder behind (worfy-windows tickets 23 and 26).
   afterEach(() => {
     removeTestTree(sandbox.root)
-  })
+  }, SANDBOX_HOOK_MS)
 }
 
 /**
  * Files (hash and mode) and folders of a tree: equal maps mean byte-equal trees. `.git` folders
  * and backups of a move are left out unless asked: a restore leaves its revert in the history.
+ * Keys, and the `rel` that `skip` gets, are written with `/` on every system.
  */
-export function treeOf(dir: string, { skip = (rel: string) => rel.split(sep).includes('.git') || /(^|\/)worfy-harness\/backup-/.test(rel) } = {}): Record<string, string> {
+export function treeOf(dir: string, { skip = (rel: string) => rel.split('/').includes('.git') || /(^|\/)worfy-harness\/backup-/.test(rel) } = {}): Record<string, string> {
   const out: Record<string, string> = {}
   const walk = (current: string): void => {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const path = join(current, entry.name)
-      const rel = relative(dir, path)
+      const rel = relative(dir, path).split(sep).join('/')
       if (skip(rel)) continue
       if (entry.isDirectory()) {
         out[`${rel}/`] = 'dir'
@@ -170,6 +185,15 @@ export function treeOf(dir: string, { skip = (rel: string) => rel.split(sep).inc
   return out
 }
 export const everything = { skip: () => false }
+
+/**
+ * The id of the form's row for the file `rel` of ~/.claude (written with `/`): the plan names it by
+ * a path joined with the separator of the system (src/main/harness/migrate/plan.ts).
+ */
+export const fileId = (rel: string): string => `file:${join(...rel.split('/'))}`
+
+/** A relative path of the system written with `/`, as git and treeOf write it. */
+export const posix = (rel: string): string => rel.split(sep).join('/')
 
 export function planOptions(extra: Partial<PlanOptions> = {}): PlanOptions {
   return {
@@ -210,11 +234,18 @@ export function omit(value: Record<string, unknown>, ...keys: string[]): Record<
   return Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)))
 }
 
-/** The `node` of PATH, as a person would run restore.mjs. */
-export function findNode(): string {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-    const candidate = join(dir, 'node')
-    if (existsSync(candidate)) return candidate
-  }
-  throw new Error('no node in PATH')
+/** The `node` of PATH (`node.exe` on Windows), as a person would run restore.mjs. */
+export const findNode = (): string => NODE
+
+/**
+ * A PATH with git and without claude, for restore.mjs: `/usr/bin` and `/bin`; on Windows, which has
+ * neither, the folder of git.exe from this process's PATH (Git for Windows keeps no claude there).
+ */
+export function pathWithoutClaude(): string {
+  if (process.platform !== 'win32') return ['/usr/bin', '/bin'].join(delimiter)
+  const gitDir = (process.env.PATH ?? '').split(delimiter).find((dir) => dir !== '' && existsSync(join(dir, 'git.exe')))
+  if (gitDir === undefined) throw new Error('no git.exe on the PATH of the tests')
+  // spawnSync without a shell finds only .exe and .com on Windows.
+  if (existsSync(join(gitDir, 'claude.exe')) || existsSync(join(gitDir, 'claude.com'))) throw new Error(`${gitDir} has a claude: restore.mjs would find it`)
+  return gitDir
 }

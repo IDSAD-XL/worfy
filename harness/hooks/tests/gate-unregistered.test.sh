@@ -105,5 +105,28 @@ if node -e '
     })' "$HOOKS/gate-paths.mjs"; then ok "registry paths: on Windows either separator and any letter case, elsewhere exact"
 else bad "registry paths: the comparison of gate-paths.mjs gave a wrong answer"; fi
 
+# 8. Windows: a `match` in an 8.3 short spelling (C:\PROGRA~1, as the TEMP of an account with a long
+#    name, C:\Users\RUNNER~1\…) covers the folder in its long spelling, the one git and the native
+#    realpath give; a `match` through a junction stays as written and does not cover the junction's
+#    target. Needs the short name C:\PROGRA~1 (made when Windows was installed) and cmd's mklink.
+if [ "$(node -p 'process.platform')" != win32 ]; then
+    echo "skip 8.3 and junction spellings of a registry match: Windows only"
+elif [ "$(node -p 'try { require("node:fs").realpathSync.native("C:\\PROGRA~1") } catch { "" }')" != 'C:\Program Files' ]; then
+    echo "skip 8.3 spelling of a registry match: this disk has no short name C:\\PROGRA~1"
+else
+    which8() { CLAUDE_GATE_CONFIG="$T/config8.json" node "$CLAUDE_GATE_RESOLVE" --which "$1" | cut -f1; }
+    node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({ repos: [{ key: "short", match: "C:\\PROGRA~1" }] }))' "$T/config8.json"
+    [ "$(which8 'C:\Program Files')" = short ] && ok "8.3 spelling: match C:\\PROGRA~1 covers C:\\Program Files" \
+        || bad "8.3 spelling: match C:\\PROGRA~1 does not cover C:\\Program Files"
+    MSYS2_ARG_CONV_EXCL='*' cmd /c mklink /J "$(cygpath -w "$T/jn")" "$(cygpath -w "$T/reg")" >/dev/null
+    node -e 'require("node:fs").writeFileSync(process.argv[1], JSON.stringify({ repos: [{ key: "junction", match: process.argv[2] }] }))' "$T/config8.json" "$T/jn"
+    # Without the junction the check below would pass for nothing: first, $T/jn must lead to $T/reg.
+    if [ "$(node -p 'const fs = require("node:fs"); fs.realpathSync.native(process.argv[1]) === fs.realpathSync.native(process.argv[2])' "$T/jn" "$T/reg" 2>/dev/null)" != true ]; then
+        bad "junction: mklink /J made no junction $T/jn to $T/reg"
+    elif [ -z "$(which8 "$T/reg")" ]; then ok "junction: a match through a junction stays as written"
+    else bad "junction: a match through a junction covered the junction's target"; fi
+    cmd //c rmdir "$(cygpath -w "$T/jn")"
+fi
+
 echo "passed $pass, failed $fail"
 [ "$fail" -eq 0 ]
