@@ -455,7 +455,7 @@ describe('the move', () => {
     expect(readJson(join(sandbox.claudeHome, 'settings.json')).statusLine).toEqual({ ...before, command: bridgeLine(bridge) })
   })
 
-  // Windows, provisional: >15 s in the idle full run, 9.9 s alone; re-measure in the next full run (worfy-polish 30).
+  // Windows: 29.9 s in a full run on the PC (main aa27fa89, 2026-10-19 22:55-23:20); twice that.
   it('the qmd group: "Remove" takes the three scripts, the hook and the record together; "Keep" leaves all five, .claude.json byte for byte', async () => {
     const claudeJson = read(sandbox.claudeJson)
     const result = await applyMigration(selection(plan(), (id) => (id === 'qmd' ? 'keep' : undefined)), applyOptions())
