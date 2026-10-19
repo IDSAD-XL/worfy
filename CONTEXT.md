@@ -42,6 +42,18 @@ _Avoid_: лимиты, usage, квота, расход
 Node с интерактивной shell-сессией пользователя; агент им не пользуется.
 _Avoid_: терминал (как имя Node)
 
+**Done shelf**:
+Ряд chip-ов под рамками Epic-ов: Epic, у которого все Ticket-ы done и рамка свёрнута, стоит здесь chip-ом с именем и счётом, а не рамкой ([ADR-0075](docs/adr/0075-epic-frames-in-columns-and-done-shelf.md)).
+_Avoid_: архив Epic-ов, список готовых
+
+**Archive**:
+Место законченных Session-ов, которые worfy убрал с Canvas сам: история своего Ticket-а или Epic-а, а без Binding — popover «Archive». Ничего не удаляет и срока не имеет; это не Trash ([ADR-0076](docs/adr/0076-auto-archive-of-finished-sessions.md)).
+_Avoid_: корзина, скрытые (как синоним Archive)
+
+**Family**:
+Node и всё, что с ним связано Binding-ом и деревом Subagent-ов: Ticket, его Epic frame, его Session-ы и их Subagent-ы. Подсвечивается при наведении и выделении; Node-ы при этом не двигаются.
+_Avoid_: кластер, группа (как синоним Family)
+
 ## Workflow
 
 **Epic**:

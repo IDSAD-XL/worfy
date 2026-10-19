@@ -1,0 +1,71 @@
+# 10 — Toast «Archived N finished sessions · Undo» после партии; автоархив включён по умолчанию (24 h)
+
+Type: task
+Status: blocked 2026-10-19T15:22Z
+Blocked reason: ждёт мержа worfy-ui 16 (внутренние toast-ы: одно хранилище и один компонент)
+Waits: agent
+Blocked by: 07, 08, 09
+Source: [spec.md](../spec.md), решение владельца 6;
+[ADR-0076](../../../docs/adr/0076-auto-archive-of-finished-sessions.md) (автоархив законченных Session-ов),
+пункты 7, 8 и 10; исследование
+[2026-10-19-организация-canvas.md](../../../docs/research/2026-10-19-организация-canvas.md), P2, «Undo»;
+[worfy-ui 16](../../worfy-ui/issues/16-внутренние-toast-ы.md). Код перечитан по main `7dab925f`.
+
+## Что происходит
+
+- Компонента toast-а в renderer нет; его заводит `worfy-ui` 16 (`src/renderer/toast/toasts.ts`,
+  `showToast`, вид `action` с кнопками, `projectId`).
+- Таймер архива (Ticket 07) пишет партии мимо ⌘Z; порог по умолчанию — «Never» (Ticket 08), чтобы
+  Session-ы не пропадали молча (ADR-0076, пункт 10).
+- Main сообщает окнам об изменении Layout событием `layout.changed` (`src/shared/ipc/layout.ts:33`).
+
+## Что делаем
+
+1. **Событие партии.** Main после каждой партии таймера шлёт окнам Project-а событие
+   `layout.archived` (`src/shared/ipc/layout.ts`; `project`, `read`): `batch`, число Session-ов.
+2. **Undo партии.** Операция `restoreBatch` (`batch`) в main (`src/main/layout/archive.ts`): возвращает
+   ровно Node-ы этой партии, которые ещё в архиве; мимо ⌘Z. Node, который пользователь уже вернул или
+   двигал, не трогается.
+3. **Toast** — `src/renderer/canvas/overlays/ArchiveToast.tsx` (новый): на событие — `showToast` вида
+   `action` с `key` = `batch` и `projectId`: «Archived N finished sessions» и кнопка Undo. На read-only
+   экране (ADR-0066) — вид `info` без кнопки.
+4. **Порог по умолчанию — 24 h** (`src/shared/settings/app-settings.ts`, `sessionArchive.after`). Человек,
+   который уже выбрал значение в Settings, его сохраняет.
+
+## Готово, когда
+
+- [ ] Contract `test/contract/layout-archive.test.ts`: `restoreBatch` возвращает ровно свою партию;
+      Node, тронутый после партии, не меняется; событие `layout.archived` приходит обоим окнам Project-а.
+- [ ] Unit `test/unit/archive-toast.test.tsx`: событие даёт один toast с Undo; на read-only экране — без
+      Undo; Undo зовёт `restoreBatch` своей партии.
+- [ ] e2e `test/e2e/session-archive-toast.spec.ts`: таймер (ускоренный в test-е) с порогом по умолчанию
+      убирает finished Session-ы фикстуры, toast показывает их число, Undo возвращает их на места; ⌘Z после
+      Undo не убирает их снова; снимок toast-а в обеих темах.
+- [ ] Мутант красный: Undo возвращает все архивные Session-ы, а не партию.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+
+## Тесты
+
+- Сначала падающий: contract «`restoreBatch` возвращает только свою партию».
+- Contract `test/contract/layout-archive.test.ts`; unit `test/unit/archive-toast.test.tsx` (новый); e2e
+  `test/e2e/session-archive-toast.spec.ts` (новый).
+
+## Где в коде
+
+- `src/main/layout/archive.ts`
+- `src/shared/ipc/layout.ts` (`layout.changed` `:33`)
+- `src/shared/settings/app-settings.ts`
+- `src/renderer/canvas/overlays/ArchiveToast.tsx` (новый)
+- `test/unit/archive-toast.test.tsx` (новый)
+- `test/contract/layout-archive.test.ts`
+- `test/e2e/session-archive-toast.spec.ts` (новый)
+
+Только чтение: `src/renderer/toast/toasts.ts` (`worfy-ui` 16).
+
+## Вне скоупа
+
+- Предупреждение до архива (как Destalinator) — Undo после действия вместо подтверждения (ADR-0076).
+
+## Итог
+
+Заполняется при закрытии.
