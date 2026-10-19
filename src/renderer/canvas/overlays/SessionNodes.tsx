@@ -2,16 +2,22 @@
 // started (ticket 14; the plan is src/renderer/claude-home/session-nodes.ts): a Node appears when a
 // Session starts and stays, finished, after its process is gone. The overlay draws nothing; it
 // sends Layout operations to main and centers the Canvas on a Session's Node when the sidebar
-// asks for it (claude-home/focus.ts).
+// asks for it (claude-home/focus.ts). A new Session whose Binding is known when its Node is made
+// gets its Node next to its Ticket or Epic, right of the strip of Epic frames (worfy-canvas
+// ticket 11, session-spot.ts); a Node already made is not moved when the Binding shows up later.
 import { useEffect, useRef } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { ZOOM_MAX, ZOOM_MIN } from '../../../shared/layout/types'
+import { useManualBindings } from '../../binding/store'
 import { useSessionFocus } from '../../claude-home/focus'
 import { planSessionNodes, worfySessionIds } from '../../claude-home/session-nodes'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { invoke } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
+import { useWorkflow } from '../../workflow/useWorkflow'
+import type { CanvasFlowNode } from '../nodes'
 import { applyLayoutOp, useLayout } from '../useLayout'
+import { bindingSpots } from './session-spots'
 
 export const order = 50
 
@@ -80,11 +86,14 @@ function useFocusRequests(projectId: string): void {
 function SessionNodesSync({ projectId, root }: { projectId: string; root: string }) {
   const { live } = useClaudeHome(root)
   const { state } = useLayout(projectId)
+  const { model } = useWorkflow(root)
+  const manual = useManualBindings(projectId)
+  const store = useStoreApi<CanvasFlowNode>()
   const busy = useRef(false)
   const again = useRef(false)
-  const latest = useRef({ live, state, projectId })
+  const latest = useRef({ live, state, projectId, root, model, manual })
   useEffect(() => {
-    latest.current = { live, state, projectId }
+    latest.current = { live, state, projectId, root, model, manual }
   })
 
   useFocusRequests(projectId)
@@ -108,7 +117,16 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
           const first = planSessionNodes({ live: current, nodes, worfyIds: worfySessionIds(nodes, []), seen })
           if (first.create.length === 0 && first.remove.length === 0) continue
           // Only now ask main which Sessions it runs: a Session of worfy's whose Node does not name it yet.
-          const plan = planSessionNodes({ live: current, nodes, worfyIds: worfySessionIds(nodes, await runningIds()), seen })
+          const worfyIds = worfySessionIds(nodes, await runningIds())
+          // And what the new Sessions are bound to, at the moment their Nodes are made.
+          const { near, keepOut } = await bindingSpots({
+            root: latest.current.root,
+            sessionIds: first.create.map((op) => String(op.node.data?.sessionId)).filter((id) => !worfyIds.has(id)),
+            manual: latest.current.manual,
+            model: latest.current.model,
+            nodes: () => store.getState().nodeLookup.values(),
+          })
+          const plan = planSessionNodes({ live: current, nodes, worfyIds, seen, near, keepOut })
           // Not the user's gestures: sent without a step of the undo history (history.ts), as the other
           // automatic writers of the Layout do. The Canvas's LayoutOps would record them.
           const target = latest.current.projectId
@@ -123,7 +141,7 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
       }
     }
     void sync()
-  }, [live, state])
+  }, [live, state, store])
 
   return null
 }

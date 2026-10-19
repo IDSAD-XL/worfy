@@ -14,6 +14,11 @@ import {
   worfySessionTitle,
 } from '../../src/renderer/claude-home/session-nodes'
 import { answerReadOnly } from '../../src/renderer/projects/read-only-now'
+import { bindingSpots } from '../../src/renderer/canvas/overlays/session-spots'
+import { FRAME_GAP } from '../../src/renderer/canvas/epic-layout'
+import { sessionSpot, stripKeepOut, type DrawnNode } from '../../src/renderer/canvas/session-spot'
+import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
+import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId } from '../../src/shared/layout/derived'
 import { openSession } from '../../src/renderer/session/navigation'
 
 // openSession() tells main through layout.apply; the channel is a stand-in here.
@@ -240,5 +245,86 @@ describe('opening a Session view touches its Node (worfy-canvas ticket 07)', () 
     answerReadOnly(() => 'beta gives this Machine read-only access')
     openSession({ nodeId: 'session:S-1', projectId: 'p1' })
     expect(ipc.invoke).not.toHaveBeenCalled()
+  })
+})
+
+describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
+  // The strip of Epic frames: one frame of `alpha`, 600 wide, from x = 0; its spot is right of it.
+  const strip = { x: 0, right: 600, top: 0, bottom: 900 }
+  const frames = [{ epic: 'alpha', y: 300, tickets: new Map<number, number>() }]
+  const spot = sessionSpot({ kind: 'epic', epic: 'alpha' }, frames, strip)!
+  const keepOut = [stripKeepOut(strip)]
+
+  it('stands by its Epic, right of the strip; one without a Binding goes under the last Session Node', () => {
+    const nodes = [external('S-old', { x: 2000, y: 0 })]
+    const { create } = planSessionNodes({ live: [live('S-bound'), live('S-free')], nodes, worfyIds: new Set(), seen: new Set(), near: new Map([['S-bound', spot]]), keepOut })
+    const bound = create.find((op) => op.node.id === sessionNodeId('S-bound'))
+    const free = create.find((op) => op.node.id === sessionNodeId('S-free'))
+    expect(bound?.node).toMatchObject({ x: 600 + FRAME_GAP, y: 300 })
+    // Under the lowest Session Node, which is now the bound one.
+    expect(free?.node).toMatchObject({ x: 600 + FRAME_GAP, y: 300 + 120 + 16 })
+  })
+
+  it('takes the nearest clear place from its spot, never one in the strip’s band', () => {
+    const taken = node({ id: 'n', kind: 'note', x: 600 + FRAME_GAP, y: 300, w: 300, h: 120 })
+    const [op] = planSessionNodes({ live: [live('S-bound')], nodes: [taken], worfyIds: new Set(), seen: new Set(), near: new Map([['S-bound', spot]]), keepOut }).create
+    expect(op?.node.x).toBeGreaterThanOrEqual(600 + FRAME_GAP)
+    const clear = op!.node.y >= 300 + 120 + 16 || op!.node.y + 120 + 16 <= 300 || op!.node.x >= 600 + FRAME_GAP + 300 + 16
+    expect(clear).toBe(true)
+  })
+
+  it('does not move a Node made before its Binding was known', () => {
+    const nodes = [external('S-1', { x: 2000, y: 700 })]
+    const plan = planSessionNodes({ live: [live('S-1')], nodes, worfyIds: new Set(), seen: new Set(['S-1']), near: new Map([['S-1', spot]]), keepOut })
+    expect(plan).toEqual({ create: [], remove: [] })
+  })
+
+  describe('its spot from the Binding it has when its Node is made', () => {
+    const frameNode = {
+      id: epicNodeId('alpha'),
+      type: EPIC_FRAME_KIND,
+      width: 600,
+      height: 900,
+      internals: { positionAbsolute: { x: 0, y: 40 } },
+      data: { node: { data: { epic: { epic: 'alpha' }, auto: { x: 0, y: 40 } } } },
+    } satisfies DrawnNode & { id: string }
+    const signals = (sessionId: string) => ({
+      found: true,
+      session: sessionId === 'S-claimed' ? { ...EMPTY_AGENT_SIGNALS, claim: { epic: 'alpha', num: 3, command: 'ticket claim alpha 03' } } : EMPTY_AGENT_SIGNALS,
+      subagents: [],
+    })
+    afterEach(() => ipc.invoke.mockReset())
+
+    it('reads each new Session’s signals and puts the bound one at its Epic, not the unbound one', async () => {
+      ipc.invoke.mockImplementation((channel, input) =>
+        Promise.resolve(channel === 'bindings.signals' ? { ok: true, value: signals((input as { sessionId: string }).sessionId) } : { ok: true, value: {} }),
+      )
+      const ticketNode = {
+        id: 'ticket:alpha/3',
+        type: TICKET_KIND,
+        internals: { positionAbsolute: { x: 40, y: 220.6 } },
+        data: { node: { data: { ticket: { epic: 'alpha', num: 3 } } } },
+      } satisfies DrawnNode & { id: string }
+      const epicBound = { sessionId: 'S-epic', target: { kind: 'epic' as const, epic: 'alpha' }, agentId: null }
+      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode] })
+      expect(ipc.invoke).toHaveBeenCalledWith('bindings.signals', { projectRoot: '/p', sessionId: 'S-claimed' })
+      // `ticket claim alpha 03` in its transcript: by its Ticket. A manual Binding to the Epic: by the frame's header.
+      expect([...near]).toEqual([
+        ['S-claimed', { x: 600 + FRAME_GAP, y: 221 }],
+        ['S-epic', { x: 600 + FRAME_GAP, y: 40 }],
+      ])
+      expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 940 })])
+    })
+
+    it('asks nothing without a strip on the Canvas, and gives no spot when the signals cannot be read', async () => {
+      ipc.invoke.mockImplementation(() => Promise.reject(new Error('main is gone')))
+      expect(await bindingSpots({ root: '/p', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [] })).toEqual({ near: new Map(), keepOut: [] })
+      expect(ipc.invoke).not.toHaveBeenCalled()
+      const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const { near } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [frameNode] })
+      expect(near.size).toBe(0)
+      expect(error).toHaveBeenCalled()
+      error.mockRestore()
+    })
   })
 })
