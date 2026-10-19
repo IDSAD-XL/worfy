@@ -338,10 +338,11 @@ const SHELL_WAIT_MS = 30_000
 /** A test that waits for a shell: three waits of SHELL_WAIT_MS at most, and the rest of the test. */
 const SHELL_TEST_MS = 120_000
 /**
- * The prompt of a shell in its output: `$ ` of /bin/sh (PS1 of the Terminal's environment above),
- * `PS <folder>> ` of PowerShell. A line is typed only after it: the shell then reads what it is given.
+ * The prompt of a shell in its output: `$ ` of /bin/sh (PS1 of the Terminal's environment above; `# `
+ * when a login /bin/sh run as root takes PS1 from /etc/profile), `PS <folder>> ` of PowerShell. A line
+ * is typed only after it: the shell then reads what it is given.
  */
-const PROMPT = /\$ |PS [^\r\n]*> /
+const PROMPT = /[$#] |PS [^\r\n]*> /
 /** The end of a shell's output, escapes written out, for a failure message: vitest cuts the value it shows. */
 const tail = (output: string): string => JSON.stringify(output.slice(-1000))
 
