@@ -117,22 +117,24 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
 # Gate verdict words (their new text is ticket 09), Profile placeholders and the Profile heading
-# for the implementer's required reading (Profile contract, ticket 11), the Russian metaphor
-# examples of the section on terms, and the name a Profile gives the lens "simplification"
-# (ticket worfy-review/02).
+# for the implementer's required reading (Profile contract, ticket 11), and the name a Profile
+# gives the lens "simplification" (ticket worfy-review/02).
 ALLOWED=(
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'
     '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
-    '«ручка»' '«проба»' '«выкат»' '«прогон»' '«диверсия»' '«сторож»' '«ворота»' '«врезка»' '«грабли»' '«ложная зелень»'
     'упрощение'
 )
 for a in $ALL; do
     left="$(strip "$AGENTS/$a.md" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/')"
     [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
 done
-# The metaphor examples stay in the section on terms of every agent.
+# Rules for writing in one language belong to the user's own rules file, not to the agents.
 for a in $ALL; do
-    has "$a" '«ложная зелень»' && ok "$a: Russian metaphor examples kept" || bad "$a: Russian metaphor examples lost"
+    if grep -qE '^## Terms$|Writing in Russian|written in Russian' "$AGENTS/$a.md"; then
+        bad "$a: carries a rule for writing in Russian"
+    else
+        ok "$a: no rule for writing in one language"
+    fi
 done
 
 # --- 8. reviewer: checks for a broken local build and a feature-flag leak, scope by the diff ---
@@ -185,16 +187,17 @@ caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } spl
     || bad "reviewer: words in capitals:"$'\n'"$caps"
 
 # --- 9. reviewer: the lens "simplification" (ticket worfy-review/02) ---------------------------
-# Lens descriptions live in reviewer.md, in the section "Lens descriptions" before the section on
-# terms. Every sentence of the lens is looked up inside its own section, so a rule that moves out
-# of the section fails the check too.
+# Lens descriptions live in reviewer.md, in the section "Lens descriptions". Every sentence of the
+# lens is looked up inside its own section, so a rule that moves out of the section fails the check too.
 rv "a lens is read by its description, and by its name without one" \
     'What a lens looks for is in the section "Lens descriptions" below, when the lens is described there; a lens without a description is read by its name.'
 line_of() { grep -nxF -- "$1" "$AGENTS/reviewer.md" | head -n 1 | cut -d: -f1; }
-descriptions="$(line_of '## Lens descriptions')" lens_at="$(line_of '### Lens: simplification')" terms="$(line_of '## Terms')"
-[ -n "$descriptions" ] && [ -n "$lens_at" ] && [ -n "$terms" ] && [ "$descriptions" -lt "$lens_at" ] && [ "$lens_at" -lt "$terms" ] \
-    && ok "reviewer: 'Lens: simplification' is inside 'Lens descriptions', before the section on terms" \
-    || bad "reviewer: no '### Lens: simplification' between '## Lens descriptions' and '## Terms' (lines: [$descriptions] [$lens_at] [$terms])"
+descriptions="$(line_of '## Lens descriptions')" lens_at="$(line_of '### Lens: simplification')"
+# The first level-2 heading after "Lens descriptions" (none when that section ends the file).
+next_h2="$(awk -v d="${descriptions:-0}" 'NR > d && /^## / { print NR; exit }' "$AGENTS/reviewer.md")"
+[ -n "$descriptions" ] && [ -n "$lens_at" ] && [ "$descriptions" -lt "$lens_at" ] && { [ -z "$next_h2" ] || [ "$lens_at" -lt "$next_h2" ]; } \
+    && ok "reviewer: 'Lens: simplification' is inside 'Lens descriptions'" \
+    || bad "reviewer: no '### Lens: simplification' inside '## Lens descriptions' (lines: [$descriptions] [$lens_at] [$next_h2])"
 # section HEADING: the text under that heading, up to the next heading of any level.
 section() { awk -v h="$1" '$0 == h { s = 1; next } s && /^##* / { exit } s' "$AGENTS/reviewer.md"; }
 in_text() { printf '%s\n' "$1" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$2"; } # $1 = text, $2 = literal sentence

@@ -45,6 +45,31 @@ Not `~/.claude/projects/` — that is where Claude Code keeps transcripts.
 During the transition (schema 1, see below) a profile may still lie in the old place,
 `~/.claude/profiles/<name>/`, with the same layout.
 
+## User personalization
+
+Two settings belong to the person, not to a project, and hold for every project on the machine.
+Both files are optional and are written by hand; the Harness only reads them.
+
+```
+$HARNESS_HOME/user.json        {"language": {"reports": "ru"}}
+$HARNESS_HOME/user/rules.md    the user's own rules, in prose
+```
+
+- **`user.json`, field `language.reports`** — the language of agent reports and messages to the
+  user: `"en"`, `"ru"` or another language code. `bin/profile --field language.reports` answers
+  from it first, then (for one more release) from the profile's own `language.reports`, then `en`;
+  the summary and `--json` show the same resolved value. Other fields of the file are ignored:
+  `language.team` and `language.docs` stay in the profile. A file that is not JSON, not an object,
+  or has a `language.reports` that is not a non-empty string is one line on stderr and is skipped;
+  `bin/profile` still answers with exit 0.
+- **`user/rules.md`** — rules the user wants in every session, for example rules for writing in
+  their language. `hooks/inject-rules.mjs` appends the file to the part `common` under the heading
+  `## User rules`, in `SessionStart` and in `SubagentStart`, so subagents get it too. The Harness
+  neither reads its meaning nor checks it. The part and the file together stay within the hook
+  limit of 10,000 characters; a longer file is cut after a whole line, and a closing line names the
+  file. An empty file adds nothing; a file that cannot be read is one line on stderr, and the part
+  arrives without it.
+
 ## How the profile is found
 
 There is one registry — the gate's `$HARNESS_HOME/gate/config.json` (during the transition, while it
@@ -117,9 +142,9 @@ the way the project really runs them.
 | `name` | string | profile name = folder name | all |
 | `title` | string | the project's human name | reports |
 | `mode` | `"full"` \| `"silent"` | where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live: `full` — in the repository (Full mode); `silent` — outside git, in the project's Workflow folder (Silent mode). Required in schema 2: absent or another value — exit 1 with the reason in stderr, because a guessed mode would quietly put the workflow files in the wrong place | all skills and agents that write workflow files |
-| `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user | all agents, skills |
-| `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. While the profile has no `language.docs`, documents (tickets, `spec.md`, ADRs, the state file) are written in the language their neighbours are already written in; a new set without neighbours — `language.reports`; exceptions — in `rules.md`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
-| `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — exit 4, and the reader keeps the rule of `language.team` (the language of the neighbouring documents) | implementer, reviewer, ship-ticket, epic-wave, retro |
+| `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user. It belongs to the user, not to the project: `bin/profile` answers it from the user's `$HARNESS_HOME/user.json` (section "User personalization"), then, for one more release, from this field of the profile, then `en`. A new profile leaves it out | all agents, skills |
+| `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. Absent — `bin/profile` prints `en`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru", docs: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
+| `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — `bin/profile` prints `en` | implementer, reviewer, ship-ticket, epic-wave, retro |
 | `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent or `null` — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode (worfy ADR-0061). `"on"` or `"off"` written here wins in both modes; any other value — exit 1 with the reason in stderr, as with `mode` | agents and skills that commit or open PRs |
 | `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
 | `layout.packages` | strings | package or repository directories | scout, audit |
@@ -419,7 +444,8 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
 - **`mode`.** Schema 1 has no such field; `--field mode` prints `full`: before modes the whole
   Harness worked as Full mode. A schema 1 profile with no `schema` field is read the same way.
 - **`attribution`** — absent prints `on`: schema 1 is always Full mode, whose default is `on`;
-  **`language.docs`** — absent, exit 4.
+  **`language.docs`** — absent prints `en`; the string form of `language` gives all three fields its
+  value.
 - **The four path fields.** Schema 1 has `tickets.status_tool`, `tickets.epic_status`,
   `workflow.preflight` (with the placeholder `<эпик>`) and `numbering.reserve_with` — paths to the
   Harness, not facts of the project. A value that starts with `~/.claude/bin/` or with its

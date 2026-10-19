@@ -38,9 +38,9 @@
         "mode": { "enum": ["full", "silent"] },
         "language": {
           "type": "object",
-          "required": ["reports", "team", "docs"],
+          "required": ["team", "docs"],
           "properties": {
-            "reports": { "enum": ["ru", "en"] },
+            "reports": { "enum": ["ru", "en"], "description": "Optional and read for one more release only: the language of reports belongs to the user ($HARNESS_HOME/user.json), not to the project." },
             "team": { "enum": ["ru", "en"] },
             "docs": { "enum": ["ru", "en"] }
           }

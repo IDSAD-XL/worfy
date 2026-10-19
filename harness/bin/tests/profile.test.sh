@@ -147,6 +147,10 @@ cat >"$T/config.json" <<EOF
 ]}
 EOF
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
+# The user's personalization file ($HARNESS_HOME/user.json) would override language.reports: these
+# checks run with an empty Harness state folder, and the real one is restored after them.
+HARNESS_HOME_WAS="${HARNESS_HOME-unset}"
+export HARNESS_HOME="$T/hh-synthetic"
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
 # the old form of language is a string: read as {reports, team} with one language
 check "legacy string language -> language.team" 0 "en" "$PROFILE" -C "$T/repo" --field language.team
@@ -239,6 +243,7 @@ check "common parent of a profile's repos, not HOME -> workspace" 0 "multi" \
 check "common parent of a profile's repos is HOME -> 3, not a workspace" 3 "" \
     env CLAUDE_GATE_CONFIG="$T/hw.json" HOME="$T/hw" USERPROFILE="$T/hw" "$PROFILE" -C "$T/hw/notes" --name
 unset CLAUDE_GATE_CONFIG CLAUDE_PROFILES_DIR
+if [ "$HARNESS_HOME_WAS" = unset ]; then unset HARNESS_HOME; else export HARNESS_HOME="$HARNESS_HOME_WAS"; fi
 
 # --- schema 2 and the profile's place on the machine ---------------------------------
 # Temporary HOME and HARNESS_HOME, the registry in $HARNESS_HOME/gate/config.json, no
@@ -526,8 +531,8 @@ fails_with "schema 1: attribution \"OFF\" -> 1 with the reason" 1 'got "OFF"' "$
 # The summary agents read prints the resolved profile: a Silent project without the field shows off there.
 check "summary of a Silent profile without attribution names off" 0 '"attribution": "off"' "$P2" -C "$T/r/home"
 check "summary of a Full profile without attribution names on" 0 '"attribution": "on"' "$P2" -C "$T/r/bare"
-check "--field language.docs absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field language.docs
-check "--field language.docs absent (schema 1, string language) -> 4" 4 "" "$P2" -C "$T/r/legacy" --field language.docs
+eq "--field language.docs absent -> en" en "$P2" -C "$T/r/bare" --field language.docs
+eq "--field language.docs of a string language (schema 1) is that language" ru "$P2" -C "$T/r/legacy" --field language.docs
 eq "--field language.docs from the file" ru "$P2" -C "$T/r/demo" --field language.docs
 check "--field mcp.allowed is a JSON list from the file" 0 "" bash -c '[ "$("$@" | node -e "console.log(JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")).join(\",\"))")" = qmd,worfy-canvas,github ]' _ "$P2" -C "$T/r/demo" --field mcp.allowed
 check "--field mcp.allowed absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field mcp.allowed
@@ -547,6 +552,48 @@ fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JS
 check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$(json_printed "$BINREAL")/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports
 eq "schema 1: string language -> language.team" ru "$P2" -C "$T/r/legacy" --field language.team
+# --- User personalization: $HARNESS_HOME/user.json -------------------------------------------------
+# language.reports comes from the user's file first, then (for one release) from the profile, then en.
+# language.team and language.docs stay in the profile; unset they are en. A broken user.json is one line
+# on stderr and the next value in that order, never a failure. Each case has its own Harness state
+# folder; the registry and the profiles are the ones above.
+# pu <Harness state folder> <profile arguments…>
+cat >"$T/pu" <<EOF
+#!/usr/bin/env bash
+hu="\$1"
+shift
+exec env CLAUDE_GATE_CONFIG="$HH/gate/config.json" CLAUDE_PROFILES_DIR="$HH/projects" HOME="$H" USERPROFILE="$H" HARNESS_HOME="\$hu" "$PROFILE" "\$@"
+EOF
+chmod +x "$T/pu"
+pu="$T/pu"
+uj() { mkdir -p "$T/u/$1" && printf '%s' "$2" >"$T/u/$1/user.json"; } # $1 case, $2 the file's text
+mkdir -p "$T/u/none"
+uj ru '{"language":{"reports":"ru","team":"de","docs":"de"}}'
+uj notjson '{"language":'
+uj array '["ru"]'
+uj numeric '{"language":{"reports":5}}'
+uj empty '{}'
+eq "user.json ru, profile en -> ru" ru "$pu" "$T/u/ru" -C "$T/r/bare" --field language.reports
+eq "user.json ru, profile without language -> ru" ru "$pu" "$T/u/ru" -C "$T/r/both" --field language.reports
+eq "user.json does not set language.team (profile en)" en "$pu" "$T/u/ru" -C "$T/r/bare" --field language.team
+eq "user.json does not set language.docs (profile ru)" ru "$pu" "$T/u/ru" -C "$T/r/demo" --field language.docs
+check "user.json ru: the summary shows reports ru" 0 '"reports": "ru"' "$pu" "$T/u/ru" -C "$T/r/bare"
+check "user.json ru: --json shows reports ru" 0 '"reports": "ru"' "$pu" "$T/u/ru" -C "$T/r/bare" --json
+eq "no user.json -> the profile's language.reports (ru)" ru "$pu" "$T/u/none" -C "$T/r/demo" --field language.reports
+eq "no user.json -> the profile's language.reports (en)" en "$pu" "$T/u/none" -C "$T/r/bare" --field language.reports
+eq "no user.json, no language in the profile -> reports en" en "$pu" "$T/u/none" -C "$T/r/both" --field language.reports
+eq "no language in the profile -> team en" en "$pu" "$T/u/none" -C "$T/r/both" --field language.team
+eq "no language in the profile -> docs en" en "$pu" "$T/u/none" -C "$T/r/both" --field language.docs
+eq "profile without language.docs -> docs en" en "$pu" "$T/u/none" -C "$T/r/bare" --field language.docs
+eq "user.json {} -> the profile's value" ru "$pu" "$T/u/empty" -C "$T/r/demo" --field language.reports
+check "user.json {}: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/empty" -C "$T/r/demo" --field language.reports
+for c in notjson array numeric; do
+    eq "broken user.json ($c), no language in the profile -> en, exit 0" en "$pu" "$T/u/$c" -C "$T/r/both" --field language.reports
+    eq "broken user.json ($c), profile ru -> ru" ru "$pu" "$T/u/$c" -C "$T/r/demo" --field language.reports
+    check "broken user.json ($c): one stderr line naming the file" 0 "" bash -c \
+        'e="$("${@:2}" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 1 ] && [[ "$e" == *"$1"* ]]' \
+        _ "$(printed "$T/u/$c/user.json")" "$pu" "$T/u/$c" -C "$T/r/both" --field language.reports
+done
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"

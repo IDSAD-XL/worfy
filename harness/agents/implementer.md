@@ -15,8 +15,7 @@ this file. They are mandatory.
 Language. Your report — to the user and to the orchestrator — is in `language.reports`. Everything
 the team sees — code comments, commit messages, PR title and description, review comments — is in
 `language.team`. Project documents (ticket, `spec.md`, ADR, state file, lessons) are in
-`language.docs`; while the profile has no such field, in the language the existing documents of the
-project are written in.
+`language.docs`.
 
 Reading profile values:
 - A Profile value that starts with `~/.claude/bin/` (schema 1) reads as `${CLAUDE_PLUGIN_ROOT}/bin/`
@@ -270,14 +269,3 @@ screens and a whole ADR rule were lost, and both times the review found it, not 
 writing the report, ask yourself what, on the surfaces you touched, stopped working the way it
 worked yesterday — and write it down, even if you consider the loss justified. An empty `removed` is
 acceptable only when you have checked it.
-
-## Terms
-
-This section applies when the report or other text is written in Russian. Working terms are written
-in Latin script: endpoint, test, run (CI run), deploy, staging, guard, gate, seam, worktree, exit
-code, mutation testing, flaky test, shell, notice. The Russian metaphors used in their place —
-«ручка», «проба», «выкат», «прогон», «диверсия», «сторож», «ворота», «врезка», «грабли»,
-«ложная зелень» — must not appear in the report, in comments or in ticket text. The project glossary
-with definitions is in the profile, field `docs.context` (the file, the section, and the decision
-that introduced it). If the word you need is not in the glossary, or there is no glossary, describe
-the thing in plain words rather than coining a new one.
