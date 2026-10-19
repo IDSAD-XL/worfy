@@ -653,6 +653,30 @@ describe('the selection toolbar, the Command palette and Focus mode', () => {
     expect(screen.getByRole('textbox', { name: 'New tag' })).toBeTruthy()
   })
 
+  it('read-only: "Show family" stays active beside the inactive Pin — it only moves the camera', async () => {
+    await windowOn(M, true)
+    const toolbar = await import('../../src/renderer/canvas/overlays/SelectionToolbar')
+    const focus = await import('../../src/renderer/canvas/edge-focus')
+    const ticket = { id: 'ticket:demo/1', kind: 'ticket', x: 0, y: 0, w: 220, h: 120, data: {}, hidden: false, locked: false, pinned: false, tags: [] } as unknown as LayoutNode
+    focus.setEdgeFocus([], [], { epics: ['demo'], tickets: [{ epic: 'demo', num: 1 }], sessions: [], subagents: [], bindings: [] })
+    try {
+      render(
+        <ReactFlowProvider>
+          <toolbar.PinSection nodes={[ticket]} />
+          <toolbar.FamilySection nodes={[ticket]} />
+        </ReactFlowProvider>,
+      )
+      expectInactive(screen.getByRole('button', { name: 'Pin' }))
+      const show = screen.getByRole('button', { name: 'Show family' })
+      expect(show.getAttribute('aria-disabled')).toBeNull()
+      expect((show as HTMLButtonElement).disabled).toBe(false)
+      fireEvent.click(show)
+      expect(fake.sent).toEqual([])
+    } finally {
+      focus.clearEdgeFocus()
+    }
+  })
+
   it('read-only: "New session" and "Tidy up" in the Command palette are inactive with the hint and run nothing; Full access: active', async () => {
     // jsdom has no scrollIntoView; the palette calls it for the active row.
     Element.prototype.scrollIntoView = () => undefined
