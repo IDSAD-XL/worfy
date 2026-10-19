@@ -1,18 +1,17 @@
 # harness/ — the worfy Harness
 
-The Harness is the set of rules, agents, skills, scripts and hooks that runs the owner's Claude Code
-workflow: epics, tickets, waves, the quality gate, project profiles. It becomes the Claude Code plugin
-`worfy` (ADR-0019, ADR-0040). This folder is its source.
+The Harness is the set of rules, agents, skills, scripts and hooks that runs a Claude Code
+workflow: epics, tickets, waves, the quality gate, project profiles. worfy ships it as the Claude Code
+plugin `worfy` and installs it into `~/.claude/worfy-harness/plugin/`. This folder is its source.
 
-**Not live yet.** Until ticket `worfy-harness/16` (the owner's machine switches to the plugin,
-ADR-0047), sessions run the frozen copy in `~/.claude`, not this folder. Changes here do not affect
-any session before then; the waves of epic E3 (`worfy-harness`) run on the frozen `~/.claude`.
+A change here reaches sessions only once the plugin is installed again from this folder; until then
+sessions run the installed copy.
 
 ## What is here
 
 | Path | What it is | Imported from `~/.claude` |
 |---|---|---|
-| `hooks/rules/orchestrator.md`, `hooks/rules/common.md` | Global rules: the main session gets both parts, a subagent gets `common.md`; `hooks/inject-rules.mjs` hands them over, `hooks/hooks.json` wires every hook (ticket 05) | `CLAUDE.md` |
+| `hooks/rules/orchestrator.md`, `hooks/rules/common.md` | Global rules: the main session gets both parts, a subagent gets `common.md`; `hooks/inject-rules.mjs` hands them over, `hooks/hooks.json` wires every hook | `CLAUDE.md` |
 | `agents/` | Generic agents: `implementer`, `reviewer`, `scout` | `agents/` |
 | `skills/<name>/SKILL.md` | `epic-wave`, `ship-ticket`, `retro`, `qmd`, `overnight-fix-loop`, `continuous-audit`, `tickets-to-tasks`; new in the plugin: `max-review` (a review of a whole branch before a risky merge), `gate-queue` (the cross-machine gate queue on the machine with `cross_machine_gate.role` `serve`: each waiting labelled PR rebased, checked, reported and merged) | `skills/` (`max-review` and `gate-queue` are new) |
 | `bin/` | Scripts: `profile`, `ticket`, `epic-status`, `preflight`, `worktree-lock`, `epic-board`, `qmd-mcp`, `qmd-refresh`, `qmd-sync-main`, `wave-gate` (one gate full for the set of a wave's ready PRs, then their merge; with `workflow.ci: "batch"` also the one CI run of the wave on the main branch, `wave-gate ci`); notes in `ТИКЕТЫ.md` | `bin/` |
@@ -25,19 +24,19 @@ any session before then; the waves of epic E3 (`worfy-harness`) run on the froze
 The global rules are not a `CLAUDE.md`: Claude Code does not load a `CLAUDE.md` from a plugin root,
 and a `CLAUDE.md` in a subfolder of the repository would be added to every session that edits this
 folder. They reach a session as `additionalContext` of the `SessionStart` and `SubagentStart` hooks,
-in parts of at most 10,000 characters each (ADR-0041).
+in parts of at most 10,000 characters each.
 
 `package.json` has no `"type"` on purpose. The worfy `package.json` says `"type": "module"`, and
 Node would then load the extensionless CommonJS scripts in `bin/` (`profile`, `epic-board`) as ES
 modules and fail. With no type Node detects each script's module syntax, as it does in `~/.claude`.
 
-The script paths still point at `~/.claude` (`$HOME/.claude/bin/profile` and the like); ticket 08
-moves them onto the plugin. The text is still partly in Russian; tickets 05–08 translate it
-(ADR-0044).
+Scripts are named through `${CLAUDE_PLUGIN_ROOT}`; a profile value of schema 1 that names
+`~/.claude/bin/<script>` is read as the same script of the plugin. Some text is still in Russian and is
+being translated.
 
 ## Import and history
 
-Ticket `worfy-harness/02` imported these files with their git history from the owner's `~/.claude`
+These files were imported with their git history from the author's `~/.claude`
 repository at commit `2e3b274cc2eacdc25fd3a5f46f24d4da422fa225` (the import base). Only the files
 above were kept, moved under `harness/` from the first commit on
 (`git filter-branch --index-filter … --msg-filter … --prune-empty`); commits left with no change
@@ -65,9 +64,11 @@ By hand, from the repository root:
 
 Each test checks the scripts next to it (`harness/bin`, `harness/hooks`); `BIN_DIR` and `HOOKS_DIR`
 point it at another copy. Registries, gate state and profiles are temporary folders. The checks
-against live repositories (Auction, Atakama, worfy) run only with the real `HOME`, when both the
-repository and the live gate registry (`~/.claude/gate/config.json`) exist; otherwise the test
-prints `skip …`. They only read `~/.claude`.
+against the live gate registry (`~/.claude/worfy-harness/gate/config.json`, or the older
+`~/.claude/gate/config.json`) run only with the real `HOME`: they take every project registered there
+whose directory exists; without a registry the test prints `skip …`. They only read `~/.claude`.
+`bin/tests/plugin-neutral.test.sh` keeps the plugin free of one person's names, paths and work
+projects and of the numbers of worfy's own decision records and tickets.
 
 ## Evals
 
@@ -101,9 +102,8 @@ the two calls: `0` — every case at 0.8 or above, `1` — a case below it or no
 partial run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal
 (`130` SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining call is not started.
 
-Every run and every `llm` grader is a real model call on the owner's account. The full set (ten
-cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18 (ticket
-worfy-harness/27, result section): an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
+Every run and every `llm` grader is a real model call on your account. The full set (ten
+cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
 `reviewer` run about 0.25 USD, a `status-block` run about 0.12 USD.
 The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
 `aggregate-result.json`; `evals/results/` holds run transcripts and stays out of git and out of
@@ -111,7 +111,7 @@ the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do n
 `test/contract/harness-evals.test.ts` checks for free only that every case is complete, every
 fixture builds, and the Harness scripts recognise it.
 
-git and the Harness state in a run (ticket worfy-harness/28). The sandbox settings `claude plugin
+git and the Harness state in a run. The sandbox settings `claude plugin
 eval` writes for a run list the Command Line Tools `git` binary among denied credential files, next
 to the `git-credential-*` helpers, and let a run write only into its working folder. So
 `scripts/eval-harness.mjs` copies the folder `git --exec-path` names, without `git-credential-*`,
@@ -125,4 +125,4 @@ and sets two variables, which every Harness script reads through `hooks/eval-env
 
 Without both variables the scripts start `git` from `PATH` and keep the state in `HARNESS_HOME` or
 `~/.claude/worfy-harness`, as before. Whether the copy of git runs inside a real sandbox is checked
-by the first paid run of ticket worfy-harness/27.
+by the first paid run of the eval set.

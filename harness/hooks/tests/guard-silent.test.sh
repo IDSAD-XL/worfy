@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of hooks/guard.mjs, section 3 (worfy-harness ticket 22): in a Silent project the guard refuses
+# Tests of hooks/guard.mjs, section 3: in a Silent project the guard refuses
 # commit messages, branch names and PR texts that carry traces of the workflow, and with
 # `attribution: off` the ones that carry Claude attribution lines; in a Full project with attribution on
 # the same commands pass, and sections 1 and 2 (destructive git commands, pipes that eat the exit

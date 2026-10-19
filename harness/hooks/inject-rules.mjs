@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Hook SessionStart / SubagentStart: hands one part of the Harness rules to the session as
-// additionalContext (ADR-0041). Usage in hooks.json: node "${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs" <part>,
+// additionalContext. Usage in hooks.json: node "${CLAUDE_PLUGIN_ROOT}/hooks/inject-rules.mjs" <part>,
 // where <part> names rules/<part>.md next to this script.
 //
 // Reads the hook event JSON on stdin and prints

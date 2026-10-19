@@ -624,7 +624,7 @@ else
     [ "$mrc" -eq 0 ] && [ ! -e "$SCREEN_DIR/caf.log" ] && ok "no caffeinate in PATH: check and merge run without it" || bad "no caffeinate: merge exit $mrc: $(cat "$W/mout")"
 fi
 
-# --- workflow.ci "batch" (ADR-0068): no CI on the PR head; one CI run on main after the wave -------------
+# --- workflow.ci "batch": no CI on the PR head; one CI run on main after the wave -------------
 # A PR whose checks are red (the stub `gh pr checks` exits 1) is merged in the set: wave-gate never asks for
 # checks or mergeStateStatus.
 new_world batch 1:a.txt 2:b.txt

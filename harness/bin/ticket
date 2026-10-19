@@ -23,7 +23,7 @@
 //                                       into the header above, once (see "migrate" below)
 //   ticket root                         print the tickets root (the directory of epics) and exit
 //   ticket mark <epic> <NN> <kind> <verdict> --sha <sha>
-//                                       an agent's mark bound to a commit (worfy ADR-0067): kind — review or
+//                                       an agent's mark bound to a commit: kind — review or
 //                                       check/<name>, verdict — pending, success, failure or skipped, sha — the
 //                                       full SHA. Full mode — a GitHub commit status on that SHA (context — the
 //                                       kind); Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json
@@ -66,7 +66,7 @@ const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N] [
        ticket mark --contexts
        ticket claim checkout-flow 05 --branch fix/lot-withdraw-button
        ticket done disputes/03 --pr 42
-       ticket block disputes 04 "waits for ADR-0045" --waits owner`
+       ticket block disputes 04 "waits for the API keys" --waits owner`
 
 const git = (args) => {
     try {
@@ -163,8 +163,8 @@ function markUsage() {
 const markArgs = cmd === "mark" ? markUsage() : null
 
 // --- tickets root -----------------------------------------------------------
-// The profile is always asked, not only outside git: Atakama's tickets live in a common
-// directory above three repositories, and from any of them git top-level would point
+// The profile is always asked, not only outside git: a project of several repositories may keep its tickets
+// in a common directory above them, and from any of them git top-level would point
 // to the wrong place. Exit 3 (directory not registered) and an empty field — the old behaviour.
 // A broken registry or profile (exit 1) — refusal: a silent fallback to git top-level
 // would write the status into the wrong file.
@@ -437,7 +437,7 @@ if (branchArg !== null) {
         die(`--branch: "${branchArg}" is not a valid branch name`)
     }
 }
-// The repository of the ticket is one of the project's repositories (_resolved.repos, ADR-0045: one ticket — one
+// The repository of the ticket is one of the project's repositories (_resolved.repos: one ticket — one
 // repository). Without a profile (--root outside the registry) there is nothing to check against.
 if (repoArg !== null && Array.isArray(prof?._resolved?.repos) && prof._resolved.repos.length) {
     const names = prof._resolved.repos.map((r) => r.name)
@@ -678,12 +678,12 @@ function diff(a, b) {
 }
 
 // --- mark -----------------------------------------------------------------------
-// One interface, two stores by the project's mode (worfy ADR-0067, item 2). Both are bound to the SHA: a new
+// One interface, two stores by the project's mode. Both are bound to the SHA: a new
 // commit makes a mark stale, and whoever reads it (worfy, the skills) compares the SHA with the head of the branch.
 //   Full mode   — a commit status: gh api -X POST repos/<owner>/<repo>/statuses/<sha>, context = the kind,
 //                 state = the verdict (skipped → success with the description "skipped"); the description names
 //                 no ticket and no epic. The repository is the ticket's `Repo:` line (a project of several
-//                 repositories, ADR-0045), otherwise the git repository ticket runs in; its origin must be on
+//                 repositories), otherwise the git repository ticket runs in; its origin must be on
 //                 GitHub. gh runs with the session's environment: the plugin's session hook sets GH_TOKEN of
 //                 the profile's github.account. $TICKET_GH, when set, names the program run instead of gh from
 //                 PATH (a test's stand-in; a node script runs with this node, as the sibling scripts do).

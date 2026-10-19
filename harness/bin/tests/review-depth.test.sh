@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The review depth contract (ticket worfy-review/08): review depth is a setting with four values —
+# The review depth contract: review depth is a setting with four values —
 # low, medium, high, max — read from the profile fields review.depth.wave, review.depth.first_round
 # and review.depth.later_rounds and overridden by an argument of skills ship-ticket and epic-wave.
 # Checked here: the profile contract (profiles/README.md) and the draft schema (run through

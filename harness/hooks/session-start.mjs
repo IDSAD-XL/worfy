@@ -5,7 +5,7 @@
 // the hook JSON, else the current folder): the registry $HARNESS_HOME/gate/config.json, the entry's "profile"
 // field. A directory outside the registered projects, a project without a profile, or a profile without
 // `session.inject_rules: true` and without `session.retro_reminder_after` — print nothing, code 0. That way the
-// Auction session start stays empty, as it was.
+// session start of a project that asks for neither stays empty, as it was.
 //
 // What is mixed in (the format is profiles/README.md, the `session` field); item 0 in a Silent project or with
 // `attribution: off`, items 1–3 only with session.inject_rules: true, item 4 with any session.retro_reminder_after:

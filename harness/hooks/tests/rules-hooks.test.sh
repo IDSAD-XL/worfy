@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests of the Harness rules that reach a session through hooks (ticket worfy-harness/05, ADR-0041):
+# Tests of the Harness rules that reach a session through hooks:
 # the parts in hooks/rules/, hooks/inject-rules.mjs and the hook wiring in hooks/hooks.json.
 # Run: bash harness/hooks/tests/rules-hooks.test.sh; exit code 0 means every check passed.
 #
 # Everything is found next to this file (harness/); nothing under $HOME is read or written.
-# JSON is read with node, not jq: Git Bash on Windows has no jq (worfy-windows ticket 04).
+# JSON is read with node, not jq: Git Bash on Windows has no jq.
 set -u
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd -P)"
 # The plugin folder as node prints it: C:/… in Git Bash on Windows (`pwd -W`), the same path elsewhere.
@@ -27,10 +27,10 @@ trap 'rm -rf "$T"' EXIT
 export HARNESS_HOME="$T/hh"
 USER_RULES="$HARNESS_HOME/user/rules.md"
 
-# One additionalContext string is cut to a preview above this many characters (ADR-0041).
+# One additionalContext string is cut to a preview above this many characters.
 LIMIT=10000
 # A plugin root as long as a real install path is likely to get; the parts must fit with it.
-LONG_ROOT="/Users/someone-with-a-long-name/.claude/plugins/cache/worfy-local-marketplace/worfy/10.20.30-build.12345"
+LONG_ROOT="/home/someone-with-a-longer-name/.claude/plugins/cache/worfy-local-marketplace/worfy/10.20.30-build.12345"
 
 # Characters (code points, as Claude Code counts a string), of a file or of stdin.
 chars() { node -e 'process.stdout.write(String([...require("fs").readFileSync(0, "utf8")].length))' <"${1:-/dev/stdin}"; }
@@ -76,7 +76,7 @@ done
 # --- 2. inject-rules.mjs: output for SessionStart and SubagentStart ---------------------------
 
 [ -f "$INJECT" ] && ok "inject-rules.mjs exists" || bad "inject-rules.mjs missing"
-# The bash hooks are gone (worfy-windows ticket 04); only the gate launcher gate.sh and the
+# The bash hooks are gone; only the gate launcher gate.sh and the
 # unregistered worktree-create.sh stay.
 for old in inject-rules session-start session-end stop gh-token-env; do
     [ ! -e "$HOOKS/$old.sh" ] && ok "bash hook $old removed" || bad "bash hook $old still there"
@@ -118,7 +118,7 @@ done
 
 # The plugin root goes in literally: a Windows path (Claude Code spells it C:/…) and characters a
 # replacement pattern would read ($&, $1) arrive as they are.
-WROOT='C:/Users/x/plugin $& $1'
+WROOT='C:/Work/x/plugin $& $1'
 run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$WROOT"
 c="$(ctx)"
 [ "$rc" -eq 0 ] && [[ "$c" == *"node \"$WROOT/hooks/gate.mjs\" fast"* ]] \
@@ -289,7 +289,7 @@ check_topics() {
 check_topics "$all" "${ORCH_TOPICS[@]}"
 check_topics "$RULES/common.md" "${COMMON_TOPICS[@]}"
 
-# The decision log of a wave that runs without a human (worfy-review ticket 06) is not a second
+# The decision log of a wave that runs without a human is not a second
 # state file, and the rule against a second state file says so itself: the caveat is the paragraph
 # right after it. Whole sentences, one after another, with line breaks folded into spaces.
 flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
@@ -378,12 +378,11 @@ for (const l of out) process.stdout.write(l + "\n")' "$HJ" "$1" 2>/dev/null
 if [ "$(hj valid)" = ok ]; then ok "hooks.json is valid JSON with .hooks"; else bad "hooks.json missing or invalid"; fi
 
 # The hooks of ~/.claude/settings.json:5-109, plus the three inject-rules entries; qmd-refresh came
-# with the qmd server of the plugin (worfy-harness ticket 17). No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
-# worfy-harness ticket 24 (owner decision 2026-10-09). Every Node script runs as an explicit
-# `node "${CLAUDE_PLUGIN_ROOT}/…"` (ADR-0055 item 2, worfy-windows ticket 04): Windows starts no
+# with the qmd server of the plugin. No WorktreeCreate: hooks/worktree-create.sh stays unregistered until
+# a project with a worktree.root outside the repository is connected (decided 2026-10-09). Every Node script runs as an explicit
+# `node "${CLAUDE_PLUGIN_ROOT}/…"`: Windows starts no
 # script by its #! line. Two exceptions: the gate hooks call the launcher gate.sh, because without
-# node only the launcher can say so (worfy-windows ticket 03); qmd-refresh is a zsh script until
-# worfy-windows ticket 15.
+# node only the launcher can say so; qmd-refresh is still a zsh script.
 # One line per hook: event|matcher|command|timeout.
 R='"${CLAUDE_PLUGIN_ROOT}'
 N='node "${CLAUDE_PLUGIN_ROOT}'
@@ -428,7 +427,7 @@ done < <(hj commands)
 if grep -q 'bin/qmd-refresh.* --quiet' "$HJ" 2>/dev/null; then ok "hooks.json: Stop runs qmd-refresh --quiet"; else bad "hooks.json: no qmd-refresh"; fi
 
 # Every command path, with ${CLAUDE_PLUGIN_ROOT} = harness, exists and is executable. A command
-# that starts with `node ` (ADR-0055) names a file node reads: it must exist, with or without the
+# that starts with `node ` names a file node reads: it must exist, with or without the
 # executable bit.
 while IFS= read -r cmd; do
     path="$(printf '%s' "$cmd" | sed -n 's#^\(node \)\{0,1\}"\${CLAUDE_PLUGIN_ROOT}\(/[^"]*\)".*#\2#p')"

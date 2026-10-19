@@ -22,7 +22,7 @@ import path from "node:path"
 import { gateConfigFile, isSameOrInside } from "./gate-paths.mjs"
 
 // The gate registry: CLAUDE_GATE_CONFIG, else $HARNESS_HOME/gate/config.json (HARNESS_HOME
-// defaults to ~/.claude/worfy-harness, ADR-0040 item 5), else the old place — see gate-paths.mjs.
+// defaults to ~/.claude/worfy-harness), else the old place — see gate-paths.mjs.
 const CFG = gateConfigFile()
 
 // An unreadable or broken registry is not "the project is not registered". There used to be
@@ -53,8 +53,8 @@ const readPkg = (p) => {
 }
 
 // --- choosing the repository: the longest prefix match wins -------------------
-// Letter case: on a case-insensitive file system (APFS by default) /users/alexey/work/auction is
-// the same directory as /Users/alexey/Work/Auction. fs.realpathSync.native (realpath(3)) returns
+// Letter case: on a case-insensitive file system (APFS by default) ~/work/acme is
+// the same directory as ~/Work/Acme. fs.realpathSync.native (realpath(3)) returns
 // the spelling from disk, the plain fs.realpathSync does not. So the target is normalized through native, and
 // `match` through native too, but only if the result differs from the entry by case alone:
 // that way nothing but the case changes (a trailing slash, symlinks and nonexistent paths

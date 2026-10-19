@@ -81,17 +81,17 @@ does not exist, the old `~/.claude/gate/config.json`). A project's entry has the
    (so a worktree anywhere on disk is recognised by its repository);
 2. `hooks/gate-resolve.mjs --which <root>` — the longest `match` prefix in the registry; the path
    is brought to its spelling on disk (native `realpath`), so on a case-insensitive filesystem
-   `/users/alexey/work/auction` is recognised as `/Users/alexey/Work/Auction`;
+   `~/work/acme` is recognised as `~/Work/Acme`;
 3. the `profile` field of the found entry → `$HARNESS_HOME/projects/<name>/profile.json`; if it is
    not there — during the transition `~/.claude/profiles/<name>/profile.json` (schema 1). If it is
    in both places, `$HARNESS_HOME` wins. `_resolved.dir` is the folder where the profile was found.
 4. No `match` fits — the common directory (workspace): if the directory lies inside the common
    parent of all repositories of ONE profile (the profile has at least two entries), the profile is
-   that one. So `/Users/alexey/Work/Atakama` (above the three Atakama repositories, not git itself)
-   and the directories outside git next to them get the `atakama` profile. The parent is computed
+   that one. So `/home/me/work/suite` (above the three repositories of the project `suite`, not git itself)
+   and the directories outside git next to them get the `suite` profile. The parent is computed
    from the registry, not stored. It does not count: the disk root, `$HOME`, a directory holding a
    repository of another profile or of an entry without a profile, and any directory inside a git
-   repository that is not in the registry (`/Users/alexey/Work/Atakama/flux-config-platform` —
+   repository that is not in the registry (`/home/me/work/suite/scratch-tools` —
    exit 3: the gate, preflight and the session hooks treat it as unregistered). `hooks/gate.mjs`
    does not take this step: the gate checks only registered repositories.
 
@@ -145,7 +145,7 @@ the way the project really runs them.
 | `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user. It belongs to the user, not to the project: `bin/profile` answers it from the user's `$HARNESS_HOME/user.json` (section "User personalization"), then, for one more release, from this field of the profile, then `en`. A new profile leaves it out | all agents, skills |
 | `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. Absent — `bin/profile` prints `en`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru", docs: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
 | `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — `bin/profile` prints `en` | implementer, reviewer, ship-ticket, epic-wave, retro |
-| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent or `null` — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode (worfy ADR-0061). `"on"` or `"off"` written here wins in both modes; any other value — exit 1 with the reason in stderr, as with `mode` | agents and skills that commit or open PRs |
+| `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent or `null` — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode. `"on"` or `"off"` written here wins in both modes; any other value — exit 1 with the reason in stderr, as with `mode` | agents and skills that commit or open PRs |
 | `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
 | `layout.packages` | strings | package or repository directories | scout, audit |
 | `layout.repos` | `{"<repository>": {kind, default_branch, what}}` \| null | a project of several repositories: `kind` — `single` (one package) or `workspaces`; the main branch; what is in it | scout, implementer |
@@ -158,29 +158,29 @@ the way the project really runs them.
 | `commands.verify` | string | the full local check in one line; agents append `; echo "EXIT=$?"`. A line that runs the gate names `node <plugin>/hooks/gate.mjs` or `bash <plugin>/hooks/gate.sh`, the spelling of profiles moved from the old Harness. Both work; where node is not on PATH, `gate.sh` answers "could not verify: node not found" with code 3 and replaces the verdict file, while `node …/gate.mjs` fails with 127 before the gate starts | implementer, reviewer |
 | `commands.prepare_tree` | string | what to do in a freshly created worktree before running checks | orchestrator, reviewer |
 | `commands.requires` | strings | what must be up (Docker, a database, the stack) | implementer, reviewer |
-| `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<пакет>` (package name) and `<файл>` (path from the package root, `test_one` only); `names` — package directory → name for `<пакет>` (`{"apps/api": "@auction/api"}`). No field — the root's commands | overnight-fix-loop |
+| `commands.package` | `{typecheck, test, test_one, names}` \| null | commands of one package of a monorepo: templates with the placeholders `<пакет>` (package name) and `<файл>` (path from the package root, `test_one` only); `names` — package directory → name for `<пакет>` (`{"apps/api": "@acme/api"}`). No field — the root's commands | overnight-fix-loop |
 | `modules` | `{deep, flat, skip, heavy}` \| null | what counts as a module: by default a directory right under `<пакет>/src`; `deep` — roots where a module is one level deeper; `flat` — packages that are one module as a whole; `skip` — directory names that form no modules; `heavy` — `{"<пакет>": N}`, no more than N modules of the package at once (the tests bring up their own database or stack) | overnight-fix-loop |
 | `tests.new_file` | `{"<пакет>": template}` \| null | where a module's new test file goes; placeholders `<имя>` (module name) and `<каталог модуля>` (module directory) | overnight-fix-loop |
 | `tests.globs` | strings \| null | test file name masks (`*.spec.ts`), for `grep --include` | overnight-fix-loop |
 | `workflow.folder` | absolute path \| null | the Workflow folder of a Silent mode project (section "Full mode and Silent mode"); `~/` is expanded, a relative path is a broken profile (exit 1). `null` or absent — the folder above the repositories for a project of several repositories, otherwise `$HARNESS_HOME/projects/<name>/workflow/`. Full mode ignores it: the Workflow folder is the root of the working tree. Written when the project is connected | profile (`_resolved.workflow_folder`), all skills and agents that write workflow files, qmd-collections |
 | `parallel` | `"worktrees"` \| `"single"` | `worktrees` — several implementers, each in its own worktree; `single` — one implementer, work in the main checkout, no worktree | all agents, epic-wave |
-| `worktree.root` | path \| null | where working trees are created. worfy and Auction keep `.claude/worktrees/` inside the repository. The planned default for projects connected from E3 on is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`. It is **not set** — the connection does not write it — and not supported until worfy-harness ticket 24: an implementer subagent edits only in a tree under `.claude/worktrees/` of the repository (`EnterWorktree` refuses any other), so until then `worktree.root` lies there, as skill `ship-ticket` requires. Ticket 22 (item 7) found one way that ticket 24 can build on: a `WorktreeCreate` hook with `isolation: "worktree"` — live probes with a test script given through `claude -p --settings` pinned the subagent to a tree outside the repository. The plugin does not register such a hook: `hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin, and it is not Claude Code's own worktree creation for a root inside the repository (no reuse of an existing tree, no cleanup, no fetch, no `.worktreeinclude`). `bin/profile`, `hooks/gate.mjs` and `bin/worktree-lock` recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
+| `worktree.root` | path \| null | where working trees are created. Projects connected so far keep `.claude/worktrees/` inside the repository. The planned default for newly connected projects is `<HARNESS_HOME>/worktrees/<name>/` (outside the repository, so the project's test runner and linter never walk into it, and `.gitignore` needs no entry), with a ticket's tree at `<worktree.root><NN>`. It is **not set** — the connection does not write it — and not supported yet: an implementer subagent edits only in a tree under `.claude/worktrees/` of the repository (`EnterWorktree` refuses any other), so until then `worktree.root` lies there, as skill `ship-ticket` requires. Ticket 22 (item 7) found one way that ticket 24 can build on: a `WorktreeCreate` hook with `isolation: "worktree"` — live probes with a test script given through `claude -p --settings` pinned the subagent to a tree outside the repository. The plugin does not register such a hook: `hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin, and it is not Claude Code's own worktree creation for a root inside the repository (no reuse of an existing tree, no cleanup, no fetch, no `.worktreeinclude`). `bin/profile`, `hooks/gate.mjs` and `bin/worktree-lock` recognise a tree outside the repository by `git rev-parse --git-common-dir` | implementer, reviewer, orchestrator |
 | `worktree.base` | string \| null | what to branch from (`origin/main`, `origin/master`). `null` — the Harness preflight takes `origin/<layout.repos.<repo>.default_branch>`, then the branch `origin/HEAD` points to, then `origin/main` | implementer, preflight |
 | `worktree.implementer` / `reviewer` | string | a ready `git worktree add` command with placeholders: `<ветка>` (branch, = `tickets.branch`), `<имя-тикета>` (ticket name, = `<NN>-<slug>`), `<эпик>` (epic), `<NN>`, `<slug>`, `<что-ревьюишь>` (what is reviewed). worfy names the tree by number only — `…/worktrees/<NN>` | implementer, reviewer, ship-ticket, epic-wave |
 | `tickets.root` | path \| null | root of the epics directory (`.scratch/`), with a trailing slash; the audit epic is created there. `bin/ticket`, `bin/epic-status` and `bin/epic-board` take the root from here too (path rules — below the table) | continuous-audit, ticket, epic-status, epic-board |
 | `tickets.path` | path template | where a ticket lies | implementer, epic-wave |
 | `tickets.trail_section` | string | the ticket section listing the files that may be edited | implementer |
 | `tickets.spec` | path template \| null | the epic spec, read together with the ticket | ship-ticket, epic-wave |
-| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (auction) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`). Silent mode has no template (`null`): a branch is named by what it changes and is recorded in the ticket's `Branch:` line | ship-ticket, epic-wave |
+| `tickets.branch` | template \| null | the ticket's branch name: `<эпик>/<NN>-<slug>` (acme) or `<эпик>/<NN>` (worfy — number only); epic-wave finds the wave's branches by it when resuming (everything after `<эпик>/` → `*`). Silent mode has no template (`null`): a branch is named by what it changes and is recorded in the ticket's `Branch:` line | ship-ticket, epic-wave |
 | `workflow.ticket_skill` | string \| null | the skill a ticket goes by | implementer |
 | `workflow.implementer_steps` | string | which steps of the skill the implementer does | implementer |
 | `workflow.finish` | `"pr-green-ci"` \| `"local-green"` | how the ticket finishes: a PR with green CI, merged by `workflow.merge`; or `local-green` — no PR: the ticket closes when the local `gate full` is green and its branch is merged locally into the main branch of its repository (section "Local finish"), and `ticket done` goes without `--pr` | implementer, ship-ticket, epic-wave |
 | `workflow.merge` | `"orchestrator"` | who merges | implementer, epic-wave |
-| `workflow.merge_gate` | `"each"` \| `"wave"` \| null | the gate before the merge of a PR with code (`pr-green-ci`; `local-green` has its own, section "Local finish"). Absent or `null` — the Harness requires none; `"each"` — every PR is rebased and gets its own `GATE_SCOPE=all` gate full; `"wave"` — one gate full for the set of a wave's ready PRs, `bin/wave-gate` (worfy ADR-0065); PRs the project's rules call platform PRs and PRs with the label `needs-mac-gate` stay out of the set. Any other value — exit 1 with the reason | epic-wave (section 4, "Gate before merge"), ship-ticket (step 9) |
-| `workflow.ci` | `"pr"` \| `"batch"` \| null | where GitHub CI runs (`pr-green-ci`). Absent or `null` — `bin/profile` resolves it to `"pr"`: CI on every PR head is a merge condition, as before. `"batch"` (worfy ADR-0068; the owner calls it a bad practice, so it is opt-in per project) — CI is not a merge condition: a PR merges on `workflow.merge_gate` (plus the other platform's verdict for a platform PR) when `mergeable` is `MERGEABLE`, whatever its old checks say, and CI runs once on the main branch after the wave is merged — `bin/wave-gate ci`. Any other value — exit 1 with the reason; exit 4 only when the profile has no `workflow` at all, and that reads as `"pr"` | implementer, ship-ticket (steps 8–9), epic-wave (sections 3–5), overnight-fix-loop, bin/wave-gate (through its CI file) |
+| `workflow.merge_gate` | `"each"` \| `"wave"` \| null | the gate before the merge of a PR with code (`pr-green-ci`; `local-green` has its own, section "Local finish"). Absent or `null` — the Harness requires none; `"each"` — every PR is rebased and gets its own `GATE_SCOPE=all` gate full; `"wave"` — one gate full for the set of a wave's ready PRs, `bin/wave-gate`; PRs the project's rules call platform PRs and PRs with the label `needs-mac-gate` stay out of the set. Any other value — exit 1 with the reason | epic-wave (section 4, "Gate before merge"), ship-ticket (step 9) |
+| `workflow.ci` | `"pr"` \| `"batch"` \| null | where GitHub CI runs (`pr-green-ci`). Absent or `null` — `bin/profile` resolves it to `"pr"`: CI on every PR head is a merge condition, as before. `"batch"` (opt-in per project: a red CI is found only after the merge) — CI is not a merge condition: a PR merges on `workflow.merge_gate` (plus the other platform's verdict for a platform PR) when `mergeable` is `MERGEABLE`, whatever its old checks say, and CI runs once on the main branch after the wave is merged — `bin/wave-gate ci`. Any other value — exit 1 with the reason; exit 4 only when the profile has no `workflow` at all, and that reads as `"pr"` | implementer, ship-ticket (steps 8–9), epic-wave (sections 3–5), overnight-fix-loop, bin/wave-gate (through its CI file) |
 | `workflow.ci_batch_run` | string \| null | the command that starts the CI run on a branch, `$ref` — the branch name (worfy: `gh workflow run ci.yml --ref $ref -f job=check`). Required with `workflow.ci: "batch"` (absent or blank — exit 1); not read with `"pr"`. Another type — exit 1 | bin/wave-gate ci, epic-wave |
 | `workflow.e2e_lock` | absolute path \| null | the directory every e2e run and every gate full of the project takes as a lock (`mkdir`; older than 30 min — abandoned; heartbeat `touch -c` every 5 min; released on exit and on error). `~/` is expanded; absent or `null` — no lock; a relative path or another type — exit 1 | bin/wave-gate (through the state file), epic-wave, the project's rules |
-| `workflow.pipeline` | `[{kind, name?, label?, stuck_after?, environment?}]` \| null | the Pipeline: the Stages a ticket goes through, in order, from a fixed catalogue of kinds, each with its predicate in the code of worfy and the Harness (worfy ADR-0067): `queued`, `implementing`, `ci`, `agent-review`, `human-review`, `check`, `gate-merge`, `awaiting-merge`, `deploy`, `closing`, `done`. `name` — `check` only, and required there: the agent's mark `check/<name>` the Stage waits for (lower case letters, digits, dashes); `label` — the Stage's name on the board; `stuck_after` — `"<number>h"` or `"<number>m"`, how long a ticket may stay on the Stage before it counts as stuck; `environment` — `deploy` only: the GitHub Deployment environment, without it the Stage waits for the commit status `deploy`. Rules: `queued` first, `done` last, each kind once (`check` once per `name`), `gate-merge` and `awaiting-merge` not together; any other field or value — exit 1 with the reason. Absent or `null` — the default Pipeline `queued, implementing, ci, agent-review, gate-merge, closing, done`; either way `bin/profile` resolves it into `_resolved.pipeline`. The profile picks no expressions or scripts of its own: a new kind is a change of worfy and the Harness | profile (`_resolved.pipeline`), worfy's board |
+| `workflow.pipeline` | `[{kind, name?, label?, stuck_after?, environment?}]` \| null | the Pipeline: the Stages a ticket goes through, in order, from a fixed catalogue of kinds, each with its predicate in the code of worfy and the Harness: `queued`, `implementing`, `ci`, `agent-review`, `human-review`, `check`, `gate-merge`, `awaiting-merge`, `deploy`, `closing`, `done`. `name` — `check` only, and required there: the agent's mark `check/<name>` the Stage waits for (lower case letters, digits, dashes); `label` — the Stage's name on the board; `stuck_after` — `"<number>h"` or `"<number>m"`, how long a ticket may stay on the Stage before it counts as stuck; `environment` — `deploy` only: the GitHub Deployment environment, without it the Stage waits for the commit status `deploy`. Rules: `queued` first, `done` last, each kind once (`check` once per `name`), `gate-merge` and `awaiting-merge` not together; any other field or value — exit 1 with the reason. Absent or `null` — the default Pipeline `queued, implementing, ci, agent-review, gate-merge, closing, done`; either way `bin/profile` resolves it into `_resolved.pipeline`. The profile picks no expressions or scripts of its own: a new kind is a change of worfy and the Harness | profile (`_resolved.pipeline`), worfy's board |
 | `numbering.adr` | `{dir, check}` \| null | the ADR directory and the check that numbers are unique | orchestrator, reviewer, ship-ticket, epic-wave |
 | `numbering.migrations` | `{generate, journal, order_key, check}` \| null | how migrations are created and what sets their order | implementer, reviewer, ship-ticket, epic-wave |
 | `deploy` | object \| null | `how` — how it deploys; `ci_run_check` — the command that checks the CI run by commit (`$sha` — the merge commit's SHA); `production_check` + `production_expect` — a request to the live address and the expected answer (requirements for the command — below the table); `smoke`, `auth` — explanations; `env` — names of environment variables without which the production checks cannot run (names, not values). `null` — the project does not deploy | orchestrator, ship-ticket, epic-wave |
@@ -202,8 +202,8 @@ the way the project really runs them.
 | `tasks.tool` | path | what scans tickets and keeps the ticket → task link (`scan`, `link`, `map`) | tickets-to-tasks |
 | `tasks.list_id` | template | the epic's `CLAUDE_CODE_TASK_LIST_ID`, `<slug>` — the epic name | tickets-to-tasks |
 | `tasks.scan_root` | path | where to look for `.scratch/<epic>/issues/` without an explicit directory | tickets-to-tasks (through `tasks.tool`) |
-| `mcp.allowed` | strings \| absent | names of the MCP servers allowed to the agents of the project in the sessions worfy starts (orchestrator, new sessions, Autopilot; their subagents inherit the set). Absent — exit 4, and worfy takes `plugin_worfy_qmd` and `worfy-canvas`, the servers the workflow needs. `plugin_worfy_qmd` is the qmd server of the Harness plugin, which worfy registers under that name (ADR-0048); `qmd` means the user's own server from `~/.claude.json` | worfy |
-| `qmd.collections` | strings | `qmd` collections where an answer about the project is expected. A hint, not a filter: agents search the whole index and do not pass this list into the `collections` parameter. Filled by the Harness, not by hand: `bin/qmd-collections <name>` adds `<name>-docs`, `<name>-tickets` and `<name>-memory` to the qmd index and writes their names here; a profile that already names collections present in the index (Auction) keeps them, and only their `update:` is pointed at the plugin's `qmd-sync-main` | all agents; written by qmd-collections |
+| `mcp.allowed` | strings \| absent | names of the MCP servers allowed to the agents of the project in the sessions worfy starts (orchestrator, new sessions, Autopilot; their subagents inherit the set). Absent — exit 4, and worfy takes `plugin_worfy_qmd` and `worfy-canvas`, the servers the workflow needs. `plugin_worfy_qmd` is the qmd server of the Harness plugin, which worfy registers under that name; `qmd` means the user's own server from `~/.claude.json` | worfy |
+| `qmd.collections` | strings | `qmd` collections where an answer about the project is expected. A hint, not a filter: agents search the whole index and do not pass this list into the `collections` parameter. Filled by the Harness, not by hand: `bin/qmd-collections <name>` adds `<name>-docs`, `<name>-tickets` and `<name>-memory` to the qmd index and writes their names here; a profile that already names collections present in the index keeps them, and only their `update:` is pointed at the plugin's `qmd-sync-main` | all agents; written by qmd-collections |
 | `qmd.covers` | string | what lies in them; written by `bin/qmd-collections` together with `qmd.collections` | all agents |
 | `qmd.mirror.path` | path \| absent | the git copy of the main branch that the qmd collections of a Full mode project are read from; absent — `~/.cache/qmd/<name>-<branch>`. `~/` is expanded | qmd-sync-main, qmd-collections, qmd-refresh |
 | `qmd.mirror.branch` | string \| absent | the branch of that copy; absent — `worktree.base` without `origin/`, and without it `main` | qmd-sync-main, qmd-collections, qmd-refresh |
@@ -222,7 +222,7 @@ addresses of private databases. The profile names the variable (`$API_URL`), not
 Placeholders inside values (`<эпик>`, `<NN>`, `<пакет>` and the rest above) are part of the
 contract: they are substituted as written, not translated.
 
-`cross_machine_gate` (worfy ADR-0069) is checked by `bin/profile` the way `mode` is. No field, or
+`cross_machine_gate` is checked by `bin/profile` the way `mode` is. No field, or
 `null` — exit 4 for `--field cross_machine_gate.<name>` (the project has one machine: the skills skip
 the step and say so). Exit 1 with the reason in stderr: `role` neither `"request"` nor `"serve"`, no
 `label`, no `checks_section` (absent or blank), `"serve"` without `check`, `exempt` that is not a
@@ -230,7 +230,7 @@ list of `/`-separated paths, `check` that is not a command string. A guessed rol
 a PR without the other machine's gate full, or leave it with nobody to merge it.
 
 `tickets.root` — how `bin/ticket`, `bin/epic-status` and `bin/epic-board` read it:
-- an absolute path (`/Users/alexey/Work/Atakama/.scratch/`) or `~/…` — taken as is. This is how a
+- an absolute path (`/home/me/work/suite/.scratch/`) or `~/…` — taken as is. This is how a
   project of several repositories writes the root when its tickets lie in the common directory
   (workspace) outside git: from any of its repositories and from the common directory itself the
   tickets are the same;
@@ -248,7 +248,7 @@ a PR without the other machine's gate full, or leave it with nobody to merge it.
   prints the resulting root.
 
 `epic-status --json --ref <branch>` reads the root from the git of the repository where it lies. A
-root outside git (Atakama) — exit 3 and the reason in stderr, not an empty answer. In Silent mode
+root outside git (the common directory of a project of several repositories) — exit 3 and the reason in stderr, not an empty answer. In Silent mode
 `--ref` is exit 3 with "in Silent mode the status does not live in branches": the status is written
 straight into the Workflow folder. Tests:
 `bash bin/tests/tickets-root.test.sh` from the plugin root; variables for tests —
@@ -259,7 +259,7 @@ takes the root from).
 Requirements: the password does not get into the process arguments (they are visible in `ps`) — the
 pair goes through stdin, for example `printf 'user = "%s:%s"\n' "$USER_VAR" "$PASS_VAR" | curl -K - …`
 (`printf` is a shell builtin, there is no separate process); the characters `"` and `\` in the pair
-must be escaped in such a config — auction does it with
+must be escaped in such a config — for example with
 `esc() { printf '%s' "$1" | sed 's/[\\"]/\\&/g'; }` (the value goes into `sed` through stdin, not as
 an argument), the check is `bin/tests/production-check.test.sh`; the exit code is not lost —
 `set -o pipefail` at the start of the line, `curl -f` and `jq -e`, so a 401, an empty answer or an
@@ -276,7 +276,7 @@ they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
 - `epic-status` — the epic summary: `epic-status <epic>` — one line, `--json [--ref <branch>]` — all
   epics as JSON; `--ref` with the tickets root outside git, or in Silent mode, — exit 3 with the
   reason. Every ticket in the JSON has `branch` and `repo` — the values of its `Branch:` and `Repo:`
-  lines, `null` without one (worfy reads them: worfy-harness ticket 23);
+  lines, `null` without one (the worfy app reads them);
 - `silent-check` — looks for traces of the workflow in a text (`silent-check -C <dir> <text>`,
   `--file <path|->`) or in the added lines and file names of a diff (`--diff <rev>`, `--cached`); the
   rules are in section "Full mode and Silent mode". Exit 0 — clean or nothing to check, 1 — traces
@@ -286,14 +286,14 @@ they are not profile fields. They live in `${CLAUDE_PLUGIN_ROOT}/bin/`:
   is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`; the line `<base>: <sha> …` is the base
   for briefs. `preflight` takes `epic-status` next to itself, not from the profile. The base is
   `worktree.base`; when it is `null` (a project of several repositories whose main branches
-  differ, like Atakama: `master` in two repositories, `main` in the third) — `origin/<default_branch>`
+  differ, for example `master` in two repositories and `main` in the third) — `origin/<default_branch>`
   of this repository from `layout.repos`, then the branch `origin/HEAD` points to, and only then
   `origin/main`. So every repository of such a project runs the Harness preflight against its own
   main branch. Exit 2 (not a git repository — for example the common directory above the
   repositories of such a project, — or a project that is not registered) — the skill runs a minimal
   preflight itself (`git fetch`, the state of the tree, open PRs).
 
-The qmd scripts are Harness constants too (worfy ADR-0043; skill `qmd`): `qmd-mcp` starts the MCP
+The qmd scripts are Harness constants too, so the user installs nothing (skill `qmd`): `qmd-mcp` starts the MCP
 server of `.mcp.json` (only after the user agreed to the models: `$HARNESS_HOME/qmd-models` starts
 with `downloaded`), `qmd-refresh` is the Stop hook that updates the index when a main branch moved,
 `qmd-sync-main <name>` pulls the copy of `qmd.mirror`, and `qmd-collections <name>` adds a project's
@@ -306,17 +306,17 @@ repository.
 ## Full mode and Silent mode
 
 `mode` decides where the **workflow files** live — tickets, epic specs, the state file, ADRs, the
-glossary, lessons, evidence screenshots (worfy ADR-0042). The folder they live in is the **Workflow
+glossary, lessons, evidence screenshots. The folder they live in is the **Workflow
 folder**, `_resolved.workflow_folder`:
 
 - **Full mode** — the root of the current working tree: the files are in the repository and travel in
-  the branches, as worfy and Auction have always worked. Nothing below changes Full mode except
+  the branches, as projects have always worked. Nothing below changes Full mode except
   `attribution` and the local finish, which hold in both modes.
 - **Silent mode** — a folder outside the project's repositories: `workflow.folder`; without it the
-  folder above the repositories of a project of several repositories (Atakama keeps its `.scratch/` and
+  folder above the repositories of a project of several repositories (such a project keeps its `.scratch/` and
   `HANDOFF.md` there), otherwise `$HARNESS_HOME/projects/<name>/workflow/`, which by default is a local
   git repository for history only (no remote unless the user adds one). A project of several
-  repositories is always Silent (ADR-0045).
+  repositories is always Silent.
 
 The Workflow folder has the same layout in both modes, so one reader (worfy, ticket 23) reads both:
 
@@ -373,7 +373,7 @@ session of the project, and the guard refuses the commands above when their text
 `on` — as before.
 
 A profile that does not set `attribution` gets the default of its mode: **`off` in Silent mode, `on`
-in Full mode** (worfy ADR-0061, which refines item 6 of ADR-0042). A value written in the profile
+in Full mode**. A value written in the profile
 wins in both modes: `"on"` in a Silent project keeps the lines, `"off"` in a Full project drops
 them. `null` reads as "not set"; a value that is neither `"on"` nor `"off"` (`""`, `"OFF"`, `0`,
 `false`) is a broken profile, exit 1, as a wrong `mode` is.
@@ -385,20 +385,19 @@ no default of their own. The rule "Silent — `off`, Full — `on`" is written i
 - `bin/profile` — a profile without the field;
 - worfy's "Add project": for a Silent project worfy sets `off` over whatever the draft says, once,
   before the form is shown; the person may change the field there, and that choice is written. A
-  Full draft keeps the value the Session proposed (`src/main/projects/connect.ts`, `applyChoices`);
+  Full draft keeps the value the Session proposed;
 - worfy's move of schema 1 profiles: the value the old profile names, else the default of the
-  proposed mode (`src/main/harness/migrate/profiles.ts`);
+  proposed mode;
 - the text of skill `connect-project`, which names the value by the mode.
 
-The two worfy places share one function (`src/main/harness/attribution.ts`), and
-`test/contract/projects-connect.test.ts` of worfy holds it to what `bin/profile --field attribution`
+The two worfy places share one function, and a contract test of the worfy repository holds it to what `bin/profile --field attribution`
 prints for a profile without the field, in both modes; `bin/tests/project-connect.test.sh` holds
 the skill's sentence. The draft schema requires the field, so a project connected through worfy
 carries the value explicitly.
 
 ## Local finish
 
-With `workflow.finish: local-green` (a project without PR rights or without `origin`, ADR-0045) a
+With `workflow.finish: local-green` (a project without PR rights or without `origin`) a
 ticket closes when the local `gate full` is green on its branch **and** the branch is merged locally
 into the main branch of its repository; `ticket done` goes without `--pr`. Before that change
 `local-green` merged nothing.
@@ -452,9 +451,9 @@ Profiles of schema 1 are read until they are moved to schema 2 and into `$HARNES
   absolute form `$HOME/.claude/bin/` (the Harness before the plugin) is replaced with the same
   script next to `bin/profile`: `~/.claude/bin/ticket` → `<bin>/ticket`,
   `~/.claude/bin/preflight --epic <эпик>` → `<bin>/preflight --epic <эпик>`. Any other value is
-  left as it is, and `null` stays `null` (Atakama has `workflow.preflight: null`). Schema 2 has no
+  left as it is, and `null` stays `null` (for example `workflow.preflight: null`). Schema 2 has no
   such choice — the Harness preflight is one for all projects; skills no longer read these fields,
-  so Atakama's repositories now go through the Harness preflight too (its base — section "The
+  so the repositories of such a project now go through the Harness preflight too (its base — section "The
   Harness's own scripts").
 - **The same four fields in schema 2.** They are not in the table and not read from the file. So
   that a reader that still asks for one does not break, `--field` (and `--json`) answers with this

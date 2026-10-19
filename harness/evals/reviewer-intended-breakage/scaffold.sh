@@ -9,7 +9,8 @@
 #                            rounding is Math.floor instead of Math.round — a real defect, and the
 #                            tests of the branch stay green on it (percent(2, 3) gives 66.6, not 66.7).
 #
-# Bash, not Node: it is test code (ADR-0055). Writes only into the current folder and $HOME.
+# Bash, not Node: it is test code; only the scripts the plugin ships must run without bash.
+# Writes only into the current folder and $HOME.
 set -euo pipefail
 
 bash "$(dirname "$0")/../lib/demo-project.sh" local-green none

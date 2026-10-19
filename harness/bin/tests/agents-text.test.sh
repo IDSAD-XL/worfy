@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Text of the Harness agents (harness/agents/{implementer,reviewer,scout}.md) after the move to the
-# plugin (ticket worfy-harness/07): English text, paths through ${CLAUDE_PLUGIN_ROOT}, the worfy:
+# plugin: English text, paths through ${CLAUDE_PLUGIN_ROOT}, the worfy:
 # prefix for skills and agents, EXIT=$? instead of the old Russian exit-code line, an unchanged
 # JSON report of the implementer, the English brief labels shared with skill epic-wave, and
 # Cyrillic only in the strings other programs and files still expect.
@@ -99,14 +99,14 @@ for a in implementer reviewer; do
     grep -E '^- ' "$AGENTS/$a.md" | grep -qF -- "$WRITE_RULE" \
         && ok "$a: general rule: write to ~/.claude only when the brief allows it" \
         || bad "$a: no general rule '$WRITE_RULE' at the start of a list item"
-    # GH_TOKEN comes from the plugin's SessionStart hook (worfy-harness ticket 18), not from the brief.
+    # GH_TOKEN comes from the plugin's SessionStart hook, not from the brief.
     has "$a" 'is set by the plugin'"'"'s `SessionStart` hook' && has "$a" '"Could not resolve to a Repository", compare `gh auth status` with `github.account`' \
         && ok "$a: GH_TOKEN from the SessionStart hook, 'Could not resolve' check kept" \
         || bad "$a: no rule about GH_TOKEN from the SessionStart hook"
     has "$a" 'gh auth token -u' && bad "$a: still has the manual GH_TOKEN=\$(gh auth token -u …) prefix" \
         || ok "$a: no manual gh auth token prefix"
 done
-# The qmd server of the plugin (harness/.mcp.json, worfy-harness ticket 17): its tools are mcp__plugin_worfy_qmd__*.
+# The qmd server of the plugin (harness/.mcp.json): its tools are mcp__plugin_worfy_qmd__*.
 TOOLS='tools: Read, Grep, Glob, Bash, mcp__plugin_worfy_qmd__query, mcp__plugin_worfy_qmd__get, mcp__plugin_worfy_qmd__multi_get, mcp__plugin_worfy_qmd__status'
 for a in reviewer scout; do
     [ "$(sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/$a.md" | grep '^tools:')" = "$TOOLS" ] \
@@ -118,7 +118,7 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
 # Gate verdict words (their new text is ticket 09), Profile placeholders and the Profile heading
 # for the implementer's required reading (Profile contract, ticket 11), and the name a Profile
-# gives the lens "simplification" (ticket worfy-review/02).
+# gives the lens "simplification".
 ALLOWED=(
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'
     '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
@@ -138,7 +138,7 @@ for a in $ALL; do
 done
 
 # --- 8. reviewer: checks for a broken local build and a feature-flag leak, scope by the diff ---
-# (ticket worfy-review/01). The text is wrapped, so a phrase is looked up in the file with its line
+#. The text is wrapped, so a phrase is looked up in the file with its line
 # breaks folded into spaces.
 flat() { tr '\n' ' ' <"$AGENTS/$1.md" | tr -s ' '; }
 has_flat() { flat "$1" | grep -qF -- "$2"; } # $1 = agent, $2 = literal text
@@ -186,7 +186,7 @@ caps="$(CAPS_ALLOWED="$CAPS_ALLOWED" perl -ne 'BEGIN { %ok = map { $_ => 1 } spl
 [ -z "$caps" ] && ok "reviewer: no word of four or more capital letters outside the allowed names" \
     || bad "reviewer: words in capitals:"$'\n'"$caps"
 
-# --- 9. reviewer: the lens "simplification" (ticket worfy-review/02) ---------------------------
+# --- 9. reviewer: the lens "simplification" ---------------------------
 # Lens descriptions live in reviewer.md, in the section "Lens descriptions". Every sentence of the
 # lens is looked up inside its own section, so a rule that moves out of the section fails the check too.
 rv "a lens is read by its description, and by its name without one" \
@@ -268,7 +268,7 @@ names Thermos, the file, the commit, the licence and what was taken :: Source: T
 names ponytail, the files, the commit, the licence and what was taken :: Source: ponytail, `skills/ponytail-review/SKILL.md` and `skills/ponytail/SKILL.md`, commit `9cc65d03aa2da1db7121b912d03596409ee340b8` of `DietrichGebert/ponytail` (tag v5.1.0; MIT, Copyright (c) 2026 DietrichGebert) — delete, the standard library, not needed now, merge and split; the first filter and the `shortcut:` comment.
 says what is reworded and what is taken as it is :: The rules are reworded, not copied: taken as they are only the marker `shortcut:` and the category names delete, merge and split. The third filter is this project's own rule.
 EOF
-# --- 10. implementer: the smallest complete change (ticket worfy-review/04) ---------------------
+# --- 10. implementer: the smallest complete change ---------------------
 # Step 4 of section Order: the order of options, the two rules before the edit, what is never cut,
 # the `shortcut:` comment and the script that lists such comments; the source and its licence
 # close the section. Sentences are looked up in the section with line breaks folded into spaces.
@@ -334,7 +334,7 @@ last_line="$(printf '%s\n' "$ORDER" | grep -v '^$' | tail -n 1)"
 # The script the text names is in harness/bin.
 [ -x "$AGENTS/../bin/shortcut-ledger" ] && ok "implementer: bin/shortcut-ledger exists" || bad "implementer: bin/shortcut-ledger is missing"
 
-# --- 11. implementer: only its own e2e files (ticket worfy-throughput/03) -----------------------
+# --- 11. implementer: only its own e2e files -----------------------
 # Step 5 of section Order has a paragraph of its own on e2e tests, and the whole paragraph hangs on
 # the condition: a project whose profile has no `commands.e2e` gets no e2e rule. The implementer
 # runs the e2e files its ticket touches; the full suite is the orchestrator's gate full before the

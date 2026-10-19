@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The launcher of the quality gate, under the old name of the gate. The gate is gate.mjs, run by
-# node (worfy-windows ticket 03). This file does three things and decides nothing else:
+# node. This file does three things and decides nothing else:
 #   1. it finds a node that can run gate.mjs — version NODE_MIN or newer, checked by starting it:
 #      the one on PATH; only when PATH has none such, the places a hook with a bare PATH misses —
 #      /opt/homebrew/bin, then /usr/local/bin (where the installer of nodejs.org puts node; a
@@ -25,10 +25,10 @@
 #     PATH it answers «node не найден» with code 3, where `node …/gate.mjs` fails with 127. Rules,
 #     skills, agents and bin/ name gate.mjs, and so does a new profile.
 #
-# This file is a departure from ADR-0055 item 2 (a hook command names `node`, not a script
-# started by its first line) and from "a way without bash outside tests" of worfy-windows ticket
-# 03. It exists because nothing else can replace a stale verdict when node is missing. That this
-# file is the entry point of the hook is the owner's decision of 2026-10-14.
+# This file departs from two rules of the Harness: a hook command names `node`, not a script
+# started by its first line, and nothing outside tests needs bash. It exists because nothing else
+# can replace a stale verdict when node is missing. That this file is the entry point of the hook
+# was decided on 2026-10-14.
 set -u
 
 # The oldest node the launcher starts gate.mjs with: 18 has all gate.mjs uses (top-level await,

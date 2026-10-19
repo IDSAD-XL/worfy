@@ -3,7 +3,7 @@
 #   - qmd-sync-main: a copy that is not the root of its own repository — refusal without fetch/checkout;
 #   - qmd-refresh: one broken profile / one missing copy do not stop the run —
 #     qmd update is still called; with --quiet (Stop hook) exit 0, without --quiet — 1;
-#     qmd embed only after the consent to the models (worfy-harness ticket 17);
+#     qmd embed only after the consent to the models;
 #   - qmd-mcp (ticket 17): without the answer "downloaded" no server; the Russian query expansion
 #     model only for a project with language.docs ru; the plugin's .mcp.json, the agents' qmd tools
 #     and the Stop hook.

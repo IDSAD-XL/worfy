@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Where the Harness keeps its machine state and how its scripts find each other
-# (ticket worfy-harness/08, ADR-0040 item 5):
+# (HARNESS_HOME, by default ~/.claude/worfy-harness):
 #   1. With HARNESS_HOME unset, the state lives in $HOME/.claude/worfy-harness: the gate's
 #      cache/, stop-blocks/ and red-*/unverified-* markers, worktree locks, the epic-board
 #      snapshot. $HOME/.claude/gate, worktree-sessions and state never appear.
@@ -264,7 +264,7 @@ check "bin not executable: node epic-board --no-open (exit 0, page written)" [ "
 
 # --- 5. Machine output is unchanged ------------------------------------------------------
 # The expected JSON was printed by epic-status at the branch base (origin/main 31bc642) on this fixture;
-# worfy-harness ticket 22 added the branch and repo of every ticket (null: no Branch:/Repo: line); the
+# a later change added the branch and repo of every ticket (null: no Branch:/Repo: line); the
 # one-fact-per-line header added statusAt, statusError, blockedReason, waits and pr, and made the old
 # Russian Status line of ticket 03 an old header (state none).
 want='{"ref":"main","epics":[{"epic":"e1","hasSpec":false,"hasMap":false}],"tickets":[{"epic":"e1","num":1,"slug":"first","title":"01 — First","statusRaw":"done","state":"done","statusAt":null,"statusError":null,"blockedReason":null,"waits":null,"pr":null,"blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":2,"slug":"second","title":"02 — Second","statusRaw":"open","state":"open","statusAt":null,"statusError":null,"blockedReason":null,"waits":null,"pr":null,"blockedRaw":"01","blockedNums":[1],"blockedParsed":true,"branch":null,"repo":null,"ref":"main"},{"epic":"e1","num":3,"slug":"third","title":"03 — Third","statusRaw":"Выкачено 2026-08-23, PR #27","state":"none","statusAt":null,"statusError":"old header","blockedReason":null,"waits":null,"pr":null,"blockedRaw":null,"blockedNums":[],"blockedParsed":false,"branch":null,"repo":null,"ref":"main"}]}'

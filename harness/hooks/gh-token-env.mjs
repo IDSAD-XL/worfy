@@ -7,8 +7,8 @@
 //
 //   export GH_TOKEN="$(gh auth token -u <account> 2>/dev/null)"
 //
-// Claude Code runs that file before every Bash command of the session and of its subagents
-// (ADR-0048, question 2), so the token is computed on each command and is never written to disk,
+// Claude Code runs that file before every Bash command of the session and of its subagents,
+// so the token is computed on each command and is never written to disk,
 // to stdout, to stderr or into additionalContext — this script only checks the exit code of gh.
 // The project's account wins over a GH_TOKEN the user exported: the line overrides it.
 // The global gh account is never touched: no `gh auth switch`, no `gh auth login`, no gh config.
@@ -28,7 +28,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-// A GitHub login (the same rule as GITHUB_LOGIN in src/main/workflow/profile.ts): letters, digits
+// A GitHub login (the same rule as the worfy app's check of github.account): letters, digits
 // and single inner hyphens, at most 39 characters. Anything else would land in a shell line that
 // runs before every Bash command, or be read by gh as an option.
 const GITHUB_LOGIN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/
@@ -92,7 +92,7 @@ function main() {
     if (run.error) throw run.error
     if (run.status !== 0) return
     let account = String(run.stdout ?? "").replace(/\n+$/, "")
-    // A JSON-quoted string is taken too, as readGithubAccount in src/main/workflow/profile.ts does.
+    // A JSON-quoted string is taken too, as the worfy app's reader of github.account does.
     if (account.length >= 2 && account.startsWith('"') && account.endsWith('"')) account = account.slice(1, -1)
     if (!account || account === "null") return
     if (!GITHUB_LOGIN.test(account) || account.length > 39) return

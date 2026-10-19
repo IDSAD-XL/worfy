@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // qmd-collections <project> — puts the project's documents into the global qmd index
-// (worfy-harness ticket 17, ADR-0043) and names the collections in its profile.
+// and names the collections in its profile. qmd is part of the Harness: the user installs nothing.
 //
 // Three collections, one name each on the whole machine:
 //   <project>-docs     ADRs, CONTEXT, HANDOFF and lessons — from the profile's docs.* and lessons;
@@ -22,7 +22,7 @@
 // only when the user agreed to the models ($HARNESS_HOME/qmd-models starts with `downloaded`) —
 // `qmd embed` goes to the background, as in qmd-refresh.
 //
-// A profile that already names collections, all of them in index.yml (Auction: auction, tickets,
+// A profile that already names collections, all of them in index.yml (for example acme, tickets,
 // memory), gets no new ones: only the `update:` of the collections that run a qmd-sync-main other
 // than the plugin's for this project is pointed at the plugin's. Names, paths and patterns stay.
 //

@@ -1,4 +1,4 @@
-# Sourced by the Harness shell tests that must not write into the real home (worfy-harness ticket 22).
+# Sourced by the Harness shell tests that must not write into the real home.
 #
 #   real_home_snapshot <home> [<marker>]
 #   real_home_diff <before> <after>
