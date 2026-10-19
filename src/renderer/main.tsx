@@ -55,7 +55,7 @@ export function App() {
   // Session view (session/navigation.ts).
   const view = useNavigation((store) => store.view)
   const canvas = <Canvas projectId={active?.id} />
-  // The app version is a toolbar item (shell/toolbar/AppVersion.tsx).
+  // The app version is the second line of the Harness toolbar item (shell/toolbar/HarnessStatus.tsx).
   return (
     <AppShell
       project={project}

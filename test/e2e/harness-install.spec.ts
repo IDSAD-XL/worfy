@@ -141,7 +141,7 @@ test('"Harness not installed" → Install → one dialog names the dependency co
     const pluginDir = join(claudeHome, 'worfy-harness', 'plugin')
     const item = window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-text')).toHaveText('Harness not installed')
-    await expect(item.getByTestId('harness-action')).toHaveText('Install')
+    await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Install')
     // Reading the state ran no `claude` and wrote nothing.
     expect(calls()).toEqual([])
     expect(existsSync(join(claudeHome, 'worfy-harness'))).toBe(false)
@@ -181,7 +181,7 @@ test('Cancel in the dialog writes nothing: claude ran only its two reads', async
   const launched = await launchApp({ env: stub.env })
   try {
     const item = launched.window.getByTestId('harness-status')
-    await expect(item.getByTestId('harness-action')).toHaveText('Install')
+    await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Install')
     await answerDialogWith(launched, 1)
     await item.getByTestId('harness-action').click()
     await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
@@ -213,8 +213,9 @@ test('another version installed: "Update Harness" → the dialog shows from → 
     await launched.window.reload()
 
     const item = launched.window.getByTestId('harness-status')
-    await expect(item.getByTestId('harness-action')).toHaveText('Update Harness')
-    await expect(item.getByTestId('harness-action')).toHaveAttribute('title', `${OLD} → ${bundledVersion()}`)
+    await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Update Harness')
+    await expect(item.getByTestId('harness-action')).toHaveAttribute('title', `Update Harness: ${OLD} → ${bundledVersion()}`)
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${OLD}`)
     await shoot(launched, 'update')
 
     await answerDialogWith(launched, 0)
@@ -243,7 +244,7 @@ test('a failing `claude plugin install` of worfy shows the step, with the tail o
     await item.getByTestId('harness-action').click()
     await expect(item.getByTestId('harness-text')).toHaveText('Harness error: install')
     await expect(item.getByTestId('harness-text')).toHaveAttribute('title', /plugin install worfy@worfy-harness --scope user failed: stub error/)
-    await expect(item.getByTestId('harness-action')).toHaveText('Retry')
+    await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Retry')
     await shoot(launched, 'error')
   } finally {
     await launched.close()
@@ -262,7 +263,7 @@ test('a failing install of the dependency: "Harness error: dependency install", 
     await expect(item.getByTestId('harness-text')).toHaveText('Harness error: dependency install')
     await expect(item.getByTestId('harness-text')).toHaveAttribute('title', new RegExp(`plugin install ${DEP} --scope user failed: stub error`))
     const retry = item.getByTestId('harness-action')
-    await expect(retry).toHaveText('Retry')
+    await expect(retry).toHaveAccessibleName('Retry')
     // Retry installs the dependency itself: its hint names no command to run by hand.
     expect(await retry.getAttribute('title')).not.toContain('claude plugin install')
     expect(existsSync(join(launched.claudeHome, 'worfy-harness'))).toBe(false)

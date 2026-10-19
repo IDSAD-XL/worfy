@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
+import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
@@ -151,6 +152,13 @@ function start(): void {
       } catch (error) {
         console.error('[archive] the automatic archive did not start', error)
       }
+      // The Limits asked from Claude Code every 30 minutes, at zero model tokens, while the
+      // Sessions and the status line bring nothing fresh (limits-usage.ts). Not a startup step:
+      // without it the Limits keep their passive sources.
+      installLimitsRefresh().then(
+        (stop) => app.on('will-quit', stop),
+        (error: unknown) => console.error('[limits] the usage refresh did not start', error),
+      )
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
