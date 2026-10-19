@@ -95,7 +95,7 @@ Ticket на круг доработки. Как узнать: заявленно
 запустил бы настоящий `gh` тем же путём. Что делать: такой test задаёт `GIT_CONFIG_GLOBAL` (временный файл
 или `/dev/null`) или передаёт git `-c credential.helper=`. Как узнать: `gh` или `gh.exe` в списке процессов во
 время `pnpm test`, хотя ни один test не зовёт `gh` по имени.
-Проверка: проверки нет: test-а, который ловит сетевую операцию git без `GIT_CONFIG_GLOBAL`, нет; для прогонов eval то же сторожит test/contract/harness-evals.test.ts:512.
+Проверка: проверки нет: test-а, который ловит сетевую операцию git без `GIT_CONFIG_GLOBAL`, нет; для прогонов eval то же проверяет test/contract/harness-evals.test.ts:512.
 Источник: Session на Windows-ПК, 2026-10-19.
 
 ## Три test-а краснеют только под нагрузкой параллельного gate full

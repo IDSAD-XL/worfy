@@ -30,7 +30,7 @@
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
 - `worfy-windows`, ПК: на C: нет места (Фото iCloud); 12 — SmartScreen установщика; 07 — Q31 и `Get-Process` установленного worfy.
 - `worfy-harness` 27: как дать прогонам eval `Bash` — варианты (а), (б), (в) в «Итог» 27 (ссылки в `~/.docker/bin/lib`).
-- Утром: `mv ~/docker-bin.off ~/.docker/bin`; мерж #496 при красном на Windows `harness-evals.test.ts` (чинит 65); вердикт Windows для #508; приёмки (Q14).
+- `mv ~/docker-bin.off ~/.docker/bin`; Q-e: мерж #496 (Windows чинит 65); Q-h по #508 (test-ы watcher-а красны на Windows, как и на main); приёмки (Q14).
 - `worfy-ui`: вручную — раздел Health (06) и ⌘B (10); AltGr на Windows-ПК (03) — пока владелец не скажет в чате ПК; gate full на Windows для 03 и 10 — после e2e Windows (`worfy-windows` 14); долги — «Итог» 03–06, 09, 10, 13–15; 11 — gate full на Windows-ПК и решения в PR #328.
 
 ## Риски и долги

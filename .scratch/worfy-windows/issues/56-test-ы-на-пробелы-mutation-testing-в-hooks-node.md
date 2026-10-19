@@ -69,7 +69,7 @@ Mutation testing меняет одну строку кода и гоняет tes
 
 ## Итог
 
-PR #504 добавил test-ы на четыре строки, которые не сторожил ни один test: в
+PR #504 добавил test-ы на четыре строки, которые не проверял ни один test: в
 `harness/hooks/tests/gate-notverified.test.sh`, `harness/hooks/tests/gh-token-env.test.sh` и
 `harness/hooks/tests/session-hooks.test.sh` (код hooks не менялся).
 

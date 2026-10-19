@@ -72,7 +72,7 @@ PR #501 влит 2026-10-18, merge commit `15d3ab40`. Head `0d1a6c1b` (rebase н
 Mac — зелёный со второго запуска. Первый был красным на flaky test-е вне PR: `test/contract/terminal.test.ts`
 «open starts $SHELL -l … output comes back» (ожидание `vi.waitFor` в `test/contract/terminal-harness.ts:288`);
 файл отдельно — 6 из 6 зелёных. Не платформенный PR — `check/windows` skipped. Ревью: круг 1 (high) — две
-находки med и шесть low, все исправлены в `dbc899ec`; круг 2 (medium) — блокеров нет, 13 из 14 мутантов убиты.
+находки med и шесть low, все исправлены в `0d1a6c1b` (до rebase — `dbc899ec`); круг 2 (medium) — блокеров нет, 13 из 14 мутантов убиты.
 
 Долги (low):
 
