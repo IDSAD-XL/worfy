@@ -542,9 +542,10 @@ Session на Windows-ПК, 2026-10-18. Windows 11 Pro 10.0.26200, Git Bash, `gh`
 
 - **Что падало.** Корень sandbox-а шёл в JSON fixture без экранирования («Bad escaped character»); fixture checkout-ится с CRLF (`core.autocrlf`), а test-ы сравнивают байты и строки; `findNode` искал `node` без `.exe`; `bin/profile` запускался по shebang; PATH `/usr/bin:/bin` для restore.mjs на Windows без git; ожидания с `/` там, где приложение пишет `join`/`resolve` (id строк `file:…`, `claudeJsonPath`, `rewriteHarnessPaths`, причина отказа, `shown()` с `~` — `%TEMP%` лежит в профиле), кавычки в `restoreCommand`.
 - **Что сделано (только test).** `substitute` экранирует корень в `.json` и возвращает LF, как в индексе; `findNode` = `NODE` (`test/harness-node.ts`); `bin/profile` — `node <script>`; `pathWithoutClaude()` — папка `git.exe`; `treeOf` пишет ключи через `/`; `fileId`/`posix` строят id так же, как plan.ts. На macOS и Linux каждое ожидание даёт ту же строку.
-- **Пропуск на win32 (1):** «node restore.mjs … the plugin disabled» — restore.mjs запускает `claude` через `spawnSync` без shell, на Windows так находится только `claude.exe`; restore на Windows проверяет следующий test.
+- **Пропуск на win32 (1, снят после ревью — см. последний пункт):** «node restore.mjs … the plugin disabled» — restore.mjs запускает `claude` через `spawnSync` без shell, на Windows так находится только `claude.exe`; restore на Windows проверяет следующий test.
 
 | Файл | main `502b95e` | ветка |
 |---|---|---|
-| `harness-migrate.test.ts` | exit 1: 16 failed, 27 passed | exit 0: 42 passed, 1 skipped |
+| `harness-migrate.test.ts` | exit 1: 16 failed, 27 passed | exit 0: 43 passed |
 | `harness-migrate-boundaries.test.ts` | exit 1: 10 failed, 4 passed | exit 0: 14 passed |
+- **Правки после ревью (линза «test-ы»).** Test «node restore.mjs … the plugin disabled» больше не пропускается на win32: на Windows он идёт без `claude` в PATH (`restore.mjs` запускает `claude` без shell и нашёл бы только `claude.exe` или `claude.com`) и вместо лога stand-in проверяет напечатанную команду `claude plugin disable …`; остальные восемь проверок идут на всех системах. `pathWithoutClaude()` проверяет `claude.exe` и `claude.com`. Найдено, но не исправлено (код приложения, вне среза): `stringifyLike` (`apply.ts:90-94`, копия в `restore.ts:344`) пишет LF, поэтому `.claude.json` с CRLF после переноса и отмены не возвращается байт в байт; `substitute()` приводит fixture к LF и этого не показывает.

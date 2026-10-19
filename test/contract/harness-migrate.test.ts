@@ -463,21 +463,24 @@ describe('restore and refusals', () => {
     outside: treeOf(sandbox.root, { skip: (rel) => rel === 'home/.claude' || rel === 'claude-calls.log' }),
   })
 
-  // Not on Windows: restore.mjs starts `claude` by name without a shell (restore.ts, spawnSync), and
-  // on Windows that finds only a claude.exe or claude.com, never the `#!/bin/sh` stand-in or a .cmd
-  // one; a native stand-in is not worth it. The restore itself runs there in the next test, without
-  // claude in PATH. Lifted by none, unless restore.mjs starts claude through a shell on Windows.
-  it.skipIf(process.platform === 'win32')('node restore.mjs, a separate process: exit 0, ~/.claude and .claude.json as before the move, the commit reverted, the plugin disabled', async () => {
+  // On Windows the stand-in claude is not called: restore.mjs starts `claude` by name without a shell
+  // (restore.ts, spawnSync), and there that finds only a claude.exe or claude.com, never the
+  // `#!/bin/sh` stand-in. So on Windows the run has no claude on PATH and the test checks the printed
+  // disable command instead of the stand-in's log; every other check runs on all systems.
+  it('node restore.mjs, a separate process: exit 0, ~/.claude and .claude.json as before the move, the commit reverted, the plugin disabled', async () => {
     const before = snapshot()
     const head = git(sandbox.claudeHome, 'rev-parse', 'HEAD').trim()
     const result = await applyMigration(selection(plan()), applyOptions())
     expect(result.outcome).toBe('done')
     const node = findNode()
-    const env = { ...sandbox.env, PATH: [sandbox.stubDir, '/usr/bin', '/bin'].join(delimiter), STUB_CLAUDE_LOG: sandbox.stubLog }
+    const windows = process.platform === 'win32'
+    const PATH = windows ? pathWithoutClaude() : [sandbox.stubDir, '/usr/bin', '/bin'].join(delimiter)
+    const env = { ...sandbox.env, PATH, STUB_CLAUDE_LOG: sandbox.stubLog }
     const restored = run(node, [join(backupDir(), 'restore.mjs')], { env, cwd: sandbox.root })
     expect(restored.stderr).toBe('')
     expect(restored.status).toBe(0)
-    expect(read(sandbox.stubLog)).toBe('plugin disable worfy@worfy-harness --scope user\n')
+    if (windows) expect(restored.stdout).toContain('claude plugin disable worfy@worfy-harness --scope user')
+    else expect(read(sandbox.stubLog)).toBe('plugin disable worfy@worfy-harness --scope user\n')
     expect(treeOf(sandbox.claudeHome)).toEqual(before.tree)
     expect(read(sandbox.claudeJson)).toBe(before.claudeJson)
     expect(git(sandbox.claudeHome, 'rev-list', `${head}..HEAD`).trim().split('\n')).toHaveLength(2)

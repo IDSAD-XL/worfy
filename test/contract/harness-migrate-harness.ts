@@ -238,6 +238,7 @@ export function pathWithoutClaude(): string {
   if (process.platform !== 'win32') return ['/usr/bin', '/bin'].join(delimiter)
   const gitDir = (process.env.PATH ?? '').split(delimiter).find((dir) => dir !== '' && existsSync(join(dir, 'git.exe')))
   if (gitDir === undefined) throw new Error('no git.exe on the PATH of the tests')
-  if (existsSync(join(gitDir, 'claude.exe')) || existsSync(join(gitDir, 'claude.cmd'))) throw new Error(`${gitDir} has a claude: restore.mjs would find it`)
+  // spawnSync without a shell finds only .exe and .com on Windows.
+  if (existsSync(join(gitDir, 'claude.exe')) || existsSync(join(gitDir, 'claude.com'))) throw new Error(`${gitDir} has a claude: restore.mjs would find it`)
   return gitDir
 }
