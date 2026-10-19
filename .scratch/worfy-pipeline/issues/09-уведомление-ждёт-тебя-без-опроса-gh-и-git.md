@@ -72,3 +72,5 @@ Stage hub-а. Время — поддельные часы vitest.
 ## Итог
 
 Заполняется при закрытии.
+
+- Подключение уведомления к workflow hub сторожат три проверки. Test «over 3 minutes without a change of the files the app's notes start no process…» в `test/unit/notify.test.ts` идёт через `appWaitsSources()` (`src/main/notify.ts`): mutant со `stageHub` там красный, потому что Stage hub открыт. Test «gives the notes of the Tickets that wait for the owner the sources of appWaitsSources…» в `test/contract/app-user-model-id.test.ts` загружает `src/main/index.ts`: возврат к `{ hub: stageHub, … }` там красный. Typecheck тоже ловит такой возврат: `StageHub` не подходит к `WaitsHub`, ошибка TS2322.

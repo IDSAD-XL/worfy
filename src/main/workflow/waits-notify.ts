@@ -18,7 +18,7 @@ import type { WorkflowHub, WorkflowSubscriber } from './watch'
 export type WaitsHub = Pick<WorkflowHub, 'open' | 'close'>
 
 /** What of a Ticket a wait is read from. */
-export type WaitingTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'state' | 'waits'> & Partial<Pick<Ticket, 'statusAt' | 'blockedReason'>>
+export type WaitingTicket = Pick<Ticket, 'epic' | 'num' | 'title' | 'state' | 'waits' | 'statusAt' | 'blockedReason'>
 
 /** How often the list of Projects is read again for Projects that came or went. */
 export const WAITS_TICK_MS = 60_000

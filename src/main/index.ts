@@ -21,7 +21,7 @@ import { workflowHub } from './ipc/workflow'
 import { archiveRegistry, archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
 import { bindingStore } from './layout/bindings'
 import { layoutStore } from './layout/store'
-import { electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
+import { appWaitsSources, electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
@@ -139,7 +139,7 @@ function start(): void {
       // Ticket of those Projects that comes to wait for the owner (worfy-pipeline tickets 06 and 09:
       // read from the workflow hub, which watches the Ticket files and polls no gh or git).
       inStep('installNotifications', () => {
-        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), { hub: workflowHub, projects: () => projectStore().list() })
+        const stopNotifications = installNotifications(sharedRegistry(), liveSessionListeners, electronNotifyDeps, appNoteLink(), appWaitsSources())
         app.on('will-quit', stopNotifications)
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)

@@ -34,7 +34,73 @@ vi.mock('electron', () => {
 // The real window module loads the app's page; openNote gets its own window factory.
 vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
-const { NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+/**
+ * The app's hubs and Project list, as src/main/notify.ts's appWaitsSources takes them (worfy-pipeline
+ * ticket 09): a workflow hub that only answers its model, and the Stage hub built as
+ * src/main/ipc/pipeline.ts builds it over that workflow hub, with every source that would start a
+ * process (`bin/profile`, git, gh) counted.
+ */
+const appHubs = vi.hoisted(() => ({
+  projects: [] as { path: string }[],
+  workflowOpens: [] as string[],
+  stageOpens: [] as string[],
+  calls: { profile: 0, git: 0, gh: 0 },
+}))
+vi.mock('../../src/main/projects/store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/main/projects/store')>()),
+  projectStore: () => ({ list: () => appHubs.projects }),
+}))
+vi.mock('../../src/main/ipc/workflow', () => {
+  const model = (root: string) => ({
+    root,
+    epics: [],
+    tickets: [{ epic: 'e', num: 1, slug: 's', title: 'T', statusRaw: 'blocked', state: 'blocked', statusAt: '2026-10-18T10:00Z', blockedReason: 'r', waits: 'owner', blockedRaw: null, blockedNums: [], blockedParsed: true, files: [], filesListed: true, fromBranch: null }],
+    error: null,
+    branchErrors: [],
+  })
+  return {
+    workflowHub: {
+      open: async (root: string) => {
+        appHubs.workflowOpens.push(root)
+        return model(root)
+      },
+      close: async () => true,
+      model: async (root: string) => model(root),
+      drop: async () => undefined,
+    },
+  }
+})
+vi.mock('../../src/main/ipc/pipeline', async () => {
+  const { StageHub } = await import('../../src/main/workflow/stages')
+  const { workflowHub } = await import('../../src/main/ipc/workflow')
+  const stageHub = new StageHub({
+    workflow: workflowHub as never,
+    prs: {
+      read: async () => {
+        appHubs.calls.gh += 1
+        return { pulls: [], gh: { available: true, error: null, intervalMs: 60_000 } }
+      },
+    },
+    profile: async () => {
+      appHubs.calls.profile += 1
+      return { ok: false, reason: 'stub' }
+    },
+    deployments: {} as never,
+    harnessHome: '/nonexistent/harness',
+    git: async () => {
+      appHubs.calls.git += 1
+      return { code: 1, stdout: '' }
+    },
+  })
+  const open = stageHub.open.bind(stageHub)
+  stageHub.open = (root, subscriber) => {
+    appHubs.stageOpens.push(root)
+    return open(root, subscriber)
+  }
+  return { stageHub }
+})
+
+const { NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -1071,6 +1137,47 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     expect(shown).toEqual(['e 02 ждёт тебя', 'e 03 ждёт тебя'])
   })
 
+  it('the model is read before the changes that came before it: a wait the model holds and the first early change lacks gives none', async () => {
+    const { hub, opens } = heldHub()
+    const shown: string[] = []
+    const stop = installWaitsNotifications(hub, () => [{ path: ROOT }], { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+    await Promise.resolve()
+    // A change carries only the Tickets that changed: were it read first, it would be the start
+    // without e 1, and the model's e 1 would look new.
+    opens[0]!.subscriber.send(delta([owner('e', 2, 'two')]))
+    opens[0]!.resolve(model([owner('e', 1, 'one'), owner('e', 2, 'two')]))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(shown).toEqual([])
+    stop()
+  })
+
+  it('the changes of a follow that ended are not read: a Project that left the list and came back notifies only by its new subscription', async () => {
+    vi.useFakeTimers()
+    try {
+      const { hub, opens } = heldHub()
+      let list = [{ path: ROOT }]
+      const shown: string[] = []
+      const stop = installWaitsNotifications(hub, () => list, { show: (note: { title: string }) => shown.push(note.title) }, 60_000)
+      opens[0]!.resolve(model([]))
+      await vi.advanceTimersByTimeAsync(0)
+      list = []
+      await vi.advanceTimersByTimeAsync(60_000)
+      list = [{ path: ROOT }]
+      await vi.advanceTimersByTimeAsync(60_000)
+      opens[1]!.resolve(model([]))
+      await vi.advanceTimersByTimeAsync(0)
+      // The old subscriber's open had answered: only the check of the follow keeps its change out.
+      opens[0]!.subscriber.send(delta([owner('e', 5, 'old subscription')]))
+      expect(shown).toEqual([])
+      opens[1]!.subscriber.send(delta([owner('e', 6, 'new subscription')]))
+      expect(shown).toEqual(['e 06 ждёт тебя'])
+      stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('installNotifications with the workflow hub follows the listed Projects, shows the notes by its deps, and lets them go when stopped', async () => {
     let subscriber: WorkflowSubscriber | undefined
     const hub = {
@@ -1139,21 +1246,21 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     }
   }
 
-  it('over 3 minutes without a change of the files the notes start no process: the Stage hub is never opened, gh, git and bin/profile never run', async () => {
+  it("over 3 minutes without a change of the files the app's notes start no process: the workflow hub is opened, the Stage hub never; gh, git and bin/profile never run", async () => {
     vi.useFakeTimers()
     try {
-      const workflow = quietWorkflowHub([ticket('e', 1), owner('e', 2, 'waits')])
-      const stages = countedStageHub(workflow)
-      const openStages = vi.spyOn(stages.hub, 'open')
+      appHubs.projects = [{ path: ROOT }]
       const deps = { focused: () => false, show: vi.fn(), open: vi.fn(), now: () => 1 }
-      const stop = installNotifications({ observe: () => () => undefined }, new Set(), undefined, undefined, { hub: workflow, projects: () => [{ path: ROOT }], deps })
+      // The sources src/main/index.ts passes, over the app's hubs (both replaced by the mocks above).
+      const stop = installNotifications({ observe: () => () => undefined }, new Set(), undefined, undefined, { ...appWaitsSources(), deps })
       await vi.advanceTimersByTimeAsync(3 * 60_000)
-      expect(workflow.open).toHaveBeenCalledTimes(1)
-      expect(openStages).not.toHaveBeenCalled()
-      expect(stages.calls).toEqual({ profile: 0, git: 0, gh: 0 })
+      expect(appHubs.workflowOpens).toEqual([ROOT])
+      expect(appHubs.stageOpens).toEqual([])
+      expect(appHubs.calls).toEqual({ profile: 0, git: 0, gh: 0 })
       expect(deps.show).not.toHaveBeenCalled()
       stop()
     } finally {
+      appHubs.projects = []
       vi.useRealTimers()
     }
   })

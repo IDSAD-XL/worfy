@@ -53,7 +53,9 @@ import type { GateQueueRead } from './github/gate-queue'
 import { notifyOpen } from '../shared/ipc/notify'
 import type { SessionRegistry } from './agent/session'
 import { emit } from './ipc/index'
+import { workflowHub } from './ipc/workflow'
 import { pendingOpens, type PendingOpens } from './notify-pending'
+import { projectStore } from './projects/store'
 import { quietWindows, type QuietWindows } from './quiet-windows'
 import { createMainWindow } from './window'
 import { installWaitsNotifications, type WaitsHub } from './workflow/waits-notify'
@@ -445,6 +447,22 @@ export const electronWindowNoteDeps: WindowNoteDeps = {
   open: (note) => openNote(note),
 }
 
+/** Where the notes of the Tickets that wait for the owner come from: a workflow hub and a Project list. */
+export interface WaitsSources {
+  hub: WaitsHub
+  projects: () => readonly { readonly path: string }[]
+}
+
+/**
+ * The app's sources of those notes (src/main/index.ts passes them to installNotifications): the
+ * workflow hub, which watches the Ticket files, and worfy's Project list. Never the Stage hub
+ * (src/main/ipc/pipeline.ts): it runs `bin/profile`, git and gh every minute for each Project it
+ * follows (worfy-pipeline ticket 09).
+ */
+export function appWaitsSources(): WaitsSources {
+  return { hub: workflowHub, projects: () => projectStore().list() }
+}
+
 /**
  * Starts notifications for the app: every Session of `registry`, and the registry watchers the
  * windows run; with `link`, the notes go to the Linked machines too and theirs are shown here;
@@ -457,7 +475,7 @@ export function installNotifications(
   deps: NotifyDeps = electronNotifyDeps,
   link?: NoteLink,
   /** The workflow hub and the Project list; `deps` shows and opens the Tickets' notes, Electron's by default. */
-  waits?: { hub: WaitsHub; projects: () => readonly { readonly path: string }[]; deps?: NotifyDeps<TicketNote> },
+  waits?: WaitsSources & { deps?: NotifyDeps<TicketNote> },
 ): () => void {
   const stopWaits = waits === undefined ? undefined : installWaitsNotifications(waits.hub, waits.projects, new NoteDisplay<TicketNote>(waits.deps ?? electronNotifyDeps))
   const notifier = new Notifier(deps, link)
