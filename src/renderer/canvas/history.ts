@@ -219,12 +219,12 @@ export function hideSkipped(): void {
 }
 
 /**
- * A side of a Node an operation changes: its place and size (`move`, `moveMany`, `resize`, `pin`),
- * its visibility (`hide`), one key of its data (`patchData`), its tags (`tag`) or its existence
- * (`create`, `remove`, the trash). Existence meets every side: a Node removed or brought back is
- * changed whole.
+ * A side of a Node an operation changes: its place and size (`move`, `moveMany`, `resize`, `pin`,
+ * `restore`), its visibility (`hide`, `archive`, `restore`), one key of its data (`patchData`), its
+ * tags (`tag`), its Keep flag (`keep`) or its existence (`create`, `remove`, the trash). Existence
+ * meets every side: a Node removed or brought back is changed whole. A `touch` changes no side.
  */
-type Side = 'place' | 'visibility' | 'tags' | 'existence' | `data:${string}`
+type Side = 'place' | 'visibility' | 'tags' | 'keep' | 'existence' | `data:${string}`
 
 /** The sides of each Node an operation changes, by Node id. */
 export type Footprint = ReadonlyMap<string, ReadonlySet<Side>>
@@ -249,6 +249,14 @@ export function footprintOf(op: LayoutOpInput): Footprint {
       return one(op.id, 'tags')
     case 'patchData':
       return one(op.id, ...Object.keys(op.data).map((key): Side => `data:${key}`))
+    case 'archive':
+      return new Map(op.nodes.map(({ id }) => [id, new Set<Side>(['visibility'])]))
+    case 'restore':
+      return new Map(op.ids.map((id) => [id, new Set<Side>(['visibility', 'place'])]))
+    case 'keep':
+      return one(op.id, 'keep')
+    case 'touch':
+      return new Map()
   }
 }
 
@@ -406,6 +414,9 @@ export interface RecordOptions {
  * data unless `options.data` (a note's text has its own undo), a Node that is not there. A `create` must carry its id (applyRecorded() gives it one).
  */
 export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOptions = {}): LayoutOpInput | undefined {
+  // The archive's operations are main's own (ADR-0076) and a touch changes nothing to undo; the
+  // user's Restore and «Archive now» get their steps with their tickets (worfy-canvas 08, 09).
+  if (op.op === 'archive' || op.op === 'restore' || op.op === 'touch') return undefined
   if (op.op === 'patchData') return options.data === true ? dataInverse(layout, op) : undefined
   if (op.op === 'create') return op.node.id === undefined ? undefined : { op: 'remove', id: op.node.id }
   if (op.op === 'moveMany') {
@@ -436,6 +447,10 @@ export function inverseOf(layout: Layout, op: LayoutOpInput, options: RecordOpti
       const add = [...removed].filter((tag) => had.has(tag))
       const remove = [...new Set(op.add ?? [])].filter((tag) => !had.has(tag) && !removed.has(tag))
       return add.length === 0 && remove.length === 0 ? undefined : { op: 'tag', id: op.id, add, remove }
+    }
+    case 'keep': {
+      const had = before.keep === true
+      return had === op.keep ? undefined : { op: 'keep', id: op.id, keep: had }
     }
   }
 }

@@ -34,8 +34,24 @@ export const TAG_LENGTH_MAX = 40
 const TAGS_PER_OP_MAX = 50
 /** How many Nodes one `moveMany` may move. */
 const MOVES_PER_OP_MAX = 5000
+/** How many Nodes one `archive` or `restore` may name. */
+const ARCHIVE_PER_OP_MAX = 5000
 /** A free-form tag of a Node: trimmed, not empty. */
 export const tagSchema = z.string().trim().min(1).max(TAG_LENGTH_MAX)
+
+/** Which rule archived a Node (ADR-0076, point 1): idle past the threshold, or its Ticket done. */
+export const archiveRuleSchema = z.enum(['idle', 'ticket-done'])
+export type ArchiveRule = z.output<typeof archiveRuleSchema>
+
+/** One batch of the automatic archive: the Nodes one run archived together, undone together (ticket 10). */
+export const archiveBatchSchema = z.string().min(1).max(100)
+
+/** How a Node was archived: when, by which rule, in which batch. */
+export const archiveRecordSchema = z.object({ at: z.number().nonnegative(), rule: archiveRuleSchema, batch: archiveBatchSchema })
+export type ArchiveRecord = z.output<typeof archiveRecordSchema>
+
+/** True when the automatic archive took the Node off the Canvas. */
+export const isArchived = (node: { archived?: ArchiveRecord | null | undefined }): boolean => node.archived != null
 
 export const layoutNodeSchema = z.object({
   id: nodeIdSchema,
@@ -56,6 +72,20 @@ export const layoutNodeSchema = z.object({
   pinned: z.boolean().default(false),
   tags: z.array(z.string().min(1)).default([]),
   data: nodeDataSchema.default({}),
+  /**
+   * Set when the automatic archive took the Node off the Canvas (ADR-0076): an archived Node keeps
+   * its place but is not on the plane (derived.ts, onThePlane), so the Canvas does not draw it and
+   * nothing keeps clear of it. Not `hidden`: what the user hid and what the archive took are told
+   * apart. Absent or null — not archived; a layout.json written before it reads as not archived.
+   */
+  archived: archiveRecordSchema.nullable().optional(),
+  /** The user asked the automatic archive to leave this Node alone (Keep, ADR-0076). Absent — false. */
+  keep: z.boolean().optional(),
+  /**
+   * When the user last worked with the Node, in ms since the epoch: main sets it on the user's
+   * operations and on `touch` (store.ts). The automatic archive leaves a recently touched Node. Absent or null — never.
+   */
+  touchedAt: z.number().nonnegative().nullable().optional(),
 })
 export type LayoutNode = z.output<typeof layoutNodeSchema>
 
@@ -128,6 +158,36 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
       .max(MOVES_PER_OP_MAX)
       .refine((moves) => new Set(moves.map((move) => move.id)).size === moves.length, 'each Node may be moved once'),
   }),
+  /**
+   * Takes Nodes off the Canvas into the archive, each with the rule that took it, as one batch
+   * (ADR-0076). Sent by main's automatic archive (src/main/layout/archive.ts), without a screen, so
+   * no screen's undo history records it (ADR-0016). A Node already archived keeps its record.
+   */
+  z.object({
+    op: z.literal('archive'),
+    batch: archiveBatchSchema,
+    nodes: z
+      .array(z.object({ id: nodeIdSchema, rule: archiveRuleSchema }))
+      .min(1)
+      .max(ARCHIVE_PER_OP_MAX)
+      .refine((nodes) => new Set(nodes.map((node) => node.id)).size === nodes.length, 'each Node may be archived once'),
+  }),
+  /**
+   * Brings archived Nodes back onto the Canvas: at their old place when it is clear, else at the
+   * nearest clear one (ADR-0038). A Node that is not archived is left as it is.
+   */
+  z.object({
+    op: z.literal('restore'),
+    ids: z
+      .array(nodeIdSchema)
+      .min(1)
+      .max(ARCHIVE_PER_OP_MAX)
+      .refine((ids) => new Set(ids).size === ids.length, 'each Node may be restored once'),
+  }),
+  /** Sets or clears the Node's Keep flag (ADR-0076): the automatic archive never takes it. */
+  z.object({ op: z.literal('keep'), id: nodeIdSchema, keep: z.boolean() }),
+  /** The user opened or otherwise worked with the Node: main sets its `touchedAt` to now. */
+  z.object({ op: z.literal('touch'), id: nodeIdSchema }),
 ])
 /** An operation as a caller writes it (defaults may be left out). */
 export type LayoutOpInput = z.input<typeof layoutOpSchema>

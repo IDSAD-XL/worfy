@@ -217,6 +217,57 @@ describe('Canvas', () => {
     }
   })
 
+  it('does not draw an archived Node, and draws one whose archive was undone (worfy-canvas ticket 07, ADR-0076)', async () => {
+    const restore: (() => void)[] = []
+    for (const [name, value] of [
+      ['offsetWidth', 1200],
+      ['offsetHeight', 800],
+    ] as const) {
+      const before = Object.getOwnPropertyDescriptor(HTMLElement.prototype, name)
+      Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value })
+      restore.push(() => {
+        if (before) Object.defineProperty(HTMLElement.prototype, name, before)
+      })
+    }
+    const globals = globalThis as { ResizeObserver?: unknown; worfy?: WorfyBridge }
+    const hadObserver = 'ResizeObserver' in globals
+    globals.ResizeObserver ??= class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    globals.worfy = {
+      invoke: (channel: string) =>
+        Promise.resolve(
+          channel === 'layout.get'
+            ? {
+                ok: true,
+                value: layoutState(
+                  1,
+                  [
+                    { ...node('gone', 'note', 0, { text: 'archived note' }), archived: { at: 1, rule: 'idle', batch: 'b1' } },
+                    { ...node('back', 'note', 300, { text: 'restored note' }), archived: null },
+                  ],
+                  'archive-00000000',
+                ),
+              }
+            : { ok: false, error: 'not in this test' },
+        ),
+      on: () => 1,
+      off: () => undefined,
+    }
+    try {
+      const { Canvas } = (await import('../../src/renderer/canvas/Canvas')) as { Canvas: ComponentType<{ projectId: string | undefined }> }
+      render(<Canvas projectId="archive-00000000" />)
+      await waitFor(() => expect(screen.getAllByRole('textbox', { name: 'Note text' })).toHaveLength(1))
+      expect((screen.getByRole('textbox', { name: 'Note text' }) as HTMLTextAreaElement).value).toBe('restored note')
+    } finally {
+      for (const undo of restore) undo()
+      if (!hadObserver) delete globals.ResizeObserver
+      delete globals.worfy
+    }
+  })
+
   it('a drag of several Layout Nodes sends one moveMany with every dropped place; a drag of one sends a move (ADR-0038)', async () => {
     const { dropOperation } = await import('../../src/renderer/canvas/history')
     const dragged = [

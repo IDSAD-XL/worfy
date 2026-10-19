@@ -55,7 +55,7 @@ import '@xyflow/react/dist/style.css'
 import './canvas.css'
 import { EPIC_FRAME_KIND, SUBAGENT_KIND } from '../../shared/layout/derived'
 import { isParticipant, obstaclesFor, type Rect } from '../../shared/layout/free-place'
-import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
+import { isArchived, ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput, type LayoutState, type Viewport } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { invoke, windowMachine } from '../ipc'
 import { isMac } from '../platform'
@@ -120,8 +120,9 @@ function mergeFlowNode(next: CanvasFlowNode, before: CanvasFlowNode | undefined)
 /** React Flow Nodes for the Layout and the node sources; keeps selection, and the local geometry of a Node in a gesture. */
 function toFlowNodes(layoutNodes: readonly LayoutNode[], derived: readonly CanvasFlowNode[], current: readonly CanvasFlowNode[]): CanvasFlowNode[] {
   const previous = new Map(current.map((node) => [node.id, node]))
+  // An archived Node stays in the Layout but is not drawn (ADR-0076).
   const own: CanvasFlowNode[] = layoutNodes
-    .filter((node) => !ownedKinds.has(node.kind))
+    .filter((node) => !ownedKinds.has(node.kind) && !isArchived(node))
     .map((node) => ({
       id: node.id,
       type: registeredNodeTypes.has(node.kind) ? node.kind : UNKNOWN_NODE_TYPE,
