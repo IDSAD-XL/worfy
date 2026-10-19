@@ -673,7 +673,9 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       return [gitStubDir, process.env.PATH ?? ''].join(delimiter)
     })
     expect(run.status).toBe(1)
-    expect(run.stderr).toMatch(/git --exec-path/)
+    // Exit 1 is the failing git's own answer; on Windows, a lookup that could not start it (no `sh`
+    // on PATH) would stop at ENOENT and make this test pass for that wrong reason.
+    expect(run.stderr).toMatch(/git --exec-path.*exit 1\)/)
     expect(calls).toEqual([])
     expect(gitCopies()).toEqual(before)
   })
@@ -734,6 +736,9 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   // A signal reaches the whole process group: claude ends, or catches it and exits 0;
   // eval-harness.mjs stays to remove its copies, starts no gui call (it is paid, and after SIGHUP
   // nobody could stop it) and reports 128 + the number of the signal.
+  // Skipped on Windows: it has no POSIX signals or process groups — process.kill with SIGINT, SIGTERM
+  // or SIGHUP ends the process outright, so no handler of eval-harness.mjs runs. Not a gap a ticket
+  // closes: `pnpm eval:harness` with the real claude runs only on a Mac (worfy-windows ticket 65).
   it.skipIf(process.platform === 'win32').each([
     ['SIGINT', 'ends on it'],
     ['SIGTERM', 'ends on it'],
@@ -790,8 +795,12 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
   ])('exits with the worst code of the calls (%s -> %i)', (codes, worst) => {
     const { run, calls } = evalHarness('2.1.289', codes)
     expect(run.status, run.stderr).toBe(worst)
-    // The code comes from a call: a run that stopped before claude (exit 1) is not "1,0 -> 1".
-    expect(calls).not.toEqual([])
+    // The code comes from the calls: a run that stopped before claude, or whose clean-up threw after
+    // them (exit 1 too), is not "1,0 -> 1". The result paths are written only after the clean-up.
+    const [main, gui] = codes.split(',')
+    expect(calls).toHaveLength(2)
+    expect(run.stdout).toMatch(new RegExp(`main exited ${main}\\n[\\s\\S]*gui exited ${gui}\\n`))
+    expect(run.stdout).toMatch(/aggregate-result\.json/)
   })
 
   it('passes the arguments after -- through and skips a call that selects no case', () => {

@@ -131,7 +131,12 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
   - Stub `claude` (helper test-а): на `win32` запускает `EVAL_GIT` через `sh` с PATH run-а, путь `--exec-path` приводит к виду Windows (`resolve`), имена файлов копии — без `.exe`.
   - Shim вида `git.cmd`/`git.exe` для поиска `git` по PATH не нужен этим test-ам: им важны только проверка `--version` в `eval-harness.mjs` и `EVAL_GIT` stub-а. Ребёнок настоящего `claude` на Windows, который зовёт `git` через PATH без shell, получил бы настоящий `git.exe`, а не обёртку; через Git Bash — обёртку. Это вопрос платных run-ов на Windows, которых нет («Не входит»).
   - Чтобы test-ы не проходили по неверной причине: «… does not answer --version» теперь требует `--version, exit 1)` (ответ самой копии, а не `ENOENT`); «exits with the worst code …» требует хотя бы один вызов `claude` (раньше «1,0 -> 1» проходил и на run-е, который остановился до `claude`).
-  - Без изменений остаются 8 прежних пропусков: 6 test-ов сигналов (`skipIf(win32)`) и 2 test-а прав (`permissionsHold`).
+  - Без изменений остаются 8 прежних пропусков: 6 test-ов сигналов (`skipIf(win32)`) и 2 test-а прав (`permissionsHold`). У пропуска сигналов теперь есть комментарий о причине: на Windows нет POSIX-сигналов и групп процессов, `process.kill` с SIGINT/SIGTERM/SIGHUP завершает процесс сразу, обработчик `eval-harness.mjs` не выполняется.
+- **Правки после ревью (две линзы: корректность, test-ы).**
+  - `runClaude` запускает `.mjs` через Node только на `win32`. Раньше ветка `.mjs` срабатывала на любой системе, и на Mac `CLAUDE_BIN=….mjs` отдал бы `ELECTRON_RUN_AS_NODE=1` всем детям платного run-а.
+  - «… `git --exec-path` gives no folder» требует `exit 1)` в ошибке. Без `sh` в PATH он раньше проходил на `ENOENT`.
+  - «exits with the worst code …» требует ровно два вызова, строки `main exited N` и `gui exited M` и пути результатов: их печатает только код после очистки. Так код 1 от сбоя очистки не сойдёт за «1,0 -> 1».
+  - Test на `ELECTRON_RUN_AS_NODE=1` из `runClaude` не добавлен. Под Electron `eval-harness.mjs` сам работает только с этой переменной, и его `childEnv` передаёт её дальше. Под настоящим Node она ни на что не влияет. Убрать её из `runClaude` нельзя заметить ни одним test-ом.
   - На Windows stub через `.mjs` проверяет test «refuses with exit code 1 on claude older than 2.1.269 and runs nothing»: на шаге 1 он падал (`ENOENT`), после шага 2 зелёный.
 
 ### Проверка
@@ -146,6 +151,8 @@ Session на Windows-ПК, 2026-10-19. Windows 11 Pro 10.0.26200, Git Bash; test
 | То же, ветка `1b390da3` | **exit 0, `Tests 61 passed \| 28 skipped (89)`** (пропуски: 8 прежних + 20 `bin/profile` до пункта 4) |
 | Мутант 3: `eval-harness.mjs` из `68fa7625` (без ветки `win32`), test-ы `1b390da3`; возврат из копии, `cmp` — равны | exit 1, `Tests 11 failed \| 50 passed \| 28 skipped (89)` — красные все 11 снятых пропусков |
 | Мутант 4: только проверка `--version` без `sh` (поиск `git` через `sh` оставлен) | exit 1, `Tests 10 failed \| 51 passed \| 28 skipped (89)`; зелёный один «… `git --exec-path` gives no folder» — он проверяет только поиск |
+| То же, после правок ревью; снимок `~/.claude/worfy-harness` и `~/.claude/gate` до и после — одинаковый | **exit 0, `Tests 61 passed \| 28 skipped (89)`** |
+| Мутант 5: PATH без `/usr/bin`, `/bin`, `/mingw64/bin`, `/usr/local/bin` (нет `sh`), `-t "gives no folder"` | exit 1, `Tests 1 failed \| 88 skipped (89)`; до правки ревью этот test был зелёным |
 | `test/unit/no-rmsync.test.ts`, `test/unit/e2e-no-spawn-on-load.test.ts` | exit 0, `Tests 63 passed (63)` |
 | `CI=true pnpm lint` / `CI=true pnpm typecheck` | exit 0 / exit 0 |
 | `git diff origin/main -- .gitattributes` | пусто |
@@ -357,5 +364,5 @@ MISSING gate
 
 - **Пункт 4 (путь `pm`, причина 3) ждёт мержа PR #496** и не сделан; вместе с ним — `match` (см. пункт 5).
 - На Mac не запускалось ничего: красный test шага 1 и мутант на Mac, `pnpm lint`, `pnpm typecheck`, `pnpm test` там — за Session на Mac. На Mac новый test «os.homedir()» зелёный и без `USERPROFILE` (Node там берёт `HOME`); test «USERPROFILE is HOME» красный без него на всех системах — по замыслу Ticket-а, не проверено запуском.
-- Ветка `.mjs` в `runClaude` (`eval-harness.mjs`) на Mac не проходит ни одним test-ом: stub там — исполняемый файл. На ПК её проходит один test (отказ на версии 2.1.268).
-- `1b390da3` на Mac не запускался: ветки `win32` в `eval-harness.mjs` и в stub-е там не идут, а две усиленные проверки («… --version, exit 1)» и «хотя бы один вызов `claude`» в «exits with the worst code …») там должны быть зелёными — не проверено запуском. Ветки `win32` проходят только test-ы на ПК; workflow «Windows tests» не запускался.
+- Ветка `.mjs` в `runClaude` (`eval-harness.mjs`) есть только на `win32`; на Mac она не идёт. На ПК её проходят все test-ы со stub-ом.
+- `1b390da3` на Mac не запускался: ветки `win32` в `eval-harness.mjs` и в stub-е там не идут, а усиленные проверки («… --version, exit 1)», «… gives no folder» с `exit 1)` и «два вызова, `main exited N`, `gui exited M`, пути результатов» в «exits with the worst code …») там должны быть зелёными — не проверено запуском. Ветки `win32` проходят только test-ы на ПК; workflow «Windows tests» не запускался.

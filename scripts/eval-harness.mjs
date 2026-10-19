@@ -130,13 +130,14 @@ function claudeBinary() {
 }
 
 /**
- * spawnSync of claude. A CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows starts no
- * script by its path, so it runs as a script of this process's own Node, with ELECTRON_RUN_AS_NODE=1
- * for Electron's (the way worfy starts a `.mjs` WORFY_CLAUDE, src/main/program.ts). The SDK's binary
- * and any other path start as they are.
+ * spawnSync of claude. On Windows a CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows
+ * starts no script by its path, so it runs as a script of this process's own Node, with
+ * ELECTRON_RUN_AS_NODE=1 for Electron's (the way worfy starts a `.mjs` WORFY_CLAUDE,
+ * src/main/program.ts). Elsewhere, and for the SDK's binary or any other path, claude starts as it
+ * is: ELECTRON_RUN_AS_NODE would reach every child of a paid run.
  */
 const runClaude = (claude, args, options) =>
-  claude.endsWith('.mjs')
+  process.platform === 'win32' && claude.endsWith('.mjs')
     ? spawnSync(process.execPath, [claude, ...args], { ...options, env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' } })
     : spawnSync(claude, args, options)
 
