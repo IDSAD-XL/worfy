@@ -184,6 +184,28 @@ Epic готов, когда:
 - **Редактор Pipeline в Settings — Ticket 08**, последним. Инструмент записи поля (у `bin/profile`
   команды записи нет) — слово владельца до claim.
 
+2026-10-20, grilling о Ticket-ах 08–10 (Q1–Q16). Все пункты приняты; подробности — в «Что делаем» Ticket-ов.
+
+- **08, редактор Pipeline.** Q1: правила Pipeline — общий модуль `harness/lib/`, его берут `bin/profile` и
+  `bin/profile-set`. Q2: форма проверяет каждое поле до записи теми же правилами; причина exit 1 скрипта —
+  запасной показ. Q3: смена Pipeline не блокируется; строка под `Save` — Stage Ticket-ов посчитаются заново;
+  удаление Check с отметками — подтверждение с числом Ticket-ов. Q4: `Reset to default` — `bin/profile-set`
+  удаляет поле, с подтверждением (дополняет ADR-0073, ADR не правится). Q5: правит только эта Machine: канал
+  записи `local`, main отказывает Linked machine и с Full access; Project Linked machine — только чтение и строка, где править. Q6: compare-and-write
+  по отпечатку прочитанного Pipeline; не совпал — «Pipeline изменился, перечитайте» и `Reload`. Q7: сбой
+  commit-а в git папки Harness запись не отменяет — предупреждение с причиной. Q8: без `bin/profile-set` —
+  «Harness слишком старый для редактора Pipeline» и кнопка `Update Harness`.
+- **09, уведомление без опроса.** Q9: нет модели workflow — повтор с удваивающейся паузой, уведомлений нет;
+  первая модель — исходный снимок. Q10: без `Blocked reason` текст — «`<Epic> <NN> — <title>`». Q11: ключ —
+  (Epic, NN, слово Status, причина), когда `statusAt` нет или в нём только дата. Изменения или модель целиком
+  из `workflowHub` — выбор implementer-а.
+- **10, Linked machine.** Q12: своё сообщение связи, только Machine, объявившим его при связи
+  ([ADR-0079](../../docs/adr/0079-link-machines-announce-accepted-messages.md)). Q13: клик — вкладка Pipeline
+  Project-а на той Machine, если окно Linked machine её показывает, иначе окно worfy с Project-ом. Q14:
+  уведомляет Machine Project-а; получатель бросает заметку о Project-е, открытом у себя: тот же репозиторий — нормализованный `origin` и путь
+  внутри него, без `origin` — id Project-а; ключ — (Project, Epic, NN, ключ Q11). Q15: `Waits: owner` — все Machine владельца с доступом от Read only; `Waits: <Machine>` —
+  только она; `team`, `agent` — никому. Q16: в сообщении имя и id Project-а, не `projectRoot`.
+
 ## Не в этом Epic-е
 
 - **Метрики времени** (сколько Ticket стоит на Stage в среднем, критический путь) — `worfy-throughput` 05.
