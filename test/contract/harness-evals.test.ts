@@ -173,14 +173,11 @@ describe('harness/evals: the cases', () => {
   })
 })
 
-// Skipped on Windows: the fixture writes the "match" of its gate registry from `pwd -P` of Git Bash —
-// /tmp/…/work, while bin/profile on Node sees C:\…\work, so it answers "not in a registered project"
-// (exit 3). The same cause as the `pm` path of PR #496. Step 4 of worfy-windows ticket 65, after PR
-// #496 merges, lifts the skip. A Windows path in "match" makes all of these green on the PC.
-const registryPathsMatch = process.platform !== 'win32'
-
+// On Windows these need the paths of the fixture's gate registry ("match", "pm") in node's spelling,
+// C:/…/work, not /tmp/…/work of Git Bash: harness/evals/lib/demo-project.sh writes them from `pwd -W`
+// (worfy-windows ticket 65, step 4).
 describe('harness/evals: the fixture is a project the Harness recognises', () => {
-  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
+  it.each(CASES.map(([name]) => name))('%s: bin/profile -C <fixture> exits 0 with profile demo', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, run.stderr).toBe(0)
     const profile = harness(home, work, 'profile', ['-C', work, '--name'])
@@ -191,7 +188,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // pnpm eval:harness gives every run EVAL_HARNESS_HOME=worfy-harness, but `claude plugin eval`
   // starts the scaffold with a short fixed environment and no EVAL_* (claude 2.1.289): the fixture
   // never sees EVAL_HARNESS_HOME, and the scripts of the run must still find its state in <fixture>/.git.
-  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
+  it.each(CASES.map(([name]) => name))('%s: a scaffold without EVAL_* leaves state the scripts of an eval:harness run find', (name) => {
     const { work, home, run } = scaffold(name)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     expect(existsSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'))).toBe(true)
@@ -203,7 +200,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // The sandbox lets a run write only into its working folder, so the fixture keeps the Harness
   // state in its .git (ticket 28); a scaffold that does get EVAL_HARNESS_HOME (a run by hand) uses
   // the folder it names and nothing else — no copy in $HOME.
-  it.skipIf(!registryPathsMatch).each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
+  it.each(CASES.map(([name]) => name))('%s: with EVAL_HARNESS_HOME the state goes to <fixture>/.git/worfy-harness', (name) => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold(name, evalHome)
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -345,7 +342,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
   // npm cannot run in an eval run on this Mac: node and npm come from nvm, and npm's own files lie
   // outside PATH in the home folder, which the sandbox does not let a run read. The gate of the
   // fixture starts a package manager of its own, kept inside the fixture.
-  it.skipIf(!registryPathsMatch)('the gate of the fixture needs no npm: its package manager is a script inside the fixture, and gate fast is green', () => {
+  it('the gate of the fixture needs no npm: its package manager is a script inside the fixture, and gate fast is green', () => {
     const evalHome = { EVAL_HARNESS_HOME: 'worfy-harness' }
     const { work, home, run } = scaffold('status-block')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
@@ -366,7 +363,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
 
   // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks
   // sum, gate fast is red.
-  it.skipIf(!registryPathsMatch)('gate fast of the fixture is red (exit 2) when its tests fail', () => {
+  it('gate fast of the fixture is red (exit 2) when its tests fail', () => {
     const { work, home, run } = scaffold('reviewer-verdict')
     expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
     const gate = spawnSync(process.env.npm_node_execpath ?? 'node', [join(HARNESS, 'hooks', 'gate.mjs'), 'fast'], {

@@ -39,6 +39,17 @@ case "$finish" in local-green | pr-green-ci) ;; *) echo "usage: demo-project.sh 
 case "$variant" in none | blocked | ui | reviewer) ;; *) echo "demo-project.sh: unknown variant '$variant'" >&2; exit 2 ;; esac
 
 work="$(pwd -P)"
+# The same folder as node spells it, for the paths of the gate registry. In Git Bash (where `pwd -W`
+# works) `pwd -P` gives /tmp/…, which node (bin/profile, gate.mjs) reads as another folder, and
+# `pwd -W` keeps an 8.3 short name (the runner's TEMP, C:\Users\RUNNER~1) or a `subst` drive, which
+# git and node spell long; so the spelling is node's own realpath, with `/` for JSON. Elsewhere `pwd -P`
+# stays (worfy-windows ticket 65).
+work_node="$work"
+git_bash=""
+if pwd -W >/dev/null 2>&1; then
+    git_bash=1
+    work_node="$(node -e 'process.stdout.write(require("node:fs").realpathSync.native(".").split(String.fromCharCode(92)).join("/"))')" || exit 1
+fi
 node "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/state-guard.cjs" "${HOME:-}" "$work" || exit 1
 # The folders the Harness scripts of the run may use. A run gets no HARNESS_HOME (the scaffold's
 # environment is fixed, see above), so it is ignored here too: the folder hooks/eval-env.cjs names
@@ -260,15 +271,31 @@ cat >"$pm" <<'EOF'
 exec node --test
 EOF
 chmod +x "$pm"
+# Windows does not start a script by its shebang: the gate looks for <pm> with the extensions of
+# PATHEXT and starts a .cmd through cmd.exe, so the same package manager is written as demo-pm.cmd too.
+if [ -n "$git_bash" ]; then
+    cat >"$pm.cmd" <<'EOF'
+@echo off
+rem The package manager of the demo fixture on Windows, as demo-pm next to it: only `run test`.
+if not "%~1"=="run" goto unknown
+if not "%~2"=="test" goto unknown
+if not "%~3"=="" goto unknown
+node --test
+exit /b %ERRORLEVEL%
+:unknown
+echo demo-pm: only 'run test' is known, got: %* 1>&2
+exit /b 2
+EOF
+fi
 mkdir -p "$state/gate" "$state/projects/demo"
 cat >"$state/gate/config.json" <<EOF
 {
   "repos": [
     {
       "key": "demo",
-      "match": "$work",
+      "match": "$work_node",
       "profile": "demo",
-      "pm": "$pm",
+      "pm": "$work_node/.git/demo-pm",
       "root": { "fast": ["test"], "full": ["test"] },
       "workspace": {},
       "root_if": "\\\\.(mjs|js)\$|(^|/)package\\\\.json\$"

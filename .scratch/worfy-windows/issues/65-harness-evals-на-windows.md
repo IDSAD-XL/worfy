@@ -384,9 +384,36 @@ MISSING gate
 
 </details>
 
+### Пункт 4 — пути реестра fixture-а (2026-10-19, после мержа PR #496, main `2e8fb988`)
+
+- **Выбор.** `harness/evals/lib/demo-project.sh` пишет `match` и `pm` реестра Gate в написании node, а не
+  через нормализацию в test-е: эти пути читают `bin/profile` и `gate.mjs`, и чинить надо то, что они читают.
+  В Git Bash (там, где работает `pwd -W`) написание — `realpathSync.native(".")` node с `/` (JSON без
+  экранирования). Не `pwd -W`: он оставляет короткое 8.3-имя (TEMP runner-а `C:\Users\RUNNER~1`) и букву
+  диска `subst`, а git и node пишут длинное. Замер: с `pwd -W` и `TEMP=TMP=W:\` (`subst`) — 10 test-ов
+  «bin/profile -C <fixture> exits 0» красные, с написанием node — зелёные. На Mac `pwd -W` не работает, и
+  fixture пишет то же, что раньше (`pwd -P`).
+- **`pm` на Windows.** Gate ищет `<pm>` с расширениями PATHEXT и запускает `.cmd` через `cmd.exe`; скрипт
+  с shebang Windows не запускает («gate: …/demo-pm: command not found», exit 3 «ПРОВЕРИТЬ НЕ УДАЛОСЬ»).
+  Поэтому в Git Bash fixture пишет рядом с `demo-pm` и `demo-pm.cmd` — тот же `run test` → `node --test`.
+  В реестре по-прежнему `…/demo-pm`.
+- **Пропуск `registryPathsMatch` снят:** 32 test-а идут на `win32` — по 10 случаев в трёх группах
+  («bin/profile -C <fixture> exits 0 with profile demo», «a scaffold without EVAL_* leaves state …», «with
+  EVAL_HARNESS_HOME the state goes to …») и два test-а gate («the gate of the fixture needs no npm …»,
+  «gate fast of the fixture is red (exit 2) …»).
+
+| Прогон (ПК, gh вне PATH) | Exit | Итог |
+|---|---|---|
+| `harness-evals.test.ts`, обычный TEMP | 0 | 119 passed, 9 skipped (128) |
+| то же, `TEMP=TMP=W:\` | 0 | 119 passed, 9 skipped (128) |
+| мутант: `demo-project.sh` с main, test-ы без пропуска | 1 | 32 failed, 87 passed, 9 skipped |
+| head PR #496 `70040753` (замер ПК до мержа, оба TEMP) | 0 | 87 passed, 41 skipped |
+
+Девять оставшихся пропусков на `win32` были и до шага 4, у каждого — комментарий с причиной.
+
 ### Что не проверено
 
-- **Пункт 4 (путь `pm`, причина 3) ждёт мержа PR #496** и не сделан; вместе с ним — `match` (см. пункт 5).
+- Пункт 4 на Mac: Session на Mac сверяет, что число test-ов `harness-evals` и их итог там не изменились.
 - На Mac не запускалось ничего: красный test шага 1 и мутант на Mac, `pnpm lint`, `pnpm typecheck`, `pnpm test` там — за Session на Mac. На Mac новый test «os.homedir()» зелёный и без `USERPROFILE` (Node там берёт `HOME`); test «USERPROFILE is HOME» красный без него на всех системах — по замыслу Ticket-а, не проверено запуском.
 - Ветка `.mjs` в `runClaude` (`eval-harness.mjs`) есть только на `win32`; на Mac она не идёт. На ПК её проходят все test-ы со stub-ом.
 - Раунд 2: test «outside Windows starts a .mjs CLAUDE_BIN by its path» на ПК пропущен и на Mac не запускался; мутант E3a на Mac не проверен. Снимок `find ~/.claude/worfy-harness ~/.claude/gate | sort | md5sum` до и после финального прогона одинаковый (`172741c2…`); со старта Session он изменился один раз — `gate/state/verdict-02c8f6a5.json` от gate worktree `14-migrate` (другая Session, 13:36), test-ы этого Ticket-а туда не пишут.
