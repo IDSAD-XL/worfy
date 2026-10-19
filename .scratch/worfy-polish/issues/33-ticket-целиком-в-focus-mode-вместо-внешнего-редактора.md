@@ -85,16 +85,16 @@ Source: слово владельца 2026-10-19: Ticket открывается 
 
 ## Готово, когда
 
-- [ ] Двойной клик по карточке Ticket-а открывает focus mode на нём; плитка показывает весь файл
+- [x] Двойной клик по карточке Ticket-а открывает focus mode на нём; плитка показывает весь файл
   как markdown под шапкой; e2e `test/e2e/ticket-focus.spec.ts`.
-- [ ] Правка файла Ticket-а видна в плитке без повторного открытия (unit и e2e).
-- [ ] Относительная ссылка в теле открывается от папки Ticket-а (unit).
-- [ ] «Open in editor» в шапке плитки открывает файл по пути из main; на Linked machine — подсказка
+- [x] Правка файла Ticket-а видна в плитке без повторного открытия (unit и e2e).
+- [x] Относительная ссылка в теле открывается от папки Ticket-а (unit).
+- [x] «Open in editor» в шапке плитки открывает файл по пути из main; на Linked machine — подсказка
   «File is on <Machine>» (`test/e2e/linked-system-actions.spec.ts`).
-- [ ] `tickets.read`: путь вне Project-а отказан, Silent `ticketsRoot` читается, файл больше 1 MB
+- [x] `tickets.read`: путь вне Project-а отказан, Silent `ticketsRoot` читается, файл больше 1 MB
   отказан (contract `test/contract/tickets-read.test.ts`).
-- [ ] Карточка на Canvas не читает текст и не рисуется заново от смены места (unit).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; затронутые e2e — exit 0.
+- [x] Карточка на Canvas не читает текст и не рисуется заново от смены места (unit).
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; затронутые e2e — exit 0.
 
 ## Итог
 
