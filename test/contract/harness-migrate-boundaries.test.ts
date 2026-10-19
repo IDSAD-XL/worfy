@@ -76,7 +76,6 @@ describe('boundaries, races and what changed after the move', () => {
     expect(existsSync(join(projects, 'worfy'))).toBe(false)
   })
 
-  // Windows, provisional: >15 s in the idle full run, 8.3 s alone; re-measure in the next full run (worfy-polish 30).
   it('a second restore.mjs keeps what the first one saved in after/: it says the backup is restored and changes nothing', async () => {
     expect((await applyMigration(selection(plan()), applyOptions())).outcome).toBe('done')
     const settingsPath = join(sandbox.claudeHome, 'settings.json')
@@ -90,7 +89,7 @@ describe('boundaries, races and what changed after the move', () => {
     expect(again.stdout).toMatch(/^Already restored at .+ from this backup: nothing to do\./m)
     expect(readJson(saved).theme).toBe('light')
     expect(treeOf(sandbox.root, everything)).toEqual(before)
-  }, process.platform === 'win32' ? 60_000 : undefined)
+  })
 
   it('a failed move kept a change in after/, then the owner runs restore.mjs of that backup: the change is still there', async () => {
     const settingsPath = join(sandbox.claudeHome, 'settings.json')

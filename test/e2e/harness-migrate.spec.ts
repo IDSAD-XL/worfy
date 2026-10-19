@@ -102,7 +102,8 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     const item = window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     const open = item.getByTestId('harness-migrate')
-    await expect(open).toHaveText('Move old Harness…')
+    await expect(open).toHaveAccessibleName('Move old Harness…')
+    await expect(open).toHaveAttribute('title', 'Move old Harness…')
     await shoot(launched, window.getByRole('banner'), 'toolbar')
 
     await open.click()

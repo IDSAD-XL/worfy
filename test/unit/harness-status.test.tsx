@@ -33,13 +33,18 @@ describe('HarnessStatusView', () => {
     expect(screen.queryByTestId('harness-action')).toBeNull()
   })
 
-  it('with the install offered: Install, Update Harness and Retry call the action', () => {
+  it('with the install offered: Install, Update Harness and Retry are icon buttons with their names, and call the action', () => {
     const labels = { 'not-installed': 'Install', outdated: 'Update Harness', error: 'Retry' } as Record<string, string>
     for (const state of STATES) {
       const onInstall = vi.fn()
       render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={onInstall} />)
-      const button = screen.getByTestId('harness-action')
-      expect(button.textContent).toBe(labels[state.kind])
+      const button = screen.getByRole('button', { name: labels[state.kind] })
+      expect(button.getAttribute('data-testid')).toBe('harness-action')
+      // An icon, not a word: the name is the aria-label, the tooltip is the title.
+      expect(button.textContent).toBe('')
+      expect(button.querySelector('svg')).not.toBeNull()
+      expect(button.className).toContain('w-toolbar__icon-button')
+      expect(button.getAttribute('title')).not.toBe('')
       fireEvent.click(button)
       expect(onInstall).toHaveBeenCalledTimes(1)
       cleanup()
@@ -64,7 +69,7 @@ describe('HarnessStatusView', () => {
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness error: dependency install')
     expect(screen.getByTestId('harness-text').getAttribute('title')).toBe(state.reason)
     const retry = screen.getByTestId('harness-action')
-    expect(retry.textContent).toBe('Retry')
+    expect(retry.getAttribute('aria-label')).toBe('Retry')
     const hint = retry.getAttribute('title') ?? ''
     expect(hint).not.toContain('claude plugin install')
     expect(hint).not.toMatch(/install it with|by hand|yourself|first/i)
@@ -72,5 +77,46 @@ describe('HarnessStatusView', () => {
     expect(hint).toMatch(/Retry .*missing dependency/)
     fireEvent.click(retry)
     expect(onInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('the Install icon names the version and the folder it installs into in its tooltip', () => {
+    render(<HarnessStatusView status={status(STATES[0]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByRole('button', { name: 'Install' }).getAttribute('title')).toBe('Install the Harness 0.2.0+bbbbbbb into /Users/me/.claude/worfy-harness/plugin')
+  })
+
+  it('an outdated Harness with the update offered: its version on the line, "Update Harness: OLD → NEW" as the icon\'s tooltip', () => {
+    render(<HarnessStatusView status={status(STATES[1]!, true)} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+aaaaaaa')
+    const update = screen.getByRole('button', { name: 'Update Harness' })
+    expect(update.getAttribute('title')).toBe('Update Harness: 0.2.0+aaaaaaa → 0.2.0+bbbbbbb')
+  })
+
+  it('"Move old Harness…" is an icon button with that name and tooltip', () => {
+    const onMigrate = vi.fn()
+    render(<HarnessStatusView status={status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={onMigrate} />)
+    const move = screen.getByRole('button', { name: 'Move old Harness…' })
+    expect(move.getAttribute('data-testid')).toBe('harness-migrate')
+    expect(move.getAttribute('title')).toBe('Move old Harness…')
+    expect(move.textContent).toBe('')
+    fireEvent.click(move)
+    expect(onMigrate).toHaveBeenCalledTimes(1)
+  })
+
+  it('the app version is the second line, under the Harness line, in one column', () => {
+    render(<HarnessStatusView status={status({ kind: 'installed', version: '0.3.0+e61cb1fe', enabled: true }, false)} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0+e61cb1fe" />)
+    const column = screen.getByTestId('harness-column')
+    expect(column.style.flexDirection).toBe('column')
+    expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-version'])
+    expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0+e61cb1fe')
+    // The Harness line itself carries no version of the app.
+    expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.3.0+e61cb1fe')
+  })
+
+  it('the app version shows also before the Harness state arrives, and not before its own answer', () => {
+    const { rerender } = render(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} />)
+    expect(screen.queryByTestId('app-version')).toBeNull()
+    rerender(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0" />)
+    expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0')
+    expect(screen.queryByTestId('harness-status')).toBeNull()
   })
 })

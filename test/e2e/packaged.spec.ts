@@ -423,7 +423,7 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       // A packaged app offers the install (worfy-harness ticket 13); the Claude home of launchApp is
       // a sandbox without the plugin, so reading the state runs no `claude` at all.
       await expect(launched.window.getByTestId('harness-text')).toHaveText('Harness not installed')
-      await expect(launched.window.getByTestId('harness-action')).toHaveText('Install')
+      await expect(launched.window.getByTestId('harness-action')).toHaveAccessibleName('Install')
     } finally {
       await launched.close()
     }

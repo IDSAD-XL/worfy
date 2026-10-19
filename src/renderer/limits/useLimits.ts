@@ -1,10 +1,10 @@
 // The Limits for the toolbar: what main knows (`limits.open`), kept current
-// through `limits.changed`, and a clock that redraws the bars so "as of" appears in time.
+// through `limits.changed`, and a clock that redraws the bars so old data is dimmed in time.
 import { useEffect, useState } from 'react'
 import { emptyLimits, type LimitsState } from '../../shared/agent/limits'
 import { invoke, subscribe } from '../ipc'
 
-/** How often the bars are redrawn, so "as of" appears once the data gets old. */
+/** How often the bars are redrawn, so a bar is dimmed once its data gets old. */
 const REDRAW_MS = 60 * 1000
 
 /** The Limits from main, kept current through `limits.changed`; empty until the first answer. */

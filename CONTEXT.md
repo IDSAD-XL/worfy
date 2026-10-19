@@ -42,6 +42,14 @@ _Avoid_: лимиты, usage, квота, расход
 Node с интерактивной shell-сессией пользователя; агент им не пользуется.
 _Avoid_: терминал (как имя Node)
 
+**Browser**:
+Node со встроенным браузером Chromium: сайт или веб-приложение, открытое под одним Browser profile. Им пользуются и пользователь, и Session-ы Project-а — по просьбе в чате или чтобы проверить Ticket глазами нужной роли. На Canvas одновременно может быть несколько Browser-ов. Browser бывает **Live** — страница работает — или **Asleep** — на его месте последний снимок страницы, а сама страница закрыта до пробуждения; живых Browser-ов одновременно не больше предела из Settings.
+_Avoid_: карточка-браузер, браузерная карточка (Card — другое), webview, preview
+
+**Browser profile**:
+Сохранённый вход под одной ролью — куки и данные сайтов, например «admin», «moderator», «user». Пользователь входит в аккаунт сам, Session-ы приходят уже со входом и паролей не видят. Session ведёт Browser под ним только по адресам из списка, который задал пользователь, а Autopilot — только если пользователь это разрешил. Принадлежит Project-у и лежит на Machine ([ADR-0078](docs/adr/0078-browser-node.md)).
+_Avoid_: профиль (это Profile), профиль браузера, аккаунт, persona
+
 **Done shelf**:
 Ряд chip-ов под рамками Epic-ов: Epic, у которого все Ticket-ы done и рамка свёрнута, стоит здесь chip-ом с именем и счётом, а не рамкой ([ADR-0075](docs/adr/0075-epic-frames-in-columns-and-done-shelf.md)).
 _Avoid_: архив Epic-ов, список готовых
@@ -51,7 +59,7 @@ _Avoid_: архив Epic-ов, список готовых
 _Avoid_: корзина, скрытые (как синоним Archive)
 
 **Family**:
-Node и всё, что с ним связано Binding-ом и деревом Subagent-ов: Ticket, его Epic frame, его Session-ы и их Subagent-ы. Подсвечивается при наведении и выделении; Node-ы при этом не двигаются.
+Node и всё, что с ним связано Binding-ом и деревом Subagent-ов: Ticket, его Epic frame, его Session-ы, их Subagent-ы и Browser-ы, которые эти Session-ы открыли. Подсвечивается при наведении и выделении; Node-ы при этом не двигаются.
 _Avoid_: кластер, группа (как синоним Family)
 
 ## Workflow
@@ -197,6 +205,9 @@ _Avoid_: сервер (как название термина)
 - У **Project** ровно один режим — **Full mode** или **Silent mode**; Project над несколькими репозиториями всегда в **Silent mode**.
 - У **Project** ровно одна **Workflow folder**: в **Full mode** это корень репозитория, в **Silent mode** — папка вне репозитория.
 - **Card** принадлежит **Project**, а не Session: менять её может любая Session Project.
+- **Browser** открыт ровно под одним **Browser profile**; **Browser profile** принадлежит **Project**, а не Session, и им может пользоваться любая Session Project. Один **Browser profile** может быть открыт в нескольких **Browser**-ах сразу.
+- **Browser** работает на **Machine** своего **Project**, как Terminal и Session; **Linked machine** только показывает его и передаёт ввод. Поэтому **Browser profile** один, с какого бы экрана ни шла работа.
+- Вход в аккаунт и создание **Browser profile** делает только пользователь; **Session** может открыть **Browser** под существующим **Browser profile** и вести его, пока пользователь не перехватит управление.
 - **Autopilot** над самим worfy идёт только из **Stable copy**; агенты **Wave** в это время собирают и проверяют dev-сборку worfy в своих worktree.
 - **Terminal AI** работает в **Terminal**-е и не делает его агентским: команды в **Terminal**-е по-прежнему запускает только пользователь, а **Terminal AI** лишь предлагает текст строки ввода. Это не **Session**: на **Canvas** у него нет Node-а.
 - **SSH session** идёт внутри **Terminal**-а, у неё ровно один **Remote host**. **Terminal AI** работает в ней, только если на этом **Remote host**-е он включён. **Remote host** — не **Machine** и не **Linked machine**.

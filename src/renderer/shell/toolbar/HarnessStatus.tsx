@@ -11,21 +11,65 @@ import { invoke } from '../../ipc'
 // While the old Harness is still in ~/.claude, "Move old Harness…" opens the move form (ticket 14,
 // src/renderer/harness/MigrationForm.tsx); the form itself says what is missing before a move.
 
-// After the Limits (100), before the app version (1000).
+// The app version (`app.version`) is the second line of this item, small and muted under the
+// Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
+// The actions are icon buttons with a native tooltip and an aria-label: Install, Update Harness,
+// Retry and "Move old Harness…".
+
+// After the Limits (100), last of the toolbar items.
 export const order = 500
 
-const textStyle = { fontSize: 'var(--text-11)', color: 'var(--text-muted)', whiteSpace: 'nowrap' } as const
-const buttonStyle = {
-  height: 22,
-  padding: '0 8px',
-  border: '1px solid var(--border-strong)',
-  borderRadius: 'var(--radius-button)',
-  background: 'var(--surface)',
-  color: 'var(--text)',
-  fontSize: 'var(--text-11)',
-  fontWeight: 600,
-  whiteSpace: 'nowrap',
-} as const
+const textStyle = { fontSize: 'var(--text-11)', lineHeight: '20px', color: 'var(--text-muted)', whiteSpace: 'nowrap' } as const
+const versionStyle = { fontSize: 'var(--text-11)', lineHeight: '13px', color: 'var(--text-muted)', opacity: 0.8, whiteSpace: 'nowrap' } as const
+
+const iconProps = { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true } as const
+
+const ICONS = {
+  /** An arrow down onto a line. */
+  install: (
+    <svg {...iconProps}>
+      <path d="M8 2.5v8M5 7.5l3 3 3-3M3 13.5h10" />
+    </svg>
+  ),
+  /** An arrow up in a circle. */
+  update: (
+    <svg {...iconProps}>
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 11V5M5.5 7.5 8 5l2.5 2.5" />
+    </svg>
+  ),
+  /** A circular arrow. */
+  retry: (
+    <svg {...iconProps}>
+      <path d="M13 8a5 5 0 1 1-1.46-3.54" />
+      <path d="M13 2.5v3h-3" />
+    </svg>
+  ),
+  /** A box with an arrow out of it. */
+  migrate: (
+    <svg {...iconProps}>
+      <path d="M2.5 6.5v7h11v-7M8 10V2.5M5.5 5 8 2.5 10.5 5" />
+    </svg>
+  ),
+}
+
+interface IconButtonProps {
+  icon: keyof typeof ICONS
+  /** The accessible name. */
+  label: string
+  /** The native tooltip; the label when omitted. */
+  title?: string
+  onClick: () => void
+  testId: string
+}
+
+function IconButton({ icon, label, title, onClick, testId }: IconButtonProps) {
+  return (
+    <button type="button" className="w-toolbar__icon-button w-toolbar__icon-button--compact" aria-label={label} title={title ?? label} onClick={onClick} data-testid={testId}>
+      {ICONS[icon]}
+    </button>
+  )
+}
 
 export interface HarnessStatusViewProps {
   status: Status | undefined
@@ -35,10 +79,26 @@ export interface HarnessStatusViewProps {
   onInstall: () => void
   /** Opens the move form; the button shows only when given (main offers a move: harnessMigration.offer). */
   onMigrate?: (() => void) | undefined
+  /** The app version, the second line; nothing until it arrives. */
+  version?: string | undefined
 }
 
-/** The item for a given status; exported for tests. */
-export function HarnessStatusView({ status, busy, failure, onInstall, onMigrate }: HarnessStatusViewProps) {
+/** The item for a given status: the Harness line, and the app version under it; exported for tests. */
+export function HarnessStatusView({ version, ...props }: HarnessStatusViewProps) {
+  const harness = <HarnessLine {...props} />
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 'none' }} data-testid="harness-column">
+      {harness}
+      {version ? (
+        <small className="w-mono" style={versionStyle} data-testid="app-version">
+          v{version}
+        </small>
+      ) : null}
+    </div>
+  )
+}
+
+function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<HarnessStatusViewProps, 'version'>) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -55,12 +115,8 @@ export function HarnessStatusView({ status, busy, failure, onInstall, onMigrate 
     )
   }
   const { state, canInstall } = status
-  const action = (label: string, title?: string) =>
-    canInstall ? (
-      <button type="button" style={buttonStyle} onClick={onInstall} title={title} data-testid="harness-action">
-        {label}
-      </button>
-    ) : null
+  const action = (icon: IconButtonProps['icon'], label: string, title: string) =>
+    canInstall ? <IconButton icon={icon} label={label} title={title} onClick={onInstall} testId="harness-action" /> : null
 
   let text: string
   let title: string | undefined
@@ -69,36 +125,31 @@ export function HarnessStatusView({ status, busy, failure, onInstall, onMigrate 
   switch (state.kind) {
     case 'not-installed':
       text = 'Harness not installed'
-      button = action('Install', `Install the Harness ${status.bundledVersion ?? ''} into ${status.pluginDir}`)
+      button = action('install', 'Install', `Install the Harness ${status.bundledVersion ?? ''} into ${status.pluginDir}`)
       break
     case 'installed':
       text = state.enabled ? `Harness ${state.version}` : `Harness ${state.version} · disabled`
       title = state.enabled ? undefined : 'The plugin worfy is disabled in Claude Code'
       break
     case 'outdated':
-      text = canInstall ? '' : `Harness ${state.from ?? '?'} → ${state.to}`
-      button = action('Update Harness', `${state.from ?? 'unknown'} → ${state.to}`)
+      // With the update offered the line names the installed version and the icon the new one.
+      text = canInstall ? `Harness ${state.from ?? '?'}` : `Harness ${state.from ?? '?'} → ${state.to}`
+      button = action('update', 'Update Harness', `Update Harness: ${state.from ?? 'unknown'} → ${state.to}`)
       break
     case 'error':
       text = `Harness error: ${state.step}`
       title = state.reason
       tone = 'var(--blocked-text)'
-      button = action('Retry', 'Retry reads the state again and runs what is left of the install, a missing dependency of the plugin included; the dialog names every command before anything runs')
+      button = action('retry', 'Retry', 'Retry reads the state again and runs what is left of the install, a missing dependency of the plugin included; the dialog names every command before anything runs')
       break
   }
   return (
-    <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flex: 'none' }} data-testid="harness-status" data-state={state.kind}>
-      {text === '' ? null : (
-        <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
-          {text}
-        </span>
-      )}
+    <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flex: 'none' }} data-testid="harness-status" data-state={state.kind}>
+      <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
+        {text}
+      </span>
       {button}
-      {onMigrate === undefined ? null : (
-        <button type="button" style={buttonStyle} onClick={onMigrate} title="Move the old Harness out of ~/.claude: the plugin worfy carries it now" data-testid="harness-migrate">
-          Move old Harness…
-        </button>
-      )}
+      {onMigrate === undefined ? null : <IconButton icon="migrate" label="Move old Harness…" onClick={onMigrate} testId="harness-migrate" />}
     </span>
   )
 }
@@ -110,6 +161,19 @@ export default function HarnessStatus() {
   const [failure, setFailure] = useState<string>()
   const [migration, setMigration] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
+  const [version, setVersion] = useState<string>()
+
+  useEffect(() => {
+    let active = true
+    void invoke('app.version').then((result) => {
+      if (!active) return
+      if (result.ok) setVersion(result.value.version)
+      else console.error('app.version failed:', result.error)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const readOffer = useCallback(() => {
     void invoke('harnessMigration.offer').then((result) => {
@@ -143,7 +207,7 @@ export default function HarnessStatus() {
 
   return (
     <>
-      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} />
+      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} />
       {formOpen ? (
         <MigrationForm
           onClose={() => {

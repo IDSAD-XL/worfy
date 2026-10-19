@@ -4,7 +4,7 @@ Type: task
 Status: blocked 2026-10-19T15:22Z
 Blocked reason: ждёт мержа worfy-ui 16 (внутренние toast-ы: одно хранилище и один компонент)
 Waits: agent
-Blocked by: 07, 08, 09
+Blocked by: 07, 08, 09, 14
 Source: [spec.md](../spec.md), решение владельца 6;
 [ADR-0076](../../../docs/adr/0076-auto-archive-of-finished-sessions.md) (автоархив законченных Session-ов),
 пункты 7, 8 и 10; исследование
@@ -61,6 +61,25 @@ Source: [spec.md](../spec.md), решение владельца 6;
 - `test/e2e/session-archive-toast.spec.ts` (новый)
 
 Только чтение: `src/renderer/toast/toasts.ts` (`worfy-ui` 16).
+
+## Заметки ревью PR #536 (2026-10-20)
+
+- **Старт читает каждый Layout — `test/e2e/no-overlap.spec.ts:182` снова упадёт.** Таймер архива
+  (`src/main/layout/archive.ts`) при старте и раз в 10 минут проходит все Project-ы. Пока порог
+  «Never», `run()` идёт веткой `store.peek` (`:226-231`) и Layout не читает. Когда этот Ticket ставит
+  24 h по умолчанию, ветка с `store.get` (`:236`, `:243`) читает Layout каждого Project-а ещё до
+  открытия окон. Исправление наложений при первом чтении Layout тогда проходит до того, как test
+  подключил слушателя console, и `no-overlap.spec.ts:182` (ждёт строку `moved Node B` при ленивом
+  первом чтении Project-а BETA по клику) краснеет. Сделать одно из двух: архив Project-а — только
+  при первом чтении его Layout (`store.peek` для непрочитанных), либо test не зависит от ленивого
+  первого чтения.
+- **Drop сбрасывает часы архива.** `touchedAt` ставится на каждой операции пользователя над Node-ом
+  (ADR-0076, пункт 2; `src/main/layout/store.ts:148-168`). Session, привязанная к done Ticket-у,
+  которую пользователь перетащил, уходит в архив через 24 h, а не через 1 h. Так задумано; в тексте
+  toast-а и в «Итог» не обещать «через час после done».
+- **До этого Ticket-а — [14](14-архивные-node-ы-видны-в-find-истории-и-mcp.md):** архивные Node-ы не
+  должны всплывать в Find, истории Session, разделе Sessions, палитре и canvas MCP, когда архив
+  включён по умолчанию.
 
 ## Вне скоупа
 

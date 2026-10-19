@@ -273,7 +273,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     } finally {
       started.end()
     }
-  }, 30_000)
+  })
 
   it('endDescendants ends nothing when the process with the pid of the shell was created after the shell was started: it is another process', async (context) => {
     if (findOnPath('node', process.env) === null) context.skip('this machine has no node on its Path')
@@ -287,5 +287,5 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     } finally {
       started.end()
     }
-  }, 30_000)
+  })
 })

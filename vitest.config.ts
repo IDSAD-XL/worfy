@@ -19,6 +19,12 @@ removeStaleProbes(join(import.meta.dirname, 'src'))
 const tempDir = realpathSync(tmpdir())
 removeStaleTempFolders(tempDir, Date.now())
 
+// On Windows every time limit is three times the default. In a full run there, short tests run
+// 4-5x slower than alone (process start-up under load), and a different set reaches the limit
+// each run, so limits per test never settled (worfy-windows ticket 14, worfy-polish 30).
+// A test that really hangs still fails, only later.
+const timeScale = process.platform === 'win32' ? 3 : 1
+
 export default defineConfig({
   server: {
     fs: {
@@ -29,6 +35,8 @@ export default defineConfig({
   },
   test: {
     exclude,
+    testTimeout: 5_000 * timeScale,
+    hookTimeout: 10_000 * timeScale,
     projects: [
       {
         extends: true,
@@ -46,8 +54,8 @@ export default defineConfig({
           include: ['test/contract/**/*.test.ts'],
           // Contract tests start real processes (bash, git, node, the Harness scripts). Alone one
           // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
-          // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s.
-          testTimeout: 15_000,
+          // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s (45 s on Windows).
+          testTimeout: 15_000 * timeScale,
           // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
           // test reads the ~/.claude of the machine it runs on; the homes lie in one folder per run,
           // removed at its end.

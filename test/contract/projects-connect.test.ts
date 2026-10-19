@@ -1350,7 +1350,6 @@ describe('the GitHub account (worfy-harness ticket 25)', () => {
     return { ...outcome.draft, profile: { ...outcome.draft.profile, name: 'shop' }, gate: outcome.draft.gate.map((entry) => ({ ...entry, key: 'shop', profile: 'shop' })) }
   }
 
-  // Windows: 12.7 s in a full run on the PC (2026-10-19); twice that.
   it('after the account step the draft carries the chosen account and the finish its access allows; Connect writes both', async () => {
     const repo = makeRepo(join(scratch, 'shop'))
     git(repo, 'remote', 'add', 'origin', 'https://github.com/acme/shop.git')
@@ -1372,7 +1371,7 @@ describe('the GitHub account (worfy-harness ticket 25)', () => {
     const written = JSON.stringify(harnessFiles())
     for (const account of ACCOUNTS) expect(`${JSON.stringify(step)}${JSON.stringify(chosen)}${written}`).not.toContain(account.token)
     expect(clean(repo)).toBe('')
-  }, process.platform === 'win32' ? 26_000 : undefined)
+  })
 
   it('the active account with write access is chosen by default: pr-green-ci; "No account" gives none and the local finish', async () => {
     const repo = makeRepo(join(scratch, 'shop'))

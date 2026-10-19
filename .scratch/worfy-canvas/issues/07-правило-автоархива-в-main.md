@@ -1,7 +1,8 @@
 # 07 — Правило автоархива в main: поле `archived` в Layout, исключения, возврат продолженной Session
 
 Type: task
-Status: claimed 2026-10-19T16:37Z
+Status: done 2026-10-19T21:39Z
+PR: #536
 Branch: worfy-canvas/07
 Blocked by: —
 Source: [spec.md](../spec.md), решения владельца 4–6;

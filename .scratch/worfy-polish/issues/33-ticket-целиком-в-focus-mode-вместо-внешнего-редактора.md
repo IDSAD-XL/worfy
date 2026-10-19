@@ -1,7 +1,8 @@
 # 33 — Ticket целиком в focus mode, а не во внешнем редакторе
 
 Type: task
-Status: claimed 2026-10-19T13:52Z
+Status: done 2026-10-19T21:39Z
+PR: #530
 Branch: worfy-polish/33
 Blocked by: —
 Source: слово владельца 2026-10-19: Ticket открывается во внешнем редакторе, а должен открываться

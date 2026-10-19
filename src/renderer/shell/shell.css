@@ -112,6 +112,12 @@ html[data-platform='linux'] .w-toolbar[data-sidebar='hidden'] {
 .w-toolbar__icon-button:hover {
   background: var(--surface-raised);
 }
+/* The icon buttons of a two-line toolbar item (the Harness line above the app version): smaller,
+   so both lines fit the toolbar. */
+.w-toolbar__icon-button--compact {
+  width: 20px;
+  height: 20px;
+}
 /* The title shrinks (and only the title): a long Project name is cut with an ellipsis, the full
    name is in the title attribute, and the controls to the right always stay whole. */
 .w-toolbar__title {
