@@ -25,6 +25,7 @@ import { useOrchestratorView } from './orchestrator-view'
 export const kind = 'orchestrator' satisfies typeof ORCHESTRATOR_KIND
 export const defaultWidth = 360 satisfies typeof ORCHESTRATOR_WIDTH
 export const defaultHeight = 200 satisfies typeof ORCHESTRATOR_HEIGHT
+export const minimapColor = 'var(--kind-orchestrator)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },

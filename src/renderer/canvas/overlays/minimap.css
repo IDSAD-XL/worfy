@@ -9,3 +9,15 @@
 .w-canvas .react-flow__minimap-node.w-minimap-node--pinned {
   display: none;
 }
+/*
+ * Node outlines: none, but an outlined kind's (minimap-paint.ts, OUTLINED_KINDS). The width is in
+ * screen pixels: the minimap's drawing is scaled to fit the Canvas, and a stroke in its units would
+ * shrink with it.
+ */
+.w-canvas .react-flow__minimap-node {
+  stroke-width: 0;
+}
+.w-canvas .react-flow__minimap-node.w-minimap-node--outline {
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+}

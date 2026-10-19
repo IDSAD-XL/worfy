@@ -8,6 +8,8 @@
 //
 // What it cannot see:
 // - a link put in place after the walk and before the caller's realpath. The two are separate steps.
+//   With cachedLinks the walk of a folder is reused for the rest of one read (the workflow reader:
+//   hundreds of ms for an Auction-sized Project), so there the window is the whole read.
 // - a network drive mapped to a letter (worfy-windows ticket 33). `Z:\…` reads as a path of a disk
 //   of this machine: a link to it is 'local', and the walk calls lstat on `Z:\…`, which goes to the
 //   host of the share. Such a drive is one the user has mapped and signed in to, so the host is
@@ -104,6 +106,30 @@ export const nodeLinksSync: LinkFsSync = {
     }
   },
   readlink: (path) => readlinkSync(path),
+}
+
+/**
+ * `links` that ask about each path once: the first answer, or the first failure, is the answer to
+ * every later call for the same path, as written. For the many walks of one read, whose paths share
+ * their folders (a Ticket file under `<root>\.scratch\<epic>\issues\`): the walk reads the same
+ * answers as it would from `links`, so each verdict is the same. Made anew for each read and
+ * dropped after it, so a link put in place after one read is seen by the next.
+ */
+export function cachedLinks(links: LinkFs = nodeLinks): LinkFs {
+  const isLink = new Map<string, Promise<boolean | null>>()
+  const targets = new Map<string, Promise<string>>()
+  const once = <T>(answers: Map<string, Promise<T>>, path: string, ask: () => Promise<T>): Promise<T> => {
+    let answer = answers.get(path)
+    if (answer === undefined) {
+      answer = ask()
+      answers.set(path, answer)
+    }
+    return answer
+  }
+  return {
+    isLink: (path) => once(isLink, path, () => links.isLink(path)),
+    readlink: (path) => once(targets, path, () => links.readlink(path)),
+  }
 }
 
 /**

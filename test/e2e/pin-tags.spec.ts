@@ -117,10 +117,10 @@ test('a click on the minimap moves the viewport there; View ▸ Show Minimap hid
     await expect(minimap).toBeVisible()
     // The two notes and, last, the Orchestrator Node every Canvas has (ticket 08).
     await expect(window.locator('.react-flow__minimap-node')).toHaveCount(3)
-    // Drawn in the colour the note's type file declares (NoteNode.tsx, `minimapColor`); the
-    // Orchestrator's type declares none and gets the default.
+    // Drawn in the colour each type file declares (`minimapColor`): the notes' neutral grey
+    // (NoteNode.tsx), the Orchestrator's kind colour (OrchestratorNode.tsx, ADR-0077).
     const fills = await window.locator('.react-flow__minimap-node').evaluateAll((rects) => rects.map((rect) => (rect as unknown as { style: { fill: string } }).style.fill))
-    expect(fills).toEqual(['var(--border-strong)', 'var(--border-strong)', 'var(--text-muted)'])
+    expect(fills).toEqual(['var(--border-strong)', 'var(--border-strong)', 'var(--kind-orchestrator)'])
 
     // The far note is off screen; a click on its rectangle in the minimap centres the viewport on it.
     const far = noteById(window, 'far')

@@ -25,7 +25,7 @@ vi.mock('node:fs/promises', async (original) => {
   return { ...actual, lstat: watched('lstat'), stat: watched('stat'), realpath: watched('realpath') }
 })
 
-const { isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks, walkLinksSync } = await import('../../src/main/remote-links')
+const { cachedLinks, isInside, leadsToRemote, MAX_LINK_HOPS, nodeLinks, UNCHECKED, walkLinks, walkLinksSync } = await import('../../src/main/remote-links')
 
 afterEach(() => {
   asked.lstat.length = 0
@@ -460,6 +460,52 @@ describe('a link target written from a drive-less root (ticket 34)', () => {
     const deviceLink = fakeLinks({ [deviceRoot]: '\\\\evil\\share' })
     expect(await walkBoth(deviceLink, `${teamRoot}\\a.md`, ['\\Device\\team'])).toEqual(['local', 'local'])
     expect(deviceLink.calls.includes(`readlink ${deviceRoot}`)).toBe(false)
+  })
+})
+
+// The many walks of one read share their folders; cachedLinks asks the file system about each path once.
+describe('cachedLinks', () => {
+  const walkAll = (candidates: readonly string[], links: ReturnType<typeof fakeLinks>['links']) =>
+    Promise.all(candidates.map((candidate) => walkLinks(candidate, [REPO], { paths: win32, links })))
+
+  it('looks at a folder shared by several paths once, and gives each path the verdict it gets without the cache', async () => {
+    const tree = () =>
+      fakeLinks({ 'C:\\p\\repo\\docs\\evil.md': '\\\\evil\\share\\x', 'C:\\p\\repo\\docs\\moved': '..\\other' }, [], { denied: ['C:\\p\\repo\\docs\\denied'] })
+    // Two paths under the link `moved`: its target is read once too.
+    const candidates = ['C:\\p\\repo\\docs\\a.md', 'C:\\p\\repo\\docs\\b.md', 'C:\\p\\repo\\docs\\evil.md', 'C:\\p\\repo\\docs\\moved\\c.md', 'C:\\p\\repo\\docs\\moved\\e.md', 'C:\\p\\repo\\docs\\denied\\d.md']
+    const plain = tree()
+    const cached = tree()
+    const expected = await walkAll(candidates, plain.links)
+    expect(expected).toEqual(['local', 'local', 'remote', 'local', 'local', 'unchecked'])
+    expect(await walkAll(candidates, cachedLinks(cached.links))).toEqual(expected)
+    expect(plain.calls.filter((call) => call === 'lstat C:\\p\\repo\\docs')).toHaveLength(candidates.length)
+    expect(cached.calls.filter((call) => call === 'lstat C:\\p\\repo\\docs')).toHaveLength(1)
+    expect(plain.calls.filter((call) => call === 'readlink C:\\p\\repo\\docs\\moved')).toHaveLength(2)
+    expect(cached.calls.filter((call) => call === 'readlink C:\\p\\repo\\docs\\moved')).toHaveLength(1)
+    expect(new Set(cached.calls).size).toBe(cached.calls.length)
+    expect(new Set(cached.calls)).toEqual(new Set(plain.calls))
+  })
+
+  it('keeps a failure as the answer for later paths: each of them is unchecked, as without the cache', async () => {
+    const fs = fakeLinks({}, [], { denied: ['C:\\p\\repo\\docs'] })
+    const links = cachedLinks(fs.links)
+    expect(await walkAll(['C:\\p\\repo\\docs\\a.md', 'C:\\p\\repo\\docs\\b.md'], links)).toEqual(['unchecked', 'unchecked'])
+    expect(await walkLinks('C:\\p\\repo\\docs\\c.md', [REPO], { paths: win32, links })).toBe('unchecked')
+    expect(fs.calls.filter((call) => call === 'lstat C:\\p\\repo\\docs')).toHaveLength(1)
+  })
+
+  it('does not outlive the walks it was made for: a new one sees a link put in place after the first was used', async () => {
+    const fs = fakeLinks({ 'C:\\p\\repo\\docs': '\\\\evil\\share\\docs' })
+    // The folder is a plain one until the link is put in its place.
+    let linked = false
+    const changing = { ...fs.links, isLink: (path: string) => (linked || path !== 'C:\\p\\repo\\docs' ? fs.links.isLink(path) : Promise.resolve(false)) }
+    const walk = (links: typeof changing) => walkLinks('C:\\p\\repo\\docs\\a.md', [REPO], { paths: win32, links })
+    const first = cachedLinks(changing)
+    expect(await walk(first)).toBe('local')
+    linked = true
+    // The cache of the first walks keeps its answer; a cache made for the next walks asks again.
+    expect(await walk(first)).toBe('local')
+    expect(await walk(cachedLinks(changing))).toBe('remote')
   })
 })
 
