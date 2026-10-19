@@ -36,6 +36,8 @@ export const RECOMPUTE_NOTE = 'The Stage of every Ticket will be computed again.
 export const HARNESS_TOO_OLD = 'The Harness is too old for the Pipeline editor.'
 /** The line of a conflict: the Profile changed since the section read it; nothing was written. */
 export const CHANGED_SINCE_READ = 'The Pipeline has changed since it was read. Reload it.'
+/** The line of a busy lock: another write of this Profile is going on; nothing was written. */
+export const WRITE_IN_PROGRESS = 'Another write is in progress — try again.'
 
 /** The fields of a Stage the form edits as text; an empty one is not set. */
 type TextField = 'name' | 'label' | 'stuck_after' | 'environment'
@@ -142,7 +144,7 @@ const styles = {
 type Confirm = { kind: 'remove'; key: number; title: string; tickets: number } | { kind: 'rename'; titles: string; tickets: number } | { kind: 'reset' }
 
 /** What came back from the last write, shown under the buttons. */
-type Outcome = { kind: 'saved'; warning: string | null } | { kind: 'conflict' } | { kind: 'invalid'; reason: string } | { kind: 'failed'; reason: string } | null
+type Outcome = { kind: 'saved'; warning: string | null } | { kind: 'conflict' } | { kind: 'busy'; pipeline: PipelineStage[] | null } | { kind: 'invalid'; reason: string } | { kind: 'failed'; reason: string } | null
 
 interface FieldProps {
   row: Row
@@ -313,6 +315,9 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
       case 'conflict':
         setOutcome({ kind: 'conflict' })
         return
+      case 'busy':
+        setOutcome({ kind: 'busy', pipeline })
+        return
       case 'invalid':
         setOutcome({ kind: 'invalid', reason: answer.reason })
         return
@@ -435,6 +440,14 @@ export function PipelineEditor({ root, linkedMachine }: PipelineEditorProps) {
           <span style={{ ...styles.problem, margin: 0 }}>{CHANGED_SINCE_READ}</span>
           <button type="button" className="w-action" onClick={reload} data-testid="pipeline-reload">
             Reload
+          </button>
+        </div>
+      ) : null}
+      {outcome?.kind === 'busy' ? (
+        <div style={styles.actions} role="alert" data-testid="pipeline-busy">
+          <span style={{ ...styles.problem, margin: 0 }}>{WRITE_IN_PROGRESS}</span>
+          <button type="button" className="w-action" disabled={busy} onClick={() => void write(outcome.pipeline)} data-testid="pipeline-retry">
+            Try again
           </button>
         </div>
       ) : null}

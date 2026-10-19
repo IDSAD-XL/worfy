@@ -335,6 +335,23 @@ describe('Settings → Pipeline', () => {
     expect(main.writes).toHaveLength(1)
   })
 
+  it('a busy lock: the line and Try again, which sends the same write again; nothing taken before', async () => {
+    const { main } = await mount(custom())
+    main.write = { status: 'busy' }
+    type('CI label', 'Builds')
+    fireEvent.click(save())
+    const line = await screen.findByTestId('pipeline-busy')
+    expect(line.textContent).toMatch(/Another write is in progress — try again\./)
+    expect(screen.queryByTestId('pipeline-invalid')).toBeNull()
+    expect(main.writes).toHaveLength(1)
+    main.write = { status: 'saved', fingerprint: NEW_FINGERPRINT, warning: null }
+    fireEvent.click(within(line).getByRole('button', { name: 'Try again' }))
+    await screen.findByTestId('pipeline-saved')
+    expect(main.writes).toHaveLength(2)
+    expect(main.writes[1]).toEqual(main.writes[0])
+    expect(screen.queryByTestId('pipeline-busy')).toBeNull()
+  })
+
   it('a write answered too-old: the line about the old Harness and Update Harness, the form gone', async () => {
     const { main } = await mount(custom())
     main.write = { status: 'too-old' }

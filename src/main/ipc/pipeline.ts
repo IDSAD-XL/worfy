@@ -68,6 +68,8 @@ const profileSetWrittenSchema = z.object({ fingerprint: z.string().nullable(), w
 
 /** The exit code of `bin/profile-set` when the Pipeline in the file is not the one the caller read. */
 export const PROFILE_SET_CONFLICT = 5
+/** The exit code of `bin/profile-set` when another write held the profile's lock for the whole wait. */
+export const PROFILE_SET_BUSY = 6
 
 /** A run of `bin/profile-set`, or null when this Harness has none; any other failure to start throws. */
 async function runOrTooOld(run: ProfileSetRunner, args: readonly string[], stdin?: string): Promise<ProfileRun | null> {
@@ -166,6 +168,7 @@ export function pipelineHandlers(options: PipelineHandlersOptions): HandlerModul
       const run = await runOrTooOld(profileSet, args, pipeline === null ? undefined : JSON.stringify(pipeline))
       if (run === null) return { status: 'too-old' }
       if (run.code === PROFILE_SET_CONFLICT) return { status: 'conflict' }
+      if (run.code === PROFILE_SET_BUSY) return { status: 'busy' }
       if (run.code === 1) return { status: 'invalid', reason: scriptFailureDetail(run.stderr).replace(/^profile-set: /u, '') || 'bin/profile-set refused the Pipeline' }
       if (run.code !== 0) throw failure(run, what)
       const written = printed(run, profileSetWrittenSchema, what)

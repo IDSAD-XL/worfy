@@ -18,14 +18,16 @@
 // --expect takes the fingerprint --read printed (`null` — the field was absent). Then the change is
 // committed in the git repository of the Harness home, as bin/project-connect commits a new profile.
 // Writers of one profile take turns: a lock folder next to profile.json is held from reading the file
-// to the end of the commit.
+// to the end of the commit. A writer killed from outside (SIGKILL, taskkill /F, a caller's timeout)
+// leaves it behind; the next writer takes it over once it is 60 s old.
 // A commit that cannot be made — no repository there, git missing, the commit refused — does not undo
 // the write: the commit is the history, not a condition. It is reported as a warning.
 //
 // Exit codes: 0 — written (or nothing to change, or --read); 1 — the Pipeline breaks a rule or is not
 // JSON, the profile cannot be read or written: nothing written, the reason in stderr; 2 — usage
 // error; 3 — the directory is in no registered project, or the project has no profile (bin/profile's
-// code); 5 — the Pipeline in the file is not the one the caller read: nothing written.
+// code); 5 — the Pipeline in the file is not the one the caller read: nothing written; 6 — another
+// profile-set held the profile's lock for the whole wait (10 s): nothing written, try again.
 // Output on 0 after a write (stdout, JSON): { written, fingerprint, warning } — `written` false when
 // the file already said that; `warning` null, or why the change was not committed (also a line
 // "profile-set: warning: …" in stderr). On 5: { conflict: true, fingerprint } with the fingerprint now.
@@ -34,13 +36,14 @@
 const fs = require("node:fs")
 const path = require("node:path")
 const { spawnSync } = require("node:child_process")
+const { randomBytes } = require("node:crypto")
 // The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 const { pipelineProblem, pipelineField, resolvePipeline, pipelineFingerprint } = require("../lib/pipeline.cjs")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
 const USAGE = `usage: profile-set [-C <dir>] (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset)
-exit: 0 written or read, 1 invalid Pipeline or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the Pipeline changed since it was read`
+exit: 0 written or read, 1 invalid Pipeline or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the Pipeline changed since it was read, 6 another write held the lock (try again)`
 
 const out = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n")
 const err = (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n")
@@ -153,56 +156,88 @@ if (mode === "set") {
 }
 
 // --- the lock: one writer of a profile at a time ---------------------------------------
-// A folder next to profile.json, made with mkdir (atomic on every file system the Harness runs on). It
-// is held from reading the profile to the end of the commit, so the compare, the write and the commit
-// of two writers never interleave. A lock older than LOCK_STALE_MS is one a killed writer left: it is
-// removed. A live one is waited for up to LOCK_WAIT_MS, then the write gives up with exit 1.
+// A folder next to profile.json, made with mkdir (atomic on every file system the Harness runs on), with
+// an `owner` file inside holding this writer's token (pid and random). It is held from reading the
+// profile to the end of the commit, so the compare, the write and the commit of two writers never
+// interleave. It is released on exit, and only by the writer whose token it holds.
+// A lock whose owner file (or folder, before the file is there) is older than LOCK_STALE_MS is one a
+// killed writer left. A waiter takes it over: it renames the folder to a name of its own and deletes it
+// only if it still holds the token judged stale; a fresh lock caught by the rename is put back. So two
+// waiters cannot both clear one stale lock, and neither deletes the lock a new owner has just made.
+// A live lock is waited for up to LOCK_WAIT_MS, then the write gives up with exit 6.
 const LOCK = path.join(dir, ".profile-set.lock")
+const OWNER = path.join(LOCK, "owner")
 const LOCK_STALE_MS = 60_000
 // shortcut: a fixed wait; PROFILE_SET_LOCK_WAIT_MS exists for the tests only, redo when a caller needs its own wait.
 const LOCK_WAIT_MS = Number(process.env.PROFILE_SET_LOCK_WAIT_MS) || 10_000
+// For the tests only: a pause between judging a lock stale and taking it over, to let another writer in.
+const STALE_PAUSE_MS = Number(process.env.PROFILE_SET_STALE_PAUSE_MS) || 0
+const TOKEN = `${process.pid}-${randomBytes(8).toString("hex")}`
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-let locked = false
-const unlock = () => {
-    if (!locked) return
-    locked = false
+const ownerOf = (folder) => {
     try {
-        fs.rmdirSync(LOCK)
-    } catch {}
+        return fs.readFileSync(path.join(folder, "owner"), "utf8")
+    } catch {
+        return null
+    }
 }
-process.on("exit", unlock)
-for (const [signal, code] of [
-    ["SIGINT", 130],
-    ["SIGTERM", 143],
-    ["SIGHUP", 129],
-]) {
-    process.on(signal, () => {
-        unlock()
-        process.exit(code)
-    })
+let locked = false
+// The script is synchronous to its end, so a signal handler would never run: after Ctrl+C the default
+// action ends it, and the lock is released by the next writer's stale check, as after a kill.
+process.on("exit", () => {
+    if (!locked || ownerOf(LOCK) !== TOKEN) return
+    try {
+        fs.rmSync(LOCK, { recursive: true, force: true })
+    } catch {}
+})
+/** Takes over the lock if it is still the stale one with `token` (null — no owner file yet). */
+function clearStale(token) {
+    if (STALE_PAUSE_MS > 0) pause(STALE_PAUSE_MS)
+    const aside = `${LOCK}.stale-${TOKEN}`
+    try {
+        fs.renameSync(LOCK, aside)
+    } catch {
+        return // gone, or taken over by another waiter
+    }
+    if (ownerOf(aside) === token) {
+        fs.rmSync(aside, { recursive: true, force: true })
+        return
+    }
+    // A fresh lock of another writer: put it back.
+    try {
+        fs.renameSync(aside, LOCK)
+    } catch {}
 }
 const deadline = Date.now() + LOCK_WAIT_MS
 while (!locked) {
     try {
         fs.mkdirSync(LOCK)
-        locked = true
     } catch (e) {
         if (e.code !== "EEXIST") die(1, `cannot take the lock ${LOCK}: ${e.message} — not written`)
+        const token = ownerOf(LOCK)
         let age = 0
         try {
-            age = Date.now() - fs.statSync(LOCK).mtimeMs
+            age = Date.now() - fs.statSync(token === null ? LOCK : OWNER).mtimeMs
         } catch {
             continue // gone in between: try again at once
         }
         if (age > LOCK_STALE_MS) {
-            try {
-                fs.rmdirSync(LOCK)
-            } catch {}
+            clearStale(token)
             continue
         }
-        if (Date.now() >= deadline) die(1, `another profile-set is writing ${pjPath} (lock ${LOCK}) — not written; try again`)
+        if (Date.now() >= deadline) die(6, `another profile-set is writing ${pjPath} (lock ${LOCK}) — not written; try again`)
         pause(100)
+        continue
     }
+    try {
+        fs.writeFileSync(OWNER, TOKEN)
+    } catch (e) {
+        try {
+            fs.rmdirSync(LOCK)
+        } catch {}
+        die(1, `cannot take the lock ${LOCK}: ${e.message} — not written`)
+    }
+    locked = true
 }
 
 // --- compare-and-write, under the lock --------------------------------------------------

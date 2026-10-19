@@ -95,6 +95,8 @@ export const pipelineWriteResultSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('saved'), fingerprint: pipelineFingerprintSchema.nullable(), warning: z.string().nullable() }),
   /** The Profile's Pipeline is not the one the editor read: nothing written. */
   z.object({ status: z.literal('conflict') }),
+  /** Another write of the same Profile held its lock for the whole wait: nothing written, try again. */
+  z.object({ status: z.literal('busy') }),
   /** `bin/profile-set` refused the Pipeline (exit 1) with this reason: nothing written. */
   z.object({ status: z.literal('invalid'), reason: z.string() }),
   /** The Harness has no `bin/profile-set`: the editor offers its Update. */

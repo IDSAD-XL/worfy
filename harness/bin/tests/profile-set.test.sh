@@ -227,13 +227,13 @@ check "pipeline null: --expect null writes the value" [ "$(field "$PJ")" = "$OTH
 # --- the lock ---------------------------------------------------------------------------------------------
 LOCKDIR="$HH/projects/demo/.profile-set.lock"
 check "lock: no lock folder left after the writes" [ ! -e "$LOCKDIR" ]
-# A live lock of another writer: this one waits, gives up with exit 1 and writes nothing.
+# A live lock of another writer: this one waits, gives up with exit 6 and writes nothing.
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
 cp "$PJ" "$T/pj-before"
 mkdir "$LOCKDIR"
 PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err"
 rc=$?
-check "held lock: exit 1" [ "$rc" -eq 1 ]
+check "held lock: exit 6" [ "$rc" -eq 6 ]
 check "held lock: says another writer holds it" grep -q "another profile-set is writing" "$T/err"
 check "held lock: profile.json as it was" cmp -s "$PJ" "$T/pj-before"
 check "held lock: the other writer's lock is left alone" [ -d "$LOCKDIR" ]
@@ -253,6 +253,40 @@ rc=$?
 check "stale lock: exit 0" [ "$rc" -eq 0 ]
 check "stale lock: written" [ "$(field "$PJ")" = "$OTHER" ]
 check "stale lock: no lock folder left" [ ! -e "$LOCKDIR" ]
+check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 2>&1)
+
+# A stale lock two waiters see at once: B judges it stale and pauses before taking it over; meanwhile A
+# takes it over, makes its own lock and holds it through a slow commit. B's takeover must leave A's lock
+# alone: A's token is still in it while A commits, and B waits for A instead of writing beside it.
+C='[{"kind":"queued"},{"kind":"agent-review"},{"kind":"done"}]'
+SLOW="$T/slow"
+mkdir -p "$SLOW"
+cat >"$SLOW/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do [ "\$a" = commit ] && sleep 3; done
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$SLOW/git"
+mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+PROFILE_SET_STALE_PAUSE_MS=1500 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >"$T/outB" 2>"$T/errB" &
+waiter_b=$!
+sleep 0.5
+PATH="$SLOW:$PATH" run "$SET" -C "$T/r/demo" --expect "$fp" --set "$C" >"$T/outA" 2>"$T/errA" &
+writer_a=$!
+# By now B has woken and tried to take over: A is still in its slow commit.
+sleep 2.5
+owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+wait "$writer_a"
+rc_a=$?
+wait "$waiter_b"
+rc_b=$?
+check "stale lock, two waiters: A's lock still there while A commits" [ "$owner_mid" != none ]
+check "stale lock, two waiters: the lock holds A's token, not the dead one" [ "$owner_mid" != dead-writer ]
+check "stale lock, two waiters: A writes (exit 0)" [ "$rc_a" -eq 0 ]
+check "stale lock, two waiters: B, from the same read, gets exit 5 after A" [ "$rc_b" -eq 5 ]
+check "stale lock, two waiters: the file holds A's value" [ "$(field "$PJ")" = "$C" ]
+check "stale lock, two waiters: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"

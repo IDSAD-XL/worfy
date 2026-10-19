@@ -898,7 +898,7 @@ describe('the Pipeline editor', () => {
     expect(profileSetRuns).toHaveLength(2)
   })
 
-  it('the answers of bin/profile-set: exit 5 a conflict, exit 1 the reason, no script a Harness too old, another code an error', async () => {
+  it('the answers of bin/profile-set: exit 5 a conflict, exit 6 a busy lock, exit 1 the reason, no script a Harness too old, another code an error', async () => {
     // Read-only access is enough for the read.
     setAccess('read')
     const window = { id: 10, send: () => undefined, isDestroyed: () => false, once: () => window }
@@ -907,6 +907,8 @@ describe('the Pipeline editor', () => {
     try {
       profileSetInstead = async () => ({ code: 5, stdout: '{"conflict":true,"fingerprint":null}', stderr: 'profile-set: workflow.pipeline of x changed since it was read — not written' })
       expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'conflict' } })
+      profileSetInstead = async () => ({ code: 6, stdout: '', stderr: 'profile-set: another profile-set is writing x (lock y) — not written; try again' })
+      expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'busy' } })
       expect(profileSetRuns.at(-1)).toEqual(['-C', realRepo, '--expect', input.expected, '--reset'])
       profileSetInstead = async () => ({ code: 1, stdout: '', stderr: 'profile-set: /h/profile.json: workflow.pipeline[1]: check needs a name — not written\n' })
       expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'invalid', reason: '/h/profile.json: workflow.pipeline[1]: check needs a name — not written' } })
