@@ -403,6 +403,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 13 | `src/renderer/settings/settings-window.ts`, `test/unit/settings-dialog.test.tsx`, `test/e2e/settings.spec.ts` | 4 |
 | 14 | `src/shared/shortcuts.ts`, `src/renderer/shortcuts/match.ts`, `src/renderer/platform.ts`, `src/renderer/session/ExternalSessionPanel.tsx`, `test/unit/shortcuts.test.tsx`, `test/e2e/shortcuts.spec.ts` | 5 |
 | 15 | `src/renderer/session/composer/Pickers.tsx`, `src/renderer/session/session.css`, `test/e2e/session-controls.spec.ts` | 4 |
+| 16 | `src/renderer/toast/toasts.ts`, `src/renderer/toast/Toasts.tsx`, `src/renderer/toast/toast.css`, `src/renderer/main.tsx`, `src/renderer/canvas/history.ts`, `src/renderer/canvas/overlays/UndoSkipped.tsx`, `src/renderer/machines/useFileElsewhere.ts`, `src/renderer/machines/FileElsewhereHint.tsx`, `src/renderer/canvas/nodes/TicketNode.tsx`, `src/renderer/shell/sidebar/AdrSection.tsx`, `src/renderer/markdown/Markdown.tsx`, `src/renderer/canvas/nodes/TerminalNode.tsx`, `src/renderer/shell/FirstRunChecks.tsx`, `src/renderer/workflow/useWorkflow.ts`, `src/renderer/docs/useDocs.ts`, `src/renderer/claude-home/useClaudeHome.ts`, `src/renderer/canvas/useLayout.ts`, `test/unit/toasts.test.ts`, `test/unit/toasts-view.test.tsx`, `test/unit/terminal-ai-fix-button.test.tsx`, `test/unit/file-elsewhere.test.tsx`, `test/e2e/trash-undo.spec.ts`, `test/e2e/linked-system-actions.spec.ts` | 7 |
+| 17 | `src/main/agent/permissions.ts`, `src/main/agent/fake-query.ts`, `src/main/agent/session.ts`, `src/shared/agent/events.ts`, `src/shared/ipc/agent.ts`, `src/main/ipc/agent.ts`, `src/main/notify.ts`, `src/renderer/session/QuestionCard.tsx`, `src/renderer/session/rows/PermissionRequest.tsx`, `src/renderer/session/rows/index.ts`, `src/renderer/canvas/badges/WaitsForAnswer.tsx`, `test/fixtures/agent-scripts/question.jsonl`, `test/contract/permissions.test.ts`, `test/unit/question-card.test.tsx`, `test/unit/notify.test.ts`, `test/e2e/session-question.spec.ts` | 7 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave. Ticket-ы 11 и 12
@@ -431,6 +433,13 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
   порядок держит блокер.
 - **Wave 6 — 12, один.** Ждёт все остальные Ticket-ы, 14 и 15 тоже; в нём шаги владельца, Autopilot его
   не берёт.
+- **Wave 7 — 16 и 17** (добавлены 2026-10-19 по отзыву владельца после ручной приёмки 12). 16 —
+  внутренние toast-ы: одно хранилище и компонент, перенос четырёх сообщений с таймером, ошибки IPC,
+  которые сейчас только в консоли. 17 — вопросы `AskUserQuestion` с вариантами ответа в Session.
+  Блокеров нет: пункт 5 Ticket-а 17 (ответ из toast-а) берётся, только если 16 уже влит, иначе
+  уходит в новый Ticket. Общих файлов нет: 17 только читает `src/renderer/toast/toasts.ts`. По
+  правилу плана оба стоят в первой Wave; номер 7 — потому что 01–15 влиты. Это новые функции, а не
+  цели Epic-а: 12 их не ждёт.
 
 Сдвигов из-за общих файлов нет. Общие файлы между Wave-ами есть, и порядок их держат блокеры:
 `src/main/menu.ts`, `test/contract/view-menu.test.ts` и `AppShell.tsx` — 02 → 03 → 10 → 11;
