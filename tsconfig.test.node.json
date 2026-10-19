@@ -24,6 +24,7 @@
     "src/renderer/platform.ts",
     "src/renderer/projects/read-only-now.ts",
     "test/app-url.ts",
+    "test/git-bash.ts",
     "test/global-setup-contract.ts",
     "test/harness-node.ts",
     "test/remove.ts",

@@ -5,10 +5,11 @@
 // by E3_CLAUDE, and E3_HARNESS_DONE_AT stands for the time the Harness moved. The real ~/.claude
 // is never read: HOME is the temporary folder and CLAUDE_CONFIG_DIR is not passed.
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -53,13 +54,15 @@ function put(rel: string, text: string): void {
   writeFileSync(file, text)
 }
 
-/** A stand-in `claude`: `plugin list --json` prints `plugins`. */
+/**
+ * A stand-in `claude`: `plugin list --json` prints `plugins`. A Node script, which the check runs
+ * with its own node: Windows does not start a `#!/bin/sh` file.
+ */
 function claudeStub(plugins: unknown = [{ id: 'worfy@worfy-harness', version: '0.2.0+abc', enabled: true }]): string {
   const answer = join(scratch, 'plugins.json')
   writeFileSync(answer, JSON.stringify(plugins))
-  const stub = join(scratch, 'claude')
-  writeFileSync(stub, `#!/bin/sh\ncat '${answer}'\n`)
-  chmodSync(stub, 0o755)
+  const stub = join(scratch, 'claude.mjs')
+  writeFileSync(stub, `import { readFileSync } from 'node:fs'\nprocess.stdout.write(readFileSync(${JSON.stringify(answer)}, 'utf8'))\n`)
   return stub
 }
 
@@ -80,7 +83,7 @@ const FINISHED: Line[] = [{ kind: 'run-started' }, wave('wave-started', 1, ['01'
 
 function check(journalPath: string | null, options: { claude?: string; env?: Record<string, string> } = {}): { status: number | null; stdout: string; stderr: string } {
   const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, HOME: home, TMPDIR: process.env.TMPDIR ?? tmpdir(), LANG: 'C.UTF-8', E3_CLAUDE: options.claude ?? claudeStub(), E3_HARNESS_DONE_AT: DONE_AT, ...options.env }
-  const run = spawnSync('bash', journalPath === null ? [SCRIPT] : [SCRIPT, journalPath], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: 30_000, killSignal: 'SIGKILL' })
+  const run = spawnSync(gitBash(), journalPath === null ? [SCRIPT] : [SCRIPT, journalPath], { cwd: scratch, env, encoding: 'utf8', input: '', timeout: 30_000, killSignal: 'SIGKILL' })
   expect(run.error).toBeUndefined()
   return { status: run.status, stdout: run.stdout, stderr: run.stderr }
 }
@@ -99,10 +102,13 @@ function listing(dir: string): Record<string, string> {
 
 const violations = (stdout: string): string[] => stdout.trim().split('\n').slice(1)
 
+/** A path under the home folder as the check prints it: `~` and the rest joined with the system's separator. */
+const tilde = (rel: string): string => join('~', ...rel.split('/'))
+
 describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
   it('passes a personal ~/.claude that keeps what the plugin does not ship: bin/tests, bin/ТИКЕТЫ.md, hooks/tests', () => {
     const result = check(journal(FINISHED))
-    expect(result.stdout).toContain('ok: ~/.claude holds only personal files')
+    expect(result.stdout).toContain(`ok: ${tilde('.claude')} holds only personal files`)
     expect(result.status).toBe(0)
   })
 
@@ -110,7 +116,7 @@ describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
     put('bin/epic-status', '#!/bin/sh\n')
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
-    expect(result.stdout).toBe('1 violation:\na file of the Harness is still there: ~/.claude/bin/epic-status\n')
+    expect(result.stdout).toBe(`1 violation:\na file of the Harness is still there: ${tilde('.claude/bin/epic-status')}\n`)
   })
 
   it('names an agent, a skill, a hook, a qmd script and profiles/README.md of the Harness, one line each', () => {
@@ -122,11 +128,11 @@ describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
     expect(violations(result.stdout)).toEqual([
-      'a file of the Harness is still there: ~/.claude/agents/implementer.md',
-      'a file of the Harness is still there: ~/.claude/skills/epic-wave',
-      'a qmd script of the old Harness is still there: ~/.claude/bin/qmd-mcp',
-      'a file of the Harness is still there: ~/.claude/hooks/gate.sh',
-      'a file of the Harness is still there: ~/.claude/profiles/README.md',
+      `a file of the Harness is still there: ${tilde('.claude/agents/implementer.md')}`,
+      `a file of the Harness is still there: ${tilde('.claude/skills/epic-wave')}`,
+      `a qmd script of the old Harness is still there: ${tilde('.claude/bin/qmd-mcp')}`,
+      `a file of the Harness is still there: ${tilde('.claude/hooks/gate.sh')}`,
+      `a file of the Harness is still there: ${tilde('.claude/profiles/README.md')}`,
     ])
   })
 
@@ -135,14 +141,14 @@ describe('e3-owner-check.sh: files of the Harness in ~/.claude', () => {
     put('bin/epic-status', '#!/bin/sh\n')
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
-    expect(violations(result.stdout)).toEqual(['the Harness plugin is not in ~/.claude/worfy-harness/plugin: nothing to compare ~/.claude with'])
+    expect(violations(result.stdout)).toEqual([`the Harness plugin is not in ${tilde('.claude/worfy-harness/plugin')}: nothing to compare ${tilde('.claude')} with`])
   })
 
   it('names the sections of CLAUDE.md the plugin carries, and leaves the personal ones', () => {
     put('CLAUDE.md', '# Me\n\n## Standing authorization\n\nyes\n\n## Plain language\n\nold\n\n## My notes\n\nx\n')
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
-    expect(violations(result.stdout)).toEqual(['a rule of the Harness is still in ~/.claude/CLAUDE.md: "Plain language"'])
+    expect(violations(result.stdout)).toEqual([`a rule of the Harness is still in ${tilde('.claude/CLAUDE.md')}: "Plain language"`])
   })
 })
 
@@ -151,14 +157,14 @@ describe('e3-owner-check.sh: settings.json, .claude.json and the plugin', () => 
     put('settings.json', JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: '~/.claude/hooks/gone.sh x' }, { type: 'command', command: '/usr/bin/true' }] }] } }))
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
-    expect(violations(result.stdout)).toEqual(['a hook of ~/.claude/settings.json (Stop) runs a file that is gone: ~/.claude/hooks/gone.sh'])
+    expect(violations(result.stdout)).toEqual([`a hook of ${tilde('.claude/settings.json')} (Stop) runs a file that is gone: ${tilde('.claude/hooks/gone.sh')}`])
   })
 
   it('names every qmd MCP record of .claude.json, the per-project ones too', () => {
     writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { qmd: {} }, projects: { '/x': { mcpServers: { 'qmd-local': {} } } } }))
     const result = check(journal(FINISHED))
     expect(result.status).toBe(1)
-    expect(violations(result.stdout)).toEqual(['~/.claude.json still registers qmd: mcpServers.qmd', '~/.claude.json still registers qmd: projects["/x"].mcpServers.qmd-local'])
+    expect(violations(result.stdout)).toEqual([`${tilde('.claude.json')} still registers qmd: mcpServers.qmd`, `${tilde('.claude.json')} still registers qmd: projects["/x"].mcpServers.qmd-local`])
   })
 
   it('exits 1 when the worfy plugin is disabled or not listed, 2 when claude cannot run', () => {

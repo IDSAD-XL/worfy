@@ -227,7 +227,11 @@ if (isObject(json)) {
 for (const record of qmdRecords) violations.push(`${shown(claudeJson)} still registers qmd: ${record}`)
 
 // ── The plugin is installed and enabled ──
-const claude = spawnSync(env.E3_CLAUDE || "claude", ["plugin", "list", "--json"], { encoding: "utf8" })
+// A Node stand-in (`.mjs`) runs with this node: Windows cannot start a script file by itself.
+const claudeBin = env.E3_CLAUDE || "claude"
+const claude = claudeBin.endsWith(".mjs")
+  ? spawnSync(process.execPath, [claudeBin, "plugin", "list", "--json"], { encoding: "utf8" })
+  : spawnSync(claudeBin, ["plugin", "list", "--json"], { encoding: "utf8" })
 if (claude.error) die(`claude plugin list --json could not run: ${claude.error.message}`)
 if (claude.status !== 0) violations.push(`claude plugin list --json exited ${claude.status}: ${(claude.stderr || "").trim()}`)
 else {
