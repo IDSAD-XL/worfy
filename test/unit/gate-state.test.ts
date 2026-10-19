@@ -37,13 +37,15 @@ async function tempDir(): Promise<string> {
 }
 
 describe('gateTag', () => {
-  it.each(['/Users/alexey/Stuff/CanvasForAI', '/Users/test/projects/demo/.claude/worktrees/07', '/tmp/с пробелом и юникодом'])(
-    'equals the first 8 hex digits of `printf %%s <path> | shasum` for %s',
-    (path) => {
-      const expected = execFileSync('/bin/sh', ['-c', 'printf "%s" "$1" | shasum | cut -c1-8', 'sh', path], { encoding: 'utf8' }).trim()
-      expect(gateTag(path)).toBe(expected)
-    },
-  )
+  // The expected tags are the output of `printf %s <path> | shasum | cut -c1-8`, written out so the
+  // test needs no /bin/sh (it runs on Windows too) and still checks against a hash made elsewhere.
+  it.each([
+    ['/Users/alexey/Stuff/CanvasForAI', '048d88a0'],
+    ['/Users/test/projects/demo/.claude/worktrees/07', '80f45779'],
+    ['/tmp/с пробелом и юникодом', '064900bc'],
+  ])('equals the first 8 hex digits of `printf %%s <path> | shasum` for %s', (path, expected) => {
+    expect(gateTag(path)).toBe(expected)
+  })
 })
 
 // worfy-windows ticket 03: the Gate hashes the path as `git rev-parse --show-toplevel` prints it,
@@ -165,6 +167,8 @@ describe('lastGateOutcome', () => {
 
 describe('gateRunDir', () => {
   const cwd = '/Users/test/projects/demo'
+  // Paths of macOS, so the platform is macOS's: on Windows `cd /Users/…` is under Git Bash's own
+  // root and cannot be placed (the Windows rules have their own block below).
   it.each([
     ['bash ~/.claude/hooks/gate.sh fast </dev/null; echo "КОД=$?"', cwd],
     ['~/.claude/hooks/gate.sh fast > /tmp/g.out 2>&1; tail -1 /tmp/g.out', cwd],
@@ -172,9 +176,15 @@ describe('gateRunDir', () => {
     ['cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', '/Users/test/Work/Auction'],
     ['cd ~/.claude && ls; cd /Users/test/projects/demo && ~/.claude/hooks/gate.sh fast', cwd],
     ["cd '/Users/test/My Projects/x' && gate.sh", '/Users/test/My Projects/x'],
+    ['GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full; cd /elsewhere', cwd],
+  ])('%s → %s', (command, dir) => {
+    expect(gateRunDir(command, cwd, 'darwin')).toBe(dir)
+  })
+
+  // The home folder is this machine's, so these run on its own platform.
+  it.each([
     ['cd && ~/.claude/hooks/gate.sh fast', homedir()],
     ['cd ~/x && ~/.claude/hooks/gate.sh fast', join(homedir(), 'x')],
-    ['GATE_SCOPE=all bash ~/.claude/hooks/gate.sh full; cd /elsewhere', cwd],
   ])('%s → %s', (command, dir) => {
     expect(gateRunDir(command, cwd)).toBe(dir)
   })
@@ -283,12 +293,13 @@ describe('gateOutputs', () => {
   const result = (id: string, content: unknown) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content }] } })
 
   it('takes the result of a tool call that ran gate.sh, with the folder it ran in, once', () => {
+    // Folders of macOS (`cd /other`), so the platform is macOS's.
     const calls = new Map<string, string | null>()
-    expect(gateOutputs(gateCall('a', 'bash ~/.claude/hooks/gate.sh fast', '/r'), calls)).toEqual([])
-    expect(gateOutputs(gateCall('b', 'cd /other && ~/.claude/hooks/gate.sh fast', '/r'), calls)).toEqual([])
-    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls)).toEqual([{ text: '[gate] зелено (fast): x', dir: '/r' }])
-    expect(gateOutputs(result('b', [{ type: 'text', text: 'b' }, { type: 'image' }]), calls)).toEqual([{ text: 'b', dir: '/other' }])
-    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls)).toEqual([])
+    expect(gateOutputs(gateCall('a', 'bash ~/.claude/hooks/gate.sh fast', '/r'), calls, 'darwin')).toEqual([])
+    expect(gateOutputs(gateCall('b', 'cd /other && ~/.claude/hooks/gate.sh fast', '/r'), calls, 'darwin')).toEqual([])
+    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls, 'darwin')).toEqual([{ text: '[gate] зелено (fast): x', dir: '/r' }])
+    expect(gateOutputs(result('b', [{ type: 'text', text: 'b' }, { type: 'image' }]), calls, 'darwin')).toEqual([{ text: 'b', dir: '/other' }])
+    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls, 'darwin')).toEqual([])
     expect(calls.size).toBe(0)
   })
 
@@ -889,9 +900,12 @@ describe('listWorktrees', () => {
     git(root, 'commit', '-q', '--allow-empty', '-m', 'init')
     git(root, 'worktree', 'add', '-q', '-b', 'demo/07', join(root, '.claude', 'worktrees', '07'))
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, env, encoding: 'utf8' }).trim()
+    // The paths are git's spelling (`C:/…` on Windows), as the app takes them: its consumers fold
+    // `\` and `/` or resolve the path before comparing (worktreeOfCwd, onDisk, projectDirName).
+    const toplevel = (cwd: string) => execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, env, encoding: 'utf8' }).trim()
     expect(await listWorktrees(root)).toEqual([
-      { path: root, branch: 'main', head },
-      { path: join(root, '.claude', 'worktrees', '07'), branch: 'demo/07', head },
+      { path: toplevel(root), branch: 'main', head },
+      { path: toplevel(join(root, '.claude', 'worktrees', '07')), branch: 'demo/07', head },
     ])
   })
 

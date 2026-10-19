@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   MODELS_ANSWER_FILE,
@@ -46,6 +46,12 @@ function stub(name: string, vars: Record<string, string>): void {
   symlinkSync(join(STUBS, name), join(bin, name))
   Object.assign(stubVars, vars)
 }
+/**
+ * Skips a test that runs a stand-in on Windows: the stand-ins are /bin/sh scripts started by their
+ * `#!` line, which Windows has neither of. Worfy-windows ticket 15 decides qmd on Windows.
+ */
+const needsShStubs = (context: { skip: (condition: boolean, note?: string) => void }): void =>
+  context.skip(process.platform === 'win32', 'qmd scripts are zsh/sh until worfy-windows ticket 15')
 const nodeStub = (version: string): void => stub('node', { NODE_STUB_VERSION: version })
 const qmdStub = (version: string, pullCode = 0): void =>
   stub('qmd', {
@@ -77,7 +83,8 @@ const snapshot = (dir: string): Record<string, string> => {
     for (const entry of readdirSync(at, { withFileTypes: true })) {
       const path = join(at, entry.name)
       if (entry.isDirectory()) walk(path)
-      else out[path.slice(dir.length)] = readFileSync(path, 'utf8')
+      // Keys with `/` on every platform, as the expectations write them.
+      else out[path.slice(dir.length).split(sep).join('/')] = readFileSync(path, 'utf8')
     }
   }
   walk(dir)
@@ -106,7 +113,8 @@ describe('installQmd', () => {
     expect(callLines()).toEqual([])
   })
 
-  it('with consent runs exactly `npm install -g @tobilu/qmd@<QMD_VERSION>` in the login shell environment', async () => {
+  it('with consent runs exactly `npm install -g @tobilu/qmd@<QMD_VERSION>` in the login shell environment', async (context) => {
+    needsShStubs(context)
     nodeStub('v24.19.0')
     npmStub()
     const result = await installQmd({ ...options(), consent: true })
@@ -116,7 +124,8 @@ describe('installQmd', () => {
     expect(result).toEqual({ status: 'installed', version: null })
   })
 
-  it('with qmd of another version on the PATH: a warning with that version, npm is not run', async () => {
+  it('with qmd of another version on the PATH: a warning with that version, npm is not run', async (context) => {
+    needsShStubs(context)
     nodeStub('v24.19.0')
     npmStub()
     qmdStub('2.9.1')
@@ -129,7 +138,8 @@ describe('installQmd', () => {
     expect(state.warning).toMatch(/2\.9\.1/)
   })
 
-  it('with the pinned qmd already there: nothing to do, npm is not run', async () => {
+  it('with the pinned qmd already there: nothing to do, npm is not run', async (context) => {
+    needsShStubs(context)
     nodeStub('v24.19.0')
     npmStub()
     qmdStub(QMD_VERSION)
@@ -138,7 +148,8 @@ describe('installQmd', () => {
     expect(await qmdState(options())).toMatchObject({ version: 'ok', warning: null })
   })
 
-  it('a failed npm: an error with its exit code and the last line of stderr, and no second attempt', async () => {
+  it('a failed npm: an error with its exit code and the last line of stderr, and no second attempt', async (context) => {
+    needsShStubs(context)
     nodeStub('v24.19.0')
     npmStub(243)
     const result = await installQmd({ ...options(), consent: true })
@@ -151,11 +162,15 @@ describe('installQmd', () => {
     expect(callLines()).toHaveLength(1)
   })
 
-  it.each([
+  it.for<[string, string | null, RegExp]>([
     ['node 20', 'v20.11.1', /node is 20\.11\.1.*brew install node/],
     ['no node', null, /there is no node.*brew install node/],
-  ])('%s: npm is not run, the error names brew install node', async (_case, version, message) => {
-    if (version !== null) nodeStub(version)
+  ])('%s: npm is not run, the error names brew install node', async ([, version, message], context) => {
+    // Only the row with a node stand-in runs one; the row with no node runs on Windows too.
+    if (version !== null) {
+      needsShStubs(context)
+      nodeStub(version)
+    }
     npmStub()
     const result = await installQmd({ ...options(), consent: true })
     expect(result.status).toBe('no-node')
@@ -195,7 +210,8 @@ describe('the models', () => {
     expect((await qmdState(options())).models.present).toEqual([QMD_MODELS.embed.uri])
   })
 
-  it('qmd pull runs only after the consent, with the variables of qmd-mcp, and the answer says downloaded', async () => {
+  it('qmd pull runs only after the consent, with the variables of qmd-mcp, and the answer says downloaded', async (context) => {
+    needsShStubs(context)
     qmdStub(QMD_VERSION)
     profile(join(harnessHome, 'projects'), 'w', 'ru')
     expect(callLines()).toEqual([])
@@ -208,13 +224,15 @@ describe('the models', () => {
     expect((await qmdState(options())).answer).toBe('downloaded')
   })
 
-  it('without a Russian Project qmd pull gets no QMD_GENERATE_MODEL: the default expansion model', async () => {
+  it('without a Russian Project qmd pull gets no QMD_GENERATE_MODEL: the default expansion model', async (context) => {
+    needsShStubs(context)
     qmdStub(QMD_VERSION)
     await answerModels({ ...options(), env: { ...env(), QMD_GENERATE_MODEL: 'from-the-shell' }, download: true })
     expect(callLines()).toEqual([`qmd pull emb=${QMD_MODELS.embed.uri} gen=unset mark=login-shell`])
   })
 
-  it('the answer lists the models qmd pull reported: a model pinned in index.yml wins over the plan', async () => {
+  it('the answer lists the models qmd pull reported: a model pinned in index.yml wins over the plan', async (context) => {
+    needsShStubs(context)
     qmdStub(QMD_VERSION)
     profile(join(harnessHome, 'projects'), 'w', 'ru')
     const result = await answerModels({ ...options(), env: { ...env(), PULLED_GENERATE: DEFAULT }, download: true })
@@ -233,7 +251,8 @@ describe('the models', () => {
     expect(Object.keys(snapshot(home)).filter((path) => !(path in before))).toEqual([`/.claude/worfy-harness/${MODELS_ANSWER_FILE}`])
   })
 
-  it('a failed qmd pull writes no answer: the server stays off', async () => {
+  it('a failed qmd pull writes no answer: the server stays off', async (context) => {
+    needsShStubs(context)
     qmdStub(QMD_VERSION, 3)
     const result = await answerModels({ ...options(), download: true })
     expect(result).toMatchObject({ status: 'failed', code: 3, stderr: 'pull: network down' })
@@ -258,7 +277,8 @@ describe('the models', () => {
 })
 
 describe('setupCollections', () => {
-  it('runs bin/qmd-collections <project> with the login shell environment and HARNESS_HOME', async () => {
+  it('runs bin/qmd-collections <project> with the login shell environment and HARNESS_HOME', async (context) => {
+    needsShStubs(context)
     const scripts = join(root, 'harness-bin')
     mkdirSync(scripts)
     symlinkSync(join(STUBS, 'qmd-collections'), join(scripts, 'qmd-collections'))
