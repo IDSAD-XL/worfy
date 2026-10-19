@@ -133,6 +133,16 @@ describe('the initial marks', () => {
     for (const name of signIn) expect(local, name).toContain(name)
   })
 
+  // worfy-pipeline ticket 08 (owner's decision Q5): only the Machine of a Project edits its Pipeline.
+  // The write is `local`, closed to a Linked machine with full access too; the read is `project`,
+  // `read`, so a Linked machine's window shows that Machine's Pipeline.
+  it('the Pipeline editor: pipeline.write is `local`, pipeline.read is `project` and `read` (worfy-pipeline ticket 08)', () => {
+    expect(marked('local')).toContain('pipeline.write')
+    const read = channels.find((channel) => channel.name === 'pipeline.read')
+    expect(read?.access).toBe('project')
+    expect(read?.use).toBe('read')
+  })
+
   it('projects.browse is `project`: the folders of a Linked machine, only while access is on (worfy-link ticket 11)', () => {
     expect(marked('project')).toContain('projects.browse')
   })
@@ -193,6 +203,8 @@ describe('the read-or-write mark of `project` channels', () => {
     // Read-only git and gh, the marks files and the e2e lock, as checks.get; subscribing and leaving count as reading.
     'pipeline.close',
     'pipeline.get',
+    // The Pipeline editor reads the Profile's Pipeline through bin/profile-set --read (worfy-pipeline ticket 08).
+    'pipeline.read',
     'projects.list',
     'projects.settings.defaults',
     'projects.settings.get',
