@@ -1,7 +1,8 @@
 # 07 — Правило автоархива в main: поле `archived` в Layout, исключения, возврат продолженной Session
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T16:37Z
+Branch: worfy-canvas/07
 Blocked by: —
 Source: [spec.md](../spec.md), решения владельца 4–6;
 [ADR-0076](../../../docs/adr/0076-auto-archive-of-finished-sessions.md) (автоархив законченных Session-ов),
@@ -45,19 +46,19 @@ Source: [spec.md](../spec.md), решения владельца 4–6;
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/archive-rule.test.ts`: кандидат по простою и по «Ticket done + 1 ч»; по test-у на
+- [x] Unit `test/unit/archive-rule.test.ts`: кандидат по простою и по «Ticket done + 1 ч»; по test-у на
       каждое исключение — живая, `unknown`, `pinned`, `keep`, Orchestrator, тронутая меньше порога назад;
       «Never» — пусто.
-- [ ] Contract `test/contract/layout-archive.test.ts`: `archive` и `restore` через `LayoutStore`;
+- [x] Contract `test/contract/layout-archive.test.ts`: `archive` и `restore` через `LayoutStore`;
       архивный Node не на плоскости; старый `layout.json` без новых полей читается; продолженная Session
       возвращается на прежнее место или на свободное; гонка — Session ожила между чтением реестра и
       записью партии — Node не остаётся в архиве; два окна одного Project-а — одна партия (архив делает
       main, не окно); операции таймера не попадают в историю ⌘Z окна.
-- [ ] Unit `test/unit/session-nodes.test.tsx`: архивный Node не создаётся заново; `openSession` шлёт
+- [x] Unit `test/unit/session-nodes.test.tsx`: архивный Node не создаётся заново; `openSession` шлёт
       `touch`.
-- [ ] Read-only экран Linked machine (ADR-0066) получает Layout с архивными Node-ами без ошибок (contract).
-- [ ] Мутанты красные: `unknown` считается не живой; `keep` не проверяется; архив через `hidden`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Read-only экран Linked machine (ADR-0066) получает Layout с архивными Node-ами без ошибок (contract).
+- [x] Мутанты красные: `unknown` считается не живой; `keep` не проверяется; архив через `hidden`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -91,4 +92,57 @@ Source: [spec.md](../spec.md), решения владельца 4–6;
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#536](https://github.com/IDSAD-XL/worfy/pull/536), ветка `worfy-canvas/07`.
+
+- **Layout.** Поля Node-а `archived` (`{ at, rule, batch }` или null), `keep`, `touchedAt` — необязательные:
+  старый `layout.json` читается без изменений, null тоже читается как «нет». Операции `archive`,
+  `restore`, `keep`, `touch`. **Отличие от «Что делаем», п. 2:** `archive` несёт список
+  `nodes: [{ id, rule }]` и один `batch`, а не список id и один `rule`: так прогон, в котором сработали
+  оба правила, — одна операция и одна партия (п. 5).
+- **`touchedAt`** main ставит на операции, присланной с экраном (`screen`): `move`, `moveMany`,
+  `resize`, `pin`, `hide`, `tag`, `patchData`, `keep`, — и всегда на `touch` и `restore` (иначе
+  Restore пользователя из Ticket-а 09 архивировался бы снова на следующем прогоне). Операции без экрана
+  (main, агенты, автоматические писатели renderer-а) его не ставят — это признак «операции
+  пользователя».
+- **Не на плоскости.** `onThePlane` — false для архивного Node-а; его же теперь используют
+  `sessionParents` (дерево Subagent-ов) и `agentNodes` (Binding-и) вместо своей копии условия. Canvas
+  не рисует архивный Node (`Canvas.tsx`), новый Session Node не ставится под архивным (`nextPlace`).
+- **Правило и таймер** — `src/main/layout/archive.ts`: `archiveCandidates` и `AutoArchiver`, запуск в
+  `src/main/index.ts` (не шаг старта: ошибка запуска не мешает worfy). Живые Session-ы читаются
+  последними и объединяются с тем, что за это время сообщили watcher-ы реестра; правило ещё раз
+  считается по Layout-у в момент записи — без `await` между ним и записью. Session-ы, которые worfy
+  ведёт сам (`sharedRegistry().list()`), считаются живыми. Binding для правила «Ticket done» main
+  разрешает так же, как renderer (`sessionBindings`: manual → launch → сигналы транскрипта).
+  Настройка — `archiveSettings()`, сейчас «Never» с пометкой `shortcut:`.
+- **⌘Z.** `history.ts` знает новые операции: следы для устаревания шагов; обратная — только у `keep`.
+  Restore и «Archive now» как шаги ⌘Z — Ticket-ы 08 и 09.
+- **Проверки.** 27 мутантов (правило, store, archiver, renderer): 26 красные, один эквивалентный —
+  без проверки `NaN` у `lastAt` (NaN и так не проходит порог). Все три мутанта из «Готово, когда»
+  красные. `gate.mjs fast` — «[gate] зелено (fast)», lint, typecheck, test под временными `HOME` и
+  `HARNESS_HOME`. e2e не гонялись: Ticket не добавляет и не меняет e2e-файлов, весь `test:e2e` —
+  gate full Orchestrator-а.
+- **Ревью, круг 2** (находки круга 1 PR #536):
+  - реестр автоархива (`archiveRegistry`) считает живым процесс, чьё состояние не удалось узнать
+    (`ps`/PowerShell не ответил): `isAlive` — «не `gone`», как у дерева Subagent-ов; contract test
+    на `unknown`, `alive` и `gone`;
+  - Canvas: test-рендер, что Node с `archived` не рисуется, а с `archived: null` — рисуется;
+  - contract test: после `restore` у Node-а есть `touchedAt`, и следующий прогон его не берёт;
+  - под «Never» прогон не читает ни реестр, ни транскрипты, пока в Layout-е нет архивных Node-ов
+    (ADR-0076, п. 7); с архивным Node-ом реестр читается, чтобы вернуть продолженную Session;
+  - Binding-и и модель workflow запрашиваются только для Session-ов, которые может взять одно
+    правило «Ticket done» (`bindingsNeeded`: прошёл час, но не порог простоя). Поэтому при обоих
+    правилах сразу теперь пишется `idle`, а не `ticket-done`.
+  - Мутанты круга 2 (9 новых и 5 прежних ключевых) — все красные.
+- **Круг 3** (gate full красный в e2e):
+  - `no-overlap.spec.ts:182`: прогон автоархива при старте вызывал `store.get` для каждого
+    Project-а и так читал `layout.json` Project-а, который никто не открыл. Исправление сдвига
+    перекрытых Node-ов и строка лога `[layout] … moved Node` случались до того, как тест начинал
+    их ждать. Теперь под «Never» прогон берёт Layout только из памяти main (`LayoutStore.peek`) и
+    файл не читает; contract test на это, мутанты «читает layout.json» и «peek читает» красные.
+  - `binding.spec.ts:289`: перетаскивание Node-а на Card — работа пользователя с Node-ом, и main
+    ставит ему `touchedAt` (ADR-0076, п. 2). Ожидание теста дополнено этим полем, код не менялся.
+  - Весь `pnpm test:e2e` под `/tmp/worfy-e2e.lock` с временными `HOME` и `HARNESS_HOME`: временный
+    `HOME` нужен с node на PATH login shell-а (`.zshenv`), иначе `epic-status` не запускается и
+    падают 55 тестов, не связанных с правкой.
+- **Не сделано здесь:** Settings, команда, Keep-кнопка (08), история и popover (09), toast и порог
+  24 h по умолчанию (10).

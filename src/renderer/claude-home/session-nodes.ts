@@ -13,7 +13,7 @@ import { z } from 'zod'
 import type { SessionState } from '../../shared/agent/events'
 import type { LiveSession } from '../../shared/ipc/claude-home'
 import { SESSION_NODE_KIND, worfySessionNodeDataSchema, type WorfySessionNodeData } from '../../shared/ipc/sessions'
-import type { LayoutNode, LayoutOpInput } from '../../shared/layout/types'
+import { isArchived, type LayoutNode, type LayoutOpInput } from '../../shared/layout/types'
 import { STATE_CHIPS } from '../session/format'
 import type { Status } from '../theme/primitives'
 
@@ -196,15 +196,15 @@ export interface SessionNodesPlan {
   remove: string[]
 }
 
-/** Where the next new Session Node goes: under the last Session Node, else right of every Node. */
+/** Where the next new Session Node goes: under the last Session Node, else right of every Node. An archived Node is not on the Canvas and counts for neither. */
 function nextPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
-  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned)
+  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned && !isArchived(node))
   if (sessions.length > 0) {
     const last = sessions.reduce((low, node) => (node.y + node.h > low.y + low.h ? node : low))
     return { x: last.x, y: last.y + last.h + STACK_GAP }
   }
   // Nodes of 1 × 1 are saved state of a node source (an Epic frame's offsets), not drawn.
-  const placed = nodes.filter((node) => !node.pinned && !node.hidden && node.w > 1 && node.h > 1)
+  const placed = nodes.filter((node) => !node.pinned && !node.hidden && !isArchived(node) && node.w > 1 && node.h > 1)
   if (placed.length === 0) return { x: 0, y: 0 }
   return { x: Math.max(...placed.map((node) => node.x + node.w)) + GAP, y: Math.min(...placed.map((node) => node.y)) }
 }

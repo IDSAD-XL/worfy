@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
 import { layoutNodeSchema, type LayoutNode } from '../../src/shared/layout/types'
 import {
@@ -13,6 +13,12 @@ import {
   worfySessions,
   worfySessionTitle,
 } from '../../src/renderer/claude-home/session-nodes'
+import { answerReadOnly } from '../../src/renderer/projects/read-only-now'
+import { openSession } from '../../src/renderer/session/navigation'
+
+// openSession() tells main through layout.apply; the channel is a stand-in here.
+const ipc = vi.hoisted(() => ({ invoke: vi.fn<(channel: string, input: unknown) => Promise<unknown>>(() => Promise.resolve({ ok: true, value: {} })) }))
+vi.mock('../../src/renderer/ipc', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/renderer/ipc')>()), invoke: ipc.invoke }))
 
 // Which Session Nodes the Canvas needs for the Project's live Sessions (ticket 14): one Node per
 // Session id, wherever the Session was started; a Session worfy runs keeps its own Node.
@@ -200,5 +206,39 @@ describe('the name of a Session worfy runs on a Session Node', () => {
     expect(worfySessionTitle('S-1', history)).toBe('Fix the tests')
     expect(worfySessionTitle('S-2abcdefgh', history)).toBe('Session S-2abcde')
     expect(worfySessionTitle(undefined, history)).toBe('New session')
+  })
+})
+
+describe('an archived Session Node (worfy-canvas ticket 07, ADR-0076)', () => {
+  const archived = { at: 1, rule: 'idle' as const, batch: 'b1' }
+
+  it('is not made again while its Session is in the registry: the Node is still in the Layout, main brings it back', () => {
+    const nodes = [external('S-1', { archived })]
+    expect(planSessionNodes({ live: [live('S-1')], nodes, worfyIds: new Set(), seen: new Set() }).create).toEqual([])
+  })
+
+  it('is not where the next new Session Node is placed from: it is not on the Canvas', () => {
+    const nodes = [node({ id: 'a', kind: 'note', x: 0, y: 0, w: 200, h: 100 }), external('S-old', { x: 0, y: 5000, archived })]
+    const [op] = planSessionNodes({ live: [live('S-new')], nodes, worfyIds: new Set(), seen: new Set() }).create
+    expect(op?.node).toMatchObject({ x: 248, y: 0 })
+  })
+})
+
+describe('opening a Session view touches its Node (worfy-canvas ticket 07)', () => {
+  afterEach(() => {
+    ipc.invoke.mockClear()
+    answerReadOnly(() => null)
+  })
+
+  it('sends `touch` for the Node, without a screen', () => {
+    openSession({ nodeId: 'session:S-1', projectId: 'p1', external: { sessionId: 'S-1' } })
+    expect(ipc.invoke).toHaveBeenCalledWith('layout.apply', { projectId: 'p1', op: { op: 'touch', id: 'session:S-1' } })
+  })
+
+  it('sends nothing for a Subagent, whose Node the Layout does not keep, or from a read-only screen', () => {
+    openSession({ nodeId: 'subagent:S-1/a1', projectId: 'p1', external: { sessionId: 'S-1', agentId: 'a1' } })
+    answerReadOnly(() => 'beta gives this Machine read-only access')
+    openSession({ nodeId: 'session:S-1', projectId: 'p1' })
+    expect(ipc.invoke).not.toHaveBeenCalled()
   })
 })

@@ -1,24 +1,31 @@
+import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain } from 'electron'
+import { bindingWorkflowOf } from '../shared/binding/resolve'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { appUserModelId } from './app-id'
 import { installCardRuntime, registerCardScheme } from './cards/protocol'
 import { cardStore } from './cards/store'
 import { installProcessGone } from './diagnostics/process-gone'
+import { BindingSignalReader } from './claude-home/binding-signals'
 import { installDevDockIcon } from './dock-icon'
 import { bundledHarnessVersion } from './harness/bundled'
-import { liveSessionListeners } from './ipc/claude-home'
+import { liveSessionListeners, type LiveSessionsListener } from './ipc/claude-home'
 import { sharedGateQueue } from './ipc/gate-queue'
 import { appUrlMatcher, registerIpc } from './ipc/index'
 import { appNoteLink } from './link/notes'
 import { startAppLink, stopLinkOnQuit } from './link/service'
 import { installAppMenu } from './menu'
 import { stageHub } from './ipc/pipeline'
+import { workflowHub } from './ipc/workflow'
+import { archiveRegistry, archiveSettings, AutoArchiver, sessionBindings } from './layout/archive'
+import { bindingStore } from './layout/bindings'
+import { layoutStore } from './layout/store'
 import { electronNotifyDeps, installGateQueueNotifications, installNotifications } from './notify'
 import { projectStore } from './projects/store'
 import { quietWindows } from './quiet-windows'
 import { checkDataFolder, inStep, reportStartupFailure } from './startup-failure'
-import { dataRoot, setBuildKind } from './storage/paths'
+import { claudeHome, dataRoot, setBuildKind } from './storage/paths'
 import { createMainWindow, installWebPolicy, rendererEntry } from './window'
 
 // A dev run keeps its state in a folder of its own, apart from the stable copy of worfy.app that
@@ -136,6 +143,14 @@ function start(): void {
         const stopGateQueueNotices = installGateQueueNotifications(sharedGateQueue(), () => projectStore().list())
         app.on('will-quit', stopGateQueueNotices)
       })
+      // The automatic archive of finished Sessions (worfy-canvas ticket 07, ADR-0076): main runs it
+      // for the Projects of this Machine, at start and every 10 minutes. Not a startup step: worfy
+      // runs without it, as without the link.
+      try {
+        app.on('will-quit', installAutoArchive())
+      } catch (error) {
+        console.error('[archive] the automatic archive did not start', error)
+      }
       // A page that fails to load is reported by createMainWindow itself, as step loadURL or
       // loadFile, and only for this first window; windows opened later only log such a failure.
       inStep('createMainWindow', () => createMainWindow({ firstOfStart: true }))
@@ -158,4 +173,45 @@ function start(): void {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+}
+
+/** The workflow subscriber of the automatic archive (src/main/workflow/watch.ts). */
+const ARCHIVE_WORKFLOW_SUBSCRIBER = 'auto-archive'
+
+/**
+ * Starts the automatic archive (src/main/layout/archive.ts) over the app's stores: the Layouts, the
+ * Projects of this Machine, the registry under the Claude home, the Sessions worfy runs, the
+ * workflow models and the Bindings. The registry watchers' reads of live Sessions bring a resumed
+ * Session back at once. Returns the function that stops it.
+ */
+function installAutoArchive(): () => void {
+  const registry = archiveRegistry({ home: claudeHome() })
+  const reader = new BindingSignalReader()
+  // This Machine's own call (RegistryRoot): it sees what a window of the Project sees.
+  const local = (path: string) => ({ path, local: true })
+  const archiver = new AutoArchiver({
+    store: layoutStore(),
+    projects: () => projectStore().list(),
+    live: (project) => registry.live(local(project.path)),
+    history: async (project) => (await registry.sessions(local(project.path))).history,
+    running: () => new Set(sharedRegistry().list().filter((session) => session.state !== 'closed').flatMap((session) => (session.sdkSessionId === null ? [session.sessionId] : [session.sessionId, session.sdkSessionId]))),
+    workflow: async (project) => bindingWorkflowOf(await workflowHub.open(project.path, { id: ARCHIVE_WORKFLOW_SUBSCRIBER, send: () => undefined })),
+    bindings: (project, sessionIds, workflow) =>
+      sessionBindings(project, sessionIds, workflow, {
+        stored: (projectId) => bindingStore().get(projectId).bindings,
+        transcriptPath: (root, sessionId) => registry.transcriptPath(local(root), sessionId),
+        signals: (path) => reader.file(path, false),
+      }),
+    settings: () => archiveSettings(),
+    now: Date.now,
+    batchId: randomUUID,
+  })
+  const onLive: LiveSessionsListener = (projectRoot, live) => archiver.noteLive(projectRoot, live)
+  liveSessionListeners.add(onLive)
+  const stop = archiver.start()
+  return () => {
+    stop()
+    liveSessionListeners.delete(onLive)
+    void workflowHub.drop(ARCHIVE_WORKFLOW_SUBSCRIBER)
+  }
 }
