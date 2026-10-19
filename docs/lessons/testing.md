@@ -85,3 +85,32 @@ Ticket на круг доработки. Как узнать: заявленно
 Код: `test/unit/free-place.test.ts:201`, `src/shared/layout/free-place.ts`.
 Проверка: test/unit/free-place.test.ts:201 — список сдвинутых Node сверяется с заранее известным.
 Источник: worfy-week/04, PR #88.
+
+## Test, который ходит в сеть git к github.com, отключает credential helper
+
+На ПК владельца в `~/.gitconfig` стоит `credential.https://github.com.helper = gh auth git-credential`
+(его пишет `gh auth setup-git`). Поэтому каждый `git fetch` или `git push` к github.com запускает настоящий
+`gh` — пару `get` и `store` — с учётной записью владельца. Ночью 2026-10-19 процессы `gh.exe` на ПК были от
+этого helper-а, не от test-ов. Но test, который делает сетевую операцию git с remote на github.com,
+запустил бы настоящий `gh` тем же путём. Что делать: такой test задаёт `GIT_CONFIG_GLOBAL` (временный файл
+или `/dev/null`) или передаёт git `-c credential.helper=`. Как узнать: `gh` или `gh.exe` в списке процессов во
+время `pnpm test`, хотя ни один test не зовёт `gh` по имени.
+Проверка: проверки нет: test-а, который ловит сетевую операцию git без `GIT_CONFIG_GLOBAL`, нет; для прогонов eval то же проверяет test/contract/harness-evals.test.ts:512.
+Источник: Session на Windows-ПК, 2026-10-19.
+
+## Три test-а краснеют только под нагрузкой параллельного gate full
+
+- `harness/bin/tests/wave-gate.test.sh` упёрся в timeout файла 120 s (`FILE_TIMEOUT_MS`,
+  `test/contract/harness-scripts.test.ts:22`) при load average 9 (implementer PR #496, 2026-10-18); отдельно и
+  при повторе — зелёный.
+- `test/contract/terminal.test.ts:63` «open starts $SHELL -l … output comes back» — `vi.waitFor` 5 s в
+  `test/contract/terminal-harness.ts:288` красный один раз в gate full PR #501 на `0d1a6c1b` (main уже с
+  node-pty 1.2.0-beta.15, PR #498); файл отдельно — 6 из 6. Стал ли beta.15 медленнее на macOS — не измерено.
+- `test/contract/harness-evals.test.ts` — красный один раз под нагрузкой параллельного gate full, отдельно —
+  3 из 3 зелёных (2026-10-19).
+
+Как узнать: красный только в gate full под нагрузкой, файл отдельно зелёный. Что делать: инцидент — в «Итог»
+Ticket-а PR (README, «Инцидент»), мерж — только после зелёного повтора того же commit-а; вылечен — по порогу
+владельца (10 повторов под нагрузкой). Причина не найдена.
+Проверка: проверки нет: причина не найдена, и test-а, который воспроизводит нагрузку gate full, нет.
+Источник: PR #496, PR #501; Session на Mac 2026-10-19.

@@ -162,3 +162,15 @@ PR Wave — сразу `git worktree remove` и `git branch -D` (`~/.claude/skil
 Код: `src/main/agent/fake-query.ts`.
 Проверка: test/contract/sdk-compat.test.ts:60 — SDK в `package.json` поднят без нового манифеста fixtures — test красный
 Источник: worfy-reliability/01; PR #325, идея A.
+
+## Бриф, который велит запускать `gate.mjs`, задаёт временные `HOME` и `HARNESS_HOME`
+
+2026-10-18 reviewer PR #510 (раздел Mac checks) запустил `gate.mjs --help` с настоящим `HOME`, пока
+Orchestrator гонял свой gate full. Gate принял `--help` за имя профиля проверки (`process.argv[2]`) и записал
+`~/.claude/worfy-harness/gate/state/verdict-89dd595a.json` — ключ worktree reviewer-а, outcome `none`; файл потом
+удалён. Вердикт Orchestrator-а не пострадал, но агент менял состояние Harness владельца. Что делать: бриф,
+где агент запускает gate (или его справку), задаёт `HOME` и `HARNESS_HOME` во временной папке; как сделать это
+без кода 3 — `worfy-harness` 47. Справки у `gate.mjs` нет: любой первый аргумент — профиль (находка low).
+Код: `harness/hooks/gate.mjs:123`.
+Проверка: проверки нет: правило брифа; hook-а, который не пускает gate с настоящим `HOME` из Subagent-а, нет.
+Источник: ревью PR #510 (`worfy-windows` 48), 2026-10-18.

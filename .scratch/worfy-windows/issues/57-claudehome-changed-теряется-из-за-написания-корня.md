@@ -1,7 +1,8 @@
 # 57 — `claudeHome.changed` теряется на Windows: main и окно пишут корень Project-а по-разному
 
 Type: bug
-Status: claimed 2026-10-18T18:05Z
+Status: done 2026-10-19T07:50Z
+PR: #506
 Branch: worfy-windows/57
 Blocked by: —
 Source: ревью PR #489 (Ticket 49, корень Project-а в двух написаниях) на Mac, 2026-10-18. Строки — на main
@@ -206,3 +207,8 @@ main → подставной sender → `bridge.on` → hook): `useSessionSigna
   нет. Настоящее соединение двух машин не запускалось.
 - `pnpm test` целиком, gate fast и gate full не запускались (бриф: gate не запускать); на macOS и Linux с
   ПК ничего не запускалось.
+
+### Мерж (2026-10-18)
+
+PR #506 влит 2026-10-18, merge commit `9157c0a4`. Head `78b394c4`: gate full на Mac — зелёный, Mac checks —
+65/65; ПК — без регрессий (те же 10 падений, что на main); `check/windows` — `success`.
