@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasFlowNode } from '../../src/renderer/canvas/nodes/index'
 import FocusEntry from '../../src/renderer/canvas/overlays/FocusEntry'
-import { focusEpic } from '../../src/renderer/canvas/sources/epics'
+import { focusEpic, requestRepack } from '../../src/renderer/canvas/sources/epics'
 import { focusSessionNode } from '../../src/renderer/claude-home/focus'
 import { closeFind, createCanvasNode, focusCanvasNode, markAdrHandled, openAdr, openFind, requestTidyUp, setTagFilter } from '../../src/renderer/find/canvas-requests'
 import { FocusMode } from '../../src/renderer/focus/FocusMode'
@@ -620,6 +620,7 @@ describe('the way in (FocusEntry) leaves focus mode when the main area is asked 
     ['"Go to" of the palette (focusCanvasNode)', () => focusCanvasNode('p', 'n1')],
     ['a new Node (createCanvasNode)', () => createCanvasNode('p', 'note')],
     ['"Tidy up" (requestTidyUp)', () => requestTidyUp('p')],
+    ['"Re-pack" of the palette (requestRepack)', () => requestRepack('p')],
     ['a tag filter (setTagFilter)', () => setTagFilter({ projectId: 'p', tag: 'urgent' })],
     ['an ADR (openAdr)', () => openAdr('p', 'docs/adr/0001-first.md')],
   ])('leaves on %s', async (_name, request) => {
