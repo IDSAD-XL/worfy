@@ -46,5 +46,5 @@ describe.runIf(WINDOWS)('the watch of the status line file on Windows, a real da
     mkdirSync(dataDir)
     writeFileSync(join(dataDir, STATUSLINE_FILE), JSON.stringify({ five_hour: { used_percentage: 42, resets_at: 2_000_000_000 } }))
     await vi.waitFor(() => expect(tracker.snapshot().windows.five_hour?.utilization).toBe(0.42), { timeout: 5000, interval: 50 })
-  }, 30_000)
+  })
 })

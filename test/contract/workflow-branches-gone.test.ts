@@ -101,7 +101,7 @@ describe.runIf(WINDOWS)('the watch of the branches on Windows, real folders: a f
     expect(lines()).toHaveLength(2)
     expect(lines()[1]!.startsWith(`[workflow] the folder ${join(repo, '.git')}`)).toBe(true)
     expect(lines()[1]!.endsWith(' is gone: the watch of the branches is made anew')).toBe(true)
-  }, 40_000)
+  })
 
   // Before the fix each of these kept the handles of `.git` and `refs\heads`, even with a branch file.
   it.each([

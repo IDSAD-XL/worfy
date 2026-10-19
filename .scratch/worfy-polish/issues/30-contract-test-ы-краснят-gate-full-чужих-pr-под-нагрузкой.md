@@ -313,7 +313,7 @@ Run-ы файлов по одному и run семи файлов разом в
 PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел временный — 60 s: в R2 оба шли дольше 15 s, а
 полный run бывает в разы медленнее, чем в одиночку (`github-prs` «starts at most 10 branch lookups»: 1.2 s
 в одиночку, 6.9 s в R1). 2× времени в одиночку (17 s и 20 s) мог не хватить полному run-у (ревью PR #541, круг 1).
-- [x] Перемерено в R3: 15.5 s и 29.9 s, оба завершены. Пределы — 31 s и 60 s (2×), комментарии называют R3.
+- [x] Перемерено в R3: 15.5 s и 29.9 s, оба завершены. Пределы — 31 s и 60 s (2×), комментарии называют R3. После Итога 31 s снят: его покрывает default 45 s.
 
 | Файл | Test | Было → стало (win32) | Замер |
 |---|---|---|---|
@@ -328,7 +328,7 @@ PC, 2026-10-19, с обычным TEMP и с TEMP=W:\). Их предел вре
 | `test/contract/harness-install.test.ts:722` | «errors > a non-zero exit of `claude plugin update`…» | 15 s → 26 s | R1: 12.9 s, завершён; R2: 9.1 s, завершён |
 | `test/contract/harness-install.test.ts:796` | «errors > a copy that fails half way…» | 15 s → 27 s | R2: 13.4 s, завершён; R1: 10.1 s, завершён |
 | `test/contract/harness-install.test.ts:816` | «errors > a copy interrupted between its two renames…» | 15 s → 27 s | R1: 13.5 s, завершён; R2: 5.8 s, завершён |
-| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 31 s | R3: 15.5 s, завершён; в одиночку 8.3 s и 7.7 s; R2: timeout на 15 s — не замер |
+| `test/contract/harness-migrate-boundaries.test.ts:80` | «a second restore.mjs keeps what the first one saved in after/…» | 15 s → 31 s → снят (default 45 s после Итога) | R3: 15.5 s, завершён; в одиночку 8.3 s и 7.7 s; R2: timeout на 15 s — не замер |
 | `test/contract/harness-migrate.test.ts:459` | «the qmd group: "Remove" takes the three scripts…» | 15 s → 60 s | R3: 29.9 s, завершён; в одиночку 9.9 s и 9.8 s; R2: timeout на 15 s — не замер |
 
 Предел снят — 2× завершённого замера не больше 15 s (первая версия среза ставила его по длительности
