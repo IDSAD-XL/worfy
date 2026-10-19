@@ -115,10 +115,13 @@ export function journalsFolder(env = process.env, home = homedir(), platform = p
   return join(dataFolder(env, home, platform), 'autopilot')
 }
 
-function dataFolder(env, home, platform) {
+/** isWindowsAbsolutePath of src/shared/paths.ts, copied from scripts/statusline-bridge.mjs: `C:\…`, `C:/…` or UNC, not `\x` nor `/x`. */
+const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+)/
+
+function dataFolder(env, home, platform = process.platform) {
   if (env.WORFY_DATA_DIR) return resolve(env.WORFY_DATA_DIR)
   if (platform === 'win32') {
-    const appData = env.APPDATA !== undefined && win32.isAbsolute(env.APPDATA) ? env.APPDATA : win32.join(home, 'AppData', 'Roaming')
+    const appData = env.APPDATA !== undefined && WINDOWS_ABSOLUTE.test(env.APPDATA) ? env.APPDATA : win32.join(home, 'AppData', 'Roaming')
     return win32.join(appData, 'worfy')
   }
   return posix.join(home, 'Library', 'Application Support', 'worfy')
@@ -705,7 +708,7 @@ export async function criticalPath(args, deps = systemDeps()) {
     deps.out(`${HELP}\n`)
     return 0
   }
-  const journals = options.journals !== undefined ? resolve(deps.cwd, options.journals) : journalsFolder(deps.env, deps.home)
+  const journals = options.journals !== undefined ? resolve(deps.cwd, options.journals) : journalsFolder(deps.env, deps.home, deps.platform)
   if (options.journals !== undefined && !isFolder(journals)) {
     deps.err(`critical-path: no journals folder: ${options.journals}`)
     return REFUSED
@@ -727,7 +730,7 @@ export async function criticalPath(args, deps = systemDeps()) {
   const out = options.out !== undefined ? resolve(deps.cwd, options.out) : undefined
   if (out !== undefined) {
     const claude = deps.env.CLAUDE_CONFIG_DIR ? resolve(deps.env.CLAUDE_CONFIG_DIR) : join(deps.home, '.claude')
-    const guarded = [journals, dataFolder(deps.env, deps.home), claude, ...(root !== undefined ? [root] : [])]
+    const guarded = [journals, dataFolder(deps.env, deps.home, deps.platform), claude, ...(root !== undefined ? [root] : [])]
     if (guarded.some((dir) => inside(out, dir))) {
       deps.err(`critical-path: refused --out ${options.out}: the report never goes into the journals, the worfy data folder, the Project or ~/.claude`)
       return REFUSED
@@ -766,6 +769,7 @@ export function systemDeps() {
   return {
     env: process.env,
     home: homedir(),
+    platform: process.platform,
     cwd: process.cwd(),
     gh: (args, cwd) =>
       new Promise((done) => {

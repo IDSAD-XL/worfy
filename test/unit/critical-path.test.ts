@@ -28,6 +28,7 @@ interface GhResult {
 interface Deps {
   env: Record<string, string | undefined>
   home: string
+  platform?: NodeJS.Platform
   cwd: string
   gh: (args: string[], cwd: string) => Promise<GhResult>
   out: (text: string) => void
@@ -289,6 +290,11 @@ describe('critical-path: the command line', () => {
     expect(journalsFolder({}, '/Users/u', 'darwin')).toBe(join(posix.join('/Users/u', 'Library', 'Application Support', 'worfy'), 'autopilot'))
     expect(journalsFolder({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u\\AppData\\Roaming', 'worfy'), 'autopilot'))
     expect(journalsFolder({}, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+    // APPDATA on another drive is taken as it is; a relative one or one without a drive letter falls back to the home.
+    expect(journalsFolder({ APPDATA: 'D:\\Roam' }, 'C:\\Users\\u', 'win32')).toBe(join(win32.join('D:\\Roam', 'worfy'), 'autopilot'))
+    for (const appData of ['rel', '\\Roam']) {
+      expect(journalsFolder({ APPDATA: appData }, 'C:\\Users\\u', 'win32'), appData).toBe(join(win32.join('C:\\Users\\u', 'AppData', 'Roaming', 'worfy'), 'autopilot'))
+    }
   })
 
   it('refuses wrong arguments and a missing journals folder with exit 2', () => {
@@ -334,6 +340,36 @@ describe('critical-path: it writes nothing but --out', () => {
       expect(existsSync(out)).toBe(false)
     }
     expect(snapshot(m.dir)).toEqual(before)
+  })
+})
+
+describe('critical-path: --out into the data folder of the platform', () => {
+  const gh: Deps['gh'] = async () => ({ code: null, stdout: '', stderr: '', missing: true })
+
+  async function refusal(platform: NodeJS.Platform, env: Record<string, string>, home: string, out: string): Promise<{ code: number; err: string[] }> {
+    const err: string[] = []
+    const code = await criticalPath(['--journals', JOURNALS, '--out', out], { env, home, platform, cwd: tempDir(), gh, out: () => undefined, err: (l) => err.push(l) })
+    return { code, err }
+  }
+
+  it('refuses an --out inside ~/Library/Application Support/worfy on macOS', async () => {
+    const home = tempDir()
+    const out = join(home, 'Library', 'Application Support', 'worfy', 'limits.json')
+    const { code, err } = await refusal('darwin', {}, home, out)
+    expect(code).toBe(2)
+    expect(err.join('\n')).toContain('refused')
+    expect(existsSync(out)).toBe(false)
+  })
+
+  // The data folder is %APPDATA%\worfy only when APPDATA is a Windows path with a drive letter.
+  it.skipIf(process.platform !== 'win32')('refuses an --out inside %APPDATA%\\worfy on Windows', async () => {
+    const appData = tempDir()
+    mkdirSync(join(appData, 'worfy'))
+    const out = join(appData, 'worfy', 'limits.json')
+    const { code, err } = await refusal('win32', { APPDATA: appData }, tempDir(), out)
+    expect(code).toBe(2)
+    expect(err.join('\n')).toContain('refused')
+    expect(existsSync(out)).toBe(false)
   })
 })
 

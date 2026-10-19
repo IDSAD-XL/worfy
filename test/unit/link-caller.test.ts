@@ -9,7 +9,9 @@ import { insideProjects, isRemoteCall, realInsideProjects } from '../../src/main
 import { LinkSender } from '../../src/main/link/ipc-adapter'
 import { removeTestTree } from '../remove'
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-link-caller-')))
+// The native realpath, as the code under test uses: the temp folder may be spelled another way
+// (an 8.3 short name, a `subst` drive), and the expected paths must be spelled as the disk does.
+const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-link-caller-')))
 const repo = join(root, 'Repo')
 const sibling = join(root, 'Repo-evil')
 const outside = join(root, 'outside')
