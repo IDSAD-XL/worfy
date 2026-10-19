@@ -256,7 +256,7 @@ export class ProjectStore {
         reason: `${folder} is not a git repository. Choose the folder of a git repository; a Project over several repositories is connected in the Harness first.`,
       }
     }
-    const notice = realpathOrSelf(folder) === realpathOrSelf(workspace) ? null : `${folder} is inside the Project ${workspace} over several repositories; its folder was added instead.`
+    const notice = realpathOrSelf(folder) === realpathOrSelf(workspace) ? null : `${folder} is inside the Project ${resolvePath(workspace)} over several repositories; its folder was added instead.`
     return { ok: true, root: workspace, notice }
   }
 

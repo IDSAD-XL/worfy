@@ -232,8 +232,11 @@ describe('checkDataFolder', () => {
       writeFileSync(file, '')
       expect(() => checkDataFolder(file)).toThrow(/is a file, not a folder/)
       expect(() => checkDataFolder(join(file, 'inner'))).toThrow(/ENOTDIR/)
+      // Two missing levels: the walk up goes past the first missing folder.
+      expect(() => checkDataFolder(join(file, 'a', 'b'))).toThrow(/ENOTDIR/)
       expect(() => checkDataFolder(root)).not.toThrow()
       expect(() => checkDataFolder(join(root, 'not-yet'))).not.toThrow()
+      expect(() => checkDataFolder(join(root, 'x', 'y'))).not.toThrow()
     } finally {
       removeTestTree(root)
     }

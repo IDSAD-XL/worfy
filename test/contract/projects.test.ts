@@ -203,10 +203,11 @@ describe('projects.add', () => {
     const repo = makeRepo('auction')
     const { createHash } = await import('node:crypto')
     // projects.json written before the stored path was resolved: on Windows it holds git's C:/… spelling.
+    // The trailing `/.` is removed by resolve() on every system, so the check holds on macOS and Linux too.
     const gitRoot = git(repo, 'rev-parse', '--show-toplevel')
     const id = `auction-${createHash('sha256').update(gitRoot).digest('hex').slice(0, 8)}`
     mkdirSync(dataDir, { recursive: true })
-    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name: 'auction', path: gitRoot }], activeId: id }))
+    writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id, name: 'auction', path: `${gitRoot}/.` }], activeId: id }))
     await start()
 
     expect((await value<State>('projects.list')).projects).toStrictEqual([{ id, name: 'auction', path: repo, branch: 'main' }])
@@ -221,7 +222,8 @@ describe('projects.add', () => {
     mkdirSync(join(repo, 'src', 'deep'), { recursive: true })
     const result = await addOk(join(repo, 'src', 'deep'))
     expect(result.project.path).toBe(repo)
-    expect(result.notice).toMatch(/inside the repository .*repository root was added/)
+    // Exact text: on Windows the root must read C:\…, the way the list shows it, not git's C:/….
+    expect(result.notice).toBe(`${join(repo, 'src', 'deep')} is inside the repository ${repo}; the repository root was added instead.`)
   })
 
   it('resolves a linked worktree to the main repository root and says so', async () => {
@@ -231,7 +233,7 @@ describe('projects.add', () => {
     const result = await addOk(worktree)
     expect(result.project.path).toBe(repo)
     expect(result.project.branch).toBe('main')
-    expect(result.notice).toMatch(/is a worktree of .*repository root was added/)
+    expect(result.notice).toBe(`${worktree} is a worktree of ${repo}; the repository root was added instead.`)
   })
 
   it('rejects a folder that is not in a git repository, with a reason for the user', async () => {
