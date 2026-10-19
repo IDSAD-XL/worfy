@@ -811,8 +811,9 @@ export class ClaudeHomeRegistry {
     const sessionsDir = this.sessionsDir
 
     // Decides from the path alone, so whole unrelated subtrees of the Claude home are skipped.
+    // chokidar passes forward-slash paths on Windows, so the root is compared through relative().
     const ignored = (path: string): boolean => {
-      if (path === this.home) return false
+      if (relative(this.home, path) === '') return false
       const inSessions = relative(sessionsDir, path)
       if (inSessions === '') return false
       if (!inSessions.startsWith('..') && !inSessions.includes(sep)) return !/^\d+\.json$/.test(inSessions)
