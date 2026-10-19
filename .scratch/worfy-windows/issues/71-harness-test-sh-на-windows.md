@@ -75,7 +75,8 @@ Source: срез 3k Ticket-а 14 (PR #528, `.test.sh` через Git Bash), 2026
 
 - [ ] `test/contract/harness-scripts.test.ts` на ПК — exit 0, без новых пропусков, кроме тех, что названы в
       пункте 4 с причиной; `qmd.test.sh` и `qmd-collections.test.sh` — как решит Ticket 15.
-- [ ] Каждый из семи файлов выше (кроме `qmd-collections`) — exit 0 в Git Bash на ПК и на Mac.
+- [x] Каждый из семи файлов выше (кроме `qmd-collections`) — exit 0 в Git Bash на ПК.
+- [ ] То же на Mac.
 - [ ] Mac gate (ADR-0056) зелёный; Windows runner на `harness-scripts.test.ts` зелёный.
 
 ## Тесты
@@ -93,4 +94,64 @@ Source: срез 3k Ticket-а 14 (PR #528, `.test.sh` через Git Bash), 2026
 
 ## Итог
 
-Заполняется при закрытии.
+ПК, Git Bash, пустой временный `HOME` (и `USERPROFILE`), «GitHub CLI» убран из PATH; каждый файл запускался
+напрямую. Счёт — failed / passed, до (на `0f2f2245`) и после.
+
+| Файл | до | после |
+|---|---|---|
+| `bin/tests/agents-text.test.sh` | exit 1, 14 / 125 | exit 0, 0 / 139 |
+| `bin/tests/max-review.test.sh` | exit 1, 10 / 68 | exit 0, 0 / 79 |
+| `bin/tests/review-depth.test.sh` | exit 1, 7 / 98 | exit 0, 0 / 105 |
+| `bin/tests/project-connect.test.sh` | exit 1, 21 / 100 | exit 0, 0 / 121 |
+| `bin/tests/ticket-mark.test.sh` | exit 1, 1 / 42 | exit 0, 0 / 44 |
+| `bin/tests/wave-gate.test.sh` | exit 1, 30 / 126, 451 s | exit 0, 0 / 125, 267 s |
+| `hooks/tests/guard-silent.test.sh` | exit 1, 28 / 27 | exit 0, 0 / 55 |
+
+По пунктам:
+
+1. `.gitattributes`: вместо `harness/bin/*` и `harness/hooks/**` — `harness/** text=auto eol=lf`. Test-ы читают
+   `grep`-ом не только `agents/` и `skills/`, но и `profiles/README.md` и `.mcp.json`; в рабочей копии с CRLF было
+   79 файлов `harness/` (ещё `evals/`, `README.md`, `.claude-plugin/`, `package.json`). Индекс уже LF, правки
+   содержимого нет. Рабочая копия обновлена удалением этих файлов и `git checkout` (`git checkout-index -f` файлы,
+   которые git считает неизменёнными, не перезаписывает); после — `git ls-files --eol harness`: 0 файлов `w/crlf`,
+   `file` — без «CRLF line terminators».
+2. Временная папка в написании node (`pwd -W`, иначе `pwd -P`) — `review-depth`, `guard-silent`, `project-connect`,
+   по образцу `profile.test.sh` и `preflight.test.sh` (там же своя `printed()`; общего файла для этих строк нет).
+   В `project-connect` ожидаемые строки — через `printed()` (`C:\…`) и `jpath()` (тот же путь внутри JSON, `\\`).
+   Ещё там же шесть случаев qmd краснели не из-за путей: node на Windows не запускает shell stub `qmd` и
+   безрасширенные stub-ы `qmd-collections` («qmd is not installed»). На Windows `qmd` — сам node (как уже в
+   случае q5), stub-ы — через `node_stand_in` из `gh-stand-in.sh`; на Mac — те же shell stub-ы.
+3. Причины найдены, test-ы сначала красные (проверено мутантом — копией test-а со старым кодом):
+   - `ticket-mark` «full: no gh» — не реестр и не `HARNESS_HOME`. `ln -s` в Git Bash копирует программу; копия
+     называется `node` без `.exe`. `ticket` запускает `bin/profile` через `process.execPath`, а Windows не
+     запускает файл без расширения по пути: ENOENT, и `ticket` считает, что профиля нет. Новый случай «the node of
+     the minimal PATH starts itself by process.execPath» (красный на старом коде); на Windows копия — `node.exe`,
+     а папка git — в PATH (скопированный `git.exe` не грузит DLL своей папки), и test проверяет, что `gh` в этом
+     PATH нет.
+   - `max-review` resume block — не Windows: в пустом `HOME` у git нет identity, `commit` отказывает, ветка `e/07`
+     не создаётся. Новый случай «the test repository with the branch e/07 is built»; test экспортирует
+     `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, как соседние. (`harness-scripts.test.ts` эти переменные задаёт сам, поэтому
+     там этот случай не краснел.)
+4. `wave-gate`: причина подтверждена — `spawn("ioreg")`/`spawn("caffeinate")` без shell на Windows ищет только
+   `.com`/`.exe`, shell stub не стартует (ENOENT), и `wave-gate` законно считает, что команды нет. Пропуски на
+   win32, каждый одной строкой `skip …` в выводе; на macOS и Linux всё идёт как раньше:
+   - экран: `screenpre`, `screenlock`, `screenno`, `screenmid`, `screenblip`, `screenpkg`, `screenred`,
+     `screenloop`, раздел `caffeinate` и проверки caffeinate в `resume` и «error while merging». «no ioreg in PATH»
+     на Windows идёт с PATH test-а без папки stub-ов (копии программ в `minbin` там не работают);
+   - SIGTERM: проверено отдельным скриптом — `kill` из Git Bash (и `kill -f -W`) завершает node без его
+     обработчика `SIGTERM`, так что освободить e2e lock по SIGTERM на Windows `wave-gate` не может; случай `sig`
+     пропущен;
+   - zsh: в Git Bash его нет (как в `epic-wave-ship-ticket.test.sh`).
+   Случай `resume` (SIGKILL) теперь идёт и на Windows: stub gate берёт Windows pid `wave-gate` из
+   `STAND_IN_PARENTS` и бьёт его `kill -f -W -KILL` (exit 137, как на Mac). Время: 451 s → 304 s после пропусков →
+   267 s: `new_world` пушит main и все PR одним `git push` (локальный push на ПК — около 0,4 s, миров 35), stub
+   gate считает и пишет без лишних subshell. Остальное время — сам `wave-gate` (около 150 s на 77 запусков).
+5. В `test/contract/harness-scripts.test.ts` снимать нечего: пропусков этих файлов там не было.
+
+`node scripts/vitest-electron.mjs test/contract/harness-scripts.test.ts test/unit/no-rmsync.test.ts` — exit 1:
+1 failed (`qmd-collections.test.sh`, Ticket 15) / 52 passed / 2 skipped (zsh и `qmd.test.sh`, как были), 1238 s;
+`wave-gate.test.sh` уложился в свои 300 s. `CI=true pnpm lint` — exit 0, `CI=true pnpm typecheck` — exit 0.
+
+Mac (ADR-0056, правка `harness/`) должен проверить: все семь файлов exit 0 под bash и zsh — пропуски на Mac не
+срабатывают (`on_windows` ложно), случаи экрана, caffeinate, SIGTERM и zsh идут; `resume` с SIGKILL по `$PPID`;
+`new_world` с одним push; `ticket-mark` с симлинками `node`/`git` в `minbin` и новым случаем про `process.execPath`.
