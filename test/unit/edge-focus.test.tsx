@@ -2,11 +2,16 @@
 // from a done blocker is not drawn, and hovering or selecting a Ticket lights up its chain — every
 // Edge on a path through it, up and down. The Edges are drawn by React Flow in jsdom, with the
 // overlay that watches the pointer and the selection (overlays/EdgeFocus.tsx).
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, renderHook } from '@testing-library/react'
 import { Profiler } from 'react'
 import { ReactFlow, ReactFlowProvider, type Edge, type EdgeProps, type Node } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { chainOf, clearEdgeFocus, setEdgeFocus, useEdgeFocus } from '../../src/renderer/canvas/edge-focus'
+import { chainOf, clearEdgeFocus, setEdgeFocus, useAnyFocused, useEdgeFocus } from '../../src/renderer/canvas/edge-focus'
+import { FAMILY_ANCHOR_KIND, type FamilyLinks } from '../../src/renderer/canvas/family'
+import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes'
+import { BINDING_ANCHOR_KIND } from '../../src/renderer/canvas/sources/workflow-bindings'
+import { withNodeChrome } from '../../src/renderer/canvas/withNodeChrome'
+import { EPIC_FRAME_KIND, epicNodeId, SUBAGENT_KIND } from '../../src/shared/layout/derived'
 import RoutedEdge, { kind as ROUTED } from '../../src/renderer/canvas/edge-types/RoutedEdge'
 import blockingEdges from '../../src/renderer/canvas/edges/blocking'
 import EdgeFocus from '../../src/renderer/canvas/overlays/EdgeFocus'
@@ -202,5 +207,132 @@ describe('the chain of a Ticket', () => {
     act(() => setEdgeFocus([ticketNodeId(EPIC, 2)], edges))
     expect(useEdgeFocus.getState().lit).toBe(first.lit)
     expect(useEdgeFocus.getState().focused).toBe(first.focused)
+  })
+})
+
+// The Family of a hovered or selected Node (worfy-canvas ticket 03): it stays bright and every other
+// Node is dimmed, by NodeChrome.tsx around each Node type's component. The Canvas holds an Epic
+// frame e with Tickets 1 and 2, Session A bound to Ticket 1 with Subagent a1, Session B bound to
+// Ticket 2, and a note; the Bindings come as the invisible anchors sources/workflow-bindings.ts makes.
+describe('the Family of a focused Node', () => {
+  const A = 'session:A'
+  const B = 'session:B'
+  const A1 = 'subagent:A/a1'
+  const NOTE = 'note-1'
+  const T1 = ticketNodeId(EPIC, 1)
+  const T2 = ticketNodeId(EPIC, 2)
+  const FRAME = epicNodeId(EPIC)
+  const COUNTED = [FRAME, T1, T2, A, A1, B, NOTE]
+
+  const layoutNode = (id: string, kind: string, data: Record<string, unknown>): LayoutNode => ({ id, kind, x: 0, y: 0, w: 100, h: 40, hidden: false, locked: false, pinned: false, tags: [], data })
+  const flowNode = (id: string, type: string, data: Record<string, unknown>, index: number, selected = false): Node => ({
+    id,
+    type,
+    position: { x: (index % 4) * 200, y: Math.floor(index / 4) * 100 },
+    width: 100,
+    height: 40,
+    selected,
+    data: { node: layoutNode(id, type, data) },
+  })
+  const anchor = (agentNodeId: string, num: number, index: number): Node =>
+    flowNode(`binding-anchor:${agentNodeId}`, BINDING_ANCHOR_KIND, { variant: 'agent', agentNodeId, binding: { target: { kind: 'ticket', epic: EPIC, num } } }, index)
+  const canvasNodes = (selected: ReadonlySet<string> = new Set()): Node[] =>
+    [
+      flowNode(FRAME, EPIC_FRAME_KIND, { epic: { epic: EPIC } }, 0),
+      flowNode(T1, TICKET_KIND, { ticket: { epic: EPIC, num: 1 } }, 1),
+      flowNode(T2, TICKET_KIND, { ticket: { epic: EPIC, num: 2 } }, 2),
+      flowNode(A, 'session', { sessionId: 'A' }, 3),
+      flowNode(A1, SUBAGENT_KIND, { variant: 'agent', sessionId: 'A', sessionNodeId: A }, 4),
+      flowNode(B, 'session', { sessionId: 'B' }, 5),
+      flowNode(NOTE, 'note', { text: 'a note' }, 6),
+      anchor(A, 1, 7),
+      anchor(B, 2, 8),
+    ].map((node) => ({ ...node, selected: selected.has(node.id) }))
+
+  /** Each Node type's component counts its renders; NodeChrome draws again only with it. */
+  const Counted = ({ id }: CanvasNodeProps) => {
+    renders.set(id, (renders.get(id) ?? 0) + 1)
+    return <div />
+  }
+  const chromed = withNodeChrome(Counted)
+  const nodeTypes = Object.fromEntries([EPIC_FRAME_KIND, TICKET_KIND, 'session', SUBAGENT_KIND, 'note', BINDING_ANCHOR_KIND].map((type) => [type, chromed]))
+
+  const canvas = (selected?: ReadonlySet<string>) => (
+    <div style={{ width: 1000, height: 600 }}>
+      <ReactFlowProvider>
+        <ReactFlow nodes={canvasNodes(selected)} edges={[]} nodeTypes={nodeTypes}>
+          <EdgeFocus />
+        </ReactFlow>
+      </ReactFlowProvider>
+    </div>
+  )
+  const element = (container: HTMLElement, id: string): Element => container.querySelector(`.react-flow__node[data-id="${id}"]`)!
+  const dimmed = (container: HTMLElement): string[] =>
+    COUNTED.filter((id) => element(container, id).querySelector(':scope > [data-testid="node-dimmed"]') !== null).sort()
+
+  it('the anchor kind family.ts reads is the one sources/workflow-bindings.ts makes', () => {
+    expect(FAMILY_ANCHOR_KIND).toBe(BINDING_ANCHOR_KIND)
+  })
+
+  it('hovering a Ticket dims the Nodes outside its Family; leaving it brings them back', () => {
+    const { container } = render(canvas())
+    expect(dimmed(container)).toEqual([])
+    fireEvent.pointerOver(element(container, T1))
+    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
+    fireEvent.pointerOver(pane(container))
+    expect(dimmed(container)).toEqual([])
+    // A Node without a Family dims nothing.
+    fireEvent.pointerOver(element(container, NOTE))
+    expect(dimmed(container)).toEqual([])
+    // A Subagent: its Session's Family.
+    fireEvent.pointerOver(element(container, A1))
+    expect(dimmed(container)).toEqual([B, NOTE, T2].sort())
+    fireEvent.pointerLeave(flowRoot(container))
+    expect(dimmed(container)).toEqual([])
+  })
+
+  it('a selected Session keeps its Family bright until it is unselected', () => {
+    const { container, rerender } = render(canvas(new Set([B])))
+    expect(dimmed(container)).toEqual([A, A1, NOTE, T1].sort())
+    rerender(canvas(new Set()))
+    expect(dimmed(container)).toEqual([])
+  })
+
+  it('a Node whose answer did not change does not draw again', () => {
+    const { container } = render(canvas())
+    fireEvent.pointerOver(element(container, T1))
+    const before = new Map(renders)
+    // From Ticket 1's Family to Ticket 2's: the frame stays bright and the note stays dim.
+    fireEvent.pointerOver(element(container, T2))
+    expect(dimmed(container)).toEqual([A, A1, NOTE, T1].sort())
+    const changed = COUNTED.filter((id) => renders.get(id) !== before.get(id)).sort()
+    expect(changed).toEqual([A, A1, B, T1, T2].sort())
+  })
+
+  it('a Binding line between two members of the bright Family is drawn; one with an end outside it is not', () => {
+    const links: FamilyLinks = {
+      epics: [EPIC],
+      tickets: [
+        { epic: EPIC, num: 1 },
+        { epic: EPIC, num: 2 },
+      ],
+      sessions: [A, B],
+      subagents: [{ nodeId: A1, sessionNodeId: A }],
+      bindings: [
+        { agentNodeId: A, target: { kind: 'ticket', epic: EPIC, num: 1 } },
+        { agentNodeId: A1, target: { kind: 'epic', epic: EPIC } },
+        { agentNodeId: B, target: { kind: 'ticket', epic: EPIC, num: 2 } },
+      ],
+    }
+    const { result } = renderHook(() => [useAnyFocused([A, T1]), useAnyFocused([A1, FRAME]), useAnyFocused([B, T2])])
+    expect(result.current).toEqual([false, false, false])
+    // The frame focused: A's line to Ticket 1 and B's to Ticket 2 are within its Family.
+    act(() => setEdgeFocus([FRAME], [], links))
+    expect(result.current).toEqual([true, true, true])
+    // Ticket 1 focused: A's lines are within its Family, B's is not.
+    act(() => setEdgeFocus([T1], [], links))
+    expect(result.current).toEqual([true, true, false])
+    act(() => setEdgeFocus([], [], links))
+    expect(result.current).toEqual([false, false, false])
   })
 })

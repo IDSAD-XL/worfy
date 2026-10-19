@@ -5,9 +5,15 @@
 // On the Canvas of a Linked machine that shares its Projects read-only (worfy-link ticket 25) a
 // Terminal Node is drawn as ReadOnlyTerminal.tsx instead of its own component, which would start
 // the shell there as it mounts.
+//
+// While a focused Node's Family is lit (worfy-canvas ticket 03, edge-focus.ts) a Node outside it
+// is dimmed: NodeChrome puts a marker into the Node's element and node-chrome.css lowers that
+// element's opacity. Each Node subscribes to its own yes/no answer and draws again only when it
+// changes.
 import type { ComponentType, ReactNode } from 'react'
 import { TERMINAL_NODE_KIND } from '../../shared/ipc/terminal'
 import { useReadOnly } from '../projects/useProjects'
+import { useNodeDimmed } from './edge-focus'
 import type { CanvasNodeProps } from './nodes'
 import { pinnedScreenPoint, screenToCanvas, usePinnedView } from './pinning'
 import { ReadOnlyTerminal } from './ReadOnlyTerminal'
@@ -60,12 +66,22 @@ export interface NodeChromeProps extends CanvasNodeProps {
 export function NodeChrome({ Component, ...props }: NodeChromeProps) {
   const { node } = props.data
   const readOnly = useReadOnly()
+  const dimmed = useNodeDimmed(props.id)
   const content = readOnly !== null && node.kind === TERMINAL_NODE_KIND ? <ReadOnlyTerminal id={props.id} hint={readOnly} /> : <Component {...props} />
-  if (node.pinned) return <PinnedFrame props={props}>{content}</PinnedFrame>
+  // A direct child of React Flow's Node element: node-chrome.css dims that element through :has().
+  const dim = dimmed ? <span className="w-node-dimmed" data-testid="node-dimmed" hidden /> : null
+  if (node.pinned)
+    return (
+      <>
+        <PinnedFrame props={props}>{content}</PinnedFrame>
+        {dim}
+      </>
+    )
   return (
     <>
       {content}
       <TagStrip tags={node.tags} />
+      {dim}
     </>
   )
 }

@@ -1,7 +1,8 @@
 # 03 — Подсветка Family при наведении и выделении; кнопка «Show family»
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T16:37Z
+Branch: worfy-canvas/03
 Blocked by: —
 Source: [spec.md](../spec.md), решение владельца 9 (Session-ы не двигаются сами); исследование
 [2026-10-19-организация-canvas.md](../../../docs/research/2026-10-19-организация-canvas.md), P4, вариант 4a.
@@ -39,15 +40,15 @@ Source: [spec.md](../spec.md), решение владельца 9 (Session-ы �
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/family.test.ts`: Family Ticket-а, Session, Subagent-а, Epic frame-а из фикстуры
+- [x] Unit `test/unit/family.test.ts`: Family Ticket-а, Session, Subagent-а, Epic frame-а из фикстуры
       Binding-ов и дерева Subagent-ов; Session без Binding — Family из неё и её Subagent-ов.
-- [ ] Unit `test/unit/edge-focus.test.tsx`: наведение на Ticket гасит Node-ы вне Family; Node, чей ответ не
+- [x] Unit `test/unit/edge-focus.test.tsx`: наведение на Ticket гасит Node-ы вне Family; Node, чей ответ не
       изменился, не перерисовывается (счётчик рендеров).
-- [ ] e2e `test/e2e/family.spec.ts`: наведение на Session — её Ticket и Epic frame яркие, чужая Session
+- [x] e2e `test/e2e/family.spec.ts`: наведение на Session — её Ticket и Epic frame яркие, чужая Session
       тусклая; «Show family» охватывает Family камерой; во втором окне того же Project-а ничего не
       меняется; на read-only экране подсветка работает; снимок `family-hover` в обеих темах.
-- [ ] Мутант красный: Family без Subagent-ов Session.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: Family без Subagent-ов Session.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -77,4 +78,28 @@ Source: [spec.md](../spec.md), решение владельца 9 (Session-ы �
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/03`.
+
+- `src/renderer/canvas/family.ts` — `familyOf(nodeId, links)`: Family Ticket-а, Session, Subagent-а,
+  Epic frame-а; `null`, когда у Node-а нет родственника на Canvas (Note, Session без Binding и без
+  Subagent-ов). Subagent, привязанный сам (implementer Wave), приносит в Family только себя и свою
+  Session, без соседей. `familyLinksOf` читает связи из Node-ов React Flow: рамки, Ticket-ы, Session-ы,
+  Subagent-ы и agent-anchor-ы Binding-ов (`sources/workflow-bindings.ts`). Файл не импортирует
+  `workflow-bindings.ts` (React и stores тянут DOM-типы в `tsconfig.test.node.json`): тип anchor-а —
+  литерал `FAMILY_ANCHOR_KIND`, равенство с `BINDING_ANCHOR_KIND` проверяет `edge-focus.test.tsx`.
+  `family.ts` добавлен в `tsconfig.test.node.json`.
+- `edge-focus.ts` — в store `family` (фокус и Family, `null` — ничего не тускнеет) и `links`;
+  `useNodeDimmed(id)` — подписка Node-а на свой да/нет. `useAnyFocused` дополнительно рисует пунктир
+  Binding-а, оба конца которого в Family (наведение на рамку показывает линии её Session-ов).
+- `NodeChrome.tsx` кладёт маркер `.w-node-dimmed` прямым ребёнком Node-а; `node-chrome.css` через
+  `:has()` ставит Node-у opacity 0.3, переход 120 ms, с Reduce motion — без перехода.
+- «Show family» — последняя кнопка панели выделения при одном выделенном Node-е с Family: `fitView`
+  по Family, приближение не больше текущего (как `focusEpic`), с Reduce motion — без анимации камеры.
+  Ничего не пишет, на read-only экране активна.
+- Тесты: `test/unit/family.test.ts` (7), `test/unit/edge-focus.test.tsx` (+5: тусклость, выделение,
+  счётчик рендеров, линии Binding-ов, тип anchor-а), `test/e2e/family.spec.ts` (2: наведение на
+  Session + «Show family» + второе окно; read-only экран Linked machine). Снимок `family-hover` —
+  `test-results/snapshots/family-hover/{light,dark}.png`.
+- Mutation testing: Family без Subagent-ов Session — 8 test-ов красные; подписка Node-а на весь набор
+  Family — красный счётчик рендеров; линии без Family — красный test линий; без тусклости — 4 красных.
+
