@@ -2,6 +2,7 @@
 // toolbar's switch and a double click on a Session's Node (OrchestratorNode.tsx) both go through
 // here; main.tsx hands the view to AppShell.
 import { create } from 'zustand'
+import { isSourceNodeId } from '../../shared/layout/derived'
 import { invoke } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import type { ShellView } from '../shell/Toolbar'
@@ -29,9 +30,16 @@ export function setView(view: ShellView): void {
   useNavigation.setState({ view })
 }
 
-/** Shows the Session view on the Session behind a Node. */
+/**
+ * Shows the Session view on the Session behind a Node, and tells main the user opened it: a
+ * `touch` of the Node, so the automatic archive leaves it for a while (ADR-0076, point 2). Not
+ * from a read-only screen, which writes nothing, and not for a Subagent's Node, which the Layout
+ * does not keep. The touch is sent without a screen: it is no step of the undo history.
+ */
 export function openSession(opened: OpenedSession): void {
   useNavigation.setState({ view: 'session', opened })
+  if (readOnlyNow() !== null || isSourceNodeId(opened.nodeId)) return
+  void invoke('layout.apply', { projectId: opened.projectId, op: { op: 'touch', id: opened.nodeId } }).catch(() => undefined)
 }
 
 /**

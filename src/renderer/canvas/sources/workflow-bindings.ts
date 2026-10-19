@@ -20,7 +20,7 @@ import { useMemo } from 'react'
 import { useStore } from '@xyflow/react'
 import { bindingWorkflowOf, type Binding } from '../../../shared/binding/resolve'
 import { agentKey } from '../../../shared/ipc/bindings'
-import { epicNodeId, SOURCE_NODE_KINDS, SUBAGENT_KIND, ticketNodeId } from '../../../shared/layout/derived'
+import { epicNodeId, onThePlane, SUBAGENT_KIND, ticketNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode } from '../../../shared/layout/types'
 import { resolveAgentBindings, useManualBindings, useSessionSignals } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
@@ -68,12 +68,12 @@ export type BindingAnchorData =
   | { [key: string]: unknown; variant: 'ticket'; projectId: string; epic: string; num: number }
   | { [key: string]: unknown; variant: 'epic'; projectId: string; epic: string }
 
-/** Layout Nodes that show a Session and can be bound: on the plane (not pinned or hidden), naming a Session; one per Session. */
+/** Layout Nodes that show a Session and can be bound: on the plane (not pinned, hidden or archived), naming a Session; one per Session. */
 export function agentNodes(layout: Layout): LayoutNode[] {
   const seen = new Set<string>()
   return layout.nodes.filter((node) => {
     const sessionId = node.data.sessionId
-    if (typeof sessionId !== 'string' || sessionId === '' || node.hidden || node.pinned || SOURCE_NODE_KINDS.includes(node.kind) || seen.has(sessionId)) return false
+    if (typeof sessionId !== 'string' || sessionId === '' || !onThePlane(node) || seen.has(sessionId)) return false
     seen.add(sessionId)
     return true
   })

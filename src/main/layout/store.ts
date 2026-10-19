@@ -12,6 +12,12 @@
 // Node keeps the gap from every other Node on the plane; the neighbours do not move. The answer
 // carries the corrected place.
 //
+// The automatic archive (ADR-0076, archive.ts) takes Nodes off the plane with `archive` and brings
+// them back with `restore`, which puts each at its old place when that is clear, else at the nearest
+// clear one. Every operation the user makes on a Node — one sent with a screen: move, moveMany,
+// resize, pin, hide, tag, patchData, keep — and every `touch` and `restore` set the Node's
+// `touchedAt` to now, so the archive leaves a Node the user has just worked with or brought back.
+//
 // Operations change the Layout in memory at once; the file is written after a quiet period
 // (LAYOUT_SAVE_DELAY_MS since the last operation) or, while operations keep coming with no quiet
 // period, LAYOUT_SAVE_MAX_DELAY_MS after the first unsaved one; and right away by flush() — the IPC
@@ -22,7 +28,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { freePlace, freeShift, isParticipant, obstaclesFor, stopResize } from '../../shared/layout/free-place'
-import { EMPTY_LAYOUT, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
+import { EMPTY_LAYOUT, isArchived, layoutOpSchema, layoutSchema, type Layout, type LayoutNode, type LayoutOp, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 import { upgradeLayout, upgradeMessages } from './upgrade'
@@ -53,6 +59,8 @@ export interface LayoutStoreOptions {
   write?: (file: string, layout: Layout) => void
   delayMs?: number
   maxDelayMs?: number
+  /** The clock of `touchedAt` and of an archive's `at`; tests pass their own. */
+  now?: () => number
 }
 
 interface Entry {
@@ -100,12 +108,81 @@ function moveMany(layout: Layout, op: Extract<LayoutOp, { op: 'moveMany' }>): La
   return { ...layout, nodes: moved.map((node) => (shifted.has(node.id) ? { ...node, x: node.x + dx, y: node.y + dy } : node)) }
 }
 
+/** The index of each named Node; throws for an id the Layout does not have. */
+function indexesOf(layout: Layout, ids: readonly string[]): number[] {
+  return ids.map((id) => {
+    const index = layout.nodes.findIndex((node) => node.id === id)
+    if (index < 0) throw new Error(`The Layout has no Node with id ${id}`)
+    return index
+  })
+}
+
+/** Takes the Nodes off the plane into the archive, as one batch; a Node already archived keeps its record. */
+function archive(layout: Layout, op: Extract<LayoutOp, { op: 'archive' }>, now: number): Layout {
+  const indexes = indexesOf(
+    layout,
+    op.nodes.map((node) => node.id),
+  )
+  const nodes = [...layout.nodes]
+  for (const [n, index] of indexes.entries()) {
+    const node = nodes[index]!
+    if (!isArchived(node)) nodes[index] = { ...node, archived: { at: now, rule: op.nodes[n]!.rule, batch: op.batch } }
+  }
+  return { ...layout, nodes }
+}
+
+/** Brings archived Nodes back: each, in the order named, at its old place when clear, else the nearest clear one (ADR-0038). */
+function restore(layout: Layout, op: Extract<LayoutOp, { op: 'restore' }>): Layout {
+  const indexes = indexesOf(layout, op.ids)
+  const nodes = [...layout.nodes]
+  for (const index of indexes) {
+    const node = nodes[index]!
+    if (!isArchived(node)) continue
+    nodes[index] = { ...node, archived: null }
+    nodes[index] = settle(nodes, index, undefined, op)
+  }
+  return { ...layout, nodes }
+}
+
+/** The Nodes an operation sent with a screen counts as the user's work with (ADR-0076, point 2). */
+function touchedBy(op: LayoutOp, screen: string | null): string[] {
+  switch (op.op) {
+    case 'touch':
+      return [op.id]
+    case 'restore':
+      return op.ids
+    case 'move':
+    case 'resize':
+    case 'pin':
+    case 'hide':
+    case 'tag':
+    case 'patchData':
+    case 'keep':
+      return screen === null ? [] : [op.id]
+    case 'moveMany':
+      return screen === null ? [] : op.moves.map((move) => move.id)
+    case 'create':
+    case 'remove':
+    case 'archive':
+      return []
+  }
+}
+
+/** Sets `touchedAt` of the named Nodes that are in the Layout. */
+function touch(layout: Layout, ids: readonly string[], now: number): Layout {
+  if (ids.length === 0) return layout
+  const named = new Set(ids)
+  return { ...layout, nodes: layout.nodes.map((node) => (named.has(node.id) ? { ...node, touchedAt: now } : node)) }
+}
+
 /**
  * Applies one parsed operation to a Layout; returns the new Layout. Throws when it is refused. An
  * operation that puts a Node on the plane is corrected so that the Node overlaps none (ADR-0038).
  */
-function applyOp(layout: Layout, op: LayoutOp): Layout {
+function applyOp(layout: Layout, op: LayoutOp, now: number): Layout {
   if (op.op === 'moveMany') return moveMany(layout, op)
+  if (op.op === 'archive') return archive(layout, op, now)
+  if (op.op === 'restore') return restore(layout, op)
 
   if (op.op === 'create') {
     const id = op.node.id ?? randomUUID()
@@ -153,6 +230,13 @@ function applyOp(layout: Layout, op: LayoutOp): Layout {
       next = { ...current, tags }
       break
     }
+    case 'keep':
+      next = { ...current, keep: op.keep }
+      break
+    case 'touch':
+      // touchedAt is set by apply(), as for every operation of the user.
+      next = current
+      break
   }
   const nodes = [...layout.nodes]
   nodes[index] = next
@@ -173,6 +257,7 @@ export class LayoutStore {
   private readonly write: (file: string, layout: Layout) => void
   private readonly delayMs: number
   private readonly maxDelayMs: number
+  private readonly now: () => number
 
   /**
    * `dirOf` gives a Project's data folder and throws for a Project that is not in the list.
@@ -185,6 +270,7 @@ export class LayoutStore {
     this.write = options.write ?? writeLayoutFile
     this.delayMs = options.delayMs ?? LAYOUT_SAVE_DELAY_MS
     this.maxDelayMs = options.maxDelayMs ?? LAYOUT_SAVE_MAX_DELAY_MS
+    this.now = options.now ?? Date.now
   }
 
   file(projectId: string): string {
@@ -229,7 +315,8 @@ export class LayoutStore {
     const parsed = layoutOpSchema.safeParse(op)
     if (!parsed.success) throw new Error(`invalid layout operation\n${z.prettifyError(parsed.error)}`)
     const entry = this.entry(projectId)
-    entry.layout = applyOp(entry.layout, parsed.data)
+    const now = this.now()
+    entry.layout = touch(applyOp(entry.layout, parsed.data, now), touchedBy(parsed.data, screen), now)
     entry.revision += 1
     entry.dirty = true
     this.schedule(projectId, entry)

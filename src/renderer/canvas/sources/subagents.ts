@@ -19,7 +19,7 @@
 // clear of the frames too, each would push the other.
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { onThePlane, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId } from '../../../shared/layout/derived'
+import { onThePlane, SUBAGENT_KIND, SUBAGENT_TREE_KIND, subagentNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode } from '../../../shared/layout/types'
 import type { SubagentInfo } from '../../../shared/transcript/subagents'
 import { useSubagentTrees } from '../../claude-home/subagents'
@@ -235,12 +235,12 @@ export function treeBlock(places: readonly PlacedSubagent[]): Rect | null {
   return { x, y, w: Math.max(...nodes.map((place) => place.x + place.w)) - x, h: Math.max(...nodes.map((place) => place.y + place.h)) - y }
 }
 
-/** The Session Nodes a tree can hang from: shown on the plane, naming a Session; one per Session. */
+/** The Session Nodes a tree can hang from: shown on the plane (an archived Session takes its tree along), naming a Session; one per Session. */
 export function sessionParents(layout: Layout): LayoutNode[] {
   const seen = new Set<string>()
   return layout.nodes.filter((node) => {
     const sessionId = node.data.sessionId
-    if (typeof sessionId !== 'string' || sessionId === '' || node.hidden || node.pinned || SOURCE_NODE_KINDS.includes(node.kind) || seen.has(sessionId)) return false
+    if (typeof sessionId !== 'string' || sessionId === '' || !onThePlane(node) || seen.has(sessionId)) return false
     seen.add(sessionId)
     return true
   })
