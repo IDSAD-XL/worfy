@@ -275,3 +275,49 @@ kill $YES
 # десять самых долгих test-ов по всем прогонам
 node -e 'const fs=require("fs"),d=process.argv[1];const t=[];for(const f of fs.readdirSync(d).filter(f=>f.endsWith(".json")))for(const x of JSON.parse(fs.readFileSync(d+"/"+f)).testResults)for(const a of x.assertionResults)t.push([a.duration??0,a.status,x.name.split("/test/")[1]+" > "+a.title]);t.sort((p,q)=>q[0]-p[0]);for(const r of t.slice(0,10))console.log(Math.round(r[0])+" ms",r[1],r[2])' $M
 ```
+
+### Windows: test-ы, которым worfy-windows 14 (срез 3l) поднял timeout на win32 (2026-10-19)
+
+Цель среза 3l — `pnpm test` с exit code 0 на Windows. Test-ы ниже краснели по timeout-у на PC.
+Каждому поднят timeout только на win32 и только у одного test-а: третий аргумент
+`it(…, fn, process.platform === 'win32' ? N : undefined)`, над test-ом — комментарий с замером.
+На других системах предел прежний (5 s у `node`/`jsdom`, 15 s у `contract` из `vitest.config.ts`);
+общий timeout файла, `describe` или конфига не менялся. Новое значение — примерно 2× самого долгого
+замера, округлено вверх до секунды. Замеры: полный `pnpm test` на `main` `a3514683` на PC (JSON-отчёт
+vitest), повторы файлов по одному (2 из 2) и один run семи файлов разом на ветке среза («с шестью
+другими файлами»). У test-а, упавшего по timeout-у, vitest пишет длительность вместе с работой после
+timeout-а, поэтому она может быть больше предела.
+
+| Test | Файл | Было → стало (win32) | Замер |
+|---|---|---|---|
+| «passes exactly 15360 bytes and fails on 15361» | `test/unit/check-handoff.test.ts:89` | 5 s → 13 s | полный run: 6.2 s, timeout; с шестью другими файлами: 0.8 s |
+| «fails «проверки нет:» with an empty or blank reason…» | `test/unit/check-lessons.test.ts:65` | 5 s → 12 s | полный run: 5.9 s, timeout; с шестью другими: 0.8 s |
+| «collectNodeTypes maps each kind to its component…» | `test/unit/canvas.test.tsx:50` | 5 s → 11 s | полный run: 5.0 s, timeout; с шестью другими: 5.1 s, timeout; по одному — зелёный 2 из 2 |
+| «PrTracker over the gh stub with 150 PRs, finds the PR of a branch outside the first 100…» | `test/contract/github-prs.test.ts:315` | 15 s → 34 s | полный run: 16.6 s, timeout; с шестью другими: 2.2 s |
+| «reviewer-simplification is the diff the case describes…» | `test/contract/harness-evals.test.ts:451` | 15 s → 54 s | полный run: 26.5 s, timeout; с шестью другими: 12.7 s |
+| «the cases > <case> > builds its fixture with exit code 0 in a temporary HOME» (все 10 случаев `describe.each`) | `test/contract/harness-evals.test.ts:155` | 15 s → 32 s | с шестью другими: 15.5 s у `reviewer-simplification`, timeout; полный run: 11.6 s. В список оркестратора не входил — найден run-ом среза |
+| «reviewer-intended-breakage is the diff the case describes > removes the check the ticket removes on purpose…» | `test/contract/harness-evals.test.ts:408` | 15 s → 33 s | с шестью другими: 16.2 s, timeout; полный run: 13.4 s. В список оркестратора не входил — найден run-ом среза |
+| «the GitHub account … after the account step the draft carries the chosen account…» | `test/contract/projects-connect.test.ts:1354` | 15 s → 31 s | полный run: 15.1 s, timeout; с шестью другими: 9.7 s |
+| «the state > with the plugin folder reads `plugin list` once…» | `test/contract/harness-install.test.ts:277` | 15 s → 31 s | полный run: 15.2 s, timeout |
+| «errors > a first `install` of worfy that records the plugin and exits non-zero…» | `test/contract/harness-install.test.ts:674` | 15 s → 31 s | полный run: 15.2 s, timeout |
+| «errors > a non-zero exit of `claude plugin update`…» | `test/contract/harness-install.test.ts:723` | 15 s → 26 s | полный run: 12.9 s |
+| «errors > a copy that fails half way…» | `test/contract/harness-install.test.ts:797` | 15 s → 21 s | полный run: 10.1 s |
+| «errors > a copy interrupted between its two renames…» | `test/contract/harness-install.test.ts:817` | 15 s → 27 s | полный run: 13.5 s |
+| «a rename refused by a held-open file (Windows) > EBUSY twice, then free…» | `test/contract/harness-install.test.ts:852` | 15 s → 46 s | по одному: 22.6 s, timeout (1 из 2 повторов); полный run: 3.6 s |
+
+«the state > a build whose Harness names no dependency has none to report»
+(`harness-install.test.ts`) в полном run-е упал на сравнении списка вызовов `claude`
+(`expected [ …(3) ] to deeply equal [ 'plugin list --json', …(3) ]`). Это не своя ошибка, а след
+test-а перед ним, упавшего по timeout-у. `sb` — переменная модуля, `beforeEach` переписывает её для
+следующего test-а. Тело упавшего test-а продолжает работать: когда его `install` заканчивается, его
+`clearCalls()` удаляет журнал вызовов уже нового test-а. Проверено мутантом: предыдущему test-у —
+timeout 500 ms и пауза перед `clearCalls()`, чтобы удаление пришлось на `install` следующего test-а.
+При паузе 200 ms следующий test падает с тем же сообщением, при 400 и 600 ms — с двумя и одним
+вызовом. Без timeout-а у предыдущего test-а этого нет, так что новый предел 31 s лечит и его.
+
+Корневая причина не устранена: почему эти test-ы на Windows идут в разы дольше, чем на Mac
+(запуск процессов, `git`, stub-ы `claude`/`gh` под Node Electron-а, нагрузка полного run-а), здесь не
+исследовано. Новые пределы — обход на win32, а не лечение. В том же полном run-е близко к пределу
+15 s шли и другие test-ы этих файлов, которым timeout не поднимали: один в `harness-evals.test.ts`
+(12.2 s) и три в `projects-connect.test.ts` (до 11.4 s); в run-е семи файлов разом у
+`harness-evals.test.ts` дольше 10 s шли 20 test-ов из 128.

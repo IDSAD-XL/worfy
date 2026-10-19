@@ -46,6 +46,7 @@ afterAll(() => {
 const Dummy = () => null
 
 describe('collectNodeTypes', () => {
+  // Windows: 11 s, 2x the 5.1 s it ran on the PC (2026-10-19), where it hit the 5 s limit in the full run and with six other files.
   it('maps each kind to its component, with the default size when the module gives none', async () => {
     const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')
     const types = collectNodeTypes({
@@ -54,7 +55,7 @@ describe('collectNodeTypes', () => {
     })
     expect(types.get('note')).toEqual({ kind: 'note', Component: Dummy, defaultWidth: 220, defaultHeight: 120 })
     expect(types.get('epic-frame')).toEqual({ kind: 'epic-frame', Component: Dummy, defaultWidth: 240, defaultHeight: 140 })
-  })
+  }, process.platform === 'win32' ? 11_000 : undefined)
 
   it('takes a type\'s minimap colour from its file, and leaves it undefined when the file declares none (ticket 29)', async () => {
     const { collectNodeTypes } = await import('../../src/renderer/canvas/nodes/index')

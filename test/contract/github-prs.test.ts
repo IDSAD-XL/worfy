@@ -311,6 +311,7 @@ describe('PrTracker over the gh stub', () => {
     expect(await gh.calls()).toEqual([['pr', 'list', '--state', 'all', '--limit', '100', '--json', JSON_FIELDS]])
   })
 
+  // Windows: 34 s, 2x the 16.6 s it ran in the full run on the PC (2026-10-19), where it hit the 15 s limit; 2.2 s with six other files.
   it('with 150 PRs, finds the PR of a branch outside the first 100 with --head <branch>, once per 5 minutes', async () => {
     const pulls = Array.from({ length: 150 }, (_, index) => pull(150 - index, `other/${150 - index}`))
     // A newer PR on a branch that only starts like worfy-mvp/08: GitHub's `head:` search matches
@@ -339,7 +340,7 @@ describe('PrTracker over the gh stub', () => {
     // A branch the renderer no longer asks about is not shown from an old search.
     const dropped = await tracker.read(gh.dir, [])
     expect(pullOfTicket(snapshotOf(dropped.pulls), { epic: 'worfy-mvp', num: 8 })).toBeNull()
-  })
+  }, process.platform === 'win32' ? 34_000 : undefined)
 
   it('starts at most 10 branch lookups in one read; the rest wait for the next read', async () => {
     const gh = await stubGh([pull(1, 'demo/01')])
