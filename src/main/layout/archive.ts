@@ -168,7 +168,7 @@ export interface ArchiveProject {
 
 /** What the archive reads and writes; the app passes the real ones (src/main/index.ts), tests their own. */
 export interface AutoArchiveDeps {
-  store: Pick<LayoutStore, 'get' | 'apply'>
+  store: Pick<LayoutStore, 'get' | 'peek' | 'apply'>
   /** The Projects of this Machine. */
   projects(): readonly ArchiveProject[]
   /** The Project's live Sessions, from the registry under the Claude home. */
@@ -223,9 +223,11 @@ export class AutoArchiver {
   async run(project: ArchiveProject): Promise<number> {
     const settings = this.deps.settings(project.id)
     if (settings.idleMs === null) {
-      // «Never» turns the archive off (ADR-0076, point 7): no registry, git or ps. Only Nodes
-      // archived before still come back when their Session is resumed.
-      if (archivedSessionNodes(this.deps.store.get(project.id).layout.nodes).length > 0) await this.readLive(project)
+      // «Never» turns the archive off (ADR-0076, point 7): no registry, git or ps, and no
+      // layout.json read — a Layout nobody opened stays unread, as before the archive. Only Nodes
+      // archived before, in a Layout main holds, still come back when their Session is resumed.
+      const held = this.deps.store.peek(project.id)
+      if (held !== undefined && archivedSessionNodes(held.layout.nodes).length > 0) await this.readLive(project)
       return 0
     }
     const history = await this.deps.history(project)

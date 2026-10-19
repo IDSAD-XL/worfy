@@ -401,6 +401,19 @@ describe('round 2 of the review of PR #536', () => {
     expect(live).toHaveBeenCalledTimes(1)
   })
 
+  it('under «Never» a run does not read the layout.json of a Project nobody opened', async () => {
+    writeFileSync(layoutFile(), JSON.stringify({ nodes: [{ id: 'session:a', kind: 'session', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'a' }, archived: { at: 1, rule: 'idle', batch: 'b1' } }] }))
+    const live = vi.fn(() => Promise.resolve([{ sessionId: 'a', status: 'idle' }]))
+    const never = archiver({ live, settings: () => ({ idleMs: null, ticketDone: true }) })
+    await never.runAll()
+    expect(store.peek(PROJECT)).toBeUndefined()
+    expect(live).not.toHaveBeenCalled()
+    // Once main holds it (a window opened the Project), the resumed Session comes back.
+    expect(isArchived(nodeOf('session:a')!)).toBe(true)
+    await never.runAll()
+    expect(isArchived(nodeOf('session:a')!)).toBe(false)
+  })
+
   it('Bindings are looked up only for the Sessions the ticket-done rule alone could take', async () => {
     apply(sessionNode('old'))
     apply(sessionNode('mid', 400, 0))

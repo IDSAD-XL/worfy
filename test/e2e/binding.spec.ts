@@ -376,7 +376,8 @@ test('agents are bound by claim, worktree folder, /epic-wave and their task; a m
     await dropOnTicket(window, sessionTitle(window, CLAIM), 12)
     await expect(sessionEdge(window, CLAIM)).toHaveAttribute('aria-label', `bound to ${EPIC}/12 · manual`)
     await expect.poll(savedBindings).toEqual([{ sessionId: CLAIM, agentId: null, target: { kind: 'ticket', epic: EPIC, num: 12 } }])
-    await expect.poll(() => layoutNode(window, `session:${CLAIM}`)).toEqual(before)
+    // The drop is the user's work with the Node: main stamps its touchedAt (ADR-0076, point 2).
+    await expect.poll(() => layoutNode(window, `session:${CLAIM}`)).toEqual({ ...before, touchedAt: expect.any(Number) })
     // Back on the Canvas too, not only in the saved Layout: the window gets the move back after
     // main has it, and the Subagents' tree is placed clear of the Node where the window shows it.
     await expect.poll(async () => near(await box(sessionTitle(window, CLAIM)), shown)).toBe(true)

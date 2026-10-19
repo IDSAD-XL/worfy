@@ -301,6 +301,12 @@ export class LayoutStore {
     return entry
   }
 
+  /** The Project's Layout when main already holds it; undefined, without reading layout.json, when it does not. */
+  peek(projectId: string): LayoutState | undefined {
+    const entry = this.entries.get(projectId)
+    return entry === undefined ? undefined : { projectId, layout: entry.layout, revision: entry.revision }
+  }
+
   get(projectId: string): LayoutState {
     const { layout, revision } = this.entry(projectId)
     return { projectId, layout, revision }
