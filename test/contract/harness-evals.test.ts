@@ -497,15 +497,26 @@ const listAfter = (args: string[], option: string): string[] => {
   return args.slice(from, end === -1 ? undefined : end)
 }
 
-// Every child of this file gets its home from childEnv. A child that saw the owner's real home would
-// read the real Harness registry in ~/.claude/worfy-harness and ~/.claude/gate, and a Harness script
-// that writes would write there (worfy-windows ticket 65).
+// Every child of this file that runs a scaffold script, a Harness script, git in a fixture or
+// eval-harness.mjs with the claude stub gets its home from childEnv. A child that saw the owner's
+// real home would read the real Harness registry in ~/.claude/worfy-harness and ~/.claude/gate, and
+// a Harness script that writes would write there (worfy-windows ticket 65). The tests' own git calls
+// that read the repository (the control `git --exec-path` and `git check-ignore`) run the real git
+// with this process's environment and write nothing.
 describe('a child process sees the temporary home', () => {
-  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv][] = [
-    ['scaffold', (home) => scaffoldEnv(home)],
-    ['harness', (home) => harnessEnv(home)],
-    ['inFixture', (home) => fixtureEnv(home)],
-    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env],
+  // The variables of a caller that names a home of its own: the real one. Built from names, so the
+  // scan below (no HOME or USERPROFILE key outside childEnv) does not count them.
+  const foreignHome = (): NodeJS.ProcessEnv => Object.fromEntries(['HOME', 'USERPROFILE'].map((name) => [name, homedir()]))
+  // startsNode: the environment starts this process's executable, which under Electron needs
+  // ELECTRON_RUN_AS_NODE to run as Node and not as an app window that never exits.
+  const launchers: [name: string, env: (home: string) => NodeJS.ProcessEnv, startsNode: boolean][] = [
+    ['scaffold', (home) => scaffoldEnv(home), false],
+    ['scaffold, a caller with its own home', (home) => scaffoldEnv(home, foreignHome()), false],
+    ['harness', (home) => harnessEnv(home), true],
+    ['harness, a caller with its own home', (home) => harnessEnv(home, foreignHome()), true],
+    ['inFixture', (home) => fixtureEnv(home), false],
+    ['the claude stub', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {}).env, true],
+    ['the claude stub, a caller with its own home', () => stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', foreignHome()).env, true],
   ]
   const insideTemp = (dir: string | undefined): boolean => {
     const inside = relative(realpathSync(tmpdir()), dir ?? '')
@@ -518,10 +529,16 @@ describe('a child process sees the temporary home', () => {
     expect(env.USERPROFILE).toBe(env.HOME)
   })
 
-  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf) => {
+  it.each(launchers.filter(([, , startsNode]) => startsNode))('%s: runs this process as Node (ELECTRON_RUN_AS_NODE=1)', (_, envOf) => {
+    expect(envOf(tempDir('worfy-eval-home-')).ELECTRON_RUN_AS_NODE).toBe('1')
+  })
+
+  it.each(launchers)('%s: a Node child takes the temporary home for os.homedir()', (_, envOf, startsNode) => {
     const env = envOf(tempDir('worfy-eval-home-'))
+    // A launcher that starts this process's executable is used as it is: adding the variable here
+    // would hide its loss.
     const child = spawnSync(process.execPath, ['-e', 'process.stdout.write(require("node:os").homedir())'], {
-      env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
+      env: startsNode ? env : { ...env, ELECTRON_RUN_AS_NODE: '1' },
       encoding: 'utf8',
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
@@ -530,8 +547,9 @@ describe('a child process sees the temporary home', () => {
     expect(child.stdout).not.toBe(homedir())
   })
 
-  // A new spawn that writes its own home, past childEnv, makes this test red.
-  it('every spawn and spawnSync of this file that gives a home goes through childEnv', () => {
+  // A new spawn that writes its own home past childEnv, or that names no environment and so passes
+  // on the real home, makes this test red.
+  it('every spawn and spawnSync of this file names its environment, and only childEnv names a home', () => {
     const source = readFileSync(__filename, 'utf8')
     const lineOf = (index: number): string => source.slice(source.lastIndexOf('\n', index) + 1, source.indexOf('\n', index))
     const helper = lineOf(source.indexOf('const childEnv = '))
@@ -542,7 +560,8 @@ describe('a child process sees the temporary home', () => {
     expect(keys).toEqual([])
     // A spawn or spawnSync call that names HOME or USERPROFILE itself.
     const calls: string[] = []
-    for (const match of source.matchAll(/\bspawn(?:Sync)?\(/g)) {
+    // A call starts with a quote or a name: the pattern below is no call.
+    for (const match of source.matchAll(/\bspawn(?:Sync)?\((?=['"\w])/g)) {
       let depth = 0
       let end = match.index + match[0].length - 1
       for (; end < source.length; end++) {
@@ -553,6 +572,12 @@ describe('a child process sees the temporary home', () => {
     }
     expect(calls.length).toBeGreaterThan(5)
     expect(calls.filter((call) => /(?<![\w$])(?:HOME|USERPROFILE)(?![\w$])/.test(call))).toEqual([])
+    // A call that names no environment, or hands on this process's own, passes on the real home. The
+    // exceptions are the tests' own read-only git calls in the repository; each must still exist.
+    const readOnlyGit = [/^spawnSync\('git', \['--exec-path'\], \{ encoding: 'utf8' \}\)$/, /^spawnSync\('git', \['check-ignore', '-q', .*\], \{ cwd: REPO \}\)$/]
+    for (const known of readOnlyGit) expect(calls.filter((call) => known.test(call)), String(known)).toHaveLength(1)
+    const own = calls.filter((call) => !readOnlyGit.some((known) => known.test(call)))
+    expect(own.filter((call) => !/[{,]\s*env\s*[:,}]/.test(call) || /\benv\s*:\s*process\.env\b/.test(call))).toEqual([])
   })
 })
 
@@ -811,6 +836,29 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(listAfter(args, '--tag')).toEqual(['main'])
     expect(args.slice(-4)).toEqual(['--case', 'status-block', '--runs', '1'])
     expect(run.stdout).toMatch(/no gui case selected/)
+  })
+
+  // Only a `.mjs` CLAUDE_BIN on Windows starts through this process's executable. Here CLAUDE_BIN is
+  // that executable itself: by its path it answers --version (v<major>.<minor>.<patch>, newer than
+  // the minimum); as a script of itself it fails. A --case that matches nothing skips both calls.
+  it.runIf(process.platform === 'win32')('on Windows starts a CLAUDE_BIN that is no .mjs by its path', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--case', 'no-such-case'], undefined, { CLAUDE_BIN: process.execPath })
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout).toMatch(/no main case selected/)
+    expect(calls).toEqual([])
+  })
+
+  // Outside Windows a `.mjs` CLAUDE_BIN starts by its path, as any other. This one is a `#!/bin/sh`
+  // script that runs the stub: the kernel runs it through its #! line, while Node would refuse it as
+  // JavaScript.
+  it.skipIf(process.platform === 'win32')('outside Windows starts a .mjs CLAUDE_BIN by its path', () => {
+    const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', {})
+    const claude = join(dir, 'claude-by-path.mjs')
+    writeFileSync(claude, `#!/bin/sh\nexec '${join(dir, 'claude')}' "$@"\n`)
+    chmodSync(claude, 0o755)
+    const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+    expect(run.status, run.stderr).toBe(0)
+    expect(loggedCalls(log)).toHaveLength(2)
   })
 })
 

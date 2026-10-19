@@ -131,15 +131,14 @@ function claudeBinary() {
 
 /**
  * spawnSync of claude. On Windows a CLAUDE_BIN that ends in `.mjs` is a stand-in of the tests: Windows
- * starts no script by its path, so it runs as a script of this process's own Node, with
- * ELECTRON_RUN_AS_NODE=1 for Electron's (the way worfy starts a `.mjs` WORFY_CLAUDE,
- * src/main/program.ts). Elsewhere, and for the SDK's binary or any other path, claude starts as it
- * is: ELECTRON_RUN_AS_NODE would reach every child of a paid run.
+ * starts no script by its path, so it runs as a script of this process's own Node (the way worfy
+ * starts a `.mjs` WORFY_CLAUDE, src/main/program.ts). The environment stays childEnv: under
+ * `pnpm eval:harness` this process is plain node, and when it runs as Electron's Node it does so
+ * only because ELECTRON_RUN_AS_NODE=1 is in its own environment, which childEnv keeps. Elsewhere,
+ * and for the SDK's binary or any other path, claude starts by its path.
  */
 const runClaude = (claude, args, options) =>
-  process.platform === 'win32' && claude.endsWith('.mjs')
-    ? spawnSync(process.execPath, [claude, ...args], { ...options, env: { ...options.env, ELECTRON_RUN_AS_NODE: '1' } })
-    : spawnSync(claude, args, options)
+  process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
 
 /** -1, 0 or 1: version a against version b, both [major, minor, patch]. */
 const compare = (a, b) => a.reduce((acc, n, i) => acc || Math.sign(n - b[i]), 0)
