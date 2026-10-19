@@ -12,8 +12,12 @@ import { z } from 'zod'
 /**
  * The version of the link protocol; a peer that speaks another one is refused before the handshake.
  * 2: B introduces itself in the fourth pairing message, after A's key confirmation (pairing.ts).
+ * 3: a screen marks its terminal's answers to the program (`reply` of `terminal.input`), and main
+ *    answers the cursor-position requests itself and drops a marked answer to them (worfy-windows
+ *    ticket 39): a screen of protocol 2 sends its answers unmarked, and the shell would get two.
+ *    A pairing made under 2 stays: the version is in the key confirmation of a new pairing only.
  */
-export const LINK_PROTOCOL_VERSION = 2
+export const LINK_PROTOCOL_VERSION = 3
 
 /** The handshake header that carries the protocol version (an integer). */
 export const LINK_PROTOCOL_HEADER = 'x-worfy-link-protocol'

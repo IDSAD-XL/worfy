@@ -225,6 +225,20 @@ describe('checks before the WebSocket handshake', () => {
     expect((error as LinkConnectError).kind).toBe('protocol')
     expect(error.message).toBe(answer.body)
   })
+
+  it('refuses a worfy of link protocol 2, whose screens send their terminal answers unmarked; the link stays, and protocol 3 connects without pairing again (worfy-windows ticket 39)', async () => {
+    // Protocol 3: `terminal.input` carries `reply`, and main answers the cursor-position requests
+    // itself. An older view's unmarked answer would reach the shell as a second answer to each.
+    expect(LINK_PROTOCOL_VERSION).toBe(3)
+    const { a, b, port, token } = await serverAndToken()
+    const old = await upgrade(port, { client: a, headers: { authorization: `Bearer ${token}`, 'x-worfy-link-protocol': '2' } })
+    expect(old.status).toBe(400)
+    expect(old.body).toMatch(/speaks link protocol 3, the connecting worfy speaks 2\. Update both to the same version\./)
+    // The pairing is the same: no protocol is kept with it (store.ts), only the key confirmation of a new pairing names one.
+    expect(await upgrade(port, { client: a, headers: { authorization: `Bearer ${token}` } })).toEqual({ status: 101, body: '' })
+    await a.service.connect(b.service.machine.id)
+    expect(await a.service.call(b.service.machine.id, 'link.ping')).toMatchObject({ ok: true, value: { protocol: 3 } })
+  })
 })
 
 describe('IPC over the link', () => {

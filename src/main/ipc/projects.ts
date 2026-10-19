@@ -290,8 +290,8 @@ export default [
     return { replay: opened.replay, end: opened.end, exited: opened.exited }
   }),
 
-  defineHandler(projectsConnectSignInInput, ({ signInId, data }, { event }) => {
-    signIns().write(signInId, data, clientOf(event))
+  defineHandler(projectsConnectSignInInput, ({ signInId, data, reply }, { event }) => {
+    signIns().write(signInId, data, clientOf(event), { reply: reply === true })
   }),
 
   defineHandler(projectsConnectSignInResize, ({ signInId, cols, rows }, { event }) => {

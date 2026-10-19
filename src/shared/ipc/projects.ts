@@ -357,8 +357,17 @@ export const projectsConnectSignIn = invokeChannel(
   'local',
 )
 
-/** Keys the user typed into the sign-in terminal. */
-export const projectsConnectSignInInput = invokeChannel('projects.connect.signInInput', z.object({ ...signInRef, data: z.string().min(1).max(100_000) }), z.void(), 'local')
+/**
+ * Keys the user typed into the sign-in terminal, or (`reply: true`) an answer of its xterm.js to gh.
+ * main answers gh's cursor-position requests itself and drops a marked answer to them, as on
+ * `terminal.input` (worfy-windows ticket 39).
+ */
+export const projectsConnectSignInInput = invokeChannel(
+  'projects.connect.signInInput',
+  z.object({ ...signInRef, data: z.string().min(1).max(100_000), reply: z.boolean().optional() }),
+  z.void(),
+  'local',
+)
 
 /** The size of the sign-in terminal's view. */
 export const projectsConnectSignInResize = invokeChannel('projects.connect.signInResize', z.object({ ...signInRef, cols: signInCells, rows: signInCells }), z.void(), 'local')

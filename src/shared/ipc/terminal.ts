@@ -13,7 +13,8 @@
 //
 // Several screens (worfy-link ticket 05, ADR-0053): every client that opened a terminal gets every
 // chunk, with the same `end`, and may type into it. The pty has one size: the size of the client
-// that typed or clicked in it last (`terminal.input`, `terminal.takeSize`). `terminal.resize` from
+// that typed or clicked in it last (`terminal.input`, `terminal.takeSize`); an answer of the
+// client's terminal to the program (`terminal.input` with `reply`) is not typing. `terminal.resize` from
 // that client applies at once; from another client it is remembered until that client types or
 // clicks.
 //
@@ -92,8 +93,19 @@ export const terminalShells = invokeChannel(
   'read',
 )
 
-/** Keys typed or pasted in the terminal. */
-export const terminalInput = invokeChannel('terminal.input', z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000) }), z.void(), 'project', 'write')
+/**
+ * Keys typed or pasted in the terminal. `reply` marks an answer of the caller's terminal to the
+ * program instead (a focus report, the device attributes): it reaches the shell the same way, but
+ * does not give the caller the size of the pty (worfy-windows ticket 39). A marked answer to a
+ * cursor-position request goes nowhere: main answers those itself (src/main/terminal/cursor-answers.ts).
+ */
+export const terminalInput = invokeChannel(
+  'terminal.input',
+  z.object({ ...terminalRef, data: z.string().min(1).max(1_000_000), reply: z.boolean().optional() }),
+  z.void(),
+  'project',
+  'write',
+)
 
 /** The size of the caller's view; the pty takes it only while the caller owns the size. */
 export const terminalResize = invokeChannel('terminal.resize', z.object({ ...terminalRef, cols: cells, rows: cells }), z.void(), 'project', 'write')
