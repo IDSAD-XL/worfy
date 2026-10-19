@@ -415,6 +415,26 @@ export interface StackedFrame {
  * before it, so the answer for the same input is always the same.
  */
 export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rect[] = [], columns = 1): Map<string, PlacedFrame> {
+  return placeStrip(frames, plane, columns).frames
+}
+
+/** The strip placed on the plane: its frames, and where the done shelf under it stands. */
+export interface PlacedStrip {
+  frames: Map<string, PlacedFrame>
+  /** The strip's width: K columns with the gaps between them (0 without frames). */
+  width: number
+  /** The shelf's top-left corner: the strip's left edge, FRAME_GAP under its tallest column (0 without frames). */
+  shelf: { x: number; y: number }
+}
+
+/**
+ * stackFrames, with the done shelf (ADR-0075, point 5) under the strip: a shelf `shelfHeight` tall
+ * stands at the strip's left edge, FRAME_GAP under the tallest column of reserved heights, and the
+ * strip's place is found for the frames and the shelf together, so no Node on the plane is under
+ * the shelf either. A frame with an offset yields to the shelf as to the frames of the strip. A
+ * shelf height of 0 is no shelf: the strip is placed as stackFrames places it.
+ */
+export function placeStrip(frames: readonly StackedFrame[], plane: readonly Rect[] = [], columns = 1, shelfHeight = 0, shelfWidth = 0): PlacedStrip {
   const result = new Map<string, PlacedFrame>()
   const k = Math.max(1, Math.min(Math.floor(columns) || 1, frames.length || 1))
   const columnWidth = Math.max(0, ...frames.map((frame) => frame.width))
@@ -422,8 +442,13 @@ export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rec
   frames.forEach((frame, index) => {
     reserved[index % k]! += (index >= k ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height)
   })
-  const x = frameColumnX(k * columnWidth + (k - 1) * FRAME_GAP, Math.max(0, ...reserved), plane)
+  const stripWidth = frames.length === 0 ? 0 : k * columnWidth + (k - 1) * FRAME_GAP
+  const tallest = Math.max(0, ...reserved)
+  const shelfTop = frames.length === 0 ? 0 : tallest + FRAME_GAP
+  const shelved = shelfHeight > 0
+  const x = frameColumnX(Math.max(stripWidth, shelved ? shelfWidth : 0), shelved ? shelfTop + shelfHeight : tallest, plane)
   const taken: Rect[] = [...plane]
+  if (shelved) taken.push({ x, y: shelfTop, w: shelfWidth, h: shelfHeight })
   const moved: { frame: StackedFrame; index: number; auto: { x: number; y: number } }[] = []
   const tops = Array<number>(k).fill(0)
   for (const [index, frame] of frames.entries()) {
@@ -444,7 +469,88 @@ export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rec
     result.set(frame.epic, { x: place.x, y: place.y, auto })
     taken.push({ ...wanted, ...place })
   }
-  return result
+  return { frames: result, width: stripWidth, shelf: { x, y: shelfTop } }
+}
+
+// ── the done shelf (ADR-0075, point 5) ──────────────────────────────────────
+
+/** Padding inside the shelf, around its label row and its chips. */
+export const SHELF_PADDING = 12
+/** The shelf's label row ("Done" and the number of Epics) above the chips. */
+export const SHELF_LABEL_HEIGHT = 24
+export const SHELF_CHIP_HEIGHT = 24
+/** Between two chips of a row, and between two rows. */
+export const SHELF_CHIP_GAP = 8
+/** A shelf is at least this wide, like a frame: when every Epic is on it, the strip has no width. */
+export const SHELF_MIN_WIDTH = MIN_FRAME_WIDTH
+/**
+ * One character of a chip's text: 12 px monospace, 0.6 em. The chip's parts beside the text: 1 px
+ * borders (2), padding (2 × 8), the check icon (12) and the gaps after it and between the name and
+ * the count (2 × 6), with 4 px of slack.
+ */
+export const SHELF_CHAR_WIDTH = 7.2
+export const SHELF_CHIP_CHROME = 2 + 16 + 12 + 12 + 4
+
+/** What the shelf shows of a done Epic. */
+export interface ShelfEntry {
+  epic: string
+  done: number
+  total: number
+}
+
+export interface PlacedChip extends ShelfEntry {
+  /** Where the chip is drawn, relative to the shelf's top-left corner. */
+  x: number
+  y: number
+  w: number
+}
+
+export interface ShelfLayout {
+  width: number
+  height: number
+  chips: PlacedChip[]
+}
+
+/** The width of a chip "✓ <epic> N/N": its text in monospace and its chrome, never wider than `limit`. */
+export function shelfChipWidth(entry: ShelfEntry, limit = Number.POSITIVE_INFINITY): number {
+  const chars = entry.epic.length + `${entry.done}/${entry.total}`.length
+  return Math.min(limit, Math.ceil(SHELF_CHIP_CHROME + chars * SHELF_CHAR_WIDTH))
+}
+
+/**
+ * The shelf as wide as the strip (at least SHELF_MIN_WIDTH), its chips in the given order, left to
+ * right, a new row when the next chip does not fit in the width. A chip wider than the shelf takes
+ * a row of its own and is cut to the shelf's width (its text ends with an ellipsis). No entries: no
+ * shelf, 0 × 0.
+ */
+export function layoutShelf(entries: readonly ShelfEntry[], stripWidth: number): ShelfLayout {
+  if (entries.length === 0) return { width: 0, height: 0, chips: [] }
+  const width = Math.max(SHELF_MIN_WIDTH, stripWidth)
+  const inner = width - 2 * SHELF_PADDING
+  const top = SHELF_PADDING + SHELF_LABEL_HEIGHT
+  const chips: PlacedChip[] = []
+  let x = SHELF_PADDING
+  let row = 0
+  for (const entry of entries) {
+    const w = shelfChipWidth(entry, inner)
+    if (x > SHELF_PADDING && x + w > SHELF_PADDING + inner) {
+      row += 1
+      x = SHELF_PADDING
+    }
+    chips.push({ ...entry, x, y: top + row * (SHELF_CHIP_HEIGHT + SHELF_CHIP_GAP), w })
+    x += w + SHELF_CHIP_GAP
+  }
+  const rows = row + 1
+  return { width, height: top + rows * SHELF_CHIP_HEIGHT + row * SHELF_CHIP_GAP + SHELF_PADDING, chips }
+}
+
+/**
+ * True for an Epic that goes to the done shelf instead of the strip (ADR-0075, point 5): it has
+ * Tickets, every one of them is done, and its frame is collapsed — by the user, or by default
+ * (defaultCollapsed). An open frame of a done Epic stays in the strip.
+ */
+export function onDoneShelf(tickets: readonly Pick<Ticket, 'state'>[], collapsed: boolean): boolean {
+  return collapsed && tickets.length > 0 && tickets.every((t) => t.state === 'done')
 }
 
 export type SegmentState = 'done' | 'working' | 'blocked' | 'open' | 'empty'
