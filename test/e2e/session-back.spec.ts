@@ -87,7 +87,7 @@ async function sendToOrchestrator(window: Page, text: string): Promise<void> {
   }, text)
 }
 
-/** Both themes of the window under test-results; with WORFY_EVIDENCE_DIR also as `25-<name>-<theme>.png` there. */
+/** Both themes of the window under test-results/e2e; with WORFY_EVIDENCE_DIR also as `25-<name>-<theme>.png` there. */
 async function evidence(window: Page, name: string): Promise<void> {
   const shots = await snapshotThemes(window, `25-${name}`)
   if (EVIDENCE_DIR === undefined) return

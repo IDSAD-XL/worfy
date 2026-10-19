@@ -13,7 +13,7 @@ import { snapshotThemes, type ThemeSnapshots } from './snapshots'
 // also over focus mode, which stays under it; Settings → Shortcuts shows the same list; and ⌘K, ⌘F
 // and ⌘↩, now read from the registry of shortcuts, work as before; both lists have ⌘[ / Ctrl+[,
 // Back in the window of a Subagent (worfy-ui ticket 14; the key itself: session-back.spec.ts). Snapshots in both themes:
-// test-results/snapshots/shortcuts*/ (test/e2e/snapshots.ts); with WORFY_EVIDENCE_DIR set, the
+// test-results/e2e/snapshots/shortcuts*/ (test/e2e/snapshots.ts); with WORFY_EVIDENCE_DIR set, the
 // window's two are copied there as 11-shortcuts-light.png and 11-shortcuts-dark.png.
 
 /** SHORTCUTS_MENU_ITEM_ID and SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron. */

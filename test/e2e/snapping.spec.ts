@@ -312,7 +312,7 @@ test('the guide, the equal gaps and the landing outline in both themes', async (
       expect(style.accent.length).toBeGreaterThan(0)
     }
     await window.emulateMedia({ colorScheme: null })
-    // test-results/snapshots/snapping/{light,dark}.png; the ticket's evidence is copied from there.
+    // test-results/e2e/snapshots/snapping/{light,dark}.png; the ticket's evidence is copied from there.
     await snapshotThemes(window, 'snapping')
     await window.mouse.up()
     await expect(outlines(window)).toHaveCount(0)

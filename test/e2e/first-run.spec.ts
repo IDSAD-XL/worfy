@@ -129,7 +129,7 @@ async function screen(window: Page): Promise<Locator> {
 const row = (dialog: Locator, id: string): Locator => dialog.locator(`[data-check="${id}"]`)
 
 /**
- * Snapshots of the window in both themes, in test-results/snapshots/<name>/ (snapshots.ts), to
+ * Snapshots of the window in both themes, in test-results/e2e/snapshots/<name>/ (snapshots.ts), to
  * compare with F-SPEC "First run"; the tickets keep copies as .scratch/worfy-harness/evidence/19-*.png
  * and 30-*.png.
  */

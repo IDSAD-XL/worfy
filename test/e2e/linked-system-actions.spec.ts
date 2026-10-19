@@ -32,7 +32,7 @@ const PR_URL = 'https://example.com/worfy/pull/12'
 const EVIDENCE = join(repoRoot, '.scratch', 'worfy-link', 'evidence')
 
 /**
- * Takes the light and dark snapshot of `window` (test-results/snapshots/12-<name>/). With
+ * Takes the light and dark snapshot of `window` (test-results/e2e/snapshots/12-<name>/). With
  * WORFY_EVIDENCE=1 both are also kept as the ticket's evidence `12-<name>-{light,dark}.png`; an
  * ordinary run (gate full) leaves the repository's files alone.
  */

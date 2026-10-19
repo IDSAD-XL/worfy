@@ -164,6 +164,6 @@ test('the folded done stack draws its second card and a selected Node and Ticket
   }
 
   // Screenshots of both themes for the review against F-SPEC and F-canvas-dark.dc.html; the
-  // ticket's evidence is copied from test-results/snapshots/theme-shadows/{light,dark}.png.
+  // ticket's evidence is copied from test-results/e2e/snapshots/theme-shadows/{light,dark}.png.
   await snapshotThemes(window, 'theme-shadows')
 })
