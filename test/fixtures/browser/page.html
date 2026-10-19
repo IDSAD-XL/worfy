@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser layer fixture</title>
+    <!--
+      The page the Browser layer e2e test (test/e2e/browser-layer.spec.ts) loads into a <webview>.
+      Its edge is a 1 px magenta line, so a screenshot shows exactly where the page is drawn; a cream
+      background marks every pixel of the page. Its state is in body data attributes, read by the
+      test through the guest's webContents: `load` is new on every load (a reload changes it),
+      `count` grows every 50 ms, `wheels` counts wheel events, `ready` is set once the script ran.
+      Nothing on the page moves, so two screenshots of it can be compared.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: #fdf6e3;
+        color: #111111;
+        font: 16px/1.5 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+      }
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        border: 1px solid #ff00ff;
+        pointer-events: none;
+      }
+      main {
+        padding: 20px 24px;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 22px;
+      }
+      .tall {
+        height: 2400px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Browser layer fixture</h1>
+      <p>The quick brown fox jumps over the lazy dog. 0123456789</p>
+      <p>Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow.</p>
+      <p>How vexingly quick daft zebras jump! The five boxing wizards jump quickly.</p>
+      <ul>
+        <li>First item of a short list</li>
+        <li>Second item, a little longer than the first one</li>
+        <li>Third item</li>
+      </ul>
+    </main>
+    <div class="tall"></div>
+    <script>
+      document.body.dataset.load = Math.random().toString(36).slice(2)
+      let count = 0
+      setInterval(() => {
+        count += 1
+        document.body.dataset.count = String(count)
+      }, 50)
+      let wheels = 0
+      window.addEventListener(
+        'wheel',
+        () => {
+          wheels += 1
+          document.body.dataset.wheels = String(wheels)
+        },
+        { passive: true },
+      )
+      document.body.dataset.ready = 'yes'
+    </script>
+  </body>
+</html>
