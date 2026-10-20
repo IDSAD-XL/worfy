@@ -1,14 +1,34 @@
-// The partition of the Browsers' pages (ADR-0078 item 3), shared by main, which lets a <webview>
-// attach only on it and denies its pages every permission (src/main/window.ts), and the Browser
-// layer, which puts it on every <webview> (src/renderer/canvas/overlays/BrowserLayer.tsx).
+// The partitions of the Browsers' pages (ADR-0078 item 3), shared by main, which lets a <webview>
+// attach only on the partition of a Project of this Machine and denies its pages every permission
+// (src/main/window.ts), and the Browser layer, which puts the partition of the Canvas's Project on
+// every <webview> (src/renderer/canvas/overlays/BrowserLayer.tsx).
 
 /**
- * The one partition of every Browser until Browser profiles exist (worfy-browser ticket 03). It
- * has no `persist:` prefix: the session lives in memory and its cookies and storage are gone after
- * a restart; the Browser keeps only its address. The owner's answer to open question 1 of
- * worfy-browser ticket 02 may switch it to a `persist:` partition.
+ * The hash that ends every Project id (`<folder name>-<sha256(path)[0:8]>`, projectId in
+ * src/main/projects/store.ts). Unlike the folder name it is lowercase ASCII, so it fits a partition
+ * name, which Electron turns into a folder under userData/Partitions.
  */
-export const BROWSER_PARTITION = 'worfy-browser'
+const PROJECT_HASH = /-([0-9a-f]{8})$/
 
-/** Every partition a <webview> may attach on. Browser profiles (ticket 03) add theirs here. */
-export const BROWSER_PARTITIONS: readonly string[] = [BROWSER_PARTITION]
+/**
+ * The partition of the Browsers of Project `projectId`, or null when the id does not end with the
+ * hash. It is `persist:`: cookies, logins and site storage are kept on disk, in Electron's userData
+ * (the worfy data folder, WORFY_DATA_DIR), and survive a restart. One per Project, shared by all
+ * its Browsers. Until Browser profiles exist (worfy-browser ticket 03) it is the Project's one
+ * "default" profile; ticket 03 names a profile's partition the same way, with the profile's id in
+ * place of `default`, so the logins made here stay with the first profile.
+ */
+export function browserPartition(projectId: string): string | null {
+  const hash = PROJECT_HASH.exec(projectId)?.[1]
+  return hash === undefined ? null : `persist:worfy-browser-${hash}-default`
+}
+
+/** The partitions a <webview> may attach on: those of the Projects `projectIds`, once each. */
+export function browserPartitions(projectIds: readonly string[]): string[] {
+  const partitions = new Set<string>()
+  for (const id of projectIds) {
+    const partition = browserPartition(id)
+    if (partition !== null) partitions.add(partition)
+  }
+  return [...partitions]
+}

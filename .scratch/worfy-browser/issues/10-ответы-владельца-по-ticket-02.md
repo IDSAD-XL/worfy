@@ -1,7 +1,8 @@
 # 10 — Ответы владельца по Ticket-у 02: partition `persist:`, кнопки назад/вперёд/обновить, `target=_blank` в том же Browser
 
 Type: task
-Status: open 2026-10-20T12:34Z
+Status: claimed 2026-10-20T12:48Z
+Branch: worfy-browser/10
 Blocked by: 02
 Source: Ticket 02, «Открытые вопросы» 1, 2, 5 и «Итог» (PR #576 держится вариантов, которые ничего не
 решают за владельца); план Wave 2 от 2026-10-20 — ответы «решено без владельца, подтвердить».

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BROWSER_PARTITION } from '../../src/shared/browser/partition'
+import { browserPartition, browserPartitions } from '../../src/shared/browser/partition'
 import { frameOptions, WINDOW_BACKGROUND } from '../../src/main/window-frame'
 
 type Listener = (...args: unknown[]) => void
@@ -181,8 +181,10 @@ describe('installWebPolicy for the page of a Browser', () => {
   function created(type: 'window' | 'webview', contentsSession: FakeSession = electron.fakeSession(`guest-${type}`)) {
     const listeners = new Map<string, Listener>()
     let openHandler: Listener | undefined
+    const loadURL = vi.fn(() => Promise.resolve())
     const contents = {
       session: contentsSession,
+      loadURL,
       getType: () => type,
       on: (event: string, listener: Listener) => listeners.set(event, listener),
       setWindowOpenHandler: (handler: Listener) => {
@@ -199,11 +201,13 @@ describe('installWebPolicy for the page of a Browser', () => {
         listeners.get('will-frame-navigate')?.({ isMainFrame, frame: { url: frameUrl }, url, preventDefault })
         return preventDefault.mock.calls.length === 0
       },
-      open: (url: string): unknown => openHandler?.({ url, referrer: { url: '', policy: 'no-referrer' }, frameName: '', features: '', disposition: 'new-window' }),
+      open: (url: string, disposition = 'new-window'): unknown => openHandler?.({ url, referrer: { url: '', policy: 'no-referrer' }, frameName: '', features: '', disposition }),
+      /** The addresses main sent this web contents to with loadURL. */
+      loaded: (): unknown[] => loadURL.mock.calls.map((call: unknown[]) => call[0]),
       /** Whether a <webview> with these preferences attaches to this web contents. */
       attach: (webPreferences: Record<string, unknown>): boolean => {
         const preventDefault = vi.fn()
-        listeners.get('will-attach-webview')?.({ preventDefault }, webPreferences, { src: 'http://127.0.0.1/' })
+        listeners.get('will-attach-webview')?.({ preventDefault }, { ...webPreferences }, { src: 'http://127.0.0.1/' })
         return preventDefault.mock.calls.length === 0
       },
     }
@@ -217,13 +221,18 @@ describe('installWebPolicy for the page of a Browser', () => {
     return callback.mock.calls[0]?.[0]
   }
 
+  /** The Projects of this Machine, as main's Project list holds them; a test may add one later. */
+  const PROJECT = 'alpha-0a1b2c3d'
+  const projects: string[] = []
+
   beforeEach(async () => {
     electron.appListeners.clear()
     electron.partitions.clear()
     electron.defaultSession = electron.fakeSession('default')
+    projects.splice(0, projects.length, PROJECT)
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const { installWebPolicy } = await import('../../src/main/window')
-    installWebPolicy(isAppUrl)
+    installWebPolicy(isAppUrl, () => browserPartitions(projects))
   })
 
   afterEach(() => {
@@ -245,21 +254,59 @@ describe('installWebPolicy for the page of a Browser', () => {
     expect(guest.navigate(false, CARD, 'https://example.com/')).toBe(true)
   })
 
-  it('opens no window for the page of a Browser', () => {
-    expect(created('webview').open('https://example.com/')).toEqual({ action: 'deny' })
+  // The owner's answer to question 5 of worfy-browser ticket 02 (ticket 10): a target="_blank" link
+  // or window.open of the page opens in the same Browser. No new window either way.
+  it('opens no window for the page of a Browser and sends the page itself to the address instead', () => {
+    const guest = created('webview')
+    expect(guest.open('https://example.com/a')).toEqual({ action: 'deny' })
+    expect(guest.open('http://127.0.0.1:3000/b', 'foreground-tab')).toEqual({ action: 'deny' })
+    expect(guest.loaded()).toEqual(['https://example.com/a', 'http://127.0.0.1:3000/b'])
   })
 
-  it('checks every <webview> that attaches: on the Browser partition without a preload yes, with a preload or off the partition no', () => {
+  it('sends the page of a Browser to no address that is not a web page', () => {
+    const guest = created('webview')
+    for (const url of ['', 'about:blank', 'file:///etc/passwd', 'javascript:alert(1)', 'worfy-card://c1.0a1b2c3d/index.html', 'data:text/html,hi']) {
+      expect(guest.open(url), url).toEqual({ action: 'deny' })
+    }
+    expect(guest.loaded()).toEqual([])
+  })
+
+  it('opens no window for the app window either, and does not send it anywhere', () => {
     const window = created('window')
-    const safe = { nodeIntegration: false, contextIsolation: true, sandbox: true, partition: BROWSER_PARTITION }
+    expect(window.open('https://example.com/')).toEqual({ action: 'deny' })
+    expect(window.loaded()).toEqual([])
+  })
+
+  it('checks every <webview> that attaches: on the partition of a Project of this Machine without a preload yes, with a preload or off those partitions no', () => {
+    const window = created('window')
+    const safe = { nodeIntegration: false, contextIsolation: true, sandbox: true, partition: browserPartition(PROJECT) }
     expect(window.attach({ ...safe })).toBe(true)
     expect(window.attach({ ...safe, preload: '/tmp/evil.js' })).toBe(false)
     expect(window.attach({ ...safe, partition: '' })).toBe(false)
     expect(window.attach({ ...safe, partition: 'persist:other' })).toBe(false)
+    // The in-memory partition of ticket 02 is no Browser's any more.
+    expect(window.attach({ ...safe, partition: 'worfy-browser' })).toBe(false)
+    // A Project this Machine does not know.
+    expect(window.attach({ ...safe, partition: browserPartition('beta-99999999') })).toBe(false)
   })
 
-  it('puts its own permission handlers on the session of the Browser partition: every request refused, every check false', () => {
-    const browserSession = electron.partitions.get(BROWSER_PARTITION)
+  it('reads the Projects at each attach: a Project added after the start gets its Browsers, a removed one loses them', () => {
+    const window = created('window')
+    const safe = { nodeIntegration: false, contextIsolation: true, sandbox: true }
+    const later = 'beta-99999999'
+    expect(window.attach({ ...safe, partition: browserPartition(later) })).toBe(false)
+    projects.push(later)
+    expect(window.attach({ ...safe, partition: browserPartition(later) })).toBe(true)
+    projects.splice(0, projects.length)
+    expect(window.attach({ ...safe, partition: browserPartition(PROJECT) })).toBe(false)
+  })
+
+  it('guards the session of a Browser partition when its first <webview> attaches, before the page exists: every request refused, every check false', () => {
+    const partition = browserPartition(PROJECT)!
+    // Not before: a Project whose Browsers never open leaves no session behind.
+    expect(electron.partitions.has(partition)).toBe(false)
+    expect(created('window').attach({ nodeIntegration: false, contextIsolation: true, sandbox: true, partition })).toBe(true)
+    const browserSession = electron.partitions.get(partition)
     expect(browserSession, 'the session of the Browser partition').toBeDefined()
     expect(browserSession!.request).toBeTypeOf('function')
     expect(browserSession!.check).toBeTypeOf('function')
@@ -285,5 +332,31 @@ describe('installWebPolicy for the page of a Browser', () => {
     expect(answer(APP_URL)).toBe(true)
     expect(answer('https://example.com/')).toBe(false)
     expect(electron.defaultSession.check).toBeUndefined()
+  })
+})
+
+// The partition of a Project's Browsers (worfy-browser ticket 10, the owner's answer to question 1
+// of ticket 02): persistent, one per Project, named by the hash that ends the Project id, so the
+// name has no spaces and none of the folder's name (ticket 03 makes it the first Browser profile).
+describe('browserPartition', () => {
+  it('is a persist: partition named by the hash that ends the Project id', () => {
+    expect(browserPartition('alpha-0a1b2c3d')).toBe('persist:worfy-browser-0a1b2c3d-default')
+    expect(browserPartition('My Project (copy) é-0a1b2c3d')).toBe('persist:worfy-browser-0a1b2c3d-default')
+  })
+
+  it('is the same for the same Project and differs between Projects', () => {
+    expect(browserPartition('alpha-0a1b2c3d')).toBe(browserPartition('alpha-0a1b2c3d'))
+    expect(browserPartition('alpha-0a1b2c3d')).not.toBe(browserPartition('alpha-0a1b2c3e'))
+  })
+
+  it('is none for an id that does not end with the hash', () => {
+    for (const id of ['', 'alpha', 'alpha-0A1B2C3D', 'alpha-0a1b2c3', 'alpha-0a1b2c3d/..', '0a1b2c3d']) expect(browserPartition(id), id).toBeNull()
+  })
+
+  it('lists the partitions of the Projects that have one, once each', () => {
+    expect(browserPartitions(['alpha-0a1b2c3d', 'odd', 'beta-99999999', 'alpha-0a1b2c3d'])).toEqual([
+      'persist:worfy-browser-0a1b2c3d-default',
+      'persist:worfy-browser-99999999-default',
+    ])
   })
 })

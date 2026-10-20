@@ -1,7 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WindowOpenHandlerResponse } from 'electron'
-import { BROWSER_PARTITIONS } from '../shared/browser/partition'
+import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WebContents, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { webviewAttachRefusal } from './browser/attach-policy'
 import { allowFrameNavigation } from './cards/protocol'
@@ -203,6 +202,22 @@ function isHttpUrl(value: string): boolean {
 export const windowOpenResponse: (details: HandlerDetails) => WindowOpenHandlerResponse = () => ({ action: 'deny' })
 
 /**
+ * The window-open handler of a Browser's page (worfy-browser ticket 10): no new window either, but
+ * the page itself goes to the address, as the owner chose for target="_blank" links and
+ * window.open. Only a web address: main's loadURL is not held by the rules Chromium puts on a
+ * page's own navigations, and a page must not reach a file or a Card by asking for a window.
+ * shortcut: a target="_blank" form that posts opens its address as a plain GET, redo when a Browser must submit such forms.
+ */
+export function browserWindowOpenHandler(page: Pick<WebContents, 'loadURL'>): (details: HandlerDetails) => WindowOpenHandlerResponse {
+  return ({ url }) => {
+    if (isHttpUrl(url)) {
+      page.loadURL(url).catch((error: unknown) => console.warn(`[worfy] a Browser page could not open ${url}`, error))
+    }
+    return { action: 'deny' }
+  }
+}
+
+/**
  * Whether a frame is granted a web permission (camera, microphone, notifications, geolocation,
  * clipboard…): only the app's own renderer is. Cards and any other page are refused.
  */
@@ -229,30 +244,38 @@ export function guardBrowserSession(browserSession: Session): void {
  * only. `isAppUrl` is the same renderer matcher the IPC sender check uses (src/main/index.ts).
  *
  * The page of a Browser (the guest of a <webview>, ADR-0078 item 3) attaches only as the attach
- * policy allows (browser/attach-policy.ts), goes to any site (the frame rules of the window and
- * the Cards are not its), opens no window either, and gets no permission: the session of each
- * Browser partition is guarded when this runs, and the session of any guest again when the guest
- * is created, so a partition added later is guarded as well.
+ * policy allows (browser/attach-policy.ts), on one of `browserPartitions()` — read at each attach,
+ * so a Project added after the start gets its Browsers — and goes to any site (the frame rules of
+ * the window and the Cards are not its). It opens no window: a target="_blank" link or
+ * window.open sends the page itself there (browserWindowOpenHandler). It gets no permission: the
+ * session of its partition is guarded when the <webview> is allowed to attach, before the page
+ * exists, and the session of any guest again when the guest is created.
  * Runs once, after the app is ready, before the first window.
  */
-export function installWebPolicy(isAppUrl: (url: string) => boolean): void {
+export function installWebPolicy(isAppUrl: (url: string) => boolean, browserPartitions: () => readonly string[] = () => []): void {
   app.on('web-contents-created', (_event, contents) => {
     contents.on('will-attach-webview', (event, webPreferences, params) => {
-      const refusal = webviewAttachRefusal({ webPreferences, params }, BROWSER_PARTITIONS)
-      if (refusal === null) return
+      const refusal = webviewAttachRefusal({ webPreferences, params }, browserPartitions())
+      if (refusal === null) {
+        // The policy has checked the partition: one of browserPartitions(), never the app's own.
+        guardBrowserSession(session.fromPartition(webPreferences.partition ?? ''))
+        return
+      }
       console.warn(`[worfy] a <webview> was not attached: ${refusal}`)
       event.preventDefault()
     })
-    if (contents.getType() === 'webview') guardBrowserSession(contents.session)
-    else
-      contents.on('will-frame-navigate', (details) => {
-        const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
-        if (!allowed) details.preventDefault()
-      })
+    if (contents.getType() === 'webview') {
+      guardBrowserSession(contents.session)
+      contents.setWindowOpenHandler(browserWindowOpenHandler(contents))
+      return
+    }
+    contents.on('will-frame-navigate', (details) => {
+      const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
+      if (!allowed) details.preventDefault()
+    })
     contents.setWindowOpenHandler(windowOpenResponse)
   })
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback, details) => {
     callback(grantsPermission(details.requestingUrl, isAppUrl))
   })
-  for (const partition of BROWSER_PARTITIONS) guardBrowserSession(session.fromPartition(partition))
 }
