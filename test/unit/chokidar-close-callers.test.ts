@@ -7,16 +7,20 @@
 // union with it):
 // - its `close` is not reached: `<x>.close`, `<x>['close']`, `const { close } = <x>` (and so
 //   `<x>.close()` and `<x>.close.call(…)`);
-// - it does not leave as a value of another type: where the checker knows the type a place expects
-//   (an argument, the right side of an assignment, a variable with a type, a return, a property of an
-//   object literal), that type is chokidar's FSWatcher too. `map.set(id, watcher)` into a
-//   `Map<string, { close }>`, an argument of a `{ close(): … }` parameter or of a generic one, or
-//   `return watcher` as `{ close }` would let some other code call its close().
+// - it does not leave as a value of another type that has a `close`: where the checker knows the type
+//   a place expects (an argument, the right side of an assignment, a variable with a type, a return, a
+//   property of an object literal), that type is chokidar's FSWatcher, or it has no `close` member.
+//   `map.set(id, watcher)` into a `Map<string, { close }>`, an argument of a `{ close(): … }`
+//   parameter or of a `T extends { close(): … }` one, or `return watcher` as `{ close }` would let
+//   some other code call its close(). `once(watcher, 'ready')` from node:events takes it as an
+//   EventEmitter, which has no close, and is left alone. Code that gets it back with its own type, as
+//   from a generic `<T>(value: T) => T`, falls under the first rule.
 // Only closeForGood itself may do either: it is the one place a chokidar watch is closed.
 // The close() of LinkSafeWatch, of Node's own fs.watch, of a file handle or of any other object is not
 // chokidar's and is left alone; a CardsWatch that wraps closeForGood is too.
 //
-// Not covered: a value cast with `as`, or passed through `any`; there the checker loses the type.
+// Not covered: a value cast with `as`, or passed through `any`; there the checker loses the type. Nor an
+// argument of a rest parameter `...values: T[]` with `T extends { close(): … }`.
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -40,11 +44,24 @@ function holdsChokidarWatcher(type: ts.Type): boolean {
   return type.isUnion() ? type.types.some(isFsWatcher) : isFsWatcher(type)
 }
 
-/** Whether a place that expects this type keeps a chokidar watch one: FSWatcher, maybe with null or undefined. */
-function keepsChokidarWatcher(type: ts.Type): boolean {
+/** Whether a place that expects this type lets other code close a chokidar watch: a type other than FSWatcher with a `close`. */
+function letsOthersClose(checker: ts.TypeChecker, type: ts.Type): boolean {
   const members = type.isUnion() ? type.types : [type]
-  const some = members.filter((member) => !(member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)))
-  return some.length > 0 && some.every(isFsWatcher)
+  return members.some((member) => !isFsWatcher(member) && checker.getPropertyOfType(checker.getApparentType(member), 'close') !== undefined)
+}
+
+/**
+ * For an argument, the type its parameter is declared with, before a generic one is inferred: at the call,
+ * `T extends { close(): … }` is inferred as FSWatcher, while inside the function its value is a T.
+ */
+function declaredParameterType(checker: ts.TypeChecker, node: ts.Expression): ts.Type | undefined {
+  const call = node.parent
+  if (!(ts.isCallExpression(call) || ts.isNewExpression(call)) || !call.arguments) return undefined
+  const index = call.arguments.indexOf(node)
+  const declaration = index < 0 ? undefined : checker.getResolvedSignature(call)?.getDeclaration()
+  if (!declaration || ts.isJSDocSignature(declaration)) return undefined
+  const parameter = declaration.parameters[index]
+  return parameter && !parameter.dotDotDotToken ? checker.getTypeAtLocation(parameter) : undefined
 }
 
 interface Found {
@@ -83,10 +100,9 @@ function chokidarEscapes(): Found[] {
         const expected = checker.getContextualType(node)
         // The argument of closeForGood is the one place a chokidar watch goes to be closed.
         const toHelper = ts.isCallExpression(node.parent) && ts.isIdentifier(node.parent.expression) && node.parent.expression.text === 'closeForGood'
-        // A place that expects void drops the value: `(done) => watcher.once('ready', …)` as the
-        // executor of a Promise returns the watch, and nobody gets it.
-        const drops = expected !== undefined && (expected.flags & ts.TypeFlags.Void) !== 0
-        if (expected && !toHelper && !drops && !keepsChokidarWatcher(expected)) report(node, `leaves as ${checker.typeToString(expected)}`)
+        const declared = toHelper ? undefined : declaredParameterType(checker, node)
+        if (expected && !toHelper && letsOthersClose(checker, expected)) report(node, `leaves as ${checker.typeToString(expected)}`)
+        else if (declared && letsOthersClose(checker, declared)) report(node, `leaves as ${checker.typeToString(declared)}`)
       }
       ts.forEachChild(node, visit)
     }
