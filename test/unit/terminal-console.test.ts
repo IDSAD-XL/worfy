@@ -450,6 +450,24 @@ describe('TerminalRegistry on Windows: a shell whose pid node-pty gives a moment
     await registry.closeAll()
   })
 
+  // Review of PR #498: open() awaited before it put the start in `starting`, so a close called in
+  // the same tick found nothing, and the shell kept running (32 of 32 on the PC).
+  it('a close in the same tick as the open takes the shell apart as soon as the wait for its pid begins', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    let failure: unknown = null
+    void registry.open('a', OPEN, {}, SINK).catch((error: unknown) => (failure = error))
+    let closed = false
+    void registry.close('a').then(() => (closed = true))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(fake.kills).toEqual([undefined])
+    expect(String(failure)).toContain('the shell of a was closed while node-pty was starting it')
+    expect(closed).toBe(true)
+    expect(registry.has('a')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('a pid that is there at spawn, as node-pty 1.1.0 and the stand-ins give it, is not waited for', async () => {
     const fake = fakePty(999_994_402)
     const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })

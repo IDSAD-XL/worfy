@@ -669,7 +669,10 @@ export class TerminalRegistry {
     if (known === undefined) audience.subscribers.set(client, { sink, size, touched: 0, sized: ++this.clock })
     else Object.assign(known, { sink, size, sized: ++this.clock })
 
-    const running = this.terminals.get(key) ?? (await this.starting.get(key))
+    // Awaited only when a start is under way: with none, the start below is in `starting` before
+    // this call yields, so a close in the same tick finds it (closedWhileStarting).
+    const starting = this.terminals.has(key) ? undefined : this.starting.get(key)
+    const running = this.terminals.get(key) ?? (starting === undefined ? undefined : await starting)
     if (running !== undefined && !running.closing) {
       const owner = audience.owner
       if (owner === null || owner === client || !audience.subscribers.has(owner)) {
