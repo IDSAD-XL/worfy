@@ -1,7 +1,8 @@
 # 44 — Раздел Epics пуст, пока идёт первое чтение: до 10 s без единой строки; нужна строка «чтение»
 
 Type: task
-Status: claimed 2026-10-20T01:02Z
+Status: done 2026-10-20T08:18Z
+PR: #566
 Branch: worfy-harness/44
 Blocked by:
 Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-главного-процесса-без-окружения-login-shell.md), срез 1), круг 1, 2026-10-14 — замер старта; «Риски» Ticket-а 37 («Первое чтение Epic-ов ждёт login shell»). Срез 2 Ticket-а 37 (PR #311, head `57e9422`) показывает причину неудачного чтения, но не меняет `EpicsSection.tsx` и `useWorkflow.ts`. Код перечитан по main `1c1beadd`.
@@ -60,4 +61,16 @@ Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-глав�
 
 ## Итог
 
-—
+PR #566, merge c7d9f55d. Mac gate full зелёный (новый e2e прошёл с первого раза), Windows run зелёный.
+
+- Пока первое `workflow.open` за запуск ждёт окружение login shell (`$SHELL -ilc`, предел 10 s), раздел
+  Epics показывает одну строку «Reading epics…» в стиле остальных сообщений раздела, с `role=status`.
+- Строка появляется через 300 ms (`READING_ROW_DELAY_MS`): повторные чтения отвечают за ~25 ms, и
+  строка без задержки мигала бы при каждом открытии Project-а. При переключении Project-а строка не
+  мигает — ревьюеры разошлись в этом, выбрано «не мигать», закреплено test-ом.
+- Ошибка, «No epics in .scratch/», ошибка модели и список заменяют строку как раньше. `useWorkflow` и
+  обработчик в main не менялись: `invoke` не отклоняется, поэтому строка не может висеть вечно.
+- Test-ы: новый `test/unit/epics-section-reading.test.tsx` (9 test-ов, fake timers, настоящий
+  `useWorkflow` над фейковым IPC) и e2e `test/e2e/epics-reading.spec.ts` (stand-in `SHELL` отвечает не
+  раньше 2 s и только после того, как test увидел строку, — без гонки с задержкой). Таймауты e2e внутри
+  10-секундного предела shell.

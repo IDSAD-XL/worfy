@@ -1,7 +1,8 @@
 # 39 — `preflight` в репозитории без remote `origin` отвечает `BLOCKED`, хотя для Project-а с локальным финишем это поддерживаемый случай
 
 Type: task
-Status: claimed 2026-10-19T23:35Z
+Status: done 2026-10-20T08:45Z
+PR: #565
 Branch: worfy-harness/39
 Blocked by:
 Source: приёмочный прогон 2026-10-14 под вторым пользователем macOS — пункт 5 приёмки E3 (приёмка Epic-а `worfy-harness`, Ticket [26](26-приёмка-e3.md)); отчёт — [26-пункт-5-отчёт-2026-10-14.md](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 8 («Preflight блокирует Wave в репозитории без `origin`») и два дополнительных прогона.
@@ -405,4 +406,22 @@ main`. В «Итог» — как он падал.
 
 ## Итог
 
-—
+PR #565, merge 9f56c475. Платформенный PR (harness/bin): Mac gate full зелёный; на объединённом
+дереве `harness-scripts` 44/44, `plugin-neutral` 26/26. Два rebase: после #549 (нейтральный текст
+Harness) и после #552 (worfy-pipeline 08) — оба без потери правки.
+
+- Выбран вариант В. `harness/bin/preflight` до fetch спрашивает `git remote`, и `workflow.finish`
+  решает, допустимо ли отсутствие `origin`.
+  - Нет `origin`, `local-green`: без fetch и без `gh`; одна строка
+    `origin: none — local finish, the base is the local branch <branch>`; база — локальная ветка
+    (`worktree.base` без `origin/`, затем `layout.repos.<repo>.default_branch`, затем `main`, `master`);
+    шаг «open PRs» пропущен с причиной; итог `GO`.
+  - Нет `origin`, другой finish или нет finish: ровно одна причина `BLOCKED`, которая называет оба
+    факта, без `fetch failed` и `no ref` рядом.
+  - `origin` есть: как раньше — fetch, и неудачный fetch блокирует, с `local-green` тоже.
+- Было: `BLOCKED: fetch failed: fatal: 'origin' does not appear to be a git repository; no ref main`,
+  exit 1 — у любого репозитория без remote, даже с `local-green`.
+- Описание в `harness/profiles/README.md` (строка `worktree.base`) и в skill-ах `epic-wave`,
+  `ship-ticket`.
+- Test-ы: `harness/bin/tests/preflight.test.sh` — 54 (порядок выбора базы, строка `--no-fetch`, одна
+  причина, нумерация Full mode от локального main); `harness-home.test.sh` 46/46; 4 мутанта красные.
