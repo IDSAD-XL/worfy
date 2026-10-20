@@ -206,15 +206,25 @@ export const windowOpenResponse: (details: HandlerDetails) => WindowOpenHandlerR
  * the page itself goes to the address, as the owner chose for target="_blank" links and
  * window.open. Only a web address: main's loadURL is not held by the rules Chromium puts on a
  * page's own navigations, and a page must not reach a file or a Card by asking for a window.
+ * Only when the frame that asks is of the page's own origin: the handler is not told which frame
+ * asks, nor whether the user clicked, so a third-party frame (an ad, a widget) could otherwise
+ * replace the whole page — on a partition that keeps logins — by calling window.open. The
+ * referrer is the asking frame's address or origin; a request without one (rel="noreferrer",
+ * Referrer-Policy: no-referrer) cannot be placed and goes nowhere.
  * shortcut: a target="_blank" form that posts opens its address as a plain GET, redo when a Browser must submit such forms.
  */
-export function browserWindowOpenHandler(page: Pick<WebContents, 'loadURL'>): (details: HandlerDetails) => WindowOpenHandlerResponse {
-  return ({ url }) => {
-    if (isHttpUrl(url)) {
+export function browserWindowOpenHandler(page: Pick<WebContents, 'loadURL' | 'getURL'>): (details: HandlerDetails) => WindowOpenHandlerResponse {
+  return ({ url, referrer }) => {
+    if (isHttpUrl(url) && sameOrigin(referrer.url, page.getURL())) {
       page.loadURL(url).catch((error: unknown) => console.warn(`[worfy] a Browser page could not open ${url}`, error))
     }
     return { action: 'deny' }
   }
+}
+
+/** Whether `a` and `b` are http(s) URLs of one origin (scheme, host and port). */
+function sameOrigin(a: string, b: string): boolean {
+  return isHttpUrl(a) && isHttpUrl(b) && new URL(a).origin === new URL(b).origin
 }
 
 /**

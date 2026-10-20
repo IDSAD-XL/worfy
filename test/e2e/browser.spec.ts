@@ -25,6 +25,9 @@ const WINDOW = { width: 1400, height: 900 }
 
 let server: Server
 let origin: string
+/** The same pages on a second origin (another port): a third-party frame. */
+let otherServer: Server
+let otherOrigin: string
 let scratch: string
 let launched: LaunchedApp | undefined
 
@@ -36,22 +39,32 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env })
 }
 
-test.beforeAll(async () => {
-  // Serves the two fixture pages and nothing else.
-  server = createServer((request, response) => {
+const PAGES = new Set(['page.html', 'next.html', 'blank.html', 'framed.html', 'popper.html'])
+
+/** A server of the fixture pages and nothing else. */
+function fixtureServer(): Server {
+  return createServer((request, response) => {
     const name = new URL(request.url ?? '/', 'http://127.0.0.1').pathname.slice(1)
-    if (name !== 'page.html' && name !== 'next.html' && name !== 'blank.html') {
+    if (!PAGES.has(name)) {
       response.writeHead(404).end()
       return
     }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(readFileSync(join(FIXTURES, name)))
   })
+}
+
+test.beforeAll(async () => {
+  server = fixtureServer()
+  otherServer = fixtureServer()
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  await new Promise<void>((done) => otherServer.listen(0, '127.0.0.1', done))
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  otherOrigin = `http://127.0.0.1:${(otherServer.address() as AddressInfo).port}`
 })
 
 test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()))
+  await new Promise<void>((done) => otherServer.close(() => done()))
 })
 
 test.beforeEach(() => {
@@ -114,15 +127,15 @@ async function guests(): Promise<Guest[]> {
   })
 }
 
-/** Runs `code` in the one Browser page at `url`. */
-async function inGuest(url: string, code: string): Promise<unknown> {
+/** Runs `code` in the one Browser page at `url`, as after a click of the user unless `userGesture` is false. */
+async function inGuest(url: string, code: string, userGesture = true): Promise<unknown> {
   return launched!.app.evaluate(
-    async ({ webContents }, { url, code }) => {
+    async ({ webContents }, { url, code, userGesture }) => {
       const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview' && contents.getURL() === url)
       if (!guest) throw new Error(`no Browser page at ${url}`)
-      return guest.executeJavaScript(code, true)
+      return guest.executeJavaScript(code, userGesture)
     },
-    { url, code },
+    { url, code, userGesture },
   )
 }
 
@@ -396,4 +409,37 @@ test('a target="_blank" link and window.open of the page open in the same Browse
   await window.waitForTimeout(1_000)
   expect(await windowCount(), 'no new window').toBe(1)
   expect(await pageStates()).toEqual([[pageUrl, 'yes']])
+})
+
+// Review of PR #609: the window-open handler is not told which frame asks, nor whether the user
+// clicked. A frame of another origin (an ad) that calls window.open on load must not replace the
+// page; a window.open of the page's own origin with no click still opens in the same Browser, which
+// shows that Electron lets a request without a user gesture through to main's handler, and so that
+// the origin check is what keeps the third-party frame's request off the page.
+test('a frame of another origin that calls window.open on load leaves the page where it is; the page\'s own window.open without a click opens in the same Browser', async () => {
+  const framedUrl = `${origin}/framed.html?frame=${encodeURIComponent(`${otherOrigin}/popper.html`)}`
+  const nextUrl = `${origin}/next.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: framedUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
+
+  // The frame has loaded and called window.open, with no click.
+  const frameAsked = (): Promise<unknown> =>
+    launched!.app.evaluate(async ({ webContents }) => {
+      const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview')
+      const frame = guest?.mainFrame.frames[0]
+      return frame === undefined ? null : frame.executeJavaScript('document.body?.dataset.asked ?? null')
+    })
+  await expect.poll(frameAsked, { timeout: 15_000, message: 'the third-party frame asked for a window' }).toBe('yes')
+  // A moment more for a late navigation: the page is still where it was, in one window.
+  await window.waitForTimeout(1_500)
+  expect(await pageStates(), 'the page did not leave its address').toEqual([[framedUrl, 'yes']])
+  expect(await windowCount(), 'no new window').toBe(1)
+  await expect(window.getByTestId('browser-frame').getByTestId('browser-address')).toHaveValue(framedUrl)
+
+  // The page's own window.open, with no user gesture: Electron passes it to main's handler, and
+  // the page goes to the address in the same Browser.
+  await inGuest(framedUrl, "window.open('next.html')", false)
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the page\'s own window.open without a click' }).toEqual([[nextUrl, 'yes']])
+  expect(await windowCount(), 'no new window').toBe(1)
 })

@@ -177,7 +177,10 @@ describe('installWebPolicy for the page of a Browser', () => {
   const CARD = 'worfy-card://c1.0a1b2c3d/index.html'
   const isAppUrl = (url: string): boolean => url.startsWith('file:///app/out/renderer/index.html')
 
-  /** A web contents of `type` as installWebPolicy sees it, created with the app's listener. */
+  /** The address of the Browser pages the tests make: the page that asks for a window is on it. */
+  const PAGE_URL = 'https://shop.example.com/cart'
+
+  /** A web contents of `type` as installWebPolicy sees it, created with the app's listener; a page at PAGE_URL. */
   function created(type: 'window' | 'webview', contentsSession: FakeSession = electron.fakeSession(`guest-${type}`)) {
     const listeners = new Map<string, Listener>()
     let openHandler: Listener | undefined
@@ -186,6 +189,7 @@ describe('installWebPolicy for the page of a Browser', () => {
       session: contentsSession,
       loadURL,
       getType: () => type,
+      getURL: () => PAGE_URL,
       on: (event: string, listener: Listener) => listeners.set(event, listener),
       setWindowOpenHandler: (handler: Listener) => {
         openHandler = handler
@@ -201,7 +205,9 @@ describe('installWebPolicy for the page of a Browser', () => {
         listeners.get('will-frame-navigate')?.({ isMainFrame, frame: { url: frameUrl }, url, preventDefault })
         return preventDefault.mock.calls.length === 0
       },
-      open: (url: string, disposition = 'new-window'): unknown => openHandler?.({ url, referrer: { url: '', policy: 'no-referrer' }, frameName: '', features: '', disposition }),
+      /** The handler's answer to a window asked for by a frame at `referrer` ('' — no referrer). */
+      open: (url: string, { disposition = 'new-window', referrer = PAGE_URL }: { disposition?: string; referrer?: string } = {}): unknown =>
+        openHandler?.({ url, referrer: { url: referrer, policy: referrer === '' ? 'no-referrer' : 'strict-origin-when-cross-origin' }, frameName: '', features: '', disposition }),
       /** The addresses main sent this web contents to with loadURL. */
       loaded: (): unknown[] => loadURL.mock.calls.map((call: unknown[]) => call[0]),
       /** Whether a <webview> with these preferences attaches to this web contents. */
@@ -259,8 +265,21 @@ describe('installWebPolicy for the page of a Browser', () => {
   it('opens no window for the page of a Browser and sends the page itself to the address instead', () => {
     const guest = created('webview')
     expect(guest.open('https://example.com/a')).toEqual({ action: 'deny' })
-    expect(guest.open('http://127.0.0.1:3000/b', 'foreground-tab')).toEqual({ action: 'deny' })
-    expect(guest.loaded()).toEqual(['https://example.com/a', 'http://127.0.0.1:3000/b'])
+    expect(guest.open('http://127.0.0.1:3000/b', { disposition: 'foreground-tab' })).toEqual({ action: 'deny' })
+    // The referrer may be the page's address or only its origin (strict-origin-when-cross-origin).
+    expect(guest.open('https://example.com/c', { referrer: 'https://shop.example.com/' })).toEqual({ action: 'deny' })
+    expect(guest.loaded()).toEqual(['https://example.com/a', 'http://127.0.0.1:3000/b', 'https://example.com/c'])
+  })
+
+  // A frame of another origin (an ad, an embedded widget) must not replace the page: the address
+  // of a window asked for by it goes nowhere. Same for a request without a referrer, whose frame
+  // is unknown (rel="noreferrer", Referrer-Policy: no-referrer).
+  it('sends the page of a Browser nowhere when the window is asked for by a frame of another origin or without a referrer', () => {
+    const guest = created('webview')
+    for (const referrer of ['https://ads.example.net/frame.html', 'http://shop.example.com/cart', 'https://shop.example.com:8443/cart', 'https://evil.shop.example.com/', '', 'not a url']) {
+      expect(guest.open('https://phish.example.org/login', { referrer }), referrer).toEqual({ action: 'deny' })
+    }
+    expect(guest.loaded()).toEqual([])
   })
 
   it('sends the page of a Browser to no address that is not a web page', () => {
