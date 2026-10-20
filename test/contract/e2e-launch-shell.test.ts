@@ -55,8 +55,8 @@ describe.skipIf(process.platform === 'win32')('the login shell of an e2e launch'
 
   it("a spec that sets SHELL: that shell is the one the app's start runs", async () => {
     const dev = await developer()
-    const env = await launchEnv({ ...dev.parts, env: { SHELL: dev.shell } })
-    expect(env.SHELL).toBe(dev.shell)
+    // The test process's own SHELL is another one here, so only the spec's value can start dev.shell.
+    const env = await launchEnv({ ...dev.parts, source: { ...dev.parts.source, SHELL: '/bin/sh' }, env: { SHELL: dev.shell } })
 
     const captured = await captureLoginShellEnv({ source: env })
     expect(captured.from).toBe('login-shell')

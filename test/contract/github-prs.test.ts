@@ -873,6 +873,16 @@ describe('the app PR tracker: WORFY_GH replaces only the gh program (worfy-harne
     expect(scriptEnv).toHaveBeenCalled()
     expect(loginEnv).not.toHaveBeenCalled()
   })
+
+  it("without WORFY_GH, gh is `gh` with the login shell's environment, and bin/profile still runs with the Harness scripts' one", async () => {
+    const processEnv = { PATH: '/worfy/own/bin', WHO: 'worfy' }
+    const loginEnv = vi.fn(() => Promise.resolve({ PATH: '/login/bin', WHO: 'login shell' }))
+    const scriptEnv = vi.fn(() => Promise.resolve({ PATH: '/scripts/bin', WHO: 'scripts' }))
+    const options = appPrOptions({ claudeHome: '/claude', processEnv, loginEnv, scriptEnv })
+    expect(options.command).toBeUndefined()
+    expect(await options.env()).toEqual({ PATH: '/login/bin', WHO: 'login shell' })
+    expect(await options.profileEnv()).toEqual({ PATH: '/scripts/bin', WHO: 'scripts' })
+  })
 })
 
 // ── a Project over several repositories, Silent mode (worfy-harness ticket 23) ──
