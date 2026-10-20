@@ -285,6 +285,30 @@ describe('first-run checks', () => {
     expect(calls().filter((line) => line.startsWith('git config'))).toEqual(expect.arrayContaining(['git config --get user.name', 'git config --get user.email']))
   })
 
+  it('git identity: git config fails with another exit code (a broken config file) — a warning with git\'s own words', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_GIT_CONFIG_FAIL: 'fatal: bad config line 1 in file /home/.gitconfig' })))
+    expect(checkOf(report, 'git-identity')).toMatchObject({
+      status: 'warn',
+      detail: 'git config failed: fatal: bad config line 1 in file /home/.gitconfig',
+      hint: 'Check your git config, then set the commit author',
+    })
+    expect(checkOf(report, 'git-identity').command).toContain('git config --global user.email ')
+  })
+
+  it('git identity with the temporary folder gone: git is still asked, not reported missing', async () => {
+    tools(...ALL_TOOLS)
+    const gone = join(root, 'no-such-tmp')
+    // os.tmpdir() reads TMPDIR on macOS and Linux, TEMP and TMP on Windows.
+    for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, gone)
+    try {
+      const report = await runChecks(deps(loginEnv()))
+      expect(checkOf(report, 'git-identity')).toMatchObject({ status: 'ok', detail: 'Alice <alice@example.com>' })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it('without git: git identity warns that git is not installed', async () => {
     tools('claude', 'gh', 'node', 'jq', 'npm')
     const report = await runChecks(deps(loginEnv()))

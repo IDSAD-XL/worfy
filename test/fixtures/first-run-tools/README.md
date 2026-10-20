@@ -25,6 +25,7 @@ only with a `node.exe`.
 | `FAKE_CLAUDE_FAIL` | `claude` | a call whose arguments start with it prints an error and exits 1 (`plugin install mattpocock-skills@`) |
 | `FAKE_CLAUDE_VERSION` | `claude` | what `claude --version` prints (default `2.1.289`) |
 | `FAKE_GIT_USER_NAME`, `FAKE_GIT_USER_EMAIL` | `git` | what `git config --get user.name` / `user.email` prints (default `Alice`, `alice@example.com`); empty — not set, exit 1 |
+| `FAKE_GIT_CONFIG_FAIL` | `git` | `git config --get` prints it to stderr and exits 3, as git does with a broken config file |
 | `FAKE_GIT_CWD_LOG` | `git` | `git config --get` appends the folder it runs in to this file |
 | `FAKE_GH_ACCOUNT` | `gh` | the signed-in account; empty — `gh auth status` exits 1, not signed in |
 | `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.11.0`) |

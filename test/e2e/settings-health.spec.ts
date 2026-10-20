@@ -70,7 +70,7 @@ const calls = (): string[] => (existsSync(log) ? readFileSync(log, 'utf8').trim(
 const checkRuns = (): number => calls().filter((line) => line === 'qmd --version').length
 const mark = (): string => join(dataDir, 'first-run.json')
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The rows of `place` once its checks are in: the id, the name and the status of each. */
 async function checksOf(place: Locator): Promise<{ id: string | null; name: string | null; status: string | null }[]> {

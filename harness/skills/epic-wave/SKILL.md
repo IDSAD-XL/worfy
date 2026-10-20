@@ -520,8 +520,9 @@ These counts do not see the narrow round below: its verdicts start with `NARROW:
 its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdict.
 
 In Silent mode the ticket's verdict is the last line of the ticket file that starts with `gate:`,
-not the last line of the file: `gate: VERIFIED — <date>`, or after the narrow round
-`gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED: …`. The group lines (below) follow the verdict
+except the `gate: MAX-REVIEW: …` line (section 4), not the last line of the file:
+`gate: VERIFIED — <date>`, or after the narrow round `gate: NARROW: VERIFIED` or
+`gate: NARROW: REJECTED: …`. The group lines (below) follow the verdict
 line of their round with `VERIFIED` too, and the result section goes on below them. Read the verdict
 with `grep '^gate:' <ticket file> | grep -v '^gate: MAX-REVIEW:' | tail -n 1`.
 

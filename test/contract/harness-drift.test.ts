@@ -230,6 +230,22 @@ describe('checkHarnessDrift', () => {
     })
   })
 
+  it('`harness` that is a file (ENOTDIR) is the expected answer too; a plugin.json that cannot be read is not', async () => {
+    const fileHarness = tempDir()
+    writeFileSync(join(fileHarness, 'harness'), 'not a folder\n')
+    expect(await checkHarnessDrift({ root: fileHarness, harnessVersion: '0.1.0+abcdef1' })).toEqual({
+      kind: 'unknown',
+      reason: `${join(fileHarness, 'harness', '.claude-plugin', 'plugin.json')} is missing: not worfy's repository`,
+      expected: true,
+    })
+    // A folder named plugin.json: there, but reading it fails (EISDIR) on every system, unlike a chmod.
+    const unreadable = tempDir()
+    mkdirSync(join(unreadable, 'harness', '.claude-plugin', 'plugin.json'), { recursive: true })
+    const drift = await checkHarnessDrift({ root: unreadable, harnessVersion: '0.1.0+abcdef1' })
+    expect(drift).toEqual({ kind: 'unknown', reason: expect.stringContaining(`${join(unreadable, 'harness', '.claude-plugin', 'plugin.json')} cannot be read (`) as unknown as string })
+    expect(drift.kind === 'unknown' && drift.expected).toBeUndefined()
+  })
+
   it('a folder outside git: unknown', async () => {
     const dir = tempDir()
     mkdirSync(join(dir, 'harness', '.claude-plugin'), { recursive: true })

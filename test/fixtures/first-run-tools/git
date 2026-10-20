@@ -8,6 +8,10 @@ if [ "$1" = --version ]; then
 fi
 if [ "$1 $2" = 'config --get' ]; then
   [ -n "$FAKE_GIT_CWD_LOG" ] && pwd -P >>"$FAKE_GIT_CWD_LOG"
+  if [ -n "$FAKE_GIT_CONFIG_FAIL" ]; then
+    printf '%s\n' "$FAKE_GIT_CONFIG_FAIL" >&2
+    exit 3
+  fi
   case "$3" in
     user.name) value="${FAKE_GIT_USER_NAME-Alice}" ;;
     user.email) value="${FAKE_GIT_USER_EMAIL-alice@example.com}" ;;

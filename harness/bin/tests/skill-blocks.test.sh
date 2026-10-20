@@ -218,6 +218,11 @@ for sh in "${SHELLS[@]}"; do
     [[ "$last" == "gate: VERIFIED — "* ]] && [ "$(tail -n 1 "$tf")" = 'Noted: [low] x' ] && [ "$(grep -c '^gate: REJECTED' "$tf")" = 0 ] \
         && ok "$sh: a Noted line after the verdict — the last gate: line is still gate: VERIFIED, no REJECTED counted" \
         || bad "$sh: Noted after the verdict: last gate: line [$last]"
+    # a gate: MAX-REVIEW: line after it is not a verdict: the read of section 3 passes over it
+    printf '%s\n' 'gate: MAX-REVIEW: VERIFIED — 2000-01-01' >>"$tf"
+    last="$(grep '^gate:' "$tf" | grep -v '^gate: MAX-REVIEW:' | tail -n 1)"
+    [[ "$last" == "gate: VERIFIED — "* ]] && ok "$sh: a gate: MAX-REVIEW: line after the verdict — the verdict read is still gate: VERIFIED" \
+        || bad "$sh: MAX-REVIEW after the verdict: verdict read [$last]"
     # the local commit in the Workflow folder
     c="$(sub "$B7")"; c="${c//<NN>/02}"
     got="$(cd "$SH" && "${SENV[@]}" $sh -c "$c" 2>&1)"

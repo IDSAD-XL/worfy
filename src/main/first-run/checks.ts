@@ -447,7 +447,9 @@ export const GIT_IDENTITY_COMMANDS = 'git config --global user.name "Your Name" 
  * set"; another failure is said with its stderr. Never `fail`: the author may be set per repository.
  */
 async function gitIdentity(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
-  const outside = tmpdir()
+  // A temporary folder that is gone would make execFile fail with ENOENT, read as "git is not
+  // installed": then git is asked in worfy's own folder, where a repository's config may answer.
+  const outside = existsSync(tmpdir()) ? tmpdir() : undefined
   const ask = (key: string): Promise<ToolRun> => machine.probes.run('git', ['config', '--get', key], deps.env, timeoutMs, outside)
   const [name, email] = await Promise.all([ask('user.name'), ask('user.email')])
   if (name.missing || email.missing) return row('warn', 'git is not installed', `Install git first (${installCommand(machine, 'git')}), then set the commit author`)

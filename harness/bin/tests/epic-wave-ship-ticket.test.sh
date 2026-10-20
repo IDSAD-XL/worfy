@@ -408,9 +408,9 @@ done
 # In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow
 # the verdict of their round with VERIFIED too, and the verdict is read with grep | tail.
 ew3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
-check "epic-wave section 3: Silent mode — the verdict is the last line that starts with gate:, not the last line" \
+check "epic-wave section 3: Silent mode — the verdict is the last line that starts with gate: but MAX-REVIEW, not the last line" \
     bash -c '[[ "$1" == *"$2"* ]]' _ "$ew3" \
-    "In Silent mode the ticket's verdict is the last line of the ticket file that starts with \`gate:\`, not the last line of the file: \`gate: VERIFIED — <date>\`, or after the narrow round \`gate: NARROW: VERIFIED\` or \`gate: NARROW: REJECTED: …\`."
+    "In Silent mode the ticket's verdict is the last line of the ticket file that starts with \`gate:\`, except the \`gate: MAX-REVIEW: …\` line (section 4), not the last line of the file: \`gate: VERIFIED — <date>\`, or after the narrow round \`gate: NARROW: VERIFIED\` or \`gate: NARROW: REJECTED: …\`."
 check "epic-wave section 3: Silent mode — group lines follow the verdict line with VERIFIED too" \
     bash -c '[[ "$1" == *"$2"* ]]' _ "$ew3" \
     'The group lines (below) follow the verdict line of their round with `VERIFIED` too, and the result section goes on below them.'
