@@ -469,6 +469,31 @@ describe('TerminalRegistry on Windows: a shell whose pid node-pty gives a moment
     expect(fake.kills).toEqual([undefined])
   })
 
+  // Review of this change: the agent's kill() calls native code. Should it throw, the close still
+  // ends the Terminal: without that, finish() never ran, the pty was never released, close()
+  // rejected and open() never settled.
+  it('an agent kill() that throws is logged; the pty is still asked to close, open fails and close resolves', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fake = fakePty(0, { deaf: true })
+    const failure = new Error('ClosePseudoConsole failed')
+    Object.assign(fake.agent, {
+      kill: () => {
+        throw failure
+      },
+      _pendingPtyInfo: {},
+    })
+    Object.assign(fake.pty, { _isReady: false })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(registry.close('a')).resolves.toBeUndefined()
+    await failed
+    expect(fake.kills).toEqual([undefined])
+    expect(warn).toHaveBeenCalledWith('[terminal] closing the console of a before it was connected failed', failure)
+    expect(registry.has('a')).toBe(false)
+  })
+
   // Review of this change: from the connection until its first output node-pty's terminal is not
   // ready, and its queued kill() runs once that output comes. The agent's kill() as well would
   // close the same console twice.
