@@ -15,7 +15,7 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15, 18 (11 — #328, 14 — #449, 15 — #450, 18 — #543); остался 12 — приёмка; 19 — долг после review #543.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 31/36 — 01–29, 31, 33 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32. 34–36 — flaky, security ссылок, долг #530.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 5/9, влиты 01–03 (`wave-gate`, ADR-0065), 06 (#555) и 08 (#433, ADR-0068): batch CI на `main` включён; 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 5/15, влиты 01–03, 06, 08 (batch CI, ADR-0068); 07, 09 — `wave-gate`; 04, 05 — Orchestrator. 10–15 — скорость test-ов (ADR-0081, 2026-10-20), 10 — первым, в работе.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
 - `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 6/9 (09 — #569, 03 — #574, 05 — #579, 06 — #582); 04 (#590) — в очереди gate; 07 и 08 — в конце; поля Profile-ов из «Итог» 06 — шаг владельца до 08.
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 4/16; влиты 01 (#539), 03, 04, 07 — Wave 1 закрыта; Wave 2 — 02 и 11 в работе; новые 14–16 (14 — до 10).
