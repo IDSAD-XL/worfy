@@ -3,7 +3,7 @@
 // log messages and test names are English; the documents of the Project (tickets, ADRs, HANDOFF.md)
 // are not code and are not checked.
 //
-//   node scripts/check-cyrillic.mjs [--root <dir>] [--allow <file>]   → exit 0 clean, exit 1 with one line per finding
+//   node scripts/check-cyrillic.mjs [--root <dir>] [--allow <file>]   → exit 0 clean, 1 with one line per finding, 2 when the allow file is unreadable
 //
 // The file has two halves:
 //   - noCyrillic, an ESLint rule; eslint.config.js turns it on for the JS and TS files `eslint .` reads;
@@ -158,24 +158,26 @@ export const noCyrillic = {
 /**
  * Splits each line of a shell script into its code and its comment. Tracks quotes across lines and
  * heredoc bodies (their lines are data, with no comment). `continues` — the next line belongs to
- * the same command: a trailing backslash, an open quote or an open heredoc. Inside `(( … ))` and
- * `$(( … ))` a `<<` is a shift, not a heredoc.
+ * the same command: a trailing backslash, an open quote or an open heredoc. Every heredoc a line
+ * opens is read, in order. Inside `(( … ))` and `$(( … ))` a `<<` is a shift, not a heredoc; the
+ * depth is counted per line, so a `((` that is two nested subshells turns nothing off past its
+ * line. `<<<` is a here-string and opens nothing.
  */
 function shellLines(lines) {
   const out = []
   let quote = null
-  let heredoc = null
-  let arith = 0
+  const heredocs = []
   for (const line of lines) {
-    if (heredoc) {
+    if (heredocs.length > 0) {
+      const heredoc = heredocs[0]
       const done = (heredoc.strip ? line.replace(/^\t+/, '') : line) === heredoc.delim
-      out.push({ code: line, comment: '', continues: !done })
-      if (done) heredoc = null
+      if (done) heredocs.shift()
+      out.push({ code: line, comment: '', continues: heredocs.length > 0 })
       continue
     }
     let code = ''
     let comment = ''
-    let opened = null
+    let arith = 0
     for (let i = 0; i < line.length; ) {
       const c = line[i]
       if (quote === "'") {
@@ -204,11 +206,14 @@ function shellLines(lines) {
         arith--
         code += '))'
         i += 2
+      } else if (line.startsWith('<<<', i)) {
+        code += '<<<'
+        i += 3
       } else {
         // The delimiter: a word (dashes allowed), in quotes or after a backslash.
         const here = c === '<' && arith === 0 ? /^<<(-?)[ \t]*(?:\\([A-Za-z_][\w-]*)|(['"])([A-Za-z_][\w-]*)\3|([A-Za-z_][\w-]*))/.exec(line.slice(i)) : null
-        if (here && line[i + 2] !== '<') {
-          opened ??= { delim: here[2] ?? here[4] ?? here[5], strip: here[1] === '-' }
+        if (here) {
+          heredocs.push({ delim: here[2] ?? here[4] ?? here[5], strip: here[1] === '-' })
           code += here[0]
           i += here[0].length
         } else {
@@ -217,8 +222,7 @@ function shellLines(lines) {
         }
       }
     }
-    if (opened) heredoc = opened
-    out.push({ code, comment, continues: quote !== null || opened !== null || /\\$/.test(code) })
+    out.push({ code, comment, continues: quote !== null || heredocs.length > 0 || /\\$/.test(code) })
   }
   return out
 }
@@ -316,7 +320,15 @@ function main(argv) {
   const at = argv.indexOf('--root')
   const root = resolve(at >= 0 ? argv[at + 1] : REPO)
   const allow = argv.indexOf('--allow')
-  const words = allow >= 0 ? readWords(resolve(argv[allow + 1])) : HARNESS_WORDS
+  let words = HARNESS_WORDS
+  try {
+    if (allow >= 0) words = readWords(resolve(argv[allow + 1] ?? ''))
+  } catch (error) {
+    // Exit 2, apart from 1 (findings): the check did not run.
+    process.stderr.write(`check-cyrillic: ${error.message}\n`)
+    process.exitCode = 2
+    return
+  }
   let count = 0
   for (const top of ['src', 'scripts', 'test', 'harness']) {
     for (const file of walk(join(root, top))) {

@@ -21,8 +21,10 @@ import { removeTestTree } from '../remove'
 const REPO = join(import.meta.dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'check-cyrillic.mjs')
 const MARKER = '// shortcut: accepts the old Russian token, remove after the next release'
-// The allowed words of the cases: two placeholders, as a profile written in Russian has them.
-const WORDS = ['<ветка>', '<эпик>']
+// The allowed words of the cases, in place of scripts/cyrillic-allow.json: one of its placeholders
+// and a word it does not have. The epic placeholder is in the repository's list and not here, so
+// the cases report it.
+const WORDS = ['<ветка>', '<проба>']
 
 const dirs: string[] = []
 afterEach(() => {
@@ -61,9 +63,9 @@ async function eslintErrors(root: string): Promise<string[]> {
 }
 
 /** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
-function run(root: string): { status: number | null; lines: string[]; stderr: string } {
+function run(root: string, allowed: unknown = { harnessWords: WORDS }): { status: number | null; lines: string[]; stderr: string } {
   const allow = join(root, '..', `${root.split(/[\\/]/).pop()}.allow.json`)
-  writeFileSync(allow, JSON.stringify({ harnessWords: WORDS }))
+  writeFileSync(allow, JSON.stringify(allowed))
   dirs.push(allow)
   const child = spawnSync(process.execPath, [SCRIPT, '--root', root, '--allow', allow], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr
@@ -115,6 +117,11 @@ describe('the ESLint rule (JS and TS files)', () => {
   it('a trailing marker covers its own line, not the statement after it', async () => {
     const code = `export const a = 'зелено' ${MARKER}\nexport const b = 'красно'\n`
     expect(await eslintErrors(tree({ 'src/trailing.ts': code }))).toEqual(['src/trailing.ts:2'])
+  })
+
+  it('the harnessWords option replaces the list: a word of the option passes, a word of the default list does not', async () => {
+    const code = "export const a = 'git switch <проба>'\nexport const b = 'git switch <эпик>'\n"
+    expect(await eslintErrors(tree({ 'harness/bin/y.mjs': code }))).toEqual(['harness/bin/y.mjs:2'])
   })
 
   it('lets the allowed words through in harness/ code, not in its comments and not outside harness/', async () => {
@@ -224,6 +231,43 @@ describe('the command (files ESLint does not read)', () => {
     expect(run(tree({ 'harness/bin/tests/shift.test.sh': script })).lines).toEqual(['harness/bin/tests/shift.test.sh:2'])
   })
 
+  it('a here-string opens no heredoc', () => {
+    const files = {
+      'harness/bin/tests/a.test.sh': ['tr a b <<<hello', '# комм', ''].join('\n'),
+      'harness/bin/tests/b.test.sh': ["tr a b <<< 'x'", '# комм', ''].join('\n'),
+      'harness/bin/tests/c.test.sh': ['tr a b <<< "x"', '# комм', ''].join('\n'),
+      'harness/hooks/d.sh': ['# shortcut: accepts the old Russian token, remove after the next release', 'tr a b <<<"зелено"', 'echo "нет"', ''].join('\n'),
+    }
+    expect(run(tree(files)).lines).toEqual(['harness/bin/tests/a.test.sh:2', 'harness/bin/tests/b.test.sh:2', 'harness/bin/tests/c.test.sh:2', 'harness/hooks/d.sh:3'])
+  })
+
+  it('a heredoc after a closed $(( … )) on the same line is a heredoc', () => {
+    const script = ['x=$(( a << b )); cat <<EOF', '# данные', 'EOF', '# комм', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/s.test.sh': script })).lines).toEqual(['harness/bin/tests/s.test.sh:4'])
+  })
+
+  it('reads every heredoc a line opens, in order', () => {
+    const script = ['cat <<A; cat <<B', '# данные A', 'A', '# данные B', 'B', '# комм', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/two.test.sh': script })).lines).toEqual(['harness/bin/tests/two.test.sh:6'])
+  })
+
+  it('a (( that is a nested subshell does not turn heredocs off for the lines after it', () => {
+    const script = ['((cd a && make) || true)', 'cat <<EOF', '# данные', 'EOF', '# комм', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/sub.test.sh': script })).lines).toEqual(['harness/bin/tests/sub.test.sh:5'])
+  })
+
+  it('--allow replaces the list: a word of the file passes, a word of the default list does not', () => {
+    const script = ['git switch "<проба>"', 'git switch "<эпик>"', ''].join('\n')
+    expect(run(tree({ 'harness/hooks/allow.sh': script })).lines).toEqual(['harness/hooks/allow.sh:2'])
+  })
+
+  it('--allow with a malformed list exits non-zero and names the field', () => {
+    const r = run(tree({ 'harness/hooks/ok.sh': 'echo ok\n' }), { harnessWords: 1 })
+    expect(r.status).not.toBe(0)
+    expect(r.status).not.toBe(1)
+    expect(r.stderr).toContain('harnessWords')
+  })
+
   it('a trailing marker covers its own command, not the next one', () => {
     const script = ['echo "зелено" # shortcut: accepts the old Russian token, remove after the next release', 'echo "нет"', ''].join('\n')
     expect(run(tree({ 'harness/hooks/t.sh': script })).lines).toEqual(['harness/hooks/t.sh:2'])
@@ -271,7 +315,7 @@ describe('the command (files ESLint does not read)', () => {
     const md = [
       '# Skill',
       '',
-      'The branch is `<ветка>`, the epic `<эпик>`: profile values name them so.',
+      'The branch is `<ветка>`, the probe `<проба>`: the allowed words.',
       '',
       '<!-- shortcut: accepts the old Russian token, remove after the next release -->',
       'The old form of the command, "волна N эпика X",',
