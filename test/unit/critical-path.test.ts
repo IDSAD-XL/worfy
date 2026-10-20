@@ -379,6 +379,19 @@ describe('critical-path: --out into the data folder of the platform', () => {
     expect(existsSync(out)).toBe(false)
   })
 
+  // The other half of "the platform in deps, not the host's", which runs on every host: with deps
+  // naming Windows, the macOS data folder is an ordinary folder. A criticalPath that dropped the
+  // platform would guard the host's data folder, which on macOS is that one.
+  it('with the platform win32 in deps, an --out inside ~/Library/Application Support/worfy is written', async () => {
+    const home = tempDir()
+    const out = join(home, 'Library', 'Application Support', 'worfy', 'limits.json')
+    mkdirSync(join(home, 'Library', 'Application Support', 'worfy'), { recursive: true })
+    const { code, err } = await refusal('win32', {}, home, out)
+    expect(err.join('\n')).not.toContain('refused')
+    expect(code).toBe(0)
+    expect(existsSync(out)).toBe(true)
+  })
+
   // The data folder is %APPDATA%\worfy only when APPDATA is a Windows path with a drive letter.
   it.skipIf(process.platform !== 'win32')('refuses an --out inside %APPDATA%\\worfy on Windows', async () => {
     const appData = tempDir()
