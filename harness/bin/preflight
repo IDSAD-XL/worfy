@@ -534,7 +534,9 @@ async function checkFetch() {
 function checkOriginMain() {
     // 3
     if (!ORIGIN) {
-        if (git(["rev-parse", "--verify", "-q", `refs/heads/${BASE}`]) === null) return block(`no local branch ${BASE}`)
+        // Without origin and without a local finish the verdict already has its one reason (the fetch step).
+        if (git(["rev-parse", "--verify", "-q", `refs/heads/${BASE}`]) === null)
+            return FINISH === "local-green" ? block(`no local branch ${BASE}`) : undefined
     } else if (git(["rev-parse", "--verify", "-q", `refs/remotes/${BASE}`]) === null) return block(`no ref ${BASE}`)
     const log = git(["log", "-1", "--format=%h%x09%cd%x09%s", "--date=format:%Y-%m-%dT%H:%M", BASE], { stderr: "inherit", raw: true }) || ""
     // As `IFS=$'\t' read -r sha date subj`: the first line, tabs around the fields dropped.
@@ -564,7 +566,9 @@ function checkMain() {
     }
 
     if (!ORIGIN) {
-        // Without origin the base is the local main branch itself: there is nothing for it to be behind.
+        // Without origin the base is the local main branch itself: there is nothing for it to be behind. A missing
+        // one is already a reason (or, without a local finish, covered by the reason about origin): no "behind ?".
+        if (git(["rev-parse", "--verify", "-q", `refs/heads/${MAIN}`]) === null) return
     } else if (git(["rev-parse", "--verify", "-q", `refs/heads/${MAIN}`]) !== null) {
         const behind = git(["rev-list", "--count", `${MAIN}..${BASE}`]) ?? "?"
         const ahead = git(["rev-list", "--count", `${BASE}..${MAIN}`]) ?? "?"
