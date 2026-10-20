@@ -11,8 +11,8 @@ import { BROWSER_PARTITION } from '../../src/shared/browser/partition'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // main's guard of the Browser's <webview> (worfy-browser ticket 02, ADR-0078 item 3), against the
-// real Electron: a <webview> with a preload, on another partition or on the app's own session does
-// not attach; one on the Browser partition without a preload attaches and is drawn; its page gets
+// real Electron: a <webview> with a preload, with web security off, on another partition or on the
+// app's own session does not attach; one on the Browser partition without a preload attaches and is drawn; its page gets
 // no permission. This is the test to run when Electron is updated: the guard rests on Electron's
 // `will-attach-webview` and on the permission handlers of a session, and an update that changes
 // either shows here first. The <webview>s are put into the window's DOM by the test itself, as a
@@ -117,7 +117,7 @@ async function inGuest(url: string, code: string): Promise<unknown> {
   )
 }
 
-test('a <webview> with a preload, on another partition or on the app session does not attach; one on the Browser partition attaches and is drawn', async () => {
+test('a <webview> with a preload, with web security off, on another partition or on the app session does not attach; one on the Browser partition attaches and is drawn', async () => {
   const window = await start()
   expect(await guestUrls()).toEqual([])
   const preload = pathToFileURL(join(FIXTURES, 'preload.js')).href
@@ -126,7 +126,8 @@ test('a <webview> with a preload, on another partition or on the app session doe
   await insertWebview(window, 'preload', 20, { src: `${pageUrl}?preload`, partition: BROWSER_PARTITION, preload })
   await insertWebview(window, 'other-partition', 280, { src: `${pageUrl}?other`, partition: 'persist:not-a-browser' })
   await insertWebview(window, 'app-session', 540, { src: `${pageUrl}?app-session` })
-  await insertWebview(window, 'good', 800, { src: `${pageUrl}?good`, partition: BROWSER_PARTITION })
+  await insertWebview(window, 'no-web-security', 800, { src: `${pageUrl}?no-web-security`, partition: BROWSER_PARTITION, disablewebsecurity: '' })
+  await insertWebview(window, 'good', 1060, { src: `${pageUrl}?good`, partition: BROWSER_PARTITION })
 
   const good = `${pageUrl}?good`
   await expect.poll(() => guestUrls(), { timeout: 15_000, message: 'the good <webview> has a page' }).toContain(good)

@@ -1,7 +1,8 @@
 # 09 — Проверка подключения `<webview>` отклоняет и то, что ослабляет страницу: `webSecurity`, insecure content, Blink features
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T10:19Z
+Branch: worfy-browser/09
 Blocked by: 02
 Source: review PR #576 (Ticket 02), находка low verifier-а, группа Consider; [ADR-0078](../../../docs/adr/0078-browser-node.md),
 пункт 3. Код перечитан по main `ae547cc2`.

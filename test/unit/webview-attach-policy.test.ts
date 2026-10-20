@@ -1,6 +1,7 @@
 // The check main runs on every <webview> that asks to attach (src/main/browser/attach-policy.ts,
 // ADR-0078 item 3): the guest page gets no preload, no Node, an isolated and sandboxed renderer,
-// and only a Browser partition. The preferences here are the ones Electron hands to
+// only a Browser partition, and nothing that weakens the page (web security off, insecure content,
+// Blink or experimental features, plugins, a nested <webview>). The preferences here are the ones Electron hands to
 // `will-attach-webview`: what the <webview> element's attributes ask for, after the embedder's
 // security options were inherited.
 import { describe, expect, it } from 'vitest'
@@ -11,7 +12,18 @@ const PARTITIONS = ['worfy-browser-test']
 /** What a correct <webview> of the Browser layer attaches with. */
 function good(): WebviewAttach {
   return {
-    webPreferences: { nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true, partition: 'worfy-browser-test' },
+    // webSecurity, plugins and enableBlinkFeatures as Electron fills them from a <webview> without
+    // the disablewebsecurity, plugins and blinkfeatures attributes.
+    webPreferences: {
+      nodeIntegration: false,
+      nodeIntegrationInSubFrames: false,
+      contextIsolation: true,
+      sandbox: true,
+      partition: 'worfy-browser-test',
+      webSecurity: true,
+      plugins: false,
+      enableBlinkFeatures: '',
+    },
     params: { src: 'http://127.0.0.1:8080/page.html', partition: 'worfy-browser-test' },
   }
 }
@@ -48,6 +60,56 @@ describe('webviewAttachRefusal', () => {
     }
   })
 
+  it('refuses a <webview> with web security off (the disablewebsecurity attribute, webSecurity=no)', () => {
+    const off = good()
+    off.webPreferences.webSecurity = false
+    expect(webviewAttachRefusal(off, PARTITIONS)).toMatch(/webSecurity/)
+  })
+
+  it('refuses a <webview> whose webSecurity is not a boolean: Electron reads an empty string as off', () => {
+    const odd = good()
+    odd.webPreferences.webSecurity = '' as unknown as boolean
+    expect(webviewAttachRefusal(odd, PARTITIONS)).toMatch(/webSecurity/)
+  })
+
+  it('refuses a <webview> that runs insecure content', () => {
+    const insecure = good()
+    insecure.webPreferences.allowRunningInsecureContent = true
+    expect(webviewAttachRefusal(insecure, PARTITIONS)).toMatch(/allowRunningInsecureContent/)
+  })
+
+  it('refuses a <webview> with Blink features turned on (the blinkfeatures attribute)', () => {
+    const blink = good()
+    blink.webPreferences.enableBlinkFeatures = 'CSSPseudoHas'
+    expect(webviewAttachRefusal(blink, PARTITIONS)).toMatch(/enableBlinkFeatures/)
+  })
+
+  it('refuses a <webview> with experimental features', () => {
+    const experimental = good()
+    experimental.webPreferences.experimentalFeatures = true
+    expect(webviewAttachRefusal(experimental, PARTITIONS)).toMatch(/experimentalFeatures/)
+  })
+
+  it('refuses a <webview> with plugins (the plugins attribute)', () => {
+    const plugins = good()
+    plugins.webPreferences.plugins = true
+    expect(webviewAttachRefusal(plugins, PARTITIONS)).toMatch(/plugins/)
+  })
+
+  it('refuses a <webview> whose page may itself hold a <webview>', () => {
+    const nested = good()
+    nested.webPreferences.webviewTag = true
+    expect(webviewAttachRefusal(nested, PARTITIONS)).toMatch(/webviewTag/)
+  })
+
+  it('refuses a weakening preference given as a string, which Electron reads as a truthy boolean', () => {
+    for (const key of ['allowRunningInsecureContent', 'experimentalFeatures', 'plugins', 'webviewTag'] as const) {
+      const odd = good()
+      odd.webPreferences[key] = 'maybe' as unknown as boolean
+      expect(webviewAttachRefusal(odd, PARTITIONS), key).toMatch(new RegExp(key))
+    }
+  })
+
   it('refuses a partition that is not in the list: another one, a persist: twin, the default (empty or missing)', () => {
     for (const partition of ['persist:worfy-browser-test', 'other', '', undefined]) {
       const attach = good()
@@ -78,5 +140,14 @@ describe('webviewAttachRefusal', () => {
     const second = good()
     second.webPreferences.partition = 'b'
     expect(webviewAttachRefusal(second, ['a', 'b'])).toBeNull()
+    // The weakening preferences absent (Electron's defaults are the safe ones) or set to their safe value.
+    const absent = good()
+    delete absent.webPreferences.webSecurity
+    delete absent.webPreferences.plugins
+    delete absent.webPreferences.enableBlinkFeatures
+    expect(webviewAttachRefusal(absent, PARTITIONS)).toBeNull()
+    const safe = good()
+    Object.assign(safe.webPreferences, { allowRunningInsecureContent: false, experimentalFeatures: false, webviewTag: false })
+    expect(webviewAttachRefusal(safe, PARTITIONS)).toBeNull()
   })
 })
