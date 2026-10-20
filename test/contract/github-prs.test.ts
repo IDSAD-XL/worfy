@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
 import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
 import { appPrOptions, appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
@@ -19,8 +19,16 @@ import { STUB_COMMAND } from './gh-world'
 // Pull requests and CI from `gh` (ticket 17), against the stub of test/fixtures/gh (STUB_COMMAND):
 // it records its arguments and answers from a prs.json. Nothing here reaches GitHub.
 
+// A token the developer's shell exports (`export GH_TOKEN=$(gh auth token …)`) must reach no gh stub:
+// the account stub records GH_TOKEN, and a failed assertion would print a real token into the log.
+beforeEach(() => {
+  vi.stubEnv('GH_TOKEN', undefined)
+  vi.stubEnv('GITHUB_TOKEN', undefined)
+})
+
 const temps: string[] = []
 afterEach(async () => {
+  vi.unstubAllEnvs()
   for (const dir of temps.splice(0)) await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 })
 
@@ -828,8 +836,12 @@ describe("gh with the Project's GitHub account", () => {
     vi.stubEnv('WORFY_DATA_DIR', data)
     const printed: string[] = []
     const spies = (['log', 'warn', 'error', 'info'] as const).map((method) => vi.spyOn(console, method).mockImplementation((...args: unknown[]) => void printed.push(args.map(String).join(' '))))
+    // The Harness scripts' environment of the test, not the real one: that one starts the developer's
+    // login shell, whose PATH has no node under a temporary HOME (nvm's rc files are not read there).
+    const scriptEnv = vi.fn(() => Promise.resolve(scriptsEnv([NODE_DIR, '/usr/bin', '/bin'], { HOME: world.dir })))
     try {
       vi.resetModules()
+      vi.doMock('../../src/main/harness/script-env', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/main/harness/script-env')>()), harnessScriptEnv: scriptEnv }))
       const app = (await import('../../src/main/ipc/checks')).default
       const handlers = new Map<string, (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown>()
       const ipc: IpcMainLike = { handle: (channel, listener) => void handlers.set(channel, listener) }
@@ -839,8 +851,9 @@ describe("gh with the Project's GitHub account", () => {
       expect(JSON.stringify(result)).not.toContain(TOKEN)
     } finally {
       for (const spy of spies) spy.mockRestore()
-      vi.unstubAllEnvs()
+      vi.doUnmock('../../src/main/harness/script-env')
     }
+    expect(scriptEnv).toHaveBeenCalled()
     expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
     expect(printed.join('\n')).not.toContain(TOKEN)
   })
