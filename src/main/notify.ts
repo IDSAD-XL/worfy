@@ -389,7 +389,7 @@ export class TicketNotes {
     if (cached !== undefined && at - cached.at < MATCH_KEY_TTL_MS) return cached.key
     const key = this.matchKey(root, id)
     this.keys.set(cacheKey, { at, key })
-    // A failed read is not kept: the next note reads again.
+    // A failed read (git timed out or failed, readProjectMatchKey rejects) is not kept: the next note reads again.
     key.catch(() => {
       if (this.keys.get(cacheKey)?.key === key) this.keys.delete(cacheKey)
     })
@@ -412,6 +412,9 @@ export class TicketNotes {
     const project = this.projects().find((each) => each.path === note.projectRoot)
     if (project?.id === undefined) return true
     const { id, name } = project
+    // Without its match key the note does not go to the Linked machines: a guessed key could make a
+    // Machine with the same repository show it twice, or one with another drop it. Missing it is the
+    // loss of a Machine that is not connected (ADR-0079); the Ticket's next wait reads the key again.
     this.keyOf(project.path, id).then(
       (match) =>
         // The texts are clipped as a Session's note is, and the wait goes as a hash: a long Blocked
@@ -435,6 +438,7 @@ export class TicketNotes {
     if (this.received.has(key)) return
     this.received.add(key)
     if (this.received.size > RECEIVED_LIMIT) this.received.delete(this.received.values().next().value as string)
+    // A Project whose key could not be read matches nothing: a note is rather shown twice than lost.
     const own = await Promise.all(
       this.projects().map((project) => (project.id === undefined ? Promise.resolve(null) : this.keyOf(project.path, project.id).catch(() => null))),
     )

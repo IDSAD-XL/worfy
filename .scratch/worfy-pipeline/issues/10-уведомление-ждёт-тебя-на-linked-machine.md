@@ -130,7 +130,13 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
   `origin` — `["id", <id Project-а>]`. Путь внутри репозитория — `git rev-parse --show-prefix`. `origin` без хоста
   (локальный путь `/Users/x/repo.git`, `C:\repos\x.git`, `file://`) считается отсутствующим (`remoteHasHost`): иначе
   в кадр ушёл бы путь диска (Q16). Ключ Project-а читается git-ом не чаще раза в минуту (`MATCH_KEY_TTL_MS`): смена
-  `origin` видна в течение минуты.
+  `origin` видна в течение минуты. Сбой git — не «нет `origin`»: ключ по id даётся, только когда git так и ответил
+  (`get-url` с exit 2 — нет remote `origin`; exit 128 «not a git repository»). Timeout, сигнал, другой exit code
+  `get-url` или сбой `rev-parse` — чтение отклоняется и не кэшируется. **Узкое прочтение 5:** отправитель при сбое
+  не шлёт заметку Linked machines (у себя показывает), пишет предупреждение в лог; следующее ожидание Ticket-а
+  читает ключ снова. Угаданный ключ дал бы на другой Machine дубль или потерю чужой заметки, а пропуск — та же
+  потеря, что у Machine без соединения (ADR-0079). Получатель при сбое чтения своего ключа показывает заметку:
+  лучше дубль, чем потеря.
 - **Кому (Q15)** — `ticketRecipients` в `src/main/notify.ts`. `WaitsNotices` теперь отдаёт каждое ожидание человека
   (не `team`, `agent`, не пустое) с `Waits:` и ключом; решает `TicketNotes`. **Узкое прочтение 2:** имя сравнивается
   точно (с регистром), имя этой Machine проверяется раньше имён Linked machines. Пока link service не запущен, имя
@@ -154,6 +160,6 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
 - **Test-ы:** `test/unit/notify.test.ts` (получатели, приём, дубль, две Machine с одним репозиторием по разным
   путям, без `origin`, ключ на настоящем git), `test/unit/link-notify.test.ts` (схема, две настоящие link service,
   сборка без `accepts`), `test/contract/link-server.test.ts` (`hello` с `accepts` и без, повторный `hello`),
-  `test/unit/permission-card.test.tsx` (клик). Каждый новый test красный на одном из 38 mutant-ов (отчёт PR).
+  `test/unit/permission-card.test.tsx` (клик). Каждый новый test красный на одном из 44 mutant-ов (отчёт PR).
 - **Вручную (не проверено агентом):** Mac и ПК связаны, обе сборки с этим PR — `ticket block <epic> <NN> "приёмка"
   --waits owner` на ПК даёт уведомление на Mac с именем ПК; клик открывает вкладку Pipeline Project-а ПК в окне ПК.

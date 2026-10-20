@@ -64,14 +64,23 @@ export async function readOriginKey(root: string): Promise<string | null> {
 }
 
 /**
- * The path of `root` inside its git repository, through `/`, without a `/` at either end: '' for the
- * repository's root itself; null when `root` is not in a git repository or git cannot be run.
+ * What one run of git answered: its trimmed output, or how it failed — its exit code, null when it
+ * did not exit by itself (the 5 s timeout, a signal, git missing) — and its stderr.
  */
-export async function readRepoPath(root: string): Promise<string | null> {
-  const prefix = await git(root, ['rev-parse', '--show-prefix'])
-  // git prints the prefix through `/` on every platform.
-  return prefix === null ? null : prefix.replace(/^\/+|\/+$/g, '')
+export type GitRun = { ok: true; out: string } | { ok: false; code: number | null; stderr: string }
+
+/** Runs git in `cwd` with its messages in English (LC_ALL=C), so a failure can be told by its text. */
+export function runGit(cwd: string, args: string[]): Promise<GitRun> {
+  return new Promise((done) => {
+    execFile('git', args, { cwd, encoding: 'utf8', timeout: 5000, env: { ...process.env, LC_ALL: 'C' } }, (error, stdout, stderr) => {
+      if (error === null) done({ ok: true, out: stdout.trim() })
+      else done({ ok: false, code: typeof error.code === 'number' ? error.code : null, stderr: String(stderr) })
+    })
+  })
 }
+
+/** `git remote get-url` exits 2 when the repository has no such remote. */
+const NO_SUCH_REMOTE = 2
 
 /**
  * Whether a remote URL names a host: `scheme://host/…` (not `file://`) or the scp-like `[user@]host:path`.
@@ -100,11 +109,24 @@ export function projectMatchKey(project: { id: string; origin: string | null; re
 }
 
 /**
- * The match key of the Project with id `id` at `root` (projectMatchKey), read with git. An origin
- * that is a local path (remoteHasHost) counts as none (Q16). Never throws.
+ * The match key of the Project with id `id` at `root` (projectMatchKey), read with git. The id key
+ * is given only when git says there is no origin: `root` is not in a git repository (exit 128, "not
+ * a git repository"), the repository has no remote `origin` (exit 2 of `get-url`), or the origin is
+ * a local path (remoteHasHost; Q16). Any other failure — the timeout under load, a signal, another
+ * exit code — rejects: a key read wrong would make another Machine show a note twice, or drop one.
  */
-export async function readProjectMatchKey(root: string, id: string): Promise<string> {
-  const [url, repoPath] = await Promise.all([git(root, ['remote', 'get-url', 'origin']), readRepoPath(root)])
-  const origin = url === null || !remoteHasHost(url) ? null : originKey(url)
-  return projectMatchKey({ id, origin, repoPath })
+export async function readProjectMatchKey(root: string, id: string, run: (cwd: string, args: string[]) => Promise<GitRun> = runGit): Promise<string> {
+  const [prefix, url] = await Promise.all([run(root, ['rev-parse', '--show-prefix']), run(root, ['remote', 'get-url', 'origin'])])
+  const none = projectMatchKey({ id, origin: null, repoPath: null })
+  if (!prefix.ok) {
+    if (prefix.code === 128 && /not a git repository/i.test(prefix.stderr)) return none
+    throw new Error(`git rev-parse failed (exit ${String(prefix.code)}): the match key of Project ${id} is unknown`)
+  }
+  if (!url.ok) {
+    if (url.code === NO_SUCH_REMOTE) return none
+    throw new Error(`git remote get-url origin failed (exit ${String(url.code)}): the match key of Project ${id} is unknown`)
+  }
+  // git prints the prefix through `/` on every platform.
+  const repoPath = prefix.out.replace(/^\/+|\/+$/g, '')
+  return projectMatchKey({ id, origin: remoteHasHost(url.out) ? originKey(url.out) : null, repoPath })
 }

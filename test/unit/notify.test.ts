@@ -1814,6 +1814,81 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
     for (const url of ['/Users/x/repo.git', 'C:\\repos\\x.git', 'C:/repos/x.git', 'file:///srv/x.git', '../x.git', 'x.git', 'https:///nohost']) expect(remoteHasHost(url)).toBe(false)
   })
 
+  describe('a failure of git is not "no origin"', () => {
+    type Answer = { ok: true; out: string } | { ok: false; code: number | null; stderr: string }
+    /** A git that answers `rev-parse` and `get-url` as given. */
+    const git = (prefix: Answer, url: Answer) => async (_cwd: string, args: string[]) => (args[0] === 'rev-parse' ? prefix : url)
+    const ROOT_PREFIX: Answer = { ok: true, out: '' }
+    const SUB_PREFIX: Answer = { ok: true, out: 'docs/site/' }
+    const ORIGIN: Answer = { ok: true, out: 'git@github.com:o/worfy.git' }
+    const idKey = projectMatchKey({ id: 'p-1', origin: null, repoPath: null })
+
+    it('get-url exit 2 (no remote origin) and "not a git repository" give the id key; an origin gives the origin key with the path', async () => {
+      expect(await readProjectMatchKey('/r', 'p-1', git(ROOT_PREFIX, { ok: false, code: 2, stderr: 'error: No such remote' }))).toBe(idKey)
+      const outside = { ok: false as const, code: 128, stderr: 'fatal: not a git repository (or any of the parent directories): .git' }
+      expect(await readProjectMatchKey('/r', 'p-1', git(outside, outside))).toBe(idKey)
+      expect(await readProjectMatchKey('/r', 'p-1', git(SUB_PREFIX, ORIGIN))).toBe(projectMatchKey({ id: 'x', origin: 'github.com/o/worfy', repoPath: 'docs/site' }))
+    })
+
+    it('get-url timed out, killed or failed otherwise: the read rejects, no id key', async () => {
+      for (const failed of [{ ok: false as const, code: null, stderr: '' }, { ok: false as const, code: 1, stderr: 'error' }, { ok: false as const, code: 128, stderr: 'fatal: unable to access' }]) {
+        await expect(readProjectMatchKey('/r', 'p-1', git(ROOT_PREFIX, failed))).rejects.toThrow(/match key of Project p-1 is unknown/)
+      }
+    })
+
+    it('rev-parse failed for a Project in a subfolder: the read rejects, rather than give the key of the repository\'s root', async () => {
+      await expect(readProjectMatchKey('/r/docs/site', 'p-1', git({ ok: false, code: null, stderr: '' }, ORIGIN))).rejects.toThrow(/rev-parse failed/)
+    })
+
+    it('a sender whose key could not be read sends nothing, keeps no key, and reads it again for the next wait', async () => {
+      const sent: SharedTicketNote[] = []
+      const warned: string[] = []
+      let fail = true
+      const reads: string[] = []
+      const tickets = new TicketNotes(
+        { show: () => undefined },
+        { sendTicket: (note) => sent.push(note), machines: () => ({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] }) },
+        () => [MAC_PROJECT],
+        async (root) => {
+          reads.push(root)
+          if (fail) throw new Error('git remote get-url origin failed (exit null)')
+          return MAC_KEY
+        },
+        (message) => warned.push(message),
+        () => 1,
+      )
+      const notices = new WaitsNotices(tickets)
+      notices.read(MAC_ROOT, model(MAC_ROOT))
+      notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'owner')]))
+      await settle()
+      expect(sent).toEqual([])
+      expect(warned).toHaveLength(1)
+      fail = false
+      notices.read(MAC_ROOT, delta(MAC_ROOT, [{ ...ticket('e', 2, 'owner') }]))
+      await settle()
+      // Within the minute of the cache: the failed read was not kept.
+      expect(reads).toEqual([MAC_ROOT, MAC_ROOT])
+      expect(sent.map((note) => [note.num, note.project.match])).toEqual([[2, MAC_KEY]])
+    })
+
+    it('a receiver whose own key could not be read shows the note, and reads the key again for the next one', async () => {
+      const shown: TicketNote[] = []
+      let fail = true
+      const reads: string[] = []
+      const tickets = new TicketNotes({ show: (note) => shown.push(note) }, { machines: () => ({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }] }) }, () => [PC_PROJECT], async (root) => {
+        reads.push(root)
+        if (fail) throw new Error('timed out')
+        return PC_KEY
+      })
+      await tickets.receive('mac', shared(MAC_KEY, 'e', 1))
+      expect(shown).toHaveLength(1)
+      fail = false
+      await tickets.receive('mac', shared(MAC_KEY, 'e', 2))
+      expect(reads).toEqual([PC_ROOT, PC_ROOT])
+      expect(shown).toHaveLength(1)
+    })
+  })
+
   describe('the match key read with git', () => {
     const dirs: string[] = []
     const scratch = (): string => {
@@ -1844,6 +1919,8 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
         expect(docsA).toBe(projectMatchKey({ id: 'x', origin: 'github.com/o/worfy', repoPath: 'docs/site' }))
         expect(docsA).toBe(await readProjectMatchKey(join(b, 'docs', 'site'), 'site-2'))
         expect(docsA).not.toBe(atA)
+        // A folder outside any repository: git says so, and the key is the id.
+        expect(await readProjectMatchKey(scratch(), 'plain-eeeeeeee')).toBe(projectMatchKey({ id: 'plain-eeeeeeee', origin: null, repoPath: null }))
         const bare = repo(null)
         expect(await readProjectMatchKey(bare, 'bare-cccccccc')).toBe(projectMatchKey({ id: 'bare-cccccccc', origin: null, repoPath: null }))
         // An origin that is a folder of this Machine is no origin (Q16): its key would be a local path.
