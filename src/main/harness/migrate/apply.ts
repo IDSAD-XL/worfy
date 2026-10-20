@@ -108,11 +108,29 @@ export function writeAtomically(path: string, text: string): void {
   }
 }
 
-/** A folder the move may write in: an existing directory, not the disk root and not the user's home folder. */
+/**
+ * The spelling of a path on disk, for comparing two paths that came from different places.
+ * realpathSync.native gives the long name of an 8.3 short one (`C:\Users\RUNNER~1\…`), the target
+ * of a `subst` drive and the letter case on disk (on macOS too), the way git prints a folder; the
+ * plain realpathSync keeps all three as typed. A volume where the native call fails (some RAM or
+ * virtual drives) falls back to the plain one. Throws when neither can read the path.
+ */
+function onDisk(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return realpathSync(path)
+  }
+}
+
+/**
+ * A folder the move may write in: an existing directory, not the disk root and not the user's home
+ * folder. The home folder is compared on disk on both sides, so it is refused in any spelling.
+ */
 function checkHome(path: string, what: string): string {
   const real = realpathSync(path)
   if (!statSync(real).isDirectory()) throw new Refusal(`${what} ${path} is not a folder`)
-  if (real === parse(real).root || real === realpathSync(homedir())) throw new Refusal(`${what} ${path} is not a folder the move may write in`)
+  if (real === parse(real).root || onDisk(real) === onDisk(homedir())) throw new Refusal(`${what} ${path} is not a folder the move may write in`)
   return real
 }
 
@@ -148,7 +166,7 @@ function git(cwd: string, args: string[]): string {
 
 /**
  * Whether `dir` is the top of a git work tree (not just inside one). Both sides go through
- * realpathSync.native: on Windows git prints the long name of a folder, while `dir` may come in an
+ * onDisk (realpathSync.native): on Windows git prints the long name of a folder, while `dir` may come in an
  * 8.3 short spelling (`C:\Users\RUNNER~1\…`) or through a `subst` drive, which the plain
  * realpathSync keeps; on macOS native also settles the letter case. A volume where the native call
  * fails (some RAM or virtual drives) falls back to the plain one, as before: a wrong "not a root" would
@@ -161,15 +179,8 @@ function isRepoRoot(dir: string): boolean {
   } catch {
     return false
   }
-  const real = (path: string): string => {
-    try {
-      return realpathSync.native(path)
-    } catch {
-      return realpathSync(path)
-    }
-  }
   try {
-    return real(toplevel) === real(dir)
+    return onDisk(toplevel) === onDisk(dir)
   } catch {
     return false
   }

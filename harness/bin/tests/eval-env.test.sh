@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# git and HARNESS_HOME in a run of `claude plugin eval` (worfy-harness ticket 28). In the sandbox of
+# git and HARNESS_HOME in a run of `claude plugin eval`. In the sandbox of
 # such a run the git on PATH may be refused, and $HOME/.claude may not be written; two variables tell
 # the Harness scripts what to use instead (hooks/eval-env.cjs):
 #   EVAL_GIT          — the git every script starts, in place of `git` from PATH;
@@ -288,7 +288,7 @@ fi
 if (PATH="$NONODE"; command -v node >/dev/null 2>&1); then why="node is in $NONODE"; NONODE=""; fi
 if [ -z "$NONODE" ]; then echo "skip the checks of gate.sh without node: $why"; else
     mkdir -p "$T/plugin/hooks"
-    # Each folder on its own, whatever the order of the list: worfy-windows 48 (#510) turned it round,
+    # Each folder on its own, whatever the order of the list: once the list was turned round,
     # the pattern for the old order stopped matching, and a CI runner with /usr/local/bin/node ran it.
     sed 's#/opt/homebrew/bin#/worfy-test-no-such-folder-a#g; s#/usr/local/bin#/worfy-test-no-such-folder-b#g' \
         "$HOOKS/gate.sh" >"$T/plugin/hooks/gate.sh"

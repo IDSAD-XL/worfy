@@ -800,6 +800,51 @@ describe('canvas in a Session', () => {
     expect(await projectOf(join(link, 'src'))).toBe(PROJECT)
   })
 
+  // On Windows one folder has spellings that are not links: another letter case, an 8.3 short
+  // name, a `subst` drive. git and the native realpath give the long spelling from the disk, the
+  // plain realpath keeps the one typed; the Project root is saved as git prints it.
+  it('a cwd in another letter case of the Project root is in the Project, and so is a cwd under a root saved in another case', async (context) => {
+    const shouted = repo.toUpperCase()
+    const same = (() => {
+      try {
+        return statSync(shouted).ino === statSync(repo).ino
+      } catch {
+        return false
+      }
+    })()
+    context.skip(!same, 'the disk tells letter case apart')
+    mkdirSync(join(repo, 'src'))
+    expect(await projectOf(shouted)).toBe(PROJECT)
+    expect(await projectOf(join(shouted, 'SRC'))).toBe(PROJECT)
+    const savedShouted = () => [{ id: PROJECT, name: 'demo', path: shouted }]
+    expect(await projectOf(join(repo, 'src'), { projects: savedShouted })).toBe(PROJECT)
+  })
+
+  // With TEMP=W:\ over a `subst` drive this is the drive letter against the long path git prints;
+  // with an ordinary TEMP both spellings are one.
+  it('a cwd in the spelling of the temporary folder as typed is in the Project saved as git prints it', async () => {
+    const typed = join(realpathSync(tmpdir()), basename(scratch), 'repo')
+    expect(await projectOf(typed)).toBe(PROJECT)
+    expect(await projectOf(repo, { projects: () => [{ id: PROJECT, name: 'demo', path: typed }] })).toBe(PROJECT)
+  })
+
+  it('Windows: a cwd in the 8.3 short spelling of a Project root is in the Project', (context) => {
+    const long = (() => {
+      try {
+        return realpathSync.native('C:\\PROGRA~1')
+      } catch {
+        return ''
+      }
+    })()
+    // New folders on this PC get no 8.3 name; C:\PROGRA~1 was made when Windows was installed.
+    context.skip(long !== 'C:\\Program Files', 'no 8.3 short name C:\\PROGRA~1 on this system')
+    const project = { id: PROJECT, name: 'programs', path: long }
+    expect(server.projectForCwd([project], 'C:\\PROGRA~1')).toBe(project)
+    expect(server.projectForCwd([project], 'C:\\PROGRA~1\\Common Files')).toBe(project)
+    const saved = { ...project, path: 'C:\\PROGRA~1' }
+    expect(server.projectForCwd([saved], 'C:\\Program Files\\Common Files')).toBe(saved)
+  })
+
   it('of nested Projects, the deepest one holding the cwd is the Session\'s, whatever the list order', async () => {
     const inner = join(repo, 'vendor', 'lib')
     mkdirSync(join(inner, 'src'), { recursive: true })

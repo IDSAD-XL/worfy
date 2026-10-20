@@ -72,11 +72,11 @@ const main = () => {
     // __proto__ as a key would set the prototype instead of an own field.
     const me = rawMe === "__proto__" || rawMe === "constructor" ? "" : String(rawMe)
     const branch = HOOK ? git(["rev-parse", "--abbrev-ref", "HEAD"], cwd) : ""
-    // A hash suffix of the full path: on its own the slug collapses Auction-sale-loop,
-    // Auction/sale-loop and Auction_sale_loop into one name.
+    // A hash suffix of the full path: on its own the slug collapses acme-sale-loop,
+    // acme/sale-loop and acme_sale_loop into one name.
     const slug = `${root.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "")}-${crypto.createHash("sha1").update(root).digest("hex").slice(0, 8)}`
-    // Harness state on this machine: $HARNESS_HOME/worktree-sessions (ADR-0040 item 5); in an eval
-    // run, EVAL_HARNESS_HOME of the tree's repository.
+    // Harness state on this machine: $HARNESS_HOME/worktree-sessions (HARNESS_HOME defaults to
+    // ~/.claude/worfy-harness); in an eval run, EVAL_HARNESS_HOME of the tree's repository.
     const dir = path.join(harnessHome(cwd), "worktree-sessions")
     const file = path.join(dir, `${slug}.json`)
     const now = Date.now()

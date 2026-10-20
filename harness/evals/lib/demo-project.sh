@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# demo-project.sh <finish> [variant] — builds the fixture of the Harness eval cases (ticket
-# worfy-harness/27): a small registered project `demo` in the current (empty) folder.
+# demo-project.sh <finish> [variant] — builds the fixture of the Harness eval cases: a small
+# registered project `demo` in the current (empty) folder.
 #
 #   <finish>   local-green | pr-green-ci — the profile's workflow.finish
 #   [variant]  none     — four open tickets, no blockers
@@ -27,10 +27,10 @@
 #                             EVAL_HARNESS_HOME.
 #                           With EVAL_HARNESS_HOME (a scaffold run by hand) only the folder it names.
 #
-# Bash, not Node: it is test code (ADR-0055). Runs as the owner outside the sandbox, so it writes
-# only into the current folder and $HOME, refuses a state folder that already has a gate registry,
-# and refuses to start (writing nothing) when HOME is the user's real home folder or HARNESS_HOME
-# points outside the current folder (lib/state-guard.cjs).
+# Bash, not Node: it is test code; only the scripts the plugin ships must run without bash. Runs as the user
+# outside the sandbox, so it writes only into the current folder and $HOME, refuses a state folder that
+# already has a gate registry, and refuses to start (writing nothing) when HOME is the user's real home
+# folder or HARNESS_HOME points outside the current folder (lib/state-guard.cjs).
 set -euo pipefail
 
 finish="${1:-}"
@@ -43,7 +43,7 @@ work="$(pwd -P)"
 # works) `pwd -P` gives /tmp/…, which node (bin/profile, gate.mjs) reads as another folder, and
 # `pwd -W` keeps an 8.3 short name (the runner's TEMP, C:\Users\RUNNER~1) or a `subst` drive, which
 # git and node spell long; so the spelling is node's own realpath, with `/` for JSON. Elsewhere `pwd -P`
-# stays (worfy-windows ticket 65).
+# stays.
 work_node="$work"
 git_bash=""
 if pwd -W >/dev/null 2>&1; then

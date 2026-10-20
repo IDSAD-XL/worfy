@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of bin/decision-log (worfy-review ticket 06): the script that appends one decision of a wave
+# Tests of bin/decision-log: the script that appends one decision of a wave
 # that runs without a human to a TSV file, `time_utc<TAB>decision<TAB>why<TAB>evidence`.
 #   - the first row creates the file, its folders and the header line; later rows are appended and
 #     the earlier bytes stay as they were;

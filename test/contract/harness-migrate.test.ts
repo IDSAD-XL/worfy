@@ -10,7 +10,7 @@
 // The cases about boundaries, races and changes after the move are in
 // harness-migrate-boundaries.test.ts, and the sandbox is in harness-migrate-harness.ts
 // (worfy-windows ticket 28: the gate's bound of 1000 lines).
-import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, delimiter, dirname, join, resolve, sep } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -673,6 +673,57 @@ describe('restore and refusals', () => {
     )
     expect(result.outcome).toBe('refused')
     expect(asked).toBe(false)
+  })
+
+  // On Windows one folder has spellings that are not links: another letter case, `/` for `\`, an
+  // 8.3 short name, a `subst` drive. The plain realpath keeps them as typed, so the home folder in
+  // another spelling went past the refusal. The case spelling is the one every disk that ignores
+  // letter case has; the home folder of this PC has no 8.3 name and no `subst` drive over it.
+  const homeSpelledOtherwise = (): string | null => {
+    const home = homedir()
+    const swapped = home === home.toUpperCase() ? home.toLowerCase() : home.toUpperCase()
+    const spelled = process.platform === 'win32' ? swapped.replaceAll('\\', '/') : swapped
+    try {
+      const [a, b] = [statSync(home), statSync(spelled)]
+      return a.ino === b.ino && a.dev === b.dev ? spelled : null
+    } catch {
+      return null
+    }
+  }
+  /** Options whose plugin state and confirmation fail the test: a move that went past the home check stops there. */
+  const stopPastTheHomeCheck = (claudeHome: string): { options: ReturnType<typeof applyOptions>; asked: () => boolean } => {
+    let asked = false
+    const options = applyOptions({
+      claudeHome,
+      pluginStatus: () => {
+        asked = true
+        return Promise.reject(new Error('the move went past the check of the home folder'))
+      },
+      confirm: () => Promise.reject(new Error('the move went past the check of the home folder')),
+    })
+    return { options, asked: () => asked }
+  }
+
+  it('refuses the user home folder in another spelling: another letter case, and `/` on Windows', async (context) => {
+    const spelled = homeSpelledOtherwise()
+    context.skip(spelled === null, 'the disk of the home folder tells letter case apart')
+    if (spelled === null) return
+    const { options, asked } = stopPastTheHomeCheck(spelled)
+    expect(await applyMigration(selection(plan()), options)).toEqual({ outcome: 'refused', reason: `the Claude home ${spelled} is not a folder the move may write in` })
+    expect(asked()).toBe(false)
+  })
+
+  it('refuses the user home folder when realpath(3) cannot read it, through the plain realpath', async () => {
+    const { options, asked } = stopPastTheHomeCheck(homedir())
+    const chosen = selection(plan())
+    nativeFails.under = homedir()
+    try {
+      expect(() => realpathSync.native(homedir())).toThrow('EIO')
+      expect(await applyMigration(chosen, options)).toEqual({ outcome: 'refused', reason: `the Claude home ${homedir()} is not a folder the move may write in` })
+    } finally {
+      nativeFails.under = null
+    }
+    expect(asked()).toBe(false)
   })
 
   it('a move writes nothing outside ~/.claude of the sandbox and nothing into the repositories of Projects (ADR-0005)', async () => {

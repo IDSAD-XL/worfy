@@ -1,5 +1,5 @@
 // Which git the Harness scripts start and where the Harness state lives, with the two variables of
-// a `claude plugin eval` run (scripts/eval-harness.mjs, worfy-harness ticket 28). The sandbox of such
+// a `claude plugin eval` run (the eval script of the worfy repository sets them). The sandbox of such
 // a run may refuse the git on PATH and may not let the run write $HOME/.claude:
 //   EVAL_GIT          — the git to start instead of `git` from PATH (eval-harness.mjs puts a copy of
 //                       git in a folder the sandbox reads);
@@ -30,8 +30,9 @@ function currentFolder() {
     }
 }
 
-// The Harness state on this machine (ADR-0040 item 5) for the folder `cwd`. The home folder comes
-// from os.homedir(): on Windows that is USERPROFILE, and HOME may be unset there.
+// The Harness state on this machine (HARNESS_HOME, by default ~/.claude/worfy-harness) for the folder
+// `cwd`. The home folder comes from os.homedir(): on Windows that is USERPROFILE, and HOME may be unset
+// there.
 function harnessHome(cwd = currentFolder(), env = process.env) {
     if (env.HARNESS_HOME) return env.HARNESS_HOME
     const fallback = path.join(os.homedir(), ".claude", "worfy-harness")

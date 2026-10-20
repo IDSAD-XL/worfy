@@ -10,7 +10,7 @@
 //   node gate.mjs full   -> everything (by hand or when an epic closes)
 //
 // The repository is identified by its common git directory, not by its path: worktrees
-// live both inside the repository and next to it (Auction-arch, Auction-sale-loop).
+// live both inside the repository and next to it (acme-review, acme-hotfix).
 //
 // The main rule: «ничего не прогналось» (nothing ran) is not «зелено» (green). The red marker
 // is removed only by a run that actually checked something.
@@ -39,7 +39,7 @@
 //       was stopped" below, which also names the first moments of a run, where an earlier
 //       verdict file may stay.
 //
-// The verdict file (ticket worfy-harness/09, ADR-0044: the machine contract carries no language).
+// The verdict file (a machine contract, so it carries no words of any one language).
 // Every run inside a git worktree overwrites <state>/verdict-<tag>.json (the same folder and tag as
 // the markers) with the outcome of that run; worfy reads it instead of the «[gate] …» line. A
 // directory outside git leaves no file. The markers, the «[gate] …» lines and the exit codes stay
@@ -101,12 +101,12 @@
 // file in place of the one of the run before. Rules, skills and agents run this file as
 // `node …/gate.mjs`: with no node on their PATH that command fails with code 127 before a line
 // of the gate runs and nothing is written, so a verdict file of an earlier run stays as it is.
-// The launcher is a departure from ADR-0055 item 2 (a hook command names `node`, not a script
-// started by its first line) and from "a way without bash outside tests" of worfy-windows ticket
-// 03. It exists because nothing else can replace a stale verdict when node is missing. That
-// gate.sh is the entry point of the hook is the owner's decision of 2026-10-14.
+// The launcher departs from two rules of the Harness: a hook command names `node`, not a script
+// started by its first line; and nothing outside tests needs bash. It exists because nothing else
+// can replace a stale verdict when node is missing. That gate.sh is the entry point of the hook
+// was decided on 2026-10-14.
 //
-// One file for macOS, Linux and Windows (ADR-0055): no shell utility, no path of one machine.
+// One file for macOS, Linux and Windows: no shell utility, no path of one machine.
 // Child processes get the PATH of this process plus the folder of the node that runs the gate
 // and PNPM_HOME when it is set.
 
@@ -776,7 +776,7 @@ async function main() {
     // Split by tabs by hand: the fields may be empty and must stay in their places.
     ;[KEY = "", , PM = ""] = entry.split("\t")
 
-    // Markers are per worktree (tag above): Auction has a couple of dozen of them, and
+    // Markers are per worktree (tag above): a busy repository has a couple of dozen of them, and
     // red in one must not stop the turn from finishing in another.
     const redMarker = path.join(STATE, `red-${KEY}-${tag}`)
     const unverifiedMarker = path.join(STATE, `unverified-${KEY}-${tag}`)
