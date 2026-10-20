@@ -901,7 +901,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh move', () => {
     expect(run.stderr).toContain(`the sandbox is ${join(root, 'worfy-e3-sandbox')}`)
     rmSync(join(scratch, 'bin', 'mv'))
     renameSync(join(root, 'worfy-e3-sandbox'), join(scratch, 'parked'))
-    rmSync(root, { recursive: true })
+    removeTestTree(root)
     renameSync(join(scratch, 'parked'), root)
     expectExit(sandbox(['move'], { env: held() }), 0)
     expectMoved(marker)
