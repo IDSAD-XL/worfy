@@ -206,15 +206,15 @@ else echo "skip a symlink to a long file: this system made a copy, not a symlink
 if [ "$(nwarn)" -eq 11 ]; then ok "eleven warnings, one per file"; else bad "eleven warnings expected, got $(nwarn) (out: ${out:0:900})"; fi
 
 # The warning changes neither the verdict line nor the exit code; the verdict line is the last line.
-if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] зелено (fast): t/.:check" ]; then
-    ok "with warnings: exit 0 and the verdict line «[gate] зелено (fast): t/.:check» is the last line"
+if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] green (fast): t/.:check" ]; then
+    ok "with warnings: exit 0 and the verdict line «[gate] green (fast): t/.:check» is the last line"
 else
     bad "with warnings: exit 0 and the green verdict as the last line expected (rc=$rc, out: ${out:0:600})"
 fi
 first_warn="$(printf '%s\n' "$out" | grep -nF "$WARN" | head -n 1 | cut -d: -f1)"
 last_warn="$(printf '%s\n' "$out" | grep -nF "$WARN" | tail -n 1 | cut -d: -f1)"
 scope_at="$(printf '%s\n' "$out" | grep -n '^\[gate\] scope (fast)' | cut -d: -f1)"
-verdict_at="$(printf '%s\n' "$out" | grep -n '^\[gate\] зелено' | cut -d: -f1)"
+verdict_at="$(printf '%s\n' "$out" | grep -n '^\[gate\] green' | cut -d: -f1)"
 if [ -n "$first_warn" ] && [ -n "$scope_at" ] && [ -n "$verdict_at" ] &&
     [ "$scope_at" -lt "$first_warn" ] && [ "$last_warn" -lt "$verdict_at" ]; then
     ok "the warnings come after the scope line and before the verdict line"
@@ -229,7 +229,7 @@ fi
 
 # --- 2. A cache hit prints the warnings again ------------------------------------------
 gate "$R" fast GATE_SCOPE=all
-if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] зелено (fast): t/.:check (кэш)" ]; then
+if [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] green (fast): t/.:check (cache)" ]; then
     ok "second run: a cache hit, exit 0"
 else
     bad "a cache hit expected (rc=$rc, out: ${out:0:600})"
@@ -247,7 +247,7 @@ based "$C"
 lines 950 "$C/grow.ts"
 gate "$C" fast GATE_SCOPE=all
 if [ "$(nwarn)" -eq 0 ]; then ok "control (900 → 950): no warning"; else bad "control: a warning (out: ${out:0:400})"; fi
-if [ "$rc" -eq "$rc_warn" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] зелено (fast): c/.:check" ]; then
+if [ "$rc" -eq "$rc_warn" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] green (fast): c/.:check" ]; then
     ok "control: the exit code is the same as with warnings ($rc_warn)"
 else
     bad "control: rc=$rc, with warnings rc=$rc_warn (out: ${out:0:400})"
@@ -272,12 +272,12 @@ lines 1100 "$C/grow.ts"
 gate "$C" full GATE_SCOPE=all
 out_c_warn="$out" rc_c_warn=$rc json_c_warn="$(verdict_json "$C")"
 warns "red run: the warning is printed" "grow.ts" 900 1100
-if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -qxF "[gate] красно (full): c/.:check"; then
-    ok "red run with a warning: exit 2 and «[gate] красно (full): c/.:check»"
+if [ "$rc" -eq 2 ] && printf '%s\n' "$out" | grep -qxF "[gate] red (full): c/.:check"; then
+    ok "red run with a warning: exit 2 and «[gate] red (full): c/.:check»"
 else
     bad "red run with a warning: exit 2 and the red line expected (rc=$rc, out: ${out:0:400})"
 fi
-if [ "$(printf '%s\n' "$out" | grep -nF "$WARN" | cut -d: -f1)" -lt "$(printf '%s\n' "$out" | grep -n '^\[gate\] красно' | cut -d: -f1)" ]; then
+if [ "$(printf '%s\n' "$out" | grep -nF "$WARN" | cut -d: -f1)" -lt "$(printf '%s\n' "$out" | grep -n '^\[gate\] red' | cut -d: -f1)" ]; then
     ok "red run: the warning comes before the verdict line"
 else
     bad "red run: the warning must come before the verdict line (out: ${out:0:400})"
@@ -295,7 +295,7 @@ mode ok
 lines 1500 "$N/new.ts"
 gate "$N" fast
 if [ "$rc" -eq 0 ] && [ "$(nwarn)" -eq 0 ] && [[ "$out" == *"no base for a diff"* ]] &&
-    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ] && [[ "$out" == *"[gate] зелено (fast): n/.:check" ]]; then
+    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ] && [[ "$out" == *"[gate] green (fast): n/.:check" ]]; then
     ok "no merge-base: no warning, only the scope line and the verdict line"
 else
     bad "no merge-base: a silent skip expected (rc=$rc, out: ${out:0:600})"
@@ -310,16 +310,16 @@ git -C "$S" checkout -q -b work
 lines 1100 "$S/notes.md"
 gate "$S" fast
 warns "narrowed scope, the change touches no checked package: a warning" "notes.md" 900 1100
-if [ "$rc" -eq 0 ] && [[ "$(printf '%s\n' "$out" | tail -n 1)" == "[gate] ничего не прогналось (fast): изменения не затрагивают проверяемые пакеты."* ]] &&
+if [ "$rc" -eq 0 ] && [[ "$(printf '%s\n' "$out" | tail -n 1)" == "[gate] nothing ran (fast): the changes touch no checked package."* ]] &&
     [ "$(jq -r .outcome "$STATE/verdict-$(tag "$S").json" 2>/dev/null | tr -d '\r')" = "none" ]; then
-    ok "narrowed scope: «ничего не прогналось» is still the last line, outcome none, exit 0"
+    ok "narrowed scope: «nothing ran» is still the last line, outcome none, exit 0"
 else
-    bad "narrowed scope: «ничего не прогналось» expected (rc=$rc, out: ${out:0:600})"
+    bad "narrowed scope: «nothing ran» expected (rc=$rc, out: ${out:0:600})"
 fi
 lines 1100 "$S/a.ts"
 gate "$S" fast
 warns "narrowed scope, a checked file grew: a warning" "a.ts" 900 1100
-if [ "$rc" -eq 0 ] && [[ "$out" == *"narrowed by the diff"* ]] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] зелено (fast): s/.:check" ]; then
+if [ "$rc" -eq 0 ] && [[ "$out" == *"narrowed by the diff"* ]] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate] green (fast): s/.:check" ]; then
     ok "narrowed scope: green, exit 0"
 else
     bad "narrowed scope: green expected (rc=$rc, out: ${out:0:600})"

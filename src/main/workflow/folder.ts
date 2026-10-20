@@ -21,6 +21,7 @@
 import { isAbsolute, join, resolve } from 'node:path'
 import { harnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { claudeHome } from '../storage/paths'
+import type { DocHeadings } from '../../shared/workflow/doc-headings'
 import { harnessScriptRunner, readResolvedProfile, scriptFailureDetail, type ProfileEnv, type ProfileRunner, type ResolvedRepo } from './profile'
 
 export type ProjectRepo = ResolvedRepo
@@ -52,6 +53,8 @@ export interface ProjectLayout {
    * login shell environment again before it asks once more (src/main/workflow/watch.ts).
    */
   environmentFailure?: boolean
+  /** The names of the document sections the Profile gives; absent when it gives none (readers take the defaults). */
+  headings?: Partial<DocHeadings>
 }
 
 /** Full mode as worfy read every Project before Silent mode existed. */
@@ -132,13 +135,13 @@ export async function readProjectLayout(options: ReadLayoutOptions): Promise<Pro
     log(`[workflow] ${root}: Full mode, the workflow files in the Project root, because ${read.reason}`)
     return fullLayout(root, read.reason)
   }
-  const { mode, workspace, repos } = read.profile
+  const { mode, workspace, repos, headings } = read.profile
   // Full mode: the workflow files are in the root worfy shows, whatever spelling of it the Harness printed.
   const workflowFolder = mode === 'silent' ? read.profile.workflowFolder : root
   const tickets = await ticketsRootOf(root, options.runTicket ?? harnessScriptRunner(options.claudeHome, env, 'ticket'))
   if ('reason' in tickets) log(`[workflow] ${root}: the Tickets are read from ${join(workflowFolder, '.scratch')}, because ${tickets.reason}`)
   const ticketsRoot = 'path' in tickets ? tickets.path : join(workflowFolder, '.scratch')
-  return { root, mode, workflowFolder, ticketsRoot, repos, workspace, reason: null, failed: false }
+  return { root, mode, workflowFolder, ticketsRoot, repos, workspace, reason: null, failed: false, ...(headings ? { headings } : {}) }
 }
 
 export interface LayoutCacheOptions {

@@ -2,7 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { HarnessState, HarnessStatus as Status } from '../../src/shared/ipc/harness'
-import HarnessStatus, { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import { HarnessStatus, HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
 
 // worfy-harness ticket 13: the Harness item of the toolbar. A dev run on the real ~/.claude
 // (canInstall false) shows the state and offers no install; a run that may install shows the button.
@@ -109,7 +109,9 @@ describe('HarnessStatusView', () => {
     render(<HarnessStatusView status={status({ kind: 'installed', version: '0.3.0+e61cb1fe', enabled: true }, false)} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0+e61cb1fe" />)
     const column = screen.getByTestId('harness-column')
     expect(column.style.flexDirection).toBe('column')
-    expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-version'])
+    // The second line holds the version, then worfy's memory when it is on (worfy-ui ticket 20).
+    expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line'])
+    expect(screen.getByTestId('app-version').parentElement).toBe(screen.getByTestId('app-line'))
     expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0+e61cb1fe')
     // The Harness line itself carries no version of the app.
     expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.3.0+e61cb1fe')

@@ -1,7 +1,7 @@
 # 56 — Test checks handler в `github-prs.test.ts` зависит от login shell машины и печатает настоящий token
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T17:48Z
 Blocked by: —
 Source: gate full PR [#563](https://github.com/IDSAD-XL/worfy/pull/563) (worfy-harness 40), 2026-10-20:
 повторный прогон unit-набора оркестратором с временным HOME дал красный test, которого PR не трогает.

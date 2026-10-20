@@ -1,7 +1,7 @@
 # 07 — Английские комментарии в коде и правило lint против кириллицы
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T17:50Z
 Blocked by: 03, 04, 05, 06
 Source: решения владельца 2026-10-19, Q6, Q11, Q14, Q15 ([spec.md](../spec.md), «Решения владельца», пункты 6,
 11, 14, 15); [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md), пункт 5.
@@ -28,7 +28,7 @@ Source: решения владельца 2026-10-19, Q6, Q11, Q14, Q15 ([spec.m
    заводится: одна строка не стоит системы (spec, «Не в этом Epic-е»).
 3. **Правило lint**: кириллица запрещена в `src/`, `scripts/`, `test/`, `harness/` (код, `.sh`, `.mjs`, `.cjs`,
    `.ts`, `.tsx`); разрешена в `test/fixtures/**`, в строковых литералах test-ов (данные русского ввода, с
-   английским комментарием, зачем), в файле слов ввода Harness (Ticket 04) и в местах с пометкой
+   английским комментарием, зачем), в файле слов ввода Harness `harness/lib/input-words.json` (Ticket 04) и в местах с пометкой
    `shortcut: accepts the old Russian token` до 08. В комментариях — нигде. Для `.sh` и файлов без
    расширения, которые ESLint не читает, — отдельный скрипт в `pnpm lint`.
 4. `.md` в `harness/` — без кириллицы, кроме цитат старых форм, которые принимаются один релиз (их убирает 08).
@@ -52,6 +52,11 @@ Source: решения владельца 2026-10-19, Q6, Q11, Q14, Q15 ([spec.m
 - `src/**`, `scripts/**`, `test/**` вне `test/fixtures/`, `harness/**` — комментарии
 - `src/main/workflow/waits-notify.ts`
 - `test/unit/check-cyrillic.test.ts` (новый)
+
+Заметки из ревью 04–06: пометка `shortcut: accepts the old Russian token` стоит на одну–две строки выше строк с
+кириллицей — исключение «только следующая строка» их не покроет; внутри `harness/` пометка без
+`(worfy-neutral 08)`. Русская команда Wave старого Harness — данные test-ов launch / render-template /
+binding / projects и `test/e2e/autopilot.spec.ts:332` («Итог» 05).
 
 ## Итог
 

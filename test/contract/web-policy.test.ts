@@ -32,6 +32,8 @@ vi.mock('electron', () => ({
         electron.permissionHandler = handler
       },
     },
+    // The session of a Browser partition; its own handlers are pinned in test/unit/window-options.test.ts.
+    fromPartition: () => ({ setPermissionRequestHandler: () => undefined, setPermissionCheckHandler: () => undefined }),
   },
 }))
 
@@ -46,6 +48,7 @@ function fakeContents() {
   const listeners = new Map<string, Listener>()
   let openHandler: ((details: HandlerDetails) => unknown) | undefined
   const contents = {
+    getType: () => 'window',
     on: (event: string, listener: Listener) => listeners.set(event, listener),
     setWindowOpenHandler: (handler: (details: HandlerDetails) => unknown) => {
       openHandler = handler

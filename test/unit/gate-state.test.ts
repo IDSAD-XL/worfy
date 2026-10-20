@@ -133,21 +133,39 @@ describe('markerOutcome', () => {
 })
 
 describe('lastGateOutcome', () => {
+  // The lines of the gate as it prints them now, and the same verdicts in the Russian words of the
+  // gate of the release before: both give the same outcome.
+  // shortcut: accepts the old Russian token, remove after the next release (worfy-neutral 08)
   it.each([
-    ['[gate] набор (fast): все пакеты\n[gate] зелено (fast): worfy/.:lint', 'green'],
-    ['[gate] красно (fast): worfy/.:test (прошло: lint)', 'red'],
-    ['[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден', 'unverified'],
-    ['[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:', 'unverified'],
-    ['[gate] ничего не прогналось (fast): нет изменений. Это не «зелено».', 'none'],
-    ['[gate] зелено (fast): a\n…\n[gate] ничего не прогналось (fast): b', 'none'],
-    ['[gate] красно (fast): a\nКОД=2\n[gate] зелено (fast): a', 'green'],
+    ['[gate] green (fast): worfy/.:lint', '[gate] зелено (fast): worfy/.:lint', 'green'],
+    ['[gate] green (fast): worfy/.:lint (cache)', '[gate] зелено (fast): worfy/.:lint (кэш)', 'green'],
+    ['[gate] red (fast): worfy/.:test (passed: lint)', '[gate] красно (fast): worfy/.:test (прошло: lint)', 'red'],
+    ['[gate] nothing ran (fast): no changes. This is not green.', '[gate] ничего не прогналось (fast): нет изменений. Это не «зелено».', 'none'],
+    ['[gate] not verified: node not found', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден', 'unverified'],
+    ['[gate] not verified — environment unavailable:', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:', 'unverified'],
+    ['[gate] not verified: x\r\n[gate] green (full): a\r', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: x\r\n[gate] зелено (full): a\r', 'green'],
+    // A bare verdict word at the end of a CRLF line (output of a Windows tool).
+    ['[gate] green (fast): a\r\n[gate] red\r\n', '[gate] зелено (fast): a\r\n[gate] красно\r\n', 'red'],
+  ])('new %j and old %j → %s', (now, before, outcome) => {
+    expect(lastGateOutcome(now)).toBe(outcome)
+    expect(lastGateOutcome(before)).toBe(outcome)
+  })
+
+  it.each([
+    ['[gate] scope (fast): all packages\n[gate] green (fast): worfy/.:lint', 'green'],
+    ['[gate] red (fast): worfy/.:test (passed: lint)', 'red'],
+    ['[gate] not verified: node not found', 'unverified'],
+    ['[gate] not verified — environment unavailable:', 'unverified'],
+    ['[gate] nothing ran (fast): no changes. This is not green.', 'none'],
+    ['[gate] green (fast): a\n…\n[gate] nothing ran (fast): b', 'none'],
+    ['[gate] red (fast): a\nКОД=2\n[gate] green (fast): a', 'green'],
   ])('%j → %s', (text, outcome) => {
     expect(lastGateOutcome(text)).toBe(outcome)
   })
 
   it('knows every verdict word harness/hooks/gate.mjs prints', async () => {
-    // The gate prints its verdict lines in the words it has today (Russian, until a ticket translates
-    // them); whatever they are, the transcript fallback must read each of them.
+    // The gate prints its verdict lines in English; whatever the words are, the transcript fallback
+    // must read each of them.
     const gate = await readFile(join(__dirname, '..', '..', 'harness', 'hooks', 'gate.mjs'), 'utf8')
     // Every verdict is a string in double quotes there; the warning about a long file, which is no
     // verdict, is written in another kind of quotes.
@@ -159,9 +177,14 @@ describe('lastGateOutcome', () => {
     expect(new Set(outcomes)).toEqual(new Set(['green', 'red', 'none', 'unverified']))
   })
 
+  // shortcut: accepts the old Russian token, remove after the next release (worfy-neutral 08)
   it('ignores lines that only mention the gate, not at the start of a line', () => {
     expect(lastGateOutcome('  echo "[gate] зелено ($PROFILE)"\n361:        echo "[gate] красно"')).toBeNull()
+    expect(lastGateOutcome('  echo "[gate] green ($PROFILE)"\n361:        echo "[gate] red"')).toBeNull()
     expect(lastGateOutcome('[gate] набор (fast): все пакеты')).toBeNull()
+    expect(lastGateOutcome('[gate] scope (fast): all packages')).toBeNull()
+    // A word that only starts like a verdict is not one.
+    expect(lastGateOutcome('[gate] reduced (fast): x\n[gate] greenish: y')).toBeNull()
   })
 })
 
@@ -297,17 +320,17 @@ describe('gateOutputs', () => {
     const calls = new Map<string, string | null>()
     expect(gateOutputs(gateCall('a', 'bash ~/.claude/hooks/gate.sh fast', '/r'), calls, 'darwin')).toEqual([])
     expect(gateOutputs(gateCall('b', 'cd /other && ~/.claude/hooks/gate.sh fast', '/r'), calls, 'darwin')).toEqual([])
-    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls, 'darwin')).toEqual([{ text: '[gate] зелено (fast): x', dir: '/r' }])
+    expect(gateOutputs(result('a', '[gate] green (fast): x'), calls, 'darwin')).toEqual([{ text: '[gate] green (fast): x', dir: '/r' }])
     expect(gateOutputs(result('b', [{ type: 'text', text: 'b' }, { type: 'image' }]), calls, 'darwin')).toEqual([{ text: 'b', dir: '/other' }])
-    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls, 'darwin')).toEqual([])
+    expect(gateOutputs(result('a', '[gate] green (fast): x'), calls, 'darwin')).toEqual([])
     expect(calls.size).toBe(0)
   })
 
   it('leaves out the result of any other tool call, though it prints gate lines', () => {
     const calls = new Map<string, string | null>()
     gateOutputs(gateCall('t', 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', '/r'), calls)
-    expect(gateOutputs(result('t', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: fixture'), calls)).toEqual([])
-    expect(gateOutputs(result('unknown', '[gate] красно (fast): x'), calls)).toEqual([])
+    expect(gateOutputs(result('t', '[gate] not verified: fixture'), calls)).toEqual([])
+    expect(gateOutputs(result('unknown', '[gate] red (fast): x'), calls)).toEqual([])
   })
 
   it('takes hook output, about the folder of the record', () => {
@@ -317,24 +340,24 @@ describe('gateOutputs', () => {
       { text: 'o', dir: '/r' },
       { text: 'e', dir: '/r' },
     ])
-    expect(gateOutputs({ type: 'system', subtype: 'stop_hook_summary', hookErrors: ['[gate] красно (fast): x'] }, calls)).toEqual([{ text: '[gate] красно (fast): x', dir: '' }])
+    expect(gateOutputs({ type: 'system', subtype: 'stop_hook_summary', hookErrors: ['[gate] red (fast): x'] }, calls)).toEqual([{ text: '[gate] red (fast): x', dir: '' }])
   })
 
   it('leaves out prompts, briefs, task notifications and the model’s own text', () => {
     const calls = new Map<string, string | null>()
-    expect(gateOutputs({ type: 'user', message: { content: '[gate] зелено (…)' } }, calls)).toEqual([])
-    expect(gateOutputs({ type: 'user', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } }, calls)).toEqual([])
-    expect(gateOutputs({ type: 'assistant', message: { content: [{ type: 'text', text: '[gate] зелено (…)' }] } }, calls)).toEqual([])
-    expect(gateOutputs({ type: 'attachment', attachment: { type: 'queued_command', prompt: '[gate] зелено (…)' } }, calls)).toEqual([])
-    expect(gateOutputs({ type: 'queue-operation', content: '[gate] зелено (…)' }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'user', message: { content: '[gate] green (…)' } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'user', message: { content: [{ type: 'text', text: '[gate] green (…)' }] } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'assistant', message: { content: [{ type: 'text', text: '[gate] green (…)' }] } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'attachment', attachment: { type: 'queued_command', prompt: '[gate] green (…)' } }, calls)).toEqual([])
+    expect(gateOutputs({ type: 'queue-operation', content: '[gate] green (…)' }, calls)).toEqual([])
   })
 
   it('on Windows takes a record’s cwd written as C:\\…, for a gate.mjs call and for hook output', () => {
     const calls = new Map<string, string | null>()
     expect(gateOutputs(gateCall('a', 'node "C:\\p\\hooks\\gate.mjs" fast', 'C:\\r'), calls, 'win32')).toEqual([])
     expect(gateOutputs(gateCall('b', 'cd sub && node "C:\\p\\hooks\\gate.mjs" fast', 'C:\\r'), calls, 'win32')).toEqual([])
-    expect(gateOutputs(result('a', '[gate] зелено (fast): x'), calls, 'win32')).toEqual([{ text: '[gate] зелено (fast): x', dir: 'C:\\r' }])
-    expect(gateOutputs(result('b', '[gate] красно (fast): x'), calls, 'win32')).toEqual([{ text: '[gate] красно (fast): x', dir: 'C:\\r\\sub' }])
+    expect(gateOutputs(result('a', '[gate] green (fast): x'), calls, 'win32')).toEqual([{ text: '[gate] green (fast): x', dir: 'C:\\r' }])
+    expect(gateOutputs(result('b', '[gate] red (fast): x'), calls, 'win32')).toEqual([{ text: '[gate] red (fast): x', dir: 'C:\\r\\sub' }])
     expect(gateOutputs({ type: 'attachment', cwd: 'C:\\r', attachment: { type: 'hook_success', stdout: 'o' } }, calls, 'win32')).toEqual([{ text: 'o', dir: 'C:\\r' }])
     // A cwd that is not absolute names no folder: the output is about the Session's own.
     expect(gateOutputs({ type: 'attachment', cwd: 'r\\sub', attachment: { type: 'hook_success', stdout: 'o' } }, calls, 'win32')).toEqual([{ text: 'o', dir: '' }])
@@ -380,9 +403,9 @@ async function world(): Promise<World> {
   await writeFile(
     transcript,
     [
-      toolResult('[gate] красно (fast): worfy/.:test', '2026-10-05T10:00:00.000Z'),
-      toolResult('[gate] набор (fast): все пакеты\n[gate] зелено (fast): worfy/.:lint worfy/.:typecheck worfy/.:test', '2026-10-05T10:05:00.000Z'),
-      prompt('Brief: finish when `[gate] красно` is gone\n[gate] красно (fast): quoted', '2026-10-05T10:06:00.000Z'),
+      toolResult('[gate] red (fast): worfy/.:test', '2026-10-05T10:00:00.000Z'),
+      toolResult('[gate] scope (fast): all packages\n[gate] green (fast): worfy/.:lint worfy/.:typecheck worfy/.:test', '2026-10-05T10:05:00.000Z'),
+      prompt('Brief: finish when `[gate] red` is gone\n[gate] red (fast): quoted', '2026-10-05T10:06:00.000Z'),
       '',
     ].join('\n'),
   )
@@ -489,12 +512,12 @@ describe('GateReader', () => {
     expect(wt07!.gate.outcome).toBe('green')
   })
 
-  it('«ничего не прогналось» after a green line is «нет данных», not green', async () => {
+  it('"nothing ran" after a green line is "no data", not green', async () => {
     const { home, root, worktrees, transcript, marker } = await world()
     await rm(marker)
     const reader = new GateReader({ home })
     expect((await reader.read(root, worktrees))[1]!.gate.outcome).toBe('green')
-    await appendFile(transcript, `${toolResult('[gate] ничего не прогналось (fast): нет изменений. Это не «зелено».', '2026-10-05T11:00:00.000Z')}\n`)
+    await appendFile(transcript, `${toolResult('[gate] nothing ran (fast): no changes. This is not green.', '2026-10-05T11:00:00.000Z')}\n`)
     expect((await reader.read(root, worktrees))[1]!.gate).toEqual({ outcome: 'none', source: 'transcript', at: '2026-10-05T11:00:00.000Z' })
   })
 
@@ -502,8 +525,8 @@ describe('GateReader', () => {
     const { home, root, worktree07, worktrees, marker } = await world()
     await rm(marker)
     const folder = join(home, 'projects', projectDirName(worktree07))
-    await writeFile(join(folder, '55555555-5555-4555-8555-555555555555.jsonl'), `${toolResult('[gate] красно (fast): later', '2026-10-05T12:00:00.000Z')}\n`)
-    await writeFile(join(folder, '66666666-6666-4666-8666-666666666666.jsonl'), `${toolResult('[gate] зелено (fast): earlier', '2026-10-05T09:00:00.000Z')}\n`)
+    await writeFile(join(folder, '55555555-5555-4555-8555-555555555555.jsonl'), `${toolResult('[gate] red (fast): later', '2026-10-05T12:00:00.000Z')}\n`)
+    await writeFile(join(folder, '66666666-6666-4666-8666-666666666666.jsonl'), `${toolResult('[gate] green (fast): earlier', '2026-10-05T09:00:00.000Z')}\n`)
     expect((await new GateReader({ home }).read(root, worktrees))[1]!.gate).toEqual({ outcome: 'red', source: 'transcript', at: '2026-10-05T12:00:00.000Z' })
   })
 
@@ -517,18 +540,18 @@ describe('GateReader', () => {
     await writeFile(
       join(rootFolder, '77777777-7777-4777-8777-777777777777.jsonl'),
       [
-        bashRun('[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: fixture of the gate’s tests', '2026-10-05T13:00:00.000Z', { command: 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', cwd: root }),
-        bashRun('[gate] красно (fast): demo/.:test', '2026-10-05T13:01:00.000Z', { command: 'tail -1 /tmp/scratch/gate-fast.txt', cwd: root }),
-        bashRun('[gate] красно (fast): demo/.:test', '2026-10-05T13:02:00.000Z', { command: `cd ${worktree07} && bash ~/.claude/hooks/gate.sh fast`, cwd: root }),
-        bashRun('[gate] красно (fast): auction/.:test', '2026-10-05T13:03:00.000Z', { command: 'cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', cwd: root }),
-        bashRun('[gate] красно (fast): demo/.:lint', '2026-10-05T13:04:00.000Z', { cwd: worktree07 }),
+        bashRun('[gate] not verified: fixture of the gate’s tests', '2026-10-05T13:00:00.000Z', { command: 'cd ~/.claude && for t in hooks/tests/*.test.sh; do bash $t; done', cwd: root }),
+        bashRun('[gate] red (fast): demo/.:test', '2026-10-05T13:01:00.000Z', { command: 'tail -1 /tmp/scratch/gate-fast.txt', cwd: root }),
+        bashRun('[gate] red (fast): demo/.:test', '2026-10-05T13:02:00.000Z', { command: `cd ${worktree07} && bash ~/.claude/hooks/gate.sh fast`, cwd: root }),
+        bashRun('[gate] red (fast): auction/.:test', '2026-10-05T13:03:00.000Z', { command: 'cd /Users/test/Work/Auction && ~/.claude/hooks/gate.sh fast', cwd: root }),
+        bashRun('[gate] red (fast): demo/.:lint', '2026-10-05T13:04:00.000Z', { cwd: worktree07 }),
         '',
       ].join('\n'),
     )
     // In the worktree's own Session, a later red run after `cd` elsewhere is not about it either.
     await appendFile(
       join(home, 'projects', projectDirName(worktree07), '44444444-4444-4444-8444-444444444444.jsonl'),
-      `${bashRun('[gate] красно (fast): other', '2026-10-05T14:00:00.000Z', { command: `cd ${root} && bash ~/.claude/hooks/gate.sh fast`, cwd: worktree07 })}\n`,
+      `${bashRun('[gate] red (fast): other', '2026-10-05T14:00:00.000Z', { command: `cd ${root} && bash ~/.claude/hooks/gate.sh fast`, cwd: worktree07 })}\n`,
     )
     const [checkout, wt07] = await new GateReader({ home }).read(root, worktrees)
     expect(checkout!.gate).toEqual({ outcome: 'none', source: 'none', at: null })
@@ -537,7 +560,7 @@ describe('GateReader', () => {
     // gate.sh run in the checkout itself (a subfolder of it) is the checkout's verdict.
     await appendFile(
       join(rootFolder, '77777777-7777-4777-8777-777777777777.jsonl'),
-      `${bashRun('[gate] зелено (fast): demo/.:lint', '2026-10-05T15:00:00.000Z', { command: 'cd src && bash ~/.claude/hooks/gate.sh fast', cwd: root })}\n`,
+      `${bashRun('[gate] green (fast): demo/.:lint', '2026-10-05T15:00:00.000Z', { command: 'cd src && bash ~/.claude/hooks/gate.sh fast', cwd: root })}\n`,
     )
     expect((await new GateReader({ home }).read(root, worktrees))[0]!.gate).toEqual({ outcome: 'green', source: 'transcript', at: '2026-10-05T15:00:00.000Z' })
   })
@@ -546,7 +569,7 @@ describe('GateReader', () => {
     const { home, root, worktree07, worktrees, marker } = await world()
     await rm(marker)
     const transcript = join(home, 'projects', projectDirName(worktree07), '44444444-4444-4444-8444-444444444444.jsonl')
-    const [call, result] = bashRun('[gate] красно (fast): later', '2026-10-05T16:00:00.000Z', { cwd: worktree07 }).split('\n')
+    const [call, result] = bashRun('[gate] red (fast): later', '2026-10-05T16:00:00.000Z', { cwd: worktree07 }).split('\n')
     const reader = new GateReader({ home })
     await appendFile(transcript, `${call}\n`)
     expect((await reader.read(root, worktrees))[1]!.gate.outcome).toBe('green')
@@ -799,7 +822,7 @@ describe('GateReader and the verdict file', () => {
     await writeFile(join(home, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: 'demo', match: repo, pm: 'true', root: { fast: ['check'] }, workspace: {} }] }))
     // process.execPath is Electron run as Node (ELECTRON_RUN_AS_NODE=1 is in the environment).
     const out = execFileSync(process.execPath, [join(__dirname, '..', '..', 'harness', 'hooks', 'gate.mjs'), 'fast'], { cwd: repo, env, input: '', encoding: 'utf8' })
-    expect(out).toContain('[gate] зелено (fast)')
+    expect(out).toContain('[gate] green (fast)')
     // listWorktrees gives the worktree's HEAD, which the file's `head` must match.
     const [wt] = await new GateReader({ home }).read(repo, await listWorktrees(repo))
     expect(wt!.gate).toEqual({ outcome: 'green', source: 'file', at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u) })
@@ -811,12 +834,12 @@ describe('TranscriptGateScanner', () => {
   it('reads only what was appended since the last read, and starts over on a replaced file', async () => {
     const dir = await tempDir()
     const file = join(dir, 's.jsonl')
-    await writeFile(file, `${toolResult('[gate] зелено (fast): a', '2026-10-05T10:00:00.000Z')}\n`)
+    await writeFile(file, `${toolResult('[gate] green (fast): a', '2026-10-05T10:00:00.000Z')}\n`)
     const scanner = new TranscriptGateScanner()
     expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('green')
     await appendFile(file, `${prompt('no gate here', '2026-10-05T10:01:00.000Z')}\n`)
     expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('green')
-    await appendFile(file, `${toolResult('[gate] красно (fast): b', '2026-10-05T10:02:00.000Z')}\n`)
+    await appendFile(file, `${toolResult('[gate] red (fast): b', '2026-10-05T10:02:00.000Z')}\n`)
     expect((await scanner.lastIn(dir, { here: dir, worktrees: [dir] }))?.outcome).toBe('red')
     await rm(file)
     await writeFile(file, `${prompt('fresh', '2026-10-05T10:03:00.000Z')}\n`)
@@ -829,8 +852,8 @@ describe('TranscriptGateScanner', () => {
     await writeFile(
       file,
       [
-        bashRun('[gate] зелено (fast): a', '2026-10-05T10:00:00.000Z', { cwd: dir }),
-        bashRun('[gate] красно (fast): b', '2026-10-05T10:01:00.000Z', { command: 'W=/x; cd $W && bash ~/.claude/hooks/gate.sh fast', cwd: dir }),
+        bashRun('[gate] green (fast): a', '2026-10-05T10:00:00.000Z', { cwd: dir }),
+        bashRun('[gate] red (fast): b', '2026-10-05T10:01:00.000Z', { command: 'W=/x; cd $W && bash ~/.claude/hooks/gate.sh fast', cwd: dir }),
         '',
       ].join('\n'),
     )
@@ -849,11 +872,11 @@ describe('TranscriptGateScanner', () => {
     await writeFile(
       join(dir, 's.jsonl'),
       [
-        bashRun('[gate] зелено (fast): a', '2026-10-13T10:00:00.000Z', { command: gate, cwd: worktree07 }),
+        bashRun('[gate] green (fast): a', '2026-10-13T10:00:00.000Z', { command: gate, cwd: worktree07 }),
         // After `cd` to the checkout, as Git Bash spells it: not about the worktree.
-        bashRun('[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: b', '2026-10-13T10:01:00.000Z', { command: `cd /c/Users/x/worfy && ${gate}`, cwd: worktree07 }),
+        bashRun('[gate] not verified: b', '2026-10-13T10:01:00.000Z', { command: `cd /c/Users/x/worfy && ${gate}`, cwd: worktree07 }),
         // In a subfolder of the worktree, spelled with `/` and other letter case.
-        bashRun('[gate] красно (fast): c', '2026-10-13T10:02:00.000Z', { command: `cd c:/users/x/Worfy/.claude/worktrees/07/src && ${gate}`, cwd: root }),
+        bashRun('[gate] red (fast): c', '2026-10-13T10:02:00.000Z', { command: `cd c:/users/x/Worfy/.claude/worktrees/07/src && ${gate}`, cwd: root }),
         '',
       ].join('\n'),
     )
@@ -874,8 +897,8 @@ describe('TranscriptGateScanner', () => {
       await writeFile(
         join(dir, 's.jsonl'),
         [
-          bashRun('[gate] зелено (fast): a', '2026-10-14T10:00:00.000Z', { command: gate, cwd: root }),
-          bashRun('[gate] красно (fast): b', '2026-10-14T10:01:00.000Z', { command: `cd ${target} && ${gate}`, cwd: root }),
+          bashRun('[gate] green (fast): a', '2026-10-14T10:00:00.000Z', { command: gate, cwd: root }),
+          bashRun('[gate] red (fast): b', '2026-10-14T10:01:00.000Z', { command: `cd ${target} && ${gate}`, cwd: root }),
           '',
         ].join('\n'),
       )

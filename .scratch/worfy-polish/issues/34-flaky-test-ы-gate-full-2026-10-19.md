@@ -116,3 +116,16 @@ Implementer-а worfy-canvas 02; строки новых случаев — по 
 ## Итог
 
 Заполняется при закрытии.
+
+- **`session-back.spec.ts:116` (2026-10-20, ветка `fix/session-back-flake`).** Причина — в продукте:
+  `src/renderer/claude-home/subagents.ts`, `schedule()` спрашивал файлы Subagent-ов заново только по
+  `claudeHome.changed` или пока сами файлы показывали работающего Subagent-а. У Session worfy, где
+  Subagent виден только по live-событиям, файлы читались один раз до их появления; событие FSEvents о
+  новом transcript-е под нагрузкой опоздало дольше 10 s (на снимке падения и sidebar «0 live» — не
+  дошло и событие о `sessions/<pid>.json`), и строка rail оставалась disabled. Пользователь попадает
+  в то же, когда Orchestrator idle, а Subagent работает в фоне: transcript родителя не меняется.
+  Воспроизведение: мутант, который отбрасывает события transcript-ов в `registry.watch`, даёт ровно ту же
+  ошибку на `:138`; с правкой тот же мутант — 2 из 2 зелёные. Правка: опрос (POLL_MS) идёт и пока
+  дерево с live-событиями показывает работающего Subagent-а; останавливается, когда никто не работает.
+  Unit test — `test/unit/subagent-trees.test.tsx`. После: e2e 5 из 5 и 5 из 5 под четырьмя `yes`.
+

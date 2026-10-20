@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser fixture, links to new windows</title>
+    <!--
+      The page test/e2e/browser.spec.ts uses for links that ask for a new window: a target="_blank"
+      link to the next page and a button that calls window.open on the first page. In worfy both
+      open in the same Browser, and no window appears. The rel="noreferrer" link asks without a
+      referrer: worfy does not open it by itself and offers it in the Browser's Open bar.
+    -->
+  </head>
+  <body style="margin: 0; background: #fdf6e3">
+    <a id="blank" href="next.html" target="_blank" rel="noopener">The next page, in a new window</a>
+    <button id="open" type="button" onclick="window.open('page.html', 'other', 'width=400,height=300')">window.open</button>
+    <a id="noreferrer" href="next.html" target="_blank" rel="noreferrer">The next page, in a new window, without a referrer</a>
+    <script>
+      document.body.dataset.ready = 'yes'
+    </script>
+  </body>
+</html>

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
 import MigrationForm from '../../harness/MigrationForm'
+import AppMemory from '../../memory/AppMemory'
 import { invoke, subscribe } from '../../ipc'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
@@ -17,6 +18,8 @@ import { invoke, subscribe } from '../../ipc'
 
 // The app version (`app.version`) is the second line of this item, small and muted under the
 // Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
+// worfy's own memory follows the version on that line (worfy-ui ticket 20, src/renderer/memory/AppMemory.tsx):
+// both describe the running app, and the line is shorter than the Harness line above it.
 // The actions are icon buttons with a native tooltip and an aria-label: Install, Update Harness,
 // Retry and "Move old Harness…".
 
@@ -85,19 +88,24 @@ export interface HarnessStatusViewProps {
   onMigrate?: (() => void) | undefined
   /** The app version, the second line; nothing until it arrives. */
   version?: string | undefined
+  /** worfy's own memory, after the version on the second line. */
+  memory?: ReactNode
 }
 
 /** The item for a given status: the Harness line, and the app version under it; exported for tests. */
-export function HarnessStatusView({ version, ...props }: HarnessStatusViewProps) {
+export function HarnessStatusView({ version, memory, ...props }: HarnessStatusViewProps) {
   const harness = <HarnessLine {...props} />
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', flex: 'none' }} data-testid="harness-column">
       {harness}
-      {version ? (
-        <small className="w-mono" style={versionStyle} data-testid="app-version">
-          v{version}
-        </small>
-      ) : null}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }} data-testid="app-line">
+        {version ? (
+          <small className="w-mono" style={versionStyle} data-testid="app-version">
+            v{version}
+          </small>
+        ) : null}
+        {memory}
+      </div>
     </div>
   )
 }
@@ -158,8 +166,12 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
   )
 }
 
-/** The Harness state from main (`harness.state`, then `harness.changed`), and the install through `harness.install`. */
-export default function HarnessStatus() {
+/**
+ * The Harness state from main (`harness.state`, then `harness.changed`), and the install through
+ * `harness.install`. Settings → Pipeline shows it too, when the Harness is too old for the editor;
+ * worfy's memory stands only in the toolbar (`memory`, given by the toolbar item below).
+ */
+export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -241,7 +253,7 @@ export default function HarnessStatus() {
 
   return (
     <>
-      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} />
+      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} memory={memory ? <AppMemory /> : undefined} />
       {formOpen ? (
         <MigrationForm
           onClose={() => {
@@ -253,4 +265,9 @@ export default function HarnessStatus() {
       ) : null}
     </>
   )
+}
+
+/** The toolbar item: the Harness column with worfy's memory after the app version. */
+export default function HarnessStatusItem() {
+  return <HarnessStatus memory />
 }

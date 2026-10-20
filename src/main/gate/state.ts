@@ -14,13 +14,14 @@
 //   of harness/hooks/gate.mjs). A marker goes first: after a red run, a run that checked nothing
 //   writes `none` into the file, and the worktree stays red while the red marker is there;
 // - without a marker or a usable verdict file (a gate older than the file, ~/.claude before the
-//   Harness moves to the plugin), the last `[gate] зелено | красно | ничего не прогналось | ПРОВЕРИТЬ НЕ УДАЛОСЬ`
-//   line in the transcripts of the Sessions started in that worktree: the output of a Bash call
-//   that ran the Gate in that worktree, and hook output. The output of other commands (the gate's
+//   Harness moves to the plugin), the last `[gate] green | red | nothing ran | not verified` line (or
+//   the Russian words of the release before, read for one more release) in the transcripts of the
+//   Sessions started in that worktree: the output of a Bash call that ran the Gate in that worktree,
+//   and hook output. The output of other commands (the gate's
 //   own tests, `tail` of an old log, the Gate after `cd` to another repository) and a line the user
 //   or the model wrote (a prompt, a brief, a reply) do not count.
 //
-// «Ничего не прогналось» (`none` in the file) is «нет данных», never green. Nothing here writes: the
+// "Nothing ran" (`none` in the file) is "no data", never green. Nothing here writes: the
 // state folder and the transcripts are only listed and read, git only lists worktrees.
 //
 // Paths of Windows (worfy-windows ticket 03): realpath gives `C:\Users\x\worfy`, git and the Gate
@@ -200,14 +201,21 @@ export async function readVerdictFile(file: string, worktree: string, head?: str
 
 // ── gate lines in transcripts ────────────────────────────────────────────────
 
-const GATE_LINE = /^\[gate\] (зелено|красно|ничего не прогналось|ПРОВЕРИТЬ НЕ УДАЛОСЬ)/gmu
-
 const OUTCOME: Record<string, GateOutcome> = {
+  green: 'green',
+  red: 'red',
+  'nothing ran': 'none',
+  'not verified': 'unverified',
+  // shortcut: accepts the old Russian token, remove after the next release (worfy-neutral 08)
+  // The words of a gate of the release before, still installed where the Harness was not updated.
   зелено: 'green',
   красно: 'red',
   'ничего не прогналось': 'none',
   'ПРОВЕРИТЬ НЕ УДАЛОСЬ': 'unverified',
 }
+
+/** A verdict word right after `[gate] `, followed by a space, `(`, `:` or the end of the line. */
+const GATE_LINE = new RegExp(`^\\[gate\\] (${Object.keys(OUTCOME).join('|')})(?=[ (:\\r]|$)`, 'gmu')
 
 /** The outcome of the last gate verdict line in a piece of output; null when it has none. */
 export function lastGateOutcome(text: string): GateOutcome | null {

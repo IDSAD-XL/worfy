@@ -283,10 +283,10 @@ The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </
 stdin. On an open stdin that sends nothing it waits 2 s before it starts, and a signal in those
 2 s may leave the verdict of an earlier run in place (the bash gate before it waited on `cat`
 forever: a ticket once stood like that for ten hours).
-Gate exit codes: `0` — green, only if the output has the line `[gate] зелено (…)` (exit code 0
-with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
-unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the
-line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry
+Gate exit codes: `0` — green, only if the output has the line `[gate] green (…)` (exit code 0
+with `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:` is not a
+check); `2` — red, fix it; `3` — not verified, neither green nor red: the
+line `[gate] not verified: …` names the reason (project not registered, registry
 unreadable, resolver crashed); `127` — node is not on PATH and the gate never started; 128 + the
 signal number — `129`, `130`, `143`, `149` (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the
 gate itself was stopped and this run wrote nothing. On exit code 3, 127, 129, 130, 143 or 149 do
@@ -524,7 +524,7 @@ block again then, never take that for `no-label`. A broken profile (`bin/profile
 `ERROR:` too, not an absent field:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 role=$(F cross_machine_gate.role); rc=$?                # 4 — no such field; 1 — a broken profile or registry
 if [ "$rc" != 0 ] && [ "$rc" != 4 ]; then echo "ERROR: bin/profile exit $rc: the profile or the registry is broken — run it without 2>/dev/null"
 elif [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
@@ -686,7 +686,7 @@ doer:
    `F numbering.migrations.generate`, not merged by hand), runs its checks again and reports — as
    with a `DIRTY` PR.
 2. **The gate — the orchestrator.** `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null; echo
-   "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] зелено (…)`: this code is
+   "EXIT=$?"` in the ticket's worktree — `EXIT=0` and the line `[gate] green (…)`: this code is
    exactly what the main branch gets. A red gate stops here: no documents, no merge.
 3. **The documents and the merge — whoever `F workflow.merge` names (the orchestrator), in one go
    under the lock** of `/worfy:epic-wave`, section 4, one merge at a time. Full mode: first, under the
@@ -704,7 +704,7 @@ doer:
    repository's main checkout, `<ticket worktree>` the ticket's tree (with `single` — `<repo>` itself):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 B=<ticket branch>; T=<ticket worktree>; E=<epic>; DOCS_FAILED=
 # the documents: this epic's folder and the state file — nothing else of the tree
 DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
@@ -715,7 +715,7 @@ M=$(F worktree.base); [ "$M" = null ] && M=
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
 [ -n "$M" ] || for c in main master; do git -C <repo> rev-parse -q --verify "refs/heads/$c" >/dev/null && { M=$c; break; }; done
 M=${M#origin/}
-W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
+W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" 'BEGIN { while ((getline l) > 0) { if (l ~ /^worktree /) w = substr(l, 10); if (l == b) print w } }')
 if [ -z "$M" ]; then echo "NO MAIN BRANCH: set worktree.base in the profile"
 elif [ "$M" = "$B" ]; then echo "SAME BRANCH: $B is the main branch itself, nothing to merge"
 elif ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: back to the implementer — rebase $B onto $M"

@@ -42,6 +42,8 @@ const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 // The git to start: EVAL_GIT of an eval run, else git from PATH.
 const { git: GIT } = require("../hooks/eval-env.cjs")
+// Words of other languages in a Blocked by line: "none" and "and" (data, not protocol).
+const INPUT = require("../lib/input-words.json")
 
 // Bytes as a string: the UTF-8 bytes of `s`, one per character.
 const B = (s) => Buffer.from(s, "utf8").toString("latin1")
@@ -205,9 +207,10 @@ const re = (source, flags) => new RegExp(B(source), flags)
 const NEW_STATUS = /^Status: (open|claimed|blocked|done)( [0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}Z)?)?[ \t]*$/
 // Words people use to write "no blockers". An empty list of numbers and "did not understand" are
 // different things, and blockedParsed tells them apart, not the length of the list.
-const NONE = re(String.raw`^([Nn]one|NONE|нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего|n/a|N/A|-|—|–)$`)
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const NONE = re(`^(${["[Nn]one", "NONE", ...INPUT.blockedByNone.map(escRe), "n/a", "N/A", "-", "—", "–"].join("|")})$`)
 const HEAD_CUT = re(String.raw`[ \t]*(—|–|\(|\.|,|-).*$`, "s")
-const AND = re(String.raw`;|[ \t]+и[ \t]+`, "g")
+const AND = re([";", ...INPUT.blockedByAnd.map((w) => String.raw`[ \t]+${escRe(w)}[ \t]+`)].join("|"), "g")
 // Control characters are ALWAYS stripped: raw, they break both the line and JSON.
 const clean = (x) => x.replace(/[\x01-\x1f\x7f]/g, " ")
 const jstr = (x) => '"' + clean(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"'
@@ -288,8 +291,8 @@ function parse(epic, file, text) {
         const hd = v.replace(HEAD_CUT, "").replace(/[ \t]+$/, "")
         if (NONE.test(v) || NONE.test(hd)) bp = true
         else {
-            // Separators: comma, semicolon and the Russian conjunction «и» ("and"). A blocker is the
-            // leading digits of a list item: «08 — все перекладки» counts, «Пакет юристу» does not, and
+            // Separators: comma, semicolon and the word "and" of lib/input-words.json. A blocker is the
+            // leading digits of a list item: "08 — all the moves" counts, "Package for the lawyer" does not, and
             // it breaks the parse of the whole value — a quietly wrong answer is worse than a refusal.
             let okAll = true
             for (let tok of v.replace(AND, ",").split(",")) {

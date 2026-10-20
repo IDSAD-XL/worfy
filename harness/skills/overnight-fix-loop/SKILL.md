@@ -68,7 +68,7 @@ The integration branch — one per run, from a fresh base `F worktree.base` (exi
 `git symbolic-ref -q --short refs/remotes/origin/HEAD`):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 git fetch origin --prune
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 NIGHT=overnight/$(date +%F)          # the branch already exists (restart, a second session) — reuse it
@@ -84,7 +84,7 @@ a package from `FLAT` — the package directory name; when names collide — wit
 `web-catalog`). If no list is given — the most changed over 30 days:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 PK=$(F layout.packages | jq -r 'join(" ")' | tr -d '\r')
 M=$(F modules 2>/dev/null) && [ "$M" != null ] || M='{}'
@@ -94,12 +94,16 @@ DEEP=$(jq -r '.deep // [] | join(" ")' <<<"$M" | tr -d '\r'); FLAT=$(jq -r '.fla
 SRC=(); while IFS= read -r p; do SRC+=("$p/src"); done < <(F layout.packages | jq -r '.[]' | tr -d '\r')
 git log "$BASE" --since=30.days --name-only --pretty=format: -- "${SRC[@]}" \
   | awk -v pk="$PK" -v deep="$DEEP" -v flat="$FLAT" -v skip="$SKIP" '
-      BEGIN { np=split(pk,P," "); nd=split(deep,D," "); nf=split(flat,F," "); ns=split(skip,S," ") }
-      NF==0 { next }
-      { for (i=1;i<=ns;i++) if (index($0, "/" S[i] "/")) next
-        for (i=1;i<=nd;i++) if (index($0, D[i] "/")==1) { r=substr($0, length(D[i])+2); if (r ~ /\//) { sub(/\/.*/,"",r); print D[i] "/" r }; next }
-        for (i=1;i<=nf;i++) if (index($0, F[i] "/src/")==1) { print F[i] "/src"; next }
-        for (i=1;i<=np;i++) if (index($0, P[i] "/src/")==1) { r=substr($0, length(P[i])+6); if (r ~ /\//) { sub(/\/.*/,"",r); print P[i] "/src/" r }; next } }' \
+      # the module of one changed path; "" when the path is skipped or lies in no module
+      function module(l,   i, r) {
+        for (i=1;i<=ns;i++) if (index(l, "/" S[i] "/")) return ""
+        for (i=1;i<=nd;i++) if (index(l, D[i] "/")==1) { r=substr(l, length(D[i])+2); if (r !~ /\//) return ""; sub(/\/.*/,"",r); return D[i] "/" r }
+        for (i=1;i<=nf;i++) if (index(l, F[i] "/src/")==1) return F[i] "/src"
+        for (i=1;i<=np;i++) if (index(l, P[i] "/src/")==1) { r=substr(l, length(P[i])+6); if (r !~ /\//) return ""; sub(/\/.*/,"",r); return P[i] "/src/" r }
+        return ""
+      }
+      BEGIN { np=split(pk,P," "); nd=split(deep,D," "); nf=split(flat,F," "); ns=split(skip,S," ")
+        while ((getline l) > 0) if (l ~ /[^ \t]/ && (m = module(l)) != "") print m }' \
   | sort | uniq -c | sort -rn | head -8
 ```
 
@@ -153,7 +157,7 @@ module directory, plus the new file. The search runs from the package directory;
 that exist there; the test-file globs — `F tests.globs` (no field — globs following the package's test naming pattern):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 # Globs as a quoted array: that way neither bash nor zsh expands them (`set -f` in zsh does not
 # turn globbing off, and an unquoted `$INC` string is not split into words in zsh — grep got one glued glob)
 INC=(); while IFS= read -r g; do INC+=("--include=$g"); done < <(F tests.globs | jq -r '.[]' | tr -d '\r')
@@ -204,12 +208,12 @@ once, run the mutations again. A second shortfall — `FAILURE.md` listing the s
 ### 1e. Gate
 
 The gate is `gate.mjs fast`: the root lint plus `typecheck` and `test` of the changed packages. Green is exit 0
-**and** the line `[gate] зелено (…)`; exit 0 with the line «ничего не прогналось» or «окружение
-недоступно» is not a check. Exit 2 is red (`[gate] красно`). Exit 3 is unverified, neither green nor red: the line
-`[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not registered, registry unreadable,
+**and** the line `[gate] green (…)`; exit 0 with the line `[gate] nothing ran (…)` or `[gate] not
+verified — environment unavailable:` is not a check. Exit 2 is red (`[gate] red (…)`). Exit 3 is unverified, neither green nor red: the line
+`[gate] not verified: …` names the reason (project not registered, registry unreadable,
 resolver crashed). Exit 127 — node is not on PATH and the gate never started. Exit 128 + the
 signal number — 129, 130, 143, 149 (SIGHUP, SIGINT, SIGTERM, Ctrl+Break of Windows) — the gate itself
-was stopped and this run wrote nothing. A red gate, exit 3, 127, 129, 130, 143 or 149, and exit 0 without the «зелено» line — `FAILURE.md` with that line and the exit code,
+was stopped and this run wrote nothing. A red gate, exit 3, 127, 129, 130, 143 or 149, and exit 0 without the `[gate] green` line — `FAILURE.md` with that line and the exit code,
 no review, no PR, no merge. Before the gate everything is committed: the reviewer looks at the diff of the commits,
 the push in 1g sends only commits. Rebuilds that the profile section requires before
 `typecheck` and the gate — once before the gate; after each mutation — only if the section says so.
@@ -313,7 +317,7 @@ The queue is empty or the time budget is used up — first write `OVERNIGHT-REPO
 serves as the PR body; then open the PR of the night branch and wait for the checks:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 MAIN=${BASE#origin/}                 # the main branch — the target of the integration PR
 gh pr create --base "$MAIN" --head overnight/<date> --title "overnight <date>: <K> modules" \
@@ -346,7 +350,7 @@ gh pr merge <N> --merge --delete-branch      # module commits stay separate; --s
 ```
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 MAIN=${BASE#origin/}
 sha=$(gh pr view <N> --json mergeCommit -q .mergeCommit.oid)

@@ -36,6 +36,8 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # kills wave-gate (its parent) with that file's signal; $GATE_DIR/sleep — seconds to sleep; $GATE_DIR/lockwatch —
 # records the mtime of $GATE_LOCK at the start and at the end of the run; the holder.json of $GATE_LOCK during the
 # run is copied to $GATE_DIR/holder.<n>.json; $GATE_DIR/takeover — a script run first, as another agent would.
+# $GATE_DIR/fastgreen — a green line of the fast profile with exit 0; $GATE_DIR/midred — red once, with a line that
+# mentions a red verdict in its middle before the red line; $GATE_DIR/words — a script that sets the verdict words.
 cat >"$STUBS/gate" <<'EOF'
 #!/usr/bin/env bash
 # Builtins where a subshell would do: every fork costs tens of milliseconds in Git Bash, and the stub runs often.
@@ -59,28 +61,37 @@ if [ -f "$GATE_DIR/kill$n" ]; then
   sleep 1; exit 0
 fi
 [ -f "$GATE_DIR/sleep" ] && sleep "$(cat "$GATE_DIR/sleep")"
+# The verdict words: English, as the gate prints them; $GATE_DIR/old — the Russian words of the gate of the
+# release before, which wave-gate still reads.
+# shortcut: accepts the old Russian token, remove after the next release
+if [ -f "$GATE_DIR/old" ]; then green="[gate] зелено"; red="[gate] красно"; passed="прошло"; none="[gate] ничего не прогналось"; unv="[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"
+else green="[gate] green"; red="[gate] red"; passed="passed"; none="[gate] nothing ran"; unv="[gate] not verified"; fi
+[ -f "$GATE_DIR/words" ] && . "$GATE_DIR/words"
 [ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
 # $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
 # locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
 # script named in the file (test:e2e when empty) and prints what the real gate prints for it: the
-# "[gate] красно (full): <project>/<workspace>:<script> (прошло: …)" line and the last 40 lines of the script —
+# "[gate] red (full): <project>/<workspace>:<script> (passed: …)" line and the last 40 lines of the script —
 # Playwright's list of failed tests, without the "window was not shown" message that scrolled out of them.
 # They are used once, unless $GATE_DIR/keep exists. $GATE_DIR/unitonce — red once in `test` alone.
 if [ -f "$GATE_DIR/lockfor" ]; then : >"$SCREEN_DIR/locked"; sleep "$(cat "$GATE_DIR/lockfor")"; rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"; fi
 if [ -f "$GATE_DIR/lockscreen" ]; then cp "$GATE_DIR/lockscreen" "$SCREEN_DIR/locked"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/lockscreen"; fi
 if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="${script:-test:e2e}"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
-  { echo "[gate] красно (full): worfy/.:$script (прошло: worfy/.:lint worfy/.:typecheck worfy/.:test)"
+  { echo "$red (full): worfy/.:$script ($passed: worfy/.:lint worfy/.:typecheck worfy/.:test)"
     echo "The quality gate did not pass (profile: full, repository: worfy)."; echo "--- FAILED: worfy/.:$script"
     for i in $(seq 1 36); do echo "  ✘  $i [electron] › test/e2e/spec$i.spec.ts:12:3 › case $i (30.2s)"; done
     echo "  36 failed"; echo "  4 passed (19.8m)"; echo " ELIFECYCLE  Command failed with exit code 1."; } >&2; exit 2; fi
 if [ -f "$GATE_DIR/unitonce" ]; then rm -f "$GATE_DIR/unitonce"
-  echo "[gate] красно (full): worfy/.:test (прошло: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
-if [ -f "$GATE_DIR/code3" ]; then echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: stub" >&2; exit 3; fi
-if [ -f "$GATE_DIR/none" ]; then echo "[gate] ничего не прогналось (full): stub. Это не «зелено»."; exit 0; fi
+  echo "$red (full): worfy/.:test ($passed: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+if [ -f "$GATE_DIR/fastgreen" ]; then echo "$green (fast): lint"; exit 0; fi
+if [ -f "$GATE_DIR/midred" ]; then rm -f "$GATE_DIR/midred"
+  echo "  > echo \"$red (x): bogus\"" >&2; echo "$red (full): test ($passed: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+if [ -f "$GATE_DIR/code3" ]; then echo "$unv: stub" >&2; exit 3; fi
+if [ -f "$GATE_DIR/none" ]; then echo "$none (full): stub. This is not green."; exit 0; fi
 if [ -f "$GATE_DIR/redonce" ]; then rm -f "$GATE_DIR/redonce"
-  echo "[gate] красно (full): test:e2e (прошло: lint test)" >&2; echo " FAIL  test/e2e/flaky.spec.ts > opens the window" >&2; exit 2; fi
-if [ -f RED ]; then echo "[gate] красно (full): test (прошло: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
-echo "[gate] зелено (full): lint test test:e2e"
+  echo "$red (full): test:e2e ($passed: lint test)" >&2; echo " FAIL  test/e2e/flaky.spec.ts > opens the window" >&2; exit 2; fi
+if [ -f RED ]; then echo "$red (full): test ($passed: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+echo "$green (full): lint test test:e2e"
 EOF
 # The stub gh: `pr merge <N> --squash --match-head-commit <sha>` squash-merges refs/pull/<N>/head into main of
 # $GH_ORIGIN and pushes; with GH_EXTRA_AT=<N> that merge also adds a file (another tree than the checked one).
@@ -323,7 +334,7 @@ new_world flaky 1:a.txt 2:b.txt
 S="$W/state.json"; state "$S" null 1 2; touch "$GATE_DIR/redonce"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 2 ] && ok "flaky: status green after a green repeat (2 runs)" || bad "flaky: exit $rc status $(q "$S" s.status) runs $(gate_count)"
-[[ "$(q "$S" s.flaky)" == *"test/e2e/flaky.spec.ts > opens the window"* && "$(q "$S" s.flaky)" == *"test:e2e"* ]] && ok "flaky: the failing tests of the first run are recorded" || bad "flaky: $(q "$S" s.flaky 2>&1)"
+[[ "$(q "$S" s.flaky)" == *"test/e2e/flaky.spec.ts > opens the window"* && "$(q "$S" s.flaky)" == *"test:e2e"* && "$(q "$S" s.flaky)" != *"lint"* ]] && ok "flaky: the failing tests and scripts of the first run are recorded, not the passed ones" || bad "flaky: $(q "$S" s.flaky 2>&1)"
 
 # --- could not verify: code 3 and "nothing ran" ------------------------------------------
 for mode in code3 none; do
@@ -339,6 +350,58 @@ done
 rm -f "$GATE_DIR/none"
 "$WG" check "$S" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "unverified: check again, now green" || bad "unverified: second check exit $rc status $(q "$S" s.status)"
+
+# --- the Russian verdict lines of the gate of the release before --------------------------------
+# shortcut: accepts the old Russian token, remove after the next release
+new_world oldgreen 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "old gate: the Russian green line is green" || bad "old gate green: exit $rc status $(q "$S" s.status 2>&1): $(cat "$W/out")"
+new_world oldflaky 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old" "$GATE_DIR/redonce"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [[ "$(q "$S" s.flaky)" == *"test:e2e"* && "$(q "$S" s.flaky)" != *"lint"* ]] \
+    && ok "old gate: the failed scripts are read from the Russian red line, without the passed ones" || bad "old gate red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
+new_world oldnone 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old" "$GATE_DIR/none"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && ok "old gate: the Russian «nothing ran» line is not green" || bad "old gate none: exit $rc status $(q "$S" s.status 2>&1)"
+
+# --- what the verdict lines must hold to count ------------------------------------------------
+# A green line of another profile is not the green of `gate full`.
+new_world fastgreen 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/fastgreen"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && ok "a green line of the fast profile with exit 0 is unverified, not green" || bad "fast green: exit $rc status $(q "$S" s.status 2>&1)"
+# A line that mentions a red verdict in its middle is not the red line of the gate.
+new_world midred 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/midred"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.flaky.scripts.join(" ")')" = test ] \
+    && ok "the failed scripts come from the line that starts with the red verdict, not from a line that mentions it" || bad "mid-line red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
+# The words wave-gate reads are the words harness/hooks/gate.mjs prints: the stub prints lines built from the
+# literals of gate.mjs, so a word renamed there and not here turns these checks red.
+GATE_MJS="${GATE_MJS:-$HARNESS/hooks/gate.mjs}"
+words="$(node -e '
+const s = require("fs").readFileSync(process.argv[1], "utf8")
+const g = s.match(/say\("\[gate\] ([^"(]+?) \(" \+ PROFILE \+ "\):" \+ ran\)/)
+const r = s.match(/complain\("\[gate\] ([^"(]+?) \(" \+ PROFILE \+ "\):" \+ failedLabels/)
+const p = s.match(/" \(([^":(]+):" \+ ran \+ "\)"/)
+if (!g || !r || !p) process.exit(1)
+process.stdout.write([g[1], r[1], p[1]].join("\n") + "\n")' "$GATE_MJS" | tr -d '\r')"; rc=$?
+{ read -r GW; read -r RW; read -r PW; } <<<"$words"
+[ "$rc" -eq 0 ] && [ -n "$GW" ] && [ -n "$RW" ] && [ -n "$PW" ] && ok "gate.mjs: the green, red and passed words are found ($GW, $RW, $PW)" || bad "gate.mjs: words not found (exit $rc): $words"
+new_world gatewords 1:a.txt
+printf 'green=%q; red=%q; passed=%q\n' "[gate] $GW" "[gate] $RW" "$PW" >"$GATE_DIR/words"
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "gate.mjs words: its green line of gate full is green" || bad "gate.mjs green: exit $rc status $(q "$S" s.status 2>&1): $(cat "$W/out")"
+new_world gatewordsred 1:a.txt
+printf 'green=%q; red=%q; passed=%q\n' "[gate] $GW" "[gate] $RW" "$PW" >"$GATE_DIR/words"; touch "$GATE_DIR/redonce"
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.flaky.scripts.join(" ")')" = test:e2e ] \
+    && ok "gate.mjs words: the failed scripts are read from its red line, without the passed ones" || bad "gate.mjs red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
 
 # --- resume: a run broken off after the first gate full ----------------------------------
 new_world resume 1:a.txt 2:b.txt 3:RED 4:d.txt 5:e.txt
@@ -885,22 +948,30 @@ BE="$(block 'printf '"'"'{"prs":[%s],"what":"gate-full"')"
 LOCK_POLL=$'\n    sleep 20\n' LOCK_FAST=$'\n    sleep 0.2; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 50 ] || exit 98\n'
 [[ "$BE" == *"until mkdir \"\$L\""*"$LOCK_POLL"*"  done"* ]] && ok "skill blocks: the one-PR gate full block polls the e2e lock every 20 s" \
     || bad "skill blocks: the one-PR gate full block has no 'sleep 20' in its until mkdir loop"
+# The exit code of a run of the block, for a failed check. Exit 98 is the fast poll giving up: the lock was never taken.
+why() { [ "$1" -eq 98 ] && echo "exit 98, the lock was never taken" || echo "exit $1"; }
 for sh in "${SHELLS[@]}"; do
     new_world "each-$sh" 1:a.txt
     L="$W/e2e.lock"; export GATE_LOCK="$L"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
     b="${BE//<N>/5}"; b="${b//<PR worktree>/$W/repo}"; b="${b//<repo>/$W/repo}"; b="${b/"$LOCK_POLL"/$LOCK_FAST}"
     b="${b//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    # Without the fast poll both runs below would wait the real 20 s polls, and the whole file would run out
+    # of its time instead of failing this one check.
+    if [[ "$b" != *"$LOCK_FAST"* ]]; then
+        bad "$sh: the one-PR gate full block: the fast lock poll could not be put in place of 'sleep 20', the block is not run"
+        unset GATE_LOCK; continue
+    fi
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
     h="$GATE_DIR/holder.1.json"
     [[ "$got" == *"EXIT=0"* ]] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+(typeof s.pid)')" = "5 gate-full number" ] \
-        && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block: [$got] holder $(cat "$h" 2>/dev/null)"
+        && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block, $(why "$rc"): [$got] holder $(cat "$h" 2>/dev/null)"
     [ ! -e "$L" ] && ok "$sh: the one-PR gate full block: the lock and its holder.json are gone after it" || bad "$sh: the one-PR block left [$(ls -A "$L" 2>&1)]"
     # an abandoned lock with someone's holder.json is taken over
     mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
     [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$GATE_DIR/holder.2.json" 's.prs.join(",")' 2>&1)" = 5 ] && [ ! -e "$L" ] \
-        && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock: [$got]"
+        && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock, $(why "$rc"): [$got]"
     unset GATE_LOCK
 done
 

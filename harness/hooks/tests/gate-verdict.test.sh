@@ -19,7 +19,9 @@
 #   - an error inside the gate leaves the nokey-broken marker that stop.mjs reads;
 #   - node not found: the answer is the one of the launcher gate.sh;
 #   - a worktree path with a space, a quote and a backslash still gives a parseable file;
-#   - a second run overwrites the file; no temporary files are left in the state folder.
+#   - a second run overwrites the file; no temporary files are left in the state folder;
+#   - the verdict lines are English: «[gate] green (…)» («(cache)» on a hit), «[gate] red (…): … (passed: …)»,
+#     «[gate] nothing ran (…)», «[gate] not verified: …» and «[gate] not verified — environment unavailable:».
 # Run: bash harness/hooks/tests/gate-verdict.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -195,13 +197,13 @@ out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "green run -> outcome green, exit 0, profile fast, key t, head" "$R" \
     '.outcome == "green" and .exit == 0 and .profile == "fast" and .key == "t" and .head == $head' --arg head "$HEAD_R"
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && [[ "$out" == *"(кэш)"* ]]; then ok "second green run is a cache hit"; else bad "cache hit expected (rc=$rc, out: ${out:0:200})"; fi
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"*" (cache)"* ]]; then ok "second green run is a cache hit: the «[gate] green (fast): … (cache)» line"; else bad "cache hit expected (rc=$rc, out: ${out:0:200})"; fi
 verdict "green from cache -> outcome green, exit 0" "$R" '.outcome == "green" and .exit == 0 and .key == "t"'
 # The green of the cache is the green of that content. `touched` adds a file git does not track;
 # here a tracked file is edited, and the script must run again.
 echo '{ "name": "fixture", "scripts": { "check": "true" }, "edited": true }' >"$R/package.json"
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]] && [[ "$out" != *"(кэш)"* ]]; then ok "an edit of a tracked file misses the cache: the script runs again"
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]] && [[ "$out" != *"(cache)"* ]]; then ok "an edit of a tracked file misses the cache: the script runs again"
 else bad "an edit of a tracked file: a fresh run expected (rc=$rc, out: ${out:0:300})"; fi
 git -C "$R" checkout -q -- package.json
 
@@ -213,7 +215,7 @@ verdict "red run (full) -> outcome red, exit 2, profile full" "$R" '.outcome == 
 if [ -s "$STATE/red-t-$(tag "$R")" ]; then ok "red run leaves the red marker of the worktree"; else bad "red run: no red marker (state: $(ls "$STATE" | tr '\n' ' '))"; fi
 # Only green is cached: the same content checked again is run again, and is red again.
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (full): t/.:check"* ]]; then ok "a red run repeated with no change is red again, not a cache hit"
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] red (full): t/.:check"* ]]; then ok "a red run repeated with no change is red again, not a cache hit"
 else bad "a red run repeated with no change: rc=$rc, out: ${out:0:300}"; fi
 verdict "a red run repeated with no change -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .profile == "full"'
 mode ok; touched
@@ -234,7 +236,7 @@ mode second-bad
 echo 1 >"$D/n.txt"
 out="$(cd "$D" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a profile of two scripts, the second fails -> outcome red, exit 2" "$D" '.outcome == "red" and .exit == 2 and .key == "d"'
-if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): d/.:second (прошло: d/.:check)"* ]]; then ok "two scripts: the line names the second as failed and the first as passed"
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] red (fast): d/.:second (passed: d/.:check)"* ]]; then ok "two scripts: the line names the second as failed and the first as passed"
 else bad "two scripts: rc=$rc, out: ${out:0:300}"; fi
 mode ok
 # Every package of the plan is run, not only the first one. The root script goes through the
@@ -251,19 +253,33 @@ else
 fi
 out="$(cd "$K" && PATH="$npmbad" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "two packages in the plan, the second fails -> outcome red, exit 2" "$K" '.outcome == "red" and .exit == 2 and .key == "k"'
-if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): k/packages/a:check (прошло: k/.:check)"* ]]; then ok "two packages: the line names the second as failed and the first as passed"
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] red (fast): k/packages/a:check (passed: k/.:check)"* ]]; then ok "two packages: the line names the second as failed and the first as passed"
 else bad "two packages: rc=$rc, out: ${out:0:300}"; fi
 # The run is red, and still the package whose scripts all passed is green for its content: its
 # cache entry is written, the failed package gets none.
 k_cache="$(cd "$STATE/cache" && ls | grep "^k__$(tag "$K")__" | tr '\n' ' ')"
 if [[ "$k_cache" == "k__$(tag "$K")__.__fast__"*" " ]] && [[ "$k_cache" != *"__packages_a__"* ]]; then ok "two packages, the second fails: the root that passed is cached, packages/a is not"
 else bad "two packages, the second fails: cache entries of k: ${k_cache:-none}"; fi
+# The next run with an npm that passes: the root comes from the cache, packages/a runs. The green line
+# names the scripts that ran and, after them, the ones the cache answered for.
+mkdir -p "$T/npmok"
+if [ "$WIN" -eq 1 ]; then
+    printf '@echo off\r\nexit /b 0\r\n' >"$T/npmok/npm.cmd"
+    npmok="$(cygpath -u "$T/npmok"):$PATH"
+else
+    printf '#!/bin/sh\nexit 0\n' >"$T/npmok/npm"
+    chmod +x "$T/npmok/npm"
+    npmok="$T/npmok:$PATH"
+fi
+out="$(cd "$K" && PATH="$npmok" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): k/packages/a:check (cache: k/.:check)"* ]]; then ok "one package from the cache, one run: the «[gate] green (fast): … (cache: …)» line"
+else bad "one package from the cache, one run: rc=$rc, out: ${out:0:300}"; fi
 # A package manager that is there but cannot be started has checked nothing: that is not a
 # script that passed.
 echo 1 >"$N/n.txt"
 out="$(cd "$N" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "a package manager that cannot be started -> outcome red, exit 2" "$N" '.outcome == "red" and .exit == 2 and .key == "n"'
-if [ "$rc" -eq 2 ] && [[ "$out" != *"[gate] зелено"* ]]; then ok "a package manager that cannot be started: exit 2, no green line"
+if [ "$rc" -eq 2 ] && [[ "$out" != *"[gate] green"* ]]; then ok "a package manager that cannot be started: exit 2, no green line"
 else bad "a package manager that cannot be started: rc=$rc, out: ${out:0:300}"; fi
 
 # --- 3. Environment unavailable ------------------------------------------------------
@@ -276,6 +292,9 @@ verdict "environment unavailable: the reason ends with the words of the script, 
 um="$STATE/unverified-t-$(tag "$R")"
 if [ -s "$um" ] && ! grep -q "$(printf '\r')" "$um" && [[ "$out" != *"$(printf '\r')"* ]]; then ok "environment unavailable: no carriage return in the marker or in the lines of the gate"
 else bad "a carriage return in the marker or the output (marker: $(od -c "$um" 2>/dev/null | head -n 5 | tr '\n' ' '))"; fi
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] not verified — environment unavailable:"* && "$out" == *"This is not a green result."* && "$out" != *"[gate] green"* ]]; then
+    ok "environment unavailable: exit 0 and the English «[gate] not verified — environment unavailable:» line"
+else bad "environment unavailable: the «not verified — environment unavailable» line expected (rc=$rc, out: ${out:0:300})"; fi
 # cmd.exe names a missing tool in its own words. They are a sign of a missing environment on
 # Windows only: elsewhere no shell says them, and a failed script that prints them has failed.
 mode envbad-cmd; touched
@@ -283,11 +302,11 @@ out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 if [ "$WIN" -eq 1 ]; then
     verdict "environment unavailable in the words of cmd.exe -> outcome unverified, exit 0" "$R" \
         '.outcome == "unverified" and .exit == 0 and (.reason | contains("is not recognized as an internal or external command"))'
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "the words of cmd.exe: exit 0 and the «окружение недоступно» line"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] not verified — environment unavailable:"* ]]; then ok "the words of cmd.exe: exit 0 and the «environment unavailable» line"
     else bad "the words of cmd.exe: rc=$rc, out: ${out:0:300}"; fi
 else
     verdict "the words of cmd.exe off Windows are the output of a failed script -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .key == "t"'
-    if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast): t/.:check"* ]]; then ok "the words of cmd.exe off Windows: exit 2 and the «красно» line"
+    if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] red (fast): t/.:check"* ]]; then ok "the words of cmd.exe off Windows: exit 2 and the «red» line"
     else bad "the words of cmd.exe off Windows: rc=$rc, out: ${out:0:300}"; fi
 fi
 # The same words next to a report of a failed test: the tests did run, so the run is red.
@@ -341,13 +360,13 @@ if [ "$WIN" -eq 1 ]; then
     out="$(cd "$C" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
     verdict "cmd.exe itself names a missing tool -> outcome unverified, exit 0, the English sign" "$C" \
         '.outcome == "unverified" and .exit == 0 and .key == "c" and (.reason | contains("is not recognized as an internal or external command"))'
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:"* ]]; then ok "cmd.exe itself names a missing tool: exit 0 and the «окружение недоступно» line"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] not verified — environment unavailable:"* ]]; then ok "cmd.exe itself names a missing tool: exit 0 and the «environment unavailable» line"
     else bad "cmd.exe itself names a missing tool: rc=$rc, out: ${out:0:400}"; fi
 
     # (b) ComSpec may name another shell (PowerShell): the gate starts cmd.exe of the system anyway.
     mode ok; touched
     out="$(cd "$R" && COMSPEC=powershell.exe GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]]; then ok "ComSpec names PowerShell: the script still runs, green"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]]; then ok "ComSpec names PowerShell: the script still runs, green"
     else bad "ComSpec names PowerShell: rc=$rc, out: ${out:0:300}"; fi
 
     # (c) A word with a space (the folder of the package manager) and a word with `&` (the script
@@ -381,10 +400,10 @@ if [ "$WIN" -eq 1 ]; then
     printf '@exit /b 0\r\n' >"$T/npmbin/npm.cmd"
     npmfirst="$(cygpath -u "$T/npmbin"):$PATH"
     out="$(cd "$S" && PATH="$npmfirst" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): s/packages\a:check'* ]]; then ok "a workspace entry with a backslash: the script runs, green"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] green (fast): s/packages\a:check'* ]]; then ok "a workspace entry with a backslash: the script runs, green"
     else bad "a workspace entry with a backslash: rc=$rc, out: ${out:0:400}"; fi
     out="$(cd "$S" && PATH="$npmfirst" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"(кэш)"* ]]; then ok "a workspace entry with a backslash: the second run is a cache hit"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"(cache)"* ]]; then ok "a workspace entry with a backslash: the second run is a cache hit"
     else bad "a workspace entry with a backslash: no cache hit (rc=$rc, out: ${out:0:400})"; fi
     if [ -n "$(find "$STATE/cache" -maxdepth 1 -type f -name 's__*__packages_a__fast__*')" ] && [ -z "$(find "$STATE/cache" -mindepth 1 -type d)" ]; then
         ok "the cache file of that entry is a plain file in the cache folder"
@@ -404,7 +423,7 @@ if [ "$WIN" -eq 1 ]; then
         process.exit(run.status === 0 ? 0 : 1)' "$T/cp.cmd" "$R"
     page() { tr -cd '0-9' <"$T/cp-$1.txt" 2>/dev/null; }
     if [ "$(page before)" != 437 ]; then echo "skip the check of the console of the gate: it did not take code page 437 (it says: $(page before))"
-    elif [[ "$(cat "$T/cp-gate.out" 2>/dev/null)" != *"[gate] зелено (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-gate.out")" == *"(кэш)"* ]]; then
+    elif [[ "$(cat "$T/cp-gate.out" 2>/dev/null)" != *"[gate] green (fast): t/.:check"* ]] || [[ "$(cat "$T/cp-gate.out")" == *"(cache)"* ]]; then
         bad "the console of the gate: the gate did not start the script (out: $(head -c 300 "$T/cp-gate.out" 2>/dev/null))"
     elif [ "$(page after)" = 437 ]; then ok "the console the gate was started in keeps its code page (437 before and after)"
     else bad "the gate changed the code page of the console it was started in: 437 before, $(page after) after"; fi
@@ -431,7 +450,7 @@ if [ "$WIN" -eq 1 ]; then
     took=$(( $(date +%s) - began ))
     for _ in $(seq 1 50); do [ -s "$T/sp dir/left.pid" ] && break; sleep 0.1; done
     node -e 'try { process.kill(Number(require("node:fs").readFileSync(process.argv[1], "utf8"))) } catch {}' "$T/sp dir/left.pid"
-    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] зелено (fast): a/.:x&y'* ]] && [ "$took" -lt 60 ]; then ok "a process the script left behind does not hold the gate"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *'[gate] green (fast): a/.:x&y'* ]] && [ "$took" -lt 60 ]; then ok "a process the script left behind does not hold the gate"
     else bad "a process left behind: rc=$rc, the gate took $took s (the process lives for 120), out: ${out:0:300}"; fi
 
     # (i) A command line longer than cmd.exe takes is not started: cut to nothing, it would end
@@ -458,7 +477,7 @@ out="$(cd "$R" && GATE_SCOPE=all REAL_RESOLVE="$REAL_RESOLVE" CLAUDE_GATE_RESOLV
 verdict "plan resolver crashed -> outcome unverified, exit 3, key t" "$R" '.outcome == "unverified" and .exit == 3 and .key == "t"'
 # A resolver that exits with a code is named by that code: in the line, the reason and the marker.
 verdict "plan resolver crashed -> the reason names its exit code" "$R" '.reason == "the plan resolver gate-resolve.mjs exited with code 5"'
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер плана gate-resolve.mjs завершился с кодом 5 — "* ]] \
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the plan resolver gate-resolve.mjs exited with code 5 — "* ]] \
     && grep -qF "Could not verify: the plan resolver exited with code 5." "$STATE/unverified-t-$(tag "$R")" 2>/dev/null; then
     ok "plan resolver crashed: exit 3, the line and the unverified marker name exit code 5"
 else bad "plan resolver crashed: rc=$rc, marker: $(head -c 200 "$STATE/unverified-t-$(tag "$R")" 2>/dev/null), out: ${out:0:300}"; fi
@@ -468,7 +487,7 @@ printf '#!/usr/bin/env node\nthrow new Error("boom")\n' >"$T/crash.mjs"
 out="$(cd "$R" && CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "registry resolver crashed -> outcome unverified, exit 3, key null" "$R" '.outcome == "unverified" and .exit == 3 and .key == null'
 verdict "registry resolver crashed -> the reason names exit code 1, then the first line of its stderr" "$R" '.reason | startswith("the registry resolver gate-resolve.mjs exited with code 1: ")'
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер gate-resolve.mjs завершился с кодом 1"* ]]; then ok "registry resolver crashed: exit 3, the line names exit code 1"
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the registry resolver gate-resolve.mjs exited with code 1"* ]]; then ok "registry resolver crashed: exit 3, the line names exit code 1"
 else bad "registry resolver crashed: rc=$rc, out: ${out:0:300}"; fi
 out="$(cd "$U" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "not registered -> outcome unverified, exit 3, key null" "$U" '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast"'
@@ -498,15 +517,33 @@ if [ -z "$NONODE" ]; then echo "skip the node-missing check: $why"; else
     out="$(cd "$R" && HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$HOOKS/gate.sh" fast </dev/null 2>&1)"; rc=$?
     verdict "node not found -> outcome unverified, exit 3, key null, in place of the green file" "$R" \
         '.outcome == "unverified" and .exit == 3 and .key == null and .profile == "fast" and .reason == "node not found" and .head == $head' --arg head "$HEAD_R"
-    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]] && grep -q "node не найден" "$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then ok "node not found: exit 3, the «node не найден» line and the marker of the worktree"
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: node not found"* ]] && grep -q "node not found" "$STATE/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then ok "node not found: exit 3, the «node not found» line and the marker of the worktree"
     else bad "node not found: rc=$rc, out: ${out:0:300}, state: $(ls "$STATE" | tr '\n' ' ')"; fi
 fi
 
 # --- 7. Nothing ran ------------------------------------------------------------------
 out="$(cd "$Q" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "no changes from the merge-base -> outcome none, exit 0, key q" "$Q" '.outcome == "none" and .exit == 0 and .key == "q"'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (fast): no changes relative to the merge-base "*" with "*". This is not green."* ]]; then ok "no changes: exit 0 and the English «[gate] nothing ran (fast)» line"
+else bad "no changes: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
+# The registry names no script of the profile full for q: the resolver plans no package.
 out="$(cd "$Q" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
-verdict "no scripts of the profile -> outcome none, exit 0, profile full" "$Q" '.outcome == "none" and .exit == 0 and .profile == "full"'
+verdict "a profile with no script for the repository -> outcome none, exit 0, profile full" "$Q" '.outcome == "none" and .exit == 0 and .profile == "full"'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (full): the changes touch no checked package. This is not green."* ]]; then ok "no package in the plan: exit 0 and the English «[gate] nothing ran (full): the changes touch no checked package» line"
+else bad "no package in the plan: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
+# A package in the plan with no script of the profile (a resolver that gives the root with an empty list of
+# scripts): the gate checks nothing and says so.
+cat >"$T/plan-noscripts.mjs" <<EOF
+import { spawnSync } from "node:child_process"
+if (process.argv[2] !== "--which") { process.stdout.write(".\t\t\n"); process.exit(0) }
+const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+out="$(cd "$Q" && GATE_SCOPE=all REAL_RESOLVE="$REAL_RESOLVE" CLAUDE_GATE_RESOLVE="$T/plan-noscripts.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a package with no script of the profile -> outcome none, exit 0, the reason says so" "$Q" \
+    '.outcome == "none" and .exit == 0 and .reason == "the selected packages have no scripts of the profile"'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (fast): the selected packages have no scripts of the profile. This is not green."* ]]; then ok "a package with no script of the profile: exit 0 and the English «[gate] nothing ran (fast)» line"
+else bad "a package with no script of the profile: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
 
 # --- 8. A path with a space, quotes and a backslash ----------------------------------
 out="$(cd "$W" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
@@ -537,7 +574,7 @@ require("node:module").syncBuiltinESMExports()
 EOF
 mode bad; touched
 out="$(cd "$R" && GATE_SCOPE=all NODE_OPTIONS="--require \"$T/full-disk.cjs\"" node "$GATE" fast </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] красно (fast)"* ]]; then ok "failed write: the gate still says red, exit 2"
+if [ "$rc" -eq 2 ] && [[ "$out" == *"[gate] red (fast)"* ]]; then ok "failed write: the gate still says red, exit 2"
 else bad "failed write: rc=$rc, out: ${out:0:300}"; fi
 if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "failed write: the previous green file is gone"
 else bad "failed write: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
@@ -598,8 +635,8 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
         out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
         verdict "a script ended by a signal ($how) -> outcome red, exit 2" "$R" '.outcome == "red" and .exit == 2 and .key == "t"'
         sig=SIGTERM; [ "$how" = kill9 ] && sig=SIGKILL
-        if [ "$rc" -eq 2 ] && [ -s "$STATE/red-t-$(tag "$R")" ] && [[ "$out" == *"[gate] красно (fast): t/.:check"* ]] && [[ "$out" == *"ended by the signal $sig"* ]]; then
-            ok "a script ended by a signal ($how): exit 2, the red marker, the «красно» line, the report names $sig"
+        if [ "$rc" -eq 2 ] && [ -s "$STATE/red-t-$(tag "$R")" ] && [[ "$out" == *"[gate] red (fast): t/.:check"* ]] && [[ "$out" == *"ended by the signal $sig"* ]]; then
+            ok "a script ended by a signal ($how): exit 2, the red marker, the «red» line, the report names $sig"
         else
             bad "a script ended by a signal ($how): rc=$rc, red marker: $(ls "$STATE" | grep -c '^red-t-'), out: ${out:0:400}"
         fi
@@ -613,7 +650,7 @@ if [ "$WIN" -eq 1 ]; then echo "skip the signal checks: Windows has no SIGTERM f
         local d="$1" want="$2" key="$4" before="$5" t
         t="$(tag "$3")"
         if [ "$rc" -eq "$want" ] && [ ! -e "$STATE/red-$key-$t" ] && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(cachesum)" = "$before" ] \
-            && [[ "$out" != *"[gate] красно"* && "$out" != *"[gate] зелено"* ]]; then
+            && [[ "$out" != *"[gate] red"* && "$out" != *"[gate] green"* ]]; then
             ok "$d: exit $want, no verdict line, no red marker, no verdict file, no cache entry"
         else
             bad "$d: rc=$rc (expected $want), red marker: $(ls "$STATE" | grep -c "^red-$key-$t"), verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), cache: $(cachesum) (before: $before), out: ${out:0:300}"
@@ -798,14 +835,14 @@ EOF
     untouched() {
         local t; t="$(tag "$3")"
         if [ "$rc" -eq "$2" ] && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(statesum)" = "$4" ] \
-            && [[ "$out" != *"[gate] зелено"* && "$out" != *"[gate] красно"* && "$out" != *"[gate] ничего не прогналось"* && "$out" != *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"* ]]; then
+            && [[ "$out" != *"[gate] green"* && "$out" != *"[gate] red"* && "$out" != *"[gate] nothing ran"* && "$out" != *"[gate] not verified"* ]]; then
             ok "$1: exit $2, no verdict line, no verdict file, the state folder as it was"
         else
             bad "$1: rc=$rc (expected $2), verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), state folder changed: $([ "$(statesum)" = "$4" ] && echo no || echo yes), out: ${out:0:300}"
         fi
     }
     # couldnt <description> <worktree> <state before> <text> [nomarker]: the run said «[gate]
-    # ПРОВЕРИТЬ НЕ УДАЛОСЬ: <text>» with code 3, no green and no "nothing ran", left no verdict file
+    # not verified: <text>» with code 3, no green and no "nothing ran", left no verdict file
     # and wrote nothing but the marker nokey-broken-<tag>-anon with <text>, which stop.mjs reads.
     # With nomarker it wrote no marker either (git ended before the gate knows the worktree). The
     # marker is removed after the check.
@@ -815,9 +852,9 @@ EOF
         else grep -qF "$4" "$m" 2>/dev/null || marked=no; fi
         local marker; marker="$(head -c 200 "$m" 2>/dev/null)"
         rm -f "$m"
-        if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $4"* ]] && [[ "$out" != *"[gate] зелено"* && "$out" != *"[gate] ничего не прогналось"* ]] \
+        if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: $4"* ]] && [[ "$out" != *"[gate] green"* && "$out" != *"[gate] nothing ran"* ]] \
             && [ "$marked" = yes ] && [ ! -e "$STATE/verdict-$t.json" ] && [ "$(statesum)" = "$3" ]; then
-            ok "$1: exit 3, «ПРОВЕРИТЬ НЕ УДАЛОСЬ: $4», $([ "${5:-}" = nomarker ] && echo "no marker" || echo "the nokey-broken marker"), nothing else written"
+            ok "$1: exit 3, «not verified: $4», $([ "${5:-}" = nomarker ] && echo "no marker" || echo "the nokey-broken marker"), nothing else written"
         else
             bad "$1: rc=$rc, marker: ${marker:-none}, verdict: $(head -c 200 "$STATE/verdict-$t.json" 2>/dev/null), state folder changed: $([ "$(statesum)" = "$3" ] && echo no || echo yes), out: ${out:0:300}"
         fi
@@ -905,7 +942,7 @@ EOF
     at which child "$R" node GATE_SCOPE=all
     verdict "the resolver (which) ended by a signal the gate did not get -> outcome unverified, exit 3" "$R" \
         '.outcome == "unverified" and .exit == 3 and .key == null and (.reason | startswith("the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"))'
-    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$STATE/nokey-broken-$(tag "$R")-anon" ]; then
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$STATE/nokey-broken-$(tag "$R")-anon" ]; then
         ok "the resolver (which) ended alone: exit 3, the line names the signal, the marker of a crashed resolver"
     else bad "the resolver (which) ended alone: rc=$rc, out: ${out:0:300}"; fi
     rm -f "$STATE/nokey-broken-$(tag "$R")-anon"
@@ -991,8 +1028,8 @@ require("node:module").syncBuiltinESMExports()
 EOF
 touched
 out="$(cd "$R" && GATE_SCOPE=all NODE_OPTIONS="--require \"$T/boom.cjs\"" node "$GATE" fast </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: boom of the test"* ]] && [[ "$out" != *"the second line of the error"* ]] && [[ "$out" != *"    at "* ]]; then
-    ok "an error inside the gate: exit 3 and one «ПРОВЕРИТЬ НЕ УДАЛОСЬ» line, no stack trace"
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: boom of the test"* ]] && [[ "$out" != *"the second line of the error"* ]] && [[ "$out" != *"    at "* ]]; then
+    ok "an error inside the gate: exit 3 and one «not verified» line, no stack trace"
 else bad "an error inside the gate: rc=$rc, out: ${out:0:400}"; fi
 if [ ! -e "$STATE/verdict-$(tag "$R").json" ]; then ok "an error inside the gate: no verdict file"
 else bad "an error inside the gate: the file is left: $(head -c 300 "$STATE/verdict-$(tag "$R").json")"; fi
@@ -1005,7 +1042,7 @@ else bad "an error inside the gate: marker: $(head -c 300 "$STATE/nokey-broken-$
 echo "of another session" >"$STATE/nokey-broken-$(tag "$R")-other"
 touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено"* ]] && [ ! -e "$STATE/nokey-broken-$(tag "$R")-anon" ] && [ -s "$STATE/nokey-broken-$(tag "$R")-other" ]; then
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green"* ]] && [ ! -e "$STATE/nokey-broken-$(tag "$R")-anon" ] && [ -s "$STATE/nokey-broken-$(tag "$R")-other" ]; then
     ok "a green run after an error inside the gate: the nokey-broken marker of its session is gone, another session's stays"
 else bad "a green run after an error inside the gate: rc=$rc, markers: $(ls "$STATE" | grep "^nokey-broken-$(tag "$R")" | tr '\n' ' '), out: ${out:0:200}"; fi
 rm -f "$STATE/nokey-broken-$(tag "$R")-anon" "$STATE/nokey-broken-$(tag "$R")-other"
@@ -1136,7 +1173,7 @@ touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "before git rev-parse --git-common-dir ends alone: a green file" "$R" '.outcome == "green"'
 fake "$R" signal "rev-parse --git-common-dir" GATE_SCOPE=all
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git rev-parse --git-common-dir was ended by the signal SIGTERM"* ]] && [ ! -e "$VR" ]; then
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: git rev-parse --git-common-dir was ended by the signal SIGTERM"* ]] && [ ! -e "$VR" ]; then
     ok "git rev-parse --git-common-dir ended alone: exit 3, the line, the green file of the run before is removed"
 else bad "git rev-parse --git-common-dir ended alone: rc=$rc, verdict: $(head -c 200 "$VR" 2>/dev/null), out: ${out:0:300}"; fi
 if grep -qF "git rev-parse --git-common-dir was ended by the signal SIGTERM. The gate itself failed" "$MR" 2>/dev/null; then ok "git rev-parse --git-common-dir ended alone: the nokey-broken marker"
@@ -1146,13 +1183,13 @@ rm -f "$MR"
 # verdict file nor the tag, so both stay as they are (the header of gate.mjs says so).
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 fake "$R" signal "rev-parse --show-toplevel" GATE_SCOPE=all
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git rev-parse --show-toplevel was ended by the signal SIGTERM"* ]] && [ -e "$VR" ] && [ ! -e "$MR" ]; then
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: git rev-parse --show-toplevel was ended by the signal SIGTERM"* ]] && [ -e "$VR" ] && [ ! -e "$MR" ]; then
     ok "git rev-parse --show-toplevel ended alone: exit 3, the line; the verdict file of the run before stays, no marker"
 else bad "git rev-parse --show-toplevel ended alone: rc=$rc, verdict file: $([ -e "$VR" ] && echo there || echo gone), marker: $([ -e "$MR" ] && echo there || echo none), out: ${out:0:300}"; fi
 # (d) git whose output went past the limit: Node ended it, no signal came from outside.
 touched
 fake "$R" enobufs "status --porcelain" GATE_SCOPE=all
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git -c core.quotePath=false status --porcelain wrote more output than the gate reads, and Node ended it"* ]] \
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: git -c core.quotePath=false status --porcelain wrote more output than the gate reads, and Node ended it"* ]] \
     && [[ "$out" != *"was ended by the signal"* ]] && [ ! -e "$VR" ] && [ -s "$MR" ]; then
     ok "git with output past the limit: exit 3, the line says so and names no signal, no verdict file, the marker"
 else bad "git with output past the limit: rc=$rc, out: ${out:0:300}"; fi
@@ -1162,7 +1199,7 @@ rm -f "$MR"
 touched
 out="$(cd "$R" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
 fake "$R" enobufs-pending "status --porcelain" GATE_SCOPE=all
-if [ "$rc" -eq 143 ] && [ ! -e "$MR" ] && [ ! -e "$VR" ] && [[ "$out" != *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"* ]]; then
+if [ "$rc" -eq 143 ] && [ ! -e "$MR" ] && [ ! -e "$VR" ] && [[ "$out" != *"[gate] not verified"* ]]; then
     ok "git past the output limit while the gate was told to stop: exit 143, no marker, no verdict file, no line"
 else bad "git past the output limit while the gate was told to stop: rc=$rc (expected 143), marker: $([ -e "$MR" ] && echo there || echo none), out: ${out:0:300}"; fi
 rm -f "$MR"
@@ -1185,13 +1222,13 @@ if [ "$(waitcount)" = 1 ]; then ok "the resolver (which) ended by a signal alone
 else bad "the resolver (which) ended by a signal alone: waits of 0.5 s: $(waitcount)"; fi
 verdict "the resolver (which) ended by a signal alone -> unverified, the reason names the signal" "$R" \
     '.outcome == "unverified" and .exit == 3 and .key == null and .reason == "the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"'
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$MR" ]; then
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the registry resolver gate-resolve.mjs was ended by the signal SIGTERM"* ]] && [ -s "$MR" ]; then
     ok "the resolver (which) ended by a signal alone: exit 3, the line names the signal, the marker"
 else bad "the resolver (which) ended by a signal alone: rc=$rc, out: ${out:0:300}"; fi
 rm -f "$MR"
 rm -f "$T/waits"
 fake "$R" enobufs "--which" GATE_SCOPE=all GATE_FAKE_WAITS="$T/waits"
-if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the registry resolver gate-resolve.mjs wrote more output than the gate reads"* ]]; then
+if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the registry resolver gate-resolve.mjs wrote more output than the gate reads"* ]]; then
     ok "the resolver (which) past the output limit: exit 3, the line says so"
 else bad "the resolver (which) past the output limit: rc=$rc, out: ${out:0:300}"; fi
 # The reason is exactly that: not the "spawnSync ENOBUFS" of Node's error. And no signal came from
@@ -1212,7 +1249,7 @@ for how in signal enobufs; do
     else bad "the plan resolver ($how): waits of 0.5 s: $(waitcount) (expected $waits)"; fi
     verdict "the plan resolver ($how) -> unverified, exit 3, the reason says what ended it" "$R" \
         '.outcome == "unverified" and .exit == 3 and .key == "t" and .reason == "the plan resolver gate-resolve.mjs " + $w' --arg w "$words"
-    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: the plan resolver gate-resolve.mjs $words — "* ]] && grep -qF "Could not verify: the plan resolver $words." "$UR" 2>/dev/null; then
+    if [ "$rc" -eq 3 ] && [[ "$out" == *"[gate] not verified: the plan resolver gate-resolve.mjs $words — "* ]] && grep -qF "Could not verify: the plan resolver $words." "$UR" 2>/dev/null; then
         ok "the plan resolver ($how): exit 3, the line and the unverified marker say what ended it"
     else bad "the plan resolver ($how): rc=$rc, marker: $(head -c 200 "$UR" 2>/dev/null), out: ${out:0:300}"; fi
 done

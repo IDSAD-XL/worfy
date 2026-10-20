@@ -9,7 +9,7 @@
 #      the names as text;
 #   2. it starts gate.mjs with the same arguments and stdin and ends with its exit code;
 #   3. with no such node anywhere it answers as the bash gate did before gate.mjs: the line «[gate]
-#      ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден», exit code 3, the marker nokey-broken-<tag>-<session>
+#      not verified: node not found», exit code 3, the marker nokey-broken-<tag>-<session>
 #      for stop.mjs and an "unverified" verdict file in place of the one of the run before. When
 #      a node was found but failed the check, the line says «no node 18 or newer: <its path> is
 #      older or did not start» instead, with the same code, marker and file.
@@ -22,7 +22,7 @@
 #   - a profile that names this file in commands.verify and in rules.md ("bash
 #     ~/.claude/worfy-harness/plugin/hooks/gate.sh full"), as profiles moved from the old Harness
 #     do; agents run that line as it is written. It stays a working spelling: where node is not on
-#     PATH it answers «node не найден» with code 3, where `node …/gate.mjs` fails with 127. Rules,
+#     PATH it answers «node not found» with code 3, where `node …/gate.mjs` fails with 127. Rules,
 #     skills, agents and bin/ name gate.mjs, and so does a new profile.
 #
 # This file departs from two rules of the Harness: a hook command names `node`, not a script
@@ -153,11 +153,11 @@ json_str() {
     printf '"%s"' "$out"
 }
 
-text="node не найден"
+text="node not found"
 reason="node not found"
 explain="Repository: $repo. The gate does not work without node — this is not green: the work was not verified by the gate."
 # A node was found but did not pass the check: older than NODE_MIN, or it did not start. Said so,
-# with its path: "node не найден" would be wrong while node is there.
+# with its path: "node not found" would be wrong while node is there.
 if [ -n "$refused" ]; then
     text="no node $NODE_MIN or newer: $refused is older or did not start"
     reason="$text"
@@ -181,7 +181,7 @@ if [ -n "$tag" ]; then
     fi
 fi
 {
-    echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $text"
+    echo "[gate] not verified: $text"
     echo "$explain"
 } >&2
 exit 3

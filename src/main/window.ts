@@ -1,8 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WebPreferences, type WindowOpenHandlerResponse } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WebContents, type WindowOpenHandlerResponse } from 'electron'
+import { browserOpenRequest } from '../shared/ipc/browser'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
+import { webviewAttachRefusal } from './browser/attach-policy'
 import { allowFrameNavigation } from './cards/protocol'
+import { emit } from './ipc/index'
 import { quietWindows } from './quiet-windows'
 import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
 import { reportStartupFailure } from './startup-failure'
@@ -61,28 +64,6 @@ export function loadEndedAsReplaced(error: unknown): boolean {
   return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
 }
 
-/**
- * The prototype of the Browser layer (worfy-browser ticket 01, ADR-0078 item 12) turns the <webview>
- * tag on only when WORFY_BROWSER_PROTOTYPE is exactly "1", which only its e2e test sets. Without
- * it the window is made as before the prototype. A later ticket of the epic drops the flag.
- */
-export function browserPrototype(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.WORFY_BROWSER_PROTOTYPE === '1'
-}
-
-/**
- * What every <webview> of the window attaches with, whatever its attributes ask for (ADR-0078
- * item 3): no worfy preload, no Node, isolated and sandboxed. The guest page is any web page, so it
- * gets none of the app's powers. The check of the partition and the address is a later ticket's.
- */
-export function hardenWebview(webPreferences: WebPreferences): void {
-  delete webPreferences.preload
-  webPreferences.nodeIntegration = false
-  webPreferences.nodeIntegrationInSubFrames = false
-  webPreferences.contextIsolation = true
-  webPreferences.sandbox = true
-}
-
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
@@ -93,7 +74,6 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   // WORFY_QUIET_WINDOWS=1, e2e tests only: shown without taking the focus, transparent, mouse-through
   // and still painted (quiet-windows.ts). A normal start gets Electron's defaults, as before.
   const quiet = quietWindows()
-  const browser = browserPrototype()
 
   const window = new BrowserWindow({
     ...bounds,
@@ -112,10 +92,11 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       // The interface scale of the app settings: the page is drawn at it from the first paint.
       zoomFactor: interfaceScale(),
       ...(quiet.backgroundThrottling === undefined ? {} : { backgroundThrottling: quiet.backgroundThrottling }),
-      ...(browser ? { webviewTag: true } : {}),
+      // The <webview> of the Browsers (ADR-0078 item 3). installWebPolicy checks every one that
+      // attaches (browser/attach-policy.ts) and keeps its page off every permission.
+      webviewTag: true,
     },
   })
-  if (browser) window.webContents.on('will-attach-webview', (_event, webPreferences) => hardenWebview(webPreferences))
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)
@@ -223,6 +204,53 @@ function isHttpUrl(value: string): boolean {
 export const windowOpenResponse: (details: HandlerDetails) => WindowOpenHandlerResponse = () => ({ action: 'deny' })
 
 /**
+ * The window-open handler of a Browser's page (worfy-browser ticket 10): no new window either, but
+ * the page itself goes to the address, as the owner chose for target="_blank" links and
+ * window.open. Only a web address: main's loadURL is not held by the rules Chromium puts on a
+ * page's own navigations, and a page must not reach a file or a Card by asking for a window.
+ * Only when the frame that asks is of the page's own origin: the handler is not told which frame
+ * asks, nor whether the user clicked, so a third-party frame (an ad, a widget) could otherwise
+ * replace the whole page — on a partition that keeps logins — by calling window.open. The
+ * referrer is the asking frame's address or origin; a request without one (rel="noreferrer",
+ * Referrer-Policy: no-referrer) cannot be placed and does not open by itself.
+ * Such a refused web address goes to `refused` instead (worfy-browser ticket 11): the Browser's
+ * frame offers it in its Open bar, and only the user's click there opens it. An address that is
+ * not a web page is neither opened nor offered.
+ * shortcut: a target="_blank" form that posts opens its address as a plain GET, redo when a Browser must submit such forms.
+ */
+export function browserWindowOpenHandler(
+  page: Pick<WebContents, 'loadURL' | 'getURL'>,
+  refused: (url: string) => void = () => undefined,
+): (details: HandlerDetails) => WindowOpenHandlerResponse {
+  return ({ url, referrer }) => {
+    if (!isHttpUrl(url)) return { action: 'deny' }
+    if (sameOrigin(referrer.url, page.getURL())) {
+      page.loadURL(url).catch((error: unknown) => console.warn(`[worfy] a Browser page could not open ${url}`, error))
+    } else {
+      refused(url)
+    }
+    return { action: 'deny' }
+  }
+}
+
+/**
+ * Tells the window that draws the Browser page `guest` (its <webview>'s embedder) that the page
+ * asked for `url` and main did not open it: the window's Browser frame shows the Open bar.
+ * Nothing when that window is gone.
+ */
+function offerToHost(guest: Pick<WebContents, 'id' | 'hostWebContents'>, url: string): void {
+  // Electron's types say a WebContents, but a guest whose embedder has gone has none.
+  const host = guest.hostWebContents as WebContents | null | undefined
+  if (host === null || host === undefined || host.isDestroyed()) return
+  emit(host, browserOpenRequest, { webContentsId: guest.id, url })
+}
+
+/** Whether `a` and `b` are http(s) URLs of one origin (scheme, host and port). */
+function sameOrigin(a: string, b: string): boolean {
+  return isHttpUrl(a) && isHttpUrl(b) && new URL(a).origin === new URL(b).origin
+}
+
+/**
  * Whether a frame is granted a web permission (camera, microphone, notifications, geolocation,
  * clipboard…): only the app's own renderer is. Cards and any other page are refused.
  */
@@ -231,13 +259,50 @@ export function grantsPermission(requestingUrl: string, isAppUrl: (url: string) 
 }
 
 /**
+ * Puts the permission handlers of a Browser's page on `browserSession`, the session of a Browser
+ * partition (ADR-0078 item 3): every permission request (camera, microphone, notifications,
+ * geolocation, clipboard…) is refused, and every permission check answers no. Without them
+ * Electron grants a page every permission it asks for. The app's own session keeps its own
+ * handlers: it is never a Browser's.
+ */
+export function guardBrowserSession(browserSession: Session): void {
+  if (browserSession === session.defaultSession) return
+  browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  browserSession.setPermissionCheckHandler(() => false)
+}
+
+/**
  * Puts up main's side of the walls for every web contents: frame navigation (a Card stays on its
  * own origin, the window never shows a Card), no new windows, permissions for the app's renderer
  * only. `isAppUrl` is the same renderer matcher the IPC sender check uses (src/main/index.ts).
+ *
+ * The page of a Browser (the guest of a <webview>, ADR-0078 item 3) attaches only as the attach
+ * policy allows (browser/attach-policy.ts), on one of `browserPartitions()` — read at each attach,
+ * so a Project added after the start gets its Browsers — and goes to any site (the frame rules of
+ * the window and the Cards are not its). It opens no window: a target="_blank" link or
+ * window.open sends the page itself there, or offers the address in the Browser's Open bar when
+ * the request is not the page's own (browserWindowOpenHandler). It gets no permission: the
+ * session of its partition is guarded when the <webview> is allowed to attach, before the page
+ * exists, and the session of any guest again when the guest is created.
  * Runs once, after the app is ready, before the first window.
  */
-export function installWebPolicy(isAppUrl: (url: string) => boolean): void {
+export function installWebPolicy(isAppUrl: (url: string) => boolean, browserPartitions: () => readonly string[] = () => []): void {
   app.on('web-contents-created', (_event, contents) => {
+    contents.on('will-attach-webview', (event, webPreferences, params) => {
+      const refusal = webviewAttachRefusal({ webPreferences, params }, browserPartitions())
+      if (refusal === null) {
+        // The policy has checked the partition: one of browserPartitions(), never the app's own.
+        guardBrowserSession(session.fromPartition(webPreferences.partition ?? ''))
+        return
+      }
+      console.warn(`[worfy] a <webview> was not attached: ${refusal}`)
+      event.preventDefault()
+    })
+    if (contents.getType() === 'webview') {
+      guardBrowserSession(contents.session)
+      contents.setWindowOpenHandler(browserWindowOpenHandler(contents, (url) => offerToHost(contents, url)))
+      return
+    }
     contents.on('will-frame-navigate', (details) => {
       const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
       if (!allowed) details.preventDefault()

@@ -175,7 +175,7 @@ gate_fresh() { CLAUDE_GATE_STATE="$(mktemp -d "$T/state.XXXXXX")" bash "$HOOKS/g
 PAIR_STDERR=1 pair "gate.sh fast on a branch with changes" "" gate_fresh fast </dev/null
 out="$(cd "$R" && gate_fresh fast </dev/null 2>&1 | nocr)"
 check "the gate narrowed its scope by the diff (files changed: 2) and was green" \
-    [ "${out#*files changed: 2}" != "$out" -a "${out#*зелено (fast)}" != "$out" ]
+    [ "${out#*files changed: 2}" != "$out" -a "${out#*green (fast)}" != "$out" ]
 [ "${out#*files changed: 2}" != "$out" ] || echo "     gate: ${out:0:400}"
 set +o pipefail
 
@@ -298,7 +298,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of gate.sh without node: $why"; 
     out="$(cd "$R2" && HOME="$H2" USERPROFILE="$H2" EVAL_HARNESS_HOME=worfy-harness EVAL_GIT="$TP/evalgit/git" \
         PATH="$TP/broken:$NONODE" "$BASH" "$T/plugin/hooks/gate.sh" fast </dev/null 2>&1)"; rc=$?
     after="$(log_lines)"
-    check "gate.sh without node, EVAL_GIT and a failing git on PATH: exit 3, «node не найден»" [ "$rc" -eq 3 ]
+    check "gate.sh without node, EVAL_GIT and a failing git on PATH: exit 3, «node not found»" [ "$rc" -eq 3 ]
     [ "$rc" -eq 3 ] || echo "     gate.sh: rc=$rc, out: ${out:0:300}"
     check "gate.sh without node: its git calls went to EVAL_GIT" [ "$after" -gt "$before" ]
     check "gate.sh without node: the marker and the verdict file are under <repo>/.git/worfy-harness/gate/state" \

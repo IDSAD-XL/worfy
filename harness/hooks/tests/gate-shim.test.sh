@@ -9,7 +9,7 @@
 #   - node is not on PATH but under ~/.nvm: the launcher finds it, and the gate runs;
 #   - which node it picks: /opt/homebrew/bin before /usr/local/bin before nvm; the newest version
 #     of nvm by number (v24 before v9); a node that is too old is passed over, on PATH or in nvm;
-#   - no node anywhere: the «node не найден» line, exit code 3, the marker and an "unverified"
+#   - no node anywhere: the «node not found» line, exit code 3, the marker and an "unverified"
 #     verdict file in place of the one of the run before — through the hook command of
 #     hooks.json, after a green run; outside git it is silent and exits with 0; when the verdict
 #     file cannot be put in place, the file of the run before is removed;
@@ -87,13 +87,13 @@ same() {
 # --- 1. The same answer by both names ------------------------------------------------
 mode ok
 both "" "$R" fast
-same "green: exit 0 and the same lines by both names" 0 "[gate] зелено (fast): t/.:check"
+same "green: exit 0 and the same lines by both names" 0 "[gate] green (fast): t/.:check"
 mode bad
 both "" "$R" full
-same "red, and the profile argument is passed on: exit 2 and «красно (full)» by both names" 2 "[gate] красно (full): t/.:check"
+same "red, and the profile argument is passed on: exit 2 and «red (full)» by both names" 2 "[gate] red (full): t/.:check"
 mode ok
 both '{"session_id":"shim session/1"}' "$U" fast
-same "not registered: exit 3 and the same lines by both names" 3 "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"
+same "not registered: exit 3 and the same lines by both names" 3 "[gate] not verified"
 
 # --- 2. stdin is passed on, and the state folder is left the same ---------------------
 if [ -n "$(find "$T/state-old" -maxdepth 1 -type f -name 'nokey-*-shim_session_1')" ]; then ok "stdin reaches the gate: the marker carries the session of the hook JSON"
@@ -107,12 +107,12 @@ if [ "$WIN" -eq 1 ]; then
     # Git Bash turns /c/… into C:/… for a Windows program unless told not to; the file must give
     # node a path it reads either way.
     out="$(cd "$R" && MSYS_NO_PATHCONV=1 CLAUDE_GATE_STATE="$T/state-old" GATE_SCOPE=all bash "$SHIM" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]]; then ok "with path conversion of Git Bash off: gate.mjs is still found"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]]; then ok "with path conversion of Git Bash off: gate.mjs is still found"
     else bad "with path conversion off: rc=$rc, out: ${out:0:300}"; fi
 else
     ln -s "$SHIM" "$T/old-gate.sh"
     out="$(cd "$R" && CLAUDE_GATE_STATE="$T/state-old" GATE_SCOPE=all bash "$T/old-gate.sh" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]]; then ok "through a symlink to gate.sh: gate.mjs is found next to the real file"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]]; then ok "through a symlink to gate.sh: gate.mjs is found next to the real file"
     else bad "through a symlink: rc=$rc, out: ${out:0:300}"; fi
 fi
 
@@ -175,7 +175,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     chmod +x "$nvm/node"
     mode ok
     out="$(cd "$R" && HOME="$T/home-nvm" USERPROFILE="$T/home-nvm" CLAUDE_GATE_STATE="$T/state-nvm" GATE_SCOPE=all PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?
-    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]] && [ -e "$T/home-nvm/used" ]; then ok "node not on PATH but under ~/.nvm: the launcher finds it, and the gate runs"
+    if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]] && [ -e "$T/home-nvm/used" ]; then ok "node not on PATH but under ~/.nvm: the launcher finds it, and the gate runs"
     else bad "node under ~/.nvm: rc=$rc, the node of the test was $([ -e "$T/home-nvm/used" ] && echo used || echo "not used"), out: ${out:0:300}"; fi
 
     # --- 6. No node anywhere: the hook command after a green run --------------------------
@@ -191,7 +191,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     echo edited >"$R/edited.txt"
     out="$(cd "$R" && printf '%s\n' '{"session_id":"hook 1"}' | HOME="$T/home" USERPROFILE="$T/home" CLAUDE_PLUGIN_ROOT="$PLUGIN" CLAUDE_GATE_STATE="$T/state-hook" PATH="$NONODE" /bin/sh -c "$hook" 2>&1)"; rc=$?
     out="$(printf '%s' "$out" | tr -d '\r')"
-    if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден" ]; then ok "the hook command without node: the «ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден» line and exit 3"
+    if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] not verified: node not found" ]; then ok "the hook command without node: the «not verified: node not found» line and exit 3"
     else bad "the hook command without node ($hook): rc=$rc, out: ${out:0:300}"; fi
     if jq -e --arg wt "$R" '
         .version == 1 and .outcome == "unverified" and .profile == "fast" and .worktree == $wt and .key == null
@@ -201,7 +201,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
         ok "the hook command without node: the verdict file says unverified, exit 3, \"node not found\", not green"
     else bad "the hook command without node: the verdict file: $(head -c 400 "$verdict_file" 2>/dev/null)"; fi
     marker="$T/state-hook/nokey-broken-$(tag "$R")-hook_1"
-    if [ "$(tr -d '\r' <"$marker" 2>/dev/null)" = "node не найден. Repository: $R. The gate does not work without node — this is not green: the work was not verified by the gate." ]; then
+    if [ "$(tr -d '\r' <"$marker" 2>/dev/null)" = "node not found. Repository: $R. The gate does not work without node — this is not green: the work was not verified by the gate." ]; then
         ok "the hook command without node: the marker of the worktree and the session, with the reason"
     else bad "the hook command without node: marker $marker: $(head -c 300 "$marker" 2>/dev/null); state: $(ls "$T/state-hook" | tr '\n' ' ')"; fi
     if [ -z "$(find "$T/state-hook" -maxdepth 1 -type f -name '.verdict-*')" ]; then ok "the hook command without node: no temporary file is left"
@@ -217,7 +217,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     else bad "before a verdict file that cannot be put in place: rc=$rc, out: ${out:0:200}"; fi
     out="$(cd "$R" && mv() { return 1; } && export -f mv && HOME="$T/home" USERPROFILE="$T/home" CLAUDE_GATE_STATE="$T/state-mv" PATH="$NONODE" "$BASH" "$LAUNCHER" fast </dev/null 2>&1)"; rc=$?
     out="$(printf '%s' "$out" | tr -d '\r')"
-    if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден" ] && [ ! -e "$verdict_mv" ] \
+    if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] not verified: node not found" ] && [ ! -e "$verdict_mv" ] \
         && [ -z "$(find "$T/state-mv" -maxdepth 1 -type f -name '.verdict-*')" ] && [ -s "$T/state-mv/nokey-broken-$(tag "$R")-anon" ]; then
         ok "without node, the verdict file cannot be put in place: exit 3, the line, the marker; the green file of the run before and the temporary file are gone"
     else bad "without node, the verdict file cannot be put in place: rc=$rc, files: $(ls -A "$T/state-mv" | tr '\n' ' '), out: ${out:0:300}"; fi
@@ -254,7 +254,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
         rm -f "$T/order/used"
         out="$(cd "$R" && HOME="$T/order/home" USERPROFILE="$T/order/home" CLAUDE_GATE_STATE="$T/state-order" GATE_SCOPE=all PATH="${3:-$NONODE}" "$BASH" "$ORDER" fast </dev/null 2>&1)"; rc=$?
         local used; used="$(cat "$T/order/used" 2>/dev/null)"
-        if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено (fast): t/.:check"* ]] && [ "$used" = "$2" ]; then ok "$1: the gate runs on the node of $2"
+        if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): t/.:check"* ]] && [ "$used" = "$2" ]; then ok "$1: the gate runs on the node of $2"
         else bad "$1: used: ${used:-none} (expected $2), rc=$rc, out: ${out:0:300}"; fi
     }
     mode ok
@@ -270,7 +270,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     picks "the newest node of nvm is too old" v9
     # The version boundary itself, with copies of ORDER whose NODE_MIN is the major version of the
     # real node, and one above it. Equal passes (v9 here runs the real node); above it nothing
-    # passes, and the answer names the node that was found and refused, not «node не найден».
+    # passes, and the answer names the node that was found and refused, not «node not found».
     major="$(node -p 'process.versions.node.split(".")[0]' | tr -d '\r')"
     for min in "$major" "$((major + 1))"; do
         sed "s#^NODE_MIN=18\$#NODE_MIN=$min#" "$ORDER" >"$PLUGIN/hooks/gate-min-$min.sh"
@@ -286,7 +286,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
         out="$(cd "$R" && HOME="$T/order/home" USERPROFILE="$T/order/home" CLAUDE_GATE_STATE="$T/state-min" GATE_SCOPE=all PATH="$NONODE" "$BASH" "$ORDER" fast </dev/null 2>&1)"; rc=$?
         out="$(printf '%s' "$out" | tr -d '\r')"
         want="no node $((major + 1)) or newer: $NVM/v24.1.0/bin/node is older or did not start"
-        if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: $want" ] && [ ! -e "$T/order/used" ] \
+        if [ "$rc" -eq 3 ] && [ "${out%%$'\n'*}" = "[gate] not verified: $want" ] && [ ! -e "$T/order/used" ] \
             && [ "$(jqr .reason "$T/state-min/verdict-$(tag "$R").json" 2>/dev/null)" = "$want" ] \
             && grep -qF "$want. Repository: $R. The gate needs node $((major + 1)) or newer" "$T/state-min/nokey-broken-$(tag "$R")-anon" 2>/dev/null; then
             ok "NODE_MIN above the real node: exit 3, the line, the reason and the marker name the node refused, the gate did not run"

@@ -1,7 +1,8 @@
 # 73 — Одна обёртка realpath и test на `resolve()` в `projectForCwd`
 
 Type: task
-Status: open
+Status: done 2026-10-20T12:26Z
+PR: #572
 Blocked by: —
 Source: ревью PR #562 (Ticket [70](70-написание-пути-вне-среза-3.md)), 2026-10-20 — две находки low; мерж они не
 держали (правило глубины ревью владельца 2026-10-12). Номер обещан Session на Windows-ПК. Строки — на main
@@ -32,11 +33,11 @@ Source: ревью PR #562 (Ticket [70](70-написание-пути-вне-с
 
 ## Готово, когда
 
-- [ ] Test на `${repo}/../elsewhere` в test-ах canvas-tools — красный на мутанте без `resolve()`
+- [x] Test на `${repo}/../elsewhere` в test-ах canvas-tools — красный на мутанте без `resolve()`
       (`canvas-server.ts:372`), зелёный на правке.
-- [ ] `apply.ts` без своей цепочки realpath: импорт `realpathOnDisk` из `src/main/projects/real-path.ts`;
+- [x] `apply.ts` без своей цепочки realpath: импорт `realpathOnDisk` из `src/main/projects/real-path.ts`;
       `test/unit/projects-real-path.test.ts` проверяет порядок native → обычный и ошибку, когда путь не читается.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac перед мержем.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full на Mac перед мержем.
 
 ## Где в коде
 
@@ -52,4 +53,22 @@ Source: ревью PR #562 (Ticket [70](70-написание-пути-вне-с
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в PR #572 (`ddde90dd`).
+- `src/main/projects/real-path.ts`: общая строгая обёртка `realpathOnDisk` рядом с `realpathOrSelf`, у которой
+  имя и подпись прежние; `src/main/harness/migrate/apply.ts` берёт `realpathOnDisk` оттуда, своей цепочки
+  realpath больше нет.
+- `test/contract/canvas-tools.test.ts`: test на `${repo}/../elsewhere` для `resolve()` в `projectForCwd`.
+- `test/unit/projects-real-path.test.ts`: test-ы обёртки.
+
+Мутанты на ПК (по одному, файл восстановлен):
+- `canvas-server.ts:372` без `resolve()` — новый test красный;
+- `realpathOnDisk` только с `realpathSync` — 2 красных (домашняя папка в другом написании, `~/.claude` в другом
+  регистре);
+- `realpathOnDisk` без запасного пути — 2 красных (оба test-а «realpath(3) не читает»).
+
+На ПК test-ы затронутых файлов — exit 0 (165 passed, 4 skipped); lint и typecheck — exit 0.
+
+### Закрытие (2026-10-20)
+
+Влит в main PR-ом #572 (2026-10-20, `ddde90dd`) после gate full на Mac. Ticket закрыт docs-PR-ом с ПК (вместе с
+Ticket-ом 74) по просьбе Session на Mac.

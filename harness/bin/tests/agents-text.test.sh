@@ -116,17 +116,20 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
     || ok "implementer: no tools: line (all tools, as before)"
 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
-# Gate verdict words (read by programs), Profile placeholders and the Profile heading
-# for the implementer's required reading (Profile contract), and the name a Profile
-# gives the lens "simplification".
+# Profile placeholders and the Profile heading for the implementer's required reading
+# (Profile contract), and the name a Profile gives the lens "simplification". The gate
+# verdict lines are English and quoted as the gate prints them.
 ALLOWED=(
-    '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'
     '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
     'упрощение'
 )
 for a in $ALL; do
     left="$(strip "$AGENTS/$a.md" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/')"
     [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
+done
+for p in '`0` is green only if the output has `[gate] green (…)`' '`[gate] not verified: …` names the reason' \
+    'with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`'; do
+    grep -qF -- "$p" "$AGENTS/implementer.md" && ok "implementer: quotes the gate line: $p" || bad "implementer: gate line missing: $p"
 done
 # Rules for writing in one language belong to the user's own rules file, not to the agents.
 # The check is lexical. It refuses the old "## Terms" section and any sentence where a verb of
@@ -377,6 +380,26 @@ else
     e2e "the lock as the profile's rules say" 'The e2e lock, if the project has one, is described in the profile'"'"'s `rules.md`.'
     e2e "no commands.e2e, no rule" 'A profile without `commands.e2e` has no rule here.'
 fi
+
+# --- 12. implementer, reviewer: deletes and -c scripts by the common rules -------------------
+# The full rule lives once, in hooks/rules/common.md, which every session and subagent gets. The
+# agents point at its section by name and keep no second copy of it.
+COMMON="${COMMON_RULES_FILE:-$AGENTS/../hooks/rules/common.md}"
+SHELL_REF='Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands without a confirmation"'
+if grep -qx '## Shell commands without a confirmation' "$COMMON" 2>/dev/null; then
+    ok "common.md has the section the agents point at"
+else bad "common.md: no section '## Shell commands without a confirmation' at $COMMON"; fi
+for a in implementer reviewer; do
+    if flat "$a" | grep -qF -- "$SHELL_REF"; then ok "$a: points at the common rule on deletes and -c scripts"
+    else bad "$a: no reference '$SHELL_REF'"; fi
+    # The one line the agent keeps: a clean folder is a new one, not an old one cleaned.
+    if flat "$a" | grep -qF -- 'make a new one with `mktemp -d`, do not clean an old one.'; then ok "$a: a new mktemp -d instead of cleaning"
+    else bad "$a: no line 'make a new one with \`mktemp -d\`, do not clean an old one.'"; fi
+    for p in 'literal path' 'rm -rf $R/$d' 'rm -rf *' 'bypassPermissions'; do
+        if grep -qF -- "$p" "$AGENTS/$a.md"; then bad "$a: repeats the common rule ('$p')"
+        else ok "$a: no copy of the common rule ('$p')"; fi
+    done
+done
 
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"

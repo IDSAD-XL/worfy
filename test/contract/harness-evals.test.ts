@@ -453,7 +453,21 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
     expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
-    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] green \(fast\)/)
+  })
+
+  // The Windows branch of demo-project.sh must leave the fixture of macOS and Linux as it was: there
+  // `match` is the folder `pwd -P` gives (the realpath) and no demo-pm.cmd is written. On Windows the
+  // registry has node's long spelling with `/`, and demo-pm.cmd sits next to demo-pm.
+  it('the registry and package manager of the fixture: one spelling per system, demo-pm.cmd only on Windows', () => {
+    const { work, run } = scaffold('status-block')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const registry = JSON.parse(readFileSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'), 'utf8')) as { repos: { match: string; pm: string }[] }
+    const windows = process.platform === 'win32'
+    const match = windows ? realpathSync.native(work).replaceAll('\\', '/') : realpathSync(work)
+    expect(registry.repos[0]).toMatchObject({ match, pm: `${match}/.git/demo-pm` })
+    expect(existsSync(join(work, '.git', 'demo-pm'))).toBe(true)
+    expect(existsSync(join(work, '.git', 'demo-pm.cmd'))).toBe(windows)
   })
 
   // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks

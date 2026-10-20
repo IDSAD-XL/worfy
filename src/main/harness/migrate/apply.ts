@@ -87,11 +87,12 @@ class Refusal extends Error {}
 type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** JSON in the shape the file had: its indent and its final newline. */
+/** JSON in the shape the file had: its indent, its line ends (LF or CRLF) and its final newline. */
 export function stringifyLike(original: string, value: unknown): string {
   const indent = /^[{[]\r?\n([ \t]+)/.exec(original)?.[1]
-  const text = original.includes('\n') ? JSON.stringify(value, null, indent ?? 2) : JSON.stringify(value)
-  return original.endsWith('\n') ? `${text}\n` : text
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const text = original.includes('\n') ? JSON.stringify(value, null, indent ?? 2).replaceAll('\n', eol) : JSON.stringify(value)
+  return original.endsWith('\n') ? `${text}${eol}` : text
 }
 
 /** Writes through a file next to the target, renamed over it; the mode of the old file is kept. A failed rename removes that file. */

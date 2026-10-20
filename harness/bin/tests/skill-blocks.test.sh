@@ -11,8 +11,9 @@
 # skills/epic-wave, the branches of the last 14 days of skills/continuous-audit, the label and the checks section of
 # the cross-machine gate (skills/ship-ticket step 8; the serve pass of skills/gate-queue;
 # the request blocks of skills/epic-wave section 1), with a stub gh.
+# Every block runs on the text Claude Code hands the model when the skill is called with arguments (render below).
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
-# SKILL_FILE — check another copy of SKILL.md.
+# SKILL_FILE — check another copy of SKILL.md; SKILL_ARGS — the arguments of the call (default ten words, a to j).
 set -u
 # The SKILL.md files under test are the copies in harness/skills, next to this test.
 SKILLS="$(cd "$(dirname "$0")/../.." && pwd)/skills"
@@ -42,9 +43,39 @@ case "$(uname -s)" in
     *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
 esac
 
+# Claude Code hands the model SKILL.md with the skill's arguments put in: $N becomes the N-th word of the
+# arguments ($0 the first; a $N past the last word stays), $ARGUMENTS[N] the same, $ARGUMENTS the whole
+# string, and \$ before a digit or ARGUMENTS stands for a plain $. Code blocks are not spared, and a skill
+# called with arguments gets its blocks in that form. So every block below runs on the text as Claude Code
+# renders it for the arguments SKILL_ARGS (default ten words, so every $0 ... $9 is replaced), under every shell of SHELLS; the cut also checks
+# that the rendered block equals the block in the file, so the file's own text gives the same result.
+# SKILL_ARGS= (empty) renders the text of a call without arguments.
+SKILL_ARGS="${SKILL_ARGS-a b c d e f g h i j}"
+render() { # [file]; prints the skill text as Claude Code renders it for the arguments SKILL_ARGS (no $ in them)
+    SKILL_ARGS="$SKILL_ARGS" perl -pe 'BEGIN { $all = $ENV{SKILL_ARGS}; @a = split " ", $all }
+        s/(?<!\\)\\\$(?=\d|ARGUMENTS)/\x01/g;
+        s/\$ARGUMENTS\[(\d+)\]/defined $a[$1] ? $a[$1] : "\x01ARGUMENTS[$1]"/ge;
+        s/\$(\d+)(?!\w)/defined $a[$1] ? $a[$1] : "\x01$1"/ge;
+        s/\$ARGUMENTS/$all/g;
+        s/\x01/\$/g' "$@"
+}
+got="$(printf '%s\n' 'F() { p --field "$1"; }' "awk '{w=substr(\$0,10)} \$3==b'" '\$1 $ARGUMENTS $ARGUMENTS[2] $10 $1x "$@" ${1}' | SKILL_ARGS='a b c' render)"
+want="$(printf '%s\n' 'F() { p --field "b"; }' "awk '{w=substr(a,10)} \$3==b'" '$1 a b c c $10 $1x "$@" ${1}')"
+[ "$got" = "$want" ] && ok "render puts the arguments in as Claude Code does" || bad "render: got [$got] want [$want]"
+# The blocks whose rendered text differs from the file's, one line each; checked at the end.
+CHANGED="$T/changed-blocks"; : >"$CHANGED"
+cut_block() { # $1 = a string that identifies the ```bash block; reads markdown on stdin
+    awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}'
+}
+# blockf <marker>: the ```bash block of $SKILL that contains the marker, as Claude Code renders it.
+blockf() {
+    local own rendered
+    own="$(cut_block "$1" <"$SKILL")"; rendered="$(render "$SKILL" | cut_block "$1")"
+    [ "$own" = "$rendered" ] || printf '%s: the block with [%s] changes when the skill is called with the arguments [%s]\n' "$SKILL" "$1" "$SKILL_ARGS" >>"$CHANGED"
+    printf '%s\n' "$rendered"
+}
 block() { # $1 = a string that identifies the ```bash block; prints it without the `F() {…profile…}` line
-    awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL" \
-        | grep -v '^F() { "\${CLAUDE_PLUGIN_ROOT}/bin/profile"'
+    blockf "$1" | grep -v '^F() { "\${CLAUDE_PLUGIN_ROOT}/bin/profile"'
 }
 STUB='F() { case "$1" in
   worktree.base) echo main ;;
@@ -138,8 +169,7 @@ git -C "$SR" branch fix/local-only && git -C "$SR" update-ref refs/remotes/origi
 printf '{"repos":[{"key":"sp","match":"%s","profile":"sp"}]}\n' "$(native "$SR")" >"$SHH/gate/config.json"
 printf '{"schema":2,"name":"sp","mode":"silent","workflow":{"folder":"%s"}}\n' "$(native "$SW")" >"$SHH/projects/sp/profile.json"
 tk() { printf '# %s — t\n\nStatus: %s\n%b' "$1" "$2" "${3:-}" >"$SW/.scratch/pay-flow/issues/$1-t.md"; }
-# These blocks define F themselves (the real profile), so the F line stays in.
-blockf() { awk -v m="$1" '/^```bash/{inb=1; buf=""; next} /^```/{if(inb && index(buf,m)) printf "%s", buf; inb=0; next} inb{buf=buf $0 "\n"}' "$SKILL"; }
+# These blocks define F themselves (the real profile), so the F line stays in: blockf, not block.
 reset_tickets() {
     tk 01 open; tk 02 claimed 'Branch: fix/local-only\n'; tk 03 claimed 'Branch: fix/pushed\nRepo: repo\n'; tk 04 claimed; tk 05 claimed 'Branch: fix/gone\n'
 }
@@ -734,8 +764,10 @@ STUBDF='F() { case "$1" in
 esac; }'
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "$STUBDF"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
 [ "$got" = "$(printf '%s\n' apps/api/src apps/web/src)" ] && ok "CRLF jq: module-choice block with modules.deep and modules.flat (overnight-fix-loop)" || bad "CRLF jq: module-choice deep/flat: [$got]"
-BDM="$(awk 'index($0, "M=$(F worktree.base); [ \"$M\" = null ] && M=") == 1 { on = 1 } on { print } on && $0 == "M=${M#origin/}" { exit }' "$SHIP")"
+main_lines() { awk 'index($0, "M=$(F worktree.base); [ \"$M\" = null ] && M=") == 1 { on = 1 } on { print } on && $0 == "M=${M#origin/}" { exit }'; }
+BDM="$(render "$SHIP" | main_lines)"
 [ -n "$BDM" ] || bad "main-branch lines not found in $SHIP"
+[ "$BDM" = "$(main_lines <"$SHIP")" ] || echo "$SHIP: the main-branch lines change when the skill is called with the arguments [$SKILL_ARGS]" >>"$CHANGED"
 mkdir -p "$T/dbr/repo"
 got="$(PATH="$CRJ:$PATH" bash -c 'F() { case "$1" in worktree.base) echo null ;; layout.repos) echo "{\"repo\":{\"default_branch\":\"trunk\"}}" ;; *) return 4 ;; esac; }'$'\n'"${BDM//<repo>/$T/dbr/repo}"$'\n''printf "[%s]" "$M"' 2>&1)"
 [ "$got" = "[trunk]" ] && ok "CRLF jq: the main branch from layout.repos default_branch (ship-ticket)" || bad "CRLF jq: default_branch: [$(printf '%s' "$got" | od -c | head -n 2)]"
@@ -753,6 +785,28 @@ want="$(printf '1\twork\tfix/pay-button-%s\tlocal branch\n2\twork\tfix/local-onl
 tk 01 claimed "Branch: fix/pay-button-$last\n"
 got="$(cd "$SH" && "${SENV[@]}" PATH="$CRJ:$PATH" bash -c "$(sub "$B6")" 2>&1)"
 [ "$got" = "$want" ] && ok "CRLF jq: the Silent resume block (epic-wave)" || bad "CRLF jq: resume block: got [$(printf '%s' "$got" | od -c | head -n 4)]"
+
+# The tree of the main branch, found by its branch line in `git worktree list --porcelain` (ship-ticket step 11,
+# epic-wave's docs commit): the path of the tree that has branch M checked out, a path with a space included.
+git -C "$R" branch side && git -C "$R" worktree add -q "$T/tree of side" side
+WT="$(native "$T")/tree of side"   # as git prints it: C:/... on Windows
+for f in "$SHIP" "$WAVE"; do
+    BW="$(render "$f" | grep -m 1 '^W=$(git -C <repo> worktree list --porcelain | awk')"
+    [ -n "$BW" ] || { bad "worktree-of-branch line not found in $f"; continue; }
+    [ "$BW" = "$(grep -m 1 '^W=$(git -C <repo> worktree list --porcelain | awk' "$f")" ] \
+        || echo "$f: the worktree-of-branch line changes when the skill is called with the arguments [$SKILL_ARGS]" >>"$CHANGED"
+    for sh in "${SHELLS[@]}"; do
+        got="$($sh -c "M=side"$'\n'"${BW//<repo>/$R}"$'\n''printf "[%s]" "$W"' 2>&1)"
+        [ "$got" = "[$WT]" ] && ok "$sh: $(basename "$(dirname "$f")"): the worktree of branch M, path with a space" \
+            || bad "$sh: $(basename "$(dirname "$f")"): worktree of branch M: got $got want [$WT]"
+        got="$($sh -c "M=no-such"$'\n'"${BW//<repo>/$R}"$'\n''printf "[%s]" "$W"' 2>&1)"
+        [ "$got" = "[]" ] && ok "$sh: $(basename "$(dirname "$f")"): no worktree for a branch nobody checked out" \
+            || bad "$sh: $(basename "$(dirname "$f")"): worktree of a missing branch: got $got"
+    done
+done
+
+[ -s "$CHANGED" ] && bad "blocks that Claude Code changes when the skill is called with arguments (a \$N in the text):"$'\n'"$(cat "$CHANGED")" \
+    || ok "every block checked here is the same text with and without the arguments [$SKILL_ARGS]"
 
 home_after="$(real_home_snapshot "$HOME" "$T")"
 [ "$home_before" = "$home_after" ] && ok "the real ~/.claude and ~/.claude/worfy-harness are unchanged" || bad "the real home changed"

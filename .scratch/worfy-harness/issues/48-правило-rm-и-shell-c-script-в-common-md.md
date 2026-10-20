@@ -1,7 +1,8 @@
 # 48 — Общее правило Harness: `rm` без `$VAR` в цели, многострочный `sh/bash/zsh -c` — через файл
 
 Type: task
-Status: open
+Status: done 2026-10-20T17:21Z
+PR: #595
 Blocked by:
 Source: решение владельца 2026-10-15 по отчёту
 [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md)
@@ -79,4 +80,23 @@ Claude Code спрашивает человека на `rm` с целью, ко�
 
 ## Итог
 
-—
+PR [#595](https://github.com/IDSAD-XL/worfy/pull/595), merge 54a37547. Gate full зелёный; plugin-neutral и
+harness-scripts зелёные; влит оркестратором после своих проверок.
+
+- **Правило.** В `harness/hooks/rules/common.md` новый раздел «Shell commands without a confirmation»:
+  - удалять только по буквальному пути; цель, которая может стать `/`, папкой верхнего уровня или всей
+    папкой, — повод спросить;
+  - нужна чистая папка — новый `mktemp -d`, а не чистка старой;
+  - многострочный скрипт `-c` идёт в файл в своей scratchpad-папке, и запускается файл; причина —
+    Claude Code спрашивает человека, когда скрипт может удалять и разобрать его не удалось.
+- **Агенты.** В `implementer.md` и `reviewer.md` полная копия правила заменена ссылкой на раздел и одной
+  строкой про `mktemp -d`; `grep -n "literal path" harness/agents/*.md` — только ссылка.
+- **Test-ы.** `rules-hooks.test.sh` знает четыре раздела `common.md` и закрепляет фразы правила, включая
+  «even in `bypassPermissions`»; `agents-text.test.sh` раздел 12 — ссылка есть, копии нет, строка
+  `mktemp -d` закреплена. Локально 198/0 и 162/0.
+- **Ревью:** корректность и тесты, уровень medium, mutation testing на изменённых строках. Раунд 1 —
+  OK-with-notes, пять low; все закрыты в cd29fb50. Мутанты красные: раздел удалён (оба test-а), пункт
+  `rm` удалён, пункт `-c` удалён, полная копия правила возвращена в `implementer.md`, ссылка удалена,
+  фраза «even in `bypassPermissions`» обрезана, строка `mktemp -d` агентов удалена.
+- **`common.md`** — 5 681 байт, в пределах 10 000 символов одной строки additionalContext.
+- **Не сделано — шаг владельца:** `pnpm install:stable`; до него новое правило в Stable copy не действует.

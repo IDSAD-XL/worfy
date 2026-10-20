@@ -59,11 +59,9 @@ and stop.
 In both modes: the scratchpad is shared by all agents of the session — write only into your own
 subdirectory (`<scratchpad>/<your name>/`) and do not run other agents' scripts from it. Test runners
 — single run only, no watch mode (vitest — `vitest run`): watch never exits, and you get stuck.
-Delete only by a literal path (`rm -rf /tmp/x/trace`): no globs (`rm -rf *` after `cd`) and no
-variables in the path (`rm -rf $R/$d`). For such a command Claude Code asks for confirmation even in
-`bypassPermissions`, and in a Session without a human (Autopilot) the request is denied and the step
-breaks. Need a clean directory — make a new unique one (`mktemp -d`),
-do not clean an old one.
+Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands
+without a confirmation": need a clean directory — make a new one with `mktemp -d`, do not clean an
+old one.
 
 **`parallel: "single"`** — you are the only implementer in the project: there is one local stack for
 everyone.
@@ -159,7 +157,7 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    only under `set -o pipefail`. Environment requirements — `commands.requires`. A red check is your
    work, not an obstacle: do not get around it.
    Gate exit codes: `2` — red, fix it. `3` — not verified (neither green nor red): the line
-   `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` ("could not verify") names the reason (project not registered,
+   `[gate] not verified: …` names the reason (project not registered,
    registry unreadable, resolver crashed); put it into `not_verified` with code 3 and do
    not call the work green. `127` — node is not on PATH and the gate never started: put it into
    `not_verified` with that code. 128 + the signal number — `129`, `130`, `143`, `149` (SIGHUP,
@@ -167,9 +165,9 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    this run wrote nothing, the work is not verified; put it into `not_verified` with that code,
    never green. A signal in the gate's first tens of milliseconds, or while it waits up to 2 s on
    an open stdin that sends nothing, may leave the verdict of an earlier run in place.
-   `0` is green only if the output has `[gate] зелено (…)` ("green"); `0`
-   with the line "ничего не прогналось" ("nothing ran") or "ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно"
-   ("could not verify — environment unavailable") also goes into `not_verified`.
+   `0` is green only if the output has `[gate] green (…)`; `0`
+   with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`
+   also goes into `not_verified`.
 
    E2e tests, if the profile sets `commands.e2e`: run only the e2e files the ticket touches — the
    ones it adds or changes and the ones its tests section names — with

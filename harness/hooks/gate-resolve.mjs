@@ -230,7 +230,7 @@ for (const dir of [...hit].sort()) {
     const scripts = (wanted.length ? wanted : wsWanted).filter((s) => pkg.scripts?.[s])
     // The fourth field is the paths for the cache fingerprint: the package itself and all its workspace
     // dependencies. Otherwise an uncommitted edit in shared did not change the fingerprint of
-    // demo-bot, and the cache handed out a stale «зелено» (green). The fifth is what the package was added
+    // demo-bot, and the cache handed out a stale «green». The fifth is what the package was added
     // from as a dependent (empty if it changed itself).
     const fpScope = [dir, ...[...closure(dir)].sort()].join(" ")
     const from = (addedFrom.get(dir) || []).join(",")

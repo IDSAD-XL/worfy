@@ -23,6 +23,7 @@ import * as nativePath from 'node:path'
 import { relative, sep } from 'node:path'
 import { watch } from 'chokidar'
 import { CARD_ID_PATTERN, type CardInfo } from '../../shared/ipc/cards'
+import { closeForGood } from '../chokidar-close'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
 import { projectStore } from '../projects/store'
 import { leadsToRemote, type LinkFs, type PathRules } from '../remote-links'
@@ -271,7 +272,7 @@ export class CardStore {
       if (cardId !== undefined && CARD_ID_PATTERN.test(cardId)) this.schedule(projectId, cardId)
     })
     watcher.on('error', failed)
-    this.watchers.set(projectId, watcher)
+    this.watchers.set(projectId, { close: () => closeForGood(watcher) })
   }
 
   private schedule(projectId: string, cardId: string): void {

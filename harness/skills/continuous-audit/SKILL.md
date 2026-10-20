@@ -52,7 +52,7 @@ briefs, and nothing is committed in it). The blocks below are for Full mode; in 
 (`audit-<date>`, a repeat gets `-2`), and phase 4 ends with the local commit described there.
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 BASE=$(F worktree.base) && [ "$BASE" != null ] || BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD)
 T=$(F tickets.root)                      # root of the epics, e.g. .scratch/
 A=audit-$(date +%F); { git show-ref -q "refs/heads/$A" || [ -d "$T$A" ]; } && A=$A-2   # epic = branch = worktree; a repeat on the same day gets the suffix -2, -3, …
@@ -82,7 +82,7 @@ A lens is one review topic with its own `worfy:scout` agent (read-only, answer u
 `path:line`); all lenses go out in one message. The lens table comes from the profile, one row per lens:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 F audit_lenses | jq -r '.[] | "| \(.id) — \(.title) | \(.where | map("`\(.)`") | join(", ")) | \(.finding) |"'
 ```
 
@@ -129,7 +129,7 @@ merged into the main one: the open tickets of branches with commits in the last 
 
 ```bash
 git for-each-ref refs/remotes/origin --format='%(refname:short) %(committerdate:unix)' \
-  | awk -v t="$(( $(date +%s) - 14 * 86400 ))" '$2>t{print $1}' \
+  | awk -v t="$(( $(date +%s) - 14 * 86400 ))" 'BEGIN { while ((getline l) > 0) { split(l, f); if (f[2] + 0 > t + 0) print f[1] } }' \
   | while read -r b; do "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json --ref "$b"; done \
   | jq -c '.tickets[]|select(.state!="done")|[.ref,.epic,.num,.slug,.title]' | tr -d '\r' > "${TMPDIR:-/tmp}/live-tickets.jsonl"
 ```
@@ -204,7 +204,7 @@ returns the mismatches; the mismatches are fixed. Then:
 
 ```bash
 cd <audit worktree path>
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" --field "$@"; }
 T=$(F tickets.root); A=$(git branch --show-current)          # worktree branch = audit epic name
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json | jq --arg a "$A" '.tickets[]|select(.epic==$a and .blockedParsed==false)'  # empty
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" "$A"                    # e.g. "/to-tickets · audit-… 0/N · ticket 01 — …"

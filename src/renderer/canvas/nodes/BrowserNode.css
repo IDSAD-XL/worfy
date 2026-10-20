@@ -1,5 +1,4 @@
-/* The Browser frame (BrowserNode.tsx) and its page in the Browser layer (../overlays/BrowserLayer.tsx),
-   the prototype of worfy-browser ticket 01. */
+/* The Browser frame (BrowserNode.tsx) and its page in the Browser layer (../overlays/BrowserLayer.tsx). */
 
 /* The frame: the surface's border, ring and shadow, but no fill, so the page under its body shows. */
 .w-browser-frame.w-node-surface {
@@ -27,16 +26,72 @@
 .w-browser-frame__title {
   font-weight: 600;
 }
-.w-browser-frame__url {
+.w-browser-frame__title {
+  flex: none;
+}
+/* Back, forward, reload: left of the address bar, quiet until hovered, faded while inactive. */
+.w-browser-frame__nav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.w-browser-frame__nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: default;
+}
+.w-browser-frame__nav-button:hover:not(:disabled) {
+  background: var(--segment-track);
+  color: var(--text);
+}
+.w-browser-frame__nav-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-browser-frame__nav-button:disabled {
   color: var(--text-muted);
-  overflow: hidden;
+  opacity: 0.5;
+}
+/* The address bar. It leaves the right part of the header free: a press there selects and drags
+   the frame, as a press on the title does. */
+.w-browser-frame__address {
+  flex: 0 1 360px;
+  min-width: 0;
+  height: 20px;
+  box-sizing: border-box;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-12);
   text-overflow: ellipsis;
+}
+.w-browser-frame__address::placeholder {
+  color: var(--text-muted);
+}
+.w-browser-frame__address:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.w-browser-frame__address[aria-invalid='true'] {
+  border-color: var(--blocked-ring);
 }
 /* The window onto the page: the mouse goes through it to the <webview> under it. React Flow's
    wrapper of the Node (.react-flow__node-browser) would catch the mouse over the whole frame, so
    only the header takes it: a press there selects and drags the frame as on any Node. React Flow
    sets `pointer-events: all` on the wrapper as an inline style, hence !important. */
 .w-browser-frame__body {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
@@ -49,6 +104,68 @@
 }
 .w-browser-frame__header {
   pointer-events: all;
+}
+
+/* The Open bar (worfy-browser ticket 11): over the top of the page, right under the header, the
+   colours of the header. It takes the mouse, unlike the rest of the body. */
+.w-browser-frame__open-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-control);
+  color: var(--text);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  pointer-events: all;
+}
+.w-browser-frame__open-label {
+  flex: none;
+  color: var(--text-secondary);
+}
+/* The address, cut in the middle: the head gives way with an ellipsis, the tail stays whole. */
+.w-browser-frame__open-url {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.w-browser-frame__open-url-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-browser-frame__open-url-tail {
+  flex: none;
+}
+.w-browser-frame__open-button {
+  flex: none;
+  margin-left: auto;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: default;
+}
+.w-browser-frame__open-button:hover {
+  border-color: var(--border-strong);
+}
+.w-browser-frame__open-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-browser-frame__open-bar .w-browser-frame__nav-button {
+  flex: none;
 }
 
 /* The layer: under every Node inside the viewport's stacking context (React Flow's viewport has a
@@ -74,8 +191,10 @@
   height: 100%;
 }
 
-/* While a Node is dragged or the Canvas panned, the page takes no mouse: a pointer that runs ahead
-   onto it would hand the moves and the release to the page, as with a Card's iframe (canvas.css). */
+/* While a mouse button pressed on the Canvas is held (frames-step-aside.ts), a Node is dragged or
+   the Canvas panned, the page takes no mouse: a pointer that runs ahead onto it would hand the moves
+   and the release to the page, as with a Card's iframe (canvas.css). */
+.w-canvas .react-flow[data-pointer-pressed] .w-browser-layer__page,
 .w-canvas .react-flow:has(.react-flow__node.dragging) .w-browser-layer__page,
 .w-canvas .react-flow:has(.react-flow__pane.dragging) .w-browser-layer__page,
 .w-canvas .react-flow[data-node-resizing] .w-browser-layer__page {

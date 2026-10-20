@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 42/56; в работе 36, 41; 56 — test `github-prs` без login shell; 29, 52 — платные eval, только владелец.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 46/59; в работе 36, 42, 46, 55, 56, 59; 31, 48 — шаг владельца («Итог»); 58 ждёт 55; 29, 52 — платные eval, только владелец.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
@@ -15,17 +15,17 @@
 - `worfy-ui` ([spec](.scratch/worfy-ui/spec.md)): влиты 01–11, 13–15, 18 (11 — #328, 14 — #449, 15 — #450, 18 — #543); остался 12 — приёмка; 19 — долг после review #543.
 - `worfy-review` (приёмы ponytail, pstack и Thermos в ревью и implementer Harness; [spec](.scratch/worfy-review/spec.md)) — 8/8, влиты все; вопросы владельцу — «Итог» 07, 08.
 - `worfy-polish`: 31/36 — 01–29, 31, 33 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32. 34–36 — flaky, security ссылок, долг #530.
-- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 5/9, влиты 01–03 (`wave-gate`, ADR-0065), 06 (#555) и 08 (#433, ADR-0068): batch CI на `main` включён; 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
+- `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 5/16, влиты 01–03, 06, 08 (batch CI, ADR-0068); 07, 09 — `wave-gate`; 04, 05 — Orchestrator. 10–16 — скорость test-ов (ADR-0081); 10 — PR #620, 16 — следующий.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
-- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 4/9 (09 — #569, 03 — #574); 05 (#579), 06 (#582) — в очереди gate; 04 в работе; 07 и 08 — в конце.
+- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 7/10 (09, 03–06 влиты; 04 — #590); 07 — ревью #625; 10 (подстановки Profile) — после 07; 08 — после release; до 08 — шаги владельца из «Итог» 04 и 06.
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 4/16; влиты 01 (#539), 03, 04, 07 — Wave 1 закрыта; Wave 2 — 02 и 11 в работе; новые 14–16 (14 — до 10).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 1/8; 01 «go» (#556); 02 ждёт: ответы на его вопросы — без владельца, подтвердить.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 5/12; 12 в работе; 03 ждёт ответов владельца, потом 12.
 
 ## Ждёт владельца
 
 - `wave-gate` на Mac краснит typecheck в своём дереве: до `worfy-throughput` 07 — merge-once.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
-- Песочница приёмки лежит в `$TMPDIR`, macOS удаляет файлы без обращений три дня. Исправление — `worfy-harness` 36; после merge владелец переносит песочницу командой `move` (команды — в PR).
+- Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
