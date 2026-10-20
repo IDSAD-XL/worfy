@@ -389,6 +389,9 @@ else bad "common.md: no section '## Shell commands without a confirmation' at $C
 for a in implementer reviewer; do
     if flat "$a" | grep -qF -- "$SHELL_REF"; then ok "$a: points at the common rule on deletes and -c scripts"
     else bad "$a: no reference '$SHELL_REF'"; fi
+    # The one line the agent keeps: a clean folder is a new one, not an old one cleaned.
+    if flat "$a" | grep -qF -- 'make a new one with `mktemp -d`, do not clean an old one.'; then ok "$a: a new mktemp -d instead of cleaning"
+    else bad "$a: no line 'make a new one with \`mktemp -d\`, do not clean an old one.'"; fi
     for p in 'literal path' 'rm -rf $R/$d' 'rm -rf *' 'bypassPermissions'; do
         if grep -qF -- "$p" "$AGENTS/$a.md"; then bad "$a: repeats the common rule ('$p')"
         else ok "$a: no copy of the common rule ('$p')"; fi

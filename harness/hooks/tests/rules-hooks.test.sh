@@ -405,9 +405,9 @@ COMMON_TOPICS=(
     'Deployed|live endpoint'
     'Subagent claims|is a claim, not a fact|Re-read the line'
     'Context hygiene|Context hygiene|minimal fragment|`Edit`|compress|Unbounded output|only what changed'
-    'Shell commands without a confirmation|Shell commands without a confirmation|`bypassPermissions`|no allow rule|without a human|the request is denied'
-    'Delete by a literal path|Delete only by a literal path|no glob after `cd`|no `$VAR` in an `rm` target|even when the folder came from `mktemp -d`|make a new one with `mktemp -d`; do not clean the old one'
-    'Multi-line -c script from a file|A multi-line script for `sh -c`, `bash -c` or `zsh -c` goes into a file|scratchpad subdirectory|run the file (`zsh -f <file>`)'
+    'Shell commands without a confirmation|Shell commands without a confirmation|asks a human before the shell commands below, even in `bypassPermissions`, and no allow rule lets them through|In a session without a human|the request is denied and the step breaks'
+    'rm target that could shrink to a folder|`rm` or `rmdir` whose target could shrink to `/` or to a whole folder|a glob after `cd`|`$VAR/` followed by a glob, another `$VAR`, a `/` or nothing|`rm -rf "$M/$d"`|even when the folder came from `mktemp -d`|Delete by a literal path|by a variable and a fixed name (`rm -f "$L/holder.json"`)|make a new one with `mktemp -d`; do not clean the old one'
+    'Multi-line -c script from a file|A multi-line `sh -c`, `bash -c` or `zsh -c` script that may delete something and that Claude Code could not check|`zmodload`|Put a multi-line script into a file in your own scratchpad subdirectory and run the file (`zsh -f <file>`)'
 )
 
 # $1 file to search, topics follow. The text is searched as one line with whitespace runs
