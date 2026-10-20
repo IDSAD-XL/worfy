@@ -526,7 +526,7 @@ export class WorkflowWatcher {
       if (layout.failed) {
         checkout = this.checkout = failedCheckout(root, layout)
         this.retryLayout()
-      } else if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+      } else if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
         this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)

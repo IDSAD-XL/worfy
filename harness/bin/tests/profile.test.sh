@@ -371,6 +371,21 @@ for spec in "${PL_BAD[@]}"; do
     jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
     newp "$n" "{\"schema\":2,\"name\":\"$n\",\"mode\":\"full\",\"workflow\":{\"pipeline\":$pl}}"
 done
+# The names of the document sections code parses: tickets.trail_section, tickets.done_section,
+# tickets.manual_mark and docs.adr_status_label. Values of a project whose documents are not in English,
+# nulls (the defaults), and one broken value per field.
+HD_PROFILES=(hdset hdnull hdtrailnum hddoneempty hdmanuallist hdstatusnum)
+for n in "${HD_PROFILES[@]}"; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+hd() { newp "$1" "{\"schema\":2,\"name\":\"$1\",\"mode\":\"full\",$2}"; }
+hd hdset '"tickets":{"trail_section":"## Fichiers","done_section":"## Fini quand","manual_mark":"à la main"},"docs":{"adr_dir":"docs/adr","adr_status_label":"Statut"}'
+hd hdnull '"tickets":{"trail_section":null,"done_section":null,"manual_mark":null},"docs":{"adr_status_label":null}'
+hd hdtrailnum '"tickets":{"trail_section":5}'
+hd hddoneempty '"tickets":{"done_section":"  "}'
+hd hdmanuallist '"tickets":{"manual_mark":["manual"]}'
+hd hdstatusnum '"docs":{"adr_status_label":1}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -473,6 +488,24 @@ fails_with "cross_machine_gate serve without check -> 1 with the reason" 1 'cros
 fails_with "cross_machine_gate.exempt with a backslash -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptbs" --name
 fails_with "cross_machine_gate.exempt a string -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptstr" --name
 fails_with "cross_machine_gate a list -> 1 with the reason" 1 'cross_machine_gate is an object' "$P2" -C "$T/r/cmobj" --field cross_machine_gate
+# --- the names of the document sections code parses -------------------------------------------
+eq "--field tickets.trail_section as written" "## Fichiers" "$P2" -C "$T/r/hdset" --field tickets.trail_section
+eq "--field tickets.done_section as written" "## Fini quand" "$P2" -C "$T/r/hdset" --field tickets.done_section
+eq "--field tickets.manual_mark as written" "à la main" "$P2" -C "$T/r/hdset" --field tickets.manual_mark
+eq "--field docs.adr_status_label as written" "Statut" "$P2" -C "$T/r/hdset" --field docs.adr_status_label
+eq "--field docs.adr_dir is kept beside the label" "docs/adr" "$P2" -C "$T/r/hdset" --field docs.adr_dir
+for p in bare hdnull legacy; do
+    eq "$p: tickets.trail_section absent or null -> ## Where in code" "## Where in code" "$P2" -C "$T/r/$p" --field tickets.trail_section
+    eq "$p: tickets.done_section absent or null -> ## Done when" "## Done when" "$P2" -C "$T/r/$p" --field tickets.done_section
+    eq "$p: tickets.manual_mark absent or null -> manual" manual "$P2" -C "$T/r/$p" --field tickets.manual_mark
+    eq "$p: docs.adr_status_label absent or null -> Status" Status "$P2" -C "$T/r/$p" --field docs.adr_status_label
+done
+eq "--json carries the four names, resolved" $'## Where in code\n## Done when\nmanual\nStatus' \
+    bash -c 'set -o pipefail; "$@" --json | jq -r ".tickets.trail_section, .tickets.done_section, .tickets.manual_mark, .docs.adr_status_label"' _ "$P2" -C "$T/r/bare"
+fails_with "tickets.trail_section 5 -> 1 with the reason" 1 'tickets.trail_section is a non-empty string or null, got 5' "$P2" -C "$T/r/hdtrailnum" --name
+fails_with "tickets.done_section blank -> 1 with the reason" 1 'tickets.done_section is a non-empty string or null' "$P2" -C "$T/r/hddoneempty" --name
+fails_with "tickets.manual_mark a list -> 1 with the reason" 1 'tickets.manual_mark is a non-empty string or null' "$P2" -C "$T/r/hdmanuallist" --name
+fails_with "docs.adr_status_label 1 -> 1 with the reason" 1 'docs.adr_status_label is a non-empty string or null, got 1' "$P2" -C "$T/r/hdstatusnum" --name
 # --- workflow.pipeline ------------------------------------------------------------------------
 PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
 eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline

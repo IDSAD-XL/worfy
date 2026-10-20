@@ -2,9 +2,9 @@
 //
 // The only reader of the Ticket format is `epic-status --json` of the Harness found on the machine
 // (src/main/harness/locate.ts: the plugin's bin/ or `<claude home>/bin`). worfy adds the
-// things that script does not carry: the files listed under each Ticket's "Где в коде"
-// section, the Ticket's "(вручную)" checks of "Готово, когда" (shared/workflow/manual-checks.ts)
-// and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
+// things that script does not carry: the files listed under each Ticket's trail section, the
+// Ticket's manual checks of its "done" section (shared/workflow/manual-checks.ts) — both under the
+// headings the Project's Profile names (shared/workflow/doc-headings.ts) — and the Epic's title (the H1 of spec.md), all read from the Tickets root the Harness
 // names (src/main/workflow/folder.ts: `<root>/.scratch` in Full mode, the Workflow folder in Silent
 // mode). In Full mode a Ticket claimed in a worktree branch is shown with the branch's status:
 // `epic-status --json --ref <branch>` reads that branch. A branch never undoes blocked or done of
@@ -16,6 +16,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
+import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, headingMatch, OLD_DOC_HEADINGS, type DocHeadings } from '../../shared/workflow/doc-headings'
 import { manualChecks } from '../../shared/workflow/manual-checks'
 import { versionOf } from '../docs/watch'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -177,15 +178,17 @@ export function parseEpicStatus(stdout: string): EpicStatusSnapshot {
   return parsed.data
 }
 
-const CODE_HEADING = /^##\s+Где в коде\s*$/u
 const FENCE = /^\s*(```|~~~)/
 const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+/
 
 /**
- * The "Где в коде" section of a Ticket: the backticked text of its list items, in order.
- * `listed` is false when the Ticket has no such section; headings inside code fences don't count.
+ * The trail section of a Ticket (`heading`, `tickets.trail_section` of the Profile): the backticked
+ * text of its list items, in order. `listed` is false when the Ticket has no such section; headings
+ * inside code fences don't count.
  */
-export function codeSection(markdown: string): { listed: boolean; files: string[] } {
+export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEADINGS.trailSection): { listed: boolean; files: string[] } {
+  const trail = headingMatch(accepted(heading, OLD_DOC_HEADINGS.trailSection))
+  const sectionEnd = new RegExp(`^#{1,${trail.level}}\\s`)
   let inFence = false
   let inSection = false
   let listed = false
@@ -197,8 +200,8 @@ export function codeSection(markdown: string): { listed: boolean; files: string[
       continue
     }
     if (inFence) continue
-    if (/^#{1,2}\s/.test(line)) {
-      inSection = CODE_HEADING.test(line)
+    if (sectionEnd.test(line)) {
+      inSection = trail.test(line)
       if (inSection) listed = true
       continue
     }
@@ -248,10 +251,12 @@ export interface EnrichOptions {
   links?: LinkFs
   /** The calls that follow links; replaced in tests. */
   fs?: TicketFs
+  /** The section names the Project's Profile gives (ProjectLayout.headings); the defaults for the rest. */
+  headings?: Partial<DocHeadings>
 }
 
 /**
- * Adds the "Где в коде" files and the Epic titles to a snapshot of the checkout, read from
+ * Adds the trail section files, the manual checks and the Epic titles to a snapshot of the checkout, read from
  * `ticketsRoot` (the folder with `<epic>/spec.md` and `<epic>/issues/`).
  *
  * On Windows readFile and readdir through a link to `\\host\share\…` make the system contact
@@ -280,6 +285,7 @@ export async function enrichSnapshot(
   const links = cachedLinks(options.links)
   const away = (path: string): Promise<boolean> => leadsToRemote(path, allowed, { paths, links })
   const read = async (path: string): Promise<string | null> => ((await away(path)) ? null : fs.readText(path))
+  const headings = docHeadings(options.headings)
 
   const epics = await Promise.all(
     snapshot.epics.map(async (epic) => {
@@ -304,8 +310,8 @@ export async function enrichSnapshot(
     snapshot.tickets.map(async (ticket): Promise<Ticket> => {
       const path = issueFiles.get(ticket.epic)?.get(`${ticket.num}:${ticket.slug}`)
       const markdown = path ? await read(path) : null
-      const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown)
-      const checks = markdown === null ? [] : manualChecks(markdown)
+      const section = markdown === null ? { listed: false, files: [] } : codeSection(markdown, headings.trailSection)
+      const checks = markdown === null ? [] : manualChecks(markdown, headings)
       // The version makes an edit of the text alone a change of the Ticket, so the focused Ticket reads it again.
       const version = markdown === null ? {} : { version: versionOf(markdown) }
       return { ...ticket, files: section.files, filesListed: section.listed, fromBranch: null, manualChecks: checks, ...version }
@@ -326,12 +332,15 @@ export function failedCheckout(root: string, layout: ProjectLayout): CheckoutMod
   return { root, epics: [], tickets: [], error: { code: 'failed', message: layoutFailure(layout) } }
 }
 
-/** Reads the Project's checkout. A missing or broken script gives an empty model with the reason. */
-export async function readCheckout(root: string, run: EpicStatusRunner, ticketsRoot?: string): Promise<CheckoutModel> {
+/**
+ * Reads the Project's checkout. A missing or broken script gives an empty model with the reason.
+ * `headings` are those of the Project's layout; without them the defaults are read.
+ */
+export async function readCheckout(root: string, run: EpicStatusRunner, ticketsRoot?: string, headings?: Partial<DocHeadings>): Promise<CheckoutModel> {
   const isDir = await stat(root).then((s) => s.isDirectory()).catch(() => false)
   if (!isDir) return { root, epics: [], tickets: [], error: { code: 'failed', message: `Project folder not found: ${root}` } }
   try {
-    return await enrichSnapshot(root, parseEpicStatus(await run(root, null)), ticketsRoot)
+    return await enrichSnapshot(root, parseEpicStatus(await run(root, null)), ticketsRoot, headings ? { headings } : {})
   } catch (error) {
     return { root, epics: [], tickets: [], error: errorOf(error) }
   }
@@ -467,7 +476,7 @@ export async function readWorkflow(
     const checkout = failedCheckout(root, layout)
     return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   }
-  const checkout = await readCheckout(root, run, layout.ticketsRoot)
+  const checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
   // Silent mode: no `--ref` (the Harness answers it with exit code 3), no status from branches.
   if (checkout.error || layout.mode === 'silent') return { model: { ...checkout, branchErrors: [] }, checkout, branches: new Map() }
   const branches = await readBranches(root, checkout, await ticketWorktrees(root), previous, run, options.concurrency)

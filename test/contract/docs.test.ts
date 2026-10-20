@@ -433,6 +433,35 @@ describe('a Silent Project (worfy-harness ticket 23)', () => {
   })
 })
 
+describe('the ADR status label the Profile names (docs.adr_status_label)', () => {
+  /** A Full Project whose stub bin/profile answers with `docs`; bin/ticket names `.scratch` of the repository. */
+  function profileWith(docs: object | null): void {
+    const bin = join(scratch, 'claude-home', 'bin')
+    mkdirSync(bin, { recursive: true })
+    const json = { mode: 'full', ...(docs ? { docs } : {}), _resolved: { mode: 'full', workflow_folder: repo, workspace: null, repos: [{ name: 'repo', path: repo }] } }
+    for (const [name, out] of [['profile', JSON.stringify(json)], ['ticket', `${join(repo, '.scratch')}\n`]] as const) {
+      symlinkSync(CANNED, join(bin, name))
+      writeFileSync(join(bin, `${name}.out`), out)
+    }
+  }
+
+  it('docs.open reads the status after the Profile\'s label', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-fr.md'), '# Décision\n\nDate : 2026-10-20. Statut : acceptée.\nStatus: not this one\n')
+    profileWith({ adr_dir: 'docs/adr', adr_status_label: 'Statut' })
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ title: 'Décision', status: 'acceptée' })
+    // The Russian ADRs of the repository: their label is read for one more release whatever the Profile names.
+    expect(state.adrs.find((adr) => adr.number === '0001')).toMatchObject({ status: 'принят' })
+  })
+
+  it('docs.open reads `Status:` when the Profile names no label', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-en.md'), '# Decision\n\nDate: 2026-10-20. Status: accepted.\n')
+    profileWith(null)
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ status: 'accepted' })
+  })
+})
+
 describe('read-only', () => {
   it('leaves the repository exactly as it was after watching, reading and following edits', async () => {
     // `git status` may refresh .git/index itself, so it runs before the snapshot, not after.
@@ -475,5 +504,15 @@ describe('parseAdr', () => {
     // No heading and no status: the file name stands for the title.
     expect(parseAdr('0011-z.md', '## Only a subheading\n\ntext\n')).toStrictEqual({ number: '0011', title: '0011-z.md', status: null })
     expect(() => parseAdr('README.md', '# x')).toThrow(/not an ADR/)
+  })
+
+  it('takes the status after the label it is given, as written, and the English one by default', async () => {
+    const { parseAdr } = await import('../../src/main/docs/watch')
+    expect(parseAdr('0012-a.md', '# A\n\nStatut : acceptée.\nStatus: no\n', 'Statut')).toMatchObject({ status: 'acceptée' })
+    expect(parseAdr('0012-a.md', '# A\n\nStatus: no\n', 'Statut')).toMatchObject({ status: null })
+    // The label's characters are taken as they are, not as a pattern.
+    expect(parseAdr('0012-a.md', '# A\n\nState (now): open.\n', 'State (now)')).toMatchObject({ status: 'open' })
+    expect(parseAdr('0012-a.md', '# A\n\nState now: open.\n', 'State (now)')).toMatchObject({ status: null })
+    expect(parseAdr('0013-b.md', '# B\n\nDate: 2026-10-20. Status: accepted.\n')).toMatchObject({ status: 'accepted' })
   })
 })

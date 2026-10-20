@@ -573,6 +573,25 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(layout).toMatchObject({ mode: 'full', workflowFolder: resolve('/repo'), ticketsRoot: '/private/repo/.scratch', repos: [{ name: 'repo', path: '/private/repo' }], reason: null })
   })
 
+  it('carries the names of the document sections the Profile gives, and none of a value that is not a name', async () => {
+    const resolved = { mode: 'full', workflow_folder: '/repo', workspace: null, repos: [] }
+    const layoutOf = (json: object) =>
+      readProjectLayout({ root: '/repo', claudeHome: '/h', env: {}, run: stubRun({ code: 0, stdout: JSON.stringify(json), stderr: '' }), runTicket: stubRun({ code: 0, stdout: '/repo/.scratch\n', stderr: '' }), log })
+    const named = await layoutOf({
+      mode: 'full',
+      tickets: { trail_section: '## Fichiers', done_section: '## Fini quand', manual_mark: 'à la main', path: 'x' },
+      docs: { adr_dir: 'docs/adr', adr_status_label: 'Statut' },
+      _resolved: resolved,
+    })
+    expect(named.headings).toEqual({ trailSection: '## Fichiers', doneSection: '## Fini quand', manualMark: 'à la main', adrStatusLabel: 'Statut' })
+    // A Harness from before the new fields: the trail section only.
+    expect((await layoutOf({ mode: 'full', tickets: { trail_section: '## Files' }, _resolved: resolved })).headings).toEqual({ trailSection: '## Files' })
+    // Blank, null, a number, a list: not a name, so the readers take the default for it.
+    const wrong = await layoutOf({ mode: 'full', tickets: { trail_section: '  ', done_section: null, manual_mark: 5 }, docs: ['Statut'], _resolved: resolved })
+    expect(wrong).not.toHaveProperty('headings')
+    expect(await layoutOf({ mode: 'full', tickets: null, docs: null, _resolved: resolved })).not.toHaveProperty('headings')
+  })
+
   // Mac review of PR #489 (worfy-windows ticket 59): the roots above are resolved already, so a
   // readProjectLayout that kept the root as given passed them all.
   it('a root that is not in its resolved form (`..`, a trailing separator): the scripts, the layout and the log line get the resolved root', async () => {

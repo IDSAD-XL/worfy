@@ -342,6 +342,24 @@ for (const [group, field, value] of HARNESS_PATHS) {
     if (prefix) g[field] = `${BIN}/${g[field].slice(prefix.length)}`
 }
 
+// The names of the document sections and marks that code parses (profiles/README.md): the ticket's trail
+// section, its "done" section, the mark of a manual item in that section and the label of an ADR's status.
+// Absent or null — the English default, so every reader gets a value; a value that is not a non-empty
+// string is a broken profile: a guessed one would make a reader miss the section and see an empty list.
+const DOC_HEADINGS = [
+    ["tickets", "trail_section", "## Where in code"],
+    ["tickets", "done_section", "## Done when"],
+    ["tickets", "manual_mark", "manual"],
+    ["docs", "adr_status_label", "Status"],
+]
+for (const [group, field, value] of DOC_HEADINGS) {
+    if (profile[group] === null || typeof profile[group] !== "object") profile[group] = {}
+    const given = profile[group][field]
+    if (given === undefined || given === null) profile[group][field] = value
+    else if (typeof given !== "string" || !given.trim())
+        die(1, `${pjPath}: ${group}.${field} is a non-empty string or null, got ${JSON.stringify(given)} — broken profile`)
+}
+
 let checkoutReal = null
 if (checkout) {
     try {
