@@ -92,6 +92,7 @@ Ticket 75 нашёл, что chokidar 5.0.0 открывает watch занов�
   `<x>.close()` в `src/main`, где тип `<x>` — `FSWatcher` chokidar (или union с ним). Разрешён ровно
   один — внутри `closeForGood`; то, что он находится, показывает, что поиск видит chokidar.
   `LinkSafeWatch`, fs.watch Node, file handle и `CardsWatch` — другие типы и не ловятся. Около 2 s.
+  Это первая версия; review её расширил (ниже): в ней `cards/store.ts` защищён не был.
 - Unit test уровня watcher-а в `test/unit/workflow-branches-gone.test.ts` оставлен (проверяет wiring);
   test поздних `add()` из `df73ef5e` остался там и краснеет без no-op `add` в helper-е.
 
@@ -113,6 +114,20 @@ Ticket 75 нашёл, что chokidar 5.0.0 открывает watch занов�
 - голый `close()` в `registry.ts`, в `cards/store.ts` (`{ close: () => watcher.close() }`) и в
   `workflow/watch.ts` (`unwatch`) → `chokidar-close-callers.test.ts` красный (exit 1), с адресом
   `src/main/workflow/watch.ts:321` в сообщении.
+
+**Review на ПК (lens test-ов): три замечания, исправлены.**
+- [med] Source test видел только прямой `<x>.close()`. Mutant review-а — `cards/store.ts` снова кладёт
+  watcher в map как есть (`this.watchers.set(projectId, watcher)`, код до этого Ticket-а) — оставлял его
+  зелёным, хотя голые close в `forgetRemovedProjects` и `CardStore.close()` вернулись. Теперь test
+  ловит и выход chokidar watch-а как значения другого типа: где checker знает ожидаемый тип (аргумент,
+  присваивание, переменная с типом, return, свойство object literal), он должен быть `FSWatcher`
+  chokidar; исключения — аргумент `closeForGood` и место, что ждёт `void` (значение выброшено). Тот
+  mutant — красный (exit 1). Test теперь идёт около 5 s. Утверждение выше про `cards/store.ts` относилось к первой версии test-а.
+- [low] Ловятся и `watcher['close']`, и `const { close } = watcher` (а с ними `.close.call(…)`):
+  mutant-ы в `registry.ts` с `await watcher['close']()` и с `const { close } = watcher; await
+  close.call(watcher)` — красные (exit 1). Не ловится: `as` и `any`, там checker теряет тип.
+- [low] Ожидания в `test/unit/chokidar-close.test.ts` умножены на `timeScale`: `waitFor` —
+  `2000 * timeScale`, пауза после позднего `add()` — `200 * timeScale`.
 
 **Проверка**
 
