@@ -315,8 +315,10 @@ lock_run() {
   (while sleep 300; do [ -d "$LOCK" ] || exit 0; touch -c "$LOCK" 2>/dev/null || true; done) >/dev/null 2>&1 &
   hb=$!
   # Every step of the release is guarded: under `set -e` a failing step would end the trap before rmdir.
-  # The heartbeat is stopped first, so it starts no new `sleep` after pkill has killed its current one.
-  trap 'kill -STOP '"$hb"' 2>/dev/null || true; pkill -P '"$hb"' 2>/dev/null || true; kill -KILL '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
+  # The heartbeat is stopped first, so it starts no new `sleep` after pkill has killed its current one;
+  # CONT after KILL, so a stopped process that KILL did not end (seen under MSYS) cannot hang `wait`.
+  # shortcut: kills by pid, so a pid reused after the heartbeat already ended gets the signals, and a fork in the ~10 ms before STOP lands can still leave one sleep; redo with a process group if either is ever seen.
+  trap 'kill -STOP '"$hb"' 2>/dev/null || true; pkill -P '"$hb"' 2>/dev/null || true; kill -KILL '"$hb"' 2>/dev/null || true; kill -CONT '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   E3_LOCK_HELD=1 "$@"

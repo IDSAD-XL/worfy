@@ -591,6 +591,30 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   /** The command under the lock: it records that it ran, what E3_LOCK_HELD was and that the lock folder was there. */
   const touchRan = ['sh', '-c', 'echo "held=$E3_LOCK_HELD lock=$(ls -d "$E3_LOCK_DIR")" > "$SCRATCH/ran"']
 
+  const isAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch {
+      return false
+    }
+  }
+  /** The pids listed one per line in a file, none when there is no file. */
+  const pidsIn = (file: string): number[] => (existsSync(file) ? readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map(Number) : [])
+  const until = async (done: () => boolean, ms: number): Promise<void> => {
+    for (const end = Date.now() + ms; !done() && Date.now() < end; ) await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  // Every test starts with a stand-in `sleep` that records the pid of each heartbeat `sleep 300` and
+  // then sleeps for real; after the test any of them still alive is killed by pid. Tests that need
+  // another `sleep` replace it.
+  const heartbeatPids = (): string => join(scratch, 'heartbeat-pids')
+  beforeEach(() => {
+    stubCommand('sleep', [`if [ "$1" = 300 ]; then echo "$$" >> '${heartbeatPids()}'; fi`, `PATH='${process.env.PATH ?? ''}' exec sleep "$@"`])
+  })
+  afterEach(() => {
+    for (const pid of pidsIn(heartbeatPids()).filter(isAlive)) process.kill(pid, 'SIGKILL')
+  })
+
   it('runs the command holding the lock, with E3_LOCK_HELD=1, and releases the lock; a caller on a pipe is not kept waiting', () => {
     const run = sandbox(['lock-run', ...touchRan], { env: { SCRATCH: scratch } })
     expectExit(run, 0)
@@ -601,30 +625,44 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh lock-run', () => {
   })
 
   it('leaves no sleep of the heartbeat behind when the command ends', () => {
-    // The heartbeat's `sleep 300` records its pid and then sleeps for real. The command under the
-    // lock waits until that sleep has started, so the release always finds it running.
-    const pids = join(scratch, 'heartbeat-pids')
-    stubCommand('sleep', ['if [ "$1" = 300 ]; then echo "$$" >> "$HB_PIDS"; fi', 'PATH=$REAL_PATH exec sleep "$@"'])
+    // The command under the lock waits until the heartbeat's sleep has started, so the release
+    // always finds it running.
     const waitForHeartbeat = ['sh', '-c', 'n=0; until [ -s "$HB_PIDS" ]; do n=$((n + 1)); [ "$n" -le 100 ] || exit 9; sleep 0.05; done']
-    const run = sandbox(['lock-run', ...waitForHeartbeat], { env: { HB_PIDS: pids, REAL_PATH: process.env.PATH ?? '' } })
-    const started = existsSync(pids) ? readFileSync(pids, 'utf8').trim().split('\n').filter(Boolean).map(Number) : []
-    const alive = (): number[] =>
-      started.filter((pid) => {
-        try {
-          process.kill(pid, 0)
-          return true
-        } catch {
-          return false
-        }
-      })
+    const run = sandbox(['lock-run', ...waitForHeartbeat], { env: { HB_PIDS: heartbeatPids() } })
+    expectExit(run, 0)
+    const started = pidsIn(heartbeatPids())
+    expect(started.length).toBeGreaterThan(0)
+    // A killed process can take a moment to go: up to 2 seconds.
+    for (let i = 0; i < 20 && started.some(isAlive); i++) spawnSync('sleep', ['0.1'])
+    expect(started.filter(isAlive)).toEqual([])
+  })
+
+  it('a heartbeat left by a lock-run killed with kill -9 ends once the lock is gone, and makes no plain file in its place', async () => {
+    // The heartbeat sleeps 0.2 s here and its sleep records the heartbeat's pid. The stand-in
+    // `touch` removes the lock folder just before the heartbeat's touch, as a run that took the lock
+    // for abandoned would: `touch -c` must not make a plain file there, and the next step must see
+    // the folder gone and end the heartbeat.
+    const parents = join(scratch, 'heartbeat-parents')
+    const go = join(scratch, 'go')
+    stubCommand('sleep', [`if [ "$1" = 300 ]; then echo "$PPID" >> '${parents}'; set -- 0.2; fi`, `PATH='${process.env.PATH ?? ''}' exec sleep "$@"`])
+    stubCommand('touch', [`rmdir '${lock}' 2>/dev/null`, `PATH='${process.env.PATH ?? ''}' exec touch "$@"`])
+    const waitForGo = ['sh', '-c', 'n=0; until [ -e "$GO" ] || [ "$n" -ge 400 ]; do n=$((n + 1)); sleep 0.05; done']
+    const child = spawn('bash', [SCRIPT, 'lock-run', ...waitForGo], { cwd: scratch, env: sandboxEnv({ GO: go }), stdio: 'ignore' })
+    const exited = new Promise<void>((resolve) => child.on('exit', () => resolve()))
+    let heartbeat = 0
     try {
-      expectExit(run, 0)
-      expect(started.length).toBeGreaterThan(0)
-      // A killed process can take a moment to go: up to 2 seconds.
-      for (let i = 0; i < 20 && alive().length > 0; i++) spawnSync('sleep', ['0.1'])
-      expect(alive()).toEqual([])
+      await until(() => pidsIn(parents).length > 0, 10_000)
+      heartbeat = pidsIn(parents)[0] ?? 0
+      expect(heartbeat, 'the heartbeat did not start').toBeGreaterThan(0)
+      child.kill('SIGKILL')
+      await exited
+      await until(() => !isAlive(heartbeat), 3_000)
+      expect(isAlive(heartbeat), 'the heartbeat outlived the lock').toBe(false)
+      expect(existsSync(lock), 'a plain file was made where the lock folder was').toBe(false)
     } finally {
-      for (const pid of alive()) process.kill(pid, 'SIGKILL')
+      writeFileSync(go, '')
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      if (heartbeat > 0 && isAlive(heartbeat)) process.kill(heartbeat, 'SIGKILL')
     }
   })
 

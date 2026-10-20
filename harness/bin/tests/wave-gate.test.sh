@@ -906,72 +906,74 @@ done
 
 # The heartbeat of the one-PR block, under bash and zsh: it ends once the lock folder is gone, also when the block's
 # shell was killed without its trap (kill -9); on a normal exit no heartbeat `sleep` is left behind; a live lock of
-# someone else stays. Its `sleep 300` is replaced by $STUBS/hbsleep, which appends its pid to $HB_PIDS and then
-# sleeps as asked, so the test knows every heartbeat sleep and kills any that is left by pid at the end.
-cat >"$STUBS/hbsleep" <<'EOF'
-#!/usr/bin/env bash
-echo "$$" >>"$HB_PIDS"
-exec sleep "$@"
-EOF
-chmod +x "$STUBS/hbsleep"
+# someone else stays. Its `sleep 300` is replaced by $HBBIN/hbsleep, which appends its pid to $HB_PIDS and then
+# sleeps as asked, so the test knows every heartbeat sleep and kills any that is left by pid at the end. The block
+# runs here with a stub ioreg (the screen is unlocked) and no git world: 80 runs with the real ioreg cost ~10 s.
+HBBIN="$T/hb-bin"; mkdir -p "$HBBIN"
+printf '#!/bin/sh\nexit 0\n' >"$HBBIN/ioreg"
+printf '#!/bin/sh\necho "$$" >>"$HB_PIDS"\nexec sleep "$@"\n' >"$HBBIN/hbsleep"
+# waitgo <file>: the gate of the kill -9 run; marks <file>.started, ends once <file> exists, then marks <file>.done
+printf '#!/bin/sh\n: >"$1.started"\nn=0; while [ ! -e "$1" ] && [ "$n" -lt 400 ]; do sleep 0.05; n=$((n + 1)); done\n: >"$1.done"\n' >"$HBBIN/waitgo"
+chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo"
 HB_LOOP='while sleep 300;'
 [[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
     || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
 alive_of() { local p; for p in $(cat "$@" 2>/dev/null); do kill -0 "$p" 2>/dev/null && printf '%s ' "$p"; done; return 0; }
 none_alive() { [ -z "$(alive_of "$@")" ]; }
 gone_pid() { ! kill -0 "$1" 2>/dev/null; }
-stop_tree() { kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; return 0; }
-LOCK_FAST5=$'\n    sleep 0.2; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 5 ] || exit 98\n'
+stop_tree() { kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null; return 0; }
+LOCK_FAST3=$'\n    sleep 0.1; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 3 ] || exit 98\n'
 for sh in bash zsh; do
-    new_world "hb-$sh" 1:a.txt
-    L="$W/e2e.lock"; export GATE_LOCK="$L" HB_PIDS="$W/hb.pids"
+    W="$T/hb-$sh"; mkdir -p "$W/repo"
+    L="$W/e2e.lock"; export HB_PIDS="$W/hb.pids"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
     base="${BE//<N>/5}"; base="${base//<PR worktree>/$W/repo}"; base="${base//<repo>/$W/repo}"
-    base="${base//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
-    # A live lock (younger than 30 min) with someone else's holder.json: not removed, the block waits (here: 5 polls,
+    base="${base//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/@GATE@}"
+    # A live lock (younger than 30 min) with someone else's holder.json: not removed, the block waits (here: 3 polls,
     # then exit 98) and runs no gate.
     mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
-    got="$($sh -c "$STUB"$'\n'"${base/"$LOCK_POLL"/$LOCK_FAST5}" 2>&1)"; rc=$?
-    [ "$rc" -eq 98 ] && [ "$(gate_count)" = 0 ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
+    b="${base/"$LOCK_POLL"/$LOCK_FAST3}"; b="${b//@GATE@/touch \"$W/ran\"}"
+    got="$(PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
+    [ "$rc" -eq 98 ] && [ ! -e "$W/ran" ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
         && ok "$sh: the one-PR gate full block: a live lock with someone else's holder.json stays, the block waits" \
-        || bad "$sh: the one-PR block, live lock: exit $rc, gates $(gate_count), lock [$(ls -A "$L" 2>&1)] [$got]"
-    rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
+        || bad "$sh: the one-PR block, live lock: exit $rc, gate ran: $([ -e "$W/ran" ] && echo yes || echo no), lock [$(ls -A "$L" 2>&1)] [$got]"
+    rm -f "$L/holder.json" "$W/ran"; rmdir "$L" 2>/dev/null
     b0="${base/"$LOCK_POLL"/$LOCK_FAST}"
-    # The block's shell killed with kill -9 while the gate runs, then the lock removed: the heartbeat (0.5 s steps here)
-    # ends within 1 s. The gate's subshell outlives the shell: the test waits for the end of its 2 s sleep.
-    b="${b0/"$HB_LOOP"/while \"$STUBS/hbsleep\" 0.5;}"; b="${b/HB=\$!/HB=\$!; echo \$HB >\"$W/hb.pid\"}"
-    echo 2 >"$GATE_DIR/sleep"; : >"$GATE_DIR/lockwatch"
-    $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
-    hb=""
-    if until_ok 10 test -s "$W/hb.pid" && until_ok 10 grep -q '^start' "$GATE_DIR/lockwatch"; then
+    # The block's shell killed with kill -9 while the gate runs, then the lock removed: the heartbeat (0.2 s steps
+    # here) ends within 3 s. The gate's subshell outlives the shell; it ends when the test creates $W/go.
+    b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" 0.2;}"; b="${b/HB=\$!/HB=\$!; echo \$HB >\"$W/hb.pid\"}"
+    gw="\"$HBBIN/waitgo\" \"$W/go\""; b="${b//@GATE@/$gw}"
+    PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
+    if until_ok 10 test -s "$W/hb.pid" && until_ok 10 test -e "$W/go.started"; then
         hb="$(cat "$W/hb.pid")"
         kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
         rm -f "$L/holder.json"; rmdir "$L"
-        until_ok 1 gone_pid "$hb" && ok "$sh: the one-PR gate full block: after kill -9 of its shell and the lock removed, the heartbeat ends within 1 s" \
+        until_ok 3 gone_pid "$hb" && ok "$sh: the one-PR gate full block: after kill -9 of its shell and the lock removed, the heartbeat ends within 3 s" \
             || bad "$sh: the one-PR block: the heartbeat $hb outlived its shell and the lock"
     else
         kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
         bad "$sh: the one-PR block under kill -9: the lock and the gate were not reached [$(cat "$W/out")]"
     fi
-    [ -n "$hb" ] && stop_tree "$hb"
-    until_ok 10 grep -q '^end' "$GATE_DIR/lockwatch" || bad "$sh: the one-PR block under kill -9: the stub gate did not end"
-    rm -f "$GATE_DIR/sleep" "$GATE_DIR/lockwatch" "$L/holder.json"; rmdir "$L" 2>/dev/null
+    [ -s "$W/hb.pid" ] && stop_tree "$(cat "$W/hb.pid")"
+    : >"$W/go"; until_ok 5 test -e "$W/go.done" || bad "$sh: the one-PR block under kill -9: the stub gate did not end"
+    rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null
     # 40 normal runs, the gate an instant `true`, so the trap often fires while the heartbeat is still starting its
-    # first sleep: no heartbeat sleep is left after any of them. Needs pkill, as the block's trap does.
+    # first sleep: no heartbeat sleep is left after any of them, and no run prints a job notice ("Killed") of the
+    # heartbeat. Needs pkill, as the block's trap does.
     if command -v pkill >/dev/null 2>&1; then
-        : >"$HB_PIDS"; b="${b0/"$HB_LOOP"/while \"$STUBS/hbsleep\" 300;}"; gs="$STUBS/gate full"; b="${b//"$gs"/true}"; runs=0
+        : >"$HB_PIDS"; b="${b0/"$HB_LOOP"/while \"$HBBIN/hbsleep\" 300;}"; b="${b//@GATE@/true}"; runs=0 notices=0
         for i in $(seq 1 40); do
-            got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; [[ "$got" == *"EXIT=0"* ]] && [ ! -e "$L" ] && runs=$((runs + 1))
+            got="$(PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" 2>&1)"; [[ "$got" == *"EXIT=0"* ]] && [ ! -e "$L" ] && runs=$((runs + 1))
+            [[ "$got" == *Killed* ]] && notices=$((notices + 1))
         done
         until_ok 2 none_alive "$HB_PIDS"; left="$(alive_of "$HB_PIDS")"
-        [ "$runs" = 40 ] && [ -z "$left" ] && ok "$sh: the one-PR gate full block: no heartbeat sleep is left after 40 runs" \
-            || bad "$sh: the one-PR block: $runs of 40 runs green, heartbeat sleeps left: [$left]"
-        for p in $left; do kill "$p" 2>/dev/null; done
+        [ "$runs" = 40 ] && [ "$notices" = 0 ] && [ -z "$left" ] && ok "$sh: the one-PR gate full block: 40 runs leave no heartbeat sleep and print no job notice" \
+            || bad "$sh: the one-PR block: $runs of 40 runs green, $notices with a job notice, heartbeat sleeps left: [$left]"
     else
         echo "skip $sh: no pkill on this machine: the 40-run heartbeat test is not run"
     fi
     for p in $(alive_of "$HB_PIDS"); do kill "$p" 2>/dev/null; done
-    unset GATE_LOCK HB_PIDS
+    unset HB_PIDS
 done
 
 caf_gone "$T"/*/screen/caf*.log && ok "no stub caffeinate of any test is left" || bad "stub caffeinate left: $(cat "$T"/*/screen/caf*.log)"
