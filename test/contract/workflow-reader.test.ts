@@ -4,7 +4,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
@@ -18,6 +18,7 @@ import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channel
 import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
 import { generateScratch } from './scratch-gen'
+import { removeTestTree } from '../remove'
 
 /**
  * The scripts' environment the readers are handed here: this process's own. The stub below reads
@@ -1289,7 +1290,8 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     const { watcher } = await startSilent(repo, folder, scratch, deltas, { ticketsRootThere: countedLooks(looks) })
     expect(watcher.current.epics.map((e) => e.epic)).toEqual(['demo'])
 
-    rmSync(scratch, { recursive: true })
+    removeTestTree(scratch)
+    expect(existsSync(scratch)).toBe(false)
     await nextDelta(deltas, (d) => d.removedTickets.length > 0)
     await pause(2000)
     putEpic(scratch, 'next', [1])
@@ -1311,7 +1313,8 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     const deltas: WorkflowDelta[] = []
     const { watcher } = await startSilent(repo, folder, scratch, deltas)
 
-    rmSync(scratch, { recursive: true })
+    removeTestTree(scratch)
+    expect(existsSync(scratch)).toBe(false)
     await pause(12)
     putEpic(scratch, 'next', [1])
     await nextDelta(deltas, hasEpic('next'), 5000)
@@ -1330,7 +1333,8 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     const { watcher } = await startSilent(repo, folder, scratch, deltas, { watchTicketsRoot: chokidar.make })
     expect(chokidar.made).toHaveLength(1)
 
-    rmSync(join(scratch, 'demo'), { recursive: true })
+    removeTestTree(join(scratch, 'demo'))
+    expect(existsSync(join(scratch, 'demo'))).toBe(false)
     await nextDelta(deltas, (d) => d.removedEpics.includes('demo'), 5000)
     await watcher.idle()
     expect(chokidar.made).toHaveLength(1)
@@ -1391,7 +1395,8 @@ describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root 
     const watches: EventEmitter[] = []
     const { watcher } = await startSilent(repo, folder, scratch, deltas, { watchTicketsRoot: deafWatch(made, 0, (watch) => watches.push(watch)) })
 
-    rmSync(scratch, { recursive: true })
+    removeTestTree(scratch)
+    expect(existsSync(scratch)).toBe(false)
     watches[0]!.emit('all', 'unlink', join(scratch, 'demo', 'issues', '01-first.md'))
     await nextDelta(deltas, (d) => d.removedEpics.includes('demo'), 5000)
     putEpic(scratch, 'next', [1])

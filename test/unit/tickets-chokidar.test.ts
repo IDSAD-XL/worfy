@@ -2,13 +2,14 @@
 // real folders, on any system: where chokidar is the watch (everywhere but Windows since
 // worfy-windows ticket 20) and on Windows too, since chokidar runs there all the same. No link is
 // made here.
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTree } from '../../src/main/storage/remove'
 import { ticketsIgnored } from '../../src/main/workflow/watch'
+import { removeTestTree } from '../remove'
 
 let dir: string
 let root: string
@@ -124,7 +125,8 @@ describe('chokidar with the filter of a Tickets root', () => {
     mkdirSync(join(root, 'demo', 'issues'), { recursive: true })
     writeFileSync(join(root, 'demo', 'issues', '01-a.md'), '# 01\n')
     const { events } = await started()
-    rmSync(root, { recursive: true })
+    removeTestTree(root)
+    expect(existsSync(root)).toBe(false)
     await until('the removal of the root', () => events.includes(`unlinkDir ${root}`))
     await new Promise((resolve) => setTimeout(resolve, 500))
     const afterRemoval = events.length
