@@ -23,9 +23,11 @@ interface FakeWindow {
   sent: { channel: string; payload: unknown }[]
   destroyed: boolean
   onDestroyed: (() => void)[]
+  onNavigation: ((details: { isMainFrame: boolean; isSameDocument: boolean }) => void)[]
   send(channel: string, payload: unknown): void
   isDestroyed(): boolean
   once(event: 'destroyed', listener: () => void): void
+  on(event: 'did-start-navigation', listener: (details: { isMainFrame: boolean; isSameDocument: boolean }) => void): void
 }
 
 function fakeWindow(): FakeWindow {
@@ -33,6 +35,7 @@ function fakeWindow(): FakeWindow {
     sent: [],
     destroyed: false,
     onDestroyed: [],
+    onNavigation: [],
     send(channel, payload) {
       this.sent.push({ channel, payload })
     },
@@ -42,7 +45,14 @@ function fakeWindow(): FakeWindow {
     once(_event, listener) {
       this.onDestroyed.push(listener)
     },
+    on(_event, listener) {
+      this.onNavigation.push(listener)
+    },
   }
+}
+
+function navigate(window: FakeWindow, details: { isMainFrame: boolean; isSameDocument: boolean }): void {
+  for (const listener of window.onNavigation) listener(details)
 }
 
 function destroy(window: FakeWindow): void {
@@ -198,6 +208,57 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     const reads = read.mock.calls.length
     vi.advanceTimersByTime(10 * MEMORY_SAMPLE_MS)
     expect(read).toHaveBeenCalledTimes(reads)
+  })
+
+  it('a window destroyed with the figure open twice, never closed, stops the sampler', async () => {
+    const { open } = await register()
+    const window = fakeWindow()
+    await open(window)
+    await open(window)
+    destroy(window)
+    expect(sampler.running).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('a reload of the window drops its opens: the new page opens once and one close stops the sampler', async () => {
+    const { open, close } = await register()
+    const window = fakeWindow()
+    await open(window)
+    // A same-document navigation and one of a frame inside the page keep the figure open.
+    navigate(window, { isMainFrame: true, isSameDocument: true })
+    navigate(window, { isMainFrame: false, isSameDocument: false })
+    expect(sampler.running).toBe(true)
+
+    // The reload: the old page sends no memory.close.
+    navigate(window, { isMainFrame: true, isSameDocument: false })
+    expect(sampler.running).toBe(false)
+    await open(window)
+    expect(sampler.running).toBe(true)
+    await close(window)
+    expect(sampler.running).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(window.onNavigation).toHaveLength(1)
+  })
+
+  it('an open from a window already destroyed subscribes nothing', async () => {
+    const { open } = await register()
+    const window = fakeWindow()
+    window.destroyed = true
+    expect(await open(window)).toEqual({ ok: true, value: null })
+    expect(sampler.running).toBe(false)
+    expect(read).not.toHaveBeenCalled()
+    expect(window.onDestroyed).toHaveLength(0)
+  })
+
+  it('a window that is destroyed but has not reported it yet gets no sample', async () => {
+    const { open } = await register()
+    const window = fakeWindow()
+    await open(window)
+    expect(changes(window)).toHaveLength(1)
+    window.destroyed = true // `destroyed` comes later
+    vi.advanceTimersByTime(5_000)
+    expect(read).toHaveBeenCalledTimes(2)
+    expect(changes(window)).toHaveLength(1)
   })
 
   it('a window that closes and opens again listens for its destruction once', async () => {
