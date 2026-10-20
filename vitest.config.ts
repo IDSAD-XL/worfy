@@ -32,9 +32,10 @@ export default defineConfig({
   },
   test: {
     exclude,
-    // The console as before, and test-results/vitest-timings.json with the time of each test file
+    // vitest's own reporters as they were (minimal under an agent, default otherwise, github-actions
+    // in GitHub Actions), and test-results/vitest-timings.json with the time of each test file
     // (test/timings-reporter.ts; read by scripts/test-timings.mjs). test-results/ is not in git.
-    reporters: ['default', './test/timings-reporter.ts'],
+    reporters: [...configDefaults.reporters, './test/timings-reporter.ts'],
     testTimeout: 5_000 * timeScale,
     hookTimeout: 10_000 * timeScale,
     projects: [

@@ -12,7 +12,8 @@
 // name of the script: the gate is shared by projects that call their scripts differently.
 //
 // The timings of a run (see "timings" below) are written into the same run folder, as
-// timings.json, and told in one line «[gate] time (…): …» right above the verdict line.
+// timings.json, and told in «[gate] time (…): …» lines: one as each script ends, one for the run
+// right above the verdict line.
 //
 // Node only, no shell utility: the same code runs on macOS, Linux and Windows.
 
@@ -75,31 +76,62 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
 }
 
 // --- timings -------------------------------------------------------------------------------
-// How long each script of a run took, and the run as a whole: one line on the gate's output and a
-// file next to the logs of the run, <run>/timings.json, for whoever measures the gate over time.
-//   steps — [{ step: "<key>/<folder>:<script>", package, script, ms, exit }] in the order they ran;
-//   cached — the labels the green cache answered for, which ran nothing.
+// How long each script of a run took, and the run as a whole. The gate prints a line as each
+// script ends and one line for the run right above its verdict line; the same figures go into the
+// verdict file and into <run>/timings.json next to the logs of the run:
+//   steps  — [{ step: "<key>/<folder>:<script>", package, script, ms, exit }] in the order they ran;
+//   cached — [{ step, ms, at }] for each script the green cache answered for: how long it took in
+//            the green run that wrote the cache entry and when that run was, or null for both when
+//            the entry has no record of it (written by a gate of the release before).
+// Every line starts with «[gate] time», which no reader of the verdict lines takes for a verdict
+// (they look for «[gate] green», «red», «nothing ran», «not verified», and the Russian words of
+// the release before).
 
 export const TIMINGS_FILE = "timings.json"
 
 // Seconds with one decimal: «12.3 s».
 const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`
+const stepText = ({ step, ms, exit }) => `${step} ${seconds(ms)}${exit === 0 ? "" : ` (exit ${exit})`}`
 
-// «[gate] time (<profile>): 95.3 s in all; <label> 12.3 s, <label> 60.0 s (exit 1); cached: <labels>».
-// The line starts with «[gate] time», which no reader of the verdict lines takes for a verdict
-// (they look for «[gate] green», «red», «nothing ran», «not verified», and the Russian words of
-// the release before).
+// The line of one script, printed as soon as it ends: «[gate] time (<profile>): <label> 12.3 s»,
+// with « (exit <code>)» when it failed.
+export function stepLine(profile, step) {
+    return `[gate] time (${profile}): ${stepText(step)}`
+}
+
+// The line of the run: «[gate] time (<profile>): 95.3 s in all; <label> 12.3 s, <label> 60.0 s
+// (exit 1); cached: <label> (green run 9.4 s), <label> (no recorded time)».
 export function timingLine(profile, totalMs, steps, cached = []) {
-    const parts = steps.map(({ step, ms, exit }) => `${step} ${seconds(ms)}${exit === 0 ? "" : ` (exit ${exit})`}`)
     let line = `[gate] time (${profile}): ${seconds(totalMs)} in all`
-    if (parts.length) line += `; ${parts.join(", ")}`
-    if (cached.length) line += `; cached: ${cached.join(" ")}`
+    if (steps.length) line += `; ${steps.map(stepText).join(", ")}`
+    const hit = ({ step, ms }) => `${step} (${typeof ms === "number" ? `green run ${seconds(ms)}` : "no recorded time"})`
+    if (cached.length) line += `; cached: ${cached.map(hit).join(", ")}`
     return line
 }
 
 // Writes <dir>/timings.json; the path, or null when it could not be written (see writeScriptLog).
 export function writeTimings(dir, record) {
     return writeScriptLog(dir, TIMINGS_FILE, JSON.stringify(record))
+}
+
+// The record of a green cache entry, kept in <cache file>.time next to it: the fingerprint the
+// entry is for, the time of the run that wrote it, and how long each of its scripts took.
+export function cacheTimeRecord(fp, at, steps) {
+    return `${JSON.stringify({ fp, at, steps: steps.map(({ step, ms }) => ({ step, ms })) })}\n`
+}
+
+// What a cache hit of `labels` prints and records: [{ step, ms, at }] from the record of the entry
+// when it is for the same fingerprint, else ms and at null. A missing or broken record is no record.
+export function cachedTimes(recordFile, fp, labels) {
+    let record = null
+    try {
+        record = JSON.parse(fs.readFileSync(recordFile, "utf8"))
+    } catch {}
+    const ok = record && record.fp === fp && Array.isArray(record.steps)
+    return labels.map((step) => {
+        const found = ok ? record.steps.find((entry) => entry && entry.step === step && typeof entry.ms === "number") : undefined
+        return { step, ms: found ? found.ms : null, at: found && typeof record.at === "string" ? record.at : null }
+    })
 }
 
 // The list reporter of Playwright names each failure by a numbered heading with the file, line and

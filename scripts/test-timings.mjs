@@ -5,14 +5,15 @@
 //
 // It reads the reports the test runs leave in test-results/ (not in git):
 //   - test-results/vitest-timings.json — `pnpm test` (test/timings-reporter.ts): every file with its
-//     vitest project (node — the unit tests, contract, jsdom) and all the time it took;
+//     vitest project and all the time it took. The projects are printed as the layers of the tests:
+//     the project `node` as `unit`, `contract` and `jsdom` as they are;
 //   - test-results/e2e-report.json and test-results/package-report.json — the JSON reporter of
 //     Playwright in `pnpm test:e2e` and `pnpm test:package` (playwright.config.ts); a file's time is
 //     the sum of the durations of its tests, and the project is the name of the report (e2e, package).
 // Reports named on the command line are read instead; any Playwright JSON report will do.
 //
 // For each project it prints the number of files, their time in all, and the N slowest files
-// (default 10) with seconds and their share of that time. The files of a vitest project run side
+// (default 20) with seconds and their share of that time. The files of a vitest project run side
 // by side, so their sum is more than the run took; the line of each vitest report says how long the
 // run itself took. --json prints the same as one JSON object.
 //
@@ -27,8 +28,11 @@ import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
 export const DEFAULT_REPORTS = ['test-results/vitest-timings.json', 'test-results/e2e-report.json', 'test-results/package-report.json']
-export const DEFAULT_TOP = 10
+export const DEFAULT_TOP = 20
 const USAGE = 'usage: node scripts/test-timings.mjs [--top N] [--json] [<report.json> …]'
+
+/** The layer a vitest project is printed as: the project `node` runs test/unit/**\/*.test.ts. */
+const VITEST_LAYERS = { node: 'unit' }
 
 /** The project name a Playwright report gets from its file name: e2e-report.json → e2e. */
 export function reportLabel(file) {
@@ -47,7 +51,8 @@ function* playwrightTests(suite) {
  */
 export function readReport(report, file) {
   if (report && report.tool === 'vitest' && Array.isArray(report.files)) {
-    const entries = report.files.map((entry) => ({ project: String(entry.project || 'vitest'), file: String(entry.file), ms: Number(entry.ms) || 0 }))
+    const layer = (project) => VITEST_LAYERS[project] ?? project
+    const entries = report.files.map((entry) => ({ project: layer(String(entry.project || 'vitest')), file: String(entry.file), ms: Number(entry.ms) || 0 }))
     return { kind: 'vitest', wallMs: Number(report.wallMs) || 0, at: report.at ?? null, entries }
   }
   if (report && Array.isArray(report.suites) && report.config) {

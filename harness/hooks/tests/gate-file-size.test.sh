@@ -93,7 +93,9 @@ silent() { # $1 = description, $2 = path: no warning names it
     else ok "$1"; fi
 }
 nwarn() { printf '%s\n' "$out" | grep -cF "$WARN"; }
-verdict_json() { jq -S 'del(.at)' "$STATE/verdict-$(tag "$1").json" 2>/dev/null; }
+# Without the time of the run and the timings, which differ from run to run by themselves
+# (gate-timings.test.sh checks them).
+verdict_json() { jq -S 'del(.at, .total_ms, .steps, .cached)' "$STATE/verdict-$(tag "$1").json" 2>/dev/null; }
 
 R="$T/reg"      # key "t": the main fixture
 C="$T/control"  # key "c": the same project with no file over the limit
@@ -296,8 +298,8 @@ mode ok
 lines 1500 "$N/new.ts"
 gate "$N" fast
 if [ "$rc" -eq 0 ] && [ "$(nwarn)" -eq 0 ] && [[ "$out" == *"no base for a diff"* ]] &&
-    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 3 ] && [[ "$out" == *$'\n'"[gate] time (fast): "*$'\n'"[gate] green (fast): n/.:check" ]]; then
-    ok "no merge-base: no warning, only the scope line, the timing line and the verdict line"
+    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 4 ] && [[ "$out" == *$'\n'"[gate] time (fast): n/.:check "*$'\n'"[gate] time (fast): "*" in all; n/.:check "*$'\n'"[gate] green (fast): n/.:check" ]]; then
+    ok "no merge-base: no warning, only the scope line, the two timing lines and the verdict line"
 else
     bad "no merge-base: a silent skip expected (rc=$rc, out: ${out:0:600})"
 fi

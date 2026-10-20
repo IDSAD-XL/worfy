@@ -1,11 +1,11 @@
-// scripts/test-timings.mjs: the slowest test files per project, read from the reports the test runs
+// scripts/test-timings.mjs: the slowest test files per layer, read from the reports the test runs
 // leave in test-results/ — the vitest timings report of test/timings-reporter.ts and the JSON
 // reports of Playwright. Also the reporter itself: what it writes for a run.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TestModule, Vitest } from 'vitest/node'
 import { removeTestTree } from '../remove'
 import TimingsReporter, { TIMINGS_REPORT, type TimingsReport } from '../timings-reporter'
@@ -59,7 +59,7 @@ const e2eReport = {
 }
 
 describe('scripts/test-timings.mjs', () => {
-  it('reads the default reports of the working directory: per project the count, the sum and the N slowest with seconds and share', () => {
+  it('reads the default reports of the working directory: per layer (the vitest project node as unit) the count, the sum and the N slowest with seconds and share', () => {
     const dir = tempDir()
     put(dir, 'test-results/vitest-timings.json', vitestReport)
     put(dir, 'test-results/e2e-report.json', e2eReport)
@@ -71,7 +71,7 @@ describe('scripts/test-timings.mjs', () => {
         'test-results/vitest-timings.json: vitest, 5 files, the run took 9.0 s (2026-10-20T10:00:00.000Z)',
         'test-results/e2e-report.json: playwright, 2 files, the run took 30.1 s (2026-10-20T11:00:00.000Z)',
         '',
-        'node — 3 files, 10.0 s in all',
+        'unit — 3 files, 10.0 s in all',
         '    6.0 s   60.0%  test/unit/c.test.ts',
         '    3.0 s   30.0%  test/unit/b.test.ts',
         '',
@@ -101,24 +101,25 @@ describe('scripts/test-timings.mjs', () => {
       { path: 'test-results/package-report.json', kind: 'playwright', files: 2, wallMs: 30_123, at: '2026-10-20T11:00:00.000Z' },
     ])
     expect(parsed.projects).toEqual([
-      { project: 'node', files: 3, totalMs: 10_000, slowest: [{ file: 'test/unit/c.test.ts', ms: 6_000, share: 0.6 }] },
+      { project: 'unit', files: 3, totalMs: 10_000, slowest: [{ file: 'test/unit/c.test.ts', ms: 6_000, share: 0.6 }] },
       { project: 'contract', files: 1, totalMs: 4_000, slowest: [{ file: 'test/contract/x.test.ts', ms: 4_000, share: 1 }] },
       { project: 'jsdom', files: 1, totalMs: 500, slowest: [{ file: 'test/unit/v.test.tsx', ms: 500, share: 1 }] },
       { project: 'package', files: 2, totalMs: 24_000, slowest: [{ file: 'menu.spec.ts', ms: 18_000, share: 0.75 }] },
     ])
   })
 
-  it('takes reports named on the command line instead of the defaults; ten files a project by default', () => {
+  it('takes reports named on the command line instead of the defaults; twenty files a layer by default, slowest first', () => {
     const dir = tempDir()
-    const many = { ...vitestReport, files: Array.from({ length: 12 }, (_, i) => ({ file: `t${String(i).padStart(2, '0')}.test.ts`, project: 'node', ms: 100 * (i + 1) })) }
+    const many = { ...vitestReport, files: Array.from({ length: 25 }, (_, i) => ({ file: `t${String(i).padStart(2, '0')}.test.ts`, project: 'contract', ms: 100 * (i + 1) })) }
     put(dir, 'elsewhere/mine.json', many)
     put(dir, 'test-results/e2e-report.json', e2eReport)
     const res = run(dir, 'elsewhere/mine.json')
     expect(res.status, res.stderr).toBe(0)
     expect(res.stdout).not.toContain('e2e')
     const listed = res.stdout.split('\n').filter((line) => line.includes('.test.ts'))
-    expect(listed).toHaveLength(10)
-    expect(listed[0]).toContain('t11.test.ts')
+    expect(listed).toHaveLength(20)
+    expect(listed[0]).toContain('t24.test.ts')
+    expect(listed[19]).toContain('t05.test.ts')
   })
 
   it('refuses: no report (1), a named report that is missing (1), a file that is no report (1), a wrong --top or option (2)', () => {
@@ -152,14 +153,21 @@ describe('test/timings-reporter.ts', () => {
   const module = (relativeModuleId: string, project: string, state: string) =>
     ({ relativeModuleId, project: { name: project }, state: () => state, diagnostic: () => diagnostic }) as unknown as TestModule
 
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it('writes test-results/vitest-timings.json under the root: every file with its project and all its time in whole milliseconds', () => {
     const root = tempDir()
+    // The clock: 0 when the reporter is made, 1000 at the start of the run, 3500.4 at its end.
+    const now = vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(1_000).mockReturnValueOnce(3_500.4)
     const reporter = new TimingsReporter()
     reporter.onInit({ config: { root } } as unknown as Vitest)
     reporter.onTestRunEnd([module('test/unit/a.test.ts', 'node', 'passed'), module('test\\contract\\b.test.ts', 'contract', 'failed')], [], 'failed')
     const report = JSON.parse(readFileSync(join(root, TIMINGS_REPORT), 'utf8')) as TimingsReport
     expect(report).toMatchObject({ version: 1, tool: 'vitest', reason: 'failed' })
-    expect(report.wallMs).toBeGreaterThanOrEqual(0)
+    expect(now).toHaveBeenCalledTimes(3)
+    expect(report.wallMs).toBe(2_500)
     expect(report.files).toEqual([
       { file: 'test/unit/a.test.ts', project: 'node', state: 'passed', ms: 1_643, environmentMs: 10, prepareMs: 2, setupMs: 30, collectMs: 401, testsMs: 1_200 },
       { file: 'test/contract/b.test.ts', project: 'contract', state: 'failed', ms: 1_643, environmentMs: 10, prepareMs: 2, setupMs: 30, collectMs: 401, testsMs: 1_200 },
@@ -167,11 +175,22 @@ describe('test/timings-reporter.ts', () => {
     // What it wrote, the script reads.
     const res = run(root)
     expect(res.status, res.stderr).toBe(0)
-    expect(res.stdout).toContain('node — 1 files, 1.6 s in all')
+    expect(res.stdout).toContain('unit — 1 files, 1.6 s in all')
   })
 
   it('is a reporter of the vitest config, next to the default one', () => {
     const config = readFileSync(join(import.meta.dirname, '..', '..', 'vitest.config.ts'), 'utf8')
-    expect(config).toContain("reporters: ['default', './test/timings-reporter.ts']")
+    expect(config).toContain("reporters: [...configDefaults.reporters, './test/timings-reporter.ts']")
+  })
+
+  it('keeps the run going when the report cannot be written: one line on stderr, no temporary file left', () => {
+    const root = tempDir()
+    // A file where the folder test-results/ should be: the folder cannot be made.
+    writeFileSync(join(root, 'test-results'), '')
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const reporter = new TimingsReporter()
+    reporter.onInit({ config: { root } } as unknown as Vitest)
+    expect(() => reporter.onTestRunEnd([module('test/unit/a.test.ts', 'node', 'passed')], [], 'passed')).not.toThrow()
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('timings-reporter:'))
   })
 })

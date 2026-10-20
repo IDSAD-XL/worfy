@@ -86,7 +86,13 @@ export default class TimingsReporter implements Reporter {
       writeFileSync(tmp, `${JSON.stringify(report, null, 2)}\n`)
       renameSync(tmp, file)
     } catch (error) {
-      rmSync(tmp, { force: true })
+      // On Windows the temporary file may be held and its removal fail too (EPERM): that must not
+      // escape onTestRunEnd either.
+      try {
+        rmSync(tmp, { force: true })
+      } catch {
+        // The temporary file stays; the next run writes the report again.
+      }
       process.stderr.write(`timings-reporter: ${file} was not written: ${(error as Error).message}\n`)
     }
   }

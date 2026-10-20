@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Tests of the gate's timings: a run that ran scripts or took them from the cache prints one line
-# «[gate] time (<profile>): <s> s in all; <label> <s> s, …» right above its verdict line, on the
-# verdict line's stream, and writes timings.json (each script's milliseconds and exit code, the
-# total) into the folder of the run's logs.
-#   - green: the line names both scripts, the verdict line stays the last; timings.json has both
-#     steps with exit 0, a script that sleeps 400 ms is measured at 400 ms or more, the total is
-#     at least the sum of the steps;
-#   - red: the line marks the failed script with its exit code; timings.json says red and exit 1;
-#   - a cache hit: the line names the cached scripts, and no new run folder is written.
+# Tests of the gate's timings: each script prints «[gate] time (<profile>): <label> <s> s» on stdout
+# as it ends; a run that ran scripts or took them from the cache prints «[gate] time (<profile>):
+# <s> s in all; …» right above its verdict line, on the verdict line's stream; the verdict file and
+# timings.json in the folder of the run's logs carry the same figures (each script's milliseconds
+# and exit code, the total).
+#   - green: a line per script as it ends, then the run's line, then the verdict line, the last;
+#     timings.json and the verdict file have both steps with exit 0; a script that sleeps 400 ms is
+#     measured at 400 ms or more; the total is at least the sum of the steps;
+#   - red: the script's line says «(exit 1)» on stdout; the run's line is on stderr right above the
+#     red line; timings.json and the verdict file say red and exit 1;
+#   - not verified (a script that says "command not found"): the run's line on stderr right above
+#     the «not verified» line; the verdict file has the step with its exit code;
+#   - a cache hit: no script line; the run's line and the verdict file name each cached script with
+#     the time it took in the green run that wrote the entry; no new run folder; an entry with no
+#     record of that time says «no recorded time» and null.
 # Run: bash harness/hooks/tests/gate-timings.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -36,7 +42,8 @@ LOGS="$HARNESS_HOME/gate/state/logs"
 
 # --- fixtures ---------------------------------------------------------------------
 # The gate runs "<pm> run <script>". The package manager is fakepm.cjs (through a .cmd on Windows):
-# "lint" always passes at once; "check" sleeps 400 ms, then passes or fails as $T/mode says.
+# "lint" always passes at once; "check" sleeps 400 ms, then passes (mode ok), fails (red) or says
+# "command not found" (env), as $T/mode says.
 cat >"$T/fakepm.cjs" <<'EOF'
 const fs = require("node:fs")
 const path = require("node:path")
@@ -47,6 +54,10 @@ if (script === "lint") {
     process.exit(0)
 }
 setTimeout(() => {
+    if (mode === "env") {
+        process.stdout.write("sh: fakecmd: command not found\n")
+        process.exit(127)
+    }
     process.stdout.write(mode === "ok" ? "check ok\n" : "check failed\n")
     process.exit(mode === "ok" ? 0 : 1)
 }, 400)
@@ -81,18 +92,29 @@ run() {
     err="$(cat "$T/err")"
 }
 # An expression over the fields of a timings.json, through node: `steps[1].exit`, `total_ms >= 400`.
-field() { node -e 'const r = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); with (r) process.stdout.write(String(eval(process.argv[2])))' "$1" "$2"; }
+field() { node -e 'const r = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8")); with (r) process.stdout.write(String(eval(process.argv[2])))' "$@"; }
 TIME_LINE='^\[gate\] time \(fast\): [0-9]+\.[0-9] s in all; t/\.:lint [0-9]+\.[0-9] s, t/\.:check [0-9]+\.[0-9] s'
 
-# --- 1. Green: the line, the order, timings.json ----------------------------------------
+VERDICT="$HARNESS_HOME/gate/state/verdict-$TAG.json"
+CACHE="$HARNESS_HOME/gate/state/cache"
+# The line number of the first line of $2 that matches the pattern $1, or empty.
+at() { printf '%s\n' "$2" | grep -n "$1" | head -n 1 | cut -d: -f1; }
+
+# --- 1. Green: the lines, their order, timings.json and the verdict file -------------------
 mode ok; touched; run
 last="$(printf '%s\n' "$out" | tail -n 1)"
-time_line="$(printf '%s\n' "$out" | grep '^\[gate\] time ' || true)"
+time_line="$(printf '%s\n' "$out" | grep ' in all' || true)"
 before_last="$(printf '%s\n' "$out" | tail -n 2 | head -n 1)"
+lint_at="$(at '^\[gate\] time (fast): t/\.:lint [0-9]*\.[0-9] s$' "$out")"
+check_at="$(at '^\[gate\] time (fast): t/\.:check [0-9]*\.[0-9] s$' "$out")"
+total_at="$(at ' in all' "$out")"
 if [ "$rc" -eq 0 ] && [ "$last" = "[gate] green (fast): t/.:lint t/.:check" ]; then ok "green: the verdict line stays the last line of stdout"
-else bad "green: the verdict line last expected (rc=$rc, out: ${out:0:400}, err: ${err:0:200})"; fi
-if [[ "$time_line" =~ $TIME_LINE$ ]] && [ "$before_last" = "$time_line" ]; then ok "green: the timing line names both scripts, right above the verdict line"
-else bad "green: timing line expected above the verdict line (got: '$time_line'; out: ${out:0:400})"; fi
+else bad "green: the verdict line last expected (rc=$rc, out: ${out:0:600}, err: ${err:0:200})"; fi
+if [ -n "$lint_at" ] && [ -n "$check_at" ] && [ -n "$total_at" ] && [ "$lint_at" -lt "$check_at" ] && [ "$check_at" -lt "$total_at" ]; then
+    ok "green: a line per script as it ends, lint then check, before the run's line"
+else bad "green: script lines expected before the run's line (lint=$lint_at check=$check_at total=$total_at; out: ${out:0:600})"; fi
+if [[ "$time_line" =~ $TIME_LINE$ ]] && [ "$before_last" = "$time_line" ]; then ok "green: the run's line names both scripts, right above the verdict line"
+else bad "green: the run's line expected above the verdict line (got: '$time_line'; out: ${out:0:600})"; fi
 RUN="$(newrun)"
 J="$LOGS/$TAG/$RUN/timings.json"
 if [ -n "$RUN" ] && [ -f "$J" ]; then ok "green: timings.json lies in the folder of the run's logs"
@@ -110,30 +132,67 @@ else bad "green: durations ($(cat "$J" 2>/dev/null))"; fi
 if [[ "$time_line" =~ t/\.:check\ ([0-9]+\.[0-9])\ s ]] && [ "$(node -e 'process.stdout.write(String(Number(process.argv[1]) >= 0.4))' "${BASH_REMATCH[1]}")" = true ]; then
     ok "green: the line shows the 400 ms script at 0.4 s or more"
 else bad "green: the line's seconds for check ('$time_line')"; fi
+if [ -f "$VERDICT" ] && [ "$(field "$VERDICT" outcome)" = green ] && [ "$(field "$VERDICT" 'steps.length')" = 2 ] &&
+    [ "$(field "$VERDICT" 'steps[1].step')" = "t/.:check" ] && [ "$(field "$VERDICT" 'steps[1].ms >= 400')" = true ] && [ "$(field "$VERDICT" 'steps[1].exit')" = 0 ] &&
+    [ "$(field "$VERDICT" 'total_ms >= steps[0].ms + steps[1].ms')" = true ] && [ "$(field "$VERDICT" 'cached.length')" = 0 ] &&
+    [ "$(field "$VERDICT" 'JSON.stringify(steps) === JSON.stringify(JSON.parse(require("node:fs").readFileSync(process.argv[3], "utf8")).steps)' "$J")" = true ]; then
+    ok "green: the verdict file has total_ms and the same steps as timings.json"
+else bad "green: verdict file timings ($(cat "$VERDICT" 2>/dev/null))"; fi
 
-# --- 2. Red: the exit code on the line and in the file -----------------------------------
+# --- 2. Red: the exit code on the lines, in timings.json and the verdict file ---------------
 mode red; touched; run
-red_line="$(printf '%s\n' "$err" | grep -n '^\[gate\] red ' | cut -d: -f1)"
-time_n="$(printf '%s\n' "$err" | grep -n '^\[gate\] time ' | cut -d: -f1)"
-time_line="$(printf '%s\n' "$err" | grep '^\[gate\] time ' || true)"
-if [ "$rc" -eq 2 ] && [[ "$time_line" =~ $TIME_LINE\ \(exit\ 1\)$ ]] && [ -n "$red_line" ] && [ "$time_n" = "$((red_line - 1))" ]; then
-    ok "red: the timing line marks check with exit 1, on stderr right above the red line"
-else bad "red: timing line on stderr above the red line expected (rc=$rc, err: ${err:0:400})"; fi
-if [[ "$out" != *"[gate] time "* ]]; then ok "red: no timing line on stdout"; else bad "red: the timing line went to stdout too"; fi
+red_n="$(at '^\[gate\] red ' "$err")"
+time_n="$(at ' in all' "$err")"
+time_line="$(printf '%s\n' "$err" | grep ' in all' || true)"
+if [ "$rc" -eq 2 ] && [[ "$time_line" =~ $TIME_LINE\ \(exit\ 1\)$ ]] && [ -n "$red_n" ] && [ "$time_n" = "$((red_n - 1))" ]; then
+    ok "red: the run's line marks check with exit 1, on stderr right above the red line"
+else bad "red: the run's line on stderr above the red line expected (rc=$rc, err: ${err:0:400})"; fi
+if [[ "$out" != *" in all"* ]] && printf '%s\n' "$out" | grep -qE '^\[gate\] time \(fast\): t/\.:check [0-9]+\.[0-9] s \(exit 1\)$'; then
+    ok "red: check's own line on stdout says exit 1; the run's line is not on stdout"
+else bad "red: stdout (${out:0:400})"; fi
 RUN="$(newrun)"
 J="$LOGS/$TAG/$RUN/timings.json"
 if [ -f "$J" ] && [ "$(field "$J" outcome)" = red ] && [ "$(field "$J" exit)" = 2 ] && [ "$(field "$J" 'steps[0].exit')" = 0 ] && [ "$(field "$J" 'steps[1].exit')" = 1 ]; then
     ok "red: timings.json says red, exit 2, and check's exit code 1"
 else bad "red: timings.json ($(cat "$J" 2>/dev/null))"; fi
+if [ "$(field "$VERDICT" outcome)" = red ] && [ "$(field "$VERDICT" 'steps[1].exit')" = 1 ] && [ "$(field "$VERDICT" 'typeof total_ms')" = number ]; then
+    ok "red: the verdict file has check's exit code 1 and total_ms"
+else bad "red: verdict file ($(cat "$VERDICT" 2>/dev/null))"; fi
 
-# --- 3. A cache hit: the cached scripts on the line, no run folder ------------------------
+# --- 3. Not verified: the run's line right above the «not verified» line ------------------
+mode env; touched; run
+nv_n="$(at '^\[gate\] not verified ' "$err")"
+time_n="$(at ' in all' "$err")"
+time_line="$(printf '%s\n' "$err" | grep ' in all' || true)"
+if [ "$rc" -eq 0 ] && [ -n "$nv_n" ] && [ "$time_n" = "$((nv_n - 1))" ] && [[ "$time_line" =~ $TIME_LINE\ \(exit\ 127\)$ ]]; then
+    ok "not verified: the run's line, check with exit 127, on stderr right above the «not verified» line"
+else bad "not verified: the run's line above the «not verified» line expected (rc=$rc, err: ${err:0:400})"; fi
+if [ "$(field "$VERDICT" outcome)" = unverified ] && [ "$(field "$VERDICT" 'steps[1].exit')" = 127 ] && [ "$(field "$VERDICT" 'typeof total_ms')" = number ]; then
+    ok "not verified: the verdict file has check's exit code 127 and total_ms"
+else bad "not verified: verdict file ($(cat "$VERDICT" 2>/dev/null))"; fi
+
+# --- 4. A cache hit: the time of the green run that wrote the entry --------------------------
 mode ok; touched; run
 run
 time_line="$(printf '%s\n' "$out" | grep '^\[gate\] time ' || true)"
-if [ "$rc" -eq 0 ] && [[ "$out" == *"(cache)"* ]] && [[ "$time_line" =~ ^\[gate\]\ time\ \(fast\):\ [0-9]+\.[0-9]\ s\ in\ all\;\ cached:\ t/\.:lint\ t/\.:check$ ]]; then
-    ok "cache hit: the timing line names the cached scripts and no step"
-else bad "cache hit: timing line with 'cached:' expected (rc=$rc, line: '$time_line', out: ${out:0:300})"; fi
+CACHED_LINE='^\[gate\] time \(fast\): [0-9]+\.[0-9] s in all; cached: t/\.:lint \(green run [0-9]+\.[0-9] s\), t/\.:check \(green run ([0-9]+\.[0-9]) s\)$'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"(cache)"* ]] && [[ "$time_line" =~ $CACHED_LINE ]] &&
+    [ "$(node -e 'process.stdout.write(String(Number(process.argv[1]) >= 0.4))' "${BASH_REMATCH[1]}")" = true ]; then
+    ok "cache hit: one line, naming each cached script with the time of its green run (check 0.4 s or more)"
+else bad "cache hit: the run's line with the green run's times expected (rc=$rc, lines: '$time_line', out: ${out:0:300})"; fi
 if [ -z "$(newrun)" ]; then ok "cache hit: no run folder, so no timings.json"; else bad "cache hit: a run folder was written: $(newrun)"; fi
+if [ "$(field "$VERDICT" 'steps.length')" = 0 ] && [ "$(field "$VERDICT" 'cached.length')" = 2 ] && [ "$(field "$VERDICT" 'cached[1].step')" = "t/.:check" ] &&
+    [ "$(field "$VERDICT" 'cached[1].ms >= 400')" = true ] && [ "$(field "$VERDICT" '/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(cached[1].at)')" = true ]; then
+    ok "cache hit: the verdict file names the cached scripts with the green run's ms and time"
+else bad "cache hit: verdict file ($(cat "$VERDICT" 2>/dev/null))"; fi
+# An entry with no record of the time (as a gate of the release before wrote it).
+rm -f "$CACHE"/*.time
+run
+time_line="$(printf '%s\n' "$out" | grep '^\[gate\] time ' || true)"
+if [ "$rc" -eq 0 ] && [[ "$out" == *"(cache)"* ]] && [[ "$time_line" == *"cached: t/.:lint (no recorded time), t/.:check (no recorded time)" ]] &&
+    [ "$(field "$VERDICT" 'cached[0].ms === null && cached[0].at === null')" = true ]; then
+    ok "cache hit with no record: «no recorded time» on the line, null in the verdict file"
+else bad "cache hit with no record (line: '$time_line'; verdict: $(cat "$VERDICT" 2>/dev/null))"; fi
 
 echo
 echo "passed: $pass, failed: $fail"
