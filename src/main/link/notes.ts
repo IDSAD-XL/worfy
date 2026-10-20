@@ -25,8 +25,11 @@
 // works as before. Whom it goes to is decided in src/main/notify.ts (ticketRecipients); this module
 // adds the same rule of access as `note`. The message names the Project by its id, name and match
 // key (src/main/autopilot/origin.ts, projectMatchKey), never by a local path.
+import { join } from 'node:path'
 import { z } from 'zod'
 import type { NoteLink, SharedNote, SharedTicketNote, TicketLink } from '../notify'
+import { dataRoot } from '../storage/paths'
+import { storedMachineName } from './identity'
 import { defineLinkMessage } from './messages'
 import { appLinkService, onAppLinkStart, type LinkService } from './service'
 
@@ -169,8 +172,9 @@ export function appNoteLink(): NoteLink & TicketLink & { stop(): void } {
       ticketHandlers.add(handler)
       return () => ticketHandlers.delete(handler)
     },
-    // Before the link has started this Machine has no name of its own yet: no Machine name matches.
-    machines: () => notes?.link.machines() ?? { self: null, linked: [] },
+    // Before the link has started, this Machine's name is the one its link/machine.json keeps;
+    // null only before the link ever started on it.
+    machines: () => notes?.link.machines() ?? { self: storedMachineName(join(dataRoot(), 'link')) ?? null, linked: [] },
     stop: () => {
       stopFollowing()
       handlers.clear()

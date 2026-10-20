@@ -51,6 +51,7 @@
 // would add a second picture, not replace the app's. The packaged .app shows "worfy"; `pnpm dev`
 // on macOS runs a bundle named worfy with worfy's icon (scripts/dev-bundle.ts), and e2e runs show
 // no system notification at all (quiet windows).
+import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
 import { app, BrowserWindow, Notification } from 'electron'
 import type { AgentEvent } from '../shared/agent/events'
@@ -348,7 +349,12 @@ export interface ListedProject {
 }
 
 /** How many received waits a Machine remembers to show each once; the oldest go first. */
-const RECEIVED_LIMIT = 10_000
+export const RECEIVED_LIMIT = 10_000
+
+/** How long a Project's match key read with git is used before it is read again. */
+export const MATCH_KEY_TTL_MS = 60_000
+
+const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
 /**
  * The notes of the Tickets that wait (worfy-pipeline ticket 10): this Machine's go to its display
@@ -356,8 +362,10 @@ const RECEIVED_LIMIT = 10_000
  * Machine has the same Project in its list (Q14) or showed that wait already.
  */
 export class TicketNotes {
-  /** The waits received and shown or dropped, by match key, Epic, NN and the key of the wait. */
+  /** The waits received and shown or dropped: sha256 of match key, Epic, NN and the key of the wait. */
   private readonly received = new Set<string>()
+  /** The match key of each Project read with git, by root and id, with when it was read. */
+  private readonly keys = new Map<string, { at: number; key: Promise<string> }>()
 
   constructor(
     private readonly display: { show(note: TicketNote): void },
@@ -366,27 +374,55 @@ export class TicketNotes {
     /** The match key of a Project (src/main/autopilot/origin.ts); read with git by default. */
     private readonly matchKey: (root: string, id: string) => Promise<string> = readProjectMatchKey,
     private readonly warn: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+    private readonly now: () => number = Date.now,
   ) {}
 
   private machines(): ReturnType<TicketLink['machines']> {
     return this.link?.machines?.() ?? { self: null, linked: [] }
   }
 
-  /** A Ticket of this Machine came to wait: shown here and sent to the Linked machines by its `Waits:`. */
-  show(note: WaitNote): void {
-    const to = ticketRecipients(note.waits, this.machines())
+  /** A Project's match key: read with git at most once per MATCH_KEY_TTL_MS, so a changed origin is seen within it. */
+  private keyOf(root: string, id: string): Promise<string> {
+    const at = this.now()
+    const cacheKey = `${root}\0${id}`
+    const cached = this.keys.get(cacheKey)
+    if (cached !== undefined && at - cached.at < MATCH_KEY_TTL_MS) return cached.key
+    const key = this.matchKey(root, id)
+    this.keys.set(cacheKey, { at, key })
+    // A failed read is not kept: the next note reads again.
+    key.catch(() => {
+      if (this.keys.get(cacheKey)?.key === key) this.keys.delete(cacheKey)
+    })
+    return key
+  }
+
+  /**
+   * A Ticket of this Machine came to wait: shown here and sent to the Linked machines by its
+   * `Waits:`. Answers false when it cannot tell yet whom the wait is for — a Machine name while this
+   * Machine has none (its link never started) and no Linked machine has it — so the wait is not
+   * counted as seen and a later read of the Ticket decides again.
+   */
+  show(note: WaitNote): boolean {
+    const machines = this.machines()
+    const to = ticketRecipients(note.waits, machines)
+    if (machines.self === null && note.waits !== 'owner' && note.waits !== 'team' && note.waits !== 'agent' && to.linked.length === 0) return false
     if (to.here) this.display.show(note)
     const link = this.link
-    if (link?.sendTicket === undefined || (to.linked !== 'all' && to.linked.length === 0)) return
+    if (link?.sendTicket === undefined || (to.linked !== 'all' && to.linked.length === 0)) return true
     const project = this.projects().find((each) => each.path === note.projectRoot)
-    if (project?.id === undefined) return
+    if (project?.id === undefined) return true
     const { id, name } = project
-    // The key is read with git each time: a wait is rare, and a key read once could miss a new origin.
-    this.matchKey(project.path, id).then(
+    this.keyOf(project.path, id).then(
       (match) =>
-        link.sendTicket?.({ title: note.title, body: note.body, project: { id, name: name ?? id, match }, epic: note.ticket.epic, num: note.ticket.num, wait: note.wait }, to.linked),
+        // The texts are clipped as a Session's note is, and the wait goes as a hash: a long Blocked
+        // reason (part of the key of a wait without a Status time) would put the note outside the schema.
+        link.sendTicket?.(
+          { title: clip(note.title), body: clip(note.body), project: { id, name: name ?? id, match }, epic: note.ticket.epic, num: note.ticket.num, wait: sha256(note.wait) },
+          to.linked,
+        ),
       (error: unknown) => this.warn(`[waits-notify] ${note.ticket.epic} ${note.ticket.num}: the note did not go to the Linked machines`, error),
     )
+    return true
   }
 
   /**
@@ -394,13 +430,13 @@ export class TicketNotes {
    * this Machine's list has its match key, or the same wait came already (from it or another Machine).
    */
   async receive(machineId: string, note: SharedTicketNote): Promise<void> {
-    const key = JSON.stringify([note.project.match, note.epic, note.num, note.wait])
+    const key = sha256(JSON.stringify([note.project.match, note.epic, note.num, note.wait]))
     // Marked before the wait for git below: the same note twice in a row is shown once.
     if (this.received.has(key)) return
     this.received.add(key)
     if (this.received.size > RECEIVED_LIMIT) this.received.delete(this.received.values().next().value as string)
     const own = await Promise.all(
-      this.projects().map((project) => (project.id === undefined ? Promise.resolve(null) : this.matchKey(project.path, project.id).catch(() => null))),
+      this.projects().map((project) => (project.id === undefined ? Promise.resolve(null) : this.keyOf(project.path, project.id).catch(() => null))),
     )
     if (own.includes(note.project.match)) return
     const name = this.machines().linked.find((machine) => machine.id === machineId)?.name ?? machineId

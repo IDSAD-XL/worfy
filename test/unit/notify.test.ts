@@ -3,6 +3,7 @@
 // per Session in 10 s; a click opens that Session. Electron's Notification is replaced by
 // NotifyDeps.
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -105,7 +106,7 @@ vi.mock('../../src/main/ipc/pipeline', async () => {
   return { stageHub }
 })
 
-const { NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
+const { MATCH_KEY_TTL_MS, NOTIFY_INTERVAL_MS, NoteDisplay, Notifier, RECEIVED_LIMIT, TicketNotes, ticketRecipients, appWaitsSources, GateQueueNotices, electronNotifyDeps, electronWindowNoteDeps, installGateQueueNotifications, installNotifications, openNote } = await import('../../src/main/notify')
 const { GATE_QUEUE_INTERVAL_MS, waitingPrs } = await import('../../src/main/github/gate-queue')
 const { NORMAL_WINDOWS, quietWindows } = await import('../../src/main/quiet-windows')
 const { app: electronApp } = await import('electron')
@@ -124,7 +125,7 @@ function withQuietWindows(value: string | undefined, body: () => void): void {
 }
 const { PENDING_OPEN_MS, PendingOpens } = await import('../../src/main/notify-pending')
 const { WaitsNotices, installWaitsNotifications, waitKey } = await import('../../src/main/workflow/waits-notify')
-const { originKey, projectMatchKey, readProjectMatchKey } = await import('../../src/main/autopilot/origin')
+const { originKey, projectMatchKey, readProjectMatchKey, remoteHasHost } = await import('../../src/main/autopilot/origin')
 const { StageHub } = await import('../../src/main/workflow/stages')
 type Note = Parameters<ConstructorParameters<typeof Notifier>[0]['show']>[0]
 
@@ -1553,16 +1554,23 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
   type Sent = { note: SharedTicketNote; to: 'all' | readonly string[] }
 
   /** One Machine: its name, its Linked machines, its Project list with the match keys, its display and what it sends. */
-  function machine(options: { self: string; linked?: { id: string; name: string }[]; projects?: ListedProject[]; keys?: Record<string, string> }) {
+  function machine(options: { self: string | null; linked?: { id: string; name: string }[]; projects?: ListedProject[]; keys?: Record<string, string> }) {
     let now = 1_000_000
+    let self = options.self
+    /** The roots whose match key was read, in order. */
+    const reads: string[] = []
     const shown: { note: TicketNote; click: () => void }[] = []
     const opened: TicketNote[] = []
     const sent: Sent[] = []
     const projects = options.projects ?? [MAC_PROJECT]
     const keys = options.keys ?? { [MAC_ROOT]: MAC_KEY }
     const display = new NoteDisplay<TicketNote>({ focused: () => false, show: (note, click) => shown.push({ note, click }), open: (note) => opened.push(note), now: () => now })
-    const link = { sendTicket: (note: SharedTicketNote, to: 'all' | readonly string[]) => sent.push({ note, to }), machines: () => ({ self: options.self, linked: options.linked ?? [] }) }
-    const tickets = new TicketNotes(display, link, () => projects, async (root, id) => keys[root] ?? projectMatchKey({ id, origin: null, repoPath: null }))
+    const link = { sendTicket: (note: SharedTicketNote, to: 'all' | readonly string[]) => sent.push({ note, to }), machines: () => ({ self, linked: options.linked ?? [] }) }
+    const matchKey = async (root: string, id: string) => {
+      reads.push(root)
+      return keys[root] ?? projectMatchKey({ id, origin: null, repoPath: null })
+    }
+    const tickets = new TicketNotes(display, link, () => projects, matchKey, undefined, () => now)
     const notices = new WaitsNotices(tickets)
     return {
       shown,
@@ -1570,12 +1578,18 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
       sent,
       tickets,
       notices,
+      reads,
       titles: () => shown.map((each) => each.note.title),
       wait: (ms: number) => {
         now += ms
       },
+      name: (value: string) => {
+        self = value
+      },
     }
   }
+
+  const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
   /** A shared note of the Project with match key `match`, of Ticket `epic num`, as a Linked machine sends it. */
   const shared = (match: string, epic = 'worfy-link', num = 16, wait = `${epic}|${num}|${AT}`): SharedTicketNote => ({
@@ -1602,7 +1616,7 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
           project: { id: MAC_PROJECT.id, name: 'worfy', match: MAC_KEY },
           epic: 'worfy-link',
           num: 16,
-          wait: waitKey(ticket('worfy-link', 16, 'owner')),
+          wait: sha256(waitKey(ticket('worfy-link', 16, 'owner'))),
         },
       },
     ])
@@ -1716,6 +1730,90 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
     expect(other.shown).toHaveLength(1)
   })
 
+  it('a Blocked reason of 1200 characters: the note still goes, its texts clipped, the wait as a hash, within the limits of the message', async () => {
+    const reason = 'r'.repeat(1200)
+    const mac = machine({ self: 'Mac', linked: [{ id: 'pc', name: 'Windows PC' }] })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    // A Status with a date alone: the key of the wait holds the reason.
+    const long = { ...ticket('worfy-link', 16, 'owner', reason), statusAt: '2026-10-20' }
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [long]))
+    await settle()
+    expect(mac.shown[0]?.note.body).toBe(reason)
+    expect(mac.sent).toHaveLength(1)
+    const sent = mac.sent[0]!.note
+    expect(sent.body.length).toBeLessThanOrEqual(160)
+    expect(sent.title.length).toBeLessThanOrEqual(1000)
+    expect(sent.wait).toBe(sha256(waitKey(long)))
+    expect(sent.wait).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('the receiver drops a note whose match key is that of its second Project, and names the second of two Linked machines that sent one', async () => {
+    const pc = machine({
+      self: 'Windows PC',
+      linked: [{ id: 'mac', name: 'Mac' }, { id: 'linux', name: 'Linux box' }],
+      projects: [{ path: 'C:/src/other', id: 'other-00000000', name: 'other' }, PC_PROJECT],
+      keys: { 'C:/src/other': projectMatchKey({ id: 'x', origin: 'github.com/o/other', repoPath: '' }), [PC_ROOT]: PC_KEY },
+    })
+    await pc.tickets.receive('linux', shared(MAC_KEY))
+    expect(pc.shown).toEqual([])
+    await pc.tickets.receive('linux', shared(projectMatchKey({ id: 'x', origin: 'github.com/o/third', repoPath: '' })))
+    expect(pc.titles()).toEqual(['worfy-link 16 ждёт тебя (Linux box)'])
+  })
+
+  it('the match keys of this Machine\'s Projects are read with git once per minute, not for every note', async () => {
+    const pc = machine({ self: 'Windows PC', linked: [{ id: 'mac', name: 'Mac' }], projects: [PC_PROJECT, { path: 'C:/src/other', id: 'other-00000000', name: 'other' }], keys: { [PC_ROOT]: PC_KEY } })
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 1))
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 2))
+    expect(pc.reads).toEqual([PC_ROOT, 'C:/src/other'])
+    pc.wait(MATCH_KEY_TTL_MS)
+    await pc.tickets.receive('mac', shared(MAC_KEY, 'e', 3))
+    expect(pc.reads).toEqual([PC_ROOT, 'C:/src/other', PC_ROOT, 'C:/src/other'])
+  })
+
+  it(`remembers the last ${RECEIVED_LIMIT} waits: the oldest is forgotten and shows again, the next oldest does not`, async () => {
+    const shown: TicketNote[] = []
+    const tickets = new TicketNotes({ show: (note) => shown.push(note) }, { machines: () => ({ self: 'Linux box', linked: [] }) }, () => [], async () => 'unused')
+    for (let index = 0; index <= RECEIVED_LIMIT; index++) await tickets.receive('mac', shared(MAC_KEY, 'e', 1, `wait-${index}`))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 1)
+    await tickets.receive('mac', shared(MAC_KEY, 'e', 1, 'wait-1'))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 1)
+    await tickets.receive('mac', shared(MAC_KEY, 'e', 1, 'wait-0'))
+    expect(shown).toHaveLength(RECEIVED_LIMIT + 2)
+  })
+
+  it('Waits: <a Machine name> while this Machine has no name yet: nothing shown and the wait not counted as seen; once the name is known, the next read shows it', async () => {
+    const mac = machine({ self: null })
+    mac.notices.read(MAC_ROOT, model(MAC_ROOT))
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'Mac')]))
+    expect(mac.shown).toEqual([])
+    mac.name('Mac')
+    mac.notices.read(MAC_ROOT, delta(MAC_ROOT, [ticket('e', 1, 'Mac')]))
+    expect(mac.titles()).toEqual(['e 01 ждёт тебя'])
+  })
+
+  it('stopping the notifications lets go of the Linked machines\' Ticket notes', () => {
+    const handlers = new Set<unknown>()
+    const link = {
+      send: () => undefined,
+      receive: () => () => undefined,
+      receiveTicket: (handler: unknown) => {
+        handlers.add(handler)
+        return () => handlers.delete(handler)
+      },
+      machines: () => ({ self: 'Mac', linked: [] }),
+    }
+    const hub = { open: vi.fn(async (root: string) => model(root)), close: vi.fn(async () => true) }
+    const stop = installNotifications({ observe: () => () => undefined }, new Set(), undefined, link, { hub, projects: () => [], deps: { focused: () => false, show: () => undefined, open: () => undefined, now: () => 1 } })
+    expect(handlers.size).toBe(1)
+    stop()
+    expect(handlers.size).toBe(0)
+  })
+
+  it('remoteHasHost: a remote with a host has one; a local path, a Windows drive and file:// have none', () => {
+    for (const url of ['git@github.com:o/worfy.git', 'https://github.com/o/worfy', 'ssh://git@host:22/o/r.git', 'host.example:o/r']) expect(remoteHasHost(url)).toBe(true)
+    for (const url of ['/Users/x/repo.git', 'C:\\repos\\x.git', 'C:/repos/x.git', 'file:///srv/x.git', '../x.git', 'x.git', 'https:///nohost']) expect(remoteHasHost(url)).toBe(false)
+  })
+
   describe('the match key read with git', () => {
     const dirs: string[] = []
     const scratch = (): string => {
@@ -1748,6 +1846,11 @@ describe('a Ticket that waits, across the Linked machines (worfy-pipeline ticket
         expect(docsA).not.toBe(atA)
         const bare = repo(null)
         expect(await readProjectMatchKey(bare, 'bare-cccccccc')).toBe(projectMatchKey({ id: 'bare-cccccccc', origin: null, repoPath: null }))
+        // An origin that is a folder of this Machine is no origin (Q16): its key would be a local path.
+        const local = repo(a)
+        const localKey = await readProjectMatchKey(local, 'local-dddddddd')
+        expect(localKey).toBe(projectMatchKey({ id: 'local-dddddddd', origin: null, repoPath: null }))
+        expect(localKey.toLowerCase()).not.toContain(a.toLowerCase().slice(1))
         for (const key of [atA, docsA]) for (const dir of dirs) expect(key).not.toContain(dir)
       } finally {
         for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })

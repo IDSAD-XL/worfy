@@ -58,7 +58,8 @@ export class WaitsNotices {
   /** Every wait seen, by Project root; a Project without an entry has had no start yet. */
   private readonly seen = new Map<string, Set<string>>()
 
-  constructor(private readonly display: { show(note: WaitNote): void }) {}
+  /** `display.show` answers false when it cannot tell yet whom the wait is for: the wait is not counted as seen. */
+  constructor(private readonly display: { show(note: WaitNote): unknown }) {}
 
   /**
    * Reads a model, or a change (only the Tickets that changed), of the Project followed as `root` (the spelling of the Project list,
@@ -82,7 +83,7 @@ export class WaitsNotices {
       const key = waitKey(ticket)
       if (seen.has(key)) continue
       seen.add(key)
-      this.display.show({
+      const decided = this.display.show({
         title: `${refOf(ticket)} is waiting for you`,
         body: waitBody(ticket),
         sessionId: null,
@@ -91,6 +92,7 @@ export class WaitsNotices {
         waits,
         wait: key,
       })
+      if (decided === false) seen.delete(key)
     }
   }
 
@@ -112,7 +114,7 @@ export class WaitsNotices {
 export function installWaitsNotifications(
   hub: WaitsHub,
   projects: () => readonly { readonly path: string }[],
-  display: { show(note: WaitNote): void },
+  display: { show(note: WaitNote): unknown },
   intervalMs = WAITS_TICK_MS,
   log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
 ): () => void {

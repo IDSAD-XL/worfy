@@ -69,7 +69,23 @@ export async function readOriginKey(root: string): Promise<string | null> {
  */
 export async function readRepoPath(root: string): Promise<string | null> {
   const prefix = await git(root, ['rev-parse', '--show-prefix'])
-  return prefix === null ? null : prefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  // git prints the prefix through `/` on every platform.
+  return prefix === null ? null : prefix.replace(/^\/+|\/+$/g, '')
+}
+
+/**
+ * Whether a remote URL names a host: `scheme://host/…` (not `file://`) or the scp-like `[user@]host:path`.
+ * A local path — `/Users/x/repo.git`, `C:\repos\x.git`, `file:///srv/x.git` — names none: its key
+ * would be a path of that Machine's disk.
+ */
+export function remoteHasHost(url: string): boolean {
+  const rest = url.trim()
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\/([^/]*)/i.exec(rest)
+  if (scheme !== null) return scheme[1]!.toLowerCase() !== 'file' && scheme[2]!.replace(/^.*@/, '').replace(/:\d*$/, '') !== ''
+  // A Windows drive (`C:\…`, `C:/…`) is a local path, as git reads it.
+  if (/^[a-z]:([\\/]|$)/i.test(rest)) return false
+  const scp = /^([^/\\:]+):/.exec(rest)
+  return scp !== null && scp[1]!.replace(/^.*@/, '') !== ''
 }
 
 /**
@@ -83,8 +99,12 @@ export function projectMatchKey(project: { id: string; origin: string | null; re
   return project.origin === null ? JSON.stringify(['id', project.id]) : JSON.stringify(['origin', project.origin, project.repoPath ?? ''])
 }
 
-/** The match key of the Project with id `id` at `root` (projectMatchKey), read with git. Never throws. */
+/**
+ * The match key of the Project with id `id` at `root` (projectMatchKey), read with git. An origin
+ * that is a local path (remoteHasHost) counts as none (Q16). Never throws.
+ */
 export async function readProjectMatchKey(root: string, id: string): Promise<string> {
-  const [origin, repoPath] = await Promise.all([readOriginKey(root), readRepoPath(root)])
+  const [url, repoPath] = await Promise.all([git(root, ['remote', 'get-url', 'origin']), readRepoPath(root)])
+  const origin = url === null || !remoteHasHost(url) ? null : originKey(url)
   return projectMatchKey({ id, origin, repoPath })
 }

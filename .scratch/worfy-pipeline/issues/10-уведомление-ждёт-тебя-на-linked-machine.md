@@ -120,19 +120,26 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
   шлёт `hello` ещё раз по каждому открытому соединению, иначе другая сторона не узнала бы о `ticket-note` до нового
   соединения. Сборка старше принимает второй `hello` как обновление имени (`store.touch`). ADR-0079 не правился.
 - **Что несёт сообщение (Q16):** `title`, `body`, `project` (`id`, `name`, `match` — ключ совпадения), `epic`, `num`,
-  `wait` (ключ Q11). Поля `projectRoot` нет; схема zod его срезает. Пределы длины — как у `note` (1000 символов на
-  текст), `match` и `wait` — до 4096. Поля `waits` в сообщении нет: получателей выбирает отправитель (Q15).
+  `wait` (sha256 ключа Q11). Поля `projectRoot` нет; схема zod его срезает. Пределы длины — как у `note` (1000 символов
+  на текст), `match` и `wait` — до 4096. Отправитель обрезает `title` и `body`, как заметку Session (`clip`, 160
+  символов в одну строку), и шлёт хэш ключа ожидания: без даты-времени в `Status:` ключ содержит весь `Blocked reason`,
+  и длинная причина вывела бы заметку за схему — она не дошла бы совсем. Поля `waits` в сообщении нет: получателей
+  выбирает отправитель (Q15).
 - **Ключ совпадения (Q14)** — `projectMatchKey` и `readProjectMatchKey` в `src/main/autopilot/origin.ts`, поверх
   `originKey`/`readOriginKey`: `["origin", <originKey>, <путь внутри репозитория через "/", корень — "">]`, без
-  `origin` — `["id", <id Project-а>]`. Путь внутри репозитория — `git rev-parse --show-prefix`. Ключ читается git-ом
-  при каждой отправке и приёме (ожидания редки), без кэша — смена `origin` видна сразу.
+  `origin` — `["id", <id Project-а>]`. Путь внутри репозитория — `git rev-parse --show-prefix`. `origin` без хоста
+  (локальный путь `/Users/x/repo.git`, `C:\repos\x.git`, `file://`) считается отсутствующим (`remoteHasHost`): иначе
+  в кадр ушёл бы путь диска (Q16). Ключ Project-а читается git-ом не чаще раза в минуту (`MATCH_KEY_TTL_MS`): смена
+  `origin` видна в течение минуты.
 - **Кому (Q15)** — `ticketRecipients` в `src/main/notify.ts`. `WaitsNotices` теперь отдаёт каждое ожидание человека
   (не `team`, `agent`, не пустое) с `Waits:` и ключом; решает `TicketNotes`. **Узкое прочтение 2:** имя сравнивается
-  точно (с регистром), имя этой Machine проверяется раньше имён Linked machines; пока link не стартовал, у этой
-  Machine имени нет, и `Waits: <имя этой Machine>` не показывается нигде.
+  точно (с регистром), имя этой Machine проверяется раньше имён Linked machines. Пока link service не запущен, имя
+  этой Machine берётся из `link/machine.json` (то, что показывает Settings → Machines). Файла нет только до первого
+  старта link на этой Machine; тогда ожидание с именем Machine не показывается и не считается увиденным: следующее
+  чтение Ticket-а решает снова.
 - **Приём.** Получатель бросает заметку, если ключ совпадения есть у Project-а его списка. **Узкое прочтение 3:**
   повтор отсекается по (ключ совпадения, Epic, NN, ключ ожидания) на всех Machine-отправителях сразу: тот же
-  Ticket от Mac и ПК показывается один раз; память — до 10 000 ключей, старые уходят первыми. **Узкое прочтение 4:**
+  Ticket от Mac и ПК показывается один раз; хранится sha256 ключа, до 10 000 штук, старые уходят первыми. **Узкое прочтение 4:**
   заголовок — `<epic> NN ждёт тебя (<имя Machine-отправителя>)`, имя — из списка Linked machines получателя по id
   соединения. Показ — по правилам `NoteDisplay` (фокус окна, 10 s), счёт по Machine, id Project-а и Ticket-у.
 - **Клик (Q13) — выбран путь «вкладка Pipeline на той Machine».** Окно Linked machine показывает вкладку Pipeline
@@ -140,12 +147,13 @@ Ticket, приоритет low; решения владельца 2026-10-20, gr
   `machineId` и `projectId` (`src/shared/ipc/notify.ts`, `projectRoot` теперь необязателен, нужен root или id);
   окно грузится на той Machine на Project с этим id (`projectToLoad`) и открывает его Pipeline (`pipelineProjectOf`,
   `src/renderer/session/notification-target.ts`). Запасной путь «окно worfy с Project-ом» не понадобился.
-- **Файлы вне «Где в коде»:** `src/main/notify-pending.ts` (копирует поля цели `pipeline` по одному — без правки
+- **Файлы вне «Где в коде»:** `src/main/link/identity.ts` (`storedMachineName`: чтение имени без link service, файл
+  при ошибке не переносится), `src/main/notify-pending.ts` (копирует поля цели `pipeline` по одному — без правки
   терял `machineId` и `projectId`), `src/renderer/canvas/overlays/NotificationTarget.tsx` (две строки: вызов
   `projectToLoad` и `pipelineProjectOf`), `test/unit/permission-card.test.tsx` (test-ы клика в окне Linked machine).
 - **Test-ы:** `test/unit/notify.test.ts` (получатели, приём, дубль, две Machine с одним репозиторием по разным
   путям, без `origin`, ключ на настоящем git), `test/unit/link-notify.test.ts` (схема, две настоящие link service,
   сборка без `accepts`), `test/contract/link-server.test.ts` (`hello` с `accepts` и без, повторный `hello`),
-  `test/unit/permission-card.test.tsx` (клик). Каждый новый test красный на одном из 20 mutant-ов (отчёт PR).
+  `test/unit/permission-card.test.tsx` (клик). Каждый новый test красный на одном из 38 mutant-ов (отчёт PR).
 - **Вручную (не проверено агентом):** Mac и ПК связаны, обе сборки с этим PR — `ticket block <epic> <NN> "приёмка"
   --waits owner` на ПК даёт уведомление на Mac с именем ПК; клик открывает вкладку Pipeline Project-а ПК в окне ПК.
