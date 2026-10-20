@@ -235,11 +235,11 @@ H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -260,6 +260,11 @@ ABS_BIN="$(json_printed "$H/.claude/bin/")"
 oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"${ABS_BIN}ticket\"},\"workflow\":{\"preflight\":\"${ABS_BIN}preflight --epic <эпик>\"}}"
 # valid JSON, but not an object
 newp notobj '["schema",2]'
+# language of the wrong type, and a language field that is an empty string
+newp langnum '{"schema":2,"name":"langnum","mode":"full","language":5}'
+newp langarr '{"schema":2,"name":"langarr","mode":"full","language":["ru"]}'
+newp langnull '{"schema":2,"name":"langnull","mode":"full","language":null}'
+newp teamempty '{"schema":2,"name":"teamempty","mode":"full","language":{"team":"","docs":"ru"}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
 mkdir -p "$T/r/multi"
@@ -582,6 +587,24 @@ for c in notjson array numeric; do
         'e="$("${@:2}" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 1 ] && [[ "$e" == *"$1"* ]]' \
         _ "$(printed "$T/u/$c/user.json")" "$pu" "$T/u/$c" -C "$T/r/both" --field language.reports
 done
+# A profile language that is not an object (a number, an array, null) or a language field that is not a
+# non-empty string: the value is en and one stderr line names the profile file, as for a broken user.json.
+one_line_naming() { # $1 the text the stderr line must name, then the command
+    check "$2" 0 "" bash -c 'e="$("${@:2}" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 1 ] && [ -n "$e" ] && [[ "$e" == *"$1"* ]]' _ "$1" "${@:3}"
+}
+for c in langnum langarr langnull; do
+    for k in reports team docs; do
+        eq "profile language not an object ($c) -> $k en" en "$pu" "$T/u/none" -C "$T/r/$c" --field "language.$k"
+    done
+    one_line_naming "$(printed "$HH/projects/$c/profile.json")" "profile language not an object ($c): one stderr line naming the profile" \
+        "$pu" "$T/u/none" -C "$T/r/$c" --field language.team
+done
+check "profile without language: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/none" -C "$T/r/both" --field language.team
+eq "profile language.team \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+eq "profile language.team \"\": docs stays ru" ru "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.docs
+one_line_naming "$(printed "$HH/projects/teamempty/profile.json")" "profile language.team \"\": one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+check "profile language.team \"\": the stderr line names the field" 0 "" bash -c '[[ "$("$@" 2>&1 >/dev/null)" == *language.team* ]]' _ "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"

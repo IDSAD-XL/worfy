@@ -271,7 +271,19 @@ else if (!ATTRIBUTIONS.includes(profile.attribution))
 // `language.team` and `language.docs` (profiles/README.md), so the string is expanded into all three.
 if (typeof profile.language === "string")
     profile.language = { reports: profile.language, team: profile.language, docs: profile.language }
-if (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language)) profile.language = {}
+// Any other type, or a field that is not a non-empty string, is one line on stderr and the default below,
+// as for a broken user.json: a silent en would hide the mistake. An absent language or field is silent.
+if (profile.language !== undefined && (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language))) {
+    err(`profile: ${pjPath}: "language" must be an object such as {"team": "en"}, got ${JSON.stringify(profile.language)} — ignored`)
+    profile.language = undefined
+}
+profile.language ??= {}
+for (const k of ["reports", "team", "docs"]) {
+    const v = profile.language[k]
+    if (v === undefined || (typeof v === "string" && v)) continue
+    err(`profile: ${pjPath}: language.${k} must be a language code such as "en", got ${JSON.stringify(v)} — ignored`)
+    delete profile.language[k]
+}
 
 // User personalization (profiles/README.md): the language of reports belongs to the user, not to the
 // project, and lives in $HARNESS_HOME/user.json for every project. A broken file is one line on stderr and

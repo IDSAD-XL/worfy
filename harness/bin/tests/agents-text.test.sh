@@ -129,9 +129,14 @@ for a in $ALL; do
     [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
 done
 # Rules for writing in one language belong to the user's own rules file, not to the agents.
+# The check is lexical: besides the old forms (the "## Terms" section, "Writing in Russian") it
+# refuses any agent text that names a natural language or a script, since such a rule has to name
+# one. A rule that avoids naming any language passes; the language fields of the profile are how an
+# agent text talks about language.
+LANG_WORDS='Russian|English|Ukrainian|Belarusian|German|French|Spanish|Chinese|Japanese|Cyrillic|Latin'
 for a in $ALL; do
-    if grep -qE '^## Terms$|Writing in Russian|written in Russian' "$AGENTS/$a.md"; then
-        bad "$a: carries a rule for writing in Russian"
+    if grep -qE "^## Terms\$|\\b($LANG_WORDS)\\b" "$AGENTS/$a.md"; then
+        bad "$a: names a language or a script (a rule for writing in one language?): $(grep -nE "\\b($LANG_WORDS)\\b" "$AGENTS/$a.md" | head -n 1)"
     else
         ok "$a: no rule for writing in one language"
     fi

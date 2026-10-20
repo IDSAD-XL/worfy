@@ -177,6 +177,14 @@ for label in "${STATUS_LABELS[@]}"; do
     check "epic-wave section 5 quotes the status label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec5" "$label"
 done
 
+# bin/profile always prints language.docs (en when the profile does not set it), so the skills do not
+# describe a profile without that field.
+for f in "$EW" "$ST"; do
+    n="$(name_of "$f")"
+    check "$n: no branch for a profile without language.docs" lacks "$f" 'while the profile has no such field'
+    check "$n: language.docs is en when the profile does not set it" has "$f" '`F language.docs` (`en` when the profile does not set it)'
+done
+
 # Bans the translation must keep, one check each (a lost sentence is a lost rule).
 check "epic-wave: do not switch the global gh account" \
     has "$EW" "do not switch the global account without the owner's permission"
