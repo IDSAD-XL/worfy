@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The acceptance sandbox: a machine with an empty Claude home inside one temporary folder, so the
+# The acceptance sandbox: a machine with an empty Claude home inside one folder of its own, so the
 # packaged worfy.app installs its Harness, qmd and the Profiles there and never in the real ~/.claude.
 #
 #   e3-sandbox.sh init            create the sandbox (or keep the one there), write its .gitconfig and
@@ -12,17 +12,30 @@
 #   e3-sandbox.sh lock-run <cmd>... run a command (in the caller's environment) under the shared
 #                                 Electron lock /tmp/worfy-e2e.lock, with E3_LOCK_HELD=1
 #   e3-sandbox.sh path            print the sandbox folder
+#   e3-sandbox.sh move [--sign-in-again]
+#                                 move a sandbox from the old place in the temp dir (below) to the
+#                                 sandbox folder. Without the flag it only says what the move does and
+#                                 exits 2: the Claude Code sign-in does not survive it (see move_sandbox)
 #   e3-sandbox.sh reset           delete the sandbox folder, and nothing else
 #   e3-sandbox.sh reset-harness   back to "no Harness" for another acceptance run, keeping the
 #                                 sign-in: deletes worfy-harness/, plugins/ and settings.json of the
 #                                 sandbox Claude home, and npm/, data/, runs/ of the sandbox
 # reset and reset-harness delete only in a folder that carries this script's marker, and refuse
 # (exit 2) when the sandbox, its home/ or home/.claude is a link: a link would take them outside.
+# A folder without the marker is left as it is; the refusal says how to check it and put the marker back.
 #
-# Where: <per-user temp dir>/worfy-e3-sandbox/ — `getconf DARWIN_USER_TEMP_DIR`, which is $TMPDIR
-# of a Terminal, so a run from an agent's shell and from the owner's Terminal find the same folder.
-# E3_SANDBOX_TMP replaces that temp dir and E3_LOCK_DIR the lock folder: test/contract/e3-sandbox.test.ts
-# runs the script on temporary folders with them, never on the real sandbox or the shared lock.
+# Where: ~/Library/Application Support/worfy-e3-sandbox/, with ~ the HOME of the caller, so a run from
+# an agent's shell and from the owner's Terminal find the same folder. Not the temp dir: macOS deletes
+# files there that nobody has opened for three days (com.apple.bsd.dirhelper, daily at 03:35), the
+# marker among them. Not ~/Library/Caches: the system may empty it when the disk runs low. Not
+# ~/.claude: that is the owner's own, and the acceptance checks it is left unchanged. Time Machine
+# backs the folder up; `tmutil addexclusion <folder>` leaves it out.
+# Until worfy-harness ticket 36 the sandbox lived in <per-user temp dir>/worfy-e3-sandbox/
+# (`getconf DARWIN_USER_TEMP_DIR`, $TMPDIR of a Terminal); `move` takes it from there. That temp dir
+# is still the TMPDIR of the sandbox environment.
+# The tests set HOME and E3_SANDBOX_TMP (the temp dir) and E3_LOCK_DIR (the lock folder):
+# test/contract/e3-sandbox.test.ts runs the script on temporary folders with them, never on the real
+# sandbox or the shared lock.
 # E3_LOCK_PAUSE is how long lock-run pauses between two attempts to take the lock, as `sleep` takes it
 # (default 20, seconds); it is there for that test, which does not wait 20 seconds.
 #
@@ -52,6 +65,8 @@
 set -euo pipefail
 
 MARKER=.worfy-e3-sandbox
+# The first line of home/.zshenv and home/.profile: how a sandbox without its marker is recognised.
+ZSHENV_HEAD="# Written by scripts/e3-sandbox.sh: the sandbox variables for its login shells."
 LOCK=${E3_LOCK_DIR:-/tmp/worfy-e2e.lock}
 ACCOUNT=${E3_GH_ACCOUNT:-IDSAD-XL}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -74,7 +89,25 @@ temp_root() {
   printf '%s\n' "$tmp"
 }
 
-ROOT="$(temp_root)/worfy-e3-sandbox"
+# The folder the sandbox lives in: Library/Application Support of the caller's HOME, checked like the
+# temp dir. A HOME inside a sandbox is the sandbox's own (a caller in its environment): the folder
+# would be a second sandbox inside the first.
+sandbox_parent() {
+  local home=${HOME:-}
+  [ -n "$home" ] || die 2 "HOME is not set"
+  [ -d "$home" ] || die 2 "HOME is not a folder: $home"
+  home=$(cd "$home" && pwd -P)
+  [ "$home" != "/" ] || die 2 "HOME resolves to /"
+  [ -O "$home" ] || die 2 "HOME is not owned by $(id -un): $home"
+  case "$home/" in
+    */worfy-e3-sandbox/*) die 2 "HOME is $home, inside a sandbox: run this script from the machine's own shell, not the sandbox environment" ;;
+  esac
+  printf '%s\n' "$home/Library/Application Support"
+}
+
+ROOT="$(sandbox_parent)/worfy-e3-sandbox"
+# Where the sandbox lived before it moved out of the temp dir: what `move` takes from.
+OLD_ROOT="$(temp_root)/worfy-e3-sandbox"
 SBX_HOME="$ROOT/home"
 SBX_CLAUDE="$SBX_HOME/.claude"
 REAL_HOME=${HOME:?HOME is not set}
@@ -202,26 +235,43 @@ check_gh() {
 
 # The sandbox and the two folders this script writes into and deletes from are real folders inside
 # it, not links: through a link `reset-harness` would delete in the folder the link points at.
+# $1 is the sandbox folder, ROOT when not given.
 inside_sandbox() {
-  [ ! -L "$ROOT" ] || die 2 "$ROOT is a link: refusing to work through it"
-  local dir real
-  for dir in "$SBX_HOME" "$SBX_CLAUDE"; do
+  local root=${1:-$ROOT} dir real
+  [ ! -L "$root" ] || die 2 "$root is a link: refusing to work through it"
+  for dir in "$root/home" "$root/home/.claude"; do
     [ ! -L "$dir" ] || die 2 "$dir is a link: refusing to work through it"
     [ -d "$dir" ] || continue
     real=$(cd "$dir" && pwd -P)
     case "$real" in
-      "$ROOT"/*) ;;
-      *) die 2 "$dir is $real, outside $ROOT: refusing to work there" ;;
+      "$root"/*) ;;
+      *) die 2 "$dir is $real, outside $root: refusing to work there" ;;
     esac
   done
+}
+
+# A folder of the sandbox's name that is there, is not empty and has no marker is left as it is:
+# without the marker it may be someone else's. It may also be the sandbox whose marker was deleted
+# (the temp dir's cleaning did that once), so the refusal says how to tell and how to mark it again.
+# $1 is the folder. Returns when the marker is there or the folder is empty or missing.
+check_marker() {
+  [ ! -f "$1/$MARKER" ] || return 0
+  [ -n "$(ls -A "$1" 2>/dev/null)" ] || return 0
+  {
+    echo "e3-sandbox: $1 is there, is not empty and has no $MARKER: not a sandbox of this script, left as it is (nothing in it deleted or changed)"
+    echo "e3-sandbox: if it is the acceptance sandbox that lost its marker, it holds home/.claude, tools/, npm/, data/ and runs/, and"
+    echo "e3-sandbox:   head -1 '$1/home/.zshenv'"
+    echo "e3-sandbox: prints the line this script writes there: $ZSHENV_HEAD"
+    echo "e3-sandbox: then put the marker back and run the command again:"
+    echo "e3-sandbox:   touch '$1/$MARKER'"
+  } >&2
+  exit 2
 }
 
 init() {
   # A folder of this name that this script did not make is someone else's: marking it would let
   # `reset` delete it.
-  if [ -e "$ROOT" ] && [ ! -f "$ROOT/$MARKER" ] && [ -n "$(ls -A "$ROOT" 2>/dev/null)" ]; then
-    die 2 "$ROOT is there, is not empty and has no $MARKER: not a sandbox of this script, left as it is"
-  fi
+  check_marker "$ROOT"
   inside_sandbox
   mkdir -p "$SBX_CLAUDE" "$ROOT/npm/bin" "$ROOT/data" "$ROOT/runs"
   [ -f "$ROOT/$MARKER" ] || printf 'worfy E3 acceptance sandbox, created %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/$MARKER"
@@ -248,7 +298,7 @@ init() {
 	helper = !$gh auth git-credential
 EOF
   {
-    echo "# Written by scripts/e3-sandbox.sh: the sandbox variables for its login shells."
+    echo "$ZSHENV_HEAD"
     shell_exports
   } >"$SBX_HOME/.zshenv"
   cp "$SBX_HOME/.zshenv" "$SBX_HOME/.profile"
@@ -257,6 +307,7 @@ EOF
 }
 
 require_sandbox() {
+  check_marker "$ROOT"
   [ -f "$ROOT/$MARKER" ] || die 2 "no sandbox at $ROOT: run \`bash $SCRIPT_DIR/e3-sandbox.sh init\` first"
 }
 
@@ -328,6 +379,7 @@ lock_run() {
 # Deleting is allowed only in a folder this script made: its marker is there, its name is the
 # sandbox's, and neither it nor its home/ and home/.claude is a link.
 deletable_root() {
+  check_marker "$ROOT"
   [ -f "$ROOT/$MARKER" ] || die 2 "$ROOT has no $MARKER: not a sandbox of this script, left as it is"
   case "$ROOT" in
     /*/worfy-e3-sandbox) ;;
@@ -357,6 +409,88 @@ reset_harness() {
   echo "e3-sandbox: no Harness in $ROOT now; the sign-in is kept"
 }
 
+# The name of the keychain item Claude Code keeps its sign-in under on macOS for a CLAUDE_CONFIG_DIR:
+# "Claude Code-credentials-" and the first 8 hex digits of the SHA-256 of that value as it is written,
+# not of the folder it names (read from the claude binary of @anthropic-ai/claude-agent-sdk 0.3.289,
+# the functions that build the service name and the config dir). So a new path is a new item.
+keychain_item() {
+  local sum
+  if command -v shasum >/dev/null 2>&1; then sum=$(printf '%s' "$1" | shasum -a 256); else sum=$(printf '%s' "$1" | sha256sum); fi
+  printf 'Claude Code-credentials-%s\n' "${sum:0:8}"
+}
+
+# Writes a file again with every OLD_ROOT in it replaced by ROOT, keeping its last newline. A loop,
+# not ${text//old/new}: bash 3.2 of macOS keeps the quotes of a quoted replacement, and bash 5.2
+# puts the match in place of an unquoted & in it.
+rewrite_paths() {
+  local text out=
+  text=$(cat -- "$1" && printf x) || die 1 "cannot read $1"
+  text=${text%x}
+  while [[ $text == *"$OLD_ROOT"* ]]; do
+    out+=${text%%"$OLD_ROOT"*}$ROOT
+    text=${text#*"$OLD_ROOT"}
+  done
+  printf '%s' "$out$text" >"$1" || die 1 "cannot write $1"
+}
+
+# Moves the sandbox from OLD_ROOT (the temp dir) to ROOT as a whole: one `mv`, so links inside stay
+# links. Then the links that point into the old folder point into the new one, and home/.zshenv,
+# home/.profile and home/.gitconfig name the new folder.
+# The sign-in does not move: Claude Code finds it in the keychain by a name made from
+# CLAUDE_CONFIG_DIR (keychain_item), and that path changes. So the move is done only with
+# --sign-in-again, after it has said so; without it nothing moves. The old keychain item is left.
+# Only under the e2e lock (lock-run): an app running in the sandbox would lose its folder.
+# shortcut: rewrites only the spelling OLD_ROOT has (resolved, /private/var/folders/...), not /var/folders/...; redo if a link or one of the three files ever names the old folder that way.
+move_sandbox() {
+  local flag=${1:-} link target file
+  case "$flag" in
+    "" | --sign-in-again) ;;
+    *) die 2 "move: unknown option $flag (only --sign-in-again)" ;;
+  esac
+  if [ ! -e "$OLD_ROOT" ] && [ ! -L "$OLD_ROOT" ]; then
+    echo "e3-sandbox: no sandbox at $OLD_ROOT: nothing to move"
+    return 0
+  fi
+  check_marker "$OLD_ROOT"
+  [ -f "$OLD_ROOT/$MARKER" ] || die 2 "$OLD_ROOT has no $MARKER: not a sandbox of this script, left as it is"
+  inside_sandbox "$OLD_ROOT"
+  for file in .zshenv .profile .gitconfig; do
+    [ ! -L "$OLD_ROOT/home/$file" ] || die 2 "$OLD_ROOT/home/$file is a link: refusing to write through it"
+  done
+  if [ -e "$ROOT" ] || [ -L "$ROOT" ]; then
+    [ -d "$ROOT" ] && [ ! -L "$ROOT" ] && [ -z "$(ls -A "$ROOT" 2>/dev/null)" ] ||
+      die 2 "$ROOT is there already and is not an empty folder: nothing moved; the sandbox stays at $OLD_ROOT"
+  fi
+  if [ "$flag" != --sign-in-again ]; then
+    {
+      echo "e3-sandbox: move takes $OLD_ROOT to $ROOT."
+      echo "e3-sandbox: the Claude Code sign-in of the sandbox does not move with it: Claude Code keeps it in the keychain"
+      echo "e3-sandbox: under a name made from CLAUDE_CONFIG_DIR, now '$(keychain_item "$OLD_ROOT/home/.claude")';"
+      echo "e3-sandbox: after the move it looks for '$(keychain_item "$SBX_CLAUDE")' instead."
+      echo "e3-sandbox: the owner signs in again after the move (bash $SCRIPT_DIR/e3-sandbox.sh shell)."
+      echo "e3-sandbox: nothing moved. To move: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move --sign-in-again"
+    } >&2
+    exit 2
+  fi
+  [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move --sign-in-again"
+  # An empty folder in the way is removed; mv would put the sandbox inside it.
+  if [ -d "$ROOT" ]; then rmdir -- "$ROOT" || die 1 "cannot remove the empty folder $ROOT"; fi
+  mkdir -p -- "$(dirname "$ROOT")" || die 1 "cannot make $(dirname "$ROOT")"
+  mv -- "$OLD_ROOT" "$ROOT" || die 1 "cannot move $OLD_ROOT to $ROOT"
+  while IFS= read -r -d '' link; do
+    target=$(readlink "$link")
+    case "$target" in
+      "$OLD_ROOT" | "$OLD_ROOT"/*) ln -sfn "$ROOT${target#"$OLD_ROOT"}" "$link" || die 1 "cannot point $link into $ROOT" ;;
+    esac
+  done < <(find "$ROOT" -type l -print0)
+  for file in .zshenv .profile .gitconfig; do
+    [ ! -f "$SBX_HOME/$file" ] || rewrite_paths "$SBX_HOME/$file"
+  done
+  echo "e3-sandbox: moved $OLD_ROOT to $ROOT"
+  echo "e3-sandbox: sign in again: bash $SCRIPT_DIR/e3-sandbox.sh shell. The keychain item '$(keychain_item "$OLD_ROOT/home/.claude")' is left as it is."
+  echo "e3-sandbox: files of the Claude home may still name the old folder (the plugin records): run reset-harness before the next acceptance run"
+}
+
 case "${1:-}" in
   init) init ;;
   check-gh)
@@ -372,7 +506,8 @@ case "${1:-}" in
   shell) print_shell ;;
   lock-run) shift && lock_run "$@" ;;
   path) echo "$ROOT" ;;
+  move) shift && move_sandbox "$@" ;;
   reset) reset ;;
   reset-harness) reset_harness ;;
-  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|reset|reset-harness" ;;
+  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|move [--sign-in-again]|reset|reset-harness" ;;
 esac
