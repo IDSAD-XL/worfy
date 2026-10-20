@@ -11,6 +11,7 @@ import { watch, type FSWatcher } from 'chokidar'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { closeForGood } from '../../src/main/chokidar-close'
 import { removeTestTree } from '../remove'
+import { timeScale } from '../time-scale'
 
 const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
 /** The handles of fs.watch this process holds. */
@@ -43,11 +44,11 @@ describe('closeForGood keeps a chokidar watch closed', () => {
     expect(fsWatches()).toBeGreaterThan(before)
     await closeForGood(watcher)
     // Node gives a closed handle back on a later turn of the event loop.
-    await vi.waitFor(() => expect(fsWatches()).toBe(before), { timeout: 2000, interval: 10 })
+    await vi.waitFor(() => expect(fsWatches()).toBe(before), { timeout: 2000 * timeScale, interval: 10 })
 
     watcher.add(folder)
-    // chokidar's add() opens its handles after a stat: give it the time.
-    await pause(200)
+    // chokidar's add() opens its handles after a stat: give it the time, longer on a loaded Windows run.
+    await pause(200 * timeScale)
     expect(watcher.closed).toBe(true)
     expect(fsWatches()).toBe(before)
   })
