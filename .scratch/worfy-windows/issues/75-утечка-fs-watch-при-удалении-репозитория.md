@@ -1,7 +1,8 @@
 # 75 — Утечка handle-а fs.watch, когда другой процесс удаляет репозиторий Project-а
 
 Type: bug
-Status: claimed 2026-10-20T06:19Z
+Status: done 2026-10-20T15:47Z
+PR: #585
 Branch: worfy-windows/75
 Blocked by: —
 Source: Ticket [62](62-остатки-ревью-2026-10-18-вечер.md), пункт «#493, удаление в том же процессе» (PR #584),
@@ -68,7 +69,7 @@ worfy.
       каждого `close()`), зелёный на ПК и на Mac. Проверку «CPU < 300 ms» в
       `test/contract/workflow-branches-gone.test.ts` не строим (решение Session на Mac): замер времени
       CPU недетерминирован (на ПК красный 1–2 из 4–10), а счёт handle-ов проверяет саму причину.
-- [ ] Mac: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
+- [x] Mac: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`. ПК: test-файлы PR — exit 0 (needs-mac-gate).
 
 ## Тесты
@@ -170,3 +171,10 @@ chokidar проверить, не открывает ли он watch после 
   `closed = false`; новый unit test «a late add() on a closed watch … opens nothing: the watch stays
   closed» после `close()` зовёт `add()` у каждого закрытого watch-а и ждёт `closed === true` и ни одного
   добавленного пути. Mutant без строки — красный на любой системе.
+
+### Закрытие (2026-10-20)
+
+Влит в main PR-ом #585 (2026-10-20, squash `a6b3d604`). Gate full на Mac — зелёный на main `0951fbc6`;
+check/windows — с runner-а 39443507614. До этого #585 принял main `1d94dad6` (#584) с конфликтом в
+`test/unit/workflow-branches-gone.test.ts`: оставлены обе стороны (счётчик `close()` из #584 и запись
+`add()` из 75). Ticket закрыт docs-PR-ом с ПК по просьбе Session на Mac.
