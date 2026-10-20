@@ -1,7 +1,8 @@
 # 09 — Уведомление «ждёт тебя» следит за моделью workflow, а не за снимками Stage: без опроса gh, git и `bin/profile`
 
 Type: task
-Status: open
+Status: done 2026-10-20T03:01Z
+PR: #550
 Blocked by: —
 Source: follow-up Ticket-а 06 (PR #501); решение владельца 2026-10-19, Q-c: #501 влит как есть, это — отдельный
 Ticket, приоритет low; решения владельца 2026-10-20, grilling Q1–Q16 (здесь Q9–Q11; [spec.md](../spec.md),

@@ -1,7 +1,8 @@
 # 71 — `.test.sh` Harness-а, красные на Windows после среза 3k Ticket-а 14
 
 Type: bug
-Status: open
+Status: done 2026-10-20T03:01Z
+PR: #555
 Blocked by: —
 Source: срез 3k Ticket-а 14 (PR #528, `.test.sh` через Git Bash), 2026-10-19. После него
 `test/contract/harness-scripts.test.ts` на ПК — exit 1, 8 failed / 30 passed / 2 skipped; причины восьми
