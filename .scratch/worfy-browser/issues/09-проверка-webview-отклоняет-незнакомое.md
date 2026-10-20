@@ -1,7 +1,8 @@
 # 09 — Проверка подключения `<webview>` отклоняет и то, что ослабляет страницу: `webSecurity`, insecure content, Blink features
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T10:19Z
+Branch: worfy-browser/09
 Blocked by: 02
 Source: review PR #576 (Ticket 02), находка low verifier-а, группа Consider; [ADR-0078](../../../docs/adr/0078-browser-node.md),
 пункт 3. Код перечитан по main `ae547cc2`.
@@ -52,4 +53,35 @@ Source: review PR #576 (Ticket 02), находка low verifier-а, группа
 
 ## Итог
 
-Заполняется при закрытии.
+Сделано в PR (ветка `worfy-browser/09`) — всё из «Что делаем» и все пункты «Готово, когда».
+
+- `webviewAttachRefusal` (`src/main/browser/attach-policy.ts`) отклоняет ещё `webSecurity`,
+  `allowRunningInsecureContent`, `enableBlinkFeatures`, `experimentalFeatures`, `plugins`,
+  `webviewTag`. Все шесть имён есть в `WebPreferences` из `electron.d.ts` Electron 44.5.1 и в
+  аргументе `will-attach-webview`; ни одно из названных Ticket-ом не пропущено.
+- Проверка строже, чем в «Что делаем»: значение проходит, только если оно безопасное (`webSecurity`
+  — `true`, остальные булевы — `false`, `enableBlinkFeatures` — пустая строка) или отсутствует
+  (тогда Electron берёт безопасное по умолчанию). Причина: атрибут `webpreferences` передаёт любую
+  строку, а Electron читает строку как булево по truthy/falsy, так что `webSecurity=` выключил бы
+  web security, а `plugins=maybe` включил бы plugins. Проверка `=== false` / `=== true` их бы
+  пропустила.
+- Отказ называет причину, как раньше: строка `[worfy] a <webview> was not attached: …` в лог main.
+- Комментарий `src/renderer/canvas/canvas.css:22` называет `nodes/frames-step-aside.ts` (для
+  CardNode и слоя Browser-ов) вместо CardNode.
+
+Проверки:
+
+- unit `test/unit/webview-attach-policy.test.ts`: по test-у на каждый новый отказ, test-ы на
+  строковые значения, правильная guest-страница разрешена — и с безопасными значениями, и без них.
+- mutation testing на копии в отдельном detached worktree: снят каждый новый отказ по одному
+  (6 мутантов) и ослаблены две строгости (`webSecurity === false`, `=== true` для булевых) — все 8
+  дают exit 1.
+- e2e `test/e2e/browser-webview-guard.spec.ts`: `<webview disablewebsecurity>` на partition Browser-а
+  не подключается; spec под замком e2e — exit 0. С мутантом без проверки `webSecurity` тот же spec
+  падает (подключился guest `?no-web-security`) — exit 1.
+- `pnpm lint`, `pnpm typecheck`, `pnpm test`, gate fast — exit 0.
+
+Вне скоупа замечено: `nodeIntegrationInWorker`, `disableBlinkFeatures` и `javascript` проверка не
+читает. `nodeIntegrationInWorker` по `electron.d.ts` даёт Node только worker-ам frame-а, у которого
+Node уже есть, а `nodeIntegration` и `nodeIntegrationInSubFrames` проверка отклоняет; остальные два
+страницу не ослабляют. Если решим отказывать и им — отдельный Ticket.
