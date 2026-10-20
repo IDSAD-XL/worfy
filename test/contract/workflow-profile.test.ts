@@ -835,6 +835,8 @@ describe('scriptFailureDetail', () => {
   // addresses, the GC block — and its FATAL ERROR line was not taken for the error line.
   it("node's crash report: the FATAL ERROR line; without one, nothing of the GC block or of either stack", () => {
     expect(scriptFailureDetail(OUT_OF_MEMORY)).toBe('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory')
+    // The FATAL ERROR line wins over what the script printed before it, as an Error line does.
+    expect(scriptFailureDetail(`profile: reading the registry\n${OUT_OF_MEMORY}`)).toBe('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory')
     expect(scriptFailureDetail(ABORTED)).toBe('')
     // Frames are dropped, what follows them is kept.
     expect(scriptFailureDetail(`${ABORTED}registry is broken\n`)).toBe('registry is broken')

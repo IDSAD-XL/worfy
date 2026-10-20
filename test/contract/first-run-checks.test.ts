@@ -440,7 +440,7 @@ describe('first-run checks', () => {
     // A crash by a signal was read as a timeout before review round 2 of PR #311.
     // Not on Windows, lifted by none: it has no signals to end a process by (process.kill with
     // SIGSEGV throws ENOSYS there), and a crash ends it with an exit code instead.
-    it.skipIf(WINDOWS)('a script ended by a signal the runner did not send: the signal and the crash hint, not the time limit', async () => {
+    it.skipIf(WINDOWS)('a script ended by a signal the runner did not send: the signal and the signal hint, not the time limit', async () => {
       tools(...ALL_TOOLS)
       // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
       oldHarness(nodeScript("fs.writeSync(2, 'Segmentation fault\\n')\nprocess.kill(process.pid, 'SIGSEGV')"))
