@@ -1,7 +1,8 @@
 # 31 — `$0` и `$1` в shell-блоках skills подменяются аргументами вызова skill-а
 
 Type: task
-Status: claimed 2026-10-20T08:46Z
+Status: done 2026-10-20T15:24Z
+PR: #594
 Blocked by:
 Source: Wave 2 Epic-а `worfy-review` (2026-10-10): Implementer Ticket-а 02 увидел в загруженном тексте `/worfy:ship-ticket` строки `--field "02"` и `substr(worfy-review,10)`; Orchestrator нашёл то же в транскрипте своей Session для `/worfy:epic-wave`.
 
@@ -80,3 +81,25 @@ Claude Code подставляет аргументы вызова skill-а в �
   проверить и записать в «Итог», чтобы не чинить лишнее.
 
 ## Итог
+
+PR [#594](https://github.com/IDSAD-XL/worfy/pull/594), merge 0951fbc6. Gate full зелёный; на merged tree
+plugin-neutral 26/0, harness-scripts 45/45. В первом run harness-scripts `wave-gate.test.sh` один раз упал под
+нагрузкой; отдельно 157/0, повтор файла 45/45 — кандидат в список flaky test-ов, PR его не трогает.
+
+- **Правило подстановки** прочитано из бинаря Claude Code 2.1.300 (`strings`, без вызова модели): `$N`
+  заменяется словом N только когда слово есть, и внутри блоков кода тоже; `\$` перед цифрой даёт `$`;
+  `${1}`, `"$@"`, `$#`, `$(…)`, `$((…))` не трогаются. Полный список — в описании PR.
+- **Правка.** На main было 34 строки с `$<цифра>` (кроме пяти skills из ticket-а — ещё `gate-queue`).
+  `F` передаёт `"$@"` в `bin/profile`; awk в `ship-ticket`, `epic-wave`, `gate-queue`, `qmd`,
+  `continuous-audit`, `overnight-fix-loop` читает строки через `getline` в `BEGIN` и делит их `split()`.
+  `${1}` и `$(0)` не выбраны: они зависят от точного regex, который новая версия может расширить.
+- **Test-ы.** Новый `harness/bin/tests/skill-positional-tokens.test.sh` падает на любом `$<цифра>` в
+  `harness/skills/*/SKILL.md` с файлом, строкой и заменой, проверяет свой детектор на сломанных и целых
+  написаниях и не проходит, если skills меньше 5. `skill-blocks.test.sh` гоняет каждый вырезанный блок на
+  тексте после имитации подстановки (10 слов-аргументов) под bash и zsh и падает, если текст после
+  подстановки отличается от файла. Новые случаи: строка «worktree ветки» `ship-ticket` и `epic-wave` с
+  пробелом в пути, под bash и zsh.
+- **Ревью:** корректность OK (эквивалентность awk в BSD awk, mawk, busybox, gawk); тесты OK-with-notes,
+  два low закрыты в раунде правок.
+- **Не сделано — шаг владельца:** после `pnpm install:stable` вызвать `/worfy:ship-ticket <epic> <NN>` в
+  Session и посмотреть загруженный текст шага 11: на месте параметров нет имени Epic-а и номера Ticket-а.
