@@ -15,6 +15,7 @@
     "electron.vite.config.ts",
     "vitest.config.ts",
     "test/stale-leftovers.ts",
+    "test/timings-reporter.ts",
     "test/time-scale.ts",
     "playwright.config.ts"
   ],

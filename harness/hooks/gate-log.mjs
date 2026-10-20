@@ -11,6 +11,9 @@
 // log are printed there, and the last 40 lines hold only the summary. The shape decides, not the
 // name of the script: the gate is shared by projects that call their scripts differently.
 //
+// The timings of a run (see "timings" below) are written into the same run folder, as
+// timings.json, and told in one line «[gate] time (…): …» right above the verdict line.
+//
 // Node only, no shell utility: the same code runs on macOS, Linux and Windows.
 
 import fs from "node:fs"
@@ -69,6 +72,34 @@ export function pruneLogs(state, tag, current, keep = LOG_RUNS_KEPT, now = Date.
             if (now - fs.statSync(path.join(root, other)).mtimeMs > STALE_MS) rm(path.join(root, other))
         } catch {}
     }
+}
+
+// --- timings -------------------------------------------------------------------------------
+// How long each script of a run took, and the run as a whole: one line on the gate's output and a
+// file next to the logs of the run, <run>/timings.json, for whoever measures the gate over time.
+//   steps — [{ step: "<key>/<folder>:<script>", package, script, ms, exit }] in the order they ran;
+//   cached — the labels the green cache answered for, which ran nothing.
+
+export const TIMINGS_FILE = "timings.json"
+
+// Seconds with one decimal: «12.3 s».
+const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`
+
+// «[gate] time (<profile>): 95.3 s in all; <label> 12.3 s, <label> 60.0 s (exit 1); cached: <labels>».
+// The line starts with «[gate] time», which no reader of the verdict lines takes for a verdict
+// (they look for «[gate] green», «red», «nothing ran», «not verified», and the Russian words of
+// the release before).
+export function timingLine(profile, totalMs, steps, cached = []) {
+    const parts = steps.map(({ step, ms, exit }) => `${step} ${seconds(ms)}${exit === 0 ? "" : ` (exit ${exit})`}`)
+    let line = `[gate] time (${profile}): ${seconds(totalMs)} in all`
+    if (parts.length) line += `; ${parts.join(", ")}`
+    if (cached.length) line += `; cached: ${cached.join(" ")}`
+    return line
+}
+
+// Writes <dir>/timings.json; the path, or null when it could not be written (see writeScriptLog).
+export function writeTimings(dir, record) {
+    return writeScriptLog(dir, TIMINGS_FILE, JSON.stringify(record))
 }
 
 // The list reporter of Playwright names each failure by a numbered heading with the file, line and

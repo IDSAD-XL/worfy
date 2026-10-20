@@ -60,6 +60,14 @@
 // line «--- full output (<N> lines): <path>». The logs are written with the outcome, so a run that
 // was stopped leaves none, and a cache hit runs nothing and writes no log.
 //
+// The timings. A run that ran scripts or took them from the cache prints, right above its verdict
+// line and on the same stream, one line with how long the run took and each script in it:
+//   [gate] time (<profile>): <s> s in all; <label> <s> s, <label> <s> s (exit <code>); cached: <labels>
+// "In all" is counted from the moment the hook input was read (up to 2 s of waiting on an open stdin
+// are left out) to the outcome. The same figures, in milliseconds and with each script's exit code,
+// go to timings.json in the folder of the run's logs (see gate-log.mjs). The verdict line stays the
+// last line of its stream, and its words do not change.
+//
 // The verdict file is written whole or not at all: a temporary file in the same folder, then a rename. A run
 // that could not write it removes the previous file, so the file never tells an older run's outcome.
 // One case is left on Windows: while another process holds the file open, it can be neither
@@ -123,7 +131,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { playwrightFailures, pruneLogs, runLogDir, writeScriptLog } from "./gate-log.mjs"
+import { playwrightFailures, pruneLogs, runLogDir, timingLine, writeScriptLog, writeTimings } from "./gate-log.mjs"
 import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 import { git as GIT } from "./eval-env.cjs"
 
@@ -706,6 +714,7 @@ async function main() {
     } catch {}
 
     const hookIn = await readHookInput()
+    const began = performance.now()
 
     // Whose session this is: session_id from the hook JSON, else CLAUDE_CODE_SESSION_ID (a
     // manual run from the Bash tool sees it; subagents have the same one as their parent).
@@ -897,6 +906,8 @@ async function main() {
     const failures = [] // [label, log file name] of each script that failed; the output is in `logs`
     const logDir = runLogDir(STATE, tag) // named by the time the scripts start, written at the end
     const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
+    const steps = [] // { step, package, script, ms, exit } of each script that ran, for the timings
+    const cachedLabels = [] // the labels the cache answered for
     for (const [wsdir, pkgname = "", scriptList = "", fpscope = ""] of plan) {
         const scripts = scriptList.split(" ").filter(Boolean)
         if (!scripts.length) continue
@@ -919,14 +930,19 @@ async function main() {
         if (fp && green === fp) {
             // Unchanged since it turned green. Only green is cached:
             // red is always run again, so that a flaky test does not stick.
-            for (const script of scripts) cached += ` ${KEY}/${wsdir}:${script}`
+            for (const script of scripts) {
+                cached += ` ${KEY}/${wsdir}:${script}`
+                cachedLabels.push(`${KEY}/${wsdir}:${script}`)
+            }
             continue
         }
 
         let wsOk = true
         for (const script of scripts) {
             const label = `${KEY}/${wsdir}:${script}`
+            const startedAt = performance.now()
             const { rc, out, refused, signal } = await runScript(pkgname, script)
+            steps.push({ step: label, package: wsdir, script, ms: Math.round(performance.now() - startedAt), exit: rc })
             // Right after the script returns and before its result is looked at: a script that
             // Ctrl-C ended together with the gate would otherwise count as failed, and one that
             // ended well on the signal as passed.
@@ -960,7 +976,15 @@ async function main() {
     for (const [cacheFile, fp] of greens) writeMarker(cacheFile, `${fp}\n`)
     // The logs too: a run that was stopped writes nothing to the state folder.
     const saved = new Set(logs.filter(([name, out]) => writeScriptLog(logDir, name, out)).map(([name]) => name))
-    if (logs.length) pruneLogs(STATE, tag, logDir)
+    const totalMs = Math.round(performance.now() - began)
+    const outcome = failedLabels ? "red" : envBroken ? "unverified" : ran || cached ? "green" : "none"
+    if (logs.length) {
+        const record = { version: 1, profile: PROFILE, key: KEY, worktree: repo, head, outcome, exit: failedLabels ? 2 : 0, at: utcNow(), total_ms: totalMs, steps, cached: cachedLabels }
+        writeTimings(logDir, record)
+        pruneLogs(STATE, tag, logDir)
+    }
+    // Right above the verdict line and on its stream, so that the verdict line stays the last.
+    const timing = steps.length || cachedLabels.length ? timingLine(PROFILE, totalMs, steps, cachedLabels) : ""
     if (failedLabels) {
         let report = ""
         const outputs = new Map(logs)
@@ -973,6 +997,7 @@ async function main() {
         }
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
+        if (timing) complain(timing)
         complain("[gate] red (" + PROFILE + "):" + failedLabels + (ran ? " (passed:" + ran + ")" : ""))
         complain(`The quality gate did not pass (profile: ${PROFILE}, repository: ${KEY}).`)
         complain("This must be fixed before reporting the work as done.")
@@ -983,6 +1008,7 @@ async function main() {
     if (envBroken) {
         writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify:${envBroken}\n`)
         writeVerdict("unverified", 0, `the environment is unavailable:${envBroken.replaceAll("\n", " ").replace(/ +/g, " ")}`)
+        if (timing) complain(timing)
         complain("[gate] not verified — environment unavailable:")
         complain(envBroken)
         complain("This is not a green result. Say so: the work is not verified — instead of a success report.")
@@ -1003,6 +1029,7 @@ async function main() {
         writeVerdict("green", 0, "")
         // The line «[gate] green (<profile>): …» is the only sign of green, and
         // on a cache hit it is printed too, marked «(cache)».
+        if (timing) say(timing)
         if (!ran) say("[gate] green (" + PROFILE + "):" + cached + " (cache)")
         else if (cached) say("[gate] green (" + PROFILE + "):" + ran + " (cache:" + cached + ")")
         else say("[gate] green (" + PROFILE + "):" + ran)

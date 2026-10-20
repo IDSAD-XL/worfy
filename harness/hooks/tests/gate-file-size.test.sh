@@ -253,7 +253,8 @@ else
     bad "control: rc=$rc, with warnings rc=$rc_warn (out: ${out:0:400})"
 fi
 # Without the warning lines and the log line, which names a folder of its own run.
-strip() { printf '%s\n' "$1" | grep -vF "$WARN" | grep -v '^--- full output '; }
+# The timing line and the log path differ from run to run by themselves.
+strip() { printf '%s\n' "$1" | grep -vF "$WARN" | grep -v '^--- full output ' | grep -v '^\[gate\] time '; }
 lines 1100 "$C/grow.ts"
 gate "$C" fast GATE_SCOPE=all
 out_c_warn="$out" rc_c_warn=$rc json_c_warn="$(verdict_json "$C")"
@@ -295,8 +296,8 @@ mode ok
 lines 1500 "$N/new.ts"
 gate "$N" fast
 if [ "$rc" -eq 0 ] && [ "$(nwarn)" -eq 0 ] && [[ "$out" == *"no base for a diff"* ]] &&
-    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 2 ] && [[ "$out" == *"[gate] green (fast): n/.:check" ]]; then
-    ok "no merge-base: no warning, only the scope line and the verdict line"
+    [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" -eq 3 ] && [[ "$out" == *$'\n'"[gate] time (fast): "*$'\n'"[gate] green (fast): n/.:check" ]]; then
+    ok "no merge-base: no warning, only the scope line, the timing line and the verdict line"
 else
     bad "no merge-base: a silent skip expected (rc=$rc, out: ${out:0:600})"
 fi
