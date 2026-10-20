@@ -5,7 +5,8 @@
 // version that lacks a field takes the default for that field. Which autocompact window the person
 // chose is kept apart from worfy's default (`autoCompactWindowChosen`, worfy-polish ticket 29): a
 // window named by a change is chosen, even at the default value; one not chosen stays at worfy's
-// default, and the mark is written only while a window is chosen.
+// default, and the mark is written only while a window is chosen. `memoryIndicator` (worfy-ui
+// ticket 20) is on in a file written before it existed.
 //
 // One file for the Machine: every window shares it. The store announces `changed` with each new
 // state; the IPC module (src/main/ipc/app-settings.ts) passes it on to every window, and the modules
@@ -54,6 +55,7 @@ const appSettingsFileSchema = z.object({
     })
     .default(() => ({ ...AUTO_COMPACT_WINDOW_DEFAULTS })),
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean().default(false), other: z.boolean().default(false) }).optional(),
+  memoryIndicator: z.boolean().default(true),
   revision: z.number().int().nonnegative().default(0),
 })
 
@@ -86,6 +88,7 @@ function copy(settings: AppSettings): AppSettings {
     interfaceScale: settings.interfaceScale,
     sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
     ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
+    memoryIndicator: settings.memoryIndicator,
     revision: settings.revision,
   }
 }
@@ -109,6 +112,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
       visible: { ...current.sidebar.visible, ...patch.sidebar?.visible },
     },
     ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
+    memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
     revision: current.revision,
   }
 }
@@ -123,6 +127,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
+    a.memoryIndicator === b.memoryIndicator &&
     a.autoCompactWindow.orchestrator === b.autoCompactWindow.orchestrator &&
     a.autoCompactWindow.other === b.autoCompactWindow.other &&
     autoCompactWindowChosen(a, 'orchestrator') === autoCompactWindowChosen(b, 'orchestrator') &&
