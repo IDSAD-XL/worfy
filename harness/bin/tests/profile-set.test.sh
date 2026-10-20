@@ -283,11 +283,13 @@ check "stale lock: no lock folder left" [ ! -e "$LOCKDIR" ]
 mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && printf 'other-waiter' >"$LOCKDIR/takeover-0"
 touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
 cp "$PJ" "$T/pj-before"
+claimed_before="$(ls -A "$LOCKDIR")"
 PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err"
 rc=$?
 check "stale lock claimed by another waiter: exit 6" [ "$rc" -eq 6 ]
 check "stale lock claimed by another waiter: profile.json as it was" cmp -s "$PJ" "$T/pj-before"
 check "stale lock claimed by another waiter: the folder and the claim are left alone" [ "$(cat "$LOCKDIR/takeover-0" 2>/dev/null)" = other-waiter ]
+check "stale lock claimed by another waiter: no file added to the folder or taken from it" [ "$(ls -A "$LOCKDIR" 2>/dev/null)" = "$claimed_before" ]
 # A claim as old as a stale lock is one a waiter killed during its takeover left: the next claim wins.
 touch -t 202001010000 "$LOCKDIR/takeover-0"
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
@@ -297,6 +299,31 @@ check "stale lock with a claim a killed waiter left: exit 0" [ "$rc" -eq 0 ]
 check "stale lock with a claim a killed waiter left: written" [ "$(field "$PJ")" = "$GOOD" ]
 check "stale lock with a claim a killed waiter left: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
 rm -rf "$LOCKDIR"
+# A takeover whose rename fails takes its claim back: the next writer takes the stale lock over
+# instead of waiting for a claim nobody holds. The rename fails here because the profile's folder is
+# read-only (the lock folder itself stays writable, so the claim is made); on Windows the same happens
+# while a file in the lock is open.
+mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+chmod a-w "$HH/projects/demo"
+if mkdir "$HH/projects/demo/probe" 2>/dev/null; then
+    rmdir "$HH/projects/demo/probe"
+    chmod u+w "$HH/projects/demo"
+    rm -rf "$LOCKDIR"
+    echo "skip the failed-rename case: a read-only folder does not stop a rename here (Windows, or a root user)"
+else
+    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$OTHER" >/dev/null 2>"$T/err"
+    rc=$?
+    chmod u+w "$HH/projects/demo"
+    check "failed rename: not written while the folder is read-only" [ "$rc" -ne 0 ]
+    check "failed rename: the stale lock is left with no claim in it" [ "$(ls -A "$LOCKDIR" 2>/dev/null)" = owner ]
+    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$OTHER" >/dev/null 2>"$T/err"
+    rc=$?
+    check "failed rename: the next writer takes the stale lock over (exit 0)" [ "$rc" -eq 0 ]
+    check "failed rename: the next writer writes" [ "$(field "$PJ")" = "$OTHER" ]
+    check "failed rename: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    rm -rf "$LOCKDIR"
+fi
 check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 2>&1)
 
 # A stale lock two waiters see at once. Both judge it stale; one takes it over first and holds it
@@ -373,7 +400,7 @@ two_waiters() {
 # comes last runs its takeover. The second writer takes the stale lock over and holds it through its
 # commit; then the first one runs its takeover over that live lock. With a `hold` file in its
 # PROFILE_SET_STALE_SYNC folder the first writer stops right after it moved a lock aside (`moved`,
-# then waits for `resume`), so the third writer's mkdir lands exactly in the window between moving
+# then waits for `resume-moved`), so the third writer's mkdir lands exactly in the window between moving
 # the lock aside and putting it back. The spec: the takeover never moves a live lock, so the lock
 # folder is never missing, the third writer's mkdir fails, and the holder keeps its lock.
 # third_writer <name> <yes|no: the third writer writes its owner file after its mkdir>
@@ -381,7 +408,7 @@ third_writer() {
     local name="$1" with_owner="$2" s="$T/sync" s1 s2 v1 v2 pid1 pid2="" rc1 rc2 i holder owner_mid third_made=false moved=false
     give_up() {
         bad "$name: $1 never came"
-        touch "$s1/go" "$s2/go" "$s1/resume" "$s/release"
+        touch "$s1/go" "$s2/go" "$s1/resume-moved" "$s/release"
         wait "$pid1"
         [ -n "$pid2" ] && wait "$pid2"
         rm -rf "$LOCKDIR" "$LOCKDIR.stale-$(cat "$s1/judged" 2>/dev/null)"
@@ -390,7 +417,7 @@ third_writer() {
     s2="$s/2"
     rm -rf "$s"
     mkdir -p "$s1" "$s2"
-    touch "$s1/hold"
+    touch "$s1/hold-moved"
     # Values no earlier case left in the file, so the holder has a change to commit.
     v1="[{\"kind\":\"queued\"},{\"kind\":\"check\",\"name\":\"first-$with_owner\"},{\"kind\":\"done\"}]"
     v2="[{\"kind\":\"queued\"},{\"kind\":\"check\",\"name\":\"holder-$with_owner\"},{\"kind\":\"done\"}]"
@@ -420,7 +447,7 @@ third_writer() {
         third_made=true
         [ "$with_owner" = yes ] && printf 'third-writer' >"$LOCKDIR/owner"
     fi
-    touch "$s1/resume"
+    touch "$s1/resume-moved"
     wait_for "$s1/tried" || { give_up "tried of the first writer"; return; }
     owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
     touch "$s/release"
@@ -468,6 +495,59 @@ EOF
     # was swallowed, and the holder was left without its lock.
     third_writer "stale lock, a third writer with its owner file in the takeover window" yes
 fi
+
+# A stale lock that, while a waiter's takeover runs, is replaced by the live lock of a new writer
+# (another waiter cleared it and a writer made the lock afresh). The spec: the waiter tells the new
+# lock from the stale one and leaves it alone, then writes once the new writer has released it.
+# The new lock's folder is made beside the lock first and then renamed in, so it never gets the
+# stale folder's inode. It holds a `marker` file: a lock deleted and made again lacks it.
+# swap_lock <name> <checked|judged: where the waiter stops> <yes|no: both locks have an owner file>
+#   checked — after the waiter checked the lock is still the stale one, before it claims it: the
+#             check after the claim is what must catch the swap.
+#   judged  — after it judged the lock stale, before any check: with no owner files only the inode
+#             tells the new lock from the stale one.
+swap_lock() {
+    local name="$1" at="$2" owners="$3" s="$T/sync" pid rc before after owner_after
+    rm -rf "$s"
+    mkdir -p "$s"
+    mkdir "$LOCKDIR"
+    [ "$owners" = yes ] && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner"
+    touch -t 202001010000 "$LOCKDIR"
+    if [ "$at" = checked ]; then touch "$s/go" "$s/hold-checked"; fi
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    PROFILE_SET_STALE_SYNC="$s" PROFILE_SET_LOCK_WAIT_MS=60000 \
+        run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >"$T/out1" 2>"$T/err1" &
+    pid=$!
+    if ! wait_for "$s/$at"; then
+        bad "$name: $at of the waiter never came"
+        touch "$s/go" "$s/resume-checked"
+        wait "$pid"
+        rm -rf "$LOCKDIR"
+        return
+    fi
+    mkdir "$LOCKDIR.new"
+    printf 'new-writer' >"$LOCKDIR.new/marker"
+    [ "$owners" = yes ] && printf 'live-writer' >"$LOCKDIR.new/owner"
+    rm -rf "$LOCKDIR"
+    mv "$LOCKDIR.new" "$LOCKDIR"
+    before="$(ls -A "$LOCKDIR")"
+    touch "$s/go" "$s/resume-checked"
+    wait_for "$s/tried" || bad "$name: tried of the waiter never came"
+    after="$(ls -A "$LOCKDIR" 2>/dev/null || echo gone)"
+    owner_after="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+    # The new writer ends and releases its lock.
+    rm -rf "$LOCKDIR"
+    wait "$pid"
+    rc=$?
+    check "$name: the new writer's lock is left alone, no file added or taken" [ "$after" = "$before" ]
+    if [ "$owners" = yes ]; then
+        check "$name: the new writer's token stays in its lock" [ "$owner_after" = live-writer ]
+    fi
+    check "$name: the waiter writes after the new writer (exit 0)" [ "$rc" -eq 0 ]
+    check "$name: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+}
+swap_lock "stale lock swapped for a live one after the first check" checked yes
+swap_lock "stale lock without an owner file swapped for a new one without it yet" judged no
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"

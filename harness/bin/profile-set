@@ -172,6 +172,8 @@ if (mode === "set") {
 // The limit: the folder is told by its inode and token. A stale lock without an owner file (its writer
 // was killed between mkdir and writing the token) is told by the inode alone, and a file system that
 // hands that inode to a new lock folder within the takeover could let it be taken for the stale one.
+// And a waiter that sleeps longer than LOCK_STALE_MS between its check and its rename is taken for dead,
+// the same assumption the whole lock rests on.
 // A live lock is waited for up to LOCK_WAIT_MS, then the write gives up with exit 6.
 const LOCK = path.join(dir, ".profile-set.lock")
 const OWNER = path.join(LOCK, "owner")
@@ -192,9 +194,9 @@ const inoOf = (folder) => {
         return null
     }
 }
-const ownerOf = (folder) => {
+const ownerOf = (folder, file = "owner") => {
     try {
-        return fs.readFileSync(path.join(folder, "owner"), "utf8")
+        return fs.readFileSync(path.join(folder, file), "utf8")
     } catch {
         return null
     }
@@ -208,13 +210,14 @@ process.on("exit", () => {
         fs.rmSync(LOCK, { recursive: true, force: true })
     } catch {}
 })
-// For the tests only: with a `hold` file in the PROFILE_SET_STALE_SYNC folder, a takeover stops right after
-// it moved the lock aside: it creates `moved` and waits for `resume` (up to STALE_SYNC_WAIT_MS).
-function stopPoint() {
-    if (STALE_SYNC === "" || !fs.existsSync(path.join(STALE_SYNC, "hold"))) return
-    fs.writeFileSync(path.join(STALE_SYNC, "moved"), "")
+// For the tests only: with a `hold-<at>` file in the PROFILE_SET_STALE_SYNC folder, a takeover stops at the
+// point `at`: it creates the file `<at>` and waits for `resume-<at>` (up to STALE_SYNC_WAIT_MS). The points:
+// `checked` (the lock judged still stale, not claimed yet) and `moved` (the lock moved aside, not deleted).
+function stopPoint(at) {
+    if (STALE_SYNC === "" || !fs.existsSync(path.join(STALE_SYNC, `hold-${at}`))) return
+    fs.writeFileSync(path.join(STALE_SYNC, at), "")
     const until = Date.now() + STALE_SYNC_WAIT_MS
-    while (!fs.existsSync(path.join(STALE_SYNC, "resume")) && Date.now() < until) pause(20)
+    while (!fs.existsSync(path.join(STALE_SYNC, `resume-${at}`)) && Date.now() < until) pause(20)
 }
 /** Takes over a lock judged stale; with PROFILE_SET_STALE_SYNC, at the test's signal. True when it did. */
 function clearStale(token, ino) {
@@ -226,9 +229,10 @@ function clearStale(token, ino) {
     fs.writeFileSync(path.join(STALE_SYNC, "tried"), "")
     return done
 }
-// A claim on a stale lock folder: a file made with O_EXCL inside it. A claim older than LOCK_STALE_MS is
-// one a waiter killed during its takeover left, and the next name is tried. Returns the claim's path, or
-// null when another waiter holds the claim or the folder is gone.
+// A claim on a stale lock folder: a file made with O_EXCL inside it. A claim with this writer's token is its
+// own, left by an earlier try. A claim older than LOCK_STALE_MS is one a waiter killed during its takeover
+// left (or one asleep that long, taken for dead as a stale lock's owner is), and the next name is tried.
+// Returns the claim's path, or null when another waiter holds the claim or the folder is gone.
 function claimIn(folder) {
     for (let i = 0; ; i++) {
         const claim = path.join(folder, `takeover-${i}`)
@@ -238,6 +242,7 @@ function claimIn(folder) {
         } catch (e) {
             if (e.code !== "EEXIST") return null
         }
+        if (ownerOf(folder, `takeover-${i}`) === TOKEN) return claim
         try {
             if (Date.now() - fs.statSync(claim).mtimeMs <= LOCK_STALE_MS) return null
         } catch {
@@ -249,6 +254,7 @@ function claimIn(folder) {
 function takeOver(token, ino) {
     const stale = () => inoOf(LOCK) === ino && ownerOf(LOCK) === token
     if (!stale()) return false
+    stopPoint("checked")
     const claim = claimIn(LOCK)
     if (claim === null) return false
     // Checked after the claim, not only before: the claim is in the stale folder only if that folder is the lock still.
@@ -262,9 +268,13 @@ function takeOver(token, ino) {
     try {
         fs.renameSync(LOCK, aside)
     } catch {
+        // Not moved (on Windows: a file in it is open): the claim goes, or every waiter would take it for another's.
+        try {
+            fs.unlinkSync(claim)
+        } catch {}
         return false
     }
-    stopPoint()
+    stopPoint("moved")
     fs.rmSync(aside, { recursive: true, force: true })
     return true
 }
