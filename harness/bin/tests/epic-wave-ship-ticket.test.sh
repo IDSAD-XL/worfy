@@ -410,6 +410,18 @@ Dismissed: <findings, each with its reason>'
     check "$n section $num: a finding set aside in the first round is not ground (a)" \
         in_sec "Only the items of that list count for (a): what the first round put into Consider, Noted or Dismissed — a \`high\` or \`med\` finding only with the verifier's agreement — is not ground (a)."
 done
+# In Silent mode the verdict is the last gate: line of the ticket file, not its last line: group lines follow
+# the verdict of their round with VERIFIED too, and the verdict is read with grep | tail.
+ew3="$(section "$EW" 3 | tr '\n' ' ' | tr -s ' ')"
+check "epic-wave section 3: Silent mode — the verdict is the last line that starts with gate: but MAX-REVIEW, not the last line" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$ew3" \
+    "In Silent mode the ticket's verdict is the last line of the ticket file that starts with \`gate:\`, except the \`gate: MAX-REVIEW: …\` line (section 4), not the last line of the file: \`gate: VERIFIED — <date>\`, or after the narrow round \`gate: NARROW: VERIFIED\` or \`gate: NARROW: REJECTED: …\`."
+check "epic-wave section 3: Silent mode — group lines follow the verdict line with VERIFIED too" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$ew3" \
+    'The group lines (below) follow the verdict line of their round with `VERIFIED` too, and the result section goes on below them.'
+check "epic-wave section 3: Silent mode — the verdict is read as the last gate: line past MAX-REVIEW" \
+    bash -c '[[ "$1" == *"$2"* ]]' _ "$ew3" \
+    "Read the verdict with \`grep '^gate:' <ticket file> | grep -v '^gate: MAX-REVIEW:' | tail -n 1\`."
 # The wave's report (section 5) shows the groups between the table and the status block.
 check "epic-wave section 5: the report shows the four groups, the status block stays last" \
     bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 5 | tr '\n' ' ' | tr -s ' ')" \

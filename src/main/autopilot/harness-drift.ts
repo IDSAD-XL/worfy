@@ -7,7 +7,9 @@
 // - The build's Harness version is `<semver>+<short SHA>[.dirty]` (scripts/build-version.ts), the
 //   `version` of the plugin.json of the Harness copy Sessions get inline (src/main/harness/bundled.ts).
 // - Only worfy's own repository is checked: its harness/.claude-plugin/plugin.json names the plugin
-//   `worfy`, and the build commit is in it. Anything else is `unknown`, with the reason.
+//   `worfy`, and the build commit is in it. Anything else is `unknown`, with the reason. The watch
+//   logs the reason once per Project, except for a repository with no such plugin.json: that is
+//   every Project but worfy's own, and a line for it would read as an error (worfy-harness ticket 42).
 // - `main` is `origin/main` when the repository has it, else the local `main`. Newer means that
 //   `git rev-list --count <SHA>..<main> -- harness/` is above zero.
 // - Read only. No `git fetch`: it writes into the Project's .git, and worfy writes nothing into a
@@ -39,11 +41,15 @@ export const HARNESS_DRIFT_INTERVAL_MS = 60_000
 /** How long one git command may take. */
 const GIT_TIMEOUT_MS = 10_000
 
-/** The answer: the Harness in main is newer, by `commits`; it is not; or it cannot be told, and why. */
+/**
+ * The answer: the Harness in main is newer, by `commits`; it is not; or it cannot be told, and why.
+ * `expected` marks the usual state of every Project but worfy's own repository (no Harness plugin
+ * manifest in it): the reason is kept, but the watch does not log it.
+ */
 export type HarnessDrift =
   | { kind: 'newer'; harness: string; main: string; commits: number }
   | { kind: 'same'; harness: string; main: string }
-  | { kind: 'unknown'; reason: string }
+  | { kind: 'unknown'; reason: string; expected?: true }
 
 export interface HarnessDriftInput {
   /** The Project's repository root. */
@@ -75,16 +81,29 @@ function gitIn(override: string | undefined, root: string, args: string[]): Prom
   })
 }
 
-/** Whether `<root>/harness/.claude-plugin/plugin.json` names the plugin `worfy`; else why not. */
-async function worfyPlugin(root: string): Promise<string | null> {
+/**
+ * Whether `<root>/harness/.claude-plugin/plugin.json` names the plugin `worfy`; else why not. A
+ * missing file is the expected answer for any other Project; a file that is there but unreadable,
+ * not JSON or names another plugin is said as it is.
+ */
+async function worfyPlugin(root: string): Promise<{ reason: string; expected?: true } | null> {
   const path = join(root, 'harness', '.claude-plugin', 'plugin.json')
+  let text: string
   try {
-    const manifest: unknown = JSON.parse(await readFile(path, 'utf8'))
-    const name = typeof manifest === 'object' && manifest !== null ? (manifest as { name?: unknown }).name : undefined
-    return name === PLUGIN_NAME ? null : `${path} does not name the plugin ${PLUGIN_NAME}: not worfy's repository`
-  } catch {
-    return `${path} is missing or not JSON: not worfy's repository`
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { reason: `${path} is missing: not worfy's repository`, expected: true }
+    return { reason: `${path} cannot be read (${code ?? (error instanceof Error ? error.message : String(error))}): not worfy's repository` }
   }
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(text)
+  } catch {
+    return { reason: `${path} is not JSON: not worfy's repository` }
+  }
+  const name = typeof manifest === 'object' && manifest !== null ? (manifest as { name?: unknown }).name : undefined
+  return name === PLUGIN_NAME ? null : { reason: `${path} does not name the plugin ${PLUGIN_NAME}: not worfy's repository` }
 }
 
 /** Compares the build's Harness with harness/ in the main branch of the repository at `root`; only reads. */
@@ -95,7 +114,7 @@ export async function checkHarnessDrift(input: HarnessDriftInput): Promise<Harne
     return { kind: 'unknown', reason: `the build's Harness version ${harness === undefined ? 'is missing' : `"${harness}" has no +<SHA>`}` }
   }
   const notWorfy = await worfyPlugin(input.root)
-  if (notWorfy !== null) return { kind: 'unknown', reason: notWorfy }
+  if (notWorfy !== null) return { kind: 'unknown', ...notWorfy }
   const git = (...args: string[]) => gitIn(input.git, input.root, args)
   const built = await git('cat-file', '-e', `${sha}^{commit}`)
   if (!built.ok) return { kind: 'unknown', reason: `the build commit ${sha} is not in ${input.root}: ${built.error}` }
@@ -123,7 +142,7 @@ export interface HarnessDriftWatchOptions {
   check?(input: HarnessDriftInput): Promise<HarnessDrift>
   /** The clock of the interval, in milliseconds (default Date.now). */
   now?(): number
-  /** Where the reason for no mark goes, once per Project and reason (default console.info). */
+  /** Where the reason for no mark goes, once per Project and reason (default console.info); an `expected` reason goes nowhere. */
   log?(line: string): void
 }
 
@@ -147,7 +166,7 @@ export function harnessDriftWatch(options: HarnessDriftWatchOptions): (projectId
       drift = { kind: 'unknown', reason: error instanceof Error ? error.message : String(error) }
     }
     if (drift.kind === 'newer') return { harness: drift.harness, main: drift.main, commits: drift.commits }
-    if (drift.kind === 'unknown' && logged.get(projectId) !== drift.reason) {
+    if (drift.kind === 'unknown' && drift.expected !== true && logged.get(projectId) !== drift.reason) {
       logged.set(projectId, drift.reason)
       log(`[autopilot] ${projectId}: no Harness mark: ${drift.reason}`)
     }

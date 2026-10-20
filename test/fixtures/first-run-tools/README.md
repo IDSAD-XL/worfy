@@ -24,6 +24,9 @@ only with a `node.exe`.
 | `FIRST_RUN_TOOLS_STATE` | `claude` | a folder with the plugin state: `marketplace` (the folder of the Harness copy), `plugin-version` (the installed `worfy`; empty — not installed), `marketplaces` (the names of the other marketplaces, a line each), `plugins` (the ids of the other installed plugins, a line each) |
 | `FAKE_CLAUDE_FAIL` | `claude` | a call whose arguments start with it prints an error and exits 1 (`plugin install mattpocock-skills@`) |
 | `FAKE_CLAUDE_VERSION` | `claude` | what `claude --version` prints (default `2.1.289`) |
+| `FAKE_GIT_USER_NAME`, `FAKE_GIT_USER_EMAIL` | `git` | what `git config --get user.name` / `user.email` prints (default `Alice`, `alice@example.com`); empty — not set, exit 1 |
+| `FAKE_GIT_CONFIG_FAIL` | `git` | `git config --get` prints it to stderr and exits 3, as git does with a broken config file |
+| `FAKE_GIT_CWD_LOG` | `git` | `git config --get` appends the folder it runs in to this file |
 | `FAKE_GH_ACCOUNT` | `gh` | the signed-in account; empty — `gh auth status` exits 1, not signed in |
 | `FAKE_NODE_VERSION` | `node` | what `node --version` prints, without `v` (default `22.11.0`) |
 | `FAKE_NODE_REAL` | `node` | the real node: every call but `--version` goes to it, so a Harness script, which worfy starts as `node <script>`, runs; unset — such a call prints an error and exits 2 |
