@@ -961,7 +961,6 @@ export class TerminalRegistry {
       // Ended without an exit event; on Windows finish() also takes the pty apart (release).
       const giveUp = (why: string): void => {
         stop()
-        terminal.closing = true
         terminal.finish({ exitCode: 1, signal: null })
         reject(new Error(why))
       }
