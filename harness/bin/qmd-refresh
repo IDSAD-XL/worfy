@@ -111,13 +111,20 @@ MIRRORS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "m" { print $2 }')"}
 LOCAL_DIRS=(${(f)"$(print -r -- "$SOURCES" | awk -F'\t' '$1 == "l" { print $2 }')"})
 
 # Copy, branch, account of each git copy — from the profile via qmd-sync-main --describe.
+# The answer is stdout only: a profile warning on stderr (bin/profile warns and still answers) passes
+# through to our stderr; on a failure the reason is the last stderr line (qmd-sync-main prints it
+# there), or stdout when stderr is empty.
 COPIES=(); BRANCHES=(); ACCOUNTS=()
+DESCRIBE_ERR="$(mktemp "${TMPDIR:-/tmp}/qmd-refresh-describe.XXXXXX")"
 for p in "${MIRRORS[@]}"; do
-  d="$("$SYNC" --describe "$p" 2>&1)" || { warn "profile $p not resolved, its copy skipped — ${d}"; continue }
+  d="$("$SYNC" --describe "$p" 2>"$DESCRIBE_ERR")"; rc=$?; e="$(<"$DESCRIBE_ERR")"
+  if (( rc )); then warn "profile $p not resolved, its copy skipped — ${${e:+${e##*$'\n'}}:-$d}"; continue; fi
+  [[ -n "$e" ]] && print -u2 -r -- "$e"
   c="${d%%$'\t'*}"; r="${d#*$'\t'}"
   [[ -d "$c/.git" ]] || { warn "copy $c (profile $p) is missing, skipped — start a session with qmd-mcp first"; continue }
   COPIES+=("$c"); BRANCHES+=("${r%%$'\t'*}"); ACCOUNTS+=("${r#*$'\t'}")
 done
+rm -f -- "$DESCRIBE_ERR"
 
 # A failed pull (qmd-sync-main writes the markers, one per profile): the index answers with an old snapshot.
 for f in "$CACHE"/sync-failed*(N); do

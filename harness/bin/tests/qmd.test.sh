@@ -46,7 +46,7 @@ out="$(CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile" QMD
 # --- 5b. qmd-sync-main --describe: profile warnings on stderr stay out of the JSON -------------
 # bin/profile warns on stderr (a broken user.json, a malformed language) and still exits 0 with the
 # JSON on stdout: the warning reaches the caller's stderr, the JSON is still read. A failing profile:
-# exit 1 and its own error (the last stderr line), not an earlier warning.
+# exit 1, its own error on stderr once (profile runs once), then the line that it failed.
 cat >"$T/profile-warn" <<'EOF2'
 #!/bin/sh
 echo 'profile: /x/profile.json: language.docs must be a language code such as "en", got null — ignored' >&2
@@ -67,8 +67,9 @@ grep -q 'language.docs must be a language code' "$T/describe.err" \
     && ok "describe: the profile warning reaches stderr" || bad "describe: the profile warning is lost"
 out="$(HOME="$T/home-d" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-fail" \
     zsh "$BIN/qmd-sync-main" --describe x 2>"$T/describe.err")"; rc=$?
-[ "$rc" -eq 1 ] && [ -z "$out" ] && grep -q "qmd-sync-main: profile -C .*: profile: /x/profile.json is not valid JSON" "$T/describe.err" \
-    && ok "describe: a failing profile -> exit 1 with its own error" || bad "describe with a failing profile: rc=$rc out='${out:0:100}' err='$(head -c 300 "$T/describe.err")'"
+[ "$rc" -eq 1 ] && [ -z "$out" ] && grep -q "^profile: /x/profile.json is not valid JSON" "$T/describe.err" \
+    && grep -q "^qmd-sync-main: profile -C .* failed$" "$T/describe.err" && [ "$(grep -c 'is not valid JSON' "$T/describe.err")" = 1 ] \
+    && ok "describe: a failing profile -> exit 1, its own error once, then the failure" || bad "describe with a failing profile: rc=$rc out='${out:0:100}' err='$(head -c 300 "$T/describe.err")'"
 
 # --- 6. qmd-refresh: a partial failure does not stop the run ----------------------
 H="$T/home"; mkdir -p "$H/.cache/qmd" "$T/fakebin" "$T/mem"
@@ -115,6 +116,42 @@ out="$(run_refresh)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"profile bad not resolved"* ]] && [[ "$out" == *"no-such-copy"* ]] \
     && ok "refresh (manual): warns about both, exit 1 (partial failure)" || bad "refresh manual: rc=$rc out=${out:0:300}"
 grep -qx update "$T/qmd.calls" 2>/dev/null && ok "refresh (manual): qmd update still ran" || bad "refresh manual: qmd update not called"
+
+# A profile warning on the stderr of --describe (bin/profile warns and still answers): the copy is
+# used, the warning passes through, and it is not read as part of the copy path.
+cat >"$T/sync-warn" <<EOF
+#!/bin/sh
+[ "\$1" = --describe ] || exit 0
+echo 'profile: /x/profile.json: language.docs must be a language code such as "en", got null — ignored' >&2
+printf '%s\tmain\t\n' "$T/outer"
+EOF
+chmod +x "$T/sync-warn"
+cat >"$T/index-warn.yml" <<EOF
+collections:
+  warns:
+    path: $T/outer
+    update: /x/qmd-sync-main warns
+EOF
+rm -f "$H/.cache/qmd/last-index"
+out="$(HOME="$H" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
+    zsh "$BIN/qmd-refresh" --wait 2>"$T/refresh.err")"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" != *"is missing"* ]] && [[ "$out" != *"not resolved"* ]] \
+    && ok "refresh: a profile warning on --describe's stderr -> the copy is used, exit 0" || bad "refresh with a profile warning: rc=$rc out=${out:0:300}"
+grep -q 'language.docs must be a language code' "$T/refresh.err" \
+    && ok "refresh: the profile warning passes through to stderr" || bad "refresh: the profile warning is lost: '$(head -c 200 "$T/refresh.err")'"
+# A failure reported on --describe's stderr (the real qmd-sync-main): the reason reaches the warning.
+cat >"$T/sync-fail" <<'EOF'
+#!/bin/sh
+[ "$1" = --describe ] || exit 0
+echo 'profile: /x/user.json is not JSON — ignored' >&2
+echo "qmd-sync-main: profile $2 is not in the registry /x/config.json" >&2
+exit 1
+EOF
+chmod +x "$T/sync-fail"
+out="$(HOME="$H" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-fail" \
+    zsh "$BIN/qmd-refresh" --wait 2>/dev/null)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"profile warns not resolved, its copy skipped — qmd-sync-main: profile warns is not in the registry"* ]] \
+    && ok "refresh: a --describe failure on stderr -> its reason in the warning, exit 1" || bad "refresh with a failing --describe: rc=$rc out=${out:0:300}"
 
 # --- 6b. qmd-refresh: qmd embed only with the consent to the models -----------------------
 HH="$T/hh"; mkdir -p "$HH"
