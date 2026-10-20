@@ -13,7 +13,7 @@
 # the request blocks of skills/epic-wave section 1), with a stub gh.
 # Every block runs on the text Claude Code hands the model when the skill is called with arguments (render below).
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
-# SKILL_FILE — check another copy of SKILL.md; SKILL_ARGS — the arguments of the call (default "a b c").
+# SKILL_FILE — check another copy of SKILL.md; SKILL_ARGS — the arguments of the call (default ten words, a to j).
 set -u
 # The SKILL.md files under test are the copies in harness/skills, next to this test.
 SKILLS="$(cd "$(dirname "$0")/../.." && pwd)/skills"
@@ -47,10 +47,10 @@ esac
 # arguments ($0 the first; a $N past the last word stays), $ARGUMENTS[N] the same, $ARGUMENTS the whole
 # string, and \$ before a digit or ARGUMENTS stands for a plain $. Code blocks are not spared, and a skill
 # called with arguments gets its blocks in that form. So every block below runs on the text as Claude Code
-# renders it for the arguments SKILL_ARGS (default "a b c"), under every shell of SHELLS; the cut also checks
+# renders it for the arguments SKILL_ARGS (default ten words, so every $0 ... $9 is replaced), under every shell of SHELLS; the cut also checks
 # that the rendered block equals the block in the file, so the file's own text gives the same result.
 # SKILL_ARGS= (empty) renders the text of a call without arguments.
-SKILL_ARGS="${SKILL_ARGS-a b c}"
+SKILL_ARGS="${SKILL_ARGS-a b c d e f g h i j}"
 render() { # [file]; prints the skill text as Claude Code renders it for the arguments SKILL_ARGS (no $ in them)
     SKILL_ARGS="$SKILL_ARGS" perl -pe 'BEGIN { $all = $ENV{SKILL_ARGS}; @a = split " ", $all }
         s/(?<!\\)\\\$(?=\d|ARGUMENTS)/\x01/g;

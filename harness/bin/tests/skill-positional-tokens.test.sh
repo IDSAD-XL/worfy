@@ -24,6 +24,11 @@ for line in 'F() { profile --field "$@"; }' 'echo "${HOME}" $(date +%s) $((1 + 2
     printf '%s\n' "$line" | grep -qE "$TOKEN" && bad "the detector flags an intact spelling: $line" || ok "the detector leaves alone: $line"
 done
 
+# word_of <digit>: which word of the arguments $<digit> becomes, counted from 1 ($0 is the 1st word).
+word_of() { case "$(($1 + 1))" in 1) echo 1st ;; 2) echo 2nd ;; 3) echo 3rd ;; *) echo "$(($1 + 1))th" ;; esac; }
+[ "$(word_of 0) $(word_of 2) $(word_of 9)" = "1st 3rd 10th" ] && ok "word_of names the word: \$0 1st, \$2 3rd, \$9 10th" \
+    || bad "word_of: [$(word_of 0) $(word_of 2) $(word_of 9)]"
+
 n=0
 for f in "$SKILLS"/*/SKILL.md; do
     [ -f "$f" ] || continue
@@ -36,7 +41,7 @@ for f in "$SKILLS"/*/SKILL.md; do
     fi
     while IFS= read -r hit; do
         tok="$(printf '%s\n' "${hit#*:}" | grep -oE "$TOKEN" | head -n 1)"
-        bad "$name:${hit%%:*}: $tok - Claude Code replaces $tok with a word of the skill's arguments when the skill is called with arguments; write \"\$@\" for a function argument and getline or split() into variables in awk: ${hit#*:}"
+        bad "$name:${hit%%:*}: $tok - Claude Code replaces $tok with the $(word_of "${tok#\$}") word of the skill's arguments when the skill is called with arguments; write \"\$@\" for a function argument and getline or split() into variables in awk: ${hit#*:}"
     done <<<"$hits"
 done
 # An empty or wrong folder must not pass as clean.
