@@ -138,7 +138,7 @@ the worktree" means the command was run from a shared checkout: with `worktrees`
 worktree (the `parallel: worktrees` paragraph below) and repeat; with `single` it means another
 session works in the checkout — stop and ask the user.
 Any other reason — stop, do not work around it. Put the line `<база>: <sha> …` (the base is
-`F worktree.base`) into every agent's brief as the base — a subagent that read the local `main`
+`F worktree.base`; in a repository without `origin` — the branch that line names) into every agent's brief as the base — a subagent that read the local `main`
 once reasoned over a stale tree.
 
 If the preflight cannot run here (exit 2: not a git repository, for example the common directory
