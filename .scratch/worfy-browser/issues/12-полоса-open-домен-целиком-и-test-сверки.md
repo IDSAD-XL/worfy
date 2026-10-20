@@ -1,7 +1,7 @@
 # 12 — Полоса «Open»: домен адреса виден целиком; test сверки запроса со своим Browser-ом
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T18:55Z
 Blocked by: 11
 Source: review PR #614 (Ticket 11), две находки low, 2026-10-20. Код перечитан по ветке
 `worfy-browser/11` (`5e08df41`).

@@ -1,7 +1,8 @@
 # 11 — Полоса «The page wants to open … — Open» для ссылки, которую Browser не открыл сам
 
 Type: task
-Status: claimed 2026-10-20T14:45Z
+Status: done 2026-10-20T18:55Z
+PR: #614
 Blocked by: 10
 Source: решение владельца 2026-10-20 («10 окей» на вариант (b) в чате Session «Worfy продолжение»);
 review PR #609 (Ticket 10) — цена проверки origin у `window.open`. Код перечитан по ветке
@@ -130,3 +131,8 @@ origin страницы и упал на этом; тест исправлен �
   новой странице — по чтению кода маловероятно (оба события идут из main в одно окно по порядку), test-а
   нет;
 - полный `pnpm test` и gate fast не запускались (по брифу — gate full очереди).
+
+**Ревью и merge.** Ревью — VERIFIED, находок high и med нет. Две находки low переходят в Ticket 12:
+домен адреса может спрятаться при обрезке посередине; сверку запроса со своим `<webview>` не
+проверяет ни один test. Gate full зелёный на слиянии main `f6d9d7da` с `5e08df41`. Merge —
+`a5a047a0` (gate queue Session «Worfy продолжение»).
