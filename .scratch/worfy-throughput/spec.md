@@ -290,7 +290,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 5. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
 6. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
 
-### Волны Ticket-ов 10–15
+### Волны Ticket-ов 10–16
 
 План по правилу раздела «Волны» выше: общий файл в «Где в коде» — Ticket с большим номером уходит в
 следующую Wave. Основную таблицу «Волны» этот раздел не меняет; Wave этих Ticket-ов берётся командой
@@ -304,7 +304,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | 11 | `harness/hooks/gate.mjs`, `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `vitest.config.ts`, `scripts/vitest-electron.mjs`, новый скрипт выбора test-ов в `scripts/` | 3 |
 | 13 | `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json` | 4 |
 | 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
-| 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts` | 1 |
+| 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts`, `harness/{bin,hooks}/tests/*.test.sh` | 2 |
 
 ### Не решено — вопросы к инструментам
 
