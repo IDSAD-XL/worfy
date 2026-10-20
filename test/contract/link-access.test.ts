@@ -20,6 +20,7 @@ import { checksHandlers, type ChecksService } from '../../src/main/ipc/checks'
 import { ClaudeHomeSubscriptions, claudeHomeHandlers } from '../../src/main/ipc/claude-home'
 import { bindingsHandlers } from '../../src/main/ipc/bindings'
 import { docsHub } from '../../src/main/ipc/docs'
+import { pipelineHandlers } from '../../src/main/ipc/pipeline'
 import { defineHandler, emit, registerIpc, type HandlerModule, type ModuleLoader } from '../../src/main/ipc/index'
 import { terminalHandlers } from '../../src/main/ipc/terminal'
 import { setViewState } from '../../src/main/ipc/view'
@@ -29,6 +30,7 @@ import { layoutStore } from '../../src/main/layout/store'
 import { LinkSender, readOnlyRefusal } from '../../src/main/link/ipc-adapter'
 import { LINK_PROTOCOL_VERSION } from '../../src/main/link/messages'
 import { projectStore } from '../../src/main/projects/store'
+import { HarnessScriptStartError, type ProfileRun } from '../../src/main/workflow/profile'
 import { TerminalRegistry } from '../../src/main/terminal/pty'
 import { autopilotStart } from '../../src/shared/ipc/autopilot'
 import { cardApiConfirm } from '../../src/shared/ipc/card-api'
@@ -188,6 +190,32 @@ const fakeChecks: ChecksService = {
   prs: { read: async () => ({ pulls: [], gh: { available: false, error: null, intervalMs: 60_000 } }) } as unknown as ChecksService['prs'],
   worktrees: async () => [],
 }
+/**
+ * The Profile the Pipeline editor's stand-in of bin/profile-set writes (worfy-pipeline ticket 08),
+ * and the arguments of each run of the stand-in.
+ */
+const pipelineProfile = join(env.scratch, 'harness-home', 'projects', 'demo', 'profile.json')
+mkdirSync(join(env.scratch, 'harness-home', 'projects', 'demo'), { recursive: true })
+writeFileSync(pipelineProfile, '{"schema":2,"name":"demo","mode":"full"}\n')
+const profileSetRuns: string[][] = []
+/** bin/profile-set as the handler starts it: --read answers the default Pipeline, --set writes the Profile. */
+/** What the stand-in does instead, for one test: an exit code of the script, or a failure to start it. */
+let profileSetInstead: ((args: readonly string[]) => Promise<ProfileRun>) | null = null
+const profileSetStandIn = async (args: readonly string[], stdin?: string): Promise<ProfileRun> => {
+  profileSetRuns.push([...args])
+  if (profileSetInstead !== null) return profileSetInstead(args)
+  if (args.includes('--read')) return { code: 0, stdout: JSON.stringify({ pipeline: null, resolved: [{ kind: 'queued' }, { kind: 'done' }], fingerprint: null }), stderr: '' }
+  const profile = JSON.parse(readFileSync(pipelineProfile, 'utf8')) as Record<string, unknown>
+  writeFileSync(pipelineProfile, JSON.stringify({ ...profile, workflow: { pipeline: JSON.parse(stdin ?? 'null') } }))
+  return { code: 0, stdout: JSON.stringify({ written: true, fingerprint: `sha256:${'a'.repeat(64)}`, warning: null }), stderr: '' }
+}
+/** The Stages are not what these tests look at: a hub that computes nothing. */
+const pipelineHubStandIn = {
+  open: async () => ({ root: repo, pipeline: [], tickets: [], error: null }),
+  close: async () => true,
+  drop: async () => undefined,
+}
+
 /** Holds trash.list until the test lets it go: a call that is running when access goes off. */
 let holdTrashList: Promise<void> = Promise.resolve()
 
@@ -222,6 +250,7 @@ const modules: Record<string, ModuleLoader> = {
       () => undefined,
     ),
   './checks.ts': async () => checksHandlers(fakeChecks),
+  './pipeline.ts': async () => pipelineHandlers({ hub: pipelineHubStandIn, profileSet: profileSetStandIn }),
   './stand-ins.ts': async () =>
     [
       // As src/main/ipc/card-api.ts does: a native dialog on the screen of the Machine called.
@@ -837,6 +866,63 @@ describe('round 2: a Linked machine works inside the Projects of the list only',
     expect(activeInFile()).toBe(secondId)
     expect(await windowCall('projects.remove', { id: secondId }, window)).toMatchObject({ ok: true })
     expect(activeInFile()).toBe(PROJECT)
+  })
+})
+
+// worfy-pipeline ticket 08: the Pipeline is edited only on the Machine of its
+// Project. The write is `local`: refused to a Linked machine with full access too, before any
+// handler runs; the read is `project` and `read`.
+describe('the Pipeline editor', () => {
+  it('pipeline.write from a Linked machine with full access is refused: bin/profile-set does not run, profile.json stays; from B\'s window it reaches the handler', async () => {
+    setAccess('all')
+    profileSetRuns.length = 0
+    const before = readFileSync(pipelineProfile, 'utf8')
+    const input = { root: repo, expected: null, pipeline: [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'done' }] }
+    expect(await callB('pipeline.write', input)).toEqual(notOpen('pipeline.write'))
+    expect(await callB('pipeline.write', { ...input, pipeline: null })).toEqual(notOpen('pipeline.write'))
+    expect(profileSetRuns).toEqual([])
+    expect(readFileSync(pipelineProfile, 'utf8')).toBe(before)
+
+    // A reads B's Pipeline: the editor shows it read-only in A's window of B.
+    expect(await callB('pipeline.read', { root: repo })).toMatchObject({ ok: true, value: { available: true, custom: false, fingerprint: null } })
+    expect(profileSetRuns).toEqual([['-C', realRepo, '--read']])
+    expect(readFileSync(pipelineProfile, 'utf8')).toBe(before)
+
+    const window = { id: 9, send: () => undefined, isDestroyed: () => false, once: () => window }
+    const windowCall = await windowIpc(['./pipeline.ts'])
+    expect(await windowCall('pipeline.write', input, window)).toMatchObject({ ok: true, value: { status: 'saved', warning: null } })
+    expect(profileSetRuns.at(-1)).toEqual(['-C', realRepo, '--expect', 'null', '--set', '-'])
+    expect(JSON.parse(readFileSync(pipelineProfile, 'utf8'))).toMatchObject({ name: 'demo', workflow: { pipeline: input.pipeline } })
+    // A root that is no Project of B is refused from B's window too: a window of a Linked machine sends `local` channels to its own main.
+    expect(await windowCall('pipeline.write', { ...input, root: outside }, window)).toMatchObject({ ok: false, error: expect.stringMatching(/is not a Project of this Machine/) })
+    expect(profileSetRuns).toHaveLength(2)
+  })
+
+  it('the answers of bin/profile-set: exit 5 a conflict, exit 6 a busy lock, exit 1 the reason, no script a Harness too old, another code an error', async () => {
+    // Read-only access is enough for the read.
+    setAccess('read')
+    const window = { id: 10, send: () => undefined, isDestroyed: () => false, once: () => window }
+    const windowCall = await windowIpc(['./pipeline.ts'])
+    const input = { root: repo, expected: `sha256:${'b'.repeat(64)}`, pipeline: null }
+    try {
+      profileSetInstead = async () => ({ code: 5, stdout: '{"conflict":true,"fingerprint":null}', stderr: 'profile-set: workflow.pipeline of x changed since it was read — not written' })
+      expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'conflict' } })
+      profileSetInstead = async () => ({ code: 6, stdout: '', stderr: 'profile-set: another profile-set is writing x (lock y) — not written; try again' })
+      expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'busy' } })
+      expect(profileSetRuns.at(-1)).toEqual(['-C', realRepo, '--expect', input.expected, '--reset'])
+      profileSetInstead = async () => ({ code: 1, stdout: '', stderr: 'profile-set: /h/profile.json: workflow.pipeline[1]: check needs a name — not written\n' })
+      expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'invalid', reason: '/h/profile.json: workflow.pipeline[1]: check needs a name — not written' } })
+      profileSetInstead = async () => {
+        throw new HarnessScriptStartError('ENOENT', 'no Harness script at /h/plugin/bin/profile-set')
+      }
+      expect(await windowCall('pipeline.write', input, window)).toEqual({ ok: true, value: { status: 'too-old' } })
+      expect(await callB('pipeline.read', { root: repo })).toMatchObject({ ok: true, value: { available: false } })
+      profileSetInstead = async () => ({ code: 3, stdout: '', stderr: 'profile: /x is not in a registered project\n' })
+      expect(await windowCall('pipeline.write', input, window)).toMatchObject({ ok: false, error: expect.stringMatching(/--reset failed \(exit 3\): profile: \/x is not in a registered project/) })
+      expect(await callB('pipeline.read', { root: repo })).toMatchObject({ ok: false, error: expect.stringMatching(/--read failed \(exit 3\)/) })
+    } finally {
+      profileSetInstead = null
+    }
   })
 })
 

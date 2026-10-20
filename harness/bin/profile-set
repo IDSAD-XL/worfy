@@ -1,0 +1,308 @@
+#!/usr/bin/env node
+// profile-set — writes the Pipeline of one project: the field workflow.pipeline of its profile.json,
+// and nothing else. bin/profile stays the reader that writes nothing; an editor or any other caller
+// writes the Pipeline through this script.
+//
+//   profile-set [-C <dir>] --read                          prints JSON { name, path, pipeline, resolved, fingerprint }:
+//                                                          the field as written (null without it), the
+//                                                          Pipeline it resolves to, and its fingerprint
+//   profile-set [-C <dir>] --expect <fingerprint> --set <json | ->
+//                                                          writes the Pipeline (JSON; `-` — read it from stdin)
+//   profile-set [-C <dir>] --expect <fingerprint> --reset  removes the field: the default Pipeline from then on
+//
+// The project is the one `bin/profile -C <dir>` finds (the current directory without -C); this script
+// asks bin/profile for the profile's directory, so both name the same file.
+//
+// A write is checked with the rules bin/profile reads the field by (lib/pipeline.cjs): a Pipeline that
+// breaks one is not written. It goes ahead only while the file still has the Pipeline the caller read:
+// --expect takes the fingerprint --read printed (`null` — the field was absent). Then the change is
+// committed in the git repository of the Harness home, as bin/project-connect commits a new profile.
+// Writers of one profile take turns: a lock folder next to profile.json is held from reading the file
+// to the end of the commit. A writer killed from outside (SIGKILL, taskkill /F, a caller's timeout)
+// leaves it behind; the next writer takes it over once it is 60 s old.
+// A commit that cannot be made — no repository there, git missing, the commit refused — does not undo
+// the write: the commit is the history, not a condition. It is reported as a warning.
+//
+// Exit codes: 0 — written (or nothing to change, or --read); 1 — the Pipeline breaks a rule or is not
+// JSON, the profile cannot be read or written: nothing written, the reason in stderr; 2 — usage
+// error; 3 — the directory is in no registered project, or the project has no profile (bin/profile's
+// code); 5 — the Pipeline in the file is not the one the caller read: nothing written; 6 — another
+// profile-set held the profile's lock for the whole wait (10 s): nothing written, try again.
+// Output on 0 after a write (stdout, JSON): { written, fingerprint, warning } — `written` false when
+// the file already said that; `warning` null, or why the change was not committed (also a line
+// "profile-set: warning: …" in stderr). On 5: { conflict: true, fingerprint } with the fingerprint now.
+"use strict"
+
+const fs = require("node:fs")
+const path = require("node:path")
+const { spawnSync } = require("node:child_process")
+const { randomBytes } = require("node:crypto")
+// The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
+const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
+const { pipelineProblem, pipelineField, resolvePipeline, pipelineFingerprint } = require("../lib/pipeline.cjs")
+
+const BIN = path.dirname(fs.realpathSync(__filename))
+const USAGE = `usage: profile-set [-C <dir>] (--read | --expect <fingerprint|null> --set <json|-> | --expect <fingerprint|null> --reset)
+exit: 0 written or read, 1 invalid Pipeline or unreadable profile, 2 usage, 3 not a registered project / no profile, 5 the Pipeline changed since it was read, 6 another write held the lock (try again)`
+
+const out = (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n")
+const err = (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n")
+const die = (code, msg) => {
+    if (msg) err(`profile-set: ${msg}`)
+    process.exit(code)
+}
+const usage = (msg) => {
+    if (msg) err(`profile-set: ${msg}`)
+    err(USAGE)
+    process.exit(2)
+}
+
+// --- arguments -----------------------------------------------------------------
+let mode = null
+let given = null
+let expect
+let target = process.cwd()
+const setMode = (m) => {
+    if (mode) usage("only one of --read/--set/--reset at a time")
+    mode = m
+}
+const argv = process.argv.slice(2)
+for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]
+    switch (a) {
+        case "--read":
+        case "--reset":
+            setMode(a.slice(2))
+            break
+        case "--set":
+            setMode("set")
+            given = argv[++i]
+            if (given === undefined) usage("--set needs the Pipeline as JSON, or - to read it from stdin")
+            break
+        case "--expect":
+            expect = argv[++i]
+            if (expect === undefined || expect === "") usage("--expect needs the fingerprint --read printed, or null")
+            break
+        case "-C":
+            target = argv[++i]
+            if (!target) usage("-C needs a directory")
+            break
+        case "-h":
+        case "--help":
+            out(USAGE)
+            process.exit(0)
+        default:
+            usage(`unknown argument: ${a}`)
+    }
+}
+if (!mode) usage("say what to do: --read, --set or --reset")
+if (mode !== "read" && expect === undefined) usage(`--${mode} needs --expect: the fingerprint of the Pipeline the change was made over (null when the field was absent)`)
+if (mode === "read" && expect !== undefined) usage("--expect goes with --set or --reset")
+
+// --- the profile: the one bin/profile finds ------------------------------------------
+// The node running this script, not the first `node` on PATH.
+const found = spawnSync(process.execPath, [path.join(BIN, "profile"), "-C", target, "--dir"], { encoding: "utf8", windowsHide: true })
+if (found.error) die(1, `bin/profile could not be started: ${found.error.message}`)
+if (found.status !== 0) {
+    process.stderr.write(found.stderr || "")
+    process.exit(found.status === 3 || found.status === 2 ? found.status : 1)
+}
+const dir = found.stdout.replace(/\r?\n+$/, "")
+const pjPath = path.join(dir, "profile.json")
+
+// The profile as the file has it now: its text, the parsed object and the fingerprint of its Pipeline.
+function readProfile() {
+    let text
+    let profile
+    try {
+        text = fs.readFileSync(pjPath, "utf8")
+        profile = JSON.parse(text)
+    } catch (e) {
+        die(1, `cannot read ${pjPath}: ${e.message}`)
+    }
+    if (profile === null || typeof profile !== "object" || Array.isArray(profile)) die(1, `${pjPath} is not a JSON object`)
+    const current = pipelineField(profile.workflow)
+    return { text, profile, current, fingerprint: pipelineFingerprint(current) }
+}
+const nameOf = (profile) => (typeof profile.name === "string" && profile.name ? profile.name : path.basename(dir))
+
+if (mode === "read") {
+    const { profile, current, fingerprint } = readProfile()
+    const resolved = resolvePipeline(profile.workflow)
+    if (resolved.problem !== undefined) die(1, `${pjPath}: workflow.pipeline${resolved.problem} — broken profile`)
+    out(JSON.stringify({ name: nameOf(profile), path: pjPath, pipeline: current ?? null, resolved: resolved.pipeline, fingerprint }))
+    process.exit(0)
+}
+
+// --- the new value, read and checked before the profile is ---------------------------
+// stdin first: a caller slow to send the Pipeline must not hold a fingerprint taken before another write.
+let value = null
+if (mode === "set") {
+    let text = given
+    if (given === "-") {
+        try {
+            text = fs.readFileSync(0, "utf8")
+        } catch (e) {
+            die(1, `cannot read the Pipeline from stdin: ${e.message}`)
+        }
+    }
+    try {
+        value = JSON.parse(text)
+    } catch (e) {
+        die(1, `the Pipeline is not JSON: ${e.message} — not written`)
+    }
+    const problem = pipelineProblem(value)
+    if (problem !== null) die(1, `${pjPath}: workflow.pipeline${problem} — not written`)
+}
+
+// --- the lock: one writer of a profile at a time ---------------------------------------
+// A folder next to profile.json, made with mkdir (atomic on every file system the Harness runs on), with
+// an `owner` file inside holding this writer's token (pid and random). It is held from reading the
+// profile to the end of the commit, so the compare, the write and the commit of two writers never
+// interleave. It is released on exit, and only by the writer whose token it holds.
+// A lock whose owner file (or folder, before the file is there) is older than LOCK_STALE_MS is one a
+// killed writer left. A waiter takes it over: it renames the folder to a name of its own and deletes it
+// only if it still holds the token judged stale; a fresh lock caught by the rename is put back. So two
+// waiters cannot both clear one stale lock, and neither deletes the lock a new owner has just made.
+// A live lock is waited for up to LOCK_WAIT_MS, then the write gives up with exit 6.
+const LOCK = path.join(dir, ".profile-set.lock")
+const OWNER = path.join(LOCK, "owner")
+const LOCK_STALE_MS = 60_000
+// shortcut: a fixed wait; PROFILE_SET_LOCK_WAIT_MS exists for the tests only, redo when a caller needs its own wait.
+const LOCK_WAIT_MS = Number(process.env.PROFILE_SET_LOCK_WAIT_MS) || 10_000
+// For the tests only: a pause between judging a lock stale and taking it over, to let another writer in.
+const STALE_PAUSE_MS = Number(process.env.PROFILE_SET_STALE_PAUSE_MS) || 0
+const TOKEN = `${process.pid}-${randomBytes(8).toString("hex")}`
+const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+const ownerOf = (folder) => {
+    try {
+        return fs.readFileSync(path.join(folder, "owner"), "utf8")
+    } catch {
+        return null
+    }
+}
+let locked = false
+// The script is synchronous to its end, so a signal handler would never run: after Ctrl+C the default
+// action ends it, and the lock is released by the next writer's stale check, as after a kill.
+process.on("exit", () => {
+    if (!locked || ownerOf(LOCK) !== TOKEN) return
+    try {
+        fs.rmSync(LOCK, { recursive: true, force: true })
+    } catch {}
+})
+/** Takes over the lock if it is still the stale one with `token` (null — no owner file yet). */
+function clearStale(token) {
+    if (STALE_PAUSE_MS > 0) pause(STALE_PAUSE_MS)
+    const aside = `${LOCK}.stale-${TOKEN}`
+    try {
+        fs.renameSync(LOCK, aside)
+    } catch {
+        return // gone, or taken over by another waiter
+    }
+    if (ownerOf(aside) === token) {
+        fs.rmSync(aside, { recursive: true, force: true })
+        return
+    }
+    // A fresh lock of another writer: put it back.
+    try {
+        fs.renameSync(aside, LOCK)
+    } catch {}
+}
+const deadline = Date.now() + LOCK_WAIT_MS
+while (!locked) {
+    try {
+        fs.mkdirSync(LOCK)
+    } catch (e) {
+        if (e.code !== "EEXIST") die(1, `cannot take the lock ${LOCK}: ${e.message} — not written`)
+        const token = ownerOf(LOCK)
+        let age = 0
+        try {
+            age = Date.now() - fs.statSync(token === null ? LOCK : OWNER).mtimeMs
+        } catch {
+            continue // gone in between: try again at once
+        }
+        if (age > LOCK_STALE_MS) {
+            clearStale(token)
+            continue
+        }
+        if (Date.now() >= deadline) die(6, `another profile-set is writing ${pjPath} (lock ${LOCK}) — not written; try again`)
+        pause(100)
+        continue
+    }
+    try {
+        fs.writeFileSync(OWNER, TOKEN)
+    } catch (e) {
+        try {
+            fs.rmdirSync(LOCK)
+        } catch {}
+        die(1, `cannot take the lock ${LOCK}: ${e.message} — not written`)
+    }
+    locked = true
+}
+
+// --- compare-and-write, under the lock --------------------------------------------------
+const { text: before, profile, fingerprint: currentFingerprint } = readProfile()
+const name = nameOf(profile)
+const expected = expect === "null" ? null : expect
+if (expected !== currentFingerprint) {
+    out(JSON.stringify({ conflict: true, fingerprint: currentFingerprint }))
+    die(5, `workflow.pipeline of ${pjPath} changed since it was read — not written; read it again`)
+}
+
+if (mode === "set") {
+    if (profile.workflow === null || typeof profile.workflow !== "object" || Array.isArray(profile.workflow)) profile.workflow = {}
+    profile.workflow.pipeline = value
+} else if (profile.workflow !== null && typeof profile.workflow === "object" && !Array.isArray(profile.workflow)) {
+    delete profile.workflow.pipeline
+}
+const after = JSON.stringify(profile, null, 2) + "\n"
+const fingerprint = pipelineFingerprint(mode === "set" ? value : undefined)
+if (after === before) {
+    out(JSON.stringify({ written: false, fingerprint, warning: null }))
+    process.exit(0)
+}
+try {
+    const tmp = `${pjPath}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, after)
+    fs.renameSync(tmp, pjPath)
+} catch (e) {
+    die(1, `cannot write ${pjPath}: ${e.message} — not written`)
+}
+
+// --- the commit: history, not a condition ---------------------------------------------
+const run = (args) => spawnSync(GIT, args, { encoding: "utf8", windowsHide: true })
+const said = (r) => (r.error ? r.error.message : (r.stderr || r.stdout || `exit ${r.status}`).trim())
+const realDir = (p) => {
+    try {
+        return fs.realpathSync.native(p)
+    } catch {
+        return path.resolve(p)
+    }
+}
+function commit() {
+    const home = realDir(harnessHome(realDir(target)))
+    const rel = path.relative(home, realDir(pjPath))
+    if (rel.startsWith("..") || path.isAbsolute(rel)) return `${pjPath} is outside the Harness home ${home}: the change is not committed`
+    const top = run(["-C", home, "rev-parse", "--show-toplevel"])
+    if (top.error) return `git could not be started (${top.error.message}): the change is not committed`
+    // A Harness home inside another repository is not a repository of its own: nothing is committed there.
+    if (top.status !== 0 || realDir(top.stdout.trim()) !== home) return `no git repository in the Harness home ${home}: the change is not committed`
+    const file = rel.split(path.sep).join("/")
+    const add = run(["-C", home, "add", "--", file])
+    if (add.status !== 0 || add.error) return `git add ${file} failed: ${said(add)}`
+    // Without the machine's hooks and signing, and with an identity when it has none (as bin/project-connect).
+    const args = ["-C", home, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"]
+    const email = run(["-C", home, "config", "user.email"])
+    if (email.status !== 0 || email.stdout.trim() === "") args.push("-c", "user.name=Harness", "-c", "user.email=harness@localhost")
+    const message = mode === "set" ? `Set the Pipeline of ${name}` : `Reset the Pipeline of ${name} to the default`
+    // `-- <file>`: the commit holds profile.json only, whatever else is staged in the Harness home.
+    const done = run([...args, "commit", "-q", "--no-verify", "-m", message, "--", file])
+    if (done.status === 0 && !done.error) return null
+    // What the failed commit staged does not stay in the index.
+    run(["-C", home, "reset", "-q", "--", file])
+    return `git commit failed: ${said(done)}`
+}
+const problem = commit()
+const warning = problem === null ? null : `${problem}; the write stays`
+if (warning !== null) err(`profile-set: warning: ${warning}`)
+out(JSON.stringify({ written: true, fingerprint, warning }))

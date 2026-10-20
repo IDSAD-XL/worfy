@@ -11,7 +11,7 @@
 //   silent-check [-C <dir>]                  no input named — stdin
 // Several inputs may be given together; each finding names its input and line.
 //
-// What a trace is (profiles/README.md, "Silent mode"; worfy ADR-0042):
+// What a trace is (profiles/README.md, "Silent mode"):
 //   - in Silent mode (profile mode "silent"): the name of an epic of the project (a directory of the tickets
 //     root), `<epic>/<NN>`, `ADR-<4 digits>`, `Ticket <number>` and `Ticket-<number>`, the path of the
 //     Workflow folder, `.scratch`, `HANDOFF`. In the added lines of a diff a bare epic name is not looked

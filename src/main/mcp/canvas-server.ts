@@ -11,7 +11,7 @@
 // messages for file writes into a Card's folder: the last Session that wrote there is kept in the
 // Card Node's data (`lastEditor`), so it survives a restart (ticket 26 reads it).
 import { randomUUID } from 'node:crypto'
-import { lstatSync, mkdirSync, realpathSync } from 'node:fs'
+import { lstatSync, mkdirSync } from 'node:fs'
 import * as nativePath from 'node:path'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
@@ -42,6 +42,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
 import { harnessScriptEnv } from '../harness/script-env'
 import { layoutStore } from '../layout/store'
+import { realpathOrSelf } from '../projects/real-path'
 import { projectStore, runGit, type StoredProject } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { epicStatusRunner, readCheckout } from '../workflow/reader'
@@ -363,23 +364,22 @@ export function observeMessages<T extends object>(query: T, onMessage: (message:
   })
 }
 
-const realpathOrSelf = (path: string): string => {
-  try {
-    return realpathSync(path)
-  } catch {
-    return resolve(path)
-  }
-}
+/**
+ * A path in the spelling on disk (the native realpath, as git prints a Project root): a `cwd` in an
+ * 8.3 short name, through a `subst` drive or in another letter case finds the Project it is in.
+ * A path no realpath can read stays as resolved.
+ */
+const onDisk = (path: string): string => realpathOrSelf(resolve(path))
 
 /**
  * The Project whose root is `cwd` or holds it (a worktree inside the repository); of nested
  * Projects, the deepest one.
  */
 export function projectForCwd(projects: readonly StoredProject[], cwd: string): StoredProject | undefined {
-  const folder = realpathOrSelf(cwd)
+  const folder = onDisk(cwd)
   let best: { project: StoredProject; depth: number } | undefined
   for (const project of projects) {
-    const root = realpathOrSelf(project.path)
+    const root = onDisk(project.path)
     if (folder !== root && !folder.startsWith(root.endsWith(sep) ? root : root + sep)) continue
     if (best === undefined || root.length > best.depth) best = { project, depth: root.length }
   }

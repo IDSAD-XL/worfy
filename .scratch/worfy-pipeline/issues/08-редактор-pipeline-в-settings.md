@@ -1,7 +1,8 @@
 # 08 — Редактор Pipeline Project-а в Settings
 
 Type: task
-Status: open
+Status: done 2026-10-20T03:01Z
+PR: #552
 Blocked by: 03, 06
 Source: решение владельца 2026-10-17, grilling о Pipeline, пункт 10 ([spec.md](../spec.md), «Решения
 владельца»: сначала Pipeline правится в `profile.json` руками или через `bin/profile`, редактор в
@@ -145,3 +146,6 @@ Settings пишет через stub `bin/profile-set` во временной п
 Решение владельца 2026-10-19 (Q-f): вариант (b) — отдельный скрипт `bin/profile-set`,
 [ADR-0073](../../../docs/adr/0073-profile-set-writes-the-pipeline.md). Решения владельца 2026-10-20 (Q1–Q8) —
 в «Что делаем». Остальное заполняется при закрытии.
+
+Влит PR #552 (`7d3457c7`), 2026-10-20. Известное ограничение: Pipeline, сломанный руками в `profile.json`, из
+редактора не сбросить.

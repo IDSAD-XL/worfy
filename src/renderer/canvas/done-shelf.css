@@ -1,0 +1,75 @@
+/* The done shelf under the Epic frames' strip (docs/design/F-SPEC.md, "Done shelf (Epic frames)").
+   Every colour is a role of the Tokens table; "done" always comes with the check icon. The chips'
+   places come from epic-layout.ts layoutShelf, so the sizes here are its constants. */
+
+.w-shelf {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius-window);
+  border: 1px dashed var(--border-strong);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  font-family: var(--font-ui);
+  color: var(--text);
+}
+
+/* SHELF_PADDING (12) from the top, SHELF_LABEL_HEIGHT (24) tall. */
+.w-shelf__label {
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-12);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.w-shelf__count {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* SHELF_CHIP_HEIGHT (24) tall; the width comes from SHELF_CHIP_CHROME and SHELF_CHAR_WIDTH. */
+.w-shelf__chip {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-chip);
+  background: var(--done-bg);
+  color: var(--done-text);
+  font-size: var(--text-12);
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.w-shelf__chip > svg {
+  flex: none;
+}
+.w-shelf__chip:hover {
+  border-color: var(--text-secondary);
+}
+.w-shelf__chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.w-shelf__chip[aria-disabled='true'] {
+  cursor: default;
+}
+.w-shelf__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-size: var(--text-12);
+}
+.w-shelf__progress {
+  flex: none;
+  font-size: var(--text-12);
+}

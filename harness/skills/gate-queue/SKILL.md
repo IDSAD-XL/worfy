@@ -5,7 +5,7 @@ description: Process the cross-machine gate queue — every open PR that carries
 
 # Process the cross-machine gate queue
 
-A project may run on two machines, one of which cannot run the other's gate full (worfy ADR-0069).
+A project may run on two machines, one of which cannot run the other's gate full.
 The PRs of the machine with `F cross_machine_gate.role` `request` that touch shared code carry the
 label `F cross_machine_gate.label` (skill `/worfy:ship-ticket`, step 8), and the machine with
 `serve` checks and merges them. This skill is that pass, the only copy of it: skill

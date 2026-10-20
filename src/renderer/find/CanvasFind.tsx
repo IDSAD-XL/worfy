@@ -27,6 +27,7 @@ import { useSessionLogs } from '../session/store'
 import { label, matches as matchesShortcut } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { closeFind, openFind, useCanvasRequests } from './canvas-requests'
+import { rectOf, type Rect } from './node-rect'
 import { FIND_LIMIT, findDocs, FindIndex, MIN_FIND_QUERY, orderMatches, selectionScope, snippet, stepMatch, type FindField, type FindMatch } from './search-index'
 
 export const order = 60
@@ -46,21 +47,6 @@ const CARD_RETRY_MS = 1500
 const OUTLINED = 200
 
 type Flow = ReactFlowInstance<CanvasFlowNode>
-
-interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-/** A Node's place on the Canvas, inside its parent or not; undefined when React Flow does not show it. */
-function rectOf(flow: Flow, id: string): Rect | undefined {
-  const node = flow.getInternalNode(id)
-  if (!node || node.hidden === true) return undefined
-  const { x, y } = node.internals.positionAbsolute
-  return { x, y, w: node.width ?? node.measured.width ?? 0, h: node.height ?? node.measured.height ?? 0 }
-}
 
 /** Moves the viewport so the rectangle is in the middle, zoomed in far enough to read and out far enough to fit. */
 function centerOn(flow: Flow, viewWidth: number, viewHeight: number, rect: Rect): void {

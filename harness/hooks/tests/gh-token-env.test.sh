@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of hooks/gh-token-env.mjs (worfy-harness ticket 18, on Node since worfy-windows ticket 04):
+# Tests of hooks/gh-token-env.mjs:
 # the SessionStart hook that appends to $CLAUDE_ENV_FILE the line which sets GH_TOKEN of the
 # project's GitHub account (github.account).
 # Run: bash harness/hooks/tests/gh-token-env.test.sh; exit code 0 means everything passed.
@@ -16,7 +16,7 @@ HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 HOOK="$HOOKS/gh-token-env.mjs"
 MARK=gho_TESTSENTINEL
-LINE='export GH_TOKEN="$(gh auth token -u IDSAD-XL 2>/dev/null)"'
+LINE='export GH_TOKEN="$(gh auth token -u octo-org 2>/dev/null)"'
 NODE="$(command -v node)"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -104,7 +104,7 @@ quiet() { # $1 case name
 
 # 1. The account is there and gh has a login under it: one line, sourced it gives the token.
 reset_env; : >"$PROFILE_LOG"
-export CLAUDE_ENV_FILE="$ENVF" FAKE_PROFILE=IDSAD-XL FAKE_GH_LOGGED_IN="IDSAD-XL someone-else"
+export CLAUDE_ENV_FILE="$ENVF" FAKE_PROFILE=octo-org FAKE_GH_LOGGED_IN="octo-org someone-else"
 run; rc=$?
 common "account with login" "$rc"
 [ "$(sed -n 1p "$ENVF")" = "$PRE" ] && ok "account with login: earlier lines of the env file kept" \
@@ -182,7 +182,7 @@ reset_env
 FAKE_GH_LOGGED_IN="someone-else" run; rc=$?
 common "account without login" "$rc"; unchanged "account without login"
 ctx="$(out_ctx)"
-[[ "$ctx" == *IDSAD-XL* && "$ctx" == *"gh auth login"* ]] \
+[[ "$ctx" == *octo-org* && "$ctx" == *"gh auth login"* ]] \
     && ok "account without login: additionalContext names the account and gh auth login" \
     || bad "account without login: stdout: $(head -c 300 "$T/out")"
 [ "$(printf '%s' "$ctx" | wc -l | tr -d ' ')" = 0 ] && ok "account without login: context is one line" \
@@ -196,7 +196,7 @@ reset_env
 (PATH="$TP/nogh"; unset GH_TOKEN_ENV_GH; run); rc=$?
 common "gh not installed" "$rc"; unchanged "gh not installed"
 ctx="$(out_ctx)"
-[[ "$ctx" == *IDSAD-XL* && "$ctx" == *gh* ]] && ok "gh not installed: context names the account and gh" \
+[[ "$ctx" == *octo-org* && "$ctx" == *gh* ]] && ok "gh not installed: context names the account and gh" \
     || bad "gh not installed: stdout: $(head -c 300 "$T/out")"
 
 # 4. A value that is not a GitHub login never reaches a shell line or gh.

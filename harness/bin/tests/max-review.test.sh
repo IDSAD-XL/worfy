@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The text contract of skills/max-review (ticket worfy-review/07): a review of the whole branch before a
+# The text contract of skills/max-review: a review of the whole branch before a
 # risky merge — two lenses, each optionally on two Claude models, a synthesis, sceptics, four groups of
 # findings and a verdict with the prefix `MAX-REVIEW:`; epic-wave runs it in section 4 for a ticket marked
 # `Risk: high` and reads its verdict when a wave resumes. Besides the text, three behaviours the text relies
@@ -15,6 +15,10 @@ MR="${MAX_REVIEW_FILE:-$HARNESS/skills/max-review/SKILL.md}"
 EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+# The resume blocks commit in a temporary repository: with an empty HOME git has no identity and refuses the
+# commit ("unable to auto-detect email address"), and the branch e/07 is never made.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-t}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-t@t}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-t}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-t@t}"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -130,8 +134,8 @@ check "a MAX-REVIEW: REJECTED PR comment is not counted as a REJECTED round" \
 check "a gate: MAX-REVIEW: REJECTED commit is not counted as a gate: REJECTED round" \
     test "$(printf 'gate: %s\n' "$v_rej" | grep -c '^gate: REJECTED')" = 0
 # worfy reads PR comments only for the narrow round's journal, with the NARROW regex of
-# src/main/github/prs.ts; the verdict is the review mark (ADR-0067). MAX-REVIEW: must not match it.
-PRS="${PRS_FILE:-$REPO/src/main/github/prs.ts}"
+# the worfy app's GitHub PR reader (github/prs.ts under src/); the verdict is the review mark. MAX-REVIEW: must not match it.
+PRS="${PRS_FILE:-$(find "$REPO/src" -path '*/github/prs.ts' 2>/dev/null | head -n 1)}"
 re="$(sed -n 's|^const NARROW = /\(.*\)/u$|\1|p' "$PRS")"
 check "prs.ts NARROW regex found" test -n "$re"
 matches() { RE="$1" perl -e 'exit(($ARGV[0] =~ /$ENV{RE}/) ? 0 : 1)' "$2"; }
@@ -158,6 +162,8 @@ git -C "$G" init -q -b main && git -C "$G" commit -q --allow-empty -m base \
     && git -C "$G" commit -q --allow-empty -m 'gate: MAX-REVIEW: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m 'gate: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m "gate: $v_rej"
+built=$?
+check "resume block (Full): the test repository with the branch e/07 is built" test "$built" -eq 0
 run="${blk//<repo>/$G}"; run="${run//<base>/main}"; run="${run//<branch>/e/07}"
 out="$(bash -c "$run" 2>&1)"
 check "resume block (Full): the gate's last verdict is gate: VERIFIED (got: $(printf '%s' "$out" | head -n 1))" \

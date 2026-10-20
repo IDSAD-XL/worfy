@@ -10,7 +10,9 @@
 //   binding-anchor:ticket:<epic>/<NN>     child of a Ticket, at its right edge
 //   binding-anchor:epic:<epic>            child of an Epic's frame, at its top edge: a line to an
 //                                         Epic ends here, and so does one to a Ticket the frame
-//                                         hides (a folded done stack, a collapsed frame)
+//                                         hides (a folded done stack, a collapsed frame); for an
+//                                         Epic on the done shelf (worfy-canvas ticket 02), which
+//                                         has no frame, a child of the shelf at its chip's left edge
 //
 // None of these Nodes is a Layout Node: they are computed from the manual Bindings, the signals in
 // the transcripts and the workflow model (binding/store.ts). React Flow needs a parent before its
@@ -20,13 +22,13 @@ import { useMemo } from 'react'
 import { useStore } from '@xyflow/react'
 import { bindingWorkflowOf, type Binding } from '../../../shared/binding/resolve'
 import { agentKey } from '../../../shared/ipc/bindings'
-import { epicNodeId, onThePlane, SUBAGENT_KIND, ticketNodeId } from '../../../shared/layout/derived'
+import { DONE_SHELF_ID, epicNodeId, onThePlane, SUBAGENT_KIND, ticketNodeId } from '../../../shared/layout/derived'
 import type { Layout, LayoutNode } from '../../../shared/layout/types'
 import { resolveAgentBindings, useManualBindings, useSessionSignals } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
-import { TICKET_WIDTH } from '../epic-layout'
+import { SHELF_CHIP_HEIGHT, TICKET_WIDTH } from '../epic-layout'
 import type { NodeSource, NodeSourceContext } from '../extensions'
 import type { CanvasFlowNode } from '../nodes'
 
@@ -111,8 +113,13 @@ export interface BuildInput {
   layout: Layout
   /** resolveAgentBindings(), by agentKey. */
   bindings: ReadonlyMap<string, Binding>
-  /** Epics that have a frame on the Canvas (the workflow model's). */
+  /** Epics whose frame React Flow has now (an Epic on the done shelf has none). */
   epics: ReadonlySet<string>
+  /**
+   * Epics on the done shelf, with their chip's top-left corner inside the shelf Node: they have no
+   * frame, so a line to such an Epic (or to one of its Tickets) ends at its chip.
+   */
+  shelf?: ReadonlyMap<string, { x: number; y: number }>
   /** Ticket Node ids on the Canvas now (a folded done stack or a collapsed frame hides some). */
   tickets: ReadonlySet<string>
   /** Subagent Nodes on the Canvas now. */
@@ -122,7 +129,7 @@ export interface BuildInput {
 }
 
 /** The anchors for one Project's bound agents and their targets; agents whose target is not on the Canvas get none. */
-export function buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents, live }: BuildInput): CanvasFlowNode[] {
+export function buildBindingAnchors({ projectId, layout, bindings, epics, shelf, tickets, subagents, live }: BuildInput): CanvasFlowNode[] {
   const agents: CanvasFlowNode[] = []
   const targets = new Map<string, CanvasFlowNode>()
   /** The anchor a line to `binding` ends at, made once per target; null when neither the Ticket nor its frame is shown. */
@@ -133,6 +140,12 @@ export function buildBindingAnchors({ projectId, layout, bindings, epics, ticket
       const id = ticketAnchorId(target.epic, target.num)
       if (!targets.has(id)) targets.set(id, anchor(id, ticketId, TICKET_WIDTH, TICKET_ANCHOR_Y, { variant: 'ticket', projectId, epic: target.epic, num: target.num }))
       return { id, nodeId: ticketId }
+    }
+    const chip = shelf?.get(target.epic)
+    if (chip !== undefined) {
+      const id = epicAnchorId(target.epic)
+      if (!targets.has(id)) targets.set(id, anchor(id, DONE_SHELF_ID, chip.x, chip.y + SHELF_CHIP_HEIGHT / 2, { variant: 'epic', projectId, epic: target.epic }))
+      return { id, nodeId: DONE_SHELF_ID }
     }
     if (!epics.has(target.epic)) return null
     const id = epicAnchorId(target.epic)
@@ -167,6 +180,14 @@ function presentSubagents(nodeLookup: ReadonlyMap<string, { type?: string | unde
   return lines.join('\n')
 }
 
+/** "<epic>\t<x>\t<y>" per chip of the done shelf on the Canvas, one per line; a string so the selector result compares by value. */
+function shelfChips(nodeLookup: ReadonlyMap<string, { data: Record<string, unknown> }>): string {
+  const node = nodeLookup.get(DONE_SHELF_ID)
+  // The shelf's data (sources/epics.ts DoneShelfData), read without importing that module, which imports this one.
+  const chips = ((node?.data as Partial<CanvasFlowNode['data']> | undefined)?.node?.data as { chips?: readonly { epic: string; x: number; y: number }[] } | undefined)?.chips ?? []
+  return chips.map((chip) => `${chip.epic}\t${chip.x}\t${chip.y}`).join('\n')
+}
+
 function useBindingAnchors({ projectId, layout }: NodeSourceContext): readonly CanvasFlowNode[] {
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
   const { live } = useClaudeHome(root)
@@ -182,14 +203,27 @@ function useBindingAnchors({ projectId, layout }: NodeSourceContext): readonly C
   const ticketsShown = useStore((state) => wantedTickets.filter((id) => state.nodeLookup.has(id)).join('\n'))
   const anySubagent = [...bindings.keys()].some((key) => key.includes('/'))
   const subagentsShown = useStore((state) => (anySubagent ? presentSubagents(state.nodeLookup) : ''))
+  // The bound Epics whose frame React Flow has now: an Epic on the done shelf has none, and its
+  // line ends at its chip instead.
+  const wantedEpics = [...new Set([...bindings.values()].map(({ target }) => target.epic))].sort()
+  const framesShown = useStore((state) => wantedEpics.filter((epic) => state.nodeLookup.has(epicNodeId(epic))).join('\n'))
+  const shelfShown = useStore((state) => shelfChips(state.nodeLookup))
   return useMemo(() => {
-    const epics = new Set(model?.error === null ? [...model.epics.map((epic) => epic.epic), ...model.tickets.map((ticket) => ticket.epic)] : [])
+    const epics = new Set(model?.error === null && framesShown !== '' ? framesShown.split('\n') : [])
     const tickets = new Set(ticketsShown === '' ? [] : ticketsShown.split('\n'))
     const subagents = subagentsShown === '' ? [] : subagentsShown.split('\n').map((line) => {
       const [nodeId, sessionId, agentId, status] = line.split('\t') as [string, string, string, string]
       return { nodeId, sessionId, agentId, running: status === 'running' }
     })
-    const nodes = buildBindingAnchors({ projectId, layout, bindings, epics, tickets, subagents, live: new Set(liveIds) })
+    const shelf = new Map(
+      shelfShown === ''
+        ? []
+        : shelfShown.split('\n').map((line) => {
+            const [epic, x, y] = line.split('\t') as [string, string, string]
+            return [epic, { x: Number(x), y: Number(y) }] as const
+          }),
+    )
+    const nodes = buildBindingAnchors({ projectId, layout, bindings, epics, shelf, tickets, subagents, live: new Set(liveIds) })
     if (nodes.length === 0) {
       last.delete(projectId)
       return EMPTY
@@ -200,7 +234,7 @@ function useBindingAnchors({ projectId, layout }: NodeSourceContext): readonly C
     if (before && before.signature === signature) return before.nodes
     last.set(projectId, { signature, nodes })
     return nodes
-  }, [projectId, layout, model, bindings, ticketsShown, subagentsShown, liveIds])
+  }, [projectId, layout, model, bindings, ticketsShown, framesShown, subagentsShown, shelfShown, liveIds])
 }
 
 // `binding-anchor` is owned though the Layout never holds one: a stray Layout Node of that kind is not drawn.

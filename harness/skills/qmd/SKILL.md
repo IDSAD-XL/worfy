@@ -35,7 +35,7 @@ branches from the working tree.
 
 ## Where qmd comes from
 
-qmd is part of the Harness (ADR-0043 of worfy). You do not install it, download models or add
+qmd is part of the Harness. You do not install it, download models or add
 collections yourself: each of these steps needs the user's consent or writes outside the project.
 
 - **The server.** The plugin declares it in `${CLAUDE_PLUGIN_ROOT}/.mcp.json` as `qmd`; its tools
@@ -105,9 +105,9 @@ Example call:
 
 ## What to keep in mind
 
-- Where a project keeps its lessons is the profile's `lessons` field: `repo:<path>` — in the repository (Auction has
-  `docs/lessons/<topic>.md`, ADR-0085; HANDOFF there holds only the current state), `profile` — in
-  `~/.claude/worfy-harness/projects/<name>/lessons/` (Atakama, collection `lessons`).
+- Where a project keeps its lessons is the profile's `lessons` field: `repo:<path>` — in the repository (for example
+  `docs/lessons/<topic>.md`; the state file then holds only the current state), `profile` — in
+  `~/.claude/worfy-harness/projects/<name>/lessons/` (in the index only if the user set up a collection for it).
 - A hit in `memory/MEMORY.md` is the table of contents of the memory files: open the memory file itself.
 - A new hybrid query costs 7–14 s, a repeat is instant. Do not run it one word at a time;
   put together one good call.

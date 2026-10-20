@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // wave-gate — one `gate full` for the whole set of ready PRs of a wave, instead of a rebase and a
-// `gate full` for every PR (worfy ADR-0065; skill epic-wave, section 4, "Gate before merge").
+// `gate full` for every PR (skill epic-wave, section 4, "Gate before merge").
 //
 //   wave-gate check <state.json>   squash-merge the set in a temporary worktree, run `gate full` on it
 //   wave-gate merge <state.json>   merge the checked set (or its green prefix) with `gh pr merge`
 //   wave-gate ci <ci.json>         after the whole wave is merged: the one CI run of the wave on the main
-//                                  branch (profile workflow.ci "batch", worfy ADR-0068)
+//                                  branch (profile workflow.ci "batch")
 //
 // ci reads a file of its own: {repo, branch, remote?, ci, ci_batch_run} — ci and ci_batch_run are the
 // profile's workflow.ci and workflow.ci_batch_run (a set's state file with these two keys works too, once its
@@ -722,7 +722,7 @@ async function merge(file) {
     }
 }
 
-// --- ci: the one CI run of a wave on the main branch (workflow.ci "batch", worfy ADR-0068) ------------------
+// --- ci: the one CI run of a wave on the main branch (workflow.ci "batch") -----------------------------------
 const CI_MODES = ["pr", "batch"]
 // How many calls of ci may find no run for one dispatch before the run counts as not verified.
 const CI_LOOKUPS = 6

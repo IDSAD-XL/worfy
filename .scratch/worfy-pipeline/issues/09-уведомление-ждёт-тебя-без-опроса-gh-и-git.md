@@ -1,7 +1,8 @@
 # 09 — Уведомление «ждёт тебя» следит за моделью workflow, а не за снимками Stage: без опроса gh, git и `bin/profile`
 
 Type: task
-Status: open
+Status: done 2026-10-20T03:01Z
+PR: #550
 Blocked by: —
 Source: follow-up Ticket-а 06 (PR #501); решение владельца 2026-10-19, Q-c: #501 влит как есть, это — отдельный
 Ticket, приоритет low; решения владельца 2026-10-20, grilling Q1–Q16 (здесь Q9–Q11; [spec.md](../spec.md),
@@ -72,3 +73,5 @@ Stage hub-а. Время — поддельные часы vitest.
 ## Итог
 
 Заполняется при закрытии.
+
+- Подключение уведомления к workflow hub сторожат три проверки. Test «over 3 minutes without a change of the files the app's notes start no process…» в `test/unit/notify.test.ts` идёт через `appWaitsSources()` (`src/main/notify.ts`): mutant со `stageHub` там красный, потому что Stage hub открыт. Test «gives the notes of the Tickets that wait for the owner the sources of appWaitsSources…» в `test/contract/app-user-model-id.test.ts` загружает `src/main/index.ts`: возврат к `{ hub: stageHub, … }` там красный. Typecheck тоже ловит такой возврат: `StageHub` не подходит к `WaitsHub`, ошибка TS2322.

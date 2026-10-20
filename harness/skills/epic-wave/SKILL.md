@@ -58,12 +58,12 @@ Two fields set the shape of the wave:
   locally into the main branch of its repository (section 4, "Local merge"). With `single` each next
   ticket's branch is created from the main branch after the previous ticket's local merge.
 - `F workflow.ci` (with `pr-green-ci`) — `pr`, also when the field is absent: CI on every PR head
-  is a merge condition, as everywhere below; `batch` (worfy ADR-0068): CI does not run on PRs and is
+  is a merge condition, as everywhere below; `batch`: CI does not run on PRs and is
   not a merge condition — a PR merges on its gate when `mergeable` is `MERGEABLE`, and CI runs once
   on the main branch after the wave is merged (section 4, "Batch CI on the main branch"). Every place
   below that waits for CI on a PR says what changes with `batch`.
 
-**The Pipeline** — `F _resolved.pipeline` (worfy ADR-0067): the Stages a ticket goes through, in order.
+**The Pipeline** — `F _resolved.pipeline`: the Stages a ticket goes through, in order.
 Without `workflow.pipeline` in the profile it is the default — `queued`, `implementing`, `ci`,
 `agent-review`, `gate-merge`, `closing`, `done` — and the wave goes as written below. Read it with
 the profile; the block prints one Stage per line, a Check with its name (`check windows`):
@@ -113,7 +113,7 @@ Project pitfalls and what each `BLOCKED` reason of the preflight means are in th
 
 ## 1. Preflight
 
-**The cross-machine gate comes first** (`F cross_machine_gate`, worfy ADR-0069). A project may run
+**The cross-machine gate comes first** (`F cross_machine_gate`). A project may run
 on two machines, one of which cannot run the other's gate full. The PRs of the machine with
 `F cross_machine_gate.role` `request` that touch shared code carry the label
 `F cross_machine_gate.label` (skill `/worfy:ship-ticket`, step 8), and the machine with `serve`
@@ -215,7 +215,7 @@ ticket, the file and the PR number. On one machine the rule means "a PR of anoth
 **What goes into the wave.** The request names the wave in one of these ways, and each is the
 owner's permission:
 - "tickets NN, NN of epic X" — the worfy Autopilot command, for example
-  `/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness` (the numbers have two digits at
+  `/worfy:epic-wave tickets 05, 06, 07, 08 of epic demo` (the numbers have two digits at
   least and are joined by a comma and a space), and its older form "Ticket-ы NN, NN эпика X" (Autopilot before the plugin, still in old transcripts and
   saved project templates) — exactly the listed tickets; the wave number of the plan does not
   matter. Check that each is `open`, its blockers are `done`, and the tickets share no files in
@@ -240,7 +240,7 @@ The wave plan is a table, and it is also the outcome of the preflight:
 
 | Ticket | Files | ADR / migration | Who |
 |---|---|---|---|
-| 05 | src/moderation/*.ts, test/moderation.spec.ts | ADR-0061 | impl-05 |
+| 05 | src/moderation/*.ts, test/moderation.spec.ts | ADR 0012 | impl-05 |
 | 07 | web/lots/[id]/page.tsx | — | impl-07 |
 
 Two tickets with a shared file go one after the other: the second starts after the first is
@@ -256,7 +256,7 @@ placeholder with the taken number in the first minutes, so the claim shows up in
 other sessions. A number goes to every ticket whose acceptance list (worfy: «Готово, когда»)
 requires an accepted ADR (`grep -n '^- \[ \].*ADR' <wave tickets>`), not only to the one that asks
 for a number itself: the brief "no number — do not create ADR files" with such an item takes the
-ticket out of the wave (worfy-daily, wave 1: ticket 03 and, after it, the whole epic). Migrations
+ticket out of the wave (it once took one ticket and, after it, the whole epic out of a wave). Migrations
 only via `F numbering.migrations.generate` on top of the base. Once the table is ready, dispatch
 right away, without waiting for confirmation.
 
@@ -319,8 +319,8 @@ does not repeat them.
 - `parallel: worktrees` — one agent per ticket, all in one message. `F worktree.root` must lie under
   `.claude/worktrees/` of the repository: an implementer subagent edits only in a tree it entered with
   `EnterWorktree`, and that tool reaches nothing else. A root outside the repository
-  (`<HARNESS_HOME>/worktrees/<project>/`) is not supported until worfy-harness ticket 24. The plugin registers no `WorktreeCreate` hook (`hooks/worktree-create.sh`
-  is an unregistered draft for ticket 24, never probed through the plugin).
+  (`<HARNESS_HOME>/worktrees/<project>/`) is not supported yet. The plugin registers no `WorktreeCreate` hook (`hooks/worktree-create.sh`
+  is an unregistered draft, never probed through the plugin).
 - `parallel: single` — one agent at a time; the next one after the gate (section 3) and the merge of
   the previous one: with `pr-green-ci` its PR (section 4, items 1–2), with `local-green` the local
   merge (section 4, "Local merge", `MERGED=0`).
@@ -403,7 +403,7 @@ is expected, and old red checks are not a finding either. It runs
 `gh pr view <N> --json mergeable,headRefOid` instead; `CONFLICTING` goes back to the implementer
 for a rebase, like `DIRTY`. The review mark below is set as usual: it is a commit status, not CI.
 
-**The review mark.** The verdict is bound to the commit it was given on (ADR-0067): before the
+**The review mark.** The verdict is bound to the commit it was given on: before the
 verifier starts, the orchestrator marks the head commit `review pending`; the recorded verdict marks
 the same commit — `review success` for `VERIFIED` and `NARROW: VERIFIED`, `review failure` for
 `REJECTED`, `NARROW: <findings>` and `NARROW: REJECTED`. A push after the verdict leaves the mark on
@@ -823,8 +823,7 @@ is `F workflow.merge_gate`:
 - `"each"` — every PR on its own: rebase onto the fresh main branch, `GATE_SCOPE=all` gate full on
   its branch (exit code 0 and the line `[gate] зелено (…)`), CI again on the new head (with
   `F workflow.ci` `batch` — no CI: `mergeable` is `MERGEABLE`), the merge; then the next PR;
-- `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate` (worfy
-  ADR-0065), as below.
+- `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate`, as below.
 
 The set is the wave's PRs with `VERIFIED` (no `agent-review` in the Pipeline — without it) and green
 CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `mergeable`
@@ -930,7 +929,7 @@ of the first red push run (`git revert <sha>` on a branch, a PR); the revert PR 
 outside any set, with its own gate full, and the ticket of the reverted PR gets a rework round.
 With `F workflow.ci` `batch` there are no push runs: the rule for a red batch CI run is below.
 
-**Batch CI on the main branch** (`F workflow.ci` `batch`, worfy ADR-0068). With `pr` — skip this
+**Batch CI on the main branch** (`F workflow.ci` `batch`). With `pr` — skip this
 paragraph: CI already ran on every head and every push. With `batch` the wave gets one CI run on the
 main branch, after the last code merge of the wave — the set's `wave-gate merge`, the PRs out of the
 set merged the old way, or the last `"each"` merge — and before the documents PR or commit (item 4;
@@ -1152,7 +1151,7 @@ for CI, not after. With `F workflow.ci` `batch` there is no CI to wait for: chec
 commit, is in the main branch by then). A
 worktree stays only for a ticket removed from the wave with an open PR. An old ticket branch in a
 live worktree is not litter but a false signal: worfy reads ticket status from worktree branches
-too, and `claimed` from a merged branch overrides `done` on main (worfy-daily, wave 6: "3 in work"
+too, and `claimed` from a merged branch overrides `done` on main (a board once showed "3 in work"
 after the merge).
 
 ## 5. Report

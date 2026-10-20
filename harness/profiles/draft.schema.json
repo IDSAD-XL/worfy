@@ -112,7 +112,7 @@
             "pipeline": {
               "type": ["array", "null"],
               "minItems": 1,
-              "description": "The Stages a ticket goes through, from the fixed catalogue of kinds (worfy ADR-0067): queued first, done last, each kind once (check once per name), gate-merge and awaiting-merge not together. null or absent — the default Pipeline: queued, implementing, ci, agent-review, gate-merge, closing, done. bin/profile checks the rules and resolves it into _resolved.pipeline.",
+              "description": "The Stages a ticket goes through, from the fixed catalogue of kinds: queued first, done last, each kind once (check once per name), gate-merge and awaiting-merge not together. null or absent — the default Pipeline: queued, implementing, ci, agent-review, gate-merge, closing, done. bin/profile checks the rules and resolves it into _resolved.pipeline.",
               "items": {
                 "type": "object",
                 "additionalProperties": false,

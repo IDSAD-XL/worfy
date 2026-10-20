@@ -24,10 +24,10 @@ T="${T/#\~/$HOME}"; echo "tool: $T"
 ```
 
 - Exit `3`: the directory is not a registered project (or has no profile).
-  Exit `4`: the project does not import tickets into native Tasks (Auction
-  does not). Either way, stop and tell the user — do not guess a tool.
+  Exit `4`: the project does not import tickets into native Tasks.
+  Either way, stop and tell the user — do not guess a tool.
 - `$T` below is that tool; `tasks.list_id` is the list-ID template, e.g.
-  `atakama-<slug>`.
+  `acme-<slug>`.
 - A `tasks.tool` value that starts with `~/.claude/bin/` (schema 1) is read as `${CLAUDE_PLUGIN_ROOT}/bin/` plus the rest;
   the `case` line of the block does that, then `~` is expanded to `$HOME`.
 

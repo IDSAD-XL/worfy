@@ -27,16 +27,17 @@
 // The epic summary is not a profile fact: it is the Harness's own epic-status next to this script
 // (a path to it in a schema 1 profile is not read; profiles/README.md, "Schema 1").
 //
-// This script replaced a bash one (ADR-0055) and keeps its output and exit codes. The time of network and
-// sibling commands is limited by withTimeout: the child runs in its own process group (macOS, Linux) and on
-// timeout the whole group gets TERM, then KILL 0.5 s later (git leaves git-remote-https behind, gh does not die
-// from SIGALRM, but does die from SIGTERM); on Windows `taskkill /T /F` stops the whole tree. Exit code 124.
-// The sibling scripts run with the node running this one (Windows does not start an extensionless file by its
-// #! line): profile ($PREFLIGHT_PROFILE_BIN, for tests), worktree-lock, epic-status; a file whose #! line names
-// another interpreter (a shell stub of a test, a bash epic-status) runs by that line, through bash on Windows.
-// $PREFLIGHT_GH, when set, names the program run instead of gh from PATH (a test's stand-in), by the same rule.
-// Child output is handled as bytes: what is not valid UTF-8 comes out as it went in, and the commit subject is
-// cut by characters, not by UTF-16 units or bytes.
+// This script replaced a bash one, so that it runs on Windows too, and keeps its output and exit codes. The
+// time of network and sibling commands is limited by withTimeout: the child runs in its own process group
+// (macOS, Linux) and on timeout the whole group gets TERM, then KILL 0.5 s later (git leaves
+// git-remote-https behind, gh does not die from SIGALRM, but does die from SIGTERM); on Windows `taskkill
+// /T /F` stops the whole tree. Exit code 124. The sibling scripts run with the node running this one
+// (Windows does not start an extensionless file by its #! line): profile ($PREFLIGHT_PROFILE_BIN, for
+// tests), worktree-lock, epic-status; a file whose #! line names another interpreter (a shell stub of a
+// test, a bash epic-status) runs by that line, through bash on Windows. $PREFLIGHT_GH, when set, names the
+// program run instead of gh from PATH (a test's stand-in), by the same rule. Child output is handled as
+// bytes: what is not valid UTF-8 comes out as it went in, and the commit subject is cut by characters, not
+// by UTF-16 units or bytes.
 //
 // The pure functions and the timeout can be checked without git through require, which does not run main:
 //   const pf = require("<plugin>/bin/preflight")
@@ -423,7 +424,7 @@ async function loadProfile() {
     try {
         const p = JSON.parse(chomp(r.stdout))
         const g = (o, ...k) => k.reduce((a, x) => (a == null ? a : a[x]), o)
-        // No worktree.base (Atakama: several repositories, not all on main) — the default branch
+        // No worktree.base (a project of several repositories, not all on main) — the default branch
         // of this repository from layout.repos; none — empty, and git is asked for origin/HEAD.
         const repo = g(p, "_resolved", "repo_root")
         const db = repo ? g(p, "layout", "repos", repo.split("/").pop(), "default_branch") : null
@@ -678,7 +679,7 @@ function checkMigrations() {
     const inBranches = brMax > 0 ? `${fmt4(brMax)} in ${brName}` : "none in other branches"
     const nextLocal = localLast ? ` → next locally ${fmt4(Number(localLast) + 1)}` : ""
     say(`migrations: last ${f(mainLast)} on ${BASE}, ${inBranches}, locally ${f(localLast)}${nextLocal}`)
-    // The migrations generator (numbering.migrations.generate, for Auction — pnpm db:generate) takes the next idx from the LOCAL journal. If this number already
+    // The migrations generator (numbering.migrations.generate, for example pnpm db:generate) takes the next idx from the LOCAL journal. If this number already
     // exists on origin/main or in a branch, after the merge the migration that is younger by when will silently not
     // be applied — one warning line for both sources, the hint depends on the source:
     // one taken on origin/main is freed by a rebase, one taken in a branch is not (the local idx

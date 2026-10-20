@@ -6,15 +6,12 @@ import { fileURLToPath } from 'node:url'
 import { _electron, expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { endApp, exited, killThenClean } from './end-app'
+import { launchEnv } from './launch-env'
 import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const mainEntry = join(repoRoot, 'out', 'main', 'index.js')
-/**
- * The gh stand-in as WORFY_GH names it: the `gh` wrapper, a shell script; on Windows, which cannot
- * start one, the Node script itself, which worfy runs under its own Node (src/main/program.ts).
- */
-export const GH_STUB = join(repoRoot, 'test', 'fixtures', 'gh', process.platform === 'win32' ? 'gh-stub.mjs' : 'gh')
+export { GH_STUB } from './launch-env'
 
 /**
  * How long the app may take to open its first window and show it, both steps together. A start
@@ -123,8 +120,8 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
  * bundle by default, or the packaged app when `executablePath` is given. Resolves once the window
  * is on screen.
- * Every e2e test launches the app through this helper, so a new isolation variable added here
- * covers the packaged-app tests too.
+ * Every e2e test launches the app through this helper, so a new isolation variable added to its
+ * environment (launchEnv, launch-env.ts) covers the packaged-app tests too.
  */
 export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedApp> {
   const { executablePath } = options
@@ -133,35 +130,16 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
   const dataDir = await mkdtemp(join(tmpdir(), 'worfy-data-'))
   const claudeHome = await mkdtemp(join(tmpdir(), 'worfy-claude-'))
+  const shellDir = await mkdtemp(join(tmpdir(), 'worfy-shell-'))
   const cleanDirs = async (): Promise<void> => {
     await removeDir(dataDir)
     await removeDir(claudeHome)
+    await removeDir(shellDir)
   }
-
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE') env[key] = value
-  }
-  Object.assign(env, {
-    WORFY_DATA_DIR: dataDir,
-    WORFY_CLAUDE_HOME: claudeHome,
-    WORFY_AGENT: 'fake',
-    // A gh that never reaches GitHub (test/fixtures/gh/gh-stub.mjs): no PRs unless GH_STUB_DIR says otherwise.
-    WORFY_GH: GH_STUB,
-    // The first-run screen (worfy-harness ticket 19) does not open by itself: it would cover the
-    // window of every test. test/e2e/first-run.spec.ts turns it back on with WORFY_FIRST_RUN_AUTO=1.
-    WORFY_FIRST_RUN_AUTO: '0',
-    // The link server (worfy-link) listens on loopback only, so the macOS firewall never asks about
-    // incoming connections, and Bonjour is off, so macOS never asks for the Local Network
-    // permission: either prompt would stop a run. Linked worfy in a test reach each other at
-    // 127.0.0.1:<port> (launchLinkedPair below).
-    WORFY_LINK_HOST: '127.0.0.1',
-    WORFY_LINK_BONJOUR: '0',
-    ...options.env,
-  })
 
   let app: ElectronApplication
   try {
+    const env = await launchEnv({ dataDir, claudeHome, shellDir, env: options.env })
     // Unpackaged, the app is started by its directory, as `electron .` and the packaged .app start
     // it: Electron then reads package.json (`main` points at out/main/index.js), and the app's name
     // and version are worfy's own, not Electron's.

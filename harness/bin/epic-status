@@ -12,8 +12,8 @@
 //
 // epic-status --root <dir> ... — the tickets root given explicitly (the directory of epics). Without it the root
 //   comes from `ticket root`: the profile's tickets.root field, otherwise <git top-level>/.scratch, as before.
-//   --ref reads the root from git; a root outside a git repository (Atakama: a common directory above
-//   three repositories) — refusal with exit 3, not an empty answer.
+//   --ref reads the root from git; a root outside a git repository (a project of several repositories whose
+//   tickets live in their common directory above them) — refusal with exit 3, not an empty answer.
 //
 // Exit codes: 0 — answered; 1 — no such epic, or a ticket could not be read; 2 — bad arguments;
 // 3 — --ref could not be read (no such ref, root outside git, Silent mode); the exit code of
@@ -28,13 +28,13 @@
 // the word, a second Status line in the footer — is the old header: state none and statusError "old header",
 // not a guess; `ticket migrate` moves it.
 //
-// This script replaced a bash one (ADR-0055) and keeps its output byte for byte: the tests in
-// tests/epic-status.test.sh were written against the bash version. Where the bash one depended on
-// the machine, one answer was chosen: files and Epics come in byte order, as the bash glob gave them
-// in the C locale (a UTF-8 locale on Linux sorted mixed case and Cyrillic differently), and --ref
-// reads regular files only (git archive also extracted symlinks). Text is handled as bytes — a
-// "latin1" string holds one byte per character — so a name or title that is not valid UTF-8 comes out
-// as it went in, the way awk passed it through.
+// This script replaced a bash one, so that it runs on Windows too, and keeps its output byte for byte: the
+// tests in tests/epic-status.test.sh were written against the bash version. Where the bash one depended on
+// the machine, one answer was chosen: files and Epics come in byte order, as the bash glob gave them in the
+// C locale (a UTF-8 locale on Linux sorted mixed case and Cyrillic differently), and --ref reads regular
+// files only (git archive also extracted symlinks). Text is handled as bytes — a "latin1" string holds one
+// byte per character — so a name or title that is not valid UTF-8 comes out as it went in, the way awk
+// passed it through.
 "use strict"
 
 const fs = require("node:fs")
