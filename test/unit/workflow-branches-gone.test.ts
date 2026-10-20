@@ -23,6 +23,7 @@ interface StandWatcher {
   /** Sends a `raw` event with any details, as chokidar's polling does (`{ curr, prev }`, no `watchedPath`). */
   rawWith: (event: string, name: string, details: unknown) => void
   close: () => Promise<void>
+  emit: (event: string, ...args: unknown[]) => boolean
 }
 
 const stand = vi.hoisted(() => ({
@@ -32,6 +33,8 @@ const stand = vi.hoisted(() => ({
   release: [] as (() => void)[],
   /** While set, the next watch of the branches made never says it is ready (a close comes first). */
   holdReady: false,
+  /** While set, a close removes every listener, as chokidar's close() does. */
+  dropListenersOnClose: false,
 }))
 
 vi.mock('chokidar', async () => {
@@ -55,6 +58,7 @@ vi.mock('chokidar', async () => {
     }
     close(): Promise<void> {
       this.closed = true
+      if (stand.dropListenersOnClose) this.removeAllListeners()
       this.closing ??= stand.holdClose ? new Promise((done) => stand.release.push(done)) : Promise.resolve()
       return this.closing
     }
@@ -102,6 +106,7 @@ beforeEach(() => {
   stand.holdClose = false
   stand.release.length = 0
   stand.holdReady = false
+  stand.dropListenersOnClose = false
   reads.worktrees = 0
 })
 
@@ -243,5 +248,22 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     await pause(30)
     expect(branches()).toHaveLength(1)
     expect(stand.made.every((made) => made.closed)).toBe(true)
+  })
+
+  it('an error after the close, from a walk chokidar had still running, throws nowhere: every closed watch keeps a listener for it', async () => {
+    warnings()
+    // chokidar's close() removes every listener, and an 'error' event with no listener throws: on
+    // Windows a realpath that fails with EPERM while the folder is removed became an unhandled rejection.
+    stand.dropListenersOnClose = true
+    const watcher = await start()
+    // One watch closed by the remake, the rest by close().
+    branches()[0]!.raw(WORKTREES, WORKTREES)
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await watcher.close()
+    expect(stand.made.length).toBeGreaterThanOrEqual(3)
+    for (const made of stand.made) {
+      expect(made.closed).toBe(true)
+      expect(() => made.emit('error', new Error('EPERM: operation not permitted, realpath'))).not.toThrow()
+    }
   })
 })
