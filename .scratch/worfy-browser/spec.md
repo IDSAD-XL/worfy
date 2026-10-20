@@ -232,6 +232,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 09 | `src/main/browser/attach-policy.ts`, `test/unit/webview-attach-policy.test.ts`, `test/e2e/browser-webview-guard.spec.ts`, `src/renderer/canvas/canvas.css` | 2 |
 | 10 | `src/shared/browser/partition.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `src/main/window.ts`, `test/e2e/browser.spec.ts`, `test/unit/window-options.test.ts` | 3 (после ответов владельца) |
 | 11 | `src/main/window.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `test/unit/window-options.test.ts`, `test/e2e/browser.spec.ts`, `test/fixtures/browser/` | 4 (после 10, до 03) |
+| 12 | `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `src/renderer/canvas/nodes/browser-frame.ts`, `test/unit/`, `test/e2e/browser.spec.ts` | 4 (после 11, до 03: 03 ждёт ответов владельца) |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
