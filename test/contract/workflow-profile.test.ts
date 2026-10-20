@@ -293,6 +293,7 @@ describe('readMcpAllowlist with the real runner', () => {
       writeFileSync(join(home, 'bin', 'profile'), nodeScript(body))
       return layoutFailure(await readProjectLayout({ root, claudeHome: home, env: loginEnv(), log }))
     }
+    // A real abort, as the ticket asks: on macOS ReportCrash writes a report to the real ~/Library/Logs/DiagnosticReports, whatever HOME is.
     const SAID = 'worfy could not ask the Harness where the workflow of this Project lives: the profile script was ended by the signal SIGABRT'
     expect(await reasonOf('process.abort()')).toBe(SAID)
     // writeSync: a write to the stderr pipe is asynchronous on macOS, and the abort would come first.
@@ -838,6 +839,10 @@ describe('scriptFailureDetail', () => {
     // The FATAL ERROR line wins over what the script printed before it, as an Error line does.
     expect(scriptFailureDetail(`profile: reading the registry\n${OUT_OF_MEMORY}`)).toBe('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory')
     expect(scriptFailureDetail(ABORTED)).toBe('')
+    // A GC block and frames with no FATAL ERROR line: nothing of them.
+    expect(scriptFailureDetail(OUT_OF_MEMORY.replace(/^FATAL ERROR:.*$/m, ''))).toBe('')
+    // Only a number, a colon and a space start a frame: a line that starts with a number is kept.
+    expect(scriptFailureDetail('2 Epics are broken\n')).toBe('2 Epics are broken')
     // Frames are dropped, what follows them is kept.
     expect(scriptFailureDetail(`${ABORTED}registry is broken\n`)).toBe('registry is broken')
   })
@@ -863,6 +868,8 @@ describe('scriptFailureDetail', () => {
     // A crash of the resolver keeps its wrapping: it says where it crashed.
     const crash = 'profile: resolver /h/r.mjs failed (exit 1) — project not determined: TypeError: boom\n'
     expect(scriptFailureDetail(crash)).toBe(crash.trim())
+    // A resolver ended by a signal has no exit status: bin/profile says `exit null`, and the reason is unwrapped too.
+    expect(scriptFailureDetail(`profile: resolver ${long}gate-resolve.mjs failed (exit null) — project not determined: gate-resolve: ${reason}\n`)).toBe(reason)
   })
 
   it('a profile read that fails with such a reason names it', async () => {

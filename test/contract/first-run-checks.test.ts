@@ -452,12 +452,20 @@ describe('first-run checks', () => {
     // and the hint sent the user to install the plugin again for a script the system ended.
     it.skipIf(WINDOWS)('a real process.abort(), and one after an out-of-memory report: the signal and the FATAL ERROR line, no frame; the hint is not to install the plugin again', async () => {
       tools(...ALL_TOOLS)
+      // A real abort, as the ticket asks: on macOS ReportCrash writes a report to the real ~/Library/Logs/DiagnosticReports, whatever HOME is.
       oldHarness(nodeScript('process.abort()'))
       expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGABRT', hint: HARNESS_SCRIPT_HINTS.signal })
       oldHarness(nodeScript(`fs.writeSync(2, ${JSON.stringify(OUT_OF_MEMORY)})\nprocess.abort()`))
       const row = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
       expect(row).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGABRT: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory', hint: HARNESS_SCRIPT_HINTS.signal })
       expect(row.hint).not.toMatch(/install the Harness plugin again/)
+    })
+
+    // Review of PR #624: where an abort comes as exit code 134 and no signal (Windows), the hint is the signal's too.
+    it('exit code 134 and no signal, after an out-of-memory report: the FATAL ERROR line and the signal hint', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness(nodeScript(`fs.writeSync(2, ${JSON.stringify(OUT_OF_MEMORY)})\nprocess.exitCode = 134`))
+      expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help: exit code 134: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory', hint: HARNESS_SCRIPT_HINTS.signal })
     })
 
     it("a crash of the script: its Error line, not node's version line; the hint is not about node", async () => {

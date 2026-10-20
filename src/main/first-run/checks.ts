@@ -580,6 +580,9 @@ function harnessDependencies(status: HarnessStatus): Row {
   return row('ok', dependencies.map((each) => (each.version === null ? each.id : `${each.id} ${each.version}`)).join(', '))
 }
 
+/** The exit code of a process that aborted (128 + SIGABRT), where the abort comes as an exit code. */
+const ABORT_EXIT = 134
+
 /** The hint of the Harness scripts row for each way `profile --help` fails. */
 export const HARNESS_SCRIPT_HINTS = {
   node: 'worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell',
@@ -613,7 +616,10 @@ async function harnessScripts(deps: CheckDeps): Promise<Row> {
     // A signal the runner did not send for the time limit: the script crashed, it was not slow.
     if (run.code === null && run.signal) return row('fail', `profile --help was ended by the signal ${run.signal}${detail ? `: ${detail}` : ''}`, HARNESS_SCRIPT_HINTS.signal)
     if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
-    return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : HARNESS_SCRIPT_HINTS.crash)
+    // 134 is how an abort ends where there is no signal for it (Windows: node's out-of-memory end),
+    // and how a shell reports a child ended by SIGABRT: the system's end, as a signal is.
+    const hint = environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : run.code === ABORT_EXIT ? HARNESS_SCRIPT_HINTS.signal : HARNESS_SCRIPT_HINTS.crash
+    return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, hint)
   } catch (error) {
     // The script runs as `node <script>` (harnessScriptCommand): no node on the scripts' PATH is said as such.
     if (error instanceof HarnessScriptStartError && error.code === 'NODE_NOT_FOUND') return row('fail', `profile --help: ${NODE_NOT_FOUND}`, HARNESS_SCRIPT_HINTS.node)

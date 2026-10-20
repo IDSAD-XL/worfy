@@ -76,12 +76,12 @@ const DETAIL_LINES = 3
 const DETAIL_CHARS = 400
 
 /** A line of the gate resolver's own reason, with bin/profile's wrapping of it in front or without it. */
-const RESOLVER_REASON = /^(?:profile: resolver .+? failed \(exit \d+\) — project not determined: )?gate-resolve: /gm
+const RESOLVER_REASON = /^(?:profile: resolver .+? failed \(exit (?:\d+|null)\) — project not determined: )?gate-resolve: /gm
 
 /**
  * A script's stderr with the gate resolver's own reasons unwrapped: bin/profile reports a resolver
  * failure as `profile: resolver <path> failed (exit N) — project not determined: gate-resolve:
- * registry <path> is broken: …`, and with two long paths the line outgrows scriptFailureDetail's
+ * registry <path> is broken: …` (`exit null` when the resolver was ended by a signal), and with two long paths the line outgrows scriptFailureDetail's
  * limit before the reason. Such a line, and a bare `gate-resolve: …` line, keep only the reason
  * (`registry <path> is broken: …`). Every other line stays as it is, a crash of the resolver
  * (`… project not determined: TypeError: …`) included: its wrapping says where it crashed.
