@@ -575,8 +575,9 @@ function plainFile(path) {
  * Installs the copy; answers the line to print. Throws an Error with the reason otherwise.
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
+ * `listing(platform)` gives the list of processes runningCopies reads; processListing by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy, listing = processListing } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
@@ -628,7 +629,7 @@ export function installStable(argv, { platform = process.platform, env = process
   }
 
   const refuseIfRunning = () => {
-    const running = runningCopies(platform, [...spellings], processListing(platform), platform === 'win32' ? onDisk : undefined)
+    const running = runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
     if (running.length === 0) return
     process.stderr.write(`${running.join('\n')}\n`)
     fail(`the stable copy at ${logical} is running. Quit it (stop Autopilot first, or wait for the gap between waves), then run this again.`)

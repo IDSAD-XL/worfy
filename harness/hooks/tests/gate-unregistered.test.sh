@@ -98,6 +98,10 @@ if node -e '
             // with one does not get a second, so the folders under it still lie under it
             same("C:\\a\\repo\\", "C:/a/repo", "win32") &&
             same("C:/a/repo/src", "C:/a/repo/", "win32") &&
+            same("C:\\a\\repo", "C:/a/repo/", "win32") &&
+            same("/Users/x/repo", "/Users/x/repo/", "darwin") &&
+            !same("C:", "C:/", "win32") &&
+            !same("", "/", "linux") &&
             !same("C:/a/repo2", "C:/a/repo/", "win32") &&
             // the root of a disk ends with a separator as it is written
             same("C:\\a\\b", "C:\\", "win32") &&

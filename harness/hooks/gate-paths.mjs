@@ -87,9 +87,13 @@ export function repositoryRoot(worktree) {
 // name and the comparison is exact. `platform` is a parameter so that the Windows rule can be
 // checked on any system. A base that already ends with a separator — the root of a disk, C:\ or /,
 // or a `match` written with one — does not get a second one: the folders under it lie under it.
+// Such a base is also the folder written without that separator, except a root: `C:` and an
+// empty path are not the roots `C:/` and `/`.
 export function isSameOrInside(target, base, platform = process.platform) {
     const fold = (p) => (platform === "win32" ? p.replaceAll("\\", "/").toLowerCase() : p)
     const t = fold(target)
     const b = fold(base)
-    return t === b || t.startsWith(b.endsWith("/") ? b : b + "/")
+    const root = b === "/" || (platform === "win32" && /^[a-z]:\/$/.test(b))
+    const bare = b.endsWith("/") && !root ? b.slice(0, -1) : b
+    return t === b || t === bare || t.startsWith(b.endsWith("/") ? b : b + "/")
 }

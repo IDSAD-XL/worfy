@@ -30,7 +30,7 @@ interface InstallStable {
   onDisk: (path: string) => string
   installStable: (
     argv: string[],
-    options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void; removeFolder?: (path: string) => void },
+    options: { env: Env; repo: string; build?: (platform: string, repo: string) => void; rename?: (from: string, to: string) => void; removeFolder?: (path: string) => void; listing?: (platform: string) => string },
   ) => string
   stamp: (ms: number) => string
   registerCommand: (platform: string, target: string, env: Env) => { command: string; args: string[] } | null
