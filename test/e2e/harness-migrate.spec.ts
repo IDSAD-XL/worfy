@@ -13,7 +13,8 @@ import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 // the Harness copy of this build in its worfy-harness/plugin/, `claude` is a stub that lists the
 // plugin installed and enabled, and the consent dialog is replaced in main. Screenshots of the
 // toolbar and the form in both themes go to the test's output; the ticket's evidence is copied from
-// there to .scratch/worfy-harness/evidence/14-*.png.
+// there to .scratch/worfy-harness/evidence/14-*.png. Ticket 40: a move from the form the first-run
+// screen opens drops "Move old Harness…" from the toolbar without a reload.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -165,6 +166,36 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await form.getByTestId('migration-close').click()
     await expect(form).toHaveCount(0)
     await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('a move from the form of the first-run screen: "Move old Harness…" leaves the toolbar without a reload', async () => {
+  // The first-run screen opens by itself. Its checks run a login /bin/sh over the sandbox's HOME,
+  // whose .profile sets PATH to the system folders alone (as sandbox() in first-run.spec.ts does):
+  // without it /etc/profile's path_helper adds /opt/homebrew/bin, and the checks would run the real
+  // gh and qmd of the machine running the test.
+  const home = join(scratch, 'home')
+  writeFileSync(join(home, '.profile'), "PATH='/usr/bin:/bin'; export PATH\n")
+  const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh' } })
+  try {
+    const { window } = launched
+    const item = window.getByTestId('harness-status')
+    await expect(item.getByTestId('harness-migrate')).toHaveAccessibleName('Move old Harness…')
+
+    const screen = window.getByTestId('first-run')
+    await expect(screen).toBeVisible({ timeout: 30_000 })
+    await expect(screen.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: 30_000 })
+    await screen.locator('[data-check="legacy-harness"]').getByRole('button', { name: 'Move…' }).click()
+    const form = window.getByTestId('migration-form')
+    await expect(form.getByTestId('migration-group').first()).toBeVisible()
+    await answerDialogWith(launched, 0)
+    await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
+    await expect(form.getByTestId('migration-done')).toBeVisible()
+    // The form is still open and was not opened by the toolbar: only `harnessMigration.changed` tells the toolbar.
+    await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
+    expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)
   } finally {
     await launched.close()
   }

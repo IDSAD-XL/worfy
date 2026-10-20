@@ -6,22 +6,55 @@
 // under worfy's own Node on every system (src/main/program.ts). With WORFY_CLAUDE_HOME (a
 // sandbox) `claude` gets CLAUDE_CONFIG_DIR and HOME inside the same folder (claudeCommandEnv), so
 // worfy and Claude Code see one ~/.claude; without it the user's environment is left as it is.
+//
+// Every install whose answer is `done` reaches every window as `harness.changed` (ticket 40). It is
+// sent from the app's one installer, not from the `harness.install` handler: the first-run screen
+// installs through `firstRun.run` (src/main/ipc/first-run.ts), and every caller of appInstaller()
+// is covered without remembering to announce.
 import { app, BrowserWindow, dialog } from 'electron'
-import { harnessInstall, harnessState } from '../../shared/ipc/harness'
+import { harnessChanged, harnessInstall, harnessState } from '../../shared/ipc/harness'
 import { bundledClaudeBinary } from '../agent/options'
+import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
 import { claudeCommandEnv, confirmationText, HarnessInstaller, installOffered, type InstallPlan } from '../harness/install'
 import { claudeHome, harnessHome } from '../storage/paths'
-import { defineHandler, type HandlerModule } from './index'
+import { defineHandler, emit, type HandlerModule } from './index'
+
+type InstallResult = Awaited<ReturnType<HarnessInstaller['install']>>
+
+/** The installer that tells every window what each install ended with. */
+class AnnouncingInstaller extends HarnessInstaller {
+  /** The runs already announced: a second call during a run gets the same promise, and the run is announced once. */
+  private readonly announced = new WeakSet<Promise<InstallResult>>()
+
+  override install(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<InstallResult> {
+    const run = super.install(confirm)
+    if (!this.announced.has(run)) {
+      this.announced.add(run)
+      // `done` is every answer that may have changed the state, a failed step included; `declined`
+      // and `nothing-to-do` changed nothing. A run that throws reaches its caller, not the windows.
+      run.then(
+        (result) => {
+          if (result.outcome === 'done') toEveryWindow((client) => emit(client, harnessChanged, result.status))
+        },
+        () => undefined,
+      )
+    }
+    return run
+  }
+}
 
 let installer: HarnessInstaller | null = null
 
-/** The app's one installer: the toolbar and the first-run screen (ticket 19) share it, so two installs never run at once. */
+/**
+ * The app's one installer: the toolbar and the first-run screen (ticket 19) share it, so two installs
+ * never run at once, and each install that answers `done` reaches every window as `harness.changed`.
+ */
 export function appInstaller(): HarnessInstaller {
   if (installer !== null) return installer
   const env = process.env
   const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
-  installer = new HarnessInstaller({
+  installer = new AnnouncingInstaller({
     bundledDir: bundledHarnessDir(),
     harnessHome: harnessHome(env),
     claude: env.WORFY_CLAUDE || bundledClaudeBinary(runtime),
