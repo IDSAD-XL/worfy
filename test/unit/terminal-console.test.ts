@@ -497,11 +497,12 @@ describe('TerminalRegistry on Windows: a shell whose pid node-pty gives a moment
   // Review of this change: from the connection until its first output node-pty's terminal is not
   // ready, and its queued kill() runs once that output comes. The agent's kill() as well would
   // close the same console twice.
-  it('a pty whose shell node-pty has connected, not yet ready, is closed by its own kill() only', async () => {
+  // node-pty itself tests the pending connection as falsy (`!this._pendingPtyInfo`), so null counts as connected too.
+  it.each([undefined, null])('a pty whose shell node-pty has connected (pending connection %s), not yet ready, is closed by its own kill() only', async (pending) => {
     vi.useFakeTimers()
     const fake = fakePty(0, { deaf: true })
     const agentKills: number[] = []
-    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length), _pendingPtyInfo: undefined })
+    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length), _pendingPtyInfo: pending })
     Object.assign(fake.pty, { _isReady: false })
     const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
     const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')

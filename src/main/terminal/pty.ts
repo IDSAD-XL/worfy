@@ -466,7 +466,7 @@ function stopOutputWorker(pty: PtyProcess): boolean {
 function killUnconnected(pty: PtyProcess): boolean {
   const agent = (pty as { _agent?: { kill?: unknown; _pendingPtyInfo?: unknown } })._agent
   const kill = agent?.kill
-  if (agent?._pendingPtyInfo === undefined || typeof kill !== 'function') return false
+  if (!agent?._pendingPtyInfo || typeof kill !== 'function') return false
   ;(kill as () => void).call(agent)
   return true
 }
