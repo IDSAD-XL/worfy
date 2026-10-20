@@ -89,17 +89,29 @@ const RESOLVER_REASON = /^(?:profile: resolver .+? failed \(exit \d+\) — proje
 export const resolverReason = (stderr: string): string => stderr.replace(RESOLVER_REASON, '')
 
 /**
+ * A line of node's own crash report that says nothing a user can act on: a frame of the native or
+ * JavaScript stack it prints on abort (` 1: 0x104d379f4 node::Abort(…) [/…/node]`), a section
+ * header (`----- Native stack trace -----`, `<--- Last few GCs --->`) or a line of the GC block
+ * (`[94207:0x79740c000]  9 ms: Mark-Compact …`).
+ * shortcut: a line of the script's own that starts with a number, a colon and a space is dropped
+ * as a frame too; tell frames by the section they are in if a Harness script prints such lines.
+ */
+const NODE_REPORT_LINE = /^(?:\d+: \S|-----.*-----$|<---.*--->$|\[\d+:0x[0-9a-f]+\])/
+
+/**
  * What a failed Harness script's stderr says, short enough for a line of the window. A gate
  * resolver reason comes without bin/profile's wrapping (resolverReason). A node crash gives its
  * Error line (`TypeError: …`), not the stack under it nor the `Node.js vNN` line node prints last;
- * other stderr gives its first lines. Empty when stderr says nothing.
+ * node's fatal error gives its `FATAL ERROR: …` line (out of memory), not the GC block or the stack
+ * frames around it, and an abort with nothing but frames gives nothing. Other stderr gives its
+ * first lines. Empty when stderr says nothing.
  */
 export function scriptFailureDetail(stderr: string): string {
   const lines = resolverReason(stderr)
     .split(/\r?\n/)
     .map((line) => line.trim())
-    .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && !/^\^+$/.test(line))
-  const thrown = lines.find((line) => /^(?:[A-Z][A-Za-z]*)?Error\b.*:/.test(line))
+    .filter((line) => line !== '' && !/^at\s/.test(line) && !/^Node\.js v\d/.test(line) && !/^\^+$/.test(line) && !NODE_REPORT_LINE.test(line))
+  const thrown = lines.find((line) => /^(?:(?:[A-Z][A-Za-z]*)?Error\b.*:|FATAL ERROR:)/.test(line))
   const text = thrown ?? lines.slice(0, DETAIL_LINES).join(' — ')
   return text.length > DETAIL_CHARS ? `${text.slice(0, DETAIL_CHARS)}…` : text
 }
@@ -493,15 +505,16 @@ export type ReadMcpAllowlistOptions = ReadProfileOptions
  * Why `profile` gave no answer. `none`: the folder has no Profile — exit code 3, or no script
  * (worfy-harness ticket 37). `failed`: the call itself failed — no node on the PATH, any other exit
  * code (127 from an older bash Harness's `env node`; 1: a broken registry or profile.json), a
- * timeout, a signal, a script that could not be started.
+ * timeout, a signal, a script that could not be started, output over the size cap.
  */
 export type ProfileMiss = 'none' | 'failed'
 
 /**
  * No answer: why, of which kind, and — for a failed call — whether it points at the environment
  * the script ran with: no node on its PATH, or exit code 127 or 126 (`environmentExit`). A script
- * that could not be started otherwise (node failed to start, an older Harness's script on Windows,
- * output over the size cap) is a file problem, not one a new login shell can fix.
+ * that could not be started otherwise (node failed to start, an older Harness's script on Windows),
+ * and one that started but printed more than the size cap, are not problems a new login shell can
+ * fix.
  */
 export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
 

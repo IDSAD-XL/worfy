@@ -30,7 +30,7 @@ import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
-import { hasSh, NODE_DIR, nodeScript, scriptsEnv } from '../harness-node'
+import { ABORTED, hasSh, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 const mocks = vi.hoisted(() => ({
@@ -280,6 +280,23 @@ describe('readMcpAllowlist with the real runner', () => {
     // The runner's own signal at the limit is SIGTERM: the same signal sent by something else is still a signal.
     script("process.kill(process.pid, 'SIGTERM')")
     expect(await run()).toMatchObject({ code: null, signal: 'SIGTERM' })
+  })
+
+  // Review round 3 of PR #311: node's crash report reached the sidebar with the stack's addresses.
+  // The reason the sidebar shows (layoutFailure) for a real process.abort(), and for one after
+  // node's out-of-memory report: the FATAL ERROR line, no frame.
+  it.skipIf(process.platform === 'win32')('a script that aborts: the sidebar names the signal and the FATAL ERROR line, never a frame of the stack', async () => {
+    const home = join(scratch, 'abort-home')
+    mkdirSync(join(home, 'bin'), { recursive: true })
+    const root = projectRoot()
+    const reasonOf = async (body: string): Promise<string> => {
+      writeFileSync(join(home, 'bin', 'profile'), nodeScript(body))
+      return layoutFailure(await readProjectLayout({ root, claudeHome: home, env: loginEnv(), log }))
+    }
+    const SAID = 'worfy could not ask the Harness where the workflow of this Project lives: the profile script was ended by the signal SIGABRT'
+    expect(await reasonOf('process.abort()')).toBe(SAID)
+    // writeSync: a write to the stderr pipe is asynchronous on macOS, and the abort would come first.
+    expect(await reasonOf(`fs.writeSync(2, ${JSON.stringify(OUT_OF_MEMORY)})\nprocess.abort()`)).toBe(`${SAID}: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`)
   })
 
   it("runs the script with the environment it is given, not worfy's own: from Finder the system PATH has no node", async () => {
@@ -812,6 +829,15 @@ describe('scriptFailureDetail', () => {
 
   it('an Error line wins over the lines before it', () => {
     expect(scriptFailureDetail('/h/bin/profile.js:12\n    throw new TypeError("boom")\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11)\n\nNode.js v24.19.0\n')).toBe('TypeError: boom')
+  })
+
+  // Review round 3 of PR #311: node's own crash report reached the window — the native stack's
+  // addresses, the GC block — and its FATAL ERROR line was not taken for the error line.
+  it("node's crash report: the FATAL ERROR line; without one, nothing of the GC block or of either stack", () => {
+    expect(scriptFailureDetail(OUT_OF_MEMORY)).toBe('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory')
+    expect(scriptFailureDetail(ABORTED)).toBe('')
+    // Frames are dropped, what follows them is kept.
+    expect(scriptFailureDetail(`${ABORTED}registry is broken\n`)).toBe('registry is broken')
   })
 
   it('at most 400 characters, then "…"', () => {

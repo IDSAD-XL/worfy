@@ -309,4 +309,39 @@ describe.skipIf(process.platform === 'win32')('Harness scripts run with the envi
       await hub.closeAll()
     }
   }, 60_000)
+
+  // Review round 3 of PR #311 (mutant K13): a failure that is not about the environment is brought
+  // back by "Check again" too. An old node on the login shell's PATH runs the script and exits with
+  // 1 (not 127): the watcher's own timer does not take the shell again for that, so only "Check
+  // again" brings the Epic once the user has put a new node first.
+  it('"Check again" after an old node that exits with 1 is replaced in the login shell: the sidebar\'s failed Project shows its Epic within seconds', async () => {
+    const profile = join(home, '.profile')
+    const oldNodeBin = join(scratch, 'old-node-bin')
+    mkdirSync(oldNodeBin, { recursive: true })
+    // A node that runs and fails: false(1) exits with 1 whatever it is given.
+    symlinkSync('/usr/bin/false', join(oldNodeBin, 'node'))
+    process.env.SHELL = '/bin/sh'
+    writeFileSync(profile, `PATH='${oldNodeBin}:${tools}'; export PATH\n`)
+    await recaptureAgentEnv()
+    expect(commandPath('node', (await harnessScriptEnv()).PATH ?? '')).toBe(join(oldNodeBin, 'node'))
+    const hub = new WorkflowHub({ claudeHome, env: harnessScriptEnv, layoutRetryMs: 60_000 })
+    try {
+      const first = await hub.open(repo, { id: 1, send: () => undefined })
+      expect(first.epics).toEqual([])
+      expect(first.error?.message).toMatch(/the profile script failed with exit code 1/)
+
+      writeFileSync(profile, `PATH='${nodeBin}:${tools}'; export PATH\n`)
+      const pressed = Date.now()
+      await recaptureForCheckAgain(hub)
+      let current = await hub.model(repo)
+      while (!current?.epics.length) {
+        if (Date.now() - pressed > 5_000) throw new Error(`no Epic 5 s after "Check again": ${current?.error?.message ?? 'no model'}`)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        current = await hub.model(repo)
+      }
+      expectSilentEpic(current)
+    } finally {
+      await hub.closeAll()
+    }
+  }, 60_000)
 })

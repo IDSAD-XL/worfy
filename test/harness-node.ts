@@ -105,3 +105,44 @@ export const printScript = (text: string): string => `process.stdout.write(${JSO
  */
 export const profileJsonScript = (json: string): string =>
   `if (process.argv.slice(2).some((arg) => arg.includes('--json'))) process.stdout.write(${JSON.stringify(`${json}\n`)})\nelse process.exitCode = 4\n`
+
+// What node itself prints on stderr when it dies, for the tests of what a failed Harness script's
+// stderr gives the window (scriptFailureDetail in src/main/workflow/profile.ts). Taken from node
+// v24 on macOS, the frames shortened; the process ends with SIGABRT in both cases.
+
+/** `process.abort()`: the native stack, then the JavaScript one; no line of its own. */
+export const ABORTED = [
+  '----- Native stack trace -----',
+  '',
+  ' 1: 0x104d379f4 node::Abort(v8::FunctionCallbackInfo<v8::Value> const&) [/usr/local/bin/node]',
+  ' 2: 0x105b8a818 Builtins_CallApiCallbackGeneric [/usr/local/bin/node]',
+  '10: 0x104c79e80 node::contextify::ContextifyScript::RunInContext(v8::FunctionCallbackInfo<v8::Value> const&) [/usr/local/bin/node]',
+  '',
+  '----- JavaScript stack trace -----',
+  '',
+  '1: abort (node:internal/process/per_thread:1:1)',
+  '2: [eval]-wrapper:6:24',
+  '3: node:internal/main/eval_string:71:3',
+  '',
+  '',
+].join('\n')
+
+/** The heap of the script ran out: the GC block, the FATAL ERROR line, then the native stack. */
+export const OUT_OF_MEMORY = [
+  '',
+  '<--- Last few GCs --->',
+  '',
+  '[94207:0x79740c000]        9 ms: Mark-Compact 6.5 (11.3) -> 6.5 (11.1) MB, pooled: 0 MB, 0.79 / 0.00 ms  (average mu = 0.775, current mu = 0.620) allocation failure; scavenge might not succeed',
+  '[94207:0x79740c000]       10 ms: Mark-Compact 8.0 (12.6) -> 8.0 (16.6) MB, pooled: 0 MB, 1.12 / 0.00 ms  (average mu = 0.604, current mu = 0.129) allocation failure; scavenge might not succeed',
+  '',
+  '',
+  '<--- JS stacktrace --->',
+  '',
+  'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory',
+  '----- Native stack trace -----',
+  '',
+  ' 1: 0x1028999f4 node::OOMErrorHandler(char const*, v8::OOMDetails const&) [/usr/local/bin/node]',
+  ' 2: 0x102b14000 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [/usr/local/bin/node]',
+  '13: 0x10382e234 Builtins_CEntry_Return1_ArgvOnStack_NoBuiltinExit [/usr/local/bin/node]',
+  '',
+].join('\n')

@@ -585,6 +585,9 @@ export const HARNESS_SCRIPT_HINTS = {
   node: 'worfy cannot run the Harness scripts, so it reads no Epics: they need node on the PATH of your login shell',
   timeout: 'worfy reads no Epics while the Harness scripts take this long: a busy machine or a slow disk; Check again',
   crash: 'worfy reads no Epics while the Harness scripts fail: install the Harness plugin again, or report what the script says',
+  // A signal ends the script from outside its own code: out of memory (SIGABRT), the system's
+  // memory pressure (SIGKILL), a crash of node itself. Installing the plugin again changes none of it.
+  signal: 'worfy reads no Epics while the Harness scripts are ended by the system, for example when they run out of memory; Check again, and report what the script says if it happens again',
   start: 'worfy cannot start the Harness scripts, so it reads no Epics: node or the script itself would not start; install the Harness plugin again',
 } as const
 
@@ -608,7 +611,7 @@ async function harnessScripts(deps: CheckDeps): Promise<Row> {
     if (run.code === 0) return row('ok', 'profile --help answered')
     const detail = scriptFailureDetail(run.stderr)
     // A signal the runner did not send for the time limit: the script crashed, it was not slow.
-    if (run.code === null && run.signal) return row('fail', `profile --help was ended by the signal ${run.signal}${detail ? `: ${detail}` : ''}`, HARNESS_SCRIPT_HINTS.crash)
+    if (run.code === null && run.signal) return row('fail', `profile --help was ended by the signal ${run.signal}${detail ? `: ${detail}` : ''}`, HARNESS_SCRIPT_HINTS.signal)
     if (run.code === null) return row('fail', `profile --help did not answer within ${timeoutMs / 1000} s`, HARNESS_SCRIPT_HINTS.timeout)
     return row('fail', `profile --help: exit code ${run.code}${detail ? `: ${detail}` : ''}`, environmentExit(run.code) ? HARNESS_SCRIPT_HINTS.node : HARNESS_SCRIPT_HINTS.crash)
   } catch (error) {

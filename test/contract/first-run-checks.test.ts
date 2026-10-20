@@ -12,7 +12,7 @@ import { askAccount, HARNESS_SCRIPT_HINTS, oldHarnessPresent, runChecks, runTool
 import { HarnessInstaller } from '../../src/main/harness/install'
 import { MODELS_ANSWER_FILE } from '../../src/main/harness/qmd'
 import type { Check, CheckId, CheckStatus, FirstRunReport } from '../../src/shared/ipc/first-run'
-import { NODE, nodeScript, scriptsEnv } from '../harness-node'
+import { NODE, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
 
 // The real runner of the Harness scripts, with the time limit each call asked for recorded: the
@@ -445,7 +445,19 @@ describe('first-run checks', () => {
       // writeSync: a write to the stderr pipe is asynchronous on macOS, and the kill would come first.
       oldHarness(nodeScript("fs.writeSync(2, 'Segmentation fault\\n')\nprocess.kill(process.pid, 'SIGSEGV')"))
       const report = await runChecks(deps(withNode()))
-      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGSEGV: Segmentation fault', hint: HARNESS_SCRIPT_HINTS.crash })
+      expect(checkOf(report, 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGSEGV: Segmentation fault', hint: HARNESS_SCRIPT_HINTS.signal })
+    })
+
+    // Review round 3 of PR #311: node's crash report reached the row with the stack's addresses,
+    // and the hint sent the user to install the plugin again for a script the system ended.
+    it.skipIf(WINDOWS)('a real process.abort(), and one after an out-of-memory report: the signal and the FATAL ERROR line, no frame; the hint is not to install the plugin again', async () => {
+      tools(...ALL_TOOLS)
+      oldHarness(nodeScript('process.abort()'))
+      expect(checkOf(await runChecks(deps(withNode())), 'harness-scripts')).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGABRT', hint: HARNESS_SCRIPT_HINTS.signal })
+      oldHarness(nodeScript(`fs.writeSync(2, ${JSON.stringify(OUT_OF_MEMORY)})\nprocess.abort()`))
+      const row = checkOf(await runChecks(deps(withNode())), 'harness-scripts')
+      expect(row).toMatchObject({ status: 'fail', detail: 'profile --help was ended by the signal SIGABRT: FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory', hint: HARNESS_SCRIPT_HINTS.signal })
+      expect(row.hint).not.toMatch(/install the Harness plugin again/)
     })
 
     it("a crash of the script: its Error line, not node's version line; the hint is not about node", async () => {

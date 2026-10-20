@@ -162,7 +162,10 @@ describe('"Check again": a failed layout is asked at once', () => {
   /** The watcher's own retry timer: null when none is pending. */
   const retryTimer = (watcher: WorkflowWatcher): unknown => (watcher as unknown as { retry: unknown }).retry
 
-  it('retryFailedLayout: asked now with a plain request (no shell of its own); the pending timer is dropped and the back-off starts over at 10 s', async () => {
+  // Review of PR #311, round 3: each show of Settings -> Health runs the checks, and the back-off
+  // used to start over at 10 s after each of them. The ask now takes the place of the pending
+  // timer's ask, and the step of the back-off stays where it was.
+  it('retryFailedLayout: asked now with a plain request (no shell of its own); the pending timer is dropped and the back-off goes on from its step', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const asked: (HarnessScriptEnvRequest | undefined)[] = []
     const watcher = await start((at, request) => (asked.push(request), Promise.resolve(failedLayout(at, NO_NODE, true))))
@@ -176,14 +179,43 @@ describe('"Check again": a failed layout is asked at once', () => {
     expect(watcher.retryFailedLayout()).toBe(true)
     await vi.advanceTimersByTimeAsync(0)
     expect(asked).toEqual([undefined, { fresh: 'always' }, { fresh: 'always' }, {}])
-    // Still failed: one timer, and it is 10 s away, not the 60 s step of the old back-off.
+    // Still failed: one timer, at the step after the 60 s one it replaced (5 minutes), not 10 s again.
     expect(vi.getTimerCount()).toBe(1)
-    await vi.advanceTimersByTimeAsync(9_999)
+    await vi.advanceTimersByTimeAsync(299_999)
     expect(asked).toHaveLength(4)
     await vi.advanceTimersByTimeAsync(1)
     expect(asked).toEqual([undefined, { fresh: 'always' }, { fresh: 'always' }, {}, { fresh: 'always' }])
+    // A second "Check again" at the last step: still one ask now and one every 5 minutes after it.
+    expect(watcher.retryFailedLayout()).toBe(true)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(asked).toHaveLength(6)
+    await vi.advanceTimersByTimeAsync(290_000)
+    expect(asked).toHaveLength(7)
     await watcher.close()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  // Review of PR #311, round 3 (mutant K13: only an environment failure was asked again): a
+  // failure that is not about the environment — an old node on the captured PATH exits with 1 —
+  // is asked by "Check again" too, and the Project recovers once it answers.
+  it('retryFailedLayout: a failure that is not about the environment is asked too, plainly, and the Epic is read once it answers', async () => {
+    const OLD_NODE = 'the profile script failed with exit code 1: SyntaxError: Unexpected token'
+    const asked: (HarnessScriptEnvRequest | undefined)[] = []
+    let cured = false
+    const watcher = await start((at, request) => (asked.push(request), Promise.resolve(cured ? healthyLayout(at) : failedLayout(at, OLD_NODE, false))), 3_600_000)
+    try {
+      expect(watcher.current.error?.message).toMatch(/exit code 1: SyntaxError/)
+      cured = true
+      expect(watcher.retryFailedLayout()).toBe(true)
+      for (let i = 0; i < 100 && watcher.current.error !== null; i++) await sleep(10)
+      await watcher.idle()
+      expect(asked).toEqual([undefined, {}])
+      expect(watcher.current.epics.map((epic) => epic.epic)).toEqual(['demo'])
+      expect(watches.count).toBe(1)
+      expect(retryTimer(watcher)).toBeNull()
+    } finally {
+      await watcher.close()
+    }
   })
 
   it('retryFailedLayout does nothing for a healthy layout or a closed watcher', async () => {
@@ -231,6 +263,41 @@ describe('"Check again": a failed layout is asked at once', () => {
     } finally {
       await hub.closeAll()
       removeTestTree(healthyRoot)
+    }
+  })
+
+  // Review of PR #311, round 3: the hub waited for every Project to finish its start before it
+  // asked any, so one slow start (profile up to 15 s, the first epic-status up to 60 s) held back
+  // the recovery of all the others.
+  it('WorkflowHub.retryFailedLayouts: a failed Project is asked while another Project is still starting', async () => {
+    const slowRoot = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-watch-slow-')))
+    mkdirSync(join(slowRoot, '.scratch'), { recursive: true })
+    const asked = new Map<string, (HarnessScriptEnvRequest | undefined)[]>()
+    let answerSlow: (layout: ProjectLayout) => void = () => undefined
+    const layout: Layout = (at, request) => {
+      asked.set(at, [...(asked.get(at) ?? []), request])
+      if (at === root) return Promise.resolve(failedLayout(at, NO_NODE, true))
+      return new Promise((done) => (answerSlow = done))
+    }
+    const hub = new WorkflowHub({ claudeHome: '/h', env: () => Promise.resolve({}), run: () => Promise.resolve(EPIC_JSON), layout, layoutRetryMs: 3_600_000, ticketsWatch: 'chokidar' })
+    try {
+      expect((await hub.open(root, { id: 1, send: () => undefined })).error?.code).toBe('failed')
+      const opening = hub.open(slowRoot, { id: 1, send: () => undefined })
+      for (let i = 0; i < 100 && !asked.has(slowRoot); i++) await sleep(10)
+      const retried = hub.retryFailedLayouts()
+      for (let i = 0; i < 100 && (asked.get(root)?.length ?? 0) < 2; i++) await sleep(10)
+      // The slow Project has not answered its first ask yet.
+      expect(asked.get(slowRoot)).toEqual([undefined])
+      expect(asked.get(root)).toEqual([undefined, {}])
+      answerSlow(failedLayout(slowRoot, NO_NODE, true))
+      await opening
+      // The slow one failed too, but only after the "Check again": its own start's ask was answered after it.
+      expect(await retried).toBe(2)
+    } finally {
+      // A failed expectation above leaves the slow start waiting: close() would wait for it for good.
+      answerSlow(failedLayout(slowRoot, NO_NODE, true))
+      await hub.closeAll()
+      removeTestTree(slowRoot)
     }
   })
 

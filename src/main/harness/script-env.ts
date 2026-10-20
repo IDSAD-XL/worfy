@@ -28,9 +28,10 @@ export type HarnessScriptEnv = Readonly<Record<string, string | undefined>>
 /**
  * When the environment is to be taken from the login shell again instead of the one held
  * (worfy-harness ticket 37). `always`: the last call failed in a way that points at the
- * environment — the script found no node (exit code 127, 126) or could not be started.
- * `if-fallback`: it failed otherwise; the environment is taken again only when the held one is
- * the minimal fallback, because the shell failed the capture.
+ * environment — its PATH has no node, or node could not run the script (exit code 127, 126).
+ * `if-fallback`: it failed otherwise, a script that could not be started for another reason
+ * included; the environment is taken again only when the held one is the minimal fallback,
+ * because the shell failed the capture.
  */
 export interface HarnessScriptEnvRequest {
   fresh?: 'always' | 'if-fallback'
