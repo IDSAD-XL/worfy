@@ -29,10 +29,10 @@ const TEST_DIRS = [join(HARNESS, 'bin', 'tests'), join(HARNESS, 'hooks', 'tests'
 // The ticket imports 5 tests under bin/tests and 3 under hooks/tests.
 const MIN_TESTS = 8
 const WINDOWS = process.platform === 'win32'
-// One file takes a few seconds; the limit is for a test that hangs (a script waiting on stdin).
-// On Windows every process start is slow: profile.test.sh and skill-blocks.test.sh alone take
-// 140-170 s there, so 120 s cut off files that would pass.
-const FILE_TIMEOUT_MS = WINDOWS ? 300_000 : 120_000
+// The limit is for a test that hangs (a script waiting on stdin). On Windows every process start is
+// slow: alone on the owner's PC wave-gate.test.sh takes 269-317 s, profile and skill-blocks 140-170 s,
+// and five files at once take longer, so 300 s cut off wave-gate.test.sh there (2026-10-21).
+const FILE_TIMEOUT_MS = WINDOWS ? 600_000 : 120_000
 
 const testFiles = TEST_DIRS.flatMap((dir) =>
   existsSync(dir)
