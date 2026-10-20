@@ -261,6 +261,9 @@ describe('AppSettingsStore', () => {
     // The same value again changes nothing.
     expect(store.set({ memoryIndicator: false }).revision).toBe(5)
     expect(events).toHaveLength(1)
+    // A change of another setting keeps it off.
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, memoryIndicator: false })
+    expect(new AppSettingsStore(file).get().memoryIndicator).toBe(false)
     expect(store.set({ memoryIndicator: true }).memoryIndicator).toBe(true)
   })
 

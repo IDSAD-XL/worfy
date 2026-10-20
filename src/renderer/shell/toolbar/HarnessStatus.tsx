@@ -162,8 +162,12 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
   )
 }
 
-/** The Harness state from main (`harness.state`), and the install through `harness.install`. */
-export default function HarnessStatus() {
+/**
+ * The Harness state from main (`harness.state`), and the install through `harness.install`.
+ * Settings → Pipeline shows it too, when the Harness is too old for the editor; worfy's memory
+ * stands only in the toolbar (`memory`, given by the toolbar item below).
+ */
+export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
@@ -215,7 +219,7 @@ export default function HarnessStatus() {
 
   return (
     <>
-      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} memory={<AppMemory />} />
+      <HarnessStatusView status={status} busy={busy} failure={failure} onInstall={onInstall} onMigrate={migration ? () => setFormOpen(true) : undefined} version={version} memory={memory ? <AppMemory /> : undefined} />
       {formOpen ? (
         <MigrationForm
           onClose={() => {
@@ -227,4 +231,9 @@ export default function HarnessStatus() {
       ) : null}
     </>
   )
+}
+
+/** The toolbar item: the Harness column with worfy's memory after the app version. */
+export default function HarnessStatusItem() {
+  return <HarnessStatus memory />
 }

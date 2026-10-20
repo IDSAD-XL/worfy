@@ -53,6 +53,10 @@ describe('the memory figure and the setting', () => {
     sets: unknown[]
     changed: (channel: string, payload: unknown) => void
     settings: AppSettings
+    /** The answer to `memory.open`; the sample `usage` at once by default. */
+    openReply: () => Promise<IpcResult<unknown>>
+    /** The answer to `appSettings.set`; the patched settings by default. */
+    setReply: ((input: unknown) => Promise<IpcResult<unknown>>) | undefined
   }
   let fake: Fake
 
@@ -65,6 +69,8 @@ describe('the memory figure and the setting', () => {
       sets: [],
       changed: (channel, payload) => handlers.get(channel)?.(payload),
       settings: { ...defaultAppSettings(), revision: 1 },
+      openReply: () => Promise.resolve({ ok: true, value: usage }),
+      setReply: undefined,
     }
     const bridge: WorfyBridge = {
       invoke: (channel, input): Promise<IpcResult<unknown>> => {
@@ -72,10 +78,13 @@ describe('the memory figure and the setting', () => {
         if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: current.settings })
         if (channel === 'appSettings.set') {
           current.sets.push(input)
+          if (current.setReply !== undefined) return current.setReply(input)
           current.settings = { ...current.settings, ...(input as Partial<AppSettings>), revision: current.settings.revision + 1 }
           return Promise.resolve({ ok: true, value: current.settings })
         }
-        if (channel === 'memory.open') return Promise.resolve({ ok: true, value: usage })
+        if (channel === 'memory.open') return current.openReply()
+        if (channel === 'harness.state') return Promise.resolve({ ok: false, error: 'no Harness here' })
+        if (channel === 'harnessMigration.offer') return Promise.resolve({ ok: true, value: { offered: false } })
         if (channel === 'memory.close') return Promise.resolve({ ok: true, value: undefined })
         return Promise.resolve({ ok: true, value: { version: '9.9.9' } })
       },
@@ -128,6 +137,38 @@ describe('the memory figure and the setting', () => {
     // for that moment; main samples nothing for it while the setting is off (test/contract/memory.test.ts).
     const calls = memoryCalls()
     expect(calls.filter((channel) => channel === 'memory.open').length).toBe(calls.filter((channel) => channel === 'memory.close').length)
+  })
+
+  it('the toolbar item of the Harness column carries the figure after the app version', async () => {
+    const { default: HarnessStatusItem } = await import('../../src/renderer/shell/toolbar/HarnessStatus')
+    render(<HarnessStatusItem />)
+    expect(await screen.findByText('412 MB')).toBeTruthy()
+    const line = screen.getByTestId('app-line')
+    await vi.waitFor(() => expect([...line.children].map((child) => child.getAttribute('data-testid'))).toEqual(['app-version', 'app-memory']))
+  })
+
+  it('a sample that arrives before the answer to memory.open is kept: the older answer does not replace it', async () => {
+    let answer: (result: IpcResult<unknown>) => void = () => undefined
+    fake.openReply = () => new Promise((resolve) => (answer = resolve))
+    const { default: AppMemory } = await import('../../src/renderer/memory/AppMemory')
+    render(<AppMemory />)
+    await vi.waitFor(() => expect(memoryCalls()).toEqual(['memory.open']))
+    act(() => fake.changed('memory.changed', { ...usage, totalKb: 2 * 1024 * MB }))
+    expect(screen.getByTestId('app-memory').textContent).toBe('2.0 GB')
+    await act(async () => answer({ ok: true, value: usage }))
+    expect(screen.getByTestId('app-memory').textContent).toBe('2.0 GB')
+  })
+
+  it('a change main refused says why under the switch, and the switch keeps the setting in force', async () => {
+    fake.setReply = () => Promise.resolve({ ok: false, error: 'disk full' })
+    const { default: GeneralSection } = await import('../../src/renderer/settings/GeneralSection')
+    render(<GeneralSection />)
+    const toggle = await screen.findByRole('switch', { name: "Show worfy's memory in the toolbar" })
+    fireEvent.click(toggle)
+    expect((await screen.findByTestId('settings-memory-indicator-problem')).textContent).toBe('Not saved: disk full')
+    expect(screen.getByTestId('settings-memory-indicator-row').textContent).not.toContain('Terminal sessions are not counted.')
+    expect(toggle.getAttribute('aria-checked')).toBe('true')
+    expect(fake.sets).toEqual([{ memoryIndicator: false }])
   })
 
   it('the switch of Settings → General writes memoryIndicator, on by default', async () => {

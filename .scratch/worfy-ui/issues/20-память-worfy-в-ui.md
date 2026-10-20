@@ -68,8 +68,10 @@ Source: просьба владельца 2026-10-20: «найди место в
 - `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts` — поле `memoryIndicator`
 - `src/renderer/memory/useAppMemory.ts`, `src/renderer/memory/AppMemory.tsx` (новые)
 - `src/renderer/shell/toolbar/HarnessStatus.tsx` — вторая строка колонки
+- `src/renderer/settings/PipelineSection.tsx` — колонка Harness без памяти (именованный импорт)
 - `src/renderer/settings/GeneralSection.tsx` — переключатель
-- `test/unit/memory.test.ts`, `test/unit/app-memory.test.tsx`, `test/contract/memory.test.ts` (новые)
+- `test/unit/memory.test.ts`, `test/unit/app-memory.test.tsx`, `test/contract/memory.test.ts`,
+  `test/contract/memory-app.test.ts` (новые); `test/unit/settings-pipeline.test.tsx`
 - `test/contract/app-settings.test.ts`, `test/unit/shell.test.tsx`, `test/unit/machines-section.test.tsx`,
   `test/unit/interface-scale.test.tsx`, `test/unit/sidebar-section.test.tsx`,
   `test/unit/pipeline-board.test.tsx` — литералы настроек с новым полем
@@ -128,4 +130,30 @@ Source: просьба владельца 2026-10-20: «найди место в
 **Удалено и изменено:** у `HarnessStatusView` вторая строка теперь — `div` `app-line`, внутри него
 `app-version`; раньше `app-version` был прямым потомком колонки. В Settings → General между slider-ом
 масштаба и Close встал ещё один элемент, принимающий фокус по Tab.
+
+**Review PR #575, раунд 1** (2 med, 4 low), исправлено одним раундом:
+- Колонку Harness показывает ещё Settings → Pipeline, когда Harness слишком старый для редактора
+  (`PipelineSection.tsx`, тот же webContents). Её `memory.close` снимал подписку окна, и цифра в
+  toolbar замирала. Теперь:
+  - память рисует только элемент toolbar: default export `HarnessStatusItem` передаёт `memory`, а
+    Pipeline импортирует `HarnessStatus` без неё;
+  - main считает открытия по окну и снимает подписку, когда счётчик доходит до нуля.
+- Mutant `patch.memoryIndicator ?? true` выживал. Теперь test проверяет, что изменение масштаба не
+  включает выключенную память обратно.
+- Добавлены test-ы:
+  - связка `appMemory()` с настройкой и `will-quit` (`test/contract/memory-app.test.ts`);
+  - интервал 5 с, закреплённый литералом;
+  - поздний ответ `memory.open` после свежего `memory.changed`;
+  - «Not saved» у переключателя;
+  - элемент toolbar показывает цифру, а Pipeline — нет.
+- Mutant-ы этого раунда, каждый красный на своём test-е:
+  - второе открытие в окне не считается;
+  - закрытие сразу снимает подписку окна;
+  - Pipeline показывает память;
+  - элемент toolbar без памяти;
+  - изменение другой настройки включает память;
+  - `appMemory()` без `followMemorySetting`;
+  - интервал 60 с;
+  - нет проверки `changed` у ответа `memory.open`;
+  - отказ main у переключателя молчит.
 

@@ -112,7 +112,8 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     expect(read).toHaveBeenCalledTimes(1)
     expect(changes(window)).toHaveLength(1)
 
-    vi.advanceTimersByTime(MEMORY_SAMPLE_MS - 1)
+    expect(MEMORY_SAMPLE_MS).toBe(5_000)
+    vi.advanceTimersByTime(4_999)
     expect(read).toHaveBeenCalledTimes(1)
     vi.advanceTimersByTime(1)
     expect(read).toHaveBeenCalledTimes(2)
@@ -153,12 +154,35 @@ describe('MemorySampler and the memoryIndicator setting', () => {
     expect(window.sent).toEqual([])
   })
 
+  it('a window that opens the figure twice stays subscribed until it closes it twice', async () => {
+    const { open, close } = await register()
+    const window = fakeWindow()
+    await open(window)
+    await open(window) // a second view in the same window: one listener, no second sample
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(changes(window)).toHaveLength(1)
+
+    await close(window)
+    expect(sampler.running).toBe(true)
+    vi.advanceTimersByTime(5_000)
+    expect(changes(window)).toHaveLength(2)
+
+    await close(window)
+    expect(sampler.running).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(5_000)
+    expect(changes(window)).toHaveLength(2)
+    // A close more than the opens changes nothing.
+    await close(window)
+    await open(window)
+    expect(sampler.running).toBe(true)
+  })
+
   it('the timer stops when the last window closes the indicator or is destroyed', async () => {
     const { open, close } = await register()
     const first = fakeWindow()
     const second = fakeWindow()
     await open(first)
-    await open(first) // a second open in the same window adds nothing
     await open(second)
     expect(read).toHaveBeenCalledTimes(1)
 
