@@ -158,11 +158,23 @@ describe('findStatusBlock', () => {
     // must not make the match take seconds. The bound is generous so the test is not flaky.
     const SPACES = ' '.repeat(50_000)
 
-    it('returns quickly on a label followed by a long run of spaces and a carriage return', () => {
-      const started = performance.now()
-      expect(findStatusBlock(`— Now:${SPACES}\r`)).toBeNull()
-      expect(findStatusBlock(`— Stage:${SPACES}\u2028`)).toBeNull()
-      expect(performance.now() - started).toBeLessThan(1000)
+    it('returns quickly, and finds nothing, when a value of a full block is a long run of spaces broken by a carriage return or a line separator', () => {
+      // The break is followed by text: a \r right before the \n of the next line is a CRLF ending.
+      for (const end of ['\r', '\u2028']) {
+        const lines = ENGLISH_LINES.slice()
+        lines[1] = `— Now:${SPACES}${end}${SPACES}x`
+        const started = performance.now()
+        expect(findStatusBlock(lines.join('\n'))).toBeNull()
+        expect(performance.now() - started).toBeLessThan(1000)
+      }
+    })
+
+    it('finds nothing when a value of a full block holds a lone carriage return or a line separator', () => {
+      for (const end of ['\r', '\u2028', '\u2029']) {
+        const lines = ENGLISH_LINES.slice()
+        lines[2] = `— Next: PR${end}и ещё`
+        expect(findStatusBlock(lines.join('\n'))).toBeNull()
+      }
     })
 
     it('returns quickly and trims a value padded by long runs of spaces', () => {

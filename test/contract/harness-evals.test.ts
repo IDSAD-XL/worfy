@@ -193,6 +193,10 @@ describe('harness/evals: the cases', () => {
     expect(findStatusBlock(russian)).not.toBeNull()
     expect(russian).not.toMatch(pattern)
     expect(`${block.join('\n')}\n\nИ ещё одно замечание.`).not.toMatch(pattern)
+    const prose = `Итог ${block.join('\n')}`
+    expect(findStatusBlock(prose)).toBeNull()
+    expect(prose).not.toMatch(pattern)
+    expect(block.join('\n')).toMatch(pattern)
   })
 })
 
