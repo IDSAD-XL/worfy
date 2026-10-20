@@ -1,10 +1,12 @@
 // The done shelf (worfy-canvas ticket 02, ADR-0075, point 5): an Epic whose every Ticket is done and
 // whose frame is collapsed leaves the strip of frames and stands as a chip on the shelf under it.
 // The strip and the arrangement themselves: epic-arrangement.test.ts and epic-canvas.test.tsx.
-import { render, screen } from '@testing-library/react'
+import { act, render, renderHook, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DONE_SHELF_KIND, EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, onThePlane, SOURCE_NODE_KINDS } from '../../src/shared/layout/derived'
+import type { Binding } from '../../src/shared/binding/resolve'
+import { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, onThePlane, SOURCE_NODE_KINDS } from '../../src/shared/layout/derived'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { arrange, stripSize } from '../../src/renderer/canvas/epic-arrangement'
@@ -23,11 +25,19 @@ import {
 import { applyRecorded, historyOf, type LayoutChannel } from '../../src/renderer/canvas/history'
 import DoneShelfNode from '../../src/renderer/canvas/nodes/DoneShelfNode'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
-import source, { arrangementOf, buildEpicNodes, epicNodeId, openDoneStacks, setDoneStack, foldHiddenDoneStacks, type DoneShelfData, type EpicFrameData } from '../../src/renderer/canvas/sources/epics'
+import { buildBindingAnchors, epicAnchorId } from '../../src/renderer/canvas/sources/workflow-bindings'
+import source, { arrangementOf, buildEpicNodes, epicPlace, shelfChipRect, useArrangementUpkeep, epicNodeId, openDoneStacks, setDoneStack, foldHiddenDoneStacks, type DoneShelfData, type EpicFrameData } from '../../src/renderer/canvas/sources/epics'
 import { acceptLayoutState, applyLayoutOp, currentLayout, LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 
 // The badges and actions on a Ticket and a frame are other tickets' business: none here.
 vi.mock('../../src/renderer/canvas/badges', () => ({ actions: [], badges: [] }))
+
+// The read-only hint of the screen, as useReadOnly() answers it (worfy-link ticket 25).
+const readOnly = vi.hoisted(() => ({ hint: null as string | null }))
+vi.mock('../../src/renderer/projects/useProjects', async (original) => ({
+  ...(await original<typeof import('../../src/renderer/projects/useProjects')>()),
+  useReadOnly: () => readOnly.hint,
+}))
 
 // A fake main per Project: it applies `create` and `patchData` as src/main/layout/store.ts does
 // and sends the new Layout back, so the history (history.ts) sees what main has.
@@ -182,11 +192,15 @@ describe('where the shelf stands', () => {
   })
 
   it('a frame with an offset yields to the shelf as to the frames of the strip', () => {
-    // y's offset would put it over the shelf, which starts FRAME_GAP under the tallest column.
-    const moved = [{ epic: 'x', width: 500, height: 300 }, { epic: 'y', width: 500, height: 200, offset: { dx: 0, dy: 400 } }]
+    // The column: x 0–300, y 348–548; the shelf 596–696. y's offset of 300 puts it at 648–848, on
+    // the shelf: without the yield it would stand there.
+    const moved = [{ epic: 'x', width: 500, height: 300 }, { epic: 'y', width: 500, height: 200, offset: { dx: 0, dy: 300 } }]
     const placed = placeStrip(moved, [], 1, 100, 520)
     const y = placed.frames.get('y')!
     const shelfTop = placed.shelf.y
+    expect(shelfTop).toBe(596)
+    expect(y.auto).toEqual({ x: 0, y: 348 })
+    expect(y).not.toMatchObject({ x: 0, y: 648 })
     const overlaps = y.y < shelfTop + 100 && shelfTop < y.y + 200 && y.x < placed.shelf.x + 520 && placed.shelf.x < y.x + 500
     expect(overlaps).toBe(false)
   })
@@ -293,17 +307,72 @@ describe('a chip', () => {
     expect(chipsOf(buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {}))).toEqual(['a'])
   })
 
-  it('leaves the record alone when it does not have the Epic: the frame comes last anyway', async () => {
+  it('writes the Epic last also when the record does not have it; two chips opened one after another keep the order of the clicks', async () => {
     const id = freshProject()
-    start(id, [frameNode('a', true), recordNode(['b', 'c', 'd'], 1)])
+    // p, q and r are done and on the shelf; the day's record names the strip's Epic only.
+    const tickets = [ticket('o', 1), ticket('p', 1, done), ticket('q', 1, done), ticket('r', 1, done)]
+    const workflow = model(tickets, ['o', 'p', 'q', 'r'])
+    start(id, [recordNode(['o'], 1)])
+    const click = async (name: string) => {
+      const shelf = shelfOf(buildEpicNodes(id, '/repo', workflow, currentLayout(id)!, {}))!
+      const props = { id: shelf.id, data: shelf.data, selected: false } as unknown as CanvasNodeProps
+      const view = render(
+        <ReactFlowProvider>
+          <LayoutOpsContext.Provider value={opsOf(id)}>
+            <DoneShelfNode {...props} />
+          </LayoutOpsContext.Provider>
+        </ReactFlowProvider>,
+      )
+      screen.getByRole('button', { name: `Expand ${name}, 1 of 1 done` }).click()
+      await vi.waitFor(() => expect(mainNode(id, epicNodeId(name))?.data.collapsed).toBe(false))
+      view.unmount()
+    }
+    // q first, then p: by name p would come first.
+    await click('q')
+    await click('p')
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['o', 'q', 'p'])
+    buildEpicNodes(id, '/repo', workflow, currentLayout(id)!, {})
+    const state = arrangementOf(id)!
+    expect(arrange(state.epics, state.frames, state.record).order).toEqual(['o', 'q', 'p'])
+    expect(historyOf(id).size).toBe(2)
+    // ⌘Z of the second click: p back on the shelf, the order as after the first.
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['o', 'q'])
+    expect(chipsOf(buildEpicNodes(id, '/repo', workflow, currentLayout(id)!, {}))).toEqual(['p', 'r'])
+  })
+
+  it('on a read-only screen it stays, inactive, with the hint as its tooltip, and a click sends nothing', async () => {
+    const id = freshProject()
+    start(id, [recordNode(['a', 'b', 'c', 'd'], 2)])
+    readOnly.hint = 'Studio gives this Machine read-only access'
+    try {
+      const view = renderShelf(id)
+      const chip = screen.getByRole('button', { name: 'Expand a, 2 of 2 done' })
+      expect(chip.getAttribute('aria-disabled')).toBe('true')
+      expect(chip.getAttribute('title')).toBe('Studio gives this Machine read-only access')
+      chip.click()
+      await act(async () => {})
+      view.unmount()
+      expect(mainNode(id, epicNodeId('a'))).toBeUndefined()
+      expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['a', 'b', 'c', 'd'])
+      expect(historyOf(id).size).toBe(0)
+    } finally {
+      readOnly.hint = null
+    }
+  })
+
+  it('without a record there is no order to write: only the frame opens', async () => {
+    const id = freshProject()
+    start(id, [frameNode('a', true)])
     const view = renderShelf(id)
     screen.getByRole('button', { name: 'Expand a, 2 of 2 done' }).click()
     await vi.waitFor(() => expect(mainNode(id, epicNodeId('a'))!.data.collapsed).toBe(false))
     view.unmount()
-    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd'])
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)).toBeUndefined()
+    // By name, as on every screen until a record is written.
     buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {})
     const state = arrangementOf(id)!
-    expect(arrange(state.epics, state.frames, state.record).order).toEqual(['b', 'c', 'd', 'a'])
+    expect(arrange(state.epics, state.frames, state.record).order).toEqual(['a', 'b', 'c', 'd'])
     expect(historyOf(id).size).toBe(1)
   })
 })
@@ -316,5 +385,105 @@ describe('the done stack of an Epic on the shelf', () => {
     const nodes = buildEpicNodes(id, '/repo', model(TICKETS, EPICS), layoutWith(), {})
     foldHiddenDoneStacks(id, nodes)
     expect(openDoneStacks(id)).not.toContain('a')
+  })
+})
+
+describe('an Epic leaves the shelf by itself: it goes to the end of the order', () => {
+  const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
+  afterEach(() => mains.clear())
+
+  it('the upkeep takes an Epic on the shelf out of the record\'s order, past ⌘Z; reopened, its frame comes last', async () => {
+    const id = freshProject()
+    // A record of today that still names a, which has gone to the shelf since.
+    const record = recordNode(['a', 'b', 'c', 'd'], 1)
+    const layout = layoutWith([record])
+    mains.set(id, { revision: 1, layout })
+    acceptLayoutState({ projectId: id, revision: 1, layout })
+    const nodes = buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {})
+    expect(arrangementOf(id)!.shelf).toEqual(['a'])
+    renderHook(() => useArrangementUpkeep(id, nodes), { wrapper })
+    await act(async () => {})
+    expect(mains.get(id)!.layout.nodes.find((n) => n.id === EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd'])
+    // Past the history: nothing to undo.
+    expect(historyOf(id).size).toBe(0)
+
+    // A Ticket of a reopened: a leaves the shelf and its frame goes to the end, not to its old place.
+    const reopened = TICKETS.map((t) => (t.epic === 'a' && t.num === 2 ? { ...t, state: 'open' as const, statusRaw: 'open' } : t))
+    const after = buildEpicNodes(id, '/repo', model(reopened, EPICS), currentLayout(id)!, {})
+    expect(shelfOf(after)).toBeUndefined()
+    const state = arrangementOf(id)!
+    expect(arrange(state.epics, state.frames, state.record).order).toEqual(['b', 'c', 'd', 'a'])
+  })
+
+  it('writes nothing while the order has no Epic of the shelf', async () => {
+    const id = freshProject()
+    const layout = layoutWith([recordNode(['b', 'c', 'd'], 1)])
+    mains.set(id, { revision: 1, layout })
+    acceptLayoutState({ projectId: id, revision: 1, layout })
+    buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {})
+    const columns = arrangementOf(id)!.columns
+    const held = layoutWith([recordNode(['b', 'c', 'd'], columns)])
+    mains.set(id, { revision: 2, layout: held })
+    acceptLayoutState({ projectId: id, revision: 2, layout: held })
+    const again = buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {})
+    renderHook(() => useArrangementUpkeep(id, again), { wrapper })
+    await act(async () => {})
+    expect(mains.get(id)!.revision).toBe(2)
+  })
+})
+
+describe('going to an Epic on the shelf', () => {
+  it('shelfChipRect: the chip of `epic:<epic>` on the shelf, in absolute canvas units; nothing for another id', () => {
+    const id = freshProject()
+    const nodes = buildEpicNodes(id, '/repo', model(TICKETS, EPICS), layoutWith(), {})
+    const shelf = shelfOf(nodes)!
+    const chip = (shelf.data.node.data as DoneShelfData).chips[0]!
+    const place = { x: shelf.position.x, y: shelf.position.y, data: shelf.data }
+    expect(shelfChipRect(epicNodeId('a'), place)).toEqual({ x: shelf.position.x + chip.x, y: shelf.position.y + chip.y, w: chip.w, h: SHELF_CHIP_HEIGHT })
+    expect(shelfChipRect(epicNodeId('b'), place)).toBeUndefined()
+    expect(shelfChipRect('ticket:a/1', place)).toBeUndefined()
+    expect(shelfChipRect(epicNodeId('a'), undefined)).toBeUndefined()
+  })
+
+  it('epicPlace (the sidebar\'s focusEpic): the frame of an Epic in the strip, the chip of one on the shelf', () => {
+    const id = freshProject()
+    const nodes = buildEpicNodes(id, '/repo', model(TICKETS, EPICS), layoutWith(), {})
+    const frame = nodes.find((n) => n.id === epicNodeId('b'))!
+    expect(epicPlace(nodes, 'b')).toEqual({ x: frame.position.x, y: frame.position.y, w: frame.width, h: frame.height })
+    const shelf = shelfOf(nodes)!
+    expect(epicPlace(nodes, 'a')).toEqual(shelfChipRect(epicNodeId('a'), { x: shelf.position.x, y: shelf.position.y, data: shelf.data }))
+    expect(epicPlace(nodes, 'missing')).toBeUndefined()
+  })
+})
+
+describe('a Binding to an Epic on the shelf', () => {
+  const wave: Binding = { target: { kind: 'epic', epic: 'a' }, source: 'skill', detail: '/epic-wave a' }
+  const claim: Binding = { target: { kind: 'ticket', epic: 'a', num: 2 }, source: 'claim', detail: 'ticket claim a 02' }
+  const sessions = layoutWith([node({ id: 'session:s1', kind: 'session', locked: false, data: { sessionId: 's1' } }), node({ id: 'session:s2', kind: 'session', locked: false, data: { sessionId: 's2' } })])
+
+  it('ends at its chip on the shelf Node, for the Epic and for its Tickets; never at a frame that is not drawn', () => {
+    const nodes = buildBindingAnchors({
+      projectId: 'p',
+      layout: sessions,
+      bindings: new Map([
+        ['s1', wave],
+        ['s2', claim],
+      ]),
+      // a has no frame: it is on the shelf.
+      epics: new Set(['b']),
+      shelf: new Map([['a', { x: 12, y: 36 }]]),
+      tickets: new Set(),
+      subagents: [],
+      live: new Set(['s1']),
+    })
+    const target = nodes.find((n) => n.id === epicAnchorId('a'))!
+    expect(target).toMatchObject({ parentId: DONE_SHELF_ID, position: { x: 12, y: 36 + SHELF_CHIP_HEIGHT / 2 } })
+    expect(nodes.filter((n) => n.parentId === epicNodeId('a'))).toEqual([])
+    for (const agent of nodes.filter((n) => n.id !== target.id)) expect(agent.data.node.data).toMatchObject({ targetId: epicAnchorId('a'), targetNodeId: DONE_SHELF_ID })
+  })
+
+  it('without a frame and off the shelf, no line is drawn', () => {
+    const nodes = buildBindingAnchors({ projectId: 'p', layout: sessions, bindings: new Map([['s1', wave]]), epics: new Set(), shelf: new Map(), tickets: new Set(), subagents: [], live: new Set() })
+    expect(nodes).toEqual([])
   })
 })

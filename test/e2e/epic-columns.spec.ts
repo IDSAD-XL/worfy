@@ -209,9 +209,9 @@ test('fit to the window\'s width, the strip of 9 frames is at most 1.5 window he
   try {
     const { window } = launched
     const before = await allFrames(launched, { width: 1400, height: 900 })
+    // The app takes the two done Epics, on the shelf, out of the record's order (past ⌘Z).
+    await expect.poll(async () => (await recordIn(window))?.order).toEqual(STRIP)
     const recordBefore = await recordIn(window)
-    expect(recordBefore?.order).toEqual(BY_NAME)
-    // The record still names the two done Epics; their frames are on the shelf, not in the strip.
     expect(shownOrder(before)).toEqual(STRIP)
 
     // "Fit": the strip scaled to the Canvas's width is no taller than 1.5 of its height.
@@ -237,7 +237,7 @@ test('fit to the window\'s width, the strip of 9 frames is at most 1.5 window he
 
     // ⌘Z: one step brings the record and the strip back.
     await window.keyboard.press('ControlOrMeta+z')
-    await expect.poll(async () => (await recordIn(window))?.order).toEqual(BY_NAME)
+    await expect.poll(async () => (await recordIn(window))?.order).toEqual(STRIP)
     expect(await recordIn(window)).toEqual(recordBefore)
     await canvasReady(launched, { frames: 20, timeout: 20_000 })
     expect(await frames(window)).toEqual(before)

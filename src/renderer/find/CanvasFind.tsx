@@ -14,11 +14,13 @@
 // from the palette go through the Canvas's LayoutOps like a click in the Canvas menu.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } from '@xyflow/react'
+import { DONE_SHELF_ID } from '../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems } from '../canvas/overlays/create-items'
+import { shelfChipRect } from '../canvas/sources/epics'
 import { useTidyUp } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
@@ -54,10 +56,16 @@ interface Rect {
   h: number
 }
 
-/** A Node's place on the Canvas, inside its parent or not; undefined when React Flow does not show it. */
+/**
+ * A Node's place on the Canvas, inside its parent or not; undefined when React Flow does not show
+ * it. An Epic on the done shelf has no frame: `epic:<epic>` is its chip there (worfy-canvas ticket 02).
+ */
 function rectOf(flow: Flow, id: string): Rect | undefined {
   const node = flow.getInternalNode(id)
-  if (!node || node.hidden === true) return undefined
+  if (!node || node.hidden === true) {
+    const shelf = flow.getInternalNode(DONE_SHELF_ID)
+    return shelf === undefined || shelf.hidden === true ? undefined : shelfChipRect(id, { ...shelf.internals.positionAbsolute, data: shelf.data })
+  }
   const { x, y } = node.internals.positionAbsolute
   return { x, y, w: node.width ?? node.measured.width ?? 0, h: node.height ?? node.measured.height ?? 0 }
 }

@@ -87,7 +87,7 @@ function makeProject(nodes: unknown[]): void {
 
 /**
  * Today's record, as an app before the shelf wrote it: every Epic in its order, the done ones too.
- * K = 2 holds for the two open frames, so the app does not rewrite it.
+ * K = 2 holds for the two open frames; the app only takes the done Epics out of the order.
  */
 const RECORD_ORDER = ['worfy-canvas', 'worfy-reliability', 'worfy-review', 'worfy-ui', 'worfy-week']
 const record = () => ({ id: RECORD, kind: RECORD, x: 0, y: 0, w: 1, h: 1, locked: true, data: { order: RECORD_ORDER, columns: 2, at: new Date().toISOString() } })
@@ -183,7 +183,8 @@ test('the done Epics stand as chips on the shelf under the strip; a click opens 
     await expect(window.getByRole('button', { name: 'Expand worfy-week, 12 of 12 done' })).toBeVisible()
     await expect(window.getByRole('button', { name: 'Expand worfy-reliability, 9 of 9 done' })).toContainText('9/9')
 
-    await snapshotThemes(window, 'done-shelf')
+    // The app takes the Epics on the shelf out of the record's order, past ⌘Z: it holds the strip's only.
+    await expect.poll(async () => (await nodeData(window, RECORD))?.order).toEqual(OPEN)
 
     // A click opens worfy-review: its frame comes into the strip, last in the record's order.
     await window.getByRole('button', { name: 'Expand worfy-review, 8 of 8 done' }).click()
@@ -196,11 +197,16 @@ test('the done Epics stand as chips on the shelf under the strip; a click opens 
     await window.getByTestId('canvas').click({ position: { x: 10, y: 10 } })
     await window.keyboard.press('ControlOrMeta+z')
     await shown(launched, OPEN, DONE)
-    expect((await nodeData(window, RECORD))?.order).toEqual(RECORD_ORDER)
+    expect((await nodeData(window, RECORD))?.order).toEqual(OPEN)
 
     // The keyboard: Tab reaches a chip, Enter opens it; the frame's collapse button sends it back.
     const chip = window.getByRole('button', { name: 'Expand worfy-week, 12 of 12 done' })
-    await chip.focus()
+    await window.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } })
+    let tabs = 0
+    while (!(await chip.evaluate((element) => element === element.ownerDocument.activeElement)) && tabs < 300) {
+      await window.keyboard.press('Tab')
+      tabs += 1
+    }
     await expect(chip).toBeFocused()
     await window.keyboard.press('Enter')
     await shown(launched, [...OPEN, 'worfy-week'], ['worfy-reliability', 'worfy-review'])
@@ -213,6 +219,83 @@ test('the done Epics stand as chips on the shelf under the strip; a click opens 
   }
   // Opening and collapsing are saved in worfy's own data, never in the repository (ADR-0005).
   expect(git(join(scratch, 'shelf'), 'status', '--porcelain', '--ignored', '--untracked-files=all')).toBe('')
+})
+
+/** How far the element's middle is from the Canvas's middle, in screen pixels. */
+async function offCenter(window: Page, selector: string): Promise<number> {
+  const canvas = await window.getByTestId('canvas').boundingBox()
+  const box = await window.locator(selector).boundingBox()
+  if (!canvas || !box) return Number.POSITIVE_INFINITY
+  return Math.hypot(box.x + box.width / 2 - (canvas.x + canvas.width / 2), box.y + box.height / 2 - (canvas.y + canvas.height / 2))
+}
+
+const chipSelector = (epic: string): string => `[data-testid="done-shelf-chip"][data-epic="${epic}"]`
+
+/** Pans the Canvas away, so a request to go somewhere has to move it. */
+async function panAway(launched: LaunchedApp): Promise<void> {
+  const { window } = launched
+  const pane = (await window.locator('.react-flow').boundingBox())!
+  await window.mouse.move(pane.x + pane.width / 2, pane.y + pane.height / 2)
+  await window.mouse.wheel(0, -250)
+  await canvasReady(launched)
+  await parkPointer(window)
+}
+
+test('an Epic on the shelf is found like one with a frame: the sidebar, the palette\'s Go to (the Epic and its Ticket) and ⌘F center its chip', async () => {
+  makeProject([record()])
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await parkPointer(window)
+    await shown(launched, OPEN, DONE, { width: 1400, height: 900 })
+
+    // The sidebar's Epics section: the row of a done Epic centers its chip.
+    await panAway(launched)
+    expect(await offCenter(window, chipSelector('worfy-review'))).toBeGreaterThan(20)
+    await window.locator('[data-testid="sidebar-epic"][data-epic="worfy-review"]').click()
+    await expect.poll(() => offCenter(window, chipSelector('worfy-review'))).toBeLessThan(4)
+
+    // ⌘K, "Go to" the Epic.
+    await panAway(launched)
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('worfy-week')
+    const goEpic = window.locator('[data-testid="palette-option"][data-command="epic:worfy-week"]')
+    await expect(goEpic).toBeVisible()
+    await goEpic.click()
+    await expect.poll(() => offCenter(window, chipSelector('worfy-week'))).toBeLessThan(4)
+
+    // ⌘K, "Go to" a Ticket of it: the Ticket is no Node, its Epic's chip is centered instead.
+    await panAway(launched)
+    await window.keyboard.press('ControlOrMeta+k')
+    await window.getByTestId('palette-input').fill('worfy-reliability/03')
+    const goTicket = window.locator('[data-testid="palette-option"][data-command="ticket:worfy-reliability/03"]')
+    await expect(goTicket).toBeVisible()
+    await goTicket.click()
+    await expect.poll(() => offCenter(window, chipSelector('worfy-reliability'))).toBeLessThan(4)
+
+    // ⌘F: the Epic's name and its Tickets' titles all lead to the chip.
+    await panAway(launched)
+    await window.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } })
+    await window.keyboard.press('ControlOrMeta+f')
+    await window.getByTestId('find-input').fill('worfy-review')
+    await expect(window.getByTestId('find-count')).toHaveText(/match/)
+    await window.getByTestId('find-input').press('Enter')
+    await expect.poll(() => offCenter(window, chipSelector('worfy-review'))).toBeLessThan(4)
+    await window.getByTestId('find-input').press('Escape')
+
+    // The reference look: the shelf close up, its middle chip in the middle (⌘= zooms around it).
+    await canvasReady(launched)
+    for (let step = 0; step < 3; step += 1) await window.keyboard.press('ControlOrMeta+=')
+    await canvasReady(launched)
+    await parkPointer(window)
+    await expect.poll(() => offCenter(window, chipSelector('worfy-review'))).toBeLessThan(4)
+    const chip = (await window.locator(chipSelector('worfy-review')).boundingBox())!
+    // Readable: the chip is at least 20 px tall on screen.
+    expect(chip.height).toBeGreaterThanOrEqual(20)
+    await snapshotThemes(window, 'done-shelf')
+  } finally {
+    await launched.close()
+  }
 })
 
 test('a second window of the same Project shows the same shelf, and sees a chip opened in the first', async () => {

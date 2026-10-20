@@ -533,7 +533,8 @@ export function layoutShelf(entries: readonly ShelfEntry[], stripWidth: number):
   let row = 0
   for (const entry of entries) {
     const w = shelfChipWidth(entry, inner)
-    if (x > SHELF_PADDING && x + w > SHELF_PADDING + inner) {
+    // The first chip of a row always fits: it is at most `inner` wide.
+    if (x + w > SHELF_PADDING + inner) {
       row += 1
       x = SHELF_PADDING
     }
