@@ -3,8 +3,10 @@
 //
 // - what main reads under ~/.claude (`claudeHome.subagents`): the Agent calls in the Session's
 //   transcript and its `subagents/` folder. Asked again when the Session's transcript changes
-//   (`claudeHome.changed`), and every POLL_MS while a Subagent runs: a nested Subagent's progress
-//   is written to its parent's file, which is not watched;
+//   (`claudeHome.changed`), and every POLL_MS while a Subagent runs, by the files or by the live
+//   events: a nested Subagent's progress is written to its parent's file, which is not watched,
+//   and a file event may come late (FSEvents under load) or not at all while the Session is idle
+//   and its Subagent works in the background;
 // - the events of a live Session of worfy (session/store.ts), for the fake agent and for the
 //   moments before Claude Code has written the files. An event carries no time, so the time worfy
 //   first saw it stands in for its start or end.
@@ -85,7 +87,16 @@ export function liveSignals(events: readonly AgentEvent[], now = Date.now()): Su
 
 // ── files from main ─────────────────────────────────────────────────────────
 
-const readers = new Map<string, { users: number; running: boolean; again: boolean; timer: ReturnType<typeof setInterval> | undefined }>()
+interface Reader {
+  users: number
+  running: boolean
+  again: boolean
+  timer: ReturnType<typeof setInterval> | undefined
+  /** Whether the Session's tree, live events included, has a running Subagent (noteRunning). */
+  live: boolean
+}
+
+const readers = new Map<string, Reader>()
 let changesSubscribed = false
 
 function setFiles(key: string, files: SessionFiles): void {
@@ -115,15 +126,15 @@ function refresh(root: string, sessionId: string): void {
   })()
 }
 
-/** Polls while the Session's files say a Subagent runs. */
+const anyRunning = (tree: readonly SubagentInfo[]): boolean => tree.some((info) => info.status === 'running' || anyRunning(info.children))
+
+/** Polls while the Session's files, or its tree with the live events, say a Subagent runs. */
 function schedule(root: string, sessionId: string): void {
   const key = keyOf(root, sessionId)
   const reader = readers.get(key)
   if (reader === undefined) return
   const files = useSubagentsStore.getState().bySession[key] ?? EMPTY_FILES
-  const running = buildSubagentTree(files).some(function anyRunning(info): boolean {
-    return info.status === 'running' || info.children.some(anyRunning)
-  })
+  const running = reader.live || anyRunning(buildSubagentTree(files))
   if (running && reader.timer === undefined) reader.timer = setInterval(() => refresh(root, sessionId), POLL_MS)
   else if (!running && reader.timer !== undefined) {
     clearInterval(reader.timer)
@@ -151,8 +162,17 @@ function acquire(root: string, sessionId: string): void {
     reader.users += 1
     return
   }
-  readers.set(key, { users: 1, running: false, again: false, timer: undefined })
+  readers.set(key, { users: 1, running: false, again: false, timer: undefined, live: false })
   refresh(root, sessionId)
+}
+
+/** The hooks tell whether a Session's tree, live events included, has a running Subagent. */
+function noteRunning(root: string, sessionId: string, running: boolean): void {
+  const reader = readers.get(keyOf(root, sessionId))
+  if (reader === undefined || reader.live === running) return
+  reader.live = running
+  // While a read is under way, it schedules when it ends.
+  if (!reader.running) schedule(root, sessionId)
 }
 
 function release(root: string, sessionId: string): void {
@@ -217,7 +237,7 @@ export function useSubagentTrees(root: string | undefined, sessionIds: readonly 
   }, [root, ids])
   const bySession = useSubagentsStore((store) => store.bySession)
   const logs = useSessionLogs((store) => store.logs)
-  return useMemo(() => {
+  const trees = useMemo(() => {
     const trees = new Map<string, readonly SubagentInfo[]>()
     if (root === undefined) return trees
     for (const sessionId of ids === '' ? [] : ids.split('\n')) {
@@ -227,6 +247,12 @@ export function useSubagentTrees(root: string | undefined, sessionIds: readonly 
     }
     return trees
   }, [root, ids, bySession, logs])
+  // After the effect above, so a Session new to the list has its reader by now.
+  useEffect(() => {
+    if (root === undefined || ids === '') return
+    for (const sessionId of ids.split('\n')) noteRunning(root, sessionId, anyRunning(trees.get(sessionId) ?? EMPTY_TREE))
+  }, [root, ids, trees])
+  return trees
 }
 
 /** The Subagent tree of one Session. */

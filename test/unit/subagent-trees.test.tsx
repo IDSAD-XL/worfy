@@ -1,8 +1,10 @@
 // The renderer's store of Subagent trees (ticket 15, src/renderer/claude-home/subagents.ts): when
 // the list of Sessions on the Canvas changes, a Session that stays in the list keeps its tree and
-// its reader, and is not asked again; a Session that leaves the list is released.
+// its reader, and is not asked again; a Session that leaves the list is released. The files are
+// asked again every POLL_MS while a Subagent runs, by the files or by a live Session's events.
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AgentEvent } from '../../src/shared/agent/events'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SubagentSignal } from '../../src/shared/transcript/subagents'
 
@@ -17,18 +19,21 @@ const running = (sessionId: string): SubagentSignal[] => [
 
 let asked: Array<{ channel: string; input: unknown }>
 let changed: ((payload: unknown) => void) | undefined
+/** What main answers for a Session's files; by default, a running Subagent. */
+let filesOf: (sessionId: string) => { signals: SubagentSignal[]; files: []; found: boolean }
 
 beforeEach(() => {
   vi.resetModules()
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   asked = []
   changed = undefined
+  filesOf = (sessionId) => ({ signals: running(sessionId), files: [], found: true })
   const bridge = {
     invoke: (channel: string, input: unknown) => {
       asked.push({ channel, input })
       if (channel === 'claudeHome.subagents') {
         const { sessionId } = input as { sessionId: string }
-        return Promise.resolve({ ok: true, value: { signals: running(sessionId), files: [], found: true } })
+        return Promise.resolve({ ok: true, value: filesOf(sessionId) })
       }
       if (channel === 'claudeHome.sessions') return Promise.resolve({ ok: true, value: { live: [], history: [] } })
       if (channel === 'claudeHome.live') return Promise.resolve({ ok: true, value: { live: [] } })
@@ -88,5 +93,42 @@ describe('useSubagentTrees: the list of Sessions changes', () => {
     expect(store.useSubagentsStore.getState().bySession).toEqual({})
     await act(async () => changed?.({ projectRoot: ROOT, sessions: false, transcripts: [B] }))
     expect(readsOf(B)).toBe(1)
+  })
+})
+
+describe('useSubagentTrees: asking the files again while a Subagent runs', () => {
+  /** A live Session of worfy whose Orchestrator called a Subagent, and maybe got its result. */
+  async function live(sessionId: string, result: boolean) {
+    const { useSessionLogs } = await import('../../src/renderer/session/store')
+    const events: AgentEvent[] = [{ type: 'tool_use', id: 'toolu_live', name: 'Agent', input: { subagent_type: 'implementer' }, parentToolUseId: null }]
+    if (result) events.push({ type: 'tool_result', toolUseId: 'toolu_live', content: 'done', isError: false, parentToolUseId: null })
+    act(() => useSessionLogs.setState(({ logs }) => ({ logs: { ...logs, [sessionId]: { events, first: 0, echo: null, queue: null, settings: null, modelPick: null, context: null } } })))
+  }
+
+  it('asks again while only the live events show a running Subagent, and stops when it ends', async () => {
+    // Claude Code has not written the Session's files yet, and no change of them comes: a late
+    // file event (FSEvents under load) must not leave the Subagent unopenable.
+    filesOf = () => ({ signals: [], files: [], found: false })
+    await live(A, false)
+    const { hook, store } = await mount([A])
+    await vi.waitFor(() => expect(readsOf(A)).toBe(1))
+    expect(hook.result.current.get(A)?.[0]?.status).toBe('running')
+
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS))
+    await vi.waitFor(() => expect(readsOf(A)).toBe(2))
+
+    await live(A, true)
+    await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]?.status).toBe('done'))
+    const reads = readsOf(A)
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
+    expect(readsOf(A)).toBe(reads)
+  })
+
+  it('does not ask again while no Subagent runs', async () => {
+    filesOf = () => ({ signals: [], files: [], found: false })
+    const { store } = await mount([A])
+    await vi.waitFor(() => expect(readsOf(A)).toBe(1))
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
+    expect(readsOf(A)).toBe(1)
   })
 })
