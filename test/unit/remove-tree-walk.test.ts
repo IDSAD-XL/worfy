@@ -423,9 +423,10 @@ describe('removeTree over a model of the file system', () => {
     removeTree('/f', { fs: m.fs, platform: 'win32' })
     const took = performance.now() - started
     expect(m.names()).toEqual([])
-    // Two waits of REMOVE_RETRY_MS; a timer of the system may come a few ms early.
+    // Two waits of REMOVE_RETRY_MS; a timer of the system may come a few ms early. The lower bound
+    // alone (worfy-windows ticket 43): a worker that stalls is no error of the code, and the number
+    // of waits is counted by the tests over the model.
     expect(took).toBeGreaterThanOrEqual(2 * REMOVE_RETRY_MS - 20)
-    expect(took).toBeLessThan(2000)
   })
 
   it('a removal that would wait without end is stopped by the model: its test fails at once', () => {

@@ -151,9 +151,14 @@ describe('removeTree and removeFile over real folders', () => {
 
   // worfy-windows ticket 28, from the review of PR #257. Over a model with POSIX names the walk went
   // wrong on `link\..\victim`: the listing was of the folder the system reaches through the link,
-  // and `join` wrote the names under the folder the text of the path names. Windows — the only
-  // system the walk runs on — resolves `..` in the text of a path before it looks at the disk, so
-  // the look, the listing and the joined names are of one folder: the one beside the link.
+  // and `join` wrote the names under the folder the text of the path names. On Windows — the only
+  // system the walk runs on — Node, not the system, resolves `..` in the text of a path before
+  // the call reaches the disk: path.win32.toNamespacedPath gives `\\?\C:\t\tree\victim` for
+  // `C:\t\tree\link\..\victim` (worfy-windows ticket 43: run on a Mac by the review and on the PC,
+  // under Node 24.21.0 and the Node 24.21.0 of Electron 44.5.1). That fs takes this step on every
+  // call is a reading of Node, not measured; lib/fs.js holds no such call. This test shows the
+  // outcome on Windows: the look, the listing and the joined names are of one folder, the one
+  // beside the link.
   it.runIf(WINDOWS).each(FOLDER_LINKS)('on Windows a path that goes up from a %s link names the folder beside the link, not the one beside what the link leads to', (kind) => {
     const tree = join(dir, 'tree')
     const far = join(dir, 'far')
