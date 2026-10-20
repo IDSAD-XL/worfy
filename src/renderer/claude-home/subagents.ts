@@ -171,8 +171,11 @@ function noteRunning(root: string, sessionId: string, running: boolean): void {
   const reader = readers.get(keyOf(root, sessionId))
   if (reader === undefined || reader.live === running) return
   reader.live = running
+  // A Subagent that just ended may have written its transcript since the last read, and the file
+  // event may be lost: one more read, which then schedules (and stops the poll if nothing runs).
+  if (!running) refresh(root, sessionId)
   // While a read is under way, it schedules when it ends.
-  if (!reader.running) schedule(root, sessionId)
+  else if (!reader.running) schedule(root, sessionId)
 }
 
 function release(root: string, sessionId: string): void {

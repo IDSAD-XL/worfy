@@ -105,7 +105,7 @@ describe('useSubagentTrees: asking the files again while a Subagent runs', () =>
     act(() => useSessionLogs.setState(({ logs }) => ({ logs: { ...logs, [sessionId]: { events, first: 0, echo: null, queue: null, settings: null, modelPick: null, context: null } } })))
   }
 
-  it('asks again while only the live events show a running Subagent, and stops when it ends', async () => {
+  it('asks again every POLL_MS while only the live events show a running Subagent, once more when it ends, then stops', async () => {
     // Claude Code has not written the Session's files yet, and no change of them comes: a late
     // file event (FSEvents under load) must not leave the Subagent unopenable.
     filesOf = () => ({ signals: [], files: [], found: false })
@@ -116,12 +116,41 @@ describe('useSubagentTrees: asking the files again while a Subagent runs', () =>
 
     await act(async () => vi.advanceTimersByTime(store.POLL_MS))
     await vi.waitFor(() => expect(readsOf(A)).toBe(2))
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS))
+    await vi.waitFor(() => expect(readsOf(A)).toBe(3))
 
+    // The Subagent ends before the next tick: its transcript may have appeared since the last read,
+    // and its file event may be lost, so the files are read once more when it ends.
     await live(A, true)
     await vi.waitFor(() => expect(hook.result.current.get(A)?.[0]?.status).toBe('done'))
-    const reads = readsOf(A)
+    await vi.waitFor(() => expect(readsOf(A)).toBe(4))
     await act(async () => vi.advanceTimersByTime(store.POLL_MS * 3))
-    expect(readsOf(A)).toBe(reads)
+    expect(readsOf(A)).toBe(4)
+  })
+
+  it('stops asking when the hook unmounts while a Subagent runs', async () => {
+    filesOf = () => ({ signals: [], files: [], found: false })
+    await live(A, false)
+    const { hook, store } = await mount([A])
+    await vi.waitFor(() => expect(readsOf(A)).toBe(1))
+    await act(async () => vi.advanceTimersByTime(store.POLL_MS))
+    await vi.waitFor(() => expect(readsOf(A)).toBe(2))
+
+    await act(async () => hook.unmount())
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('asks again only for the Session whose live events show a running Subagent', async () => {
+    filesOf = () => ({ signals: [], files: [], found: false })
+    await live(A, false)
+    const { store } = await mount([A, B])
+    await vi.waitFor(() => expect(readsOf(A)).toBe(1))
+    await vi.waitFor(() => expect(readsOf(B)).toBe(1))
+    for (const reads of [2, 3, 4]) {
+      await act(async () => vi.advanceTimersByTime(store.POLL_MS))
+      await vi.waitFor(() => expect(readsOf(A)).toBe(reads))
+    }
+    expect(readsOf(B)).toBe(1)
   })
 
   it('does not ask again while no Subagent runs', async () => {
