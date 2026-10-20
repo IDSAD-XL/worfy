@@ -538,11 +538,12 @@ test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends
 })
 
 // worfy-browser ticket 11, debt of the second review round of PR #609: under the default referrer
-// policy (strict-origin-when-cross-origin) a link from an https page to an http address carries no
-// referrer when the address is not potentially trustworthy — a real http site — while an http
-// address on this machine (127.0.0.1) still gets the page's origin. What reaches main's handler
-// decides: the page's origin sends the page there, no referrer shows the Open bar.
-test('a target="_blank" link from an https page to an http site reaches main without a referrer and is offered in the Open bar; to http on this machine the page goes by itself', async () => {
+// policy (strict-origin-when-cross-origin) a link from an https page to an http address reaches
+// main's handler without a referrer — whether the address is a site on the net or 127.0.0.1, which
+// is potentially trustworthy (the first run of this test, 2026-10-20, expected the page's origin
+// for 127.0.0.1 and got none: Electron 44 strips it by the scheme alone). So the page does not go
+// there by itself, and the Open bar offers the address.
+test('a target="_blank" link from an https page to an http address, on the net or on this machine, reaches main without a referrer and is offered in the Open bar; Open sends the page there', async () => {
   const blankUrl = `${origin}/blank.html`
   const remote = 'http://worfy-e2e.invalid/next.html'
   const near = `${origin}/next.html`
@@ -570,7 +571,11 @@ test('a target="_blank" link from an https page to an http site reaches main wit
   await expect(bar).toBeHidden()
 
   await inGuest(secureUrl, "document.getElementById('near').click()")
-  await expect.poll(pageStates, { timeout: 15_000, message: 'the link to http on this machine opened in the same Browser' }).toEqual([[near, 'yes']])
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(near, { timeout: 15_000 })
+  await window.waitForTimeout(1_000)
+  expect(await pageStates(), 'the page did not go to http on this machine by itself').toEqual([[secureUrl, 'yes']])
+  await bar.getByRole('button', { name: 'Open' }).click()
+  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the http address' }).toEqual([[near, 'yes']])
   await expect(bar).toBeHidden()
   expect(await windowCount(), 'no new window').toBe(1)
 })
