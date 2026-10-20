@@ -163,7 +163,8 @@ describe('check-handoff', () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-check-handoff-')))
     dirs.push(dir)
     const config = join(dir, 'headings.json')
-    writeFileSync(config, JSON.stringify({ handoff: { sections: ENGLISH } }))
+    // Spaces around a name of the config are not part of it.
+    writeFileSync(config, JSON.stringify({ handoff: { sections: ENGLISH.map((title) => ` ${title}  `) } }))
     const english = check(good(ENGLISH), '\n', ['--headings', config])
     expect(english.stderr).toBe('')
     expect(english.status).toBe(0)

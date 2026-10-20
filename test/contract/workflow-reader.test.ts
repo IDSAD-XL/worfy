@@ -703,6 +703,14 @@ describe('workflow reader and the headings the Profile names', () => {
     expect(codeSection(markdown, '## Files (all)')).toEqual({ listed: true, files: ['src/b.ts'] })
     expect(codeSection(markdown, '## Files (.*)')).toEqual({ listed: false, files: [] })
   })
+
+  it('codeSection: a deeper heading stays in the section, a third-level Profile heading beside the old second-level one', () => {
+    const markdown = ['# t', '', '## Где в коде', '', '- `src/a.ts`', '', '### Tests', '', '- `test/a.test.ts`', '', '## Next', '', '- `src/no.ts`',
+      '', '### Fichiers', '', '- `src/b.ts`', '', '#### Détails', '', '- `src/c.ts`', '', '### Autre', '', '- `src/no2.ts`', ''].join('\n')
+    expect(codeSection(markdown, '### Fichiers')).toEqual({ listed: true, files: ['src/a.ts', 'test/a.test.ts', 'src/b.ts', 'src/c.ts'] })
+    // A second-level Profile heading is not met by a third-level one of the same text.
+    expect(codeSection(markdown, '## Fichiers').files).toEqual(['src/a.ts', 'test/a.test.ts'])
+  })
 })
 
 describe('workflow reader in Silent mode', () => {

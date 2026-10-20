@@ -20,47 +20,20 @@
 // print one line, `lessons: ok (…)`, and exit 0. A folder or a headings config that cannot be read exits 2.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { readCommandLine, SCRIPTS, stop, word } from './doc-headings.mjs'
 
 const LESSONS = 'docs/lessons'
 const PLACES = ['test/', 'harness/hooks/tests/', 'harness/bin/tests/', 'harness/evals/']
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-const args = process.argv.slice(2)
-const option = args.indexOf('--headings')
-const headingsPath = option === -1 ? join(HERE, 'doc-headings.json') : args[option + 1]
-if (option !== -1) args.splice(option, 2)
-if (headingsPath === undefined || args.length > 1) {
-  process.stderr.write('usage: check-lessons.mjs [--headings <file>] [<repo root>]\n')
-  process.exit(2)
+const { arg, config } = readCommandLine('check-lessons.mjs', 'repo root')
+const root = resolve(arg ?? join(SCRIPTS, '..'))
+const MARK = word(config.json?.lessons?.check)
+const GAP = word(config.json?.lessons?.no_check)
+if (MARK === undefined || GAP === undefined) {
+  stop(`${config.path}: lessons.check and lessons.no_check are non-empty strings, got ${JSON.stringify(config.json?.lessons)}`)
 }
-const root = resolve(args[0] ?? join(HERE, '..'))
-
 const message = (error) => (error instanceof Error ? error.message : String(error))
-const { MARK, GAP } = (() => {
-  let config
-  try {
-    config = readFileSync(headingsPath, 'utf8')
-  } catch (error) {
-    process.stderr.write(`${headingsPath}: the headings config cannot be read: ${message(error)}\n`)
-    process.exit(2)
-  }
-  try {
-    config = JSON.parse(config)
-  } catch (error) {
-    process.stderr.write(`${headingsPath}: the headings config is not JSON: ${message(error)}\n`)
-    process.exit(2)
-  }
-  const words = config?.lessons
-  const word = (value) => typeof value === 'string' && value.trim() !== ''
-  if (!word(words?.check) || !word(words?.no_check)) {
-    process.stderr.write(`${headingsPath}: lessons.check and lessons.no_check are non-empty strings, got ${JSON.stringify(words)}\n`)
-    process.exit(2)
-  }
-  return { MARK: words.check.trim(), GAP: words.no_check.trim() }
-})()
 
 let files
 try {

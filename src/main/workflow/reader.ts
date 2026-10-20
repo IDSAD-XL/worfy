@@ -16,7 +16,7 @@ import { execFile } from 'node:child_process'
 import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { join, resolve } from 'node:path'
-import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, headingMatch, OLD_DOC_HEADINGS, type DocHeadings } from '../../shared/workflow/doc-headings'
+import { accepted, DEFAULT_DOC_HEADINGS, docHeadings, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from '../../shared/workflow/doc-headings'
 import { manualChecks } from '../../shared/workflow/manual-checks'
 import { versionOf } from '../docs/watch'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
@@ -187,8 +187,7 @@ const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+/
  * inside code fences don't count.
  */
 export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEADINGS.trailSection): { listed: boolean; files: string[] } {
-  const trail = headingMatch(accepted(heading, OLD_DOC_HEADINGS.trailSection))
-  const sectionEnd = new RegExp(`^#{1,${trail.level}}\\s`)
+  const trail = sectionHeadings(accepted(heading, OLD_DOC_HEADINGS.trailSection))
   let inFence = false
   let inSection = false
   let listed = false
@@ -200,8 +199,9 @@ export function codeSection(markdown: string, heading: string = DEFAULT_DOC_HEAD
       continue
     }
     if (inFence) continue
-    if (sectionEnd.test(line)) {
-      inSection = trail.test(line)
+    const at = trail.at(line)
+    if (at !== null) {
+      inSection = at
       if (inSection) listed = true
       continue
     }

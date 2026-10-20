@@ -131,7 +131,8 @@ describe('check-lessons', () => {
       `# Topic\n\n${lesson('Linked', 'Check: test/guard.txt:2 — the second line')}\n${lesson('A gap', 'Check: no check: nothing runs it')}\n${lesson('The repository\'s word', `${MARK} test/guard.txt:1`)}`,
     )
     const config = join(root, 'headings.json')
-    writeFileSync(config, JSON.stringify({ lessons: { check: 'Check:', no_check: 'no check:' } }))
+    // Spaces around a word of the config are not part of it.
+    writeFileSync(config, JSON.stringify({ lessons: { check: '  Check: ', no_check: ' no check:  ' } }))
     const { status, stderr } = run(root, ['--headings', config])
     expect(status).toBe(1)
     expect(violations(stderr)).toEqual([`${LESSONS}:11: "The repository's word": no "Check:" line — "Check: <path>:<line>" of a test, a hook test or an eval case, or "Check: no check: <reason>"`])
@@ -146,6 +147,9 @@ describe('check-lessons', () => {
     ['a file that is not JSON', '[', 'is not JSON'],
     ['no lessons words', '{"handoff":{"sections":["Now"]}}', 'lessons.check and lessons.no_check are non-empty strings'],
     ['a blank mark', '{"lessons":{"check":" ","no_check":"no check:"}}', 'lessons.check and lessons.no_check are non-empty strings'],
+    ['no no_check', '{"lessons":{"check":"Check:"}}', 'lessons.check and lessons.no_check are non-empty strings'],
+    ['an empty no_check', '{"lessons":{"check":"Check:","no_check":""}}', 'lessons.check and lessons.no_check are non-empty strings'],
+    ['a no_check that is not a string', '{"lessons":{"check":"Check:","no_check":5}}', 'lessons.check and lessons.no_check are non-empty strings'],
   ])('exits 2 when the headings config is %s', (_case, text, message) => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-check-lessons-')))
     dirs.push(dir)

@@ -86,4 +86,11 @@ describe('manual checks named by the Profile', () => {
     expect(manualChecks(markdown, headings)).toEqual([{ text: 'yes', checked: false }])
     expect(manualChecks(['## Done when?', '', '- [ ] (by hand.) no'].join('\n'), headings)).toEqual([])
   })
+
+  it('keeps reading the section past a deeper heading, and reads a third-level Profile heading beside the old one', () => {
+    const headings = docHeadings({ doneSection: '### Fini quand', manualMark: 'à la main' })
+    const markdown = ['## Готово, когда', '', '- [ ] (вручную) old', '', '### Stable copy', '', '- [ ] (à la main) under a sub-heading', '', '## Тесты', '', '- [ ] (вручную) no',
+      '', '### Fini quand', '', '- [ ] (à la main) new', '', '#### Détails', '', '- [ ] (à la main) deeper', '', '### Autre', '', '- [ ] (à la main) no'].join('\n')
+    expect(manualChecks(markdown, headings).map((check) => check.text)).toEqual(['old', 'under a sub-heading', 'new', 'deeper'])
+  })
 })

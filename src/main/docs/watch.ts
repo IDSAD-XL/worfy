@@ -285,7 +285,12 @@ export class DocsWatcher {
    */
   private failing = false
 
-  private constructor(private readonly options: DocsWatchOptions) {}
+  /** The label of the ADRs' status line every read uses: the Profile's, changed by `relabel`. */
+  private label: string | undefined
+
+  private constructor(private readonly options: DocsWatchOptions) {
+    this.label = options.adrStatusLabel
+  }
 
   /** Starts watching, then reads; resolves once the first read is done. No `onChange` before that. */
   static async start(options: DocsWatchOptions): Promise<DocsWatcher> {
@@ -301,7 +306,18 @@ export class DocsWatcher {
   }
 
   private readOptions(): DocOptions {
-    return this.options.adrStatusLabel === undefined ? {} : { adrStatusLabel: this.options.adrStatusLabel }
+    return this.label === undefined ? {} : { adrStatusLabel: this.label }
+  }
+
+  /**
+   * Takes the Profile's label of the ADRs' status line; another one than before reads the documents
+   * again (`onChange` when that changes them) and resolves after that read. The same one reads nothing.
+   */
+  async relabel(adrStatusLabel: string | undefined): Promise<void> {
+    if (adrStatusLabel === this.label || this.closed) return
+    this.label = adrStatusLabel
+    this.request()
+    await this.running
   }
 
   get current(): Docs {
@@ -483,10 +499,12 @@ export class DocsHub {
 
   /**
    * Starts watching the Project at `root` for `subscriber` (once per subscriber) and returns its
-   * state. `adrStatusLabel` is that of the Profile; the watcher keeps the one it was started with.
+   * state. `adrStatusLabel` is that of the Profile: an open with another one than the watcher has
+   * reads the documents again with it, for every subscriber.
    */
   async open(projectId: string, root: string, subscriber: DocsSubscriber, adrStatusLabel?: string): Promise<DocsState> {
     let project = this.open_.get(projectId)
+    const fresh = !project
     if (!project) {
       const subscribers = new Map<number | string, DocsSubscriber>()
       const watcher = DocsWatcher.start({
@@ -509,7 +527,9 @@ export class DocsHub {
       )
     }
     project.subscribers.set(subscriber.id, subscriber)
-    return { projectId, ...(await project.watcher).current }
+    const watcher = await project.watcher
+    if (!fresh) await watcher.relabel(adrStatusLabel)
+    return { projectId, ...watcher.current }
   }
 
   /** Ends `subscriberId`'s interest in the Project; false when it was not subscribed. */

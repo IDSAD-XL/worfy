@@ -48,20 +48,27 @@ export function accepted(value: string, old: string): string[] {
 }
 
 /**
- * A section heading as a test of a line: `## Where in code` matches `##   Where in code  `. The
- * level is the number of `#` the value starts with; a value without any is a second-level heading.
+ * Follows the headings of a document for one section. `at(line)` is null for a line that is not a
+ * heading; for a heading it says whether the lines after it lie in the section. The section starts at
+ * a heading that is one of `values` — `## Where in code` matches `##   Where in code  `, of exactly that
+ * level (the number of `#` the value starts with; a value without any is a second-level heading) — and
+ * ends at the next heading of its own level or above. A deeper heading inside it does not end it.
  */
-export interface HeadingMatch {
-  level: number
-  test: (line: string) => boolean
-}
-
-export function headingMatch(values: readonly string[]): HeadingMatch {
-  const parsed = values.map((value) => {
+export function sectionHeadings(values: readonly string[]): { at: (line: string) => boolean | null } {
+  const patterns = values.map((value) => {
     const match = /^(#{1,6})[ \t]+(.*?)[ \t]*$/u.exec(value.trim())
-    return match ? { level: match[1]!.length, text: match[2]! } : { level: 2, text: value.trim() }
+    const [level, text] = match ? [match[1]!.length, match[2]!] : [2, value.trim()]
+    return new RegExp(`^#{${level}}\\s+${escapeRegExp(text)}\\s*$`, 'u')
   })
-  const level = Math.max(...parsed.map((each) => each.level))
-  const patterns = parsed.map((each) => new RegExp(`^#{${each.level}}\\s+${escapeRegExp(each.text)}\\s*$`, 'u'))
-  return { level, test: (line) => patterns.some((pattern) => pattern.test(line)) }
+  let open: number | null = null // the level of the heading that opened the section
+  return {
+    at: (line) => {
+      const heading = /^(#{1,6})\s/.exec(line)
+      if (!heading) return null
+      const level = heading[1]!.length
+      if (open !== null && level > open) return true
+      open = patterns.some((pattern) => pattern.test(line)) ? level : null
+      return open !== null
+    },
+  }
 }

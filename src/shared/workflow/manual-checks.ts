@@ -2,7 +2,7 @@
 // Profile, `## Done when` by default) that a person ticks off, marked `(<mark>)` right after the
 // checkbox (`tickets.manual_mark`, `manual` by default). worfy only reads them (ADR-0002): an item is
 // ticked by editing the Ticket file, never from worfy.
-import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, headingMatch, OLD_DOC_HEADINGS, type DocHeadings } from './doc-headings'
+import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS, sectionHeadings, type DocHeadings } from './doc-headings'
 import type { ManualCheck } from './types'
 
 const FENCE = /^\s*(```|~~~)/
@@ -20,8 +20,7 @@ function manualItem(marks: readonly string[]): RegExp {
  * Other sections, items where the mark is not the first word and code fences are not read.
  */
 export function manualChecks(markdown: string, headings: Pick<DocHeadings, 'doneSection' | 'manualMark'> = DEFAULT_DOC_HEADINGS): ManualCheck[] {
-  const done = headingMatch(accepted(headings.doneSection, OLD_DOC_HEADINGS.doneSection))
-  const sectionEnd = new RegExp(`^#{1,${done.level}}\\s`)
+  const done = sectionHeadings(accepted(headings.doneSection, OLD_DOC_HEADINGS.doneSection))
   const manualItemOf = manualItem(accepted(headings.manualMark, OLD_DOC_HEADINGS.manualMark))
   const checks: ManualCheck[] = []
   let inFence = false
@@ -41,7 +40,7 @@ export function manualChecks(markdown: string, headings: Pick<DocHeadings, 'done
     if (inFence) continue
     if (/^#{1,6}\s/.test(line)) {
       close()
-      if (sectionEnd.test(line)) inSection = done.test(line)
+      inSection = done.at(line) ?? inSection
       continue
     }
     if (!inSection) continue

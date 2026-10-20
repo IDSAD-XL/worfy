@@ -16,49 +16,22 @@
 
 import { Buffer } from 'node:buffer'
 import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { readCommandLine, SCRIPTS, stop, word } from './doc-headings.mjs'
 
 const MAX_LINES = 150
 const MAX_BYTES = 15360
 const MAX_LINE_CHARS = 300
-const HERE = dirname(fileURLToPath(import.meta.url))
-
-const args = process.argv.slice(2)
-const option = args.indexOf('--headings')
-const headingsPath = option === -1 ? join(HERE, 'doc-headings.json') : args[option + 1]
-if (option !== -1) args.splice(option, 2)
-if (headingsPath === undefined || args.length > 1) {
-  process.stderr.write('usage: check-handoff.mjs [--headings <file>] [<path>]\n')
-  process.exit(2)
-}
-const arg = args[0]
-const path = arg ?? join(HERE, '..', 'HANDOFF.md')
+const { arg, config } = readCommandLine('check-handoff.mjs', 'path')
+const path = arg ?? join(SCRIPTS, '..', 'HANDOFF.md')
 const name = arg ?? 'HANDOFF.md'
-
+const given = config.json?.handoff?.sections
+const SECTIONS = Array.isArray(given) ? given.map(word) : []
+if (SECTIONS.length === 0 || SECTIONS.includes(undefined)) {
+  stop(`${config.path}: handoff.sections is a list of section names, got ${JSON.stringify(given)}`)
+}
 const message = (error) => (error instanceof Error ? error.message : String(error))
-const SECTIONS = (() => {
-  let config
-  try {
-    config = readFileSync(headingsPath, 'utf8')
-  } catch (error) {
-    process.stderr.write(`${headingsPath}: the headings config cannot be read: ${message(error)}\n`)
-    process.exit(2)
-  }
-  try {
-    config = JSON.parse(config)
-  } catch (error) {
-    process.stderr.write(`${headingsPath}: the headings config is not JSON: ${message(error)}\n`)
-    process.exit(2)
-  }
-  const sections = config?.handoff?.sections
-  if (!Array.isArray(sections) || sections.length === 0 || !sections.every((s) => typeof s === 'string' && s.trim() !== '')) {
-    process.stderr.write(`${headingsPath}: handoff.sections is a list of section names, got ${JSON.stringify(sections)}\n`)
-    process.exit(2)
-  }
-  return sections.map((s) => s.trim())
-})()
 
 let buffer
 try {
