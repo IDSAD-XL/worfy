@@ -24,17 +24,24 @@ const TEAM_KINDS: ReadonlySet<StageKind> = new Set(['human-review', 'awaiting-me
 
 const CHECK_NAME = /^[a-z0-9][a-z0-9-]*$/u
 
-/** One Stage of `workflow.pipeline`, as `bin/profile` resolves it into `_resolved.pipeline`. */
+/** A string with something besides white space in it, as the Harness checks `label` and `environment`. */
+const nonBlank = (message: string) => z.string().refine((text) => text.trim() !== '', { message })
+
+/**
+ * One Stage of `workflow.pipeline`, as `bin/profile` resolves it into `_resolved.pipeline`. Each field
+ * follows the rule of the Harness (harness/lib/pipeline.cjs), so the Pipeline editor in Settings
+ * refuses what `bin/profile-set` would refuse.
+ */
 export const pipelineStageSchema = z.object({
   kind: stageKindSchema,
   /** `check` only, required there: the mark `check/<name>` the Stage waits for. */
-  name: z.string().regex(CHECK_NAME).optional(),
+  name: z.string().regex(CHECK_NAME, 'lower case letters, digits and dashes').optional(),
   /** The Stage's name on the board, instead of the catalogue's. */
-  label: z.string().min(1).optional(),
-  /** `<number>h` or `<number>m`: how long a Ticket may stay before it counts as stuck (stuckAfterMs). */
-  stuck_after: z.string().regex(/^\d+[hm]$/u).optional(),
+  label: nonBlank('a label is not empty').optional(),
+  /** `<number>h` or `<number>m`, the number from 1: how long a Ticket may stay before it counts as stuck (stuckAfterMs). */
+  stuck_after: z.string().regex(/^[1-9]\d*[hm]$/u, 'a number from 1 and h or m, e.g. 2h or 30m').optional(),
   /** `deploy` only: the GitHub Deployment environment; without it the Stage waits for the commit status `deploy`. */
-  environment: z.string().min(1).optional(),
+  environment: nonBlank('an environment is not empty').optional(),
 })
 export type PipelineStage = z.infer<typeof pipelineStageSchema>
 
