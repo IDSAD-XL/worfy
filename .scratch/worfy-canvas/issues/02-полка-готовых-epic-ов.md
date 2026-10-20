@@ -65,3 +65,9 @@ Source: [spec.md](../spec.md), решение владельца 3;
 ## Итог
 
 Заполняется при закрытии.
+
+- Заметка ревью PR #554, круг 1. На настоящем Project-е (worfy-week 20/20) полка может уйти за экран
+  после того, как развернулась большая рамка. Причина: полка стоит под высотой каждой колонки с
+  открытыми стопками done, а React Flow не рисует Node-ы вне видимой области
+  (`onlyRenderVisibleElements`, `src/renderer/canvas/Canvas.tsx:543`). Поэтому e2e
+  `test/e2e/done-shelf.spec.ts` берёт worfy-week 12/12 и камеру с zoom 0.2.
