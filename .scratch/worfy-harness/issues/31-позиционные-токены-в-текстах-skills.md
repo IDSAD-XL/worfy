@@ -1,7 +1,7 @@
 # 31 — `$0` и `$1` в shell-блоках skills подменяются аргументами вызова skill-а
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T08:46Z
 Blocked by:
 Source: Wave 2 Epic-а `worfy-review` (2026-10-10): Implementer Ticket-а 02 увидел в загруженном тексте `/worfy:ship-ticket` строки `--field "02"` и `substr(worfy-review,10)`; Orchestrator нашёл то же в транскрипте своей Session для `/worfy:epic-wave`.
 
