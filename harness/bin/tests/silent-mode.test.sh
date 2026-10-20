@@ -165,6 +165,16 @@ git -C "$R" reset -q --soft HEAD~1 && git -C "$R" rm -rq --cached z.ts .scratch 
 out="$("$SC" -C "$FR" "Ticket 05, ADR-0042, .scratch/, HANDOFF, Co-Authored-By: Claude" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$out" == *"Full mode, attribution on"* ]] && ok "silent-check in a Full project with attribution on checks nothing" \
     || bad "silent-check full: exit $rc, out: ${out:0:200}"
+# A broken lib/input-words.json: a copy of silent-check next to it (profile and ticket of this Harness). The Full
+# project is not affected; the Silent one is exit 2, which the Bash guard takes as a failed check and refuses.
+BW="$T/broken-words"; mkdir -p "$BW/bin" "$BW/hooks" "$BW/lib"
+cp "$BIN/silent-check" "$BW/bin/" && cp "$HOOKS/eval-env.cjs" "$BW/hooks/" && printf '{ "ticketWord": [\n' >"$BW/lib/input-words.json"
+out="$(CLAUDE_PROFILE_BIN="$BIN/profile" CLAUDE_TICKET_BIN="$BIN/ticket" node "$BW/bin/silent-check" -C "$FR" "Ticket 05" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [[ "$out" == *"Full mode, attribution on"* ]] && ok "broken input words: a Full project still checks nothing, exit 0" \
+    || bad "broken input words, Full: exit $rc, out: ${out:0:300}"
+out="$(printf 'Fix it\n' | CLAUDE_PROFILE_BIN="$BIN/profile" CLAUDE_TICKET_BIN="$BIN/ticket" node "$BW/bin/silent-check" -C "$R" 2>&1)"; rc=$?
+[ "$rc" -eq 2 ] && [[ "$out" == *"input words not read (lib/input-words.json)"* ]] && ok "broken input words: a Silent project fails closed, exit 2 with the reason" \
+    || bad "broken input words, Silent: exit $rc, out: ${out:0:300}"
 out="$("$SC" -C "$WF" "Ticket 05" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "silent-check in the Workflow folder (not a project repository) checks nothing" || bad "silent-check in WF: exit $rc, out: ${out:0:200}"
 # A Workflow folder under the home folder is also a trace in its ~/… spelling. WF above is not under

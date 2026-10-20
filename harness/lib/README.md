@@ -17,4 +17,5 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 
   A word is matched as a whole word, as written: list each spelling (capital letter, ending) that should
   count. Adding a language is a change of this file only. The words are the only text in another
-  language that the scripts of `bin/` and `hooks/` read.
+  language that the scripts of `bin/` and `hooks/` read, apart from the one-release shims marked
+  `shortcut: accepts the old Russian token`.

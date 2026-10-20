@@ -260,6 +260,20 @@ else bad "two packages: rc=$rc, out: ${out:0:300}"; fi
 k_cache="$(cd "$STATE/cache" && ls | grep "^k__$(tag "$K")__" | tr '\n' ' ')"
 if [[ "$k_cache" == "k__$(tag "$K")__.__fast__"*" " ]] && [[ "$k_cache" != *"__packages_a__"* ]]; then ok "two packages, the second fails: the root that passed is cached, packages/a is not"
 else bad "two packages, the second fails: cache entries of k: ${k_cache:-none}"; fi
+# The next run with an npm that passes: the root comes from the cache, packages/a runs. The green line
+# names the scripts that ran and, after them, the ones the cache answered for.
+mkdir -p "$T/npmok"
+if [ "$WIN" -eq 1 ]; then
+    printf '@echo off\r\nexit /b 0\r\n' >"$T/npmok/npm.cmd"
+    npmok="$(cygpath -u "$T/npmok"):$PATH"
+else
+    printf '#!/bin/sh\nexit 0\n' >"$T/npmok/npm"
+    chmod +x "$T/npmok/npm"
+    npmok="$T/npmok:$PATH"
+fi
+out="$(cd "$K" && PATH="$npmok" GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green (fast): k/packages/a:check (cache: k/.:check)"* ]]; then ok "one package from the cache, one run: the «[gate] green (fast): … (cache: …)» line"
+else bad "one package from the cache, one run: rc=$rc, out: ${out:0:300}"; fi
 # A package manager that is there but cannot be started has checked nothing: that is not a
 # script that passed.
 echo 1 >"$N/n.txt"
@@ -278,6 +292,9 @@ verdict "environment unavailable: the reason ends with the words of the script, 
 um="$STATE/unverified-t-$(tag "$R")"
 if [ -s "$um" ] && ! grep -q "$(printf '\r')" "$um" && [[ "$out" != *"$(printf '\r')"* ]]; then ok "environment unavailable: no carriage return in the marker or in the lines of the gate"
 else bad "a carriage return in the marker or the output (marker: $(od -c "$um" 2>/dev/null | head -n 5 | tr '\n' ' '))"; fi
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] not verified — environment unavailable:"* && "$out" == *"This is not a green result."* && "$out" != *"[gate] green"* ]]; then
+    ok "environment unavailable: exit 0 and the English «[gate] not verified — environment unavailable:» line"
+else bad "environment unavailable: the «not verified — environment unavailable» line expected (rc=$rc, out: ${out:0:300})"; fi
 # cmd.exe names a missing tool in its own words. They are a sign of a missing environment on
 # Windows only: elsewhere no shell says them, and a failed script that prints them has failed.
 mode envbad-cmd; touched
@@ -509,10 +526,24 @@ out="$(cd "$Q" && node "$GATE" fast </dev/null 2>&1)"; rc=$?
 verdict "no changes from the merge-base -> outcome none, exit 0, key q" "$Q" '.outcome == "none" and .exit == 0 and .key == "q"'
 if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (fast): no changes relative to the merge-base "*" with "*". This is not green."* ]]; then ok "no changes: exit 0 and the English «[gate] nothing ran (fast)» line"
 else bad "no changes: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
+# The registry names no script of the profile full for q: the resolver plans no package.
 out="$(cd "$Q" && GATE_SCOPE=all node "$GATE" full </dev/null 2>&1)"; rc=$?
-verdict "no scripts of the profile -> outcome none, exit 0, profile full" "$Q" '.outcome == "none" and .exit == 0 and .profile == "full"'
-if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (full): "*". This is not green."* ]]; then ok "nothing to run in the full scope: exit 0 and the English «[gate] nothing ran (full)» line"
-else bad "nothing to run in the full scope: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
+verdict "a profile with no script for the repository -> outcome none, exit 0, profile full" "$Q" '.outcome == "none" and .exit == 0 and .profile == "full"'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (full): the changes touch no checked package. This is not green."* ]]; then ok "no package in the plan: exit 0 and the English «[gate] nothing ran (full): the changes touch no checked package» line"
+else bad "no package in the plan: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
+# A package in the plan with no script of the profile (a resolver that gives the root with an empty list of
+# scripts): the gate checks nothing and says so.
+cat >"$T/plan-noscripts.mjs" <<EOF
+import { spawnSync } from "node:child_process"
+if (process.argv[2] !== "--which") { process.stdout.write(".\t\t\n"); process.exit(0) }
+const r = spawnSync(process.execPath, [process.env.REAL_RESOLVE, ...process.argv.slice(2)], { stdio: "inherit" })
+process.exit(r.status ?? 1)
+EOF
+out="$(cd "$Q" && GATE_SCOPE=all REAL_RESOLVE="$REAL_RESOLVE" CLAUDE_GATE_RESOLVE="$T/plan-noscripts.mjs" node "$GATE" fast </dev/null 2>&1)"; rc=$?
+verdict "a package with no script of the profile -> outcome none, exit 0, the reason says so" "$Q" \
+    '.outcome == "none" and .exit == 0 and .reason == "the selected packages have no scripts of the profile"'
+if [ "$rc" -eq 0 ] && [[ "$out" == *"[gate] nothing ran (fast): the selected packages have no scripts of the profile. This is not green."* ]]; then ok "a package with no script of the profile: exit 0 and the English «[gate] nothing ran (fast)» line"
+else bad "a package with no script of the profile: the «nothing ran» line expected (rc=$rc, out: ${out:0:300})"; fi
 
 # --- 8. A path with a space, quotes and a backslash ----------------------------------
 out="$(cd "$W" && GATE_SCOPE=all node "$GATE" fast </dev/null 2>&1)"; rc=$?

@@ -836,7 +836,9 @@ CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `
 ran on them, it was not `skipped`. **With no `check` Stage in the Pipeline** the marks cannot tell
 them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project's rules
 send to another platform's verdict — and each of them merges the old way only after that verdict on
-its head (the other platform's gate full: exit code 0 and the line `[gate] green (…)`). They and the PRs with the label `F cross_machine_gate.label` stay out of the
+its head (the other platform's gate full: exit code 0 and the line `[gate] green (…)`; a gate of the
+release before prints the same line with a Russian word in place of `green`: the same verdict, for one
+release). They and the PRs with the label `F cross_machine_gate.label` stay out of the
 set, and so do the PRs `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a
 red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head
 (with no `check` Stage — plus the other platform's verdict for a platform PR). A PR

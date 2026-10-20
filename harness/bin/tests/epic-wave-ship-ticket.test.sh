@@ -192,6 +192,8 @@ check "epic-wave: gate exit code 0 without the green line is not a check" \
     bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1" && grep -qF "$4" "$1"' _ "$EW" \
     'The gate is green only with `EXIT=0` **and** the line `[gate] green (fast): …` in the output:' \
     'exit code 0 without it means `[gate] nothing ran (…)`' 'and that is not a check'
+check "epic-wave: both verdicts of the other platform take the green line of a gate of the release before" \
+    bash -c '[ "$(tr -s " \n" " " <"$1" | grep -o "prints the same line with a Russian word in place of \`green\`" | wc -l)" -eq 2 ]' _ "$EW"
 check "ship-ticket: gate exit code 0 is green only with the English green line" \
     bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1"' _ "$ST" \
     'Gate exit codes: `0` — green, only if the output has the line `[gate] green (…)`' 'line `[gate] not verified: …` names the reason'

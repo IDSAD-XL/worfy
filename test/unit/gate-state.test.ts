@@ -144,6 +144,8 @@ describe('lastGateOutcome', () => {
     ['[gate] not verified: node not found', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден', 'unverified'],
     ['[gate] not verified — environment unavailable:', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:', 'unverified'],
     ['[gate] not verified: x\r\n[gate] green (full): a\r', '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: x\r\n[gate] зелено (full): a\r', 'green'],
+    // A bare verdict word at the end of a CRLF line (output of a Windows tool).
+    ['[gate] green (fast): a\r\n[gate] red\r\n', '[gate] зелено (fast): a\r\n[gate] красно\r\n', 'red'],
   ])('new %j and old %j → %s', (now, before, outcome) => {
     expect(lastGateOutcome(now)).toBe(outcome)
     expect(lastGateOutcome(before)).toBe(outcome)

@@ -36,6 +36,8 @@ STUBS="$T/stubs"; mkdir -p "$STUBS"
 # kills wave-gate (its parent) with that file's signal; $GATE_DIR/sleep — seconds to sleep; $GATE_DIR/lockwatch —
 # records the mtime of $GATE_LOCK at the start and at the end of the run; the holder.json of $GATE_LOCK during the
 # run is copied to $GATE_DIR/holder.<n>.json; $GATE_DIR/takeover — a script run first, as another agent would.
+# $GATE_DIR/fastgreen — a green line of the fast profile with exit 0; $GATE_DIR/midred — red once, with a line that
+# mentions a red verdict in its middle before the red line; $GATE_DIR/words — a script that sets the verdict words.
 cat >"$STUBS/gate" <<'EOF'
 #!/usr/bin/env bash
 # Builtins where a subshell would do: every fork costs tens of milliseconds in Git Bash, and the stub runs often.
@@ -64,6 +66,7 @@ fi
 # shortcut: accepts the old Russian token, remove after the next release
 if [ -f "$GATE_DIR/old" ]; then green="[gate] зелено"; red="[gate] красно"; passed="прошло"; none="[gate] ничего не прогналось"; unv="[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"
 else green="[gate] green"; red="[gate] red"; passed="passed"; none="[gate] nothing ran"; unv="[gate] not verified"; fi
+[ -f "$GATE_DIR/words" ] && . "$GATE_DIR/words"
 [ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
 # $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
 # locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
@@ -80,6 +83,9 @@ if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="$
     echo "  36 failed"; echo "  4 passed (19.8m)"; echo " ELIFECYCLE  Command failed with exit code 1."; } >&2; exit 2; fi
 if [ -f "$GATE_DIR/unitonce" ]; then rm -f "$GATE_DIR/unitonce"
   echo "$red (full): worfy/.:test ($passed: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+if [ -f "$GATE_DIR/fastgreen" ]; then echo "$green (fast): lint"; exit 0; fi
+if [ -f "$GATE_DIR/midred" ]; then rm -f "$GATE_DIR/midred"
+  echo "  > echo \"$red (x): bogus\"" >&2; echo "$red (full): test ($passed: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
 if [ -f "$GATE_DIR/code3" ]; then echo "$unv: stub" >&2; exit 3; fi
 if [ -f "$GATE_DIR/none" ]; then echo "$none (full): stub. This is not green."; exit 0; fi
 if [ -f "$GATE_DIR/redonce" ]; then rm -f "$GATE_DIR/redonce"
@@ -360,6 +366,42 @@ new_world oldnone 1:a.txt
 S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old" "$GATE_DIR/none"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && ok "old gate: the Russian «nothing ran» line is not green" || bad "old gate none: exit $rc status $(q "$S" s.status 2>&1)"
+
+# --- what the verdict lines must hold to count ------------------------------------------------
+# A green line of another profile is not the green of `gate full`.
+new_world fastgreen 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/fastgreen"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && ok "a green line of the fast profile with exit 0 is unverified, not green" || bad "fast green: exit $rc status $(q "$S" s.status 2>&1)"
+# A line that mentions a red verdict in its middle is not the red line of the gate.
+new_world midred 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/midred"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.flaky.scripts.join(" ")')" = test ] \
+    && ok "the failed scripts come from the line that starts with the red verdict, not from a line that mentions it" || bad "mid-line red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
+# The words wave-gate reads are the words harness/hooks/gate.mjs prints: the stub prints lines built from the
+# literals of gate.mjs, so a word renamed there and not here turns these checks red.
+GATE_MJS="${GATE_MJS:-$HARNESS/hooks/gate.mjs}"
+words="$(node -e '
+const s = require("fs").readFileSync(process.argv[1], "utf8")
+const g = s.match(/say\("\[gate\] ([^"(]+?) \(" \+ PROFILE \+ "\):" \+ ran\)/)
+const r = s.match(/complain\("\[gate\] ([^"(]+?) \(" \+ PROFILE \+ "\):" \+ failedLabels/)
+const p = s.match(/" \(([^":(]+):" \+ ran \+ "\)"/)
+if (!g || !r || !p) process.exit(1)
+process.stdout.write([g[1], r[1], p[1]].join("\n") + "\n")' "$GATE_MJS" | tr -d '\r')"; rc=$?
+{ read -r GW; read -r RW; read -r PW; } <<<"$words"
+[ "$rc" -eq 0 ] && [ -n "$GW" ] && [ -n "$RW" ] && [ -n "$PW" ] && ok "gate.mjs: the green, red and passed words are found ($GW, $RW, $PW)" || bad "gate.mjs: words not found (exit $rc): $words"
+new_world gatewords 1:a.txt
+printf 'green=%q; red=%q; passed=%q\n' "[gate] $GW" "[gate] $RW" "$PW" >"$GATE_DIR/words"
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "gate.mjs words: its green line of gate full is green" || bad "gate.mjs green: exit $rc status $(q "$S" s.status 2>&1): $(cat "$W/out")"
+new_world gatewordsred 1:a.txt
+printf 'green=%q; red=%q; passed=%q\n' "[gate] $GW" "[gate] $RW" "$PW" >"$GATE_DIR/words"; touch "$GATE_DIR/redonce"
+S="$W/state.json"; state "$S" null 1
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" 's.flaky.scripts.join(" ")')" = test:e2e ] \
+    && ok "gate.mjs words: the failed scripts are read from its red line, without the passed ones" || bad "gate.mjs red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
 
 # --- resume: a run broken off after the first gate full ----------------------------------
 new_world resume 1:a.txt 2:b.txt 3:RED 4:d.txt 5:e.txt
