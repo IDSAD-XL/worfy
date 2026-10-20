@@ -1,7 +1,9 @@
 # 49 — Heartbeat замка e2e в блоке gate full одного PR не выходит, когда замка уже нет
 
 Type: bug
-Status: open
+Status: done 2026-10-20T07:59Z
+PR: #559
+Branch: worfy-harness/49
 Blocked by: —
 Source: Session на Mac 2026-10-18 — 8 осиротевших heartbeat-процессов на Mac (временные замки
 test-ов, сняты руками); первый круг ревью PR #497 на Mac ([комментарий](https://github.com/IDSAD-XL/worfy/pull/497#issuecomment-6252102036),
@@ -76,3 +78,28 @@ test-ов, сняты руками); первый круг ревью PR #497 н
 
 - Test с `kill -9` оставит процесс, если правка не сработала: test должен сам убить оставшийся
   heartbeat по pid в конце.
+
+## Итог
+
+PR #559, merge 460e3ed6. Платформенный PR (harness/skills, scripts): Mac gate full зелёный; на
+объединённом дереве `harness-scripts` 44/44, `plugin-neutral` 26/26. Windows — со второго прогона
+(первый: zsh-case-ы шли без проверки, что zsh есть; в Git Bash его нет).
+
+- Heartbeat замка e2e кончается, когда замка нет: `[ -d "$L" ] || exit 0; touch -c "$L"` — в блоке
+  gate full одного PR (`harness/skills/epic-wave/SKILL.md`) и в `lock_run` `scripts/e3-sandbox.sh` (там
+  ещё убран простой `touch`, который делал обычный файл на месте папки замка).
+- Trap не оставляет `sleep` heartbeat-а: `kill -STOP $HB`, ожидание до 2 s, пока `ps -o stat=` не
+  покажет остановку, затем `pkill -P $HB; kill -KILL $HB; kill -CONT $HB; wait $HB`. Замер: 0/400
+  оставленных `sleep` в bash, zsh и sh. Отвергнут heartbeat, который сам владеет своим `sleep`: 19/400 в
+  bash, а `/bin/sh` macOS зависал.
+- Откуда на самом деле брались сироты `sleep 300`: `e3-sandbox.sh lock-run` (3 на каждый прогон
+  `test/contract/e3-sandbox.test.ts`) и shell-ы, убитые `kill -9`. Гонка в старом trap на этой машине не
+  воспроизвелась.
+- Test-ы: новый `harness/bin/tests/wave-gate-heartbeat.test.sh` (свой бюджет времени, ~6 s): живой
+  замок, `kill -9` блока (красный на main), bash и zsh; zsh пропускается с причиной на Windows или без
+  zsh, а на macOS пропуск — FAIL. `wave-gate.test.sh` вернулся к 74 s.
+- Строка для Profile владельца (e2e-замок в `rules.md`) — в описании PR, вносит владелец.
+- Хвосты: детерминированный test ожидания остановки (stub `ps`: S, S, T); `|| true` после `sleep 0.01`
+  в trap `e3-sandbox.sh`; zsh-case-ы в `wave-gate.test.sh` (около 778, 830) без `command -v zsh`;
+  `rmdir` в trap `e3-sandbox.sh` без проверки владельца замка. На Windows: у `ps` нет `-o`, нет `pkill` —
+  заметка в worfy-windows 72.

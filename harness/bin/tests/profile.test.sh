@@ -235,11 +235,11 @@ H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -260,6 +260,14 @@ ABS_BIN="$(json_printed "$H/.claude/bin/")"
 oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"${ABS_BIN}ticket\"},\"workflow\":{\"preflight\":\"${ABS_BIN}preflight --epic <эпик>\"}}"
 # valid JSON, but not an object
 newp notobj '["schema",2]'
+# language of the wrong type, and a language field that is an empty string
+newp langnum '{"schema":2,"name":"langnum","mode":"full","language":5}'
+newp langarr '{"schema":2,"name":"langarr","mode":"full","language":["ru"]}'
+newp langnull '{"schema":2,"name":"langnull","mode":"full","language":null}'
+newp teamempty '{"schema":2,"name":"teamempty","mode":"full","language":{"team":"","docs":"ru"}}'
+newp langblank '{"schema":2,"name":"langblank","mode":"full","language":""}'
+newp teamnum '{"schema":2,"name":"teamnum","mode":"full","language":{"team":5,"docs":"ru"}}'
+newp docsempty '{"schema":2,"name":"docsempty","mode":"full","language":{"reports":"","team":"ru","docs":""}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
 mkdir -p "$T/r/multi"
@@ -371,6 +379,23 @@ for spec in "${PL_BAD[@]}"; do
     jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
     newp "$n" "{\"schema\":2,\"name\":\"$n\",\"mode\":\"full\",\"workflow\":{\"pipeline\":$pl}}"
 done
+# The names of the document sections code parses: tickets.done_section, tickets.manual_mark and
+# docs.adr_status_label (tickets.trail_section stays as written: null there means "no such section").
+# Values of a project whose documents are not in English, nulls (the defaults), null groups, and one
+# malformed value per field.
+HD_PROFILES=(hdset hdnull hdgroupsnull hddonenum hddoneempty hdmanuallist hdstatusnum)
+for n in "${HD_PROFILES[@]}"; do
+    git -C "$T/r" init -q -b main "$n"
+    jq --arg m "$T/r/$n" --arg n "$n" '.repos += [{key: $n, match: $m, profile: $n}]' "$HH/gate/config.json" >"$T/cfg.json" && mv "$T/cfg.json" "$HH/gate/config.json"
+done
+hd() { newp "$1" "{\"schema\":2,\"name\":\"$1\",\"mode\":\"full\",$2}"; }
+hd hdset '"tickets":{"trail_section":"## Fichiers","done_section":"## Fini quand","manual_mark":"à la main"},"docs":{"adr_dir":"docs/adr","adr_status_label":"Statut"}'
+hd hdnull '"tickets":{"trail_section":null,"done_section":null,"manual_mark":null},"docs":{"adr_status_label":null}'
+hd hdgroupsnull '"tickets":null,"docs":null'
+hd hddonenum '"tickets":{"done_section":5}'
+hd hddoneempty '"tickets":{"done_section":"  "}'
+hd hdmanuallist '"tickets":{"manual_mark":["manual"]}'
+hd hdstatusnum '"docs":{"adr_status_label":1}'
 cat >"$T/p2" <<EOF
 #!/usr/bin/env bash
 exec env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" "\$@"
@@ -473,6 +498,29 @@ fails_with "cross_machine_gate serve without check -> 1 with the reason" 1 'cros
 fails_with "cross_machine_gate.exempt with a backslash -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptbs" --name
 fails_with "cross_machine_gate.exempt a string -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptstr" --name
 fails_with "cross_machine_gate a list -> 1 with the reason" 1 'cross_machine_gate is an object' "$P2" -C "$T/r/cmobj" --field cross_machine_gate
+# --- the names of the document sections code parses -------------------------------------------
+eq "--field tickets.trail_section as written" "## Fichiers" "$P2" -C "$T/r/hdset" --field tickets.trail_section
+eq "--field tickets.done_section as written" "## Fini quand" "$P2" -C "$T/r/hdset" --field tickets.done_section
+eq "--field tickets.manual_mark as written" "à la main" "$P2" -C "$T/r/hdset" --field tickets.manual_mark
+eq "--field docs.adr_status_label as written" "Statut" "$P2" -C "$T/r/hdset" --field docs.adr_status_label
+eq "--field docs.adr_dir is kept beside the label" "docs/adr" "$P2" -C "$T/r/hdset" --field docs.adr_dir
+# trail_section has no default: null says the tickets have no file-list section, and skills skip that step.
+eq "--field tickets.trail_section null stays null" null "$P2" -C "$T/r/hdnull" --field tickets.trail_section
+check "--field tickets.trail_section absent -> 4" 4 "" "$P2" -C "$T/r/bare" --field tickets.trail_section
+for p in bare hdnull hdgroupsnull legacy; do
+    eq "$p: tickets.done_section absent or null -> ## Done when" "## Done when" "$P2" -C "$T/r/$p" --field tickets.done_section
+    eq "$p: tickets.manual_mark absent or null -> manual" manual "$P2" -C "$T/r/$p" --field tickets.manual_mark
+    eq "$p: docs.adr_status_label absent or null -> Status" Status "$P2" -C "$T/r/$p" --field docs.adr_status_label
+done
+eq "--json carries the three names, resolved" $'## Done when\nmanual\nStatus' \
+    bash -c 'set -o pipefail; "$@" --json | jq -r ".tickets.done_section, .tickets.manual_mark, .docs.adr_status_label" | tr -d "\r"' _ "$P2" -C "$T/r/bare"
+# A malformed value is one warning on stderr, with the profile's path, and the default: the project is still read.
+for spec in "hddonenum|tickets.done_section|## Done when|got 5" "hddoneempty|tickets.done_section|## Done when|got \"  \"" \
+    "hdmanuallist|tickets.manual_mark|manual|got [\"manual\"]" "hdstatusnum|docs.adr_status_label|Status|got 1"; do
+    IFS='|' read -r p f want got <<<"$spec"
+    eq "$p: a malformed $f -> the default" "$want" "$P2" -C "$T/r/$p" --field "$f"
+    fails_with "$p: a malformed $f -> exit 0 and one warning with the path" 0 "profile: $(printed "$HH/projects/$p/profile.json"): $f must be a non-empty string or null, $got — ignored" "$P2" -C "$T/r/$p" --name
+done
 # --- workflow.pipeline ------------------------------------------------------------------------
 PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
 eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline
@@ -582,6 +630,40 @@ for c in notjson array numeric; do
         'e="$("${@:2}" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 1 ] && [[ "$e" == *"$1"* ]]' \
         _ "$(printed "$T/u/$c/user.json")" "$pu" "$T/u/$c" -C "$T/r/both" --field language.reports
 done
+# A profile language that is not an object (a number, an array, null) or a language field that is not a
+# non-empty string: the value is en and one stderr line names the profile file, as for a broken user.json.
+one_line_naming() { # $1 the text the stderr line must name, then the command
+    check "$2" 0 "" bash -c 'e="$("${@:2}" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 1 ] && [ -n "$e" ] && [[ "$e" == *"$1"* ]]' _ "$1" "${@:3}"
+}
+for c in langnum langarr langnull; do
+    for k in reports team docs; do
+        eq "profile language not an object ($c) -> $k en" en "$pu" "$T/u/none" -C "$T/r/$c" --field "language.$k"
+    done
+    one_line_naming "$(printed "$HH/projects/$c/profile.json")" "profile language not an object ($c): one stderr line naming the profile" \
+        "$pu" "$T/u/none" -C "$T/r/$c" --field language.team
+done
+check "profile without language: nothing on stderr" 0 "" bash -c '[ -z "$("$@" 2>&1 >/dev/null)" ]' _ "$pu" "$T/u/none" -C "$T/r/both" --field language.team
+eq "profile language.team \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+eq "profile language.team \"\": docs stays ru" ru "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.docs
+one_line_naming "$(printed "$HH/projects/teamempty/profile.json")" "profile language.team \"\": one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+check "profile language.team \"\": the stderr line names the field" 0 "" bash -c '[[ "$("$@" 2>&1 >/dev/null)" == *language.team* ]]' _ "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+# The old string form, empty: one line for the whole field, not one per expanded field.
+for k in reports team docs; do
+    eq "profile language \"\" -> $k en" en "$pu" "$T/u/none" -C "$T/r/langblank" --field "language.$k"
+done
+one_line_naming "$(printed "$HH/projects/langblank/profile.json")" "profile language \"\": one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/langblank" --field language.team
+# A field of another type, and the fields other than team.
+eq "profile language.team 5 -> en" en "$pu" "$T/u/none" -C "$T/r/teamnum" --field language.team
+one_line_naming "$(printed "$HH/projects/teamnum/profile.json")" "profile language.team 5: one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/teamnum" --field language.team
+eq "profile language.docs \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.docs
+eq "profile language.reports \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.reports
+eq "profile language.reports and docs \"\": team stays ru" ru "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.team
+check "profile language.reports and docs \"\": one stderr line for each, naming the field" 0 "" bash -c \
+    'e="$("$@" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 2 ] && [[ "$e" == *language.reports* ]] && [[ "$e" == *language.docs* ]]' \
+    _ "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.docs
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"

@@ -170,8 +170,11 @@ const OWNER = path.join(LOCK, "owner")
 const LOCK_STALE_MS = 60_000
 // shortcut: a fixed wait; PROFILE_SET_LOCK_WAIT_MS exists for the tests only, redo when a caller needs its own wait.
 const LOCK_WAIT_MS = Number(process.env.PROFILE_SET_LOCK_WAIT_MS) || 10_000
-// For the tests only: a pause between judging a lock stale and taking it over, to let another writer in.
-const STALE_PAUSE_MS = Number(process.env.PROFILE_SET_STALE_PAUSE_MS) || 0
+// For the tests only: a folder that orders two writers taking over one stale lock by events, not by time.
+// On judging the lock stale this writer puts its token in `judged`, waits for a `go` file there (up to
+// STALE_SYNC_WAIT_MS, then goes on), takes over and then creates `tried`.
+const STALE_SYNC = process.env.PROFILE_SET_STALE_SYNC || ""
+const STALE_SYNC_WAIT_MS = 30_000
 const TOKEN = `${process.pid}-${randomBytes(8).toString("hex")}`
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 const ownerOf = (folder) => {
@@ -190,9 +193,17 @@ process.on("exit", () => {
         fs.rmSync(LOCK, { recursive: true, force: true })
     } catch {}
 })
-/** Takes over the lock if it is still the stale one with `token` (null — no owner file yet). */
+/** Takes over a lock judged stale; with PROFILE_SET_STALE_SYNC, at the test's signal. */
 function clearStale(token) {
-    if (STALE_PAUSE_MS > 0) pause(STALE_PAUSE_MS)
+    if (STALE_SYNC === "") return takeOver(token)
+    fs.writeFileSync(path.join(STALE_SYNC, "judged"), TOKEN)
+    const until = Date.now() + STALE_SYNC_WAIT_MS
+    while (!fs.existsSync(path.join(STALE_SYNC, "go")) && Date.now() < until) pause(20)
+    takeOver(token)
+    fs.writeFileSync(path.join(STALE_SYNC, "tried"), "")
+}
+/** Takes over the lock if it is still the stale one with `token` (null — no owner file yet). */
+function takeOver(token) {
     const aside = `${LOCK}.stale-${TOKEN}`
     try {
         fs.renameSync(LOCK, aside)

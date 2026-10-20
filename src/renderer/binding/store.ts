@@ -101,6 +101,20 @@ const inFlight = new Map<string, Promise<void>>()
 const again = new Set<string>()
 let homeSubscribed = false
 
+/**
+ * Reads the signals of one Session of the Project at `root` again into the store; one read at a
+ * time per Session, with one more after it when asked meanwhile. Resolves when the store has them
+ * (or the read failed, which it logs).
+ */
+export async function refreshSessionSignals(root: string, sessionId: string): Promise<void> {
+  return refresh(root, sessionId)
+}
+
+/** The signals the store holds for one Session of the Project at `root`, if read. */
+export function sessionSignalsOf(root: string, sessionId: string): SessionBindingSignals | undefined {
+  return useBindingsStore.getState().signals[signalsKey(root, sessionId)]
+}
+
 async function refresh(root: string, sessionId: string): Promise<void> {
   const key = signalsKey(root, sessionId)
   const running = inFlight.get(key)

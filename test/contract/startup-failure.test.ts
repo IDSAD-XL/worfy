@@ -73,7 +73,11 @@ vi.mock('electron', () => {
     // The frame of the window follows the theme outside macOS (src/main/window-frame.ts).
     nativeTheme: { shouldUseDarkColors: false },
     screen: { getAllDisplays: () => [] },
-    session: { defaultSession: { setPermissionRequestHandler: vi.fn() } },
+    session: {
+      defaultSession: { setPermissionRequestHandler: vi.fn() },
+      // The session of the Browser partition (installWebPolicy, src/main/window.ts).
+      fromPartition: () => ({ setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn() }),
+    },
   }
 })
 

@@ -128,6 +128,39 @@ describe('Ship ticket', () => {
     await vi.waitFor(() => expect(calls.filter((call) => call.channel === 'actions.shipTicket')).toEqual([{ channel: 'actions.shipTicket', input: { projectId: PROJECT, epic: 'demo', num: 8 } }]))
   })
 
+  it('asks for the Session right of the strip of Epic frames, at its Ticket’s height (worfy-canvas ticket 11)', async () => {
+    // Imported after vi.resetModules(), like TicketActions, so both share one React Flow context.
+    const { ReactFlowProvider } = await import('@xyflow/react')
+    const { default: TicketActions } = await import('../../src/renderer/canvas/actions/TicketActions')
+    const frame = (epic: string, x: number, y: number, width: number) => ({
+      id: `epic:${epic}`,
+      type: 'epic-frame',
+      position: { x, y },
+      width,
+      height: 500,
+      data: { node: { data: { epic: { epic }, auto: { x, y } } } },
+    })
+    const initialNodes = [
+      frame('demo', 0, 0, 600),
+      // A second column, narrower: the strip ends at its left edge plus the widest frame.
+      frame('other', 648, 0, 300),
+      { id: 'ticket:demo/8', type: 'ticket', position: { x: 40, y: 240.4 }, width: 220, height: 80, data: { node: { data: { ticket: { epic: 'demo', num: 8 } } } } },
+    ]
+    render(
+      <ReactFlowProvider initialNodes={initialNodes}>
+        <TicketActions subject={ticketSubject(8)} />
+      </ReactFlowProvider>,
+    )
+    const button = await screen.findByRole('button', { name: 'Ship ticket' })
+    await vi.waitFor(() => expect(button.getAttribute('aria-disabled')).toBe('false'))
+    fireEvent.click(button)
+    await vi.waitFor(() =>
+      expect(calls.filter((call) => call.channel === 'actions.shipTicket')).toEqual([
+        { channel: 'actions.shipTicket', input: { projectId: PROJECT, epic: 'demo', num: 8, near: { x: 648 + 600 + 48, y: 240 } } },
+      ]),
+    )
+  })
+
   it('with an empty template is inactive and points to Project settings; a template saved later applies at once', async () => {
     templates = { ...templates, shipTicket: '  ' }
     const button = await shipButton(8)

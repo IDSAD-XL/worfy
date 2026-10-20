@@ -123,7 +123,7 @@ export interface RunSession {
  * (ADR-0002): the run does not check that the Orchestrator obeyed.
  */
 export const STOP_TEXT =
-  'Autopilot остановлен человеком. Новые Ticket-ы не бери и новые Wave-ы не начинай. Ticket-ы текущей Wave, которые ещё не запущены, не запускай. Ticket-ы, уже взятые в работу, доведи до конца как обычно — merge или blocked, — потом закончи ход.'
+  'A person stopped Autopilot. Do not take new Tickets and do not start new Waves. Do not start the Tickets of the current Wave that have not started yet. Finish the Tickets already in work as usual, to merge or blocked, then end the turn.'
 
 /** STOP_TEXT as the Session's queue shows it. */
 const STOP_LABEL = messageLabel(STOP_TEXT, [])

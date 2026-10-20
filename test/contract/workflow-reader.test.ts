@@ -10,7 +10,7 @@ import { join, win32 } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
-import { enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
+import { codeSection, enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
 import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
@@ -631,6 +631,86 @@ const silentProfile = (repo: string, folder: string) => ({
   name: 'silent',
   mode: 'silent',
   _resolved: { name: 'silent', mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'silent-repo', path: repo, gate_key: 'silent' }] },
+})
+
+// ── the headings the Profile names ───────────────────────────────────────────
+
+// tickets.trail_section, tickets.done_section and tickets.manual_mark of `profile --json`: a Project
+// whose documents are in another language. Without them the English defaults are read; the Russian
+// ones of the Tickets above are read for one more release besides.
+describe('workflow reader and the headings the Profile names', () => {
+  const FRENCH = { trail_section: '## Fichiers', done_section: '## Fini quand', manual_mark: 'à la main' }
+  const frenchTicket = (num: number, files: string[], checks: string[]): string =>
+    [`# 0${num} — Ticket ${num}`, '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Fichiers', '', ...files.map((f) => `- \`${f}\``), '', '## Fini quand', '', ...checks, '',
+      '## Where in code', '', '- `src/english.ts`', '', '## Done when', '', '- [ ] (manual) English', ''].join('\n')
+  const englishTicket = (num: number, files: string[], checks: string[]): string =>
+    [`# 0${num} — Ticket ${num}`, '', 'Type: task', 'Status: open', 'Blocked by: —', '', '## Where in code', '', ...files.map((f) => `- \`${f}\``), '', '## Done when', '', ...checks, ''].join('\n')
+  const fullProfile = (repo: string, tickets?: object): object => ({
+    mode: 'full',
+    ...(tickets ? { tickets } : {}),
+    _resolved: { mode: 'full', workflow_folder: repo, workspace: null, repos: [{ name: 'project', path: repo, gate_key: 'p' }] },
+  })
+
+  it('reads the trail section and the manual items under the headings the Profile names, and not the English ones then', async () => {
+    const repo = makeRepo(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    writeFileSync(join(issues, '01-first.md'), frenchTicket(1, ['src/fr.ts', 'src/deux.ts'], ['- [ ] (à la main) la copie Stable', '- [x] (à la main, propriétaire) vu']))
+    const { home } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: fullProfile(repo, FRENCH) }, join(repo, '.scratch'))
+    const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+    expect(model.error).toBeNull()
+    expect(ticketOf(model, 1)).toMatchObject({
+      files: ['src/fr.ts', 'src/deux.ts'],
+      filesListed: true,
+      manualChecks: [
+        { text: 'la copie Stable', checked: false },
+        { text: '(propriétaire) vu', checked: true },
+      ],
+    })
+    // The Tickets of makeRepo are in Russian: read for one more release whatever the Profile names.
+    expect(ticketOf(model, 2)).toMatchObject({ files: ['src/b.ts', 'src/shared.ts'], filesListed: true })
+  })
+
+  it('reads the English sections of a Profile that names none, and of a Harness without a Profile', async () => {
+    const repo = makeRepo(dir)
+    const issues = join(repo, '.scratch', 'demo', 'issues')
+    writeFileSync(join(issues, '01-first.md'), englishTicket(1, ['src/en.ts'], ['- [ ] `pnpm test` exit 0', '- [ ] (manual) dev build: the frame is drawn.']))
+    const { home } = makeClaudeHome(dir)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    for (const [label, profile] of [
+      ['a Profile without the fields', { code: 0, json: fullProfile(repo) }],
+      ['no Profile (exit code 3)', { code: 3, json: '' }],
+    ] as const) {
+      stubHarness(home, profile, join(repo, '.scratch'))
+      const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
+      expect(ticketOf(model, 1), label).toMatchObject({ files: ['src/en.ts'], filesListed: true, manualChecks: [{ text: 'dev build: the frame is drawn.', checked: false }] })
+    }
+    warn.mockRestore()
+  })
+
+  it('the watcher reads the Tickets with the headings of the layout it asked for', async () => {
+    const repo = makeRepo(dir)
+    writeFileSync(join(repo, '.scratch', 'demo', 'issues', '01-first.md'), frenchTicket(1, ['src/fr.ts'], ['- [ ] (à la main) vérifier']))
+    const { home } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: fullProfile(repo, FRENCH) }, join(repo, '.scratch'))
+    const watcher = await startWatcher(repo, home, [])
+    expect(ticketOf(watcher.current, 1)).toMatchObject({ files: ['src/fr.ts'], manualChecks: [{ text: 'vérifier', checked: false }] })
+  })
+
+  it('codeSection: the English heading by default, the given one, and the characters of a heading as they are', () => {
+    const markdown = ['# t', '', '## Where in code', '', '- `src/a.ts`', '', '## Files (all)', '', '- `src/b.ts`', ''].join('\n')
+    expect(codeSection(markdown)).toEqual({ listed: true, files: ['src/a.ts'] })
+    expect(codeSection(markdown, '## Files (all)')).toEqual({ listed: true, files: ['src/b.ts'] })
+    expect(codeSection(markdown, '## Files (.*)')).toEqual({ listed: false, files: [] })
+  })
+
+  it('codeSection: a deeper heading stays in the section, a third-level Profile heading beside the old second-level one', () => {
+    const markdown = ['# t', '', '## Где в коде', '', '- `src/a.ts`', '', '### Tests', '', '- `test/a.test.ts`', '', '## Next', '', '- `src/no.ts`',
+      '', '### Fichiers', '', '- `src/b.ts`', '', '#### Détails', '', '- `src/c.ts`', '', '### Autre', '', '- `src/no2.ts`', ''].join('\n')
+    expect(codeSection(markdown, '### Fichiers')).toEqual({ listed: true, files: ['src/a.ts', 'test/a.test.ts', 'src/b.ts', 'src/c.ts'] })
+    // A second-level Profile heading is not met by a third-level one of the same text.
+    expect(codeSection(markdown, '## Fichiers').files).toEqual(['src/a.ts', 'test/a.test.ts'])
+  })
 })
 
 describe('workflow reader in Silent mode', () => {

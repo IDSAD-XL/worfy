@@ -1,7 +1,9 @@
 # 53 — Gate full теряет текст ошибки e2e: в отчёте только хвост вывода, `test-results` перезаписывает следующий прогон Playwright
 
 Type: task
-Status: open
+Status: done 2026-10-20T05:12Z
+PR: #561
+Branch: worfy-harness/53
 Blocked by: —
 Source: заметка оркестратора на Mac 2026-10-19: gate full PR [#539](https://github.com/IDSAD-XL/worfy/pull/539)
 (worfy-canvas 01) — e2e `test/e2e/family.spec.ts` упал один раз, а текст ошибки в `gate-539.log` не
@@ -66,4 +68,21 @@ Source: заметка оркестратора на Mac 2026-10-19: gate full P
 
 ## Итог
 
-Заполняется при закрытии.
+PR #561, merge 97346282. Платформенный PR (harness/hooks): Mac gate full зелёный со второго прогона
+(первый упал на flaky test `session-back.spec.ts:138`, который PR не трогает), check/windows — success.
+
+- Логи gate: новый `harness/hooks/gate-log.mjs`. Полный вывод каждого скрипта, зелёного тоже, пишется в
+  `$HARNESS_HOME/gate/state/logs/<tag worktree>/<run>/NN-<label>.log`; хранятся 10 последних прогонов на
+  worktree, папки чужих worktree без изменений 8 дней удаляются. В отчёте под 40 строками хвоста —
+  строка `--- full output (N lines): <path>`.
+- Ошибки Playwright выше хвоста: блоки упавших test-ов из полного вывода попадают в отчёт, не больше
+  60 строк на блок и 200 всего, строки режутся на 500 символах.
+- Папки Playwright: `outputDir: 'test-results/e2e'`, `test:package` пишет в `test-results/package`.
+  Проверка оркестратора после gate full на объединённом дереве: в `test-results` ровно `e2e`
+  (252 записи, папка на test) и `package` (`packaged-*`) — второй прогон больше не стирает артефакты
+  упавшего e2e.
+- Test-ы: `harness/hooks/tests/gate-log.test.sh` (20 проверок; до правки 11 из 14 первых были красные);
+  мутант без строки `--- full output` — красный. `gate-verdict`, `gate-file-size`, `gate-shim` зелёные.
+  На объединённом дереве `harness-scripts` 43/43, `plugin-neutral` 26/26.
+- Хвост: проверка, что `pruneLogs` никогда не удаляет вне `<state>/logs`, добавлена в раунде правок.
+

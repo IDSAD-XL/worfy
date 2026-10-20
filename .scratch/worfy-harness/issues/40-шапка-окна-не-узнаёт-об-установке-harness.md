@@ -1,7 +1,9 @@
 # 40 — Toolbar окна не узнаёт об установке Harness с экрана First run: «Harness not installed» до перезагрузки окна
 
 Type: task
-Status: open
+Status: done 2026-10-20T07:33Z
+PR: #563
+Branch: worfy-harness/40
 Blocked by:
 Source: приёмка E3 (приёмка Epic-а worfy-harness), пункт 5 — прогон под вторым, новым пользователем macOS 2026-10-14 (Ticket [26](26-приёмка-e3.md)); [отчёт прогона](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 3 «Шапка окна противоречит экрану First run».
 
@@ -239,4 +241,21 @@ plugin-а на месте (`src/main/harness/install.ts:267-276`).
 
 ## Итог
 
-—
+PR #563, merge 7fb1626a. Mac gate full зелёный (с `GH_TOKEN` снятым и настоящим HOME), Windows run по
+harness-changed, harness-status, shell и focus-mode — зелёный.
+
+- Два новых события, доступ `local`, рассылка во все окна (`toEveryWindow`, как `appSettings.changed`):
+  `harness.changed` — после каждой установки с ответом `done`, в том числе с экрана первого запуска
+  (`firstRun.run`); `harnessMigration.changed` — после переноса с ответом `done`, с новым предложением.
+- `HarnessStatus` подписан на оба события. Во время своей установки держит «Installing Harness…» до
+  своего ответа; событие, пришедшее раньше первого ответа `harness.state`, побеждает старый ответ
+  (guard-ы `heard`). Если моста preload нет или в нём нет событий, подписка ловит ошибку и пишет
+  `console.error` вместо падения toolbar — так же, как `useLimits`, `useTerminalAi`, `CardNode`.
+- Test-ы: новый `test/contract/harness-changed.test.ts` (два окна, до правки 7 из 12 красные), unit
+  `harness-status.test.tsx` (+10, включая мост без событий и без моста), e2e в `first-run.spec.ts` и
+  `harness-migrate.spec.ts`. Восемь мутантов — все красные.
+- Первый gate full был красным: 44 unit-test-а в 8 файлах монтируют shell или toolbar с неполным мостом,
+  и новая подписка бросала исключение. Исправлено в раунде правок (try/catch выше). Урок: подписка в
+  renderer — прогнать test-ы shell и toolbar, а не только файлы рядом с правкой.
+- Попутно найдено: test checks handler в `github-prs.test.ts` красный под временным HOME и печатает
+  настоящий token, если задан `GH_TOKEN`. Не связан с этим PR — Ticket 56.

@@ -23,6 +23,7 @@ import { basename, delimiter, isAbsolute, join } from 'node:path'
 import { z } from 'zod'
 import { CANVAS_SERVER_NAME } from '../../shared/canvas/tools'
 import { DEFAULT_PIPELINE, pipelineSchema, type PipelineStage } from '../../shared/workflow/pipeline'
+import type { DocHeadings } from '../../shared/workflow/doc-headings'
 import { isAbsolutePath, isWindowsAbsolutePath } from '../../shared/paths'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import type { HarnessScriptEnv } from '../harness/script-env'
@@ -627,9 +628,35 @@ export interface ResolvedProfile {
   /** The folder above the repositories of a Project of several repositories, when `profile` ran in it; else null. */
   workspace: string | null
   repos: readonly ResolvedRepo[]
+  /**
+   * The names of the document sections the Profile gives (`tickets.trail_section`, `done_section`,
+   * `manual_mark`, `docs.adr_status_label`); left out when it gives none. A Harness from before these
+   * fields gives only the trail section, or nothing: the readers take the defaults for the rest.
+   */
+  headings?: Partial<DocHeadings>
 }
 
 const absolute = z.string().refine(isAbsolutePath, 'not an absolute path')
+
+/** A name of a document section: a string that is not blank, or nothing; any other value reads as nothing. */
+const sectionName = z.string().trim().min(1).optional().catch(undefined)
+const headingsSchema = z.object({
+  tickets: z.object({ trail_section: sectionName, done_section: sectionName, manual_mark: sectionName }).loose().nullish().catch(null),
+  docs: z.object({ adr_status_label: sectionName }).loose().nullish().catch(null),
+})
+
+/** The section names of a `profile --json` answer; undefined when it names none. */
+export function headingsOf(json: unknown): Partial<DocHeadings> | undefined {
+  const parsed = headingsSchema.safeParse(json)
+  if (!parsed.success) return undefined
+  const { tickets, docs } = parsed.data
+  const headings: Partial<DocHeadings> = {}
+  if (tickets?.trail_section !== undefined) headings.trailSection = tickets.trail_section
+  if (tickets?.done_section !== undefined) headings.doneSection = tickets.done_section
+  if (tickets?.manual_mark !== undefined) headings.manualMark = tickets.manual_mark
+  if (docs?.adr_status_label !== undefined) headings.adrStatusLabel = docs.adr_status_label
+  return Object.keys(headings).length === 0 ? undefined : headings
+}
 
 const resolvedSchema = z.object({
   _resolved: z.object({
@@ -672,7 +699,11 @@ export async function readResolvedProfile(options: ReadProfileOptions): Promise<
     return wrong(`profile --json does not have the expected _resolved fields: ${issue ? `${issue.path.join('.') || '(the whole answer)'}: ${issue.message}` : ''}`)
   }
   const { mode, workflow_folder, workspace, repos } = parsed.data._resolved
-  return { ok: true, profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })) } }
+  const headings = headingsOf(json)
+  return {
+    ok: true,
+    profile: { mode, workflowFolder: workflow_folder, workspace: workspace ?? null, repos: repos.map(({ name, path }) => ({ name, path })), ...(headings ? { headings } : {}) },
+  }
 }
 
 // ── the Pipeline ─────────────────────────────────────────────────────────────

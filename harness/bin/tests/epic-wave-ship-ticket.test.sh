@@ -169,12 +169,20 @@ for old in 'GitHub:' 'Цель:' 'Репозиторий:' 'Тикет:' 'Дер
     check "epic-wave brief has no old label '$old'" bash -c '[[ "$1" != *"$2"* ]]' _ "$brief" "$old"
 done
 
-# The status block's labels stay Russian whatever the reports language: worfy reads them
-# (src/shared/agent/status-block.ts; spec of worfy-harness, risk 4).
-STATUS_LABELS=('— Этап:' '— Сейчас:' '— Дальше:' '— Жду:')
+# The status block's labels are fixed English tokens whatever the reports language: worfy reads
+# them (src/shared/agent/status-block.ts).
+STATUS_LABELS=('— Stage:' '— Now:' '— Next:' '— Waiting:')
 sec5="$(awk '/^## 5\./{p=1; next} /^## /{p=0} p' "$EW")"
 for label in "${STATUS_LABELS[@]}"; do
     check "epic-wave section 5 quotes the status label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec5" "$label"
+done
+
+# bin/profile always prints language.docs (en when the profile does not set it), so the skills do not
+# describe a profile without that field.
+for f in "$EW" "$ST"; do
+    n="$(name_of "$f")"
+    check "$n: no branch for a profile without language.docs" lacks "$f" 'while the profile has no such field'
+    check "$n: language.docs is en when the profile does not set it" has "$f" '`F language.docs` (`en` when the profile does not set it)'
 done
 
 # Bans the translation must keep, one check each (a lost sentence is a lost rule).
@@ -478,8 +486,6 @@ ALLOWED=(
     # Gate verdict words, read by programs.
     '[gate] зелено (fast): …' '[gate] зелено (…)' 'ничего не прогналось' 'окружение недоступно'
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …'
-    # Labels of the status block, read by worfy.
-    "${STATUS_LABELS[@]}"
     # Placeholders in profile values (schema 1).
     '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.

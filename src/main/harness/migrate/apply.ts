@@ -28,6 +28,7 @@ import { HARNESS_PLUGIN_ID } from '../install'
 import { buildPlan, hookRecords, inside, LEGACY_MARKER, type HookRef, type Operation, type PlanOptions } from './plan'
 import { jsonText, profileToSchema2, rewriteHarnessPaths } from './profiles'
 import { BACKUP_AFTER_DIR, BACKUP_CLAUDE_DIR, PENDING, restoreCommand, RESTORE_SCRIPT, treeHash, writeManifest, writeRestoreFiles, type Manifest } from './restore'
+import { realpathOnDisk } from '../../projects/real-path'
 import { removeFile, removeTree } from '../../storage/remove'
 import { statusLineCommandOf, withStatusLineCommand } from '../status-line'
 
@@ -86,11 +87,12 @@ class Refusal extends Error {}
 type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
 
-/** JSON in the shape the file had: its indent and its final newline. */
+/** JSON in the shape the file had: its indent, its line ends (LF or CRLF) and its final newline. */
 export function stringifyLike(original: string, value: unknown): string {
   const indent = /^[{[]\r?\n([ \t]+)/.exec(original)?.[1]
-  const text = original.includes('\n') ? JSON.stringify(value, null, indent ?? 2) : JSON.stringify(value)
-  return original.endsWith('\n') ? `${text}\n` : text
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const text = original.includes('\n') ? JSON.stringify(value, null, indent ?? 2).replaceAll('\n', eol) : JSON.stringify(value)
+  return original.endsWith('\n') ? `${text}${eol}` : text
 }
 
 /** Writes through a file next to the target, renamed over it; the mode of the old file is kept. A failed rename removes that file. */
@@ -109,28 +111,14 @@ export function writeAtomically(path: string, text: string): void {
 }
 
 /**
- * The spelling of a path on disk, for comparing two paths that came from different places.
- * realpathSync.native gives the long name of an 8.3 short one (`C:\Users\RUNNER~1\…`), the target
- * of a `subst` drive and the letter case on disk (on macOS too), the way git prints a folder; the
- * plain realpathSync keeps all three as typed. A volume where the native call fails (some RAM or
- * virtual drives) falls back to the plain one. Throws when neither can read the path.
- */
-function onDisk(path: string): string {
-  try {
-    return realpathSync.native(path)
-  } catch {
-    return realpathSync(path)
-  }
-}
-
-/**
  * A folder the move may write in: an existing directory, not the disk root and not the user's home
- * folder. The home folder is compared on disk on both sides, so it is refused in any spelling.
+ * folder. The home folder is compared on disk on both sides (realpathOnDisk: an 8.3 short name, a
+ * `subst` drive and the letter case come out the way git prints them), so it is refused in any spelling.
  */
 function checkHome(path: string, what: string): string {
   const real = realpathSync(path)
   if (!statSync(real).isDirectory()) throw new Refusal(`${what} ${path} is not a folder`)
-  if (real === parse(real).root || onDisk(real) === onDisk(homedir())) throw new Refusal(`${what} ${path} is not a folder the move may write in`)
+  if (real === parse(real).root || realpathOnDisk(real) === realpathOnDisk(homedir())) throw new Refusal(`${what} ${path} is not a folder the move may write in`)
   return real
 }
 
@@ -166,7 +154,7 @@ function git(cwd: string, args: string[]): string {
 
 /**
  * Whether `dir` is the top of a git work tree (not just inside one). Both sides go through
- * onDisk (realpathSync.native): on Windows git prints the long name of a folder, while `dir` may come in an
+ * realpathOnDisk (realpathSync.native): on Windows git prints the long name of a folder, while `dir` may come in an
  * 8.3 short spelling (`C:\Users\RUNNER~1\…`) or through a `subst` drive, which the plain
  * realpathSync keeps; on macOS native also settles the letter case. A volume where the native call
  * fails (some RAM or virtual drives) falls back to the plain one, as before: a wrong "not a root" would
@@ -180,7 +168,7 @@ function isRepoRoot(dir: string): boolean {
     return false
   }
   try {
-    return onDisk(toplevel) === onDisk(dir)
+    return realpathOnDisk(toplevel) === realpathOnDisk(dir)
   } catch {
     return false
   }

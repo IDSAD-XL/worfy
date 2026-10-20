@@ -7,7 +7,9 @@ import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { NodeType } from '../../src/renderer/canvas/nodes/index'
 import { createItems } from '../../src/renderer/canvas/overlays/create-items'
+import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
 import { TERMINAL_NODE_KIND } from '../../src/shared/ipc/terminal'
+import type { LayoutOpInput } from '../../src/shared/layout/types'
 
 const tidyUp = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][] }))
 
@@ -81,6 +83,18 @@ describe('the Terminal Node type', () => {
   })
 })
 
+describe('the Browser Node type', () => {
+  it('is registered under the kind "browser", with the "New browser" item (worfy-browser/02)', async () => {
+    const browser = await import('../../src/renderer/canvas/nodes/BrowserNode')
+    const { nodeTypes } = await import('../../src/renderer/canvas/nodes/index')
+    expect(browser.kind).toBe('browser')
+    expect(nodeTypes.get('browser')?.Component).toBe(browser.default)
+    expect(createItems({ './BrowserNode.tsx': browser }, nodeTypes).map((item) => [item.label, item.type.kind])).toEqual([['New browser', 'browser']])
+    // Neutral: no colour of its own on the minimap (ADR-0077 item 2).
+    expect(nodeTypes.get('browser')?.minimapColor).toBeUndefined()
+  })
+})
+
 describe('the Canvas menu', () => {
   let hadObserver = false
   beforeEach(() => {
@@ -99,15 +113,17 @@ describe('the Canvas menu', () => {
     repack.run.mockClear()
   })
 
-  const openMenu = async () => {
+  const openMenu = async (ops: LayoutOps = { apply: () => Promise.resolve() }) => {
     const { default: CanvasMenu } = await import('../../src/renderer/canvas/overlays/CanvasMenu')
     const { container } = render(
       <div style={{ width: 800, height: 600 }}>
-        <ReactFlowProvider>
-          <ReactFlow nodes={[]} edges={[]}>
-            <CanvasMenu />
-          </ReactFlow>
-        </ReactFlowProvider>
+        <LayoutOpsContext.Provider value={ops}>
+          <ReactFlowProvider>
+            <ReactFlow nodes={[]} edges={[]}>
+              <CanvasMenu />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </LayoutOpsContext.Provider>
       </div>,
     )
     expect(screen.queryByRole('menu')).toBeNull()
@@ -151,5 +167,14 @@ describe('the Canvas menu', () => {
     }
     expect(tidyUp.run).not.toHaveBeenCalled()
     expect(repack.run).not.toHaveBeenCalled()
+  })
+
+  it('has New browser, which creates a Browser Node with no address at the spot of the right click (worfy-browser/02)', async () => {
+    const apply = vi.fn<(op: LayoutOpInput) => Promise<void>>(() => Promise.resolve())
+    await openMenu({ apply })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'New browser' }))
+    expect(apply).toHaveBeenCalledTimes(1)
+    expect(apply.mock.calls[0]?.[0]).toMatchObject({ op: 'create', node: { kind: 'browser', w: 640, h: 440, data: {} } })
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })

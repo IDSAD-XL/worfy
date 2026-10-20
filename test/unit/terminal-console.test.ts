@@ -450,6 +450,87 @@ describe('TerminalRegistry on Windows: a shell whose pid node-pty gives a moment
     await registry.closeAll()
   })
 
+  // Review of PR #498: node-pty queues kill() until its terminal is ready, so a close while the pid
+  // was awaited left the console host until node-pty gave up the connection itself (5 s).
+  it('a close while node-pty starts the shell closes the console through the agent at once, not through the queued kill()', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const agentKills: number[] = []
+    // node-pty's agent with its connection still pending.
+    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length), _pendingPtyInfo: {} })
+    Object.assign(fake.pty, { _isReady: false })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await registry.close('a')
+    await failed
+    // The agent first, before the pty's own kill() is queued.
+    expect(agentKills).toEqual([0])
+    expect(fake.kills).toEqual([undefined])
+  })
+
+  // Review of this change: the agent's kill() calls native code. Should it throw, the close still
+  // ends the Terminal: without that, finish() never ran, the pty was never released, close()
+  // rejected and open() never settled.
+  it('an agent kill() that throws is logged; the pty is still asked to close, open fails and close resolves', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const fake = fakePty(0, { deaf: true })
+    const failure = new Error('ClosePseudoConsole failed')
+    Object.assign(fake.agent, {
+      kill: () => {
+        throw failure
+      },
+      _pendingPtyInfo: {},
+    })
+    Object.assign(fake.pty, { _isReady: false })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(registry.close('a')).resolves.toBeUndefined()
+    await failed
+    expect(fake.kills).toEqual([undefined])
+    expect(warn).toHaveBeenCalledWith('[terminal] closing the console of a before it was connected failed', failure)
+    expect(registry.has('a')).toBe(false)
+  })
+
+  // Review of this change: from the connection until its first output node-pty's terminal is not
+  // ready, and its queued kill() runs once that output comes. The agent's kill() as well would
+  // close the same console twice.
+  // node-pty itself tests the pending connection as falsy (`!this._pendingPtyInfo`), so null counts as connected too.
+  it.each([undefined, null])('a pty whose shell node-pty has connected (pending connection %s), not yet ready, is closed by its own kill() only', async (pending) => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const agentKills: number[] = []
+    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length), _pendingPtyInfo: pending })
+    Object.assign(fake.pty, { _isReady: false })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await registry.close('a')
+    await failed
+    expect(agentKills).toEqual([])
+    expect(fake.kills).toEqual([undefined])
+  })
+
+  // Review of PR #498: open() awaited before it put the start in `starting`, so a close called in
+  // the same tick found nothing, and the shell kept running (32 of 32 on the PC).
+  it('a close in the same tick as the open takes the shell apart as soon as the wait for its pid begins', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    let failure: unknown = null
+    void registry.open('a', OPEN, {}, SINK).catch((error: unknown) => (failure = error))
+    let closed = false
+    void registry.close('a').then(() => (closed = true))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(fake.kills).toEqual([undefined])
+    expect(String(failure)).toContain('the shell of a was closed while node-pty was starting it')
+    expect(closed).toBe(true)
+    expect(registry.has('a')).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('a pid that is there at spawn, as node-pty 1.1.0 and the stand-ins give it, is not waited for', async () => {
     const fake = fakePty(999_994_402)
     const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })

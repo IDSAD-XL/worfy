@@ -26,6 +26,9 @@
 // memory), gets no new ones: only the `update:` of the collections that run a qmd-sync-main other
 // than the plugin's for this project is pointed at the plugin's. Names, paths and patterns stay.
 //
+// The `collections: {}` line qmd writes before it has any collection becomes `collections:` with the blocks under it;
+// any other value on that line is a refusal that says how to put the file into the block form.
+//
 // Every write of index.yml is preceded by a copy next to it, index.yml.<date>. A second run changes
 // nothing. A collection with one of the names and another path is someone else's: refusal, exit 1,
 // index.yml and the profile untouched. The project's repository is only read (its origin URL).
@@ -129,12 +132,21 @@ function readIndex() {
     let start = -1 // the `collections:` line
     let end = -1 // the first line after the block
     let current = null
+    let empty = false // the key's line is `collections: {}`
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i]
         if (/^[^ #\s]/.test(line)) {
             if (start >= 0 && end < 0) end = i
             if (/^collections:/.test(line)) {
-                if (!/^collections:\s*$/.test(line)) die(1, `${INDEX_YML}: "collections:" holds an inline value, not editing it`)
+                // qmd writes `collections: {}` while it has no collection: the key with nothing under it.
+                empty = /^collections:\s*\{\s*\}\s*$/.test(line)
+                if (!empty && !/^collections:\s*$/.test(line))
+                    die(
+                        1,
+                        `${INDEX_YML}: "collections:" holds an inline value — nothing changed; this script edits only the block form: ` +
+                            `"collections:" alone on its line, each collection under it indented by two spaces, its path: and pattern: ` +
+                            `indented by four; rewrite the file that way and run qmd-collections again`,
+                    )
                 start = i
             }
             current = null
@@ -158,7 +170,7 @@ function readIndex() {
         if (current && /^ {4}\S/.test(line)) current.last = i
     }
     if (start >= 0 && end < 0) end = lines.length
-    return { text, lines, collections, start, end }
+    return { text, lines, collections, start, end, empty }
 }
 const yamlScalar = (v) => (/^[A-Za-z0-9_/.~][A-Za-z0-9_/.,~@+=-]*( [A-Za-z0-9_/.,~@+=-]+)*$/.test(v) ? v : JSON.stringify(v))
 // The qmd-sync-main a collection's `update:` runs and for which profile: [script, profile] or null.
@@ -305,6 +317,7 @@ if (fresh.length > 0) {
         let at = index.end
         while (at > index.start + 1 && lines[at - 1].trim() === "") at--
         lines.splice(at, 0, ...added)
+        if (index.empty) lines[index.start] = "collections:"
     }
 }
 const indexChanged = writeIndex(index, lines.join("\n"))

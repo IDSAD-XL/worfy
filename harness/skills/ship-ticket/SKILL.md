@@ -95,8 +95,7 @@ the guard refuses such commits and PR texts. `on` — as usual.
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
 in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
-spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
-(exit code 4 or `null`), in the language those documents are already written in.
+spec, ADRs, the state file, lessons) are in `F language.docs` (`en` when the profile does not set it).
 
 Project pitfalls and special requirements (what the checks leave out, what must change together
 with what) are in the profile's `rules.md`: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --rules`.
@@ -139,7 +138,7 @@ the worktree" means the command was run from a shared checkout: with `worktrees`
 worktree (the `parallel: worktrees` paragraph below) and repeat; with `single` it means another
 session works in the checkout — stop and ask the user.
 Any other reason — stop, do not work around it. Put the line `<база>: <sha> …` (the base is
-`F worktree.base`) into every agent's brief as the base — a subagent that read the local `main`
+`F worktree.base`; in a repository without `origin` — the branch that line names) into every agent's brief as the base — a subagent that read the local `main`
 once reasoned over a stale tree.
 
 If the preflight cannot run here (exit 2: not a git repository, for example the common directory

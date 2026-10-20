@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { docHeadings } from '../../src/shared/workflow/doc-headings'
 import { manualChecks } from '../../src/shared/workflow/manual-checks'
 
 const ticket = (done: string, rest = ''): string =>
@@ -56,5 +57,40 @@ describe('manual checks of a Ticket', () => {
   it('reads CRLF files', () => {
     const markdown = ticket('- [ ] (вручную) first,\n  second').replace(/\n/g, '\r\n')
     expect(manualChecks(markdown)).toEqual([{ text: 'first, second', checked: false }])
+  })
+})
+
+// The section and the mark come from the Project's Profile (tickets.done_section, tickets.manual_mark);
+// without them they are the English defaults. The Russian ones above are read for one more release.
+describe('manual checks named by the Profile', () => {
+  const english = (done: string): string => ['# 05 — A Ticket', '', '## What we do', '', '- [ ] (manual) wrong section', '', '## Done when', '', done, '', '## Tests', '', '- [ ] (manual) in Tests'].join('\n')
+
+  it('reads "(manual)" items of "## Done when" with no headings given', () => {
+    const markdown = english(['- [ ] `pnpm test` exit 0', '- [ ] (manual) Stable copy: the palette lists it.', '- [x] (manual, owner) The owner saw the frame.', '- [ ] Point (manual) not first'].join('\n'))
+    expect(manualChecks(markdown)).toEqual([
+      { text: 'Stable copy: the palette lists it.', checked: false },
+      { text: '(owner) The owner saw the frame.', checked: true },
+    ])
+  })
+
+  it('reads the section and the mark the Profile names, and not the English ones then', () => {
+    const headings = docHeadings({ doneSection: '## Fini quand', manualMark: 'à la main' })
+    const french = ['# 05', '', '## Fini quand', '', '- [ ] (à la main) vérifier (a+b)', '- [ ] (manual) not the mark', '', '## Done when', '', '- [ ] (à la main) not the section'].join('\n')
+    expect(manualChecks(french, headings)).toEqual([{ text: 'vérifier (a+b)', checked: false }])
+    expect(manualChecks(english('- [ ] (manual) English'), headings)).toEqual([])
+  })
+
+  it('takes the characters of the Profile\'s values as they are, not as a pattern', () => {
+    const headings = docHeadings({ doneSection: '## Done (when?)', manualMark: 'by hand.' })
+    const markdown = ['## Done (when?)', '', '- [ ] (by hand.) yes', '- [ ] (by handX) no'].join('\n')
+    expect(manualChecks(markdown, headings)).toEqual([{ text: 'yes', checked: false }])
+    expect(manualChecks(['## Done when?', '', '- [ ] (by hand.) no'].join('\n'), headings)).toEqual([])
+  })
+
+  it('keeps reading the section past a deeper heading, and reads a third-level Profile heading beside the old one', () => {
+    const headings = docHeadings({ doneSection: '### Fini quand', manualMark: 'à la main' })
+    const markdown = ['## Готово, когда', '', '- [ ] (вручную) old', '', '### Stable copy', '', '- [ ] (à la main) under a sub-heading', '', '## Тесты', '', '- [ ] (вручную) no',
+      '', '### Fini quand', '', '- [ ] (à la main) new', '', '#### Détails', '', '- [ ] (à la main) deeper', '', '### Autre', '', '- [ ] (à la main) no'].join('\n')
+    expect(manualChecks(markdown, headings).map((check) => check.text)).toEqual(['old', 'under a sub-heading', 'new', 'deeper'])
   })
 })

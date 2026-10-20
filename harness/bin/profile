@@ -269,9 +269,22 @@ else if (!ATTRIBUTIONS.includes(profile.attribution))
     )
 // The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports`,
 // `language.team` and `language.docs` (profiles/README.md), so the string is expanded into all three.
-if (typeof profile.language === "string")
+// An empty string is checked before that, so it costs one stderr line, not one per expanded field.
+if (typeof profile.language === "string" && profile.language)
     profile.language = { reports: profile.language, team: profile.language, docs: profile.language }
-if (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language)) profile.language = {}
+// Any other type, or a field that is not a non-empty string, is one line on stderr and the default below,
+// as for a broken user.json: a silent en would hide the mistake. An absent language or field is silent.
+if (profile.language !== undefined && (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language))) {
+    err(`profile: ${pjPath}: "language" must be an object such as {"team": "en"} or a language code, got ${JSON.stringify(profile.language)} — ignored`)
+    profile.language = undefined
+}
+profile.language ??= {}
+for (const k of ["reports", "team", "docs"]) {
+    const v = profile.language[k]
+    if (v === undefined || (typeof v === "string" && v)) continue
+    err(`profile: ${pjPath}: language.${k} must be a language code such as "en", got ${JSON.stringify(v)} — ignored`)
+    delete profile.language[k]
+}
 
 // User personalization (profiles/README.md): the language of reports belongs to the user, not to the
 // project, and lives in $HARNESS_HOME/user.json for every project. A broken file is one line on stderr and
@@ -340,6 +353,25 @@ for (const [group, field, value] of HARNESS_PATHS) {
     if (g === null || typeof g !== "object" || typeof g[field] !== "string") continue
     const prefix = LEGACY_BIN.find((p) => g[field].startsWith(p))
     if (prefix) g[field] = `${BIN}/${g[field].slice(prefix.length)}`
+}
+
+// The names of the document sections and marks that code parses (profiles/README.md): the ticket's "done"
+// section, the mark of a manual item in it and the label of an ADR's status line. Absent or null — the
+// English default, so every reader gets a value. A malformed value is one warning and the default, as with
+// language.*: a typo must not stop the project from being read. tickets.trail_section is left as written:
+// null there says the tickets have no file-list section, and the skills skip the step that reads it.
+const DOC_HEADINGS = [
+    ["tickets", "done_section", "## Done when"],
+    ["tickets", "manual_mark", "manual"],
+    ["docs", "adr_status_label", "Status"],
+]
+for (const [group, field, value] of DOC_HEADINGS) {
+    if (profile[group] === null || typeof profile[group] !== "object" || Array.isArray(profile[group])) profile[group] = {}
+    const given = profile[group][field]
+    if (typeof given === "string" && given.trim()) continue
+    if (given !== undefined && given !== null)
+        err(`profile: ${pjPath}: ${group}.${field} must be a non-empty string or null, got ${JSON.stringify(given)} — ignored`)
+    profile[group][field] = value
 }
 
 let checkoutReal = null

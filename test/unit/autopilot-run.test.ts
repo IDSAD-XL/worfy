@@ -580,6 +580,11 @@ describe('the graceful Stop: no new Ticket, the ones in work finish (worfy-week 
     const answer = await s.autopilot.stop(PROJECT)
     expect(answer).toMatchObject({ status: 'running', stopping: true, ticketsInWork: 1 })
     expect(s.sent).toEqual([STOP_TEXT])
+    // English (ADR-0074, point 6), and it still says what to do: no new Tickets or Waves, finish those in work.
+    expect(STOP_TEXT).not.toMatch(/[\u0400-\u04FF]/u)
+    expect(STOP_TEXT).toBe(
+      'A person stopped Autopilot. Do not take new Tickets and do not start new Waves. Do not start the Tickets of the current Wave that have not started yet. Finish the Tickets already in work as usual, to merge or blocked, then end the turn.',
+    )
     // Behind the running turn: the text waits in the Session's queue.
     expect(s.queue.map((item) => item.text)).toEqual([STOP_TEXT])
     // A second Stop sends nothing more and answers the same.

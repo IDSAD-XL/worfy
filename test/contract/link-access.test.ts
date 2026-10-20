@@ -550,10 +550,10 @@ describe('switching access off', () => {
     expect(await callB('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo sneaky\r' })).toEqual(accessOff)
     expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((2+1))\r' }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-3'), SHELL_WAIT_MS)
-    expect(windowEvents.join('')).toContain('after-3')
+    expect(windowEvents.join(''), tail(windowEvents.join(''))).toContain('after-3')
     // The shell kept running for B's window; nothing of it went to A, and A's input never reached it.
-    expect(outputOfA()).not.toContain('after-3')
-    expect(windowEvents.join('')).not.toContain('sneaky')
+    expect(outputOfA(), tail(outputOfA())).not.toContain('after-3')
+    expect(windowEvents.join(''), tail(windowEvents.join(''))).not.toContain('sneaky')
     expect(await callB('link.ping')).toMatchObject({ ok: true })
     // The connection stays: B still shows A online.
     expect(b.service.isConnected(a.service.machine.id)).toBe(true)
@@ -681,9 +681,9 @@ describe('read-only access', () => {
     // The shell runs on for B's window; its output does not reach A any more.
     expect(await windowCall('terminal.input', { projectId: PROJECT, nodeId: NODE, data: 'echo after-$((4+5))\r' }, window)).toMatchObject({ ok: true })
     await until(() => windowEvents.join('').includes('after-9'), SHELL_WAIT_MS)
-    expect(windowEvents.join('')).toContain('after-9')
-    expect(outputOfA()).not.toContain('after-9')
-    expect(windowEvents.join('')).not.toContain('sneaky')
+    expect(windowEvents.join(''), tail(windowEvents.join(''))).toContain('after-9')
+    expect(outputOfA(), tail(outputOfA())).not.toContain('after-9')
+    expect(windowEvents.join(''), tail(windowEvents.join(''))).not.toContain('sneaky')
     expect(b.service.isConnected(a.service.machine.id)).toBe(true)
   }, SHELL_TEST_MS)
 

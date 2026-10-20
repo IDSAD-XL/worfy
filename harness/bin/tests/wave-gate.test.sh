@@ -885,22 +885,30 @@ BE="$(block 'printf '"'"'{"prs":[%s],"what":"gate-full"')"
 LOCK_POLL=$'\n    sleep 20\n' LOCK_FAST=$'\n    sleep 0.2; polls=$(( ${polls:-0} + 1 )); [ "$polls" -le 50 ] || exit 98\n'
 [[ "$BE" == *"until mkdir \"\$L\""*"$LOCK_POLL"*"  done"* ]] && ok "skill blocks: the one-PR gate full block polls the e2e lock every 20 s" \
     || bad "skill blocks: the one-PR gate full block has no 'sleep 20' in its until mkdir loop"
+# The exit code of a run of the block, for a failed check. Exit 98 is the fast poll giving up: the lock was never taken.
+why() { [ "$1" -eq 98 ] && echo "exit 98, the lock was never taken" || echo "exit $1"; }
 for sh in "${SHELLS[@]}"; do
     new_world "each-$sh" 1:a.txt
     L="$W/e2e.lock"; export GATE_LOCK="$L"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
     b="${BE//<N>/5}"; b="${b//<PR worktree>/$W/repo}"; b="${b//<repo>/$W/repo}"; b="${b/"$LOCK_POLL"/$LOCK_FAST}"
     b="${b//node \"\$\{CLAUDE_PLUGIN_ROOT\}\/hooks\/gate.mjs\" full/$STUBS/gate full}"
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    # Without the fast poll both runs below would wait the real 20 s polls, and the whole file would run out
+    # of its time instead of failing this one check.
+    if [[ "$b" != *"$LOCK_FAST"* ]]; then
+        bad "$sh: the one-PR gate full block: the fast lock poll could not be put in place of 'sleep 20', the block is not run"
+        unset GATE_LOCK; continue
+    fi
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
     h="$GATE_DIR/holder.1.json"
     [[ "$got" == *"EXIT=0"* ]] && [ "$(gate_count)" = 1 ] && grep -q "lock=held" "$GATE_DIR/log" && [ "$(q "$h" 's.prs.join(",")+" "+s.what+" "+(typeof s.pid)')" = "5 gate-full number" ] \
-        && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block: [$got] holder $(cat "$h" 2>/dev/null)"
+        && ok "$sh: the one-PR gate full block: holder.json names PR 5 and gate-full while the gate runs" || bad "$sh: the one-PR block, $(why "$rc"): [$got] holder $(cat "$h" 2>/dev/null)"
     [ ! -e "$L" ] && ok "$sh: the one-PR gate full block: the lock and its holder.json are gone after it" || bad "$sh: the one-PR block left [$(ls -A "$L" 2>&1)]"
     # an abandoned lock with someone's holder.json is taken over
     mkdir "$L"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; touch -t 202001010000 "$L"
-    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"
+    got="$($sh -c "$STUB"$'\n'"$b" 2>&1)"; rc=$?
     [[ "$got" == *"EXIT=0"* ]] && [ "$(q "$GATE_DIR/holder.2.json" 's.prs.join(",")' 2>&1)" = 5 ] && [ ! -e "$L" ] \
-        && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock: [$got]"
+        && ok "$sh: the one-PR gate full block: an abandoned lock is removed with its holder.json and taken" || bad "$sh: the one-PR block, abandoned lock, $(why "$rc"): [$got]"
     unset GATE_LOCK
 done
 

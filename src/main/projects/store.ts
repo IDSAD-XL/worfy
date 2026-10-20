@@ -233,7 +233,7 @@ export class ProjectStore {
     if (realpathOrSelf(root) !== realpathOrSelf(toplevel)) {
       notice = `${resolvePath(toplevel)} is a worktree of ${resolvePath(root)}; the repository root was added instead.`
     } else if (realpathOrSelf(folder) !== realpathOrSelf(root)) {
-      notice = `${folder} is inside the repository ${resolvePath(root)}; the repository root was added instead.`
+      notice = `${realpathOrSelf(folder)} is inside the repository ${resolvePath(root)}; the repository root was added instead.`
     }
     return { ok: true, root, notice }
   }

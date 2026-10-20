@@ -9,6 +9,7 @@ import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rea
 import { constants, homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { findStatusBlock } from '../../src/shared/agent/status-block'
 import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
@@ -170,6 +171,32 @@ describe('harness/evals: the cases', () => {
     const pattern = new RegExp(field(grader, 'input_match') ?? '<none>')
     expect(command.replace('${CLAUDE_PLUGIN_ROOT}', '/tmp/plugin/harness')).toMatch(pattern)
     expect('node /tmp/plugin/harness/hooks/gate.mjs full </dev/null').not.toMatch(pattern)
+  })
+
+  // The status-block grader and the app read the same four lines: a reply whose closing block
+  // worfy shows must pass the grader, indented as in the example of hooks/rules/orchestrator.md or
+  // not, and a reply that closes with the old Russian labels must fail it.
+  it('status-block: the ends-with-status-block grader accepts the block findStatusBlock reads and rejects the old labels', () => {
+    const grader = frontMatter(join(EVALS, 'status-block', 'graders', 'ends-with-status-block.md'))
+    const pattern = new RegExp(field(grader, 'pattern') ?? '<none>')
+    const block = ['— Stage: demo 04, ревью круг 1', '— Now: опечатка исправлена', '— Next: PR', '— Waiting: ничего']
+    const replies = [
+      `Готово.\n\n${block.join('\n')}`,
+      `Готово.\n\n${block.map((line) => `    ${line}`).join('\n')}\n`,
+      `Готово.\r\n\r\n${block.join('\r\n')}\r\n`,
+    ]
+    for (const reply of replies) {
+      expect(findStatusBlock(reply)?.waiting).toBe('ничего')
+      expect(reply).toMatch(pattern)
+    }
+    const russian = `Готово.\n\n${['— Этап: demo 04', '— Сейчас: опечатка исправлена', '— Дальше: PR', '— Жду: ничего'].join('\n')}`
+    expect(findStatusBlock(russian)).not.toBeNull()
+    expect(russian).not.toMatch(pattern)
+    expect(`${block.join('\n')}\n\nИ ещё одно замечание.`).not.toMatch(pattern)
+    const prose = `Итог ${block.join('\n')}`
+    expect(findStatusBlock(prose)).toBeNull()
+    expect(prose).not.toMatch(pattern)
+    expect(block.join('\n')).toMatch(pattern)
   })
 })
 
@@ -363,6 +390,20 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     })
     expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
     expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+  })
+
+  // The Windows branch of demo-project.sh must leave the fixture of macOS and Linux as it was: there
+  // `match` is the folder `pwd -P` gives (the realpath) and no demo-pm.cmd is written. On Windows the
+  // registry has node's long spelling with `/`, and demo-pm.cmd sits next to demo-pm.
+  it('the registry and package manager of the fixture: one spelling per system, demo-pm.cmd only on Windows', () => {
+    const { work, run } = scaffold('status-block')
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    const registry = JSON.parse(readFileSync(join(work, '.git', 'worfy-harness', 'gate', 'config.json'), 'utf8')) as { repos: { match: string; pm: string }[] }
+    const windows = process.platform === 'win32'
+    const match = windows ? realpathSync.native(work).replaceAll('\\', '/') : realpathSync(work)
+    expect(registry.repos[0]).toMatchObject({ match, pm: `${match}/.git/demo-pm` })
+    expect(existsSync(join(work, '.git', 'demo-pm'))).toBe(true)
+    expect(existsSync(join(work, '.git', 'demo-pm.cmd'))).toBe(windows)
   })
 
   // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks

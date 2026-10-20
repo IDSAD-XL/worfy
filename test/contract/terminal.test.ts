@@ -986,6 +986,13 @@ describe('node-pty as the registry knows it', () => {
     expect(typeof WindowsPtyAgent.prototype['_getConsoleProcessList']).toBe('function')
     expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._getConsoleProcessList()')
   })
+
+  it('still drops the pending connection in its own kill() and tests it as falsy, as killUnconnected reads it', () => {
+    // When this fails after an update of node-pty, read killUnconnected in src/main/terminal/pty.ts again.
+    const { WindowsPtyAgent } = createRequire(import.meta.url)('node-pty/lib/windowsPtyAgent.js') as { WindowsPtyAgent: { prototype: Record<string, unknown> } }
+    expect(String(WindowsPtyAgent.prototype['kill'])).toContain('this._pendingPtyInfo = undefined')
+    expect(String(WindowsPtyAgent.prototype['_completePtyConnection'])).toContain('if (!this._pendingPtyInfo)')
+  })
 })
 
 describe('pty helpers', () => {

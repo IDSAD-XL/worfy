@@ -24,7 +24,7 @@ import { useMachineName } from '../machines/useMachines'
 import { inWork } from '../pipeline/board'
 import { usePipeline } from '../pipeline/usePipeline'
 import { activeProject, useProjects } from '../projects/useProjects'
-import HarnessStatus from '../shell/toolbar/HarnessStatus'
+import { HarnessStatus } from '../shell/toolbar/HarnessStatus'
 import { Select, type SelectOption } from '../theme/Select'
 
 export const order = 70

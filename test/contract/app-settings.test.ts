@@ -78,7 +78,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     expect(store.get()).toStrictEqual(DEFAULT_APP_SETTINGS)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 0 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 0 })
     expect(existsSync(file)).toBe(false)
   })
 
@@ -86,7 +86,7 @@ describe('AppSettingsStore', () => {
     const file = freshFile()
     const store = new AppSettingsStore(file)
     const changed = store.set({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { focus: false } } })
-    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 1 })
+    expect(changed).toStrictEqual({ interfaceScale: 1.2, sidebar: { collapsed: { MachinesSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 1 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual(changed)
     expect(new AppSettingsStore(file).get()).toStrictEqual(changed)
   })
@@ -226,12 +226,13 @@ describe('AppSettingsStore', () => {
       JSON.stringify({ interfaceScale: 1.1, theme: 'dark', sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false, extra: 1 }, width: 300 }, revision: 2 }),
     )
     const store = new AppSettingsStore(file)
-    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, revision: 2 })
+    expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 2 })
     store.set({ interfaceScale: 1.2 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toStrictEqual({
       interfaceScale: 1.2,
       sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } },
       autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
+      memoryIndicator: true,
       revision: 3,
     })
   })
@@ -241,6 +242,29 @@ describe('AppSettingsStore', () => {
     mkdirSync(join(file, '..'), { recursive: true })
     writeFileSync(file, JSON.stringify({ interfaceScale: 1.4 }))
     expect(new AppSettingsStore(file).get()).toStrictEqual({ ...DEFAULT_APP_SETTINGS, interfaceScale: 1.4 })
+  })
+
+  it('the memory figure of the toolbar is on by default, on in a file without the field, and its change is kept (worfy-ui ticket 20)', () => {
+    expect(DEFAULT_APP_SETTINGS.memoryIndicator).toBe(true)
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 4 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get().memoryIndicator).toBe(true)
+
+    const events: AppSettings[] = []
+    store.on('changed', (state) => events.push(state))
+    expect(store.set({ memoryIndicator: false })).toMatchObject({ memoryIndicator: false, revision: 5 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ memoryIndicator: false })
+    expect(new AppSettingsStore(file).get().memoryIndicator).toBe(false)
+    expect(events.map((state) => state.memoryIndicator)).toEqual([false])
+    // The same value again changes nothing.
+    expect(store.set({ memoryIndicator: false }).revision).toBe(5)
+    expect(events).toHaveLength(1)
+    // A change of another setting keeps it off.
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, memoryIndicator: false })
+    expect(new AppSettingsStore(file).get().memoryIndicator).toBe(false)
+    expect(store.set({ memoryIndicator: true }).memoryIndicator).toBe(true)
   })
 
   it.each([

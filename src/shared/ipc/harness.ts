@@ -1,12 +1,15 @@
-// The `harness` domain (worfy-harness tickets 13 and 30; ADR-0040, ADR-0048, ADR-0059): whether the
-// Harness of this build is installed as the Claude Code plugin `worfy`, with the plugins it depends
-// on, and the action that installs or updates them after the user agrees in a native dialog. Main
-// reads and writes through src/main/harness/install.ts; the toolbar item is
-// src/renderer/shell/toolbar/HarnessStatus.tsx, and the first-run screen (ticket 19) takes the same
-// two channels. Both are `local`: the install writes the Claude home of the machine the window runs
-// on, and a Linked machine cannot start it.
+// The `harness` domain (worfy-harness tickets 13, 30 and 40; ADR-0040, ADR-0048, ADR-0059): whether
+// the Harness of this build is installed as the Claude Code plugin `worfy`, with the plugins it
+// depends on, and the action that installs or updates them after the user agrees in a native dialog.
+// Main reads and writes through src/main/harness/install.ts, with one installer for the app
+// (appInstaller in src/main/ipc/harness.ts). The toolbar item (src/renderer/shell/toolbar/HarnessStatus.tsx)
+// reads `harness.state` and installs through `harness.install`; the first-run screen installs
+// through its own `firstRun.run` (src/shared/ipc/first-run.ts), which calls the same installer.
+// Every install that answers `done`, from either place, reaches every window as `harness.changed`,
+// so no window keeps a stale state. All three are `local`: the install writes the Claude home of
+// the machine the window runs on, and a Linked machine cannot start it.
 import { z } from 'zod'
-import { invokeChannel } from './channels'
+import { eventChannel, invokeChannel } from './channels'
 
 /**
  * The step an install failed at: the copy of the Harness, or one `claude plugin` command. The
@@ -74,9 +77,17 @@ export const harnessInstall = invokeChannel(
   'local',
 )
 
+/**
+ * Sent to every window after an install answers `done` — installed, or failed with the error in the
+ * state — whichever window or screen started it; not after `declined` or `nothing-to-do`. The
+ * payload is the status the install answered.
+ */
+export const harnessChanged = eventChannel('harness.changed', harnessStatusSchema, 'local')
+
 declare module './channels' {
   interface IpcContract {
     'harness.state': typeof harnessState
     'harness.install': typeof harnessInstall
+    'harness.changed': typeof harnessChanged
   }
 }
