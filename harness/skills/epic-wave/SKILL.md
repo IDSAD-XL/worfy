@@ -42,8 +42,7 @@ the step is skipped, and that is said in words ("production check skipped: the p
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
 in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
-spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
-(exit code 4 or `null`), in the language those documents are already written in.
+spec, ADRs, the state file, lessons) are in `F language.docs` (`en` when the profile does not set it).
 
 Two fields set the shape of the wave:
 

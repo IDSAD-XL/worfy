@@ -95,8 +95,7 @@ the guard refuses such commits and PR texts. `on` — as usual.
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
 in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
-spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
-(exit code 4 or `null`), in the language those documents are already written in.
+spec, ADRs, the state file, lessons) are in `F language.docs` (`en` when the profile does not set it).
 
 Project pitfalls and special requirements (what the checks leave out, what must change together
 with what) are in the profile's `rules.md`: `"${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --rules`.
