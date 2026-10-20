@@ -1,7 +1,7 @@
 # 59 — `profile-set` takeOver(): между «отодвинуть замок» и «вернуть» третий writer берёт пустую папку замка
 
 Type: bug
-Status: open
+Status: claimed 2026-10-20T17:48Z
 Blocked by: 57
 Source: ревью PR #599 (worfy-harness 57), линза корректности, 2026-10-20 — находка вне diff-а; implementer 57
 заметил то же окно.
