@@ -33,6 +33,23 @@ check() {
     shift
     if "$@"; then ok "$name"; else bad "$name"; fi
 }
+# Two cases put a shell-script `git` stub first on PATH: one refuses commit, one is slow to commit.
+# profile-set starts git by name without a shell, and node on Windows starts only a .com or .exe that
+# way, so it skips the stub and runs the real git there. Those two cases are skipped on Windows, one
+# line each. Off Windows every case runs: a skip that fired there would leave cases out while the
+# file stays green.
+. "$(dirname "$0")/gh-stand-in.sh"
+RUN_GIT_STUB=true
+if on_windows; then
+    RUN_GIT_STUB=false
+    echo "skip the failed-commit case: node on Windows starts no shell stub for git, so the real git commits"
+    echo "skip the two stale-lock waiters case: node on Windows starts no shell stub for git, so the commit is not slow"
+fi
+# The guard of the above: off Windows (by uname, not by on_windows) the git-stub cases are on.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *) check "off Windows the git-stub cases are not skipped" "$RUN_GIT_STUB" ;;
+esac
 
 T="$(mktemp -d)"
 T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
@@ -157,22 +174,28 @@ check "reset: bin/profile --json gives the default _resolved.pipeline" [ "$resol
 
 # --- the commit fails: the write stays, with a warning ---------------------------------------------------
 REAL_GIT="$(command -v git)"
-cat >"$T/stub/git" <<EOF
+if $RUN_GIT_STUB; then
+    cat >"$T/stub/git" <<EOF
 #!/usr/bin/env bash
 for a in "\$@"; do [ "\$a" = commit ] && { echo "stub git: commit refused" >&2; exit 1; }; done
 exec "$REAL_GIT" "\$@"
 EOF
-chmod +x "$T/stub/git"
-before_commits="$(commits)"
-out="$(PATH="$T/stub:$PATH" run "$SET" -C "$T/r/demo" --expect null --set "$OTHER" 2>"$T/err")"
-rc=$?
-check "failed commit: exit 0" [ "$rc" -eq 0 ]
-check "failed commit: written" [ "$(field "$PJ")" = "$OTHER" ]
-check "failed commit: no commit" [ "$(commits)" -eq "$before_commits" ]
-check "failed commit: a warning line in stderr" grep -q "^profile-set: warning: .*commit refused" "$T/err"
-check "failed commit: the warning in the answer" [ "$(json_get warning <<<"$out")" != null ]
-# What the failed commit staged is not left in the index.
-check "failed commit: nothing staged" [ -z "$(git -C "$HH" diff --cached --name-only)" ]
+    chmod +x "$T/stub/git"
+    before_commits="$(commits)"
+    out="$(PATH="$T/stub:$PATH" run "$SET" -C "$T/r/demo" --expect null --set "$OTHER" 2>"$T/err")"
+    rc=$?
+    check "failed commit: exit 0" [ "$rc" -eq 0 ]
+    check "failed commit: written" [ "$(field "$PJ")" = "$OTHER" ]
+    check "failed commit: no commit" [ "$(commits)" -eq "$before_commits" ]
+    check "failed commit: a warning line in stderr" grep -q "^profile-set: warning: .*commit refused" "$T/err"
+    check "failed commit: the warning in the answer" [ "$(json_get warning <<<"$out")" != null ]
+    # What the failed commit staged is not left in the index.
+    check "failed commit: nothing staged" [ -z "$(git -C "$HH" diff --cached --name-only)" ]
+else
+    # The cases below start from this value in the file.
+    run "$SET" -C "$T/r/demo" --expect null --set "$OTHER" >/dev/null 2>"$T/err"
+    check "Windows, in place of the failed-commit case: written" [ "$(field "$PJ")" = "$OTHER" ]
+fi
 
 # --- no git repository in the Harness home -----------------------------------------------------------------
 HH2="$T/hh2"
@@ -258,35 +281,37 @@ check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 
 # A stale lock two waiters see at once: B judges it stale and pauses before taking it over; meanwhile A
 # takes it over, makes its own lock and holds it through a slow commit. B's takeover must leave A's lock
 # alone: A's token is still in it while A commits, and B waits for A instead of writing beside it.
-C='[{"kind":"queued"},{"kind":"agent-review"},{"kind":"done"}]'
-SLOW="$T/slow"
-mkdir -p "$SLOW"
-cat >"$SLOW/git" <<EOF
+if $RUN_GIT_STUB; then
+    C='[{"kind":"queued"},{"kind":"agent-review"},{"kind":"done"}]'
+    SLOW="$T/slow"
+    mkdir -p "$SLOW"
+    cat >"$SLOW/git" <<EOF
 #!/usr/bin/env bash
 for a in "\$@"; do [ "\$a" = commit ] && sleep 3; done
 exec "$REAL_GIT" "\$@"
 EOF
-chmod +x "$SLOW/git"
-mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
-fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
-PROFILE_SET_STALE_PAUSE_MS=1500 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >"$T/outB" 2>"$T/errB" &
-waiter_b=$!
-sleep 0.5
-PATH="$SLOW:$PATH" run "$SET" -C "$T/r/demo" --expect "$fp" --set "$C" >"$T/outA" 2>"$T/errA" &
-writer_a=$!
-# By now B has woken and tried to take over: A is still in its slow commit.
-sleep 2.5
-owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
-wait "$writer_a"
-rc_a=$?
-wait "$waiter_b"
-rc_b=$?
-check "stale lock, two waiters: A's lock still there while A commits" [ "$owner_mid" != none ]
-check "stale lock, two waiters: the lock holds A's token, not the dead one" [ "$owner_mid" != dead-writer ]
-check "stale lock, two waiters: A writes (exit 0)" [ "$rc_a" -eq 0 ]
-check "stale lock, two waiters: B, from the same read, gets exit 5 after A" [ "$rc_b" -eq 5 ]
-check "stale lock, two waiters: the file holds A's value" [ "$(field "$PJ")" = "$C" ]
-check "stale lock, two waiters: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    chmod +x "$SLOW/git"
+    mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    PROFILE_SET_STALE_PAUSE_MS=1500 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >"$T/outB" 2>"$T/errB" &
+    waiter_b=$!
+    sleep 0.5
+    PATH="$SLOW:$PATH" run "$SET" -C "$T/r/demo" --expect "$fp" --set "$C" >"$T/outA" 2>"$T/errA" &
+    writer_a=$!
+    # By now B has woken and tried to take over: A is still in its slow commit.
+    sleep 2.5
+    owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+    wait "$writer_a"
+    rc_a=$?
+    wait "$waiter_b"
+    rc_b=$?
+    check "stale lock, two waiters: A's lock still there while A commits" [ "$owner_mid" != none ]
+    check "stale lock, two waiters: the lock holds A's token, not the dead one" [ "$owner_mid" != dead-writer ]
+    check "stale lock, two waiters: A writes (exit 0)" [ "$rc_a" -eq 0 ]
+    check "stale lock, two waiters: B, from the same read, gets exit 5 after A" [ "$rc_b" -eq 5 ]
+    check "stale lock, two waiters: the file holds A's value" [ "$(field "$PJ")" = "$C" ]
+    check "stale lock, two waiters: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+fi
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
