@@ -459,6 +459,12 @@ rewrite_paths() {
   printf '%s' "$out$text" >"$1" || die 1 "cannot write $1"
 }
 
+# The e2e lock is held: lock-run says so in E3_LOCK_HELD, and its folder is there. $1 is the command
+# to run instead.
+require_lock() {
+  [ "${E3_LOCK_HELD:-}" = 1 ] && [ -d "$LOCK" ] || die 2 "move: run it under the e2e lock $LOCK, so no acceptance run uses the sandbox meanwhile: $1"
+}
+
 # Moves the sandbox from OLD_ROOT (the temp dir) to ROOT as a whole: one `mv`, so links inside stay
 # links. Then finish_move points the links into the old folder at the new one, rewrites the paths of
 # home/.gitconfig and writes home/.zshenv and home/.profile for the new place.
@@ -471,16 +477,32 @@ rewrite_paths() {
 # shortcut: rewrites only the spelling OLD_ROOT has (resolved, /private/var/folders/...), not /var/folders/...; redo if a link or .gitconfig ever names the old folder that way.
 move_sandbox() {
   [ $# -eq 0 ] || die 2 "move: takes no options, not $1"
-  local lock_hint="bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move"
+  local lock_hint="bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move" old
   # A move that stopped after mv (a link or a file it could not write) is finished, not started again.
   if [ -f "$ROOT/$MOVING" ]; then
-    [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: $lock_hint"
+    require_lock "$lock_hint"
     inside_sandbox
-    finish_move "$(cat "$ROOT/$MOVING")"
+    old=$(cat "$ROOT/$MOVING")
+    # A marker still at the old place means mv did not finish (across volumes it copies, then deletes):
+    # what is at ROOT may be a part of the sandbox only.
+    [ ! -f "$old/$MARKER" ] || die 2 "$old still has $MARKER: the mv into $ROOT did not finish, and $ROOT may hold a part of the sandbox only. Compare the two folders; keep the whole one at $old, delete $ROOT, then run: $lock_hint"
+    finish_move "$old"
+    return 0
+  fi
+  # Moved already. Claude Code makes the old home/.claude again, with a lock file in it, before each
+  # write of the sign-in: it is the CLAUDE_SECURESTORAGE_CONFIG_DIR of the moved sandbox.
+  if [ -f "$ROOT/$MARKER" ] && [ ! -L "$ROOT" ] && [ -f "$ROOT/$SECURE_DIR_FILE" ] && [ "$(cat "$ROOT/$SECURE_DIR_FILE")" = "$OLD_ROOT/home/.claude" ]; then
+    echo "e3-sandbox: the sandbox was moved from $OLD_ROOT to $ROOT already: nothing to do"
     return 0
   fi
   if [ ! -e "$OLD_ROOT" ] && [ ! -L "$OLD_ROOT" ]; then
     echo "e3-sandbox: no sandbox at $OLD_ROOT: nothing to move"
+    return 0
+  fi
+  # Without the marker and without the .zshenv this script writes it is no sandbox that lost its marker
+  # (that is what Claude Code leaves there, see above): nothing to move, and no advice to mark it.
+  if [ ! -L "$OLD_ROOT" ] && [ ! -f "$OLD_ROOT/$MARKER" ] && [ ! -f "$OLD_ROOT/home/.zshenv" ]; then
+    echo "e3-sandbox: $OLD_ROOT has no $MARKER and no home/.zshenv: no sandbox there, nothing to move; the folder is left as it is"
     return 0
   fi
   check_marker "$OLD_ROOT"
@@ -497,7 +519,7 @@ move_sandbox() {
     [ -d "$ROOT" ] && [ ! -L "$ROOT" ] && [ -z "$(ls -A "$ROOT" 2>/dev/null)" ] ||
       die 2 "$ROOT is there already and is not an empty folder nor a sandbox of this script: nothing moved; the sandbox stays at $OLD_ROOT. Move $ROOT out of the way yourself, then run the move again: $lock_hint"
   fi
-  [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: $lock_hint"
+  require_lock "$lock_hint"
   # An empty folder in the way is removed; mv would put the sandbox inside it.
   if [ -d "$ROOT" ]; then rmdir -- "$ROOT" || die 1 "cannot remove the empty folder $ROOT"; fi
   mkdir -p -- "$(dirname "$ROOT")" || die 1 "cannot make $(dirname "$ROOT")"
