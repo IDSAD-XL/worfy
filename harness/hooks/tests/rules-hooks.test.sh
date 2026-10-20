@@ -402,7 +402,7 @@ Stop||$N/bin/worktree-lock" beat|5
 Stop||$R/bin/qmd-refresh" --quiet|15
 SessionEnd||$N/hooks/session-end.mjs"|10
 SessionEnd||$N/bin/worktree-lock" release|5
-PreToolUse|Bash|$N/hooks/guard.mjs"|10
+PreToolUse|Bash|$N/hooks/guard.mjs"|30
 EOF
 expected="$(printf '%s' "$hooks_expected" | sort)"
 actual="$(hj hooks | sort)"
