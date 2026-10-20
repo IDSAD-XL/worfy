@@ -121,10 +121,15 @@ mkdir -p "$SP/suite/epics/big"
 echo big >"$SP/suite/state/active-epic"
 c="$(srun "$START" "$R" "$R" | ctx)"
 sec="${c#*## Active epic: big}"
-[[ "$c" == *"## Active epic: big"$'\n'"BIG-MAP-HEAD"* && "$c" != *"BIG-MAP-TAIL"* \
-    && "$sec" == *"truncated, full text: $SP/suite/epics/big/map.md"* ]] && [ "$(printf '%s' "$sec" | wc -c)" -le 20300 ] \
-    && ok "large epic map capped with a pointer to the full file ($(printf '%s' "$sec" | wc -c | tr -d ' ') bytes)" \
-    || bad "large map not capped: section $(printf '%s' "$sec" | wc -c) bytes"
+size="$(printf '%s' "$sec" | wc -c | tr -d ' ')"
+[[ "$c" == *"## Active epic: big"$'\n'"BIG-MAP-HEAD"* && "$c" != *"BIG-MAP-TAIL"* ]] && [ "$size" -le 20300 ] \
+    && ok "large epic map cut to the section limit ($size bytes)" \
+    || bad "large map not capped: section $size bytes"
+# on Windows the hook prints the pointer with backslashes
+sec_fwd="${sec//\\//}"
+[[ "$sec_fwd" == *"truncated, full text: $SP/suite/epics/big/map.md"* ]] \
+    && ok "large epic map names the full file" \
+    || bad "large map has no pointer to the full file"
 rm -rf "$SP/suite/state/active-epic" "$SP/suite/epics/ep1" "$SP/suite/epics/big"
 c="$(srun "$START" "$R" "$R" | ctx)"
 [[ "$c" != *"truncated, full text"* ]] && ok "normal sections are not capped" || bad "small sections got a cut marker"
