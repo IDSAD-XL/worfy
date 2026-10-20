@@ -12,10 +12,12 @@
 // no new executable file is started (macOS checks a new one first, under load for seconds). Every
 // background process an rc file starts writes its pid into HOME and is killed after the test.
 // Nothing here reads or writes the real ~/.claude or the real rc files.
+import { spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { agentEnv, captureLoginShellEnv, MAX_SHELL_OUTPUT, SYSTEM_PATH, type CapturedEnv } from '../../src/main/agent/env'
 import { harnessScriptEnv, withProcessPath } from '../../src/main/harness/script-env'
@@ -110,6 +112,71 @@ describe.skipIf(process.platform === 'win32')('the login shell capture with a pr
     expect(alive(pidOf('background.pid'))).toBe(true)
   }, 20_000)
 
+  it('drops what that process writes after the answer: more than MAX_SHELL_OUTPUT of it neither piles up nor breaks its pipe', async () => {
+    // After HOME/go, 17 MB to the shell's output; HOME/after gets the exit status of that pipeline.
+    profile(BACKGROUND + `( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 17000000 /dev/zero | tr '\\0' a; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
+    const result = await captureLoginShellEnv({ shell: '/bin/sh', source: source('/bin/sh') })
+    expect(result.from, result.error ?? '').toBe('login-shell')
+    writeFileSync(join(home, 'go'), '')
+    await until(() => existsSync(join(home, 'after')), 'the background process wrote the status of its 17 MB', 15_000)
+    // 0, not 141 (SIGPIPE): kept output past the limit would have closed the pipe under it.
+    expect(readFileSync(join(home, 'after'), 'utf8').trim()).toBe('0')
+  }, 30_000)
+
+  it("does not keep worfy's process alive while that process runs", () => {
+    // A process of its own (Electron's Node, as the test run, which strips the types of env.ts):
+    // it captures with `sleep 30` left in the background, prints the answer and has nothing more to do.
+    profile(BACKGROUND)
+    const script = join(home, 'capture.mts')
+    writeFileSync(
+      script,
+      `import { captureLoginShellEnv } from ${JSON.stringify(pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href)}\n` +
+        `const result = await captureLoginShellEnv({ shell: '/bin/sh', source: { HOME: ${JSON.stringify(home)}, SHELL: '/bin/sh' } })\n` +
+        'console.log(result.from)\n',
+    )
+    const started = Date.now()
+    const run = spawnSync(process.execPath, [script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    const took = Date.now() - started
+    expect(run.stdout.trim(), run.stderr).toBe('login-shell')
+    expect(run.status).toBe(0)
+    expect(alive(pidOf('background.pid'))).toBe(true)
+    // Held by the drain, it would end with `sleep 30`, or be killed at the 20 s timeout.
+    expect(took).toBeLessThan(10_000)
+  }, 30_000)
+
+  it('keeps nothing of what that process writes after the answer', () => {
+    // A process of its own, run with --expose-gc: its memory (RSS) is measured before and after the
+    // background process writes 100 MB to the shell's output. RSS, not the V8 heap: Electron's V8
+    // keeps strings this large outside heapUsed.
+    profile(`( while [ ! -e "$HOME/go" ]; do sleep 0.05; done; head -c 100000000 /dev/zero | tr '\\0' a; echo "$?" > "$HOME/after" ) & echo $! > "$HOME/probe.pid"\n`)
+    const script = join(home, 'flood.mts')
+    writeFileSync(
+      script,
+      [
+        "import { existsSync, readFileSync, writeFileSync } from 'node:fs'",
+        `import { captureLoginShellEnv } from ${JSON.stringify(pathToFileURL(join(__dirname, '..', '..', 'src', 'main', 'agent', 'env.ts')).href)}`,
+        `const home = ${JSON.stringify(home)}`,
+        "const gc = (globalThis as { gc?: () => void }).gc!",
+        "const result = await captureLoginShellEnv({ shell: '/bin/sh', source: { HOME: home, SHELL: '/bin/sh' } })",
+        'gc()',
+        'const before = process.memoryUsage().rss',
+        "writeFileSync(home + '/go', '')",
+        "while (!existsSync(home + '/after')) await new Promise((resolve) => setTimeout(resolve, 20))",
+        'await new Promise((resolve) => setTimeout(resolve, 200))',
+        'gc()',
+        "console.log(JSON.stringify({ from: result.from, grownMB: (process.memoryUsage().rss - before) / 1e6, status: readFileSync(home + '/after', 'utf8').trim() }))",
+        'process.exit(0)',
+      ].join('\n'),
+    )
+    const run = spawnSync(process.execPath, ['--expose-gc', script], { env: { PATH: SYSTEM_PATH, HOME: home, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8', timeout: 20_000 })
+    expect(run.status, run.stderr).toBe(0)
+    const answer = JSON.parse(run.stdout) as { from: string; grownMB: number; status: string }
+    expect(answer.from).toBe('login-shell')
+    expect(answer.status).toBe('0')
+    // Kept, the 100 MB would stay: about +200 MB of RSS; dropped, about +2 MB.
+    expect(answer.grownMB).toBeLessThan(50)
+  }, 30_000)
+
   it('still falls back at the time limit when the shell prints nothing, and ends that shell', async () => {
     // The shell becomes `sleep 30`: it never prints the environment and never exits by itself.
     profile('echo $$ > "$HOME/shell.pid"; exec sleep 30\n')
@@ -182,12 +249,14 @@ describe('a shell started without pipes (out of file descriptors)', () => {
   })
 
   it('answers the fallback and throws nothing, now or when the timer would fire', async () => {
-    // Out of descriptors, Node returns a child whose pipes are null and emits EMFILE on it.
+    // Out of descriptors, Node returns a child whose pipes are null and no pid, and emits EMFILE on it.
+    // A signal to such a child is aimed at no process of worfy's (EPERM on Electron's Node): none is sent.
+    const kill = vi.fn(() => false)
     vi.resetModules()
     vi.doMock('node:child_process', async (importOriginal) => {
       const actual = await importOriginal<typeof import('node:child_process')>()
       const spawn = (): unknown => {
-        const child = Object.assign(new EventEmitter(), { stdin: null, stdout: null, stderr: null, stdio: [null, null, null], pid: undefined, exitCode: null, signalCode: null, kill: () => false })
+        const child = Object.assign(new EventEmitter(), { stdin: null, stdout: null, stderr: null, stdio: [null, null, null], pid: undefined, exitCode: null, signalCode: null, kill, unref: () => undefined })
         process.nextTick(() => child.emit('error', Object.assign(new Error('spawn /bin/sh EMFILE'), { code: 'EMFILE' })))
         return child
       }
@@ -200,6 +269,7 @@ describe('a shell started without pipes (out of file descriptors)', () => {
     expect(result.env).toEqual({ PATH: SYSTEM_PATH, ...source('/bin/sh') })
     // Past the time limit and the error event: an uncaught throw from either fails the run.
     await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(kill).not.toHaveBeenCalled()
   })
 })
 

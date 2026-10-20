@@ -21,6 +21,7 @@
 // Path may be the WSL launcher.
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { readlinkSync, statSync } from 'node:fs'
+import { Socket } from 'node:net'
 import { win32 } from 'node:path'
 
 export type Env = Record<string, string>
@@ -132,13 +133,17 @@ export async function captureLoginShellEnv(options: CaptureOptions = {}): Promis
     // waited out the whole timeout although the environment was printed (worfy-harness ticket 43).
     // Closing worfy's side instead would kill such a process with SIGPIPE at its next write. So
     // after the answer the output and stderr are read on and dropped until that process closes
-    // them; only the output past MAX_SHELL_OUTPUT is closed.
+    // them; only the output past MAX_SHELL_OUTPUT is closed. That reading, and the shell's handle,
+    // never keep worfy's process alive: they are unref'd once answered.
     const finish = (result: CapturedEnv): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       output = ''
-      if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      // A child that never started has no pid; a signal to it could reach a process not worfy's.
+      if (child?.pid !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      child?.unref()
+      for (const stream of [child?.stdout, child?.stderr]) if (stream instanceof Socket) stream.unref()
       resolve(result)
     }
     const timeoutMs = options.timeoutMs ?? SHELL_TIMEOUT_MS
