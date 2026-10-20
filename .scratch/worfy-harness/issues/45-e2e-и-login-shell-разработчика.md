@@ -1,7 +1,8 @@
 # 45 — e2e запускают login shell разработчика при каждом старте приложения; вызов `profile` под `WORFY_GH` идёт с окружением процесса worfy
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T01:09Z
+Branch: worfy-harness/45
 Blocked by:
 Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-главного-процесса-без-окружения-login-shell.md), срез 1), круг 1, 2026-10-14 — замечания low «e2e и login shell машины» и «переопределения только на процессе worfy … один вызов под `WORFY_GH`»; «Риски» Ticket-а 37 («e2e начинают зависеть от login shell машины»). Срез 2 Ticket-а 37 (PR #311, head `57e9422`) не меняет `test/e2e/helpers.ts` и `src/main/ipc/checks.ts`. Код перечитан по main `1c1beadd`.
 

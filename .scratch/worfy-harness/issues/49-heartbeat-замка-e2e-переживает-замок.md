@@ -1,7 +1,8 @@
 # 49 — Heartbeat замка e2e в блоке gate full одного PR не выходит, когда замка уже нет
 
 Type: bug
-Status: open
+Status: claimed 2026-10-19T23:34Z
+Branch: worfy-harness/49
 Blocked by: —
 Source: Session на Mac 2026-10-18 — 8 осиротевших heartbeat-процессов на Mac (временные замки
 test-ов, сняты руками); первый круг ревью PR #497 на Mac ([комментарий](https://github.com/IDSAD-XL/worfy/pull/497#issuecomment-6252102036),

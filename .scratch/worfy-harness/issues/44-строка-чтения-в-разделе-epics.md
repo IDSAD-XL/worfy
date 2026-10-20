@@ -1,7 +1,8 @@
 # 44 — Раздел Epics пуст, пока идёт первое чтение: до 10 s без единой строки; нужна строка «чтение»
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T01:02Z
+Branch: worfy-harness/44
 Blocked by:
 Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-главного-процесса-без-окружения-login-shell.md), срез 1), круг 1, 2026-10-14 — замер старта; «Риски» Ticket-а 37 («Первое чтение Epic-ов ждёт login shell»). Срез 2 Ticket-а 37 (PR #311, head `57e9422`) показывает причину неудачного чтения, но не меняет `EpicsSection.tsx` и `useWorkflow.ts`. Код перечитан по main `1c1beadd`.
 

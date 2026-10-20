@@ -1,7 +1,9 @@
 # 38 — `qmd-collections` отказывается править `index.yml` со строкой `collections: {}`, которую qmd сам пишет на новой машине
 
 Type: task
-Status: open
+Status: done 2026-10-20T06:26Z
+PR: #564
+Branch: worfy-harness/38
 Blocked by:
 Source: приёмочный прогон 2026-10-14 под вторым пользователем macOS — пункт 5 приёмки E3 (приёмка Epic-а `worfy-harness`, Ticket [26](26-приёмка-e3.md)); отчёт — [26-пункт-5-отчёт-2026-10-14.md](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 2 («qmd collections were not set up» при подключении Project-а).
 
@@ -323,4 +325,23 @@ Ticket 17 (qmd ставится вместе с Harness, закрыт) уже з
 
 ## Итог
 
-—
+PR #564, merge 55dd1b44. Платформенный PR (harness/bin): Mac gate full зелёный; на объединённом дереве
+`harness-scripts` 43/43, `plugin-neutral` 26/26.
+
+- Поведение: строка ключа только с пустым словарём (`collections: {}`, пробелы внутри и после скобок
+  допустимы) значит «ключ есть, коллекций нет». Строка становится `collections:`, блоки коллекций
+  Project-а встают под неё. Любое другое значение на строке ключа по-прежнему отказ: exit 1, `index.yml`
+  и profile не тронуты, одна строка в stderr с описанием блочной формы. Два других читателя `index.yml`
+  (awk в `qmd-refresh` и в skill qmd) не менялись: под `collections: {}` они не находят коллекций, а
+  блочную форму читают одинаково.
+- Test-ы: `harness/bin/tests/qmd-collections.test.sh` +10 проверок. До правки exit 1, 6 красных
+  («holds an inline value»); после — 38/38. Пять мутантов, каждый красный.
+- Ручная проверка с настоящим qmd 2.8.3 во временных HOME, HARNESS_HOME, CLAUDE_CONFIG_DIR: `qmd update`
+  на пустом HOME пишет `collections: {}` и блок `models:`; `qmd-collections y` — exit 0, три коллекции в
+  блочной форме, `models:` сохранён, рядом датированная копия; `qmd collection list` видит `y-docs`,
+  `y-tickets`, `y-memory`; второй `qmd update` — exit 0.
+- Хвосты (не блокировали merge):
+  - case `collections: { } ` с пробелом после `}` — мутант, который его ломает, выживает; добавить проверку;
+  - в новых case-ах нет проверки `clean_repos`;
+  - форма путей Windows в двух новых проверках (test-файл, строки ~368 и ~378) — в worfy-windows 15;
+  - смешанные концы строк CRLF после перезаписи `index.yml` qmd-ом на Windows — не проверено.

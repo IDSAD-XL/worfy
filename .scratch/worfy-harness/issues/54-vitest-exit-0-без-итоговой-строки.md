@@ -1,7 +1,9 @@
 # 54 — Прогон vitest с exit 0 без итоговой строки gate считает зелёным
 
 Type: task
-Status: open
+Status: done 2026-10-20T05:12Z
+PR: #558
+Branch: worfy-harness/54
 Blocked by: —
 Source: ревью PR [#517](https://github.com/IDSAD-XL/worfy/pull/517) (worfy-windows 65, harness-evals на
 Windows), мутант T4: прогон, где worker vitest завис или Electron запустился как GUI, кончился с exit 0
@@ -53,4 +55,21 @@ Windows), мутант T4: прогон, где worker vitest завис или 
 
 ## Итог
 
-Заполняется при закрытии.
+PR #558, merge 5737fdb6.
+
+- Воспроизведение: exit 0 без итоговой строки vitest на macOS не получен ни в одном из 11 сценариев
+  (Electron 44, vitest 5.0.3, копия обёртки в отдельном проекте с зависшим test-ом): обычный прогон,
+  Electron без `ELECTRON_RUN_AS_NODE`, SIGTERM/SIGINT/SIGKILL Electron, SIGTERM обёртки, SIGKILL/SIGTERM
+  fork worker-а, `app.quit()`. Коды: 0 только с итогом; остальные 143, 130 или 1. Таблица — в описании PR.
+- Правка всё равно сделана как дешёвая страховка (исходный отчёт был с Windows):
+  `scripts/vitest-electron.mjs` построчно ищет в stdout итог vitest (`Test Files … (N)`, `Tests … (N)`);
+  exit 0 без итога превращается в 1 с одной строкой в stderr. Не проверяются `--help`, `--version` и
+  прогоны, где среди `--reporter` нет `default`, `verbose`, `dot`, `tree` (json для mutation-скриптов).
+- Попутно: обёртка убирает `--`, если он стоит первым аргументом. Раньше `pnpm test -- <file>` терял
+  фильтр и гонял весь набор (320 файлов). Теперь `pnpm test -- <file>` и `pnpm test <file>` одинаковы.
+- Изменение поведения: stdout vitest теперь pipe, а не TTY; цвета остаются, но вместо перерисовки
+  прогресса — построчный вывод.
+- Test-ы: `test/contract/vitest-electron.test.ts` (stand-in vitest). На старой обёртке 4 из 22 красные;
+  после правки зелёные. Мутанты (проверка итога снята; снятие `--` убрано) — красные.
+- Gate full на Mac зелёный (очередь оркестратора 2026-10-20), после чего PR смержен.
+
