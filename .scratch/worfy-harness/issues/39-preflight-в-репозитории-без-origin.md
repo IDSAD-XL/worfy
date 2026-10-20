@@ -1,7 +1,8 @@
 # 39 — `preflight` в репозитории без remote `origin` отвечает `BLOCKED`, хотя для Project-а с локальным финишем это поддерживаемый случай
 
 Type: task
-Status: open
+Status: claimed 2026-10-19T23:35Z
+Branch: worfy-harness/39
 Blocked by:
 Source: приёмочный прогон 2026-10-14 под вторым пользователем macOS — пункт 5 приёмки E3 (приёмка Epic-а `worfy-harness`, Ticket [26](26-приёмка-e3.md)); отчёт — [26-пункт-5-отчёт-2026-10-14.md](../evidence/26-пункт-5-отчёт-2026-10-14.md), находка 8 («Preflight блокирует Wave в репозитории без `origin`») и два дополнительных прогона.
 
