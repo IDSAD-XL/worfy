@@ -271,6 +271,18 @@ export class WorkflowWatcher {
   private awaitingRoot = false
   /** The watch of the Tickets root being made anew (`rewatchTickets`); one at a time. */
   private rewatching: Promise<void> | null = null
+  /** Whether the Tickets root is watched by chokidar here (not by link-safe-watch.ts). */
+  private chokidarTickets = false
+  /**
+   * Resolves the wait of `watch` for the first watch of the Tickets root. A watch made anew before
+   * it was ready takes it over: chokidar's close removes the 'ready' listener, and the start would
+   * otherwise wait for good. Calling it again does nothing.
+   */
+  private ticketsFirstReady: () => void = () => undefined
+  /** Watches made anew in a row because chokidar did not hold a root that is a folder. */
+  private unheldRemakes = 0
+  /** Whether a failed look at the Tickets root other than "not there" has been logged. */
+  private rootErrorSaid = false
   private readonly debounce: Debounce
   private layout: ProjectLayout | null = null
   /** Set when the failed layout is to be asked again before the next read. */
@@ -334,8 +346,9 @@ export class WorkflowWatcher {
 
   /** Resolves once no read is running or scheduled; for tests and shutdown. */
   async idle(): Promise<void> {
-    while (this.running || this.debounce.scheduled) {
-      if (this.running) await this.running
+    while (this.running || this.debounce.scheduled || this.rewatching) {
+      if (this.rewatching) await this.rewatching
+      else if (this.running) await this.running
       else await new Promise((done) => setTimeout(done, 10))
     }
   }
@@ -426,8 +439,13 @@ export class WorkflowWatcher {
         }),
       )
     } else {
-      const tickets = this.watchTickets(layout.ticketsRoot)
-      ready.push(new Promise<void>((done) => tickets.once('ready', () => done())))
+      this.chokidarTickets = true
+      ready.push(
+        new Promise<void>((done) => {
+          this.ticketsFirstReady = done
+          this.watchTickets(layout.ticketsRoot, done)
+        }),
+      )
     }
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
@@ -451,29 +469,63 @@ export class WorkflowWatcher {
   }
 
   /**
-   * Makes the chokidar watch of the Tickets root and looks whether the root is a folder: while it
-   * is not, `awaitTicketsRoot` looks for it. The removal of the root itself makes the watch anew
+   * Makes the chokidar watch of the Tickets root; once it is ready, looks at the root
+   * (`checkTicketsRoot`) and then calls `ready`. The removal of the root itself makes the watch anew
    * (`rewatchTickets`): chokidar does not wait for a root that is gone, and a root made again
-   * before the read that the removal asks for would otherwise stay unwatched.
+   * before the read that the removal asks for would otherwise stay unwatched. The removal of an
+   * Epic folder or any other path does not.
    */
-  private watchTickets(ticketsRoot: string): FSWatcher {
+  private watchTickets(ticketsRoot: string, ready: () => void): FSWatcher {
     const make = this.options.watchTicketsRoot ?? ((path, ignored) => watch(path, { ignoreInitial: true, ignored }))
     // No `depth`: see `ticketsIgnored`.
     const watcher = make(ticketsRoot, ticketsIgnored(ticketsRoot))
     watcher.on('unlinkDir', (path: string) => {
       if (resolve(path) === resolve(ticketsRoot) && this.ticketsWatcher === watcher) this.rewatchTickets()
     })
+    // The look comes after `ready`, and so after chokidar's own look at the root: a root made
+    // between the two is seen here.
+    watcher.once('ready', () => void this.checkTicketsRoot(ticketsRoot, watcher).finally(ready))
     this.follow(watcher, 'checkout')
     this.ticketsWatcher = watcher
-    void this.ticketsRootThere(ticketsRoot).then((there) => {
-      if (!there && this.ticketsWatcher === watcher) this.awaitTicketsRoot(ticketsRoot)
-    })
     return watcher
+  }
+
+  /**
+   * After a watch of the Tickets root is ready: a root that is not a folder is looked for
+   * (`awaitTicketsRoot`); a root that is a folder but that chokidar does not hold — made between
+   * chokidar's look and `ready` — gets its watch made anew, once in a row (a second miss is logged
+   * and left: making it anew again could repeat for good).
+   */
+  private async checkTicketsRoot(ticketsRoot: string, watcher: FSWatcher): Promise<void> {
+    const there = await this.ticketsRootThere(ticketsRoot)
+    if (this.closed || this.ticketsWatcher !== watcher) return
+    if (!there) return this.awaitTicketsRoot(ticketsRoot)
+    // A replaced watch (tests) has no getWatched: it is taken to hold the root.
+    const held = typeof watcher.getWatched !== 'function' || Object.keys(watcher.getWatched()).some((path) => resolve(path) === resolve(ticketsRoot))
+    if (held) {
+      this.unheldRemakes = 0
+      return
+    }
+    // shortcut: a second miss in a row is only logged, and the root then rests on chokidar's own
+    // notifications; redo it (a look on a timer until chokidar holds the root) if this line is
+    // ever seen in a log.
+    if (this.unheldRemakes > 0) return console.warn(`[workflow] chokidar does not hold the Tickets root ${ticketsRoot}, though it is a folder`)
+    this.unheldRemakes += 1
+    this.rewatchTickets()
   }
 
   private ticketsRootThere(ticketsRoot: string): Promise<boolean> {
     const there = this.options.ticketsRootThere ?? ((path: string) => stat(path).then((stats) => stats.isDirectory()))
-    return there(ticketsRoot).catch(() => false)
+    return there(ticketsRoot).catch((error: unknown) => {
+      // Not there, or a file on the way: the usual answer. Anything else (no access, a loop of
+      // links) is said once; the looks go on.
+      const code = (error as { code?: unknown } | null)?.code
+      if (code !== 'ENOENT' && code !== 'ENOTDIR' && !this.rootErrorSaid) {
+        this.rootErrorSaid = true
+        console.warn(`[workflow] cannot look at the Tickets root ${ticketsRoot}; it is looked for every ${this.options.ticketsRootRetryMs ?? TICKETS_ROOT_RETRY_MS} ms`, error)
+      }
+      return false
+    })
   }
 
   /**
@@ -524,11 +576,20 @@ export class WorkflowWatcher {
     const layout = this.layout
     if (this.closed || !layout || layout.failed) return
     try {
-      const fresh = this.watchTickets(layout.ticketsRoot)
+      // The new watch takes over the wait of the start when the previous one was not ready yet.
       // chokidar's close removes the 'ready' listener: a close meanwhile ends the wait.
-      await Promise.race([new Promise<void>((done) => fresh.once('ready', () => done())), this.closing])
+      await Promise.race([
+        new Promise<void>((done) =>
+          this.watchTickets(layout.ticketsRoot, () => {
+            this.ticketsFirstReady()
+            done()
+          }),
+        ),
+        this.closing,
+      ])
     } catch (error) {
       console.error('[workflow] the Tickets watch was not made anew', error)
+      this.ticketsFirstReady()
     }
     this.schedule('checkout')
   }
@@ -649,7 +710,12 @@ export class WorkflowWatcher {
       if (layout.failed) {
         checkout = this.checkout = failedCheckout(root, layout)
         this.retryLayout()
-      } else if (checkoutChanged || !checkout) checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+      } else if (checkoutChanged || !checkout) {
+        checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+        // A root removed without an event about the root itself (it was lost; only events about
+        // what was in it came) is looked for from here.
+        if (this.chokidarTickets && !(await this.ticketsRootThere(layout.ticketsRoot)) && !this.closed) this.awaitTicketsRoot(layout.ticketsRoot)
+      }
       if (checkout.error || layout.mode === 'silent') this.branches = new Map()
       else if (checkoutChanged || branchesChanged) {
         this.branches = await readBranches(root, checkout, await ticketWorktrees(root), this.branches, run)
