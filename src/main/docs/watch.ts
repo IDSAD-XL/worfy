@@ -15,6 +15,7 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { resolve, sep } from 'node:path'
 import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState } from '../../shared/ipc/docs'
+import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
 import { isInside, leadsToRemote, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
@@ -45,6 +46,8 @@ export interface DocOptions {
   links?: LinkFs
   /** The calls that follow links; replaced in tests. */
   fs?: DocFs
+  /** The label of an ADR's status line, `docs.adr_status_label` of the Profile; `Status` by default. */
+  adrStatusLabel?: string
 }
 
 /** True when `rel` (relative, any separator) leaves the folder it is relative to. */
@@ -109,16 +112,20 @@ export function versionOf(text: string): string {
   return createHash('sha256').update(text).digest('hex').slice(0, 16)
 }
 
-/** How many lines from the top `Статус:` is looked for (it is the second line in this repository's ADRs). */
+/** How many lines from the top the status line is looked for (it is the second line in this repository's ADRs). */
 const STATUS_LINES = 20
 
-/** Number, title (first `# ` heading) and status (`Статус: …` or `Status: …`) of an ADR file. */
-export function parseAdr(fileName: string, text: string): Omit<AdrEntry, 'path' | 'version'> {
+/**
+ * Number, title (first `# ` heading) and status (`<label>: …`, the label `Status` unless the Profile
+ * names another) of an ADR file.
+ */
+export function parseAdr(fileName: string, text: string, label: string = DEFAULT_DOC_HEADINGS.adrStatusLabel): Omit<AdrEntry, 'path' | 'version'> {
   const number = ADR_FILE_PATTERN.exec(fileName)?.[1]
   if (number === undefined) throw new Error(`${fileName} is not an ADR file name`)
   const title = /^#[ \t]+(.+?)[ \t#]*$/m.exec(text)?.[1]?.trim()
   const head = text.split('\n', STATUS_LINES).join('\n')
-  const status = /(?:Статус|Status)[ \t]*:[ \t]*(.+?)\.?[ \t]*$/im.exec(head)?.[1]?.trim()
+  const labels = accepted(label.trim() || DEFAULT_DOC_HEADINGS.adrStatusLabel, OLD_DOC_HEADINGS.adrStatusLabel).map(escapeRegExp).join('|')
+  const status = new RegExp(`(?:${labels})[ \\t]*:[ \\t]*(.+?)\\.?[ \\t]*$`, 'imu').exec(head)?.[1]?.trim()
   return { number, title: title || fileName, status: status || null }
 }
 
@@ -150,7 +157,7 @@ export async function readDocs(root: string, options: DocOptions = {}): Promise<
         const path = `${ADR_DIR}/${name}`
         try {
           const { text } = await readDoc(root, path, options)
-          return { path, ...parseAdr(name, text), version: versionOf(text) }
+          return { path, ...parseAdr(name, text, options.adrStatusLabel), version: versionOf(text) }
         } catch {
           return null
         }
@@ -206,6 +213,8 @@ export const ROOT_RETRY_MS = 2000
 
 export interface DocsWatchOptions {
   root: string
+  /** The label of an ADR's status line, as the Project's Profile names it (readDocs). */
+  adrStatusLabel?: string
   /** Quiet period after the last file event before a read (default 50 ms). */
   debounceMs?: number
   /** Called with the new state after every read that changed something. */
@@ -276,19 +285,39 @@ export class DocsWatcher {
    */
   private failing = false
 
-  private constructor(private readonly options: DocsWatchOptions) {}
+  /** The label of the ADRs' status line every read uses: the Profile's, changed by `relabel`. */
+  private label: string | undefined
+
+  private constructor(private readonly options: DocsWatchOptions) {
+    this.label = options.adrStatusLabel
+  }
 
   /** Starts watching, then reads; resolves once the first read is done. No `onChange` before that. */
   static async start(options: DocsWatchOptions): Promise<DocsWatcher> {
     const watcher = new DocsWatcher({ ...options, root: resolve(options.root) })
     try {
       watcher.watch()
-      watcher.docs = await readDocs(watcher.options.root)
+      watcher.docs = await readDocs(watcher.options.root, watcher.readOptions())
     } catch (error) {
       await watcher.close()
       throw error
     }
     return watcher
+  }
+
+  private readOptions(): DocOptions {
+    return this.label === undefined ? {} : { adrStatusLabel: this.label }
+  }
+
+  /**
+   * Takes the Profile's label of the ADRs' status line; another one than before reads the documents
+   * again (`onChange` when that changes them) and resolves after that read. The same one reads nothing.
+   */
+  async relabel(adrStatusLabel: string | undefined): Promise<void> {
+    if (adrStatusLabel === this.label || this.closed) return
+    this.label = adrStatusLabel
+    this.request()
+    await this.running
   }
 
   get current(): Docs {
@@ -424,7 +453,7 @@ export class DocsWatcher {
     do {
       this.pending = false
       try {
-        const next = await readDocs(this.options.root)
+        const next = await readDocs(this.options.root, this.readOptions())
         if (this.closed) return
         if (this.docs === null || sameDocs(this.docs, next)) continue
         this.docs = next
@@ -468,13 +497,19 @@ export class DocsHub {
     }
   }
 
-  /** Starts watching the Project at `root` for `subscriber` (once per subscriber) and returns its state. */
-  async open(projectId: string, root: string, subscriber: DocsSubscriber): Promise<DocsState> {
+  /**
+   * Starts watching the Project at `root` for `subscriber` (once per subscriber) and returns its
+   * state. `adrStatusLabel` is that of the Profile: an open with another one than the watcher has
+   * reads the documents again with it, for every subscriber.
+   */
+  async open(projectId: string, root: string, subscriber: DocsSubscriber, adrStatusLabel?: string): Promise<DocsState> {
     let project = this.open_.get(projectId)
+    const fresh = !project
     if (!project) {
       const subscribers = new Map<number | string, DocsSubscriber>()
       const watcher = DocsWatcher.start({
         root,
+        ...(adrStatusLabel === undefined ? {} : { adrStatusLabel }),
         ...(this.options.debounceMs === undefined ? {} : { debounceMs: this.options.debounceMs }),
         onChange: (docs) => {
           const state = { projectId, ...docs }
@@ -492,7 +527,9 @@ export class DocsHub {
       )
     }
     project.subscribers.set(subscriber.id, subscriber)
-    return { projectId, ...(await project.watcher).current }
+    const watcher = await project.watcher
+    if (!fresh) await watcher.relabel(adrStatusLabel)
+    return { projectId, ...watcher.current }
   }
 
   /** Ends `subscriberId`'s interest in the Project; false when it was not subscribed. */
