@@ -59,7 +59,8 @@ async function eslintErrors(root: string): Promise<string[]> {
     ],
   })
   const results = await eslint.lintFiles(['.'])
-  return results.flatMap((r) => r.messages.map((m) => `${r.filePath.slice(root.length + 1)}:${m.line}`)).sort()
+  // ESLint gives native paths; on Windows they hold backslashes.
+  return results.flatMap((r) => r.messages.map((m) => `${r.filePath.slice(root.length + 1).replaceAll('\\', '/')}:${m.line}`)).sort()
 }
 
 /** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
