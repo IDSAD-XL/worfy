@@ -182,7 +182,7 @@ describe('gh missing or failing', () => {
   })
 
   it('gh failing otherwise: the reason, and no account', async () => {
-    const failing = ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_STUB_FAIL: 'error connecting to api.github.com' }) })
+    const failing = ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, GH_STUB_FAIL: 'error connecting to api.github.com' }) })
     const step = await readGithubAccounts([repo('shop', 'https://github.com/acme/shop.git')], { git: runGit, gh: failing })
     expect(step).toEqual({ status: 'failed', reason: 'gh auth status failed: error connecting to api.github.com' })
   })
@@ -326,7 +326,7 @@ describe('"Sign in with gh"', () => {
   // the owner's check of the installed build.
   it.skipIf(process.platform === 'win32')('gh auth login in a real pseudo-terminal: worfy types nothing, the user\'s Enter signs in, the exit ends it and the new account is there', async () => {
     const gh = ghWorld(join(scratch, 'gh'), { accounts: [ALICE], login: { login: 'carol', token: 'gho_carol_SECRET_0004' } })
-    const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, ...gh.env }) })
+    const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...gh.env }) })
     let output = ''
     const exited = new Promise<number>((resolve) => {
       void registry.open('s1', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: (data) => void (output += data), exit: (code) => resolve(code), started: () => undefined })
@@ -347,7 +347,7 @@ describe('"Sign in with gh"', () => {
 
   it.skipIf(process.platform === 'win32')('closing a sign-in that waits for its user ends gh', async () => {
     const gh = ghWorld(join(scratch, 'gh'), { accounts: [], login: { login: 'carol', token: 'gho_carol' } })
-    const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, ...gh.env }) })
+    const registry = signInRegistry({ command: gh.command, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...gh.env }) })
     let output = ''
     await registry.open('s2', { cwd: scratch, cols: 80, rows: 24 }, {}, { output: (data) => void (output += data), exit: () => undefined, started: () => undefined })
     await vi.waitFor(() => expect(output).toContain('Press Enter'), { timeout: 10_000 })

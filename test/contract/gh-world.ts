@@ -60,8 +60,8 @@ export function ghWorld(dir: string, spec: { accounts: readonly StubAccount[]; r
     log,
     command: STUB_COMMAND,
     env,
-    // The developer's own GH_TOKEN and GITHUB_TOKEN stay out: the stub answers `api repos/…` by GH_TOKEN.
-    run: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, ...env }), timeoutMs: 15_000 }),
+    // The developer's own gh tokens stay out: the stub answers `api repos/…` by GH_TOKEN.
+    run: ghRunner({ command: STUB_COMMAND, env: () => Promise.resolve({ ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, ...env }), timeoutMs: 15_000 }),
     calls: () =>
       readFileSync(log, 'utf8')
         .split('\n')

@@ -28,7 +28,7 @@ afterEach(() => {
  * same answer — so the stand-in writes how it runs to GH_STUB_RUNTIME, and the first test reads it.
  */
 function appEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, GH_STUB_DIR: scratch, GH_STUB_LOG: join(scratch, 'calls.jsonl'), GH_STUB_RUNTIME: join(scratch, 'runtime.jsonl'), ...extra }
+  const env: Record<string, string | undefined> = { ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined, GH_ENTERPRISE_TOKEN: undefined, GITHUB_ENTERPRISE_TOKEN: undefined, GH_STUB_DIR: scratch, GH_STUB_LOG: join(scratch, 'calls.jsonl'), GH_STUB_RUNTIME: join(scratch, 'runtime.jsonl'), ...extra }
   delete env.ELECTRON_RUN_AS_NODE
   return env
 }

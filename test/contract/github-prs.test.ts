@@ -21,9 +21,9 @@ import { STUB_COMMAND } from './gh-world'
 
 // A token the developer's shell exports (`export GH_TOKEN=$(gh auth token …)`) must reach no gh stub:
 // the account stub records GH_TOKEN, and a failed assertion would print a real token into the log.
+// gh also reads the enterprise variables, so they go too.
 beforeEach(() => {
-  vi.stubEnv('GH_TOKEN', undefined)
-  vi.stubEnv('GITHUB_TOKEN', undefined)
+  for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']) vi.stubEnv(name, undefined)
 })
 
 const temps: string[] = []
@@ -854,6 +854,8 @@ describe("gh with the Project's GitHub account", () => {
       vi.doUnmock('../../src/main/harness/script-env')
     }
     expect(scriptEnv).toHaveBeenCalled()
+    // profile ran, with the mocked environment's node, and named the account the pr list went with.
+    expect(await world.profileCalls()).toEqual([`profile -C ${world.root} --field github.account in ${world.root}`])
     expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
     expect(printed.join('\n')).not.toContain(TOKEN)
   })
