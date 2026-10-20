@@ -215,9 +215,11 @@ export async function inspectFolder(folder: string, git: GitRunner): Promise<Fol
     if (toplevel === '') return { ok: false, reason: `${folder} is inside a git repository but not in its working tree.` }
     // A linked worktree shares the main repository's .git folder: its parent is the repository root.
     const root = realpathOrSelf(basename(commonDir) === '.git' ? dirname(commonDir) : toplevel)
+    // A notice names every folder in the spelling of the root it connects (git prints `C:/…` on Windows).
     let notice: string | null = null
+    const picked = realpathOrSelf(folder)
     if (root !== realpathOrSelf(toplevel)) notice = `${realpathOrSelf(toplevel)} is a worktree of ${root}; the repository root is connected instead.`
-    else if (realpathOrSelf(folder) !== root) notice = `${folder} is inside the repository ${root}; the repository root is connected instead.`
+    else if (picked !== root) notice = `${picked} is inside the repository ${root}; the repository root is connected instead.`
     return { ok: true, folder: { kind: 'git', root, repos: [{ name: basename(root) || root, path: root }], notice } }
   }
 

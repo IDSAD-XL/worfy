@@ -355,6 +355,25 @@ for (const [group, field, value] of HARNESS_PATHS) {
     if (prefix) g[field] = `${BIN}/${g[field].slice(prefix.length)}`
 }
 
+// The names of the document sections and marks that code parses (profiles/README.md): the ticket's "done"
+// section, the mark of a manual item in it and the label of an ADR's status line. Absent or null — the
+// English default, so every reader gets a value. A malformed value is one warning and the default, as with
+// language.*: a typo must not stop the project from being read. tickets.trail_section is left as written:
+// null there says the tickets have no file-list section, and the skills skip the step that reads it.
+const DOC_HEADINGS = [
+    ["tickets", "done_section", "## Done when"],
+    ["tickets", "manual_mark", "manual"],
+    ["docs", "adr_status_label", "Status"],
+]
+for (const [group, field, value] of DOC_HEADINGS) {
+    if (profile[group] === null || typeof profile[group] !== "object" || Array.isArray(profile[group])) profile[group] = {}
+    const given = profile[group][field]
+    if (typeof given === "string" && given.trim()) continue
+    if (given !== undefined && given !== null)
+        err(`profile: ${pjPath}: ${group}.${field} must be a non-empty string or null, got ${JSON.stringify(given)} — ignored`)
+    profile[group][field] = value
+}
+
 let checkoutReal = null
 if (checkout) {
     try {

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { realpathOrSelf } from '../../src/main/projects/real-path'
+import { realpathOnDisk, realpathOrSelf } from '../../src/main/projects/real-path'
 import { removeTestTree } from '../remove'
 
 // node:fs as it is, except that realpathSync.native can be made to throw, as it does on a drive the
@@ -51,5 +51,16 @@ describe('realpathOrSelf', () => {
     expect(realpathOrSelf(missing)).toBe(missing)
     native.fails = true
     expect(realpathOrSelf(missing)).toBe(missing)
+  })
+})
+
+describe('realpathOnDisk', () => {
+  it('gives the native spelling, falls back to the plain realpath, and throws when neither can read the path', () => {
+    const folder = join(scratch, 'repo')
+    mkdirSync(folder)
+    expect(realpathOnDisk(`${folder}${sep}.${sep}`)).toBe(folder)
+    native.fails = true
+    expect(realpathOnDisk(`${folder}${sep}.${sep}`)).toBe(folder)
+    expect(() => realpathOnDisk(join(scratch, 'missing'))).toThrow('ENOENT')
   })
 })

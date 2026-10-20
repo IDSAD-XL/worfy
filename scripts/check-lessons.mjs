@@ -1,32 +1,39 @@
 #!/usr/bin/env node
-// Checks that every lesson names what guards it (owner's decision of 2026-10-16, option В2):
+// Checks that every lesson names what guards it (owner's decision of 2026-10-16, option B2):
 //
-//   node scripts/check-lessons.mjs [<repo root>]     (part of pnpm lint; default: this repository)
+//   node scripts/check-lessons.mjs [--headings <file>] [<repo root>]
+//       part of pnpm lint; default: this repository, the words of scripts/doc-headings.json
 //
 // A lesson is a `##` heading in docs/lessons/*.md; README.md describes the format and holds no lessons.
-// Each lesson has exactly one line that starts with `Проверка:`, in one of two forms (docs/lessons/README.md):
-//   Проверка: <path>:<line>[ — <explanation>]
+// Each lesson has exactly one check line: it starts with the mark `lessons.check` of the headings config
+// (<mark> below), in one of two forms (docs/lessons/README.md):
+//   <mark> <path>:<line>[ — <explanation>]
 //       one line of the test (test/…), hook test (harness/hooks/tests/…), Harness script test
 //       (harness/bin/tests/…) or eval case (harness/evals/…) that goes red when the lesson is broken;
 //       the path is relative to the repository root;
-//   Проверка: проверки нет: <почему>
-//       an honest gap, with a reason that is not blank.
+//   <mark> <no check> <reason>
+//       an honest gap, with a reason that is not blank; <no check> is `lessons.no_check` of the config.
+// The config is data in the language of the repository's documents, so this script names neither word.
 // The file must exist inside the repository and the line must be inside the file, so a deleted or
 // shortened test shows up here. Headings inside fenced code blocks do not count. Every violation goes
-// to stderr as `<file>:<line>: «<heading>»: <what is wrong>`, and the exit code is 1. Clean lessons
-// print one line, `lessons: ok (…)`, and exit 0. A folder that cannot be read exits 2.
+// to stderr as `<file>:<line>: "<heading>": <what is wrong>`, and the exit code is 1. Clean lessons
+// print one line, `lessons: ok (…)`, and exit 0. A folder or a headings config that cannot be read exits 2.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
-import { fileURLToPath } from 'node:url'
+import { readCommandLine, SCRIPTS, stop, word } from './doc-headings.mjs'
 
 const LESSONS = 'docs/lessons'
-const MARK = 'Проверка:'
-const GAP = 'проверки нет:'
 const PLACES = ['test/', 'harness/hooks/tests/', 'harness/bin/tests/', 'harness/evals/']
-
-const root = resolve(process.argv[2] ?? join(dirname(fileURLToPath(import.meta.url)), '..'))
+const { arg, config } = readCommandLine('check-lessons.mjs', 'repo root')
+const root = resolve(arg ?? join(SCRIPTS, '..'))
+const MARK = word(config.json?.lessons?.check)
+const GAP = word(config.json?.lessons?.no_check)
+if (MARK === undefined || GAP === undefined) {
+  stop(`${config.path}: lessons.check and lessons.no_check are non-empty strings, got ${JSON.stringify(config.json?.lessons)}`)
+}
+const message = (error) => (error instanceof Error ? error.message : String(error))
 
 let files
 try {
@@ -34,7 +41,7 @@ try {
     .filter((name) => name.endsWith('.md') && name !== 'README.md')
     .sort()
 } catch (error) {
-  process.stderr.write(`${LESSONS}: не читается: ${error instanceof Error ? error.message : String(error)}\n`)
+  process.stderr.write(`${LESSONS}: cannot be read: ${message(error)}\n`)
   process.exit(2)
 }
 
@@ -75,46 +82,40 @@ function lessonsOf(lines) {
 
 const targets = new Map() // repo-relative path -> number of lines, or a string saying what is wrong
 
-/** What is wrong with the value of one `Проверка:` line; null when nothing is. */
+/** What is wrong with the value of one check line; null when nothing is. */
 function problemOf(value) {
-  if (value.startsWith(GAP)) return value.slice(GAP.length).trim() === '' ? `«${GAP}» без причины` : null
+  if (value.startsWith(GAP)) return value.slice(GAP.length).trim() === '' ? `"${GAP}" without a reason` : null
   const match = /^([^\s`,]+):(\d+)(?: — .+)?$/.exec(value)
-  if (!match) return `«${value}» — не «<путь>:<строка>» и не «${GAP} <почему>»`
+  if (!match) return `"${value}" is neither "<path>:<line>" nor "${GAP} <reason>"`
   const [, path, number] = match
   const absolute = resolve(root, path)
   const inside = relative(root, absolute)
   if (isAbsolute(path) || path.startsWith('~') || inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) {
-    return `${path} — путь вне репозитория`
+    return `${path} — a path outside the repository`
   }
   const place = inside.split(sep).join('/')
   if (!PLACES.some((prefix) => place.startsWith(prefix))) {
-    return `${path} — не test: путь не начинается с ${PLACES.slice(0, -1).join(', ')} или ${PLACES.at(-1)}`
+    return `${path} — not a test: the path starts with none of ${PLACES.slice(0, -1).join(', ')} or ${PLACES.at(-1)}`
   }
   if (!targets.has(place)) {
     let state
     try {
-      state = statSync(absolute).isFile() ? linesOf(absolute).length : 'не файл'
+      state = statSync(absolute).isFile() ? linesOf(absolute).length : 'not a file'
     } catch {
-      state = 'такого файла нет'
+      state = 'no such file'
     }
     targets.set(place, state)
   }
   const count = targets.get(place)
   if (typeof count === 'string') return `${path} — ${count}`
   const line = Number(number)
-  if (line < 1) return `${path}:${number} — строки считаются с 1`
-  if (line > count) return `${path}:${number} — за концом файла (в нём ${count} ${plural(count, 'строка', 'строки', 'строк')})`
+  if (line < 1) return `${path}:${number} — lines are counted from 1`
+  if (line > count) return `${path}:${number} — past the end of the file (it has ${plural(count, 'line')})`
   return null
 }
 
-function plural(count, one, few, many) {
-  const tens = count % 100
-  const units = count % 10
-  if (tens >= 11 && tens <= 14) return many
-  if (units === 1) return one
-  if (units >= 2 && units <= 4) return few
-  return many
-}
+/** `1 line`, `3 lines`. */
+const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`
 
 const problems = []
 let total = 0
@@ -125,29 +126,29 @@ for (const file of files) {
   try {
     lines = linesOf(join(root, LESSONS, file))
   } catch (error) {
-    process.stderr.write(`${name}: не читается: ${error instanceof Error ? error.message : String(error)}\n`)
+    process.stderr.write(`${name}: cannot be read: ${message(error)}\n`)
     process.exit(2)
   }
   for (const lesson of lessonsOf(lines)) {
     total += 1
     if (lesson.checks.length === 0) {
-      problems.push(`${name}:${lesson.line}: «${lesson.title}»: нет строки «${MARK}» — «${MARK} <путь>:<строка>» test-а, test-а hook-а или eval-кейса, или «${MARK} ${GAP} <почему>»`)
+      problems.push(`${name}:${lesson.line}: "${lesson.title}": no "${MARK}" line — "${MARK} <path>:<line>" of a test, a hook test or an eval case, or "${MARK} ${GAP} <reason>"`)
       continue
     }
     const [first, ...more] = lesson.checks
     if (first.value.startsWith(GAP)) gaps += 1
     const problem = problemOf(first.value)
-    if (problem !== null) problems.push(`${name}:${first.line}: «${lesson.title}»: ${problem}`)
+    if (problem !== null) problems.push(`${name}:${first.line}: "${lesson.title}": ${problem}`)
     for (const extra of more) {
-      problems.push(`${name}:${extra.line}: «${lesson.title}»: вторая строка «${MARK}» — у урока она одна (первая — строка ${first.line})`)
+      problems.push(`${name}:${extra.line}: "${lesson.title}": a second "${MARK}" line — a lesson has one (the first is line ${first.line})`)
     }
   }
 }
 
 if (problems.length > 0) {
   process.stderr.write(`${problems.join('\n')}\n`)
-  process.stderr.write(`lessons: нарушений ${problems.length} — у каждого урока строка «${MARK} <путь>:<строка>» того, что его сторожит, или «${MARK} ${GAP} <почему>» (docs/lessons/README.md)\n`)
+  process.stderr.write(`lessons: ${plural(problems.length, 'violation')} — every lesson has a line "${MARK} <path>:<line>" of what guards it, or "${MARK} ${GAP} <reason>" (docs/lessons/README.md)\n`)
   process.exit(1)
 }
 const linked = total - gaps
-process.stdout.write(`lessons: ok (${total} ${plural(total, 'урок', 'урока', 'уроков')}: ${linked} со ссылкой, ${gaps} без проверки)\n`)
+process.stdout.write(`lessons: ok (${plural(total, 'lesson')}: ${linked} linked, ${gaps} without a check)\n`)

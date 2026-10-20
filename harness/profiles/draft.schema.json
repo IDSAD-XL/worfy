@@ -91,7 +91,9 @@
           "properties": {
             "root": { "type": ["string", "null"] },
             "path": { "type": ["string", "null"] },
-            "trail_section": { "type": ["string", "null"] },
+            "trail_section": { "type": ["string", "null"], "description": "The heading of the ticket section that lists the files to edit; null — ## Where in code." },
+            "done_section": { "type": ["string", "null"], "minLength": 1, "description": "The heading of the ticket section of the items that say it is done; null or absent — ## Done when." },
+            "manual_mark": { "type": ["string", "null"], "minLength": 1, "description": "The word in parentheses after the checkbox of a manual item of that section; null or absent — manual." },
             "spec": { "type": ["string", "null"] },
             "branch": { "type": ["string", "null"] }
           }
@@ -135,7 +137,12 @@
           "required": ["account"],
           "properties": { "account": { "type": ["string", "null"] } }
         },
-        "docs": { "type": ["object", "null"] },
+        "docs": {
+          "type": ["object", "null"],
+          "properties": {
+            "adr_status_label": { "type": ["string", "null"], "minLength": 1, "description": "The label before the colon of an ADR's status line; null or absent — Status." }
+          }
+        },
         "lessons": { "type": "string" },
         "mcp": {
           "type": "object",

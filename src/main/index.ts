@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { bindingWorkflowOf } from '../shared/binding/resolve'
+import { browserPartitions } from '../shared/browser/partition'
 import { startOrchestrators } from './agent/app-orchestrators'
 import { sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
@@ -128,7 +129,8 @@ function start(): void {
       const isAppUrl = inStep('loadURL', () => appUrlMatcher(rendererEntry()))
       await inStep('registerIpc', () => registerIpc(ipcMain, { isTrustedSender: isAppUrl }))
       // Navigation, new windows and permissions for every page, the window and its Cards alike.
-      inStep('installWebPolicy', () => installWebPolicy(isAppUrl))
+      // A Browser's <webview> attaches on the partition of a Project of this Machine (ticket 10).
+      inStep('installWebPolicy', () => installWebPolicy(isAppUrl, () => browserPartitions(projectStore().list().map((project) => project.id))))
       inStep('installCardRuntime', () => installCardRuntime((host) => cardStore().locate(host)))
       // Before the first window: its creation is what opens the active Project's Orchestrator.
       inStep('startOrchestrators', () => startOrchestrators())

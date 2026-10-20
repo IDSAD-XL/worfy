@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 02
+Blocked by: 02, 10, 11
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 5
 (Browser profile — у Project-а, на Machine; вход и создание — только пользователь; список origin-ов;
 один Browser profile — в нескольких Browser-ах), пункт 3 (`partition="persist:…"`), пункт 10 (флажок

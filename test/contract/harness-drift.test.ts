@@ -10,6 +10,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { checkHarnessDrift, HARNESS_DRIFT_INTERVAL_MS, harnessDriftWatch, type HarnessDrift } from '../../src/main/autopilot/harness-drift'
 import { removeTestTree } from '../remove'
 
+// programStart as it is, plus the variables a test puts in `extraStartEnv`: the way to see that the
+// environment of a start reaches the git it runs, with a variable the tests' own process lacks.
+const extraStartEnv = vi.hoisted(() => ({ env: {} as Record<string, string> }))
+vi.mock('../../src/main/program', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/main/program')>()
+  return {
+    ...real,
+    programStart: (...args: Parameters<typeof real.programStart>) => {
+      const start = real.programStart(...args)
+      return { ...start, env: { ...start.env, ...extraStartEnv.env } }
+    },
+  }
+})
+
 const dirs: string[] = []
 
 afterEach(() => {
@@ -148,6 +162,34 @@ describe('checkHarnessDrift', () => {
     const { repo } = worfyRepo()
     const drift = await checkHarnessDrift({ root: repo, harnessVersion: '0.1.0+deadbee' })
     expect(drift).toEqual({ kind: 'unknown', reason: expect.stringContaining('deadbee') as unknown as string })
+  })
+
+  it('git runs with the environment of its start, a variable missing from the process environment included', async () => {
+    const { repo, version } = worfyRepo()
+    const dir = tempDir()
+    const seen = join(dir, 'seen.log')
+    const stand = join(dir, 'git.mjs')
+    writeFileSync(
+      stand,
+      [
+        "import { appendFileSync } from 'node:fs'",
+        "import { spawnSync } from 'node:child_process'",
+        `appendFileSync(${JSON.stringify(seen)}, (process.env.WORFY_DRIFT_START_PROBE ?? 'missing') + '\\n')`,
+        "const run = spawnSync('git', process.argv.slice(2), { stdio: 'inherit' })",
+        'process.exit(run.status ?? 1)',
+        '',
+      ].join('\n'),
+    )
+    expect(process.env.WORFY_DRIFT_START_PROBE).toBeUndefined()
+    extraStartEnv.env = { WORFY_DRIFT_START_PROBE: 'from-start' }
+    try {
+      expect(await checkHarnessDrift({ root: repo, harnessVersion: version, git: stand })).toMatchObject({ kind: 'same' })
+    } finally {
+      extraStartEnv.env = {}
+    }
+    const values = readFileSync(seen, 'utf8').split('\n').filter(Boolean)
+    expect(values.length).toBeGreaterThan(0)
+    expect(new Set(values)).toEqual(new Set(['from-start']))
   })
 
   it('a version without +<SHA>: unknown, and git is not asked', async () => {

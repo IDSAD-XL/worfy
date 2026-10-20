@@ -138,7 +138,7 @@ the worktree" means the command was run from a shared checkout: with `worktrees`
 worktree (the `parallel: worktrees` paragraph below) and repeat; with `single` it means another
 session works in the checkout — stop and ask the user.
 Any other reason — stop, do not work around it. Put the line `<база>: <sha> …` (the base is
-`F worktree.base`) into every agent's brief as the base — a subagent that read the local `main`
+`F worktree.base`; in a repository without `origin` — the branch that line names) into every agent's brief as the base — a subagent that read the local `main`
 once reasoned over a stale tree.
 
 If the preflight cannot run here (exit 2: not a git repository, for example the common directory
@@ -524,7 +524,7 @@ block again then, never take that for `no-label`. A broken profile (`bin/profile
 `ERROR:` too, not an absent field:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 role=$(F cross_machine_gate.role); rc=$?                # 4 — no such field; 1 — a broken profile or registry
 if [ "$rc" != 0 ] && [ "$rc" != 4 ]; then echo "ERROR: bin/profile exit $rc: the profile or the registry is broken — run it without 2>/dev/null"
 elif [ "$role" != request ]; then echo "label step skipped: cross_machine_gate.role is ${role:-absent}"
@@ -704,7 +704,7 @@ doer:
    repository's main checkout, `<ticket worktree>` the ticket's tree (with `single` — `<repo>` itself):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 B=<ticket branch>; T=<ticket worktree>; E=<epic>; DOCS_FAILED=
 # the documents: this epic's folder and the state file — nothing else of the tree
 DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
@@ -715,7 +715,7 @@ M=$(F worktree.base); [ "$M" = null ] && M=
 [ -n "$M" ] || M=$(git -C <repo> symbolic-ref -q --short refs/remotes/origin/HEAD)
 [ -n "$M" ] || for c in main master; do git -C <repo> rev-parse -q --verify "refs/heads/$c" >/dev/null && { M=$c; break; }; done
 M=${M#origin/}
-W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
+W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" 'BEGIN { while ((getline l) > 0) { if (l ~ /^worktree /) w = substr(l, 10); if (l == b) print w } }')
 if [ -z "$M" ]; then echo "NO MAIN BRANCH: set worktree.base in the profile"
 elif [ "$M" = "$B" ]; then echo "SAME BRANCH: $B is the main branch itself, nothing to merge"
 elif ! git -C <repo> merge-base --is-ancestor "$M" "$B"; then echo "NOT ON TOP: back to the implementer — rebase $B onto $M"

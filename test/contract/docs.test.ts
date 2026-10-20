@@ -433,6 +433,79 @@ describe('a Silent Project (worfy-harness ticket 23)', () => {
   })
 })
 
+describe('the ADR status label the Profile names (docs.adr_status_label)', () => {
+  /** A Full Project whose stub bin/profile answers with `docs`; bin/ticket names `.scratch` of the repository. */
+  function profileWith(docs: object | null): void {
+    const bin = join(scratch, 'claude-home', 'bin')
+    mkdirSync(bin, { recursive: true })
+    const json = { mode: 'full', ...(docs ? { docs } : {}), _resolved: { mode: 'full', workflow_folder: repo, workspace: null, repos: [{ name: 'repo', path: repo }] } }
+    for (const [name, out] of [['profile', JSON.stringify(json)], ['ticket', `${join(repo, '.scratch')}\n`]] as const) {
+      symlinkSync(CANNED, join(bin, name))
+      writeFileSync(join(bin, `${name}.out`), out)
+    }
+  }
+
+  it('docs.open reads the status after the Profile\'s label', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-fr.md'), '# Décision\n\nDate : 2026-10-20. Statut : acceptée.\nStatus: not this one\n')
+    profileWith({ adr_dir: 'docs/adr', adr_status_label: 'Statut' })
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ title: 'Décision', status: 'acceptée' })
+    // The Russian ADRs of the repository: their label is read for one more release whatever the Profile names.
+    expect(state.adrs.find((adr) => adr.number === '0001')).toMatchObject({ status: 'принят' })
+  })
+
+  it('keeps the Profile\'s label on every read after an edit', async () => {
+    const adr = join(repo, 'docs', 'adr', '0003-fr.md')
+    writeFileSync(adr, '# Décision\n\nStatut : acceptée.\n')
+    profileWith({ adr_status_label: 'Statut' })
+    await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    await pastStartReads()
+    writeFileSync(adr, '# Décision révisée\n\nStatut : remplacée.\n')
+    await vi.waitFor(() => expect(sender.sent.at(-1)?.adrs.find((each) => each.number === '0003')).toMatchObject({ title: 'Décision révisée', status: 'remplacée' }), { timeout: 1000, interval: 20 })
+  })
+
+  it.each(['active', 'held'] as const)('the documents main keeps for a %s Project are read with the Profile\'s label, and docs.open gets that state', async (kind) => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-fr.md'), '# Décision\n\nStatut : acceptée.\n')
+    profileWith({ adr_status_label: 'Statut' })
+    if (kind === 'active') for (const listener of electron.listeners.get('browser-window-created') ?? []) listener()
+    else {
+      const { projectHolds } = await import('../../src/main/projects/holds')
+      projectHolds().set({ id: 'linked', once: () => undefined, isDestroyed: () => false } as never, 'projects', PROJECT_ID)
+    }
+    await vi.waitFor(() => expect(docsModule.docsHub.projects).toStrictEqual([PROJECT_ID]), { timeout: 1000, interval: 20 })
+    await pastStartReads()
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ status: 'acceptée' })
+    // main's own open had the label already: docs.open read nothing again, so it sent nothing.
+    expect(sender.sent).toStrictEqual([])
+  })
+
+  it('DocsHub.open with another label reads the documents again with it', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-fr.md'), '# Décision\n\nStatut : acceptée.\nEtat : ouverte.\n')
+    const { DocsHub } = await import('../../src/main/docs/watch')
+    const hub = new DocsHub()
+    const states: DocsState[] = []
+    const subscriber = { id: 'test', send: (state: DocsState) => states.push(state) }
+    try {
+      const first = await hub.open('p', repo, subscriber, 'Statut')
+      expect(first.adrs.find((adr) => adr.number === '0003')?.status).toBe('acceptée')
+      const second = await hub.open('p', repo, { id: 'other', send: () => undefined }, 'Etat')
+      expect(second.adrs.find((adr) => adr.number === '0003')?.status).toBe('ouverte')
+      // The subscribers already there get the state of the new label too.
+      expect(states.at(-1)?.adrs.find((adr) => adr.number === '0003')?.status).toBe('ouverte')
+    } finally {
+      await hub.closeAll()
+    }
+  })
+
+  it('docs.open reads `Status:` when the Profile names no label', async () => {
+    writeFileSync(join(repo, 'docs', 'adr', '0003-en.md'), '# Decision\n\nDate: 2026-10-20. Status: accepted.\n')
+    profileWith(null)
+    const state = await value<DocsState>('docs.open', { projectId: PROJECT_ID })
+    expect(state.adrs.find((adr) => adr.number === '0003')).toMatchObject({ status: 'accepted' })
+  })
+})
+
 describe('read-only', () => {
   it('leaves the repository exactly as it was after watching, reading and following edits', async () => {
     // `git status` may refresh .git/index itself, so it runs before the snapshot, not after.
@@ -475,5 +548,15 @@ describe('parseAdr', () => {
     // No heading and no status: the file name stands for the title.
     expect(parseAdr('0011-z.md', '## Only a subheading\n\ntext\n')).toStrictEqual({ number: '0011', title: '0011-z.md', status: null })
     expect(() => parseAdr('README.md', '# x')).toThrow(/not an ADR/)
+  })
+
+  it('takes the status after the label it is given, as written, and the English one by default', async () => {
+    const { parseAdr } = await import('../../src/main/docs/watch')
+    expect(parseAdr('0012-a.md', '# A\n\nStatut : acceptée.\nStatus: no\n', 'Statut')).toMatchObject({ status: 'acceptée' })
+    expect(parseAdr('0012-a.md', '# A\n\nStatus: no\n', 'Statut')).toMatchObject({ status: null })
+    // The label's characters are taken as they are, not as a pattern.
+    expect(parseAdr('0012-a.md', '# A\n\nState (now): open.\n', 'State (now)')).toMatchObject({ status: 'open' })
+    expect(parseAdr('0012-a.md', '# A\n\nState now: open.\n', 'State (now)')).toMatchObject({ status: null })
+    expect(parseAdr('0013-b.md', '# B\n\nDate: 2026-10-20. Status: accepted.\n')).toMatchObject({ status: 'accepted' })
   })
 })

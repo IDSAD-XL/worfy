@@ -18,7 +18,13 @@ for d in "${HARNESS_HOME:-$HOME/.claude/worfy-harness}/projects" "$HOME/.claude/
 done | while read -r f; do
   jq -r '"\(.name): \((.qmd.collections // []) | join(", ")) — \(.qmd.covers // "no qmd field")"' "$f" | tr -d '\r'
 done
-awk '/^collections:/{c=1; next} c && /^[^ ]/{c=0} c && /^  [^ ]/{n=$1; sub(/:$/, "", n)} c && /^    path:/{print n "\t" $2}' ~/.config/qmd/index.yml
+awk 'BEGIN { while ((getline l) > 0) {
+  if (l ~ /^collections:/) { c = 1; continue }
+  if (c && l ~ /^[^ ]/) c = 0
+  split(l, f)
+  if (c && l ~ /^  [^ ]/) { n = f[1]; sub(/:$/, "", n) }
+  if (c && l ~ /^    path:/) print n "\t" f[2]
+} }' ~/.config/qmd/index.yml
 ```
 
 A profile's collections are a hint about where to expect the answer, not a filter: search the whole

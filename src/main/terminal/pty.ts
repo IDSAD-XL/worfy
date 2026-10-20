@@ -449,6 +449,28 @@ function stopOutputWorker(pty: PtyProcess): boolean {
   return true
 }
 
+/**
+ * Closes the console of a node-pty terminal of Windows whose shell node-pty has not connected
+ * yet; false when the connection is no longer pending, or when this is not a pty of node-pty as
+ * 1.2.0-beta.15 builds it.
+ *
+ * Until the terminal is ready (its first output after the connection) node-pty's kill() is only
+ * queued, and the agent gives up a connection after 5 s by itself (CONNECTION_TIMEOUT): a close
+ * while the registry waited for the pid left the console host up to 7 s (measured on the owner's
+ * PC: 96 consoles 2 s after the closes, none after 7 s). The agent's own kill() drops the pending
+ * connection and closes the console now; with the connection dropped the terminal never becomes
+ * ready, so the queued kill() never runs after it. Once the shell is connected (`_pendingPtyInfo`
+ * cleared) the terminal becomes ready with its first output and runs the queued kill() itself:
+ * the agent's kill() then would close the same console twice.
+ */
+function killUnconnected(pty: PtyProcess): boolean {
+  const agent = (pty as { _agent?: { kill?: unknown; _pendingPtyInfo?: unknown } })._agent
+  const kill = agent?.kill
+  if (!agent?._pendingPtyInfo || typeof kill !== 'function') return false
+  ;(kill as () => void).call(agent)
+  return true
+}
+
 /** Where a terminal's events go for one subscriber: the client that opened it. */
 export interface TerminalSink {
   output(data: string, end: number): void
@@ -669,7 +691,10 @@ export class TerminalRegistry {
     if (known === undefined) audience.subscribers.set(client, { sink, size, touched: 0, sized: ++this.clock })
     else Object.assign(known, { sink, size, sized: ++this.clock })
 
-    const running = this.terminals.get(key) ?? (await this.starting.get(key))
+    // Awaited only when a start is under way: with none, the start below is in `starting` before
+    // this call yields, so a close in the same tick finds it (closedWhileStarting).
+    const starting = this.terminals.has(key) ? undefined : this.starting.get(key)
+    const running = this.terminals.get(key) ?? (starting === undefined ? undefined : await starting)
     if (running !== undefined && !running.closing) {
       const owner = audience.owner
       if (owner === null || owner === client || !audience.subscribers.has(owner)) {
@@ -958,7 +983,11 @@ export class TerminalRegistry {
       // Ended without an exit event; on Windows finish() also takes the pty apart (release).
       const giveUp = (why: string): void => {
         stop()
-        terminal.closing = true
+        try {
+          killUnconnected(terminal.pty)
+        } catch (error) {
+          console.warn(`[terminal] closing the console of ${key} before it was connected failed`, error)
+        }
         terminal.finish({ exitCode: 1, signal: null })
         reject(new Error(why))
       }

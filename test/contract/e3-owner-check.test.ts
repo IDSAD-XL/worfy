@@ -55,14 +55,26 @@ function put(rel: string, text: string): void {
 }
 
 /**
- * A stand-in `claude`: `plugin list --json` prints `plugins`. A Node script, which the check runs
- * with its own node: Windows does not start a `#!/bin/sh` file.
+ * A stand-in `claude`: `plugin list --json` prints `plugins`; any other arguments exit 3 and name
+ * them. A Node script, which the check runs with its own node: Windows does not start a `#!/bin/sh` file.
  */
 function claudeStub(plugins: unknown = [{ id: 'worfy@worfy-harness', version: '0.2.0+abc', enabled: true }]): string {
   const answer = join(scratch, 'plugins.json')
   writeFileSync(answer, JSON.stringify(plugins))
   const stub = join(scratch, 'claude.mjs')
-  writeFileSync(stub, `import { readFileSync } from 'node:fs'\nprocess.stdout.write(readFileSync(${JSON.stringify(answer)}, 'utf8'))\n`)
+  writeFileSync(
+    stub,
+    [
+      "import { readFileSync } from 'node:fs'",
+      "const args = process.argv.slice(2).join(' ')",
+      "if (args !== 'plugin list --json') {",
+      "  process.stderr.write('unexpected arguments: ' + args + '\\n')",
+      '  process.exit(3)',
+      '}',
+      `process.stdout.write(readFileSync(${JSON.stringify(answer)}, 'utf8'))`,
+      '',
+    ].join('\n'),
+  )
   return stub
 }
 
@@ -176,6 +188,24 @@ describe('e3-owner-check.sh: settings.json, .claude.json and the plugin', () => 
     const missing = check(journal(FINISHED), { claude: join(scratch, 'no-such-claude') })
     expect(missing.status).toBe(2)
     expect(missing.stderr).toContain('claude plugin list --json could not run')
+  })
+
+  it('asks the stand-in with `plugin list --json` exactly: other arguments are a violation', () => {
+    const result = check(journal(FINISHED))
+    expect(result.stdout).not.toContain('unexpected arguments')
+    expect(result.status).toBe(0)
+  })
+
+  // A `claude` that is not a `.mjs` starts by itself, as the real one does; Windows cannot start a
+  // `#!/bin/sh` file, so this case runs on macOS and Linux only.
+  it.skipIf(process.platform === 'win32')('a claude that is a program, not a .mjs, is asked `plugin list --json` too', () => {
+    const answer = join(scratch, 'plugins.json')
+    writeFileSync(answer, JSON.stringify([{ id: 'worfy@worfy-harness', version: '0.2.0+abc', enabled: true }]))
+    const program = join(scratch, 'claude')
+    writeFileSync(program, `#!/bin/sh\n[ "$*" = "plugin list --json" ] || { echo "unexpected arguments: $*" >&2; exit 3; }\ncat '${answer}'\n`, { mode: 0o755 })
+    const result = check(journal(FINISHED), { claude: program })
+    expect(result.stdout).not.toContain('unexpected arguments')
+    expect(result.status).toBe(0)
   })
 
   it('reads the Claude home of CLAUDE_CONFIG_DIR, with .claude.json inside it', () => {

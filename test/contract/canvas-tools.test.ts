@@ -5,7 +5,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -826,6 +826,13 @@ describe('canvas in a Session', () => {
     const typed = join(realpathSync(tmpdir()), basename(scratch), 'repo')
     expect(await projectOf(typed)).toBe(PROJECT)
     expect(await projectOf(repo, { projects: () => [{ id: PROJECT, name: 'demo', path: typed }] })).toBe(PROJECT)
+  })
+
+  // No realpath reads a path that is not there; it is compared as resolved, so `..` leaves the root.
+  it('a cwd that is not there and leads out of the Project root through `..` is in no Project', () => {
+    const elsewhere = `${repo}${sep}..${sep}elsewhere`
+    expect(existsSync(join(scratch, 'elsewhere'))).toBe(false)
+    expect(server.projectForCwd([{ id: PROJECT, name: 'demo', path: repo }], elsewhere)).toBeUndefined()
   })
 
   it('Windows: a cwd in the 8.3 short spelling of a Project root is in the Project', (context) => {

@@ -8,7 +8,8 @@
       Its edge is a 1 px magenta line, so a screenshot shows exactly where the page is drawn; a cream
       background marks every pixel of the page. Its state is in body data attributes, read by the
       test through the guest's webContents: `load` is new on every load (a reload changes it),
-      `count` grows every 50 ms, `wheels` counts wheel events, `ready` is set once the script ran.
+      `count` grows every 50 ms, `wheels` counts wheel events, `moves` mouse moves (test/e2e/browser.spec.ts),
+      `ready` is set once the script ran.
       Nothing on the page moves, so two screenshots of it can be compared.
     -->
     <style>
@@ -69,6 +70,11 @@
         },
         { passive: true },
       )
+      let moves = 0
+      window.addEventListener('mousemove', () => {
+        moves += 1
+        document.body.dataset.moves = String(moves)
+      })
       document.body.dataset.ready = 'yes'
     </script>
   </body>

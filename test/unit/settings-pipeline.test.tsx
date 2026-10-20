@@ -289,6 +289,13 @@ describe('Settings → Pipeline', () => {
     expect(screen.queryByTestId('pipeline-stage')).toBeNull()
   })
 
+  it("the Harness item under the old-Harness line shows the app version but not worfy's memory, which stands only in the toolbar (worfy-ui ticket 20)", async () => {
+    const { main } = await mount({ available: false, reason: 'this Harness has no bin/profile-set' })
+    expect(await screen.findByTestId('app-version')).toBeTruthy()
+    expect(screen.queryByTestId('app-memory')).toBeNull()
+    expect(main.calls.filter((channel) => channel.startsWith('memory.'))).toEqual([])
+  })
+
   it('a Project of a Linked machine: its Pipeline read-only, no buttons that write, and where to edit it', async () => {
     const { main } = await mount(custom(), 'Studio')
     expect(screen.getByTestId('pipeline-elsewhere').textContent).toBe('This Pipeline belongs to a Project of Studio. Edit it in worfy on Studio.')

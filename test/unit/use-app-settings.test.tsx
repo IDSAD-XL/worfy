@@ -10,6 +10,7 @@ const settings = (revision: number, interfaceScale: number, collapsed: Record<st
   interfaceScale,
   sidebar: { collapsed, visible: { normal: true, focus: true } },
   autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
+  memoryIndicator: true,
   revision,
 })
 

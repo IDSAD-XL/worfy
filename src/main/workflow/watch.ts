@@ -45,6 +45,7 @@ import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
 import type { HarnessScriptEnvRequest, HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
+import { closeForGood } from '../chokidar-close'
 import { namesTheFolder } from '../watch-gone'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
@@ -374,7 +375,7 @@ export class WorkflowWatcher {
     this.tickets?.close()
     this.tickets = null
     this.ticketsWatcher = null
-    await Promise.all(this.watchers.splice(0).map((w) => w.close()))
+    await Promise.all(this.watchers.splice(0).map(closeForGood))
   }
 
   /**
@@ -571,7 +572,7 @@ export class WorkflowWatcher {
       this.ticketsWatcher = null
       const at = this.watchers.indexOf(previous)
       if (at !== -1) this.watchers.splice(at, 1)
-      await previous.close().catch((error: unknown) => console.error('[workflow] closing the Tickets watch failed', error))
+      await closeForGood(previous).catch((error: unknown) => console.error('[workflow] closing the Tickets watch failed', error))
     }
     const layout = this.layout
     if (this.closed || !layout || layout.failed) return
@@ -632,7 +633,7 @@ export class WorkflowWatcher {
   }
 
   private async remakeBranches(gone: FSWatcher, paths: string[], ignored: (path: string) => boolean, ready: () => void): Promise<void> {
-    await gone.close().catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
+    await closeForGood(gone).catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
     // close() has closed every watch, this one too, and nothing more is watched after it.
     if (this.closed) return
     const at = this.watchers.indexOf(gone)
@@ -711,7 +712,7 @@ export class WorkflowWatcher {
         checkout = this.checkout = failedCheckout(root, layout)
         this.retryLayout()
       } else if (checkoutChanged || !checkout) {
-        checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot)
+        checkout = this.checkout = await readCheckout(root, run, layout.ticketsRoot, layout.headings)
         // A root removed without an event about the root itself (it was lost; only events about
         // what was in it came) is looked for from here.
         if (this.chokidarTickets && !(await this.ticketsRootThere(layout.ticketsRoot)) && !this.closed) this.awaitTicketsRoot(layout.ticketsRoot)

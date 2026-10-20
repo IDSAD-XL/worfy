@@ -22,8 +22,13 @@ import { defineHandler, emit, type HandlerModule } from './index'
 
 /** Where the Project at `path` keeps HANDOFF.md and docs/adr. */
 export async function docsRoot(path: string): Promise<string> {
+  return (await docsSource(path)).root
+}
+
+/** Where the Project at `path` keeps its documents, and the label of its ADRs' status line (the Profile's). */
+export async function docsSource(path: string): Promise<{ root: string; adrStatusLabel: string | undefined }> {
   const layout = await projectLayouts().get(path)
-  return layout.mode === 'silent' ? layout.workflowFolder : path
+  return { root: layout.mode === 'silent' ? layout.workflowFolder : path, adrStatusLabel: layout.headings?.adrStatusLabel }
 }
 
 /** Where a new HANDOFF Node goes: the same rule as the Orchestrator Node (src/main/layout/place.ts). */
@@ -100,8 +105,8 @@ function keepActive(): void {
   if (kept !== null) void docsHub.close(kept, MAIN)
   kept = next
   if (active) {
-    docsRoot(active.path)
-      .then((root) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber) : undefined))
+    docsSource(active.path)
+      .then(({ root, adrStatusLabel }) => (kept === active.id ? docsHub.open(active.id, root, mainSubscriber, adrStatusLabel) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${active.id}`, error)
         if (kept === active.id) kept = null
@@ -133,8 +138,8 @@ export function keepHeld(): void {
       continue
     }
     keptHeld.add(projectId)
-    docsRoot(path)
-      .then((root) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber) : undefined))
+    docsSource(path)
+      .then(({ root, adrStatusLabel }) => (keptHeld.has(projectId) ? docsHub.open(projectId, root, heldSubscriber, adrStatusLabel) : undefined))
       .catch((error: unknown) => {
         console.error(`[docs] could not watch the documents of ${projectId}`, error)
         keptHeld.delete(projectId)
@@ -151,7 +156,8 @@ app.on('will-quit', () => void docsHub.closeAll())
 export default [
   defineHandler(docsOpen, async ({ projectId }, { event }) => {
     const subscriber = subscriberOf(clientOf(event))
-    return docsHub.open(projectId, await docsRoot(projectStore().get(projectId).path), subscriber)
+    const { root, adrStatusLabel } = await docsSource(projectStore().get(projectId).path)
+    return docsHub.open(projectId, root, subscriber, adrStatusLabel)
   }),
   defineHandler(docsClose, async ({ projectId }, { event }) => {
     const client = clientOf(event)
