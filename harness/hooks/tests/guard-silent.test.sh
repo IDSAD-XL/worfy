@@ -203,7 +203,7 @@ if (step === "root") {
 }
 if (step === "kill") process.kill(process.pid, "SIGKILL")
 if (step === "many") {
-    for (let i = 1; i <= 120; i++) process.stdout.write(`stdin:${i}: ticket number "Ticket ${i}"\n`)
+    for (let i = 1; i <= 120; i++) process.stdout.write(`stdin:${i}: marker "item ${i}"\n`)
     process.exit(1)
 }
 process.exit(Number(step))
@@ -243,7 +243,7 @@ case "$(uname -s)" in
 esac
 stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
 stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEAN" '… 70 more lines'
-[[ "$got" == *'"Ticket 50"'* && "$got" != *'"Ticket 51"'* ]] && ok "120 findings: lines after the 50th are left out" \
+[[ "$got" == *'"item 50"'* && "$got" != *'"item 51"'* ]] && ok "120 findings: lines after the 50th are left out" \
     || bad "120 findings: the cap does not hold: ${got: -300}"
 export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
