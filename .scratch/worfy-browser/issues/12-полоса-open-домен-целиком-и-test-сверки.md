@@ -2,7 +2,7 @@
 
 Type: task
 Status: open
-Blocked by: 11, 03
+Blocked by: 11
 Source: review PR #614 (Ticket 11), две находки low, 2026-10-20. Код перечитан по ветке
 `worfy-browser/11` (`5e08df41`).
 
