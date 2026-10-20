@@ -94,6 +94,8 @@
   position: relative;
   flex: 1;
   min-height: 0;
+  /* The Open bar's lines follow the frame's width (below). */
+  container: browser-body / inline-size;
 }
 .w-canvas .react-flow__node.react-flow__node-browser {
   pointer-events: none !important;
@@ -115,6 +117,7 @@
   right: 0;
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-height: 28px;
@@ -131,19 +134,30 @@
   flex: none;
   color: var(--text-secondary);
 }
+/* In a frame too narrow for the label, the address's minimum (below) and the two buttons on one
+   line — about 130 + 260 + 95 px, with the gaps and padding about 530 px — the label takes a line of
+   its own, and the address and the buttons go under it (the bar wraps). */
+@container browser-body (width < 540px) {
+  .w-browser-frame__open-label {
+    flex-basis: 100%;
+  }
+}
 /* The address (worfy-browser ticket 12): the scheme and host never give way to an ellipsis, the
-   rest is cut in the middle. The path's head gives way first (its flex-shrink is far larger) down to
-   nothing; only then does the host get narrower, and it wraps onto more lines instead of being cut,
-   so the bar grows taller. The path's tail stays whole. */
+   rest is cut in the middle. The address takes the room left on its line, but never less than room
+   for 12 characters of host and the path's tail (OPEN_BAR_ADDRESS_TAIL, 24 characters). Inside it the
+   path's head gives way first (its flex-shrink is far larger) down to nothing; then the host gets
+   narrower, down to 12 characters, and wraps onto more lines instead of being cut, so the bar grows
+   taller. Only a frame narrower than that minimum clips the end of the tail. */
 .w-browser-frame__open-url {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: min(100%, 12ch + 24ch);
+  overflow: hidden;
   display: flex;
   align-items: baseline;
 }
 .w-browser-frame__open-url-site {
   flex: 0 1 auto;
-  min-width: 0;
+  min-width: 12ch;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -152,6 +166,11 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* A cut head keeps room for its first character and the ellipsis (Chromium never hides the first
+   one): without it the host would seem to run straight into the tail. */
+.w-browser-frame__open-url-head:not(:empty) {
+  min-width: 2ch;
 }
 .w-browser-frame__open-url-tail {
   flex: none;

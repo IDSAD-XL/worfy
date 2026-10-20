@@ -144,7 +144,8 @@ function NavButtons({ id }: { id: string }) {
  * page asked to open an address main did not open by itself — a window.open or target="_blank"
  * link from a frame of another origin or without a referrer (src/main/window.ts). The scheme and
  * the host of the address are always shown whole, wrapping when they do not fit on one line; only
- * the rest of a long address is cut in the middle (openBarAddress, worfy-browser ticket 12). "Open" sends the page there the way the address bar
+ * the rest of a long address is cut in the middle (openBarAddress, worfy-browser ticket 12). In a
+ * narrow frame the address moves to a line of its own under the label (BrowserNode.css). "Open" sends the page there the way the address bar
  * does, and the click is the user's gesture the request lacked; the close button leaves the page
  * where it is. A new request replaces the bar's address; a navigation of the page takes the bar
  * away (../overlays/BrowserLayer.tsx).
@@ -173,7 +174,9 @@ function OpenBar({ id, url }: { id: string; url: string | null }) {
         <span className="w-browser-frame__open-url-head" data-testid="browser-open-path-head">
           {head}
         </span>
-        <span className="w-browser-frame__open-url-tail">{tail}</span>
+        <span className="w-browser-frame__open-url-tail" data-testid="browser-open-path-tail">
+          {tail}
+        </span>
       </span>
       <button type="button" className="w-browser-frame__open-button nodrag" data-testid="browser-open" onClick={open}>
         Open

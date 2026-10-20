@@ -539,58 +539,83 @@ test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends
 
 // worfy-browser ticket 12: a long host must never lose its real domain to the cut. The bar shows
 // the scheme and host whole — wrapping onto more lines when they do not fit — and cuts only the path.
-test('the Open bar shows a long host whole and cuts only the path', async () => {
-  const blankUrl = `${origin}/blank.html`
-  const host = `bank.example.com.${'a'.repeat(60)}.evil.invalid`
-  const longUrl = `http://${host}/${'b'.repeat(60)}/bank.example.com/login`
-  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
-  const window = await start()
-  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
-  const frame = window.getByTestId('browser-frame')
-  const bar = frame.getByTestId('browser-open-bar')
+// In a narrow frame (review of PR #630) the host keeps room for at least 12 characters: the address
+// moves to a line of its own under the label instead of squeezing the host to a column of letters.
+for (const { width, name, underLabel } of [
+  { width: 640, name: 'long', underLabel: false },
+  { width: 400, name: 'long-narrow', underLabel: true },
+]) {
+  test(`the Open bar shows a long host whole and cuts only the path, in a frame ${width} wide`, async () => {
+    const blankUrl = `${origin}/blank.html`
+    const host = `bank.example.com.${'a'.repeat(60)}.evil.invalid`
+    const longUrl = `http://${host}/${'b'.repeat(60)}/bank.example.com/login`
+    project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: width, h: 440, data: { url: blankUrl } }])
+    const window = await start()
+    await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+    const frame = window.getByTestId('browser-frame')
+    const bar = frame.getByTestId('browser-open-bar')
 
-  // A target="_blank" link without a referrer: main does not open it by itself and offers it.
-  await inGuest(
-    blankUrl,
-    `const link = document.createElement('a'); link.href = ${JSON.stringify(longUrl)}; link.target = '_blank'; link.rel = 'noreferrer'; document.body.append(link); link.click()`,
-  )
-  const address = bar.getByTestId('browser-open-url')
-  await expect(address).toHaveText(longUrl, { timeout: 15_000 })
-  await expect(address).toHaveAttribute('title', longUrl)
-  await expect(bar.getByTestId('browser-open-site')).toHaveText(`http://${host}`)
+    // A target="_blank" link without a referrer: main does not open it by itself and offers it.
+    await inGuest(
+      blankUrl,
+      `const link = document.createElement('a'); link.href = ${JSON.stringify(longUrl)}; link.target = '_blank'; link.rel = 'noreferrer'; document.body.append(link); link.click()`,
+    )
+    const address = bar.getByTestId('browser-open-url')
+    await expect(address).toHaveText(longUrl, { timeout: 15_000 })
+    await expect(address).toHaveAttribute('title', longUrl)
+    await expect(bar.getByTestId('browser-open-site')).toHaveText(`http://${host}`)
 
-  const layout = await bar.evaluate((barElement) => {
-    const site = barElement.querySelector('[data-testid="browser-open-site"]')
-    const head = barElement.querySelector('[data-testid="browser-open-path-head"]')
-    type Edges = { left: number; right: number; top: number; bottom: number }
-    const inside = (inner: Edges, outer: Edges) =>
-      inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5
-    const barBox = barElement.getBoundingClientRect()
-    const buttons = [...barElement.querySelectorAll('button')].map((button) => inside(button.getBoundingClientRect(), barBox))
-    return {
-      siteWhole: site.scrollWidth <= site.clientWidth && site.scrollHeight <= site.clientHeight,
-      siteInBar: inside(site.getBoundingClientRect(), barBox),
-      headCut: head.scrollWidth > head.clientWidth,
-      buttonsInBar: buttons,
-    }
+    const layout = await bar.evaluate((barElement) => {
+      const part = (id: string) => barElement.querySelector(`[data-testid="${id}"]`)
+      const site = part('browser-open-site')
+      const head = part('browser-open-path-head')
+      const tail = part('browser-open-path-tail')
+      const label = barElement.querySelector('.w-browser-frame__open-label')
+      type Edges = { left: number; right: number; top: number; bottom: number }
+      const inside = (inner: Edges, outer: Edges) =>
+        inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5
+      const barBox = barElement.getBoundingClientRect()
+      const siteBox = site.getBoundingClientRect()
+      const tailBox = tail.getBoundingClientRect()
+      // 12 characters of the address's font, measured in it.
+      const probe = barElement.ownerDocument.createElement('span')
+      probe.style.cssText = 'display: inline-block; width: 12ch'
+      site.append(probe)
+      const twelveChars = probe.getBoundingClientRect().width
+      probe.remove()
+      return {
+        siteWhole: site.scrollWidth <= site.clientWidth && site.scrollHeight <= site.clientHeight,
+        siteInBar: inside(siteBox, barBox),
+        siteAtLeast12Chars: siteBox.width >= twelveChars - 0.5,
+        siteClearOfTail: siteBox.right <= tailBox.left + 0.5,
+        headCut: head.scrollWidth > head.clientWidth,
+        buttonsInBar: [...barElement.querySelectorAll('button')].map((button) => inside(button.getBoundingClientRect(), barBox)),
+        barUnder240: barBox.height < 240,
+        underLabel: label.getBoundingClientRect().bottom <= part('browser-open-url').getBoundingClientRect().top + 0.5,
+      }
+    })
+    expect(layout, 'the host is whole, at least 12 characters wide, clear of the tail; the path is cut; Open and Close stay in the bar').toEqual({
+      siteWhole: true,
+      siteInBar: true,
+      siteAtLeast12Chars: true,
+      siteClearOfTail: true,
+      headCut: true,
+      buttonsInBar: [true, true],
+      barUnder240: true,
+      underLabel,
+    })
+    await expect(bar.getByRole('button', { name: 'Open' })).toBeVisible()
+    await expect(bar.getByRole('button', { name: 'Close' })).toBeVisible()
+    await canvasReady(launched!)
+    const shots = await snapshotThemes(window, `browser-open-bar-${name}`)
+    evidence(shots.light, `12-browser-open-bar-${name}-light`)
+    evidence(shots.dark, `12-browser-open-bar-${name}-dark`)
+
+    await bar.getByRole('button', { name: 'Close' }).click()
+    await expect(bar).toBeHidden()
+    expect(await pageStates(), 'close left the page where it was').toEqual([[blankUrl, 'yes']])
   })
-  expect(layout, 'the host is whole inside the bar, the path is cut, Open and Close stay in the bar').toEqual({
-    siteWhole: true,
-    siteInBar: true,
-    headCut: true,
-    buttonsInBar: [true, true],
-  })
-  await expect(bar.getByRole('button', { name: 'Open' })).toBeVisible()
-  await expect(bar.getByRole('button', { name: 'Close' })).toBeVisible()
-  await canvasReady(launched!)
-  const shots = await snapshotThemes(window, 'browser-open-bar-long')
-  evidence(shots.light, '12-browser-open-bar-long-light')
-  evidence(shots.dark, '12-browser-open-bar-long-dark')
-
-  await bar.getByRole('button', { name: 'Close' }).click()
-  await expect(bar).toBeHidden()
-  expect(await pageStates(), 'close left the page where it was').toEqual([[blankUrl, 'yes']])
-})
+}
 
 // worfy-browser ticket 11, debt of the second review round of PR #609: under the default referrer
 // policy (strict-origin-when-cross-origin) a link from an https page to an http address reaches
