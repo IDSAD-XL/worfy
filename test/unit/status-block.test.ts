@@ -5,6 +5,13 @@ import { findStatusBlock } from '../../src/shared/agent/status-block'
 // orchestrator rules («— Stage / — Now / — Next / — Waiting»), often indented as a code block. The
 // old Russian labels («— Этап / — Сейчас / — Дальше / — Жду») are still read for one release.
 
+const ENGLISH_LINES = [
+  '— Stage: audit-2026-09-19 · /implement · волна 2',
+  '— Now: impl-09 чинит гонку в ставках, PR #412 ждёт CI',
+  '— Next: verify-09, затем волна 3',
+  '— Waiting: ничего',
+]
+
 const BLOCK = [
   '— Этап: audit-2026-09-19 · /implement · волна 2',
   '— Сейчас: impl-09 чинит гонку в ставках, PR #412 ждёт CI',
@@ -77,12 +84,7 @@ describe('findStatusBlock', () => {
   })
 
   describe('English labels', () => {
-    const ENGLISH = [
-      '— Stage: audit-2026-09-19 · /implement · волна 2',
-      '— Now: impl-09 чинит гонку в ставках, PR #412 ждёт CI',
-      '— Next: verify-09, затем волна 3',
-      '— Waiting: ничего',
-    ].join('\n')
+    const ENGLISH = ENGLISH_LINES.join('\n')
 
     it('reads a block with the English labels into the same fields as the Russian one', () => {
       const english = findStatusBlock(`Волна 2 запущена.\n\n${ENGLISH}\n`)
@@ -132,4 +134,46 @@ describe('findStatusBlock', () => {
       expect(findStatusBlock(ENGLISH.toLowerCase())).toBeNull()
     })
   })
+
+  describe('what is not a status line', () => {
+    it('finds nothing when the lines have no dash before the label', () => {
+      const bare = ['Stage: тикет 08', 'Now: пишу тесты', 'Next: PR', 'Waiting: ничего'].join('\n')
+      expect(findStatusBlock(bare)).toBeNull()
+      expect(findStatusBlock(BLOCK.replaceAll('— ', ''))).toBeNull()
+    })
+
+    it('finds nothing when the labels stand in the middle of prose lines', () => {
+      const prose = [
+        'Итог волны — Stage: тикет 08',
+        'а сейчас — Now: пишу тесты',
+        'потом — Next: PR',
+        'и наконец — Waiting: ничего',
+      ].join('\n')
+      expect(findStatusBlock(prose)).toBeNull()
+    })
+  })
+
+  describe('long lines', () => {
+    // Parsing runs in the Electron main process on every answer: a line with a long run of spaces
+    // must not make the match take seconds. The bound is generous so the test is not flaky.
+    const SPACES = ' '.repeat(50_000)
+
+    it('returns quickly on a label followed by a long run of spaces and a carriage return', () => {
+      const started = performance.now()
+      expect(findStatusBlock(`— Now:${SPACES}\r`)).toBeNull()
+      expect(findStatusBlock(`— Stage:${SPACES}\u2028`)).toBeNull()
+      expect(performance.now() - started).toBeLessThan(1000)
+    })
+
+    it('returns quickly and trims a value padded by long runs of spaces', () => {
+      const lines = ENGLISH_LINES.slice()
+      lines[1] = `${SPACES}—${SPACES}Now${SPACES}:${SPACES}x${SPACES}`
+      const started = performance.now()
+      const block = findStatusBlock(lines.join('\n'))
+      expect(performance.now() - started).toBeLessThan(1000)
+      expect(block?.now).toBe('x')
+      expect(block?.text.split('\n')[1]).toBe(`—${SPACES}Now${SPACES}:${SPACES}x`)
+    })
+  })
 })
+

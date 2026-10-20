@@ -26,11 +26,23 @@ const LABEL_SETS = [
 
 const BLOCK_SIZE = 4
 
-// An em dash, an en dash or a hyphen, then a label and a colon; spaces around each are tolerated.
-const LINE = new RegExp(
-  `^[ \\t]*([—–-][ \\t]*(${LABEL_SETS.flat().join('|')})[ \\t]*:[ \\t]*(.*?))[ \\t]*$`,
-  'u',
-)
+// An em dash, an en dash or a hyphen at the start of the line, then a label and a colon; spaces
+// around the label are tolerated. The line's own indentation and trailing spaces are cut off in
+// code, not in the pattern: whitespace runs on both sides of a lazy value made the match backtrack
+// for seconds on a line of a few thousand spaces, and parsing runs in the main process.
+const HEAD = new RegExp(`^[—–-][ \\t]*(${LABEL_SETS.flat().join('|')})[ \\t]*:`, 'u')
+
+// Characters that end a line for `.`: a line holding one of them was never a status line.
+const LINE_BREAK = /[\r\u2028\u2029]/u
+
+/** The text without the spaces and tabs at either end, in one pass from each side. */
+function trimBlanks(text: string): string {
+  let start = 0
+  let end = text.length
+  while (start < end && (text[start] === ' ' || text[start] === '\t')) start++
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t')) end--
+  return text.slice(start, end)
+}
 
 interface BlockLine {
   /** Index of the label set the line's label belongs to. */
@@ -42,9 +54,12 @@ interface BlockLine {
 }
 
 function parseLine(line: string): BlockLine | null {
-  const match = LINE.exec(line)
+  const written = trimBlanks(line)
+  const match = HEAD.exec(written)
   if (!match) return null
-  const [, written = '', label = '', value = ''] = match
+  const value = trimBlanks(written.slice(match[0].length))
+  if (LINE_BREAK.test(value)) return null
+  const label = match[1] ?? ''
   const set = LABEL_SETS.findIndex((labels) => (labels as readonly string[]).includes(label))
   return { set, label: (LABEL_SETS[set] as readonly string[]).indexOf(label), line: written, value }
 }

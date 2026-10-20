@@ -317,12 +317,14 @@ for label in Stage Now Next Waiting; do
     grep -qE "^[[:space:]]*(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null \
         && ok "orchestrator.md: status line '— $label:'" || bad "orchestrator.md: no status line '— $label:'"
 done
-# The old labels worfy still reads for one release; the rules no longer write them.
+# The old labels worfy still reads for one release; no rule, skill, agent or eval case of the
+# plugin writes them any more. This line is the only place they stay.
 for label in Этап Сейчас Дальше Жду; do
-    if grep -qE "(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null; then
-        bad "orchestrator.md: old status line '— $label:'"
+    old="$(grep -rlE --include='*.md' "(—|–|-)[[:space:]]*$label[[:space:]]*:" "$HARNESS" 2>/dev/null | sed "s|^$HARNESS/||")"
+    if [ -n "$old" ]; then
+        bad "old status line '— $label:' in: $(printf '%s ' $old)"
     else
-        ok "orchestrator.md: no old status line '— $label:'"
+        ok "no harness/**/*.md has the old status line '— $label:'"
     fi
 done
 grep -qF 'The four labels are fixed English tokens' "$RULES/orchestrator.md" 2>/dev/null \
