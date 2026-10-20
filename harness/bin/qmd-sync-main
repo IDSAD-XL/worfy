@@ -51,7 +51,14 @@ describe() {
     if (hit) process.stdout.write(hit.match)' "$cfg" "$NAME" 2>/dev/null)" \
     || { print -r -- "registry $cfg unreadable"; return 1 }
   [[ -n "$match" ]] || { print -r -- "profile $NAME is not in the registry $cfg"; return 1 }
-  json="$("$PROFILE_BIN" -C "$match" --json 2>&1)" || { print -r -- "profile -C $match: ${json%%$'\n'*}"; return 1 }
+  # stdout only: profile prints warnings on stderr (a broken user.json, a malformed language) and still
+  # exits 0, and they must reach our stderr, not the JSON. On a failure its error is the last stderr
+  # line, after any warnings; a second run reads it (failures are rare, the run is cheap).
+  local why
+  json="$("$PROFILE_BIN" -C "$match" --json)" || {
+    why="$("$PROFILE_BIN" -C "$match" --json 2>&1 >/dev/null)"
+    print -r -- "profile -C $match: ${why##*$'\n'}"; return 1
+  }
   print -r -- "$json" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const p = JSON.parse(s), home = process.env.HOME

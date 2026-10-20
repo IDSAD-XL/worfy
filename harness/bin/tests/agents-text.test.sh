@@ -129,17 +129,29 @@ for a in $ALL; do
     [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
 done
 # Rules for writing in one language belong to the user's own rules file, not to the agents.
-# The check is lexical: besides the old forms (the "## Terms" section, "Writing in Russian") it
-# refuses any agent text that names a natural language or a script, since such a rule has to name
-# one. A rule that avoids naming any language passes; the language fields of the profile are how an
-# agent text talks about language.
-LANG_WORDS='Russian|English|Ukrainian|Belarusian|German|French|Spanish|Chinese|Japanese|Cyrillic|Latin'
+# The check is lexical. It refuses the old "## Terms" section and any sentence where a verb of
+# writing or speaking (write, answer, report, keep, stay, translate…) is followed, within the same
+# sentence, by "in <a natural language or a script>": "Write engineering terms in English",
+# "terms stay in Latin", "Writing in Russian". Words about encodings or the plugin itself
+# ("Latin-1 bytes", "an English-only plugin", "a German umlaut in a path") pass. A language rule
+# worded without such a verb passes too: the guard catches the usual forms, not every one.
+lang_rule() { # stdin: text; prints "<line>: <text>" of each line with a language rule
+    perl -CSD -ne 'print "$.: $_" if /^## Terms$/ || /\b(?:writ\w*|answer\w*|repl(?:y|ies|ied)|report\w*|respond\w*|speak\w*|spoken|keep\w*|kept|stay\w*|translat\w*)\b[^.\n]{0,80}?\bin (?:the )?(?:Russian|English|Ukrainian|Belarusian|German|French|Spanish|Chinese|Japanese|Cyrillic|Latin)\b(?!-)/i'
+}
+# The guard itself: phrases it must refuse and phrases it must let through.
+for p in 'Write engineering terms in English, in Latin script, even when the report is in another language.' \
+    'Writing in Russian: the term stays in Latin.' 'Reports are written in Russian.' 'Answer the user in English.' \
+    'Working terms are kept in Latin script.' '## Terms'; do
+    [ -n "$(printf '%s\n' "$p" | lang_rule)" ] && ok "guard refuses: $p" || bad "guard lets through a language rule: $p"
+done
+for p in 'Read the file as Latin-1 bytes when it is not UTF-8.' 'This is an English-only plugin.' \
+    'A German umlaut in a path is kept as it is.' 'Substitute them, do not translate them.' \
+    'Write the report in language.reports of the profile.'; do
+    [ -z "$(printf '%s\n' "$p" | lang_rule)" ] && ok "guard lets through: $p" || bad "guard refuses a phrase that is not a language rule: $p"
+done
 for a in $ALL; do
-    if grep -qE "^## Terms\$|\\b($LANG_WORDS)\\b" "$AGENTS/$a.md"; then
-        bad "$a: names a language or a script (a rule for writing in one language?): $(grep -nE "\\b($LANG_WORDS)\\b" "$AGENTS/$a.md" | head -n 1)"
-    else
-        ok "$a: no rule for writing in one language"
-    fi
+    hit="$(lang_rule <"$AGENTS/$a.md" | head -n 1)"
+    [ -z "$hit" ] && ok "$a: no rule for writing in one language" || bad "$a: a rule for writing in one language: $hit"
 done
 
 # --- 8. reviewer: checks for a broken local build and a feature-flag leak, scope by the diff ---

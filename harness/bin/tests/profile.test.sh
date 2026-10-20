@@ -235,11 +235,11 @@ H="$T/home" HH="$T/hh"
 BINREAL="$(cd "$BIN" && pwd -P)"
 BINOUT="$(printed "$BINREAL")" # the bin folder as profile prints it
 mkdir -p "$H/.claude/profiles" "$HH/projects" "$HH/gate" "$T/r"
-for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty; do git -C "$T/r" init -q -b main "$n"; done
+for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do git -C "$T/r" init -q -b main "$n"; done
 {
     printf '{"repos":['
     sep=""
-    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
+    for n in demo legacy both nomode badmode bare schema3 nofile absbin notobj langnum langarr langnull teamempty langblank teamnum docsempty; do printf '%s{"key":"%s","match":"%s","profile":"%s"}' "$sep" "$n" "$T/r/$n" "$n"; sep=","; done
     printf ']}\n'
 } >"$HH/gate/config.json"
 newp() { mkdir -p "$HH/projects/$1" && printf '%s\n' "$2" >"$HH/projects/$1/profile.json"; }
@@ -265,6 +265,9 @@ newp langnum '{"schema":2,"name":"langnum","mode":"full","language":5}'
 newp langarr '{"schema":2,"name":"langarr","mode":"full","language":["ru"]}'
 newp langnull '{"schema":2,"name":"langnull","mode":"full","language":null}'
 newp teamempty '{"schema":2,"name":"teamempty","mode":"full","language":{"team":"","docs":"ru"}}'
+newp langblank '{"schema":2,"name":"langblank","mode":"full","language":""}'
+newp teamnum '{"schema":2,"name":"teamnum","mode":"full","language":{"team":5,"docs":"ru"}}'
+newp docsempty '{"schema":2,"name":"docsempty","mode":"full","language":{"reports":"","team":"ru","docs":""}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
 mkdir -p "$T/r/multi"
@@ -605,6 +608,22 @@ eq "profile language.team \"\": docs stays ru" ru "$pu" "$T/u/none" -C "$T/r/tea
 one_line_naming "$(printed "$HH/projects/teamempty/profile.json")" "profile language.team \"\": one stderr line naming the profile" \
     "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
 check "profile language.team \"\": the stderr line names the field" 0 "" bash -c '[[ "$("$@" 2>&1 >/dev/null)" == *language.team* ]]' _ "$pu" "$T/u/none" -C "$T/r/teamempty" --field language.team
+# The old string form, empty: one line for the whole field, not one per expanded field.
+for k in reports team docs; do
+    eq "profile language \"\" -> $k en" en "$pu" "$T/u/none" -C "$T/r/langblank" --field "language.$k"
+done
+one_line_naming "$(printed "$HH/projects/langblank/profile.json")" "profile language \"\": one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/langblank" --field language.team
+# A field of another type, and the fields other than team.
+eq "profile language.team 5 -> en" en "$pu" "$T/u/none" -C "$T/r/teamnum" --field language.team
+one_line_naming "$(printed "$HH/projects/teamnum/profile.json")" "profile language.team 5: one stderr line naming the profile" \
+    "$pu" "$T/u/none" -C "$T/r/teamnum" --field language.team
+eq "profile language.docs \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.docs
+eq "profile language.reports \"\" -> en" en "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.reports
+eq "profile language.reports and docs \"\": team stays ru" ru "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.team
+check "profile language.reports and docs \"\": one stderr line for each, naming the field" 0 "" bash -c \
+    'e="$("$@" 2>&1 >/dev/null)"; [ "$(printf "%s\n" "$e" | wc -l | tr -d " ")" = 2 ] && [[ "$e" == *language.reports* ]] && [[ "$e" == *language.docs* ]]' \
+    _ "$pu" "$T/u/none" -C "$T/r/docsempty" --field language.docs
 # CLAUDE_PROFILES_DIR (tests) overrides both places.
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"

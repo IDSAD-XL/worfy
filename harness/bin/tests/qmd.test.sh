@@ -43,6 +43,33 @@ out="$(CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile" QMD
 [ "$rc" -eq 0 ] && [ ! -e "$T/mark" ] && [ "$(git -C "$T/outer" rev-parse HEAD)" = "$(git -C "$T/seed" rev-parse HEAD)" ] \
     && ok "sync: real copy root -> fetched and checked out" || bad "sync real copy: rc=$rc out=${out:0:200}"
 
+# --- 5b. qmd-sync-main --describe: profile warnings on stderr stay out of the JSON -------------
+# bin/profile warns on stderr (a broken user.json, a malformed language) and still exits 0 with the
+# JSON on stdout: the warning reaches the caller's stderr, the JSON is still read. A failing profile:
+# exit 1 and its own error (the last stderr line), not an earlier warning.
+cat >"$T/profile-warn" <<'EOF2'
+#!/bin/sh
+echo 'profile: /x/profile.json: language.docs must be a language code such as "en", got null — ignored' >&2
+echo '{"name":"x","worktree":{"base":"origin/trunk"},"github":{"account":"octo"}}'
+EOF2
+cat >"$T/profile-fail" <<'EOF2'
+#!/bin/sh
+echo 'profile: /x/user.json is not JSON — ignored' >&2
+echo 'profile: /x/profile.json is not valid JSON: Unexpected end' >&2
+exit 1
+EOF2
+chmod +x "$T/profile-warn" "$T/profile-fail"
+out="$(HOME="$T/home-d" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-warn" \
+    zsh "$BIN/qmd-sync-main" --describe x 2>"$T/describe.err")"; rc=$?
+[ "$rc" -eq 0 ] && [ "$out" = "$T/home-d/.cache/qmd/x-trunk"$'\t'"trunk"$'\t'"octo" ] \
+    && ok "describe: a profile warning on stderr does not break the JSON" || bad "describe with a profile warning: rc=$rc out='${out:0:200}' err='$(head -c 200 "$T/describe.err")'"
+grep -q 'language.docs must be a language code' "$T/describe.err" \
+    && ok "describe: the profile warning reaches stderr" || bad "describe: the profile warning is lost"
+out="$(HOME="$T/home-d" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-fail" \
+    zsh "$BIN/qmd-sync-main" --describe x 2>"$T/describe.err")"; rc=$?
+[ "$rc" -eq 1 ] && [ -z "$out" ] && grep -q "qmd-sync-main: profile -C .*: profile: /x/profile.json is not valid JSON" "$T/describe.err" \
+    && ok "describe: a failing profile -> exit 1 with its own error" || bad "describe with a failing profile: rc=$rc out='${out:0:100}' err='$(head -c 300 "$T/describe.err")'"
+
 # --- 6. qmd-refresh: a partial failure does not stop the run ----------------------
 H="$T/home"; mkdir -p "$H/.cache/qmd" "$T/fakebin" "$T/mem"
 echo note >"$T/mem/a.md"

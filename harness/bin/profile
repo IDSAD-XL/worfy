@@ -269,12 +269,13 @@ else if (!ATTRIBUTIONS.includes(profile.attribution))
     )
 // The old form `"language": "ru"` is one language for everything. Readers ask for `language.reports`,
 // `language.team` and `language.docs` (profiles/README.md), so the string is expanded into all three.
-if (typeof profile.language === "string")
+// An empty string is checked before that, so it costs one stderr line, not one per expanded field.
+if (typeof profile.language === "string" && profile.language)
     profile.language = { reports: profile.language, team: profile.language, docs: profile.language }
 // Any other type, or a field that is not a non-empty string, is one line on stderr and the default below,
 // as for a broken user.json: a silent en would hide the mistake. An absent language or field is silent.
 if (profile.language !== undefined && (profile.language === null || typeof profile.language !== "object" || Array.isArray(profile.language))) {
-    err(`profile: ${pjPath}: "language" must be an object such as {"team": "en"}, got ${JSON.stringify(profile.language)} — ignored`)
+    err(`profile: ${pjPath}: "language" must be an object such as {"team": "en"} or a language code, got ${JSON.stringify(profile.language)} — ignored`)
     profile.language = undefined
 }
 profile.language ??= {}
