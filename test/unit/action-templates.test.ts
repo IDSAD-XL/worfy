@@ -33,6 +33,15 @@ describe('action templates', () => {
     expect(defaultProjectSettings('none')).toStrictEqual({ actionTemplates: PLUGIN })
   })
 
+  it('sends the agent English with the plugin and with no Harness; the old Harness keeps its Russian Run wave, the only form its skill reads (worfy-neutral ticket 05)', () => {
+    const cyrillic = /[\u0400-\u04FF]/u
+    for (const harness of ['plugin', 'none'] as const) {
+      for (const action of ACTIONS) expect(defaultActionTemplates(harness)[action]).not.toMatch(cyrillic)
+    }
+    const legacy = defaultActionTemplates('legacy')
+    expect(ACTIONS.filter((action) => cyrillic.test(legacy[action]))).toEqual(['runWave'])
+  })
+
   it('names the Wave\'s tickets in the Run wave default of every Harness, as Autopilot needs (ADR-0033)', () => {
     for (const harness of HARNESS_KINDS) expect(namesWaveTickets(defaultActionTemplates(harness).runWave)).toBe(true)
   })

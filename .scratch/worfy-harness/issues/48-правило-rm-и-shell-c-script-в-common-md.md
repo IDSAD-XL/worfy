@@ -1,7 +1,7 @@
 # 48 — Общее правило Harness: `rm` без `$VAR` в цели, многострочный `sh/bash/zsh -c` — через файл
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T09:17Z
 Blocked by:
 Source: решение владельца 2026-10-15 по отчёту
 [docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md](../../../docs/research/2026-10-15-bash-запросы-разрешения-autopilot.md)

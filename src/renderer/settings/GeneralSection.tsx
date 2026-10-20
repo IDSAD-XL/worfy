@@ -1,10 +1,11 @@
-// Settings → General: the interface scale of this Machine (a slider, 80–150 % by steps of 10 %) and
-// the build version (`app.version`).
+// Settings → General: the interface scale of this Machine (a slider, 80–150 % by steps of 10 %),
+// whether the toolbar shows worfy's own memory (worfy-ui ticket 20), and the build version
+// (`app.version`).
 import { useEffect, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
 import { INTERFACE_SCALE_MAX, INTERFACE_SCALE_MIN, INTERFACE_SCALE_STEP } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
-import { SettingRow } from './controls'
+import { SettingRow, SettingSwitch } from './controls'
 import { formatScale, scaleToPercent } from './interface-scale'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 
@@ -78,6 +79,39 @@ function InterfaceScaleRow() {
   )
 }
 
+/**
+ * Whether the toolbar shows worfy's own memory (src/renderer/memory/AppMemory.tsx). Every open
+ * window follows the change at once, through `appSettings.changed`.
+ */
+function MemoryIndicatorRow() {
+  const enabled = useAppSettings((settings) => settings.memoryIndicator)
+  const [problem, setProblem] = useState<string>()
+  return (
+    <SettingRow
+      label="Memory in the toolbar"
+      description={
+        problem === undefined ? (
+          "Shows how much memory worfy's own processes use, after the app version. Terminal sessions are not counted."
+        ) : (
+          <span role="alert" data-testid="settings-memory-indicator-problem">
+            Not saved: {problem}
+          </span>
+        )
+      }
+      testId="settings-memory-indicator-row"
+    >
+      <SettingSwitch
+        label="Show worfy's memory in the toolbar"
+        checked={enabled}
+        onChange={(next) => {
+          void setAppSettings({ memoryIndicator: next }).then(setProblem)
+        }}
+        testId="settings-memory-indicator"
+      />
+    </SettingRow>
+  )
+}
+
 export default function GeneralSection() {
   const [version, setVersion] = useState<Version>({ kind: 'loading' })
 
@@ -95,6 +129,7 @@ export default function GeneralSection() {
   return (
     <>
       <InterfaceScaleRow />
+      <MemoryIndicatorRow />
       <SettingRow label="Version" description="The build of worfy on this Machine." testId="settings-version-row">
         <span className="w-mono" style={{ fontSize: 'var(--text-12)', color: 'var(--text-secondary)' }} data-testid="settings-version" title={version.kind === 'failed' ? version.reason : undefined}>
           {version.kind === 'ok' ? version.version : version.kind === 'loading' ? '…' : 'unknown'}

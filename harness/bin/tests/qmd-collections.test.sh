@@ -11,6 +11,7 @@
 #   - the project's repository stays clean (`git status --porcelain` empty) in every case.
 # Run: bash harness/bin/tests/qmd-collections.test.sh; exit code 0 — everything passed.
 set -u
+unset QMD_INDEX_YML QMD_CONFIG_DIR XDG_CONFIG_HOME # index.yml is always the one under the temporary HOME
 BIN="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$BIN/qmd-collections"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
@@ -265,6 +266,119 @@ for sig in $([ "$WIN" = 1 ] || echo TERM INT HUP); do
         || bad "SIG$sig: held=$held rc=$rc lock left=$([ -e "$LK" ] && echo yes || echo no) out=[$(cat "$C/out")]"
     kill -s KILL -- "-$np" 2>/dev/null
 done
+
+# --- index.yml written by qmd itself on a fresh machine: `collections: {}` ---------------------
+# qmd saves its config with `collections: {}` before any collection exists. The script turns that line into the
+# block form; any other value on the key's line is refused with one stderr line that says how to fix the file.
+# Silent-mode project y; the stub qmd writes no index.yml, so every file is prepared with printf.
+SILENT_Y='"mode": "silent", "language": {"reports": "ru", "team": "en"},
+  "workflow": {"folder": "'"$WF"'"}, "docs": {"adr_dir": "docs/adr", "handoff": {"path": "'"$WF"'/HANDOFF.md"}},
+  "lessons": "profile", "tickets": {"root": ".scratch/"}'
+BLOCKS_Y="  y-docs:
+    path: $WF
+    pattern: \"docs/adr/**/*.md,HANDOFF.md\"
+  y-tickets:
+    path: $WF/.scratch
+    pattern: \"**/*.md\"
+  y-memory:
+    path: @MEM@
+    pattern: \"**/*.md\""
+MODELS='models:
+  embed: hf:Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf
+  generate: hf:tobil/qmd-query-expansion-1.7B-gguf/qmd-query-expansion-1.7B-q4_k_m.gguf
+  rerank: hf:ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF/qwen3-reranker-0.6b-q8_0.gguf'
+copies_of() { ls "$H/.config/qmd" | grep -c '^index\.yml\.20'; }
+# accepted <case> <index.yml before> <index.yml expected>: exit 0, index.yml byte for byte as expected, one dated
+# copy byte for byte the old file, the three names in the profile. @MEM@ stands for the case's memory folder.
+accepted() {
+    setup "$1" y "$SILENT_Y"
+    mkdir -p "$H/.config/qmd"; printf '%s' "$2" >"$INDEX"; cp "$INDEX" "$C/index.0"
+    mem="$CL/projects/$(printf '%s' "$T/proj2" | sed 's/[^A-Za-z0-9]/-/g')/memory"
+    printf '%s' "${3//@MEM@/$mem}" >"$C/index.want"
+    collect y; rc=$?
+    copy="$(ls -d "$H/.config/qmd/index.yml.20"* 2>/dev/null | head -1)"
+    [ "$rc" -eq 0 ] && cmp -s "$INDEX" "$C/index.want" && [ "$(copies_of)" = 1 ] && cmp -s "$copy" "$C/index.0" \
+        && [ "$(jq -c '.qmd.collections' "$PROFILE")" = '["y-docs","y-tickets","y-memory"]' ] \
+        && ok "$1: exit 0, index.yml in the block form, the rest byte for byte, a copy of the old file, names in the profile" \
+        || bad "$1: rc=$rc copies=$(copies_of) out=[$(cat "$C/out")] index.yml:
+$(cat "$INDEX")"
+}
+accepted fresh-machine "collections: {}
+$MODELS
+" "collections:
+$BLOCKS_Y
+$MODELS
+"
+# A second run on that file: nothing changes, no new copy.
+cp "$INDEX" "$C/index.1"; cp "$PROFILE" "$C/profile.1"
+collect y; rc=$?
+[ "$rc" -eq 0 ] && cmp -s "$INDEX" "$C/index.1" && cmp -s "$PROFILE" "$C/profile.1" && [ "$(copies_of)" = 1 ] \
+    && ok "fresh-machine second run: index.yml and the profile byte for byte the same, no new copy" \
+    || bad "fresh-machine second run: rc=$rc copies=$(copies_of) out=[$(cat "$C/out")]"
+accepted empty-spaced "collections: {  }
+$MODELS
+" "collections:
+$BLOCKS_Y
+$MODELS
+"
+accepted empty-last-line "$MODELS
+collections: {}" "$MODELS
+collections:
+$BLOCKS_Y"
+# The forms that already worked keep working: no key, a block under the key, the key with no block, the key on the
+# last line with no newline at the end.
+accepted no-key "$MODELS
+" "collections:
+$BLOCKS_Y
+$MODELS
+"
+accepted block-under-key "collections:
+  other:
+    path: /x
+    pattern: \"**/*.md\"
+$MODELS
+" "collections:
+  other:
+    path: /x
+    pattern: \"**/*.md\"
+$BLOCKS_Y
+$MODELS
+"
+accepted key-without-block "collections:
+$MODELS
+" "collections:
+$BLOCKS_Y
+$MODELS
+"
+accepted key-last-line "$MODELS
+collections:" "$MODELS
+collections:
+$BLOCKS_Y"
+
+# A dictionary with content on the key's line: refused, nothing written, one stderr line that names the file, says
+# nothing changed and describes the block form.
+setup inline-content y "$SILENT_Y"
+mkdir -p "$H/.config/qmd"
+printf 'collections: {other: {path: /x, pattern: "**/*.md"}}\n%s\n' "$MODELS" >"$INDEX"
+cp "$INDEX" "$C/index.0"; cp "$PROFILE" "$C/profile.0"
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$T/fakebin:$PATH" node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
+err="$(cat "$C/err")"
+[ "$rc" -eq 1 ] && cmp -s "$INDEX" "$C/index.0" && cmp -s "$PROFILE" "$C/profile.0" && [ "$(copies_of)" = 0 ] \
+    && ok "inline content: exit 1, index.yml and the profile unchanged, no copy" || bad "inline content: rc=$rc copies=$(copies_of) err=[$err]"
+[ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && [[ "$err" == *"$INDEX"* ]] && [[ "$err" == *"nothing changed"* ]] && [[ "$err" == *"edits only the block form"* ]] \
+    && [[ "$err" == *'"collections:" alone on its line'* ]] && [[ "$err" == *"two spaces"* ]] \
+    && [[ "$err" == *"path: and pattern:"* ]] && [[ "$err" == *"four"* ]] && [[ "$err" == *"run qmd-collections again"* ]] \
+    && ok "inline content: one stderr line with the file, nothing changed, the block form and what to do next" \
+    || bad "inline content: stderr [$err]"
+
+# The profile already names collections and index.yml has `collections: {}`: the profile's refusal, not the inline one.
+setup named-empty y "$(printf '%s' "$SILENT_Y" | sed 's/"lessons": "profile",/"lessons": "profile", "qmd": {"collections": ["y-docs"]},/')"
+mkdir -p "$H/.config/qmd"; printf 'collections: {}\n%s\n' "$MODELS" >"$INDEX"; cp "$INDEX" "$C/index.0"
+collect y; rc=$?
+[ "$rc" -eq 1 ] && grep -q "the profile names collections that $INDEX does not have: y-docs" "$C/out" && ! grep -q "inline" "$C/out" \
+    && cmp -s "$INDEX" "$C/index.0" && [ "$(copies_of)" = 0 ] \
+    && ok "profile names collections, index.yml has collections: {}: the profile's refusal, nothing written" \
+    || bad "named-empty: rc=$rc out=[$(cat "$C/out")]"
 
 # --- usage ------------------------------------------------------------------------------------
 node "$SCRIPT" >/dev/null 2>&1; rc=$?

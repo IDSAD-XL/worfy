@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser fixture, a frame that asks for a window</title>
+    <!--
+      The frame test/e2e/browser.spec.ts embeds from a second origin in framed.html: on load, with
+      no click, it calls window.open to its own next.html, as an ad might, and marks that it asked.
+    -->
+  </head>
+  <body style="margin: 0; background: #e3f6fd">
+    <p>A third-party frame</p>
+    <script>
+      window.open(new URL('next.html', location.href).href)
+      document.body.dataset.asked = 'yes'
+    </script>
+  </body>
+</html>

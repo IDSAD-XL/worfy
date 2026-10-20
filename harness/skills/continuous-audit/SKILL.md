@@ -234,10 +234,10 @@ the false-findings table; the list of what was not checked.
 
 The answer ends with a block of four lines (the labels are what worfy parses; the values are in `F language.reports`):
 
-    — Этап: <the epic-status $A line>
-    — Сейчас: <N findings, M dropped by the check, K duplicates, T tickets, PR #…>
-    — Дальше: merge the PR and the first wave
-    — Жду: <decisions from map.md, or "nothing">
+    — Stage: <the epic-status $A line>
+    — Now: <N findings, M dropped by the check, K duplicates, T tickets, PR #…>
+    — Next: merge the PR and the first wave
+    — Waiting: <decisions from map.md, or "nothing">
 
 Boundaries: a human merges the PR; other tickets' statuses (the `ticket` tool included), old tickets, and the `spec.md` and `map.md`
 of other epics stay untouched.

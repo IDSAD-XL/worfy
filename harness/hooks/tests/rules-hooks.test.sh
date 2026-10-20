@@ -212,6 +212,143 @@ for ev in SessionStart SubagentStart; do
         && ok "$ev: long user rules: cut after a whole line (${last%%:*})" || bad "$ev: long user rules: cut inside a line: '$last'"
     [[ "$c" != *'Rule 600:'* ]] && ok "$ev: long user rules: the tail is cut" || bad "$ev: long user rules: nothing was cut"
 done
+
+# The exact text, without the trailing-newline loss of $(…): additionalContext of $T/out into $1.
+ctx_raw() {
+    node -e '
+let o = {}
+try { o = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")) } catch {}
+process.stdout.write(String((o && o.hookSpecificOutput || {}).additionalContext ?? ""))' "$T/out" >"$1"
+}
+# The head (the part and "## User rules") and the closing note of the cut output in $T/out, into
+# $T/head and $T/note; their lengths in code points into HEAD_N and NOTE_N.
+ctx_raw "$T/ctx"
+node -e '
+const fs = require("fs")
+const c = fs.readFileSync(process.argv[1], "utf8")
+const h = c.indexOf("\n\n## User rules\n\n") + "\n\n## User rules\n\n".length
+const n = c.lastIndexOf("\n\n(The user rules are cut here")
+fs.writeFileSync(process.argv[2], c.slice(0, h))
+fs.writeFileSync(process.argv[3], c.slice(n))
+process.stdout.write(`${[...c.slice(0, h)].length} ${[...c.slice(n)].length}`)' "$T/ctx" "$T/head" "$T/note" >"$T/sizes"
+read -r HEAD_N NOTE_N <"$T/sizes"
+[ "${HEAD_N:-0}" -gt 0 ] && [ "${NOTE_N:-0}" -gt 0 ] && ok "cut output: head $HEAD_N and note $NOTE_N characters" || bad "cut output: no head or note"
+# Fixtures for the cut, $T/fixture.js <mode> <head> <note> <limit> <rules file> <expected rules text>.
+# Every line holds characters outside the Basic Multilingual Plane (one code point, two UTF-16 units),
+# so a hook that counted UTF-16 units would keep less than the limit allows.
+cat >"$T/fixture.js" <<'EOF'
+const fs = require("fs")
+const [mode, head, note, limit, file, want] = process.argv.slice(2).map((v, i) => (i < 4 && i > 0 ? Number(v) : v))
+const len = (s) => [...s].length
+const make = (i, n) => {
+    let s = `Rule ${i}: `
+    while (len(s) < n) s += len(s) % 2 ? "\u{1F600}" : "a"
+    return s
+}
+// lines whose text (joined with "\n", plus `extra` per line) is exactly `total` code points
+const fill = (total, extra) => {
+    const lines = []
+    let rem = total
+    while (rem > 0) {
+        const sep = lines.length && !extra ? 1 : 0
+        let n = Math.min(80, rem - sep - extra)
+        if (rem - sep - extra - n > 0 && rem - sep - extra - n < 20) n = rem - sep - extra - 20
+        lines.push(make(lines.length + 1, n))
+        rem -= sep + extra + n
+    }
+    return lines
+}
+const budget = limit - head - note
+let lines, kept
+if (mode === "exact" || mode === "over") {
+    // the whole file is the limit (exact) or one more (over); only "exact" arrives whole
+    lines = fill(limit - head + (mode === "over" ? 1 : 0), 0)
+    kept = mode === "exact" ? lines : null
+} else if (mode === "fill") {
+    // whole lines that use the budget to the last character, then lines that cannot fit
+    kept = fill(budget, 1)
+    lines = [...kept, ...Array.from({ length: 5 }, (_, i) => make(kept.length + i + 1, 80))]
+} else {
+    // alternate: long and short lines; the cut keeps the longest run of whole lines from the start
+    lines = Array.from({ length: 80 }, (_, i) => make(i + 1, i % 2 ? 12 : 300))
+    kept = []
+    let b = budget
+    for (const l of lines) {
+        if (len(l) + 1 > b) break
+        kept.push(l)
+        b -= len(l) + 1
+    }
+}
+fs.writeFileSync(file, lines.join("\n") + "\n")
+if (mode === "over") {
+    // cut: a run of whole lines from the start; nothing more is checked here
+    fs.writeFileSync(want, "")
+} else fs.writeFileSync(want, kept.join("\n"))
+EOF
+# $1 name, $2 mode: the output is exactly head + the expected text (+ the note, when cut)
+expect_cut() {
+    local name="$1" mode="$2" n
+    node "$T/fixture.js" "$mode" "$HEAD_N" "$NOTE_N" "$LIMIT" "$USER_RULES" "$T/want-rules"
+    run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+    ctx_raw "$T/ctx"
+    if [ "$mode" = exact ]; then cat "$T/head" "$T/want-rules" >"$T/want"; else cat "$T/head" "$T/want-rules" "$T/note" >"$T/want"; fi
+    n="$(chars "$T/ctx")"
+    [ "$rc" -eq 0 ] && cmp -s "$T/want" "$T/ctx" && [ "$n" -le "$LIMIT" ] && [ ! -s "$T/err" ] \
+        && ok "$name ($n characters)" || bad "$name: rc=$rc, $n characters, stderr '$(head -c 200 "$T/err")'"
+}
+expect_cut "user rules of exactly the limit with the part: arrive whole, no note" exact
+expect_cut "user rules filling the budget to the last character: every fitting line kept (cost = budget fits)" fill
+expect_cut "long and short lines: the cut keeps whole lines from the start, no later short line" alternate
+node "$T/fixture.js" over "$HEAD_N" "$NOTE_N" "$LIMIT" "$USER_RULES" "$T/want-rules"
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+ctx_raw "$T/ctx"
+[ "$rc" -eq 0 ] && [[ "$(cat "$T/ctx")" == *'(The user rules are cut here'* ]] && [ "$(chars "$T/ctx")" -le "$LIMIT" ] \
+    && ok "user rules one character over the limit: cut, with the note" || bad "user rules one character over the limit: not cut"
+
+# Trailing white space of the file is dropped, spaces and tabs too, not only newlines.
+printf 'Rule A.\n\nRule B. \t \n \n\t\n' >"$USER_RULES"
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+ctx_raw "$T/ctx"
+printf 'Rule A.\n\nRule B.' | cat "$T/head" - >"$T/want"
+cmp -s "$T/want" "$T/ctx" && ok "user rules: trailing spaces, tabs and newlines dropped" || bad "user rules: trailing white space kept: '$(tail -c 40 "$T/ctx" | od -c | head -n 2 | tr '\n' ' ')'"
+# The same at the cut: a kept line of spaces before the cut is dropped.
+node -e 'process.stdout.write("Rule 1.\n   \n" + "x".repeat(12000) + "\n")' >"$USER_RULES"
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+ctx_raw "$T/ctx"
+printf 'Rule 1.' | cat "$T/head" - "$T/note" >"$T/want"
+cmp -s "$T/want" "$T/ctx" && ok "cut user rules: trailing white space before the note dropped" || bad "cut user rules: white space kept before the note"
+
+# A file whose first line alone does not fit: the part as before and one line on stderr naming the
+# file, not a note with no rules under it. A leading line of spaces changes nothing.
+part_root() { sed "s#\${CLAUDE_PLUGIN_ROOT}#$2#g" "$RULES/$1.md"; } # $1 part, $2 plugin root (no '#')
+stderr_names_file() { local e; e="$(cat "$T/err")"; [[ "$e" == *"$HARNESS_HOME/user/rules.md"* || "${e//\\//}" == *"$HH_N/user/rules.md"* ]]; }
+for lead in '' '  \n'; do
+    node -e 'process.stdout.write(process.argv[1].replace("\\n", "\n") + "y".repeat(20000) + "\n")' "$lead" >"$USER_RULES"
+    run_inject common '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT"
+    lines="$(wc -l <"$T/err" | tr -d ' ')"
+    [ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_root common "$LONG_ROOT")" ] && [ "$lines" = 1 ] && stderr_names_file \
+        && ok "first line longer than the budget (lead '$lead'): the part as before, one stderr line naming the file" \
+        || bad "first line longer than the budget (lead '$lead'): rc=$rc, $lines stderr lines, $(ctx | chars) characters"
+done
+
+# No room at all (the part and the note already reach the limit): the part as before, one stderr line.
+HUGE_ROOT="/$(node -e 'process.stdout.write("r".repeat(5200))')"
+printf 'Rule 1.\n' >"$USER_RULES"
+run_inject common '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$HUGE_ROOT"
+lines="$(wc -l <"$T/err" | tr -d ' ')"
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_root common "$HUGE_ROOT")" ] && [ "$lines" = 1 ] && stderr_names_file && grep -q 'no room' "$T/err" \
+    && ok "no room for user rules: the part as before, one stderr line naming the file" \
+    || bad "no room for user rules: rc=$rc, $lines stderr lines: '$(head -c 200 "$T/err")'"
+
+# Trailing white space is dropped in linear time: a long run of spaces before a last character
+# made the old regular expression take seconds (quadratic backtracking).
+node -e 'process.stdout.write(" ".repeat(300000) + "x\n")' >"$USER_RULES"
+node -e '
+const r = require("child_process").spawnSync(process.execPath, [process.argv[1], "common"], {
+    input: JSON.stringify({ hook_event_name: "SessionStart" }), timeout: 10000, env: { ...process.env, CLAUDE_PLUGIN_ROOT: "/opt/worfy-plugin" },
+})
+process.exit(r.status === 0 && !r.signal ? 0 : 1)' "$INJECT" \
+    && ok "user rules with 300000 spaces before the last character: done within 10 s" || bad "user rules with 300000 spaces: the hook took over 10 s or failed"
 rm -f "$USER_RULES"
 
 # --- 4. Paths and names inside the parts -------------------------------------------------------
@@ -313,17 +450,29 @@ done
 # The status block lines as worfy parses them: LINE in src/shared/agent/status-block.ts.
 # The dashes are an alternation, not a bracket: in the C locale (Git Bash without LANG) grep reads a
 # bracket byte by byte and a multibyte dash never matches.
-for label in Этап Сейчас Дальше Жду; do
+for label in Stage Now Next Waiting; do
     grep -qE "^[[:space:]]*(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null \
         && ok "orchestrator.md: status line '— $label:'" || bad "orchestrator.md: no status line '— $label:'"
 done
+# The old labels worfy still reads for one release; no rule, skill, agent or eval case of the
+# plugin writes them any more. This line is the only place they stay.
+for label in Этап Сейчас Дальше Жду; do
+    old="$(grep -rlE --include='*.md' "(—|–|-)[[:space:]]*$label[[:space:]]*:" "$HARNESS" 2>/dev/null | sed "s|^$HARNESS/||")"
+    if [ -n "$old" ]; then
+        bad "old status line '— $label:' in: $(printf '%s ' $old)"
+    else
+        ok "no harness/**/*.md has the old status line '— $label:'"
+    fi
+done
+grep -qF 'The four labels are fixed English tokens' "$RULES/orchestrator.md" 2>/dev/null \
+    && ok "orchestrator.md: the labels are fixed tokens worfy parses" || bad "orchestrator.md: no fixed-token rule for the labels"
 for p in '[gate] зелено (…)' 'ничего не прогналось' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'; do
     grep -qF -- "$p" "$all" && ok "gate verdict words kept: $p" || bad "gate verdict words missing: $p"
 done
 
-# Cyrillic only in the status labels and the gate verdict words. Rules for writing in one language
+# Cyrillic only in the gate verdict words. Rules for writing in one language
 # live in the user's own rules file, not in the plugin.
-ALLOWED='["Этап","Сейчас","Дальше","Жду","[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
+ALLOWED='["[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
 for p in 'Writing in Russian' 'stays in Latin' '## Terms'; do
     if grep -qF -- "$p" "$all"; then bad "parts carry the language rule '$p'"; else ok "parts carry no language rule '$p'"; fi
 done

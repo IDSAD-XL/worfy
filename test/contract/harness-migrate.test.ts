@@ -259,9 +259,9 @@ describe('the move', () => {
     // Every row of the old Harness removed; the sections of CLAUDE.md as the form proposes them.
     const sectionDefault = (id: string): MigrationChoice | undefined => view.claudeMd?.sections.find((section) => section.id === id)?.defaultChoice
     const result = await applyMigration(selection(view, sectionDefault), applyOptions())
-    // A path with a character outside [\w./+@-] (on Windows the drive colon and the backslashes) is single-quoted.
+    // A path with a character outside [\w./+@-] (on Windows the drive colon and the backslashes) is quoted: in double quotes on Windows.
     const script = join(backupDir(), 'restore.mjs')
-    expect(result).toEqual({ outcome: 'done', backupDir: backupDir(), restoreCommand: process.platform === 'win32' ? `node '${script}'` : `node ${script}` })
+    expect(result).toEqual({ outcome: 'done', backupDir: backupDir(), restoreCommand: process.platform === 'win32' ? `node "${script}"` : `node ${script}` })
 
     // Harness files: gone from ~/.claude, byte for byte in the backup.
     const after = treeOf(sandbox.claudeHome)

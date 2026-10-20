@@ -42,8 +42,7 @@ the step is skipped, and that is said in words ("production check skipped: the p
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
 in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
-spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
-(exit code 4 or `null`), in the language those documents are already written in.
+spec, ADRs, the state file, lessons) are in `F language.docs` (`en` when the profile does not set it).
 
 Two fields set the shape of the wave:
 
@@ -171,7 +170,8 @@ gh pr list --state open --json number,headRefName,mergeStateStatus,files   # pr-
 ```
 
 Preflight: the last line is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. The line
-`<база>: <sha> …` (the base is `F worktree.base`) is the base for the dispatch briefs. What it
+`<база>: <sha> …` (the base is `F worktree.base`; in a repository without `origin` — the branch that
+line names) is the base for the dispatch briefs. What it
 checks is in `rules.md`. If the preflight cannot run here (exit 2: not a git repository, for
 example the common directory above a multi-repository project) — say "preflight cannot run here,
 running a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --porcelain` and how far behind
@@ -190,9 +190,12 @@ prints the human-readable line) and returns `{ref, epics, tickets[]}` across all
 filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in `statusRaw`. If
 `epic-status` refuses — say so and build the ticket list from `F tickets.path` by hand.
 
-Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
-`rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
-"How to resume a wave"), not dispatched again; everything else becomes rows of the plan table.
+Outcomes: `BLOCKED` — stop with a message: the wave does not start until the preflight answers `GO`.
+`rules.md` says what each reason means and how to clear it (for example, `another live session in the
+tree` — move to your own worktree and run the preflight again), but never turns a reason into a warning:
+warnings are only the lines that start with `! `. An open PR on the ticket's branch (`F tickets.branch`)
+— the ticket is resumed (section "How to resume a wave"), not dispatched again; everything else becomes
+rows of the plan table.
 
 **Open PRs of other epics** (`pr-green-ci` only). Another session — on this
 machine or on another one — may have an open PR on files of this wave. The block lists the open PRs
@@ -869,8 +872,8 @@ if [ -n "$L" ]; then
     sleep 20
   done
   printf '{"prs":[%s],"what":"gate-full","pid":%s,"since":"%s"}\n' <N> "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$L/holder.json"
-  ( while sleep 300; do touch -c "$L" 2>/dev/null || exit 0; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open
-  trap 'pkill -P $HB 2>/dev/null; kill $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # only our holder.json
+  ( while sleep 300; do [ -d "$L" ] || exit 0; touch -c "$L" 2>/dev/null; done ) >/dev/null 2>&1 & HB=$!   # its sleep holds no output open; ends once the lock is gone
+  trap 'kill -STOP $HB 2>/dev/null; w=0; while [ $w -lt 200 ] && ps -o stat= -p $HB 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P $HB 2>/dev/null; kill -KILL $HB 2>/dev/null; kill -CONT $HB 2>/dev/null; wait $HB 2>/dev/null; grep -q "\"pid\":$$," "$L/holder.json" 2>/dev/null && rm -f "$L/holder.json"; rmdir "$L" 2>/dev/null' EXIT   # pkill once ps shows it stopped: it starts no sleep pkill misses; only our holder.json
 fi
 (cd <PR worktree> && GATE_SCOPE=all node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" full </dev/null); echo "EXIT=$?"
 ```
@@ -1004,7 +1007,7 @@ one, with the reason instead of failing jobs. Neither is reverted — the fix go
   tests in its first section), or, when the cause is not known yet, a `blocked` line in the state
   file's list of what waits for the owner; and a decision-log row with the URL;
 - no new merges in this wave, and the run stops after it: in a session without a human (worfy
-  Autopilot) no next wave starts. The report's `— Жду:` line names the CI run URL and the failing jobs
+  Autopilot) no next wave starts. The report's `— Waiting:` line names the CI run URL and the failing jobs
   and tests. A session with a human reports the same and asks.
 
 1. Ordinary PRs with code — with `merge_gate: "wave"` as a set (above); otherwise one after another,
@@ -1159,11 +1162,11 @@ after the merge).
 A table for the wave, then the four groups of findings of every ticket whose gate gave any
 (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line
 status block, which stays last. Its labels stay exactly as written —
-`— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:` — whatever the reports language: worfy reads them
-(`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Этап:` — the
-output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Сейчас:` —
+`— Stage:`, `— Now:`, `— Next:`, `— Waiting:` — whatever the reports language: worfy reads them
+(`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Stage:` — the
+output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Now:` —
 only what the gate and the live address confirmed (with `local-green` or without `deploy` — the
-gate); `— Жду:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
+gate); `— Waiting:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
 the verifier's answer yourself before quoting it.
 
 | Ticket | PR | Gate | Rework | Production |

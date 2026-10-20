@@ -309,12 +309,17 @@ lock_run() {
     echo "e3-sandbox: waiting for $LOCK" >&2
     sleep "$pause"
   done
-  # Its output goes nowhere: the `sleep` it leaves behind would otherwise hold the caller's pipe
-  # open for up to 5 minutes after this script has exited.
-  (while sleep 300; do touch "$LOCK" 2>/dev/null || exit 0; done) >/dev/null 2>&1 &
+  # Its output goes nowhere, so no `sleep` of it can hold the caller's pipe open. It ends once the
+  # lock folder is gone (also when this script was killed without its trap), and `touch -c` never
+  # makes a plain file where the folder was.
+  (while sleep 300; do [ -d "$LOCK" ] || exit 0; touch -c "$LOCK" 2>/dev/null || true; done) >/dev/null 2>&1 &
   hb=$!
   # Every step of the release is guarded: under `set -e` a failing step would end the trap before rmdir.
-  trap 'kill '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
+  # The heartbeat is stopped first, and pkill runs only once ps shows it stopped (STOP is delivered
+  # asynchronously), so it starts no new `sleep` after pkill has killed its current one. CONT after
+  # KILL, so a stopped process that KILL did not end (seen under MSYS) cannot hang `wait`.
+  # shortcut: kills by pid, so a pid reused after the heartbeat already ended gets the signals, and where ps has no -o (Git Bash) or the 2 s wait runs out pkill does not wait for the stop; redo with a process group if either is ever seen.
+  trap 'kill -STOP '"$hb"' 2>/dev/null || true; w=0; while [ "$w" -lt 200 ] && ps -o stat= -p '"$hb"' 2>/dev/null | grep -qv T; do w=$((w + 1)); sleep 0.01; done; pkill -P '"$hb"' 2>/dev/null || true; kill -KILL '"$hb"' 2>/dev/null || true; kill -CONT '"$hb"' 2>/dev/null || true; wait '"$hb"' 2>/dev/null || true; rmdir "'"$LOCK"'" 2>/dev/null || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
   E3_LOCK_HELD=1 "$@"

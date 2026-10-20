@@ -53,6 +53,21 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 - `harness/bin/wave-gate:108-109`, `:114`, `:190-205` (возраст замка), `:326-385` (pid-файл), `:842-850`
 - `harness/bin/tests/wave-gate.test.sh` — блок «e2e lock on signal»
 
+## Найдено позже
+
+2026-10-20, PC при проверке PR [#559](https://github.com/IDSAD-XL/worfy/pull/559) (worfy-harness 49 —
+heartbeat замка e2e выходит, когда замка нет;
+[комментарий](https://github.com/IDSAD-XL/worfy/pull/559#issuecomment-6283169991)). На merge не влияет:
+Wave на Windows пока не гоняют.
+
+- Блок замка e2e в `harness/skills/epic-wave/SKILL.md` ждёт, пока heartbeat остановится, через
+  `ps -o stat= -p $HB`. У `ps` в MSYS нет `-o`, поэтому цикл ожидания кончается сразу (0 ms), а не
+  после остановки.
+- В Git Bash нет `pkill`. Дочерний `sleep 300` heartbeat-а живёт до 300 s после блока; замок к тому
+  времени уже снят.
+- `alive_of` в `harness/bin/tests/wave-gate-heartbeat.test.sh` тоже на `ps -o`: на Windows любой живой
+  pid там считается живым процессом heartbeat-а.
+
 ## Итог
 
 Заполняется при закрытии.

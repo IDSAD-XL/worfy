@@ -14,8 +14,8 @@ import { snapshotThemes } from './snapshots'
 // Canvas draws a Browser Node as an empty frame, and a separate layer draws the frame's <webview>
 // inside the Canvas viewport transform, at the frame's place and size. The layer does not depend on
 // React Flow's onlyRenderVisibleElements, so a frame that leaves the screen keeps its page.
-// The app runs with WORFY_BROWSER_PROTOTYPE=1, the flag that turns the <webview> tag on
-// (src/main/window.ts). The page is a local fixture (test/fixtures/browser/page.html) served by a
+// The <webview> tag is on in every window since worfy-browser ticket 02 (src/main/window.ts), which
+// dropped the prototype's flag. The page is a local fixture (test/fixtures/browser/page.html) served by a
 // server this file starts on 127.0.0.1: no outside site.
 // Every measurement is printed as a `[browser-layer] <what>: <json>` line, for the ticket's result
 // section. With WORFY_EVIDENCE_DIR set, the snapshots are copied there as 01-<name>.png.
@@ -71,7 +71,7 @@ interface Viewport {
   zoom: number
 }
 
-/** Starts the app under the prototype flag over a Project whose Layout holds the Browser frame `FRAME` and `extra` Nodes. */
+/** Starts the app over a Project whose Layout holds the Browser frame `FRAME` and `extra` Nodes. */
 async function start(viewport: Viewport, extra: Record<string, unknown>[] = []): Promise<Page> {
   const dataDir = join(scratch, 'data')
   const home = join(scratch, 'home')
@@ -84,7 +84,7 @@ async function start(viewport: Viewport, extra: Record<string, unknown>[] = []):
   mkdirSync(join(dataDir, PROJECT), { recursive: true })
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: repo }], activeId: PROJECT }))
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes, viewport }))
-  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, HOME: home, WORFY_BROWSER_PROTOTYPE: '1' } })
+  launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, HOME: home } })
   const { window } = launched
   await canvasReady(launched, { size: WINDOW, visible: [window.locator(`.react-flow__node[data-id="${FRAME.id}"]`)] })
   await expect.poll(() => guestState().then((state) => state?.ready), { timeout: 15_000, message: 'the fixture page has loaded in the <webview>' }).toBe('yes')

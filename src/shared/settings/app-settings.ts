@@ -19,6 +19,9 @@
 //   chosen with or without the mark, so a file written before the mark existed keeps its choices; the
 //   mark is what tells "Custom" at the default value from the default itself. Absent while neither is
 //   chosen;
+// - `memoryIndicator` — whether the toolbar shows how much memory worfy's own processes use
+//   (worfy-ui ticket 20); on by default. Main samples the memory only while it is on
+//   (src/main/diagnostics/memory.ts);
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 
@@ -105,6 +108,8 @@ export const appSettingsSchema = z.object({
   }),
   /** Which window the person chose; absent while neither is (see autoCompactWindowChosen). */
   autoCompactWindowChosen: z.object({ orchestrator: z.boolean(), other: z.boolean() }).optional(),
+  /** Whether the toolbar shows worfy's own memory. */
+  memoryIndicator: z.boolean(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -130,6 +135,7 @@ export const appSettingsPatchSchema = z.object({
       other: z.union([z.number(), z.literal(AUTO_COMPACT_WINDOW_WORFY_DEFAULT)]).nullable().optional(),
     })
     .optional(),
+  memoryIndicator: z.boolean().optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -138,6 +144,7 @@ export const DEFAULT_APP_SETTINGS: Readonly<AppSettings> = Object.freeze({
   interfaceScale: INTERFACE_SCALE_DEFAULT,
   sidebar: Object.freeze({ collapsed: Object.freeze({}), visible: Object.freeze({ normal: true, focus: true }) }),
   autoCompactWindow: AUTO_COMPACT_WINDOW_DEFAULTS,
+  memoryIndicator: true,
   revision: 0,
 })
 
@@ -147,6 +154,7 @@ export function defaultAppSettings(): AppSettings {
     interfaceScale: INTERFACE_SCALE_DEFAULT,
     sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
     autoCompactWindow: { ...AUTO_COMPACT_WINDOW_DEFAULTS },
+    memoryIndicator: true,
     revision: 0,
   }
 }
