@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/preflight outside Auction. Run: bash harness/bin/tests/preflight.test.sh;
+# Tests of harness/bin/preflight on temporary repositories. Run: bash harness/bin/tests/preflight.test.sh;
 # exit code 0 — everything passed.
 #
 # The registry and profiles are temporary (CLAUDE_GATE_CONFIG, CLAUDE_PROFILES_DIR, bin/profile understands them),
 # and so are HOME, HARNESS_HOME and CLAUDE_CONFIG_DIR: the lock step (worktree-lock) writes under HARNESS_HOME,
 # which used to be the real ~/.claude/worfy-harness. The real one is compared with a snapshot at the end.
-# Behaviour on Auction is checked by comparison with earlier output, not here: it depends on
+# Behaviour on a live project is checked by comparison with earlier output, not here: it depends on
 # the live origin/main.
 set -u
 # The scripts under test are the copies next to this test (harness/); BIN_DIR and HOOKS_DIR
@@ -111,7 +111,7 @@ out="$(cd "$T/reg" && CLAUDE_SESSION_ID= node "$PF" --no-fetch --epic x 2>&1)"; 
 [ "$rc" -eq 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = GO ] && [[ "$out" != *"/nonexistent/"* ]] \
     && ok "tickets.epic_status in the profile is ignored" || bad "stale epic_status: exit $rc, out: ${out:0:400}"
 
-# 4c. Repositories whose main branch is master, in a profile with worktree.base null (Atakama):
+# 4c. Repositories whose main branch is master, in a profile with worktree.base null (a project of several repositories):
 # the base is not guessed as origin/main. ext — a clone, origin/HEAD -> origin/master; srv — no
 # origin/HEAD, layout.repos.srv.default_branch is master; bare — neither, so origin/main as before.
 mkdir -p "$T/m" "$T/profiles/m"
@@ -143,7 +143,7 @@ out="$(cd "$T/m/bare" && CLAUDE_GATE_CONFIG="$T/m.json" CLAUDE_SESSION_ID= node 
     && ok "worktree.base null, no origin/HEAD, no layout.repos -> origin/main (BLOCKED here)" \
     || bad "no hint for the base: exit $rc, out: ${out:0:500}"
 
-# 4d. Silent mode (worfy-harness ticket 22): the ADR numbers are counted from the files of the ADR directory in
+# 4d. Silent mode: the ADR numbers are counted from the files of the ADR directory in
 # the Workflow folder, not from git ls-tree of branches; a duplicate number there is BLOCKED, exit 1.
 mkdir -p "$T/wf/docs/adr" "$T/profiles/s"
 printf '{"schema":2,"name":"s","mode":"silent","workflow":{"folder":"%s"},"worktree":{"base":"origin/main"},"numbering":{"adr":{"dir":"docs/adr","check":null},"migrations":null}}\n' "$T/wf" \

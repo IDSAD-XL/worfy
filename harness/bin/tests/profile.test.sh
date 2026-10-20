@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Tests of harness/bin/profile. Run: bash harness/bin/tests/profile.test.sh; exit code 0 — everything passed.
 #
-# Some checks run against the live registry (gate/config.json) and the live Auction repository;
-# some against a synthetic repository in a temporary directory with its own config, to
+# Some checks run against the live registry (gate/config.json) and the projects registered there;
+# most against a synthetic repository in a temporary directory with its own config, to
 # check a worktree OUTSIDE the match prefix (identification via git common dir).
 set -u
 # The scripts under test are the copies next to this test (harness/); BIN_DIR and HOOKS_DIR
-# point it at another copy. Live checks run only when both the repository and the live gate
-# registry exist: $HARNESS_HOME/gate/config.json, or during the transition the legacy
-# ~/.claude/gate/config.json, which profile reads when the new one is missing.
+# point it at another copy. Live checks run only when the live gate registry exists, and only for
+# the registered projects whose directories exist: $HARNESS_HOME/gate/config.json, or during the
+# transition the legacy ~/.claude/gate/config.json, which profile reads when the new one is missing.
 HARNESS="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN="${BIN_DIR:-$HARNESS/bin}"
 HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
@@ -16,7 +16,6 @@ PROFILE="$BIN/profile"
 export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 LIVE_GATE="${HARNESS_HOME:-$HOME/.claude/worfy-harness}/gate/config.json"
 [ -f "$LIVE_GATE" ] || LIVE_GATE="$HOME/.claude/gate/config.json"
-AUCTION="$HOME/Work/Auction"
 pass=0
 fail=0
 # The real ~/.claude (the Harness parts) and ~/.claude/worfy-harness: compared at the end (real-home.sh).
@@ -40,88 +39,54 @@ check() { # $1 name, $2 expected exit code, $3 expected stdout substring (or "")
 }
 
 # --- live registry ----------------------------------------------------------------
-if [ -d "$AUCTION" ] && [ -f "$LIVE_GATE" ]; then
-    check "auction root --name" 0 "auction" "$PROFILE" -C "$AUCTION" --name
-    check "auction subdir --field commands.test" 0 "pnpm test" "$PROFILE" -C "$AUCTION/apps/api" --field commands.test
-    check "auction --field parallel" 0 "worktrees" "$PROFILE" -C "$AUCTION" --field parallel
-    check "auction --field nested array" 0 "auction" "$PROFILE" -C "$AUCTION" --field qmd.collections
-    check "auction --field absent -> 4" 4 "" "$PROFILE" -C "$AUCTION" --field no.such.field
-    check "auction --field modules.heavy (key with /)" 0 '"apps/api": 3' "$PROFILE" -C "$AUCTION" --field modules.heavy
-    check "auction --field commands.package.names" 0 '"apps/api": "@auction/api"' "$PROFILE" -C "$AUCTION" --field commands.package.names
-    check "auction --field commands.package.test_one" 0 "pnpm --filter <пакет> exec vitest run <файл>" "$PROFILE" -C "$AUCTION" --field commands.package.test_one
-    check "auction --field tests.globs" 0 '"*.test.ts*"' "$PROFILE" -C "$AUCTION" --field tests.globs
-    check "auction --field tests.new_file" 0 "apps/api/test/<имя>.hardening.spec.ts" "$PROFILE" -C "$AUCTION" --field tests.new_file
-    check "auction --field github.account" 0 "IDSAD-XL" "$PROFILE" -C "$AUCTION" --field github.account
-    check "auction --field tickets.root" 0 ".scratch/" "$PROFILE" -C "$AUCTION" --field tickets.root
-    check "auction language.reports ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.reports
-    check "auction language.team ru" 0 "ru" "$PROFILE" -C "$AUCTION" --field language.team
-    # the staging password must not get into curl's arguments: the pair goes through stdin (curl -K -)
-    check "auction production_check: no -u in args" 1 "" bash -c "'$PROFILE' -C '$AUCTION' --field deploy.production_check | grep -q -- ' -u '"
-    check "auction production_check: curl -K - and pipefail" 0 "" bash -c "c=\$('$PROFILE' -C '$AUCTION' --field deploy.production_check) && [[ \$c == 'set -o pipefail;'* && \$c == *'curl -K -'* ]]"
-    # ~/.claude/profiles/auction before the move to the Harness home, $HARNESS_HOME/projects/auction after it
-    check "auction --dir" 0 "" bash -c 'd="$("$@")" && [[ "$d" == */.claude/profiles/auction || "$d" == */projects/auction ]]' _ "$PROFILE" -C "$AUCTION" --dir
-    check "auction --rules" 0 "## Источники" "$PROFILE" -C "$AUCTION" --rules
-    check "auction default briefing" 0 "--- rules.md" "$PROFILE" -C "$AUCTION"
-    check "auction --json is JSON" 0 "" bash -c "'$PROFILE' -C '$AUCTION' --json | node -e 'JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))'"
-    wt="$(git -C "$AUCTION" worktree list --porcelain | awk '/^worktree /{print $2}' | grep -v "^$AUCTION\$" | while read -r d; do [ -d "$d" ] && echo "$d" && break; done)"
-    if [ -n "$wt" ]; then
-        check "auction worktree --name" 0 "auction" "$PROFILE" -C "$wt" --name
-        check "auction worktree in_worktree" 0 "true" "$PROFILE" -C "$wt" --field _resolved.in_worktree
-    else
-        echo "skip auction worktree: no live worktree"
-    fi
-else
-    echo "skip live Auction checks: $AUCTION or $LIVE_GATE missing"
-fi
-
-ATAKAMA="$HOME/Work/Atakama"
-if [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -f "$LIVE_GATE" ]; then
-    for r in Atakama-Browser-Extension Atakama-Browser-Server Atakama-Browser-Shared; do
-        check "atakama $r --name" 0 "atakama" "$PROFILE" -C "$ATAKAMA/$r" --name
-    done
-    check "atakama --field parallel" 0 "single" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field parallel
-    check "atakama --field workflow.finish" 0 "local-green" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field workflow.finish
-    check "atakama language.reports ru" 0 "ru" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field language.reports
-    check "atakama language.team en" 0 "en" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field language.team
-    check "atakama --field lessons" 0 "profile" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Shared" --field lessons
-    check "atakama --field layout.repos (3 repos)" 0 '"Atakama-Browser-Shared"' "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Extension" --field layout.repos
-    check "atakama workspace root (not git) -> atakama" 0 "atakama" "$PROFILE" -C "$ATAKAMA" --name
-    check "atakama workspace root _resolved.workspace" 0 "$ATAKAMA" "$PROFILE" -C "$ATAKAMA" --field _resolved.workspace
-    check "atakama repo _resolved.workspace null" 0 "null" "$PROFILE" -C "$ATAKAMA/Atakama-Browser-Server" --field _resolved.workspace
-    check "atakama workspace briefing names workspace" 0 "workspace: $ATAKAMA" "$PROFILE" -C "$ATAKAMA"
-    check "atakama --rules" 0 "## Обязательное чтение исполнителя" "$PROFILE" -C "$ATAKAMA" --rules
-    if [ -d "$ATAKAMA/flux-config-platform" ]; then
-        check "atakama: unregistered flux-config-platform -> 3" 3 "" "$PROFILE" -C "$ATAKAMA/flux-config-platform" --name
-    fi
-    check "parent of two profiles (~/Work) -> 3" 3 "" "$PROFILE" -C "$HOME/Work"
-else
-    echo "skip live Atakama checks: $ATAKAMA or $LIVE_GATE missing"
-fi
-
-WORFY="$HOME/Stuff/CanvasForAI"
-if [ -d "$WORFY/.git" ] && [ -f "$LIVE_GATE" ]; then
-    check "worfy --name" 0 "worfy" "$PROFILE" -C "$WORFY" --name
-    check "worfy workflow.finish" 0 "pr-green-ci" "$PROFILE" -C "$WORFY" --field workflow.finish
-    check "worfy deploy null" 0 "null" "$PROFILE" -C "$WORFY" --field deploy
-    check "worfy language.team en" 0 "en" "$PROFILE" -C "$WORFY" --field language.team
-    check "worfy --rules names ticket 01" 0 "только после тикета 01" "$PROFILE" -C "$WORFY" --rules
-else
-    echo "skip live worfy checks: $WORFY or $LIVE_GATE missing"
-fi
-
-# --- letter case in the path: on a case-insensitive FS (APFS by default) ----------------------
-# ~/work/auction in lower case is the same directory as ~/Work/Auction; the resolver and profile must
-# recognise it, not answer "not registered".
-RES="$HOOKS/gate-resolve.mjs"
-if [ -f "$LIVE_GATE" ] && [ -d "$AUCTION" ] && [ -d "$(printf '%s' "$AUCTION" | tr '[:upper:]' '[:lower:]')" ]; then
+# Every project of the live registry whose directory exists: profile recognises its repositories,
+# a worktree of one of them, the same directory spelled in lower case on a case-insensitive file
+# system, and the common directory above the repositories of a project of several repositories.
+# The expected values come from the registry itself, so the checks hold for anyone's projects.
+if [ -f "$LIVE_GATE" ]; then
     lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
-    check "case-insensitive FS: resolver --which lowercased Auction" 0 "auction"$'\t'"$AUCTION" node "$RES" --which "$(lc "$AUCTION")/apps"
-    check "case-insensitive FS: profile -C lowercased Auction" 0 "auction" "$PROFILE" -C "$(lc "$AUCTION")/apps" --name
-    if [ -d "$ATAKAMA" ]; then
-        check "case-insensitive FS: profile -C lowercased Atakama workspace" 0 "atakama" "$PROFILE" -C "$(lc "$ATAKAMA")" --name
-    fi
+    # TSV: profile \t match, one line per entry with a profile and an existing directory
+    live="$(node -e '
+const fs = require("fs")
+const c = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+for (const r of c.repos || []) if (r && r.profile && r.match && fs.existsSync(r.match)) console.log(r.profile + "\t" + r.match)
+' "$LIVE_GATE" 2>/dev/null)"
+    [ -n "$live" ] || echo "skip live registry checks: no registered project with an existing directory in $LIVE_GATE"
+    while IFS=$'\t' read -r prof dir; do
+        [ -n "$prof" ] || continue
+        check "live $prof: --name" 0 "$prof" "$PROFILE" -C "$dir" --name
+        check "live $prof: --field absent -> 4" 4 "" "$PROFILE" -C "$dir" --field no.such.field
+        check "live $prof: --json is JSON" 0 "" bash -c "'$PROFILE' -C '$dir' --json | node -e 'JSON.parse(require(\"fs\").readFileSync(0,\"utf8\"))'"
+        wt="$(git -C "$dir" worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | grep -v "^$dir\$" | while read -r d; do [ -d "$d" ] && echo "$d" && break; done)"
+        if [ -n "$wt" ]; then
+            check "live $prof: worktree --name" 0 "$prof" "$PROFILE" -C "$wt" --name
+            check "live $prof: worktree in_worktree" 0 "true" "$PROFILE" -C "$wt" --field _resolved.in_worktree
+        fi
+        if [ "$(lc "$dir")" != "$dir" ] && [ -d "$(lc "$dir")" ]; then
+            check "live $prof: case-insensitive FS: profile -C lowercased" 0 "$prof" "$PROFILE" -C "$(lc "$dir")" --name
+        fi
+    done <<<"$live"
+    # The common parent of the repositories of one profile with two or more entries, when it is not
+    # git itself and not $HOME: a workspace of that profile.
+    while IFS=$'\t' read -r prof ws; do
+        [ -n "$prof" ] && [ "$ws" != "$HOME" ] && ! git -C "$ws" rev-parse --git-dir >/dev/null 2>&1 || continue
+        check "live $prof: workspace root -> $prof" 0 "$prof" "$PROFILE" -C "$ws" --name
+        check "live $prof: workspace root _resolved.workspace" 0 "$ws" "$PROFILE" -C "$ws" --field _resolved.workspace
+        check "live $prof: workspace briefing names workspace" 0 "workspace: $ws" "$PROFILE" -C "$ws"
+    done < <(printf '%s\n' "$live" | node -e '
+const path = require("path")
+const by = {}
+for (const l of require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean)) {
+  const [p, d] = l.split("\t"); (by[p] = by[p] || []).push(d)
+}
+for (const [p, ds] of Object.entries(by)) {
+  if (ds.length < 2) continue
+  let c = ds[0].split("/")
+  for (const d of ds.slice(1)) { const s = d.split("/"); let i = 0; while (i < c.length && c[i] === s[i]) i++; c = c.slice(0, i) }
+  if (c.length > 1) console.log(p + "\t" + c.join("/"))
+}')
 else
-    echo "skip case-insensitive checks: case-sensitive filesystem or no Auction"
+    echo "skip live registry checks: $LIVE_GATE missing"
 fi
 
 # --- synthetic ----------------------------------------------------------------------
@@ -151,7 +116,23 @@ export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
 # checks run with an empty Harness state folder, and the real one is restored after them.
 HARNESS_HOME_WAS="${HARNESS_HOME-unset}"
 export HARNESS_HOME="$T/hh-synthetic"
+# --- letter case in the path: on a case-insensitive FS (APFS by default) ----------------------
+# ~/work/acme in lower case is the same directory as ~/Work/Acme; the resolver and profile must
+# recognise it, not answer "not registered". Windows has its own case rule (gate-unregistered.test.sh).
+mkdir -p "$T/CaseRepo/apps" && git -C "$T/CaseRepo" init -q -b main
+printf '{"repos":[{"key":"case","match":"%s","profile":"demo"}]}\n' "$T/CaseRepo" >"$T/case-config.json"
+lc() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+if ! command -v cygpath >/dev/null 2>&1 && [ -d "$(lc "$T/CaseRepo")" ]; then
+    check "case-insensitive FS: resolver --which lowercased path" 0 "case"$'\t'"$T/CaseRepo" \
+        env CLAUDE_GATE_CONFIG="$T/case-config.json" node "$HOOKS/gate-resolve.mjs" --which "$(lc "$T/CaseRepo")/apps"
+    check "case-insensitive FS: profile -C lowercased path" 0 "demo" \
+        env CLAUDE_GATE_CONFIG="$T/case-config.json" "$PROFILE" -C "$(lc "$T/CaseRepo")/apps" --name
+else
+    echo "skip case-insensitive checks: case-sensitive filesystem or Windows"
+fi
 check "synthetic root --field" 0 "make test" "$PROFILE" -C "$T/repo" --field commands.test
+# The summary without a flag ends with the profile's rules.md under its own heading.
+check "synthetic default briefing: rules.md section" 0 $'--- rules.md\n# demo rules' "$PROFILE" -C "$T/repo"
 # the old form of language is a string: read as {reports, team} with one language
 check "legacy string language -> language.team" 0 "en" "$PROFILE" -C "$T/repo" --field language.team
 check "legacy string language -> language.reports" 0 "en" "$PROFILE" -C "$T/repo" --field language.reports
@@ -279,7 +260,7 @@ ABS_BIN="$(json_printed "$H/.claude/bin/")"
 oldp absbin "{\"schema\":1,\"name\":\"absbin\",\"tickets\":{\"status_tool\":\"${ABS_BIN}ticket\"},\"workflow\":{\"preflight\":\"${ABS_BIN}preflight --epic <эпик>\"}}"
 # valid JSON, but not an object
 newp notobj '["schema",2]'
-# Silent mode (worfy-harness ticket 22): a Workflow folder given with ~/, a relative one (broken), and a
+# Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
 mkdir -p "$T/r/multi"
 for n in home relwf; do git -C "$T/r" init -q -b main "$n"; done
@@ -314,7 +295,7 @@ for v in "${ATTR_BAD[@]}"; do
 done
 oldp legacysilent '{"schema":1,"name":"legacysilent","mode":"silent"}'
 oldp legacybad '{"schema":1,"name":"legacybad","attribution":"OFF"}'
-# The gate before a merge (worfy ADR-0065): workflow.merge_gate and workflow.e2e_lock, valid and broken values.
+# The gate before a merge: workflow.merge_gate and workflow.e2e_lock, valid and broken values.
 GATE_PROFILES=(mgwave mgeach mgnull mgbad mgnum lockrel lockhome locknum lockempty cipr cibatch cinull cibad cinorun cirunnum cirunempty)
 for n in "${GATE_PROFILES[@]}"; do
     git -C "$T/r" init -q -b main "$n"
@@ -329,7 +310,7 @@ newp lockrel '{"schema":2,"name":"lockrel","mode":"full","workflow":{"e2e_lock":
 newp lockhome '{"schema":2,"name":"lockhome","mode":"full","workflow":{"e2e_lock":"~/e2e.lock"}}'
 newp locknum '{"schema":2,"name":"locknum","mode":"full","workflow":{"e2e_lock":5}}'
 newp lockempty '{"schema":2,"name":"lockempty","mode":"full","workflow":{"e2e_lock":""}}'
-# Where GitHub CI runs (worfy-throughput 08, ADR-0068): workflow.ci and workflow.ci_batch_run.
+# Where GitHub CI runs: workflow.ci and workflow.ci_batch_run.
 newp cipr '{"schema":2,"name":"cipr","mode":"full","workflow":{"ci":"pr"}}'
 newp cibatch '{"schema":2,"name":"cibatch","mode":"full","workflow":{"ci":"batch","ci_batch_run":"gh workflow run ci.yml --ref $ref -f job=check"}}'
 newp cinull '{"schema":2,"name":"cinull","mode":"full","workflow":{"ci":null}}'
@@ -337,7 +318,7 @@ newp cibad '{"schema":2,"name":"cibad","mode":"full","workflow":{"ci":"nightly"}
 newp cinorun '{"schema":2,"name":"cinorun","mode":"full","workflow":{"ci":"batch"}}'
 newp cirunnum '{"schema":2,"name":"cirunnum","mode":"full","workflow":{"ci":"pr","ci_batch_run":5}}'
 newp cirunempty '{"schema":2,"name":"cirunempty","mode":"full","workflow":{"ci":"batch","ci_batch_run":"  "}}'
-# The cross-machine gate (worfy-windows 07, ADR-0069): cross_machine_gate, valid and broken values.
+# The cross-machine gate: cross_machine_gate, valid and broken values.
 CMG_PROFILES=(cmreq cmserve cmnull cmrole cmnolabel cmnosection cmservenocheck cmexemptbs cmexemptstr cmobj)
 for n in "${CMG_PROFILES[@]}"; do
     git -C "$T/r" init -q -b main "$n"
@@ -354,7 +335,7 @@ cmg cmservenocheck '{"label": "needs-mac-gate", "role": "serve", "checks_section
 cmg cmexemptbs '{"label": "needs-mac-gate", "role": "request", "exempt": ["docs\\\\adr\\\\"], "checks_section": "Mac checks"}'
 cmg cmexemptstr '{"label": "needs-mac-gate", "role": "request", "exempt": "docs/", "checks_section": "Mac checks"}'
 cmg cmobj '["needs-mac-gate"]'
-# The Pipeline of the project (worfy ADR-0067): workflow.pipeline from the catalogue of Stage kinds. A valid one,
+# The Pipeline of the project: workflow.pipeline from the catalogue of Stage kinds. A valid one,
 # null (the default), and one profile per rule it breaks: "<name>|<pipeline JSON>|<substring of the reason>".
 PL_GOOD='[{"kind":"queued"},{"kind":"implementing","stuck_after":"12h"},{"kind":"ci","stuck_after":"45m"},{"kind":"agent-review","label":"Review"},{"kind":"check","name":"windows","label":"Windows"},{"kind":"check","name":"a11y"},{"kind":"gate-merge"},{"kind":"deploy","environment":"stable"},{"kind":"closing"},{"kind":"done"}]'
 PL_BAD=(
@@ -445,7 +426,7 @@ eq "--field attribution: an explicit on in Silent mode wins" on "$P2" -C "$T/r/s
 eq "--field attribution: an explicit off in Full mode wins" off "$P2" -C "$T/r/fulloff" --field attribution
 eq "--json attribution absent, Full mode -> on" on "${attr_json[@]}" "$T/r/bare"
 eq "--json attribution absent (schema 1) -> on" on "${attr_json[@]}" "$T/r/legacy"
-# --- workflow.merge_gate and workflow.e2e_lock (worfy ADR-0065) ---------------------------------
+# --- workflow.merge_gate and workflow.e2e_lock ---------------------------------
 eq "--field workflow.merge_gate wave" wave "$P2" -C "$T/r/mgwave" --field workflow.merge_gate
 eq "--field workflow.merge_gate each" each "$P2" -C "$T/r/mgeach" --field workflow.merge_gate
 eq "--field workflow.merge_gate null" null "$P2" -C "$T/r/mgnull" --field workflow.merge_gate
@@ -460,7 +441,7 @@ fails_with "workflow.e2e_lock relative -> 1 with the reason" 1 "workflow.e2e_loc
 fails_with "workflow.e2e_lock 5 -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/locknum" --name
 fails_with "workflow.e2e_lock empty -> 1 with the reason" 1 "workflow.e2e_lock" "$P2" -C "$T/r/lockempty" --name
 eq "--json carries workflow.merge_gate" wave bash -c 'set -o pipefail; "$@" --json | jq -r .workflow.merge_gate' _ "$P2" -C "$T/r/mgwave"
-# --- workflow.ci and workflow.ci_batch_run (worfy-throughput 08, ADR-0068) -----------------------
+# --- workflow.ci and workflow.ci_batch_run --------------------------------------------------------
 eq "--field workflow.ci absent -> pr" pr "$P2" -C "$T/r/mgwave" --field workflow.ci
 eq "--field workflow.ci null -> pr" pr "$P2" -C "$T/r/cinull" --field workflow.ci
 eq "--field workflow.ci pr" pr "$P2" -C "$T/r/cipr" --field workflow.ci
@@ -472,7 +453,7 @@ fails_with "workflow.ci \"nightly\" -> 1 with the reason" 1 'workflow.ci is "pr"
 fails_with "workflow.ci batch without ci_batch_run -> 1 with the reason" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cinorun" --name
 fails_with "workflow.ci batch with a blank ci_batch_run -> 1" 1 'workflow.ci "batch" needs workflow.ci_batch_run' "$P2" -C "$T/r/cirunempty" --name
 fails_with "workflow.ci_batch_run 5 -> 1 with the reason" 1 'workflow.ci_batch_run is a command string or null' "$P2" -C "$T/r/cirunnum" --name
-# --- cross_machine_gate (worfy-windows 07, ADR-0069) ------------------------------------------------------------
+# --- cross_machine_gate -------------------------------------------------------------------------------------------
 eq "--field cross_machine_gate.role request" request "$P2" -C "$T/r/cmreq" --field cross_machine_gate.role
 eq "--field cross_machine_gate.label" needs-mac-gate "$P2" -C "$T/r/cmreq" --field cross_machine_gate.label
 eq "--field cross_machine_gate.checks_section" "Mac checks" "$P2" -C "$T/r/cmreq" --field cross_machine_gate.checks_section
@@ -492,7 +473,7 @@ fails_with "cross_machine_gate serve without check -> 1 with the reason" 1 'cros
 fails_with "cross_machine_gate.exempt with a backslash -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptbs" --name
 fails_with "cross_machine_gate.exempt a string -> 1 with the reason" 1 'cross_machine_gate.exempt is a list of paths' "$P2" -C "$T/r/cmexemptstr" --name
 fails_with "cross_machine_gate a list -> 1 with the reason" 1 'cross_machine_gate is an object' "$P2" -C "$T/r/cmobj" --field cross_machine_gate
-# --- workflow.pipeline (worfy ADR-0067) ------------------------------------------------------------------------
+# --- workflow.pipeline ------------------------------------------------------------------------
 PL_DEFAULT='[{"kind":"queued"},{"kind":"implementing"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"gate-merge"},{"kind":"closing"},{"kind":"done"}]'
 eq "no workflow.pipeline -> _resolved.pipeline is the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/bare" --field _resolved.pipeline
 eq "workflow.pipeline null -> the default Pipeline" "$PL_DEFAULT" bash -c 'set -o pipefail; "$@" | jq -c .' _ "$P2" -C "$T/r/plnull" --field _resolved.pipeline
@@ -605,7 +586,7 @@ done
 mkdir -p "$T/override/both"
 printf '{"schema":2,"name":"both","title":"override","mode":"full"}\n' >"$T/override/both/profile.json"
 eq "CLAUDE_PROFILES_DIR overrides both places" "$(printed "$T/override/both")" env CLAUDE_PROFILES_DIR="$T/override" HOME="$H" USERPROFILE="$H" HARNESS_HOME="$HH" "$PROFILE" -C "$T/r/both" --dir
-# --- Silent mode: _resolved.mode, workflow_folder, repos (worfy-harness ticket 22) -----------------
+# --- Silent mode: _resolved.mode, workflow_folder, repos -----------------
 eq "silent: _resolved.mode" silent "$P2" -C "$T/r/demo" --field _resolved.mode
 eq "silent without workflow.folder, one repository -> HARNESS_HOME/projects/<name>/workflow" "$(printed "$HH/projects/demo/workflow")" "$P2" -C "$T/r/demo" --field _resolved.workflow_folder
 eq "silent: workflow.folder with ~/ is expanded" "$(printed "$H/wf")" "$P2" -C "$T/r/home" --field _resolved.workflow_folder

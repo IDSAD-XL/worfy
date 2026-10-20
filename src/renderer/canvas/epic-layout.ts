@@ -35,7 +35,7 @@ export const HEADER_HEIGHT = 56
 /** Column labels sit between the header and the first Ticket. */
 export const COLUMN_HEADER_HEIGHT = 36
 export const DONE_STACK_HEIGHT = 120
-/** Vertical space between two frames. */
+/** Space between two frames: one under another in a column, and between the columns of the strip. */
 export const FRAME_GAP = 48
 /** A frame with no Tickets or a collapsed one is still this wide, so the header fits. */
 export const MIN_FRAME_WIDTH = 520
@@ -367,10 +367,10 @@ export interface Rect {
 }
 
 /**
- * The left edge of the frames' column (ADR-0032): the first x from 0 rightwards where a strip as
- * wide as the widest frame, from y = 0 down to `bottom`, keeps FRAME_GAP from every Node on the
- * plane on every side. Candidates are 0 and the right edge of each Node plus the gap; the rightmost
- * one is always free.
+ * The left edge of the frames' strip (ADR-0032, point 1; ADR-0075, point 2): the first x from 0
+ * rightwards where a strip `width` wide (all its columns with the gaps between them), from y = 0
+ * down to `bottom`, keeps FRAME_GAP from every Node on the plane on every side. Candidates are 0
+ * and the right edge of each Node plus the gap; the rightmost one is always free.
  */
 export function frameColumnX(width: number, bottom: number, plane: readonly Rect[]): number {
   const blocks = (x: number) => (node: Rect) =>
@@ -384,8 +384,8 @@ export interface StackedFrame {
   width: number
   height: number
   /**
-   * The height the column keeps free for the frame: its height with the done stack open. Opening
-   * or folding the done stack then neither moves the column nor brings the frame onto a Node.
+   * The height the strip keeps free for the frame: its height with the done stack open. Opening
+   * or folding the done stack then neither moves the strip nor brings the frame onto a Node.
    * Defaults to `height`.
    */
   reserve?: number
@@ -398,33 +398,44 @@ export interface StackedFrame {
 }
 
 /**
- * Frames one under another, in the given order, from y = 0, in a column that no Node on the plane
- * is in (`frameColumnX`), as tall as the frames' reserved heights. A Node lower than that does not
- * move the column. A manual offset moves its own frame only: the frames below keep their automatic
- * place, and the column is found without the offsets.
+ * The frames in a strip of `columns` columns (ADR-0075, point 1), in the given order: frame `i`
+ * goes to column `i mod K`, and inside a column the frames lie one under another from y = 0 with
+ * FRAME_GAP between them. Every column is as wide as the widest frame, FRAME_GAP apart, so a frame
+ * that grows moves only the frames below it in its own column. K is at most the number of frames;
+ * one column is the single column of ADR-0032. The strip stands where no Node on the plane is
+ * (`frameColumnX`), as tall as its tallest column of reserved heights. A Node lower than that does
+ * not move the strip. A manual offset moves its own frame only: the frames below keep their
+ * automatic place, and the strip is found without the offsets. The window's size is no input: every
+ * screen gets the same places.
  *
  * A frame with an offset yields (ADR-0038): when its place, the automatic one plus the offset,
- * comes closer than NODE_GAP to a Node on the plane, a frame of the column or a frame with an
+ * comes closer than NODE_GAP to a Node on the plane, a frame of the strip or a frame with an
  * offset before it (`order`), the frame is drawn at the nearest clear place instead. The offset
  * itself is not changed; `auto` stays the automatic place. Each frame yields only to what comes
  * before it, so the answer for the same input is always the same.
  */
-export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rect[] = []): Map<string, PlacedFrame> {
+export function stackFrames(frames: readonly StackedFrame[], plane: readonly Rect[] = [], columns = 1): Map<string, PlacedFrame> {
   const result = new Map<string, PlacedFrame>()
-  const bottom = frames.reduce((sum, frame, index) => sum + (index ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height), 0)
-  const x = frameColumnX(Math.max(0, ...frames.map((frame) => frame.width)), bottom, plane)
+  const k = Math.max(1, Math.min(Math.floor(columns) || 1, frames.length || 1))
+  const columnWidth = Math.max(0, ...frames.map((frame) => frame.width))
+  const reserved = Array<number>(k).fill(0)
+  frames.forEach((frame, index) => {
+    reserved[index % k]! += (index >= k ? FRAME_GAP : 0) + Math.max(frame.height, frame.reserve ?? frame.height)
+  })
+  const x = frameColumnX(k * columnWidth + (k - 1) * FRAME_GAP, Math.max(0, ...reserved), plane)
   const taken: Rect[] = [...plane]
   const moved: { frame: StackedFrame; index: number; auto: { x: number; y: number } }[] = []
-  let y = 0
+  const tops = Array<number>(k).fill(0)
   for (const [index, frame] of frames.entries()) {
-    const auto = { x, y }
+    const column = index % k
+    const auto = { x: x + column * (columnWidth + FRAME_GAP), y: tops[column]! }
     const dx = frame.offset?.dx ?? 0
     const dy = frame.offset?.dy ?? 0
     if (dx === 0 && dy === 0) {
       result.set(frame.epic, { x: auto.x, y: auto.y, auto })
       taken.push({ x: auto.x, y: auto.y, w: frame.width, h: frame.height })
     } else moved.push({ frame, index, auto })
-    y += frame.height + FRAME_GAP
+    tops[column] = auto.y + frame.height + FRAME_GAP
   }
   moved.sort((a, b) => (a.frame.order ?? Infinity) - (b.frame.order ?? Infinity) || a.index - b.index)
   for (const { frame, auto } of moved) {

@@ -36,7 +36,7 @@ import {
   type ListedNode,
 } from '../../shared/canvas/tools'
 import { cardEditedBy } from '../../shared/cards/last-editor'
-import { SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId } from '../../shared/layout/derived'
+import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, SOURCE_NODE_KINDS, SUBAGENT_KIND, SUBAGENT_TREE_KIND, isSourceNodeId, isSubagentNodeId } from '../../shared/layout/derived'
 import type { LayoutNode, LayoutOpInput, LayoutState } from '../../shared/layout/types'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { CanvasAttachment } from '../agent/options'
@@ -155,6 +155,9 @@ function handlers(context: CanvasContext): Handlers {
     const stored = layout.get(projectId).layout.nodes.find((each) => each.id === id)
     if (isSubagentNodeId(id) || stored?.kind === SUBAGENT_KIND || stored?.kind === SUBAGENT_TREE_KIND) {
       throw new ToolError(`${id} is a Subagent of a Session: it is laid out from the Session's transcript and only the user moves it. A Card cannot be linked to it.`)
+    }
+    if (id === EPIC_ARRANGEMENT_ID || stored?.kind === EPIC_ARRANGEMENT_KIND) {
+      throw new ToolError(`${id} is not a Node: it is the Canvas's internal record of how the Epic frames are arranged (their order and number of columns). It is not drawn, and neither it nor a Card can be linked to it or changed through these tools.`)
     }
     if (isSourceNodeId(id) || stored) {
       throw new ToolError(`${id} is an Epic frame or a Ticket: they are laid out from the workflow and only the user moves them. Link a Card to them with link_card.`)

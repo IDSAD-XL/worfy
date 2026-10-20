@@ -1,7 +1,8 @@
 # 18 — Toolbar: Limits без строки «as of», Harness и версия приложения в две строки
 
 Type: task
-Status: claimed 2026-10-19T19:53Z
+Status: done 2026-10-19T22:31Z
+PR: #543
 Branch: worfy-ui/18
 Blocked by: —
 Source: отзыв владельца 2026-10-19 по скриншоту toolbar. Правая часть toolbar читалась так:

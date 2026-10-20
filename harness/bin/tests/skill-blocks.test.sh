@@ -3,13 +3,13 @@
 # under bash and under zsh (the Claude Code Bash tool runs zsh, and zsh does not split an
 # unquoted variable into words). The blocks are cut out of SKILL.md itself; the profile is replaced by a stub F.
 # Below — the blocks of skills/qmd (collections table) and skills/tickets-to-tasks (tool from the profile), and
-# the Silent mode blocks of skills/ship-ticket and skills/epic-wave (worfy-harness ticket 22): the branch named by
+# the Silent mode blocks of skills/ship-ticket and skills/epic-wave: the branch named by
 # the change, the verdict in the ticket file, the local commit in the Workflow folder, resuming a wave by Branch:.
-# Then the agents' marks (worfy ADR-0067): the review mark blocks of both skills, and the CI filter that leaves the
+# Then the agents' marks: the review mark blocks of both skills, and the CI filter that leaves the
 # marks out, the same command in both skills and in agents/implementer.md.
-# Last, the blocks that run alike on BSD and GNU tools (worfy-windows ticket 07): the main-branch lock of
+# Last, the blocks that run alike on BSD and GNU tools: the main-branch lock of
 # skills/epic-wave, the branches of the last 14 days of skills/continuous-audit, the label and the checks section of
-# the cross-machine gate (skills/ship-ticket step 8; the serve pass of skills/gate-queue, worfy-windows ticket 17;
+# the cross-machine gate (skills/ship-ticket step 8; the serve pass of skills/gate-queue;
 # the request blocks of skills/epic-wave section 1), with a stub gh.
 # Run: bash harness/bin/tests/skill-blocks.test.sh; exit code 0 — everything passed.
 # SKILL_FILE — check another copy of SKILL.md.
@@ -24,7 +24,7 @@ home_before="$(real_home_snapshot "$HOME" "$T")"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
-# The shells every block runs under. Git Bash on Windows has no zsh (worfy ADR-0055): there the zsh cases are
+# The shells every block runs under. Git Bash on Windows has no zsh: there the zsh cases are
 # skipped with one line. On macOS and Linux a missing zsh is a failure, not a skip.
 SHELLS=(bash zsh)
 # native <dir>: the path as a Node script on Windows reads it (C:/…, `pwd -W` of Git Bash); unchanged elsewhere.
@@ -36,8 +36,7 @@ jq() { command jq "$@" | tr -d '\r'; return "${PIPESTATUS[0]}"; }
 case "$(uname -s)" in
     MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
 esac
-# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
-# (worfy-windows ticket 59, the review of PR #481).
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green.
 case "$(uname -s)" in
     MINGW* | MSYS*) ;;
     *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
@@ -55,18 +54,18 @@ STUB='F() { case "$1" in
   *) return 4 ;;
 esac; }'
 
-R="$T/repo"; mkdir -p "$R/apps/api/src/auctions" "$R/apps/web/src/catalog" "$R/apps/api/test" "$R/apps/api/src/lots"
+R="$T/repo"; mkdir -p "$R/apps/api/src/carts" "$R/apps/web/src/catalog" "$R/apps/api/test" "$R/apps/api/src/lots"
 git -C "$R" init -q -b main
-echo a >"$R/apps/api/src/auctions/a.ts"; echo b >"$R/apps/web/src/catalog/b.ts"; echo c >"$R/apps/api/src/lots/c.ts"
-echo "import x from '../src/auctions/a'" >"$R/apps/api/test/auctions.test.ts"
-echo "import y from './auctions/a'" >"$R/apps/api/src/z.spec.ts"
-echo "import y from '../auctions/a'" >"$R/apps/api/src/lots/c.notatest.ts"
+echo a >"$R/apps/api/src/carts/a.ts"; echo b >"$R/apps/web/src/catalog/b.ts"; echo c >"$R/apps/api/src/lots/c.ts"
+echo "import x from '../src/carts/a'" >"$R/apps/api/test/carts.test.ts"
+echo "import y from './carts/a'" >"$R/apps/api/src/z.spec.ts"
+echo "import y from '../carts/a'" >"$R/apps/api/src/lots/c.notatest.ts"
 git -C "$R" add -A && git -C "$R" -c user.email=t@t -c user.name=t commit -q -m init
 
 # Module-choice block: pathspec paths from layout.packages.
 B1="$(block 'git log "$BASE" --since=30.days')"
 [ -n "$B1" ] || bad "module-choice block not found in $SKILL"
-want="$(printf '%s\n' apps/api/src/auctions apps/api/src/lots apps/web/src/catalog)"
+want="$(printf '%s\n' apps/api/src/carts apps/api/src/lots apps/web/src/catalog)"
 for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
     [ "$got" = "$want" ] && ok "$sh: module-choice block lists modules of every package" \
@@ -76,8 +75,8 @@ done
 # Module test-list block: --include globs from tests.globs.
 B2="$(block 'grep -rslE')"
 [ -n "$B2" ] || bad "test-list block not found in $SKILL"
-B2="${B2//<каталог пакета>/$R/apps/api}"; B2="${B2//<имя>/auctions}"
-want="$(printf '%s\n' src/z.spec.ts test/auctions.test.ts)"
+B2="${B2//<каталог пакета>/$R/apps/api}"; B2="${B2//<имя>/carts}"
+want="$(printf '%s\n' src/z.spec.ts test/carts.test.ts)"
 for sh in "${SHELLS[@]}"; do
     got="$(cd "$R" && $sh -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
     [ "$got" = "$want" ] && ok "$sh: test-list block finds test files by every glob" \
@@ -88,7 +87,7 @@ done
 QSKILL="${QMD_SKILL_FILE:-$SKILLS/qmd/SKILL.md}"
 B3="$(SKILL="$QSKILL" block 'name profile.json')"
 [ -n "$B3" ] || bad "qmd collections block not found in $QSKILL"
-# Profiles in the Harness home (worfy-harness ticket 17: p3 with the collections qmd-collections
+# Profiles in the Harness home (p3 with the collections qmd-collections
 # writes) and, during the transition, in the old ~/.claude/profiles.
 H="$T/home"; mkdir -p "$H/.claude/profiles/p1" "$H/.claude/profiles/p2" "$H/.claude/worfy-harness/projects/p3" "$H/.config/qmd"
 echo '{"name":"p1","qmd":{"collections":["c1","c2"],"covers":"docs of p1"}}' >"$H/.claude/profiles/p1/profile.json"
@@ -106,27 +105,28 @@ done
 TSKILL="${TASKS_SKILL_FILE:-$SKILLS/tickets-to-tasks/SKILL.md}"
 B4="$(SKILL="$TSKILL" block 'tasks.tool')"
 [ -n "$B4" ] || bad "tickets-to-tasks profile block not found in $TSKILL"
-# The block calls ${CLAUDE_PLUGIN_ROOT}/bin/profile (the harness next to this test) against the live
-# gate registry and profiles: it runs only when they and the repositories exist.
-# Registry: $HOME/.claude/worfy-harness/gate/config.json, or the legacy $HOME/.claude/gate/config.json (read-only).
+# The block calls ${CLAUDE_PLUGIN_ROOT}/bin/profile (the harness next to this test) against a temporary
+# registry and profiles in a temporary home: project suite names a tool under ~ and a list template,
+# project acme does not import tickets into Tasks.
 PLUGIN_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-ATAKAMA="$HOME/Work/Atakama" AUCTION="$HOME/Work/Auction"
-if { [ -f "$HOME/.claude/worfy-harness/gate/config.json" ] || [ -f "$HOME/.claude/gate/config.json" ]; } \
-    && [ -d "$ATAKAMA/Atakama-Browser-Server" ] && [ -d "$AUCTION" ]; then
-    for sh in "${SHELLS[@]}"; do
-        got="$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" $sh -c "${B4//<repo>/$ATAKAMA}" 2>&1)"
-        # The profile lives in ~/.claude/profiles/atakama before the move to the Harness home and in
-        # ~/.claude/worfy-harness/projects/atakama after it.
-        tool="${got#*tool: }"; tool="${tool%%$'\n'*}"
-        [[ "$got" == *"EXIT=0"* && "$got" == *"atakama-<slug>"* ]] && [ -f "$tool" ] \
-            && { [ "$tool" = "$HOME/.claude/profiles/atakama/bin/tickets.mjs" ] || [ "$tool" = "$HOME/.claude/worfy-harness/projects/atakama/bin/tickets.mjs" ]; } \
-            && ok "$sh: tickets-to-tasks block resolves the tool with ~ expanded" || bad "$sh: tickets-to-tasks atakama: [$got]"
-        got="$(CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" $sh -c "${B4//<repo>/$AUCTION}" 2>&1)"
-        [[ "$got" == *"EXIT=4"* ]] && ok "$sh: tickets-to-tasks block: project without tasks -> 4" || bad "$sh: tickets-to-tasks auction: [$got]"
-    done
-else
-    echo "skip tickets-to-tasks block: live registry or Atakama/Auction missing"
-fi
+TH="$T/tasks-home"; THH="$TH/.claude/worfy-harness"
+mkdir -p "$T/tasks/suite-api" "$T/tasks/acme" "$THH/gate" "$THH/projects/suite/bin" "$THH/projects/acme"
+for r in suite-api acme; do git -C "$T/tasks/$r" init -q; done
+echo '// stand-in tool' >"$THH/projects/suite/bin/tickets.mjs"
+echo '{"schema":1,"name":"suite","tasks":{"tool":"~/.claude/worfy-harness/projects/suite/bin/tickets.mjs","list_id":"suite-<slug>"}}' >"$THH/projects/suite/profile.json"
+echo '{"schema":1,"name":"acme"}' >"$THH/projects/acme/profile.json"
+printf '{"repos":[{"key":"suite-api","match":"%s","profile":"suite"},{"key":"acme","match":"%s","profile":"acme"}]}\n' \
+    "$(native "$T/tasks/suite-api")" "$(native "$T/tasks/acme")" >"$THH/gate/config.json"
+TENV=(env -u CLAUDE_GATE_CONFIG -u CLAUDE_PROFILES_DIR -u CLAUDE_PROFILE_BIN HOME="$TH" USERPROFILE="$TH" HARNESS_HOME="$THH" CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT")
+for sh in "${SHELLS[@]}"; do
+    got="$("${TENV[@]}" $sh -c "${B4//<repo>/$T/tasks/suite-api}" 2>&1)"
+    tool="${got#*tool: }"; tool="${tool%%$'\n'*}"
+    [[ "$got" == *"EXIT=0"* && "$got" == *"suite-<slug>"* ]] && [ -f "$tool" ] \
+        && [ "$tool" = "$TH/.claude/worfy-harness/projects/suite/bin/tickets.mjs" ] \
+        && ok "$sh: tickets-to-tasks block resolves the tool with ~ expanded" || bad "$sh: tickets-to-tasks suite: [$got]"
+    got="$("${TENV[@]}" $sh -c "${B4//<repo>/$T/tasks/acme}" 2>&1)"
+    [[ "$got" == *"EXIT=4"* ]] && ok "$sh: tickets-to-tasks block: project without tasks -> 4" || bad "$sh: tickets-to-tasks acme: [$got]"
+done
 
 # --- Silent mode blocks of skills/ship-ticket and skills/epic-wave ------------------------------
 # A Silent project in a temporary HARNESS_HOME; the blocks call the real profile, ticket, epic-status and
@@ -206,7 +206,7 @@ mv "$SW/.git" "$SH/wf.git"
 got="$(cd "$SH" && "${SENV[@]}" bash -c "$(sub "$B7")" 2>&1)"
 [[ "$got" == *"not a git repository of its own"* ]] && ok "Workflow folder block: a folder without its own git -> nothing to commit" || bad "Workflow folder without git: [$got]"
 
-# --- the agents' marks (worfy ADR-0067): the review mark blocks and the CI filter -------------------------
+# --- the agents' marks: the review mark blocks and the CI filter -------------------------
 # A stub gh first in PATH: `pr checks … --jq <filter>` applies the filter (real jq) to $GH_CHECKS; any other call is
 # only logged. No token reaches it, and nothing reaches GitHub.
 GHS="$T/ghstub"; mkdir -p "$GHS"
@@ -278,7 +278,7 @@ ci_case CI=fail "[$(j unit pass),$(j deploy fail)]"
 ci_case CI=fail "[$(j unit pass),$(j review fail),$(j check/windows fail)]"
 ci_case CI=pass "[$(j unit pass),$(j deploy pass),$(st deploy fail)]"
 
-# --- blocks alike on BSD and GNU tools (worfy-windows ticket 07, worfy ADR-0055 item 6) -----------------------------
+# --- blocks alike on BSD and GNU tools (a skill block runs the same on macOS, Linux and Git Bash) --------------
 # The main-branch lock of skills/epic-wave, section 4. The loop is bounded: each round counts, and after three the
 # block exits with IDLE — so a loop that spins without sleeping (BSD `stat -f %m` under GNU stat fails, and
 # `|| continue` skips the sleep) ends the case instead of hanging the run. `sleep 30` becomes a no-op.
@@ -334,7 +334,7 @@ for sh in "${SHELLS[@]}"; do
         || bad "$sh: branches-of-14-days block: [$got] live-tickets [$live]"
 done
 
-# The cross-machine gate (worfy ADR-0069): a project with cross_machine_gate in the sandbox HARNESS_HOME, and a stub
+# The cross-machine gate: a project with cross_machine_gate in the sandbox HARNESS_HOME, and a stub
 # gh: `--jq <filter>` applies the filter (real jq) to $GH_JSON, `--body-file <f>` keeps a copy of <f> in $GH_BODY_OUT,
 # every call is logged. No token reaches it, and nothing reaches GitHub.
 CM="$T/cm"; CR="$CM/repo"; mkdir -p "$CM" "$SHH/projects/cm"
@@ -696,11 +696,11 @@ BOP="$(SKILL="$WAVE" blockf 'gh pr list --state open --limit 200 --json number,h
 [ -n "$BOP" ] || bad "open PRs of other epics block not found in $WAVE"
 BOP="$(sub "${BOP//<repo>/$CR}")"
 printf '%s\n' '[{"number":1,"headRefName":"pay-flow/03","files":[{"path":"src/a.ts"}]},
- {"number":2,"headRefName":"worfy-link/05","files":[{"path":"src/x.ts"},{"path":"HANDOFF.md"}]},
+ {"number":2,"headRefName":"ep-link/05","files":[{"path":"src/x.ts"},{"path":"HANDOFF.md"}]},
  {"number":3,"headRefName":"pay-flow/03-extra","files":[{"path":"src/z.ts"}]},
  {"number":4,"headRefName":"fix/empty","files":[]}]' >"$T/ghx.json"
-want='#2 worfy-link/05 src/x.ts
-#2 worfy-link/05 HANDOFF.md
+want='#2 ep-link/05 src/x.ts
+#2 ep-link/05 HANDOFF.md
 #3 pay-flow/03-extra src/z.ts
 EXIT=0'
 for sh in "${SHELLS[@]}"; do
@@ -724,7 +724,7 @@ mkdir -p "$T/crlfjq2"; mkcrjq "$T/crlfjq2" "$CRJ/jq"
 [ "$(printf '[1]' | "$T/crlfjq2/jq" -c . | od -An -c | tr -d ' \n')" = '[1]\r\n' ] && ok "the CRLF jq over a jq that already writes CRLF: one CR a line" \
     || bad "the CRLF jq over a CRLF jq: $(printf '[1]' | "$T/crlfjq2/jq" -c . | od -c | head -n 1)"
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "${STUB//'modules) echo "{}"'/modules) echo '{\"skip\":[\"lots\"]}'}"$'\n'"$B1" 2>&1 | awk '{print $2}' | sort)"
-want="$(printf '%s\n' apps/api/src/auctions apps/web/src/catalog)"
+want="$(printf '%s\n' apps/api/src/carts apps/web/src/catalog)"
 [ "$got" = "$want" ] && ok "CRLF jq: module-choice block with modules.skip (overnight-fix-loop)" || bad "CRLF jq: module-choice block: [$got]"
 STUBDF='F() { case "$1" in
   worktree.base) echo main ;;
@@ -740,7 +740,7 @@ mkdir -p "$T/dbr/repo"
 got="$(PATH="$CRJ:$PATH" bash -c 'F() { case "$1" in worktree.base) echo null ;; layout.repos) echo "{\"repo\":{\"default_branch\":\"trunk\"}}" ;; *) return 4 ;; esac; }'$'\n'"${BDM//<repo>/$T/dbr/repo}"$'\n''printf "[%s]" "$M"' 2>&1)"
 [ "$got" = "[trunk]" ] && ok "CRLF jq: the main branch from layout.repos default_branch (ship-ticket)" || bad "CRLF jq: default_branch: [$(printf '%s' "$got" | od -c | head -n 2)]"
 got="$(cd "$R" && PATH="$CRJ:$PATH" bash -c "$STUB"$'\n'"$B2" 2>&1 | sort)"
-[ "$got" = "$(printf '%s\n' src/z.spec.ts test/auctions.test.ts)" ] && ok "CRLF jq: test-list block (overnight-fix-loop)" || bad "CRLF jq: test-list block: [$got]"
+[ "$got" = "$(printf '%s\n' src/z.spec.ts test/carts.test.ts)" ] && ok "CRLF jq: test-list block (overnight-fix-loop)" || bad "CRLF jq: test-list block: [$got]"
 got="$(HOME="$H" HARNESS_HOME= PATH="$CRJ:$PATH" bash -c "$B3" 2>&1)"
 want="$(printf 'p3: p3-docs, p3-tickets, p3-memory — p3\np1: c1, c2 — docs of p1\np2:  — no qmd field\nc1\t/x/one\nc2\t/x/two\np3-docs\t"/x/three"')"
 [ "$got" = "$want" ] && ok "CRLF jq: qmd collections block" || bad "CRLF jq: qmd block: [$got]"

@@ -173,7 +173,7 @@ test('Tidy up from ⌘K packs the scattered Nodes without overlaps; one ⌘Z put
   }
 })
 
-test('Tidy up from the Canvas menu, under the New items: the same layout, one ⌘Z, ⇧⌘Z', async () => {
+test('Tidy up from the Canvas menu, under the New items and before Re-pack: the same layout, one ⌘Z, ⇧⌘Z', async () => {
   makeProject(SCATTERED, 0.5)
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
   try {
@@ -184,8 +184,10 @@ test('Tidy up from the Canvas menu, under the New items: the same layout, one �
     await window.locator('.react-flow__pane').click({ button: 'right', position: { x: 150, y: 600 } })
     const menu = window.getByRole('menu', { name: 'Canvas' })
     const items = menu.getByRole('menuitem')
-    await expect(items.last()).toHaveText('Tidy up')
-    expect((await items.allTextContents()).slice(0, -1).every((label) => label.startsWith('New '))).toBe(true)
+    // The New items, one separator, then the arrangement commands: Tidy up and Re-pack (the Epic frames).
+    const labels = await items.allTextContents()
+    expect(labels.slice(-2)).toEqual(['Tidy up', 'Re-pack'])
+    expect(labels.slice(0, -2).every((label) => label.startsWith('New '))).toBe(true)
     await expect(menu.getByRole('separator')).toHaveCount(1)
     await snapshotThemes(window, '07-menu')
     await menu.getByRole('menuitem', { name: 'Tidy up' }).click()

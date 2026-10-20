@@ -8,7 +8,10 @@
 // One request per Epic whose layout inputs changed; an answer to a request that a newer one for
 // the same Epic replaced is dropped. Answers go into a store the Epic node source reads
 // (sources/epics.ts): until an Epic's first answer it shows the synchronous `layoutEpic`, and
-// while a newer request is out it keeps the last answer's places.
+// while a newer request is out it keeps the last answer's places. ELK fails the same way on the
+// same inputs and a request is not sent again for them, so a failed request is answered with the
+// synchronous `layoutEpic`: the frame shows every Ticket, and the frames' arrangement, which waits
+// for every frame's answer (ADR-0075), is not held up by it.
 //
 // Without a Worker (jsdom in the tests) nothing is requested unless a test passes its own ELK
 // through `setElkEngine`.
@@ -17,7 +20,7 @@ import elkWorkerUrl from 'elkjs/lib/elk-worker.min.js?url&no-inline'
 import { create } from 'zustand'
 import type { Ticket } from '../../../shared/workflow/types'
 import { doneOnlyInBranch } from '../../../shared/workflow/waves'
-import type { EpicLayout, LayoutTicket } from '../epic-layout'
+import { layoutEpic, type EpicLayout, type LayoutTicket } from '../epic-layout'
 import { layoutEpicElk, type ElkEngine } from './layout'
 
 /** ELK's layouts of an open frame, for the inputs named by `key`. */
@@ -91,15 +94,20 @@ export function requestEpicLayout(projectId: string, epic: string, request: ElkR
   const input = { tickets: request.tickets, name: request.name }
   const folded = layoutEpicElk({ ...input, doneExpanded: false }, elk)
   const open = hasDone ? layoutEpicElk({ ...input, doneExpanded: true }, elk) : folded
+  const answer = (foldedLayout: EpicLayout, openLayout: EpicLayout) =>
+    useElkAnswers.setState((state) => ({ ...state, [projectId]: { ...state[projectId], [epic]: { key: request.key, folded: foldedLayout, open: openLayout } } }))
   Promise.all([folded, open]).then(
     ([foldedLayout, openLayout]) => {
       // A newer request for this Epic is out, or the engine was replaced: this answer is stale.
       if (latest.get(id)?.seq !== seq) return
-      useElkAnswers.setState((state) => ({ ...state, [projectId]: { ...state[projectId], [epic]: { key: request.key, folded: foldedLayout, open: openLayout } } }))
+      answer(foldedLayout, openLayout)
     },
     (error: unknown) => {
-      // The frame keeps the places it has; the same inputs are not asked again.
-      if (latest.get(id)?.seq === seq) console.error(`ELK could not lay out Epic ${epic}`, error)
+      if (latest.get(id)?.seq !== seq) return
+      console.error(`ELK could not lay out Epic ${epic}`, error)
+      // The same inputs are not asked again: the synchronous layout answers for them.
+      const syncFolded = layoutEpic({ ...input, collapsed: false, doneExpanded: false })
+      answer(syncFolded, hasDone ? layoutEpic({ ...input, collapsed: false, doneExpanded: true }) : syncFolded)
     },
   )
 }

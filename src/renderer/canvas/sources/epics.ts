@@ -15,15 +15,25 @@
 // are not dragged (ADR-0037): the frame moves only as a whole, by its header. Older Layouts kept
 // Tickets' offsets as `data["offset:<NN>"]`; main drops them when it reads the file
 // (src/main/layout/upgrade.ts).
-import { useEffect, useMemo } from 'react'
+//
+// The frames stand in a strip of K columns (ADR-0075, ../epic-arrangement.ts). Their order and K
+// come from one more invisible Node, `epic-arrangement`, so every screen of the Project draws the
+// same strip. A screen that may change the Layout writes it on its own, past the ⌘Z history
+// (ADR-0016): on the first opening of the Project in a day (order "active first" and K afresh) and
+// when the hysteresis lets K change. "Re-pack" writes it as the user's gesture, one step of ⌘Z. A
+// read-only screen (ADR-0066) writes nothing and draws from the record as it is.
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
-import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
+import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
+import { invoke } from '../../ipc'
+import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
-import { elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
+import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
+import { arrange, readArrangement, repack, sameDay, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
 import {
   defaultCollapsed,
   epicColumns,
@@ -42,7 +52,8 @@ import {
 import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
 import type { Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
-import { applyLayoutOp, type LayoutOps } from '../useLayout'
+import { applyLayoutOp, currentLayout, useLayoutOps, type LayoutOps } from '../useLayout'
+import { BINDING_ANCHOR_KIND, type BindingAnchorData } from './workflow-bindings'
 
 // The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
 export { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
@@ -88,10 +99,12 @@ interface EpicsUiStore {
   openStacks: readonly OpenStack[]
   /** The last request to center the Canvas on a frame; `seq` makes a repeat a new request. */
   focus: { projectId: string; epic: string; seq: number } | null
+  /** The last "Re-pack" asked for from outside the Canvas (the palette); `seq` makes a repeat a new request. */
+  repack: { projectId: string; seq: number } | null
 }
 
 const NO_STACKS: readonly OpenStack[] = []
-const useEpicsUi = create<EpicsUiStore>(() => ({ openStacks: NO_STACKS, focus: null }))
+const useEpicsUi = create<EpicsUiStore>(() => ({ openStacks: NO_STACKS, focus: null, repack: null }))
 const uiKey = (projectId: string, epic: string) => `${projectId}|${epic}`
 
 /**
@@ -169,7 +182,7 @@ export function focusEpic(projectId: string, epic: string): void {
  */
 export function onEpicFocusRequest(listener: () => void): () => void {
   return useEpicsUi.subscribe((state, previous) => {
-    if (state.focus !== previous.focus) listener()
+    if (state.focus !== previous.focus || state.repack !== previous.repack) listener()
   })
 }
 
@@ -241,6 +254,164 @@ export async function saveEpicChange(projectId: string, epic: string, exists: bo
   }
   if (change.offset) await ops.apply({ op: 'move', id, x: change.offset.dx, y: change.offset.dy }, group)
   if (change.collapsed !== undefined) await ops.apply({ op: 'patchData', id, data: { collapsed: change.collapsed } }, group, { data: true })
+}
+
+// ── the strip's arrangement (ADR-0075) ──────────────────────────────────────
+
+/** What the last build of a Project's frames knew: what the record is written from. */
+export interface ArrangementState {
+  /** Every frame's size, by Epic. */
+  frames: ReadonlyMap<string, ArrangedFrame>
+  /** The Epics with a frame, in the workflow model's order. */
+  epics: readonly string[]
+  /** The record as the Layout has it; null when there is none or it is not whole. */
+  record: ArrangementRecord | null
+  /** K the frames are drawn with now. */
+  columns: number
+  tickets: readonly Pick<Ticket, 'epic' | 'state'>[]
+  /**
+   * True when every open frame with Tickets shows ELK's answer for its current inputs (or the
+   * window has no ELK): the sizes are the ones drawn, not those of the synchronous layout before it.
+   */
+  settled: boolean
+}
+
+/** Per Project, the last build's arrangement. */
+const arrangements = new Map<string, ArrangementState>()
+
+/** What the Project's frames were last drawn from, or undefined before its workflow model was read. */
+export function arrangementOf(projectId: string): ArrangementState | undefined {
+  return arrangements.get(projectId)
+}
+
+/**
+ * The Epics with work now (ADR-0075, point 4): a claimed Ticket (`work`), a live agent bound to the
+ * Epic or to one of its Tickets, the Epic of the Project's running Autopilot.
+ */
+export function epicsWithWork(tickets: readonly Pick<Ticket, 'epic' | 'state'>[], liveBound: Iterable<string>, autopilot: string | null): Set<string> {
+  const epics = new Set<string>(liveBound)
+  for (const ticket of tickets) if (ticket.state === 'work') epics.add(ticket.epic)
+  if (autopilot !== null) epics.add(autopilot)
+  return epics
+}
+
+/** What the activity reads of React Flow's Nodes: the Binding anchors (sources/workflow-bindings.ts). */
+type AnchorLookup = ReadonlyMap<string, { type?: string | undefined; data: Record<string, unknown> }>
+
+/**
+ * The Epics with work at this moment: the claimed Tickets, the live bound agents whose anchors are
+ * on the Canvas, and the Project's Autopilot as main reports it.
+ * shortcut: a live agent counts only once its Binding anchor is drawn. On the first opening of the
+ * day the anchors are almost never there yet (they wait for the transcript signals and for the
+ * Ticket Nodes this source draws), so live agents count only on "Re-pack"; redo when the Bindings
+ * get a store that this source can read without React Flow.
+ */
+export async function activityNow(projectId: string, tickets: readonly Pick<Ticket, 'epic' | 'state'>[], nodes: AnchorLookup): Promise<Set<string>> {
+  const live: string[] = []
+  for (const node of nodes.values()) {
+    if (node.type !== BINDING_ANCHOR_KIND) continue
+    const data = (node.data as Partial<CanvasFlowNode['data']>).node?.data as BindingAnchorData | undefined
+    if (data?.variant === 'agent' && data.live) live.push(data.binding.target.epic)
+  }
+  let autopilot: string | null = null
+  try {
+    const state = await invoke('autopilot.state', { projectId })
+    if (state.ok && state.value.status !== 'stopped') autopilot = state.value.epic
+  } catch (error) {
+    // Without the Autopilot's state the order goes by the rest of the activity.
+    console.error('autopilot.state failed:', error)
+  }
+  return epicsWithWork(tickets, live, autopilot)
+}
+
+/**
+ * Writes the record. `ops` makes it the user's gesture ("Re-pack"): a `patchData` recorded as one
+ * step of ⌘Z, after a `create` of an empty record that is no step of its own (as saveEpicChange
+ * does). Without `ops` it is automatic and goes past the history (ADR-0016): a `create` with the
+ * data, or a `patchData` when the record is there.
+ */
+export async function saveArrangement(projectId: string, record: ArrangementRecord, ops?: LayoutOps): Promise<void> {
+  const exists = currentLayout(projectId)?.nodes.some((node) => node.id === EPIC_ARRANGEMENT_ID) ?? false
+  const data = { order: record.order, columns: record.columns, at: record.at }
+  if (!exists) {
+    const node = { id: EPIC_ARRANGEMENT_ID, kind: EPIC_ARRANGEMENT_KIND, x: 0, y: 0, w: 1, h: 1, locked: true, data: ops === undefined ? data : {} }
+    const refused = await applyLayoutOp(projectId, { op: 'create', node })
+    // A create refused because another screen's came first: the data goes to that record below.
+    if (ops === undefined && refused === undefined) return
+  }
+  if (ops !== undefined) await ops.apply({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data }, undefined, { data: true })
+  else await applyLayoutOp(projectId, { op: 'patchData', id: EPIC_ARRANGEMENT_ID, data })
+}
+
+/** Asks the Canvas of the Project to run "Re-pack" (the palette's command); the Canvas menu runs it itself. */
+export function requestRepack(projectId: string): void {
+  useEpicsUi.setState(({ repack: last }) => ({ repack: { projectId, seq: (last?.seq ?? 0) + 1 } }))
+}
+
+/**
+ * "Re-pack" for the Canvas of `projectId` (ADR-0075, point 4): the order "active first" and K
+ * without hysteresis, written as one step of ⌘Z through the Canvas's LayoutOps. For a component
+ * inside React Flow and the Canvas's LayoutOps (the Canvas menu). Nothing is sent on a read-only
+ * screen.
+ */
+export function useRepack(projectId: string): () => Promise<void> {
+  const ops = useLayoutOps()
+  const store = useStoreApi()
+  return useCallback(async () => {
+    const state = arrangements.get(projectId)
+    if (state === undefined || state.epics.length === 0 || readOnlyNow() !== null) return
+    const activity = await activityNow(projectId, state.tickets, store.getState().nodeLookup)
+    const now = arrangements.get(projectId) ?? state
+    await saveArrangement(projectId, { ...repack(now.epics, now.frames, activity), at: new Date().toISOString() }, ops)
+  }, [projectId, ops, store])
+}
+
+/** Carries out the palette's "Re-pack" for the Project with `run`, once per request. */
+export function useRepackRequests(projectId: string, run: () => Promise<void>): void {
+  const request = useEpicsUi((state) => state.repack)
+  const handled = useRef(useEpicsUi.getState().repack?.seq ?? 0)
+  useEffect(() => {
+    if (!request || request.projectId !== projectId || request.seq <= handled.current) return
+    handled.current = request.seq
+    void run()
+  }, [request, projectId, run])
+}
+
+/** Per Project, the K an automatic write has sent and the Layout does not show yet: it is not sent twice. */
+const pendingColumns = new Map<string, number>()
+
+/**
+ * Keeps the record up to date on a screen that may change the Layout, past the ⌘Z history: once
+ * per opening of the Project's Canvas, a record from another calendar day (or none) is computed
+ * again, active first; afterwards, a K the hysteresis let change is written, so the next build
+ * keeps it. Both wait until the frames show ELK's answers, so K is counted from the sizes drawn.
+ * A frame whose ELK request failed counts as answered: elk/client.ts answers it with the
+ * synchronous layout. A read-only screen writes nothing.
+ */
+export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
+  const store = useStoreApi()
+  const checkedDay = useRef(false)
+  useEffect(() => {
+    const state = arrangements.get(projectId)
+    if (state === undefined || state.epics.length === 0 || !state.settled || readOnlyNow() !== null) return
+    if (!checkedDay.current) {
+      checkedDay.current = true
+      if (state.record === null || !sameDay(state.record.at, new Date())) {
+        void activityNow(projectId, state.tickets, store.getState().nodeLookup).then((activity) => {
+          const now = arrangements.get(projectId) ?? state
+          return saveArrangement(projectId, { ...repack(now.epics, now.frames, activity), at: new Date().toISOString() })
+        })
+        return
+      }
+    }
+    if (state.record === null || state.record.columns === state.columns) {
+      pendingColumns.delete(projectId)
+      return
+    }
+    if (pendingColumns.get(projectId) === state.columns) return
+    pendingColumns.set(projectId, state.columns)
+    void applyLayoutOp(projectId, { op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { columns: state.columns } })
+  }, [projectId, nodes, store])
 }
 
 // ── Nodes ───────────────────────────────────────────────────────────────────
@@ -363,6 +534,7 @@ export function buildEpicNodes(
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
     wanted.delete(projectId)
+    arrangements.delete(projectId)
     return EMPTY
   }
 
@@ -430,23 +602,35 @@ export function buildEpicNodes(
     entries.flatMap(({ epic, entry }) => (entry.request ? [{ epic: epic.epic, request: entry.request }] : [])),
   )
 
-  // The frames' column keeps clear of the Nodes on the plane, the Layout's and other sources' (ADR-0032);
+  // The frames' strip keeps clear of the Nodes on the plane, the Layout's and other sources' (ADR-0032);
   // it is found again on every change of the Layout, the workflow model or those Nodes, so Tickets
   // that arrive after main placed a Node still keep off it.
-  // A frame with an offset yields to the Nodes, the Subagent trees, the column and the frames with an
+  // A frame with an offset yields to the Nodes, the Subagent trees, the strip and the frames with an
   // offset before it, in the order of their `epic-frame` Nodes in the Layout (ADR-0038).
+  // The order of the frames and K come from the Layout's `epic-arrangement` record (ADR-0075).
+  const frames = new Map(entries.map(({ epic, entry }) => [epic.epic, { width: entry.layout.width, height: entry.layout.height, reserve: entry.reserve }]))
+  const record = readArrangement(layout.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
+  const names = entries.map(({ epic }) => epic.epic)
+  const arrangement = arrange(names, frames, record)
+  const settled = elkEngine() === null || entries.every(({ entry }) => entry.request === null || entry.inputs.answer?.key === entry.request.key)
+  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled })
+  const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
   const plane = [...layout.nodes.filter(onThePlane), ...derived]
   const order = new Map(layout.nodes.map((node, index) => [node.id, index]))
   const places = stackFrames(
-    entries.map(({ epic, saved, entry }) => ({
-      epic: epic.epic,
-      width: entry.layout.width,
-      height: entry.layout.height,
-      reserve: entry.reserve,
-      offset: saved.offset,
-      order: order.get(epicNodeId(epic.epic)),
-    })),
+    arrangement.order.map((name) => {
+      const { epic, saved, entry } = byEpic.get(name)!
+      return {
+        epic: epic.epic,
+        width: entry.layout.width,
+        height: entry.layout.height,
+        reserve: entry.reserve,
+        offset: saved.offset,
+        order: order.get(epicNodeId(epic.epic)),
+      }
+    }),
     plane,
+    arrangement.columns,
   )
   const nodes: CanvasFlowNode[] = []
   for (const { epic, saved, entry } of entries) {
@@ -535,6 +719,7 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
   useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])
   useEffect(() => foldHiddenDoneStacks(projectId, nodes), [projectId, nodes])
   useFocusRequests(projectId, nodes)
+  useArrangementUpkeep(projectId, nodes)
   return nodes
 }
 
@@ -552,6 +737,6 @@ function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode, d
 
 // `ticket` is owned too though the Layout never holds one: a stray Layout Node of that kind (a
 // hand edit, a future `create`) has no Ticket in its data, so it is not drawn rather than crash
-// the Canvas in TicketNode.
-const source: NodeSource = { owns: [EPIC_FRAME_KIND, TICKET_KIND], useNodes: useEpicNodes, moved }
+// the Canvas in TicketNode. `epic-arrangement` is owned so the record is never drawn.
+const source: NodeSource = { owns: [EPIC_FRAME_KIND, TICKET_KIND, EPIC_ARRANGEMENT_KIND], useNodes: useEpicNodes, moved }
 export default source

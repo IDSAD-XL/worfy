@@ -15,6 +15,12 @@ const electron = vi.hoisted(() => ({ isPackaged: true }))
 /** app.on of the mock, and the function that stops the gate queue's notifications. */
 const appOn = vi.hoisted(() => vi.fn())
 const stopGateQueueNotices = vi.hoisted(() => (): void => undefined)
+/**
+ * The sources of the owner-wait notes appWaitsSources answers (the workflow hub, worfy-pipeline
+ * ticket 09), and the arguments installNotifications got.
+ */
+const waitsSources = vi.hoisted(() => ({ hub: 'the workflow hub of appWaitsSources' }))
+const notificationArgs = vi.hoisted((): unknown[][] => [])
 
 vi.mock('electron', () => ({
   app: {
@@ -43,7 +49,11 @@ vi.mock('../../src/main/window', () => ({
 }))
 
 vi.mock('../../src/main/notify', () => ({
-  installNotifications: () => steps.push('notifications'),
+  installNotifications: (...args: unknown[]) => {
+    notificationArgs.push(args)
+    steps.push('notifications')
+  },
+  appWaitsSources: () => waitsSources,
   installGateQueueNotifications: () => stopGateQueueNotices,
   electronNotifyDeps: {},
 }))
@@ -111,6 +121,13 @@ describe('the start in src/main/index.ts', () => {
 
   it('on macOS sets none', async () => {
     expect(await start('darwin', true)).toEqual(['notifications', 'window'])
+  })
+
+  it('gives the notes of the Tickets that wait for the owner the sources of appWaitsSources: the workflow hub, not the Stage hub (worfy-pipeline ticket 09)', async () => {
+    notificationArgs.length = 0
+    await start('darwin', true)
+    expect(notificationArgs).toHaveLength(1)
+    expect(notificationArgs[0]![4]).toBe(waitsSources)
   })
 
   it("stops the gate queue's notifications on quit (worfy-windows ticket 17)", async () => {

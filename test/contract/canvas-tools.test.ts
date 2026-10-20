@@ -525,6 +525,29 @@ describe('canvas tools: Epic frames and Tickets', () => {
   })
 })
 
+describe('canvas tools: the Epic frames\' arrangement record', () => {
+  // The renderer keeps the order of the Epic frames and their number of columns in one locked 1×1
+  // Layout Node, id and kind epic-arrangement (ADR-0075); it is no Node on the canvas.
+  const record = (id = 'epic-arrangement'): LayoutOpInput => ({
+    op: 'create',
+    node: { id, kind: 'epic-arrangement', x: 0, y: 0, w: 1, h: 1, locked: true, data: { order: ['a'], columns: 1, at: '2026-10-19T08:00:00.000Z' } },
+  })
+
+  it('list_nodes does not list it, and every tool that names it says what it is and changes nothing', async () => {
+    store.apply(PROJECT, record())
+    store.apply(PROJECT, record('stray-record'))
+    store.apply(PROJECT, note('n1'))
+    const rpc = await connect()
+    expect(json<ListedNode[]>(await rpc.call('list_nodes')).map((node) => node.id)).toEqual(['n1'])
+    const reason = /is not a Node: it is the Canvas's internal record of how the Epic frames are arranged/
+    await refused(rpc, 'move_node', { id: 'epic-arrangement', x: 500, y: 300 }, reason)
+    await refused(rpc, 'update_node', { id: 'epic-arrangement', title: 't' }, reason)
+    await refused(rpc, 'link_card', { id: 'epic-arrangement', target: 'worfy-mvp' }, reason)
+    await refused(rpc, 'hide_node', { id: 'stray-record', hidden: true }, reason)
+    expect(nodeOf('epic-arrangement')).toMatchObject({ x: 0, y: 0, w: 1, h: 1, hidden: false, data: { columns: 1 } })
+  })
+})
+
 describe('canvas tools: Subagent Nodes', () => {
   // Subagent Nodes are computed from their Session's transcript and nothing about them is in the
   // Layout (ADR-0037). Older versions kept a Layout Node of kind subagent-tree per Session; main

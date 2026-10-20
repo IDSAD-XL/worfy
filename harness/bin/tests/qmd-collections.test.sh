@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/qmd-collections (worfy-harness ticket 17) on temporary directories: origin is
+# Tests of harness/bin/qmd-collections on temporary directories: origin is
 # a local bare repository, qmd is a stub that writes its arguments, HOME, CLAUDE_CONFIG_DIR and
 # HARNESS_HOME are temporary. The real profile, qmd-sync-main and gate resolver next to this test run.
 #   - Full mode: the copy of main is cloned; three collections with their paths and `update:` on the
@@ -7,7 +7,7 @@
 #   - a second run: index.yml and the profile byte for byte the same;
 #   - Silent mode: paths in the Workflow folder, no `update:`; with consent qmd embed starts;
 #   - someone else's collection under one of the names: exit != 0, index.yml and the profile untouched;
-#   - a profile like Auction's (collections already named): only `update:` changes, a copy next to it;
+#   - a profile like acme's (collections already named): only `update:` changes, a copy next to it;
 #   - the project's repository stays clean (`git status --porcelain` empty) in every case.
 # Run: bash harness/bin/tests/qmd-collections.test.sh; exit code 0 — everything passed.
 set -u
@@ -149,43 +149,43 @@ collect x; rc=$?
     && ok "foreign collection: exit $rc, index.yml and the profile unchanged" || bad "foreign: rc=$rc out=[$(cat "$C/out")]"
 clean_repos && ok "foreign: the project's repository is untouched" || bad "foreign: git status dirty"
 
-# --- a profile like Auction's: only update: moves to the plugin -------------------------------
-setup auction x "$(printf '%s' "$FULL" | sed 's/"collections": \[\]/"collections": ["auction", "tickets", "memory"]/')"
+# --- a profile like acme's: only update: moves to the plugin -------------------------------
+setup acme x "$(printf '%s' "$FULL" | sed 's/"collections": \[\]/"collections": ["acme", "tickets", "memory"]/')"
 mkdir -p "$H/.config/qmd" "$HH/plugin/bin"
 : >"$HH/plugin/bin/qmd-sync-main"
 cat >"$INDEX" <<EOF
 collections:
-  auction:
-    path: $H/.cache/qmd/auction-main
+  acme:
+    path: $H/.cache/qmd/acme-main
     pattern: docs/**/*.md,HANDOFF.md,CONTEXT.md,CLAUDE.md
-    update: /Users/someone/.claude/bin/qmd-sync-main x
+    update: /home/someone/.claude/bin/qmd-sync-main x
   memory:
-    path: /Users/someone/.claude/projects/-x/memory
+    path: /home/someone/.claude/projects/-x/memory
     pattern: "**/*.md"
   other:
     path: /elsewhere
-    update: /Users/someone/.claude/bin/qmd-sync-main other
+    update: /home/someone/.claude/bin/qmd-sync-main other
   tickets:
-    path: $H/.cache/qmd/auction-main/.scratch
+    path: $H/.cache/qmd/acme-main/.scratch
     pattern: "**/*.md"
-    update: /Users/someone/.claude/bin/qmd-sync-main x
+    update: /home/someone/.claude/bin/qmd-sync-main x
 models:
   embed: hf:e
 EOF
 cp "$INDEX" "$C/index.0"; cp "$PROFILE" "$C/profile.0"
 collect x; rc=$?
-expected="$(sed "s#update: /Users/someone/.claude/bin/qmd-sync-main x#update: $HH/plugin/bin/qmd-sync-main x#" "$C/index.0")"
+expected="$(sed "s#update: /home/someone/.claude/bin/qmd-sync-main x#update: $HH/plugin/bin/qmd-sync-main x#" "$C/index.0")"
 copies=("$H/.config/qmd/index.yml."*)
 [ "$rc" -eq 0 ] && [ "$(cat "$INDEX")" = "$expected" ] && [ "$(diff "$C/index.0" "$INDEX" | grep -c '^>')" = 2 ] \
-    && ok "auction-like: only the two update: lines of this project point at the plugin's qmd-sync-main" || bad "auction-like: rc=$rc out=[$(cat "$C/out")] diff:
+    && ok "already-named: only the two update: lines of this project point at the plugin's qmd-sync-main" || bad "already-named: rc=$rc out=[$(cat "$C/out")] diff:
 $(diff "$C/index.0" "$INDEX")"
 [ "${#copies[@]}" = 1 ] && [ -f "${copies[0]}" ] && cmp -s "${copies[0]}" "$C/index.0" && [[ "${copies[0]}" == *index.yml.20* ]] \
-    && ok "auction-like: a dated copy of the old index.yml next to it" || bad "auction-like: copies [${copies[*]}]"
+    && ok "already-named: a dated copy of the old index.yml next to it" || bad "already-named: copies [${copies[*]}]"
 cmp -s "$PROFILE" "$C/profile.0" && [ ! -e "$H/.cache/qmd/x-main" ] && [ ! -e "$QMD_CALLS" ] \
-    && ok "auction-like: the profile unchanged, no new collections, no copy cloned, no qmd run" || bad "auction-like: profile or copy changed"
-clean_repos && ok "auction-like: the project's repository is untouched" || bad "auction-like: git status dirty"
+    && ok "already-named: the profile unchanged, no new collections, no copy cloned, no qmd run" || bad "already-named: profile or copy changed"
+clean_repos && ok "already-named: the project's repository is untouched" || bad "already-named: git status dirty"
 
-# --- refresh.lock left by a killed holder (worfy-windows ticket 59) ----------------------------
+# --- refresh.lock left by a killed holder ----------------------------
 # worfy kills qmd-collections with its process group at a time limit or on quit; the lock it held stays. qmd-mcp
 # drops such a lock only when it starts, so qmd-collections looks at the holder itself: a pid that is not running,
 # or no pid after two minutes, is an abandoned lock and is taken; a running holder is waited for.

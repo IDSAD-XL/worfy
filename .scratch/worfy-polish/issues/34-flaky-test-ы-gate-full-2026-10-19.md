@@ -29,11 +29,13 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
   `spawn`, test ждёт только событие `spawn` (`:548-551`), а скрипт ищет программу через
   `ps -axo pid=,command=` (`scripts/install-stable.mjs:327`). Событие `spawn` не значит, что `ps` уже видит
   процесс с новым `command`; ожидания этого нет.
-- **e2e `family.spec.ts` — 1 раз.** `test/e2e/family.spec.ts:101`. Gate full PR #539 на Mac, 2026-10-19; отдельно — зелёный. Test ждёт
-  `canvasReady` обоих окон (`:132`, `:135`), `expectOpacities` с опросом 20 s (`:80-82`) и
-  `expect.poll(allOnCanvas)` (`:177`) с пределом по умолчанию 5 s (`playwright.config.ts` не задаёт
-  `expect.timeout`). Какая проверка упала — не известно: текст ошибки потерян (gate хранит хвост вывода,
-  [worfy-harness 53](../../worfy-harness/issues/53-gate-full-теряет-текст-ошибки-e2e.md)).
+- **e2e `family.spec.ts` — 1 раз; причина найдена и исправлена в PR #539.** `test/e2e/family.spec.ts:101`.
+  Gate full PR #539 на Mac, 2026-10-19; отдельно — зелёный. Причина — системный курсор: если он
+  стоит над окном test-а, macOS шлёт окну hover, и подсветка family меняется без участия test-а.
+  В #539 test сначала ставит указатель Playwright в известную точку; после этого 20 из 20 зелёные
+  под нагрузкой. Осталось: каждый e2e test с проверкой hover (особенно spec-и с двумя окнами,
+  например `epic-columns.spec.ts`) должен так же ставить указатель перед проверкой — общий helper
+  в `test/e2e/` и правило в README test-ов.
 - **contract `terminal.test.ts` «open starts $SHELL -l … output comes back» — 2 раза на Mac.**
   `test/contract/terminal.test.ts:63` (только darwin), предел 15 s проекта. Gate full PR #501 на
   `0d1a6c1b` (main с node-pty beta.15, PR #498) и gate full PR #496 2026-10-19, прогон 1; отдельно — 6 из 6
@@ -58,8 +60,8 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 2. **install-stable.** Перед `run()` ждать, пока `ps -axo pid=,command=` покажет pid stand-in-а с новым
    путём (опрос с пределом), — тогда test проверяет скрипт, а не гонку с `ps`. То же — у Windows twin-а,
    если там тот же способ.
-3. **family.spec.** Сначала получить текст ошибки (после worfy-harness 53 или прогоном под нагрузкой с
-   сохранением `test-results`), потом правка ожидания.
+3. **hover в e2e.** Вынести постановку указателя из `family.spec.ts` в общий helper; пройти все spec-и
+   с hover и вызвать его перед проверкой; записать правило в README test-ов.
 4. **terminal `open starts $SHELL -l`.** Замер времени до первого вывода на beta.15 и на main до PR #498
    (N ≥ 10 под нагрузкой); если стало медленнее — комментарий в Ticket-е worfy-windows 60 (возврат на
    стабильный node-pty) и предел по замеру.
@@ -73,6 +75,8 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 - [ ] Замер способом Ticket-а 30 (два прогона `--project contract` разом под `yes > /dev/null` на половине
       ядер, N ≥ 6): `harness-evals.test.ts` и `install-stable.test.ts` — 0 красных.
 - [ ] e2e `family.spec.ts` и `harness-install.spec.ts` — N ≥ 5 прогонов под той же нагрузкой, 0 красных.
+- [ ] Постановка указателя Playwright — общий helper в `test/e2e/`; его вызывают все spec-и с проверкой
+      hover; правило записано в README test-ов.
 - [ ] Мутант install-stable: без ожидания `ps` test под нагрузкой снова краснеет хотя бы раз из N (или
       «Итог» объясняет, почему гонку не воспроизвести).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка `[gate] зелено (full)`.

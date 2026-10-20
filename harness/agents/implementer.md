@@ -40,7 +40,7 @@ and stop.
 
 **`parallel: "worktrees"`** — there are several implementers, each with its own tree.
 - **`worktree.root` outside the repository** (`<HARNESS_HOME>/worktrees/<project>/`) — not supported
-  until worfy-harness ticket 24: `EnterWorktree` does not reach such a tree, and the plugin registers no
+  yet: `EnterWorktree` does not reach such a tree, and the plugin registers no
   hook that would put you there. It is a false premise of the brief (see "Boundaries").
 - **First of all, create a working tree FOR YOURSELF and work only in it** — with the profile command
   `worktree.implementer` (root `worktree.root`, base `worktree.base`) — and enter it right away:
@@ -62,7 +62,7 @@ subdirectory (`<scratchpad>/<your name>/`) and do not run other agents' scripts 
 Delete only by a literal path (`rm -rf /tmp/x/trace`): no globs (`rm -rf *` after `cd`) and no
 variables in the path (`rm -rf $R/$d`). For such a command Claude Code asks for confirmation even in
 `bypassPermissions`, and in a Session without a human (Autopilot) the request is denied and the step
-breaks (worfy-daily, waves 6 and 8). Need a clean directory — make a new unique one (`mktemp -d`),
+breaks. Need a clean directory — make a new unique one (`mktemp -d`),
 do not clean an old one.
 
 **`parallel: "single"`** — you are the only implementer in the project: there is one local stack for
@@ -184,7 +184,7 @@ Steps 5–6 are mandatory in both cases, with exactly these commands, even if th
    finish — repeat it), not by frequent polling: your turns are limited. The result — the PR's checks
    without the agents' marks `review`, `check/<name>` and `deploy` (commit statuses, not CI; a
    `review` failure is a verdict; an Actions job of such a name is CI): `gh pr checks <N> --json name,bucket,workflow --jq '[.[] | select(.workflow == "" and (.name == "review" or .name == "deploy" or (.name | startswith("check/"))) | not)] | if length == 0 then "CI=none" elif any(.[]; .bucket == "fail" or .bucket == "cancel") then "CI=fail" elif any(.[]; .bucket == "pending") then "CI=pending" else "CI=pass" end'; echo "EXIT=$?"`
-   — green is `CI=pass`. With `workflow.ci: "batch"` (worfy ADR-0068) GitHub CI does not run on a
+   — green is `CI=pass`. With `workflow.ci: "batch"` GitHub CI does not run on a
    PR: the PR and the green step 5 are the finish, and `CI=none` is expected, not a gap. Do not wait
    for CI; check `gh pr view <N> --json mergeable` instead — `CONFLICTING` means rebase onto the
    base, `MERGEABLE` is done. Say "CI: batch, runs on main after the Wave" in the report. With
