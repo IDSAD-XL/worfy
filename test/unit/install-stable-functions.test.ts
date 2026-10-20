@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, removeInRounds, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
+import { build, buildCommand, builtApp, checkTarget, ELECTRON_INSTALL, electronMissing, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, removeInRounds, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -267,6 +267,46 @@ describe('the build the script copies', () => {
     expect(() => builtApp('darwin', '/repo/dist', ['mac-arm64'], () => false)).toThrow('expected exactly one dist/mac*/worfy.app after the build, found 0')
     expect(() => builtApp('darwin', '/repo/dist', [], () => true)).toThrow('found 0')
     expect(() => builtApp('darwin', '/repo/dist', ['mac', 'mac-arm64'], () => true)).toThrow('found 2')
+  })
+})
+
+describe('the Electron that the build packs', () => {
+  // A stand-in of the file system: the paths that are there, and the text of path.txt when it is one of them.
+  const disk = (paths: string[], pathTxt = '') => ({
+    exists: (path: string) => paths.includes(path),
+    read: (file: string) => {
+      if (!paths.includes(file)) throw new Error(`ENOENT: ${file}`)
+      return pathTxt
+    },
+  })
+  const check = (platform: string, repo: string, paths: string[], pathTxt?: string) => {
+    const { exists, read } = disk(paths, pathTxt)
+    return electronMissing(platform, repo, exists, read)
+  }
+
+  it('is there when path.txt names a program that is in dist', () => {
+    const mac = ['/repo/node_modules/electron', '/repo/node_modules/electron/path.txt', '/repo/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron']
+    expect(check('darwin', '/repo', mac, 'Electron.app/Contents/MacOS/Electron\n')).toBeNull()
+    const win = ['C:\\repo\\node_modules\\electron', 'C:\\repo\\node_modules\\electron\\path.txt', 'C:\\repo\\node_modules\\electron\\dist\\electron.exe']
+    expect(check('win32', 'C:\\repo', win, 'electron.exe')).toBeNull()
+  })
+
+  it('names the command that downloads it again when dist is empty, has no path.txt, or lacks the program', () => {
+    const says = `the Electron that pnpm package packs is not in /repo/node_modules/electron/dist: its download after pnpm install did not finish. Run \`node node_modules/electron/install.js\` in /repo, then run this again.`
+    expect(ELECTRON_INSTALL).toBe('node node_modules/electron/install.js')
+    // The 2026-10-19 case: the package is there, its postinstall wrote neither dist nor path.txt.
+    expect(check('darwin', '/repo', ['/repo/node_modules/electron'])).toBe(says)
+    expect(check('darwin', '/repo', ['/repo/node_modules/electron', '/repo/node_modules/electron/dist'])).toBe(says)
+    // An empty path.txt, and one whose program is not in dist.
+    expect(check('darwin', '/repo', ['/repo/node_modules/electron', '/repo/node_modules/electron/path.txt'], '')).toBe(says)
+    expect(check('darwin', '/repo', ['/repo/node_modules/electron', '/repo/node_modules/electron/path.txt'], 'Electron.app/Contents/MacOS/Electron')).toBe(says)
+    expect(check('win32', 'C:\\repo', ['C:\\repo\\node_modules\\electron', 'C:\\repo\\node_modules\\electron\\path.txt'], 'electron.exe')).toContain(
+      'is not in C:\\repo\\node_modules\\electron\\dist',
+    )
+  })
+
+  it('asks for pnpm install when the electron package is not installed at all', () => {
+    expect(check('darwin', '/repo', [])).toBe('/repo/node_modules/electron is not there: run pnpm install in /repo, then run this again.')
   })
 })
 
