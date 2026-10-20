@@ -340,11 +340,12 @@ function keepAside(afterDir, area, rel, path, log, move) {
   log('Changed after the move, kept in ' + target)
 }
 
-// JSON written the way the file was: its indent and its final newline.
-function stringifyLike(original, value) {
+// JSON written the way the file was: its indent, its line ends (LF or CRLF) and its final newline.
+export function stringifyLike(original, value) {
   const indent = /^[{[]\r?\n([ \t]+)/.exec(original)
-  const text = original.includes('\n') ? JSON.stringify(value, null, indent ? indent[1] : 2) : JSON.stringify(value)
-  return original.endsWith('\n') ? text + '\n' : text
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const text = original.includes('\n') ? JSON.stringify(value, null, indent ? indent[1] : 2).replace(/\n/g, eol) : JSON.stringify(value)
+  return original.endsWith('\n') ? text + eol : text
 }
 
 function writeAtomically(path, text) {
