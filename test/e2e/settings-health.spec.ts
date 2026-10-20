@@ -12,7 +12,7 @@ import { snapshotThemes } from './snapshots'
 // shell is /bin/sh, and $HOME/.profile puts the stand-in tools of test/fixtures/first-run-tools/
 // first on the PATH, so the checks see them and nothing of the machine running the tests. First run
 // does not open by itself here (launchApp), and the data folder starts without its mark.
-// Snapshots in both themes: test-results/snapshots/settings-health*/ (test/e2e/snapshots.ts).
+// Snapshots in both themes: test-results/e2e/snapshots/settings-health*/ (test/e2e/snapshots.ts).
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')

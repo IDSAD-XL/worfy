@@ -6,7 +6,7 @@
 //
 // The Sessions are bound the way binding.spec.ts binds them, from transcripts in a temporary
 // WORFY_CLAUDE_HOME: one ran `ticket claim worfy-mvp 07`, the other works in `.claude/worktrees/12`.
-// The look in both themes is kept as the snapshot `family-hover` (test-results/snapshots/).
+// The look in both themes is kept as the snapshot `family-hover` (test-results/e2e/snapshots/).
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'

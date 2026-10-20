@@ -183,7 +183,7 @@ test('Projects: add, switch, edit settings, restart, remove — and the reposito
 
 // worfy-harness ticket 12: the default templates are those of the Harness found on the machine,
 // looked for again on every read. The screenshots of the dialog in both themes are the ticket's
-// evidence (copied from test-results to .scratch/worfy-harness/evidence/12-*.png).
+// evidence (copied from test-results/e2e to .scratch/worfy-harness/evidence/12-*.png).
 test('Project settings: the defaults and "Reset to default" follow the Harness on the machine', async () => {
   const worfy = makeRepo(scratch, 'worfy', 'main')
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })

@@ -15,7 +15,7 @@ import { catScript } from '../harness-node'
 // toolbar, the same button in the focus mode bar and View ▸ Toggle Sidebar, and both answers
 // outlive a restart; a request to the main area from the sidebar or the palette ends focus mode.
 // Playwright cannot press menu accelerators, so Cmd/Ctrl+B itself is a manual check: the item is
-// clicked by id (clickMenuItem). Snapshots in both themes: test-results/snapshots/focus-with-sidebar/.
+// clicked by id (clickMenuItem). Snapshots in both themes: test-results/e2e/snapshots/focus-with-sidebar/.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 

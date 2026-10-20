@@ -53,7 +53,14 @@
 //   exit     — the exit code of this run (green 0, red 2, unverified 0 or 3, none 0);
 //   at       — the time of the run, UTC, ISO 8601 without fractions (2026-10-07T12:00:00Z);
 //   reason   — one line in English for "unverified" and "none", else null.
-// It is written whole or not at all: a temporary file in the same folder, then a rename. A run
+// The output logs (see gate-log.mjs). The whole output of every script the gate runs, green ones
+// too, goes to <state>/logs/<tag>/<run>/<NN>-<label>.log. The report of a failed script keeps its
+// last 40 lines right under «--- FAILED: <label>», then, for Playwright-shaped output, the failure
+// blocks above those lines under «--- Playwright failures above the last 40 lines …», then the
+// line «--- full output (<N> lines): <path>». The logs are written with the outcome, so a run that
+// was stopped leaves none, and a cache hit runs nothing and writes no log.
+//
+// The verdict file is written whole or not at all: a temporary file in the same folder, then a rename. A run
 // that could not write it removes the previous file, so the file never tells an older run's outcome.
 // One case is left on Windows: while another process holds the file open, it can be neither
 // replaced nor removed. The gate tries for half a second (see `patiently`); a file held longer
@@ -116,6 +123,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { playwrightFailures, pruneLogs, runLogDir, writeScriptLog } from "./gate-log.mjs"
 import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRoot, worktreeTag } from "./gate-paths.mjs"
 import { git as GIT } from "./eval-env.cjs"
 
@@ -884,8 +892,10 @@ async function main() {
     let ran = ""
     let cached = ""
     let failedLabels = ""
-    let report = ""
     let envBroken = ""
+    const logs = [] // [log file name, output] of each script that ran
+    const failures = [] // [label, log file name] of each script that failed; the output is in `logs`
+    const logDir = runLogDir(STATE, tag) // named by the time the scripts start, written at the end
     const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
     for (const [wsdir, pkgname = "", scriptList = "", fpscope = ""] of plan) {
         const scripts = scriptList.split(" ").filter(Boolean)
@@ -922,6 +932,8 @@ async function main() {
             // ended well on the signal as passed.
             await stopIfTold(signal)
             const outLines = out.split(/\r?\n/)
+            const logName = `${String(logs.length + 1).padStart(2, "0")}-${fileNamePart(label)}.log`
+            logs.push([logName, out])
             if (rc === 0) {
                 ran += ` ${label}`
                 continue
@@ -932,7 +944,7 @@ async function main() {
                 envBroken += `\n  ${label}: ${sign}`
             } else {
                 failedLabels += ` ${label}`
-                report += `\n--- FAILED: ${label}\n${outLines.slice(-40).join("\n")}\n`
+                failures.push([label, logName])
             }
         }
 
@@ -946,7 +958,19 @@ async function main() {
     // a package whose scripts all passed is green for its fingerprint, even when another package
     // of the same run is red.
     for (const [cacheFile, fp] of greens) writeMarker(cacheFile, `${fp}\n`)
+    // The logs too: a run that was stopped writes nothing to the state folder.
+    const saved = new Set(logs.filter(([name, out]) => writeScriptLog(logDir, name, out)).map(([name]) => name))
+    if (logs.length) pruneLogs(STATE, tag, logDir)
     if (failedLabels) {
+        let report = ""
+        const outputs = new Map(logs)
+        for (const [label, name] of failures) {
+            const outLines = outputs.get(name).split(/\r?\n/)
+            report += `\n--- FAILED: ${label}\n${outLines.slice(-40).join("\n")}\n`
+            const above = playwrightFailures(outLines, Math.max(0, outLines.length - 40))
+            if (above.length) report += `--- Playwright failures above the last 40 lines (from the full output):\n${above.join("\n")}\n`
+            report += saved.has(name) ? `--- full output (${outLines.length} lines): ${path.join(logDir, name)}\n` : `--- full output: not saved, ${logDir} could not be written\n`
+        }
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
         complain("[gate] красно (" + PROFILE + "):" + failedLabels + (ran ? " (прошло:" + ran + ")" : ""))

@@ -4,7 +4,7 @@
 // it changes — the write actions are inactive with "<B> gives this Machine read-only access", a
 // Node does not move, the Terminal is not opened. Full access on B makes them active again.
 //
-// The look in both themes is kept as snapshots (test-results/snapshots/25-*/); with
+// The look in both themes is kept as snapshots (test-results/e2e/snapshots/25-*/); with
 // WORFY_EVIDENCE=1 also as the ticket's evidence `.scratch/worfy-link/evidence/25-*-{light,dark}.png`.
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
