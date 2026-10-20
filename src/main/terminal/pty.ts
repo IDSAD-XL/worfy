@@ -450,20 +450,24 @@ function stopOutputWorker(pty: PtyProcess): boolean {
 }
 
 /**
- * Closes the console of a node-pty terminal of Windows that is not ready yet; false when it is
- * ready, or when this is not a pty of node-pty as 1.2.0-beta.15 builds it.
+ * Closes the console of a node-pty terminal of Windows whose shell node-pty has not connected
+ * yet; false when the connection is no longer pending, or when this is not a pty of node-pty as
+ * 1.2.0-beta.15 builds it.
  *
- * Until its output is connected node-pty's kill() is only queued, to run once the terminal is
- * ready, and the agent gives up the connection after 5 s by itself (CONNECTION_TIMEOUT): a close
+ * Until the terminal is ready (its first output after the connection) node-pty's kill() is only
+ * queued, and the agent gives up a connection after 5 s by itself (CONNECTION_TIMEOUT): a close
  * while the registry waited for the pid left the console host up to 7 s (measured on the owner's
  * PC: 96 consoles 2 s after the closes, none after 7 s). The agent's own kill() drops the pending
- * connection and closes the console now.
+ * connection and closes the console now; with the connection dropped the terminal never becomes
+ * ready, so the queued kill() never runs after it. Once the shell is connected (`_pendingPtyInfo`
+ * cleared) the terminal becomes ready with its first output and runs the queued kill() itself:
+ * the agent's kill() then would close the same console twice.
  */
 function killUnconnected(pty: PtyProcess): boolean {
-  const terminal = pty as { _isReady?: unknown; _agent?: { kill?: unknown } }
-  const kill = terminal._agent?.kill
-  if (terminal._isReady !== false || typeof kill !== 'function') return false
-  ;(kill as () => void).call(terminal._agent)
+  const agent = (pty as { _agent?: { kill?: unknown; _pendingPtyInfo?: unknown } })._agent
+  const kill = agent?.kill
+  if (agent?._pendingPtyInfo === undefined || typeof kill !== 'function') return false
+  ;(kill as () => void).call(agent)
   return true
 }
 
