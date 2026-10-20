@@ -12,6 +12,7 @@ SKILL="${SKILL_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 . "$HERE/real-home.sh"
+. "$HERE/gh-stand-in.sh" # on_windows
 home_before="$(real_home_snapshot "$HOME" "$T")"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -44,7 +45,8 @@ chmod +x "$HBBIN/ioreg" "$HBBIN/hbsleep" "$HBBIN/waitgo"
 HB_LOOP='while sleep 300;'
 [[ "$BE" == *"$HB_LOOP"* ]] && ok "skill blocks: the one-PR gate full block's heartbeat sleeps 300 s between touches" \
     || bad "skill blocks: the one-PR gate full block has no '$HB_LOOP' heartbeat"
-# alive_of <pid file> <duration>: the pids of the file still running `sleep <duration>` (ps without -o: any live pid)
+# alive_of <pid file> <duration>: the pids of the file still running `sleep <duration>` (ps without -o: any live pid;
+# the ps of Git Bash on Windows has no -o, so there every live pid of the file counts)
 alive_of() {
     local p cmd
     for p in $(cat "$1" 2>/dev/null); do
@@ -58,7 +60,20 @@ none_alive() { [ -z "$(alive_of "$@")" ]; }
 gone_pid() { ! kill -0 "$1" 2>/dev/null; }
 stop_tree() { kill -STOP "$1" 2>/dev/null; pkill -P "$1" 2>/dev/null; kill -KILL "$1" 2>/dev/null; kill -CONT "$1" 2>/dev/null; return 0; }
 FAST=0.2 LONG="300.$$"
-for sh in bash zsh; do
+# zsh is skipped, with one line, on Windows (Git Bash has none) and on a machine without zsh in PATH. Off Windows
+# a skip fails the file below: the zsh cases must not drop out while the file stays green.
+SHELLS=(bash zsh) skips=0
+skip() { skips=$((skips + 1)); echo "skip $1"; }
+if on_windows || ! command -v zsh >/dev/null 2>&1; then
+    SHELLS=(bash); skip "zsh: Git Bash on Windows has no zsh (or zsh is not in PATH), the zsh cases run on macOS and Linux"
+fi
+# The guard of the above: off Windows (by uname, not by on_windows) no skip fired and zsh is in the loop.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *) [ "$skips" = 0 ] && [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "off Windows the zsh cases are not skipped" \
+           || bad "off Windows the zsh cases were skipped: $skips skip line(s), shells [${SHELLS[*]}]" ;;
+esac
+for sh in "${SHELLS[@]}"; do
     W="$T/hb-$sh"; mkdir -p "$W/repo"
     L="$W/e2e.lock"; export HB_PIDS="$W/hb.pids"
     STUB="F() { case \"\$1\" in workflow.e2e_lock) echo '$L' ;; *) return 4 ;; esac; }"
