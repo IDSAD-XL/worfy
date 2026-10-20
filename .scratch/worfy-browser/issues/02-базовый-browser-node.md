@@ -1,7 +1,8 @@
 # 02 — Базовый Browser Node: пункт меню Canvas, адресная строка, `webviewTag` с проверкой `will-attach-webview`
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T02:20Z
+Branch: worfy-browser/02
 Blocked by: 01
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 3
 (хост — `<webview>`, проверка `will-attach-webview`), пункт 2 (термин Browser), «Последствия»
@@ -74,28 +75,28 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/webview-attach-policy.test.ts`: отклонено с preload, с `nodeIntegration`,
+- [x] Unit `test/unit/webview-attach-policy.test.ts`: отклонено с preload, с `nodeIntegration`,
       без `contextIsolation`, с partition вне списка, с `partition` пустым; разрешено — без preload
       и с partition из списка.
-- [ ] Unit `test/unit/window-options.test.ts`: `webviewTag` включён; guest-страница типа `webview`
+- [x] Unit `test/unit/window-options.test.ts`: `webviewTag` включён; guest-страница типа `webview`
       проходит мимо `will-frame-navigate` окна, окно и Card — нет; `setWindowOpenHandler` у
       guest-страницы — deny.
-- [ ] Unit `test/unit/window-options.test.ts`: у `session` partition-а Browser-а стоят свои
+- [x] Unit `test/unit/window-options.test.ts`: у `session` partition-а Browser-а стоят свои
       `setPermissionRequestHandler` и `setPermissionCheckHandler`; запрос разрешения (камера,
       уведомления) от guest-страницы — отказ, проверка разрешения — `false`.
-- [ ] e2e `test/e2e/browser-webview-guard.spec.ts`: fixture-страница в Browser запрашивает
+- [x] e2e `test/e2e/browser-webview-guard.spec.ts`: fixture-страница в Browser запрашивает
       уведомления — получает отказ (`Notification.requestPermission()` — `denied`).
-- [ ] Unit `test/unit/canvas-menu.test.tsx`: пункт «New browser» есть и создаёт Node `kind: 'browser'`.
-- [ ] e2e `test/e2e/browser.spec.ts`: «New browser» из меню Canvas, ввод URL локальной
+- [x] Unit `test/unit/canvas-menu.test.tsx`: пункт «New browser» есть и создаёт Node `kind: 'browser'`.
+- [x] e2e `test/e2e/browser.spec.ts`: «New browser» из меню Canvas, ввод URL локальной
       fixture-страницы, страница видна; после перезапуска worfy тот же URL; два окна одного
       Project-а (ADR-0053) видят один Node; снимок `browser-node` в обеих темах.
-- [ ] e2e `test/e2e/browser-webview-guard.spec.ts`: `<webview>` с preload, вставленный в DOM окна,
+- [x] e2e `test/e2e/browser-webview-guard.spec.ts`: `<webview>` с preload, вставленный в DOM окна,
       не подключается; правильный — подключается и рисуется.
-- [ ] e2e `test/e2e/browser.spec.ts`: на Canvas без Card Note тащат мышью через страницу Browser —
+- [x] e2e `test/e2e/browser.spec.ts`: на Canvas без Card Note тащат мышью через страницу Browser —
       Note доходит до точки отпускания, страница не получила ни одного `mousemove`.
-- [ ] Мутанты красные: проверка preload снята; partition не сверяется со списком; guest-страница под
+- [x] Мутанты красные: проверка preload снята; partition не сверяется со списком; guest-страница под
       политикой окна; обработчик разрешений на `session` partition-а Browser-а не ставится.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -163,4 +164,63 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 
 ## Итог
 
-Заполняется при закрытии.
+**PR и ответы владельца.** Сделано в PR (ветка `worfy-browser/02`) — всё из «Что делаем» и все пункты
+«Готово, когда»; ответы на вопросы 1, 2, 5 владелец ещё не подтвердил, поэтому PR держится
+вариантов, которые ничего не решают за него:
+
+- сделано в PR: `webviewTag: true` во всех окнах, флаг `WORFY_BROWSER_PROTOTYPE` и `hardenWebview`
+  сняты; чистая проверка `src/main/browser/attach-policy.ts` (`webviewAttachRefusal`, список
+  partition-ов — параметр) в `will-attach-webview` каждого webContents (`installWebPolicy`); guest
+  типа `webview` вне `will-frame-navigate` окна, новые окна — deny; свои
+  `setPermissionRequestHandler` (отказ) и `setPermissionCheckHandler` (`false`) на `session`
+  partition-а Browser-а — при `installWebPolicy` (`session.fromPartition`) и ещё раз при создании
+  каждого guest (`guardBrowserSession`, `defaultSession` не трогается), так что partition-ы
+  Ticket-а 03 получат их без новой строки; пункт меню «New browser»; адресная строка (Enter —
+  `loadURL` страницы и `patchData` мимо ⌘Z, адрес, до которого страница дошла сама, —
+  `did-navigate` → `data.url`, после перезапуска Browser открывает его); общий hook маркера нажатия
+  `src/renderer/canvas/nodes/frames-step-aside.ts` для Card и слоя Browser-ов.
+- ждёт ответов владельца:
+  - вопрос 1 — partition один, временный, в памяти: `BROWSER_PARTITION = 'worfy-browser'` без
+    `persist:` (`src/shared/browser/partition.ts`, комментарий о том, что ответ может сменить его на
+    `persist:`). После перезапуска сохраняется только адрес, cookies и вход — нет;
+  - вопрос 2 — кнопок назад, вперёд, обновить нет;
+  - вопрос 3 — колесо по умолчанию (страница прокручивается, Canvas стоит), нового кода нет;
+  - вопрос 5 — новые окна guest-страницы по-прежнему запрещены (`target=_blank` ничего не открывает).
+- вопрос 4: `test/e2e/browser-webview-guard.spec.ts` входит в весь `test:e2e`, значит идёт в каждом
+  gate full, в том числе в PR со сменой `electron` в `package.json`; отдельного механизма нет.
+
+**Поправка к «Что происходит».** `will-frame-navigate` окна не держал guest-страницу «ни на одном
+сайте»: `allowFrameNavigation` отказывает только адресам Card (`worfy-card:`), главный frame уходит
+на любой http(s). Снятие правила окна для guest меняет только переходы на адрес Card; у partition-а
+Browser-а нет обработчика протокола Card, такая страница не загрузится. Unit-тест закрепляет именно
+это различие.
+
+**Проверки.** `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — «[gate] зелено (fast)».
+e2e (под замком `/tmp/worfy-e2e.lock`): `browser.spec.ts` 2/2, `browser-webview-guard.spec.ts` 2/2,
+`browser-layer.spec.ts` 9/9 без флага. Сначала красный — unit `webview-attach-policy.test.ts` (модуля
+не было).
+
+Мутанты — в отдельном worktree под scratchpad, не в ветке:
+
+| Мутант | unit (`webview-attach-policy`, `window-options`, `web-policy`) | e2e |
+| --- | --- | --- |
+| проверка preload снята | exit 1, 2 теста красные | `browser-webview-guard` exit 1: страница с preload подключилась |
+| partition не сверяется со списком | exit 1, 4 теста | — |
+| guest под `will-frame-navigate` окна | exit 1, 1 тест | — |
+| обработчик разрешений на `session` Browser-а не ставится | exit 1, 2 теста | `browser-webview-guard` exit 1: `Notification.requestPermission()` — `granted` |
+| маркер нажатия не снимает мышь со страницы (правило CSS убрано) | — | `browser.spec.ts` exit 1: Note не дошла до точки отпускания |
+
+**Снимок `browser-node`** в обеих темах (`snapshotThemes`, весь экран): [светлая](../evidence/02-browser-node-light.png),
+[тёмная](../evidence/02-browser-node-dark.png). Это screenshot через CDP: у страницы справа и снизу нет
+последнего CSS px (розовой линии) — артефакт снимка, найденный в Ticket-е 01; то, что страница
+рисуется в рамке, `browser.spec.ts` проверяет по `webContents.capturePage()`.
+
+**Что изменилось у соседей.** Маркер нажатия `PRESSED_ATTRIBUTE` и `useFramesStepAsideWhilePressed`
+переехали из `CardNode.tsx` в `frames-step-aside.ts` без изменения поведения Card. `openSecondWindow`
+(`test/e2e/helpers.ts`) создаёт окно с `webviewTag: true`, как `src/main/window.ts`. Mock-и
+`electron` в `test/contract/web-policy.test.ts` и `test/contract/startup-failure.test.ts` получили
+`session.fromPartition` и `getType`.
+
+**Не проверено.** Два Browser-а друг на друге и Browser внутри Epic frame (вопрос из Ticket-а 01) — не
+мерились. Второе окно того же Project-а показывает новый адрес в строке, но его страница остаётся,
+где была (`shortcut:` в `BrowserLayer.tsx`). Настоящий trackpad и ввод с клавиатуры руками — нет.

@@ -228,7 +228,8 @@ export async function openSecondWindow(launched: Pick<LaunchedApp, 'app'>, optio
       const second = new BrowserWindow({
         ...size,
         show: true,
-        webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false },
+        // The window's own webPreferences (src/main/window.ts), the <webview> tag of the Browsers too.
+        webPreferences: { preload, contextIsolation: true, sandbox: true, nodeIntegration: false, webviewTag: true },
       })
       await second.loadURL(first.webContents.getURL())
     },
