@@ -28,7 +28,8 @@ Exit code of `profile`:
 - `3` — the project is not registered or has no profile; `1` — the registry, the resolver or
   `profile.json` is broken; `2` — invocation error (for example, the path from the brief does not
   exist). In these three cases write the code and the message from stderr as the first line of your
-  answer and review without a profile: do not guess check commands and paths — take them only from
+  answer (the second under the lens "implementer's report", whose first line is the verdict) and
+  review without a profile: do not guess check commands and paths — take them only from
   `CLAUDE.md` / `AGENTS.md` of the repository; if they are not there, do not run anything and say so
   in the "could not verify" line.
 - `4` — the field is missing (only happens with `--field`): skip the step that depends on it, do not
@@ -186,6 +187,25 @@ process.
 The rules above — the scope, the rules of evidence, the answer format — hold for every lens. A
 description below adds what its lens looks for and what it leaves out. A lens that has no
 description here is read by its name.
+
+### Lens: implementer's report
+
+The question of the lens: which claims of the implementer's report do not hold. The report is the
+JSON the implementer (`worfy:implementer`) returns with its change; every sentence in it is a claim
+to check, not a fact. Read `not_verified` first: it names what the implementer did not check. Then:
+- **Every `file:line` in `claims`.** Re-read the line and check that it shows what the claim says.
+- **Every `exit_code` in `commands`.** Run the command yourself and compare your exit code with the
+  reported one.
+- **The strongest sentence of the report.** Look for its refutation: the test it cites passed
+  before the change too, or the command it cites never ran the changed code.
+
+**The verdict is the first line of the answer:** `VERIFIED` when every claim held,
+`REJECTED: <the unconfirmed claims>` when at least one did not. Every unconfirmed claim on the list
+comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
+Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
+which comes second under this lens. The other lines of the answer keep the format above, and the
+whole answer stays within its 30 lines. What happens to the verdict — where it is recorded, which
+commit it marks — is the business of the skill that launched the review.
 
 ### Lens: simplification
 

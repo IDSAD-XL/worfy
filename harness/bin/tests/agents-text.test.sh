@@ -401,6 +401,44 @@ for a in implementer reviewer; do
     done
 done
 
+# --- 13. reviewer: the lens "implementer's report" and the verdict on the first line ----------
+# The rule travels with the agent, not with a skill: a session without skill epic-wave that starts a
+# reviewer with this lens still gets a verdict line first. The skill points at the lens and keeps
+# only what belongs to a wave (where the verdict is recorded, the review mark).
+REPORT_LENS="### Lens: implementer's report"
+report_at="$(line_of "$REPORT_LENS")"
+[ -n "$descriptions" ] && [ -n "$report_at" ] && [ "$descriptions" -lt "$report_at" ] && { [ -z "$next_h2" ] || [ "$report_at" -lt "$next_h2" ]; } \
+    && ok "reviewer: 'Lens: implementer's report' is inside 'Lens descriptions'" \
+    || bad "reviewer: no '$REPORT_LENS' inside '## Lens descriptions' (lines: [$descriptions] [$report_at] [$next_h2])"
+sentences "$(section "$REPORT_LENS")" "lens implementer's report" <<'EOF'
+the question of the lens :: The question of the lens: which claims of the implementer's report do not hold.
+not_verified first :: Read `not_verified` first: it names what the implementer did not check.
+every file:line in claims :: - **Every `file:line` in `claims`.** Re-read the line and check that it shows what the claim says.
+every exit_code in commands :: - **Every `exit_code` in `commands`.** Run the command yourself and compare your exit code with the reported one.
+a refutation of the strongest sentence :: - **The strongest sentence of the report.** Look for its refutation: the test it cites passed before the change too, or the command it cites never ran the changed code.
+the verdict is the first line :: **The verdict is the first line of the answer:** `VERIFIED` when every claim held, `REJECTED: <the unconfirmed claims>` when at least one did not.
+nothing before the verdict line :: Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`, which comes second under this lens.
+recording the verdict is the skill's business :: What happens to the verdict — where it is recorded, which commit it marks — is the business of the skill that launched the review.
+EOF
+rv "a failed profile line comes second under the lens implementer's report" \
+    'as the first line of your answer (the second under the lens "implementer'"'"'s report", whose first line is the verdict)'
+EPIC_WAVE="${EPIC_WAVE_SKILL_FILE:-$AGENTS/../skills/epic-wave/SKILL.md}"
+if [ ! -f "$EPIC_WAVE" ]; then bad "epic-wave SKILL.md not found at $EPIC_WAVE"
+else
+    ew_flat="$(tr '\n' ' ' <"$EPIC_WAVE" | tr -s ' ')"
+    for p in 'checks the report by the lens "implementer'"'"'s report" of agent `worfy:reviewer`' \
+        'The verifier'"'"'s answer starts with its verdict, in the form that lens gives it.'; do
+        if printf '%s' "$ew_flat" | grep -qF -- "$p"; then ok "epic-wave: points at the reviewer's lens ('$p')"
+        else bad "epic-wave: no reference to the reviewer's lens '$p'"; fi
+    done
+    # No second copy of the lens in the skill.
+    for p in 're-reads every `file:line` in `claims`' 'strongest sentence' 'The verdict is the first line of the answer' \
+        'with the list of unconfirmed claims' 'reads `not_verified` first'; do
+        if printf '%s' "$ew_flat" | grep -qF -- "$p"; then bad "epic-wave: repeats the reviewer's lens ('$p')"
+        else ok "epic-wave: no copy of the reviewer's lens ('$p')"; fi
+    done
+fi
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'
