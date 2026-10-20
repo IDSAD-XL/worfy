@@ -1,7 +1,7 @@
 # 60 — Test «does not see a root that is removed and made again under the same name» в `tickets-chokidar.test.ts` красный под нагрузкой
 
 Type: bug
-Status: claimed 2026-10-20T19:30Z
+Status: claimed 2026-10-20T20:50Z
 PR: #632
 Blocked by: —
 Source: gate full очереди Mac, 2026-10-20 — слово Session-оркестратора «Worfy продолжение»: test ждёт
