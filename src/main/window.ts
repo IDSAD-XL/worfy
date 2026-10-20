@@ -1,7 +1,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WebPreferences, type WindowOpenHandlerResponse } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WindowOpenHandlerResponse } from 'electron'
+import { BROWSER_PARTITIONS } from '../shared/browser/partition'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
+import { webviewAttachRefusal } from './browser/attach-policy'
 import { allowFrameNavigation } from './cards/protocol'
 import { quietWindows } from './quiet-windows'
 import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
@@ -61,28 +63,6 @@ export function loadEndedAsReplaced(error: unknown): boolean {
   return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
 }
 
-/**
- * The prototype of the Browser layer (worfy-browser ticket 01, ADR-0078 item 12) turns the <webview>
- * tag on only when WORFY_BROWSER_PROTOTYPE is exactly "1", which only its e2e test sets. Without
- * it the window is made as before the prototype. A later ticket of the epic drops the flag.
- */
-export function browserPrototype(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.WORFY_BROWSER_PROTOTYPE === '1'
-}
-
-/**
- * What every <webview> of the window attaches with, whatever its attributes ask for (ADR-0078
- * item 3): no worfy preload, no Node, isolated and sandboxed. The guest page is any web page, so it
- * gets none of the app's powers. The check of the partition and the address is a later ticket's.
- */
-export function hardenWebview(webPreferences: WebPreferences): void {
-  delete webPreferences.preload
-  webPreferences.nodeIntegration = false
-  webPreferences.nodeIntegrationInSubFrames = false
-  webPreferences.contextIsolation = true
-  webPreferences.sandbox = true
-}
-
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
@@ -93,7 +73,6 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   // WORFY_QUIET_WINDOWS=1, e2e tests only: shown without taking the focus, transparent, mouse-through
   // and still painted (quiet-windows.ts). A normal start gets Electron's defaults, as before.
   const quiet = quietWindows()
-  const browser = browserPrototype()
 
   const window = new BrowserWindow({
     ...bounds,
@@ -112,10 +91,11 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       // The interface scale of the app settings: the page is drawn at it from the first paint.
       zoomFactor: interfaceScale(),
       ...(quiet.backgroundThrottling === undefined ? {} : { backgroundThrottling: quiet.backgroundThrottling }),
-      ...(browser ? { webviewTag: true } : {}),
+      // The <webview> of the Browsers (ADR-0078 item 3). installWebPolicy checks every one that
+      // attaches (browser/attach-policy.ts) and keeps its page off every permission.
+      webviewTag: true,
     },
   })
-  if (browser) window.webContents.on('will-attach-webview', (_event, webPreferences) => hardenWebview(webPreferences))
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)
@@ -231,20 +211,48 @@ export function grantsPermission(requestingUrl: string, isAppUrl: (url: string) 
 }
 
 /**
+ * Puts the permission handlers of a Browser's page on `browserSession`, the session of a Browser
+ * partition (ADR-0078 item 3): every permission request (camera, microphone, notifications,
+ * geolocation, clipboard…) is refused, and every permission check answers no. Without them
+ * Electron grants a page every permission it asks for. The app's own session keeps its own
+ * handlers: it is never a Browser's.
+ */
+export function guardBrowserSession(browserSession: Session): void {
+  if (browserSession === session.defaultSession) return
+  browserSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+  browserSession.setPermissionCheckHandler(() => false)
+}
+
+/**
  * Puts up main's side of the walls for every web contents: frame navigation (a Card stays on its
  * own origin, the window never shows a Card), no new windows, permissions for the app's renderer
  * only. `isAppUrl` is the same renderer matcher the IPC sender check uses (src/main/index.ts).
+ *
+ * The page of a Browser (the guest of a <webview>, ADR-0078 item 3) attaches only as the attach
+ * policy allows (browser/attach-policy.ts), goes to any site (the frame rules of the window and
+ * the Cards are not its), opens no window either, and gets no permission: the session of each
+ * Browser partition is guarded when this runs, and the session of any guest again when the guest
+ * is created, so a partition added later is guarded as well.
  * Runs once, after the app is ready, before the first window.
  */
 export function installWebPolicy(isAppUrl: (url: string) => boolean): void {
   app.on('web-contents-created', (_event, contents) => {
-    contents.on('will-frame-navigate', (details) => {
-      const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
-      if (!allowed) details.preventDefault()
+    contents.on('will-attach-webview', (event, webPreferences, params) => {
+      const refusal = webviewAttachRefusal({ webPreferences, params }, BROWSER_PARTITIONS)
+      if (refusal === null) return
+      console.warn(`[worfy] a <webview> was not attached: ${refusal}`)
+      event.preventDefault()
     })
+    if (contents.getType() === 'webview') guardBrowserSession(contents.session)
+    else
+      contents.on('will-frame-navigate', (details) => {
+        const allowed = allowFrameNavigation({ isMainFrame: details.isMainFrame, frameUrl: details.frame?.url ?? '', targetUrl: details.url })
+        if (!allowed) details.preventDefault()
+      })
     contents.setWindowOpenHandler(windowOpenResponse)
   })
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback, details) => {
     callback(grantsPermission(details.requestingUrl, isAppUrl))
   })
+  for (const partition of BROWSER_PARTITIONS) guardBrowserSession(session.fromPartition(partition))
 }

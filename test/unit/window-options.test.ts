@@ -3,15 +3,45 @@
 import { readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { BROWSER_PARTITION } from '../../src/shared/browser/partition'
 import { frameOptions, WINDOW_BACKGROUND } from '../../src/main/window-frame'
 
-/** The options of every BrowserWindow made, the handlers put on its web contents, and the theme nativeTheme reports. */
-const electron = vi.hoisted(() => ({
-  options: [] as Record<string, unknown>[],
-  handlers: [] as { event: string; handler: (...args: unknown[]) => void }[],
-  dark: false,
-}))
+type Listener = (...args: unknown[]) => void
+
+/** A session as installWebPolicy sees it: the permission handlers put on it. */
+interface FakeSession {
+  name: string
+  request?: Listener
+  check?: Listener
+  setPermissionRequestHandler(handler: Listener): void
+  setPermissionCheckHandler(handler: Listener): void
+}
+
+/**
+ * The options of every BrowserWindow made, the handlers put on its web contents, the theme
+ * nativeTheme reports, the app's listeners and the sessions made by partition.
+ */
+const electron = vi.hoisted(() => {
+  const fakeSession = (name: string): FakeSession => ({
+    name,
+    setPermissionRequestHandler(handler) {
+      this.request = handler
+    },
+    setPermissionCheckHandler(handler) {
+      this.check = handler
+    },
+  })
+  return {
+    options: [] as Record<string, unknown>[],
+    handlers: [] as { event: string; handler: Listener }[],
+    dark: false,
+    appListeners: new Map<string, Listener[]>(),
+    fakeSession,
+    defaultSession: fakeSession('default'),
+    partitions: new Map<string, FakeSession>(),
+  }
+})
 
 vi.mock('electron', () => {
   class FakeWindow {
@@ -36,7 +66,12 @@ vi.mock('electron', () => {
     }
   }
   return {
-    app: { isPackaged: true },
+    app: {
+      isPackaged: true,
+      on: (event: string, listener: Listener) => {
+        electron.appListeners.set(event, [...(electron.appListeners.get(event) ?? []), listener])
+      },
+    },
     BrowserWindow: FakeWindow,
     nativeTheme: {
       get shouldUseDarkColors() {
@@ -44,7 +79,16 @@ vi.mock('electron', () => {
       },
     },
     screen: { getAllDisplays: () => [] },
-    session: {},
+    session: {
+      get defaultSession() {
+        return electron.defaultSession
+      },
+      fromPartition: (partition: string) => {
+        const made = electron.partitions.get(partition) ?? electron.fakeSession(partition)
+        electron.partitions.set(partition, made)
+        return made
+      },
+    },
     protocol: {},
   }
 })
@@ -117,34 +161,129 @@ describe('createMainWindow', () => {
     expect(await optionsOn('darwin', true)).toMatchObject({ ...frameOptions('darwin', true), title: 'worfy', show: false })
   })
 
-  // The prototype of the Browser layer (worfy-browser ticket 01, ADR-0078 items 3 and 12): the
-  // <webview> tag only under the e2e flag, and every <webview> attached without worfy's preload.
-  const webPreferences = (options: Record<string, unknown>) => options.webPreferences as Record<string, unknown>
-  const attachHandlers = () => electron.handlers.filter(({ event }) => event === 'will-attach-webview')
-
-  it('without the prototype flag turns the <webview> tag off and watches no <webview> attach', async () => {
-    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', '')
+  // The Browser (worfy-browser ticket 02, ADR-0078 item 3): the <webview> tag is on in every
+  // window; installWebPolicy checks each <webview> that attaches (test/unit/webview-attach-policy.test.ts).
+  it('turns the <webview> tag on and keeps the window isolated, sandboxed and without Node', async () => {
     const options = await optionsOn('darwin', false)
-    expect(webPreferences(options)).not.toHaveProperty('webviewTag')
-    expect(webPreferences(options)).toMatchObject({ contextIsolation: true, sandbox: true, nodeIntegration: false })
-    expect(attachHandlers()).toHaveLength(0)
+    expect(options.webPreferences).toMatchObject({ webviewTag: true, contextIsolation: true, sandbox: true, nodeIntegration: false })
+  })
+})
+
+// installWebPolicy (src/main/window.ts) for the page of a Browser, the guest of a <webview>
+// (worfy-browser ticket 02, ADR-0078 item 3), over the mocked `electron` above. The rules for the
+// window and the Cards are pinned in test/contract/web-policy.test.ts.
+describe('installWebPolicy for the page of a Browser', () => {
+  const APP_URL = 'file:///app/out/renderer/index.html#/canvas'
+  const CARD = 'worfy-card://c1.0a1b2c3d/index.html'
+  const isAppUrl = (url: string): boolean => url.startsWith('file:///app/out/renderer/index.html')
+
+  /** A web contents of `type` as installWebPolicy sees it, created with the app's listener. */
+  function created(type: 'window' | 'webview', contentsSession: FakeSession = electron.fakeSession(`guest-${type}`)) {
+    const listeners = new Map<string, Listener>()
+    let openHandler: Listener | undefined
+    const contents = {
+      session: contentsSession,
+      getType: () => type,
+      on: (event: string, listener: Listener) => listeners.set(event, listener),
+      setWindowOpenHandler: (handler: Listener) => {
+        openHandler = handler
+      },
+    }
+    const appListeners = electron.appListeners.get('web-contents-created') ?? []
+    expect(appListeners).toHaveLength(1)
+    for (const listener of appListeners) listener({}, contents)
+    return {
+      /** Whether the navigation went through will-frame-navigate. */
+      navigate: (isMainFrame: boolean, frameUrl: string, url: string): boolean => {
+        const preventDefault = vi.fn()
+        listeners.get('will-frame-navigate')?.({ isMainFrame, frame: { url: frameUrl }, url, preventDefault })
+        return preventDefault.mock.calls.length === 0
+      },
+      open: (url: string): unknown => openHandler?.({ url, referrer: { url: '', policy: 'no-referrer' }, frameName: '', features: '', disposition: 'new-window' }),
+      /** Whether a <webview> with these preferences attaches to this web contents. */
+      attach: (webPreferences: Record<string, unknown>): boolean => {
+        const preventDefault = vi.fn()
+        listeners.get('will-attach-webview')?.({ preventDefault }, webPreferences, { src: 'http://127.0.0.1/' })
+        return preventDefault.mock.calls.length === 0
+      },
+    }
+  }
+
+  /** The answer of `browserSession`'s request handler to a request for `permission`. */
+  function requested(browserSession: FakeSession, permission: string): unknown {
+    const callback = vi.fn()
+    browserSession.request?.({}, permission, callback, { requestingUrl: 'http://127.0.0.1/page.html' })
+    expect(callback, `the request for ${permission} is answered`).toHaveBeenCalledTimes(1)
+    return callback.mock.calls[0]?.[0]
+  }
+
+  beforeEach(async () => {
+    electron.appListeners.clear()
+    electron.partitions.clear()
+    electron.defaultSession = electron.fakeSession('default')
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { installWebPolicy } = await import('../../src/main/window')
+    installWebPolicy(isAppUrl)
   })
 
-  it('under the prototype flag turns the <webview> tag on, and a <webview> attaches without the preload and without Node', async () => {
-    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', '1')
-    const options = await optionsOn('darwin', false)
-    expect(webPreferences(options)).toMatchObject({ webviewTag: true, contextIsolation: true, sandbox: true, nodeIntegration: false })
-    expect(attachHandlers()).toHaveLength(1)
-    // What a page could ask for in the <webview> element's attributes (preload, nodeintegration).
-    const guest: Record<string, unknown> = { preload: 'file:///tmp/evil.js', nodeIntegration: true, nodeIntegrationInSubFrames: true, contextIsolation: false, sandbox: false }
-    attachHandlers()[0]!.handler({ preventDefault: () => undefined }, guest, { src: 'http://127.0.0.1/' })
-    expect(guest).not.toHaveProperty('preload')
-    expect(guest).toMatchObject({ nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true })
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
-  it.each(['0', 'true', 'yes'])('takes only "1" as the prototype flag (%s keeps the <webview> tag off)', async (value) => {
-    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', value)
-    expect(webPreferences(await optionsOn('darwin', false))).not.toHaveProperty('webviewTag')
-    expect(attachHandlers()).toHaveLength(0)
+  // The frame rules of the window refuse only Card addresses (allowFrameNavigation of
+  // src/main/cards/protocol.ts): a main frame never goes to a Card, a Card frame never leaves its
+  // Card. The page of a Browser is not under them at all, so the same navigations pass there. (The
+  // Browser partition has no handler of the Card protocol: such a page would not load.)
+  it('puts the frame rules of the window and the Cards on the window, and none on the page of a Browser', () => {
+    const window = created('window')
+    expect(window.navigate(true, APP_URL, CARD)).toBe(false)
+    expect(window.navigate(false, CARD, 'https://example.com/')).toBe(false)
+
+    const guest = created('webview')
+    expect(guest.navigate(true, 'http://127.0.0.1/page.html', 'https://example.com/')).toBe(true)
+    expect(guest.navigate(true, 'https://example.com/', CARD)).toBe(true)
+    expect(guest.navigate(false, CARD, 'https://example.com/')).toBe(true)
+  })
+
+  it('opens no window for the page of a Browser', () => {
+    expect(created('webview').open('https://example.com/')).toEqual({ action: 'deny' })
+  })
+
+  it('checks every <webview> that attaches: on the Browser partition without a preload yes, with a preload or off the partition no', () => {
+    const window = created('window')
+    const safe = { nodeIntegration: false, contextIsolation: true, sandbox: true, partition: BROWSER_PARTITION }
+    expect(window.attach({ ...safe })).toBe(true)
+    expect(window.attach({ ...safe, preload: '/tmp/evil.js' })).toBe(false)
+    expect(window.attach({ ...safe, partition: '' })).toBe(false)
+    expect(window.attach({ ...safe, partition: 'persist:other' })).toBe(false)
+  })
+
+  it('puts its own permission handlers on the session of the Browser partition: every request refused, every check false', () => {
+    const browserSession = electron.partitions.get(BROWSER_PARTITION)
+    expect(browserSession, 'the session of the Browser partition').toBeDefined()
+    expect(browserSession!.request).toBeTypeOf('function')
+    expect(browserSession!.check).toBeTypeOf('function')
+    for (const permission of ['media', 'notifications', 'geolocation', 'clipboard-read']) {
+      expect(requested(browserSession!, permission), permission).toBe(false)
+      expect(browserSession!.check!({}, permission, 'http://127.0.0.1', {}), permission).toBe(false)
+    }
+  })
+
+  it('guards the session of any Browser page when the page is created, and leaves the app session to the app', () => {
+    const later = electron.fakeSession('persist:a-later-profile')
+    created('webview', later)
+    expect(requested(later, 'notifications')).toBe(false)
+    expect(later.check?.({}, 'notifications', 'http://127.0.0.1', {})).toBe(false)
+
+    // A web contents on the app's own session: the renderer is still granted, a web page refused.
+    created('window', electron.defaultSession)
+    const answer = (requestingUrl: string): unknown => {
+      const callback = vi.fn()
+      electron.defaultSession.request?.({}, 'notifications', callback, { requestingUrl })
+      return callback.mock.calls[0]?.[0]
+    }
+    expect(answer(APP_URL)).toBe(true)
+    expect(answer('https://example.com/')).toBe(false)
+    expect(electron.defaultSession.check).toBeUndefined()
   })
 })
