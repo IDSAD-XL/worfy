@@ -51,12 +51,15 @@ stderr пустой. Проверка на ПК: прямой `spawnSync(profile
   `qmd-sync-main` (сейчас — путь с `\` в кавычках к скрипту на zsh).
 - Ещё не проверено, пока B красный: пути в `index.yml` на Windows записаны вперемешку `/` и `\`.
 
-Как быть с A–C до Ticket-а 15 (skip с названной причиной или иначе) — решает владелец; Mac ставит
-вопрос в его список. Здесь ничего не пропускается молча.
+Решение владельца 2026-10-20 (через Session на Mac): A–C на Windows пропускаются с названной причиной до
+Ticket-а 15, в его «Готово, когда» — пункт снять эти пропуски. Причины в test-е не называют номер Ticket-а:
+`plugin-neutral.test.sh` запрещает номера Ticket-ов worfy в `harness/`. Они называют пробел словами — «qmd is
+not ported to Windows yet», — а связь с Ticket-ом 15 держит его пункт.
 
 ## Готово, когда
 
 - [ ] На Windows `qmd-collections.test.sh` не падает на `profile … exit null`: 12 passed вместо 8.
+- [ ] На Windows группы A–C пропущены с причиной, и файл — exit 0; в Ticket 15 — пункт снять пропуски.
 - [ ] Каждый оставшийся красный называет причину (`ENOENT`, `unbound variable`), а не `exit null`.
 - [ ] На macOS `qmd-collections.test.sh` зелёный, как был (проверка Mac).
 - [ ] `plugin-neutral.test.sh`, `test/contract/harness-qmd.test.ts` зелёные; `qmd.test.sh` на macOS
