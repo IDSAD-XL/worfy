@@ -76,3 +76,15 @@ from the user's rules file.
 - Unbounded output — logs, curl responses, DB dumps — gets filtered before it lands; delegate the
   run only when no filter does the job.
 - Report to the user only what changed and what they need to decide.
+
+## Shell commands without a confirmation
+
+Claude Code asks a human before the two kinds of shell command below, even in `bypassPermissions`,
+and no allow rule lets them through. In a session without a human (an unattended run, such as the
+worfy Autopilot) the request is denied and the step breaks.
+
+- Delete only by a literal path (`rm -rf /tmp/x/trace`): no glob after `cd` (`rm -rf *`) and no
+  `$VAR` in an `rm` target (`rm -rf "$M/$d"`), even when the folder came from `mktemp -d`. Need a
+  clean folder — make a new one with `mktemp -d`; do not clean the old one.
+- A multi-line script for `sh -c`, `bash -c` or `zsh -c` goes into a file in your own scratchpad
+  subdirectory; run the file (`zsh -f <file>`), not the inline script.

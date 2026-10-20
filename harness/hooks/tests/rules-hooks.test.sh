@@ -405,6 +405,9 @@ COMMON_TOPICS=(
     'Deployed|live endpoint'
     'Subagent claims|is a claim, not a fact|Re-read the line'
     'Context hygiene|Context hygiene|minimal fragment|`Edit`|compress|Unbounded output|only what changed'
+    'Shell commands without a confirmation|Shell commands without a confirmation|`bypassPermissions`|no allow rule|without a human|the request is denied'
+    'Delete by a literal path|Delete only by a literal path|no glob after `cd`|no `$VAR` in an `rm` target|even when the folder came from `mktemp -d`|make a new one with `mktemp -d`; do not clean the old one'
+    'Multi-line -c script from a file|A multi-line script for `sh -c`, `bash -c` or `zsh -c` goes into a file|scratchpad subdirectory|run the file (`zsh -f <file>`)'
 )
 
 # $1 file to search, topics follow. The text is searched as one line with whitespace runs
@@ -437,10 +440,11 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
     && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
     || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
-# common.md holds exactly Plain language, Evidence before "green" and Context hygiene.
+# common.md holds exactly Plain language, Evidence before "green", Context hygiene and Shell commands
+# without a confirmation (the agents point at that section by its name).
 heads="$(grep '^## ' "$RULES/common.md" 2>/dev/null | tr '\n' '|')"
-[ "$heads" = '## Plain language|## Evidence before "green"|## Context hygiene|' ] \
-    && ok "common.md sections: Plain language, Evidence, Context hygiene" || bad "common.md sections: $heads"
+[ "$heads" = '## Plain language|## Evidence before "green"|## Context hygiene|## Shell commands without a confirmation|' ] \
+    && ok "common.md sections: Plain language, Evidence, Context hygiene, Shell commands" || bad "common.md sections: $heads"
 for p in 'Phase 0' 'Quota' 'Default loop' 'Phase 2' 'Phase 3' 'Delegate by default' 'Subagent contract'; do
     if grep -qF "$p" "$RULES/common.md" 2>/dev/null; then bad "common.md carries the orchestrator topic $p"; else ok "common.md has no $p"; fi
 done
