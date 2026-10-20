@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fullLayout } from '../../src/main/workflow/folder'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import { removeTestTree } from '../remove'
+import { timeScale } from '../time-scale'
 
 const WINDOWS = process.platform === 'win32'
 const EPIC_JSON = JSON.stringify({ ref: 'main', epics: [{ epic: 'demo', hasSpec: false, hasMap: false }], tickets: [] })
@@ -59,8 +60,11 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) removeTestTree(dir)
 })
 
-/** One round: a repository with a worktree; the worktree, then the repository, removed by another process. */
-async function round(): Promise<void> {
+/**
+ * One round: a repository with a worktree; the worktree, then the repository, removed by another
+ * process. Answers how many fs.watch handles were held once the watches of the Project were open.
+ */
+async function round(): Promise<number> {
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-branches-handles-')))
   dirs.push(dir)
   const repo = join(dir, 'repo')
@@ -73,12 +77,14 @@ async function round(): Promise<void> {
   const watcher = await WorkflowWatcher.start({ root: repo, claudeHome: '/h', env: () => Promise.resolve({}), run: () => Promise.resolve(EPIC_JSON), layout: (at) => Promise.resolve(fullLayout(at)), onChange: () => undefined })
   try {
     await pause(SETTLE_MS)
+    const open = fsWatches()
     await inChild('git', [...GIT_CONFIG, 'worktree', 'remove', join(dir, 'wt')], repo)
     await pause(SETTLE_MS)
     git(repo, 'worktree', 'add', '-q', '-b', 'side2', join(dir, 'wt2'))
     await pause(SETTLE_MS)
     await removeFromChild(repo, dir)
     await pause(SETTLE_MS)
+    return open
   } finally {
     await watcher.close()
   }
@@ -90,11 +96,16 @@ describe('the watch of the branches gives back its fs.watch handles when another
     const before = fsWatches()
     const held: number[] = []
     for (let n = 0; n < ROUNDS; n++) {
-      await round()
+      // The watches of the Project hold handles of their own while it is open: without them every
+      // count below would be back at `before` with nothing watched at all.
+      const open = await round()
+      expect(open, `fs.watch handles before: ${before}; while round ${n + 1} watched: ${open}`).toBeGreaterThan(before)
       held.push(await settledAt(before))
       // A handle left behind spins on Windows: no further round would measure anything sound.
       if (held.at(-1) !== before) break
     }
     expect(held, `fs.watch handles before: ${before}; after each round: ${held.join(', ')}`).toEqual(Array.from({ length: ROUNDS }, () => before))
-  }, ROUNDS * 6_000)
+    // Alone a round takes about 3 s on the owner's PC; 6 s a round is twice that, and timeScale
+    // stretches it on Windows like every other limit of the run, for the slower full run there.
+  }, ROUNDS * 6_000 * timeScale)
 })

@@ -32,6 +32,7 @@
     "test/remove.ts",
     "test/setup-contract.ts",
     "test/stale-leftovers.ts",
+    "test/time-scale.ts",
     "test/zsh.ts",
     "test/windows-runner.ts",
     "test/unit/**/*.ts",
