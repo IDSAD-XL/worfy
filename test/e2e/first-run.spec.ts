@@ -15,6 +15,7 @@ import { snapshotThemes } from './snapshots'
 // never reaches the network: the dependency of the Harness plugin (ticket 30) is "installed" there
 // too. The agent is the fake one (launchApp), so the sign-in check gets a subscription login. The
 // dialog of each action is replaced in main: it records what it was shown and answers with the given button.
+// Ticket 40: the Harness item of the toolbar follows an install made from this screen without a reload.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
@@ -83,7 +84,6 @@ const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
   launchApp({
     env: {
-      ...extra,
       WORFY_FIRST_RUN_AUTO: '1',
       WORFY_DATA_DIR: dataDir,
       WORFY_CLAUDE_HOME: claudeHome,
@@ -92,6 +92,7 @@ const launch = (extra: Record<string, string> = {}): Promise<LaunchedApp> =>
       WORFY_CLAUDE: join(TOOLS, 'claude'),
       FIRST_RUN_TOOLS_STATE: state,
       FIRST_RUN_TOOLS_LOG: log,
+      ...extra,
     },
   })
 
@@ -116,6 +117,21 @@ async function answerDialogWith(launched: LaunchedApp, button: number): Promise<
 const shownDialogs = (launched: LaunchedApp): Promise<ShownDialog[]> =>
   launched.app.evaluate(() => ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? []) as ShownDialog[])
 
+/** Starts recording, in the page, every `harness.changed` this window hears (worfy-harness ticket 40). */
+async function listenForHarnessChanged(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const page = globalThis as unknown as { heard?: unknown[]; worfy: { on(channel: string, handler: (payload: unknown) => void): number } }
+    const heard: unknown[] = []
+    page.heard = heard
+    page.worfy.on('harness.changed', (payload) => heard.push(payload))
+  })
+}
+const heardHarnessChanged = (window: Page): Promise<{ state: { kind: string } }[]> =>
+  window.evaluate(() => ((globalThis as unknown as { heard?: unknown[] }).heard ?? []) as { state: { kind: string } }[])
+
+/** The Harness item of the toolbar (src/renderer/shell/toolbar/HarnessStatus.tsx). */
+const toolbarHarness = (window: Page): Locator => window.getByTestId('harness-status')
+
 const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The screen, once its checks are in. */
@@ -129,7 +145,7 @@ async function screen(window: Page): Promise<Locator> {
 const row = (dialog: Locator, id: string): Locator => dialog.locator(`[data-check="${id}"]`)
 
 /**
- * Snapshots of the window in both themes, in test-results/snapshots/<name>/ (snapshots.ts), to
+ * Snapshots of the window in both themes, in test-results/e2e/snapshots/<name>/ (snapshots.ts), to
  * compare with F-SPEC "First run"; the tickets keep copies as .scratch/worfy-harness/evidence/19-*.png
  * and 30-*.png.
  */
@@ -170,11 +186,21 @@ test.describe('first-run screen', () => {
       expect(calls().filter((line) => /^claude plugin (marketplace|install|update)|^npm install|^qmd pull/.test(line))).toEqual([])
       await keep(launched.window, 'first-run')
 
+      // The toolbar item read `not-installed` when the window opened (worfy-harness ticket 40).
+      const toolbar = toolbarHarness(launched.window)
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
+      await listenForHarnessChanged(launched.window)
+
       // Install → one dialog with Confirm → the dependency and the Harness are installed and both rows are ok.
       await answerDialogWith(launched, 0)
       await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 })
       await expect(row(dialog, 'harness')).toContainText(bundledHarness())
+      // The toolbar learns of the install from main's `harness.changed`, without a reload: one event, the installed state.
+      await expect(toolbar.getByTestId('harness-text')).toHaveText(`Harness ${bundledHarness()}`)
+      await expect(toolbar.getByTestId('harness-action')).toHaveCount(0)
+      expect((await heardHarnessChanged(launched.window)).map((status) => status.state.kind)).toEqual(['installed'])
       await expect(row(dialog, 'harness-dependencies')).toHaveAttribute('data-status', 'ok')
       await expect(row(dialog, 'harness-dependencies')).toContainText('OK')
       await expect(row(dialog, 'harness-dependencies')).toContainText(`${DEP} 1.0.0`)
@@ -238,6 +264,73 @@ test.describe('first-run screen', () => {
       )
       expect(startup).toMatchObject({ ok: true, value: { show: false } })
       await expect(launched.window.getByTestId('first-run')).toHaveCount(0)
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('an install from the screen that fails on a step: the toolbar shows "Harness error: install" and Retry without a reload', async () => {
+    sandbox()
+    const launched = await launch({ FAKE_CLAUDE_FAIL: 'plugin install worfy@' })
+    try {
+      const dialog = await screen(launched.window)
+      const toolbar = toolbarHarness(launched.window)
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+      await answerDialogWith(launched, 0)
+      await row(dialog, 'harness').getByRole('button', { name: 'Install' }).click()
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness error: install', { timeout: 30_000 })
+      await expect(toolbar.getByTestId('harness-text')).toHaveAttribute('title', /plugin install worfy@worfy-harness --scope user failed/)
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Retry')
+      expect(calls()).toContain('claude plugin install worfy@worfy-harness --scope user')
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('Cancel in the dialog of the screen\'s Install: the toolbar keeps "Harness not installed" and Install, and no harness.changed is sent', async () => {
+    sandbox()
+    const launched = await launch()
+    try {
+      const dialog = await screen(launched.window)
+      const toolbar = toolbarHarness(launched.window)
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+      await listenForHarnessChanged(launched.window)
+      await answerDialogWith(launched, 1)
+      const install = row(dialog, 'harness').getByRole('button', { name: 'Install' })
+      await install.click()
+      await expect.poll(async () => (await shownDialogs(launched)).length).toBe(1)
+      // The action is over once the row offers Install again.
+      await expect(install).toBeEnabled({ timeout: 30_000 })
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')
+      await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
+      expect(await heardHarnessChanged(launched.window)).toEqual([])
+      expect(calls().filter((line) => /^claude plugin (marketplace add|install|update)/.test(line))).toEqual([])
+    } finally {
+      await launched.close()
+    }
+  })
+
+  test('the other way round: an install from the toolbar, then the screen opened from the palette shows "Harness plugin" ok', async () => {
+    sandbox()
+    const launched = await launch({ WORFY_FIRST_RUN_AUTO: '0' })
+    try {
+      const { window } = launched
+      const toolbar = toolbarHarness(window)
+      await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
+      await answerDialogWith(launched, 0)
+      await toolbar.getByTestId('harness-action').click()
+      await expect(toolbar.getByTestId('harness-text')).toHaveText(`Harness ${bundledHarness()}`, { timeout: 30_000 })
+      await expect(toolbar.getByTestId('harness-action')).toHaveCount(0)
+
+      await window.keyboard.press('ControlOrMeta+k')
+      const input = window.getByTestId('palette-input')
+      await input.fill('First-run checks')
+      await expect(window.getByTestId('palette-option').first()).toHaveAttribute('data-command', 'first-run')
+      await input.press('Enter')
+      const dialog = await screen(window)
+      await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'ok')
+      await expect(row(dialog, 'harness')).toContainText(bundledHarness())
     } finally {
       await launched.close()
     }

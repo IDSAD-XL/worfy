@@ -465,7 +465,7 @@ test('Settings → Machines in the smallest window: a refusal of main is shown a
 const EVIDENCE = join(repoRoot, '.scratch', 'worfy-link', 'evidence')
 
 /**
- * Takes the light and dark snapshot of `window` (test-results/snapshots/09-<name>/). With
+ * Takes the light and dark snapshot of `window` (test-results/e2e/snapshots/09-<name>/). With
  * WORFY_EVIDENCE=1 both are also kept as the ticket's evidence `09-<name>-{light,dark}.png`; an
  * ordinary run (gate full) leaves the repository's files alone.
  */
@@ -665,7 +665,7 @@ const screenText = async (node: Locator): Promise<string> => (await node.locator
 // ── The access level of each Linked machine (worfy-link ticket 18; ADR-0066) ────────────────────
 
 /**
- * The light and dark snapshot of `window` (test-results/snapshots/18-<name>/); with
+ * The light and dark snapshot of `window` (test-results/e2e/snapshots/18-<name>/); with
  * WORFY_EVIDENCE=1 also the ticket's evidence `18-<name>-{light,dark}.png`, as evidence() does for 09.
  */
 async function evidence18(window: Page, name: string): Promise<void> {

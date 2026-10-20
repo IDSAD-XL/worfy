@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
 import MigrationForm from '../../harness/MigrationForm'
 import AppMemory from '../../memory/AppMemory'
-import { invoke } from '../../ipc'
+import { invoke, subscribe } from '../../ipc'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
 // installed, and the Install or Update button that opens main's consent dialog (src/main/ipc/harness.ts).
@@ -11,6 +11,10 @@ import { invoke } from '../../ipc'
 // A dev run on the real ~/.claude shows the state without the button (canInstall).
 // While the old Harness is still in ~/.claude, "Move old Harness…" opens the move form (ticket 14,
 // src/renderer/harness/MigrationForm.tsx); the form itself says what is missing before a move.
+// The item reads `harness.state` and `harnessMigration.offer` once, then follows main's
+// `harness.changed` and `harnessMigration.changed` (ticket 40): an install or a move started from the
+// first-run screen or from another window shows here without a reload. During its own install the
+// item stays on "Installing Harness…" until its own answer, whatever arrives meanwhile.
 
 // The app version (`app.version`) is the second line of this item, small and muted under the
 // Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
@@ -163,9 +167,9 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
 }
 
 /**
- * The Harness state from main (`harness.state`), and the install through `harness.install`.
- * Settings → Pipeline shows it too, when the Harness is too old for the editor; worfy's memory
- * stands only in the toolbar (`memory`, given by the toolbar item below).
+ * The Harness state from main (`harness.state`, then `harness.changed`), and the install through
+ * `harness.install`. Settings → Pipeline shows it too, when the Harness is too old for the editor;
+ * worfy's memory stands only in the toolbar (`memory`, given by the toolbar item below).
  */
 export function HarnessStatus({ memory = false }: { memory?: boolean }) {
   const [status, setStatus] = useState<Status>()
@@ -187,8 +191,13 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
     }
   }, [])
 
+  // How many `harnessMigration.changed` events arrived: an offer answer to a call made before the
+  // latest event is older than that event and is dropped, as the first `harness.state` answer is.
+  const offerEvents = useRef(0)
   const readOffer = useCallback(() => {
+    const asked = offerEvents.current
     void invoke('harnessMigration.offer').then((result) => {
+      if (offerEvents.current !== asked) return
       setMigration(result.ok && result.value.offered)
     })
   }, [])
@@ -196,13 +205,38 @@ export function HarnessStatus({ memory = false }: { memory?: boolean }) {
 
   useEffect(() => {
     let active = true
+    // An event that arrives before the first answer is newer than that answer: the answer is dropped.
+    let heard = false
     void invoke('harness.state').then((result) => {
-      if (!active) return
+      if (!active || heard) return
       if (result.ok) setStatus(result.value)
       else setFailure(result.error)
     })
+    // No bridge, or one without events (the preload did not run): the item shows what the first
+    // answers say rather than taking the toolbar down, as the other views do.
+    let stopState = (): void => undefined
+    try {
+      stopState = subscribe('harness.changed', (next) => {
+        heard = true
+        setFailure(undefined)
+        setStatus(next)
+      })
+    } catch (error) {
+      console.error('harness.changed: cannot subscribe', error)
+    }
+    let stopOffer = (): void => undefined
+    try {
+      stopOffer = subscribe('harnessMigration.changed', (next) => {
+        offerEvents.current++
+        setMigration(next.offered)
+      })
+    } catch (error) {
+      console.error('harnessMigration.changed: cannot subscribe', error)
+    }
     return () => {
       active = false
+      stopState()
+      stopOffer()
     }
   }, [])
 

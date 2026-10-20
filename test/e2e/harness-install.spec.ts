@@ -4,14 +4,14 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, type LaunchedApp, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, openSecondWindow, repoRoot } from './helpers'
 
 // worfy-harness tickets 13 and 30: the Harness item of the toolbar and the consent dialog. The app
 // runs with the temporary Claude home of launchApp (WORFY_CLAUDE_HOME, so the install is offered in
 // this dev build) and a stub `claude` (WORFY_CLAUDE) that logs its calls and keeps Claude Code's
 // side — the marketplaces it knows, the plugins it has installed — in a file outside that home; it
 // never reaches the network. The dialog is replaced in main: it records what it was shown and
-// answers with the given button.
+// answers with the given button. Ticket 40: an install in one window changes the item in every window.
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const bundle = join(repoRoot, 'out', 'harness')
@@ -172,6 +172,26 @@ test('"Harness not installed" → Install → one dialog names the dependency co
     // claudeCommandEnv): without it the commands would register the marketplace in the real ~/.claude.
     expect(callEnvs()).toEqual(calls().map(() => ({ HOME: claudeHome, CLAUDE_CONFIG_DIR: claudeHome })))
     expect(treeOf(pluginDir)).toEqual(treeOf(bundle))
+  } finally {
+    await launched.close()
+  }
+})
+
+test('two windows: an install from the toolbar of one changes the toolbar of the other without a reload', async () => {
+  const launched = await launchApp({ env: stub.env })
+  try {
+    const second = await openSecondWindow(launched)
+    const other = second.getByTestId('harness-status')
+    await expect(other.getByTestId('harness-text')).toHaveText('Harness not installed')
+    await expect(other.getByTestId('harness-action')).toHaveAccessibleName('Install')
+
+    const item = launched.window.getByTestId('harness-status')
+    await answerDialogWith(launched, 0)
+    await item.getByTestId('harness-action').click()
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    await expect(other.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    await expect(other.getByTestId('harness-action')).toHaveCount(0)
+    expect(await shownDialogs(launched)).toHaveLength(1)
   } finally {
     await launched.close()
   }

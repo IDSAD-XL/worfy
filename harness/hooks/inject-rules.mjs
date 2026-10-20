@@ -71,8 +71,8 @@ function main() {
 // The part "common" reaches every session and every subagent, so the user's own rules
 // ($HARNESS_HOME/user/rules.md, profiles/README.md "User personalization") ride on it. The file goes in as
 // written: the Harness does not read its meaning. Together with the part it stays within LIMIT; a
-// longer file is cut after a whole line and a closing line names the file. A file that cannot be read
-// costs one line on stderr, never the part itself.
+// longer file is cut after a whole line and a closing line names the file. A file that cannot be read,
+// or that cannot keep even its first line within LIMIT, costs one line on stderr, never the part itself.
 function withUserRules(base, cwd) {
     const file = path.join(harnessHome(typeof cwd === "string" && cwd ? cwd : undefined), "user", "rules.md")
     let rules
@@ -82,7 +82,7 @@ function withUserRules(base, cwd) {
         if (e.code !== "ENOENT") process.stderr.write(`inject-rules: user rules ${file} not injected (${e.code || e.message})\n`)
         return base
     }
-    rules = rules.replace(/\s+$/, "")
+    rules = rules.trimEnd() // not /\s+$/: that regex backtracks quadratically on a long run of spaces
     if (!rules) return base
     const head = `${base}\n\n## User rules\n\n`
     const length = (s) => [...s].length // code points, as Claude Code counts the string
@@ -100,7 +100,12 @@ function withUserRules(base, cwd) {
         kept.push(line)
         budget -= cost
     }
-    return head + kept.join("\n").replace(/\s+$/, "") + note
+    const body = kept.join("\n").trimEnd()
+    if (!body) {
+        process.stderr.write(`inject-rules: the first line of user rules ${file} does not fit within ${LIMIT} characters; not injected\n`)
+        return base
+    }
+    return head + body + note
 }
 
 try {

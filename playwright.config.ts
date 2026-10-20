@@ -11,11 +11,18 @@ process.env.WORFY_QUIET_WINDOWS ??= '1'
 // rebuilds it first, so a run never sees a stale build.
 //
 // No retries, on purpose: a test that passes only on a second try is unstable, and a retry would
-// hide that. A failing test keeps, in its folder under test-results/, Playwright's trace of the
+// hide that. A failing test keeps, in its folder under the output folder, Playwright's trace of the
 // test's steps and (from test/e2e/helpers.ts) the app's own trace and a screenshot of its window.
+//
+// The output folder is test-results/e2e. `pnpm test:package` runs the @packaged tests with
+// `--output test-results/package`: Playwright empties the output folder when a run starts, and with
+// one folder for both the packaged run, which follows the e2e run in a full gate, deleted the
+// error context and the traces of a failed e2e test. A command-line flag, not an environment
+// variable in the script, because package.json scripts run through cmd.exe on Windows.
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
+  outputDir: 'test-results/e2e',
   fullyParallel: false,
   workers: 1,
   timeout: 60_000,

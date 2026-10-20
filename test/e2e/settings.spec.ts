@@ -10,7 +10,7 @@ import { snapshotThemes } from './snapshots'
 // worfy-ui ticket 2: the Settings window against the built app. Playwright cannot press the menu's
 // Cmd/Ctrl+, accelerator, so the test clicks "Settings…" by its id (clickMenuItem), with the window
 // a real click passes; the key itself is a manual check. Snapshots in both themes:
-// test-results/snapshots/settings-*/ (test/e2e/snapshots.ts).
+// test-results/e2e/snapshots/settings-*/ (test/e2e/snapshots.ts).
 
 /** SETTINGS_MENU_ITEM_ID of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS_MENU_ITEM_ID = 'app.settings'

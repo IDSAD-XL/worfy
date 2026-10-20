@@ -252,14 +252,15 @@ if [ "$rc" -eq "$rc_warn" ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "[gate]
 else
     bad "control: rc=$rc, with warnings rc=$rc_warn (out: ${out:0:400})"
 fi
-strip() { printf '%s\n' "$1" | grep -vF "$WARN"; }
+# Without the warning lines and the log line, which names a folder of its own run.
+strip() { printf '%s\n' "$1" | grep -vF "$WARN" | grep -v '^--- full output '; }
 lines 1100 "$C/grow.ts"
 gate "$C" fast GATE_SCOPE=all
 out_c_warn="$out" rc_c_warn=$rc json_c_warn="$(verdict_json "$C")"
 warns "control repository after 950 → 1100: a warning" "grow.ts" 900 1100
 lines 950 "$C/grow.ts"   # a fresh run again: the cache keeps only the fingerprint of the last green content
 gate "$C" fast GATE_SCOPE=all
-if [ "$rc" -eq "$rc_c_warn" ] && [ "$(strip "$out_c_warn")" = "$out" ] && [ "$json_c_warn" = "$(verdict_json "$C")" ]; then
+if [ "$rc" -eq "$rc_c_warn" ] && [ "$(strip "$out_c_warn")" = "$(strip "$out")" ] && [ "$json_c_warn" = "$(verdict_json "$C")" ]; then
     ok "green: without the warning lines the output, the exit code and the verdict file are the same"
 else
     bad "green: the warning changed more than its own lines (rc $rc_c_warn vs $rc; with: ${out_c_warn:0:300}; without: ${out:0:300})"
@@ -283,7 +284,7 @@ else
 fi
 lines 950 "$C/grow.ts"
 gate "$C" full GATE_SCOPE=all
-if [ "$rc" -eq "$rc_c_warn" ] && [ "$(strip "$out_c_warn")" = "$out" ] && [ "$json_c_warn" = "$(verdict_json "$C")" ]; then
+if [ "$rc" -eq "$rc_c_warn" ] && [ "$(strip "$out_c_warn")" = "$(strip "$out")" ] && [ "$json_c_warn" = "$(verdict_json "$C")" ]; then
     ok "red: without the warning line the output, the exit code and the verdict file are the same"
 else
     bad "red: the warning changed more than its own line (rc $rc_c_warn vs $rc; with: ${out_c_warn:0:300}; without: ${out:0:300})"

@@ -1,5 +1,5 @@
 ---
-description: 'Every working turn of the main session ends with the four-line status block Этап / Сейчас / Дальше / Жду, the Этап line from epic-status (hooks/rules/orchestrator.md, "Phase 3").'
+description: 'Every working turn of the main session ends with the four-line status block Stage / Now / Next / Waiting, the Stage line from epic-status (hooks/rules/orchestrator.md, "Phase 3").'
 tags: [main]
 runs: 3
 max_turns: 40

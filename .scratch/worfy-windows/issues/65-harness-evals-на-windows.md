@@ -1,7 +1,8 @@
 # 65 — `harness-evals.test.ts` на Windows: дочерний процесс не видит настоящий home, скрипты Harness через `node`, CRLF во front matter
 
 Type: bug
-Status: open
+Status: done 2026-10-20T04:42Z
+PR: #517
 Blocked by: —
 Source: PR #496 (`worfy-harness` 27): замеры Session на Windows-ПК на main `74455f70` ([комментарий 6254019222](https://github.com/IDSAD-XL/worfy/pull/496#issuecomment-6254019222)) и на head `20823b78` ([комментарий 6254249938](https://github.com/IDSAD-XL/worfy/pull/496#issuecomment-6254249938)); вопрос Q-e утреннего списка 2026-10-19 (мерж #496 при красном на Windows файле); решение владельца 2026-10-19, пункт 1: сначала main зелёный на Windows ([Ticket 14](14-gate-full-на-windows.md), часть unit/contract, и этот Ticket); решение владельца 2026-10-09 о CRLF ([Ticket 14](14-gate-full-на-windows.md), «Что происходит»; evidence Ticket-а 01, раздел 27).
 
@@ -424,3 +425,7 @@ MISSING gate
 - Ветка `.mjs` в `runClaude` (`eval-harness.mjs`) есть только на `win32`; на Mac она не идёт. На ПК её проходят все test-ы со stub-ом.
 - Раунд 2: test «outside Windows starts a .mjs CLAUDE_BIN by its path» на ПК пропущен и на Mac не запускался; мутант E3a на Mac не проверен. Снимок `find ~/.claude/worfy-harness ~/.claude/gate | sort | md5sum` до и после финального прогона одинаковый (`172741c2…`); со старта Session он изменился один раз — `gate/state/verdict-02c8f6a5.json` от gate worktree `14-migrate` (другая Session, 13:36), test-ы этого Ticket-а туда не пишут.
 - `1b390da3` на Mac не запускался: ветки `win32` в `eval-harness.mjs` и в stub-е там не идут, а усиленные проверки («… --version, exit 1)», «… gives no folder» с `exit 1)` и «два вызова, `main exited N`, `gui exited M`, пути результатов» в «exits with the worst code …») там должны быть зелёными — не проверено запуском. Ветки `win32` проходят только test-ы на ПК; workflow «Windows tests» не запускался.
+
+### Закрытие (2026-10-20)
+
+Пункты 1–3 и 5 вошли в main с PR #517 (2026-10-19, `16931520`), пункт 4 — с PR #533 (2026-10-19, `a79f6102`). Ticket закрыт docs-PR-ом с ПК по просьбе Session на Mac; в `PR:` — #517, PR пункта 4 — #533.

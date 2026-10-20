@@ -160,8 +160,20 @@ if (firstPipe !== -1 && !textual) {
 // attribution on — exit 0 at once). Here: which commands publish text, what text, and from which directory.
 // Checked: git commit (-m, -F, and what the commit takes from the index), the branch name of git checkout -b,
 // git switch -c, git branch <name>, git worktree add -b, and gh pr create|edit|comment|review|merge (--title,
-// --body, --body-file, --subject). A failure of the check itself lets the command through: the guard must not
-// break a session because a profile is unreadable.
+// --body, --body-file, --subject).
+// bin/silent-check gets one try of SILENT_TRY_MS; a try that does not answer in time is repeated once. All the
+// checks of one command share a budget of two tries, so the hook ends within its own limit in hooks.json (30 s)
+// even when every try times out: a hook that overruns its limit is stopped, and the command runs unchecked.
+// The command goes on only when the check says it is clean (exit 0), or when it cannot read the profile
+// (exit 2 with that reason): the guard must not break a session because a profile is unreadable. Everything
+// else is refused with the reason: traces found, no answer after the retry, a check that cannot start, a
+// signal, an unknown exit code, exit 2 for any other reason (the tickets root, git, the input).
+const SILENT_TRY_MS = (() => {
+    const DEFAULT = 10000
+    // A test may shorten a try, never lengthen it past the hook's limit.
+    const v = Number(process.env.CLAUDE_SILENT_CHECK_TIMEOUT_MS)
+    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
+})()
 const silentCheck = () => {
     const base = typeof payload?.cwd === "string" && payload.cwd ? payload.cwd : process.cwd()
     // Heredoc bodies are the text of `-F -`, `--body-file -` and `-m "$(cat <<'EOF' … EOF)"`. The rest of the
@@ -172,7 +184,7 @@ const silentCheck = () => {
         bodies.push(body)
         return " " + rest
     })
-    const checks = [] // {dir, what, texts: [], diff: []}
+    const checks = [] // {dir, what, command, texts: [], diff: []}
     let dir = base
     for (const words of lex(flat)) {
         let w = words
@@ -187,15 +199,60 @@ const silentCheck = () => {
         if (prog === "git") gitCommand(w.slice(1), dir, checks, bodies, flat)
         else if (prog === "gh") ghCommand(w.slice(1), dir, checks, bodies)
     }
+    const deadline = Date.now() + 2 * SILENT_TRY_MS
     for (const c of checks) {
-        const args = [SILENT_CHECK, "-C", c.dir, "--file", "-", ...c.diff]
-        const r = spawnSync(process.execPath, args, { input: c.texts.join("\n"), encoding: "utf8", timeout: 8000 })
-        if (r.status === 1)
+        const notRun = `\`${c.command}\` was not run: `
+        if (!fs.existsSync(SILENT_CHECK))
+            deny(
+                notRun +
+                    `the check for workflow traces could not start: ${SILENT_CHECK} does not exist, ` +
+                    `so nothing tells whether ${lowerFirst(c.what)} carries traces. The Harness installation is incomplete; ` +
+                    "restore bin/silent-check, then run the same command again."
+            )
+        // bin/silent-check refuses a directory that does not exist yet (`mkdir x && cd x && git …`); the
+        // repository the command works in is the one around its nearest existing parent.
+        // shortcut: a new repository the command itself creates inside a project repository (`git init x && cd x
+        // && git commit`) is checked from the parent, with the parent's index; redo when such nested repositories
+        // become a real case (the check would then need to run after `git init`, which a PreToolUse hook cannot).
+        let dir = c.dir
+        while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
+        const args = [SILENT_CHECK, "-C", dir, "--file", "-", ...c.diff]
+        const byHand = `\`${["silent-check", "-C", dir, "--file", "<a file with the same text>", ...c.diff].join(" ")}\``
+        const tries = []
+        let r
+        while (tries.length < 2) {
+            const left = deadline - Date.now()
+            if (left <= 0) break
+            const t = Math.min(SILENT_TRY_MS, left)
+            tries.push(t)
+            r = spawnSync(process.execPath, args, { input: c.texts.join("\n"), encoding: "utf8", timeout: t, maxBuffer: 1 << 26 })
+            if (r.error?.code !== "ETIMEDOUT") break
+        }
+        const errText = (r?.stderr || "").trim().split("\n").slice(0, 5).join("\n")
+        if (!r || r.error?.code === "ETIMEDOUT")
+            deny(
+                notRun +
+                    "the check for workflow traces (bin/silent-check) did not finish in " +
+                    (tries.length ? tries.map((t) => `${Math.round(t / 100) / 10} s`).join(" and then ") : "the time left") +
+                    `, so nothing tells whether ${lowerFirst(c.what)} carries traces. Nothing was published. ` +
+                    "Run the same command again. If the check keeps running out of time, the machine is likely overloaded: " +
+                    `look at its load, and run the check by hand on the same text to see how long it takes: ${byHand}.`
+            )
+        if (r.error)
+            deny(
+                notRun +
+                    `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +
+                    `so nothing tells whether ${lowerFirst(c.what)} carries traces. Run the same command again; ` +
+                    `if it fails the same way, run the check by hand and fix what it reports: ${byHand}.`
+            )
+        if (r.status === 0) continue
+        if (r.status === 2 && /^silent-check: profile not read\b/m.test(r.stderr || "")) continue
+        if (r.status === 1 && r.stdout.trim())
             deny(
                 `${c.what} carries traces of the workflow, and this project keeps them out of its repository and PRs ` +
                     "(Silent mode: no epic names, ticket or ADR numbers, Workflow folder paths, `.scratch`, `HANDOFF`; " +
                     "attribution off: no Claude attribution lines). Found:\n" +
-                    r.stdout.trim() +
+                    capLines(r.stdout.trim(), 50) +
                     "\nDescribe the change itself, the way any commit, branch or PR of this repository would; " +
                     "workflow files go to the Workflow folder (`profile --field _resolved.workflow_folder`), not into the index." +
                     // An agent adds these lines by its general instructions; nothing in a Silent profile may say `off`.
@@ -207,7 +264,21 @@ const silentCheck = () => {
                           "and off is the default of Silent mode."
                         : "")
             )
+        deny(
+            notRun +
+                `the check for workflow traces (bin/silent-check) failed (${r.signal ? `signal ${r.signal}` : `exit ${r.status}`}), ` +
+                `so nothing tells whether ${lowerFirst(c.what)} carries traces.` +
+                (errText ? ` Its error output:\n${errText}\n` : " It printed no error. ") +
+                `Run the same command again; if it fails the same way, run the check by hand and fix what it reports: ${byHand}.`
+        )
     }
+}
+
+const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1)
+// The first <max> lines of a long text, and how many more there are: a refusal stays readable.
+const capLines = (text, max) => {
+    const lines = text.split("\n")
+    return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more lines`].join("\n") : text
 }
 
 // A shell lexer good enough for the commands above: words with quotes removed, commands split on ; & | && ||
@@ -355,7 +426,7 @@ function gitCommand(w, dir, checks, bodies, flat) {
         // `git add … && git commit` in one command: the index is not filled yet, so look at the whole tree,
         // the untracked files included.
         const adds = /(^|[;&|\n(]\s*)git(\s+-C\s+\S+)*\s+add\b/.test(flat)
-        checks.push({ dir, what: "This commit", texts: [...texts, ...bodies], diff: ["--cached", ...(all || adds ? ["--diff", "HEAD"] : []), ...(adds ? ["--untracked"] : [])] })
+        checks.push({ dir, what: "This commit", command: "git commit", texts: [...texts, ...bodies], diff: ["--cached", ...(all || adds ? ["--diff", "HEAD"] : []), ...(adds ? ["--untracked"] : [])] })
         return
     }
     const branchOf = (flags) => {
@@ -381,7 +452,7 @@ function gitCommand(w, dir, checks, bodies, flat) {
             name = rename ? plain[plain.length - 1] : plain[0]
         }
     }
-    if (name) checks.push({ dir, what: `The branch name "${name}"`, texts: [name], diff: [] })
+    if (name) checks.push({ dir, what: `The branch name "${name}"`, command: sub === "worktree" ? "git worktree add" : `git ${sub}`, texts: [name], diff: [] })
 }
 
 function ghCommand(w, dir, checks, bodies) {
@@ -395,7 +466,7 @@ function ghCommand(w, dir, checks, bodies) {
         else if (["-t", "--title", "-b", "--body", "--subject"].includes(a)) texts.push(args[++k] ?? "")
         else if (a === "-F" || a === "--body-file") texts.push(...fileText(args[++k], dir))
     }
-    if (texts.length) checks.push({ dir, what: `This PR text (gh pr ${w[1]})`, texts: [...texts, ...bodies], diff: [] })
+    if (texts.length) checks.push({ dir, what: `This PR text (gh pr ${w[1]})`, command: `gh pr ${w[1]}`, texts: [...texts, ...bodies], diff: [] })
 }
 
 // The text of a -F / --body-file argument read from disk. `-` is stdin — a heredoc body, which every check

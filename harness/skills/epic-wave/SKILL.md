@@ -42,8 +42,7 @@ the step is skipped, and that is said in words ("production check skipped: the p
 Everything the team sees — commit messages (WIP and `gate:` ones too), the PR title and
 description, PR comments (the verdicts `VERIFIED` / `REJECTED` with their list), code comments — is
 in `F language.team`. Project documents (ticket files and the ticket's result section, the epic
-spec, ADRs, the state file, lessons) are in `F language.docs`; while the profile has no such field
-(exit code 4 or `null`), in the language those documents are already written in.
+spec, ADRs, the state file, lessons) are in `F language.docs` (`en` when the profile does not set it).
 
 Two fields set the shape of the wave:
 
@@ -1004,7 +1003,7 @@ one, with the reason instead of failing jobs. Neither is reverted — the fix go
   tests in its first section), or, when the cause is not known yet, a `blocked` line in the state
   file's list of what waits for the owner; and a decision-log row with the URL;
 - no new merges in this wave, and the run stops after it: in a session without a human (worfy
-  Autopilot) no next wave starts. The report's `— Жду:` line names the CI run URL and the failing jobs
+  Autopilot) no next wave starts. The report's `— Waiting:` line names the CI run URL and the failing jobs
   and tests. A session with a human reports the same and asks.
 
 1. Ordinary PRs with code — with `merge_gate: "wave"` as a set (above); otherwise one after another,
@@ -1159,11 +1158,11 @@ after the merge).
 A table for the wave, then the four groups of findings of every ticket whose gate gave any
 (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line
 status block, which stays last. Its labels stay exactly as written —
-`— Этап:`, `— Сейчас:`, `— Дальше:`, `— Жду:` — whatever the reports language: worfy reads them
-(`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Этап:` — the
-output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Сейчас:` —
+`— Stage:`, `— Now:`, `— Next:`, `— Waiting:` — whatever the reports language: worfy reads them
+(`src/shared/agent/status-block.ts`); the values are in `F language.reports`. `— Stage:` — the
+output of `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` after a fast-forward of the main branch; `— Now:` —
 only what the gate and the live address confirmed (with `local-green` or without `deploy` — the
-gate); `— Жду:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
+gate); `— Waiting:` — a decision on a `blocked` ticket, or "nothing". Re-read every `file:line` from
 the verifier's answer yourself before quoting it.
 
 | Ticket | PR | Gate | Rework | Production |

@@ -12,6 +12,8 @@
 //     same model and must make the same calls.
 // The model, its trees and the copies are in test/unit/remove-tree-model.ts; the tests of a volume
 // mounted in the tree off Windows are in test/unit/remove-tree-mounted.test.ts.
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { restoreScriptSource } from '../../src/main/harness/migrate/restore'
 import { REMOVE_RETRIES, REMOVE_RETRY_MS, removeFile } from '../../src/main/storage/remove'
@@ -32,6 +34,11 @@ import {
   WITH_A_MOUNT_ON_ITS_VOLUME,
   type Entry,
 } from './remove-tree-model'
+
+/** The loop of scripts/install-stable.mjs that runs a removal again on Windows; importing the script runs nothing. */
+const { removeInRounds } = (await import(pathToFileURL(join(import.meta.dirname, '..', '..', 'scripts', 'install-stable.mjs')).href)) as {
+  removeInRounds: (path: string, remove: (path: string) => unknown, wait?: (ms: number) => void) => unknown
+}
 
 describe('the copies of the walk that cannot import the module', () => {
   /** What is removed, from which tree, with which calls made to fail. */
@@ -117,7 +124,8 @@ describe('the copies of the walk that cannot import the module', () => {
   it.each(Object.keys(COPIES))('%s takes the path alone: given to forEach it removes each path, and a busy one ends with its own error', (name) => {
     const m = model({ '/a': { kind: 'file' }, '/b': { kind: 'file' }, '/c': { kind: 'file' } }, { 'unlink /b': Array.from({ length: 10 }, () => 'EBUSY') })
     const removeTreeOfTheCopy = builtCopy(COPIES[name]!, m, 'win32')
-    expect(removeTreeOfTheCopy).toHaveLength(1)
+    // No check of Function.length (worfy-windows ticket 43): a parameter with a default value is not
+    // counted there, so it would not tell this signature from the earlier one. forEach below does.
     ;['/a'].forEach(removeTreeOfTheCopy)
     expect(m.names()).toEqual(['/b', '/c'])
     let code: unknown = null
@@ -154,8 +162,33 @@ describe('the copies of the walk that cannot import the module', () => {
     removeTreeOfTheCopy('/f')
     const took = performance.now() - started
     expect(m.names()).toEqual([])
+    // The lower bound alone (worfy-windows ticket 43): a worker that stalls is no error of the code,
+    // and the number of waits is counted by the tests above.
     expect(took).toBeGreaterThanOrEqual(2 * REMOVE_RETRY_MS - 20)
-    expect(took).toBeLessThan(2000)
+  })
+
+  // worfy-windows ticket 43, from the review of PR #283: the loop of install-stable.mjs that runs a
+  // removal again on Windows, over the copy of the walk taken from the text of that script.
+  it('install-stable.mjs runs its copy of the walk again: a file busy longer than one run goes on the next, and one busy for good ends after five runs', () => {
+    const tree: Record<string, Entry> = { '/d': { kind: 'folder' }, '/d/a.txt': { kind: 'file' } }
+    const oneRun = 1 + REMOVE_RETRIES
+    // Busy for the first try and the five tries after it: the whole of one run of the walk.
+    const m = model(tree, { 'unlink /d/a.txt': Array.from({ length: oneRun }, () => 'EBUSY') })
+    const pauses: number[] = []
+    removeInRounds('/d', builtCopy(COPIES['scripts/install-stable.mjs']!, m, 'win32'), (ms: number) => pauses.push(ms))
+    expect(m.names()).toEqual([])
+    expect(m.calls.filter((call) => call === 'unlink /d/a.txt')).toHaveLength(oneRun + 1)
+    // The five waits of the first run; the second run removes at its first try. One pause between them.
+    expect(m.waits).toEqual(Array.from({ length: REMOVE_RETRIES }, () => REMOVE_RETRY_MS))
+    expect(pauses).toEqual([REMOVE_RETRY_MS])
+
+    const held = model(tree, { 'unlink /d/a.txt': Array.from({ length: 99 }, () => 'EPERM') })
+    const heldPauses: number[] = []
+    expect(() => removeInRounds('/d', builtCopy(COPIES['scripts/install-stable.mjs']!, held, 'win32'), (ms: number) => heldPauses.push(ms))).toThrow('EPERM')
+    expect(held.calls.filter((call) => call === 'unlink /d/a.txt')).toHaveLength(5 * oneRun)
+    expect(held.waits).toHaveLength(5 * REMOVE_RETRIES)
+    expect(heldPauses).toEqual([100, 100, 100, 100])
+    expect(held.names()).toEqual(['/d', '/d/a.txt'])
   })
 
   it('the copies are the same text, and that text has no backquote in it: one of them lives in a template string', () => {

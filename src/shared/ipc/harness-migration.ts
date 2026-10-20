@@ -3,9 +3,11 @@
 // disk (src/main/harness/migrate/plan.ts), the user picks "Remove" or "Keep" for each row, and main
 // moves, after a native consent dialog, with a backup and a one-command restore
 // (src/main/harness/migrate/apply.ts). The form is src/renderer/harness/MigrationForm.tsx, opened
-// from the Harness item of the toolbar.
+// from the Harness item of the toolbar and from the first-run screen. A move that answers `done`
+// reaches every window as `harnessMigration.changed` (worfy-harness ticket 40), so the toolbar drops
+// "Move old Harness…" wherever the form was opened.
 import { z } from 'zod'
-import { invokeChannel } from './channels'
+import { eventChannel, invokeChannel } from './channels'
 
 /** What happens to a row: `remove` takes it out of ~/.claude (or moves it, or replaces it), `keep` leaves it. */
 export const migrationChoiceSchema = z.enum(['remove', 'keep'])
@@ -127,10 +129,14 @@ export const harnessMigrationPlan = invokeChannel('harnessMigration.plan', z.voi
 /** Moves by the choices after the consent dialog in main. */
 export const harnessMigrationApply = invokeChannel('harnessMigration.apply', migrationSelectionSchema, migrationResultSchema, 'local')
 
+/** Sent to every window after a move answers `done`: the offer as `harnessMigration.offer` would answer it now. */
+export const harnessMigrationChanged = eventChannel('harnessMigration.changed', z.object({ offered: z.boolean() }), 'local')
+
 declare module './channels' {
   interface IpcContract {
     'harnessMigration.offer': typeof harnessMigrationOffer
     'harnessMigration.plan': typeof harnessMigrationPlan
     'harnessMigration.apply': typeof harnessMigrationApply
+    'harnessMigration.changed': typeof harnessMigrationChanged
   }
 }

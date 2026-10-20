@@ -363,10 +363,10 @@ The expectation is `F deploy.production_expect`: a non-zero `EXIT`, an empty `co
 `$sha` — production is "not verified", and that is what gets written. The environment's password never goes into command arguments — only the way
 `F deploy.production_check` does it.
 
-    — Этап: outside epics (overnight run)
-    — Сейчас: <modules merged into the night branch, how many in FAILURE, state of the integration PR>
-    — Дальше: confirm the merge of PR #<N>
-    — Жду: a "yes" to the merge into the main branch, or a triage of FAILURE
+    — Stage: outside epics (overnight run)
+    — Now: <modules merged into the night branch, how many in FAILURE, state of the integration PR>
+    — Next: confirm the merge of PR #<N>
+    — Waiting: a "yes" to the merge into the main branch, or a triage of FAILURE
 
 The four labels are what worfy parses; the values are in `F language.reports`.
 

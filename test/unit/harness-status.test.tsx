@@ -1,13 +1,16 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { HarnessState, HarnessStatus } from '../../src/shared/ipc/harness'
-import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import type { WorfyBridge } from '../../src/shared/ipc/channels'
+import type { HarnessState, HarnessStatus as Status } from '../../src/shared/ipc/harness'
+import { HarnessStatus, HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
 
 // worfy-harness ticket 13: the Harness item of the toolbar. A dev run on the real ~/.claude
 // (canInstall false) shows the state and offers no install; a run that may install shows the button.
 // Ticket 30: Retry installs a missing dependency itself, so its hint names no command to run by hand.
+// Ticket 40: the item follows `harness.changed` and `harnessMigration.changed` from main, so an install
+// or a move started elsewhere (the first-run screen, another window) shows without a reload.
 
-const status = (state: HarnessState, canInstall: boolean): HarnessStatus => ({
+const status = (state: HarnessState, canInstall: boolean): Status => ({
   state,
   bundledVersion: '0.2.0+bbbbbbb',
   canInstall,
@@ -120,5 +123,163 @@ describe('HarnessStatusView', () => {
     rerender(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0" />)
     expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0')
     expect(screen.queryByTestId('harness-status')).toBeNull()
+  })
+})
+
+const globals = globalThis as { worfy?: WorfyBridge }
+
+/** A preload bridge with no main behind it: scripted answers per channel, and events the test sends. */
+function fakeBridge(answers: Record<string, () => Promise<unknown>>) {
+  const handlers = new Map<number, { channel: string; handler: (payload: unknown) => void }>()
+  let next = 1
+  const calls: string[] = []
+  globals.worfy = {
+    invoke: (channel: string) => {
+      calls.push(channel)
+      const answer = answers[channel]
+      return answer ? answer() : Promise.resolve({ ok: false, error: `${channel}: not in this test` })
+    },
+    on: (channel: string, handler: (payload: unknown) => void) => {
+      handlers.set(next, { channel, handler })
+      return next++
+    },
+    off: (id: number) => handlers.delete(id),
+  } as unknown as WorfyBridge
+  return {
+    calls,
+    listeners: (channel: string) => [...handlers.values()].filter((each) => each.channel === channel).length,
+    emit: (channel: string, payload: unknown) => {
+      for (const each of [...handlers.values()]) if (each.channel === channel) each.handler(payload)
+    },
+  }
+}
+
+const ok = (value: unknown) => () => Promise.resolve({ ok: true, value })
+const notInstalled = status({ kind: 'not-installed' }, true)
+const installed = status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: true }, true)
+
+describe('HarnessStatus (the item over IPC)', () => {
+  afterEach(() => {
+    cleanup()
+    delete globals.worfy
+  })
+
+  it('shows the state `harness.state` answered when it appears', async () => {
+    fakeBridge({ 'harness.state': ok(notInstalled), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<HarnessStatus />)
+    expect((await screen.findByTestId('harness-text')).textContent).toBe('Harness not installed')
+    expect(screen.getByTestId('harness-action').getAttribute('aria-label')).toBe('Install')
+  })
+
+  it('`harness.changed` (an install from the first-run screen or another window) replaces the state without a reload', async () => {
+    const main = fakeBridge({ 'harness.state': ok(notInstalled), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<HarnessStatus />)
+    await screen.findByTestId('harness-action')
+    act(() => main.emit('harness.changed', installed))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+    expect(screen.queryByTestId('harness-action')).toBeNull()
+    // Asked once: the event carries the state, nothing is read again.
+    expect(main.calls.filter((channel) => channel === 'harness.state')).toHaveLength(1)
+  })
+
+  it('`harness.changed` with an error after a failed step shows the error and Retry', async () => {
+    const main = fakeBridge({ 'harness.state': ok(notInstalled), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<HarnessStatus />)
+    await screen.findByTestId('harness-action')
+    act(() => main.emit('harness.changed', status({ kind: 'error', step: 'install', reason: 'exited with 1' }, true)))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness error: install')
+    expect(screen.getByTestId('harness-action').getAttribute('aria-label')).toBe('Retry')
+  })
+
+  it('`harness.changed` replaces a failed first read ("Harness unavailable")', async () => {
+    const main = fakeBridge({ 'harness.state': () => Promise.resolve({ ok: false, error: 'claude is missing' }), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<HarnessStatus />)
+    expect((await screen.findByTestId('harness-status')).textContent).toBe('Harness unavailable')
+    act(() => main.emit('harness.changed', installed))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+  })
+
+  it('an event during its own install keeps "Installing Harness…" and never brings the old text back', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const main = fakeBridge({
+      'harness.state': ok(notInstalled),
+      'harnessMigration.offer': ok({ offered: false }),
+      'harness.install': () => new Promise((resolve) => (answer = resolve)),
+    })
+    render(<HarnessStatus />)
+    fireEvent.click(await screen.findByTestId('harness-action'))
+    expect(screen.getByTestId('harness-status').textContent).toBe('Installing Harness…')
+    // Main announces the run before the call's own answer arrives.
+    act(() => main.emit('harness.changed', installed))
+    expect(screen.getByTestId('harness-status').textContent).toBe('Installing Harness…')
+    await act(async () => answer({ ok: true, value: { outcome: 'done', status: installed } }))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+    expect(screen.queryByTestId('harness-action')).toBeNull()
+  })
+
+  it('an event that arrives before the first `harness.state` answer wins over that older answer', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const main = fakeBridge({ 'harness.state': () => new Promise((resolve) => (answer = resolve)), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<HarnessStatus />)
+    act(() => main.emit('harness.changed', installed))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+    await act(async () => answer({ ok: true, value: notInstalled }))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+  })
+
+  it('a `harnessMigration.changed` that arrives before the first `harnessMigration.offer` answer wins over that older answer', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const main = fakeBridge({ 'harness.state': ok(installed), 'harnessMigration.offer': () => new Promise((resolve) => (answer = resolve)) })
+    render(<HarnessStatus />)
+    await screen.findByTestId('harness-text')
+    act(() => main.emit('harnessMigration.changed', { offered: false }))
+    await act(async () => answer({ ok: true, value: { offered: true } }))
+    expect(screen.queryByTestId('harness-migrate')).toBeNull()
+  })
+
+  it('`harnessMigration.changed` (a move from the first-run screen) hides "Move old Harness…" without a reload', async () => {
+    const main = fakeBridge({ 'harness.state': ok(installed), 'harnessMigration.offer': ok({ offered: true }) })
+    render(<HarnessStatus />)
+    await screen.findByTestId('harness-migrate')
+    act(() => main.emit('harnessMigration.changed', { offered: false }))
+    expect(screen.queryByTestId('harness-migrate')).toBeNull()
+  })
+
+  it('stops listening when it leaves the window', async () => {
+    const main = fakeBridge({ 'harness.state': ok(installed), 'harnessMigration.offer': ok({ offered: false }) })
+    const { unmount } = render(<HarnessStatus />)
+    await screen.findByTestId('harness-text')
+    expect(main.listeners('harness.changed')).toBe(1)
+    expect(main.listeners('harnessMigration.changed')).toBe(1)
+    unmount()
+    expect(main.listeners('harness.changed')).toBe(0)
+    expect(main.listeners('harnessMigration.changed')).toBe(0)
+  })
+
+  it('a bridge without events (no `on`) still shows the state `harness.state` answered, and unmounts cleanly', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      fakeBridge({ 'harness.state': ok(notInstalled), 'harnessMigration.offer': ok({ offered: true }) })
+      const bridge = globals.worfy as unknown as Record<string, unknown>
+      delete bridge.on
+      delete bridge.off
+      const { unmount } = render(<HarnessStatus />)
+      expect((await screen.findByTestId('harness-text')).textContent).toBe('Harness not installed')
+      expect(await screen.findByTestId('harness-migrate')).not.toBeNull()
+      expect(() => unmount()).not.toThrow()
+      expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining(['harness.changed: cannot subscribe', 'harnessMigration.changed: cannot subscribe']))
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('with no bridge at all (the preload did not run) the item renders "Harness unavailable" instead of taking the toolbar down', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      render(<HarnessStatus />)
+      expect((await screen.findByTestId('harness-status')).textContent).toBe('Harness unavailable')
+    } finally {
+      errors.mockRestore()
+    }
   })
 })

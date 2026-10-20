@@ -191,6 +191,14 @@ for (const f of files) {
     inputs.push([f === "-" ? "stdin" : f, asLines(text)])
 }
 const git = (args) => execFileSync(GIT, ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 1 << 28, stdio: ["ignore", "pipe", "pipe"] })
+const hasHead = () => {
+    try {
+        git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+        return true
+    } catch {
+        return false
+    }
+}
 for (const [what, rev] of diffs) {
     if (what === "untracked") {
         let list
@@ -215,9 +223,13 @@ for (const [what, rev] of diffs) {
         inputs.push(["untracked file names", list.map((f) => [f, f]), true])
         continue
     }
-    const args = rev === "--cached" ? ["--cached"] : [rev]
+    let args = rev === "--cached" ? ["--cached"] : [rev]
     let patch, names
     try {
+        // A repository with no commits has no HEAD: there `git commit -a` and `git add -A && git commit` take
+        // everything, so `--diff HEAD` compares with the empty tree (its id depends on the object format).
+        if (rev === "HEAD" && !hasHead())
+            args = [execFileSync(GIT, ["-C", dir, "hash-object", "-t", "tree", "--stdin"], { input: "", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }).trim()]
         patch = git(["diff", "--no-color", "--no-ext-diff", "-U0", ...args])
         names = git(["diff", "--name-only", "--diff-filter=ACR", ...args])
     } catch (e) {

@@ -67,8 +67,8 @@ $HARNESS_HOME/user/rules.md    the user's own rules, in prose
   `## User rules`, in `SessionStart` and in `SubagentStart`, so subagents get it too. The Harness
   neither reads its meaning nor checks it. The part and the file together stay within the hook
   limit of 10,000 characters; a longer file is cut after a whole line, and a closing line names the
-  file. An empty file adds nothing; a file that cannot be read is one line on stderr, and the part
-  arrives without it.
+  file. An empty file adds nothing. A file that cannot be read, or whose first line alone does not
+  fit within the limit, is one line on stderr naming the file, and the part arrives without it.
 
 ## How the profile is found
 
@@ -142,9 +142,9 @@ the way the project really runs them.
 | `name` | string | profile name = folder name | all |
 | `title` | string | the project's human name | reports |
 | `mode` | `"full"` \| `"silent"` | where the workflow files (tickets, the epic spec, the state file, ADRs, lessons) live: `full` — in the repository (Full mode); `silent` — outside git, in the project's Workflow folder (Silent mode). Required in schema 2: absent or another value — exit 1 with the reason in stderr, because a guessed mode would quietly put the workflow files in the wrong place | all skills and agents that write workflow files |
-| `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user. It belongs to the user, not to the project: `bin/profile` answers it from the user's `$HARNESS_HOME/user.json` (section "User personalization"), then, for one more release, from this field of the profile, then `en`. A new profile leaves it out | all agents, skills |
-| `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. Absent — `bin/profile` prints `en`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru", docs: "ru"}`, so `--field language.team` works on it too | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
-| `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — `bin/profile` prints `en` | implementer, reviewer, ship-ticket, epic-wave, retro |
+| `language.reports` | `"ru"` \| `"en"` | language of agent reports and messages to the user. It belongs to the user, not to the project: `bin/profile` answers it from the user's `$HARNESS_HOME/user.json` (section "User personalization"), then, for one more release, from this field of the profile, then `en`. A new profile leaves it out. Set but not a non-empty string — one line on stderr naming the profile file, and the field is skipped | all agents, skills |
+| `language.team` | `"ru"` \| `"en"` | language of everything the team sees: code comments, commit messages, PR titles and descriptions, review comments and verdicts in PRs. Absent — `bin/profile` prints `en`. The old form is the string `"language": "ru"`: `bin/profile` reads it as `{reports: "ru", team: "ru", docs: "ru"}`, so `--field language.team` works on it too. A `language` that is neither an object nor a non-empty string (a number, an array, `null`, `""`), or a `language.team` that is set but is not a non-empty string, is one line on stderr naming the profile file; the value is `en` and the exit code stays 0 | implementer, reviewer, ship-ticket, epic-wave, overnight-fix-loop, continuous-audit |
+| `language.docs` | `"ru"` \| `"en"` | language of the project's documents: tickets, the epic spec, ADRs, the state file, lessons. Absent — `bin/profile` prints `en`; set but not a non-empty string — `en` and one line on stderr naming the profile file | implementer, reviewer, ship-ticket, epic-wave, retro |
 | `attribution` | `"on"` \| `"off"` | whether commits and PRs carry the Claude attribution lines. Absent or `null` — the default follows `mode`: `--field attribution` prints `off` in Silent mode and `on` in Full mode. `"on"` or `"off"` written here wins in both modes; any other value — exit 1 with the reason in stderr, as with `mode` | agents and skills that commit or open PRs |
 | `layout.summary` | string | the code layout in one phrase (packages, repositories) | scout |
 | `layout.packages` | strings | package or repository directories | scout, audit |
