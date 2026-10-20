@@ -9,21 +9,74 @@
 // it (evidence of worfy-windows ticket 01, section 10). Here the variable is set for the child alone.
 // The arguments after `pnpm test` go to `vitest run` as before; the exit code is vitest's, and
 // Ctrl+C and TERM are passed on to it.
+//
+// One exception to "the exit code is vitest's": a run that exits 0 without vitest's summary
+// (`Test Files …` and `Tests …`) exits 1 with the line "vitest ended without its summary". The gate
+// and CI read only the exit code, and a run cut short with code 0 — a worker that hung and was
+// closed, Electron started as a GUI app — would otherwise read as green. The stdout of vitest is
+// therefore piped through this script and copied out as it arrives; its stderr is not touched.
+// A pipe is not a TTY, so in a terminal vitest's live progress line gives way to plain lines. The
+// verdict waits for stdout to close, so a process that inherited vitest's stdout can delay the exit.
+// Invocations that print no summary by design (--help, --version, a reporter such as json alone)
+// are not checked.
 
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { stripVTControlCharacters } from 'node:util'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 // The electron package exports the path of its binary when required from Node.
 const electron = createRequire(import.meta.url)('electron')
 const vitest = join(REPO, 'node_modules', 'vitest', 'vitest.mjs')
+// `pnpm test -- <file>` hands the `--` on. vitest takes everything after a `--` as extra options,
+// not as file filters, so the filter was dropped and the whole suite ran. A leading `--` is removed.
+const args = process.argv.slice(2)
+if (args[0] === '--') args.shift()
 
-const child = spawn(electron, [vitest, 'run', ...process.argv.slice(2)], {
-  stdio: 'inherit',
+// The built-in reporters that end a run with the summary; any other (json, junit, a custom file)
+// may print none, so a run that names only such reporters is not checked.
+const SUMMARY_REPORTERS = new Set(['default', 'verbose', 'dot', 'tree'])
+const reporters = args.flatMap((arg, index) => {
+  if (arg.startsWith('--reporter=')) return [arg.slice('--reporter='.length)]
+  if (arg === '--reporter' && index + 1 < args.length) return [args[index + 1]]
+  return []
+})
+const expectsSummary =
+  !args.some((arg) => ['--help', '-h', '--version', '-v'].includes(arg)) &&
+  (reporters.length === 0 || reporters.some((name) => SUMMARY_REPORTERS.has(name)))
+
+// Lines of the summary as vitest prints them, colour codes removed: " Test Files  1 passed (1)" and
+// "      Tests  2 passed (2)". "No test files found, exiting with code 0" (--passWithNoTests) is
+// vitest's own last word for a run with nothing to run.
+const TEST_FILES_LINE = /^\s*Test Files\s+.*\(\d+\)\s*$/
+const TESTS_LINE = /^\s*Tests\s+.*\(\d+\)\s*$/
+const NO_FILES_LINE = /^No test files found, exiting with code 0\s*$/
+let sawTestFiles = false
+let sawTests = false
+let sawNoFiles = false
+let partial = ''
+const scan = (line) => {
+  const plain = stripVTControlCharacters(line)
+  if (TEST_FILES_LINE.test(plain)) sawTestFiles = true
+  if (TESTS_LINE.test(plain)) sawTests = true
+  if (NO_FILES_LINE.test(plain)) sawNoFiles = true
+}
+
+const child = spawn(electron, [vitest, 'run', ...args], {
+  stdio: ['inherit', 'pipe', 'inherit'],
   env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+})
+// A reader that went away (`pnpm test | head`) must not stop the run: vitest keeps its output going
+// and its exit code still decides.
+process.stdout.on('error', () => {})
+child.stdout.on('data', (chunk) => {
+  process.stdout.write(chunk)
+  const lines = (partial + chunk.toString('utf8')).split(/\r?\n|\r/)
+  partial = lines.pop() ?? ''
+  for (const line of lines) scan(line)
 })
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
@@ -35,6 +88,11 @@ child.on('error', (error) => {
   process.exitCode = 1
 })
 child.on('close', (code, signal) => {
+  scan(partial)
   if (signal) process.stderr.write(`vitest-electron: vitest ended by ${signal}\n`)
   process.exitCode = typeof code === 'number' && code >= 0 ? code : 1
+  if (process.exitCode === 0 && expectsSummary && !((sawTestFiles && sawTests) || sawNoFiles)) {
+    process.stderr.write('vitest-electron: vitest ended without its summary\n')
+    process.exitCode = 1
+  }
 })
