@@ -17,6 +17,8 @@ import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import epicSource, {
   buildEpicNodes,
+  DONE_SHELF_ID,
+  type DoneShelfData,
   epicNodeId,
   foldLastDoneStack,
   openDoneStacks,
@@ -209,7 +211,8 @@ describe('the Epic node source', () => {
   it('collapses an Epic whose every Ticket is done unless the user opened it, and folds done Tickets until the stack is opened', () => {
     const id = freshProject()
     const allDone = [ticket('a', 1, { state: 'done' }), ticket('a', 2, { state: 'done' })]
-    expect(buildEpicNodes(id, '/repo', model(allDone, ['a']), layoutWith(), {}).map((n) => n.id)).toEqual([epicNodeId('a')])
+    // Collapsed by default, it is a chip on the done shelf, not a frame (worfy-canvas ticket 02).
+    expect(buildEpicNodes(id, '/repo', model(allDone, ['a']), layoutWith(), {}).map((n) => n.id)).toEqual([DONE_SHELF_ID])
     const opened = layoutWith([{ id: epicNodeId('a'), data: { collapsed: false } }])
     expect(buildEpicNodes(id, '/repo', model(allDone, ['a']), opened, {}).map((n) => n.id)).toEqual([epicNodeId('a')])
     expect(buildEpicNodes(id, '/repo', model(allDone, ['a']), opened, { [`${id}|a`]: true }).map((n) => n.id)).toEqual([
@@ -418,12 +421,11 @@ describe('⌘Z over an Epic frame (worfy-week ticket 08)', () => {
   })
 
   it('the first drag of a frame without an epic-frame Node: ⌘Z sets the offset back to (0, 0) and keeps the frame open or collapsed as it was', async () => {
-    // Epic b open by default, Epic c collapsed by default (every Ticket done); neither has a Node.
+    // Epic b open by default, without a Node. An Epic collapsed by default has every Ticket done:
+    // it is a chip on the done shelf, not a frame to drag (worfy-canvas ticket 02, done-shelf.test.tsx).
     const workflow = model([ticket('a', 1), ticket('b', 1), ticket('c', 1, { state: 'done', statusRaw: 'done' })], ['a', 'b', 'c'])
-    for (const [name, collapsed] of [
-      ['b', false],
-      ['c', true],
-    ] as const) {
+    expect(buildEpicNodes(freshProject(), '/repo', workflow, layoutWith(), {}).some((n) => n.id === epicNodeId('c'))).toBe(false)
+    for (const [name, collapsed] of [['b', false]] as const) {
       const id = freshProject()
       startMain(id, [])
       const before = frameOf(id, name, workflow).position
@@ -503,8 +505,11 @@ describe('⌘Z over an Epic frame (worfy-week ticket 08)', () => {
     expect(await historyOf(id).undo()).toBe(true)
     expect(mainLayout(id).nodes.find((node) => node.id === epicNodeId('b'))?.data).toEqual({ collapsed: null })
     expect(frameDataOf(id, 'b').collapsed).toBe(false)
+    // Collapsed by default, the done Epic goes to the done shelf (worfy-canvas ticket 02).
     const allDone = model([ticket('a', 1), ticket('b', 1, { state: 'done', statusRaw: 'done' })])
-    expect(frameDataOf(id, 'b', allDone).collapsed).toBe(true)
+    const nodes = buildEpicNodes(id, '/repo', allDone, mainLayout(id), {})
+    expect(nodes.some((n) => n.id === epicNodeId('b'))).toBe(false)
+    expect((nodes.find((n) => n.id === DONE_SHELF_ID)?.data.node.data as DoneShelfData).chips.map((chip) => chip.epic)).toEqual(['b'])
   })
 
   it('opening and folding the done stack is no step: what ⌘Z undoes stays the same', async () => {

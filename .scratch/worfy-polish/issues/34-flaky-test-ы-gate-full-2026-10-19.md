@@ -5,7 +5,8 @@ Status: open
 Blocked by: —
 Source: заметки оркестратора на Mac 2026-10-18/19 — gate full PR #496, #501, #522, #530, #533, #539 и
 gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал под нагрузкой и был зелёным отдельно.
-Строки перечитаны по main `2af91b51`.
+Строки перечитаны по main `2af91b51`. Дополнено 2026-10-20: gate full PR #550 (прогоны 1 и 2) и gate fast
+Implementer-а worfy-canvas 02; строки новых случаев — по main `a035a9aa`.
 
 ## Что происходит
 
@@ -22,9 +23,11 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
   3,4–4, fseventsd в норме), gate fast Implementer-а worfy-canvas 07 (вечер, timeout на 24,9 s). Отдельно
   — 2 из 2 зелёные. Какие шаги `eval-harness.mjs` идут в этом случае и сколько они длятся — не замерено.
 - **`install-stable.test.ts` «off Windows > refuses while a program of the copy is running — before it
-  looks at the build» — 1 раз.** `test/unit/install-stable.test.ts:539` (twin Windows — `:782`). Gate full
+  looks at the build» — 2 раза.** `test/unit/install-stable.test.ts:539` (twin Windows — `:782`). Gate full
   PR #530, 2026-10-19 ~18:10: шла настоящая Stable copy и assist-процесс, параллельно работали агенты.
-  Скрипт не увидел stand-in и пошёл к `WORFY_STABLE_PREBUILT`. Отдельно — 3 из 3 зелёные. Причина по
+  Скрипт не увидел stand-in и пошёл к `WORFY_STABLE_PREBUILT`. Отдельно — 3 из 3 зелёные. Второй раз — gate
+  full PR #550, прогон 1, 2026-10-20 ~02:10, load 11–13 (четыре Implementer-а и ревьюеры); отдельно — 5 из 5
+  зелёные. Причина по
   чтению кода: stand-in (`/bin/sleep`, скопированный в `Contents/MacOS/worfy`, `:542-545`) запускается
   `spawn`, test ждёт только событие `spawn` (`:548-551`), а скрипт ищет программу через
   `ps -axo pid=,command=` (`scripts/install-stable.mjs:327`). Событие `spawn` не значит, что `ps` уже видит
@@ -48,6 +51,11 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 - **unit `first-run-windows.test.ts:285` — 1 раз.** Ревью PR #530 (тесты): 5 s timeout проекта node
   (×3 на Windows, `vitest.config.ts:38`) под нагрузкой; внутри test даёт зависшему инструменту 1500 ms и
   ждёт ответа меньше 5000 ms (`:301`, `:308`) — запас до предела test-а почти нулевой.
+- **e2e `session-back.spec.ts:116` и `snapping.spec.ts:396` — по 1 разу, в одном прогоне.** Gate full PR #550,
+  прогон 2, 2026-10-20 ~02:40, load 6–10. `snapping.spec.ts:396` («a group of 10 Notes and a Card dragged over
+  250 Layout Nodes…»): рамка выделения взяла 6 Node из 11. Отдельно оба — 9 из 9 зелёные.
+- **contract `node-pty.test.ts` «spawns echo in a pseudo-terminal…» — 1 раз.** `test/contract/node-pty.test.ts:14`,
+  проверка `:24`: ожидали `'ok'`, получили `''`. Gate fast Implementer-а worfy-canvas 02, 2026-10-20, load около 7.
 
 ## Что делаем
 
@@ -68,10 +76,14 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 5. **harness-install.spec.ts:262.** Явный предел у `toHaveText` по замеру или ожидание состояния, от
    которого текст зависит.
 6. **first-run-windows:285.** Предел test-а с запасом над внутренними 5000 ms.
+7. **session-back.spec.ts:116 и snapping.spec.ts:396.** Причина по логу gate full #550 (прогон 2); для
+   рамки выделения — проверить, не начинается ли drag до того, как все 11 Node нарисованы.
+8. **node-pty.test.ts:14.** Пустой вывод при exit: проверить, не приходит ли `onExit` раньше последнего
+   `onData` под нагрузкой; ждать вывод, а не только exit.
 
 ## Готово, когда
 
-- [ ] У каждого из шести test-ов в «Итог»: причина (по замеру или логу), правка, замер после.
+- [ ] У каждого из девяти test-ов в «Итог»: причина (по замеру или логу), правка, замер после.
 - [ ] Замер способом Ticket-а 30 (два прогона `--project contract` разом под `yes > /dev/null` на половине
       ядер, N ≥ 6): `harness-evals.test.ts` и `install-stable.test.ts` — 0 красных.
 - [ ] e2e `family.spec.ts` и `harness-install.spec.ts` — N ≥ 5 прогонов под той же нагрузкой, 0 красных.
@@ -93,6 +105,8 @@ gate fast Implementer-а worfy-canvas 07. Каждый test ниже упал п
 - `test/contract/terminal.test.ts` (`:63`)
 - `test/e2e/harness-install.spec.ts` (`:262`, `:297`)
 - `test/unit/first-run-windows.test.ts` (`:285-308`)
+- `test/e2e/session-back.spec.ts` (`:116`), `test/e2e/snapping.spec.ts` (`:396`)
+- `test/contract/node-pty.test.ts` (`:14-24`)
 
 ## Вне скоупа
 

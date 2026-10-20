@@ -1,7 +1,8 @@
 # 06 — Shell test-ы `wave-gate` на Windows: stub-ы `gh` и gate, которые Windows может запустить
 
 Type: task
-Status: open
+Status: done 2026-10-20T03:01Z
+PR: #555
 Blocked by: 02
 Source: решение владельца 2026-10-16 — вердикт Windows Ticket-ов 01 и 02 = gate full на ПК без новых
 падений, shell test-ы `wave-gate` на Windows — известный долг до этого Ticket-а;
@@ -90,3 +91,15 @@ Windows.
 - Проверка экрана и `caffeinate` на Windows — их нет и не нужно (Ticket 02).
 - Другие shell test-ы Harness на Windows — Epic `worfy-windows`.
 - Запуск `wave-gate` Orchestrator-ом на Windows-ПК.
+
+## Итог
+
+Закрыт PR #555 (`8ec95d3e`, Ticket [worfy-windows 71](../../worfy-windows/issues/71-harness-test-sh-на-windows.md)),
+2026-10-20; заметка Session на Windows-ПК 2026-10-20. `bash harness/bin/tests/wave-gate.test.sh` в Git Bash на ПК —
+exit 0, 0 failed из 125, 267 s (было exit 1, 30 из 126, 451 s; таблица и пункт 4 «Итог» Ticket-а 71).
+
+- Stub-ы gate и `gh` на Windows — Node stand-in-ы (`node_stand_in` в `wave-gate.test.sh:145`), `wave-gate` запускает
+  override `.mjs` через `process.execPath` (`harness/bin/wave-gate:433`, override `WAVE_GATE_GH`).
+- Пропущены на win32, каждый строкой `skip …` в выводе: случаи экрана и `caffeinate`, `sig` (SIGTERM из Git Bash
+  завершает node без его обработчика), zsh. Снятие замка e2e по сигналу на Windows — Ticket
+  [worfy-windows 72](../../worfy-windows/issues/72-wave-gate-не-снимает-замок-e2e-по-сигналу-на-windows.md).

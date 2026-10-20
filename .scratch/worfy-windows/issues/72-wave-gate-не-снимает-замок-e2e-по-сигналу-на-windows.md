@@ -29,6 +29,15 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
 2. На win32 добавить SIGBREAK в `SIGNALS` — Ctrl+Break тоже снимает замки.
 3. Test: замок с pid несуществующего процесса снимается без ожидания `stale`, на всех системах; проверка «e2e
    lock on signal» на win32 заменяется этим случаем (или остаётся пропуском только для самого SIGTERM).
+4. pid на Windows — это pid Windows, а не MSYS. `process.kill(pid, 0)` (`harness/bin/wave-gate:333`) на Windows не
+   смотрит на два младших бита pid: на ПК pid живого node плюс 2 отвечает «жив». В Git Bash `$!` — pid MSYS, не
+   Windows, и он может попасть рядом с живым процессом Windows. Отсюда flaky test `wave-gate.test.sh` «pid dead»
+   (`:434-438`, `sleep 0 & dp=$!`): 1 красный из 125 в прогоне файла отдельно на 5835f33f, 2026-10-20, и зелёный в том
+   же файле внутри `harness-scripts.test.ts`. Пункт 1 (pid владельца в замке) — та же проверка, поэтому и pid-файл, и
+   замок берут pid Windows: в test-е — из `/proc/<pid>/winpid` или `ps -W`; `wave-gate` пишет свой `process.pid`, он
+   уже pid Windows. Сначала test, красный до правки: pid-файл с pid, который на 1–3 больше pid живого процесса
+   Windows, — `wave-gate` должен считать его мёртвым (или test берёт winpid завершённого `sleep`). Случай «pid live»
+   (`:428-431`, `$sp`) проверить так же: он зелёный на ПК, но опирается на тот же pid MSYS.
 
 ## Готово, когда
 
@@ -36,6 +45,8 @@ Source: Ticket [71](71-harness-test-sh-на-windows.md) (PR #555), 2026-10-20 �
       дольше одного опроса замка (`WAVE_GATE_LOCK_POLL_S`).
 - [ ] `wave-gate.test.sh` — exit 0 в Git Bash на ПК и на Mac; новый случай красный до правки.
 - [ ] Mac gate (ADR-0056) зелёный.
+- [ ] «pid dead» и «pid live» в `wave-gate.test.sh` берут pid Windows; 5 прогонов файла подряд в Git Bash — без
+      красного.
 
 ## Где в коде
 

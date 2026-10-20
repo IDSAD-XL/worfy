@@ -13,6 +13,7 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import { agentEnv } from '../agent/env'
 import { GateReader, listWorktrees, type Worktree } from '../gate/state'
 import { accountAuth, ghRunner, PrTracker } from '../github/prs'
+import { harnessScriptEnv, type HarnessScriptEnv, type HarnessScriptEnvSource } from '../harness/script-env'
 import { insideProjects } from '../link/caller'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
@@ -137,8 +138,13 @@ export interface AppPrTrackerOptions {
   claudeHome: string
   /** The gh executable; `gh` from the environment's PATH by default. */
   command?: string | undefined
-  /** The environment of gh and of `bin/profile`. */
+  /** The environment of gh. */
   env: () => Promise<Record<string, string | undefined>>
+  /**
+   * The environment of `bin/profile`: the Harness scripts' own (harnessScriptEnv), the login
+   * shell's, whatever gh runs with.
+   */
+  profileEnv: () => Promise<HarnessScriptEnv>
   /** Where the reason a Project has no account goes; console.warn by default. */
   log?: ((message: string) => void) | undefined
   now?: () => number
@@ -155,7 +161,7 @@ export function appPrTracker(options: AppPrTrackerOptions): PrTracker {
   const log = options.log ?? ((message: string) => console.warn(message))
   const lastReason = new Map<string, string | null>()
   const account = async (root: string): Promise<string | null> => {
-    const env = await options.env()
+    const env = await options.profileEnv()
     let message: string | null = null
     const read = await readGithubAccount({ root, claudeHome: options.claudeHome, env, log: (line) => void (message = line) })
     if (lastReason.get(root) !== read.reason) {
@@ -167,15 +173,30 @@ export function appPrTracker(options: AppPrTrackerOptions): PrTracker {
   return new PrTracker({ run, auth: accountAuth({ account, run }), ...(options.now ? { now: options.now } : {}) })
 }
 
+export interface AppPrSources {
+  claudeHome: string
+  /** worfy's own environment: WORFY_GH is read from it, and a gh stub runs with it. */
+  processEnv: Record<string, string | undefined>
+  /** The login shell's environment, for the real gh. */
+  loginEnv: () => Promise<Record<string, string | undefined>>
+  /** The Harness scripts' environment, for `bin/profile`. */
+  scriptEnv: HarnessScriptEnvSource
+}
+
 /**
- * The app's gh: WORFY_GH when set (tests point it at a stub) with the app's own environment, else
- * `gh` with the login shell's environment, since an app started from Finder has a bare PATH
- * (ADR-0007). The same environment runs `bin/profile`.
+ * The options of the app's PR tracker. gh: WORFY_GH when set (tests point it at a stub) with the
+ * app's own environment, else `gh` with the login shell's environment, since an app started from
+ * Finder has a bare PATH (ADR-0007). `bin/profile` runs with the Harness scripts' environment
+ * either way: WORFY_GH replaces only the gh program (worfy-harness ticket 45).
  */
+export function appPrOptions(sources: AppPrSources): AppPrTrackerOptions {
+  const stub = sources.processEnv.WORFY_GH
+  const env = stub ? () => Promise.resolve(sources.processEnv) : sources.loginEnv
+  return { claudeHome: sources.claudeHome, command: stub || undefined, env, profileEnv: sources.scriptEnv }
+}
+
 function appPrs(): PrTracker {
-  const stub = process.env.WORFY_GH
-  const env = stub ? () => Promise.resolve(process.env) : async () => (await agentEnv()).env
-  return appPrTracker({ claudeHome: claudeHome(), command: stub || undefined, env })
+  return appPrTracker(appPrOptions({ claudeHome: claudeHome(), processEnv: process.env, loginEnv: async () => (await agentEnv()).env, scriptEnv: harnessScriptEnv }))
 }
 
 let sharedPrs: PrTracker | undefined
