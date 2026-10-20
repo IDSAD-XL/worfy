@@ -14,7 +14,7 @@
 // load in the window's session storage (carryNote).
 import { z } from 'zod'
 import { create } from 'zustand'
-import { notifyOpenSchema, type NotifyOpen, type SessionOpen } from '../../shared/ipc/notify'
+import { notifyOpenSchema, type NotifyOpen, type PipelineOpen, type SessionOpen } from '../../shared/ipc/notify'
 import { sameProjectRoot } from '../../shared/paths'
 import { invokeOn } from '../ipc'
 import { orchestratorViewOf } from '../canvas/nodes/orchestrator-view'
@@ -44,6 +44,28 @@ export function notificationTarget(note: SessionOpen, project: { id: string; pat
     return { nodeId: sessionNodeId(note.sessionId), projectId: project.id, external: { sessionId: note.sessionId } }
   }
   return null
+}
+
+/**
+ * The Project whose Pipeline board a Ticket's note opens, among the Projects of the window's
+ * Machine: by id for a Linked machine's Ticket (worfy-pipeline ticket 10: its root is not sent), by
+ * root for this Machine's. Undefined when the list no longer has it.
+ */
+export function pipelineProjectOf<P extends { id: string; path: string }>(note: PipelineOpen, projects: readonly P[]): P | undefined {
+  if (note.projectId !== undefined) return projects.find((project) => project.id === note.projectId)
+  const root = note.projectRoot
+  return root === undefined ? undefined : projects.find((project) => sameProjectRoot(project.path, root))
+}
+
+/**
+ * The Project of its Machine a window loads on for a note of another Machine: a Ticket's names it
+ * by id (null for this Machine's, found by root after the load); a Session's is asked of that
+ * Machine (projectOfNote). Null when the window is to go back to this Machine.
+ */
+export function projectToLoad(note: NotifyOpen, machine: string | null): Promise<string | null> {
+  if (machine === null) return Promise.resolve(null)
+  if ('view' in note) return Promise.resolve(note.projectId ?? null)
+  return projectOfNote(note, machine)
 }
 
 /** A note waiting for its Session, and until when it waits. */

@@ -36,8 +36,14 @@
 //
 // A Ticket that comes to wait for the owner (worfy-pipeline tickets 06 and 09,
 // src/main/workflow/waits-notify.ts; read from the workflow model, so it runs no gh, git or
-// `bin/profile` of its own) gets one note of no Session, a TicketNote: shown here by NoteDisplay's rules, counted by Project
-// and Ticket, and not sent to the Linked machines. A click opens the Pipeline board of its Project.
+// `bin/profile` of its own) gets one note of no Session, a TicketNote: shown by NoteDisplay's rules, counted by Project
+// and Ticket. A click opens the Pipeline board of its Project. Whom it reaches (worfy-pipeline
+// ticket 10, Q14 and Q15; TicketNotes): `Waits: owner` — this Machine and every Linked machine that
+// may see its Projects and accepts the message (src/main/link/notes.ts); `Waits: <Machine name>` —
+// only that Machine; `team` and `agent` — no one. The Machine of the Project decides; a Linked
+// machine drops a note of a Project it has in its own list (the same repository, by the match key of
+// src/main/autopilot/origin.ts): it notified of it itself. It shows the others with the sender's name,
+// and a click opens the Pipeline board of that Project on that Machine.
 //
 // Notifier holds the rules and takes its Electron parts as NotifyDeps, so tests pass their own
 // (test/unit/notify.test.ts, test/unit/link-notify.test.ts). macOS takes the name and the icon of
@@ -48,6 +54,7 @@
 import { basename } from 'node:path'
 import { app, BrowserWindow, Notification } from 'electron'
 import type { AgentEvent } from '../shared/agent/events'
+import { readProjectMatchKey } from './autopilot/origin'
 import type { LiveSession } from '../shared/ipc/claude-home'
 import type { GateQueueRead } from './github/gate-queue'
 import { notifyOpen } from '../shared/ipc/notify'
@@ -80,16 +87,50 @@ export interface Note extends SharedNote {
 }
 
 /**
- * A notification of no Session, of a Ticket of this Machine that came to wait for the owner
- * (worfy-pipeline ticket 06, src/main/workflow/waits-notify.ts): a click opens the Pipeline board
- * of its Project. Shown by the rules of a Session's note, counted by Project and Ticket.
+ * A notification of no Session, of a Ticket that came to wait for the owner (worfy-pipeline ticket
+ * 06, src/main/workflow/waits-notify.ts): a click opens the Pipeline board of its Project. Shown by
+ * the rules of a Session's note, counted by Machine, Project and Ticket.
  */
 export interface TicketNote {
   title: string
   body: string
   sessionId: null
-  projectRoot: string
+  /** The root of a Project of this Machine; null for a Linked machine's Ticket. */
+  projectRoot: string | null
   ticket: { epic: string; num: number }
+  /** A Linked machine's Ticket (worfy-pipeline ticket 10): that Machine, and the id of its Project there. */
+  machineId?: string
+  projectId?: string
+}
+
+/** A Ticket of this Machine that came to wait (waits-notify.ts): who it waits for, and the key of the wait. */
+export interface WaitNote extends TicketNote {
+  projectRoot: string
+  /** The `Waits:` line: owner, or a Machine name. */
+  waits: string
+  /** The key of the wait (waitKey). */
+  wait: string
+}
+
+/** A Ticket's note as it goes to Linked machines (src/main/link/notes.ts, `ticket-note`): no local path. */
+export interface SharedTicketNote {
+  title: string
+  body: string
+  /** The sender's Project: its id, its name, and its match key (src/main/autopilot/origin.ts, projectMatchKey). */
+  project: { id: string; name: string; match: string }
+  epic: string
+  num: number
+  wait: string
+}
+
+/** Where the notes of this Machine's Tickets go besides its own display (src/main/link/notes.ts). */
+export interface TicketLink {
+  /** Sends a Ticket's note to the Linked machines `to` names, every one for 'all', of those that may get it. */
+  sendTicket(note: SharedTicketNote, to: 'all' | readonly string[]): void
+  /** Calls `handler` with each Ticket's note a Linked machine sends; answers the function that stops it. */
+  receiveTicket(handler: (machineId: string, note: SharedTicketNote) => void): () => void
+  /** This Machine's name (null before the link started) and the Linked machines', as Settings → Machines shows them. */
+  machines(): { self: string | null; linked: readonly { id: string; name: string }[] }
 }
 
 /** What NoteDisplay shows: a Session's note, or a Ticket's. */
@@ -148,7 +189,9 @@ const keyOf = (machineId: string | undefined, sessionId: string): string => `${m
 
 /** The key of a note in NoteDisplay: its Session's, or for a Ticket's note one no Session id can take. */
 const noteKey = (note: DisplayNote): string =>
-  note.sessionId === null ? `\0ticket\0${note.projectRoot}\0${note.ticket.epic}\0${note.ticket.num}` : keyOf(note.machineId, note.sessionId)
+  note.sessionId === null
+    ? `\0ticket\0${note.machineId ?? ''}\0${note.projectRoot ?? note.projectId ?? ''}\0${note.ticket.epic}\0${note.ticket.num}`
+    : keyOf(note.machineId, note.sessionId)
 
 /**
  * This Machine's rules for showing a note, whichever Machine decided on it: nothing while a worfy
@@ -278,6 +321,101 @@ export class Notifier {
   }
 }
 
+/** Whom a Ticket's note reaches (Q15): this Machine or not, and which Linked machines ('all': each that may get it). */
+export interface TicketRecipients {
+  here: boolean
+  linked: 'all' | string[]
+}
+
+/**
+ * Whom the note of a Ticket with `Waits: <waits>` reaches (worfy-pipeline ticket 10, Q15): `owner` —
+ * this Machine and every Linked machine; the name of this Machine — only here; the name of a Linked
+ * machine — only that Machine; `team`, `agent` or a name no Machine has — no one. A name is compared
+ * whole, as Settings → Machines shows it.
+ */
+export function ticketRecipients(waits: string, machines: ReturnType<TicketLink['machines']>): TicketRecipients {
+  if (waits === 'owner') return { here: true, linked: 'all' }
+  if (waits === 'team' || waits === 'agent') return { here: false, linked: [] }
+  if (machines.self !== null && waits === machines.self) return { here: true, linked: [] }
+  return { here: false, linked: machines.linked.filter((machine) => machine.name === waits).map((machine) => machine.id) }
+}
+
+/** A Project of worfy's list, as the notes of its Tickets name it. */
+export interface ListedProject {
+  readonly path: string
+  readonly id?: string
+  readonly name?: string
+}
+
+/** How many received waits a Machine remembers to show each once; the oldest go first. */
+const RECEIVED_LIMIT = 10_000
+
+/**
+ * The notes of the Tickets that wait (worfy-pipeline ticket 10): this Machine's go to its display
+ * and to the Linked machines by ticketRecipients; a Linked machine's are shown here unless this
+ * Machine has the same Project in its list (Q14) or showed that wait already.
+ */
+export class TicketNotes {
+  /** The waits received and shown or dropped, by match key, Epic, NN and the key of the wait. */
+  private readonly received = new Set<string>()
+
+  constructor(
+    private readonly display: { show(note: TicketNote): void },
+    private readonly link: Partial<TicketLink> | undefined,
+    private readonly projects: () => readonly ListedProject[],
+    /** The match key of a Project (src/main/autopilot/origin.ts); read with git by default. */
+    private readonly matchKey: (root: string, id: string) => Promise<string> = readProjectMatchKey,
+    private readonly warn: (message: string, error: unknown) => void = (message, error) => console.warn(message, error),
+  ) {}
+
+  private machines(): ReturnType<TicketLink['machines']> {
+    return this.link?.machines?.() ?? { self: null, linked: [] }
+  }
+
+  /** A Ticket of this Machine came to wait: shown here and sent to the Linked machines by its `Waits:`. */
+  show(note: WaitNote): void {
+    const to = ticketRecipients(note.waits, this.machines())
+    if (to.here) this.display.show(note)
+    const link = this.link
+    if (link?.sendTicket === undefined || (to.linked !== 'all' && to.linked.length === 0)) return
+    const project = this.projects().find((each) => each.path === note.projectRoot)
+    if (project?.id === undefined) return
+    const { id, name } = project
+    // The key is read with git each time: a wait is rare, and a key read once could miss a new origin.
+    this.matchKey(project.path, id).then(
+      (match) =>
+        link.sendTicket?.({ title: note.title, body: note.body, project: { id, name: name ?? id, match }, epic: note.ticket.epic, num: note.ticket.num, wait: note.wait }, to.linked),
+      (error: unknown) => this.warn(`[waits-notify] ${note.ticket.epic} ${note.ticket.num}: the note did not go to the Linked machines`, error),
+    )
+  }
+
+  /**
+   * A note of Linked machine `machineId`: shown here with that Machine's name, unless a Project of
+   * this Machine's list has its match key, or the same wait came already (from it or another Machine).
+   */
+  async receive(machineId: string, note: SharedTicketNote): Promise<void> {
+    const key = JSON.stringify([note.project.match, note.epic, note.num, note.wait])
+    // Marked before the wait for git below: the same note twice in a row is shown once.
+    if (this.received.has(key)) return
+    this.received.add(key)
+    if (this.received.size > RECEIVED_LIMIT) this.received.delete(this.received.values().next().value as string)
+    const own = await Promise.all(
+      this.projects().map((project) => (project.id === undefined ? Promise.resolve(null) : this.matchKey(project.path, project.id).catch(() => null))),
+    )
+    if (own.includes(note.project.match)) return
+    const name = this.machines().linked.find((machine) => machine.id === machineId)?.name ?? machineId
+    this.display.show({
+      title: `${note.title} (${name})`,
+      body: note.body,
+      sessionId: null,
+      projectRoot: null,
+      ticket: { epic: note.epic, num: note.num },
+      machineId,
+      projectId: note.project.id,
+    })
+  }
+}
+
 export const GATE_QUEUE_NOTICE_MS = 60 * 60_000
 /**
  * How often the watcher asks the reader. The reader answers its last read until its own interval
@@ -369,7 +507,14 @@ function holdFor(window: BrowserWindow, note: DisplayNote, pending: PendingOpens
   pending.hold(
     id,
     note.sessionId === null
-      ? { view: 'pipeline', projectRoot: note.projectRoot, epic: note.ticket.epic, num: note.ticket.num }
+      ? {
+          view: 'pipeline',
+          ...(note.projectRoot === null ? {} : { projectRoot: note.projectRoot }),
+          ...(note.projectId === undefined ? {} : { projectId: note.projectId }),
+          ...(note.machineId === undefined ? {} : { machineId: note.machineId }),
+          epic: note.ticket.epic,
+          num: note.ticket.num,
+        }
       : { sessionId: note.sessionId, projectRoot: note.projectRoot, ...(note.machineId === undefined ? {} : { machineId: note.machineId }) },
   )
   if (watched.has(id)) return
@@ -450,7 +595,9 @@ export const electronWindowNoteDeps: WindowNoteDeps = {
 /** Where the notes of the Tickets that wait for the owner come from: a workflow hub and a Project list. */
 export interface WaitsSources {
   hub: WaitsHub
-  projects: () => readonly { readonly path: string }[]
+  projects: () => readonly ListedProject[]
+  /** The match key of a Project (src/main/autopilot/origin.ts); read with git by default. */
+  matchKey?: (root: string, id: string) => Promise<string>
 }
 
 /**
@@ -466,18 +613,25 @@ export function appWaitsSources(): WaitsSources {
 /**
  * Starts notifications for the app: every Session of `registry`, and the registry watchers the
  * windows run; with `link`, the notes go to the Linked machines too and theirs are shown here;
- * with `waits`, the Tickets of the listed Projects that come to wait for the owner
- * (src/main/workflow/waits-notify.ts). Answers the function that stops them.
+ * with `waits`, the Tickets of the listed Projects that come to wait for the owner or a Machine
+ * (src/main/workflow/waits-notify.ts), and with both, the Tickets' notes of the Linked machines
+ * too (TicketNotes). Answers the function that stops them.
  */
 export function installNotifications(
   registry: Pick<SessionRegistry, 'observe'>,
   liveSessions: Set<(projectRoot: string, live: readonly LiveSession[]) => void>,
   deps: NotifyDeps = electronNotifyDeps,
-  link?: NoteLink,
+  link?: NoteLink & Partial<TicketLink>,
   /** The workflow hub and the Project list; `deps` shows and opens the Tickets' notes, Electron's by default. */
   waits?: WaitsSources & { deps?: NotifyDeps<TicketNote> },
 ): () => void {
-  const stopWaits = waits === undefined ? undefined : installWaitsNotifications(waits.hub, waits.projects, new NoteDisplay<TicketNote>(waits.deps ?? electronNotifyDeps))
+  let stopWaits: (() => void) | undefined
+  let stopTickets: (() => void) | undefined
+  if (waits !== undefined) {
+    const tickets = new TicketNotes(new NoteDisplay<TicketNote>(waits.deps ?? electronNotifyDeps), link, waits.projects, waits.matchKey)
+    stopWaits = installWaitsNotifications(waits.hub, waits.projects, tickets)
+    stopTickets = link?.receiveTicket?.((machineId, note) => void tickets.receive(machineId, note))
+  }
   const notifier = new Notifier(deps, link)
   const stop = registry.observe((sessionId, event) => notifier.sessionEvent(sessionId, event))
   const onLive = (projectRoot: string, live: readonly LiveSession[]) => notifier.externalSessions(projectRoot, live)
@@ -487,6 +641,7 @@ export function installNotifications(
     stop()
     liveSessions.delete(onLive)
     stopReceiving?.()
+    stopTickets?.()
     stopWaits?.()
   }
 }

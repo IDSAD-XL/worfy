@@ -15,7 +15,7 @@ import { LinkConnectError, openLinkSocket } from '../../src/main/link/client'
 import { LinkConnection } from '../../src/main/link/connection'
 import { generateCertificate } from '../../src/main/link/identity'
 import { localMachineOf } from '../../src/main/link/ipc-adapter'
-import { CONNECT_PATH, defineLinkMessage, LINK_MAX_PAYLOAD, LINK_PROTOCOL_VERSION, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
+import { CONNECT_PATH, defineLinkMessage, helloMessage, LINK_MAX_PAYLOAD, LINK_PROTOCOL_VERSION, MAX_ACCEPTS, PAIR_PATH, PAIRING_MAX_PAYLOAD } from '../../src/main/link/messages'
 import { startLinkServer } from '../../src/main/link/server'
 import { linkPing } from '../../src/shared/ipc/link'
 import { projectsList } from '../../src/shared/ipc/projects'
@@ -439,6 +439,54 @@ describe('service messages', () => {
     expect(bench!.captured.some((line) => line.includes('test.note outside its schema'))).toBe(true)
     // The sender refuses a payload outside its own schema.
     expect(() => a.service.sendMessage(b.service.machine.id, note, { text: 1 } as never)).toThrow(/does not match its schema/)
+  })
+})
+
+describe('the messages a Machine accepts (ADR-0079)', () => {
+  const hello = { id: randomUUID(), name: 'beta', protocol: LINK_PROTOCOL_VERSION, build: '0.2.0+bench', port: 4100 }
+
+  it('`hello` with `accepts` and without it passes; at most 200 names of 1 to 200 characters', () => {
+    expect(helloMessage.schema.parse(hello)).toEqual(hello)
+    expect(helloMessage.schema.parse({ ...hello, accepts: ['note', 'ticket-note'] })).toEqual({ ...hello, accepts: ['note', 'ticket-note'] })
+    const names = Array.from({ length: MAX_ACCEPTS }, (_, index) => `m${index}`)
+    expect(helloMessage.schema.safeParse({ ...hello, accepts: names }).success).toBe(true)
+    expect(helloMessage.schema.safeParse({ ...hello, accepts: [...names, 'one-more'] }).success).toBe(false)
+    expect(helloMessage.schema.safeParse({ ...hello, accepts: [''] }).success).toBe(false)
+    expect(helloMessage.schema.safeParse({ ...hello, accepts: ['x'.repeat(201)] }).success).toBe(false)
+  })
+
+  it('two real link services: a message is named for the Machine that registered it, also after the connection opened; a `hello` without `accepts` names nothing and the connection stays', async () => {
+    newBench()
+    const { a, b } = await linkedPair()
+    const aId = a.service.machine.id
+    const bId = b.service.machine.id
+    const early = defineLinkMessage('test.early', z.object({ text: z.string() }))
+    const later = defineLinkMessage('test.later', z.object({}))
+    const received: string[] = []
+    b.service.registerMessage(early, ({ text }) => {
+      received.push(text)
+    })
+    expect(a.service.accepts(bId, early)).toBe(false)
+    await a.service.connect(bId)
+    await expect.poll(() => a.service.accepts(bId, early)).toBe(true)
+    a.service.sendMessage(bId, early, { text: 'to B, which named it' })
+    await expect.poll(() => received).toEqual(['to B, which named it'])
+    // A did not register it: B does not count on A for it.
+    await expect.poll(() => b.service.isConnected(aId)).toBe(true)
+    expect(b.service.accepts(aId, early)).toBe(false)
+
+    // Registered after the connection opened: B says `hello` again, and A learns it.
+    expect(a.service.accepts(bId, later)).toBe(false)
+    b.service.registerMessage(later, () => undefined)
+    await expect.poll(() => a.service.accepts(bId, later)).toBe(true)
+
+    // A build before ADR-0079: its `hello` has no `accepts`. Nothing is named, the link stays.
+    b.service.connectionTo(aId)?.send({ t: 'msg', name: helloMessage.name, payload: { ...hello, id: bId, name: b.service.machine.name } })
+    await expect.poll(() => a.service.accepts(bId, early)).toBe(false)
+    expect(a.service.accepts(bId, later)).toBe(false)
+    expect(a.service.isConnected(bId)).toBe(true)
+    // A Machine that is not connected accepts nothing.
+    expect(a.service.accepts(randomUUID(), early)).toBe(false)
   })
 })
 

@@ -62,3 +62,29 @@ export async function readOriginKey(root: string): Promise<string | null> {
   const url = await git(root, ['remote', 'get-url', 'origin'])
   return url === null ? null : originKey(url)
 }
+
+/**
+ * The path of `root` inside its git repository, through `/`, without a `/` at either end: '' for the
+ * repository's root itself; null when `root` is not in a git repository or git cannot be run.
+ */
+export async function readRepoPath(root: string): Promise<string | null> {
+  const prefix = await git(root, ['rev-parse', '--show-prefix'])
+  return prefix === null ? null : prefix.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+}
+
+/**
+ * The key that tells one Project on two Machines (worfy-pipeline ticket 10, the owner's decision
+ * Q14): the same repository, not the same path. With an origin it is the origin's key (originKey)
+ * and the Project's path inside the repository, so `/Users/a/worfy` and `C:/src/worfy` of one
+ * repository match; without one, the Project's id, which matches only on the Machine it was made
+ * on. It carries no local path: a Project id is a folder name and a hash (projects/store.ts).
+ */
+export function projectMatchKey(project: { id: string; origin: string | null; repoPath: string | null }): string {
+  return project.origin === null ? JSON.stringify(['id', project.id]) : JSON.stringify(['origin', project.origin, project.repoPath ?? ''])
+}
+
+/** The match key of the Project with id `id` at `root` (projectMatchKey), read with git. Never throws. */
+export async function readProjectMatchKey(root: string, id: string): Promise<string> {
+  const [origin, repoPath] = await Promise.all([readOriginKey(root), readRepoPath(root)])
+  return projectMatchKey({ id, origin, repoPath })
+}
