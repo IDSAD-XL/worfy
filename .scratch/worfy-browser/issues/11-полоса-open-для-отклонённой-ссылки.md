@@ -15,6 +15,10 @@ review PR #609 (Ticket 10) — цена проверки origin у `window.open`
 - Поэтому ничего не открывают: ссылка `rel="noreferrer"` на самой странице, сайты с
   `Referrer-Policy: no-referrer`, `window.open` из iframe чужого origin. Пользователь не видит, что
   страница что-то просила.
+- Сюда же, вероятно, ссылка с https-страницы на `http://…`: по политике по умолчанию
+  `strict-origin-when-cross-origin` такой переход идёт без referrer (debt [low] второго круга review
+  PR #609; запуском не проверено, что Electron 44 отдаёт обработчику урезанный referrer). Тест
+  ticket-а проверяет и этот случай.
 - Electron 44 не блокирует popup без клика из `<webview allowpopups>` и не говорит обработчику, был ли
   клик и какой frame просит (e2e Ticket-а 10, `test/e2e/browser.spec.ts`).
 
