@@ -473,7 +473,8 @@ export function writeManifest(backupDir: string, manifest: Manifest): void {
 
 /**
  * The command the form shows after a move, quoted for the shell of the system: sh takes single
- * quotes; cmd.exe and PowerShell do not, so on Windows the path goes in double quotes.
+ * quotes with `'\''` for a quote inside. cmd.exe takes no single quotes at all, and `'\''` is not
+ * PowerShell's escape, so on Windows the path goes in double quotes, which both shells take.
  */
 export function restoreCommand(backupDir: string, platform: NodeJS.Platform = process.platform): string {
   const path = join(backupDir, RESTORE_SCRIPT)

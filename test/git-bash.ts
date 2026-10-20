@@ -10,8 +10,9 @@ let found: string | undefined
 
 /**
  * The Git Bash of a Windows environment: CLAUDE_CODE_GIT_BASH_PATH when it names a file, else
- * findGitBash. A CLAUDE_CODE_GIT_BASH_PATH under %SystemRoot% is the WSL launcher, refused with the
- * reason as findGitBash refuses such a candidate. Throws when there is no Git Bash.
+ * findGitBash. A CLAUDE_CODE_GIT_BASH_PATH under %SystemRoot% is the WSL launcher: findGitBash
+ * skips such a candidate silently, but here it is the tester's own setting, so it throws with the
+ * reason instead of falling through to another bash. Throws when there is no Git Bash.
  */
 export function windowsGitBash(env: NodeJS.ProcessEnv, exists: (path: string) => boolean = fileOrAlias): string {
   const own = env['CLAUDE_CODE_GIT_BASH_PATH']
