@@ -68,6 +68,11 @@ function writeEpic(folder: string, epic: string, title: string, tickets: TicketL
   mkdirSync(issues, { recursive: true })
   writeFileSync(join(folder, '.scratch', epic, 'spec.md'), `# ${title}\n\ntext\n`)
   for (const ticket of tickets) writeFileSync(join(issues, `${String(ticket.num).padStart(2, '0')}-ticket-${ticket.num}.md`), ticketMarkdown(ticket))
+  return epicStatusOf(epic, tickets)
+}
+
+/** What epic-status says about Epic `epic` with `tickets`. */
+function epicStatusOf(epic: string, tickets: TicketLines[]): unknown {
   return {
     ref: 'main',
     epics: [{ epic, hasSpec: true, hasMap: false }],
@@ -305,4 +310,37 @@ test('a Project over two repositories: each Ticket shows its repository, and its
   expect(listing(workspace)).toEqual(before.workspace)
   expect(gitState(api)).toEqual(before.api)
   expect(gitState(web)).toEqual(before.web)
+})
+
+test('an Epic put into an open Silent Project whose Workflow folder has no .scratch shows in the sidebar without opening the Project again', async () => {
+  // The case of the acceptance run of 2026-10-14 (worfy-harness ticket 26, item 5): the Workflow
+  // folder is a git repository, as project-connect makes it, and has no .scratch yet.
+  const repo = makeRepo(join(scratch, 'silent-app'))
+  const folder = join(scratch, 'workflow-folder')
+  mkdirSync(folder)
+  git(folder, 'init', '-q')
+  const dataDir = join(scratch, 'data')
+  const claudeHome = join(scratch, 'claude-home')
+  stubHarness(claudeHome, { mode: 'silent', workflow_folder: folder, workspace: null, repos: [{ name: 'silent-app', path: repo, gate_key: 'silent-app' }] }, join(folder, '.scratch'), { ref: 'main', epics: [], tickets: [] })
+  const gh = stubGh(join(scratch, 'gh'))
+  writeProject(dataDir, 'silent-app-00000041', 'silent-app', repo)
+
+  const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_HARNESS_HOME: join(scratch, 'no-harness-home'), WORFY_GH: gh.command } })
+  try {
+    const { window } = launched
+    await expect(window.getByText('No epics in .scratch/')).toBeVisible({ timeout: 15_000 })
+
+    // The stubbed epic-status answers with the Epic first; then the Epic is put and committed, as
+    // step 15 of the acceptance instructions does.
+    const tickets: TicketLines[] = [{ num: 1, status: 'open', state: 'open' }]
+    writeFileSync(join(scratch, 'epic-status.json'), JSON.stringify(epicStatusOf('e3-acceptance', tickets)))
+    writeEpic(folder, 'e3-acceptance', 'Acceptance epic', tickets)
+    git(folder, 'add', '-A')
+    git(folder, 'commit', '-q', '-m', 'epic')
+
+    // No switch of the Project: the watcher alone brings the Epic in.
+    await expect(window.locator('[data-testid="sidebar-epic"][data-epic="e3-acceptance"]')).toBeVisible({ timeout: 10_000 })
+  } finally {
+    await launched.close()
+  }
 })

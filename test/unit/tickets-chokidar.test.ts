@@ -2,7 +2,7 @@
 // real folders, on any system: where chokidar is the watch (everywhere but Windows since
 // worfy-windows ticket 20) and on Windows too, since chokidar runs there all the same. No link is
 // made here.
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
@@ -31,9 +31,9 @@ const watchedPaths = (watcher: FSWatcher): string[] =>
     .filter((path) => path.startsWith(join(root, 'x').slice(0, -1)))
     .sort()
 
-async function started(): Promise<{ watcher: FSWatcher; events: string[] }> {
+async function started(at = root): Promise<{ watcher: FSWatcher; events: string[] }> {
   const events: string[] = []
-  const watcher = watch(root, { ignoreInitial: true, ignored: ticketsIgnored(root) })
+  const watcher = watch(at, { ignoreInitial: true, ignored: ticketsIgnored(at) })
   watchers.push(watcher)
   watcher.on('all', (event, path) => events.push(`${event} ${path}`))
   await new Promise<void>((done) => watcher.once('ready', () => done()))
@@ -95,5 +95,45 @@ describe('chokidar with the filter of a Tickets root', () => {
       writeFileSync(join(dir, 'README.md'), `code ${events.length}`)
       return false
     })
+  }, 15_000)
+
+  // Records of what chokidar 5 does not see (worfy-harness ticket 41): the watcher looks for such a
+  // root itself (src/main/workflow/watch.ts, `awaitTicketsRoot`). If a new chokidar starts to see
+  // them, these tests say so, and that code may go.
+
+  // For a missing path chokidar goes up one level but keeps waiting for the root's own name: with
+  // the Workflow folder missing too it waits for `.scratch` in the folder above that one.
+  it('does not see a root whose parent is not there at the start either, made later with it', async () => {
+    const folder = join(dir, 'workflow-folder')
+    const deep = join(folder, '.scratch')
+    const { watcher, events } = await started(deep)
+    await until('the watch of the folder two levels up', () => dir in watcher.getWatched())
+    mkdirSync(join(deep, 'demo', 'issues'), { recursive: true })
+    writeFileSync(join(deep, 'demo', 'issues', '01-a.md'), '# 01\n')
+    for (let index = 0; index < 5; index++) {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      writeFileSync(join(deep, 'demo', 'issues', '01-a.md'), `# 01 ${index}\n`)
+    }
+    expect(events).toEqual([])
+  }, 15_000)
+
+  // After the root is removed chokidar does not watch the folder above for it again. Measured on
+  // macOS only: on Windows a removed folder chokidar watches sends events without end
+  // (worfy-windows ticket 37), and Linux was not measured.
+  it.skipIf(process.platform !== 'darwin')('does not see a root that is removed and made again under the same name', async () => {
+    mkdirSync(join(root, 'demo', 'issues'), { recursive: true })
+    writeFileSync(join(root, 'demo', 'issues', '01-a.md'), '# 01\n')
+    const { events } = await started()
+    rmSync(root, { recursive: true })
+    await until('the removal of the root', () => events.includes(`unlinkDir ${root}`))
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    const afterRemoval = events.length
+    mkdirSync(join(root, 'next', 'issues'), { recursive: true })
+    writeFileSync(join(root, 'next', 'issues', '01-b.md'), '# 01\n')
+    for (let index = 0; index < 5; index++) {
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      writeFileSync(join(root, 'next', 'issues', '01-b.md'), `# 01 ${index}\n`)
+    }
+    expect(events.slice(afterRemoval)).toEqual([])
   }, 15_000)
 })

@@ -20,6 +20,13 @@
 // at once (`WorkflowHub.retryFailedLayouts`), with the environment it just took: no second shell.
 // Reads never overlap: a change during a read leads to exactly one more read after it.
 //
+// A Tickets root that is not a folder — not there at the start (a Project before its first Epic,
+// a Workflow folder removed or on a disk not mounted), or removed later — is looked for every
+// TICKETS_ROOT_RETRY_MS (worfy-harness ticket 41). Once it is a folder again, its watch is made
+// anew and the Project is read. chokidar alone does not cover it: see `ticketsIgnored`. While the
+// root is a folder there are no such looks. This is the chokidar path's rule; on Windows
+// link-safe-watch.ts follows a root that comes and goes itself.
+//
 // On Windows the Tickets root is not watched by chokidar (worfy-windows ticket 20): chokidar calls
 // realpath and stat on every link in a folder it watches, and a link to a share in a checked-out
 // repository would make the system contact that host when the Project is opened. There
@@ -31,7 +38,7 @@
 // (worfy-windows ticket 37; the rule is watch-gone.ts's). The first such name closes the watch of
 // the branches and makes it anew on the same paths.
 import { execFile } from 'node:child_process'
-import { realpath } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { watch, type FSWatcher } from 'chokidar'
@@ -52,6 +59,9 @@ import {
   type CheckoutModel,
   type EpicStatusRunner,
 } from './reader'
+
+/** The time between two looks for a Tickets root that is not a folder. */
+export const TICKETS_ROOT_RETRY_MS = 2000
 
 /** The waits before each retry of a failed layout: 10 s, 30 s, 60 s, then every 5 minutes. */
 export const LAYOUT_RETRY_MS: readonly number[] = Object.freeze([10_000, 30_000, 60_000, 300_000])
@@ -97,6 +107,15 @@ export interface WatchOptions {
    * is gone; this system's rule by default. Tests give path.win32's to run the Windows case anywhere.
    */
   isAbsolute?: (name: string) => boolean
+  /** The time between two looks for a Tickets root that is not a folder (default TICKETS_ROOT_RETRY_MS). */
+  ticketsRootRetryMs?: number
+  /** Whether the Tickets root is a folder now; replaced in tests. */
+  ticketsRootThere?: (ticketsRoot: string) => Promise<boolean>
+  /**
+   * Makes the chokidar watch of the Tickets root; replaced in tests by one that reports nothing,
+   * as when the system's notification about the root is lost.
+   */
+  watchTicketsRoot?: (ticketsRoot: string, ignored: ReturnType<typeof ticketsIgnored>) => FSWatcher
 }
 
 /**
@@ -112,6 +131,17 @@ export interface WatchOptions {
  * root made later. For the same reason a path outside the root is never skipped: chokidar asks about
  * the parent folder too. Outside means `..` or `../…`; a folder inside the root named `..x` is an
  * Epic like any other.
+ *
+ * What chokidar 5 does for a root that is not there, and what it does not (worfy-harness ticket 41,
+ * measured on macOS): it watches the parent folder, without listing it, and waits there for an entry
+ * of the root's name. So the root made later is seen only through one notification of that folder;
+ * when the notification is lost, nothing is read until something else changes right in the parent.
+ * When the parent is not there either, it goes up one level but still waits for the root's own
+ * name, now in the wrong folder: a Workflow folder made later together with its `.scratch` is never
+ * seen. A root that is removed is not waited for at all: a root made again under the same name, or
+ * replaced before the next read, is not watched. The watcher covers all of these by looking for
+ * the root itself while it is not a folder, and by making the watch anew once the root is removed
+ * (WorkflowWatcher, `awaitTicketsRoot`).
  *
  * `spec.md`, `map.md` and `issues` are compared without regard to case: on a disk that ignores case
  * (the default on macOS and Windows) `epic-status` finds `Issues/` or `Spec.md` as well. On a disk
@@ -233,6 +263,14 @@ export class WorkflowWatcher {
   private readonly watchers: FSWatcher[] = []
   /** The watch of the Tickets root when it is not chokidar's. */
   private tickets: LinkSafeWatch | null = null
+  /** The chokidar watch of the Tickets root, also held in `watchers`. */
+  private ticketsWatcher: FSWatcher | null = null
+  /** The timer of the next look for a Tickets root that is not a folder. */
+  private rootLook: NodeJS.Timeout | null = null
+  /** Set while the looks for the Tickets root go on: a timer or a look running. */
+  private awaitingRoot = false
+  /** The watch of the Tickets root being made anew (`rewatchTickets`); one at a time. */
+  private rewatching: Promise<void> | null = null
   private readonly debounce: Debounce
   private layout: ProjectLayout | null = null
   /** Set when the failed layout is to be asked again before the next read. */
@@ -308,8 +346,13 @@ export class WorkflowWatcher {
     this.debounce.cancel()
     if (this.retry) clearTimeout(this.retry)
     this.retry = null
+    if (this.rootLook) clearTimeout(this.rootLook)
+    this.rootLook = null
     await this.unwatch()
     if (this.running) await this.running
+    // A watch of the Tickets root being made anew adds nothing after the close, but its close of
+    // the previous one is waited for.
+    if (this.rewatching) await this.rewatching
     // A read that got the layout again may have started the watch while it ran.
     await this.unwatch()
   }
@@ -317,6 +360,7 @@ export class WorkflowWatcher {
   private async unwatch(): Promise<void> {
     this.tickets?.close()
     this.tickets = null
+    this.ticketsWatcher = null
     await Promise.all(this.watchers.splice(0).map((w) => w.close()))
   }
 
@@ -366,10 +410,6 @@ export class WorkflowWatcher {
     const layout = this.layout!
     // `ready` is awaited through a promise made right away: it may fire while git answers below.
     const ready: Promise<void>[] = []
-    const add = (watcher: FSWatcher, what: 'checkout' | 'branches') => {
-      ready.push(new Promise<void>((done) => watcher.once('ready', () => done())))
-      this.follow(watcher, what)
-    }
     if ((this.options.ticketsWatch ?? (sep === '\\' ? 'links-read-first' : 'chokidar')) === 'links-read-first') {
       // The Project root is the user's own folder, also when it is a link to a share of theirs.
       const real = await realpath(root).catch(() => null)
@@ -386,8 +426,8 @@ export class WorkflowWatcher {
         }),
       )
     } else {
-      // No `depth`: see `ticketsIgnored`.
-      add(watch(layout.ticketsRoot, { ignoreInitial: true, ignored: ticketsIgnored(layout.ticketsRoot) }), 'checkout')
+      const tickets = this.watchTickets(layout.ticketsRoot)
+      ready.push(new Promise<void>((done) => tickets.once('ready', () => done())))
     }
 
     const common = layout.mode === 'silent' ? null : await gitCommonDir(root)
@@ -408,6 +448,89 @@ export class WorkflowWatcher {
     // chokidar's close removes the 'ready' listener, so a watch closed before it was ready never
     // gets the event: close() would then wait for this read for good.
     await Promise.race([Promise.all(ready), this.closing])
+  }
+
+  /**
+   * Makes the chokidar watch of the Tickets root and looks whether the root is a folder: while it
+   * is not, `awaitTicketsRoot` looks for it. The removal of the root itself makes the watch anew
+   * (`rewatchTickets`): chokidar does not wait for a root that is gone, and a root made again
+   * before the read that the removal asks for would otherwise stay unwatched.
+   */
+  private watchTickets(ticketsRoot: string): FSWatcher {
+    const make = this.options.watchTicketsRoot ?? ((path, ignored) => watch(path, { ignoreInitial: true, ignored }))
+    // No `depth`: see `ticketsIgnored`.
+    const watcher = make(ticketsRoot, ticketsIgnored(ticketsRoot))
+    watcher.on('unlinkDir', (path: string) => {
+      if (resolve(path) === resolve(ticketsRoot) && this.ticketsWatcher === watcher) this.rewatchTickets()
+    })
+    this.follow(watcher, 'checkout')
+    this.ticketsWatcher = watcher
+    void this.ticketsRootThere(ticketsRoot).then((there) => {
+      if (!there && this.ticketsWatcher === watcher) this.awaitTicketsRoot(ticketsRoot)
+    })
+    return watcher
+  }
+
+  private ticketsRootThere(ticketsRoot: string): Promise<boolean> {
+    const there = this.options.ticketsRootThere ?? ((path: string) => stat(path).then((stats) => stats.isDirectory()))
+    return there(ticketsRoot).catch(() => false)
+  }
+
+  /**
+   * Looks for the Tickets root every `ticketsRootRetryMs` until it is a folder, then makes its watch
+   * anew, which reads the Project. One run of looks at a time; `close` drops the timer, and a look
+   * that is running when the watcher closes changes nothing.
+   */
+  private awaitTicketsRoot(ticketsRoot: string): void {
+    if (this.awaitingRoot || this.closed) return
+    this.awaitingRoot = true
+    const look = (): void => {
+      this.rootLook = setTimeout(() => {
+        this.rootLook = null
+        void this.ticketsRootThere(ticketsRoot).then((there) => {
+          if (this.closed) return
+          if (!there) return look()
+          this.awaitingRoot = false
+          this.rewatchTickets()
+        })
+      }, this.options.ticketsRootRetryMs ?? TICKETS_ROOT_RETRY_MS)
+      this.rootLook.unref?.()
+    }
+    look()
+  }
+
+  /**
+   * Closes the watch of the Tickets root, makes it anew on the same path, and reads once it is
+   * ready: what changed while no watch was there is seen only by a read. The previous watch is
+   * closed first, so one change is never reported by two watches.
+   */
+  private rewatchTickets(): void {
+    if (this.closed) return
+    const next = (this.rewatching ?? Promise.resolve()).then(() => this.remakeTicketsWatch())
+    this.rewatching = next
+    void next.finally(() => {
+      if (this.rewatching === next) this.rewatching = null
+    })
+  }
+
+  private async remakeTicketsWatch(): Promise<void> {
+    const previous = this.ticketsWatcher
+    if (previous) {
+      this.ticketsWatcher = null
+      const at = this.watchers.indexOf(previous)
+      if (at !== -1) this.watchers.splice(at, 1)
+      await previous.close().catch((error: unknown) => console.error('[workflow] closing the Tickets watch failed', error))
+    }
+    const layout = this.layout
+    if (this.closed || !layout || layout.failed) return
+    try {
+      const fresh = this.watchTickets(layout.ticketsRoot)
+      // chokidar's close removes the 'ready' listener: a close meanwhile ends the wait.
+      await Promise.race([new Promise<void>((done) => fresh.once('ready', () => done())), this.closing])
+    } catch (error) {
+      console.error('[workflow] the Tickets watch was not made anew', error)
+    }
+    this.schedule('checkout')
   }
 
   /** Reads again on every event of a chokidar watch, and holds it for `close`. */

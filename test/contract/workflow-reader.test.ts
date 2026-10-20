@@ -3,15 +3,17 @@
 // script does for these tests' simple files: from the working tree, or from a branch for `--ref`.
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
+import { watch as chokidarWatch, type FSWatcher } from 'chokidar'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { enrichSnapshot, readCheckout, readWorkflow, epicStatusRunner, type EpicStatusRunner } from '../../src/main/workflow/reader'
-import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher } from '../../src/main/workflow/watch'
+import { Debounce, ticketsIgnored, WorkflowHub, WorkflowWatcher, type WatchOptions } from '../../src/main/workflow/watch'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { diffModels, type EpicStatusSnapshot, type WorkflowDelta, type WorkflowModel } from '../../src/shared/workflow/types'
 import { hasSh, NODE_DIR, withPath } from '../harness-node'
@@ -1073,6 +1075,268 @@ describe('workflow watcher', () => {
 
     expect(readsDuringStream).toBeGreaterThanOrEqual(1)
     expect(deltasDuringStream).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ── a Tickets root that is not there ─────────────────────────────────────────
+
+/**
+ * A Silent Project whose Workflow folder has no `.scratch` yet: a git repository, as
+ * harness/bin/project-connect makes it (`'git'`), or no folder at all (`'none'`: removed, or on a
+ * disk that is not mounted).
+ */
+function makeSilentWithout(base: string, folderState: 'git' | 'none'): { repo: string; folder: string; scratch: string } {
+  const repo = join(base, 'silent-repo')
+  mkdirSync(repo, { recursive: true })
+  writeFileSync(join(repo, 'README.md'), 'code only\n')
+  git(base, 'init', '-q', '-b', 'main', repo)
+  git(repo, 'add', '-A')
+  git(repo, 'commit', '-qm', 'code')
+  const folder = join(base, 'workflow-folder')
+  if (folderState === 'git') git(base, 'init', '-q', '-b', 'main', folder)
+  return { repo, folder, scratch: join(folder, '.scratch') }
+}
+
+/** Writes Epic `epic` with the open Tickets `nums` into the Tickets root `scratch`. */
+function putEpic(scratch: string, epic: string, nums: number[]): void {
+  const issues = join(scratch, epic, 'issues')
+  mkdirSync(issues, { recursive: true })
+  writeFileSync(join(scratch, epic, 'spec.md'), `# ${epic}: an Epic\n`)
+  for (const num of nums) writeFileSync(join(issues, `${String(num).padStart(2, '0')}-t.md`), ticketText(num, 'open', '—', null))
+}
+
+/** Sets the Status line of Ticket `num` of `epic` under `scratch`. */
+function setStatus(scratch: string, epic: string, num: number, status: string): void {
+  const file = join(scratch, epic, 'issues', `${String(num).padStart(2, '0')}-t.md`)
+  writeFileSync(file, readFileSync(file, 'utf8').replace(/^Status: .*$/m, `Status: ${status}`))
+}
+
+const isFolder = (path: string): Promise<boolean> =>
+  Promise.resolve().then(() => {
+    try {
+      return statSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  })
+
+/** A watch of the Tickets root that never reports anything: the notification about the root is lost. */
+function deafWatch(made: string[]): (ticketsRoot: string) => FSWatcher {
+  return (ticketsRoot) => {
+    made.push(ticketsRoot)
+    const watch = Object.assign(new EventEmitter(), { close: () => Promise.resolve() })
+    setImmediate(() => watch.emit('ready'))
+    return watch as unknown as FSWatcher
+  }
+}
+
+const pause = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms))
+
+// The rule is the chokidar path's; on Windows link-safe-watch.ts watches the Tickets root, and a
+// folder chokidar watches there that is removed sends events without end (worfy-windows ticket 37).
+describe.skipIf(process.platform === 'win32')('workflow watcher: a Tickets root that is not a folder (chokidar path)', () => {
+  const RETRY_MS = 100
+
+  async function startSilent(
+    repo: string,
+    folder: string,
+    scratch: string,
+    deltas: WorkflowDelta[],
+    extra: Partial<WatchOptions> = {},
+  ): Promise<{ watcher: WorkflowWatcher; log: string }> {
+    const { home, log } = makeClaudeHome(dir)
+    stubHarness(home, { code: 0, json: silentProfile(repo, folder) }, scratch)
+    process.env.STUB_SCRATCH = scratch
+    const watcher = await WorkflowWatcher.start({
+      root: repo,
+      claudeHome: home,
+      env: ownEnv,
+      onChange: (delta) => deltas.push(delta),
+      ticketsWatch: 'chokidar',
+      ticketsRootRetryMs: RETRY_MS,
+      ...extra,
+    })
+    cleanups.push(() => watcher.close())
+    return { watcher, log }
+  }
+
+  const hasEpic = (epic: string) => (delta: WorkflowDelta) => delta.epics.some((e) => e.epic === epic)
+
+  it('a Tickets root removed and made again 2 s later with another Epic: the model with it comes within 5 s, and an edit of its Ticket is one more', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const deltas: WorkflowDelta[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas)
+    expect(watcher.current.epics.map((e) => e.epic)).toEqual(['demo'])
+
+    rmSync(scratch, { recursive: true })
+    await nextDelta(deltas, (d) => d.removedTickets.length > 0)
+    await pause(2000)
+    putEpic(scratch, 'next', [1])
+    await nextDelta(deltas, hasEpic('next'), 5000)
+    await watcher.idle()
+
+    setStatus(scratch, 'next', 1, 'blocked')
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
+    expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
+  }, 20_000)
+
+  it('a Tickets root removed and made again with another Epic before the watcher read (12 ms): an edit of its Ticket comes as a new model within 5 s', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const deltas: WorkflowDelta[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas)
+
+    rmSync(scratch, { recursive: true })
+    await pause(12)
+    putEpic(scratch, 'next', [1])
+    await nextDelta(deltas, hasEpic('next'), 5000)
+    await watcher.idle()
+    // The new watch is made a moment after the read: give it time to be ready.
+    await pause(300)
+
+    setStatus(scratch, 'next', 1, 'blocked')
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
+    expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['next', 1, 'blocked']])
+  }, 20_000)
+
+  it('Silent layout, no Workflow folder at the start: made later with .scratch and an Epic, the model with the Epic comes within 5 s', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'none')
+    const deltas: WorkflowDelta[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas)
+    expect(watcher.current.epics).toEqual([])
+
+    await pause(500)
+    git(dir, 'init', '-q', '-b', 'main', folder)
+    putEpic(scratch, 'demo', [1, 2])
+    const added = await nextDelta(deltas, hasEpic('demo'), 5000)
+    expect(added.delta.tickets.map((t) => [t.epic, t.num])).toEqual([
+      ['demo', 1],
+      ['demo', 2],
+    ])
+  }, 20_000)
+
+  it('Silent layout, a Workflow folder with .git and no .scratch: an Epic put and committed comes as a model, then an edit of its Ticket as one more', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
+    const deltas: WorkflowDelta[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas)
+    expect(watcher.current.epics).toEqual([])
+
+    // What step 15 of the acceptance run does: the Epic is put, then committed in the Workflow folder.
+    putEpic(scratch, 'e3-acceptance', [1])
+    git(folder, 'add', '-A')
+    git(folder, 'commit', '-qm', 'epic')
+    await nextDelta(deltas, hasEpic('e3-acceptance'), 5000)
+    await watcher.idle()
+
+    setStatus(scratch, 'e3-acceptance', 1, 'blocked')
+    const edited = await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
+    expect(edited.delta.tickets.map((t) => [t.epic, t.num, t.state])).toEqual([['e3-acceptance', 1, 'blocked']])
+  }, 20_000)
+
+  it('a lost notification: the root appears and the watch never tells of it — the Epic is in the model within 5 s', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
+    const deltas: WorkflowDelta[] = []
+    const made: string[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, deltas, { watchTicketsRoot: deafWatch(made) })
+    expect(made).toEqual([scratch])
+    expect(watcher.current.epics).toEqual([])
+
+    putEpic(scratch, 'demo', [1])
+    await nextDelta(deltas, hasEpic('demo'), 5000)
+    // The watch was made anew on the folder that is there now.
+    expect(made).toEqual([scratch, scratch])
+  }, 20_000)
+
+  it('while the Tickets root is a folder, there are no timed looks for it and no reads beyond the start', async () => {
+    const { repo, folder, scratch } = makeSilent(dir)
+    const looks: string[] = []
+    const { watcher, log } = await startSilent(repo, folder, scratch, [], {
+      ticketsRootThere: (path) => {
+        looks.push(path)
+        return isFolder(path)
+      },
+    })
+    await watcher.idle()
+    await pause(50)
+    const [looksAtStart, readsAtStart] = [looks.length, calls(log).length]
+    expect(looksAtStart).toBeLessThanOrEqual(1)
+
+    await pause(RETRY_MS * 8)
+    await watcher.idle()
+    expect(looks.length).toBe(looksAtStart)
+    expect(calls(log).length).toBe(readsAtStart)
+  })
+
+  it('after the watch is made anew, one edit of a Ticket gives one read, not two, and only the new watch is open', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
+    const deltas: WorkflowDelta[] = []
+    // Real chokidar watches, counted: the one made at the start must be closed when it is made anew.
+    const open = new Set<FSWatcher>()
+    const made: FSWatcher[] = []
+    const { watcher, log } = await startSilent(repo, folder, scratch, deltas, {
+      watchTicketsRoot: (path, ignored) => {
+        const real = chokidarWatch(path, { ignoreInitial: true, ignored })
+        const close = real.close.bind(real)
+        real.close = () => {
+          open.delete(real)
+          return close()
+        }
+        open.add(real)
+        made.push(real)
+        return real
+      },
+    })
+    cleanups.push(async () => {
+      await Promise.all([...open].map((w) => w.close()))
+    })
+
+    putEpic(scratch, 'demo', [1])
+    await nextDelta(deltas, hasEpic('demo'), 5000)
+    // The look that finds the root, the new watch and its read are over.
+    await pause(RETRY_MS * 5)
+    await watcher.idle()
+    expect(made.length).toBe(2)
+    expect([...open]).toEqual([made[1]])
+    const before = calls(log).length
+
+    setStatus(scratch, 'demo', 1, 'blocked')
+    await nextDelta(deltas, (d) => d.tickets.length > 0, 5000)
+    await pause(700)
+    await watcher.idle()
+    expect(calls(log).length).toBe(before + 1)
+  }, 20_000)
+
+  it('close drops the timer of the looks for the root', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
+    const looks: string[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, [], {
+      ticketsRootThere: (path) => {
+        looks.push(path)
+        return isFolder(path)
+      },
+    })
+    const end = Date.now() + 5000
+    while (looks.length < 3 && Date.now() < end) await pause(20)
+    expect(looks.length).toBeGreaterThanOrEqual(3)
+
+    await watcher.close()
+    const atClose = looks.length
+    await pause(RETRY_MS * 5)
+    expect(looks.length).toBe(atClose)
+  })
+
+  it('the links-read-first path (Windows) does not look for the root', async () => {
+    const { repo, folder, scratch } = makeSilentWithout(dir, 'git')
+    const looks: string[] = []
+    const { watcher } = await startSilent(repo, folder, scratch, [], {
+      ticketsWatch: 'links-read-first',
+      ticketsRootThere: (path) => {
+        looks.push(path)
+        return isFolder(path)
+      },
+    })
+    await pause(RETRY_MS * 5)
+    await watcher.close()
+    expect(looks).toEqual([])
   })
 })
 
