@@ -255,13 +255,25 @@ function takeOver(token, ino) {
     const stale = () => inoOf(LOCK) === ino && ownerOf(LOCK) === token
     if (!stale()) return false
     stopPoint("checked")
+    // Making and removing the claim changes the folder's mtime, by which a stale lock without an owner file
+    // is judged: a claim taken back puts the old times back, or the lock would look fresh for LOCK_STALE_MS.
+    let times
+    try {
+        times = fs.statSync(LOCK)
+    } catch {
+        return false
+    }
+    const unclaim = (claim) => {
+        try {
+            fs.unlinkSync(claim)
+            if (inoOf(LOCK) === ino) fs.utimesSync(LOCK, times.atime, times.mtime)
+        } catch {}
+    }
     const claim = claimIn(LOCK)
     if (claim === null) return false
     // Checked after the claim, not only before: the claim is in the stale folder only if that folder is the lock still.
     if (!stale()) {
-        try {
-            fs.unlinkSync(claim)
-        } catch {}
+        unclaim(claim)
         return false
     }
     const aside = `${LOCK}.stale-${TOKEN}`
@@ -269,9 +281,7 @@ function takeOver(token, ino) {
         fs.renameSync(LOCK, aside)
     } catch {
         // Not moved (on Windows: a file in it is open): the claim goes, or every waiter would take it for another's.
-        try {
-            fs.unlinkSync(claim)
-        } catch {}
+        unclaim(claim)
         return false
     }
     stopPoint("moved")

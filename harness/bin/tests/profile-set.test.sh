@@ -302,27 +302,39 @@ rm -rf "$LOCKDIR"
 # A takeover whose rename fails takes its claim back: the next writer takes the stale lock over
 # instead of waiting for a claim nobody holds. The rename fails here because the profile's folder is
 # read-only (the lock folder itself stays writable, so the claim is made); on Windows the same happens
-# while a file in the lock is open.
-mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
-fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+# while a file in the lock is open. A stale lock without an owner file is judged by its folder's mtime,
+# which making and removing the claim changes: the takeover puts it back, or the stale lock would look
+# fresh for another LOCK_STALE_MS.
+# failed_rename <name> <yes|no: the stale lock has an owner file> <the Pipeline to write>
+failed_rename() {
+    local name="$1" owner="$2" value="$3" rc expected
+    mkdir "$LOCKDIR"
+    [ "$owner" = yes ] && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner"
+    touch -t 202001010000 "$LOCKDIR"
+    expected="$(ls -A "$LOCKDIR")"
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    chmod a-w "$HH/projects/demo"
+    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$value" >/dev/null 2>"$T/err"
+    rc=$?
+    chmod u+w "$HH/projects/demo"
+    check "$name: exit 6 while the folder is read-only" [ "$rc" -eq 6 ]
+    check "$name: the stale lock is left with no claim in it" [ "$(ls -A "$LOCKDIR" 2>/dev/null)" = "$expected" ]
+    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$value" >/dev/null 2>"$T/err"
+    rc=$?
+    check "$name: the next writer takes the stale lock over (exit 0)" [ "$rc" -eq 0 ]
+    check "$name: the next writer writes" [ "$(field "$PJ")" = "$value" ]
+    check "$name: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    rm -rf "$LOCKDIR"
+}
 chmod a-w "$HH/projects/demo"
 if mkdir "$HH/projects/demo/probe" 2>/dev/null; then
     rmdir "$HH/projects/demo/probe"
     chmod u+w "$HH/projects/demo"
-    rm -rf "$LOCKDIR"
-    echo "skip the failed-rename case: a read-only folder does not stop a rename here (Windows, or a root user)"
+    echo "skip the two failed-rename cases: a read-only folder does not stop a rename here (Windows, or a root user)"
 else
-    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$OTHER" >/dev/null 2>"$T/err"
-    rc=$?
     chmod u+w "$HH/projects/demo"
-    check "failed rename: not written while the folder is read-only" [ "$rc" -ne 0 ]
-    check "failed rename: the stale lock is left with no claim in it" [ "$(ls -A "$LOCKDIR" 2>/dev/null)" = owner ]
-    PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$OTHER" >/dev/null 2>"$T/err"
-    rc=$?
-    check "failed rename: the next writer takes the stale lock over (exit 0)" [ "$rc" -eq 0 ]
-    check "failed rename: the next writer writes" [ "$(field "$PJ")" = "$OTHER" ]
-    check "failed rename: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
-    rm -rf "$LOCKDIR"
+    failed_rename "failed rename" yes "$OTHER"
+    failed_rename "failed rename, a stale lock without an owner file" no "$GOOD"
 fi
 check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 2>&1)
 
@@ -548,6 +560,34 @@ swap_lock() {
 }
 swap_lock "stale lock swapped for a live one after the first check" checked yes
 swap_lock "stale lock without an owner file swapped for a new one without it yet" judged no
+
+# A claim with this writer's own token, left by an earlier try whose removal failed, is its own: the
+# writer goes on with it instead of waiting for it. The test reads the token from `judged` and puts the
+# claim in at the stop point `checked`, just before the writer claims the stale lock.
+own_claim() {
+    local s="$T/sync" pid rc
+    rm -rf "$s"
+    mkdir -p "$s"
+    touch "$s/go" "$s/hold-checked"
+    mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    PROFILE_SET_STALE_SYNC="$s" PROFILE_SET_LOCK_WAIT_MS=3000 \
+        run "$SET" -C "$T/r/demo" --expect "$fp" --set "$OTHER" >/dev/null 2>"$T/err1" &
+    pid=$!
+    if wait_for "$s/checked"; then
+        cp "$s/judged" "$LOCKDIR/takeover-0"
+    else
+        bad "own claim: checked of the writer never came"
+    fi
+    touch "$s/resume-checked"
+    wait "$pid"
+    rc=$?
+    check "own claim: the writer takes the stale lock over with it (exit 0)" [ "$rc" -eq 0 ]
+    check "own claim: written" [ "$(field "$PJ")" = "$OTHER" ]
+    check "own claim: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    rm -rf "$LOCKDIR"
+}
+own_claim
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------
 fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
