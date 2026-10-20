@@ -140,7 +140,7 @@ function stripOf(
   const left = lefts[0]!
   const top = Math.min(...frames.map((frame) => frame.auto.y))
   const shelved = shelf.h > 0
-  // placeStrip puts the shelf FRAME_GAP under the tallest column, frames or not.
+  // placeStrip puts the shelf FRAME_GAP under the tallest column (there are frames: no frames, no strip).
   const bottom = shelved ? placed.shelf.y + shelf.h : placed.shelf.y - FRAME_GAP
   return { x: left, right: left + Math.max(placed.width, shelved ? shelf.w : 0), top, bottom: top + bottom }
 }

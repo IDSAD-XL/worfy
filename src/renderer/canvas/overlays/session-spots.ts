@@ -17,8 +17,8 @@ export interface BindingSpotsInput {
   model: WorkflowModel | undefined
   /** React Flow's Nodes, read after the signals arrived: where the frames and Tickets are drawn now. */
   nodes: () => Iterable<DrawnNode>
-  /** The height the strip keeps for each frame, by Epic (frameReserves): with its done stack open. */
-  reserves?: () => ReadonlyMap<string, number> | undefined
+  /** The Project whose frames are drawn: the height the strip keeps for each of them comes from its last build (frameReserves). */
+  projectId: string
 }
 
 /** The height the strip keeps for each frame of the Project's last build, by Epic; undefined before its first build. */
@@ -32,7 +32,7 @@ export function frameReserves(projectId: string): ReadonlyMap<string, number> | 
  * Binding or what its transcript says (claim, `/epic-wave`, branch, …). Empty without a strip of
  * Epic frames on the Canvas; a Session whose signals cannot be read gets no spot.
  */
-export async function bindingSpots({ root, sessionIds, manual, model, nodes, reserves }: BindingSpotsInput): Promise<{ near: Map<string, { x: number; y: number }>; keepOut: Rect[] }> {
+export async function bindingSpots({ projectId, root, sessionIds, manual, model, nodes }: BindingSpotsInput): Promise<{ near: Map<string, { x: number; y: number }>; keepOut: Rect[] }> {
   const near = new Map<string, { x: number; y: number }>()
   if (sessionIds.length === 0 || spotInputs(nodes()).strip === undefined) return { near, keepOut: [] }
   // Read through the Bindings' store: one read per Session at a time, shared with the Canvas's anchors.
@@ -50,7 +50,7 @@ export async function bindingSpots({ root, sessionIds, manual, model, nodes, res
     if (found !== undefined) signals.set(sessionId, found)
   }
   const bindings = resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
-  const drawn = spotInputs(nodes(), reserves?.())
+  const drawn = spotInputs(nodes(), frameReserves(projectId))
   if (drawn.strip === undefined) return { near, keepOut: [] }
   for (const sessionId of sessionIds) {
     const spot = sessionSpot(bindings.get(sessionId)?.target, drawn.frames, drawn.strip)

@@ -17,7 +17,7 @@ import { activeProject, useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import type { CanvasFlowNode } from '../nodes'
 import { applyLayoutOp, useLayout } from '../useLayout'
-import { bindingSpots, frameReserves } from './session-spots'
+import { bindingSpots } from './session-spots'
 
 export const order = 50
 
@@ -125,7 +125,7 @@ function SessionNodesSync({ projectId, root }: { projectId: string; root: string
             manual: latest.current.manual,
             model: latest.current.model,
             nodes: () => store.getState().nodeLookup.values(),
-            reserves: () => frameReserves(project),
+            projectId: project,
           })
           // Spots read from another Project's Canvas place nothing: the Project changed during the reads.
           const { near, keepOut } = latest.current.projectId === project ? spots : { near: undefined, keepOut: undefined }

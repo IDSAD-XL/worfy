@@ -14,7 +14,8 @@ import {
   worfySessionTitle,
 } from '../../src/renderer/claude-home/session-nodes'
 import { answerReadOnly } from '../../src/renderer/projects/read-only-now'
-import { bindingSpots } from '../../src/renderer/canvas/overlays/session-spots'
+import { bindingSpots, frameReserves } from '../../src/renderer/canvas/overlays/session-spots'
+import { buildEpicNodes } from '../../src/renderer/canvas/sources/epics'
 import { FRAME_GAP, frameColumnX } from '../../src/renderer/canvas/epic-layout'
 import { sessionSpot, stripKeepOut, type DrawnNode } from '../../src/renderer/canvas/session-spot'
 import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
@@ -330,26 +331,60 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
         data: { node: { data: { epic: { epic: 'beta' }, auto: { x: 0, y: 988 } } } },
       } satisfies DrawnNode & { id: string }
       const epicBound = { sessionId: 'S-epic', target: { kind: 'epic' as const, epic: 'alpha' }, agentId: null }
-      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame], reserves: () => new Map([['alpha', 1200]]) })
+      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame], projectId: 'never-built' })
       expect(ipc.invoke).toHaveBeenCalledWith('bindings.signals', { projectRoot: '/p', sessionId: 'S-claimed' })
       // `ticket claim alpha 03` in its transcript: by its Ticket. A manual Binding to the Epic: by the frame's header.
       expect([...near]).toEqual([
         ['S-claimed', { x: 600 + FRAME_GAP, y: 221 }],
         ['S-epic', { x: 600 + FRAME_GAP, y: 40 }],
       ])
-      // The strip's band, `alpha` with its done stack open, and the frame the user moved off it, as drawn.
-      expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 40 + 1200 + FRAME_GAP + 200 }), { x: 700, y: 300, w: 400, h: 200 }])
+      // The strip's band (a Project never built: the frames as drawn), and the frame the user moved off it, as drawn.
+      expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 40 + 900 + FRAME_GAP + 200 }), { x: 700, y: 300, w: 400, h: 200 }])
     })
 
     it('asks nothing without a strip on the Canvas, and gives no spot when the signals cannot be read', async () => {
       ipc.invoke.mockImplementation(() => Promise.reject(new Error('main is gone')))
-      expect(await bindingSpots({ root: '/p', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [] })).toEqual({ near: new Map(), keepOut: [] })
+      expect(await bindingSpots({ projectId: 'never-built', root: '/p', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [] })).toEqual({ near: new Map(), keepOut: [] })
       expect(ipc.invoke).not.toHaveBeenCalled()
       const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-      const { near } = await bindingSpots({ root: '/q', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [frameNode] })
+      const { near } = await bindingSpots({ projectId: 'never-built', root: '/q', sessionIds: ['S-claimed'], manual: [], model: undefined, nodes: () => [frameNode] })
       expect(near.size).toBe(0)
       expect(error).toHaveBeenCalled()
       error.mockRestore()
+    })
+  })
+
+  describe('the room the strip keeps for each frame, from the Project’s last build of its frames', () => {
+    const ticket = (num: number, state: 'done' | 'open') => ({
+      epic: 'e',
+      num,
+      slug: `t${num}`,
+      title: `${num}`,
+      statusRaw: state === 'done' ? 'done 2026-10-10' : 'open',
+      state,
+      blockedRaw: null,
+      blockedNums: [],
+      blockedParsed: true,
+      files: [],
+      filesListed: true,
+      fromBranch: null,
+    })
+    const model = { root: '/repo', epics: [{ epic: 'e', hasSpec: true, hasMap: false, title: null }], tickets: [ticket(1, 'done'), ticket(2, 'done'), ticket(3, 'open')], error: null, branchErrors: [] }
+    afterEach(() => ipc.invoke.mockReset())
+
+    it('is each frame with its done stack open, and a new Node keeps clear of it', async () => {
+      const projectId = 'reserves-1'
+      // The done stack folded (no doneExpanded): the frame is drawn shorter than the room the strip keeps for it.
+      const built = buildEpicNodes(projectId, '/repo', model, { nodes: [], viewport: { x: 0, y: 0, zoom: 1 } }, {})
+      const frame = built.find((each) => each.type === EPIC_FRAME_KIND)!
+      const reserve = frameReserves(projectId)?.get('e')
+      expect(reserve).toBeGreaterThan(frame.height!)
+      ipc.invoke.mockImplementation(() => Promise.resolve({ ok: true, value: { found: false, session: EMPTY_AGENT_SIGNALS, subagents: [] } }))
+      const drawn = built.map((each) => ({ ...each, internals: { positionAbsolute: each.position } }))
+      const { keepOut: kept } = await bindingSpots({ projectId, root: '/repo', sessionIds: ['S-1'], manual: [], model: undefined, nodes: () => drawn })
+      const { x, y } = frame.position
+      expect(kept[0]).toEqual(stripKeepOut({ x, right: x + frame.width!, top: y, bottom: y + reserve! }))
+      expect(frameReserves('never-built')).toBeUndefined()
     })
   })
 })
