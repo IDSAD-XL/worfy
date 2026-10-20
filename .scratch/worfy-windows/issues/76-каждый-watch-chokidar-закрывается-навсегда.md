@@ -1,7 +1,8 @@
 # 76 — Каждый watch chokidar в `src/main` закрывается так, что остаётся закрытым
 
 Type: bug
-Status: claimed 2026-10-20T07:22Z
+Status: done 2026-10-20T16:09Z
+PR: #589
 Branch: worfy-windows/76
 Blocked by: —
 Source: Ticket [75](75-утечка-fs-watch-при-удалении-репозитория.md), раздел «Вне скоупа», и решение Mac
@@ -141,3 +142,12 @@ Ticket 75 нашёл, что chokidar 5.0.0 открывает watch занов�
 | typecheck | `CI=true pnpm typecheck` | exit 0 |
 
 Не сделано: прогон на Mac.
+
+### Закрытие (2026-10-20)
+
+Влит в main PR-ом #589 (2026-10-20, `31651a2e`). Gate full на Mac — зелёный на голове `b86de26a`
+(main `a6b3d604` + 76, fast-forward); check/windows — с runner-а 39452024852. PR был stacked на #585, а #585
+влит squash-ем (`a6b3d604`). Поэтому слияние main в 76 без текстового конфликта вернуло локальную
+`closeForGood()` в `workflow/watch.ts` рядом с import-ом из `../chokidar-close`: tsc — TS2440. Исправлено
+отдельным commit-ом до gate; `watch.ts` снова такой, как на `70d1ee92`. Ticket закрыт docs-PR-ом с ПК по
+просьбе Session на Mac.
