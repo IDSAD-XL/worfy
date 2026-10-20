@@ -52,6 +52,8 @@ review PR #609 (Ticket 10) — цена проверки origin у `window.open`
 - `src/renderer/canvas/nodes/BrowserNode.tsx`
 - `src/renderer/canvas/nodes/BrowserNode.css`
 - `src/renderer/canvas/overlays/BrowserLayer.tsx`
+- `src/renderer/canvas/nodes/browser-frame.ts` (запрос на открытие по id Browser-а, рядом с историей страниц)
+- `src/shared/ipc/browser.ts` (новый канал `browser.openRequest`, main → окно)
 - `test/unit/window-options.test.ts`
 - `test/e2e/browser.spec.ts`
 - `test/fixtures/browser/`
