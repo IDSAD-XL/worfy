@@ -12,7 +12,7 @@ import { noCyrillic } from './scripts/check-cyrillic.mjs'
 const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), 'src')
 const nodeBuiltins = new Set(builtinModules)
 
-// Process boundaries (spec.md, "Где что лежит"). Code in these layers runs outside the main
+// Process boundaries (spec.md, the section on where things live). Code in these layers runs outside the main
 // process, so it may reach Electron and Node only through the preload bridge, and never imports
 // the main process (or, for shared, the renderer) directly. Type-only imports count too: one
 // `import type ... from 'electron'` pulls Node's types into the web typecheck project and hides

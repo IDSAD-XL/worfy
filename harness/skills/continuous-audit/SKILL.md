@@ -189,7 +189,9 @@ Source: [spec.md](../spec.md), section «<topic>», finding <lens>-<N>; [ADR-NNN
 
 Two headings of this template are read by the tooling: the acceptance section `F tickets.done_section` and the
 files section `F tickets.trail_section`. Write them exactly as the profile gives them, whatever language the ticket
-text is in. The other two sections are named as the project's existing tickets name them, in the docs' language.
+text is in. `F tickets.done_section` always prints a heading (`## Done when` when the profile has none). When
+`F tickets.trail_section` is `null`, write `## Where in code`: the worfy app reads that heading then, and the
+Harness steps that read the files section skip it. Below, `F tickets.trail_section` means that heading too. The other two sections are named as the project's existing tickets name them, in the docs' language.
 
 `Type` — from the repository's glossary: `task | research | grilling`; a decision ticket is `Type: grilling` with
 `## Question` and a section for the owner's decision instead of the "what we do" section (a model — any such ticket of the project:

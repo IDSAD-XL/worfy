@@ -13,14 +13,7 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
   - `blockedByNone` — words that mean "no blockers" in a `Blocked by` line (`bin/epic-status`);
   - `blockedByAnd` — the word "and" between two ticket numbers in a `Blocked by` line (`bin/epic-status`);
   - `ticketWord` — the word "ticket", followed by any ending of the word and a number, that
-    `bin/silent-check` finds as a ticket number in a Silent project;
-  - `profileWords` — the words of the profile contract that a profile written in Russian carries: the
-    placeholders of its values (the epic, the branch, the ticket name, what is reviewed, a test file,
-    a package, a module name, a module directory), two headings of `rules.md` the agents look for
-    (required reading for the implementer; overnight run and audit) and two lens names the agents
-    map onto their English lenses (correctness, simplification). Agents use them as written. No script of
-    `bin/` reads this list; `scripts/check-cyrillic.mjs` of the repository allows these words in
-    `harness/`, outside comments.
+    `bin/silent-check` finds as a ticket number in a Silent project.
 
   A word is matched as a whole word, as written: list each spelling (capital letter, ending) that should
   count. Adding a language is a change of this file only. The words are the only text in another

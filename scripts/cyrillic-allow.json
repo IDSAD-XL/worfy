@@ -1,0 +1,4 @@
+{
+  "comment": "Cyrillic words scripts/check-cyrillic.mjs allows in harness/, outside comments: the Russian placeholders of the profile contract, two headings of rules.md and two lens names that profiles written today carry. Temporary: remove with worfy-neutral 10, which replaces them with English forms and accepts these for one release.",
+  "harnessWords": ["<эпик>", "<ветка>", "<имя-тикета>", "<что-ревьюишь>", "<файл>", "<пакет>", "<имя>", "<каталог модуля>", "Обязательное чтение исполнителя", "Ночной прогон и аудит", "корректность", "упрощение"]
+}

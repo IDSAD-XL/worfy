@@ -4,7 +4,10 @@
 // Comments are English everywhere. Cyrillic outside comments is allowed in test/fixtures/, in test
 // files (the Russian input a test feeds a parser) and in the statement right after a comment that
 // carries the marker of an old Russian token, which a reader still accepts for one release.
-// The cases are small files in a temporary folder that stands for the repository root.
+// In harness/ the words of a list (scripts/cyrillic-allow.json, or the file of --allow and the
+// rule's harnessWords option) pass outside comments. The cases are small files in a temporary folder
+// that stands for the repository root; one case lints a probe text through the repository's own
+// eslint.config.js.
 import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -15,8 +18,11 @@ import tseslint from 'typescript-eslint'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 
-const SCRIPT = join(import.meta.dirname, '..', '..', 'scripts', 'check-cyrillic.mjs')
+const REPO = join(import.meta.dirname, '..', '..')
+const SCRIPT = join(REPO, 'scripts', 'check-cyrillic.mjs')
 const MARKER = '// shortcut: accepts the old Russian token, remove after the next release'
+// The allowed words of the cases: two placeholders, as a profile written in Russian has them.
+const WORDS = ['<ветка>', '<эпик>']
 
 const dirs: string[] = []
 afterEach(() => {
@@ -34,7 +40,7 @@ function tree(files: Record<string, string>): string {
   return root
 }
 
-/** `path:line` of every error the ESLint rule reports for the TS files of a root. */
+/** `path:line` of every error the ESLint rule reports for the JS, TS and TSX files of a root. */
 async function eslintErrors(root: string): Promise<string[]> {
   // A computed specifier: the script is plain JavaScript without types.
   const { noCyrillic } = (await import(pathToFileURL(SCRIPT).href)) as { noCyrillic: unknown }
@@ -43,10 +49,10 @@ async function eslintErrors(root: string): Promise<string[]> {
     overrideConfigFile: true,
     overrideConfig: [
       {
-        files: ['**/*.ts'],
+        files: ['**/*.{ts,tsx,mjs}'],
         languageOptions: { parser: tseslint.parser },
         plugins: { worfy: { rules: { 'no-cyrillic': noCyrillic } } } as never,
-        rules: { 'worfy/no-cyrillic': 'error' },
+        rules: { 'worfy/no-cyrillic': ['error', { harnessWords: WORDS }] },
       },
     ],
   })
@@ -56,7 +62,10 @@ async function eslintErrors(root: string): Promise<string[]> {
 
 /** Runs the command on a root; `pnpm test` runs under Electron as Node, so the child does too. */
 function run(root: string): { status: number | null; lines: string[]; stderr: string } {
-  const child = spawnSync(process.execPath, [SCRIPT, '--root', root], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
+  const allow = join(root, '..', `${root.split(/[\\/]/).pop()}.allow.json`)
+  writeFileSync(allow, JSON.stringify({ harnessWords: WORDS }))
+  dirs.push(allow)
+  const child = spawnSync(process.execPath, [SCRIPT, '--root', root, '--allow', allow], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } })
   const lines = child.stderr
     .split('\n')
     .filter((l) => /^[^\s:]+:\d+: /.test(l))
@@ -89,11 +98,41 @@ describe('the ESLint rule (JS and TS files)', () => {
       "  it('reads the word', () => undefined)",
       "  it.each([['a']])('читает %s', () => undefined)",
       '  test(`шаг`, () => undefined)',
+      // Accepted on purpose: a name built from literals is data, not a plain test name.
       "  it('reads ' + 'Выкачено', () => undefined)",
       '})',
       '',
     ].join('\n')
     expect(await eslintErrors(tree({ 'test/unit/b.test.ts': test }))).toEqual(['test/unit/b.test.ts:2', 'test/unit/b.test.ts:4', 'test/unit/b.test.ts:5'])
+  })
+
+  it('reports a Russian JSDoc block of a .ts file and a JSX comment of a .tsx file', async () => {
+    const doc = '/**\n * Разбор строки.\n */\nexport const a = 1\n'
+    const jsx = 'export const A = () => (\n  <div>\n    {/* подпись */}\n    ok\n  </div>\n)\n'
+    expect(await eslintErrors(tree({ 'src/doc.ts': doc, 'src/renderer/A.tsx': jsx }))).toEqual(['src/doc.ts:1', 'src/renderer/A.tsx:3'])
+  })
+
+  it('a trailing marker covers its own line, not the statement after it', async () => {
+    const code = `export const a = 'зелено' ${MARKER}\nexport const b = 'красно'\n`
+    expect(await eslintErrors(tree({ 'src/trailing.ts': code }))).toEqual(['src/trailing.ts:2'])
+  })
+
+  it('lets the allowed words through in harness/ code, not in its comments and not outside harness/', async () => {
+    const harness = "// the branch <ветка>\nexport const t = 'git switch <ветка>'\n"
+    const src = "export const t = 'git switch <ветка>'\n"
+    expect(await eslintErrors(tree({ 'harness/bin/x.mjs': harness, 'src/x.ts': src }))).toEqual(['harness/bin/x.mjs:1', 'src/x.ts:1'])
+  })
+
+  it('checks a src/ file whose name has "test" in it as code; tests/ folders and harness/evals/ are test data', async () => {
+    const literal = "export const word = 'Выкачено'\n"
+    const files = { 'src/main/testing.ts': literal, 'src/latest.ts': literal, 'harness/bin/tests/x.mjs': literal, 'harness/evals/case/a.mjs': literal }
+    expect(await eslintErrors(tree(files))).toEqual(['src/latest.ts:1', 'src/main/testing.ts:1'])
+  })
+
+  it("the repository's eslint.config.js turns the rule on for src/", async () => {
+    const eslint = new ESLint({ cwd: REPO })
+    const [result] = await eslint.lintText('// Проба\nexport const a = 1\n', { filePath: join(REPO, 'src', 'zz-cyrillic-probe.ts') })
+    expect((result?.messages ?? []).filter((m) => m.ruleId === 'worfy/no-cyrillic').map((m) => m.line)).toEqual([1])
   })
 
   it('reports a string literal of src/', async () => {
@@ -166,6 +205,59 @@ describe('the command (files ESLint does not read)', () => {
     expect(run(tree({ 'harness/hooks/b.sh': script })).lines).toEqual(['harness/hooks/b.sh:6'])
   })
 
+  it('a # inside quotes starts no comment', () => {
+    const test = ["echo 'a #не комментарий'", 'echo "a #не комментарий"', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/q.test.sh': test })).lines).toEqual([])
+  })
+
+  it('a heredoc with a dashed or a backslash-quoted delimiter ends at its delimiter', () => {
+    const dashed = ['cat <<END-DOC', 'данные', 'END-DOC', '# комментарий', ''].join('\n')
+    const quoted = ['cat <<\\EOF', 'данные', 'EOF', '# комментарий', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/d.test.sh': dashed, 'harness/bin/tests/q.test.sh': quoted })).lines).toEqual([
+      'harness/bin/tests/d.test.sh:4',
+      'harness/bin/tests/q.test.sh:4',
+    ])
+  })
+
+  it('a << inside $(( … )) is a shift, not a heredoc', () => {
+    const script = ['x=$(( a << b ))', '# комментарий', 'echo ok', ''].join('\n')
+    expect(run(tree({ 'harness/bin/tests/shift.test.sh': script })).lines).toEqual(['harness/bin/tests/shift.test.sh:2'])
+  })
+
+  it('a trailing marker covers its own command, not the next one', () => {
+    const script = ['echo "зелено" # shortcut: accepts the old Russian token, remove after the next release', 'echo "нет"', ''].join('\n')
+    expect(run(tree({ 'harness/hooks/t.sh': script })).lines).toEqual(['harness/hooks/t.sh:2'])
+  })
+
+  it('reads CRLF lines as LF lines', () => {
+    const script = [
+      '#!/bin/bash',
+      '# комментарий',
+      '# shortcut: accepts the old Russian token, remove after the next release',
+      'if [ "$w" = "зелено" ] \\',
+      '    || [ "$w" = "красно" ]; then :; fi',
+      'echo "нет"',
+      '',
+    ].join('\r\n')
+    expect(run(tree({ 'harness/hooks/crlf.sh': script })).lines).toEqual(['harness/hooks/crlf.sh:2', 'harness/hooks/crlf.sh:6'])
+  })
+
+  it('allowed words pass in harness/ code, not in its comments and not outside harness/', () => {
+    const harness = ['# the branch <ветка>', 'git switch "<ветка>"', ''].join('\n')
+    const scripts = ['echo "<ветка>"', ''].join('\n')
+    expect(run(tree({ 'harness/hooks/w.sh': harness, 'scripts/w.sh': scripts })).lines).toEqual(['harness/hooks/w.sh:1', 'scripts/w.sh:1'])
+  })
+
+  it('harness/evals/ and a tests/ folder hold test data', () => {
+    const data = "echo 'Привет'\n"
+    expect(run(tree({ 'harness/evals/case/scaffold.sh': data, 'harness/hooks/tests/helper.sh': data })).lines).toEqual([])
+  })
+
+  it('reports Cyrillic in CSS and lets clean HTML through', () => {
+    const r = run(tree({ 'src/renderer/a.css': '/* комментарий */\n.a { color: red; }\n', 'src/renderer/b.html': '<p>ok</p>\n' }))
+    expect(r.lines).toEqual(['src/renderer/a.css:1'])
+  })
+
   it('reads an extensionless Node script as JavaScript', () => {
     const script = "#!/usr/bin/env node\n// комментарий\nconst ok = 'ok'\n" + `${MARKER}\nconst OLD = /^(?:green|зелено)$/\nconsole.log(ok, OLD, 'нет')\n`
     expect(run(tree({ 'harness/bin/tool': script })).lines).toEqual(['harness/bin/tool:2', 'harness/bin/tool:6'])
@@ -189,6 +281,11 @@ describe('the command (files ESLint does not read)', () => {
       '',
     ].join('\n')
     expect(run(tree({ 'harness/skills/x/SKILL.md': md })).lines).toEqual(['harness/skills/x/SKILL.md:9'])
+  })
+
+  it('Markdown of harness/: a marked paragraph covers its later lines too', () => {
+    const md = ['<!-- shortcut: accepts the old Russian token, remove after the next release -->', 'The old form is read as well:', '"волна N эпика X".', '', 'Волна.', ''].join('\n')
+    expect(run(tree({ 'harness/skills/x/SKILL.md': md })).lines).toEqual(['harness/skills/x/SKILL.md:5'])
   })
 
   it('Markdown of harness/: a YAML comment with the marker covers the front matter up to its closing line', () => {

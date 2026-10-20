@@ -3,7 +3,7 @@
 // log messages and test names are English; the documents of the Project (tickets, ADRs, HANDOFF.md)
 // are not code and are not checked.
 //
-//   node scripts/check-cyrillic.mjs [--root <dir>]     → exit 0 clean, exit 1 with one line per finding
+//   node scripts/check-cyrillic.mjs [--root <dir>] [--allow <file>]   → exit 0 clean, exit 1 with one line per finding
 //
 // The file has two halves:
 //   - noCyrillic, an ESLint rule; eslint.config.js turns it on for the JS and TS files `eslint .` reads;
@@ -22,13 +22,16 @@
 //   - the statement right after a comment with the marker `shortcut: accepts the old Russian token`:
 //     a reader that still accepts an old Russian word for one release. In JS and TS the marker
 //     comment covers the statement, declaration or object member that starts at the next token,
-//     to its end. In a shell script it covers the next command: its first line, the lines continued
-//     with a trailing backslash or an open quote, and a heredoc it opens. In Markdown an HTML comment
+//     to its end; a marker after code on the same line covers that line alone. In a shell script it
+//     covers the next command: its first line, the lines continued with a trailing backslash or an
+//     open quote, and a heredoc it opens; a marker after code on the same line covers that command
+//     alone. In Markdown an HTML comment
 //     `<!-- shortcut: accepts the old Russian token … -->` (in the front matter a YAML comment
 //     `# shortcut: …`) covers the lines up to the next blank line or `---`;
-//   - in harness/, outside comments, the words of the profile contract listed under `profileWords`
-//     in harness/lib/input-words.json: profiles written today carry them (the placeholder of the
-//     branch, a heading of rules.md), and the Harness matches and substitutes them as written.
+//   - in harness/, outside comments, the words of scripts/cyrillic-allow.json (`harnessWords`): the
+//     Russian placeholders of the profile contract, two headings of rules.md and two lens names, which
+//     profiles written today carry. Temporary: remove with worfy-neutral 10, which gives them English
+//     forms. `--allow <file>` and the rule's option `{ harnessWords }` replace the list (tests).
 
 import { readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
@@ -39,9 +42,15 @@ import { Linter } from 'eslint'
 const CYRILLIC = /\p{Script=Cyrillic}/u
 export const MARKER = 'shortcut: accepts the old Russian token'
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
-// The words of the profile contract that a profile written in Russian carries (placeholders such as
-// the epic and the branch, headings of rules.md, lens names): data, like the other lists of the file.
-const PROFILE_WORDS = JSON.parse(readFileSync(join(REPO, 'harness', 'lib', 'input-words.json'), 'utf8')).profileWords ?? []
+
+/** The `harnessWords` list of an allow file. */
+function readWords(file) {
+  const words = JSON.parse(readFileSync(file, 'utf8')).harnessWords
+  if (!Array.isArray(words) || !words.every((w) => typeof w === 'string' && w)) throw new Error(`${file}: harnessWords is not a list of words`)
+  return words
+}
+
+const HARNESS_WORDS = readWords(join(REPO, 'scripts', 'cyrillic-allow.json'))
 
 const MESSAGES = {
   comment: 'Cyrillic in a comment: comments are English everywhere.',
@@ -64,10 +73,10 @@ export function kindOf(rel) {
   return 'code'
 }
 
-/** The text with the words of the profile contract taken out, for a file of harness/. */
-function withoutTokens(rel, text) {
+/** The text with the allowed words taken out, for a file of harness/. */
+function withoutTokens(rel, text, words) {
   if (!rel.startsWith('harness/')) return text
-  return PROFILE_WORDS.reduce((s, word) => s.split(word).join(''), text)
+  return words.reduce((s, word) => s.split(word).join(''), text)
 }
 
 const TEST_CALLS = new Set(['describe', 'it', 'test'])
@@ -80,8 +89,15 @@ function isTestCallee(node) {
   return false
 }
 
-/** The source range a marker comment covers: from the comment to the end of the node at the next token. */
+/**
+ * The source range a marker comment covers: after code on the same line, that line up to the
+ * comment; otherwise from the comment to the end of the node at the next token.
+ */
 function markedRange(sourceCode, comment) {
+  const before = sourceCode.getTokenBefore(comment, { includeComments: false })
+  if (before && before.loc.end.line === comment.loc.start.line) {
+    return [sourceCode.getIndexFromLoc({ line: comment.loc.start.line, column: 0 }), comment.range[1]]
+  }
   const token = sourceCode.getTokenAfter(comment, { includeComments: false })
   if (!token) return undefined
   let node = sourceCode.getNodeByRangeIndex(token.range[0])
@@ -94,13 +110,20 @@ export const noCyrillic = {
   meta: {
     type: 'problem',
     docs: { description: 'No Cyrillic in code: comments never, data only in tests, fixtures and marked statements' },
-    schema: [],
+    schema: [
+      {
+        type: 'object',
+        properties: { harnessWords: { type: 'array', items: { type: 'string', minLength: 1 } } },
+        additionalProperties: false,
+      },
+    ],
     messages: MESSAGES,
   },
   create(context) {
     const rel = relPath(context.cwd, context.filename)
     const kind = kindOf(rel)
     if (kind === 'out' || kind === 'fixture') return {}
+    const words = context.options[0]?.harnessWords ?? HARNESS_WORDS
     return {
       CallExpression(node) {
         // A test name is a string, but not data: it is read by people, as a comment is.
@@ -121,7 +144,7 @@ export const noCyrillic = {
         }
         if (kind === 'test') return
         for (const token of sourceCode.ast.tokens) {
-          if (!CYRILLIC.test(withoutTokens(rel, token.value))) continue
+          if (!CYRILLIC.test(withoutTokens(rel, token.value, words))) continue
           if (covered.some(([start, end]) => token.range[0] >= start && token.range[1] <= end)) continue
           context.report({ loc: token.loc, messageId: 'code' })
         }
@@ -135,12 +158,14 @@ export const noCyrillic = {
 /**
  * Splits each line of a shell script into its code and its comment. Tracks quotes across lines and
  * heredoc bodies (their lines are data, with no comment). `continues` — the next line belongs to
- * the same command: a trailing backslash, an open quote or an open heredoc.
+ * the same command: a trailing backslash, an open quote or an open heredoc. Inside `(( … ))` and
+ * `$(( … ))` a `<<` is a shift, not a heredoc.
  */
 function shellLines(lines) {
   const out = []
   let quote = null
   let heredoc = null
+  let arith = 0
   for (const line of lines) {
     if (heredoc) {
       const done = (heredoc.strip ? line.replace(/^\t+/, '') : line) === heredoc.delim
@@ -171,10 +196,19 @@ function shellLines(lines) {
       } else if (c === '#' && (i === 0 || /[\s;&|()]/.test(line[i - 1]))) {
         comment = line.slice(i)
         break
+      } else if (c === '(' && line[i + 1] === '(') {
+        arith++
+        code += '(('
+        i += 2
+      } else if (c === ')' && line[i + 1] === ')' && arith > 0) {
+        arith--
+        code += '))'
+        i += 2
       } else {
-        const here = c === '<' ? /^<<(-?)\s*(['"]?)([A-Za-z_]\w*)\2/.exec(line.slice(i)) : null
+        // The delimiter: a word (dashes allowed), in quotes or after a backslash.
+        const here = c === '<' && arith === 0 ? /^<<(-?)[ \t]*(?:\\([A-Za-z_][\w-]*)|(['"])([A-Za-z_][\w-]*)\3|([A-Za-z_][\w-]*))/.exec(line.slice(i)) : null
         if (here && line[i + 2] !== '<') {
-          opened ??= { delim: here[3], strip: here[1] === '-' }
+          opened ??= { delim: here[2] ?? here[4] ?? here[5], strip: here[1] === '-' }
           code += here[0]
           i += here[0].length
         } else {
@@ -190,7 +224,7 @@ function shellLines(lines) {
 }
 
 /** Findings of a shell script: [line number, message id]. */
-function checkShell(rel, kind, lines) {
+function checkShell(rel, kind, lines, words) {
   const found = []
   const parsed = shellLines(lines)
   let cover = 'none' // 'none' | 'seek' (after a marker, before its command) | 'in' (inside the command)
@@ -199,7 +233,7 @@ function checkShell(rel, kind, lines) {
     if (marker) cover = code.trim() ? 'in' : 'seek'
     else if (cover === 'seek' && code.trim()) cover = 'in'
     if (CYRILLIC.test(comment)) found.push([index + 1, 'comment'])
-    if (kind === 'code' && cover !== 'in' && CYRILLIC.test(withoutTokens(rel, code))) found.push([index + 1, 'code'])
+    if (kind === 'code' && cover !== 'in' && CYRILLIC.test(withoutTokens(rel, code, words))) found.push([index + 1, 'code'])
     if (cover === 'in' && !continues) cover = 'none'
   })
   return found
@@ -210,19 +244,19 @@ function checkShell(rel, kind, lines) {
  * marker is an HTML comment, or a YAML comment in the front matter (`# shortcut: …`), where an HTML
  * comment would break the YAML; it covers the lines up to the next blank line or `---`.
  */
-function checkMarkdown(rel, lines) {
+function checkMarkdown(rel, lines, words) {
   const found = []
   let covered = false
   lines.forEach((line, index) => {
     if (line.includes(MARKER) && (line.includes('<!--') || /^#\s/.test(line))) covered = true
     else if (!line.trim() || line.trim() === '---') covered = false
-    if (!covered && CYRILLIC.test(withoutTokens(rel, line))) found.push([index + 1, 'code'])
+    if (!covered && CYRILLIC.test(withoutTokens(rel, line, words))) found.push([index + 1, 'code'])
   })
   return found
 }
 
 /** Findings of a Node script without an extension, read with the ESLint rule. */
-function checkNodeScript(root, file, text) {
+function checkNodeScript(root, file, text, words) {
   const linter = new Linter({ cwd: root })
   const rel = relPath(root, file)
   let messages = []
@@ -234,7 +268,7 @@ function checkNodeScript(root, file, text) {
           files: [rel],
           languageOptions: { ecmaVersion: 'latest', sourceType },
           plugins: { worfy: { rules: { 'no-cyrillic': noCyrillic } } },
-          rules: { 'worfy/no-cyrillic': 'error' },
+          rules: { 'worfy/no-cyrillic': ['error', { harnessWords: words }] },
         },
       ],
       { filename: file },
@@ -248,7 +282,7 @@ const SHELL = new Set(['.sh', '.zsh', '.bash'])
 const PLAIN = new Set(['.css', '.html', '.yaml', '.yml'])
 
 /** Findings of one file the command reads; [] for a file it leaves to ESLint or does not check. */
-export function checkFile(root, file) {
+export function checkFile(root, file, words = HARNESS_WORDS) {
   const rel = relPath(root, file)
   const kind = kindOf(rel)
   if (kind === 'out' || kind === 'fixture') return []
@@ -257,10 +291,10 @@ export function checkFile(root, file) {
   if (!SHELL.has(ext) && !PLAIN.has(ext) && ext !== '' && !isMarkdown) return []
   const text = readFileSync(file, 'utf8')
   const lines = text.split(/\r?\n/)
-  if (isMarkdown) return kind === 'test' ? [] : checkMarkdown(rel, lines)
+  if (isMarkdown) return kind === 'test' ? [] : checkMarkdown(rel, lines, words)
   if (PLAIN.has(ext)) return lines.flatMap((line, i) => (CYRILLIC.test(line) ? [[i + 1, 'code']] : []))
-  if (ext === '' && /^#!.*\bnode\b/.test(lines[0])) return checkNodeScript(root, file, text)
-  return checkShell(rel, kind, lines)
+  if (ext === '' && /^#!.*\bnode\b/.test(lines[0])) return checkNodeScript(root, file, text, words)
+  return checkShell(rel, kind, lines, words)
 }
 
 /** Every file under the four code folders, node_modules left out. */
@@ -281,10 +315,12 @@ function* walk(dir) {
 function main(argv) {
   const at = argv.indexOf('--root')
   const root = resolve(at >= 0 ? argv[at + 1] : REPO)
+  const allow = argv.indexOf('--allow')
+  const words = allow >= 0 ? readWords(resolve(argv[allow + 1])) : HARNESS_WORDS
   let count = 0
   for (const top of ['src', 'scripts', 'test', 'harness']) {
     for (const file of walk(join(root, top))) {
-      for (const [line, what] of checkFile(root, file)) {
+      for (const [line, what] of checkFile(root, file, words)) {
         process.stderr.write(`${relPath(root, file)}:${line}: ${MESSAGES[what] ?? what}\n`)
         count++
       }
