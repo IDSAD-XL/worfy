@@ -389,7 +389,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
     expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
-    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] green \(fast\)/)
   })
 
   // The Windows branch of demo-project.sh must leave the fixture of macOS and Linux as it was: there

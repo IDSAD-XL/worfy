@@ -426,10 +426,10 @@ sha=$(git -C <implementer worktree> rev-parse HEAD)          # pr-green-ci: the 
 A mark that fails (`EXIT=1`: no network, `gh` refused) changes no verdict: say it in the wave report
 and set it again later on the same SHA.
 
-The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast): …` in the output:
-exit code 0 without it means «ничего не прогналось» (nothing ran) or «окружение недоступно» (the
-environment is unavailable), and that is not a check. `EXIT=2` — red. `EXIT=3` — not verified,
-neither green nor red: the line `[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …` names the reason (project not
+The gate is green only with `EXIT=0` **and** the line `[gate] green (fast): …` in the output:
+exit code 0 without it means `[gate] nothing ran (…)` or `[gate] not verified — environment
+unavailable:`, and that is not a check. `EXIT=2` — red. `EXIT=3` — not verified,
+neither green nor red: the line `[gate] not verified: …` names the reason (project not
 registered, registry unreadable, resolver crashed). On exit code 3 the ticket is not
 merged: the verdict is `REJECTED: gate 3 — <line>`. It does not go back to the implementer and
 does not use up a round — it is a broken environment, not broken code: the ticket leaves the wave
@@ -680,7 +680,7 @@ repository on this machine, one at a time, under the lock below. The steps, thei
 are in skill `/worfy:ship-ticket`, step 11: the implementer puts its branch on top of the main branch
 (the rebase is always the implementer's, in its own worktree — the orchestrator sends the branch back
 through `SendMessage`, like a `DIRTY` PR); the orchestrator runs `gate full` there — exit code 0 and
-the line `[gate] зелено (…)`; only then, under the lock, the ticket's documents are committed on the
+the line `[gate] green (…)`; only then, under the lock, the ticket's documents are committed on the
 ticket branch (Full mode) and the main branch is fast-forwarded to it in the same block, `MERGED=0` is
 the proof. A red gate leaves no documents commit. Nothing is pushed.
 
@@ -771,7 +771,8 @@ the old way or one after another — every Check of the Pipeline has its mark on
 - `pending` — the PR needs it and the check is asked for. `success` or `failure` — its verdict. A
   check another session runs (worfy: `windows`, the session on the Windows PC) reports the commit it
   checked, the exit code of its gate full and the gate's verdict line: exit code 0 and the line
-  `[gate] зелено (…)` on the PR's head — `success`; red — `failure`: the PR is not merged and goes
+  `[gate] green (…)` on the PR's head — `success` (a gate of the release before prints the same line
+  with a Russian word in place of `green`: the same verdict, for one release); red — `failure`: the PR is not merged and goes
   back to its implementer as a rework round with that report; "could not verify", or a report on
   another commit — no new mark, and the PR waits.
 - A mark is bound to its commit: after a push or a rebase the new head has no marks, and the PR waits again.
@@ -824,7 +825,7 @@ is `F workflow.merge_gate`:
 
 - absent or `null` — the Harness requires no gate before the merge (the project's `rules.md` may);
 - `"each"` — every PR on its own: rebase onto the fresh main branch, `GATE_SCOPE=all` gate full on
-  its branch (exit code 0 and the line `[gate] зелено (…)`), CI again on the new head (with
+  its branch (exit code 0 and the line `[gate] green (…)`), CI again on the new head (with
   `F workflow.ci` `batch` — no CI: `mergeable` is `MERGEABLE`), the merge; then the next PR;
 - `"wave"` — one gate full for the set of the wave's ready PRs, with `bin/wave-gate`, as below.
 
@@ -835,7 +836,9 @@ CI on their head, in merge order (with `F workflow.ci` `batch`: `VERIFIED` and `
 ran on them, it was not `skipped`. **With no `check` Stage in the Pipeline** the marks cannot tell
 them, and the rule in words stays: `PLATFORM=(…)` lists the platform PRs — those the project's rules
 send to another platform's verdict — and each of them merges the old way only after that verdict on
-its head (the other platform's gate full: exit code 0 and the line `[gate] зелено (…)`). They and the PRs with the label `F cross_machine_gate.label` stay out of the
+its head (the other platform's gate full: exit code 0 and the line `[gate] green (…)`; a gate of the
+release before prints the same line with a Russian word in place of `green`: the same verdict, for one
+release). They and the PRs with the label `F cross_machine_gate.label` stay out of the
 set, and so do the PRs `wave-gate` takes out (`DIRTY` — a conflict with the set, and the culprit of a
 red set): each of them is merged the old way, as with `"each"`, with its Check marks on its new head
 (with no `check` Stage — plus the other platform's verdict for a platform PR). A PR

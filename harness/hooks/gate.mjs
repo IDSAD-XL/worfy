@@ -3,8 +3,8 @@
 // merge-base with origin/main, and when the base is doubtful (there is none, HEAD is detached,
 // the branch is far from origin/main) — in every package; it prints the chosen scope and the reason
 // as a line «[gate] scope …». Caches green results by a fingerprint of the
-// content (a hit is printed as «[gate] зелено (…): … (кэш)») and exits
-// with code 2 on red («[gate] красно (…): …»).
+// content (a hit is printed as «[gate] green (…): … (cache)») and exits
+// with code 2 on red («[gate] red (…): …»).
 //
 //   node gate.mjs fast   -> the per-ticket profile (TaskCompleted / TeammateIdle, through gate.sh)
 //   node gate.mjs full   -> everything (by hand or when an epic closes)
@@ -12,7 +12,7 @@
 // The repository is identified by its common git directory, not by its path: worktrees
 // live both inside the repository and next to it (acme-review, acme-hotfix).
 //
-// The main rule: «ничего не прогналось» (nothing ran) is not «зелено» (green). The red marker
+// The main rule: «nothing ran» is not «green». The red marker
 // is removed only by a run that actually checked something.
 //
 // A warning is not a verdict. After the scope line the gate prints one line per file that the
@@ -22,11 +22,11 @@
 // cache are the same as without it, and a cache hit prints it again (see sizeWarnings below).
 //
 // Exit codes:
-//   0 — green, «ничего не прогналось», «ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение
-//       недоступно» (the unverified marker) or a directory outside git — they are told apart by
+//   0 — green, «nothing ran», «not verified — environment
+//       unavailable» (the unverified marker) or a directory outside git — they are told apart by
 //       the «[gate] …» line, not by the code;
 //   2 — red (TaskCompleted / TeammateIdle do not let the work finish on this code);
-//   3 — not verified: neither green nor red. The line «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …»
+//   3 — not verified: neither green nor red. The line «[gate] not verified: …»
 //       names the reason: the project is not registered in gate/config.json; the registry
 //       cannot be read or the resolver crashed; node was not found (that one is said by
 //       gate.sh, see "Without node" below). The code does not block hooks
@@ -84,7 +84,7 @@
 // waits for, so the child's answer is never read before the handler of the gate has had its turn:
 // the empty output of a killed `git diff` is not a clean tree, and a killed script does not make
 // the run red. A child that a signal ended alone — no signal to the gate within half a second — is
-// no answer either: a git ends the run as «[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: git … was ended by the
+// no answer either: a git ends the run as «[gate] not verified: git … was ended by the
 // signal …» with code 3, the resolver as a resolver that crashed (code 3, the line names the
 // signal), a script as a failed script (code 2). A git or a resolver whose output went past the
 // limit the gate reads is ended by Node itself with SIGTERM: the line says so, not "the signal". Once the outcome is being written down, a signal no longer changes it: the gate
@@ -94,7 +94,7 @@
 // process by the signal's default action. The code is the same, but the verdict file of an earlier
 // run may still be in place.
 // An error inside the gate itself — a git that a signal ended alone among them — ends as «[gate]
-// ПРОВЕРИТЬ НЕ УДАЛОСЬ: …» with code 3, the marker nokey-broken-<tag>-<session> and no verdict file:
+// not verified: …» with code 3, the marker nokey-broken-<tag>-<session> and no verdict file:
 // the file of the run before is removed. One call is before all that: the first call to git, the
 // one that finds the worktree. Until it answers, the gate knows neither the worktree's verdict file
 // nor its tag, so an error there (git ended alone) leaves the verdict file of the run before in
@@ -104,7 +104,7 @@
 // gate.sh, a launcher in bash next to this file. The launcher finds node — on PATH, else in the
 // places a hook with a bare PATH misses — and starts this file with the same arguments and
 // stdin. With no node anywhere it answers itself, as the bash gate this file replaced did:
-// «node не найден», code 3, the marker nokey-broken-<tag>-<session> and an "unverified" verdict
+// «node not found», code 3, the marker nokey-broken-<tag>-<session> and an "unverified" verdict
 // file in place of the one of the run before. Rules, skills and agents run this file as
 // `node …/gate.mjs`: with no node on their PATH that command fails with code 127 before a line
 // of the gate runs and nothing is written, so a verdict file of an earlier run stays as it is.
@@ -194,7 +194,7 @@ async function settle(exit) {
 // --- stdin ------------------------------------------------------------------------------
 // Hooks send JSON on stdin and close it. When run by hand from the Bash tool, stdin is open and
 // empty, and reading to the end would wait forever (that is how the gate "hung" until the owner
-// asked «Ты подвис?» — "Are you stuck?"): read while data comes, and stop after two seconds of
+// asked "Are you stuck?"): read while data comes, and stop after two seconds of
 // silence. On a terminal (stdin is a TTY) there is nothing to read.
 const STDIN_SILENCE_MS = 2000
 function readHookInput() {
@@ -340,18 +340,18 @@ function removeOld(dir, mine) {
     }
 }
 
-// "Could not verify" without a project key: code 3, the line «[gate] ПРОВЕРИТЬ НЕ
-// УДАЛОСЬ: …» and a marker for stop.mjs. The marker is per tree and per session
+// "Could not verify" without a project key: code 3, the line «[gate] not
+// verified: …» and a marker for stop.mjs. The marker is per tree and per session
 // (nokey-<kind>-<tree>-<session>); with no session it is "anon", and stop.mjs takes such a
 // marker only if it is newer than the start of its own session.
-//   kind — unregistered | broken, text — what follows «ПРОВЕРИТЬ НЕ УДАЛОСЬ: »,
+//   kind — unregistered | broken, text — what follows «not verified: »,
 //   explain — an explanation for the model. Both go into the marker: "<text>. <explain>".
 //   reason — the reason in English for the verdict file.
 async function notVerified(kind, text, explain, reason) {
     await settle(3)
     writeMarker(path.join(STATE, `nokey-${kind}-${tag}-${SESSION || "anon"}`), `${text}. ${explain}\n`)
     writeVerdict("unverified", 3, reason)
-    complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + text)
+    complain("[gate] not verified: " + text)
     complain(explain)
     return 3
 }
@@ -765,7 +765,7 @@ async function main() {
         const why = (which.stderr || (byCode ? which.error?.message : "") || "").split(/\r?\n/)[0]
         return notVerified(
             "broken",
-            byCode ? "резолвер gate-resolve.mjs завершился с кодом " + (which.status ?? 1) : `the registry resolver gate-resolve.mjs ${ended}`,
+            byCode ? "the registry resolver gate-resolve.mjs exited with code " + (which.status ?? 1) : `the registry resolver gate-resolve.mjs ${ended}`,
             `Repository: ${repo}. ${why ? `Reason: ${why}. ` : ""}Project not determined, nothing was checked — this is not green.`,
             `the registry resolver gate-resolve.mjs ${ended}${why ? `: ${why}` : ""}`
         )
@@ -776,7 +776,7 @@ async function main() {
     if (!entry) {
         return notVerified(
             "unregistered",
-            "проект не зарегистрирован в " + shortHome(CONFIG),
+            "the project is not registered in " + shortHome(CONFIG),
             `Repository ${repo} is not registered in ${CONFIG} — the gate checked nothing. This is not green: the work was not verified by the gate.`,
             `the project is not registered in ${CONFIG}`
         )
@@ -830,7 +830,7 @@ async function main() {
     if (!scopeWhy && !changed.length) {
         await settle(0)
         writeVerdict("none", 0, `no changes relative to the merge-base ${short} with ${baseRef}`)
-        say("[gate] ничего не прогналось (" + PROFILE + "): нет изменений относительно merge-base " + short + " с " + baseRef + ". Это не «зелено».")
+        say("[gate] nothing ran (" + PROFILE + "): no changes relative to the merge-base " + short + " with " + baseRef + ". This is not green.")
         return 0
     }
 
@@ -852,9 +852,9 @@ async function main() {
         writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify: the plan resolver ${ended}.\n`)
         writeVerdict("unverified", 3, `the plan resolver gate-resolve.mjs ${ended}`)
         complain(
-            "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " +
-                (byCode ? "резолвер плана gate-resolve.mjs завершился с кодом " + (planned.status ?? 1) : `the plan resolver gate-resolve.mjs ${ended}`) +
-                " — ничего не проверено, это не «зелено»."
+            "[gate] not verified: " +
+                (byCode ? "the plan resolver gate-resolve.mjs exited with code " + (planned.status ?? 1) : `the plan resolver gate-resolve.mjs ${ended}`) +
+                " — nothing was checked, this is not green."
         )
         return 3
     }
@@ -885,7 +885,7 @@ async function main() {
     if (!plan.length) {
         await settle(0)
         writeVerdict("none", 0, "the changes touch no checked package")
-        say("[gate] ничего не прогналось (" + PROFILE + "): изменения не затрагивают проверяемые пакеты. Это не «зелено».")
+        say("[gate] nothing ran (" + PROFILE + "): the changes touch no checked package. This is not green.")
         return 0
     }
 
@@ -973,7 +973,7 @@ async function main() {
         }
         writeMarker(redMarker, `${utcNow()}\n`)
         writeVerdict("red", 2, "")
-        complain("[gate] красно (" + PROFILE + "):" + failedLabels + (ran ? " (прошло:" + ran + ")" : ""))
+        complain("[gate] red (" + PROFILE + "):" + failedLabels + (ran ? " (passed:" + ran + ")" : ""))
         complain(`The quality gate did not pass (profile: ${PROFILE}, repository: ${KEY}).`)
         complain("This must be fixed before reporting the work as done.")
         complain(report)
@@ -983,7 +983,7 @@ async function main() {
     if (envBroken) {
         writeMarker(unverifiedMarker, `Profile ${PROFILE}, repository ${KEY}. Could not verify:${envBroken}\n`)
         writeVerdict("unverified", 0, `the environment is unavailable:${envBroken.replaceAll("\n", " ").replace(/ +/g, " ")}`)
-        complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно:")
+        complain("[gate] not verified — environment unavailable:")
         complain(envBroken)
         complain("This is not a green result. Say so: the work is not verified — instead of a success report.")
     } else if (ran || cached) {
@@ -1001,14 +1001,14 @@ async function main() {
         } catch {}
         for (const name of blocks) if (name.endsWith(`__${KEY}-${tag}`)) remove(path.join(BLOCKS, name))
         writeVerdict("green", 0, "")
-        // The line «[gate] зелено (<profile>): …» is the only sign of green, and
-        // on a cache hit it is printed too, marked «(кэш)».
-        if (!ran) say("[gate] зелено (" + PROFILE + "):" + cached + " (кэш)")
-        else if (cached) say("[gate] зелено (" + PROFILE + "):" + ran + " (кэш:" + cached + ")")
-        else say("[gate] зелено (" + PROFILE + "):" + ran)
+        // The line «[gate] green (<profile>): …» is the only sign of green, and
+        // on a cache hit it is printed too, marked «(cache)».
+        if (!ran) say("[gate] green (" + PROFILE + "):" + cached + " (cache)")
+        else if (cached) say("[gate] green (" + PROFILE + "):" + ran + " (cache:" + cached + ")")
+        else say("[gate] green (" + PROFILE + "):" + ran)
     } else {
         writeVerdict("none", 0, "the selected packages have no scripts of the profile")
-        say("[gate] ничего не прогналось (" + PROFILE + "): у выбранных пакетов нет скриптов профиля. Это не «зелено».")
+        say("[gate] nothing ran (" + PROFILE + "): the selected packages have no scripts of the profile. This is not green.")
     }
     return 0
 }
@@ -1038,7 +1038,7 @@ try {
     const text = String(error?.message ?? error).split(/\r?\n/)[0]
     const explain = "The gate itself failed and checked nothing — this is not green."
     if (tag) writeMarker(path.join(STATE, `nokey-broken-${tag}-${SESSION || "anon"}`), `${text}. ${explain}\n`)
-    complain("[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: " + text)
+    complain("[gate] not verified: " + text)
     complain(explain)
     code = 3
 }

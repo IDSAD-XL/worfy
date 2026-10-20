@@ -470,13 +470,13 @@ for label in Этап Сейчас Дальше Жду; do
 done
 grep -qF 'The four labels are fixed English tokens' "$RULES/orchestrator.md" 2>/dev/null \
     && ok "orchestrator.md: the labels are fixed tokens worfy parses" || bad "orchestrator.md: no fixed-token rule for the labels"
-for p in '[gate] зелено (…)' 'ничего не прогналось' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'; do
-    grep -qF -- "$p" "$all" && ok "gate verdict words kept: $p" || bad "gate verdict words missing: $p"
+for p in '[gate] green (…)' '[gate] nothing ran (…)' '[gate] not verified — environment'; do
+    grep -qF -- "$p" "$all" && ok "gate verdict line quoted as the gate prints it: $p" || bad "gate verdict line missing: $p"
 done
 
-# Cyrillic only in the gate verdict words. Rules for writing in one language
+# No Cyrillic at all: the gate verdict lines are English. Rules for writing in one language
 # live in the user's own rules file, not in the plugin.
-ALLOWED='["[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
+ALLOWED='[]'
 for p in 'Writing in Russian' 'stays in Latin' '## Terms'; do
     if grep -qF -- "$p" "$all"; then bad "parts carry the language rule '$p'"; else ok "parts carry no language rule '$p'"; fi
 done

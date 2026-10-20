@@ -138,7 +138,7 @@ U="$T/unreg"; mkdir -p "$U" && git -C "$U" init -q && git -C "$U" -c user.email=
 out="$(cd "$U" && clean "$H1" node "$HARNESS/hooks/gate.mjs" fast </dev/null 2>&1)"; rc=$?
 out="$(printf '%s\n' "$out" | head -n 1)"
 check "default: an unregistered repository names the registry under ~/.claude/worfy-harness (exit 3)" \
-    rc_out 3 "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: проект не зарегистрирован в ~/.claude/worfy-harness/gate/config.json"
+    rc_out 3 "[gate] not verified: the project is not registered in ~/.claude/worfy-harness/gate/config.json"
 check "default: no \$HOME/.claude/gate, worktree-sessions or state" no_legacy "$H1"
 
 # --- 2. HARNESS_HOME=<dir>; CLAUDE_GATE_CONFIG and CLAUDE_GATE_STATE win ----------------
@@ -241,7 +241,7 @@ else
     out="$(cd "$R" && c "$T/links/profile" --name 2>&1)"; rc=$?
     check "copy through a symlink: profile finds gate-resolve.mjs next to its real file" rc_out 0 tp
     out="$(cd "$R" && c env GATE_SCOPE=all node "$T/links/gate.mjs" p_ok </dev/null 2>&1)"; rc=$?
-    check "copy through a symlink: gate.mjs finds gate-paths.mjs and gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] зелено}" != "$out" ]
+    check "copy through a symlink: gate.mjs finds gate-paths.mjs and gate-resolve.mjs next to its real file" [ "$rc" -eq 0 -a "${out#*\[gate\] green}" != "$out" ]
     out="$(cd "$R" && c "$T/links/epic-status" --json 2>&1)"; rc=$?
     check "copy through a symlink: epic-status finds ticket next to its real file" [ "$rc" -eq 0 ]
 fi
@@ -316,50 +316,17 @@ FILES=(
 banned="$(cd "$HARNESS" && grep -nE '~/\.claude/(bin|hooks)|\$HOME/\.claude/(bin|hooks)|КОД=' "${FILES[@]}" | grep -v 'schema 1')"
 check "no ~/.claude/bin, ~/.claude/hooks or КОД= in the ticket's files" [ -z "$banned" ]
 [ -z "$banned" ] || printf '%s\n' "$banned" | sed -n '1,20p' | sed 's/^/     /'
-# Allowed Cyrillic, cut out before the search: the gate verdict lines (machine strings, read by
-# worfy and the skills), the old Russian Status values that epic-status
-# and ticket still read, profile placeholders, and quoted Russian examples.
+# Allowed Cyrillic, cut out before the search: profile placeholders, the Russian section names
+# a profile or ticket of the release before still has, and quoted Russian examples. The gate
+# verdict lines are English; the Russian words of ticket input are data in lib/input-words.json.
 ALLOWED="$T/allowed.txt"
 cat >"$ALLOWED" <<'EOF'
-резолвер плана gate-resolve.mjs завершился с кодом
-ничего не проверено, это не «зелено».
-резолвер gate-resolve.mjs завершился с кодом
-нет изменений относительно merge-base
-" с "
-Это не «зелено».
-изменения не затрагивают проверяемые пакеты. Это не «зелено».
-у выбранных пакетов нет скриптов профиля. Это не «зелено».
-проект не зарегистрирован в
-ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно
-ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение
-ПРОВЕРИТЬ НЕ УДАЛОСЬ
-ПРОВЕРИТЬ НЕ
-УДАЛОСЬ
-окружение недоступно
-окружение
-недоступно
-ничего не прогналось
-не зарегистрирован
-резолвер … завершился
-резолвер
-node не найден
-зелено
-красно
-(кэш)
-(кэш:
-(прошло:
-выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен
-заблокирован|Заблокирован
-нет|Нет|нету|Нету|ничего|Ничего|нечего|Нечего
-[ \t]+и[ \t]+
-«и»
 Выкачено
 выкачено 2026-08-23
 Blocked by: 01 и 02
 08 — все перекладки
 Пакет юристу
 01 — Каркас
-Ты подвис?
 <эпик>
 <имя>
 <каталог пакета>

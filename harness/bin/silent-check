@@ -23,7 +23,7 @@
 // Exit codes: 0 — clean, or nothing to check (a Full project with attribution on, a directory outside the
 // registered projects, a directory that is not one of the project's repositories — the common directory
 // above them or the Workflow folder, whose own history may name everything); 1 — traces found, one line each
-// on stdout; 2 — usage error, or the profile or the tickets root could not be read.
+// on stdout; 2 — usage error, or the profile, the tickets root or (Silent mode) lib/input-words.json could not be read.
 //
 // The project is the one bin/profile finds from <dir> (default: the current directory); the tickets root is
 // the one bin/ticket prints from there (`ticket root`). silent-check only reads.
@@ -153,7 +153,18 @@ if (silent) {
     for (const ep of epics) rules.push(["epic/NN", new RegExp(`${B}${esc(ep)}/\\d+${E}`, "giu"), true])
     for (const ep of epics) rules.push(["epic name", new RegExp(`${B}${esc(ep)}${E}`, "giu"), false])
     rules.push(["ADR number", /(?<![\p{L}\p{N}_])ADR[-_ ]?\d{4}(?!\d)/giu, true])
-    rules.push(["ticket number", /(?<![\p{L}\p{N}_])(?:Tickets?|Тикет\p{L}*)[- ]#?\d+/giu, true])
+    // The word "ticket" in the languages of projects, other than English (data, not protocol). Read only
+    // here, on the Silent path: a broken data file must not break the check of a Full project. Here it is
+    // exit 2, which the Bash guard takes as "the check failed" and refuses the command.
+    let input
+    try {
+        input = require("../lib/input-words.json")
+        if (!Array.isArray(input.ticketWord) || !input.ticketWord.every((w) => typeof w === "string" && w)) throw new Error("ticketWord is not a list of words")
+    } catch (e) {
+        die(2, `input words not read (lib/input-words.json): ${String(e.message).split("\n")[0]}`)
+    }
+    const ticketWords = ["Tickets?", ...input.ticketWord.map((w) => `${esc(w)}\\p{L}*`)].join("|")
+    rules.push(["ticket number", new RegExp(`(?<![\\p{L}\\p{N}_])(?:${ticketWords})[- ]#?\\d+`, "giu"), true])
     const wf = R.workflow_folder
     if (typeof wf === "string" && wf) {
         const forms = new Set([wf.replace(/\/+$/, "")])

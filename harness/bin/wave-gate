@@ -69,7 +69,7 @@
 //   - when `ioreg` is in PATH, check asks `ioreg -n Root -d1` for "IOConsoleLocked" before each gate run;
 //     Yes — one line "screen locked: gate full waits", a poll every 30 s, no gate run and no e2e lock held
 //     until it is No. No `ioreg` in PATH (Linux, Windows) — no check;
-//   - a red gate run whose failed scripts (the "[gate] красно (…): <labels>" line) include one that opens
+//   - a red gate run whose failed scripts (the "[gate] red (…): <labels>" line) include one that opens
 //     Electron windows — test:e2e or test:package — while the screen was locked during the run, is not red:
 //     it is recorded as not verified ("screen locked") and run again after the unlock, at most
 //     SCREEN_TRIES runs; then check ends unverified. The e2e message itself ("the window was not shown
@@ -447,16 +447,22 @@ function gateCommand() {
     }
     return [process.execPath, [GATE_SCRIPT, "full"]]
 }
+// The verdict lines of the gate: "[gate] green (full): …" and "[gate] red (full): <failed> (passed: <passed>)".
+// shortcut: accepts the old Russian token, remove after the next release
+// A gate of the release before prints the same lines with Russian words in place of green, red and passed.
+const GREEN_FULL = /^\[gate\] (?:green|зелено) \(full\)/
+const RED_LINE = /^\[gate\] (?:red|красно) \([^)]*\):/
+const PASSED_TAIL = /\((?:passed|прошло):.*$/
 function verdict(code, text) {
     const lines = text.split(/\r?\n/)
-    if (code === 0 && lines.some((l) => l.startsWith("[gate] зелено (full)"))) return "green"
+    if (code === 0 && lines.some((l) => GREEN_FULL.test(l))) return "green"
     if (code === 2) return "red"
     return "unverified"
 }
 function failures(text) {
     const lines = text.split(/\r?\n/)
-    const red = lines.find((l) => l.startsWith("[gate] красно"))
-    const scripts = red ? red.replace(/^\[gate\] красно \([^)]*\):/, "").replace(/\(прошло:.*$/, "").trim().split(/\s+/).filter(Boolean) : []
+    const red = lines.find((l) => RED_LINE.test(l))
+    const scripts = red ? red.replace(RED_LINE, "").replace(PASSED_TAIL, "").trim().split(/\s+/).filter(Boolean) : []
     const tests = [...new Set(lines.filter((l) => /^\s*(FAIL|✘|×|✗)\s+\S/.test(l)).map((l) => l.trim()))].slice(0, 30)
     return { scripts, tests }
 }

@@ -57,8 +57,8 @@ from the user's rules file.
   this run wrote nothing, the work is not verified — never green. A signal in the gate's first
   tens of milliseconds, or while it waits up to 2 s on an open stdin that sends nothing, may
   leave the verdict of an earlier run in place. `0` is green only when the output has the
-  line `[gate] зелено (…)`: "nothing ran" («ничего не прогналось») and "could not verify"
-  («ПРОВЕРИТЬ НЕ УДАЛОСЬ») also exit `0`.
+  line `[gate] green (…)`: `[gate] nothing ran (…)` and `[gate] not verified — environment
+  unavailable:` also exit `0`.
   Where the gate does not cover the project, the verdict comes from the profile's
   `commands.verify` (or the project's own lint and test commands) with their exit codes, and the
   report says the gate did not run.
