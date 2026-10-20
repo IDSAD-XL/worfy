@@ -405,6 +405,9 @@ COMMON_TOPICS=(
     'Deployed|live endpoint'
     'Subagent claims|is a claim, not a fact|Re-read the line'
     'Context hygiene|Context hygiene|minimal fragment|`Edit`|compress|Unbounded output|only what changed'
+    'Shell commands without a confirmation|Shell commands without a confirmation|asks a human before the shell commands below, even in `bypassPermissions`, and no allow rule lets them through|In a session without a human|the request is denied and the step breaks'
+    'rm target that could shrink to a folder|`rm` or `rmdir` whose target could shrink to `/` or to a whole folder|a glob after `cd`|`$VAR/` followed by a glob, another `$VAR`, a `/` or nothing|`rm -rf "$M/$d"`|even when the folder came from `mktemp -d`|Delete by a literal path|by a variable and a fixed name (`rm -f "$L/holder.json"`)|make a new one with `mktemp -d`; do not clean the old one'
+    'Multi-line -c script from a file|A multi-line `sh -c`, `bash -c` or `zsh -c` script that may delete something and that Claude Code could not check|`zmodload`|Put a multi-line script into a file in your own scratchpad subdirectory and run the file (`zsh -f <file>`)'
 )
 
 # $1 file to search, topics follow. The text is searched as one line with whitespace runs
@@ -437,10 +440,11 @@ flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
     && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
     || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
-# common.md holds exactly Plain language, Evidence before "green" and Context hygiene.
+# common.md holds exactly Plain language, Evidence before "green", Context hygiene and Shell commands
+# without a confirmation (the agents point at that section by its name).
 heads="$(grep '^## ' "$RULES/common.md" 2>/dev/null | tr '\n' '|')"
-[ "$heads" = '## Plain language|## Evidence before "green"|## Context hygiene|' ] \
-    && ok "common.md sections: Plain language, Evidence, Context hygiene" || bad "common.md sections: $heads"
+[ "$heads" = '## Plain language|## Evidence before "green"|## Context hygiene|## Shell commands without a confirmation|' ] \
+    && ok "common.md sections: Plain language, Evidence, Context hygiene, Shell commands" || bad "common.md sections: $heads"
 for p in 'Phase 0' 'Quota' 'Default loop' 'Phase 2' 'Phase 3' 'Delegate by default' 'Subagent contract'; do
     if grep -qF "$p" "$RULES/common.md" 2>/dev/null; then bad "common.md carries the orchestrator topic $p"; else ok "common.md has no $p"; fi
 done

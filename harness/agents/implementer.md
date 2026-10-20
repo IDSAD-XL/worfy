@@ -59,11 +59,9 @@ and stop.
 In both modes: the scratchpad is shared by all agents of the session — write only into your own
 subdirectory (`<scratchpad>/<your name>/`) and do not run other agents' scripts from it. Test runners
 — single run only, no watch mode (vitest — `vitest run`): watch never exits, and you get stuck.
-Delete only by a literal path (`rm -rf /tmp/x/trace`): no globs (`rm -rf *` after `cd`) and no
-variables in the path (`rm -rf $R/$d`). For such a command Claude Code asks for confirmation even in
-`bypassPermissions`, and in a Session without a human (Autopilot) the request is denied and the step
-breaks. Need a clean directory — make a new unique one (`mktemp -d`),
-do not clean an old one.
+Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands
+without a confirmation": need a clean directory — make a new one with `mktemp -d`, do not clean an
+old one.
 
 **`parallel: "single"`** — you are the only implementer in the project: there is one local stack for
 everyone.

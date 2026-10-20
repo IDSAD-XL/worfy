@@ -118,10 +118,9 @@ hours. Test runners — single run only, no watch mode (vitest — `vitest run`)
 not run checks in a tree where another agent is working: its test run will catch your mutant and
 show a false red.
 
-**Delete only by a literal path.** No globs (`rm -rf *`) and no variables in the path
-(`rm -rf $R/$d`): Claude Code asks for confirmation on these even in `bypassPermissions`, and in a
-Session without a human (worfy Autopilot) the request is denied. Need a clean
-directory — a new `mktemp -d`.
+Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands
+without a confirmation": need a clean directory for a mutant — make a new one with `mktemp -d`, do
+not clean an old one.
 
 **UI ticket — screenshots in both themes.** A UI ticket is one whose diff changes what is visible on
 screen: markup, styles, components, interface text. Its reviewer takes screenshots of a test build
