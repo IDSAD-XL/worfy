@@ -1,6 +1,6 @@
 ---
 type: regex
-pattern: '— Этап:[^\n]*\n— Сейчас:[^\n]*\n— Дальше:[^\n]*\n— Жду:[^\n]*\s*$'
+pattern: '— Stage:[^\n]*\n— Now:[^\n]*\n— Next:[^\n]*\n— Waiting:[^\n]*\s*$'
 ---
 
-The final reply ends with the four status lines — Этап, Сейчас, Дальше, Жду, in this order.
+The final reply ends with the four status lines — Stage, Now, Next, Waiting, in this order.

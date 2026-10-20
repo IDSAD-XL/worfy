@@ -4,4 +4,4 @@ tool: Bash
 input_match: 'epic-status'
 ---
 
-epic-status ran at least once (the Этап line is its output).
+epic-status ran at least once (the Stage line is its output).

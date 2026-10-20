@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { findStatusBlock } from '../../src/shared/agent/status-block'
 
 // Samples shaped like the closing lines of real orchestrator answers: the four-line block of the
-// user's CLAUDE.md («— Этап / — Сейчас / — Дальше / — Жду»), often indented as a code block.
+// orchestrator rules («— Stage / — Now / — Next / — Waiting»), often indented as a code block. The
+// old Russian labels («— Этап / — Сейчас / — Дальше / — Жду») are still read for one release.
 
 const BLOCK = [
   '— Этап: audit-2026-09-19 · /implement · волна 2',
@@ -73,5 +74,62 @@ describe('findStatusBlock', () => {
   it('takes a complete block that follows an incomplete one', () => {
     const lines = BLOCK.split('\n')
     expect(findStatusBlock([lines[0], lines[1], ...lines].join('\n'))?.text).toBe(BLOCK)
+  })
+
+  describe('English labels', () => {
+    const ENGLISH = [
+      '— Stage: audit-2026-09-19 · /implement · волна 2',
+      '— Now: impl-09 чинит гонку в ставках, PR #412 ждёт CI',
+      '— Next: verify-09, затем волна 3',
+      '— Waiting: ничего',
+    ].join('\n')
+
+    it('reads a block with the English labels into the same fields as the Russian one', () => {
+      const english = findStatusBlock(`Волна 2 запущена.\n\n${ENGLISH}\n`)
+      const russian = findStatusBlock(`Волна 2 запущена.\n\n${BLOCK}\n`)
+      expect(english).toStrictEqual({
+        text: ENGLISH,
+        stage: 'audit-2026-09-19 · /implement · волна 2',
+        now: 'impl-09 чинит гонку в ставках, PR #412 ждёт CI',
+        next: 'verify-09, затем волна 3',
+        waiting: 'ничего',
+      })
+      expect({ ...english, text: '' }).toStrictEqual({ ...russian, text: '' })
+    })
+
+    it('accepts the same dashes, spacing and indentation as with the Russian labels', () => {
+      const answer = ['    - Stage:  тикет 08', '–Now : пишу тесты', '  -   Next:PR', '— Waiting:  ничего   '].join('\r\n')
+      expect(findStatusBlock(answer)).toStrictEqual({
+        text: ['- Stage:  тикет 08', '–Now : пишу тесты', '-   Next:PR', '— Waiting:  ничего'].join('\n'),
+        stage: 'тикет 08',
+        now: 'пишу тесты',
+        next: 'PR',
+        waiting: 'ничего',
+      })
+    })
+
+    it('finds nothing in a block that mixes English and Russian labels, as with lines out of order', () => {
+      const english = ENGLISH.split('\n')
+      const russian = BLOCK.split('\n')
+      expect(findStatusBlock([english[0], russian[1], russian[2], russian[3]].join('\n'))).toBeNull()
+      expect(findStatusBlock([russian[0], english[1], english[2], english[3]].join('\n'))).toBeNull()
+      expect(findStatusBlock([english[0], english[1], russian[2], english[3]].join('\n'))).toBeNull()
+    })
+
+    it('takes a complete block in one language that follows a mixed one', () => {
+      const english = ENGLISH.split('\n')
+      const russian = BLOCK.split('\n')
+      expect(findStatusBlock([english[0], russian[1], ...english].join('\n'))?.text).toBe(ENGLISH)
+      expect(findStatusBlock([russian[0], english[1], ...russian].join('\n'))?.text).toBe(BLOCK)
+    })
+
+    it('takes the last block when an English block follows a Russian one', () => {
+      expect(findStatusBlock(`${BLOCK}\n\n${ENGLISH}`)?.text).toBe(ENGLISH)
+      expect(findStatusBlock(`${ENGLISH}\n\n${BLOCK}`)?.text).toBe(BLOCK)
+    })
+
+    it('does not take a label written in lower case', () => {
+      expect(findStatusBlock(ENGLISH.toLowerCase())).toBeNull()
+    })
   })
 })

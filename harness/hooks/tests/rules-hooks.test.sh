@@ -313,17 +313,27 @@ done
 # The status block lines as worfy parses them: LINE in src/shared/agent/status-block.ts.
 # The dashes are an alternation, not a bracket: in the C locale (Git Bash without LANG) grep reads a
 # bracket byte by byte and a multibyte dash never matches.
-for label in Этап Сейчас Дальше Жду; do
+for label in Stage Now Next Waiting; do
     grep -qE "^[[:space:]]*(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null \
         && ok "orchestrator.md: status line '— $label:'" || bad "orchestrator.md: no status line '— $label:'"
 done
+# The old labels worfy still reads for one release; the rules no longer write them.
+for label in Этап Сейчас Дальше Жду; do
+    if grep -qE "(—|–|-)[[:space:]]*$label[[:space:]]*:" "$RULES/orchestrator.md" 2>/dev/null; then
+        bad "orchestrator.md: old status line '— $label:'"
+    else
+        ok "orchestrator.md: no old status line '— $label:'"
+    fi
+done
+grep -qF 'The four labels are fixed English tokens' "$RULES/orchestrator.md" 2>/dev/null \
+    && ok "orchestrator.md: the labels are fixed tokens worfy parses" || bad "orchestrator.md: no fixed-token rule for the labels"
 for p in '[gate] зелено (…)' 'ничего не прогналось' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'; do
     grep -qF -- "$p" "$all" && ok "gate verdict words kept: $p" || bad "gate verdict words missing: $p"
 done
 
-# Cyrillic only in the status labels and the gate verdict words. Rules for writing in one language
+# Cyrillic only in the gate verdict words. Rules for writing in one language
 # live in the user's own rules file, not in the plugin.
-ALLOWED='["Этап","Сейчас","Дальше","Жду","[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
+ALLOWED='["[gate] зелено","ничего не прогналось","ПРОВЕРИТЬ НЕ УДАЛОСЬ"]'
 for p in 'Writing in Russian' 'stays in Latin' '## Terms'; do
     if grep -qF -- "$p" "$all"; then bad "parts carry the language rule '$p'"; else ok "parts carry no language rule '$p'"; fi
 done
