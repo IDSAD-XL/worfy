@@ -152,7 +152,7 @@ gh_guard WAVE_GATE_GH "$STUBS/gh" "$STUBS/gh.mjs"
 #   command and where wave-gate checks no screen. "no ioreg in PATH" below still runs there;
 # - the SIGTERM case: a kill from Git Bash ends a native node process without running its signal handlers, so
 #   wave-gate cannot release the e2e lock on SIGTERM there (SIGKILL needs no handler and runs);
-# - zsh: Git Bash on Windows has none (worfy ADR-0055).
+# - zsh: Git Bash on Windows has none.
 # Off Windows every case runs: a skip that fired there would leave cases out while the file stays green.
 RUN_SCREEN=true RUN_SIGTERM=true SHELLS=(bash zsh) skips=0
 skip() { skips=$((skips + 1)); echo "skip $1"; }
