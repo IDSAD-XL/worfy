@@ -17,7 +17,7 @@
 - `worfy-polish`: 31/36 — 01–29, 31, 33 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32. 34–36 — flaky, security ссылок, долг #530.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 4/9, влиты 01–03 (`wave-gate`, ADR-0065) и 08 (#433, ADR-0068): batch CI на `main` включён; 06 — stub-ы для Windows, 07 — дерево `wave-gate`, 09 — `UNKNOWN` в текстах batch; 04, 05 — Session Orchestrator-а.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 7/10, влиты 01–07; решения владельца (Q1–Q16) в Ticket-ах; 08, 09 (#550) — в работе, 10 (ADR-0079) — после 09; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
-- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 1/9; 02 в работе, потом 09; 03–06 ждут срезов `worfy-windows` 14; 07 и 08 — в конце.
+- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 2/9; дальше 09; 03–06 ждут `worfy-windows` 71 (8 красных `.test.sh` Harness на Windows); 07 и 08 — в конце.
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 4/16; влиты 01 (#539), 03, 04, 07 — Wave 1 закрыта; Wave 2 — 02 и 11 в работе; новые 14–16 (14 — до 10).
 - `worfy-browser` (Browser Node с ролями, [spec](.scratch/worfy-browser/spec.md), ADR-0078): 0/8; первым — 01, прототип слоя.
 

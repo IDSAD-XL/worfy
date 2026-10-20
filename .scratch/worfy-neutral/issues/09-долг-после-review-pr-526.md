@@ -1,7 +1,7 @@
 # 09 — Долг после review PR #526: user.json, inject-rules и их test-ы
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T01:28Z
 Blocked by: 02
 Source: ревью PR [#526](https://github.com/IDSAD-XL/worfy/pull/526) (Ticket 01, user personalization —
 язык отчётов и личные правила), круг 1: линзы «корректность», «security» и «тесты» (43 мутанта, 20
