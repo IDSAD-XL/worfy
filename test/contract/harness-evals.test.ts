@@ -370,6 +370,30 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(existsSync(missing)).toBe(false)
   })
 
+  // The same missing home folder spelled through a link to its parent: a link made here, and on macOS
+  // /var for /private/var. The parent is on disk, so both spellings resolve to one path.
+  it('state-guard.cjs refuses a missing real home folder spelled through a link to its parent', () => {
+    const { stub } = fakeRealHome()
+    const parent = tempDir('worfy-eval-missing-parent-')
+    const missing = join(parent, 'home')
+    const link = join(tempDir('worfy-eval-parent-link-'), 'parent')
+    symlinkSync(parent, link, 'junction')
+    const guard = (home: string) =>
+      spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
+        env: { PATH: process.env.PATH, ...stub, EVAL_TEST_REAL_HOME: missing },
+        encoding: 'utf8',
+      })
+    const spellings = [join(link, 'home'), ...(parent.startsWith('/private/var/') ? [missing.slice('/private'.length)] : [])]
+    for (const home of spellings) {
+      const run = guard(home)
+      expect(run.status, `${home}: ${run.stderr}`).toBe(1)
+      expect(run.stderr).toMatch(/is the real home folder of this user/)
+    }
+    // Another missing folder behind the same link is not the real home.
+    expect(guard(join(link, 'other')).status).toBe(0)
+    expect(existsSync(missing)).toBe(false)
+  })
+
   // A HARNESS_HOME under the fixture spelled in another letter case is the same folder on a
   // case-insensitive volume (macOS, Windows): only the native realpath gives the spelling on disk,
   // the plain one keeps the case it was given. On a case-sensitive volume (Linux CI) the other

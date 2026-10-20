@@ -8,8 +8,9 @@
 //
 // A file is refused when it has both a git remote on github.com (`github.com/<owner>/<repo>`,
 // `.git` optional, nothing after it: a link to a pull request or a run is not a remote) and a git
-// command that talks to a remote — fetch, push, pull, clone, ls-remote, or a Harness script that
-// runs one (preflight, wave-gate, qmd-sync-main, qmd-refresh, qmd-collections). The files that have
+// command that talks to a remote — fetch, push, pull, clone, ls-remote, remote update, remote show,
+// submodule update, or a Harness script that runs one (preflight, wave-gate, qmd-sync-main,
+// qmd-refresh, qmd-collections, project-connect). The files that have
 // both today and never send them to GitHub are listed below with the reason; an entry that no
 // longer matches fails, so the list does not outlive its reasons.
 //
@@ -26,16 +27,25 @@ import { describe, expect, it } from 'vitest'
 const REPO = join(import.meta.dirname, '..', '..')
 const ROOTS = ['test', join('harness', 'bin', 'tests'), join('harness', 'hooks', 'tests'), join('harness', 'evals')]
 const LEFT_OUT = [join('test', 'acceptance')]
-/** Source files: code and scripts, and the extensionless stand-ins of programs (test/fixtures/first-run-tools/gh). */
-const SOURCE = /\.(ts|tsx|mjs|cjs|js|sh)$|^[^.]+$/
+/**
+ * Source files: code and scripts, the extensionless stand-ins of programs (test/fixtures/first-run-tools/gh),
+ * and the JSON and YAML a test may hand to git (a fixture's config, a profile with a remote).
+ */
+const SOURCE = /\.(ts|tsx|mjs|cjs|js|sh|json|ya?ml)$|^[^.]+$/
 
-const REMOTE = /github\.com[:/][\w.-]+\/[\w.-]+?(?:\.git)?\/?(?=['"`\s)]|$)/im
-const NETWORK = /\bgit\b[^\n]{0,80}?\b(?:fetch|push|pull|clone|ls-remote)\b|['"`](?:fetch|push|pull|clone|ls-remote)['"`]\s*[,\]]|\b(?:preflight|wave-gate|qmd-sync-main|qmd-refresh|qmd-collections)\b/
+// The remote ends where a quote, a space, a bracket or a shell separator (`;`, `&`, `|`) or a comma does.
+const REMOTE = /github\.com[:/][\w.-]+\/[\w.-]+?(?:\.git)?\/?(?=['"`\s);&|,]|$)/im
+// A git command line, an argument list (`'remote', 'update'`), or a Harness script that runs one:
+// project-connect runs qmd-collections, which clones.
+const NETWORK =
+  /\bgit\b[^\n]{0,80}?\b(?:fetch|push|pull|clone|ls-remote|remote\s+(?:update|show)|submodule\s+update)\b|['"`](?:fetch|push|pull|clone|ls-remote)['"`]\s*[,\]]|['"`]remote['"`]\s*,\s*['"`](?:update|show)['"`]|['"`]submodule['"`]\s*,\s*['"`]update['"`]|\b(?:preflight|wave-gate|qmd-sync-main|qmd-refresh|qmd-collections|project-connect)\b/
 
 /** The files that have both and send nothing to GitHub, with the reason. Paths use `/`. */
 const ALLOWED: Record<string, string> = {
   'test/unit/terminal-ai-context.test.ts': 'the `git push https://…@github.com/…` is a command line the redaction under test reads; nothing runs it',
   'test/unit/terminal-ai-redact.test.ts': 'the `git clone https://…@github.com/…` lines are text the redaction under test reads; nothing runs them',
+  'test/e2e/projects-connect.spec.ts':
+    'the github.com origins are read for the account step through a stand-in gh; the Project is connected in the default silent mode, where the bin/project-connect it names runs a qmd-collections that clones nothing',
   'test/contract/projects-connect.test.ts':
     'the github.com origins are read for the account step, and the Projects connected with them are in silent mode, where qmd-collections clones nothing',
 }
@@ -71,6 +81,13 @@ describe('no test runs git against github.com', () => {
     expect(talksToGithub(`${remote}\nexecFileSync('git', ['-C', repo, 'push', 'origin', 'main'])`)).toBe(true)
     expect(talksToGithub(`git remote add origin git@${host}:acme/shop.git\ngit -C "$R" ls-remote origin`)).toBe(true)
     expect(talksToGithub(`${remote}\nrun(join(BIN, 'preflight'))`)).toBe(true)
+    expect(talksToGithub(`${remote}\nrun(join(BIN, 'project-connect'))`)).toBe(true)
+    expect(talksToGithub(`${remote}\ngit(repo, 'remote', 'update')`)).toBe(true)
+    expect(talksToGithub(`${remote}\ngit -C "$R" remote show origin`)).toBe(true)
+    expect(talksToGithub(`${remote}\ngit(repo, 'submodule', 'update', '--init')`)).toBe(true)
+    // A remote in JSON or a shell line ends at a comma or a separator too.
+    expect(talksToGithub(`{"url":"https://${host}/acme/shop.git","x":1}\ngit fetch`)).toBe(true)
+    expect(talksToGithub(`git remote add origin https://${host}/acme/shop.git;git fetch origin`)).toBe(true)
     // A link to a pull request is no remote; a remote with no command is not a call.
     expect(talksToGithub(`const url = 'https://${host}/o/r/pull/12'\ngit(repo, 'fetch', 'origin')`)).toBe(false)
     expect(talksToGithub(remote)).toBe(false)

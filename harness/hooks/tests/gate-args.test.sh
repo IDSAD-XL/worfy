@@ -37,8 +37,9 @@ for flag in --help -h; do
     [ "$(listing)" = absent ] && ok "$flag -> no state folder made" || bad "$flag left in the state folder: $(listing)"
 done
 
-# 2. An unknown profile: code 2, the name and the usage on stderr, no state folder made.
-for name in nosuch --verbose; do
+# 2. An unknown profile: code 2, the name and the usage on stderr, no state folder made. toString is a
+#    property every object inherits: only an own key of root or workspace makes a profile known.
+for name in nosuch --verbose toString; do
     gate "$name"; rc=$?
     if [ "$rc" -eq 2 ] && grep -qxF "[gate] unknown profile: $name" "$T/err" && grep -q '^usage: node gate.mjs' "$T/err" && [ ! -s "$T/out" ]; then ok "unknown profile $name -> exit 2"
     else bad "unknown profile $name: exit $rc, out: $(head -c 300 "$T/out"), err: $(head -c 300 "$T/err")"; fi
@@ -67,6 +68,11 @@ gate --help; gate nosuch; rc=$?
 printf '{ not json' >"$HARNESS_HOME/gate/config.json"
 gate nosuch; rc=$?
 [ "$rc" -eq 3 ] && grep -q 'gate-resolve.mjs' "$T/err" && ok "unreadable registry -> the run reports it (exit 3)" || bad "unreadable registry: exit $rc, out: $(head -c 300 "$T/out"), err: $(head -c 300 "$T/err")"
+
+# 6. A registry with no `repos` list is broken, not empty: the run reports it (code 3), not code 2.
+printf '{}\n' >"$HARNESS_HOME/gate/config.json"
+gate nosuch; rc=$?
+[ "$rc" -eq 3 ] && grep -q 'gate-resolve.mjs' "$T/err" && ok "registry without repos -> the run reports it (exit 3)" || bad "registry without repos: exit $rc, out: $(head -c 300 "$T/out"), err: $(head -c 300 "$T/err")"
 
 echo "passed: $pass, failed: $fail"
 [ "$fail" -eq 0 ]
