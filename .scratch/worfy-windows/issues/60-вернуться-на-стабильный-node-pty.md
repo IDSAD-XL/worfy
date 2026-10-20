@@ -19,7 +19,7 @@ Source: решение владельца 2026-10-18 в чате Session на Ma
   (`useConptyDll: true`, `src/main/terminal/pty.ts`), где брошенных консолей нет, поэтому на worfy это
   сейчас не влияет.
 - beta — не релиз: на её поведение никто, кроме этого замера, не опирается, и следующая beta может
-  поменять то, что worfy достаёт из node-pty (`_agent`, `_getConsoleProcessList`, `inSocket`,
+  поменять то, что worfy достаёт из node-pty (`_agent`, `_agent._pendingPtyInfo`, `_agent.kill`, `_getConsoleProcessList`, `inSocket`,
   `exitCode`, `_conoutSocketWorker`; `src/main/terminal/pty.ts`).
 
 ## Что делаем
@@ -49,7 +49,7 @@ Source: решение владельца 2026-10-18 в чате Session на Ma
 ## Где в коде
 
 - `package.json`, `pnpm-lock.yaml`
-- `src/main/terminal/pty.ts` — только если поля node-pty поменялись (`withoutConsoleHelper`,
+- `src/main/terminal/pty.ts` — только если поля node-pty поменялись (`withoutConsoleHelper`, `killUnconnected`,
   `spawnShellPty`, `exitCodeKnown`, `stopOutputWorker`)
 
 ## Вне скоупа

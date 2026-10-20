@@ -18,6 +18,8 @@ interface StandWatcher {
   readonly paths: unknown
   readonly options: { ignoreInitial?: boolean; ignored?: unknown }
   closed: boolean
+  /** How many times close() was called: a watch the watcher still holds is closed again by its close(). */
+  closes: number
   /** Sends a `raw` event as chokidar's fs.watch does: the event, the name the system gave, the watched path. */
   raw: (name: string | null, watchedPath: string) => void
   /** Sends a `raw` event with any details, as chokidar's polling does (`{ curr, prev }`, no `watchedPath`). */
@@ -38,6 +40,7 @@ vi.mock('chokidar', async () => {
   const { EventEmitter } = await import('node:events')
   class Stand extends EventEmitter implements StandWatcher {
     closed = false
+    closes = 0
     private closing: Promise<void> | null = null
     constructor(
       readonly paths: unknown,
@@ -55,6 +58,7 @@ vi.mock('chokidar', async () => {
     }
     close(): Promise<void> {
       this.closed = true
+      this.closes += 1
       this.closing ??= stand.holdClose ? new Promise((done) => stand.release.push(done)) : Promise.resolve()
       return this.closing
     }
@@ -193,6 +197,20 @@ describe('the watch of the branches when a folder it watches is gone', () => {
 
     await watcher.close()
     expect(stand.made.every((made) => made.closed)).toBe(true)
+  })
+
+  it('a watch made anew takes the place of the gone one: the watcher holds one watch of the branches, and its close() closes each watch once', async () => {
+    warnings()
+    const watcher = await start()
+    for (let n = 1; n <= 3; n++) {
+      branches()[n - 1]!.raw(WORKTREES, WORKTREES)
+      await vi.waitFor(() => expect(branches()).toHaveLength(n + 1), { timeout: 2000, interval: 5 })
+    }
+    // The gone ones were closed once, by the remake; one the watcher still held would be closed
+    // again below, and until then a closed watch would stay in memory for as long as the Project.
+    expect(branches().map((made) => made.closes)).toEqual([1, 1, 1, 0])
+    await watcher.close()
+    expect(branches().map((made) => made.closes)).toEqual([1, 1, 1, 1])
   })
 
   it('the branches are read again once the watch is made anew', async () => {
