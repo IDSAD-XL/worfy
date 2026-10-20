@@ -471,8 +471,14 @@ export function writeManifest(backupDir: string, manifest: Manifest): void {
   writeFileSync(join(backupDir, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-/** The command the form shows after a move. */
-export function restoreCommand(backupDir: string): string {
+/**
+ * The command the form shows after a move, quoted for the shell of the system: sh takes single
+ * quotes; cmd.exe and PowerShell do not, so on Windows the path goes in double quotes.
+ */
+export function restoreCommand(backupDir: string, platform: NodeJS.Platform = process.platform): string {
   const path = join(backupDir, RESTORE_SCRIPT)
-  return `node ${/^[\w./+@-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`}`
+  if (/^[\w./+@-]+$/.test(path)) return `node ${path}`
+  // shortcut: inside double quotes PowerShell still expands `$` and a backtick, cmd.exe `%NAME%`; redo when a backup path with one of them is reported.
+  if (platform === 'win32') return `node "${path}"`
+  return `node '${path.replace(/'/g, `'\\''`)}'`
 }
