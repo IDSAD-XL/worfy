@@ -278,39 +278,86 @@ check "stale lock: written" [ "$(field "$PJ")" = "$OTHER" ]
 check "stale lock: no lock folder left" [ ! -e "$LOCKDIR" ]
 check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 2>&1)
 
-# A stale lock two waiters see at once: B judges it stale and pauses before taking it over; meanwhile A
-# takes it over, makes its own lock and holds it through a slow commit. B's takeover must leave A's lock
-# alone: A's token is still in it while A commits, and B waits for A instead of writing beside it.
+# A stale lock two waiters see at once. Both judge it stale; one takes it over first and holds it
+# through its commit; then the other tries its takeover. The spec: the second takeover leaves the
+# first one's lock alone (its token is still in it while it commits), waits for it instead of writing
+# beside it, and then gets exit 5, since both read the same Pipeline. Which writer goes first is set
+# by events, not by pauses: each writer has a PROFILE_SET_STALE_SYNC folder where profile-set puts its
+# token in `judged`, waits for `go` and creates `tried`; the stub git creates `in-commit` and waits
+# for `release`. A machine under load only makes each step later, never changes the order.
+# wait_for <file>: up to 30 s for the file to appear.
+wait_for() {
+    local i=0
+    while [ ! -e "$1" ]; do
+        i=$((i + 1))
+        [ "$i" -gt 600 ] && return 1
+        sleep 0.05
+    done
+}
+# two_waiters <name> <first|second: which writer takes over first> <seconds the second one starts late>
+two_waiters() {
+    local name="$1" winner="$2" late="$3" s="$T/sync" s1 s2 sw sl vw v1 v2 pid1 pid2 rc1 rc2 rcw rcl owner_mid
+    s1="$s/1"
+    s2="$s/2"
+    rm -rf "$s"
+    mkdir -p "$s1" "$s2"
+    v1='[{"kind":"queued"},{"kind":"agent-review"},{"kind":"done"}]'
+    v2='[{"kind":"queued"},{"kind":"ci"},{"kind":"agent-review"},{"kind":"done"}]'
+    mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s1" PROFILE_SET_LOCK_WAIT_MS=60000 \
+        run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v1" >"$T/out1" 2>"$T/err1" &
+    pid1=$!
+    wait_for "$s1/judged"
+    (
+        sleep "$late"
+        PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s2" PROFILE_SET_LOCK_WAIT_MS=60000 \
+            run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v2" >"$T/out2" 2>"$T/err2"
+    ) &
+    pid2=$!
+    wait_for "$s2/judged"
+    if [ "$winner" = first ]; then sw="$s1" sl="$s2" vw="$v1"; else sw="$s2" sl="$s1" vw="$v2"; fi
+    touch "$sw/go"
+    wait_for "$s/in-commit"
+    touch "$sl/go"
+    wait_for "$sl/tried"
+    owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+    touch "$s/release"
+    wait "$pid1"
+    rc1=$?
+    wait "$pid2"
+    rc2=$?
+    if [ "$winner" = first ]; then rcw=$rc1 rcl=$rc2; else rcw=$rc2 rcl=$rc1; fi
+    check "$name: the first writer judged the lock stale" [ -s "$s1/judged" ]
+    check "$name: the second writer judged the lock stale" [ -s "$s2/judged" ]
+    check "$name: the second takeover leaves the first writer's lock, with its token, while it commits" [ "$owner_mid" = "$(cat "$sw/judged" 2>/dev/null)" ]
+    check "$name: the first to take over writes (exit 0)" [ "$rcw" -eq 0 ]
+    check "$name: the other, from the same read, gets exit 5 after it" [ "$rcl" -eq 5 ]
+    check "$name: the file holds the value of the first to take over" [ "$(field "$PJ")" = "$vw" ]
+    check "$name: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+}
 if $RUN_GIT_STUB; then
-    C='[{"kind":"queued"},{"kind":"agent-review"},{"kind":"done"}]'
     SLOW="$T/slow"
     mkdir -p "$SLOW"
     cat >"$SLOW/git" <<EOF
 #!/usr/bin/env bash
-for a in "\$@"; do [ "\$a" = commit ] && sleep 3; done
+for a in "\$@"; do
+    if [ "\$a" = commit ]; then
+        touch "$T/sync/in-commit"
+        i=0
+        while [ ! -e "$T/sync/release" ] && [ "\$i" -lt 600 ]; do i=\$((i + 1)); sleep 0.05; done
+    fi
+done
 exec "$REAL_GIT" "\$@"
 EOF
     chmod +x "$SLOW/git"
-    mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
-    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
-    PROFILE_SET_STALE_PAUSE_MS=1500 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >"$T/outB" 2>"$T/errB" &
-    waiter_b=$!
-    sleep 0.5
-    PATH="$SLOW:$PATH" run "$SET" -C "$T/r/demo" --expect "$fp" --set "$C" >"$T/outA" 2>"$T/errA" &
-    writer_a=$!
-    # By now B has woken and tried to take over: A is still in its slow commit.
-    sleep 2.5
-    owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
-    wait "$writer_a"
-    rc_a=$?
-    wait "$waiter_b"
-    rc_b=$?
-    check "stale lock, two waiters: A's lock still there while A commits" [ "$owner_mid" != none ]
-    check "stale lock, two waiters: the lock holds A's token, not the dead one" [ "$owner_mid" != dead-writer ]
-    check "stale lock, two waiters: A writes (exit 0)" [ "$rc_a" -eq 0 ]
-    check "stale lock, two waiters: B, from the same read, gets exit 5 after A" [ "$rc_b" -eq 5 ]
-    check "stale lock, two waiters: the file holds A's value" [ "$(field "$PJ")" = "$C" ]
-    check "stale lock, two waiters: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    # The writer that judged first waits; the one that came second takes over first (the order the
+    # flaky version meant to set up with pauses).
+    two_waiters "stale lock, two waiters" second 0
+    # The writer that judged first also takes over first.
+    two_waiters "stale lock, two waiters, the first to judge takes over first" first 0
+    # The second writer starts 3 s late, as on a loaded machine: the outcome is the same.
+    two_waiters "stale lock, two waiters, the second starts 3 s late" second 3
 fi
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------
