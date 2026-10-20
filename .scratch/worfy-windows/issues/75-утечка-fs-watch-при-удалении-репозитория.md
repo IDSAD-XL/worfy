@@ -84,6 +84,9 @@ worfy.
 
 - `pnpm patch` chokidar и issue в chokidar (без согласия владельца).
 - watch Tickets root (`link-safe-watch.ts`): в диагнозе его handle закрывался.
+- Другие обычные `close()` chokidar, которые могут так же открыть watch заново после close:
+  `src/main/cards/store.ts:317`, `src/main/cards/store.ts:328`, `src/main/claude-home/registry.ts:926`.
+  Здесь не менялись; кандидаты на отдельный ticket с тем же `closeForGood`.
 
 ## Итог
 
@@ -141,6 +144,17 @@ chokidar проверить, не открывает ли он watch после 
 | остальные test-ы watch.ts | `node scripts/vitest-electron.mjs` unit: workflow-branches-gone, notify, tickets-chokidar, tickets-watch; contract: workflow-branches-gone, harness-script-env, harness-script-wiring, workflow-profile, workflow-reader, workflow-stages, workflow-watch-links, workflow-watch-retry | exit 0; 11 files passed, 1 skipped (по платформе); 293 passed, 23 skipped |
 | lint | `CI=true pnpm lint` | exit 0 |
 | typecheck | `CI=true pnpm typecheck` | exit 0 |
+
+**Review на ПК: три замечания к test-ам, исправлены.**
+- [med] Пустой listener `error` после close покрыт детерминированно: unit test в
+  `test/unit/workflow-branches-gone.test.ts` (stand-in снимает listener-ы при close, как chokidar,
+  и шлёт `error` каждому закрытому watch-у). Mutant без этой строки — красный (exit 1), с ней — exit 0.
+- [med] Лимит времени handles test-а теперь `ROUNDS * 6_000 * timeScale`: множитель вынесен из
+  `vitest.config.ts` в `test/time-scale.ts` и общий для config и test-а (на Windows 288 s).
+  Повтор: exit 0 × 3, 41–46 s; mutant без `watcher.add = () => watcher` — exit 1 (утечка на круге 1).
+- [low] В каждом круге до close() test требует `fsWatches() > before`: без открытых watch-ей test
+  больше не проходит впустую. Ограничение: это счёт всех fs.watch Project-а (и watch Tickets root),
+  а не одного watch-а веток.
 
 Не сделано в этом шаге: прогон на Mac после правки; пункт про
 `test/contract/workflow-branches-gone.test.ts` с удалением из дочернего процесса (10 из 10).
