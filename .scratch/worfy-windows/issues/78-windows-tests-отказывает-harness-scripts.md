@@ -1,8 +1,8 @@
 # 78 — Workflow «Windows tests» отказывает `test/contract/harness-scripts.test.ts` с понятной причиной
 
 Type: task
-Status: open
-Branch: —
+Status: claimed 2026-10-20T12:39Z
+Branch: worfy-windows/78
 Blocked by: —
 Source: решение владельца 2026-10-20, вариант (a), передано Session на Mac. Строки — на main `2c4df570`.
 
