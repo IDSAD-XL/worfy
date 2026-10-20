@@ -172,9 +172,13 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
 })
 
 test('a move from the form of the first-run screen: "Move old Harness…" leaves the toolbar without a reload', async () => {
-  // The first-run screen opens by itself; its login shell is /bin/sh over the sandbox's HOME, so the
-  // checks see nothing of the machine running the test.
-  const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: join(scratch, 'home'), SHELL: '/bin/sh' } })
+  // The first-run screen opens by itself. Its checks run a login /bin/sh over the sandbox's HOME,
+  // whose .profile sets PATH to the system folders alone (as sandbox() in first-run.spec.ts does):
+  // without it /etc/profile's path_helper adds /opt/homebrew/bin, and the checks would run the real
+  // gh and qmd of the machine running the test.
+  const home = join(scratch, 'home')
+  writeFileSync(join(home, '.profile'), "PATH='/usr/bin:/bin'; export PATH\n")
+  const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh' } })
   try {
     const { window } = launched
     const item = window.getByTestId('harness-status')

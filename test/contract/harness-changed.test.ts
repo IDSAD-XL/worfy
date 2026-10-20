@@ -75,7 +75,7 @@ vi.mock('../../src/main/harness/install', async (original) => {
   return { ...actual, HarnessInstaller: FakeInstaller }
 })
 
-const migration = vi.hoisted(() => ({ result: null as unknown, legacy: true }))
+const migration = vi.hoisted(() => ({ result: null as unknown, legacy: true as boolean | 'throws' }))
 
 vi.mock('../../src/main/harness/migrate/apply', async (original) => ({
   ...(await original<typeof import('../../src/main/harness/migrate/apply')>()),
@@ -84,7 +84,10 @@ vi.mock('../../src/main/harness/migrate/apply', async (original) => ({
 
 vi.mock('../../src/main/harness/migrate/plan', async (original) => ({
   ...(await original<typeof import('../../src/main/harness/migrate/plan')>()),
-  hasLegacyHarness: () => migration.legacy,
+  hasLegacyHarness: () => {
+    if (migration.legacy === 'throws') throw new Error("EACCES: permission denied, scandir '/sandbox/claude'")
+    return migration.legacy
+  },
 }))
 
 const status = (kind: 'installed' | 'not-installed' | 'error'): HarnessStatus => ({
@@ -220,6 +223,21 @@ describe('harnessMigration.changed', () => {
       ['first', { offered: false }],
       ['second', { offered: false }],
     ])
+  })
+
+  it('a move with `done` still answers the form when the new offer cannot be read; no window gets an event', async () => {
+    const call = await firstWindowCaller()
+    const done = { outcome: 'done', backupDir: '/sandbox/backup', restoreCommand: 'node /sandbox/backup/restore.mjs' } satisfies MigrationResult
+    migration.result = done
+    migration.legacy = 'throws'
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      expect(await call('harnessMigration.apply', selection)).toStrictEqual({ ok: true, value: done })
+      expect(events('harnessMigration.changed')).toStrictEqual([])
+      expect(String(logged.mock.calls[0]?.[0])).toContain('harnessMigration.changed was not sent')
+    } finally {
+      logged.mockRestore()
+    }
   })
 
   it.each([{ outcome: 'declined' }, { outcome: 'refused', reason: 'the plugin is not installed' }] satisfies MigrationResult[])('after `$outcome` no window gets an event', async (result) => {

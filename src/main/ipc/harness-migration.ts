@@ -107,9 +107,15 @@ export default [
     })
     // Every window, not only the one whose form moved: the first-run screen opens the form too, and
     // the toolbar of each window drops "Move old Harness…" without a reload (worfy-harness ticket 40).
+    // The move is done whatever happens here: a failure to read the new offer (an unreadable
+    // ~/.claude) is logged, and the form still gets the backup folder and the undo command.
     if (result.outcome === 'done') {
-      const now = offer()
-      toEveryWindow((client) => emit(client, harnessMigrationChanged, now))
+      try {
+        const now = offer()
+        toEveryWindow((client) => emit(client, harnessMigrationChanged, now))
+      } catch (error) {
+        console.error('harnessMigration.changed was not sent after the move:', error)
+      }
     }
     return result
   }),

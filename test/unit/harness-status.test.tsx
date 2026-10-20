@@ -225,6 +225,16 @@ describe('HarnessStatus (the item over IPC)', () => {
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
   })
 
+  it('a `harnessMigration.changed` that arrives before the first `harnessMigration.offer` answer wins over that older answer', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const main = fakeBridge({ 'harness.state': ok(installed), 'harnessMigration.offer': () => new Promise((resolve) => (answer = resolve)) })
+    render(<HarnessStatus />)
+    await screen.findByTestId('harness-text')
+    act(() => main.emit('harnessMigration.changed', { offered: false }))
+    await act(async () => answer({ ok: true, value: { offered: true } }))
+    expect(screen.queryByTestId('harness-migrate')).toBeNull()
+  })
+
   it('`harnessMigration.changed` (a move from the first-run screen) hides "Move old Harness…" without a reload', async () => {
     const main = fakeBridge({ 'harness.state': ok(installed), 'harnessMigration.offer': ok({ offered: true }) })
     render(<HarnessStatus />)

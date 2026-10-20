@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
 import MigrationForm from '../../harness/MigrationForm'
 import { invoke, subscribe } from '../../ipc'
@@ -179,8 +179,13 @@ export default function HarnessStatus() {
     }
   }, [])
 
+  // How many `harnessMigration.changed` events arrived: an offer answer to a call made before the
+  // latest event is older than that event and is dropped, as the first `harness.state` answer is.
+  const offerEvents = useRef(0)
   const readOffer = useCallback(() => {
+    const asked = offerEvents.current
     void invoke('harnessMigration.offer').then((result) => {
+      if (offerEvents.current !== asked) return
       setMigration(result.ok && result.value.offered)
     })
   }, [])
@@ -200,7 +205,10 @@ export default function HarnessStatus() {
       setFailure(undefined)
       setStatus(next)
     })
-    const stopOffer = subscribe('harnessMigration.changed', (next) => setMigration(next.offered))
+    const stopOffer = subscribe('harnessMigration.changed', (next) => {
+      offerEvents.current++
+      setMigration(next.offered)
+    })
     return () => {
       active = false
       stopState()
