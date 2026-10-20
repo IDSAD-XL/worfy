@@ -1,7 +1,8 @@
 # 16 — Shell test-ы Harness идут параллельно: `harness-scripts.test.ts` больше не держит весь `pnpm test`
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T18:35Z
+Branch: worfy-throughput/16
 Blocked by: —
 Source: [spec.md](../spec.md), раздел «Решения владельца 2026-10-20: скорость test-ов»; замер
 Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) (PR #620): на Mac gate fast шёл 531,8 s, из них
@@ -58,4 +59,47 @@ Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) (PR #620):
 
 ## Итог
 
-(заполняет implementer)
+**Замер до (пункт 1).** Каждый `*.test.sh` отдельно, по одному, под `nice -n 10`, на Mac 2026-10-20, с тем же
+окружением, что даёт vitest-файл (пустой `HOME`/`USERPROFILE`, git identity из env). Все 38 — exit 0, сумма
+478,1 s. Файлов 38, а не 48: 48 — число cases в vitest-файле (38 файлов и 10 проверок вокруг).
+
+| s | файл |
+| ---: | --- |
+| 80,1 | bin/tests/wave-gate.test.sh |
+| 58,8 | hooks/tests/guard-silent.test.sh |
+| 54,2 | bin/tests/skill-blocks.test.sh |
+| 44,9 | bin/tests/profile.test.sh |
+| 36,7 | hooks/tests/gate-verdict.test.sh |
+| 27,3 | bin/tests/silent-mode.test.sh |
+| 25,5 | bin/tests/qmd-collections.test.sh |
+| 22,6 | bin/tests/preflight.test.sh |
+| 18,7 | bin/tests/project-connect.test.sh |
+| 13,7 | bin/tests/profile-set.test.sh |
+| 11,7 | bin/tests/harness-home.test.sh |
+| 9,7 | bin/tests/qmd.test.sh |
+| 9,0 | bin/tests/eval-env.test.sh |
+| 7,1 | hooks/tests/gate-shim.test.sh |
+| 5,9 | bin/tests/wave-gate-heartbeat.test.sh |
+
+Остальные 23 файла — от 0,05 до 5,2 s.
+
+**Способ — async `spawn` + `it.concurrent`, `maxConcurrency: 5` в проекте `contract`** (не несколько vitest-файлов):
+
+- один список файлов: каждый файл — ровно один case по построению, без таблицы раскладки по shard-ам и без
+  правила, куда класть новый файл; новый `.test.sh` подхватывается сам;
+- число одновременных shell test-ов задано одним числом и не зависит от числа worker-ов vitest (на CI
+  `ubuntu-latest` их мало, shard-файлы ждали бы в очереди);
+- vitest 5.0.3 ставит case в очередь до начала test-а (`limitTestConcurrency` вокруг `runTest`), поэтому
+  timeout файла считается от его собственного старта;
+- порядок: восемь файлов дольше 20 s идут первыми (`RUN_FIRST`, с проверкой, что каждое имя существует),
+  остальные — по имени. Модель по замеру: 5 сразу в этом порядке — около 98 s, по имени — около 120 s; 4 сразу —
+  121 s, 6 — 82 s.
+
+Проверки в `test/contract/harness-scripts.test.ts`: «gives every shell test file exactly one case» (список cases
+— перестановка найденных файлов), «orders files without losing or repeating one» (чистая функция порядка),
+«lists in RUN_FIRST only files that exist», `afterAll` падает, если файл стартовал дважды за run (retry тоже
+считается повтором). Мутанты (потеря файла, повтор файла, `--retry=1`) — красные; 5 файлов по `sleep 3` — 3,1 s,
+6 — 6,1 s (предел 5 работает); падающий файл показывает код выхода и хвост вывода; зависший — «was killed after».
+
+**Ждёт слота тяжёлого run-а:** wall time `pnpm test` до и после, длина vitest-файла с shell test-ами в полном run,
+gate fast. Ссылка «до» из Ticket-а 10: gate fast 531,8 s, `test` 519 s, этот файл 517 s.

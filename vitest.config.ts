@@ -53,6 +53,11 @@ export default defineConfig({
           // takes about a second; in a full run on a loaded Mac they reach 4–5 s, past vitest's
           // 5 s default, and fail on time alone. A test that really hangs still fails at 15 s (45 s on Windows).
           testTimeout: 15_000 * timeScale,
+          // How many concurrent tests of one file run at once: the shell tests of the Harness
+          // (test/contract/harness-scripts.test.ts) are the only ones. Five keeps that file near
+          // 100 s on the Mac; more would load the machine further in a full run, where
+          // wave-gate.test.sh has already hit its 120 s limit once (docs/lessons/testing.md).
+          maxConcurrency: 5,
           // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
           // test reads the ~/.claude of the machine it runs on; the homes lie in one folder per run,
           // removed at its end.
