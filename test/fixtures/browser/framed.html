@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser fixture, a page with a frame of another origin</title>
+    <!--
+      The page test/e2e/browser.spec.ts uses for a third-party frame that asks for a window: it
+      embeds the address in its `frame` query parameter (popper.html on a second origin) in an
+      iframe. In worfy the frame's window.open must not replace this page.
+    -->
+  </head>
+  <body style="margin: 0; background: #fdf6e3">
+    <h1>A page with a frame</h1>
+    <iframe id="frame" title="third-party frame" width="300" height="120"></iframe>
+    <script>
+      document.getElementById('frame').src = new URLSearchParams(location.search).get('frame') ?? 'about:blank'
+      document.body.dataset.ready = 'yes'
+    </script>
+  </body>
+</html>

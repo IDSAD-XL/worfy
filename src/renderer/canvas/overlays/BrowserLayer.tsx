@@ -9,13 +9,16 @@
 // onto the page, and any other Node or menu over the frame covers the page. While a mouse button
 // pressed on the Canvas is held, no page takes the mouse (frames-step-aside.ts).
 //
-// Every <webview> is on the Browser partition (src/shared/browser/partition.ts); main lets it attach
-// only there and without a preload, and refuses its page every permission (src/main/window.ts).
+// Every <webview> is on the partition of the Canvas's Project (browserPartition,
+// src/shared/browser/partition.ts): persistent, so cookies and logins survive a restart. main lets
+// it attach only on the partition of a Project of this Machine and without a preload, refuses its
+// page every permission, and sends it to the address of a target="_blank" link or window.open
+// instead of opening a window (src/main/window.ts).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal, type InternalNode, type ReactFlowState } from '@xyflow/react'
-import { BROWSER_PARTITION } from '../../../shared/browser/partition'
-import { useReadOnly } from '../../projects/useProjects'
-import { BROWSER_KIND, browserPageRect, browserUrl, registerBrowserPage, webAddress } from '../nodes/browser-frame'
+import { browserPartition } from '../../../shared/browser/partition'
+import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
+import { BROWSER_KIND, browserPageRect, browserUrl, registerBrowserPage, setBrowserHistory, webAddress } from '../nodes/browser-frame'
 import { useFramesStepAsideWhilePressed } from '../nodes/frames-step-aside'
 import type { CanvasFlowNode } from '../nodes'
 import { useLayoutOps } from '../useLayout'
@@ -36,6 +39,11 @@ interface Page {
 /** The part of Electron's <webview> element the layer uses (the renderer has no Electron types). */
 interface WebviewElement extends HTMLElement {
   loadURL(url: string): Promise<void>
+  canGoBack(): boolean
+  canGoForward(): boolean
+  goBack(): void
+  goForward(): void
+  reload(): void
 }
 
 /** A navigation event of a <webview>: did-navigate (main frame) or did-navigate-in-page. */
@@ -68,7 +76,7 @@ function pagesKey(state: ReactFlowState): string {
  * changed `src` attribute would load the page again, and the attribute would change on every
  * navigation the page makes itself, since the address it reaches is written back into the Node.
  */
-function BrowserPage({ page }: { page: Page }) {
+function BrowserPage({ page, partition }: { page: Page; partition: string }) {
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const view = useRef<WebviewElement>(null)
@@ -79,8 +87,10 @@ function BrowserPage({ page }: { page: Page }) {
     kept.current = page.url
   }, [page.url])
 
-  // The address bar's requests. loadURL works only once the guest is attached and its first page
-  // has started (dom-ready); a request before that waits for it.
+  // The frame's requests: the address bar's and the back, forward and reload buttons'. The
+  // <webview>'s methods work only once the guest is attached and its first page has started
+  // (dom-ready): an address sent before that waits for it, a button does nothing (the frame shows
+  // it inactive until then). After every navigation the frame learns where the page can go.
   useEffect(() => {
     const element = view.current
     if (element === null) return
@@ -89,18 +99,37 @@ function BrowserPage({ page }: { page: Page }) {
     const load = (url: string) => {
       element.loadURL(url).catch((error: unknown) => console.warn(`Browser ${page.id}: could not open ${url}`, error))
     }
+    const report = () => {
+      if (ready) setBrowserHistory(page.id, { canGoBack: element.canGoBack(), canGoForward: element.canGoForward() })
+    }
     const onReady = () => {
       ready = true
+      report()
       if (waiting !== null) load(waiting)
       waiting = null
     }
     element.addEventListener('dom-ready', onReady, { once: true })
-    const unregister = registerBrowserPage(page.id, (url) => {
-      if (ready) load(url)
-      else waiting = url
+    element.addEventListener('did-navigate', report)
+    element.addEventListener('did-navigate-in-page', report)
+    const unregister = registerBrowserPage(page.id, {
+      navigate: (url) => {
+        if (ready) load(url)
+        else waiting = url
+      },
+      back: () => {
+        if (ready && element.canGoBack()) element.goBack()
+      },
+      forward: () => {
+        if (ready && element.canGoForward()) element.goForward()
+      },
+      reload: () => {
+        if (ready) element.reload()
+      },
     })
     return () => {
       element.removeEventListener('dom-ready', onReady)
+      element.removeEventListener('did-navigate', report)
+      element.removeEventListener('did-navigate-in-page', report)
       unregister()
     }
   }, [page.id])
@@ -129,21 +158,28 @@ function BrowserPage({ page }: { page: Page }) {
 
   return (
     <div className="w-browser-layer__page" style={{ transform: `translate(${page.x}px, ${page.y}px)`, width: page.w, height: page.h }}>
-      {createElement('webview', { ref: view, src, partition: BROWSER_PARTITION, 'data-browser-id': page.id })}
+      {/* allowpopups: without it Electron drops a page's window.open and target="_blank" before main's
+          window-open handler sees them; that handler opens no window and sends the page itself to
+          the address instead (src/main/window.ts). */}
+      {createElement('webview', { ref: view, src, partition, allowpopups: 'true', 'data-browser-id': page.id })}
     </div>
   )
 }
 
 export default function BrowserLayer() {
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
+  const project = activeProject(useProjects())
+  // The partition of a <webview> is fixed once it attaches; the Canvas of another Project is a new
+  // Canvas (Canvas.tsx), and so a new layer.
+  const partition = project === undefined ? null : browserPartition(project.id)
   const key = useStore(pagesKey)
   const pages = useMemo(() => JSON.parse(key) as Page[], [key])
-  if (pages.length === 0) return null
+  if (pages.length === 0 || partition === null) return null
   return (
     <ViewportPortal>
       <div className="w-browser-layer" data-testid="browser-layer">
         {pages.map((page) => (
-          <BrowserPage key={page.id} page={page} />
+          <BrowserPage key={`${partition} ${page.id}`} page={page} partition={partition} />
         ))}
       </div>
     </ViewportPortal>

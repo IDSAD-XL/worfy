@@ -29,6 +29,38 @@
 .w-browser-frame__title {
   flex: none;
 }
+/* Back, forward, reload: left of the address bar, quiet until hovered, faded while inactive. */
+.w-browser-frame__nav {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.w-browser-frame__nav-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: default;
+}
+.w-browser-frame__nav-button:hover:not(:disabled) {
+  background: var(--segment-track);
+  color: var(--text);
+}
+.w-browser-frame__nav-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-browser-frame__nav-button:disabled {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
 /* The address bar. It leaves the right part of the header free: a press there selects and drags
    the frame, as a press on the title does. */
 .w-browser-frame__address {

@@ -12,9 +12,12 @@ import { snapshotThemes } from './snapshots'
 // The Browser Node (worfy-browser ticket 02, ADR-0078): "New browser" in the Canvas menu makes an
 // empty frame, an address typed into its address bar opens the page in the Browser layer, the
 // address the page reaches is kept in the Node and opened again after a restart, and a second
-// window of the Project shows the same Node. The pages are local fixtures
-// (test/fixtures/browser/) served by a server this file starts on 127.0.0.1: no outside site.
-// With WORFY_EVIDENCE_DIR set, the snapshot of the Browser Node is copied there as 02-<name>.png.
+// window of the Project shows the same Node. The owner's answers of worfy-browser ticket 10: the
+// page keeps its cookies after a restart (a persist: partition per Project), back, forward and
+// reload left of the address bar, a target="_blank" link and window.open open in the same Browser.
+// The pages are local fixtures (test/fixtures/browser/) served by a server this file starts on
+// 127.0.0.1: no outside site. With WORFY_EVIDENCE_DIR set, the snapshots are copied there as
+// <ticket>-<name>.png.
 
 const FIXTURES = join(repoRoot, 'test', 'fixtures', 'browser')
 const PROJECT = 'browser-0000000b'
@@ -22,6 +25,9 @@ const WINDOW = { width: 1400, height: 900 }
 
 let server: Server
 let origin: string
+/** The same pages on a second origin (another port): a third-party frame. */
+let otherServer: Server
+let otherOrigin: string
 let scratch: string
 let launched: LaunchedApp | undefined
 
@@ -33,22 +39,32 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env })
 }
 
-test.beforeAll(async () => {
-  // Serves the two fixture pages and nothing else.
-  server = createServer((request, response) => {
+const PAGES = new Set(['page.html', 'next.html', 'blank.html', 'framed.html', 'popper.html'])
+
+/** A server of the fixture pages and nothing else. */
+function fixtureServer(): Server {
+  return createServer((request, response) => {
     const name = new URL(request.url ?? '/', 'http://127.0.0.1').pathname.slice(1)
-    if (name !== 'page.html' && name !== 'next.html') {
+    if (!PAGES.has(name)) {
       response.writeHead(404).end()
       return
     }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(readFileSync(join(FIXTURES, name)))
   })
+}
+
+test.beforeAll(async () => {
+  server = fixtureServer()
+  otherServer = fixtureServer()
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  await new Promise<void>((done) => otherServer.listen(0, '127.0.0.1', done))
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  otherOrigin = `http://127.0.0.1:${(otherServer.address() as AddressInfo).port}`
 })
 
 test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()))
+  await new Promise<void>((done) => otherServer.close(() => done()))
 })
 
 test.beforeEach(() => {
@@ -111,15 +127,15 @@ async function guests(): Promise<Guest[]> {
   })
 }
 
-/** Runs `code` in the one Browser page at `url`. */
-async function inGuest(url: string, code: string): Promise<unknown> {
+/** Runs `code` in the one Browser page at `url`, as after a click of the user unless `userGesture` is false. */
+async function inGuest(url: string, code: string, userGesture = true): Promise<unknown> {
   return launched!.app.evaluate(
-    async ({ webContents }, { url, code }) => {
+    async ({ webContents }, { url, code, userGesture }) => {
       const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview' && contents.getURL() === url)
       if (!guest) throw new Error(`no Browser page at ${url}`)
-      return guest.executeJavaScript(code, true)
+      return guest.executeJavaScript(code, userGesture)
     },
-    { url, code },
+    { url, code, userGesture },
   )
 }
 
@@ -150,12 +166,22 @@ async function creamShare(box: Box): Promise<number> {
   }, box)
 }
 
-/** Copies a PNG into WORFY_EVIDENCE_DIR as 02-<name>.png, when the variable is set. */
+/** Copies a PNG into WORFY_EVIDENCE_DIR as <name>.png, when the variable is set. */
 function evidence(file: string, name: string): void {
   const dir = process.env.WORFY_EVIDENCE_DIR
   if (dir === undefined || dir === '') return
   mkdirSync(dir, { recursive: true })
-  copyFileSync(file, join(dir, `02-${name}.png`))
+  copyFileSync(file, join(dir, `${name}.png`))
+}
+
+/** The windows of the app, read in main. */
+async function windowCount(): Promise<number> {
+  return launched!.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+}
+
+/** The Browser pages as [address, ready] pairs. */
+async function pageStates(): Promise<[string, string | undefined][]> {
+  return (await guests()).map((guest) => [guest.url, guest.ready])
 }
 
 test('New browser from the Canvas menu opens the typed address; the address the page reaches survives a restart; a second window shows the same Node', async () => {
@@ -191,8 +217,8 @@ test('New browser from the Canvas menu opens the typed address; the address the 
   const body = (await frame.getByTestId('browser-frame-body').boundingBox())!
   expect(await creamShare(body), 'the page fills the frame body').toBeGreaterThan(0.6)
   const shots = await snapshotThemes(window, 'browser-node')
-  evidence(shots.light, 'browser-node-light')
-  evidence(shots.dark, 'browser-node-dark')
+  evidence(shots.light, '02-browser-node-light')
+  evidence(shots.dark, '02-browser-node-dark')
 
   // The page goes on by itself: the bar shows where it is, the Node keeps that address.
   await inGuest(pageUrl, `location.href = ${JSON.stringify(nextUrl)}`)
@@ -265,4 +291,155 @@ test('on a Canvas without a Card, a Note dragged across the page of a Browser fo
   expect(Math.abs(after.y - (started.y + release.y - onPage.y)), `the Note's top edge: ${after.y}`).toBeLessThanOrEqual(8)
   expect(after.x, 'the Note lies right of the frame').toBeGreaterThan(body.x + body.width)
   expect((await guests())[0]!.moves - movesBefore, 'mouse moves the page got').toBe(0)
+})
+
+// worfy-browser ticket 10, question 1: the partition of a Project's Browsers is persist:, so a
+// cookie the page sets is there again after a restart. Its data lives in the worfy data folder
+// (Electron's userData), here the test's own temporary one.
+test('a cookie the page sets is there again after a restart, kept in the Project\'s own partition inside the data folder', async () => {
+  const pageUrl = `${origin}/page.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 480, h: 440, data: { url: pageUrl } }])
+  await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await inGuest(pageUrl, "document.cookie = 'kept=yes; max-age=86400; path=/'")
+  expect(await inGuest(pageUrl, 'document.cookie')).toContain('kept=yes')
+  const storage = await launched!.app.evaluate(({ webContents }) => {
+    const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview')
+    return guest?.session.storagePath ?? null
+  })
+  expect(storage, 'the page is on a persist: partition, with storage on disk').not.toBeNull()
+  expect(storage!.startsWith(dataDir()), `the partition's storage ${storage} is inside the data folder`).toBe(true)
+  expect(storage!.endsWith('worfy-browser-0000000b-default'), `the partition of Project ${PROJECT}: ${storage}`).toBe(true)
+
+  await launched!.close()
+  launched = undefined
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the page after the restart' }).toEqual([[pageUrl, 'yes']])
+  expect(await inGuest(pageUrl, 'document.cookie'), 'the cookie after the restart').toContain('kept=yes')
+  await canvasReady(launched!)
+  const body = (await window.getByTestId('browser-frame-body').boundingBox())!
+  expect(await creamShare(body), 'the page is drawn in the frame').toBeGreaterThan(0.6)
+})
+
+// worfy-browser ticket 10, question 2: back, forward and reload left of the address bar; back and
+// forward inactive when the page has nowhere to go that way.
+test('back, forward and reload left of the address bar move the page through its history and are inactive at its ends', async () => {
+  const pageUrl = `${origin}/page.html`
+  const nextUrl = `${origin}/next.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: pageUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  const frame = window.getByTestId('browser-frame')
+  const address = frame.getByTestId('browser-address')
+  const back = frame.getByRole('button', { name: 'Back' })
+  const forward = frame.getByRole('button', { name: 'Forward' })
+  const reload = frame.getByRole('button', { name: 'Reload' })
+
+  // In this order, left of the address bar.
+  const lefts = await Promise.all([back, forward, reload, address].map(async (element) => (await element.boundingBox())!.x))
+  expect([...lefts].sort((a, b) => a - b), 'back, forward, reload, then the address bar').toEqual(lefts)
+
+  // One page in the history: nowhere to go.
+  await expect(reload).toBeEnabled()
+  await expect(back).toBeDisabled()
+  await expect(forward).toBeDisabled()
+
+  // Reload loads the page again (its load mark changes) and adds nothing to the history.
+  const firstLoad = await inGuest(pageUrl, 'document.body.dataset.load')
+  await reload.click()
+  const loadedAgain = async (): Promise<boolean> => {
+    const load = await inGuest(pageUrl, 'document.body?.dataset.ready === "yes" ? document.body.dataset.load : null').catch(() => null)
+    return typeof load === 'string' && load !== firstLoad
+  }
+  await expect.poll(loadedAgain, { timeout: 15_000, message: 'the page loaded again' }).toBe(true)
+  await expect(back).toBeDisabled()
+  await expect(forward).toBeDisabled()
+
+  // The page goes on by a link: back is active, forward still not.
+  await inGuest(pageUrl, `location.href = ${JSON.stringify(nextUrl)}`)
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[nextUrl, 'yes']])
+  await expect(back).toBeEnabled()
+  await expect(forward).toBeDisabled()
+  await canvasReady(launched!)
+  const shots = await snapshotThemes(window, 'browser-nav')
+  evidence(shots.light, '10-browser-nav-light')
+  evidence(shots.dark, '10-browser-nav-dark')
+
+  // Back: the first page again, in the bar and the Node too; now only forward is active.
+  await back.click()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[pageUrl, 'yes']])
+  await expect(address).toHaveValue(pageUrl)
+  await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(pageUrl)
+  await expect(back).toBeDisabled()
+  await expect(forward).toBeEnabled()
+
+  // Forward: the next page again; forward inactive at the end of the history.
+  await forward.click()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[nextUrl, 'yes']])
+  await expect(address).toHaveValue(nextUrl)
+  await expect(back).toBeEnabled()
+  await expect(forward).toBeDisabled()
+})
+
+// worfy-browser ticket 10, question 5: a target="_blank" link and window.open of the page open in
+// the same Browser; no window appears and no second page.
+test('a target="_blank" link and window.open of the page open in the same Browser, with no new window', async () => {
+  const blankUrl = `${origin}/blank.html`
+  const nextUrl = `${origin}/next.html`
+  const pageUrl = `${origin}/page.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  expect(await windowCount()).toBe(1)
+  const frame = window.getByTestId('browser-frame')
+
+  await inGuest(blankUrl, "document.getElementById('blank').click()")
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the link opened in the same Browser' }).toEqual([[nextUrl, 'yes']])
+  await expect(frame.getByTestId('browser-address')).toHaveValue(nextUrl)
+  await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(nextUrl)
+  await expect(frame.getByRole('button', { name: 'Back' })).toBeEnabled()
+  expect(await windowCount(), 'no new window').toBe(1)
+
+  await frame.getByRole('button', { name: 'Back' }).click()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await inGuest(blankUrl, "document.getElementById('open').click()")
+  await expect.poll(pageStates, { timeout: 15_000, message: 'window.open opened in the same Browser' }).toEqual([[pageUrl, 'yes']])
+  await expect(frame.getByTestId('browser-address')).toHaveValue(pageUrl)
+  // A moment more for a late window: still one window and one page.
+  await window.waitForTimeout(1_000)
+  expect(await windowCount(), 'no new window').toBe(1)
+  expect(await pageStates()).toEqual([[pageUrl, 'yes']])
+})
+
+// Review of PR #609: the window-open handler is not told which frame asks, nor whether the user
+// clicked. A frame of another origin (an ad) that calls window.open on load must not replace the
+// page; a window.open of the page's own origin with no click still opens in the same Browser, which
+// shows that Electron lets a request without a user gesture through to main's handler, and so that
+// the origin check is what keeps the third-party frame's request off the page.
+test('a frame of another origin that calls window.open on load leaves the page where it is; the page\'s own window.open without a click opens in the same Browser', async () => {
+  const framedUrl = `${origin}/framed.html?frame=${encodeURIComponent(`${otherOrigin}/popper.html`)}`
+  const nextUrl = `${origin}/next.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: framedUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
+
+  // The frame has loaded and called window.open, with no click.
+  const frameAsked = (): Promise<unknown> =>
+    launched!.app.evaluate(async ({ webContents }) => {
+      const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview')
+      const frame = guest?.mainFrame.frames[0]
+      return frame === undefined ? null : frame.executeJavaScript('document.body?.dataset.asked ?? null')
+    })
+  await expect.poll(frameAsked, { timeout: 15_000, message: 'the third-party frame asked for a window' }).toBe('yes')
+  // A moment more for a late navigation: the page is still where it was, in one window.
+  await window.waitForTimeout(1_500)
+  expect(await pageStates(), 'the page did not leave its address').toEqual([[framedUrl, 'yes']])
+  expect(await windowCount(), 'no new window').toBe(1)
+  await expect(window.getByTestId('browser-frame').getByTestId('browser-address')).toHaveValue(framedUrl)
+
+  // The page's own window.open, with no user gesture: Electron passes it to main's handler, and
+  // the page goes to the address in the same Browser.
+  await inGuest(framedUrl, "window.open('next.html')", false)
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the page\'s own window.open without a click' }).toEqual([[nextUrl, 'yes']])
+  expect(await windowCount(), 'no new window').toBe(1)
 })
