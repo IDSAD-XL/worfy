@@ -49,7 +49,7 @@ Source: ревью корректности Ticket-а worfy-windows 57, круг
 ## Итог
 
 PR [#508](https://github.com/IDSAD-XL/worfy/pull/508) влит (`b0d6f636`). Находка low ниже перенесена в
-[worfy-windows 72](../../worfy-windows/issues/72-остатки-ревью-2026-10-19.md) (2026-10-20).
+[worfy-windows 74](../../worfy-windows/issues/74-остатки-ревью-2026-10-19.md) (2026-10-20).
 
 Заметка до мержа PR #508 (находка low ревью, мерж не держит): ни один test в репозитории не берёт
 написание корня worktree, которое даёт git на Windows (`C:/…` из `git worktree list --porcelain`). Test на
