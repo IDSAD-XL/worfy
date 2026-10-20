@@ -59,4 +59,5 @@ stderr пустой. Проверка на ПК: прямой `spawnSync(profile
 - [ ] На Windows `qmd-collections.test.sh` не падает на `profile … exit null`: 12 passed вместо 8.
 - [ ] Каждый оставшийся красный называет причину (`ENOENT`, `unbound variable`), а не `exit null`.
 - [ ] На macOS `qmd-collections.test.sh` зелёный, как был (проверка Mac).
-- [ ] `plugin-neutral.test.sh`, `qmd.test.sh`, `test/contract/harness-qmd.test.ts` зелёные.
+- [ ] `plugin-neutral.test.sh`, `test/contract/harness-qmd.test.ts` зелёные; `qmd.test.sh` на macOS
+      зелёный (на Windows его пропускает `ZSH_ONLY` в `test/contract/harness-scripts.test.ts:43`).

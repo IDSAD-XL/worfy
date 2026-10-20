@@ -119,8 +119,9 @@ function scriptCommand(file, args) {
     return [process.execPath, [file, ...args]]
 }
 const runScript = (file, argv, opts) => run(...scriptCommand(file, argv), opts)
-// What a failed start says: the exit code, or the error that kept it from starting (status is then null).
-const failure = (r) => (r.error ? `${r.error.code || r.error.message}` : `exit ${r.status}`)
+// What a failed run says: the error that kept it from starting with the command it tried (`spawnSync bash
+// ENOENT`), the signal that ended it, or its exit code. status is null in the first two.
+const failure = (r) => (r.error ? r.error.message : r.signal ? `ended by ${r.signal}` : `exit ${r.status}`)
 const resolved = runScript(PROFILE_BIN, ["-C", MATCH, "--json"])
 if (resolved.status !== 0) die(1, `profile -C ${MATCH} --json: ${failure(resolved)}: ${(resolved.stderr || "").trim()}`)
 let P
