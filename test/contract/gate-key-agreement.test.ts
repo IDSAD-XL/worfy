@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gateKey } from '../../src/main/gate/state'
 import { removeTestTree } from '../remove'
 
@@ -25,7 +25,12 @@ function shortName(path: string): string | null {
   return run.status === 0 && short !== '' && short.toLowerCase() !== path.toLowerCase() ? short : null
 }
 
-/** The spellings of one real folder, by name; the names of the ones this machine cannot make are skipped. */
+// The names of the spellings, known when the tests are collected; the folders are made in beforeAll,
+// since cmd.exe of shortName may not start while the file loads (test/unit/e2e-no-spawn-on-load.test.ts).
+// `short` is there on Windows only, and a test of it skips when the volume makes no 8.3 names.
+const NAMES = ['long', 'typed', 'link', ...(process.platform === 'win32' ? ['short'] : [])]
+
+/** The spellings of one real folder, by name; the ones this machine cannot make are left out. */
 function spellings(): Record<string, string> {
   const typed = join(scratch, 'gate key spelling', 'repo')
   mkdirSync(join(typed, 'sub'), { recursive: true })
@@ -54,8 +59,12 @@ function which(config: { repos: { key: string; match: string }[] }, target: stri
 }
 
 describe('gate-resolve.mjs --which and gateKey pick the same registry entry', () => {
-  const folders = spellings()
-  const names = Object.keys(folders)
+  const folders: Record<string, string> = {}
+  beforeAll(() => {
+    Object.assign(folders, spellings())
+  })
+  /** The names whose spelling this machine made. */
+  const made = (): string[] => NAMES.filter((name) => folders[name] !== undefined)
 
   it('the folder in its realpath spelling is its own entry in both', async () => {
     const config = { repos: [{ key: 'k', match: folders.long ?? '' }] }
@@ -63,7 +72,8 @@ describe('gate-resolve.mjs --which and gateKey pick the same registry entry', ()
     expect(await gateKey(config, folders.long ?? '')).toBe('k')
   })
 
-  it.each(names.flatMap((match) => names.map((target) => [match, target])))('a `match` spelled %s, the folder or its subfolder spelled %s', async (matchName, targetName) => {
+  it.for(NAMES.flatMap((match) => NAMES.map((target) => [match, target])))('a `match` spelled %s, the folder or its subfolder spelled %s', async ([matchName = '', targetName = ''], context) => {
+    context.skip(!made().includes(matchName) || !made().includes(targetName), 'the volume makes no 8.3 short names')
     const config = { repos: [{ key: 'k', match: folders[matchName] ?? '' }] }
     for (const target of [folders[targetName] ?? '', join(folders[targetName] ?? '', 'sub')]) {
       expect(await gateKey(config, target), target).toBe(which(config, target))
@@ -72,8 +82,8 @@ describe('gate-resolve.mjs --which and gateKey pick the same registry entry', ()
 
   it('a registry with every spelling as its own entry, and the parent folder: both pick one and the same', async () => {
     const parent = join(folders.long ?? '', '..')
-    const config = { repos: [{ key: 'parent', match: parent }, ...names.map((name) => ({ key: name, match: folders[name] ?? '' }))] }
-    for (const name of names) {
+    const config = { repos: [{ key: 'parent', match: parent }, ...made().map((name) => ({ key: name, match: folders[name] ?? '' }))] }
+    for (const name of made()) {
       const target = folders[name] ?? ''
       const picked = which(config, target)
       expect(picked, target).not.toBeNull()

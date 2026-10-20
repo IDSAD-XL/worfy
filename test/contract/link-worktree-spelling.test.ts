@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { gitWorktrees } from '../../src/main/claude-home/registry'
 import { realProjectRoot } from '../../src/main/link/caller'
 import { removeTestTree } from '../remove'
@@ -29,16 +29,19 @@ const listedByGit = async (root: string): Promise<string[]> =>
 
 describe('a worktree root in the spelling of `git worktree list`', () => {
   const project = join(scratch, 'project')
-  mkdirSync(project)
-  git(project, 'init', '-q')
-  writeFileSync(join(project, 'README.md'), 'hi\n')
-  git(project, 'add', '.')
-  git(project, 'commit', '-q', '-m', 'first')
   const worktree = join(project, '.claude', 'worktrees', 'w')
-  git(project, 'worktree', 'add', '-q', '-b', 'feature', worktree)
   const plain = join(project, 'src')
-  mkdirSync(plain)
   const projects = [{ path: project }]
+  // git may not start while the file loads (test/unit/e2e-no-spawn-on-load.test.ts): the repository is made here.
+  beforeAll(() => {
+    mkdirSync(project)
+    git(project, 'init', '-q')
+    writeFileSync(join(project, 'README.md'), 'hi\n')
+    git(project, 'add', '.')
+    git(project, 'commit', '-q', '-m', 'first')
+    git(project, 'worktree', 'add', '-q', '-b', 'feature', worktree)
+    mkdirSync(plain)
+  })
 
   it('git names the worktree with forward slashes on Windows, as the system spells it elsewhere', async () => {
     const listed = await listedByGit(project)
