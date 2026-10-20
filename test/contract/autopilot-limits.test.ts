@@ -298,6 +298,8 @@ function harness(options: HarnessOptions = {}) {
 
 const iso = (ms: number): string => new Date(ms).toISOString()
 const S = (ms: number): number => ms / 1000
+/** Any Cyrillic letter: what worfy sends an agent is English (ADR-0074, point 6). */
+const CYRILLIC = /[\u0400-\u04FF]/u
 
 // ── the runs ─────────────────────────────────────────────────────────────────
 
@@ -329,6 +331,10 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(continuation).toBe(continueText(START_MS, resumesAt))
     expect(continuation).toContain('HANDOFF')
     expect(continuation!.startsWith(CONTINUE_TEXT)).toBe(true)
+    // English, with the pause's start and end for the HANDOFF entry (worfy-neutral ticket 05).
+    expect(continuation).not.toMatch(CYRILLIC)
+    expect(continuation).toContain('Limits')
+    expect(continuation).toContain(`from ${iso(START_MS)} until ${iso(resumesAt)}`)
     expect(h.messages().filter((text) => text.startsWith(CONTINUE_TEXT))).toHaveLength(1)
     // Between the waits the run was running again: its states go waiting → running → waiting.
     const statuses = h.states.map((state) => state.status).filter((status, i, all) => i === 0 || all[i - 1] !== status)
@@ -380,6 +386,7 @@ describe('Autopilot and the Limits on the fake agent', () => {
     timer.fire()
     await until(() => h.state().status === 'stopped', 'the run to stop')
     expect(h.messages()).toEqual([WAVE_1, `${continueText(START_MS, timer.at)}\n\n${STOP_TEXT}`])
+    expect(h.messages()[1]).not.toMatch(CYRILLIC)
     expect(h.state()).toMatchObject({ reason: 'user-stop', wave: 1, stopping: false, resumable: [] })
     // Wave 2 was ready after the continuation's turn and did not go.
     expect(await h.kinds()).toEqual(['run-started', 'wave-started', 'limits-hit', 'waiting-until', 'run-stopping', 'resumed', 'run-stopped'])

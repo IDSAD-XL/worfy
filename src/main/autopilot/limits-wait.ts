@@ -22,11 +22,11 @@ import type { SessionLimitsStatus } from '../agent/limits'
 
 /** What the Orchestrator gets when the Limits have reset; continueText() adds the times of the pause. */
 export const CONTINUE_TEXT =
-  'Продолжай с того места, где остановился. Перед продолжением добавь в HANDOFF запись о паузе по Limits: с какого и до какого времени.'
+  'Continue from where you stopped. Before you continue, add an entry to HANDOFF about the pause for the Limits: from what time until what time.'
 
 /** The message the Orchestrator gets after a pause from `from` until `until` (milliseconds). */
 export function continueText(from: number, until: number): string {
-  return `${CONTINUE_TEXT}\nПауза по Limits: с ${new Date(from).toISOString()} до ${new Date(until).toISOString()}.`
+  return `${CONTINUE_TEXT}\nPause for the Limits: from ${new Date(from).toISOString()} until ${new Date(until).toISOString()}.`
 }
 
 /** The wall-clock timer checks the time at least this often. */

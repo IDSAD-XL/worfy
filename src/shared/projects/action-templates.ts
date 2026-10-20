@@ -41,6 +41,9 @@ export type HarnessKind = (typeof HARNESS_KINDS)[number]
  */
 export const LEGACY_HARNESS_TEMPLATES: Readonly<Record<Action, string>> = {
   shipTicket: '/ship-ticket {epic} {NN}',
+  // Data of the old Harness's protocol, not text of worfy's own: its epic-wave skill reads only this
+  // Russian form, and the plugin's English form would not start a Wave there (ADR-0074, point 6).
+  // shortcut: accepts the old Russian token of the old Harness's command, remove with old-Harness support once no Machine runs it.
   runWave: '/epic-wave Ticket-ы {tickets} эпика {epic}',
   gateQueue: '',
 }
@@ -69,7 +72,11 @@ export function defaultActionTemplates(harness: HarnessKind): Record<Action, str
   return { ...(harness === 'legacy' ? LEGACY_HARNESS_TEMPLATES : PLUGIN_HARNESS_TEMPLATES) }
 }
 
-/** The default "Run wave" template before ADR-0033; saved settings that still hold it read as the new one. */
+/**
+ * The default "Run wave" template before ADR-0033; saved settings that still hold it read as the new one.
+ * It is never sent: the app only recognises it in saved settings.
+ */
+// shortcut: accepts the old Russian token of a saved setting, remove after the next release (worfy-neutral 08).
 export const LEGACY_RUN_WAVE_TEMPLATE = '/epic-wave волна {wave} эпика {epic}'
 
 /**
