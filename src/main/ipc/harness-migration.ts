@@ -9,7 +9,8 @@
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { app, BrowserWindow, dialog } from 'electron'
-import { harnessMigrationApply, harnessMigrationOffer, harnessMigrationPlan } from '../../shared/ipc/harness-migration'
+import { harnessMigrationApply, harnessMigrationChanged, harnessMigrationOffer, harnessMigrationPlan } from '../../shared/ipc/harness-migration'
+import { toEveryWindow } from '../broadcast'
 import { bundledClaudeBinary } from '../agent/options'
 import { bundledHarnessDir } from '../harness/bundled'
 import { claudeCommandEnv, HarnessInstaller, installOffered } from '../harness/install'
@@ -17,7 +18,7 @@ import { applyMigration, type MigrationSummary } from '../harness/migrate/apply'
 import { buildPlan, claudeJsonPath, hasLegacyHarness, type PlanOptions } from '../harness/migrate/plan'
 import { bridgeFile } from '../harness/status-line'
 import { claudeHome, harnessHome } from '../storage/paths'
-import { defineHandler, type HandlerModule } from './index'
+import { defineHandler, emit, type HandlerModule } from './index'
 
 /** Where the move reads and writes, from the app's environment; the first-run screen (ticket 19) looks for the old Harness with it too. */
 export function planOptions(): Omit<PlanOptions, 'pluginState'> {
@@ -84,22 +85,32 @@ async function confirmMove(owner: BrowserWindow | null, summary: MigrationSummar
   return response === 0
 }
 
+/** Whether the form is offered: this run may move, and something of the old Harness is in ~/.claude. */
+function offer(): { offered: boolean } {
+  const options = planOptions()
+  return { offered: options.offered && hasLegacyHarness(options) }
+}
+
 export default [
-  defineHandler(harnessMigrationOffer, () => {
-    const options = planOptions()
-    return { offered: options.offered && hasLegacyHarness(options) }
-  }),
+  defineHandler(harnessMigrationOffer, offer),
   defineHandler(harnessMigrationPlan, async () => {
     const options = planOptions()
     // Without `offered` the plugin is not asked: a dev run on the real ~/.claude moves nothing.
     const state = options.offered ? (await pluginState()).state : undefined
     return buildPlan({ ...options, pluginState: state }).view
   }),
-  defineHandler(harnessMigrationApply, (selection, { event }) =>
-    applyMigration(selection, {
+  defineHandler(harnessMigrationApply, async (selection, { event }) => {
+    const result = await applyMigration(selection, {
       ...planOptions(),
       pluginStatus: async () => (await pluginState()).state,
       confirm: (summary) => confirmMove(BrowserWindow.fromWebContents(event.sender), summary),
-    }),
-  ),
+    })
+    // Every window, not only the one whose form moved: the first-run screen opens the form too, and
+    // the toolbar of each window drops "Move old Harness…" without a reload (worfy-harness ticket 40).
+    if (result.outcome === 'done') {
+      const now = offer()
+      toEveryWindow((client) => emit(client, harnessMigrationChanged, now))
+    }
+    return result
+  }),
 ] satisfies HandlerModule

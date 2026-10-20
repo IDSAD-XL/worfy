@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { HarnessStatus as Status } from '../../../shared/ipc/harness'
 import MigrationForm from '../../harness/MigrationForm'
-import { invoke } from '../../ipc'
+import { invoke, subscribe } from '../../ipc'
 
 // The Harness in the toolbar (worfy-harness ticket 13): whether the plugin `worfy` of this build is
 // installed, and the Install or Update button that opens main's consent dialog (src/main/ipc/harness.ts).
@@ -10,6 +10,10 @@ import { invoke } from '../../ipc'
 // A dev run on the real ~/.claude shows the state without the button (canInstall).
 // While the old Harness is still in ~/.claude, "Move old Harness…" opens the move form (ticket 14,
 // src/renderer/harness/MigrationForm.tsx); the form itself says what is missing before a move.
+// The item reads `harness.state` and `harnessMigration.offer` once, then follows main's
+// `harness.changed` and `harnessMigration.changed` (ticket 40): an install or a move started from the
+// first-run screen or from another window shows here without a reload. During its own install the
+// item stays on "Installing Harness…" until its own answer, whatever arrives meanwhile.
 
 // The app version (`app.version`) is the second line of this item, small and muted under the
 // Harness line (worfy-ui ticket 18): one column, so the toolbar's height stays the same.
@@ -154,7 +158,7 @@ function HarnessLine({ status, busy, failure, onInstall, onMigrate }: Omit<Harne
   )
 }
 
-/** The Harness state from main (`harness.state`), and the install through `harness.install`. */
+/** The Harness state from main (`harness.state`, then `harness.changed`), and the install through `harness.install`. */
 export default function HarnessStatus() {
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
@@ -184,13 +188,23 @@ export default function HarnessStatus() {
 
   useEffect(() => {
     let active = true
+    // An event that arrives before the first answer is newer than that answer: the answer is dropped.
+    let heard = false
     void invoke('harness.state').then((result) => {
-      if (!active) return
+      if (!active || heard) return
       if (result.ok) setStatus(result.value)
       else setFailure(result.error)
     })
+    const stopState = subscribe('harness.changed', (next) => {
+      heard = true
+      setFailure(undefined)
+      setStatus(next)
+    })
+    const stopOffer = subscribe('harnessMigration.changed', (next) => setMigration(next.offered))
     return () => {
       active = false
+      stopState()
+      stopOffer()
     }
   }, [])
 
