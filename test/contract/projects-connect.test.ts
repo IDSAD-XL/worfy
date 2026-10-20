@@ -301,6 +301,23 @@ describe('the kind of the folder (step 1)', () => {
     expect(linked.ok && linked.folder.notice).toMatch(/is a worktree of .*the repository root is connected instead/)
   })
 
+  // git prints `C:/…` on Windows and worfy's own paths have `\`: a notice names every folder in one
+  // spelling, the one of the root it connects, even when the folder was typed with forward slashes.
+  it('a notice names its folders in one spelling, a folder typed with forward slashes included', async () => {
+    const repo = makeRepo(join(scratch, 'spelled'))
+    mkdirSync(join(repo, 'src'))
+    const worktree = join(scratch, 'spelled-wt')
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature', worktree)
+    const typed = (path: string): string => path.replaceAll('\\', '/')
+    const sub = join(repo, 'src')
+    const cases: [string, string][] = [[sub, sub], [worktree, worktree], [typed(sub), sub], [typed(worktree), worktree]]
+    for (const [folder, shown] of cases) {
+      const result = await inspectFolder(folder, runGit)
+      const notice = result.ok ? result.folder.notice : null
+      expect(notice, folder).toBe(`${shown} ${shown === worktree ? 'is a worktree of' : 'is inside the repository'} ${repo}; the repository root is connected instead.`)
+    }
+  })
+
   // Windows gives one folder several spellings: the short 8.3 name of a long account name, a subst
   // drive, another letter case. git answers the spelling the disk has, so the folder the user typed
   // is compared on that one too. Letter case is the spelling a test can make on any machine; on a
