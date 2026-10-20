@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +16,8 @@ import { snapshotThemes } from './snapshots'
 // window of the Project shows the same Node. The owner's answers of worfy-browser ticket 10: the
 // page keeps its cookies after a restart (a persist: partition per Project), back, forward and
 // reload left of the address bar, a target="_blank" link and window.open open in the same Browser.
+// worfy-browser ticket 11: a request main does not open by itself (a frame of another origin, no
+// referrer) is offered in the frame's Open bar.
 // The pages are local fixtures (test/fixtures/browser/) served by a server this file starts on
 // 127.0.0.1: no outside site. With WORFY_EVIDENCE_DIR set, the snapshots are copied there as
 // <ticket>-<name>.png.
@@ -28,6 +31,9 @@ let origin: string
 /** The same pages on a second origin (another port): a third-party frame. */
 let otherServer: Server
 let otherOrigin: string
+/** The same pages over https, with a self-signed certificate the Browser's session is told to accept. */
+let secureServer: Server
+let secureOrigin: string
 let scratch: string
 let launched: LaunchedApp | undefined
 
@@ -39,32 +45,51 @@ function git(cwd: string, ...args: string[]): void {
   execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'init.defaultBranch=main', ...args], { cwd, env })
 }
 
-const PAGES = new Set(['page.html', 'next.html', 'blank.html', 'framed.html', 'popper.html'])
+const PAGES = new Set(['page.html', 'next.html', 'blank.html', 'framed.html', 'popper.html', 'insecure.html'])
+
+/** Answers with the fixture page the request names, or 404 for anything else. */
+function serveFixture(request: IncomingMessage, response: ServerResponse): void {
+  const name = new URL(request.url ?? '/', 'http://127.0.0.1').pathname.slice(1)
+  if (!PAGES.has(name)) {
+    response.writeHead(404).end()
+    return
+  }
+  response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(readFileSync(join(FIXTURES, name)))
+}
 
 /** A server of the fixture pages and nothing else. */
 function fixtureServer(): Server {
-  return createServer((request, response) => {
-    const name = new URL(request.url ?? '/', 'http://127.0.0.1').pathname.slice(1)
-    if (!PAGES.has(name)) {
-      response.writeHead(404).end()
-      return
-    }
-    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(readFileSync(join(FIXTURES, name)))
-  })
+  return createServer(serveFixture)
 }
 
+/** The same server over https, with a self-signed certificate for 127.0.0.1 made by openssl in `dir`. */
+function secureFixtureServer(dir: string): Server {
+  const key = join(dir, 'key.pem')
+  const cert = join(dir, 'cert.pem')
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=127.0.0.1'], { stdio: 'ignore' })
+  return createHttpsServer({ key: readFileSync(key), cert: readFileSync(cert) }, serveFixture)
+}
+
+let certDir: string
+
 test.beforeAll(async () => {
+  certDir = mkdtempSync(join(tmpdir(), 'worfy-e2e-browser-cert-'))
   server = fixtureServer()
   otherServer = fixtureServer()
+  secureServer = secureFixtureServer(certDir)
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   await new Promise<void>((done) => otherServer.listen(0, '127.0.0.1', done))
+  await new Promise<void>((done) => secureServer.listen(0, '127.0.0.1', done))
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   otherOrigin = `http://127.0.0.1:${(otherServer.address() as AddressInfo).port}`
+  secureOrigin = `https://127.0.0.1:${(secureServer.address() as AddressInfo).port}`
 })
 
 test.afterAll(async () => {
   await new Promise<void>((done) => server.close(() => done()))
   await new Promise<void>((done) => otherServer.close(() => done()))
+  await new Promise<void>((done) => secureServer.close(() => done()))
+  await removeDir(certDir)
 })
 
 test.beforeEach(() => {
@@ -416,12 +441,17 @@ test('a target="_blank" link and window.open of the page open in the same Browse
 // page; a window.open of the page's own origin with no click still opens in the same Browser, which
 // shows that Electron lets a request without a user gesture through to main's handler, and so that
 // the origin check is what keeps the third-party frame's request off the page.
-test('a frame of another origin that calls window.open on load leaves the page where it is; the page\'s own window.open without a click opens in the same Browser', async () => {
+// worfy-browser ticket 11: the frame's request is not lost either: the Browser's Open bar shows its
+// address; "Open" sends the page there, the close button leaves the page where it is.
+test('a frame of another origin that calls window.open on load leaves the page where it is and is offered in the Open bar; Open sends the page there, close leaves it; the page\'s own window.open without a click opens in the same Browser', async () => {
   const framedUrl = `${origin}/framed.html?frame=${encodeURIComponent(`${otherOrigin}/popper.html`)}`
   const nextUrl = `${origin}/next.html`
+  const askedUrl = `${otherOrigin}/next.html`
   project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: framedUrl } }])
   const window = await start()
   await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
+  const frame = window.getByTestId('browser-frame')
+  const bar = frame.getByTestId('browser-open-bar')
 
   // The frame has loaded and called window.open, with no click.
   const frameAsked = (): Promise<unknown> =>
@@ -431,15 +461,116 @@ test('a frame of another origin that calls window.open on load leaves the page w
       return frame === undefined ? null : frame.executeJavaScript('document.body?.dataset.asked ?? null')
     })
   await expect.poll(frameAsked, { timeout: 15_000, message: 'the third-party frame asked for a window' }).toBe('yes')
+  // The Open bar shows the address the frame asked for, whole.
+  await expect(bar).toBeVisible()
+  await expect(bar).toContainText('The page wants to open')
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(askedUrl)
+  await expect(bar.getByTestId('browser-open-url')).toHaveAttribute('title', askedUrl)
   // A moment more for a late navigation: the page is still where it was, in one window.
   await window.waitForTimeout(1_500)
   expect(await pageStates(), 'the page did not leave its address').toEqual([[framedUrl, 'yes']])
   expect(await windowCount(), 'no new window').toBe(1)
-  await expect(window.getByTestId('browser-frame').getByTestId('browser-address')).toHaveValue(framedUrl)
+  await expect(frame.getByTestId('browser-address')).toHaveValue(framedUrl)
+  await canvasReady(launched!)
+  const shots = await snapshotThemes(window, 'browser-open-bar')
+  evidence(shots.light, '11-browser-open-bar-light')
+  evidence(shots.dark, '11-browser-open-bar-dark')
+
+  // Open: the page goes to the address, the address bar and the Node keep it, the bar is gone.
+  await bar.getByRole('button', { name: 'Open' }).click()
+  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the address' }).toEqual([[askedUrl, 'yes']])
+  await expect(bar).toBeHidden()
+  await expect(frame.getByTestId('browser-address')).toHaveValue(askedUrl)
+  await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(askedUrl)
+  expect(await windowCount(), 'no new window').toBe(1)
+
+  // The framed page again: the frame asks again, and the close button leaves the page where it is.
+  await inGuest(askedUrl, `location.href = ${JSON.stringify(framedUrl)}`)
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[framedUrl, 'yes']])
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(askedUrl, { timeout: 15_000 })
+  await bar.getByRole('button', { name: 'Close' }).click()
+  await expect(bar).toBeHidden()
+  await window.waitForTimeout(1_000)
+  expect(await pageStates(), 'close left the page where it was').toEqual([[framedUrl, 'yes']])
+  await expect(bar).toBeHidden()
 
   // The page's own window.open, with no user gesture: Electron passes it to main's handler, and
-  // the page goes to the address in the same Browser.
+  // the page goes to the address in the same Browser, with no bar.
   await inGuest(framedUrl, "window.open('next.html')", false)
   await expect.poll(pageStates, { timeout: 15_000, message: 'the page\'s own window.open without a click' }).toEqual([[nextUrl, 'yes']])
+  await expect(bar).toBeHidden()
+  expect(await windowCount(), 'no new window').toBe(1)
+})
+
+// worfy-browser ticket 11: a target="_blank" link with rel="noreferrer" reaches main's handler
+// without a referrer, so its frame is unknown and the page does not go by itself: the Open bar
+// offers the address.
+test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends the page there, close leaves it where it is', async () => {
+  const blankUrl = `${origin}/blank.html`
+  const nextUrl = `${origin}/next.html`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  const frame = window.getByTestId('browser-frame')
+  const bar = frame.getByTestId('browser-open-bar')
+  await expect(bar).toBeHidden()
+
+  await inGuest(blankUrl, "document.getElementById('noreferrer').click()")
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: 15_000 })
+  await window.waitForTimeout(1_000)
+  expect(await pageStates(), 'the page did not go by itself').toEqual([[blankUrl, 'yes']])
+
+  await bar.getByRole('button', { name: 'Open' }).click()
+  await expect.poll(pageStates, { timeout: 15_000, message: 'Open sent the page to the address' }).toEqual([[nextUrl, 'yes']])
+  await expect(bar).toBeHidden()
+  await expect(frame.getByTestId('browser-address')).toHaveValue(nextUrl)
+  await expect.poll(() => savedBrowsers()[0]?.data.url).toBe(nextUrl)
+
+  await inGuest(nextUrl, `location.href = ${JSON.stringify(blankUrl)}`)
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  await inGuest(blankUrl, "document.getElementById('noreferrer').click()")
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(nextUrl, { timeout: 15_000 })
+  await bar.getByRole('button', { name: 'Close' }).click()
+  await expect(bar).toBeHidden()
+  await window.waitForTimeout(1_000)
+  expect(await pageStates(), 'close left the page where it was').toEqual([[blankUrl, 'yes']])
+  expect(await windowCount(), 'no new window').toBe(1)
+})
+
+// worfy-browser ticket 11, debt of the second review round of PR #609: under the default referrer
+// policy (strict-origin-when-cross-origin) a link from an https page to an http address carries no
+// referrer when the address is not potentially trustworthy — a real http site — while an http
+// address on this machine (127.0.0.1) still gets the page's origin. What reaches main's handler
+// decides: the page's origin sends the page there, no referrer shows the Open bar.
+test('a target="_blank" link from an https page to an http site reaches main without a referrer and is offered in the Open bar; to http on this machine the page goes by itself', async () => {
+  const blankUrl = `${origin}/blank.html`
+  const remote = 'http://worfy-e2e.invalid/next.html'
+  const near = `${origin}/next.html`
+  const secureUrl = `${secureOrigin}/insecure.html?to=${encodeURIComponent(remote)}&near=${encodeURIComponent(near)}`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  // The Browser's session accepts the fixture server's self-signed certificate; the session lives
+  // in this test's own data folder.
+  await launched!.app.evaluate(({ webContents }) => {
+    const guest = webContents.getAllWebContents().find((contents) => contents.getType() === 'webview')
+    if (!guest) throw new Error('no Browser page')
+    guest.session.setCertificateVerifyProc((_request, callback) => callback(0))
+  })
+  await inGuest(blankUrl, `location.href = ${JSON.stringify(secureUrl)}`)
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the https page has loaded' }).toEqual([[secureUrl, 'yes']])
+  const frame = window.getByTestId('browser-frame')
+  const bar = frame.getByTestId('browser-open-bar')
+
+  await inGuest(secureUrl, "document.getElementById('insecure').click()")
+  await expect(bar.getByTestId('browser-open-url')).toHaveText(remote, { timeout: 15_000 })
+  await window.waitForTimeout(1_000)
+  expect(await pageStates(), 'the page did not go by itself').toEqual([[secureUrl, 'yes']])
+  await bar.getByRole('button', { name: 'Close' }).click()
+  await expect(bar).toBeHidden()
+
+  await inGuest(secureUrl, "document.getElementById('near').click()")
+  await expect.poll(pageStates, { timeout: 15_000, message: 'the link to http on this machine opened in the same Browser' }).toEqual([[near, 'yes']])
+  await expect(bar).toBeHidden()
   expect(await windowCount(), 'no new window').toBe(1)
 })

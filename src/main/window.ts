@@ -1,9 +1,11 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type Session, type WebContents, type WindowOpenHandlerResponse } from 'electron'
+import { browserOpenRequest } from '../shared/ipc/browser'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { webviewAttachRefusal } from './browser/attach-policy'
 import { allowFrameNavigation } from './cards/protocol'
+import { emit } from './ipc/index'
 import { quietWindows } from './quiet-windows'
 import { followInterfaceScale, interfaceScale } from './settings/interface-scale'
 import { reportStartupFailure } from './startup-failure'
@@ -210,16 +212,37 @@ export const windowOpenResponse: (details: HandlerDetails) => WindowOpenHandlerR
  * asks, nor whether the user clicked, so a third-party frame (an ad, a widget) could otherwise
  * replace the whole page — on a partition that keeps logins — by calling window.open. The
  * referrer is the asking frame's address or origin; a request without one (rel="noreferrer",
- * Referrer-Policy: no-referrer) cannot be placed and goes nowhere.
+ * Referrer-Policy: no-referrer) cannot be placed and does not open by itself.
+ * Such a refused web address goes to `refused` instead (worfy-browser ticket 11): the Browser's
+ * frame offers it in its Open bar, and only the user's click there opens it. An address that is
+ * not a web page is neither opened nor offered.
  * shortcut: a target="_blank" form that posts opens its address as a plain GET, redo when a Browser must submit such forms.
  */
-export function browserWindowOpenHandler(page: Pick<WebContents, 'loadURL' | 'getURL'>): (details: HandlerDetails) => WindowOpenHandlerResponse {
+export function browserWindowOpenHandler(
+  page: Pick<WebContents, 'loadURL' | 'getURL'>,
+  refused: (url: string) => void = () => undefined,
+): (details: HandlerDetails) => WindowOpenHandlerResponse {
   return ({ url, referrer }) => {
-    if (isHttpUrl(url) && sameOrigin(referrer.url, page.getURL())) {
+    if (!isHttpUrl(url)) return { action: 'deny' }
+    if (sameOrigin(referrer.url, page.getURL())) {
       page.loadURL(url).catch((error: unknown) => console.warn(`[worfy] a Browser page could not open ${url}`, error))
+    } else {
+      refused(url)
     }
     return { action: 'deny' }
   }
+}
+
+/**
+ * Tells the window that draws the Browser page `guest` (its <webview>'s embedder) that the page
+ * asked for `url` and main did not open it: the window's Browser frame shows the Open bar.
+ * Nothing when that window is gone.
+ */
+function offerToHost(guest: Pick<WebContents, 'id' | 'hostWebContents'>, url: string): void {
+  // Electron's types say a WebContents, but a guest whose embedder has gone has none.
+  const host = guest.hostWebContents as WebContents | null | undefined
+  if (host === null || host === undefined || host.isDestroyed()) return
+  emit(host, browserOpenRequest, { webContentsId: guest.id, url })
 }
 
 /** Whether `a` and `b` are http(s) URLs of one origin (scheme, host and port). */
@@ -257,7 +280,8 @@ export function guardBrowserSession(browserSession: Session): void {
  * policy allows (browser/attach-policy.ts), on one of `browserPartitions()` — read at each attach,
  * so a Project added after the start gets its Browsers — and goes to any site (the frame rules of
  * the window and the Cards are not its). It opens no window: a target="_blank" link or
- * window.open sends the page itself there (browserWindowOpenHandler). It gets no permission: the
+ * window.open sends the page itself there, or offers the address in the Browser's Open bar when
+ * the request is not the page's own (browserWindowOpenHandler). It gets no permission: the
  * session of its partition is guarded when the <webview> is allowed to attach, before the page
  * exists, and the session of any guest again when the guest is created.
  * Runs once, after the app is ready, before the first window.
@@ -276,7 +300,7 @@ export function installWebPolicy(isAppUrl: (url: string) => boolean, browserPart
     })
     if (contents.getType() === 'webview') {
       guardBrowserSession(contents.session)
-      contents.setWindowOpenHandler(browserWindowOpenHandler(contents))
+      contents.setWindowOpenHandler(browserWindowOpenHandler(contents, (url) => offerToHost(contents, url)))
       return
     }
     contents.on('will-frame-navigate', (details) => {

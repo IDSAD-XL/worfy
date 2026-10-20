@@ -185,8 +185,12 @@ describe('installWebPolicy for the page of a Browser', () => {
     const listeners = new Map<string, Listener>()
     let openHandler: Listener | undefined
     const loadURL = vi.fn(() => Promise.resolve())
+    /** The window that shows a Browser page: the renderer that draws its <webview>. */
+    const host = { send: vi.fn(), isDestroyed: () => false }
     const contents = {
+      id: 42,
       session: contentsSession,
+      hostWebContents: type === 'webview' ? host : null,
       loadURL,
       getType: () => type,
       getURL: () => PAGE_URL,
@@ -210,6 +214,9 @@ describe('installWebPolicy for the page of a Browser', () => {
         openHandler?.({ url, referrer: { url: referrer, policy: referrer === '' ? 'no-referrer' : 'strict-origin-when-cross-origin' }, frameName: '', features: '', disposition }),
       /** The addresses main sent this web contents to with loadURL. */
       loaded: (): unknown[] => loadURL.mock.calls.map((call: unknown[]) => call[0]),
+      /** What main told the window that shows this page, as [channel, payload] pairs. */
+      told: (): unknown[] => host.send.mock.calls.map((call: unknown[]) => [call[0], call[1]]),
+      host,
       /** Whether a <webview> with these preferences attaches to this web contents. */
       attach: (webPreferences: Record<string, unknown>): boolean => {
         const preventDefault = vi.fn()
@@ -269,6 +276,8 @@ describe('installWebPolicy for the page of a Browser', () => {
     // The referrer may be the page's address or only its origin (strict-origin-when-cross-origin).
     expect(guest.open('https://example.com/c', { referrer: 'https://shop.example.com/' })).toEqual({ action: 'deny' })
     expect(guest.loaded()).toEqual(['https://example.com/a', 'http://127.0.0.1:3000/b', 'https://example.com/c'])
+    // A request the page goes to by itself is not put to the user (worfy-browser ticket 11).
+    expect(guest.told()).toEqual([])
   })
 
   // A frame of another origin (an ad, an embedded widget) must not replace the page: the address
@@ -282,12 +291,37 @@ describe('installWebPolicy for the page of a Browser', () => {
     expect(guest.loaded()).toEqual([])
   })
 
-  it('sends the page of a Browser to no address that is not a web page', () => {
+  // worfy-browser ticket 11: the address a request refused by origin or for want of a referrer
+  // asked for goes to the window that shows the page, with the page's web contents id, so its
+  // Browser frame offers it in the Open bar; the user's click there is what opens it.
+  it('tells the window that shows the page the address of a request refused by origin or without a referrer, with the page\'s web contents id', () => {
+    const guest = created('webview')
+    const refused = ['https://ads.example.net/frame.html', 'http://shop.example.com/cart', '']
+    for (const referrer of refused) guest.open('https://phish.example.org/login', { referrer })
+    guest.open('http://example.com/plain', { referrer: '', disposition: 'foreground-tab' })
+    expect(guest.told()).toEqual([
+      ...refused.map(() => ['worfy:browser.openRequest', { webContentsId: 42, url: 'https://phish.example.org/login' }]),
+      ['worfy:browser.openRequest', { webContentsId: 42, url: 'http://example.com/plain' }],
+    ])
+    expect(guest.loaded()).toEqual([])
+  })
+
+  it('tells nobody when the window that showed the page is gone', () => {
+    const guest = created('webview')
+    guest.host.isDestroyed = () => true
+    expect(guest.open('https://phish.example.org/login', { referrer: '' })).toEqual({ action: 'deny' })
+    expect(guest.told()).toEqual([])
+  })
+
+  it('sends the page of a Browser to no address that is not a web page, and does not offer it either', () => {
     const guest = created('webview')
     for (const url of ['', 'about:blank', 'file:///etc/passwd', 'javascript:alert(1)', 'worfy-card://c1.0a1b2c3d/index.html', 'data:text/html,hi']) {
       expect(guest.open(url), url).toEqual({ action: 'deny' })
+      expect(guest.open(url, { referrer: '' }), url).toEqual({ action: 'deny' })
+      expect(guest.open(url, { referrer: 'https://ads.example.net/frame.html' }), url).toEqual({ action: 'deny' })
     }
     expect(guest.loaded()).toEqual([])
+    expect(guest.told()).toEqual([])
   })
 
   it('opens no window for the app window either, and does not send it anywhere', () => {
