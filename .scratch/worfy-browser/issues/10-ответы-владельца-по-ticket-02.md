@@ -88,6 +88,8 @@ Source: Ticket 02, «Открытые вопросы» 1, 2, 5 и «Итог» (
    атрибут `allowpopups`: без него Electron сам отбрасывает `window.open` и `target=_blank`, и
    обработчик main их не видит (так упал первый e2e-прогон). Окно приложения — по-прежнему только
    `deny`.
+   После круга ревью страница уходит на адрес только тогда, когда referrer запроса — того же origin,
+   что и страница (см. «Круг ревью 1»).
 
 **Поправка к брифу.** `test/e2e/browser-webview-guard.spec.ts` (файл Ticket-а 09, PR #601)
 импортировал `BROWSER_PARTITION`; константы больше нет, typecheck краснел (TS2724). Правка — три
@@ -128,3 +130,33 @@ e2e (под замком `/tmp/worfy-e2e.lock`): новые тесты `browser.
 **Не проверено.** Настоящий trackpad и клавиатура руками. Форма с `target=_blank` и POST
 открывается как GET своего адреса (`shortcut:` в `src/main/window.ts`). Browser в окне Linked
 machine — без e2e.
+
+**Круг ревью 1** (PR #609, `8ab7b32c` → код на `3df6d35a`, head PR — этот docs-коммит поверх него). Вопрос безопасности ревью: обработчику
+`setWindowOpenHandler` не сообщается, какой frame просит окно и был ли клик, поэтому iframe чужого
+origin (реклама) мог вызвать `window.open` и заменить всю страницу — на partition-е с сохранённым
+входом.
+
+- `browserWindowOpenHandler` (`src/main/window.ts`) теперь отправляет страницу на адрес, только если
+  origin `details.referrer.url` равен origin `contents.getURL()`. Чужой origin, пустой referrer
+  (`rel="noreferrer"`, `Referrer-Policy: no-referrer`) — `deny`, переход не делается. Фильтр
+  только http(s) остался. Цена: ссылка `target=_blank` с `rel="noreferrer"` на самой странице тоже
+  ничего не открывает.
+- Unit `test/unit/window-options.test.ts`: тот же origin (полный адрес и только origin) —
+  переход; чужой origin, другая схема, другой порт, поддомен, пустой и не-URL referrer — нет.
+  До правки тест красный (exit 1), после — 21/21; мутант без проверки origin (копия в scratchpad,
+  `nice -n 10`) — exit 1, тест «sends the page of a Browser nowhere…» красный.
+- e2e `test/e2e/browser.spec.ts`: страница `framed.html` на `127.0.0.1:<порт>` встраивает
+  `popper.html` со второго origin (второй сервер на другом порту — другой origin), iframe на load
+  без клика вызывает `window.open`; страница остаётся на своём адресе, окно одно. Затем
+  `window.open` самой страницы без user gesture (`executeJavaScript(code, false)`) открывает
+  `next.html` в том же Browser.
+- **Блокирует ли Electron popup без жеста сам — нет.** У `<webview allowpopups>` в Electron 44
+  `window.open` без user gesture доходит до обработчика main: так показал e2e (страница перешла по
+  своему `window.open` без клика). Значит, запрос iframe-а остановила именно проверка origin.
+- Прогон: `browser.spec.ts`, `browser-layer.spec.ts`, `browser-webview-guard.spec.ts` на
+  `3df6d35a` — exit 0, 17 passed. `pnpm lint`, `pnpm typecheck` под `nice -n 10` — exit 0. Полный
+  `pnpm test` и gate fast в этом круге не запускались по просьбе gate queue: их покрывает gate full.
+
+**Долг** (находка low ревью, не исправлена по решению orchestrator-а): шаблон хеша в конце id
+Project-а продублирован — `PROJECT_HASH` в `src/shared/browser/partition.ts:14` и `ID_HASH_SUFFIX`
+в `src/main/projects/store.ts`. Свести к одному месту в `src/shared/`.
