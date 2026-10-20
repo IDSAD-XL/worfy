@@ -1,7 +1,7 @@
 # 50 — Линза «отчёт implementer-а» и вердикт первой строкой — в `agents/reviewer.md`, а не только в skill `epic-wave`
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T19:23Z
 Blocked by: —
 Source: follow-up Ticket-а 27 (eval-кейсы Harness): платный круг 2026-10-18, кейс `reviewer-verdict` — 0.67 при
 пороге 0.8 («Итог» Ticket-а 27, «Ниже порога — нарушения правил Harness», на ветке `worfy-harness/27-eval`,

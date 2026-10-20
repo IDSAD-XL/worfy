@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser fixture, target="_blank" links from an https page to http addresses</title>
+    <!--
+      The page test/e2e/browser.spec.ts serves over https to see what referrer main's window-open
+      handler gets for a target="_blank" link to an http address under the default referrer policy
+      (strict-origin-when-cross-origin). The `to` query parameter is the http address of the
+      #insecure link, `near` that of the #near link. No referrer policy of its own.
+    -->
+  </head>
+  <body style="margin: 0; background: #fdf6e3">
+    <a id="insecure" target="_blank">To an http address</a>
+    <a id="near" target="_blank">To an http address on this machine</a>
+    <script>
+      const query = new URLSearchParams(location.search)
+      document.getElementById('insecure').href = query.get('to') ?? 'about:blank'
+      document.getElementById('near').href = query.get('near') ?? 'about:blank'
+      document.body.dataset.ready = 'yes'
+    </script>
+  </body>
+</html>

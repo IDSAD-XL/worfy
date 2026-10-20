@@ -140,6 +140,15 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
 - [ ] Подмены `test/fixtures/first-run-tools/npm.mjs` и `qmd.mjs` запускаются хотя бы одним test-ом до того,
       как сняты пропуски qmd на Windows: сейчас их не запускает ни один test ни на одной системе
       (`test/fixtures/first-run-tools/README.md:15`; ревью PR #523, low 2; добавлено 2026-10-20).
+- [ ] Сняты пропуски на Windows групп A–C в `harness/bin/tests/qmd-collections.test.sh` (`if [ "$WIN" = 1 ]` с
+      причинами `NO_ZSH`, `NO_SH_QMD`, `NO_UPDATE_LINE`, а также ранний `return` в `accepted()`), и на Windows
+      эти случаи зелёные: A — `qmd-sync-main` без zsh, B — запуск `qmd` (не по `#!`), C — строка `update:` на
+      Windows, плюс пути в `index.yml` не вперемешку `/` и `\` (Ticket [77](77-qmd-collections-красный-на-windows.md);
+      решение владельца 2026-10-20; добавлено 2026-10-20).
+- [ ] `scriptCommand` в `harness/bin/qmd-collections` запускает файл без строки `#!` через node
+      (`process.execPath`); это неверно, если такой файл когда-нибудь окажется бинарным. Решить, как запускать
+      файл без `#!` (напрямую или с понятной ошибкой), и закрепить test-ом (ревью PR #602 на Mac, low;
+      добавлено 2026-10-20).
 - [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) — код 0 на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac) и на ПК владельца; на Windows `harness-scripts.test.ts` гоняет `qmd.test.sh`, а не пропускает его.
 
 ## Тесты

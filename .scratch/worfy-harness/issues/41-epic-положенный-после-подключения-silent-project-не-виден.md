@@ -1,7 +1,8 @@
 # 41 — Epic, положенный после подключения Silent Project-а, появился в окне только после повторного открытия Project-а: причина не найдена; watcher не проверяет сам, появился ли Tickets root
 
 Type: task
-Status: claimed 2026-10-20T08:00Z
+Status: done 2026-10-20T18:22Z
+PR: #591
 Blocked by:
 Source: приёмка E3 (приёмка Epic-а worfy-harness), пункт 5 — прогон под вторым, новым пользователем macOS 2026-10-14 (Ticket [26](26-приёмка-e3.md)); [отчёт прогона](../evidence/26-пункт-5-отчёт-2026-10-14.md), раздел «Наблюдатель за `.scratch`, созданной после подключения».
 
@@ -324,4 +325,26 @@ watcher документов, `src/main/docs/watch.ts:182`); другие watch-
 
 ## Итог
 
-—
+PR [#591](https://github.com/IDSAD-XL/worfy/pull/591), merge f6d9d7da. Gate full зелёный на 69859bb7 + main 2e4f6254.
+Первый gate был красным только на guard-е `test/unit/no-rmsync.test.ts`: удаления корня Tickets в test-ах
+шли через `rmSync` с `recursive`; их заменил `removeTestTree` из `test/remove.ts` с проверкой, что папки нет.
+
+- **Причина наблюдения приёмки не доказана.** Contract test ровно этого случая (папка Workflow с `.git`, без
+  `.scratch`, Epic положен и закоммичен) зелёный на main; e2e `silent-project.spec.ts` с тем же сценарием
+  зелёный и на ветке, и на main 460e3ed6. Доказано другое: watcher зависел от одного уведомления файловой
+  системы о корне, и три соседних случая на main теряются каждый раз — корень удалён и создан через 2 s
+  (на main «no matching workflow delta within 5000 ms; got []»), удалён и создан за 12 ms (правка нового Epic-а
+  не видна), папки Workflow нет на старте.
+- **Правка** (`src/main/workflow/watch.ts`): пока корень Tickets не папка, watcher проверяет его каждые 2 s;
+  когда папка появилась — закрывает прежний chokidar watch, создаёт новый и читает Project, когда новый готов.
+  `unlinkDir` самого корня пересоздаёт watch сразу. Пока корень на месте, лишних проверок и чтений нет.
+  Все закрытия chokidar идут через `closeForGood` (`src/main/chokidar-close.ts`). Путь Windows
+  (`links-read-first`) не изменён.
+- **Test-ы:** новый describe в `test/contract/workflow-reader.test.ts`, две записи поведения chokidar 5 в
+  `test/unit/tickets-chokidar.test.ts`, e2e-случай в `test/e2e/silent-project.spec.ts`. Мутанты красные: нет
+  проверки; проверки при живом корне; новый watch без чтения; таймер не снят при close; нет нового watch при
+  удалении корня; прежний watch не закрыт.
+- **Ревью:** корректность и тесты; правки раундов закрыты. После merge main с #589 (squash #585) проверено,
+  что `closeForGood` определён только в `src/main/chokidar-close.ts`.
+- **Если наблюдение повторится** — нужен лог watcher-а с машины приёмки; в коде больше нет известного пути,
+  где Epic в новом корне не читается.

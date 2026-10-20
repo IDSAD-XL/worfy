@@ -13,12 +13,24 @@
 // src/shared/browser/partition.ts): persistent, so cookies and logins survive a restart. main lets
 // it attach only on the partition of a Project of this Machine and without a preload, refuses its
 // page every permission, and sends it to the address of a target="_blank" link or window.open
-// instead of opening a window (src/main/window.ts).
+// instead of opening a window (src/main/window.ts). A request main does not open by itself (from a
+// frame of another origin, or without a referrer) comes here as `browser.openRequest`, and the
+// frame offers its address in the Open bar (worfy-browser ticket 11).
 import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore, ViewportPortal, type InternalNode, type ReactFlowState } from '@xyflow/react'
 import { browserPartition } from '../../../shared/browser/partition'
+import { subscribe } from '../../ipc'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
-import { BROWSER_KIND, browserPageRect, browserUrl, registerBrowserPage, setBrowserHistory, webAddress } from '../nodes/browser-frame'
+import {
+  BROWSER_KIND,
+  browserPageRect,
+  browserUrl,
+  dismissBrowserOpenRequest,
+  offerBrowserOpenRequest,
+  registerBrowserPage,
+  setBrowserHistory,
+  webAddress,
+} from '../nodes/browser-frame'
 import { useFramesStepAsideWhilePressed } from '../nodes/frames-step-aside'
 import type { CanvasFlowNode } from '../nodes'
 import { useLayoutOps } from '../useLayout'
@@ -44,6 +56,8 @@ interface WebviewElement extends HTMLElement {
   goBack(): void
   goForward(): void
   reload(): void
+  /** The id of the page's web contents; throws until the guest is attached. */
+  getWebContentsId(): number
 }
 
 /** A navigation event of a <webview>: did-navigate (main frame) or did-navigate-in-page. */
@@ -108,9 +122,32 @@ function BrowserPage({ page, partition }: { page: Page; partition: string }) {
       if (waiting !== null) load(waiting)
       waiting = null
     }
+    // The Open bar (worfy-browser ticket 11): main names the page by its web contents id, and only
+    // this page's requests are this frame's; a navigation of the page takes the bar away.
+    const onOpenRequest = ({ webContentsId, url }: { webContentsId: number; url: string }) => {
+      let own: number
+      try {
+        own = element.getWebContentsId()
+      } catch {
+        return
+      }
+      if (webContentsId === own) offerBrowserOpenRequest(page.id, url)
+    }
+    const onNavigated = (event: Event) => {
+      if ((event as NavigationEvent).isMainFrame !== false) dismissBrowserOpenRequest(page.id)
+    }
+    // Without the preload bridge (a unit test of the Canvas) there is nothing to subscribe to.
+    let stopRequests: () => void = () => undefined
+    try {
+      stopRequests = subscribe('browser.openRequest', onOpenRequest)
+    } catch (error) {
+      console.error('browser.openRequest: cannot subscribe', error)
+    }
     element.addEventListener('dom-ready', onReady, { once: true })
     element.addEventListener('did-navigate', report)
     element.addEventListener('did-navigate-in-page', report)
+    element.addEventListener('did-navigate', onNavigated)
+    element.addEventListener('did-navigate-in-page', onNavigated)
     const unregister = registerBrowserPage(page.id, {
       navigate: (url) => {
         if (ready) load(url)
@@ -130,6 +167,9 @@ function BrowserPage({ page, partition }: { page: Page; partition: string }) {
       element.removeEventListener('dom-ready', onReady)
       element.removeEventListener('did-navigate', report)
       element.removeEventListener('did-navigate-in-page', report)
+      element.removeEventListener('did-navigate', onNavigated)
+      element.removeEventListener('did-navigate-in-page', onNavigated)
+      stopRequests()
       unregister()
     }
   }, [page.id])

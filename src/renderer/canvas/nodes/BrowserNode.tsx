@@ -1,12 +1,21 @@
 import { useState } from 'react'
 import { useReadOnly } from '../../projects/useProjects'
 import { useLayoutOps } from '../useLayout'
-import { BROWSER_HEADER_HEIGHT, addressUrl, browserUrl, navigateBrowserPage, stepBrowserPage, useBrowserHistory } from './browser-frame'
+import {
+  BROWSER_HEADER_HEIGHT,
+  addressUrl,
+  browserUrl,
+  dismissBrowserOpenRequest,
+  navigateBrowserPage,
+  stepBrowserPage,
+  useBrowserHistory,
+  useBrowserOpenRequest,
+} from './browser-frame'
 import type { CanvasNodeProps } from './index'
 import './BrowserNode.css'
 
 // A Browser Node (ADR-0078): a frame with a header that holds the back, forward and reload buttons
-// and the address bar. The page itself is
+// and the address bar, and the Open bar under it while the page asks to open an address. The page itself is
 // not drawn here but by the Browser layer (../overlays/BrowserLayer.tsx), under the frame's body,
 // at browserPageRect() of the frame. The body is transparent and lets the mouse through, so the
 // page shows and takes the mouse through it, and any Node or menu over the frame covers the page.
@@ -129,15 +138,72 @@ function NavButtons({ id }: { id: string }) {
   )
 }
 
+/** How many characters at the end of a long address the Open bar keeps, after the cut in the middle. */
+const ADDRESS_TAIL = 24
+
+/**
+ * The Open bar (worfy-browser ticket 11), over the top of the page, right under the header: the
+ * page asked to open an address main did not open by itself — a window.open or target="_blank"
+ * link from a frame of another origin or without a referrer (src/main/window.ts). The address is
+ * shown whole, a long one cut in the middle. "Open" sends the page there the way the address bar
+ * does, and the click is the user's gesture the request lacked; the close button leaves the page
+ * where it is. A new request replaces the bar's address; a navigation of the page takes the bar
+ * away (../overlays/BrowserLayer.tsx).
+ */
+function OpenBar({ id, url }: { id: string; url: string | null }) {
+  const ops = useLayoutOps()
+  const readOnly = useReadOnly()
+  const request = useBrowserOpenRequest(id)
+  if (request === undefined) return null
+  // The address in two parts: the head shrinks with an ellipsis, the tail stays whole.
+  const head = request.length > ADDRESS_TAIL ? request.slice(0, -ADDRESS_TAIL) : ''
+  const tail = request.slice(head.length)
+
+  const open = () => {
+    dismissBrowserOpenRequest(id)
+    navigateBrowserPage(id, request)
+    // On a read-only screen the page goes there as by a link, and the Node keeps its address.
+    if (readOnly === null && request !== url) void ops.apply({ op: 'patchData', id, data: { url: request } })
+  }
+
+  return (
+    <div className="w-browser-frame__open-bar nodrag" data-testid="browser-open-bar" role="status">
+      <span className="w-browser-frame__open-label">The page wants to open</span>
+      <span className="w-browser-frame__open-url w-mono" data-testid="browser-open-url" title={request}>
+        <span className="w-browser-frame__open-url-head">{head}</span>
+        <span className="w-browser-frame__open-url-tail">{tail}</span>
+      </span>
+      <button type="button" className="w-browser-frame__open-button nodrag" data-testid="browser-open" onClick={open}>
+        Open
+      </button>
+      <button
+        type="button"
+        className="w-browser-frame__nav-button nodrag"
+        data-testid="browser-open-close"
+        aria-label="Close"
+        title="Close"
+        onClick={() => dismissBrowserOpenRequest(id)}
+      >
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 export default function BrowserNode({ id, data }: CanvasNodeProps) {
+  const url = browserUrl(data.node)
   return (
     <div className="w-node-surface w-browser-frame" data-testid="browser-frame" data-node-id={id}>
       <div className="w-browser-frame__header" style={{ height: BROWSER_HEADER_HEIGHT }}>
         <span className="w-browser-frame__title">Browser</span>
         <NavButtons id={id} />
-        <AddressBar id={id} url={browserUrl(data.node)} />
+        <AddressBar id={id} url={url} />
       </div>
-      <div className="w-browser-frame__body" data-testid="browser-frame-body" />
+      <div className="w-browser-frame__body" data-testid="browser-frame-body">
+        <OpenBar id={id} url={url} />
+      </div>
     </div>
   )
 }

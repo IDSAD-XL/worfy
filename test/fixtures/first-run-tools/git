@@ -1,8 +1,24 @@
 #!/bin/sh
-# A stand-in for git (test/fixtures/first-run-tools/README.md): only `git --version`.
+# A stand-in for git (test/fixtures/first-run-tools/README.md): `git --version` and
+# `git config --get user.name|user.email`.
 [ -n "$FIRST_RUN_TOOLS_LOG" ] && printf 'git %s\n' "$*" >>"$FIRST_RUN_TOOLS_LOG"
 if [ "$1" = --version ]; then
   printf 'git version 2.39.5\n'
+  exit 0
+fi
+if [ "$1 $2" = 'config --get' ]; then
+  [ -n "$FAKE_GIT_CWD_LOG" ] && pwd -P >>"$FAKE_GIT_CWD_LOG"
+  if [ -n "$FAKE_GIT_CONFIG_FAIL" ]; then
+    printf '%s\n' "$FAKE_GIT_CONFIG_FAIL" >&2
+    exit 3
+  fi
+  case "$3" in
+    user.name) value="${FAKE_GIT_USER_NAME-Alice}" ;;
+    user.email) value="${FAKE_GIT_USER_EMAIL-alice@example.com}" ;;
+    *) value='' ;;
+  esac
+  [ -n "$value" ] || exit 1
+  printf '%s\n' "$value"
   exit 0
 fi
 printf 'git stand-in: unsupported: %s\n' "$*" >&2

@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 45/59; в работе 36, 41, 42, 55; 31, 48 — шаг владельца («Итог»); 56 — test `github-prs`; 58 ждёт 55; 59 — замок `profile-set`; 29, 52 — платные eval, только владелец.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 47/59; в работе 36, 46, 50, 55, 56, 59; 31, 48 — шаг владельца («Итог»); 58 ждёт 55; 29, 52 — платные eval, только владелец.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
@@ -17,9 +17,9 @@
 - `worfy-polish`: 31/36 — 01–29, 31, 33 влиты (12 — отчёт; 20, 26 — узкий круг; 19 — после `pnpm test` на ПК). 32: PR #497 влит, до закрытия — замер 30 (N ≥ 6) Orchestrator-ом; 30 (#401) ждёт 32. 34–36 — flaky, security ссылок, долг #530.
 - `worfy-throughput` ([spec](.scratch/worfy-throughput/spec.md)): 5/16, влиты 01–03, 06, 08 (batch CI, ADR-0068); 07, 09 — `wave-gate`; 04, 05 — Orchestrator. 10–16 — скорость test-ов (ADR-0081); 10 — PR #620, 16 — следующий.
 - `worfy-pipeline` (Stage и «кого ждёт»; [spec](.scratch/worfy-pipeline/spec.md), ADR-0067): 9/10, влиты 01–09 (08 — #552, 09 — #550); 10 (ADR-0079) — в работе; решения владельца (Q1–Q16) в Ticket-ах; `rules.md:46` (замок e2e) — слово владельца, «Итог» 02.
-- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 7/9 (09, 03–06 влиты; 04 — #590); 07 в работе; 08 — после release; до 08 — шаги владельца из «Итог» 04 и 06.
+- `worfy-neutral` (Harness нейтрален по языку и проекту; [spec](.scratch/worfy-neutral/spec.md), ADR-0074): 7/10 (09, 03–06 влиты; 04 — #590); 07 — ревью #625; 10 (подстановки Profile) — после 07; 08 — после release; до 08 — шаги владельца из «Итог» 04 и 06.
 - `worfy-canvas` ([spec](.scratch/worfy-canvas/spec.md), ADR 0075–0077): 4/16; влиты 01 (#539), 03, 04, 07 — Wave 1 закрыта; Wave 2 — 02 и 11 в работе; новые 14–16 (14 — до 10).
-- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 4/11; 11 в работе (полоса «Open» для отклонённой ссылки); 03 — после 11.
+- `worfy-browser` ([spec](.scratch/worfy-browser/spec.md)): 5/12; 12 в работе; 03 ждёт ответов владельца, потом 12.
 
 ## Ждёт владельца
 
