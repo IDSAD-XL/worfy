@@ -894,7 +894,7 @@ async function main() {
     let failedLabels = ""
     let envBroken = ""
     const logs = [] // [log file name, output] of each script that ran
-    const failures = [] // [label, output lines, log file name] of each script that failed
+    const failures = [] // [label, log file name] of each script that failed; the output is in `logs`
     const logDir = runLogDir(STATE, tag) // named by the time the scripts start, written at the end
     const greens = [] // [cache file, fingerprint] of each package whose scripts all passed
     for (const [wsdir, pkgname = "", scriptList = "", fpscope = ""] of plan) {
@@ -944,7 +944,7 @@ async function main() {
                 envBroken += `\n  ${label}: ${sign}`
             } else {
                 failedLabels += ` ${label}`
-                failures.push([label, outLines, logName])
+                failures.push([label, logName])
             }
         }
 
@@ -963,7 +963,9 @@ async function main() {
     if (logs.length) pruneLogs(STATE, tag, logDir)
     if (failedLabels) {
         let report = ""
-        for (const [label, outLines, name] of failures) {
+        const outputs = new Map(logs)
+        for (const [label, name] of failures) {
+            const outLines = outputs.get(name).split(/\r?\n/)
             report += `\n--- FAILED: ${label}\n${outLines.slice(-40).join("\n")}\n`
             const above = playwrightFailures(outLines, Math.max(0, outLines.length - 40))
             if (above.length) report += `--- Playwright failures above the last 40 lines (from the full output):\n${above.join("\n")}\n`
