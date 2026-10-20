@@ -8,7 +8,9 @@
 //     folder next to it is likely the real one too.
 // Folders are compared as files, by device and inode (links followed): on macOS one folder has many
 // spellings — /var and /private/var, /home/x and /HOME/X on a case-insensitive volume,
-// the same path under /System/Volumes/Data. A folder that does not exist is not the real home.
+// the same path under /System/Volumes/Data. A folder that does not exist on disk has no inode: then
+// the two spellings are compared as they resolve (see `resolved`), so a home folder that is
+// missing from the disk is still refused under its own name.
 "use strict"
 
 const fs = require("node:fs")
@@ -37,7 +39,7 @@ const sameFolder = (a, b) => {
         const two = fs.statSync(b)
         return one.dev === two.dev && one.ino === two.ino
     } catch {
-        return false
+        return resolved(a) === resolved(b)
     }
 }
 
@@ -46,7 +48,8 @@ function refusal(home, fixture, env = process.env) {
     if (sameFolder(home, os.userInfo().homedir)) return `HOME (${home}) is the real home folder of this user; run the fixture with a temporary HOME`
     if (env.HARNESS_HOME) {
         const inside = path.relative(resolved(fixture), resolved(env.HARNESS_HOME))
-        if (inside.startsWith("..") || path.isAbsolute(inside)) return `HARNESS_HOME (${env.HARNESS_HOME}) is outside the fixture ${fixture}; unset it`
+        // The first segment, not the first two characters: a folder of the fixture may be named `..hh`.
+        if (inside.split(path.sep)[0] === ".." || path.isAbsolute(inside)) return `HARNESS_HOME (${env.HARNESS_HOME}) is outside the fixture ${fixture}; unset it`
     }
     return null
 }

@@ -285,6 +285,8 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(check(fake).status).toBe(0)
     expect(check(fake, { HARNESS_HOME: join(fake, 'hh') }).status).toBe(1)
     expect(check(fake, { HARNESS_HOME: join(work, 'hh') }).status).toBe(0)
+    // A folder of the fixture whose name starts with two dots is inside it, not above it.
+    expect(check(fake, { HARNESS_HOME: join(work, '..hh') }).status).toBe(0)
     // A HARNESS_HOME that does not exist yet, spelled through another name of the fixture (a link
     // here; an 8.3 short name on Windows, /var for /private/var on macOS), is still inside it.
     const alias = join(tempDir('worfy-eval-guard-alias-'), 'work')
@@ -348,6 +350,44 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
     expect(run.status, run.stderr).toBe(1)
     expect(run.stderr).toMatch(/is the real home folder of this user/)
   })
+
+  // A home folder in the user database that is not on disk (a deleted account folder, an unmounted
+  // volume) has no inode to compare: HOME spelled the same is still the real one, and any other
+  // missing HOME is not.
+  it('state-guard.cjs refuses a HOME that names the real home folder when that folder is not on disk', () => {
+    const { stub } = fakeRealHome()
+    const missing = join(tempDir('worfy-eval-missing-home-'), 'home')
+    const guard = (home: string) =>
+      spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, tempDir('worfy-eval-guard-')], {
+        env: { PATH: process.env.PATH, ...stub, EVAL_TEST_REAL_HOME: missing },
+        encoding: 'utf8',
+      })
+    const same = guard(missing)
+    expect(same.status, same.stderr).toBe(1)
+    expect(same.stderr).toMatch(/is the real home folder of this user/)
+    const other = guard(join(tempDir('worfy-eval-other-home-'), 'home'))
+    expect(other.status, other.stderr).toBe(0)
+    expect(existsSync(missing)).toBe(false)
+  })
+
+  // A HARNESS_HOME under the fixture spelled in another letter case is the same folder on a
+  // case-insensitive volume (macOS, Windows): only the native realpath gives the spelling on disk,
+  // the plain one keeps the case it was given. On a case-sensitive volume (Linux CI) the other
+  // spelling is another folder, and the test is skipped for that reason.
+  const caseWork = tempDir('worfy-eval-guard-case-')
+  const caseInsensitive = existsSync(caseWork.toUpperCase())
+  it.skipIf(!caseInsensitive)(
+    `state-guard.cjs takes a HARNESS_HOME under the fixture spelled in another case for one inside it${caseInsensitive ? '' : ' (skipped: the file system is case-sensitive)'}`,
+    () => {
+      const home = tempDir('worfy-eval-guard-home-')
+      const run = spawnSync(process.env.npm_node_execpath ?? 'node', [join(EVALS, 'lib', 'state-guard.cjs'), home, caseWork], {
+        env: childEnv(home, { PATH: process.env.PATH, HARNESS_HOME: join(caseWork.toUpperCase(), 'hh') }),
+        encoding: 'utf8',
+      })
+      expect(run.status, run.stderr).toBe(0)
+      expect(readdirSync(caseWork)).toEqual([])
+    },
+  )
 
   it.each([
     ['$HOME/.claude/worfy-harness', {}, (work: string, home: string) => join(home, '.claude', 'worfy-harness')],
