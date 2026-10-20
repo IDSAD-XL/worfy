@@ -23,9 +23,10 @@ REAL_HOME="$HOME"
 home_before="$(real_home_snapshot "$REAL_HOME")"
 
 T="$(mktemp -d)"
-# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
-# must be in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node).
-T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+. "$(dirname "$0")/gh-stand-in.sh" # node_path, on_windows, node_stand_in
+# node_path: C:/… in Git Bash on Windows, the spelling git prints and node reads; the registry's "match" must be
+# in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node). Elsewhere: pwd -P.
+T="$(cd "$T" && node_path "$(pwd -P)")"
 # A path as bin/profile and project-connect print it: with backslashes on Windows (cygpath exists there),
 # unchanged elsewhere.
 printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
@@ -327,7 +328,6 @@ chmod +x "$T/bin/qmd" "$T/bin/qmd-collections"
 # On Windows node starts neither the shell stub of qmd nor an extensionless shell stub of qmd-collections:
 # qmd is node itself there (`node --version` exits 0), and each qmd-collections stub runs through a node
 # stand-in, which project-connect starts with node. Elsewhere both are the shell stubs themselves.
-. "$(dirname "$0")/gh-stand-in.sh" # on_windows, node_stand_in
 QMD_STUB="$T/bin/qmd"
 on_windows && QMD_STUB="$(command -v node)"
 # stub_bin <shell stub>: prints what PROJECT_CONNECT_QMD_BIN names for that stub on this system.

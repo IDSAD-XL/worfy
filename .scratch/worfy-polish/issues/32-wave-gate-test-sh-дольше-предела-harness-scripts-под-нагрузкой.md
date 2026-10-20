@@ -10,7 +10,7 @@ Source: замер [30](30-contract-test-ы-краснят-gate-full-чужих-
 ## Что происходит
 
 - `test/contract/harness-scripts.test.ts` запускает каждый `harness/**/tests/*.test.sh` отдельным
-  `bash` с пределом `FILE_TIMEOUT_MS` = 120 000 (`:22`, `:71`). Скрипт, который не уложился, — красный
+  `bash` с пределом `FILE_TIMEOUT_MS` = 120 000 (`:28`, `:73`, `:97`). Скрипт, который не уложился, — красный
   test с `spawnSync bash ETIMEDOUT`.
 - Замер Ticket-а 30 (два прогона `--project contract` разом под `yes > /dev/null` на 9 из 18 ядер, load
   13–15): `bin/tests/wave-gate.test.sh` до #401 (`66499375`) — 68,6 s; на `origin/main` `90c5e724` —

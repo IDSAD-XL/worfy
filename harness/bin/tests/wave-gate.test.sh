@@ -154,15 +154,23 @@ gh_guard WAVE_GATE_GH "$STUBS/gh" "$STUBS/gh.mjs"
 #   wave-gate cannot release the e2e lock on SIGTERM there (SIGKILL needs no handler and runs);
 # - zsh: Git Bash on Windows has none (worfy ADR-0055).
 # Off Windows every case runs: a skip that fired there would leave cases out while the file stays green.
-RUN_SCREEN=true RUN_SIGTERM=true SHELLS=(bash zsh)
+RUN_SCREEN=true RUN_SIGTERM=true SHELLS=(bash zsh) skips=0
+skip() { skips=$((skips + 1)); echo "skip $1"; }
 if on_windows; then
     RUN_SCREEN=false RUN_SIGTERM=false
-    echo "skip the screen cases (ioreg, caffeinate): node on Windows starts no shell stub by name, and Windows has neither command"
-    echo "skip the SIGTERM case: a kill from Git Bash ends node on Windows without running its signal handlers"
+    skip "the screen cases (ioreg, caffeinate): node on Windows starts no shell stub by name, and Windows has neither command"
+    skip "the SIGTERM case: a kill from Git Bash ends node on Windows without running its signal handlers"
     if ! command -v zsh >/dev/null 2>&1; then
-        SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"
+        SHELLS=(bash); skip "zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"
     fi
 fi
+# The guard of the above: off Windows (by uname, not by on_windows) no skip fired and every case is on.
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) ;;
+    *) [ "$skips" = 0 ] && $RUN_SCREEN && $RUN_SIGTERM && [[ " ${SHELLS[*]} " == *" zsh "* ]] \
+           && ok "off Windows no case is skipped (screen, SIGTERM, zsh)" \
+           || bad "off Windows a Windows skip fired: $skips skip line(s), screen $RUN_SCREEN, SIGTERM $RUN_SIGTERM, shells [${SHELLS[*]}]" ;;
+esac
 # Fast lock timings for the tests; the defaults (20 s poll, 30 min stale, 5 min heartbeat) are checked below.
 export WAVE_GATE_LOCK_POLL_S=1 WAVE_GATE_SCREEN_POLL_S=1
 

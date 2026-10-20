@@ -16,9 +16,10 @@ EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 MR="${MAX_REVIEW_FILE:-$HARNESS/skills/max-review/SKILL.md}"
 RD="${PROFILES_README:-$HARNESS/profiles/README.md}"
 CONNECT="${CONNECT_BIN:-$HARNESS/bin/project-connect}"
-# Git Bash on Windows: `pwd -W` prints C:/…, the spelling git prints and node reads; the registry's "match"
-# must be in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node).
-T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })"
+. "$(dirname "$0")/gh-stand-in.sh" # node_path
+# node_path: C:/… in Git Bash on Windows, the spelling git prints and node reads; the registry's "match" must be
+# in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node). Elsewhere: pwd -P.
+T="$(mktemp -d)"; T="$(cd "$T" && node_path "$(pwd -P)")"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }

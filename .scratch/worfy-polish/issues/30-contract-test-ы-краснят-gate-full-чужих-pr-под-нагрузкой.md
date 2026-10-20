@@ -358,7 +358,7 @@ test-ы — 1–4 s в одиночку — в полном run-е на Windows 
   `harness-migrate` «the toolbar offer» (9.6–12.7 s в одиночку). Меньше worker-ов не лечит.
 - [x] Решение владельца: множитель ×3 на Windows для всех project-ов, без новых замеров (Итог в начале раздела).
 - [x] Контрольный полный run `main` `2af91b51` (после PR #544), свободный PC, 2026-10-20 00:29–00:54, 1485 s:
-  9 failed — 8 `.test.sh` в `harness-scripts.test.ts` (Ticket 71) и 1 разовый сбой ниже; timeout-ов нет, ×3 хватает.
+  9 failed — 8 `.test.sh` в `harness-scripts.test.ts` (Ticket 71) и 1 разовый сбой ниже; timeout-ов vitest нет; `wave-gate.test.sh` — по пределу файла, Ticket 71; ×3 хватает.
 - Разовый сбой, не timeout (в 4 прошлых полных run-ах и в одиночку — зелёный): `terminal-windows.test.ts` «closing a
   Terminal on Windows, on a real pty > endDescendants ends what is under the shell and leaves the shell» —
   `expected 'gone' to be 'ended'` за 2.2 s. `descendantsScript` (`src/main/terminal/pty.ts:280`) отвечает `gone`, если
