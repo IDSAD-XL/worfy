@@ -14,13 +14,14 @@
 // So main answers, once per request, and takes the request out of the output before it is kept or
 // sent to any screen: no xterm.js ever sees it.
 //
-// The console sends this request by itself only at the start of a shell; a resize brings none
-// (measured, Windows PowerShell and Git Bash). But this console also passes a request that a
-// PROGRAM writes on to the terminal, and the answer back to the program (measured: a program that
-// wrote `ESC [ c` read back `ESC [ ? 1 ; 2 c` when the terminal answered, and nothing when it did
-// not). Such a request is answered here in the same way, with what xterm.js would say. Other
-// requests of a program (the cursor position, the colors) still go to the screens: only a screen
-// knows those answers.
+// The console sends this request by itself only at the start of a shell (measured, Windows
+// PowerShell and Git Bash). A resize brings no such request, but with node-pty 1.2.0-beta.15 it
+// brings about ten cursor-position requests (`ESC [ 6 n`, measured on the owner's PC); main
+// answers those itself (cursor-answers.ts). This console also passes a request that a PROGRAM
+// writes on to the terminal, and the answer back to the program (measured: a program that wrote
+// `ESC [ c` read back `ESC [ ? 1 ; 2 c` when the terminal answered, and nothing when it did not).
+// Such a request is answered here in the same way, with what xterm.js would say. Other requests of
+// a program (the colors, the modes) still go to the screens: only a screen knows those answers.
 
 const ESC = '\x1b'
 
