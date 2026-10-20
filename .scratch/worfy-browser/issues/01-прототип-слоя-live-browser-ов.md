@@ -1,7 +1,8 @@
 # 01 — Прототип слоя Live Browser-ов: `<webview>` в системе координат Canvas, Node — рамка
 
 Type: task
-Status: claimed 2026-10-19T21:36Z
+Status: done 2026-10-20T02:00Z
+PR: #556
 Branch: worfy-browser/01
 Blocked by: —
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 12
@@ -174,3 +175,16 @@ http/https), `nodes/BrowserNode.css` — стили рамки и слоя, `ove
 `will-attach-webview` снимает preload, ставит `nodeIntegration: false`,
 `nodeIntegrationInSubFrames: false`, `contextIsolation: true`, `sandbox: true`; без флага окно
 прежнее (`test/unit/window-options.test.ts`).
+
+**Проверка и merge.** PR #556, verifier — `VERIFIED` (глубина review low: в профиле нет
+`review.depth.wave`; 109 624 токена subagent-а), `check/windows` — `skipped` (PR не меняет веток по
+платформе). Gate full (`GATE_SCOPE=all`) на `main 9f97f562` + head `ece1945` — зелёный (код 0,
+«[gate] зелено (full)»); `wave-gate` на Mac не годился — красный typecheck TS2883 во временном дереве
+под `.git/` (`worfy-throughput` 07). Влит как `d1b676ba`.
+
+Замечено (low, не исправлялось): для pan покадровый замер «0 кадров, 0 px» равен нулю по построению —
+слой (`ViewportPortal`) и рамки лежат в одном `.react-flow__viewport`, и `getBoundingClientRect()` у
+них двигается одним transform; capture окна берётся после того, как кадр успокоился, и отставание в
+один кадр compositor-а не поймал бы. Синхронность pan держится на общем transform, а не на замере.
+Для drag замер независимый: позиция страницы идёт из своего селектора `useStore`
+(`test/e2e/browser-layer.spec.ts:405-416`, `:487-490`).
