@@ -99,9 +99,30 @@ function registryMatch() {
 }
 const MATCH = registryMatch()
 
-const run = (cmd, argv, opts = {}) => spawnSync(cmd, argv, { encoding: "utf8", ...opts })
-const resolved = run(PROFILE_BIN, ["-C", MATCH, "--json"])
-if (resolved.status !== 0) die(1, `profile -C ${MATCH} --json: exit ${resolved.status}: ${(resolved.stderr || "").trim()}`)
+const run = (cmd, argv, opts = {}) => spawnSync(cmd, argv, { encoding: "utf8", windowsHide: true, ...opts })
+// What runs a file: a node script (a #! line naming node, or none) with this node; a file whose #! line names
+// another interpreter by that line, through bash on Windows, which cannot start it by its #! line.
+function scriptCommand(file, args) {
+    let head = ""
+    try {
+        const fd = fs.openSync(file, "r")
+        try {
+            const buf = Buffer.alloc(256)
+            head = buf.toString("latin1", 0, fs.readSync(fd, buf, 0, buf.length, 0)).split("\n")[0]
+        } finally {
+            fs.closeSync(fd)
+        }
+    } catch {
+        /* unreadable: the start reports it */
+    }
+    if (head.startsWith("#!") && !/\bnode\b/.test(head)) return process.platform === "win32" ? ["bash", [file, ...args]] : [file, args]
+    return [process.execPath, [file, ...args]]
+}
+const runScript = (file, argv, opts) => run(...scriptCommand(file, argv), opts)
+// What a failed start says: the exit code, or the error that kept it from starting (status is then null).
+const failure = (r) => (r.error ? `${r.error.code || r.error.message}` : `exit ${r.status}`)
+const resolved = runScript(PROFILE_BIN, ["-C", MATCH, "--json"])
+if (resolved.status !== 0) die(1, `profile -C ${MATCH} --json: ${failure(resolved)}: ${(resolved.stderr || "").trim()}`)
 let P
 try {
     P = JSON.parse(resolved.stdout)
@@ -226,8 +247,8 @@ if (named.length > 0) {
 let source // the folder the docs and tickets collections are read from
 let update = null // the update: of those collections
 if (MODE === "full") {
-    const d = run(SYNC_BIN, ["--describe", NAME])
-    if (d.status !== 0) die(1, `qmd-sync-main --describe ${NAME}: ${(d.stderr || d.stdout || "").trim()}`)
+    const d = runScript(SYNC_BIN, ["--describe", NAME])
+    if (d.status !== 0) die(1, `qmd-sync-main --describe ${NAME}: ${failure(d)}: ${(d.stderr || d.stdout || "").trim()}`)
     const [copy, branch, account] = d.stdout.replace(/\n$/, "").split("\t")
     if (!copy || !branch) die(1, `qmd-sync-main --describe ${NAME} printed no copy and branch: ${d.stdout.trim()}`)
     source = copy
@@ -448,7 +469,7 @@ try {
     holding = false
 }
 if (updated.signal) die(1, `qmd update ended by ${updated.signal}`)
-if (updated.status !== 0) die(1, `qmd update exited ${updated.status}`)
+if (updated.status !== 0) die(1, `qmd update: ${failure(updated)}`)
 
 let agreed = false
 try {

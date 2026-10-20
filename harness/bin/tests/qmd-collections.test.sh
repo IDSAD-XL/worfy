@@ -14,7 +14,11 @@ set -u
 unset QMD_INDEX_YML QMD_CONFIG_DIR XDG_CONFIG_HOME # index.yml is always the one under the temporary HOME
 BIN="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$BIN/qmd-collections"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+T="$(mktemp -d)"; T="$(cd "$T" && { pwd -W 2>/dev/null || pwd -P; })" # C:/… on Windows: node reads the registry's paths
+# A folder as PATH takes it: /c/… in Git Bash, where the colon of C:/… splits the entry; unchanged elsewhere.
+onpath() { cygpath -u "$1" 2>/dev/null || printf '%s' "$1"; }
+# A path as the script prints it: with backslashes on Windows (cygpath exists there), unchanged elsewhere.
+printed() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
@@ -49,7 +53,7 @@ setup() {
     export QMD_CALLS="$C/qmd.calls"
 }
 collect() { # $1 = profile name
-    HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$T/fakebin:$PATH" \
+    HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" \
         node "$SCRIPT" "$1" >"$C/out" 2>&1
 }
 clean_repos() {
@@ -231,7 +235,7 @@ setup lockrefresh x "$FULL"
 mkdir -p "$H/.cache/qmd" "$C/slowbin" "$C/mem"; LK="$H/.cache/qmd/refresh.lock"
 printf '#!/bin/sh\n[ "$1" = update ] && sleep 8\nexit 0\n' >"$C/slowbin/qmd"; chmod +x "$C/slowbin/qmd"
 printf 'collections:\n  mem:\n    path: %s\n' "$C/mem" >"$C/refresh.yml"
-HOME="$H" HARNESS_HOME="$HH" PATH="$C/slowbin:$PATH" QMD_INDEX_YML="$C/refresh.yml" QMD_REFRESH_SYNC=/usr/bin/true \
+HOME="$H" HARNESS_HOME="$HH" PATH="$(onpath "$C/slowbin"):$PATH" QMD_INDEX_YML="$C/refresh.yml" QMD_REFRESH_SYNC=/usr/bin/true \
     zsh "$BIN/qmd-refresh" --force --quiet; rc_refresh=$?
 sleep 1
 collect x & cp_pid=$!
@@ -254,7 +258,7 @@ for sig in $([ "$WIN" = 1 ] || echo TERM INT HUP); do
     printf '#!/bin/sh\n[ "$1" = update ] && { echo update >>"%s"; sleep 30; }\nexit 0\n' "$C/updating" >"$C/slowbin/qmd"
     chmod +x "$C/slowbin/qmd"
     set -m   # the run gets its own process group, as worfy starts it
-    ( HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$C/slowbin:$PATH" exec node "$SCRIPT" x >"$C/out" 2>&1 ) &
+    ( HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$C/slowbin"):$PATH" exec node "$SCRIPT" x >"$C/out" 2>&1 ) &
     np=$!
     set +m
     for _ in $(seq 1 100); do [ -e "$C/updating" ] && break; sleep 0.1; done
@@ -361,11 +365,11 @@ setup inline-content y "$SILENT_Y"
 mkdir -p "$H/.config/qmd"
 printf 'collections: {other: {path: /x, pattern: "**/*.md"}}\n%s\n' "$MODELS" >"$INDEX"
 cp "$INDEX" "$C/index.0"; cp "$PROFILE" "$C/profile.0"
-HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$T/fakebin:$PATH" node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
+HOME="$H" HARNESS_HOME="$HH" CLAUDE_CONFIG_DIR="$CL" PATH="$(onpath "$T/fakebin"):$PATH" node "$SCRIPT" y >"$C/stdout" 2>"$C/err"; rc=$?
 err="$(cat "$C/err")"
 [ "$rc" -eq 1 ] && cmp -s "$INDEX" "$C/index.0" && cmp -s "$PROFILE" "$C/profile.0" && [ "$(copies_of)" = 0 ] \
     && ok "inline content: exit 1, index.yml and the profile unchanged, no copy" || bad "inline content: rc=$rc copies=$(copies_of) err=[$err]"
-[ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && [[ "$err" == *"$INDEX"* ]] && [[ "$err" == *"nothing changed"* ]] && [[ "$err" == *"edits only the block form"* ]] \
+[ "$(wc -l <"$C/err" | tr -d ' ')" = 1 ] && [[ "$err" == *"$(printed "$INDEX")"* ]] && [[ "$err" == *"nothing changed"* ]] && [[ "$err" == *"edits only the block form"* ]] \
     && [[ "$err" == *'"collections:" alone on its line'* ]] && [[ "$err" == *"two spaces"* ]] \
     && [[ "$err" == *"path: and pattern:"* ]] && [[ "$err" == *"four"* ]] && [[ "$err" == *"run qmd-collections again"* ]] \
     && ok "inline content: one stderr line with the file, nothing changed, the block form and what to do next" \
@@ -375,7 +379,7 @@ err="$(cat "$C/err")"
 setup named-empty y "$(printf '%s' "$SILENT_Y" | sed 's/"lessons": "profile",/"lessons": "profile", "qmd": {"collections": ["y-docs"]},/')"
 mkdir -p "$H/.config/qmd"; printf 'collections: {}\n%s\n' "$MODELS" >"$INDEX"; cp "$INDEX" "$C/index.0"
 collect y; rc=$?
-[ "$rc" -eq 1 ] && grep -q "the profile names collections that $INDEX does not have: y-docs" "$C/out" && ! grep -q "inline" "$C/out" \
+[ "$rc" -eq 1 ] && grep -qF "the profile names collections that $(printed "$INDEX") does not have: y-docs" "$C/out" && ! grep -q "inline" "$C/out" \
     && cmp -s "$INDEX" "$C/index.0" && [ "$(copies_of)" = 0 ] \
     && ok "profile names collections, index.yml has collections: {}: the profile's refusal, nothing written" \
     || bad "named-empty: rc=$rc out=[$(cat "$C/out")]"
