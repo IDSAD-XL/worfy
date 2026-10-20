@@ -330,15 +330,15 @@ describe('a new Session with a Binding (worfy-canvas ticket 11)', () => {
         data: { node: { data: { epic: { epic: 'beta' }, auto: { x: 0, y: 988 } } } },
       } satisfies DrawnNode & { id: string }
       const epicBound = { sessionId: 'S-epic', target: { kind: 'epic' as const, epic: 'alpha' }, agentId: null }
-      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame] })
+      const { near, keepOut: kept } = await bindingSpots({ root: '/p', sessionIds: ['S-claimed', 'S-epic', 'S-none'], manual: [epicBound], model: undefined, nodes: () => [frameNode, ticketNode, movedFrame], reserves: () => new Map([['alpha', 1200]]) })
       expect(ipc.invoke).toHaveBeenCalledWith('bindings.signals', { projectRoot: '/p', sessionId: 'S-claimed' })
       // `ticket claim alpha 03` in its transcript: by its Ticket. A manual Binding to the Epic: by the frame's header.
       expect([...near]).toEqual([
         ['S-claimed', { x: 600 + FRAME_GAP, y: 221 }],
         ['S-epic', { x: 600 + FRAME_GAP, y: 40 }],
       ])
-      // The strip's band, and the frame the user moved off it, as drawn.
-      expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 1188 }), { x: 700, y: 300, w: 400, h: 200 }])
+      // The strip's band, `alpha` with its done stack open, and the frame the user moved off it, as drawn.
+      expect(kept).toEqual([stripKeepOut({ x: 0, right: 600, top: 40, bottom: 40 + 1200 + FRAME_GAP + 200 }), { x: 700, y: 300, w: 400, h: 200 }])
     })
 
     it('asks nothing without a strip on the Canvas, and gives no spot when the signals cannot be read', async () => {

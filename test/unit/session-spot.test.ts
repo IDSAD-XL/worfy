@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { FRAME_GAP, frameColumnX, stackFrames } from '../../src/renderer/canvas/epic-layout'
+import { FRAME_GAP, frameColumnX, placeStrip, stackFrames } from '../../src/renderer/canvas/epic-layout'
 import { sessionSpot, spotInputs, spotKeepOut, stripKeepOut, type DrawnNode, type SpotStrip } from '../../src/renderer/canvas/session-spot'
-import { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
+import { DONE_SHELF_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
 import { crowds, freePlace } from '../../src/shared/layout/free-place'
 
 // Where a new Session with a Binding goes (worfy-canvas ticket 11): right of the whole strip of
@@ -131,5 +131,50 @@ describe('the strip as an obstacle', () => {
     expect(crowds(place, inputs.moved[0]!)).toBe(false)
     expect(frameColumnX(inputs.strip!.right - inputs.strip!.x, inputs.strip!.bottom, [place])).toBe(inputs.strip!.x)
     expect(spotKeepOut(spotInputs([]))).toEqual([])
+  })
+})
+
+describe('the strip’s lower edge: open done stacks and the done shelf (ADR-0075, point 5)', () => {
+  const shelfNode = (at: { x: number; y: number }, w: number, h: number): DrawnNode => ({ type: DONE_SHELF_KIND, width: w, height: h, internals: { positionAbsolute: at }, data: { node: { data: {} } } })
+
+  it('counts each frame with its done stack open, column by column, as placeStrip does', () => {
+    // K = 2: a and c in the first column, b in the second; a keeps room for its open done stack.
+    const sizes = [
+      { epic: 'a', width: 400, height: 200, reserve: 500 },
+      { epic: 'b', width: 300, height: 300 },
+      { epic: 'c', width: 400, height: 100 },
+    ]
+    const placed = placeStrip(sizes, [], 2)
+    const nodes = sizes.map((frame) => frameNode(frame.epic, placed.frames.get(frame.epic)!.auto, { w: frame.width, h: frame.height }))
+    const reserves = new Map([['a', 500]])
+    expect(spotInputs(nodes, reserves).strip).toEqual({ x: 0, right: 2 * 400 + FRAME_GAP, top: 0, bottom: 500 + FRAME_GAP + 100 })
+    // Without the reserve the frames as drawn: a's done stack folded.
+    expect(spotInputs(nodes).strip?.bottom).toBe(200 + FRAME_GAP + 100)
+  })
+
+  it('takes in the done shelf under the strip, and its width when it is wider than the strip', () => {
+    const frame = { epic: 'a', width: 300, height: 400, reserve: 600 }
+    const placed = placeStrip([frame], [], 1, 100, 500)
+    const nodes = [frameNode('a', placed.frames.get('a')!.auto, { w: 300, h: 400 }), shelfNode(placed.shelf, 500, 100)]
+    expect(spotInputs(nodes, new Map([['a', 600]])).strip).toEqual({ x: 0, right: 500, top: 0, bottom: 600 + FRAME_GAP + 100 })
+  })
+
+  it('never lets a Node placed from the spot land on the shelf or in the room the strip keeps', () => {
+    const frame = { epic: 'a', width: 300, height: 400, reserve: 600 }
+    const placed = placeStrip([frame], [], 1, 100, 500)
+    const nodes = [frameNode('a', placed.frames.get('a')!.auto, { w: 300, h: 400 }), shelfNode(placed.shelf, 500, 100)]
+    const inputs = spotInputs(nodes, new Map([['a', 600]]))
+    const spot = sessionSpot({ kind: 'epic', epic: 'a' }, inputs.frames, inputs.strip)!
+    expect(spot.x).toBe(500 + FRAME_GAP)
+    // The way right and the way up are shut: the nearest clear place is under the strip and its shelf.
+    const right = { x: spot.x, y: -10_000, w: 5000, h: 20_000 }
+    const above = { x: -5000, y: -10_000, w: 5000 + spot.x, h: 10_000 - 60 }
+    const asked = { ...spot, w: 300, h: 120 }
+    const place = { ...asked, ...freePlace(asked, [right, above, ...spotKeepOut(inputs)]) }
+    const shelf = { ...placed.shelf, w: 500, h: 100 }
+    expect(crowds(place, shelf)).toBe(false)
+    const width = 500
+    const bottom = placed.shelf.y + 100
+    expect(frameColumnX(width, bottom, [right, above, place])).toBe(frameColumnX(width, bottom, [right, above]))
   })
 })

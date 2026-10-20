@@ -8,9 +8,9 @@
 // next column stands right of a frame, and a Node there would push the whole strip aside
 // (frameColumnX keeps FRAME_GAP from every Node in the strip's band, ADR-0032, ADR-0075).
 import type { BindingTarget } from '../../shared/binding/resolve'
-import { EPIC_FRAME_KIND, TICKET_KIND } from '../../shared/layout/derived'
+import { DONE_SHELF_KIND, EPIC_FRAME_KIND, TICKET_KIND } from '../../shared/layout/derived'
 import { NODE_GAP, type Rect } from '../../shared/layout/free-place'
-import { FRAME_GAP } from './epic-layout'
+import { FRAME_GAP, placeStrip } from './epic-layout'
 
 /** An Epic frame of the strip, as drawn. */
 export interface SpotFrame {
@@ -21,12 +21,16 @@ export interface SpotFrame {
   tickets: ReadonlyMap<number, number>
 }
 
-/** The strip of Epic frames: where its columns start and end, without the frames' manual offsets. */
+/**
+ * The strip of Epic frames with the done shelf under it: the room frameColumnX keeps free for them,
+ * without the frames' manual offsets.
+ */
 export interface SpotStrip {
   x: number
-  /** The right edge of the last column: its left edge plus the widest frame (every column is that wide). */
+  /** The right edge of the last column (its left edge plus the widest frame: every column is that wide), or of a wider shelf. */
   right: number
   top: number
+  /** The bottom of the tallest column, each frame with its done stack open, or of the done shelf under it. */
   bottom: number
 }
 
@@ -79,22 +83,18 @@ export interface SpotInputs {
 
 /**
  * The frames and the strip as React Flow draws them now. The strip's columns start at the frames'
- * automatic places (`auto`); each column is as wide as the widest frame, so the strip ends at the
- * rightmost column's left edge plus that width, wherever a narrower frame in it ends. Its bottom
- * counts each frame as drawn.
- * shortcut: the bottom leaves out the room the strip keeps for an open done stack (and, with the
- * Done shelf, the shelf), which frameColumnX counts; redo from epic-layout's strip once the Done
- * shelf change lands.
+ * automatic places (`auto`). Its size is the one placeStrip gives the same frames, K and done shelf
+ * (epic-layout.ts), so a Node kept off it never stands where frameColumnX would move the strip
+ * away: each column as wide as the widest frame, each frame as tall as the strip keeps it
+ * (`reserves`, by Epic: with its done stack open; without one, as drawn), the shelf FRAME_GAP under
+ * the tallest column. No frames: no strip.
  */
-export function spotInputs(nodes: Iterable<DrawnNode>): SpotInputs {
+export function spotInputs(nodes: Iterable<DrawnNode>, reserves?: ReadonlyMap<string, number>): SpotInputs {
   const frames = new Map<string, { epic: string; y: number; tickets: Map<number, number> }>()
+  const strip: { epic: string; auto: { x: number; y: number }; width: number; height: number }[] = []
   const tickets: { epic: string; num: number; y: number }[] = []
   const moved: Rect[] = []
-  let left = Infinity
-  let lastColumn = -Infinity
-  let widest = 0
-  let top = Infinity
-  let bottom = -Infinity
+  let shelf = { w: 0, h: 0 }
   for (const node of nodes) {
     if (node.type === EPIC_FRAME_KIND) {
       const data = node.data.node?.data as DrawnFrame | undefined
@@ -102,11 +102,7 @@ export function spotInputs(nodes: Iterable<DrawnNode>): SpotInputs {
       const width = node.width ?? 0
       const height = node.height ?? 0
       const at = node.internals.positionAbsolute
-      left = Math.min(left, data.auto.x)
-      lastColumn = Math.max(lastColumn, data.auto.x)
-      widest = Math.max(widest, width)
-      top = Math.min(top, data.auto.y)
-      bottom = Math.max(bottom, data.auto.y + height)
+      strip.push({ epic: data.epic.epic, auto: data.auto, width, height })
       if (at.x !== data.auto.x || at.y !== data.auto.y) moved.push({ x: at.x, y: at.y, w: width, h: height })
       frames.set(data.epic.epic, { epic: data.epic.epic, y: at.y, tickets: new Map() })
     } else if (node.type === TICKET_KIND) {
@@ -114,11 +110,39 @@ export function spotInputs(nodes: Iterable<DrawnNode>): SpotInputs {
       if (data === undefined) continue
       const { ticket } = data
       tickets.push({ epic: ticket.epic, num: ticket.num, y: node.internals.positionAbsolute.y })
-    }
+    } else if (node.type === DONE_SHELF_KIND) shelf = { w: node.width ?? 0, h: node.height ?? 0 }
   }
   for (const ticket of tickets) frames.get(ticket.epic)?.tickets.set(ticket.num, ticket.y)
-  const strip = Number.isFinite(left) ? { x: left, right: lastColumn + widest, top, bottom } : undefined
-  return { frames: [...frames.values()], strip, moved }
+  return { frames: [...frames.values()], strip: stripOf(strip, shelf, reserves), moved }
+}
+
+/**
+ * The strip of these frames, from where they stand. Frame i of the strip's order stands in column
+ * i mod K, so the columns (by `auto.x`) read row by row give an order with the same columns.
+ */
+function stripOf(
+  frames: readonly { epic: string; auto: { x: number; y: number }; width: number; height: number }[],
+  shelf: { w: number; h: number },
+  reserves: ReadonlyMap<string, number> | undefined,
+): SpotStrip | undefined {
+  if (frames.length === 0) return undefined
+  const lefts = [...new Set(frames.map((frame) => frame.auto.x))].sort((a, b) => a - b)
+  const columns = lefts.map((x) => frames.filter((frame) => frame.auto.x === x).sort((a, b) => a.auto.y - b.auto.y))
+  const rows = Math.max(...columns.map((column) => column.length))
+  const rowMajor = Array.from({ length: rows }, (_, row) => columns.flatMap((column) => (column[row] === undefined ? [] : [column[row]!]))).flat()
+  const placed = placeStrip(
+    rowMajor.map((frame) => ({ epic: frame.epic, width: frame.width, height: frame.height, reserve: reserves?.get(frame.epic) })),
+    [],
+    columns.length,
+    shelf.h,
+    shelf.w,
+  )
+  const left = lefts[0]!
+  const top = Math.min(...frames.map((frame) => frame.auto.y))
+  const shelved = shelf.h > 0
+  // placeStrip puts the shelf FRAME_GAP under the tallest column, frames or not.
+  const bottom = shelved ? placed.shelf.y + shelf.h : placed.shelf.y - FRAME_GAP
+  return { x: left, right: left + Math.max(placed.width, shelved ? shelf.w : 0), top, bottom: top + bottom }
 }
 
 /**
