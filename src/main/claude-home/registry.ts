@@ -30,6 +30,7 @@ import { z } from 'zod'
 import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
 import { parseTranscriptRecord } from '../../shared/transcript/parse'
 import { powershellScriptCommand, runFile, type RunFile } from '../agent/env'
+import { closeForGood } from '../chokidar-close'
 import { splitLines } from './tail'
 
 const run = promisify(execFile)
@@ -923,7 +924,7 @@ export class ClaudeHomeRegistry {
         closed = true
         if (timer) clearTimeout(timer)
         timer = undefined
-        await watcher.close()
+        await closeForGood(watcher)
       },
     }
   }
