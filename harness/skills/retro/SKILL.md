@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Run a retrospective on the work just done and record what generalizes where the project's profile keeps its lessons — a private folder in ~/.claude/profiles/<name>/lessons/ or a lessons folder inside the repo. Use at the end of a ticket, an epic, or a debugging session, or when the user says "retro", "ретро", "запиши урок", or asks what we learned.
+description: Run a retrospective on the work just done and record what generalizes where the project's profile keeps its lessons — a private folder in ~/.claude/profiles/<name>/lessons/ or a lessons folder inside the repo. Use at the end of a ticket, an epic, or a debugging session, or when the user says "retro", "record a lesson" (or the same words in the user's language), or asks what we learned.
 ---
 
 # Retrospective

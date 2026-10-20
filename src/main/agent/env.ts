@@ -176,7 +176,7 @@ export const REGISTRY_SUBKEY_VAR = 'WORFY_REGISTRY_SUBKEY'
  * so the output is ASCII whatever the console's code page. A failure prints
  * `Error <message in base64>` and exits 1. The key is opened through the .NET Registry API, not the
  * registry provider: no module to load (PSModulePath may come from a pwsh 7 parent). `reg query` is
- * not used: it writes to a pipe in the OEM code page, so C:\Users\Алексей came out garbled and
+ * not used: it writes to a pipe in the OEM code page, so a user folder with a Cyrillic name came out garbled and
  * characters outside that code page as `?`, with no error (review of PR #194, round 4).
  *
  * The text is constant (worfy-windows ticket 21): the key comes in two variables of the

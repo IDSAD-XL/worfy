@@ -257,7 +257,7 @@ function longBlockScript(): string {
   return `${[{ fake: 'wait_message' }, init, assistant, result].map((line) => JSON.stringify(line)).join('\n')}\n`
 }
 
-test('a status block of four 90-character lines fits the Orchestrator Node: «— Жду:» is seen without scrolling', async () => {
+test('a status block of four 90-character lines fits the Orchestrator Node: the old fourth label (Waiting) is seen without scrolling', async () => {
   for (const line of LONG_BLOCK.split('\n')) expect(line).toHaveLength(90)
   const scripts = join(scratch, 'scripts')
   mkdirSync(scripts)
@@ -276,7 +276,7 @@ test('a status block of four 90-character lines fits the Orchestrator Node: «�
     await expect(node.getByTestId('orchestrator-state')).toHaveText('idle')
 
     const fit = await block.evaluate((found) => {
-      // Where the text «— Жду:» is drawn, against the block's box and the Node's. The e2e
+      // Where the text of the old fourth label (Waiting) is drawn, against the block's box and the Node's. The e2e
       // tsconfig has no DOM types: the few members used are typed here.
       type Box = { top: number; bottom: number; left: number; right: number }
       type Text = { textContent: string | null }

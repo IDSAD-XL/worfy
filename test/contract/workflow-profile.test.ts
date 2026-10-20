@@ -623,7 +623,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(logged.join('\n')).toMatch(reason)
   })
 
-  // No Profile: the folder is read as before Silent mode (worfy-harness ticket 37, «Profile-а нет»).
+  // No Profile: the folder is read as before Silent mode (worfy-harness ticket 37, "no Profile").
   it.each<[string, ProfileRun | Error, RegExp]>([
     ['exit code 3', { code: 3, stdout: '', stderr: 'profile: /repo is not in a registered project\n' }, /no registered project.*exit code 3/],
     ['no script', enoent(), NO_SCRIPT],
@@ -641,7 +641,7 @@ describe('readResolvedProfile and readProjectLayout with a stand-in runner', () 
     expect(resolved).toEqual({ ok: false, miss: 'none', reason: expect.stringMatching(reason) })
   })
 
-  // A failed call: the mode is unknown, nothing is guessed (worfy-harness ticket 37, «вызов не удался»).
+  // A failed call: the mode is unknown, nothing is guessed (worfy-harness ticket 37, "the call failed").
   // The last column: whether the failure points at the scripts' environment, so the watcher takes
   // the login shell again before it asks once more.
   const CRASH = '/h/bin/profile.js:12\n    throw new TypeError(\'boom\')\n    ^\n\nTypeError: boom\n    at main (/h/bin/profile.js:12:11)\n    at Object.<anonymous> (/h/bin/profile.js:20:1) {\n  code: \'ERR_BOOM\'\n}\n\nNode.js v24.19.0\n'

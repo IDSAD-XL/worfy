@@ -28,7 +28,7 @@ const FOLDER = /(?:^|\/)\.claude\/worktrees\/(\d+)(?:-([^/]+))?\/?$/u
 // `worktrees/<project>/` folder counts; the project name is one segment not starting with a dot.
 const HARNESS_FOLDER = /(?:^|\/)worktrees\/[^/.][^/]*\/(\d+)(?:-([^/]+))?\/?$/u
 
-/** `worfy-mvp/07`, `worfy-mvp/07-движок-сессий`, `refs/heads/ui-triage-4/01` → a Ticket; else null. */
+/** `worfy-mvp/07`, `worfy-mvp/07-session-engine`, `refs/heads/ui-triage-4/01` → a Ticket; else null. */
 export function parseTicketBranch(branch: string): BranchTicketRef | null {
   const match = BRANCH.exec(branch.trim())
   if (!match) return null
@@ -37,7 +37,7 @@ export function parseTicketBranch(branch: string): BranchTicketRef | null {
 }
 
 /**
- * `<repo>/.claude/worktrees/07`, `.claude/worktrees/07-движок-сессий` or
+ * `<repo>/.claude/worktrees/07`, `.claude/worktrees/07-session-engine` or
  * `<Harness home>/worktrees/<project>/07` → a Ticket; else null.
  */
 export function parseWorktreeFolder(path: string): FolderTicketRef | null {

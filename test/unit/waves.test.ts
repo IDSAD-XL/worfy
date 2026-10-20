@@ -43,7 +43,7 @@ function fixtureTickets(): Ticket[] {
   })
 }
 
-/** Ticket number → wave, from the "## Волны" table of the fixture spec.md. */
+/** Ticket number → wave, from the waves table of the fixture spec.md. */
 function expectedWaves(): Map<number, number> {
   const spec = readFileSync(join(FIXTURE, 'spec.md'), 'utf8')
   const section = spec.slice(spec.indexOf('## Волны'))
@@ -56,7 +56,7 @@ function expectedWaves(): Map<number, number> {
 }
 
 describe('waves on the copy of the worfy-mvp epic', () => {
-  it('reproduces the "Волны" table of spec.md for every Ticket', () => {
+  it('reproduces the waves table of spec.md for every Ticket', () => {
     const tickets = fixtureTickets()
     const expected = expectedWaves()
     expect(tickets).toHaveLength(33)
@@ -79,7 +79,7 @@ describe('waves on the copy of the worfy-mvp epic', () => {
     for (const files of byWave.values()) expect(new Set(files).size).toBe(files.length)
   })
 
-  it('reads the files of the "Где в коде" section of a real Ticket', () => {
+  it('reads the files of the trail section of a real Ticket', () => {
     const ten = fixtureTickets().find((t) => t.num === 10)
     expect(ten?.files).toEqual([
       'src/main/workflow/reader.ts',
@@ -206,7 +206,7 @@ describe('ready wave', () => {
     expect(wave.ready.map((r) => r.num)).toEqual([1])
   })
 
-  it('takes a Ticket without a "Где в коде" section and marks it', () => {
+  it('takes a Ticket without a trail section and marks it', () => {
     const wave = readyWave([ticket(1, { files: [], filesListed: false }), ticket(2)])
     expect(wave.ready).toEqual([
       { num: 1, filesNotListed: true },

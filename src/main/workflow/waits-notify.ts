@@ -73,7 +73,7 @@ export class WaitsNotices {
       if (seen.has(key)) continue
       seen.add(key)
       this.display.show({
-        title: `${refOf(ticket)} ждёт тебя`,
+        title: `${refOf(ticket)} is waiting for you`,
         body: waitBody(ticket),
         sessionId: null,
         projectRoot: root,

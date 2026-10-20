@@ -2,7 +2,7 @@
 // ticket 05). Pure: src/main/autopilot/limits-wait.ts gives it the hit, the Limits state of
 // limits.json and the clock, and waits for the answer.
 //
-// How Claude Code reports the hit (2.1.289, Agent SDK 0.3.289; the ticket's «Итог»): a
+// How Claude Code reports the hit (2.1.289, Agent SDK 0.3.289; the ticket's result section): a
 // `rate_limit_event` with `status: "rejected"`, the window in `rateLimitType` and `resetsAt` in Unix
 // seconds; then a synthetic assistant message with `error: "rate_limit"` ("You've hit your limit ·
 // resets …") and a `result` with `is_error: true` and the same text. The event may come without

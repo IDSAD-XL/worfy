@@ -484,6 +484,7 @@ If a project really needs documents the implementer must read beyond `CLAUDE.md`
 ticket and the brief, they are listed under a separate heading
 `## Обязательное чтение исполнителя` (required reading for the implementer), and only there.
 
+<!-- shortcut: accepts the old Russian token, remove after the next release -->
 At the end — a `## Sources` section (in the existing Russian profiles `## Источники`): where the
 facts come from (file and line), for whoever maintains the profile, so that on a mismatch it is
 clear what to check. It is not an instruction to the agent; `hooks/session-start.mjs` leaves it out.

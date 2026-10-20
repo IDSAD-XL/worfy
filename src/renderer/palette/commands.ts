@@ -9,7 +9,7 @@
 // stand for. "Ship ticket" and "Run wave" are the actions of ticket 23 (`actions.shipTicket`,
 // `actions.runWave`); when they exist and whether they are active is decided by the same code the
 // buttons use (canvas/actions/gates.ts), and main checks again.
-// The unchecked "(вручную)" checks of every Ticket (shared/workflow/manual-checks.ts) are rows of
+// The unchecked manual checks (the profile's manual mark) of every Ticket (shared/workflow/manual-checks.ts) are rows of
 // their own group, found by typing only; picking one goes to its Ticket. They are read, never ticked.
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 // "Process gate queue" (worfy-windows ticket 17, `actions.gateQueue`) is there only on the machine
@@ -422,7 +422,7 @@ function goToCommands({ project, model, layoutNodes, history, adrs }: CommandCon
 }
 
 /**
- * A row per unchecked "(вручную)" check of every Ticket of the Project: "<epic> NN · <text>".
+ * A row per unchecked manual check of every Ticket of the Project: "<epic> NN · <text>".
  * Picking it goes to the Ticket's Node, as the Ticket's own "Go to" row does. Rows only for a query:
  * dozens of open checks would bury the other commands of the empty palette.
  */

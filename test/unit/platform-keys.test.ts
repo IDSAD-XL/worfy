@@ -61,7 +61,7 @@ describe('isPrimary and isOtherModifier', () => {
   })
 })
 
-// Review round 1 of PR #215: with a Russian layout the K key gives key 'л' and code 'KeyK'.
+// Review round 1 of PR #215: with a Russian layout the K key gives the Cyrillic el as key and 'KeyK' as code.
 describe('shortcutKey', () => {
   it('is the letter of the key cap when the layout is Latin, whatever the place of the key', () => {
     expect(shortcutKey({ key: 'k', code: 'KeyK' })).toBe('k')

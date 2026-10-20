@@ -51,7 +51,7 @@ if (!cmd.trim()) ok()
 
 // A heredoc body is data (in these repositories it is used to write documentation about these very
 // commands), not calls.
-const noHeredoc = cmd.replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?^\s*\1\s*$/gm, " <<данные>> ")
+const noHeredoc = cmd.replace(/<<-?\s*['"]?(\w+)['"]?[\s\S]*?^\s*\1\s*$/gm, " <<data>> ")
 
 const unquoted = noHeredoc.replace(/'[^']*'/g, " ").replace(/"[^"]*"/g, " ")
 

@@ -212,7 +212,7 @@ async function startWatcher(repo: string, home: string, deltas: WorkflowDelta[],
 // ── reader ───────────────────────────────────────────────────────────────────
 
 describe('workflow reader', () => {
-  it('reads Epics and Tickets from epic-status and adds "Где в коде" files and the Epic title', async () => {
+  it('reads Epics and Tickets from epic-status and adds the trail-section files and the Epic title', async () => {
     const repo = makeRepo(dir)
     const { home } = makeClaudeHome(dir)
     const { model } = await readWorkflow({ root: repo, claudeHome: home, env: ownEnv })
@@ -251,7 +251,7 @@ describe('workflow reader', () => {
     expect(delta?.tickets.map((ticket) => ticket.num)).toEqual([2])
   })
 
-  it('carries the "(вручную)" checks of each Ticket\'s "Готово, когда" section; a Ticket without them has []', async () => {
+  it('carries the manual checks of each Ticket\'s done section; a Ticket without them has []', async () => {
     const repo = makeRepo(dir)
     const issues = join(repo, '.scratch', 'demo', 'issues')
     const done = (items: string[]) => ['', '## Готово, когда', '', ...items, ''].join('\n')

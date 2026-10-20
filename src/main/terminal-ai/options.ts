@@ -21,7 +21,7 @@ import type { TerminalAiFeature, TerminalAiSettings } from '../../shared/termina
 export const ASSIST_DIR = 'terminal-ai'
 export const assistDir = (dataDir: string): string => join(dataDir, ASSIST_DIR)
 
-/** How long each feature waits for its answer (spec, "Решено без владельца", point 2). */
+/** How long each feature waits for its answer (spec, "Decided without the owner", point 2). */
 export const FEATURE_TIMEOUT_MS: Record<TerminalAiFeature, number> = { suggest: 5_000, next: 8_000, request: 30_000, fix: 30_000 }
 
 export const ASSIST_SYSTEM_PROMPT = [

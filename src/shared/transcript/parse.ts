@@ -7,7 +7,7 @@
 // whether a Subagent wrote it) travels next to the event, in a `TranscriptEntry`.
 //
 // The transcript format is internal to Claude Code and changes between versions (ticket 09,
-// "Итог"). The core has been stable from 2.1.222 to 2.1.286: `type`, `uuid`, `timestamp`,
+// its result section). The core has been stable from 2.1.222 to 2.1.286: `type`, `uuid`, `timestamp`,
 // `isSidechain`, `message.content[]` with `text`, `thinking`, `tool_use`, `tool_result` blocks.
 // Everything else is optional here: a record or a content block this module does not know
 // becomes an `unknown` event, and parsing goes on. Nothing in this file throws on input.
@@ -101,7 +101,7 @@ function userString(record: Json, text: string): AgentEvent[] {
 /** Statuses of the Agent tool's result that say the Subagent is still running. */
 const STILL_RUNNING = new Set(['async_launched', 'running'])
 
-/** The Agent tool's result names the Subagent it started (ticket 09, "Subagent-ы"). */
+/** The Agent tool's result names the Subagent it started (ticket 09, "Subagents"). */
 function subagentStarted(toolUseId: string, outcome: Json): AgentEvent[] {
   const taskId = str(outcome.agentId)
   if (taskId === undefined) return []

@@ -1,4 +1,4 @@
-// The `orchestrator` domain: the one main Session of each Project (CONTEXT.md, «Оркестратор»)
+// The `orchestrator` domain: the one main Session of each Project (CONTEXT.md, "Orchestrator")
 // and its Node on the Canvas. Run by src/main/agent/orchestrator.ts, handled in
 // src/main/ipc/orchestrator.ts (ADR-0006).
 //

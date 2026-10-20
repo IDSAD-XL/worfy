@@ -19,7 +19,7 @@ import type { TerminalAiFixState } from '../../../shared/ipc/terminal-ai-fix'
 import type { TerminalAiRequestState } from '../../../shared/ipc/terminal-ai-request'
 import { SHORTCUTS } from '../../../shared/shortcuts'
 
-// A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, «Терминал»).
+// A Terminal: the user's interactive shell in the root of the Project (CONTEXT.md, "Terminal").
 // The agent does not use it. main runs the shell (src/main/terminal/pty.ts); this Node draws it
 // with xterm.js. The shell outlives the Node's component: the Canvas hidden behind the Session
 // view, the Node scrolled out of sight or the window reloaded only detach the view, and the next
@@ -46,7 +46,7 @@ import { SHORTCUTS } from '../../../shared/shortcuts'
 // and main leaves the size where it is (terminal-user-input.ts tells them from typing). A view
 // that redraws the kept output sends none of the answers xterm.js gives to the requests in it:
 // the program had its answers when those requests came — unless no view was mounted then: such a
-// request stays unanswered (ticket 39, «Итог»), except a cursor-position request, which main
+// request stays unanswered (ticket 39, its result section), except a cursor-position request, which main
 // answers itself in every case (src/main/terminal/cursor-answers.ts). The view attaches once xterm.js has parsed the
 // kept output; output that comes meanwhile waits and is answered as live, and what the user types
 // or clicks meanwhile is sent once the view attaches.

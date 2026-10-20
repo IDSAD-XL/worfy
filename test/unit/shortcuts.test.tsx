@@ -167,7 +167,7 @@ describe('matches', () => {
   it('takes ⌘[ / Ctrl+[ for Back by the character and, on a layout with a letter there, by the place of the key', () => {
     for (const platform of PLATFORMS) {
       expect(matches(primary(platform, { key: '[', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
-      // The Russian layout has х on the key of [.
+      // The Russian layout has the Cyrillic kha on the key of [.
       expect(matches(primary(platform, { key: 'х', code: 'BracketLeft' }), SHORTCUTS.back, platform)).toBe(true)
       expect(matches(primary(platform, { key: 'х', code: 'BracketLeft', altKey: true }), SHORTCUTS.back, platform)).toBe(false)
       expect(matches(primary(platform, { key: 'Х', code: 'BracketLeft', shiftKey: true }), SHORTCUTS.back, platform)).toBe(false)

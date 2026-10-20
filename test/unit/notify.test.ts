@@ -954,7 +954,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     w.notices.read(ROOT, model([ticket('worfy-link', 16)]))
     expect(w.shown).toEqual([])
     w.notices.read(ROOT, delta([owner('worfy-link', 16, 'acceptance')]))
-    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-link 16 ждёт тебя', 'acceptance']])
+    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-link 16 is waiting for you', 'acceptance']])
     expect(w.shown[0]!.note).toMatchObject({ projectRoot: ROOT, ticket: { epic: 'worfy-link', num: 16 } })
   })
 
@@ -962,7 +962,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     const w = waits()
     w.notices.read(ROOT, model([]))
     w.notices.read(ROOT, delta([owner('worfy-pipeline', 6, null)]))
-    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-pipeline 06 ждёт тебя', 'worfy-pipeline 06 — Title of worfy-pipeline 6']])
+    expect(w.shown.map((each) => [each.note.title, each.note.body])).toEqual([['worfy-pipeline 06 is waiting for you', 'worfy-pipeline 06 — Title of worfy-pipeline 6']])
   })
 
   it('the same wait seen again gives no second notification; a new Status time does', () => {
@@ -1018,7 +1018,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     w.notices.read(ROOT, model([owner('worfy-link', 16, 'acceptance'), ticket('worfy-link', 17)]))
     expect(w.shown).toEqual([])
     w.notices.read(ROOT, delta([owner('worfy-link', 17, 'merge')]))
-    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 ждёт тебя'])
+    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 is waiting for you'])
   })
 
   it('the first model of each Project is its own start; Projects do not share their waits', () => {
@@ -1041,7 +1041,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     w.notices.read(ROOT, delta([owner('worfy-link', 16, 'acceptance')]))
     expect(w.shown).toEqual([])
     w.notices.read(ROOT, delta([owner('worfy-link', 17, 'new')]))
-    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 ждёт тебя'])
+    expect(w.shown.map((each) => each.note.title)).toEqual(['worfy-link 17 is waiting for you'])
   })
 
   it('Waits: team, agent or a Machine gives none; only the owner', () => {
@@ -1058,8 +1058,8 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     w.notices.read('/projects/a', delta([owner('worfy-link', 16, 'a')], '/projects/a'))
     w.notices.read('/projects/b', delta([owner('worfy-link', 16, 'b')], '/projects/b'))
     expect(w.shown.map((each) => [each.note.projectRoot, each.note.title])).toEqual([
-      ['/projects/a', 'worfy-link 16 ждёт тебя'],
-      ['/projects/b', 'worfy-link 16 ждёт тебя'],
+      ['/projects/a', 'worfy-link 16 is waiting for you'],
+      ['/projects/b', 'worfy-link 16 is waiting for you'],
     ])
   })
 
@@ -1072,7 +1072,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     w.focus(false)
     w.notices.read(ROOT, delta([owner('e', 1, 'a'), owner('e', 2, 'b')]))
     // A different Ticket is counted on its own.
-    expect(w.shown.map((each) => each.note.title)).toEqual(['e 02 ждёт тебя'])
+    expect(w.shown.map((each) => each.note.title)).toEqual(['e 02 is waiting for you'])
     w.notices.read(ROOT, delta([owner('e', 2, 'b', '2026-10-18T11:00Z')]))
     expect(w.shown).toHaveLength(1)
   })
@@ -1128,13 +1128,13 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     opens[0]!.resolve(model([owner('e', 1, 'in the model too')]))
     await Promise.resolve()
     await Promise.resolve()
-    expect(shown).toEqual(['e 02 ждёт тебя'])
+    expect(shown).toEqual(['e 02 is waiting for you'])
     opens[0]!.subscriber.send(delta([owner('e', 3, 'new')]))
-    expect(shown).toEqual(['e 02 ждёт тебя', 'e 03 ждёт тебя'])
+    expect(shown).toEqual(['e 02 is waiting for you', 'e 03 is waiting for you'])
     stop()
     // A change after the stop shows nothing.
     opens[0]!.subscriber.send(delta([owner('e', 4, 'late')]))
-    expect(shown).toEqual(['e 02 ждёт тебя', 'e 03 ждёт тебя'])
+    expect(shown).toEqual(['e 02 is waiting for you', 'e 03 is waiting for you'])
   })
 
   it('the model is read before the changes that came before it: a wait the model holds and the first early change lacks gives none', async () => {
@@ -1171,7 +1171,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       opens[0]!.subscriber.send(delta([owner('e', 5, 'old subscription')]))
       expect(shown).toEqual([])
       opens[1]!.subscriber.send(delta([owner('e', 6, 'new subscription')]))
-      expect(shown).toEqual(['e 06 ждёт тебя'])
+      expect(shown).toEqual(['e 06 is waiting for you'])
       stop()
     } finally {
       vi.useRealTimers()
@@ -1194,7 +1194,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
     await Promise.resolve()
     expect(hub.open).toHaveBeenCalledWith(ROOT, expect.objectContaining({ id: 'waits-notify' }))
     subscriber!.send(delta([owner('worfy-link', 16, 'acceptance')]))
-    expect(shown.map((note) => note.title)).toEqual(['worfy-link 16 ждёт тебя'])
+    expect(shown.map((note) => note.title)).toEqual(['worfy-link 16 is waiting for you'])
     stop()
     expect(hub.close).toHaveBeenCalledWith(ROOT, 'waits-notify')
   })
@@ -1312,7 +1312,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       expect(shown).toEqual([])
 
       subscribers.get('/projects/a')!.send(delta([owner('e', 2, 'new')], '/projects/a'))
-      expect(shown).toEqual(['e 02 ждёт тебя'])
+      expect(shown).toEqual(['e 02 is waiting for you'])
 
       // The next tick opens nothing twice; a Project gone from the list is closed.
       list = [{ path: '/projects/a' }]
@@ -1328,7 +1328,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       first['/projects/c'] = model([owner('e', 3, 'was there')], '/projects/c')
       await vi.advanceTimersByTimeAsync(60_000)
       expect(hub.open).toHaveBeenCalledTimes(4)
-      expect(shown).toEqual(['e 02 ждёт тебя'])
+      expect(shown).toEqual(['e 02 is waiting for you'])
 
       stop()
       await vi.advanceTimersByTimeAsync(0)
@@ -1358,7 +1358,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       await vi.advanceTimersByTimeAsync(0)
       expect(shown).toEqual([])
       opens[1]!.subscriber.send(delta([owner('e', 2, 'new')]))
-      expect(shown).toEqual(['e 02 ждёт тебя'])
+      expect(shown).toEqual(['e 02 is waiting for you'])
       stop()
     } finally {
       vi.useRealTimers()
@@ -1438,7 +1438,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       expect(closed).toEqual([ROOT])
       expect(logs).toEqual([])
       opens[1]!.subscriber.send(delta([owner('e', 1, 'new')]))
-      expect(shown).toEqual(['e 01 ждёт тебя'])
+      expect(shown).toEqual(['e 01 is waiting for you'])
       // Nor is the Project opened again: it is followed.
       await vi.advanceTimersByTimeAsync(60_000)
       expect(opens).toHaveLength(2)
@@ -1496,7 +1496,7 @@ describe('a Ticket that comes to wait for the owner (worfy-pipeline tickets 06 a
       expect(opens).toBe(12)
       expect(shown).toEqual([])
       subscriber!.send(delta([owner('e', 2, 'new')]))
-      expect(shown).toEqual(['e 02 ждёт тебя'])
+      expect(shown).toEqual(['e 02 is waiting for you'])
       await vi.advanceTimersByTimeAsync(40 * 60_000)
       expect(opens).toBe(12)
       expect(logs).toHaveLength(11)

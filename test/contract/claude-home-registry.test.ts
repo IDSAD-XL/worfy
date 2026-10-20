@@ -462,7 +462,7 @@ describe('Session history', () => {
   })
 
   it('builds the history index of an Auction-sized Project in at most one second', async () => {
-    // Auction (ticket 09, "Объёмы"): 88 Sessions in the root and the rest in worktrees. Files are
+    // Auction (ticket 09, "Volumes"): 88 Sessions in the root and the rest in worktrees. Files are
     // larger than the head and tail windows, so the list has to skip their middles.
     const home = await tempDir()
     const root = '/Users/test/auction'

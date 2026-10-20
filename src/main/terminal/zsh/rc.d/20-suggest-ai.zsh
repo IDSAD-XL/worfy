@@ -28,8 +28,8 @@
 (( ${+functions[_worfy_assist_ask]} )) || builtin return 0
 builtin zmodload zsh/zselect zsh/datetime zsh/system zsh/parameter 2>/dev/null || builtin return 0
 
-# How long the line stays unchanged before the model is asked, in milliseconds (spec, "Решено без
-# владельца", point 2). A script read before this one may set another: the tests do.
+# How long the line stays unchanged before the model is asked, in milliseconds (spec, "Decided without
+# the owner", point 2). A script read before this one may set another: the tests do.
 [[ ${__worfy_suggest_pause_ms-} == <1-> ]] || builtin typeset -g __worfy_suggest_pause_ms=600
 
 builtin typeset -g __worfy_suggest_fd=''      # the pipe of the timer that runs; empty without one

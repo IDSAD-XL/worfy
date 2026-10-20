@@ -83,29 +83,31 @@ collections yourself: each of these steps needs the user's consent or writes out
   (an array; the singular `collection` is silently ignored), `intent` (context for
   disambiguation, does not search by itself), `minScore`, `rerank: false` (faster, but worse ordering).
 
-## How to write `searches` for Russian text
+## How to write `searches`
 
-One call, 3–5 sub-queries, the first one weighs double:
+Write the queries in the language of the documents (the profile's `language.docs`). One call, 3–5 sub-queries,
+the first one weighs double:
 
 1. `vec` — the question in your own words, whole:
-   «почему отказались от websocket и живого обновления страницы».
-2. `lex` — 2–4 word stems without endings: `сторож выкат документн`. Matching is
+   "why we dropped websockets and live page updates".
+2. `lex` — 2–4 word stems without endings: `deploy watch docs`. In a language with word endings,
+   such as Russian, cut the endings off the same way. Matching is
    by prefix, no asterisk needed. Do not write a sentence: terms are combined with AND,
    one extra word zeroes the results. There is `"exact phrase"` (no prefix matching) and `-word`
    for exclusion (only next to a positive term). English identifiers
    (`staleTime`, `legal_lock`) go in a separate lex line; hyphenated ones (`verify-deploy`)
    are searched as an exact phrase, without prefix matching.
-3. `hyde` — one or two sentences that look like the expected answer: «От WebSocket отказались,
-   потому что у api нет домена; если понадобится живость — SSE со страницы лота».
-4. A second `lex` with synonyms, when the topic has two names (смоук / дымовые проверки / verify-deploy).
+3. `hyde` — one or two sentences that look like the expected answer: "We dropped WebSockets
+   because the api has no domain; if live updates are needed — SSE from the lot page".
+4. A second `lex` with synonyms, when the topic has two names (smoke / smoke checks / verify-deploy).
 
 Example call:
 
 ```json
 {"searches": [
-  {"type": "vec",  "query": "почему сторож выката ждёт бесконечно после документного мержа"},
-  {"type": "lex",  "query": "сторож выкат документн"},
-  {"type": "hyde", "query": "Сторож выката ждёт по коммиту, а не по последнему прогону: документный мерж сдвигает последний прогон, и ожидание не завершается"}
+  {"type": "vec",  "query": "why the deploy watch waits forever after a docs-only merge"},
+  {"type": "lex",  "query": "deploy watch docs"},
+  {"type": "hyde", "query": "The deploy watch waits for a commit, not for the last run: a docs-only merge moves the last run, and the wait never ends"}
 ], "limit": 6}
 ```
 

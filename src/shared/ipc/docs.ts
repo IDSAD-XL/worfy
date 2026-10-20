@@ -27,7 +27,7 @@ export const adrEntrySchema = z.object({
   number: z.string().regex(/^\d{4}$/),
   /** The first `# ` heading, or the file name when there is none. */
   title: z.string(),
-  /** What follows `Статус:` (or `Status:`), without the final dot; null when the file has none. */
+  /** What follows the status label (the profile's `adr_status_label`, or `Status:`), without the final dot; null when the file has none. */
   status: z.string().nullable(),
   version,
 })

@@ -1,4 +1,4 @@
-// The `cards` domain: what the renderer needs to show a Card (CONTEXT.md, «Карточка») — its
+// The `cards` domain: what the renderer needs to show a Card (CONTEXT.md, "Card") — its
 // address on the worfy-card:// protocol, its title, whether its files are there — and a notice
 // when its files change. Handled in src/main/ipc/cards.ts (ADR-0006).
 import { z } from 'zod'

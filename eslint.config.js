@@ -7,6 +7,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import { reactRefresh } from 'eslint-plugin-react-refresh'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
+import { noCyrillic } from './scripts/check-cyrillic.mjs'
 
 const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), 'src')
 const nodeBuiltins = new Set(builtinModules)
@@ -73,6 +74,9 @@ const processBoundary = {
   },
 }
 
+// One plugin object for the local rules: flat config refuses a plugin name defined twice.
+const worfy = { rules: { 'process-boundary': processBoundary, 'no-cyrillic': noCyrillic } }
+
 export default defineConfig(
   {
     // .claude/worktrees/ holds other tickets' checkouts: never lint them from here.
@@ -110,7 +114,14 @@ export default defineConfig(
   },
   {
     files: ['src/renderer/**/*.{ts,tsx}', 'src/card-runtime/**/*.{ts,tsx}', 'src/shared/**/*.{ts,tsx}'],
-    plugins: { worfy: { rules: { 'process-boundary': processBoundary } } },
+    plugins: { worfy },
     rules: { 'worfy/process-boundary': 'error' },
+  },
+  {
+    // No Cyrillic in code (scripts/check-cyrillic.mjs says where it is allowed); the same script
+    // checks the shell, extensionless and Markdown files ESLint does not read.
+    files: ['src/**', 'scripts/**', 'test/**', 'harness/**'],
+    plugins: { worfy },
+    rules: { 'worfy/no-cyrillic': 'error' },
   },
 )

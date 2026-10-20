@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// epic-status [epic] — one ready-made «Этап» (stage) line for the status block:
+// epic-status [epic] — one ready-made Stage line for the status block:
 //   <workflow stage> · <epic> <done>/<total> · <branch> · ticket <NN> [· waits for NN]
 // Without an argument — one line per epic of the repository.
 //
@@ -348,7 +348,7 @@ function jsonDump(tree, ref) {
     out(`{"ref":${label},"epics":[${e.join(",")}],"tickets":[${t.join(",")}]}\n`)
 }
 
-// --- the «Этап» line ---------------------------------------------------------------------
+// --- the Stage line ----------------------------------------------------------------------
 const pad2 = (n) => (n.length < 2 ? "0" + n : n)
 function lineFor(parent, epic, where) {
     const tree = diskTree(parent)
@@ -455,7 +455,7 @@ function main() {
     const scratchGit = top.ok ? top.stdout : ""
 
     // The tickets' state lives in the branch (.scratch is tracked by git), and a repository has several
-    // trees — without the branch name the «Этап» line is ambiguous. The branch is that of the tree holding
+    // trees — without the branch name the Stage line is ambiguous. The branch is that of the tree holding
     // the tickets, not of the one where the command runs; outside git there is no branch.
     let branch = ""
     if (scratchGit) {

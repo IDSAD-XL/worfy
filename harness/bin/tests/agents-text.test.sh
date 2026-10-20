@@ -72,7 +72,7 @@ has reviewer '`worfy:implementer`' && ok "reviewer: names the implementer agent 
 # --- 4. EXIT=$? instead of the old exit-code line ---------------------------------------------
 for a in $ALL; do
     left="$(grep -n 'КОД=' "$AGENTS/$a.md")"
-    [ -z "$left" ] && ok "$a: no КОД=" || bad "$a: КОД= left: $left"
+    [ -z "$left" ] && ok "$a: no old exit-code line" || bad "$a: old exit-code line left: $left"
 done
 [ "$(grep -oF 'echo "EXIT=$?"' "$AGENTS/implementer.md" | wc -l)" -ge 2 ] \
     && ok "implementer: verify and gate print EXIT=\$?" || bad "implementer: fewer than two echo \"EXIT=\$?\""

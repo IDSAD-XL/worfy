@@ -18,7 +18,7 @@
 import { terminalAiInput } from '../input'
 import type { ShellFeature } from '../shell-link'
 
-/** How long the empty line stands before the model is asked (spec, "Решено без владельца", point 2). */
+/** How long the empty line stands before the model is asked (spec, "Decided without the owner", point 2). */
 export const NEXT_COMMAND_PAUSE_MS = 800
 
 /** True once `ms` passed; false as soon as `signal` is aborted. */

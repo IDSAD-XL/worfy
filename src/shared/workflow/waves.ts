@@ -2,7 +2,7 @@
 // Tickets of the workflow model; nothing here reads files or knows about processes.
 //
 // A Wave is the set of Tickets that can be taken in parallel: open, every blocker done, and no
-// file of "Где в коде" shared with another Ticket of the Wave or with a Ticket already in work.
+// file of the trail section shared with another Ticket of the Wave or with a Ticket already in work.
 // A Ticket whose `done` comes only from its unmerged worktree branch counts as still in work: its
 // code is not in the main branch yet, which is where a dependant's worktree starts.
 import type { Ticket } from './types'
@@ -35,7 +35,7 @@ export interface SkippedTicket {
 }
 
 export interface ReadyWave {
-  /** In Ticket number order. `filesNotListed` — the Ticket has no "Где в коде" section. */
+  /** In Ticket number order. `filesNotListed` — the Ticket has no trail section. */
   ready: { num: number; filesNotListed: boolean }[]
   /** Open Tickets left for a later Wave, in number order. */
   waiting: { num: number; reason: WaitReason }[]
@@ -154,7 +154,7 @@ export function ticketLevels(tickets: readonly WaveTicket[], epic?: string): Map
   return levels
 }
 
-/** True when two "Где в коде" entries name the same file; an entry ending in `/` holds its whole folder. */
+/** True when two trail-section entries name the same file; an entry ending in `/` holds its whole folder. */
 export function filesOverlap(a: string, b: string): boolean {
   if (a === b) return true
   if (a.endsWith('/') && b.startsWith(a)) return true
@@ -215,7 +215,7 @@ export function readyWave(tickets: readonly WaveTicket[], epic?: string): ReadyW
 
 /**
  * The Wave number of every Ticket of one Epic, keyed by Ticket number: the ready-Wave step
- * repeated to the end, as the "Волны" table of a spec counts it. Wave 1 is the ready Wave now;
+ * repeated to the end, as the waves table of a spec counts it. Wave 1 is the ready Wave now;
  * then its Tickets count as done, and so do Tickets that are in work today or done only in a
  * worktree branch. Done and in-work Tickets get no number; neither do Tickets that never become
  * ready (a cycle, an unparsed or missing blocker, or a blocked state upstream).

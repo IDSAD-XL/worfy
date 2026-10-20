@@ -1,4 +1,4 @@
-// The fake assist process (WORFY_AGENT=fake, ADR-0058, "Последствия"): tests and e2e runs never
+// The fake assist process (WORFY_AGENT=fake, ADR-0058, "Consequences"): tests and e2e runs never
 // start Claude Code for Terminal AI and never spend the subscription. With it the service does not
 // import the Agent SDK at all (backendFromEnv, src/main/terminal-ai/assist.ts).
 //

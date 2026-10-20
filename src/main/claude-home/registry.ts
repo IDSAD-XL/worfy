@@ -1,5 +1,5 @@
 // Sessions of a Project as Claude Code records them under its home directory (~/.claude, or
-// WORFY_CLAUDE_HOME in tests). Formats and rules come from ticket 09 ("Итог"):
+// WORFY_CLAUDE_HOME in tests). Formats and rules come from ticket 09 (its result section):
 //
 // - live Sessions: sessions/<pid>.json. A file alone does not prove the Session runs, so it is
 //   live only when the process `pid` exists and was started at `procStart` (`ps -o lstart=` in

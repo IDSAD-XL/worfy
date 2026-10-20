@@ -69,7 +69,7 @@ ticket.
 
 **Blocked by**
 A ticket field. It is parsed into numbers only if EVERY item of the list starts with digits
-("12, 14, 15", "01 — Каркас") or the whole value is a negation word ("none", "—", "None — can start
+("12, 14, 15", "01 — scaffold") or the whole value is a negation word ("none", "—", "None — can start
 immediately"). Otherwise the value is declared unparsed.
 `blockedParsed` is kept apart from the list on purpose: "no blockers" and "the reader did not
 understand" both give an empty list of numbers but mean opposite things.

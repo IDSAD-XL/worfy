@@ -665,7 +665,7 @@ describe('the keys of the Canvas by system', () => {
       expect(canvas.sent).toEqual([moved, back])
       await press({ key: 'Z', [primary]: true, shiftKey: true })
       expect(canvas.sent).toEqual([moved, back, moved])
-      // With a Russian layout the Z key gives 'я': the place of the key decides.
+      // With a Russian layout the Z key gives the Cyrillic ya: the place of the key decides.
       expect((await press({ key: 'я', code: 'KeyZ', [primary]: true })).defaultPrevented).toBe(true)
       expect(canvas.sent).toEqual([moved, back, moved, back])
       await press({ key: 'Я', code: 'KeyZ', [primary]: true, shiftKey: true })
@@ -727,7 +727,7 @@ describe('the keys of the Canvas by system', () => {
       const scope = await screen.findByTestId('find-scope')
       expect(scope.getAttribute('title')).toBe(`Only the Nodes selected at the last ${system === 'mac' ? '⌘F' : 'Ctrl+F'}`)
       expect(screen.getByLabelText('Previous match').getAttribute('title')).toBe(`Previous match (${system === 'mac' ? '⇧Enter' : 'Shift+Enter'})`)
-      // With a Russian layout the F key gives а: the place of the key decides.
+      // With a Russian layout the F key gives the Cyrillic a: the place of the key decides.
       await act(async () => closeFind())
       expect((await press({ key: 'а', code: 'KeyF', [primary]: true })).defaultPrevented).toBe(true)
       expect(useCanvasRequests.getState().findOpen).toBe(true)

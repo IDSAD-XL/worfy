@@ -1,5 +1,5 @@
 // Session Nodes for the live Sessions of a Project (ticket 14): what the Canvas must create or
-// remove so that every live Session has one Node, wherever it was started (CONTEXT.md, «Сессия»:
+// remove so that every live Session has one Node, wherever it was started (CONTEXT.md, "Session":
 // one Session — one Node). Pure: the overlay that sends the operations is
 // src/renderer/canvas/overlays/SessionNodes.tsx.
 //

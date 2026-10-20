@@ -1,6 +1,6 @@
 // The workflow model of a Project: its Epics and Tickets as `epic-status --json` reports them,
 // plus the two things that script does not carry: the files listed under a Ticket's
-// "Где в коде" section and the Epic's title from spec.md (ADR-0002: worfy reads the workflow,
+// trail section (the profile's `tickets.trail_section`) and the Epic's title from spec.md (ADR-0002: worfy reads the workflow,
 // it never owns it). In Silent mode both come from the Workflow folder (ADR-0042).
 import { z } from 'zod'
 
@@ -64,9 +64,9 @@ export const epicSchema = epicStatusEpicSchema.extend({
 })
 export type Epic = z.infer<typeof epicSchema>
 
-/** A "(вручную)" item of a Ticket's "Готово, когда" section: a check a person makes (manual-checks.ts). */
+/** A manual item (the profile's manual mark) of a Ticket's done section (`tickets.done_section`): a check a person makes (manual-checks.ts). */
 export const manualCheckSchema = z.object({
-  /** The item's text without the checkbox and "(вручную)"; continuation lines joined with a space. */
+  /** The item's text without the checkbox and the manual mark; continuation lines joined with a space. */
   text: z.string(),
   /** True for `[x]`: the check was made and the Ticket file says so. */
   checked: z.boolean(),
@@ -74,9 +74,9 @@ export const manualCheckSchema = z.object({
 export type ManualCheck = z.infer<typeof manualCheckSchema>
 
 export const ticketSchema = epicStatusTicketSchema.extend({
-  /** Paths in backticks from the list items of the "Где в коде" section, in file order. */
+  /** Paths in backticks from the list items of the trail section, in file order. */
   files: z.array(z.string()),
-  /** False when the Ticket has no "Где в коде" section at all ("files not listed"). */
+  /** False when the Ticket has no trail section at all ("files not listed"). */
   filesListed: z.boolean(),
   /**
    * Set when `state`, `statusRaw` and the header facts beside them come from a worktree branch rather than the Project's
@@ -84,7 +84,7 @@ export const ticketSchema = epicStatusTicketSchema.extend({
    */
   fromBranch: z.string().nullable(),
   /**
-   * The "(вручную)" items of the "Готово, когда" section, in file order. Optional, and absent reads
+   * The manual items of the done section, in file order. Optional, and absent reads
    * as none: a model from an older worfy (a Linked machine) and the Tickets built in tests stay valid.
    */
   manualChecks: z.array(manualCheckSchema).optional(),

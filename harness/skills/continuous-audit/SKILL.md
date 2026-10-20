@@ -1,6 +1,6 @@
 ---
 name: continuous-audit
-description: Run on the words "audit", "scan the codebase", "file tickets for the findings" (in Russian «аудит», «просканируй кодовую базу», «заведи тикеты по находкам») and in scheduled runs. Works in any registered project; takes the lenses, paths and `qmd` collections from the profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`).
+description: Run on the words "audit", "scan the codebase", "file tickets for the findings" (or the same words in the user's language) and in scheduled runs. Works in any registered project; takes the lenses, paths and `qmd` collections from the profile (`${CLAUDE_PLUGIN_ROOT}/bin/profile`).
 ---
 
 # Codebase audit: from reading to tickets
@@ -66,8 +66,8 @@ epic and the worktree branch: in later blocks it is derived again with `git bran
 audit worktree (shell state does not persist between calls). Below, `$T$A` is `<tickets.root><audit
 epic>`, for example `.scratch/audit-2026-10-05/`.
 
-One `qmd` call (skill `worfy:qmd`), `intent` "lessons of past audits": `vec` «прошлые аудиты кода и ложные
-находки», `lex` `аудит находк ложн`. Search the whole index: `F qmd.collections` (what they hold — `F qmd.covers`)
+One `qmd` call (skill `worfy:qmd`), `intent` "lessons of past audits": `vec` "past code audits and false
+findings", `lex` with the stems of "audit", "finding", "false"; both in the language of the project's documents (`F language.docs`). Search the whole index: `F qmd.collections` (what they hold — `F qmd.covers`)
 is a hint about where to expect the answer, not a filter for the `collections` parameter. A lesson already paid for changes the briefs
 before they go out.
 
@@ -174,28 +174,29 @@ Status: open
 Blocked by: —
 Source: [spec.md](../spec.md), section «<topic>», finding <lens>-<N>; [ADR-NNNN](../../../<adr_dir>/NNNN-….md)
 
-## Что делаем
+<the section "what we do", as the project's tickets name it>
 <the defect with file:line at the audit commit; what replaces it; the boundaries of the change>
 
-## Готово, когда
+<F tickets.done_section>
 - [ ] <checkable condition from acceptance>
 
-## Тесты
+<the section "tests", as the project's tickets name it>
 - `<path to the test file>` — criteria 1, 2 (new | extend)
 
-## Где в коде
+<F tickets.trail_section>
 - `<path>` — <what is there>
 ```
 
-The headings of this template are the ticket format the tooling reads (worfy parses `## Где в коде`): keep them as written,
-whatever language the ticket text is in.
+Two headings of this template are read by the tooling: the acceptance section `F tickets.done_section` and the
+files section `F tickets.trail_section`. Write them exactly as the profile gives them, whatever language the ticket
+text is in. The other two sections are named as the project's existing tickets name them, in the docs' language.
 
 `Type` — from the repository's glossary: `task | research | grilling`; a decision ticket is `Type: grilling` with
-`## Question` and `## Решение владельца` instead of `## Что делаем` (a model — any such ticket of the project:
+`## Question` and a section for the owner's decision instead of the "what we do" section (a model — any such ticket of the project:
 `grep -l '^Type: grilling' "$("${CLAUDE_PLUGIN_ROOT}/bin/profile" --field tickets.root)"*/issues/*.md | head -1`). `Blocked by` — `—` or numbers of this epic
 separated by commas (`01, 03`); anything else `epic-status` counts as unparsed.
 
-Size — one PR: one module, one test file, up to five paths in `## Где в коде`. A finding spanning two modules
+Size — one PR: one module, one test file, up to five paths in `F tickets.trail_section`. A finding spanning two modules
 is cut into two tickets linked by `Blocked by`. At most one migration per ticket (if the project has
 migrations: `F numbering.migrations` is not `null`).
 
@@ -216,14 +217,14 @@ How CI treats a PR that contains only ticket files is in the profile's `rules.md
 In Silent mode there is no commit in the repository and no PR: the epic is already in the Workflow folder.
 When the Workflow folder is a git repository of its own, it gets a local commit, without push:
 `git -C <Workflow folder> add -A . && git -C <Workflow folder> commit -m "audit $A — N tickets"`. The
-"Сейчас" line of the status block then names that commit instead of a PR.
+"Now" line of the status block then names that commit instead of a PR.
 
 ## 5. Waves, report, status
 
 A wave is the tickets that can be worked in parallel: no `Blocked by` on tickets not yet shipped and no shared
-paths in `## Где в коде`. Two tickets with a shared file go either into different waves or into one ticket. At most one ticket with a
+paths in `F tickets.trail_section`. Two tickets with a shared file go either into different waves or into one ticket. At most one ticket with a
 migration per wave: all sessions share the migration number. The table goes into `spec.md`, section "Waves",
-one row per ticket; the columns `| Ticket | Files from «Где в коде» | Migration (yes/no) | Wave |` are the contract
+one row per ticket; the columns `| Ticket | Files (trail section) | Migration (yes/no) | Wave |` are the contract
 for the skill `worfy:epic-wave`; a single ticket is carried by the skill from `F workflow.ticket_skill` (a bare schema 1
 value such as `ship-ticket` means the plugin skill `worfy:ship-ticket`). In a project without
 migrations the "Migration" column is "no" everywhere.
