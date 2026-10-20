@@ -1,8 +1,8 @@
 # 76 — Каждый watch chokidar в `src/main` закрывается так, что остаётся закрытым
 
 Type: bug
-Status: open
-Branch: —
+Status: claimed 2026-10-20T07:22Z
+Branch: worfy-windows/76
 Blocked by: —
 Source: Ticket [75](75-утечка-fs-watch-при-удалении-репозитория.md), раздел «Вне скоупа», и решение Mac
 2026-10-20. Ветка стоит на голове PR #585 (`5b2a0339`, Ticket 75): PR этого Ticket-а — stacked на #585.
