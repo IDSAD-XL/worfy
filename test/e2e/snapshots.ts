@@ -21,7 +21,7 @@ const VIBRANCY_BACKDROP = 'html { background: var(--sidebar) !important; }'
 
 /**
  * Takes a screenshot of the window in the light and in the dark theme and returns where both PNGs
- * are: test-results/snapshots/<name>/light.png and dark.png (under the project's output folder,
+ * are: test-results/e2e/snapshots/<name>/light.png and dark.png (under the project's output folder,
  * which Playwright empties at the start of each run). A reviewer of a UI ticket compares them with
  * docs/design/F-SPEC.md.
  *
@@ -34,7 +34,7 @@ const VIBRANCY_BACKDROP = 'html { background: var(--sidebar) !important; }'
  * Call it only from inside a test, on a window of an app started by launchApp (test/e2e/helpers.ts).
  */
 export async function snapshotThemes(window: Page, name: string): Promise<ThemeSnapshots> {
-  // One folder name: a name with a path in it would write outside test-results/snapshots.
+  // One folder name: a name with a path in it would write outside test-results/e2e/snapshots.
   if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
     throw new Error(`snapshot name must be a single folder name, got ${JSON.stringify(name)}`)
   }

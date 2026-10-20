@@ -23,7 +23,7 @@ const LABEL = '0000005c'
 const EVIDENCE = join(repoRoot, '.scratch', 'worfy-link', 'evidence')
 
 /**
- * Takes the light and dark snapshot of `window` (test-results/snapshots/10-<name>/). With
+ * Takes the light and dark snapshot of `window` (test-results/e2e/snapshots/10-<name>/). With
  * WORFY_EVIDENCE=1 both are also kept as the ticket's evidence `10-<name>-{light,dark}.png`; an
  * ordinary run (gate full) leaves the repository's files alone.
  */

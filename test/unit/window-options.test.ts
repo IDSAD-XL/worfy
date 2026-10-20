@@ -6,12 +6,20 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { frameOptions, WINDOW_BACKGROUND } from '../../src/main/window-frame'
 
-/** The options of every BrowserWindow made, and the theme nativeTheme reports. */
-const electron = vi.hoisted(() => ({ options: [] as Record<string, unknown>[], dark: false }))
+/** The options of every BrowserWindow made, the handlers put on its web contents, and the theme nativeTheme reports. */
+const electron = vi.hoisted(() => ({
+  options: [] as Record<string, unknown>[],
+  handlers: [] as { event: string; handler: (...args: unknown[]) => void }[],
+  dark: false,
+}))
 
 vi.mock('electron', () => {
   class FakeWindow {
-    webContents = { on: () => undefined }
+    webContents = {
+      on: (event: string, handler: (...args: unknown[]) => void) => {
+        electron.handlers.push({ event, handler })
+      },
+    }
     constructor(options: Record<string, unknown>) {
       electron.options.push(options)
     }
@@ -88,6 +96,7 @@ describe('createMainWindow', () => {
   /** The options of the window createMainWindow makes on `system`. */
   async function optionsOn(system: NodeJS.Platform, dark: boolean): Promise<Record<string, unknown>> {
     electron.options.length = 0
+    electron.handlers.length = 0
     electron.dark = dark
     vi.stubEnv('WORFY_DATA_DIR', join(tmpdir(), 'worfy-window-options-test'))
     vi.stubEnv('ELECTRON_RENDERER_URL', '')
@@ -106,5 +115,36 @@ describe('createMainWindow', () => {
 
   it('on macOS makes the window of design F', async () => {
     expect(await optionsOn('darwin', true)).toMatchObject({ ...frameOptions('darwin', true), title: 'worfy', show: false })
+  })
+
+  // The prototype of the Browser layer (worfy-browser ticket 01, ADR-0078 items 3 and 12): the
+  // <webview> tag only under the e2e flag, and every <webview> attached without worfy's preload.
+  const webPreferences = (options: Record<string, unknown>) => options.webPreferences as Record<string, unknown>
+  const attachHandlers = () => electron.handlers.filter(({ event }) => event === 'will-attach-webview')
+
+  it('without the prototype flag turns the <webview> tag off and watches no <webview> attach', async () => {
+    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', '')
+    const options = await optionsOn('darwin', false)
+    expect(webPreferences(options)).not.toHaveProperty('webviewTag')
+    expect(webPreferences(options)).toMatchObject({ contextIsolation: true, sandbox: true, nodeIntegration: false })
+    expect(attachHandlers()).toHaveLength(0)
+  })
+
+  it('under the prototype flag turns the <webview> tag on, and a <webview> attaches without the preload and without Node', async () => {
+    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', '1')
+    const options = await optionsOn('darwin', false)
+    expect(webPreferences(options)).toMatchObject({ webviewTag: true, contextIsolation: true, sandbox: true, nodeIntegration: false })
+    expect(attachHandlers()).toHaveLength(1)
+    // What a page could ask for in the <webview> element's attributes (preload, nodeintegration).
+    const guest: Record<string, unknown> = { preload: 'file:///tmp/evil.js', nodeIntegration: true, nodeIntegrationInSubFrames: true, contextIsolation: false, sandbox: false }
+    attachHandlers()[0]!.handler({ preventDefault: () => undefined }, guest, { src: 'http://127.0.0.1/' })
+    expect(guest).not.toHaveProperty('preload')
+    expect(guest).toMatchObject({ nodeIntegration: false, nodeIntegrationInSubFrames: false, contextIsolation: true, sandbox: true })
+  })
+
+  it.each(['0', 'true', 'yes'])('takes only "1" as the prototype flag (%s keeps the <webview> tag off)', async (value) => {
+    vi.stubEnv('WORFY_BROWSER_PROTOTYPE', value)
+    expect(webPreferences(await optionsOn('darwin', false))).not.toHaveProperty('webviewTag')
+    expect(attachHandlers()).toHaveLength(0)
   })
 })

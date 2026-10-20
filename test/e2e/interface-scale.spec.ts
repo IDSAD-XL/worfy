@@ -11,7 +11,7 @@ import { clickMenuItem } from './menu'
 // scale is kept in app-settings.json, and the strips under the window buttons keep their size in
 // pixels of the window. Playwright cannot press menu accelerators, so the items are clicked by id
 // (clickMenuItem); the keys themselves are a manual check. Snapshots in both themes:
-// test-results/snapshots/interface-scale-150-*/ (test/e2e/snapshots.ts).
+// test-results/e2e/snapshots/interface-scale-150-*/ (test/e2e/snapshots.ts).
 
 /** The ids of src/main/menu.ts; that module needs Electron, so it is not imported here. */
 const SETTINGS = 'app.settings'
@@ -114,7 +114,7 @@ const boxOf = (window: Page, selector: string): Promise<{ left: number; right: n
   }, selector)
 
 /**
- * snapshotThemes for a zoomed window: test-results/snapshots/<name>/light.png and dark.png, the
+ * snapshotThemes for a zoomed window: test-results/e2e/snapshots/<name>/light.png and dark.png, the
  * whole window in each theme. page.screenshot (and so snapshotThemes of test/e2e/snapshots.ts)
  * clips to the size of the viewport in CSS pixels, which at 150 % is two thirds of the window, so
  * it keeps only the top left of a zoomed page. The shot is asked of the page's own DevTools session

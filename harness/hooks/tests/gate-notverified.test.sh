@@ -133,7 +133,7 @@ check "stop: gate's node-missing marker -> exit 0, says 'not verified'" \
     bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 rm -f "$T/state/stop-blocks/"*
 fi
-# The Stop hook itself is a Node script now (worfy-windows ticket 04), run as `node …/stop.mjs`:
+# The Stop hook itself is a Node script now, run as `node …/stop.mjs`:
 # without node Claude Code cannot start it and shows the hook error without holding the turn, as
 # with the gate. There is no "stop without node" case any more.
 

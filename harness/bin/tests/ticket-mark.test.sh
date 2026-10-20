@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of `ticket mark` — an agent's mark (a review verdict, a check) bound to a commit SHA (worfy ADR-0067):
+# Tests of `ticket mark` — an agent's mark (a review verdict, a check) bound to a commit SHA:
 #   Full mode   — a GitHub commit status through `gh api -X POST repos/<owner>/<repo>/statuses/<sha>`;
 #   Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json, and never a call to gh.
 # Everything runs in a temporary HOME and HARNESS_HOME with a registry of temporary repositories; gh is a stub
@@ -96,7 +96,7 @@ tk "$T/r/shop" mark shopfront 02 check/windows skipped --sha "$SHA"; rc=$?
 tk "$T/r/shop" mark shopfront 02 check/windows success --sha "$SHA"; rc=$?
 [ "$rc" -eq 0 ] && grep -q "check/windows success" "$T/out" && ok "full: says which mark it set" || bad "full: output: $(cat "$T/out")"
 [ -z "$(git -C "$T/r/shop" status --porcelain -- . ':!.scratch')" ] && [ ! -e "$HH/runs" ] && ok "full: nothing written into the repository or the Harness home" || bad "full: wrote: $(git -C "$T/r/shop" status --porcelain) $(ls -R "$HH/runs" 2>/dev/null)"
-# The repository of a project of several repositories is the ticket's Repo: line (ADR-0045)
+# The repository of a project of several repositories is the ticket's Repo: line
 tk "$T/r/multi" mark shopfront 03 review success --sha "$OTHER"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$(last_call)" == *"repos/acme/back/statuses/$OTHER"* ]] && ok "full: the Repo: line picks the repository (acme/back)" || bad "full: Repo: line: exit $rc [$(last_call)] $(cat "$T/out")"
 n="$(calls)"
@@ -120,9 +120,25 @@ OVR_LOG="$T/ovr.log" TICKET_GH="$T/log-gh.mjs" tk "$T/r/shop" mark shopfront 02 
 TICKET_GH="$T/no-such-gh" tk "$T/r/shop" mark shopfront 02 review success --sha "$SHA"; rc=$?
 [ "$rc" -eq 1 ] && grep -q "TICKET_GH names a program that is not there: .*no-such-gh" "$T/out" && ! grep -q "not in PATH" "$T/out" \
     && ok "full: TICKET_GH naming a missing program -> exit 1 naming it" || bad "full: missing TICKET_GH: exit $rc $(cat "$T/out")"
-MINBIN="$T/minbin"; mkdir -p "$MINBIN"
-for c in node git; do ln -s "$(command -v "$c")" "$MINBIN/$c"; done
-(cd "$T/r/shop" && env -u TICKET_GH PATH="$MINBIN" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
+MINBIN="$T/minbin"; mkdir -p "$MINBIN"; MINPATH="$MINBIN"
+if on_windows; then
+    # Git Bash's ln -s copies the program. ticket starts bin/profile with process.execPath, and Windows starts no
+    # program without an extension by its path: a copy named "node" fails with ENOENT there, and ticket reads that as
+    # "no profile". A copied git.exe cannot load the DLLs of its own folder, so git's folder goes on PATH instead;
+    # the guard below checks that it has no gh.
+    ln -s "$(command -v node)" "$MINBIN/node.exe"
+    MINPATH="$MINBIN:$(dirname "$(type -P git)")"
+else
+    for c in node git; do ln -s "$(command -v "$c")" "$MINBIN/$c"; done
+fi
+# The minimal PATH has no gh, and its node starts itself again by process.execPath, as ticket starts bin/profile.
+IFS=: read -ra mindirs <<<"$MINPATH"
+for d in "${mindirs[@]}"; do
+    if [ -e "$d/gh" ] || [ -e "$d/gh.exe" ]; then echo "REFUSED: the minimal PATH has a gh in $d" >&2; exit 1; fi
+done
+(cd "$T/r/shop" && env PATH="$MINPATH" "$MINBIN/node" -e 'require("child_process").execFileSync(process.execPath, ["-e", ""])') >"$T/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && ok "full: the node of the minimal PATH starts itself by process.execPath" || bad "full: minimal PATH: exit $rc $(cat "$T/out")"
+(cd "$T/r/shop" && env -u TICKET_GH PATH="$MINPATH" HOME="$H" HARNESS_HOME="$HH" "$MINBIN/node" "$TICKET" mark shopfront 02 review success --sha "$SHA") >"$T/out" 2>&1; rc=$?
 [ "$rc" -eq 1 ] && grep -q "gh" "$T/out" && ok "full: no gh in PATH -> exit 1 naming gh" || bad "full: no gh: exit $rc $(cat "$T/out")"
 
 # --- Silent mode: a local JSON file, never gh ---------------------------------------------------------------

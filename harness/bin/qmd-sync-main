@@ -12,7 +12,7 @@
 # The profile is found by name: the entry of the gate registry ($HARNESS_HOME/gate/config.json) with this `profile`, its `match`.
 #
 # Called by the `update` command of collections in ~/.config/qmd/index.yml, for example
-#   update: <plugin>/bin/qmd-sync-main auction
+#   update: <plugin>/bin/qmd-sync-main acme
 # It used to hold a bare `git fetch … || true`: git took the token from the ACTIVE gh account, and when
 # the work account was active, the private repository answered "Repository not found", and `|| true`
 # turned that into rc=0. The index silently stayed on an old main (39 updates out of 212 before 2026-09-29).

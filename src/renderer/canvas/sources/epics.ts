@@ -22,10 +22,15 @@
 // (ADR-0016): on the first opening of the Project in a day (order "active first" and K afresh) and
 // when the hysteresis lets K change. "Re-pack" writes it as the user's gesture, one step of ⌘Z. A
 // read-only screen (ADR-0066) writes nothing and draws from the record as it is.
+//
+// An Epic whose every Ticket is done and whose frame is collapsed is not in the strip: it is a chip
+// on the done shelf under it (ADR-0075, point 5), one more Node this source draws and the Layout
+// does not keep (`done-shelf`, ../nodes/DoneShelfNode.tsx). A click on the chip opens the frame, as
+// its collapse button does, and the frame goes to the end of the strip's order.
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
-import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
+import { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
 import { invoke } from '../../ipc'
@@ -33,30 +38,35 @@ import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
-import { arrange, readArrangement, repack, sameDay, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
+import { arrange, orderFor, readArrangement, repack, sameDay, stripSize, type ArrangedFrame, type ArrangementRecord } from '../epic-arrangement'
 import {
   defaultCollapsed,
   epicColumns,
   layoutEpic,
+  layoutShelf,
+  onDoneShelf,
+  placeStrip,
   progressOf,
-  stackFrames,
+  SHELF_CHIP_HEIGHT,
   TICKET_HEIGHT,
   TICKET_WIDTH,
   type EpicLayout,
   type Offset,
+  type PlacedChip,
   type PlacedTicket,
   type Point,
   type Progress,
   type Rect,
+  type ShelfLayout,
 } from '../epic-layout'
 import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
-import type { Group } from '../history'
+import { grouped, type Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
 import { applyLayoutOp, currentLayout, useLayoutOps, type LayoutOps } from '../useLayout'
 import { BINDING_ANCHOR_KIND, type BindingAnchorData } from './workflow-bindings'
 
 // The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
-export { EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
+export { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
 
 /** What an Epic frame Node carries in `data.node.data`. */
 export interface EpicFrameData {
@@ -73,6 +83,19 @@ export interface EpicFrameData {
   auto: { x: number; y: number }
   /** The Layout already has the Epic's `epic-frame` Node. */
   saved: boolean
+}
+
+/** A chip of the done shelf: a done Epic, where the chip is on the shelf, and whether the Layout has its `epic-frame` Node. */
+export interface ShelfChip extends PlacedChip {
+  saved: boolean
+}
+
+/** What the done shelf Node carries in `data.node.data`. */
+export interface DoneShelfData {
+  [key: string]: unknown
+  projectId: string
+  /** In the order of ADR-0075, point 4: the record's order, then the Epics it does not have by name. */
+  chips: readonly ShelfChip[]
 }
 
 /** What a Ticket Node carries in `data.node.data`. */
@@ -163,7 +186,10 @@ export function openDoneStacks(projectId: string): string[] {
  * invisible stack and do nothing the user can see.
  */
 export function foldHiddenDoneStacks(projectId: string, nodes: readonly CanvasFlowNode[]): void {
+  const open = new Set(openDoneStacks(projectId))
   for (const node of nodes) {
+    // An Epic on the done shelf has no frame at all.
+    if (node.type === DONE_SHELF_KIND) for (const chip of (node.data.node.data as DoneShelfData).chips) if (open.has(chip.epic)) setDoneStack(projectId, chip.epic, false)
     if (node.type !== EPIC_FRAME_KIND) continue
     const frame = node.data.node.data as EpicFrameData
     if (frame.doneExpanded && (frame.collapsed || !frame.tickets.some((ticket) => ticket.state === 'done'))) setDoneStack(projectId, frame.epic.epic, false)
@@ -256,6 +282,42 @@ export async function saveEpicChange(projectId: string, epic: string, exists: bo
   if (change.collapsed !== undefined) await ops.apply({ op: 'patchData', id, data: { collapsed: change.collapsed } }, group, { data: true })
 }
 
+/**
+ * A click on a chip of the done shelf (ADR-0075, point 5): opens the Epic's frame as its collapse
+ * button does (`collapsed = false`) and, when the Layout has the `epic-arrangement` record, writes
+ * the Epic at the end of its order. So the frame opened last is last in the strip, whatever its
+ * name: two Epics opened one after another keep the order of the clicks (an Epic the record lacks
+ * would otherwise go among the new ones by name, epic-arrangement.ts orderFor). Both are one step
+ * of ⌘Z: undone, the frame is collapsed again and back on the shelf, and the order is as it was.
+ * Without a record there is no order to keep: the Epics go by name until one is written.
+ */
+export async function expandFromShelf(projectId: string, epic: string, exists: boolean, ops: LayoutOps): Promise<void> {
+  await grouped(async (group) => {
+    await saveEpicChange(projectId, epic, exists, { collapsed: false }, ops, group)
+    const record = readArrangement(currentLayout(projectId)?.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
+    if (record === null || record.order.at(-1) === epic) return
+    const order = [...record.order.filter((each) => each !== epic), epic]
+    await ops.apply({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { order } }, group, { data: true })
+  })
+}
+
+/**
+ * The collapse button of an Epic frame. Collapsing a frame whose Tickets are all done puts the Epic
+ * on the done shelf (ADR-0075, point 5), so it also leaves the record's order, in the same step of
+ * ⌘Z: undone, the frame is open again at the place it had, with the order as it was. Collapsing
+ * any other frame, or expanding one, changes the frame only.
+ */
+export async function toggleFrame(projectId: string, epic: string, exists: boolean, collapsed: boolean, toShelf: boolean, ops: LayoutOps): Promise<void> {
+  await grouped(async (group) => {
+    await saveEpicChange(projectId, epic, exists, { collapsed }, ops, group)
+    if (!collapsed || !toShelf) return
+    const record = readArrangement(currentLayout(projectId)?.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
+    if (record === null || !record.order.includes(epic)) return
+    const order = record.order.filter((each) => each !== epic)
+    await ops.apply({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { order } }, group, { data: true })
+  })
+}
+
 // ── the strip's arrangement (ADR-0075) ──────────────────────────────────────
 
 /** What the last build of a Project's frames knew: what the record is written from. */
@@ -274,6 +336,10 @@ export interface ArrangementState {
    * window has no ELK): the sizes are the ones drawn, not those of the synchronous layout before it.
    */
   settled: boolean
+  /** The Epics on the done shelf (ADR-0075, point 5). */
+  shelf: readonly string[]
+  /** Those of them collapsed by default: the Layout has no `collapsed` of theirs, no gesture put them there. */
+  defaultShelf: readonly string[]
 }
 
 /** Per Project, the last build's arrangement. */
@@ -379,6 +445,8 @@ export function useRepackRequests(projectId: string, run: () => Promise<void>): 
 
 /** Per Project, the K an automatic write has sent and the Layout does not show yet: it is not sent twice. */
 const pendingColumns = new Map<string, number>()
+/** Per Project, the order without the shelf's Epics an automatic write has sent and the Layout does not show yet. */
+const pendingOrders = new Map<string, string>()
 
 /**
  * Keeps the record up to date on a screen that may change the Layout, past the ⌘Z history: once
@@ -386,15 +454,24 @@ const pendingColumns = new Map<string, number>()
  * again, active first; afterwards, a K the hysteresis let change is written, so the next build
  * keeps it. Both wait until the frames show ELK's answers, so K is counted from the sizes drawn.
  * A frame whose ELK request failed counts as answered: elk/client.ts answers it with the
- * synchronous layout. A read-only screen writes nothing.
+ * synchronous layout.
+ *
+ * An Epic on the done shelf by default (all its Tickets done, its frame never collapsed or
+ * expanded by the user) leaves the record's order with one more write past ⌘Z: no gesture of the
+ * user put it there, so there is no step to undo. An Epic the collapse button put on the shelf
+ * left the order in that button's ⌘Z step (toggleFrame), and undoing it must give the order back,
+ * so this write leaves it alone. A frame out of the order comes back last, by whatever way it
+ * leaves the shelf: a click on its chip (expandFromShelf), or a Ticket reopened or added, which
+ * makes it an Epic the order lacks (epic-arrangement.ts orderFor: new Epics go to the end). A
+ * read-only screen writes nothing.
  */
 export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
   const store = useStoreApi()
   const checkedDay = useRef(false)
   useEffect(() => {
     const state = arrangements.get(projectId)
-    if (state === undefined || state.epics.length === 0 || !state.settled || readOnlyNow() !== null) return
-    if (!checkedDay.current) {
+    if (state === undefined || readOnlyNow() !== null) return
+    if (state.epics.length > 0 && state.settled && !checkedDay.current) {
       checkedDay.current = true
       if (state.record === null || !sameDay(state.record.at, new Date())) {
         void activityNow(projectId, state.tickets, store.getState().nodeLookup).then((activity) => {
@@ -404,6 +481,17 @@ export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFl
         return
       }
     }
+    const shelved = new Set(state.defaultShelf)
+    const kept = state.record?.order.filter((epic) => !shelved.has(epic))
+    if (state.record !== null && kept !== undefined && kept.length < state.record.order.length) {
+      const key = JSON.stringify(kept)
+      if (pendingOrders.get(projectId) === key) return
+      pendingOrders.set(projectId, key)
+      void applyLayoutOp(projectId, { op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { order: kept } })
+      return
+    }
+    pendingOrders.delete(projectId)
+    if (state.epics.length === 0 || !state.settled) return
     if (state.record === null || state.record.columns === state.columns) {
       pendingColumns.delete(projectId)
       return
@@ -511,6 +599,36 @@ function ticketNodes(projectId: string, root: string, epic: string, tickets: rea
   })
 }
 
+/** Per Project, the done shelf Node of the last build, kept while it shows the same: the Canvas does not rebuild it. */
+const lastShelves = new Map<string, { key: string; node: CanvasFlowNode }>()
+
+/** The done shelf Node, at `at`; undefined when no Epic is on the shelf: an empty shelf is not drawn. */
+function doneShelfNode(projectId: string, shelf: ShelfLayout, at: { x: number; y: number }, saved: (epic: string) => boolean): CanvasFlowNode | undefined {
+  if (shelf.chips.length === 0) {
+    lastShelves.delete(projectId)
+    return undefined
+  }
+  const data: DoneShelfData = { projectId, chips: shelf.chips.map((chip) => ({ ...chip, saved: saved(chip.epic) })) }
+  const key = JSON.stringify([at, shelf.width, shelf.height, data.chips])
+  const before = lastShelves.get(projectId)
+  if (before?.key === key) return before.node
+  const node: CanvasFlowNode = {
+    id: DONE_SHELF_ID,
+    type: DONE_SHELF_KIND,
+    position: { x: at.x, y: at.y },
+    width: shelf.width,
+    height: shelf.height,
+    deletable: false,
+    connectable: false,
+    selectable: false,
+    // Its place is computed under the strip (ADR-0075, point 5): it moves only with the strip.
+    draggable: false,
+    data: { node: syntheticNode(DONE_SHELF_ID, DONE_SHELF_KIND, at.x, at.y, shelf.width, shelf.height, data) },
+  }
+  lastShelves.set(projectId, { key, node })
+  return node
+}
+
 /** Per Project, what to ask ELK for after the last build. */
 const wanted = new Map<string, readonly { epic: string; request: ElkRequest }[]>()
 
@@ -533,6 +651,7 @@ export function buildEpicNodes(
 ): readonly CanvasFlowNode[] {
   if (root === undefined || model === undefined || model.error !== null) {
     lastNodes.delete(projectId)
+    lastShelves.delete(projectId)
     wanted.delete(projectId)
     arrangements.delete(projectId)
     return EMPTY
@@ -608,16 +727,37 @@ export function buildEpicNodes(
   // A frame with an offset yields to the Nodes, the Subagent trees, the strip and the frames with an
   // offset before it, in the order of their `epic-frame` Nodes in the Layout (ADR-0038).
   // The order of the frames and K come from the Layout's `epic-arrangement` record (ADR-0075).
-  const frames = new Map(entries.map(({ epic, entry }) => [epic.epic, { width: entry.layout.width, height: entry.layout.height, reserve: entry.reserve }]))
+  // A done Epic with a collapsed frame is on the done shelf instead (point 5): neither in the order
+  // nor in K, so a record written now leaves it out and its frame, opened again, comes last.
+  const inStrip = entries.filter(({ entry }) => !onDoneShelf(entry.inputs.tickets, entry.inputs.collapsed))
+  const onShelf = entries.filter(({ entry }) => onDoneShelf(entry.inputs.tickets, entry.inputs.collapsed))
+  const frames = new Map(inStrip.map(({ epic, entry }) => [epic.epic, { width: entry.layout.width, height: entry.layout.height, reserve: entry.reserve }]))
   const record = readArrangement(layout.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
-  const names = entries.map(({ epic }) => epic.epic)
+  const names = inStrip.map(({ epic }) => epic.epic)
   const arrangement = arrange(names, frames, record)
   const settled = elkEngine() === null || entries.every(({ entry }) => entry.request === null || entry.inputs.answer?.key === entry.request.key)
-  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled })
+  const shelved = onShelf.map(({ epic }) => epic.epic)
+  const defaultShelf = shelved.filter((epic) => readSaved(savedNodes.get(epicNodeId(epic))).collapsed === undefined)
+  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled, shelf: shelved, defaultShelf })
   const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
+  const shelfOrder = orderFor(
+    onShelf.map(({ epic }) => epic.epic),
+    new Set(),
+    record?.order ?? null,
+  )
+  const shelf = layoutShelf(
+    shelfOrder.map((name) => {
+      const { progress } = byEpic.get(name)!.entry
+      return { epic: name, done: progress.done, total: progress.total }
+    }),
+    stripSize(
+      arrangement.order.map((name) => frames.get(name)!),
+      arrangement.columns,
+    ).width,
+  )
   const plane = [...layout.nodes.filter(onThePlane), ...derived]
   const order = new Map(layout.nodes.map((node, index) => [node.id, index]))
-  const places = stackFrames(
+  const strip = placeStrip(
     arrangement.order.map((name) => {
       const { epic, saved, entry } = byEpic.get(name)!
       return {
@@ -631,10 +771,12 @@ export function buildEpicNodes(
     }),
     plane,
     arrangement.columns,
+    shelf.height,
+    shelf.width,
   )
   const nodes: CanvasFlowNode[] = []
-  for (const { epic, saved, entry } of entries) {
-    const place = places.get(epic.epic)!
+  for (const { epic, saved, entry } of inStrip) {
+    const place = strip.frames.get(epic.epic)!
     const previous = entry.frame
     const reuse =
       previous !== undefined &&
@@ -673,11 +815,43 @@ export function buildEpicNodes(
     }
     nodes.push(entry.frame!, ...entry.tickets)
   }
+  const shelfNode = doneShelfNode(projectId, shelf, strip.shelf, (name) => byEpic.get(name)!.saved.exists)
+  if (shelfNode !== undefined) nodes.push(shelfNode)
 
   const before = lastNodes.get(projectId)
   if (before && sameArray(before, nodes)) return before
   lastNodes.set(projectId, nodes)
   return nodes
+}
+
+/** A Node's place as `shelfChipRect` reads it: absolute canvas units and the Node's data. */
+export interface ShelfNodePlace {
+  x: number
+  y: number
+  data: Partial<CanvasFlowNode['data']>
+}
+
+/**
+ * Where an Epic is shown when its frame is not: for `epic:<epic>` whose Epic is on the done shelf,
+ * its chip, in absolute canvas units (the shelf's place plus the chip's). Undefined for any other
+ * id, or when the shelf has no such chip. Every way to go to an Epic falls back on it — the
+ * sidebar (focusEpic), and the palette's "Go to" and ⌘F (find/CanvasFind.tsx) — so an Epic on the
+ * shelf is found like one with a frame.
+ */
+export function shelfChipRect(id: string, shelf: ShelfNodePlace | undefined): Rect | undefined {
+  if (shelf === undefined || !id.startsWith('epic:')) return undefined
+  const epic = id.slice('epic:'.length)
+  const chips = (shelf.data.node?.data as DoneShelfData | undefined)?.chips ?? []
+  const chip = chips.find((each) => each.epic === epic)
+  return chip === undefined ? undefined : { x: shelf.x + chip.x, y: shelf.y + chip.y, w: chip.w, h: SHELF_CHIP_HEIGHT }
+}
+
+/** Where the Canvas centers to show an Epic: its frame, or its chip when it is on the done shelf. */
+export function epicPlace(nodes: readonly CanvasFlowNode[], epic: string): Rect | undefined {
+  const frame = nodes.find((node) => node.id === epicNodeId(epic))
+  if (frame !== undefined) return { x: frame.position.x, y: frame.position.y, w: frame.width ?? 0, h: frame.height ?? 0 }
+  const shelf = nodes.find((node) => node.id === DONE_SHELF_ID)
+  return shelf === undefined ? undefined : shelfChipRect(epicNodeId(epic), { x: shelf.position.x, y: shelf.position.y, data: shelf.data })
 }
 
 /** Centers the Canvas on a frame, zoomed out far enough for the whole frame when it is bigger than the view. */
@@ -687,14 +861,12 @@ function useFocusRequests(projectId: string, nodes: readonly CanvasFlowNode[]): 
   const focus = useEpicsUi((state) => state.focus)
   useEffect(() => {
     if (!focus || focus.projectId !== projectId) return
-    const frame = nodes.find((node) => node.id === epicNodeId(focus.epic))
+    const place = epicPlace(nodes, focus.epic)
     const { width, height } = store.getState()
-    if (!frame || !width || !height) return
-    const w = frame.width ?? 0
-    const h = frame.height ?? 0
-    const fit = Math.min(width / (w + 64), height / (h + 64))
+    if (!place || !width || !height) return
+    const fit = Math.min(width / (place.w + 64), height / (place.h + 64))
     const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.min(flow.getZoom(), fit)))
-    void flow.setCenter(frame.position.x + w / 2, frame.position.y + h / 2, { zoom, duration: 250 })
+    void flow.setCenter(place.x + place.w / 2, place.y + place.h / 2, { zoom, duration: 250 })
     // Only a new request moves the Canvas; Nodes that change later must not pull it back.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, projectId])
@@ -737,6 +909,7 @@ function moved({ projectId, layout }: NodeSourceContext, node: CanvasFlowNode, d
 
 // `ticket` is owned too though the Layout never holds one: a stray Layout Node of that kind (a
 // hand edit, a future `create`) has no Ticket in its data, so it is not drawn rather than crash
-// the Canvas in TicketNode. `epic-arrangement` is owned so the record is never drawn.
-const source: NodeSource = { owns: [EPIC_FRAME_KIND, TICKET_KIND, EPIC_ARRANGEMENT_KIND], useNodes: useEpicNodes, moved }
+// the Canvas in TicketNode. `epic-arrangement` is owned so the record is never drawn, and
+// `done-shelf` for the same reason as `ticket`.
+const source: NodeSource = { owns: [EPIC_FRAME_KIND, TICKET_KIND, EPIC_ARRANGEMENT_KIND, DONE_SHELF_KIND], useNodes: useEpicNodes, moved }
 export default source

@@ -26,7 +26,7 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 
 export CLAUDE_GATE_CONFIG="$T/config.json" CLAUDE_PROFILES_DIR="$T/profiles"
-WS="$T/ws"            # a common directory, like ~/Work/Atakama: not git itself
+WS="$T/ws"            # a common directory, like ~/work/suite: not git itself
 mkdir -p "$WS/Repo-A/src" "$WS/Repo-B" "$T/rel" "$T/unreg" "$CLAUDE_PROFILES_DIR/multi" "$CLAUDE_PROFILES_DIR/rel"
 for r in "$WS/Repo-A" "$WS/Repo-B" "$T/rel" "$T/unreg"; do
     git -C "$r" init -q -b main && git -C "$r" commit -q --allow-empty -m init
@@ -107,7 +107,7 @@ got="$(cd "$T/unreg/sub" && "$TICKET" root 2>&1)"
 got="$(cd "$T/unreg/sub" && "$STATUS" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$got" = "outside tickets (no $(printed "$T/unreg/.scratch"))" ] && ok "unregistered epic-status unchanged" || bad "unregistered status: exit $rc, got: $got"
 
-# 6a. Silent mode (worfy-harness ticket 22): a relative tickets.root — and no tickets.root at all — is taken
+# 6a. Silent mode: a relative tickets.root — and no tickets.root at all — is taken
 # from the Workflow folder, the same from the repository, its worktree and the folder itself.
 mkdir -p "$T/silent" "$T/silent2" "$T/wfs" "$T/wfs2" "$CLAUDE_PROFILES_DIR/sil" "$CLAUDE_PROFILES_DIR/sil2"
 for r in silent silent2; do git -C "$T/$r" init -q -b main && git -C "$T/$r" commit -q --allow-empty -m init; done
@@ -130,7 +130,7 @@ printf '{broken' >"$CLAUDE_GATE_CONFIG"
 got="$(cd "$WS/Repo-A" && "$TICKET" show ep 01 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$got" == *"--root"* ]] && ok "broken registry -> ticket exit 1, names --root" || bad "broken registry: exit $rc, got: $got"
 
-# 8. No node on PATH (worfy-harness ticket 37). epic-status is a Node script (ADR-0055): started by its
+# 8. No node on PATH. epic-status is a Node script: started by its
 # #! line with no node on PATH it does not start at all — a non-zero exit, nothing on stdout, node named
 # on stderr — in each of its forms, --root included. It never answers from <git top-level>/.scratch:
 # for a Silent project that answer is an empty list. PATH is a folder of links to the tools a shell

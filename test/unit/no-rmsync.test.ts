@@ -11,16 +11,28 @@
 // Not covered in src/ and scripts/: `rm` of node:fs/promises. src/main/harness/install.ts calls it;
 // measured on the PC, it does not go through a junction.
 //
-// What the search cannot see (worfy-windows ticket 28 names each form the review of PR #257 found;
-// the others are caught below): a removal reached through another name than an import alias —
-// `const wipe = fs.rmdirSync`, a property of an object, a name destructured from node:fs; and
-// anything a string builds at run time.
+// What the search cannot see. The forms below are examples the reviews found (worfy-windows tickets
+// 28 and 43), not the whole list; none is in the code today. In src/ and scripts/, where any
+// mention of rmSync counts, what goes past is rmdirSync and the removals of other names:
+//   - a removal reached through another name than an import alias — `const wipe = fs.rmdirSync`, a
+//     property of an object, a name destructured from node:fs — and anything a string builds;
+//   - `rm` of node:fs with a callback, `rmdir` of node:fs/promises;
+//   - `fs.rmdirSync?.(…)`, `fs.rmdirSync.call(…)`, `fs['rmdirSync'](…)`, `rmdirSync(...args)`;
+//   - a `)` in a comment inside the call, which ends it early; a line of code that starts with `*`,
+//     which is read as a comment line.
+// In test/ the same, and `rmSync(...args)` and `fs.rmSync?.(…)` too: there only a call with
+// `recursive` counts, and these two have neither the word nor a second argument.
+//
+// A false finding, the other way: a quote inside a regular expression literal is read as the start
+// of a string, so the call runs on to the next quote — `rmSync(name.replace(/'/g, ''))` takes in the
+// lines after it, and a `recursive` there is counted for it. A real call is never lost by that.
 //
 // Tests have the same rule for a removal with `recursive` (worfy-windows tickets 26 and 32): they
 // run under the Node of Electron, where a cleanup with rmSync failed its test at the first read-only
 // file — git writes its objects that way — and left the folder in %TEMP%. In test/ the rule takes
-// rmSync and rmdirSync; the rm of node:fs/promises, measured, has neither fault. A test removes a
-// folder with removeTestTree of test/remove.ts.
+// rmSync and rmdirSync, by name and under an alias an import of node:fs gives them (recursiveUses);
+// the rm of node:fs/promises, measured, has neither fault. A test removes a folder with
+// removeTestTree of test/remove.ts.
 //
 // The configuration files at the root of the repository have the rule of src/ (worfy-windows ticket
 // 51): vitest.config.ts, under the same Node, removes old folders of other runs from %TEMP%.
@@ -42,14 +54,6 @@ function sources(dir: string, ending: RegExp): string[] {
 /** The module itself: the one file that may call rmSync anywhere. */
 const MODULE = 'src/main/storage/remove.ts'
 
-/**
- * The lines of a text that remove with a call this ticket forbids: any mention of rmSync, and
- * rmdirSync with `recursive` (the same removal under another name). Not counted:
- *   - a comment line (`// …`, ` * …`, `/* …` with nothing after its end);
- *   - the text between `// <remove-tree>` and `// </remove-tree>`, or the same marks of
- *     `remove-file`: a copy of the module, compared with it by its own test;
- *   - an import of node:fs, in a file that has such a copy: the copy needs the name.
- */
 /** Walks a text from a place on; `visit` gets each character that is not inside a quoted string, and ends the walk by answering true. */
 function outsideStrings(text: string, from: number, visit: (char: string, at: number) => boolean): void {
   let quote: string | null = null
@@ -109,6 +113,14 @@ function mayBeRecursive(call: string): boolean {
   return second !== '' && (!second.startsWith('{') || second.includes('...'))
 }
 
+/**
+ * The lines of a text that remove with a call this ticket forbids: any mention of rmSync, and
+ * rmdirSync with `recursive` (the same removal under another name). Not counted:
+ *   - a comment line (`// …`, ` * …`, `/* …` with nothing after its end);
+ *   - the text between `// <remove-tree>` and `// </remove-tree>`, or the same marks of
+ *     `remove-file`: a copy of the module, compared with it by its own test;
+ *   - an import of node:fs, in a file that has such a copy: the copy needs the name.
+ */
 function uses(text: string): string[] {
   const lines = text.split(/\r?\n/)
   const found: string[] = []

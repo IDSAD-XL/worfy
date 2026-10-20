@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # WorktreeCreate draft: where Claude Code would put the worktree of a subagent started with
-# `isolation: "worktree"` (and of `claude --worktree`). worfy-harness ticket 22, item 7.
+# `isolation: "worktree"` (and of `claude --worktree`).
 #
 # NOT REGISTERED. hooks.json does not run this script (owner decision 2026-10-09): a plugin hook is
 # machine-wide, and this script would replace Claude Code's own worktree creation in every session of
 # every repository — without its reuse of an existing tree, its cleanup of unchanged trees, fetch,
-# .worktreeinclude, sparsePaths or baseRef. It stays here as documentation for worfy-harness ticket 24,
-# which connects the first project with a `worktree.root` outside the repository. Until then subagent
+# .worktreeinclude, sparsePaths or baseRef. It stays here as documentation for the day
+# a project with a `worktree.root` outside the repository is connected. Until then subagent
 # work outside the repository is not supported.
 #
 # What is known. Claude Code lets a subagent edit files only in its own worktree, and it creates that
 # worktree itself under .claude/worktrees/ of the repository. A project whose `worktree.root` lies
-# outside the repository (`<HARNESS_HOME>/worktrees/<project>/`, ADR-0042) needs the tree there; with
+# outside the repository (`<HARNESS_HOME>/worktrees/<project>/`) needs the tree there; with
 # a WorktreeCreate hook configured Claude Code does not create the tree at all — it runs the hook and
-# pins the subagent to the path the hook prints. Live probes 2026-10-08 (ticket 22, result section):
+# pins the subagent to the path the hook prints. Live probes 2026-10-08:
 # the subagent's cwd is the printed path, Edit, Write and git work there, and Claude Code never removes
 # such a tree. Those probes ran ANOTHER script (wt-create.sh) given through `claude -p --settings`;
 # this script through the plugin's hooks.json was never probed.

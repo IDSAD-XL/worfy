@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of gate.sh, the launcher of the gate under its old name (worfy-windows ticket 03).
+# Tests of gate.sh, the launcher of the gate under its old name.
 #   - with node on PATH it adds nothing of its own: one run through `node gate.mjs` and one through
 #     `bash gate.sh` give the same exit code, the same "[gate] …" lines and the same files in the
 #     state folder — green, red and not registered; the profile argument (fast, full) and stdin
@@ -147,7 +147,7 @@ if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then 
 PLUGIN="$T/plugin"
 LAUNCHER="$PLUGIN/hooks/gate.sh"
 mkdir -p "$PLUGIN/hooks"
-cp "$GATE" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$HOOKS/eval-env.cjs" "$PLUGIN/hooks/"
+cp "$GATE" "$HOOKS/gate-log.mjs" "$HOOKS/gate-paths.mjs" "$HOOKS/gate-resolve.mjs" "$HOOKS/eval-env.cjs" "$PLUGIN/hooks/"
 if [ -x /opt/homebrew/bin/node ] || [ -x /usr/local/bin/node ]; then
     echo "note: node is in /opt/homebrew/bin or /usr/local/bin: the checks below run a copy of gate.sh that does not look there"
     sed 's#/opt/homebrew/bin /usr/local/bin#/worfy-test-no-such-folder-a /worfy-test-no-such-folder-b#' "$SHIM" >"$LAUNCHER"

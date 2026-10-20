@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
+import { build, buildCommand, builtApp, checkTarget, defaultTarget, dir, installerDir, leftoverName, leftovers, local, LSREGISTER, metadataPath, notACopy, registerCommand, removeInRounds, REPO, runningCopies, stamp, swapIn, targetIn, useStandInBuild, WIN_HOME, WINDOWS, type Env, type Files } from './install-stable-harness'
 
 const WIN_ENV = { LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local' }
 const MAC_HOME = '/Users/dev'
@@ -136,6 +136,18 @@ describe('a running copy in the list of processes', () => {
     expect(runningCopies('win32', [typed], listing)).toEqual([`11 ${typed}\\worfy.exe`])
     expect(runningCopies('win32', [onDisk], listing)).toEqual([`12 ${onDisk}\\worfy.exe`])
     expect(runningCopies('win32', [typed, onDisk], listing)).toHaveLength(2)
+  })
+
+  it('on Windows is found when it was started through a `subst` drive: its path is spelled on disk before it is compared', () => {
+    // Windows shows the path a program was started by; W: is a `subst` drive over C:\Users\dev\apps.
+    const listing = JSON.stringify([
+      { ProcessId: 21, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-stable\\worfy.exe' },
+      { ProcessId: 22, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-other\\worfy.exe' },
+    ])
+    const target = 'C:\\Users\\dev\\apps\\worfy-stable'
+    const spell = (path: string): string => path.replace(/^W:\\/, 'C:\\Users\\dev\\apps\\')
+    expect(runningCopies('win32', [target], listing)).toEqual([])
+    expect(runningCopies('win32', [target], listing, spell)).toEqual(['21 W:\\worfy-stable\\worfy.exe'])
   })
 
   it('on Windows a worfy.exe whose path Windows does not give counts: it may be the copy, run by another user or elevated', () => {
@@ -317,6 +329,64 @@ describe('the swap of the copies', () => {
     expect(() => swapIn(PATHS, d.files)).toThrow('the new copy could not be put at T (EXDEV: cross-device link)')
     expect(() => swapIn(PATHS, d.files)).not.toThrow(/back in place/)
     expect(d.moves).toEqual(['T.installing-7 -> T', 'T.installing-7 -> T'])
+  })
+})
+
+// worfy-windows ticket 43, from the review of PR #283: the loop that runs a removal again on Windows
+// was inside installStable behind the check of the system, so off Windows no test reached it. Here
+// the removal is a stand-in that throws a code and touches no disk, and the pause is written down.
+describe('a removal run again on Windows while the answer is "busy"', () => {
+  /** A removal that fails `refusals` times with `code`, then answers 'removed'; and the pauses asked between runs. */
+  function held(refusals: number, code: string | undefined) {
+    const asked: string[] = []
+    const pauses: number[] = []
+    const remove = (path: string): string => {
+      asked.push(path)
+      if (asked.length <= refusals) throw Object.assign(new Error(`${code}: held`), { code })
+      return 'removed'
+    }
+    return { asked, pauses, run: () => removeInRounds('C:\\apps\\worfy-stable.replaced-7', remove, (ms) => pauses.push(ms)) }
+  }
+  const BUSY = ['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES']
+
+  it.each(BUSY)('%s: runs the removal again, five runs at most, with a pause of 100 ms before each new run, and throws the last error', (code) => {
+    const forGood = held(99, code)
+    expect(forGood.run).toThrow(`${code}: held`)
+    expect(forGood.asked).toEqual(Array.from({ length: 5 }, () => 'C:\\apps\\worfy-stable.replaced-7'))
+    expect(forGood.pauses).toEqual([100, 100, 100, 100])
+  })
+
+  it.each(BUSY)('%s four times: the fifth run removes it, and its answer is returned', (code) => {
+    const fifth = held(4, code)
+    expect(fifth.run()).toBe('removed')
+    expect(fifth.asked).toHaveLength(5)
+    expect(fifth.pauses).toEqual([100, 100, 100, 100])
+  })
+
+  it('a removal that goes at once is run once, with no pause', () => {
+    const once = held(0, 'EBUSY')
+    expect(once.run()).toBe('removed')
+    expect(once.asked).toHaveLength(1)
+    expect(once.pauses).toEqual([])
+  })
+
+  it.each(['EIO', 'EXDEV', 'ENOENT', 'ENOTDIR', 'ERR_FS_EISDIR', undefined])('another answer (%s) ends the removal at once: one run, no pause', (code) => {
+    const other = held(99, code)
+    expect(other.run).toThrow(`${code}: held`)
+    expect(other.asked).toHaveLength(1)
+    expect(other.pauses).toEqual([])
+  })
+
+  it('without a pause given, it waits for real: one busy run takes 100 ms more', () => {
+    let runs = 0
+    const started = performance.now()
+    removeInRounds('C:\\x', () => {
+      runs += 1
+      if (runs === 1) throw Object.assign(new Error('EBUSY: held'), { code: 'EBUSY' })
+    })
+    // A timer of the system may come a few ms early. No upper bound: a slow worker is no error.
+    expect(performance.now() - started).toBeGreaterThanOrEqual(100 - 20)
+    expect(runs).toBe(2)
   })
 })
 

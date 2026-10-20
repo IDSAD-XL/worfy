@@ -120,7 +120,7 @@ show a false red.
 
 **Delete only by a literal path.** No globs (`rm -rf *`) and no variables in the path
 (`rm -rf $R/$d`): Claude Code asks for confirmation on these even in `bypassPermissions`, and in a
-Session without a human (worfy Autopilot) the request is denied (worfy-daily, wave 8). Need a clean
+Session without a human (worfy Autopilot) the request is denied. Need a clean
 directory — a new `mktemp -d`.
 
 **UI ticket — screenshots in both themes.** A UI ticket is one whose diff changes what is visible on

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The review depth contract (ticket worfy-review/08): review depth is a setting with four values —
+# The review depth contract: review depth is a setting with four values —
 # low, medium, high, max — read from the profile fields review.depth.wave, review.depth.first_round
 # and review.depth.later_rounds and overridden by an argument of skills ship-ticket and epic-wave.
 # Checked here: the profile contract (profiles/README.md) and the draft schema (run through
@@ -16,7 +16,10 @@ EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 MR="${MAX_REVIEW_FILE:-$HARNESS/skills/max-review/SKILL.md}"
 RD="${PROFILES_README:-$HARNESS/profiles/README.md}"
 CONNECT="${CONNECT_BIN:-$HARNESS/bin/project-connect}"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+. "$(dirname "$0")/gh-stand-in.sh" # node_path
+# node_path: C:/… in Git Bash on Windows, the spelling git prints and node reads; the registry's "match" must be
+# in that spelling, or bin/profile does not find the repository (/tmp/… is C:\tmp\… to node). Elsewhere: pwd -P.
+T="$(mktemp -d)"; T="$(cd "$T" && node_path "$(pwd -P)")"
 trap 'rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }

@@ -39,12 +39,12 @@ printf '%s\n' '# 01 — bold header' '' '**Type:** task' '**Status:** open' '**B
 printf '%s\n' '# 02 — footer' '' 'Type: task' '**Status:** done — 2026-08-27' 'Blocked by: —' '' '## Итог' '' 'text' '' 'Status: done' >"$E/02-footer.md"
 printf '%s\n' '# 03 — in progress' '' 'Status: in-progress' 'Blocked by: 01' >"$E/03-progress.md"
 printf '%s\n' '# 04 — Russian word' '' 'Status: заблокирован — ждёт тестовые ключи Stripe' 'Blocked by: —' >"$E/04-russian.md"
-printf '%s\n' '# 05 — PR link' '' 'Type: task' 'Status: done — 2026-10-15, [PR #412](https://github.com/IDSAD-XL/worfy/pull/412)' 'Blocked by: 01' '' '## Итог' '' \
-    'PR: https://github.com/IDSAD-XL/worfy/pull/38 (ветка `ep/05`).' >"$E/05-pr.md"
+printf '%s\n' '# 05 — PR link' '' 'Type: task' 'Status: done — 2026-10-15, [PR #412](https://github.com/octo-org/acme/pull/412)' 'Blocked by: 01' '' '## Итог' '' \
+    'PR: https://github.com/octo-org/acme/pull/38 (ветка `ep/05`).' >"$E/05-pr.md"
 printf '%s\n' '# 06 — reason with a semicolon' '' 'Type: task' \
     'Status: blocked — приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки 26 и 16 — не в Autopilot); Autopilot не берёт' 'Blocked by: 01–15' >"$E/06-semicolon.md"
 printf '%s\n' '# 07 — done with a note' '' 'Type: research' \
-    'Status: done — 2026-10-16, отчёт — [PR #339](https://github.com/IDSAD-XL/worfy/pull/339), решение владельца — в «Итог»' 'Blocked by: —' >"$E/07-note.md"
+    'Status: done — 2026-10-16, отчёт — [PR #339](https://github.com/octo-org/acme/pull/339), решение владельца — в «Итог»' 'Blocked by: —' >"$E/07-note.md"
 printf '%s\n' '# 08 — claimed' '' 'Status: claimed — 2026-10-16' 'Blocked by: —' '' '```bash' 'Status: done' '```' >"$E/08-claimed.md"
 printf '%s\n' '# 09 — already new' '' 'Type: task' 'Status: open' 'Blocked by: —' >"$E/09-new.md"
 printf '\357\273\277# 10 — CRLF and BOM\r\n\r\nStatus: Выкачено 2026-08-23, PR #27\r\nBlocked by: —\r\n' >"$E/10-crlf.md"
@@ -109,7 +109,7 @@ want 02-footer.md '# 02 — footer' '' 'Type: task' 'Status: done 2026-08-27' 'B
 want 03-progress.md '# 03 — in progress' '' 'Status: claimed' 'Blocked by: 01'
 want 04-russian.md '# 04 — Russian word' '' 'Status: blocked' 'Blocked reason: ждёт тестовые ключи Stripe' 'Blocked by: —'
 want 05-pr.md '# 05 — PR link' '' 'Type: task' 'Status: done 2026-10-15' 'PR: #412' 'Blocked by: 01' '' '## Итог' '' \
-    'PR: https://github.com/IDSAD-XL/worfy/pull/38 (ветка `ep/05`).'
+    'PR: https://github.com/octo-org/acme/pull/38 (ветка `ep/05`).'
 want 06-semicolon.md '# 06 — reason with a semicolon' '' 'Type: task' 'Status: blocked' \
     'Blocked reason: приёмка вместе с владельцем (HANDOFF, «Дальше»: приёмки 26 и 16 — не в Autopilot); Autopilot не берёт' 'Blocked by: 01–15'
 want 07-note.md '# 07 — done with a note' '' 'Type: research' 'Status: done 2026-10-16' 'PR: #339' 'Blocked by: —'
@@ -153,9 +153,9 @@ out="$(tk block ep 09 --waits team 2>&1)"; rc=$?
 out="$(tk claim ep 09 --waits team 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && ok "--waits goes only with block" || bad "claim --waits: exit $rc"
 
-tk block ep 09 "waits for ADR-0045; and the keys" --waits "Windows-PC" >/dev/null 2>&1
+tk block ep 09 "waits for the vendor; and the keys" --waits "Windows-PC" >/dev/null 2>&1
 head -n 7 "$E/09-new.md" >"$T/h09"
-if grep -Eqx "Status: blocked $NOW" "$T/h09" && [ "$(sed -n 5p "$T/h09")" = 'Blocked reason: waits for ADR-0045; and the keys' ] \
+if grep -Eqx "Status: blocked $NOW" "$T/h09" && [ "$(sed -n 5p "$T/h09")" = 'Blocked reason: waits for the vendor; and the keys' ] \
    && [ "$(sed -n 6p "$T/h09")" = 'Waits: Windows-PC' ] && [ "$(sed -n 7p "$T/h09")" = 'Blocked by: —' ]; then
     ok "block <reason> --waits <machine>: Status with time, then Blocked reason, then Waits"
 else bad "block 09:"; cat "$E/09-new.md"; fi

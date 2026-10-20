@@ -2,8 +2,8 @@ import { memo, useEffect, useRef } from 'react'
 import { writeAction } from '../../projects/read-only'
 import { useReadOnly } from '../../projects/useProjects'
 import { actions, type SlotSubject } from '../badges'
-import { PROGRESS_SEGMENTS, TICKET_HEIGHT, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
-import { saveEpicChange, setDoneStack, type EpicFrameData } from '../sources/epics'
+import { onDoneShelf, PROGRESS_SEGMENTS, TICKET_HEIGHT, TICKET_WIDTH, type EpicLayout, type Progress, type TicketColumn } from '../epic-layout'
+import { setDoneStack, toggleFrame, type EpicFrameData } from '../sources/epics'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 import '../actions/actions.css'
@@ -64,11 +64,12 @@ function EpicFrameNode({ data }: CanvasNodeProps) {
   const ops = useLayoutOps()
   // Collapsing is saved in the Layout: inactive on a read-only screen (worfy-link ticket 25).
   const readOnly = useReadOnly()
-  // A step of the ⌘Z history; the done stack below is not (it is not in the Layout, like the
+  // A step of the ⌘Z history, with the record's order when the frame goes to the done shelf
+  // (toggleFrame); the done stack below is not (it is not in the Layout, like the
   // viewport). A collapsed frame shows no stack, so its stack is folded with it.
   const toggleCollapsed = () => {
     if (!collapsed) setDoneStack(projectId, epic.epic, false)
-    void saveEpicChange(projectId, epic.epic, saved, { collapsed: !collapsed }, ops)
+    void toggleFrame(projectId, epic.epic, saved, !collapsed, onDoneShelf(tickets, true), ops)
   }
 
   // The card that opened the stack leaves the DOM with the focus on it: the focus goes to the

@@ -7,8 +7,8 @@
 //   - a HARNESS_HOME outside <fixture>: the Harness state of that shell lives elsewhere, and a home
 //     folder next to it is likely the real one too.
 // Folders are compared as files, by device and inode (links followed): on macOS one folder has many
-// spellings — /var and /private/var, /Users/x and /USERS/X on a case-insensitive volume,
-// /System/Volumes/Data/Users/x. A folder that does not exist is not the real home.
+// spellings — /var and /private/var, /home/x and /HOME/X on a case-insensitive volume,
+// the same path under /System/Volumes/Data. A folder that does not exist is not the real home.
 "use strict"
 
 const fs = require("node:fs")

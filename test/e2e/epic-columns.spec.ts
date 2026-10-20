@@ -10,7 +10,8 @@ import { settled } from './wait'
 import { catScript } from '../harness-node'
 
 // The Epic frames in a strip of K columns in the built app (worfy-canvas ticket 01, ADR-0075). The
-// Project is a temporary git repository with 11 Epics; `bin/epic-status` in a temporary
+// Project is a temporary git repository with 11 Epics, two of them done and so on the done shelf
+// (worfy-canvas ticket 02); `bin/epic-status` in a temporary
 // WORFY_CLAUDE_HOME answers with them. The order of the frames and K come from the Layout's
 // `epic-arrangement` record: on the first opening of a day the app writes it with the Epics with
 // work first, past ⌘Z; "Re-pack" writes it as one step of ⌘Z. The strip does not depend on the
@@ -36,6 +37,12 @@ const EPICS: { epic: string; tickets: number; done: number; claimed?: boolean }[
   { epic: ACTIVE, tickets: 5, done: 1, claimed: true },
 ]
 const BY_NAME = EPICS.map(({ epic }) => epic).sort()
+/**
+ * The Epics with a frame in the strip: worfy-daily and worfy-mvp have every Ticket done, so their
+ * frames are collapsed by default and they stand on the done shelf instead (worfy-canvas ticket 02).
+ */
+const SHELF = ['worfy-daily', 'worfy-mvp']
+const STRIP = BY_NAME.filter((epic) => !SHELF.includes(epic))
 
 let scratch: string
 let dataDir: string
@@ -160,9 +167,10 @@ async function launch(): Promise<LaunchedApp> {
   return launched
 }
 
-/** Waits until all 11 frames are drawn and the Canvas is at rest (ELK has answered for every Epic). */
+/** Waits until the 9 frames of the strip and the 2 chips of the shelf are drawn and the Canvas is at rest (ELK has answered for every Epic). */
 async function allFrames(launched: LaunchedApp, size?: { width: number; height: number }): Promise<Record<string, Rect>> {
-  await expect(launched.window.locator('[data-testid="epic-frame"]')).toHaveCount(EPICS.length, { timeout: 20_000 })
+  await expect(launched.window.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: 20_000 })
+  await expect(launched.window.locator('[data-testid="done-shelf-chip"]')).toHaveCount(SHELF.length)
   await canvasReady(launched, { ...(size ? { size } : {}), frames: 20, timeout: 20_000 })
   return frames(launched.window)
 }
@@ -175,7 +183,8 @@ test('the first opening of a day writes the record with the Epic with work first
     const { window } = launched
     await expect.poll(async () => ((await recordIn(window))?.order as string[] | undefined)?.[0]).toBe(ACTIVE)
     const written = (await recordIn(window))!
-    expect(written.order).toEqual([ACTIVE, ...BY_NAME.filter((epic) => epic !== ACTIVE)])
+    // The Epics on the done shelf are not in the strip's order.
+    expect(written.order).toEqual([ACTIVE, ...STRIP.filter((epic) => epic !== ACTIVE)])
     expect(new Date(written.at as string).toDateString()).toBe(new Date().toDateString())
     const placed = await allFrames(launched, { width: 1400, height: 900 })
     expect(columnsOf(placed)).toBe(written.columns)
@@ -193,16 +202,17 @@ test('the first opening of a day writes the record with the Epic with work first
   }
 })
 
-test('fit to the window\'s width, the strip of 11 frames is at most 1.5 window heights; Re-pack puts the active Epic first and ⌘Z puts the strip back', async () => {
+test('fit to the window\'s width, the strip of 9 frames is at most 1.5 window heights; Re-pack puts the active Epic first and ⌘Z puts the strip back', async () => {
   // Today's record, by name and with K = 3: the app keeps it while it holds.
   makeProject([record(BY_NAME, 3, new Date())])
   const launched = await launch()
   try {
     const { window } = launched
     const before = await allFrames(launched, { width: 1400, height: 900 })
+    // The app takes the two done Epics, on the shelf, out of the record's order (past ⌘Z).
+    await expect.poll(async () => (await recordIn(window))?.order).toEqual(STRIP)
     const recordBefore = await recordIn(window)
-    expect(recordBefore?.order).toEqual(BY_NAME)
-    expect(shownOrder(before)).toEqual(BY_NAME)
+    expect(shownOrder(before)).toEqual(STRIP)
 
     // "Fit": the strip scaled to the Canvas's width is no taller than 1.5 of its height.
     const canvas = (await window.getByTestId('canvas').boundingBox())!
@@ -227,7 +237,7 @@ test('fit to the window\'s width, the strip of 11 frames is at most 1.5 window h
 
     // ⌘Z: one step brings the record and the strip back.
     await window.keyboard.press('ControlOrMeta+z')
-    await expect.poll(async () => (await recordIn(window))?.order).toEqual(BY_NAME)
+    await expect.poll(async () => (await recordIn(window))?.order).toEqual(STRIP)
     expect(await recordIn(window)).toEqual(recordBefore)
     await canvasReady(launched, { frames: 20, timeout: 20_000 })
     expect(await frames(window)).toEqual(before)
@@ -243,7 +253,7 @@ test('two windows of one Project of different size show the frames at the same p
     const big = await allFrames(launched, { width: 1500, height: 950 })
     const second = await openSecondWindow(launched, { size: { width: 1000, height: 760 } })
     await expect(second.getByTestId('canvas')).toHaveAttribute('data-project-id', PROJECT_ID)
-    await expect(second.locator('[data-testid="epic-frame"]')).toHaveCount(EPICS.length, { timeout: 20_000 })
+    await expect(second.locator('[data-testid="epic-frame"]')).toHaveCount(STRIP.length, { timeout: 20_000 })
     await canvasReady({ window: second }, { frames: 20, timeout: 20_000 })
     expect(await frames(second)).toEqual(big)
     expect(columnsOf(big)).toBeGreaterThan(1)

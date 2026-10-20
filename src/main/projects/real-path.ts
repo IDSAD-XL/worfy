@@ -1,4 +1,5 @@
-// The spelling of a folder that the projects code compares: one helper for store.ts and connect.ts.
+// The spelling of a folder that the projects code compares: one helper for store.ts, connect.ts
+// and the Project of a Session's cwd (mcp/canvas-server.ts).
 
 import { realpathSync } from 'node:fs'
 

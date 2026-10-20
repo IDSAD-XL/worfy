@@ -83,24 +83,35 @@ out="$(cd "$T/later" && printf '%s' "$payload" | node "$STOP" 2>&1)"; rc=$?
 if node -e '
     import(require("node:url").pathToFileURL(process.argv[1]).href).then(({ isSameOrInside: same }) => {
         const ok =
-            same("C:\\Users\\x\\worfy", "c:/users/x/worfy", "win32") &&
-            same("C:\\Users\\x\\worfy\\.claude\\worktrees\\03", "C:/Users/x/worfy", "win32") &&
-            same("c:/users/x/worfy/src", "C:\\Users\\x\\worfy", "win32") &&
+            same("C:\\Work\\x\\worfy", "c:/work/x/worfy", "win32") &&
+            same("C:\\Work\\x\\worfy\\.claude\\worktrees\\03", "C:/Work/x/worfy", "win32") &&
+            same("c:/work/x/worfy/src", "C:\\Work\\x\\worfy", "win32") &&
             same("packages\\Shared\\a.ts", "packages/shared", "win32") &&
-            !same("C:\\Users\\x\\worfy-2", "C:/Users/x/worfy", "win32") &&
+            !same("C:\\Work\\x\\worfy-2", "C:/Work/x/worfy", "win32") &&
             // a name that only starts like the base is another folder
             !same("C:/a/repo2", "C:/a/repo", "win32") &&
             !same("/a/repo2", "/a/repo", "linux") &&
             // a network path, with either separator
             same("\\\\srv\\share\\repo\\src", "//srv/share/repo", "win32") &&
             !same("\\\\srv\\share\\repo2", "//srv/share/repo", "win32") &&
-            // a separator at the end: of the target it changes nothing; a base is taken as it is
-            // written, so with a separator at its end no folder lies under it
+            // a separator at the end: of the target it changes nothing; a base that already ends
+            // with one does not get a second, so the folders under it still lie under it
             same("C:\\a\\repo\\", "C:/a/repo", "win32") &&
-            !same("C:/a/repo/src", "C:/a/repo/", "win32") &&
-            same("/Users/x/worfy/src", "/Users/x/worfy", "darwin") &&
-            !same("/Users/x/Worfy", "/Users/x/worfy", "darwin") &&
-            !same("/Users/x/a\\b", "/Users/x/a", "linux")
+            same("C:/a/repo/src", "C:/a/repo/", "win32") &&
+            same("C:\\a\\repo", "C:/a/repo/", "win32") &&
+            same("/home/x/repo", "/home/x/repo/", "darwin") &&
+            !same("C:", "C:/", "win32") &&
+            !same("", "/", "linux") &&
+            !same("C:/a/repo2", "C:/a/repo/", "win32") &&
+            // the root of a disk ends with a separator as it is written
+            same("C:\\a\\b", "C:\\", "win32") &&
+            same("c:/a", "C:/", "win32") &&
+            !same("D:\\a", "C:\\", "win32") &&
+            same("/a", "/", "darwin") &&
+            same("/a/b", "/", "linux") &&
+            same("/home/x/worfy/src", "/home/x/worfy", "darwin") &&
+            !same("/home/x/Worfy", "/home/x/worfy", "darwin") &&
+            !same("/home/x/a\\b", "/home/x/a", "linux")
         process.exit(ok ? 0 : 1)
     })' "$HOOKS/gate-paths.mjs"; then ok "registry paths: on Windows either separator and any letter case, elsewhere exact"
 else bad "registry paths: the comparison of gate-paths.mjs gave a wrong answer"; fi

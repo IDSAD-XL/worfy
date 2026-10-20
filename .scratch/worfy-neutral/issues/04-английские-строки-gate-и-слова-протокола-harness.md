@@ -1,9 +1,7 @@
 # 04 — Английские строки Gate и слова протокола в скриптах Harness
 
 Type: task
-Status: blocked 2026-10-19T11:46Z
-Blocked reason: ждёт срезов worfy-windows 14, которые правят test-ы скриптов Harness (Q14); Autopilot не берёт
-Waits: agent
+Status: open 2026-10-20T03:11Z
 Blocked by: 02, 03
 Source: решения владельца 2026-10-19, Q4, Q14, Q15 ([spec.md](../spec.md), «Решения владельца», пункты 4, 14,
 15); [ADR-0074](../../../docs/adr/0074-harness-neutral-by-language-and-project.md), пункт 3.

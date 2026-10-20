@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WindowOpenHandlerResponse } from 'electron'
+import { app, BrowserWindow, nativeTheme, screen, session, type HandlerDetails, type WebPreferences, type WindowOpenHandlerResponse } from 'electron'
 import { MIN_SIZE, initialBounds, parseWindowState, serializeWindowState, type Rect } from '../shared/window/bounds'
 import { allowFrameNavigation } from './cards/protocol'
 import { quietWindows } from './quiet-windows'
@@ -61,6 +61,28 @@ export function loadEndedAsReplaced(error: unknown): boolean {
   return code === 'ERR_ABORTED' || errno === -3 || code === 'ERR_FAILED' || errno === -2
 }
 
+/**
+ * The prototype of the Browser layer (worfy-browser ticket 01, ADR-0078 item 12) turns the <webview>
+ * tag on only when WORFY_BROWSER_PROTOTYPE is exactly "1", which only its e2e test sets. Without
+ * it the window is made as before the prototype. A later ticket of the epic drops the flag.
+ */
+export function browserPrototype(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.WORFY_BROWSER_PROTOTYPE === '1'
+}
+
+/**
+ * What every <webview> of the window attaches with, whatever its attributes ask for (ADR-0078
+ * item 3): no worfy preload, no Node, isolated and sandboxed. The guest page is any web page, so it
+ * gets none of the app's powers. The check of the partition and the address is a later ticket's.
+ */
+export function hardenWebview(webPreferences: WebPreferences): void {
+  delete webPreferences.preload
+  webPreferences.nodeIntegration = false
+  webPreferences.nodeIntegrationInSubFrames = false
+  webPreferences.contextIsolation = true
+  webPreferences.sandbox = true
+}
+
 export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const stateFile = windowStatePath()
   const bounds = initialBounds(
@@ -71,6 +93,7 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
   // WORFY_QUIET_WINDOWS=1, e2e tests only: shown without taking the focus, transparent, mouse-through
   // and still painted (quiet-windows.ts). A normal start gets Electron's defaults, as before.
   const quiet = quietWindows()
+  const browser = browserPrototype()
 
   const window = new BrowserWindow({
     ...bounds,
@@ -89,8 +112,10 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       // The interface scale of the app settings: the page is drawn at it from the first paint.
       zoomFactor: interfaceScale(),
       ...(quiet.backgroundThrottling === undefined ? {} : { backgroundThrottling: quiet.backgroundThrottling }),
+      ...(browser ? { webviewTag: true } : {}),
     },
   })
+  if (browser) window.webContents.on('will-attach-webview', (_event, webPreferences) => hardenWebview(webPreferences))
   if (quiet.ignoreMouseEvents) window.setIgnoreMouseEvents(true)
   // And again after every load, and on every change (settings/interface-scale.ts).
   followInterfaceScale(window)

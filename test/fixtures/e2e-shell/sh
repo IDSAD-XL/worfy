@@ -1,0 +1,21 @@
+#!/bin/sh
+# The login shell of an e2e test whose spec sets no SHELL (test/e2e/launch-env.ts). worfy runs
+# `$SHELL -ilc <dump>` at start to capture the environment of Sessions, Terminals and the Harness
+# scripts (src/main/agent/env.ts), and `$SHELL -l` in a Terminal (src/main/terminal/pty.ts).
+# This shell drops -i and -l and runs /bin/sh: no rc file of the developer is read, so a start
+# costs a few milliseconds and does not depend on the machine. PATH is the test process's own,
+# from <link>.path next to the link launchApp starts this file by: node and the tools the tests
+# need are on it, as they were on the developer's login PATH. One file behind every link, so macOS
+# checks the new executable once, not once per test (see test/fixtures/harness-stub/canned).
+if [ -f "$0.path" ]; then
+  PATH=$(cat "$0.path")
+  export PATH
+fi
+case "$1" in
+  -*)
+    flags=$(printf '%s' "$1" | tr -d 'il')
+    shift
+    if [ "$flags" != "-" ]; then set -- "$flags" "$@"; fi
+    ;;
+esac
+exec /bin/sh "$@"

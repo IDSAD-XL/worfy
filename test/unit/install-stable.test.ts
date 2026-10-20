@@ -1,8 +1,9 @@
 // scripts/install-stable.mjs (worfy-windows ticket 12): the stable copy of worfy on macOS and on
-// Windows. The parts that decide by the system take it as a parameter, so both are tested here on
-// any machine; so is the swap of the copies, over a stand-in of the file system. Then the script
-// itself, over a stand-in build: its refusals on any system, whole installs on macOS and on
-// Windows (Linux has neither system's way to copy an app), and what only Windows has, with
+// Windows. The parts that decide by the system take it as a parameter, so both are tested on any
+// machine — in install-stable-functions.test.ts, with the swap of the copies over a stand-in of the
+// file system. This file runs the script itself, over a stand-in build: its refusals on any
+// system, whole installs on macOS and on Windows (Linux has neither system's way to copy an
+// app), and what only Windows has, with
 // %LOCALAPPDATA% pointed at a temporary folder. A whole install of a real build is run on macOS
 // by test/e2e/packaged.spec.ts.
 //
@@ -428,7 +429,8 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
     }, 60_000)
 
     // worfy-windows ticket 28, from the review of PR #257. The walk of Windows has five waits for a
-    // whole tree; main had five tries for every entry. The script runs the walk again.
+    // whole tree; before PR #257 every entry had five tries of its own. The script runs the walk
+    // again (removeInRounds; its own tests, on any system, are in install-stable-functions.test.ts).
     it('on Windows a removal that busy entries stopped is run again, five times at most, and another error ends it at once; elsewhere the removal is the copy of removeTree too, run once', () => {
       const target = targetIn('apps', 'worfy-stable')
       const apps = join(dir, 'apps')
@@ -620,6 +622,22 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(readFileSync(join(local, 'worfy-stable', 'resources', 'app.asar'), 'utf8')).toBe('not a real archive')
       expect(result.stdout).toContain(`install-stable: installed ${join(local, 'worfy-stable')} (commit ${head().slice(0, 7)}`)
     }, 60_000)
+
+    // Windows shows the path a program was started by. A copy started through a junction (or a
+    // `subst` drive, or an 8.3 short name) is shown in that spelling, so the script spells the
+    // path of each process on disk before it compares it with the target.
+    it('refuses while the copy runs from another spelling of its folder: the list shows the path through a junction', () => {
+      const target = join(dir, 'apps', 'worfy-stable')
+      mkdirSync(target, { recursive: true })
+      const through = join(dir, 'link-to-apps')
+      junction(join(dir, 'apps'), through)
+      const shown = join(through, 'worfy-stable', 'worfy.exe')
+      const listing = () => JSON.stringify([{ ProcessId: 4242, Name: 'worfy.exe', ExecutablePath: shown }])
+      // The build is not one: a run that went past the look for a running copy would say so.
+      const options = { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: join(dir, 'no-such-build') }, repo: REPO, listing }
+      expect(() => installStable([target], options)).toThrow(`the stable copy at ${target} is running`)
+      expect(readdirSync(target)).toEqual([])
+    })
 
     it('refuses the folder of the installer, a neighbour whose path starts with it, and a folder that is not an earlier copy, and leaves them as they were', () => {
       const installed = run([join(local, 'Programs', 'worfy')])
