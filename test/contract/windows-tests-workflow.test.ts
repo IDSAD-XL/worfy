@@ -213,6 +213,7 @@ describe('scripts/windows-test-list.mjs', () => {
       'test/unit/app.packaged.test.ts',
       'test/unit/run_acceptance.test.ts',
       'test/unit/e2e/inner.test.ts',
+      'test/contract/harness-scripts.test.ts',
       'test/unit/helper.ts',
       'test/unit/notes.test.js',
       'test/unit/ok.spec.ts',
@@ -317,6 +318,9 @@ describe('scripts/windows-test-list.mjs', () => {
     ['a name with packaged between dots', 'test/unit/app.packaged.test.ts', /has "packaged" in its name/, ''],
     ['a name with acceptance after _', 'test/unit/run_acceptance.test.ts', /has "acceptance" in its name/, ''],
     ['a file in a folder named e2e', 'test/unit/e2e/inner.test.ts', /has "e2e" in its name/, ''],
+    // Every Harness shell test: about 26 minutes on Windows, past the job's 10.
+    ['the Harness shell tests', 'test/contract/harness-scripts.test.ts', /runs longer than this job's 10 minutes.*on the owner's Windows PC/, ''],
+    ['the Harness shell tests of this repository', 'test/contract/harness-scripts.test.ts', /runs longer than this job's 10 minutes.*on the owner's Windows PC/, REPO],
     ['a helper that is not a test file', 'test/unit/helper.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .test.js file', 'test/unit/notes.test.js', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
     ['a .spec.ts file', 'test/unit/ok.spec.ts', /is not a \*\.test\.ts or \*\.test\.tsx file/, ''],
@@ -353,10 +357,11 @@ describe('scripts/windows-test-list.mjs', () => {
   })
 
   it('refuses the whole list when one element is refused, and names every refused element', () => {
-    const result = check('test/unit/ok.test.ts --config=x test/e2e/x.test.ts', tree)
+    const result = check('test/unit/ok.test.ts --config=x test/e2e/x.test.ts test/contract/harness-scripts.test.ts', tree)
     expect(result.status).toBe(1)
     expect(result.stderr).toMatch(/"--config=x": starts with "-"/)
     expect(result.stderr).toMatch(/"test\/e2e\/x\.test\.ts": is not under/)
+    expect(result.stderr).toMatch(/"test\/contract\/harness-scripts\.test\.ts": runs every Harness shell test/)
     expect(result.stderr).not.toContain('"test/unit/ok.test.ts"')
     expect(result.output).toBe('')
   })
@@ -382,13 +387,13 @@ describe('scripts/windows-test-list.mjs', () => {
     }
   })
 
-  it('accepts every test file of this repository, but for the names with a forbidden word', () => {
+  it('accepts every test file of this repository, but for the names with a forbidden word and the Harness shell tests', () => {
     // A red test here means a new test file cannot be named in the workflow: its name has a
     // character the check refuses, or it is the start of another test file's name.
     const all = ['test/unit', 'test/contract'].flatMap((folder) =>
       readdirSync(join(REPO, folder), { recursive: true, encoding: 'utf8' })
         .map((name) => `${folder}/${name.split('\\').join('/')}`)
-        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|acceptance/i.test(name)),
+        .filter((name) => /\.test\.tsx?$/.test(name) && !/e2e|packaged|acceptance/i.test(name) && name !== 'test/contract/harness-scripts.test.ts'),
     )
     expect(all.length).toBeGreaterThan(100)
     for (let at = 0; at < all.length; at += 12) {

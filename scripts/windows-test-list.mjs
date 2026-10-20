@@ -13,7 +13,9 @@
 // Why each rule: a Windows runner minute is paid, the whole suite is red on Windows, and vitest reads
 // an argument as a filter that matches every test file whose path contains it, or as an option when
 // it starts with "-". An element is therefore one existing file, never a pattern, a folder or a flag.
-// The e2e, packaged-app and acceptance tests stay off the runner.
+// The e2e, packaged-app and acceptance tests stay off the runner, and so does a file that runs longer
+// than the job's 10 minutes on Windows (RUNS_ON_THE_PC): a run that can only end at the time limit
+// costs the full 10 minutes and answers nothing.
 //
 // The paths are read from the working directory — the repository root in the workflow — because
 // vitest resolves the same arguments from there. Only Node's own modules are used: the script runs
@@ -25,6 +27,13 @@ import process from 'node:process'
 const MAX_FILES = 12
 const FOLDERS = ['test/unit', 'test/contract']
 const FORBIDDEN_WORDS = ['e2e', 'packaged', 'acceptance']
+// Test files longer than the job's 10 minutes on Windows, and what they run instead of the runner.
+const RUNS_ON_THE_PC = new Map([
+  [
+    'test/contract/harness-scripts.test.ts',
+    "runs every Harness shell test, about 26 minutes on Windows: it runs longer than this job's 10 minutes and is run on the owner's Windows PC instead",
+  ],
+])
 
 /**
  * Every regular file under `folder`, as a path from the working directory with forward slashes.
@@ -63,6 +72,9 @@ function refusal(element, onDisk) {
   // The exact spelling of a path found by walking the two folders: no "..", no ".", no doubled
   // slash, no other letter case, nothing reached through a symbolic link.
   if (!onDisk.includes(element)) return 'is not a file found under test/unit/ or test/contract/ (spell the path as git lists it)'
+  // After the check on disk: refused with this reason, the file is one this repository has.
+  const elsewhere = RUNS_ON_THE_PC.get(element)
+  if (elsewhere) return elsewhere
   // vitest matches an argument as a part of a path, without regard to letter case.
   const other = onDisk.find((file) => file !== element && /\.test\.tsx?$/.test(file) && file.toLowerCase().includes(lower))
   if (other) return `also matches ${other}: vitest would run both files`
