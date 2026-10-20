@@ -1,5 +1,5 @@
 ---
-description: 'A reviewer with the single lens "implementer''s report" answers VERIFIED or REJECTED on the first line with the list of what did not hold (skills/epic-wave/SKILL.md, section 3 "Verification gate"; agents/reviewer.md).'
+description: 'A reviewer with the single lens "implementer''s report" answers VERIFIED or REJECTED on the first line with the list of what did not hold (agents/reviewer.md, "Lens: implementer''s report").'
 tags: [main]
 runs: 3
 max_turns: 60

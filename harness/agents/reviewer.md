@@ -200,7 +200,10 @@ to check, not a fact. Read `not_verified` first: it names what the implementer d
   before the change too, or the command it cites never ran the changed code.
 
 **The verdict is the first line of the answer:** `VERIFIED` when every claim held,
-`REJECTED: <the unconfirmed claims>` when at least one did not. Every unconfirmed claim on the list
+`REJECTED: <the unconfirmed claims>` when at least one did not. If you run the project's gate, as
+the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code
+— the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires,
+whatever the claims show. Every unconfirmed claim on the list
 comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
 which comes second under this lens. The other lines of the answer keep the format above, and the
