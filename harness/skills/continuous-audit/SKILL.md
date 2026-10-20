@@ -8,8 +8,7 @@ description: Run on the words "audit", "scan the codebase", "file tickets for th
 The result is the epic `<tickets root>/audit-<date>/` (the root is `F tickets.root`): findings with a `file:line` address and evidence,
 tickets the size of one PR, a split into waves. The rule of this skill: **a finding stays a claim until
 a second agent has reproduced it**. A ticket written from a single line someone read is wrong in roughly a third
-of its statements (that is what the review of 67 Auction tickets showed, write-up `.scratch/ui-triage/triage-27-41.md`
-in its repository).
+of its statements (that is what a review of 67 tickets of one project showed).
 
 Arguments: `--lenses a,c,i` narrows the set of lenses (default: all lenses of the profile), `--live` turns on
 the pass over the running dev stack. A scheduled run goes without questions: anything disputed goes into `map.md`.

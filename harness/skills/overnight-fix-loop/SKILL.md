@@ -77,7 +77,7 @@ git rev-parse --verify --quiet "origin/$NIGHT" \
 ```
 
 A module is a directory directly under `<package>/src` for every package from `F layout.packages`
-(`apps/api/src/auctions`). The field `F modules` refines this: `deep` — roots where a module is a directory one
+(`apps/api/src/orders`). The field `F modules` refines this: `deep` — roots where a module is a directory one
 level deeper; `flat` — packages that are a single module as a whole; `skip` — directory names that
 do not form modules. No field — all three are empty. Files in the root of a package's `src` do not form a module. The module name is the last path segment; for
 a package from `FLAT` — the package directory name; when names collide — with the package prefix (`api-catalog`,
@@ -137,7 +137,7 @@ filtering long output — only `set -o pipefail; <command> | tail -n 20` (withou
 
 Commands below: `<package typecheck>`, `<package test>`, `<package test_one>` — the templates
 `F commands.package.typecheck`, `.test`, `.test_one`; `<package>` — the name from `F commands.package.names`
-by package directory (`apps/api` → `@auction/api`), `<file>` — a path from the package root. No
+by package directory (`apps/api` → `@acme/api`), `<file>` — a path from the package root. No
 `commands.package` — `F commands.typecheck`, `F commands.test`, `F commands.test_one` from the root.
 
 ### 1a. Module tests, mutation points and the "before" baseline
@@ -270,7 +270,7 @@ have been opened at all). Otherwise:
   (`BLOCKED`, `UNSTABLE`, `BEHIND`) — `FAILURE.md` with the name of the failed job, the PR stays
   open, the module drops out of the night. Fixing at night a CI that is green locally means editing blind.
 
-With `F workflow.ci` `batch` (worfy ADR-0068) GitHub CI does not run on a PR: skip `gh pr checks` and
+With `F workflow.ci` `batch` GitHub CI does not run on a PR: skip `gh pr checks` and
 `mergeStateStatus`. The merge condition is two at once: `mergeable` is `MERGEABLE` and "clean" from the 1f
 reviewer; `CONFLICTING` is handled as `DIRTY` above. The night's CI run is one, in section 2.
 

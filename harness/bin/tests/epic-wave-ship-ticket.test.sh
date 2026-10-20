@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The text contract of skills/epic-wave and skills/ship-ticket as skills of the `worfy` plugin
-# (ticket worfy-harness/06): Harness paths through ${CLAUDE_PLUGIN_ROOT}, the `worfy:` prefix on
+#: Harness paths through ${CLAUDE_PLUGIN_ROOT}, the `worfy:` prefix on
 # agents and skills, the Autopilot command, EXIT=, unchanged section numbers, English brief labels
 # and no Cyrillic outside a fixed allowlist.
 # Run: bash harness/bin/tests/epic-wave-ship-ticket.test.sh; exit code 0 means every check passed.
@@ -79,7 +79,7 @@ check "epic-wave description names '$new', '$old1', '$old2', '$old3'" \
     bash -c '[[ "$1" == *"$2"* && "$1" == *"$3"* && "$1" == *"$4"* && "$1" == *"$5"* ]]' _ "$desc" "$new" "$old1" "$old2" "$old3"
 check "epic-wave description names the new form first" \
     bash -c 'a="${1%%"$2"*}"; b="${1%%"$3"*}"; c="${1%%"$4"*}"; [ ${#a} -lt ${#b} ] && [ ${#a} -lt ${#c} ]' _ "$desc" "$new" "$old1" "$old2"
-check "epic-wave: the Autopilot command in full" has "$EW" '/worfy:epic-wave tickets 05, 06, 07, 08 of epic worfy-harness'
+check "epic-wave: the Autopilot command in full" has "$EW" '/worfy:epic-wave tickets 05, 06, 07, 08 of epic demo'
 sec1="$(awk '/^## 1\./{p=1; next} /^## /{p=0} p' "$EW")"
 for form in "$new" "$old1" "$old2" "$old3"; do
     check "epic-wave section 1 (choosing the wave) names '$form'" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec1" "$form"
@@ -92,7 +92,7 @@ check "ship-ticket sections 0-11" test "$(nums "$ST")" = "## 0. ## 1. ## 2. ## 3
 sec8="$(awk '/^## 8\./{p=1; next} /^## /{p=0} p' "$ST")"
 check "ship-ticket step 8 holds the gh run watch block (agents cite it)" bash -c '[[ "$1" == *"gh run watch"* ]]' _ "$sec8"
 
-# 6a. ship-ticket step 5: the smallest complete change (ticket worfy-review/04). Step 4 — the failing
+# 6a. ship-ticket step 5: the smallest complete change. Step 4 — the failing
 # test first — stays word for word as it was, and step 5 keeps its first paragraph.
 st4="$(awk '/^## 4\./{p=1; next} /^## /{p=0} p' "$ST")"
 want4='
@@ -157,14 +157,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.'
 check "ship-ticket step 5: the licence closes the step" test "$(printf '%s\n' "$st5" | grep -v '^$' | tail -n 1)" = '```'
 
-# 7. Brief labels, shared with the agents of ticket 07.
+# 7. Brief labels, shared with the agents.
 brief="$(awk '/^```$/{if(inb){exit}; inb=1; next} inb' <(awk '/^## 2\./{p=1} /^## 3\./{p=0} p' "$EW"))"
 for label in 'Goal:' 'Repository:' 'Ticket: ' '; spec: ' 'Worktree:' 'Base:' 'Files:' 'Numbers:' \
     "Wave neighbours' files (do not touch):" 'Scratchpad:' 'Write to ~/.claude: allowed | forbidden' \
     'GUI checks: yours | not yours'; do
     check "epic-wave brief label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$brief" "$label"
 done
-# GH_TOKEN comes from the plugin's SessionStart hook (worfy-harness ticket 18): the brief has no "GitHub:" line.
+# GH_TOKEN comes from the plugin's SessionStart hook: the brief has no "GitHub:" line.
 for old in 'GitHub:' 'Цель:' 'Репозиторий:' 'Тикет:' 'Дерево:' 'База:' 'След по файлам:' 'Номера:' 'Следы соседей' 'Запись в' 'GUI-проверки'; do
     check "epic-wave brief has no old label '$old'" bash -c '[[ "$1" != *"$2"* ]]' _ "$brief" "$old"
 done
@@ -214,7 +214,7 @@ check "ship-ticket: a closed epic is one line" has "$ST" 'A closed epic is one l
 check "ship-ticket: docs.handoff.check before push" has "$ST" '`F docs.handoff.check` checks the form — run it before push, if the profile sets it'
 check "ship-ticket: no debts section in the state file" lacks "$ST" "state file's debts"
 
-# 7a. The local finish of local-green (worfy-harness ticket 22, rework round 1): one doer of the rebase (the
+# 7a. The local finish of local-green: one doer of the rebase (the
 # implementer), the documents committed on the ticket branch before the fast-forward, and with single the next
 # ticket waits for the local merge and starts from the main branch, not from the previous ticket's branch.
 IM="${IMPLEMENTER_FILE:-$HARNESS/agents/implementer.md}"
@@ -231,11 +231,11 @@ check "epic-wave: single + local-green waits for the local merge (Shape)" has "$
 check "epic-wave: single + local-green waits for the local merge (Dispatch)" has "$EW" 'merge (section 4, "Local merge", `MERGED=0`).'
 check "implementer: the rebase before the local merge is yours" has "$IM" 'when the orchestrator sends the branch back, rebase it onto the main branch in your own'
 check "implementer: numbering.adr.dir and lessons are taken from the Workflow folder" has "$IM" 'in `numbering.adr.dir` and in `lessons: "repo:<path>"` is'
-check "profiles README: an outside worktree.root is not supported until ticket 24" has "$PR" 'and not supported until worfy-harness ticket 24: an implementer subagent edits only in a tree under'
+check "profiles README: an outside worktree.root is not supported yet" has "$PR" 'and not supported yet: an implementer subagent edits only in a tree under'
 check "profiles README: no claim that the hook is reached by a subagent" lacks "$PR" 'An implementer subagent reaches such a tree only through'
 check "profiles README: no claim that the hook does what Claude Code does" lacks "$PR" 'For a root inside the repository the hook does what Claude Code does'
 check "profiles README: the hook is an unregistered draft, never probed through the plugin" has "$PR" '`hooks/worktree-create.sh` is an unregistered draft, never probed through the plugin'
-check "profiles README: no 'not set until the owner answers' for worktree.root" lacks "$PR" 'until the owner answers worfy-harness ticket 22, item 7'
+check "profiles README: no 'not set until the owner answers' for worktree.root" lacks "$PR" 'until the owner answers'
 
 # 7b. Narrow round: the documents of a local-green ticket are committed only after a green gate, by the merge
 # block, on a branch that is on top; the resume rule knows `done` on an unmerged branch; a wave with no ticket
@@ -264,14 +264,14 @@ check "ship-ticket: a second run after a break commits nothing twice" has "$ST" 
 check "epic-wave: the wave documents commit takes only its paths" has "$EW" 'commit -q -m "<wave documents commit message>" -- "${DOCS[@]}"; rc=$?'
 check "epic-wave: no add -A of the whole tickets root" lacks "$EW" 'for f in tickets.root docs.handoff.path; do p=$(F "$f")'
 check "epic-wave: the temporary worktree is removed with --force" has "$EW" 'git -C <repo> worktree remove --force "$TMPW"'
-# Short round 2026-10-09 (owner decision on PR #150): WorktreeCreate is not registered; a worktree.root outside the
-# repository is not supported until ticket 24, and no text calls the plugin path checked.
+# Short round 2026-10-09: WorktreeCreate is not registered; a worktree.root outside the
+# repository is not supported yet, and no text calls the plugin path checked.
 check "ship-ticket: F worktree.root must lie under .claude/worktrees/ again" has "$ST" '`F worktree.root` must lie there'
-check "ship-ticket: an outside root is not supported until ticket 24" has "$ST" 'is not supported until worfy-harness ticket 24: the plugin registers no `WorktreeCreate` hook'
+check "ship-ticket: an outside root is not supported yet" has "$ST" 'is not supported yet: the plugin registers no `WorktreeCreate` hook'
 check "ship-ticket: no isolation: worktree path for an outside root" lacks "$ST" 'the orchestrator starts it with `isolation: "worktree"`'
-check "epic-wave: an outside root is not supported until ticket 24" has "$EW" 'is not supported until worfy-harness ticket 24. The plugin registers'
+check "epic-wave: an outside root is not supported yet" has "$EW" 'is not supported yet. The plugin registers'
 check "epic-wave: no isolation: worktree for implementers" lacks "$EW" 'start each implementer with'
-check "implementer: an outside root is a false premise until ticket 24" has "$IM" 'hook that would put you there. It is a false premise of the brief'
+check "implementer: an outside root is a false premise" has "$IM" 'hook that would put you there. It is a false premise of the brief'
 check "implementer: no rename of a hook-made branch" lacks "$IM" 'git branch -m <ветка>'
 check "implementer: the outside-root exception comes before the create-a-tree rule" eval '[ "$(grep -n -m1 -F "**\`worktree.root\` outside the repository**" "$IM" | cut -d: -f1)" -lt "$(grep -n -m1 -F "**First of all, create a working tree" "$IM" | cut -d: -f1)" ]'
 WC="${WORKTREE_CREATE_FILE:-$HARNESS/hooks/worktree-create.sh}"
@@ -281,7 +281,7 @@ check "ship-ticket: <main branch> before the block is found in the block's order
 check "ship-ticket: NO MAIN BRANCH / SAME BRANCH say what happens to the prepared documents" has "$ST" '`NO MAIN BRANCH` or `SAME BRANCH` (`MERGED=1`) — a profile problem'
 check "epic-wave: the temporary worktree has a fixed path" has "$EW" 'rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"'
 
-# 7d. Four groups of review findings (ticket worfy-review/01): the orchestrator sorts the findings into
+# 7d. Four groups of review findings: the orchestrator sorts the findings into
 # Act on, Consider, Noted and Dismissed — in ship-ticket step 7 and in epic-wave section 3. The levels and
 # the verdicts stay; the rule names its source. The text is wrapped, so phrases are looked up in the
 # section with its line breaks folded into spaces.
@@ -402,7 +402,7 @@ check "epic-wave section 5: the report shows the four groups, the status block s
     bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$EW" 5 | tr '\n' ' ' | tr -s ' ')" \
     'A table for the wave, then the four groups of findings of every ticket whose gate gave any (section 3: Act on, Consider, Noted, Dismissed, an empty group as "none"), then the four-line status block, which stays last.'
 
-# 7e. Two machines on one repository (worfy-windows ticket 07; worfy ADR-0056 items 5 and 6, ADR-0069): the open PRs
+# 7e. Two machines on one repository: the open PRs
 # of other epics before a wave, BEHIND rebased, the Windows step of the manual GUI checks, and the cross-machine
 # gate — the label, the checks section, the report before the merge, gate full on the fresh base on `request`.
 # The names of the label and of the section come from the profile, never from the text.
@@ -429,7 +429,7 @@ check "ship-ticket section 6: the Windows paragraph launches through explorer.ex
 check "ship-ticket section 6: the Windows paragraph checks the process path with Get-Process" in_ "$st6" \
     '`powershell -NoProfile -Command "(Get-Process -Id <pid>).Path"`'
 check "ship-ticket section 6: the agent's environment on Windows is named" in_ "$st6" 'NoDefaultCurrentDirectoryInExePath=1'
-# The label. With serve, section 1 runs skill gate-queue (worfy-windows ticket 17): the pass is written only there, and
+# The label. With serve, section 1 runs skill gate-queue: the pass is written only there, and
 # section 1 keeps no copy of it (section 4 still has its own BEHIND rebase with --force-with-lease; not looked at here).
 check "epic-wave section 1: cross_machine_gate" in_ "$ew1" cross_machine_gate
 check "epic-wave section 1: with serve, /worfy:gate-queue before the preflight" in_ "$ew1" 'With `serve` — before the preflight, run skill `/worfy:gate-queue`'
@@ -473,14 +473,14 @@ done
 # 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
 # of profile values, section names of Project documents and Russian examples.
 ALLOWED=(
-    # The old Autopilot forms and the Russian request (ADR-0033, ADR-0044).
+    # The old Autopilot forms and the Russian request, which the skill still accepts.
     'Ticket-ы NN, NN эпика X' 'волна N эпика X' 'прогони волну N эпика X'
-    # Gate verdict words; ticket 09 changes them.
+    # Gate verdict words, read by programs.
     '[gate] зелено (fast): …' '[gate] зелено (…)' 'ничего не прогналось' 'окружение недоступно'
     '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …'
     # Labels of the status block, read by worfy.
     "${STATUS_LABELS[@]}"
-    # Placeholders in profile values (schema 1; ticket 11 changes them).
+    # Placeholders in profile values (schema 1).
     '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.
     '## Где в коде' '## Итог' 'Готово, когда' 'Ждёт владельца' 'Волны'
@@ -492,7 +492,7 @@ for f in "$EW" "$ST"; do
     check "$n: no Cyrillic outside the allowlist${left:+ — first: $left}" test -z "$left"
 done
 
-# 9. The Pipeline (worfy ADR-0067, ticket worfy-pipeline/07): both skills read `_resolved.pipeline` and act on its
+# 9. The Pipeline: both skills read `_resolved.pipeline` and act on its
 # Stages — Agent review where it stands, Check «<name>» as marks on the PR's head, people's Stages without a merge,
 # Deploy before the ticket closes. The blocks run under bash and zsh with a stub profile, a stub gh that only
 # reads (any write or unknown call is exit 1) and a temporary HOME and HARNESS_HOME.
@@ -500,14 +500,13 @@ T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 . "$HARNESS/bin/tests/real-home.sh"
 . "$HARNESS/bin/tests/gh-stand-in.sh"
-# The shells every block of section 9 runs under. Git Bash on Windows has no zsh (worfy ADR-0055): there the zsh
+# The shells every block of section 9 runs under. Git Bash on Windows has no zsh: there the zsh
 # cases are skipped with one line. On macOS and Linux a missing zsh is a failure, not a skip.
 SHELLS=(bash zsh)
 if on_windows && ! command -v zsh >/dev/null 2>&1; then
     SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"
 fi
-# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
-# (worfy-windows ticket 59, the review of PR #481).
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green.
 case "$(uname -s)" in
     MINGW* | MSYS*) ;;
     *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
@@ -658,9 +657,6 @@ check "Check: epic-wave section 0 keeps platform PRs waiting without a check Sta
 check "Check: ship-ticket step 9 keeps platform PRs waiting without a check Stage" \
     bash -c '[[ "$1" == *"$2"* ]]' _ "$(section "$ST" 9 | tr '\n' ' ' | tr -s ' ')" \
     "With no \`check\` Stage in the Pipeline a platform PR — one the project's rules send to another platform's verdict — merges only after that verdict, the old way"
-for f in "$EW" "$ST"; do
-    check "$(name_of "$f"): no ADR-0056 as the rule the skill waits by" lacks "$f" 'ADR-0056'
-done
 
 # 9c. Agent review where the Pipeline puts it; people's Stages are not merged; Deploy before the ticket closes.
 EW0="$(section "$EW" 0 | tr '\n' ' ' | tr -s ' ')"; ST0="$(section "$ST" 0 | tr '\n' ' ' | tr -s ' ')"

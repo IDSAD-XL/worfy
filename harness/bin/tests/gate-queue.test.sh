@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# skills/gate-queue/SKILL.md (worfy-windows ticket 17): the text contract of the cross-machine gate queue, and its
+# skills/gate-queue/SKILL.md: the text contract of the cross-machine gate queue, and its
 # blocks cut out of SKILL.md and run under bash and zsh — the role of this machine (a stub bin/profile) and the
 # choice of the waiting PRs (a stub F and a stub gh that applies the block's --jq filter with jq to $GH_JSON). The
 # rebase, checks section and report-and-merge blocks are run by skill-blocks.test.sh against a bare origin.
@@ -21,20 +21,19 @@ check() { local name="$1"; shift; if "$@"; then ok "$name"; else bad "$name"; fi
 has()   { grep -qF -- "$2" "$1"; }
 lacks() { ! grep -qF -- "$2" "$1"; }
 [ -f "$GQ" ] || { echo "FAIL missing $GQ"; echo "passed $pass, failed 1"; exit 1; }
-# The shells every block runs under; Git Bash on Windows has no zsh (worfy ADR-0055), elsewhere a missing zsh fails.
+# The shells every block runs under; Git Bash on Windows has no zsh, elsewhere a missing zsh fails.
 SHELLS=(bash zsh)
 case "$(uname -s)" in
     MINGW* | MSYS*) command -v zsh >/dev/null 2>&1 || { SHELLS=(bash); echo "skip zsh: Git Bash on Windows has no zsh, the zsh cases run on macOS and Linux"; } ;;
 esac
-# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green
-# (worfy-windows ticket 59, the review of PR #481).
+# Off Windows the zsh cases always run: a skip that fired there would leave them out and the file would stay green.
 case "$(uname -s)" in
     MINGW* | MSYS*) ;;
     *) [[ " ${SHELLS[*]} " == *" zsh "* ]] && ok "the shells of the blocks include zsh off Windows" || bad "the shells of the blocks lack zsh off Windows: [${SHELLS[*]}]" ;;
 esac
 command -v jq >/dev/null 2>&1 || { echo "FAIL no jq on PATH: the stub gh applies the --jq filter with it"; exit 1; }
 
-# 1. The text. The label and the section name come from the profile, never from the text (worfy ADR-0069).
+# 1. The text. The label and the section name come from the profile, never from the text.
 for w in cross_machine_gate --label --force-with-lease checks_section 'report: green' 'report: red' --remove-label 'gh pr comment <N>' \
     'queue empty' 'waits for the requesting machine' '`/worfy:epic-wave`, section 4'; do
     check "gate-queue has '$w'" has "$GQ" "$w"
@@ -151,7 +150,7 @@ EXIT=0" \
     "$(pr 32 2026-10-18T06:00:00Z 2026-10-18T06:30:00Z "$(comment mac-bot 2026-10-18T07:00:00Z $'See the Mac checks report: red above')")" \
     "$(pr 33 2026-10-18T06:00:00Z 2026-10-18T09:00:00Z "$(comment mac-bot 2026-10-18T09:30:00Z $'Mac checks report: green\nall fine')")" \
     "$(pr 34 2026-10-18T06:00:00Z 2026-10-18T08:00:00Z | jq -c '.isCrossRepository = true')"
-# Two green reports on the PR's current head (worfy-windows ticket 59): the merge failed twice on one head, so a third
+# Two green reports on the PR's current head: the merge failed twice on one head, so a third
 # gate full would change nothing. The report names its head on the second line (`head: <SHA>`), and the count matches
 # it against headRefOid, not dates: a rebase may keep an older commit date, and then reports of the old head would
 # count. One green report on the head still waits; so does a PR whose reports name another head (66: its commit date

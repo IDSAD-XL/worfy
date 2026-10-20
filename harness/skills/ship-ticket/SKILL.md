@@ -50,11 +50,11 @@ Two fields set the shape of the whole loop — read them right away:
   `gate full` is green and its branch is merged locally into the main branch of its repository.
 
 With `pr-green-ci` a third field says where GitHub CI runs: `F workflow.ci` — `pr` (also when the
-field is absent): CI on the PR head, waited for in step 8; `batch` (worfy ADR-0068): CI does not
+field is absent): CI on the PR head, waited for in step 8; `batch`: CI does not
 run on a PR and is not a merge condition, it runs once on the main branch after the wave is merged
 (skill `/worfy:epic-wave`, section 4, "Batch CI on the main branch").
 
-**The Pipeline** — `F _resolved.pipeline` (worfy ADR-0067): the Stages the ticket goes through, in
+**The Pipeline** — `F _resolved.pipeline`: the Stages the ticket goes through, in
 order; without `workflow.pipeline` in the profile — the default `queued`, `implementing`, `ci`,
 `agent-review`, `gate-merge`, `closing`, `done`. Read it right away; the block prints one Stage per
 line, a Check with its name (`check windows`):
@@ -174,7 +174,7 @@ is shared with other sessions, and the last write wins. Right after `git worktre
 only into the session's worktree, and the agent was started from the orchestrator's worktree. For
 an agent, `EnterWorktree` accepts only worktrees under `.claude/worktrees/` of the same repository
 — `F worktree.root` must lie there. A root outside the repository (`<HARNESS_HOME>/worktrees/<project>/`)
-is not supported until worfy-harness ticket 24: the plugin registers no `WorktreeCreate` hook, and
+is not supported yet: the plugin registers no `WorktreeCreate` hook, and
 `hooks/worktree-create.sh` is an unregistered draft that was never probed through the plugin. Edits
 that go around it through python or sed in Bash are not a way out.
 **`parallel: single`.** No worktree: work in the main checkout, one ticket at a time, on the branch
@@ -283,7 +283,7 @@ The gate gives the verdict: `node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </
 — always with stdin closed: the script is written for a hook and first reads the hook's JSON from
 stdin. On an open stdin that sends nothing it waits 2 s before it starts, and a signal in those
 2 s may leave the verdict of an earlier run in place (the bash gate before it waited on `cat`
-forever: that is how ticket 63 stood for ten hours).
+forever: a ticket once stood like that for ten hours).
 Gate exit codes: `0` — green, only if the output has the line `[gate] зелено (…)` (exit code 0
 with «ничего не прогналось» (nothing ran) or «окружение недоступно» (the environment is
 unavailable) is not a check); `2` — red, fix it; `3` — not verified, neither green nor red: the
@@ -400,7 +400,7 @@ in the ticket file), the two lines follow the verdict and its group lines: they 
 line, and neither starts with `REJECTED` or `gate:`, so the counts of rounds and worfy's reading of
 a PR's verdict stay as they are.
 
-**The review mark.** The verdict is bound to the commit the reviewers saw (ADR-0067): before the
+**The review mark.** The verdict is bound to the commit the reviewers saw: before the
 round starts, mark that commit `review pending`; when its verdict is written down, mark the same
 commit `review success` (`VERIFIED`) or `review failure` (`REJECTED`). A new commit has no mark,
 so a push after the verdict sends the ticket back to review. In Full mode the mark is a commit
@@ -509,7 +509,7 @@ gh pr create --fill
 gh pr view <N> --json mergeStateStatus
 ```
 
-**The cross-machine label** (`F cross_machine_gate`, worfy ADR-0069; exit code 4 or `null` — the
+**The cross-machine label** (`F cross_machine_gate`; exit code 4 or `null` — the
 project has one machine, skip this paragraph and say so). With `F cross_machine_gate.role` `request`,
 right after `gh pr create`: the PR's files are compared with `F cross_machine_gate.exempt` — paths
 whose change needs no label; a path that ends with `/` is a folder and covers every file under it.

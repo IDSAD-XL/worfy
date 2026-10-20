@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The text contract of skills/max-review (ticket worfy-review/07): a review of the whole branch before a
+# The text contract of skills/max-review: a review of the whole branch before a
 # risky merge — two lenses, each optionally on two Claude models, a synthesis, sceptics, four groups of
 # findings and a verdict with the prefix `MAX-REVIEW:`; epic-wave runs it in section 4 for a ticket marked
 # `Risk: high` and reads its verdict when a wave resumes. Besides the text, three behaviours the text relies
@@ -130,8 +130,8 @@ check "a MAX-REVIEW: REJECTED PR comment is not counted as a REJECTED round" \
 check "a gate: MAX-REVIEW: REJECTED commit is not counted as a gate: REJECTED round" \
     test "$(printf 'gate: %s\n' "$v_rej" | grep -c '^gate: REJECTED')" = 0
 # worfy reads PR comments only for the narrow round's journal, with the NARROW regex of
-# src/main/github/prs.ts; the verdict is the review mark (ADR-0067). MAX-REVIEW: must not match it.
-PRS="${PRS_FILE:-$REPO/src/main/github/prs.ts}"
+# the worfy app's GitHub PR reader (github/prs.ts under src/); the verdict is the review mark. MAX-REVIEW: must not match it.
+PRS="${PRS_FILE:-$(find "$REPO/src" -path '*/github/prs.ts' 2>/dev/null | head -n 1)}"
 re="$(sed -n 's|^const NARROW = /\(.*\)/u$|\1|p' "$PRS")"
 check "prs.ts NARROW regex found" test -n "$re"
 matches() { RE="$1" perl -e 'exit(($ARGV[0] =~ /$ENV{RE}/) ? 0 : 1)' "$2"; }

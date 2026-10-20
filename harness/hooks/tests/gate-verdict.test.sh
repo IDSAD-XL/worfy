@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of the gate's verdict file (ticket worfy-harness/09): every run of gate.mjs in a git
+# Tests of the gate's verdict file: every run of gate.mjs in a git
 # worktree leaves verdict-<tag>.json in the gate state folder, next to the markers, with the
 # outcome of that run in English keys and values. A directory outside git leaves no file.
 #   - each path of gate.mjs: green (a fresh run and a cache hit), red, environment unavailable
