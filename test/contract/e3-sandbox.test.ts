@@ -1,9 +1,10 @@
-// scripts/e3-sandbox.sh (worfy-harness ticket 26, item 1) on temporary folders: E3_SANDBOX_TMP is
-// the temp dir its sandbox lives in and E3_LOCK_DIR its lock, so no test touches the real sandbox or
-// the shared Electron lock /tmp/worfy-e2e.lock (E3_LOCK_PAUSE shortens the pause between two attempts
-// to take it). HOME is a temporary folder too (the keychain link
-// points into it), and `gh` is a stub first on the PATH: it records how it was called and prints a
-// made-up token, so no test reads a real one.
+// scripts/e3-sandbox.sh (worfy-harness tickets 26, item 1, and 36) on temporary folders: HOME is a
+// temporary folder, so the sandbox lives in its Library/Application Support and the keychain link
+// points into it; E3_SANDBOX_TMP is the temp dir (the TMPDIR of the sandbox, and the old place `move`
+// takes a sandbox from) and E3_LOCK_DIR the lock, so no test touches the real sandbox or the shared
+// Electron lock /tmp/worfy-e2e.lock (E3_LOCK_PAUSE shortens the pause between two attempts to take
+// it). `gh` is a stub first on the PATH: it records how it was called and prints a made-up token, so
+// no test reads a real one.
 //
 // The file is skipped on Windows (worfy-windows ticket 55): e3-sandbox.sh is the acceptance sandbox
 // of the macOS app — a per-user temp dir of `getconf DARWIN_USER_TEMP_DIR`, the keychain under
@@ -11,6 +12,7 @@
 // so each init copied claude and node (337 MB); a script killed at the timeout kept a process in the
 // folder of the test, and that folder (342 MB) stayed in %TEMP%.
 import { spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -32,8 +34,9 @@ let ghLog: string
 beforeEach(() => {
   scratch = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-e3-sandbox-test-')))
   temp = join(scratch, 'temp')
-  root = join(temp, 'worfy-e3-sandbox')
-  userHome = join(scratch, 'user-home')
+  // A space and an & in the path: the move rewrites files with it, where sed or bash 5.2 would put the match for the &.
+  userHome = join(scratch, 'user & home')
+  root = join(userHome, 'Library', 'Application Support', 'worfy-e3-sandbox')
   lock = join(scratch, 'lock')
   ghLog = join(scratch, 'gh.log')
   mkdirSync(temp)
@@ -98,10 +101,12 @@ function expectExit(run: Run, code: number): void {
 const ghCalls = (): string[] => (existsSync(ghLog) ? readFileSync(ghLog, 'utf8').trim().split('\n').filter(Boolean) : [])
 
 describe.skipIf(ON_WINDOWS)('e3-sandbox.sh init', () => {
-  it('makes the sandbox in the given temp dir: its folders, marker, .gitconfig and the variables of its login shells', () => {
+  it('makes the sandbox in Library/Application Support of HOME, not in the temp dir: its folders, marker, .gitconfig and the variables of its login shells', () => {
     const run = sandbox(['init'])
     expectExit(run, 0)
     expect(run.stdout).toContain(`e3-sandbox: ${root}`)
+    expect(readdirSync(temp)).toEqual([])
+    expect(sandbox(['path']).stdout).toBe(`${root}\n`)
     for (const dir of ['home/.claude', 'npm/bin', 'tools', 'data', 'runs']) expect(lstatSync(join(root, dir)).isDirectory(), dir).toBe(true)
     expect(existsSync(join(root, '.worfy-e3-sandbox'))).toBe(true)
     const gitconfig = readFileSync(join(root, 'home', '.gitconfig'), 'utf8')
@@ -154,20 +159,26 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh init', () => {
   })
 
   it('refuses a folder of the same name that is not empty and not its own, and leaves it unmarked', () => {
-    mkdirSync(root)
+    mkdirSync(root, { recursive: true })
     writeFileSync(join(root, 'someone-elses.txt'), 'x\n')
+    const touch = `touch '${join(root, '.worfy-e3-sandbox')}'`
     const run = sandbox(['init'])
     expectExit(run, 2)
     expect(run.stderr).toContain('not a sandbox of this script')
+    expect(run.stderr).toContain(touch)
     expect(readdirSync(root)).toEqual(['someone-elses.txt'])
     expect(ghCalls()).toEqual([])
     // With the folder marked by mistake, reset would delete it: it must still refuse.
-    expectExit(sandbox(['reset']), 2)
-    expect(readdirSync(root)).toEqual(['someone-elses.txt'])
+    for (const command of ['reset', 'reset-harness']) {
+      const refused = sandbox([command])
+      expectExit(refused, 2)
+      expect(refused.stderr, command).toContain(touch)
+      expect(readdirSync(root)).toEqual(['someone-elses.txt'])
+    }
   })
 
   it('takes an empty folder of the same name', () => {
-    mkdirSync(root)
+    mkdirSync(root, { recursive: true })
     expectExit(sandbox(['init']), 0)
     expect(existsSync(join(root, '.worfy-e3-sandbox'))).toBe(true)
   })
@@ -506,7 +517,7 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh reset and reset-harness', () => {
     const run = sandbox(['reset'])
     expectExit(run, 0)
     expect(existsSync(root)).toBe(false)
-    expect(readdirSync(temp)).toEqual([])
+    expect(readdirSync(join(userHome, 'Library', 'Application Support'))).toEqual([])
     expect(readFileSync(join(userHome, 'Library', 'Keychains', 'login.keychain-db'), 'utf8')).toBe('the keychain of the machine\n')
     // tools/gh was a link to the gh of the machine: the link is gone, the tool is not.
     expect(existsSync(join(scratch, 'bin', 'gh'))).toBe(true)
@@ -583,6 +594,348 @@ describe.skipIf(ON_WINDOWS)('e3-sandbox.sh reset and reset-harness', () => {
     symlinkSync(outside, join(root, 'home'))
     expectExit(sandbox(['init']), 2)
     expect(existsSync(join(outside, '.gitconfig'))).toBe(false)
+  })
+})
+
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh place', () => {
+  it('refuses a HOME inside a sandbox: a caller in the sandbox environment would make a sandbox inside it', () => {
+    expectExit(sandbox(['init']), 0)
+    const run = sandbox(['path'], { env: { HOME: join(root, 'home') } })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('inside a sandbox')
+    expectExit(sandbox(['init'], { env: { HOME: join(root, 'home') } }), 2)
+    expect(existsSync(join(root, 'home', 'Library', 'Application Support'))).toBe(false)
+  })
+
+  it('refuses without a HOME, and with a HOME that is not a folder or is /', () => {
+    const env = sandboxEnv()
+    delete env.HOME
+    const unset = spawnSync('bash', [SCRIPT, 'path'], { cwd: scratch, env, encoding: 'utf8', timeout: 10_000 })
+    expect(unset.status, unset.stderr).toBe(2)
+    expect(unset.stderr).toContain('HOME is not set')
+    writeFileSync(join(scratch, 'a-file'), 'x\n')
+    const file = sandbox(['path'], { env: { HOME: join(scratch, 'a-file') } })
+    expectExit(file, 2)
+    expect(file.stderr).toContain('HOME is not a folder')
+    const slash = sandbox(['path'], { env: { HOME: '/' } })
+    expectExit(slash, 2)
+    expect(slash.stderr).toContain('HOME resolves to /')
+  })
+
+  // /usr belongs to root: a folder of another user without sudo. Run as root, it is the caller's own.
+  it.skipIf(process.getuid?.() === 0)('refuses a HOME owned by another user', () => {
+    const run = sandbox(['init'], { env: { HOME: '/usr' } })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('HOME is not owned by')
+  })
+})
+
+describe.skipIf(ON_WINDOWS)('e3-sandbox.sh move', () => {
+  const old = (): string => join(temp, 'worfy-e3-sandbox')
+  const keychainItem = (claudeHome: string): string => `Claude Code-credentials-${createHash('sha256').update(claudeHome).digest('hex').slice(0, 8)}`
+  /** What lock-run gives the command: E3_LOCK_HELD=1, with the lock folder (of this test) there. */
+  const held = (): Record<string, string> => {
+    mkdirSync(lock, { recursive: true })
+    return { E3_LOCK_HELD: '1' }
+  }
+  const sibling = (): string => join(temp, 'worfy-e3-sandbox-other', 'x')
+  const printed = (run: Run): Record<string, string> => Object.fromEntries(run.stdout.trim().split('\n').map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]))
+
+  /**
+   * A sandbox at the old place, as the script before the move made it there: init, then the folder
+   * taken to the temp dir with its files naming it there; a link into it (as npm makes one, but by
+   * its full path), a link to a folder beside it whose name begins the same, and a sign-in in the
+   * Claude home.
+   */
+  function oldSandbox(): void {
+    expectExit(sandbox(['init']), 0)
+    writeFileSync(join(root, 'home', '.claude', '.claude.json'), '{"oauthAccount":{}}\n')
+    mkdirSync(join(root, 'npm', 'lib'), { recursive: true })
+    writeFileSync(join(root, 'npm', 'lib', 'qmd.js'), 'qmd\n')
+    writeFileSync(join(root, 'runs', 'kept.txt'), 'a run\n')
+    renameSync(root, old())
+    for (const file of ['.zshenv', '.profile', '.gitconfig']) {
+      const path = join(old(), 'home', file)
+      writeFileSync(path, readFileSync(path, 'utf8').split(root).join(old()))
+    }
+    writeFileSync(join(old(), 'home', '.gitconfig'), `${readFileSync(join(old(), 'home', '.gitconfig'), 'utf8')}[include]\n\tpath = ${join(old(), 'home', 'extra.gitconfig')}\n`)
+    symlinkSync(join(old(), 'npm', 'lib', 'qmd.js'), join(old(), 'npm', 'bin', 'qmd'))
+    mkdirSync(join(temp, 'worfy-e3-sandbox-other'))
+    symlinkSync(sibling(), join(old(), 'runs', 'beside'))
+  }
+
+  /** What a finished move leaves, with the sign-in kept through CLAUDE_SECURESTORAGE_CONFIG_DIR. */
+  function expectMoved(marker: string): void {
+    expect(existsSync(old())).toBe(false)
+    expect(readFileSync(join(root, '.worfy-e3-sandbox'), 'utf8')).toBe(marker)
+    expect(readFileSync(join(root, 'home', '.claude', '.claude.json'), 'utf8')).toBe('{"oauthAccount":{}}\n')
+    expect(readFileSync(join(root, 'runs', 'kept.txt'), 'utf8')).toBe('a run\n')
+    // Links out of the sandbox stay as they were, the one beside it too; a link into it follows it.
+    expect(readlinkSync(join(root, 'tools', 'gh'))).toBe(join(scratch, 'bin', 'gh'))
+    expect(readlinkSync(join(root, 'home', 'Library', 'Keychains'))).toBe(join(userHome, 'Library', 'Keychains'))
+    expect(readlinkSync(join(root, 'runs', 'beside'))).toBe(sibling())
+    expect(readlinkSync(join(root, 'npm', 'bin', 'qmd'))).toBe(join(root, 'npm', 'lib', 'qmd.js'))
+    const gitconfig = readFileSync(join(root, 'home', '.gitconfig'), 'utf8')
+    expect(gitconfig).toContain(`path = ${join(root, 'home', 'extra.gitconfig')}\n`)
+    expect(gitconfig).toContain('[credential "https://github.com"]')
+    const zshenv = readFileSync(join(root, 'home', '.zshenv'), 'utf8')
+    const zshenvBesides = zshenv.split('\n').filter((line) => !line.startsWith('export CLAUDE_SECURESTORAGE_CONFIG_DIR=')).join('\n')
+    for (const text of [zshenvBesides, gitconfig]) expect(text).not.toContain(`${old()}/`)
+    expect(zshenv).toContain(`export CLAUDE_CONFIG_DIR='${join(root, 'home', '.claude')}'`)
+    expect(zshenv).toContain(`export CLAUDE_SECURESTORAGE_CONFIG_DIR='${join(old(), 'home', '.claude')}'`)
+    expect(readFileSync(join(root, 'home', '.profile'), 'utf8')).toBe(zshenv)
+    expect(printed(sandbox(['env'])).CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(join(old(), 'home', '.claude'))
+    expect(readdirSync(root)).not.toContain('.worfy-e3-sandbox-moving')
+  }
+
+  it('moves the whole sandbox and keeps the sign-in: the old CLAUDE_CONFIG_DIR becomes CLAUDE_SECURESTORAGE_CONFIG_DIR', () => {
+    oldSandbox()
+    const marker = readFileSync(join(old(), '.worfy-e3-sandbox'), 'utf8')
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 0)
+    expect(run.stdout).toContain(`moved ${old()} to ${root}`)
+    expect(run.stdout).toContain(`'${keychainItem(join(old(), 'home', '.claude'))}'`)
+    expect(run.stdout).toContain('undocumented')
+    expectMoved(marker)
+    // init keeps what move wrote, and run gives the variable to the command.
+    const zshenv = readFileSync(join(root, 'home', '.zshenv'), 'utf8')
+    expectExit(sandbox(['init']), 0)
+    expect(readFileSync(join(root, 'home', '.zshenv'), 'utf8')).toBe(zshenv)
+    expect(printed(sandbox(['run', '/usr/bin/env'])).CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(join(old(), 'home', '.claude'))
+  })
+
+  it('a sandbox made fresh by init has no CLAUDE_SECURESTORAGE_CONFIG_DIR', () => {
+    expectExit(sandbox(['init']), 0)
+    expect(printed(sandbox(['env']))).not.toHaveProperty('CLAUDE_SECURESTORAGE_CONFIG_DIR')
+    expect(readFileSync(join(root, 'home', '.zshenv'), 'utf8')).not.toContain('CLAUDE_SECURESTORAGE_CONFIG_DIR')
+  })
+
+  it('moves only under the e2e lock, and takes no options', () => {
+    oldSandbox()
+    const run = sandbox(['move'])
+    expectExit(run, 2)
+    expect(run.stderr).toContain('lock-run')
+    // E3_LOCK_HELD=1 alone is not the lock: its folder must be there.
+    const claimed = sandbox(['move'], { env: { E3_LOCK_HELD: '1' } })
+    expectExit(claimed, 2)
+    expect(claimed.stderr).toContain('lock-run')
+    const option = sandbox(['move', '--sign-in-again'], { env: held() })
+    expectExit(option, 2)
+    expect(option.stderr).toContain('takes no options')
+    expect(existsSync(join(old(), '.worfy-e3-sandbox'))).toBe(true)
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it.each(['init', 'reset-harness', 'check-gh', 'run', 'shell'])('%s refuses while the sandbox waits at the old place, and names move', (command) => {
+    oldSandbox()
+    const run = sandbox(command === 'run' ? ['run', 'true'] : [command])
+    expectExit(run, 2)
+    expect(run.stderr).toContain('still at its old place')
+    expect(run.stderr).toContain('e3-sandbox.sh move')
+    expect(existsSync(root)).toBe(false)
+    expect(existsSync(join(old(), '.worfy-e3-sandbox'))).toBe(true)
+  })
+
+  it('takes an empty folder at the new place', () => {
+    oldSandbox()
+    mkdirSync(root)
+    expectExit(sandbox(['move'], { env: held() }), 0)
+    expect(existsSync(join(root, '.worfy-e3-sandbox'))).toBe(true)
+    expect(existsSync(join(root, 'worfy-e3-sandbox'))).toBe(false)
+  })
+
+  it('refuses when something else is at the new place already: both stay as they are', () => {
+    oldSandbox()
+    mkdirSync(root)
+    writeFileSync(join(root, 'something.txt'), 'x\n')
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('nothing moved')
+    expect(run.stderr).toContain('out of the way')
+    expect(readdirSync(root)).toEqual(['something.txt'])
+    expect(existsSync(join(old(), '.worfy-e3-sandbox'))).toBe(true)
+  })
+
+  it('refuses when a sandbox is at the new place already, and says reset deletes a fresh one; after that it moves', () => {
+    oldSandbox()
+    // A fresh sandbox at the new place, as an init before this change of the script would leave it.
+    renameSync(old(), join(scratch, 'parked'))
+    expectExit(sandbox(['init']), 0)
+    renameSync(join(scratch, 'parked'), old())
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('holds a sandbox already')
+    expect(run.stderr).toContain('e3-sandbox.sh reset`')
+    expect(existsSync(join(old(), 'home', '.claude', '.claude.json'))).toBe(true)
+    expectExit(sandbox(['reset']), 0)
+    expectExit(sandbox(['move'], { env: held() }), 0)
+    expect(readFileSync(join(root, 'home', '.claude', '.claude.json'), 'utf8')).toBe('{"oauthAccount":{}}\n')
+  })
+
+  it('refuses when the new place is a link, and writes nothing where it points', () => {
+    oldSandbox()
+    const outside = join(scratch, 'outside-new')
+    mkdirSync(outside)
+    symlinkSync(outside, root)
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(readdirSync(outside)).toEqual([])
+    expect(lstatSync(root).isSymbolicLink()).toBe(true)
+    expect(existsSync(join(old(), '.worfy-e3-sandbox'))).toBe(true)
+  })
+
+  it('refuses when the old place is a link, and moves nothing', () => {
+    oldSandbox()
+    const outside = join(scratch, 'outside-old')
+    renameSync(old(), outside)
+    symlinkSync(outside, old())
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain(`${old()} is a link`)
+    expect(existsSync(root)).toBe(false)
+    expect(existsSync(join(outside, '.worfy-e3-sandbox'))).toBe(true)
+  })
+
+  it('refuses when .gitconfig of the old sandbox is a link: the file it points at stays as it was', () => {
+    oldSandbox()
+    const outside = join(scratch, 'outside.gitconfig')
+    writeFileSync(outside, `[include]\n\tpath = ${join(old(), 'home', 'x')}\n`)
+    rmSync(join(old(), 'home', '.gitconfig'))
+    symlinkSync(outside, join(old(), 'home', '.gitconfig'))
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('is a link')
+    expect(readFileSync(outside, 'utf8')).toBe(`[include]\n\tpath = ${join(old(), 'home', 'x')}\n`)
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it('has nothing to move without a sandbox at the old place', () => {
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 0)
+    expect(run.stdout).toContain('nothing to move')
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it('moves no folder without the marker, and says how to put it back', () => {
+    oldSandbox()
+    rmSync(join(old(), '.worfy-e3-sandbox'))
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain(`touch '${join(old(), '.worfy-e3-sandbox')}'`)
+    expect(existsSync(join(old(), 'home', '.claude', '.claude.json'))).toBe(true)
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it('refuses an old sandbox whose home/.claude is a link, and moves nothing', () => {
+    oldSandbox()
+    const outside = join(scratch, 'outside-claude')
+    renameSync(join(old(), 'home', '.claude'), outside)
+    symlinkSync(outside, join(old(), 'home', '.claude'))
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('is a link')
+    expect(existsSync(root)).toBe(false)
+  })
+
+  it.skipIf(process.getuid?.() === 0)('a move that stopped after mv is finished by running move again; until then the sandbox is not used', () => {
+    oldSandbox()
+    const marker = readFileSync(join(old(), '.worfy-e3-sandbox'), 'utf8')
+    chmodSync(join(old(), 'home', '.gitconfig'), 0o444)
+    const failed = sandbox(['move'], { env: held() })
+    expectExit(failed, 1)
+    expect(failed.stderr).toContain('cannot write')
+    expect(existsSync(old())).toBe(false)
+    const init = sandbox(['init'])
+    expectExit(init, 2)
+    expect(init.stderr).toContain('not finished')
+    chmodSync(join(root, 'home', '.gitconfig'), 0o644)
+    const unlocked = sandbox(['move'])
+    expectExit(unlocked, 2)
+    expect(unlocked.stderr).toContain('lock-run')
+    expect(existsSync(join(root, '.worfy-e3-sandbox-moving'))).toBe(true)
+    const again = sandbox(['move'], { env: held() })
+    expectExit(again, 0)
+    expect(again.stdout).not.toContain('nothing to move')
+    expectMoved(marker)
+  })
+
+  /** A move stopped after mv: .gitconfig could not be written. */
+  function stoppedAfterMv(): void {
+    oldSandbox()
+    chmodSync(join(old(), 'home', '.gitconfig'), 0o444)
+    expectExit(sandbox(['move'], { env: held() }), 1)
+    chmodSync(join(root, 'home', '.gitconfig'), 0o644)
+  }
+
+  it.skipIf(process.getuid?.() === 0)('does not finish a move while the old place still has the marker: mv may have copied a part only', () => {
+    stoppedAfterMv()
+    mkdirSync(old())
+    writeFileSync(join(old(), '.worfy-e3-sandbox'), 'the whole sandbox\n')
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('did not finish')
+    expect(existsSync(join(root, '.worfy-e3-sandbox-moving'))).toBe(true)
+    expect(readFileSync(join(root, 'home', '.gitconfig'), 'utf8')).toContain(old())
+  })
+
+  it.skipIf(process.getuid?.() === 0)('does not finish a move through a .gitconfig that became a link: the file it points at stays', () => {
+    stoppedAfterMv()
+    const outside = join(scratch, 'outside.gitconfig')
+    writeFileSync(outside, `path = ${old()}/x\n`)
+    rmSync(join(root, 'home', '.gitconfig'))
+    symlinkSync(outside, join(root, 'home', '.gitconfig'))
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 2)
+    expect(run.stderr).toContain('is a link')
+    expect(readFileSync(outside, 'utf8')).toBe(`path = ${old()}/x\n`)
+  })
+
+  it('says where the sandbox went when a folder appeared at the new place just before mv; moved there, move finishes', () => {
+    oldSandbox()
+    const marker = readFileSync(join(old(), '.worfy-e3-sandbox'), 'utf8')
+    // An mv first on the PATH that makes the target folder before it moves: the race, made certain.
+    writeFileSync(join(scratch, 'bin', 'mv'), '#!/bin/sh\n/bin/mkdir -p "$3"\nexec /bin/mv "$@"\n')
+    chmodSync(join(scratch, 'bin', 'mv'), 0o755)
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 1)
+    expect(run.stderr).toContain(`the sandbox is ${join(root, 'worfy-e3-sandbox')}`)
+    rmSync(join(scratch, 'bin', 'mv'))
+    renameSync(join(root, 'worfy-e3-sandbox'), join(scratch, 'parked'))
+    removeTestTree(root)
+    renameSync(join(scratch, 'parked'), root)
+    expectExit(sandbox(['move'], { env: held() }), 0)
+    expectMoved(marker)
+  })
+
+  it('after the move, an old place holding only what Claude Code makes there is "moved already": nothing changes', () => {
+    oldSandbox()
+    expectExit(sandbox(['move'], { env: held() }), 0)
+    mkdirSync(join(old(), 'home', '.claude'), { recursive: true })
+    writeFileSync(join(old(), 'home', '.claude', '.storage-write'), '')
+    const zshenv = readFileSync(join(root, 'home', '.zshenv'), 'utf8')
+    const listing = readdirSync(root).sort()
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 0)
+    expect(run.stdout).toContain('moved from')
+    expect(run.stdout).toContain('already')
+    expect(`${run.stdout}${run.stderr}`).not.toContain('touch')
+    expect(`${run.stdout}${run.stderr}`).not.toContain('reset')
+    expect(readdirSync(root).sort()).toEqual(listing)
+    expect(readFileSync(join(root, 'home', '.zshenv'), 'utf8')).toBe(zshenv)
+    expect(readdirSync(old())).toEqual(['home'])
+    expectExit(sandbox(['init']), 0)
+  })
+
+  it('an old place holding only home/.claude beside a fresh sandbox is no sandbox: nothing to move, no advice to mark it or reset', () => {
+    expectExit(sandbox(['init']), 0)
+    mkdirSync(join(old(), 'home', '.claude'), { recursive: true })
+    writeFileSync(join(old(), 'home', '.claude', '.storage-write'), '')
+    const run = sandbox(['move'], { env: held() })
+    expectExit(run, 0)
+    expect(run.stdout).toContain('nothing to move')
+    expect(`${run.stdout}${run.stderr}`).not.toContain('touch')
+    expect(`${run.stdout}${run.stderr}`).not.toContain('reset')
+    expect(readdirSync(old())).toEqual(['home'])
   })
 })
 

@@ -6,8 +6,8 @@ import { NO_WINDOW_RESTORE, repoRoot } from '../e2e/helpers'
 
 // The acceptance run of the worfy-harness Epic (ticket 26): the packaged worfy.app with the real
 // agent, on a machine whose Claude home is empty — the sandbox of scripts/e3-sandbox.sh (HOME,
-// CLAUDE_CONFIG_DIR and npm_config_prefix in one temporary folder; gh accounts and the keychain are
-// the machine's). Two tests:
+// CLAUDE_CONFIG_DIR and npm_config_prefix in one folder of its own, ~/Library/Application
+// Support/worfy-e3-sandbox; gh accounts and the keychain are the machine's). Two tests:
 //
 //   sandbox  the first-run screen shows every check; Install puts the Harness of this build into the
 //            sandbox and `claude plugin list` there names it enabled; qmd installs with consent; its
