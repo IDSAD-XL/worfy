@@ -96,15 +96,16 @@ for (let i = 0; i < argv.length; i++) {
 let abs = path.resolve(target)
 try {
     if (!fs.statSync(abs).isDirectory()) usage(`not a directory: ${target}`)
-    // native: the spelling from disk (on a case-insensitive FS /users/... -> /Users/...),
+    // native: the spelling from disk (on a case-insensitive FS ~/work/acme -> ~/Work/Acme),
     // otherwise workspaceOf and the resolver would compare strings in someone else's case
     abs = fs.realpathSync.native(abs)
 } catch {
     usage(`no such directory: ${target}`)
 }
 
-// The Harness state on this machine (ADR-0040 item 5); the gate registry lives there. It is asked
-// for the directory being resolved: a relative EVAL_HARNESS_HOME is taken from its git common dir.
+// The Harness state on this machine (HARNESS_HOME, by default ~/.claude/worfy-harness); the gate registry
+// lives there. It is asked for the directory being resolved: a relative EVAL_HARNESS_HOME is taken from its
+// git common dir.
 const HARNESS_HOME = harnessHome(abs)
 // Transition: with no registry in HARNESS_HOME but one in the old place, read the old one.
 const gateConfig = () => {
@@ -169,12 +170,12 @@ try {
 
 // The common directory of a project made of several repositories (workspace). A directory that itself
 // lies in no `match` but lies in the common parent of all repositories of ONE profile belongs to
-// that profile: this is how a session in /Users/alexey/Work/Atakama (above three repositories, not git itself)
-// gets the atakama profile. The common parent is computed from the registry, not stored: there is no second
+// that profile: this is how a session in /home/me/work/suite (above three repositories, not git itself)
+// gets the suite profile. The common parent is computed from the registry, not stored: there is no second
 // registry of paths. Not a workspace: a profile with one repository (its directory is the
 // match itself), the disk root, $HOME and its parents, a directory inside a registry entry, and a directory holding a repository of another profile or of no profile.
 // Only directories OUTSIDE git get the common directory's profile. A git repository that is not in
-// the registry but lies in the common directory (flux-config-platform in /Users/alexey/Work/Atakama)
+// the registry but lies in the common directory (scratch-tools in /home/me/work/suite)
 // is someone else's project: exit 3, like any unregistered repository. Otherwise the gate, the session hooks
 // and preflight would take it for one of the profile's repositories.
 const under = (p, dir) => p === dir || p.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep)
@@ -203,7 +204,7 @@ function workspaceOf(target) {
         if (repos.some((r) => r.profile !== name && under(path.resolve(r.match), ws))) continue
         // A directory inside an unregistered git repository that lies in the common directory is
         // someone else's project. If the git repository is the common directory itself or lies above it (git init
-        // in /Users/alexey/Work/Atakama, dotfiles in $HOME), that does not matter: the directory stays a workspace.
+        // in /home/me/work/suite, dotfiles in $HOME), that does not matter: the directory stays a workspace.
         if (checkoutCanon && checkoutCanon !== ws && under(checkoutCanon, ws)) continue
         if (under(target, ws)) hits.push({ name, ws, n: rs.length })
     }
@@ -311,7 +312,7 @@ const userReports = (() => {
 })()
 // language.reports: the user's file, then the profile's own field, then English. team and docs are the
 // project's; unset they are English.
-// shortcut: reads the profile's language.reports, remove after the next release (worfy-neutral 08)
+// shortcut: reads the profile's language.reports, remove after the next release
 const profileReports = typeof profile.language.reports === "string" && profile.language.reports ? profile.language.reports : undefined
 profile.language.reports = userReports ?? profileReports ?? "en"
 for (const k of ["team", "docs"]) if (typeof profile.language[k] !== "string" || !profile.language[k]) profile.language[k] = "en"
@@ -360,7 +361,7 @@ function commonParent() {
 }
 const expandHome = (p) => (p === "~" || p.startsWith("~/") ? path.join(os.homedir(), p.slice(1)) : p)
 
-// The gate before a merge (worfy ADR-0065): workflow.merge_gate is "each" (gate full on every PR after a rebase),
+// The gate before a merge: workflow.merge_gate is "each" (gate full on every PR after a rebase),
 // "wave" (one gate full for the set of a wave's ready PRs, bin/wave-gate) or null / absent (none required);
 // workflow.e2e_lock is the path of the e2e lock directory or null / absent (no lock). Any other value is a broken
 // profile: a guessed one would decide whether a PR is merged without its gate, or two e2e runs share the screen.
@@ -376,7 +377,7 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
         if (!lock || !path.isAbsolute(lock)) die(1, `${pjPath}: workflow.e2e_lock is an absolute path or null, got ${JSON.stringify(wf.e2e_lock)} — broken profile`)
         wf.e2e_lock = lock
     }
-    // Where GitHub CI runs (worfy ADR-0068): workflow.ci is "pr" (on every PR head — the default, absent or
+    // Where GitHub CI runs: workflow.ci is "pr" (on every PR head — the default, absent or
     // null resolves to it) or "batch" (once on the main branch per wave, with workflow.ci_batch_run, a command
     // where $ref is the branch). A guessed value would decide whether a PR is merged without its CI run.
     if (wf.ci === undefined || wf.ci === null) wf.ci = "pr"
@@ -387,7 +388,7 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
         die(1, `${pjPath}: workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch — broken profile`)
 }
 
-// The cross-machine gate (worfy ADR-0069): a project on two machines, one of which cannot run the other's gate
+// The cross-machine gate: a project on two machines, one of which cannot run the other's gate
 // full. cross_machine_gate is {label, role, exempt?, check?, checks_section} or null / absent (one machine — the
 // skills skip the step). role "request" labels its PRs with shared code and does not merge them; "serve" checks,
 // reports on and merges the labelled PRs, with check. exempt paths are as gh prints PR files: "/" separated, a
@@ -409,7 +410,7 @@ if (profile.cross_machine_gate !== undefined && profile.cross_machine_gate !== n
     if (g.role === "serve" && !text(g.check)) broken(`: role "serve" needs check, the command that checks a labelled PR's branch on this machine`)
 }
 
-// The Pipeline of the project (worfy ADR-0067): the Stages a ticket goes through, built from a fixed catalogue
+// The Pipeline of the project: the Stages a ticket goes through, built from a fixed catalogue
 // of kinds. Each kind has its predicate in code (worfy and the Harness check the same thing); the profile only
 // picks kinds, orders them, renames them (label) and sets when a ticket counts as stuck (stuck_after). check is
 // an agent's mark with a name (check/<name>), deploy may name the GitHub Deployment environment. Rules: queued

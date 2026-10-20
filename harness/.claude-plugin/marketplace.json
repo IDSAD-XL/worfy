@@ -2,7 +2,7 @@
   "name": "worfy-harness",
   "owner": { "name": "worfy" },
   "metadata": {
-    "description": "The local marketplace of the worfy Harness. worfy copies this folder to ~/.claude/worfy-harness/plugin/ and registers it with `claude plugin marketplace add`; the folder is the marketplace and the plugin at once (source \"./\", ADR-0048)."
+    "description": "The local marketplace of the worfy Harness. worfy copies this folder to ~/.claude/worfy-harness/plugin/ and registers it with `claude plugin marketplace add`; the folder is the marketplace and the plugin at once (source \"./\")."
   },
   "plugins": [
     {

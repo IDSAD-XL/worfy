@@ -268,7 +268,7 @@ check "a Full draft into a fresh Harness home is written" 0 '"workflowFolder": n
 check "the fresh Harness home ignores the plugin copy" 0 "!/gate/config.json" cat "$HARNESS_HOME/.gitignore"
 check "bin/profile -C prints full" 0 "full" "$PROFILE" -C "$T/solo" --field mode
 
-# --- only the old registry, ~/.claude/gate/config.json (worfy-windows ticket 59) ---------------
+# --- only the old registry, ~/.claude/gate/config.json ---------------
 # bin/profile reads the old registry while HARNESS_HOME has none. The first Connect writes the new one, which from then
 # on shadows the old: the Projects of the old registry are carried into it, so they stay known. The old file itself is
 # not touched, and its entries count for the checks (a taken key or match).

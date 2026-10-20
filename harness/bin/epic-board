@@ -31,7 +31,8 @@ const opt = (name, def) => {
 const die = m => { process.stderr.write('epic-board: ' + m + '\n'); process.exit(2); };
 const DAYS = Number(opt('--days', 14));
 if (!Number.isFinite(DAYS) || DAYS < 0) die('--days needs a non-negative number');
-// The snapshot is Harness state on this machine: $HARNESS_HOME/state (ADR-0040 item 5).
+// The snapshot is Harness state on this machine: $HARNESS_HOME/state (HARNESS_HOME defaults to
+// ~/.claude/worfy-harness).
 const OUT = opt('--out', path.join(harnessHome(), 'state', 'epic-board.html'));
 const NO_OPEN = argv.includes('--no-open');
 let BASE = 'main';

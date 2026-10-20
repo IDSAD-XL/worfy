@@ -2,7 +2,7 @@
 # Characterization test of harness/bin/epic-status: the «Этап» (stage) line, the --json slice, the
 # --ref reader of a branch's tree, the flags and the exit codes. The expectations were printed by the
 # bash version of origin/main on this fixture; a rewrite of the script must keep every one of them
-# byte for byte (ADR-0055 item 3: the contract of the Harness scripts does not change).
+# byte for byte: a port of a Harness script to another language does not change its contract.
 # Run: bash harness/bin/tests/epic-status.test.sh; exit code 0 — everything passed.
 #
 # The fixture is a temporary git repository with epics in .scratch. The script is started by its

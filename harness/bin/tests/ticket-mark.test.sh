@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of `ticket mark` — an agent's mark (a review verdict, a check) bound to a commit SHA (worfy ADR-0067):
+# Tests of `ticket mark` — an agent's mark (a review verdict, a check) bound to a commit SHA:
 #   Full mode   — a GitHub commit status through `gh api -X POST repos/<owner>/<repo>/statuses/<sha>`;
 #   Silent mode — <HARNESS_HOME>/runs/<project>/marks/<epic>-<NN>.json, and never a call to gh.
 # Everything runs in a temporary HOME and HARNESS_HOME with a registry of temporary repositories; gh is a stub
@@ -96,7 +96,7 @@ tk "$T/r/shop" mark shopfront 02 check/windows skipped --sha "$SHA"; rc=$?
 tk "$T/r/shop" mark shopfront 02 check/windows success --sha "$SHA"; rc=$?
 [ "$rc" -eq 0 ] && grep -q "check/windows success" "$T/out" && ok "full: says which mark it set" || bad "full: output: $(cat "$T/out")"
 [ -z "$(git -C "$T/r/shop" status --porcelain -- . ':!.scratch')" ] && [ ! -e "$HH/runs" ] && ok "full: nothing written into the repository or the Harness home" || bad "full: wrote: $(git -C "$T/r/shop" status --porcelain) $(ls -R "$HH/runs" 2>/dev/null)"
-# The repository of a project of several repositories is the ticket's Repo: line (ADR-0045)
+# The repository of a project of several repositories is the ticket's Repo: line
 tk "$T/r/multi" mark shopfront 03 review success --sha "$OTHER"; rc=$?
 [ "$rc" -eq 0 ] && [[ "$(last_call)" == *"repos/acme/back/statuses/$OTHER"* ]] && ok "full: the Repo: line picks the repository (acme/back)" || bad "full: Repo: line: exit $rc [$(last_call)] $(cat "$T/out")"
 n="$(calls)"

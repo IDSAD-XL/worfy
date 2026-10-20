@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of Silent mode in the Harness scripts (worfy-harness ticket 22): a Silent project keeps its
+# Tests of Silent mode in the Harness scripts: a Silent project keeps its
 # workflow files (tickets, the epic spec, the state file, ADRs) in a Workflow folder outside git, and
 # its branches, commits and PRs carry no trace of the workflow.
 #   - ticket claim --branch writes Status and Branch into the ticket in the Workflow folder, from any
@@ -8,7 +8,7 @@
 #   - bin/silent-check finds every kind of trace, passes clean text and a clean diff, checks nothing
 #     in a Full project;
 #   - a worktree outside the repository (<HARNESS_HOME>/worktrees/<project>/05) is recognised by
-#     profile, gate.mjs and worktree-lock; hooks/worktree-create.sh, kept unregistered for ticket 24, puts
+#     profile, gate.mjs and worktree-lock; hooks/worktree-create.sh, kept unregistered as a draft, puts
 #     a tree there with the profile's worktree.implementer template, and hooks.json does not register it;
 #   - the local finish of local-green (the block cut out of the ship-ticket skill) merges the ticket
 #     branch into main of a temporary repository.
@@ -236,16 +236,16 @@ printf '{"session_id":"s-22","cwd":"%s"}' "$WT" | "$BIN/worktree-lock" claim >/d
 grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \
     && ok "worktree-lock claim in the outside tree writes the lock into HARNESS_HOME" || bad "worktree-lock: $(ls "$HARNESS_HOME" 2>&1)"
 
-# --- 4b. Item 7: hooks/worktree-create.sh, a WorktreeCreate hook kept for ticket 24 and NOT registered -----
-# Owner decision 2026-10-09: hooks.json does not register it, so Claude Code's own worktree creation is untouched.
+# --- 4b. hooks/worktree-create.sh, a WorktreeCreate hook kept as a draft and NOT registered ----------------
+# Decided 2026-10-09: hooks.json does not register it, so Claude Code's own worktree creation is untouched.
 # The script itself is tested here as a unit: for sp it runs the profile's worktree.implementer template (root
-# outside the repository); otherwise it adds <repository>/.claude/worktrees/<name>. The live probes of item 7 ran
-# another script through --settings, not this one through the plugin (ticket 22 result).
+# outside the repository); otherwise it adds <repository>/.claude/worktrees/<name>. The live probes ran
+# another script through --settings, not this one through the plugin.
 WTC="$HOOKS/worktree-create.sh"
 wtc() { printf '{"name":"%s","cwd":"%s","hook_event_name":"WorktreeCreate"}' "$1" "$2" | "$WTC" 2>"$T/wtc.err"; }
-# On Windows the script is not ported (owner decision 2026-10-13): line 65 takes only a /… path as absolute, so
+# On Windows the script is not ported (a decision of 2026-10-13): line 65 takes only a /… path as absolute, so
 # the C:\… root profile prints there lands inside the repository, and pwd -P prints a /tmp/… path native Claude
-# Code cannot use (worfy-windows ticket 04). The cases that create a tree are skipped there; the refusals still run.
+# Code cannot use. The cases that create a tree are skipped there; the refusals still run.
 WTC_SKIP="worktree-create.sh is not ported to Windows (C:\\… root taken as relative, POSIX path printed)"
 if [ "$WIN" -eq 1 ]; then
     echo "skip WorktreeCreate outside, hook tree, repeat: $WTC_SKIP"
@@ -275,7 +275,7 @@ fi
 out="$(wtc agent-c1 "$T")"; rc=$?
 [ "$rc" -ne 0 ] && [ -z "$out" ] && ok "WorktreeCreate outside git: exit $rc, no path" || bad "WorktreeCreate outside git: exit $rc, out: $out"
 jq -e '.hooks | type == "object" and (has("WorktreeCreate") | not) and ([.. | strings | select(contains("worktree-create"))] == [])' "$HOOKS/hooks.json" >/dev/null \
-    && ok "hooks.json registers no WorktreeCreate hook and never runs worktree-create.sh (until ticket 24)" \
+    && ok "hooks.json registers no WorktreeCreate hook and never runs worktree-create.sh" \
     || bad "hooks.json registers WorktreeCreate or worktree-create.sh: $(jq -c '.hooks.WorktreeCreate' "$HOOKS/hooks.json" 2>&1)"
 
 # --- 5. The local finish (local-green): the block of ship-ticket, step 11 ----------------------
@@ -317,7 +317,7 @@ out="$(cd "$R" && CLAUDE_PLUGIN_ROOT="$HARNESS" bash -c "$code" 2>&1)"
 [[ "$out" == *"MERGED=0"* ]] && git -C "$R" merge-base --is-ancestor fix/detached main \
     && ok "main checked out nowhere: the block moves main to the branch" || bad "detached main: ${out:0:300}"
 git -C "$R" checkout -q main
-# parallel: single (the main checkout is on the ticket branch) and no worktree.base — Atakama's settings. The main
+# parallel: single (the main checkout is on the ticket branch) and no worktree.base — the settings of a project of several repositories. The main
 # branch is not the checkout's HEAD: from origin/HEAD, without it from the local main; the ticket branch itself
 # as the main branch is refused.
 P="$HARNESS_HOME/projects/sp/profile.json"; cp "$P" "$T/profile.saved"
