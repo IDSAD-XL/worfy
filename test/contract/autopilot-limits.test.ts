@@ -335,6 +335,13 @@ describe('Autopilot and the Limits on the fake agent', () => {
     expect(continuation).not.toMatch(CYRILLIC)
     expect(continuation).toContain('Limits')
     expect(continuation).toContain(`from ${iso(START_MS)} until ${iso(resumesAt)}`)
+    // The whole instruction, pinned: continue from the stop, record the pause with its start and end.
+    expect(CONTINUE_TEXT).toBe(
+      'Continue from where you stopped. Before you continue, add an entry to HANDOFF about the pause for the Limits: from what time until what time.',
+    )
+    expect(continueText(Date.parse('2026-10-20T04:00:00.000Z'), Date.parse('2026-10-20T07:12:00.000Z'))).toBe(
+      `${CONTINUE_TEXT}\nPause for the Limits: from 2026-10-20T04:00:00.000Z until 2026-10-20T07:12:00.000Z.`,
+    )
     expect(h.messages().filter((text) => text.startsWith(CONTINUE_TEXT))).toHaveLength(1)
     // Between the waits the run was running again: its states go waiting → running → waiting.
     const statuses = h.states.map((state) => state.status).filter((status, i, all) => i === 0 || all[i - 1] !== status)
