@@ -1,7 +1,8 @@
 # 02 — Базовый Browser Node: пункт меню Canvas, адресная строка, `webviewTag` с проверкой `will-attach-webview`
 
 Type: task
-Status: claimed 2026-10-20T02:20Z
+Status: done 2026-10-20T10:17Z
+PR: #576
 Branch: worfy-browser/02
 Blocked by: 01
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 3
@@ -224,3 +225,13 @@ e2e (под замком `/tmp/worfy-e2e.lock`): `browser.spec.ts` 2/2, `browser
 **Не проверено.** Два Browser-а друг на друге и Browser внутри Epic frame (вопрос из Ticket-а 01) — не
 мерились. Второе окно того же Project-а показывает новый адрес в строке, но его страница остаётся,
 где была (`shortcut:` в `BrowserLayer.tsx`). Настоящий trackpad и ввод с клавиатуры руками — нет.
+
+**Проверка и merge.** PR #576: verifier — `VERIFIED` (глубина review low: в профиле нет
+`review.depth.wave`; 88 748 токенов subagent-а), `check/windows` — `skipped` (веток по платформе в diff
+нет). Gate full — в очереди Session «Worfy продолжение» на merge с main `f4aa0909`, зелёный; влит как
+`ae547cc2`.
+
+Consider (low, verifier): проверка подключения не отклоняет `<webview>` с `webSecurity: false`,
+`allowRunningInsecureContent`, Blink features — сейчас не эксплуатируется (Electron 44.5.1 создаёт
+`<webview>` только из main frame renderer-а worfy), исправление — [Ticket 09](09-проверка-webview-отклоняет-незнакомое.md).
+Ответы на вопросы 1, 2, 5 и их код — [Ticket 10](10-ответы-владельца-по-ticket-02.md), ждёт владельца.
