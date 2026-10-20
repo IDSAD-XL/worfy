@@ -1,7 +1,7 @@
 # 58 — `gate.sh` без node пишет marker и verdict на `--help` и неизвестный профиль
 
 Type: bug
-Status: open
+Status: claimed 2026-10-20T20:50Z
 Blocked by: 55
 Source: ревью PR #596 (worfy-harness 55), линза корректности, 2026-10-20 — находка вне diff-а.
 
