@@ -33,8 +33,9 @@ check() {
     shift
     if "$@"; then ok "$name"; else bad "$name"; fi
 }
-# Four cases put a shell-script `git` stub first on PATH: one refuses commit, and three (the stale
-# lock two waiters see) hold their commit until the test lets it go. profile-set starts git by name
+# Six cases put a shell-script `git` stub first on PATH: one refuses commit, and five (the stale
+# lock two waiters see, three of them alone and two with a third writer) hold their commit until the
+# test lets it go. profile-set starts git by name
 # without a shell, and node on Windows starts only a .com or .exe that way, so it skips the stub and
 # runs the real git there. Those cases are skipped on Windows, one line per kind. Off Windows every case runs: a skip that fired there would leave cases out while the
 # file stays green.
@@ -44,6 +45,7 @@ if on_windows; then
     RUN_GIT_STUB=false
     echo "skip the failed-commit case: node on Windows starts no shell stub for git, so the real git commits"
     echo "skip the three stale-lock two-waiters cases: node on Windows starts no shell stub for git, so the commit is not held"
+    echo "skip the two stale-lock third-writer cases: node on Windows starts no shell stub for git, so the commit is not held"
 fi
 # The guard of the above: off Windows (by uname, not by on_windows) the git-stub cases are on.
 case "$(uname -s)" in
@@ -276,6 +278,25 @@ rc=$?
 check "stale lock: exit 0" [ "$rc" -eq 0 ]
 check "stale lock: written" [ "$(field "$PJ")" = "$OTHER" ]
 check "stale lock: no lock folder left" [ ! -e "$LOCKDIR" ]
+# A takeover claims the stale folder with a file made inside it. A fresh claim is another waiter
+# taking the lock over right now: this writer leaves the folder alone and waits, here until exit 6.
+mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && printf 'other-waiter' >"$LOCKDIR/takeover-0"
+touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+cp "$PJ" "$T/pj-before"
+PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err"
+rc=$?
+check "stale lock claimed by another waiter: exit 6" [ "$rc" -eq 6 ]
+check "stale lock claimed by another waiter: profile.json as it was" cmp -s "$PJ" "$T/pj-before"
+check "stale lock claimed by another waiter: the folder and the claim are left alone" [ "$(cat "$LOCKDIR/takeover-0" 2>/dev/null)" = other-waiter ]
+# A claim as old as a stale lock is one a waiter killed during its takeover left: the next claim wins.
+touch -t 202001010000 "$LOCKDIR/takeover-0"
+fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+PROFILE_SET_LOCK_WAIT_MS=300 run "$SET" -C "$T/r/demo" --expect "$fp" --set "$GOOD" >/dev/null 2>"$T/err"
+rc=$?
+check "stale lock with a claim a killed waiter left: exit 0" [ "$rc" -eq 0 ]
+check "stale lock with a claim a killed waiter left: written" [ "$(field "$PJ")" = "$GOOD" ]
+check "stale lock with a claim a killed waiter left: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+rm -rf "$LOCKDIR"
 check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 2>&1)
 
 # A stale lock two waiters see at once. Both judge it stale; one takes it over first and holds it
