@@ -24,8 +24,12 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 1. **Хранилище** — `src/main/browser/profiles.ts` (новый): файл Browser profile-ов в папке данных
    Project-а. Запись: id, имя (роль: «admin», «moderator», «user»), список origin-ов, флажок
    «доступен Autopilot». В репозитории Project-а следов нет (ADR-0005).
-2. **Partition** — `persist:<id Project-а>-<id Browser profile>`: свой для каждого Browser profile,
-   один для всех Browser-ов под ним — куки общие (ADR-0078, п. 5).
+2. **Partition** — `persist:worfy-browser-<hash>-<id Browser profile>`, где `<hash>` — 8 hex из id
+   Project-а, как ввёл Ticket 10 (`src/shared/browser/partition.ts`; id Project-а целиком нельзя —
+   в нём имя папки). Свой для каждого Browser profile, один для всех Browser-ов под ним — куки общие
+   (ADR-0078, п. 5). id Browser profile — только `[a-z0-9-]`: Electron делает из имени partition-а
+   папку. Первый Browser profile имеет id `default`, чтобы вход, сделанный после Ticket-а 10, не
+   пропал (вопрос 5).
 3. **Создать и удалить** — только пользователь, только из UI; у Session такого действия нет.
    Удаление стирает хранилище partition-а (куки и данные сайтов).
 4. **Список origin-ов** — `scheme://host:port`, например `http://localhost:3000`,
@@ -41,7 +45,7 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
    Ticket-е 02: обработчик `session.defaultSession` (`src/main/window.ts:222`) на неё не действует.
 8. **Вход в аккаунт** — пользователь сам, руками в Browser. worfy ничего не вводит и паролей не
    хранит.
-9. **Каналы** — `src/shared/ipc/browser.ts` (новый): список Browser profile-ов — `read` (read-only
+9. **Каналы** — `src/shared/ipc/browser.ts` (файл есть с Ticket-а 11): список Browser profile-ов — `read` (read-only
    экран показывает имя, ADR-0078, п. 14), создать, изменить, удалить — `write`.
 
 ## Готово, когда
@@ -74,7 +78,11 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 
 - `src/main/browser/profiles.ts` (новый)
 - `src/main/browser/attach-policy.ts`
-- `src/shared/ipc/browser.ts` (новый)
+- `src/shared/ipc/browser.ts` (есть с Ticket-а 11: событие `browser.openRequest`; дописать каналы)
+- `src/shared/browser/partition.ts` (`browserPartition`, `browserPartitions`)
+- `src/main/window.ts` (`installWebPolicy`, `guardBrowserSession`), `src/main/index.ts` (список
+  partition-ов для `installWebPolicy`)
+- `src/renderer/canvas/nodes/browser-frame.ts` (id Browser profile в `data` Node-а)
 - `src/main/ipc/browser.ts` (новый; регистрация — как остальные в `registerIpc`,
   `src/main/ipc/index.ts:172`)
 - `src/renderer/canvas/nodes/BrowserNode.tsx`
@@ -104,6 +112,10 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
    ADR не решает.
 4. **Переименование Browser profile** — разрешено ли (partition от id, не от имени) — ADR не
    говорит. Предложение: да.
+5. **Browser profile `default`** (добавлен после Ticket-ов 10 и 11). Ticket 10 открывает все Browser-ы
+   Project-а на partition-е `…-default`. Как он называется, создаётся ли сам при первом открытии,
+   можно ли его удалить. Предложение: создаётся сам при первом чтении пустого списка с именем
+   «Default», переименовать и удалить можно, как любой другой.
 
 ## Итог
 
