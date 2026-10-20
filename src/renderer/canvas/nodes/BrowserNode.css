@@ -91,6 +91,7 @@
    only the header takes it: a press there selects and drags the frame as on any Node. React Flow
    sets `pointer-events: all` on the wrapper as an inline style, hence !important. */
 .w-browser-frame__body {
+  position: relative;
   flex: 1;
   min-height: 0;
 }
@@ -103,6 +104,68 @@
 }
 .w-browser-frame__header {
   pointer-events: all;
+}
+
+/* The Open bar (worfy-browser ticket 11): over the top of the page, right under the header, the
+   colours of the header. It takes the mouse, unlike the rest of the body. */
+.w-browser-frame__open-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 28px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-control);
+  color: var(--text);
+  font-size: var(--text-12);
+  white-space: nowrap;
+  pointer-events: all;
+}
+.w-browser-frame__open-label {
+  flex: none;
+  color: var(--text-secondary);
+}
+/* The address, cut in the middle: the head gives way with an ellipsis, the tail stays whole. */
+.w-browser-frame__open-url {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.w-browser-frame__open-url-head {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.w-browser-frame__open-url-tail {
+  flex: none;
+}
+.w-browser-frame__open-button {
+  flex: none;
+  margin-left: auto;
+  height: 20px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: default;
+}
+.w-browser-frame__open-button:hover {
+  border-color: var(--border-strong);
+}
+.w-browser-frame__open-button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.w-browser-frame__open-bar .w-browser-frame__nav-button {
+  flex: none;
 }
 
 /* The layer: under every Node inside the viewport's stacking context (React Flow's viewport has a

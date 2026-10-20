@@ -44,7 +44,7 @@ const NO_REPO = 'не проверено: нет E3_SILENT_REPO (пустой pr
 const REPO_NOT_EMPTY = 'is not empty: this run pushes its own main there. The owner deletes it and makes it again, empty and private, or names another empty repository in E3_SILENT_REPO'
 const WAVE_TIMEOUT_MS = 90 * 60_000
 /** The checks of the first-run screen (Q22), in the order the screen shows them. */
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 /** Files of the workflow that must never reach a Silent Project's repository. */
 const WORKFLOW_FILES = [/(^|\/)\.scratch(\/|$)/, /(^|\/)HANDOFF(\.md)?$/i, /(^|\/)docs\/adr\//, /(^|\/)adr\/\d{4}-/, /(^|\/)CONTEXT\.md$/, /(^|\/)lessons\//]
 /**

@@ -133,7 +133,7 @@ function deps(env: Record<string, string>, overrides: Partial<CheckDeps> = {}): 
     system: { platform: 'darwin', release: '24.6.0', arch: 'arm64' },
     // The tools still start as on this machine: on Windows a `.cmd` stand-in is found and run the
     // way toolStart does it there, not by its bare name as on the Mac the rows describe.
-    ...(WINDOWS ? { probes: { run: (name: string, args: readonly string[], env: Record<string, string | undefined>, ms: number) => runTool(name, args, env, ms) } } : {}),
+    ...(WINDOWS ? { probes: { run: (name: string, args: readonly string[], env: Record<string, string | undefined>, ms: number, cwd?: string) => runTool(name, args, env, ms, { cwd }) } } : {}),
     ...overrides,
   }
 }
@@ -170,6 +170,7 @@ describe('first-run checks', () => {
       ['Claude Code', 'claude-login'],
       ['Claude Code', 'claude-version'],
       ['Command-line tools', 'git'],
+      ['Command-line tools', 'git-identity'],
       ['Command-line tools', 'gh'],
       ['Command-line tools', 'node'],
       ['Command-line tools', 'jq'],
@@ -182,7 +183,7 @@ describe('first-run checks', () => {
       ['qmd', 'qmd-models'],
       ['qmd', 'qmd-collections'],
     ])
-    expect(statuses(report)).toMatchObject({ 'claude-login': 'ok', 'claude-version': 'ok', git: 'ok', gh: 'ok', node: 'ok', jq: 'ok', 'gh-auth': 'ok', 'legacy-harness': 'ok' })
+    expect(statuses(report)).toMatchObject({ 'claude-login': 'ok', 'claude-version': 'ok', git: 'ok', 'git-identity': 'ok', gh: 'ok', node: 'ok', jq: 'ok', 'gh-auth': 'ok', 'legacy-harness': 'ok' })
     expect(checkOf(report, 'gh-auth').detail).toContain('alice')
   })
 
@@ -252,6 +253,66 @@ describe('first-run checks', () => {
     expect(accounts.command).toBe('gh auth login')
     expect(accounts.actions.map((action) => action.id)).toEqual(['gh-login'])
     expect(statuses(report)).toEqual({ ...before, 'gh-auth': 'fail' })
+  })
+
+  it('git identity: both values set — ok with the name and the address', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_GIT_USER_NAME: 'Alice Doe', FAKE_GIT_USER_EMAIL: 'alice@example.com' })))
+    expect(checkOf(report, 'git-identity')).toMatchObject({ status: 'ok', detail: 'Alice Doe <alice@example.com>', command: null })
+  })
+
+  it('git identity: user.email not set (git config --get exits 1) — a warning with both git config --global commands, nothing else changes', async () => {
+    const before = await baseline()
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_GIT_USER_EMAIL: '' })))
+    const identity = checkOf(report, 'git-identity')
+    expect(identity.status).toBe('warn')
+    expect(identity.detail).toBe('user.email not set')
+    expect(identity.command).toContain('git config --global user.name ')
+    expect(identity.command).toContain('git config --global user.email ')
+    expect(statuses(report)).toEqual({ ...before, 'git-identity': 'warn' })
+    // Neither value set: the row names both.
+    const neither = await runChecks(deps(loginEnv({ FAKE_GIT_USER_NAME: '', FAKE_GIT_USER_EMAIL: '' })))
+    expect(checkOf(neither, 'git-identity')).toMatchObject({ status: 'warn', detail: 'user.name and user.email not set' })
+  })
+
+  it('git identity is asked outside any repository: git config runs in the temporary folder, not in worfy\'s folder', async () => {
+    tools(...ALL_TOOLS)
+    const cwdLog = join(root, 'git-cwd.log')
+    await runChecks(deps(loginEnv({ FAKE_GIT_CWD_LOG: cwdLog })))
+    const folders = readFileSync(cwdLog, 'utf8').trim().split('\n')
+    expect(folders).toEqual([realpathSync(tmpdir()), realpathSync(tmpdir())])
+    expect(calls().filter((line) => line.startsWith('git config'))).toEqual(expect.arrayContaining(['git config --get user.name', 'git config --get user.email']))
+  })
+
+  it('git identity: git config fails with another exit code (a broken config file) — a warning with git\'s own words', async () => {
+    tools(...ALL_TOOLS)
+    const report = await runChecks(deps(loginEnv({ FAKE_GIT_CONFIG_FAIL: 'fatal: bad config line 1 in file /home/.gitconfig' })))
+    expect(checkOf(report, 'git-identity')).toMatchObject({
+      status: 'warn',
+      detail: 'git config failed: fatal: bad config line 1 in file /home/.gitconfig',
+      hint: 'Check your git config, then set the commit author',
+    })
+    expect(checkOf(report, 'git-identity').command).toContain('git config --global user.email ')
+  })
+
+  it('git identity with the temporary folder gone: git is still asked, not reported missing', async () => {
+    tools(...ALL_TOOLS)
+    const gone = join(root, 'no-such-tmp')
+    // os.tmpdir() reads TMPDIR on macOS and Linux, TEMP and TMP on Windows.
+    for (const name of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(name, gone)
+    try {
+      const report = await runChecks(deps(loginEnv()))
+      expect(checkOf(report, 'git-identity')).toMatchObject({ status: 'ok', detail: 'Alice <alice@example.com>' })
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('without git: git identity warns that git is not installed', async () => {
+    tools('claude', 'gh', 'node', 'jq', 'npm')
+    const report = await runChecks(deps(loginEnv()))
+    expect(checkOf(report, 'git-identity')).toMatchObject({ status: 'warn', detail: 'git is not installed' })
   })
 
   it('without git or gh: each fails with its own `brew install`', async () => {

@@ -14,7 +14,7 @@
 // copy, and some cases here start a worfy.exe.
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, delimiter, dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
@@ -43,6 +43,31 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
     expect(noBuild.stderr).toContain(`install-stable: ${empty} does not look like a built worfy: there is no ${WINDOWS ? 'worfy.exe' : join('Contents', 'Info.plist')} in it`)
     expect(existsSync(target)).toBe(false)
     expect(readdirSync(join(dir, 'apps'))).toEqual([])
+  }, 60_000)
+
+  // `pnpm install` can leave node_modules/electron/dist empty (2026-10-19), and electron-builder then
+  // fails late with "electronDist does not exist". The script says what to run before it builds.
+  it('refuses to build when the Electron of node_modules/electron is not there, names the command that downloads it, and starts no build', () => {
+    // A copy of the script in a repository of its own: its electron package has neither dist nor path.txt.
+    const repo = join(dir, 'repo')
+    mkdirSync(join(repo, 'scripts'), { recursive: true })
+    mkdirSync(join(repo, 'node_modules', 'electron'), { recursive: true })
+    const script = join(repo, 'scripts', 'install-stable.mjs')
+    copyFileSync(join(REPO, 'scripts', 'install-stable.mjs'), script)
+    // A stand-in pnpm first on PATH that leaves a file when it is started: a build that ran is seen.
+    const bin = join(dir, 'bin')
+    const started = join(dir, 'pnpm-started')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'pnpm'), `#!/bin/sh\necho started > '${started}'\nexit 1\n`)
+    chmodSync(join(bin, 'pnpm'), 0o755)
+    writeFileSync(join(bin, 'pnpm.cmd'), `@echo started> "${started}"\r\n@exit /b 1\r\n`)
+    const target = targetIn('apps', 'worfy-stable')
+    const result = run([target], { WORFY_STABLE_PREBUILT: '', PATH: `${bin}${delimiter}${process.env.PATH ?? ''}` }, script)
+    expect(result.status, result.stderr).toBe(1)
+    expect(result.stderr).toContain(`install-stable: the Electron that pnpm package packs is not in ${join(repo, 'node_modules', 'electron', 'dist')}`)
+    expect(result.stderr).toContain(`Run \`node node_modules/electron/install.js\` in ${repo}, then run this again.`)
+    expect(existsSync(started)).toBe(false)
+    expect(existsSync(target)).toBe(false)
   }, 60_000)
 
   // A whole install copies with ditto on macOS and with Node on Windows; Linux has neither system's copy.

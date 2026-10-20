@@ -1,6 +1,6 @@
 // The `firstRun` domain (worfy-harness ticket 19, question Q22 of the epic): the first-run screen.
 // main checks the machine — the Claude Code sign-in, `claude --version` against the version this
-// build carries, git, gh and its accounts, node 22 or newer, jq, the Harness plugin and the plugins
+// build carries, git and the commit author it knows, gh and its accounts, node 22 or newer, jq, the Harness plugin and the plugins
 // it depends on, the old Harness in ~/.claude, qmd and its models; on Windows also Git Bash, the Windows
 // build and architecture, PowerShell and the Limits bridge in statusLine — and runs an action only after the user pressed "Confirm" in
 // the dialog that names what it will do. Checks read only; they run in the login shell environment
@@ -22,6 +22,8 @@ export const checkIdSchema = z.enum([
   'arch',
   'powershell',
   'git',
+  // The commit author git knows outside any repository (worfy-harness ticket 42).
+  'git-identity',
   'git-bash',
   'gh',
   'node',

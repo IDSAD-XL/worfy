@@ -35,7 +35,7 @@
 // that decide by the system take it as a parameter (test/unit/install-stable-functions.test.ts).
 
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, posix, win32 } from 'node:path'
 import process from 'node:process'
@@ -202,8 +202,35 @@ export function buildCommand(platform) {
   return platform === 'win32' ? { command: 'pnpm package', args: [], shell: true } : { command: 'pnpm', args: ['package'], shell: false }
 }
 
-/** Builds the app in the repository; throws when the build cannot run or fails. */
+/** The command that downloads the Electron of `node_modules/electron` again. */
+export const ELECTRON_INSTALL = 'node node_modules/electron/install.js'
+
+/**
+ * Why the Electron that `pnpm package` packs is not there, or null when it is. electron-builder.yml
+ * takes it from node_modules/electron/dist (electronDist), and the postinstall of the electron
+ * package downloads it there: install.js extracts the build into dist and, last, writes path.txt
+ * with the path of the program inside dist. A postinstall that did not download it (several
+ * installs at once, 2026-10-19) leaves dist empty or missing and no path.txt, and electron-builder
+ * fails late with "electronDist does not exist". `exists` says whether a path is there, `read`
+ * reads a text file. On Windows path.txt says electron.exe; on macOS
+ * Electron.app/Contents/MacOS/Electron.
+ */
+export function electronMissing(platform, repo, exists = existsSync, read = (file) => readFileSync(file, 'utf8')) {
+  const rules = rulesOf(platform)
+  const electron = rules.join(repo, 'node_modules', 'electron')
+  if (!exists(electron)) return `${electron} is not there: run pnpm install in ${repo}, then run this again.`
+  // install.js writes path.txt last: with none, the download did not finish.
+  const pathTxt = rules.join(electron, 'path.txt')
+  const program = exists(pathTxt) ? read(pathTxt).trim() : ''
+  if (program !== '' && exists(rules.join(electron, 'dist', program))) return null
+  return `the Electron that pnpm package packs is not in ${rules.join(electron, 'dist')}: its download after pnpm install did not finish. Run \`${ELECTRON_INSTALL}\` in ${repo}, then run this again.`
+}
+
+/** Builds the app in the repository; throws when Electron is missing, or the build cannot run or fails. */
 function packageApp(platform, repo) {
+  // Before the build, which takes minutes and ends on this with a less clear message.
+  const missing = electronMissing(platform, repo)
+  if (missing !== null) fail(missing)
   const { command, args, shell } = buildCommand(platform)
   const built = spawnSync(command, args, { cwd: repo, stdio: 'inherit', shell })
   if (built.error) fail(`could not run pnpm package: ${built.error.message}`)

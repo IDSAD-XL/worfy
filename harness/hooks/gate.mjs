@@ -25,7 +25,8 @@
 //   0 — green, «nothing ran», «not verified — environment
 //       unavailable» (the unverified marker) or a directory outside git — they are told apart by
 //       the «[gate] …» line, not by the code;
-//   2 — red (TaskCompleted / TeammateIdle do not let the work finish on this code);
+//   2 — red (TaskCompleted / TeammateIdle do not let the work finish on this code); also an
+//       unknown profile (see "The profile argument" below), which writes nothing;
 //   3 — not verified: neither green nor red. The line «[gate] not verified: …»
 //       names the reason: the project is not registered in gate/config.json; the registry
 //       cannot be read or the resolver crashed; node was not found (that one is said by
@@ -134,6 +135,16 @@
 // Child processes get the PATH of this process plus the folder of the node that runs the gate
 // and PNPM_HOME when it is set.
 
+// The profile argument. `node gate.mjs [<profile>]`, `fast` when none is given. A profile is known
+// when it is `fast` or `full` (the hooks and the skills run these two, and a project whose registry
+// entry has no scripts for them answers "nothing ran") or a key of `root` or `workspace` in
+// some entry of the gate registry. `--help` and `-h` print the usage and exit with 0; any other
+// unknown profile — an option such as `--verbose` among them — prints the usage on stderr and exits
+// with 2. Both happen before the run starts: no folder, verdict file, marker or cache entry is made
+// or removed. Before this check a `--help` ran as a profile of that name and wrote a verdict file
+// `none` into the state folder of whoever ran it. A registry that cannot be read leaves the name to
+// the run, which reports that registry as it always has (code 3).
+
 import { spawn, spawnSync } from "node:child_process"
 import crypto from "node:crypto"
 import fs from "node:fs"
@@ -145,10 +156,19 @@ import { endedBySignal, gateConfigFile, gateStateDir, repositoryRoot, worktreeRo
 import { git as GIT } from "./eval-env.cjs"
 
 const WINDOWS = process.platform === "win32"
+const USAGE = "usage: node gate.mjs [<profile>]   profile: fast (the default), full, or a key of root or workspace in the gate registry\n"
+if (process.argv[2] === "--help" || process.argv[2] === "-h") {
+    process.stdout.write(USAGE)
+    process.exit(0)
+}
 const PROFILE = process.argv[2] || "fast"
 // The scripts next to this one: the folder of its real file, not of a symlink to it.
 const HERE = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))
 const CONFIG = gateConfigFile()
+if (!knownProfile(PROFILE, CONFIG)) {
+    process.stderr.write(`[gate] unknown profile: ${PROFILE}\n${USAGE}`)
+    process.exit(2)
+}
 process.env.CLAUDE_GATE_CONFIG = CONFIG // the resolver reads the same registry
 const STATE = gateStateDir()
 const CACHE = path.join(STATE, "cache")
@@ -721,6 +741,21 @@ const UNVERIFIABLE = new RegExp(
 // An environment line can also turn up in the stack trace of a real test failure.
 // The sign of a live run matters more: if the tests reported, it is a failure, not the environment.
 const REAL_FAILURE = /Tests?[ \t]+[0-9]+[ \t]+(failed|passed)|^ *FAIL |AssertionError|✗|Expected .* to/
+
+// Whether `name` is a profile the gate can run (see "The profile argument" above). A registry that
+// cannot be read or has no `repos` list says nothing against the name: the run reports it.
+function knownProfile(name, config) {
+    if (name === "fast" || name === "full") return true
+    let repos
+    try {
+        repos = JSON.parse(fs.readFileSync(config, "utf8"))?.repos
+    } catch {
+        return true
+    }
+    if (!Array.isArray(repos)) return true
+    const has = (table) => table !== null && typeof table === "object" && Object.hasOwn(table, name)
+    return repos.some((entry) => entry !== null && typeof entry === "object" && (has(entry.root) || has(entry.workspace)))
+}
 
 // --- the run --------------------------------------------------------------------------------
 async function main() {
