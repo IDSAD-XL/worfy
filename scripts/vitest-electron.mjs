@@ -15,6 +15,8 @@
 // and CI read only the exit code, and a run cut short with code 0 — a worker that hung and was
 // closed, Electron started as a GUI app — would otherwise read as green. The stdout of vitest is
 // therefore piped through this script and copied out as it arrives; its stderr is not touched.
+// A pipe is not a TTY, so in a terminal vitest's live progress line gives way to plain lines. The
+// verdict waits for stdout to close, so a process that inherited vitest's stdout can delay the exit.
 // Invocations that print no summary by design (--help, --version, a reporter such as json alone)
 // are not checked.
 

@@ -6,7 +6,8 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, write
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { removeTestTree } from '../remove'
 
 const REPO = join(__dirname, '..', '..')
 const SCRIPT = join(REPO, 'scripts', 'vitest-electron.mjs')
@@ -20,22 +21,17 @@ describe('scripts/vitest-electron.mjs', () => {
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1)
   }, 120_000)
 
-  it('passes the exit code of vitest on: a green file exits 0', () => {
+  it('passes the exit code of vitest on: a green file exits 0 and prints the summary', () => {
     const result = run('test/contract/postinstall.test.ts')
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
+    expect(stripVTControlCharacters(result.stdout)).toMatch(/^\s*Test Files\s+\d+ passed/m)
+    expect(result.stderr).not.toContain(NO_SUMMARY)
   }, 120_000)
 
   it('is the test script of package.json', () => {
     const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
     expect(pkg.scripts.test).toBe('node scripts/vitest-electron.mjs')
   })
-
-  it('prints the summary of a real green run and still exits 0', () => {
-    const result = run('test/contract/postinstall.test.ts')
-    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
-    expect(stripVTControlCharacters(result.stdout)).toMatch(/^\s*Test Files\s+\d+ passed/m)
-    expect(result.stderr).not.toContain(NO_SUMMARY)
-  }, 120_000)
 })
 
 // A copy of the wrapper next to a stand-in vitest: a run that exits 0 but never printed vitest's
@@ -68,6 +64,13 @@ if (mode === 'summary-then-hang-notice') {
   out('Tests closed successfully but something prevents 2 Vite servers from exiting\\n')
   process.exit(0)
 }
+// Half a summary, or lines that only mention its words, is not a summary.
+const NOTICE = 'Tests closed successfully but something prevents 2 Vite servers from exiting\\n'
+if (mode === 'notice-only') { out(NOTICE); process.exit(0) }
+if (mode === 'test-files-and-notice') { out(' Test Files  1 passed (1)\\n' + NOTICE); process.exit(0) }
+if (mode === 'test-files-only') { out(' Test Files  1 passed (1)\\n'); process.exit(0) }
+if (mode === 'tests-only') { out('      Tests  1 passed (1)\\n'); process.exit(0) }
+if (mode === 'tests-and-test-files-mention') { out(' ✓ test/a.test.ts > Test Files are listed\\n      Tests  1 passed (1)\\n'); process.exit(0) }
 `
 
 let standInRepo = ''
@@ -81,6 +84,7 @@ beforeAll(() => {
   writeFileSync(join(standInRepo, 'node_modules', 'electron', 'package.json'), '{"name":"electron","main":"index.js"}')
   writeFileSync(join(standInRepo, 'node_modules', 'electron', 'index.js'), 'module.exports = process.execPath\n')
 })
+afterAll(() => removeTestTree(standInRepo))
 
 const runStandIn = (mode: string, ...args: string[]) =>
   spawnSync(process.execPath, [join(standInRepo, 'scripts', 'vitest-electron.mjs'), ...args], {
@@ -99,6 +103,7 @@ describe('scripts/vitest-electron.mjs with a stand-in vitest', () => {
 
   it('a -- that is not the first argument is passed on as it is', () => {
     const result = runStandIn('summary', '--project', 'node', '--', 'x')
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0)
     expect(result.stdout).toContain('ARGS ["run","--project","node","--","x"]')
   })
 
@@ -159,7 +164,16 @@ describe('scripts/vitest-electron.mjs with a stand-in vitest', () => {
     },
   )
 
-  it.each([['--reporter=verbose'], ['--reporter', 'dot'], ['--reporter=default', '--reporter=json']])(
+  it.each([['notice-only'], ['test-files-and-notice'], ['test-files-only'], ['tests-only'], ['tests-and-test-files-mention']])(
+    'half a summary, or a line that only mentions its words, is no summary: %s exits 1',
+    (mode: string) => {
+      const result = runStandIn(mode)
+      expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(1)
+      expect(result.stderr).toContain(NO_SUMMARY)
+    },
+  )
+
+  it.each([['--reporter=verbose'], ['--reporter', 'dot'], ['--reporter=tree'], ['--reporter=default', '--reporter=json']])(
     'a reporter that prints the summary is still checked: %s',
     (...args: string[]) => {
       const result = runStandIn('no-summary', ...args)
