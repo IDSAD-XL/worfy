@@ -2,7 +2,7 @@
 
 ## Сейчас в работе
 
-- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 42/56; в работе 36, 41; 56 — test `github-prs` без login shell; 29, 52 — платные eval, только владелец.
+- `worfy-harness` (E3, plugin worfy; [spec](.scratch/worfy-harness/spec.md)): `epic-status` — 43/59; в работе 31, 36, 41, 48, 55; 56 — test `github-prs`; 58 ждёт 55; 59 — замок `profile-set`; 29, 52 — платные eval, только владелец.
 - `worfy-week` (неделя работы владельца из worfy; [spec](.scratch/worfy-week/spec.md)): влиты 20 из 20 (20 — PR #345; 14, перетаскивание без фризов, — PR #429). Проверка 14 на Stable copy и судьба ветки `wip/worfy-week-14` — за владельцем.
 - Stable copy и plugin `worfy` — `0.3.0+e8784a2f` (2026-10-15). Откат машины на plugin — «Итог» `worfy-harness` 16.
 - `worfy-link` (Project ведётся с другой Machine по LAN; [spec](.scratch/worfy-link/spec.md)): влиты 01–15, 17–26; приёмка 16; 32 закрыт (#508). Вне LAN через Tailscale (ADR-0070) — 27–31, код после очереди `worfy-windows`.
@@ -25,7 +25,7 @@
 
 - `wave-gate` на Mac краснит typecheck в своём дереве: до `worfy-throughput` 07 — merge-once.
 - Вход в песочнице приёмки открывает `claude plugin validate` и живые проверки `worfy-harness` 05–08.
-- Песочница приёмки лежит в `$TMPDIR`, macOS удаляет файлы без обращений три дня. Исправление — `worfy-harness` 36; после merge владелец переносит песочницу командой `move` (команды — в PR).
+- Песочница приёмки в `$TMPDIR`: macOS чистит файлы через три дня без обращений. Исправление — `worfy-harness` 36; после merge владелец запускает `move` (команды — в PR).
 - Приёмка `worfy-link` 16 (Bonjour, запрос Local Network из 02) — код готов. Tailscale на Mac и ПК ставит владелец (ADR-0070, Ticket 31).
 - Одной сессией после `worfy-terminal-ai` 09 — проверки только для владельца: знак worfy в Dock и Finder (`worfy-daily` 31), щелчок по баннеру с выключенным Focus (`worfy-mvp` 21), запрос разрешения на уведомления (`worfy-daily` 03), трекпад в Terminal (`worfy-daily` 13), fish (`worfy-mvp` 06).
 - На экране висят неотвеченные системные окна: Automation «"claude" wants access to control "Finder"» и `universalAccessAuthWarn` о Screen Recording (`worfy-daily` 03 и 31, «Ручная проверка 2026-10-07»).
