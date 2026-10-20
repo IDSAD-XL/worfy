@@ -168,7 +168,7 @@ ADR-0074 и термин User personalization — этот PR. Первым — 
 после 02: 02 переписывает те же тексты skills и agents. 04 — после 03: оба правят `epic-wave` и
 `overnight-fix-loop`. 06 — после 01: оба правят `harness/bin/profile` и `harness/profiles/README.md`. 07 —
 последним, после 03–06: тогда правилу lint не нужны исключения для протокола. 08 — после следующего
-релиза и после 07.
+релиза и после 07. 10 (из ревью 07) — после 07: убирает временный список русских подстановок Profile из правила lint.
 
 ## Волны
 
@@ -187,6 +187,7 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 06 | `harness/bin/profile`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json`, `harness/bin/tests/profile.test.sh`, `scripts/check-handoff.mjs`, `scripts/check-lessons.mjs`, `scripts/doc-headings.json`, `src/main/workflow/reader.ts`, `src/main/workflow/profile.ts`, `src/shared/workflow/manual-checks.ts`, `src/main/docs/watch.ts`, `test/unit/check-handoff.test.ts`, `test/unit/check-lessons.test.ts`, `test/unit/manual-checks.test.ts`, `test/contract/workflow-reader.test.ts`, `test/contract/docs.test.ts` | 3 |
 | 07 | `eslint.config.js`, `package.json`, `scripts/check-cyrillic.mjs`, `test/unit/check-cyrillic.test.ts`, `src/**` (комментарии), `scripts/**` (комментарии и сообщения), `test/**` вне `test/fixtures/` (комментарии), `harness/**` (комментарии), `src/main/workflow/waits-notify.ts` | 5 |
 | 08 | `src/shared/agent/status-block.ts`, `src/main/gate/state.ts`, `harness/bin/wave-gate`, `harness/bin/profile`, `harness/skills/epic-wave/SKILL.md`, `src/shared/projects/action-templates.ts`, `harness/hooks/session-start.mjs`, `eslint.config.js`, `scripts/check-cyrillic.mjs`, их test-ы и все места с пометкой `remove after the next release (worfy-neutral 08)` | 6 |
+| 10 | `harness/hooks/worktree-create.sh`, `harness/bin/profile`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json`, `harness/agents/implementer.md`, `harness/agents/reviewer.md`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/connect-project/SKILL.md`, `harness/skills/max-review/SKILL.md`, `harness/bin/TICKETS.md`, `harness/evals/lib/demo-project.sh`, `harness/bin/tests/profile.test.sh`, `harness/bin/tests/agents-text.test.sh`, `scripts/check-cyrillic.mjs` | 6 |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
