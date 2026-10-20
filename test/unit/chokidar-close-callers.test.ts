@@ -2,10 +2,21 @@
 // by its own close() (worfy-windows tickets 75 and 76): chokidar 5.0.0 can open a closed watch again,
 // and on Windows such a watch of a removed folder took a whole processor core until worfy quit.
 //
-// The search asks the TypeScript type checker, not a pattern: a call `<x>.close()` is reported when
-// the type of `<x>` is chokidar's FSWatcher (or a union with it), whatever the variable is called and
-// however it got there. The close() of LinkSafeWatch, of Node's own fs.watch, of a file handle or of
-// any other object is not chokidar's and is left alone; a CardsWatch that wraps closeForGood is too.
+// The search asks the TypeScript type checker, not a pattern, so the name of a variable and the way
+// it got its value do not matter. Two rules, both on values whose type is chokidar's FSWatcher (or a
+// union with it):
+// - its `close` is not reached: `<x>.close`, `<x>['close']`, `const { close } = <x>` (and so
+//   `<x>.close()` and `<x>.close.call(…)`);
+// - it does not leave as a value of another type: where the checker knows the type a place expects
+//   (an argument, the right side of an assignment, a variable with a type, a return, a property of an
+//   object literal), that type is chokidar's FSWatcher too. `map.set(id, watcher)` into a
+//   `Map<string, { close }>`, an argument of a `{ close(): … }` parameter or of a generic one, or
+//   `return watcher` as `{ close }` would let some other code call its close().
+// Only closeForGood itself may do either: it is the one place a chokidar watch is closed.
+// The close() of LinkSafeWatch, of Node's own fs.watch, of a file handle or of any other object is not
+// chokidar's and is left alone; a CardsWatch that wraps closeForGood is too.
+//
+// Not covered: a value cast with `as`, or passed through `any`; there the checker loses the type.
 import { join, relative, sep } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
@@ -15,9 +26,8 @@ const REPO = join(import.meta.dirname, '..', '..')
 const MAIN = join(REPO, 'src', 'main') + sep
 const HELPER = 'src/main/chokidar-close.ts'
 
-/** Whether a type is chokidar's FSWatcher, or a union that holds it. */
-function isChokidarWatcher(type: ts.Type): boolean {
-  if (type.isUnion()) return type.types.some(isChokidarWatcher)
+/** Whether a type is chokidar's FSWatcher itself. */
+function isFsWatcher(type: ts.Type): boolean {
   const symbol = type.getSymbol() ?? type.aliasSymbol
   return (
     symbol?.getName() === 'FSWatcher' &&
@@ -25,8 +35,25 @@ function isChokidarWatcher(type: ts.Type): boolean {
   )
 }
 
-/** Every `<x>.close(...)` in src/main whose `<x>` is a chokidar watch, as `file:line`. */
-function chokidarCloses(): string[] {
+/** Whether a type is chokidar's FSWatcher, or a union that holds it. */
+function holdsChokidarWatcher(type: ts.Type): boolean {
+  return type.isUnion() ? type.types.some(isFsWatcher) : isFsWatcher(type)
+}
+
+/** Whether a place that expects this type keeps a chokidar watch one: FSWatcher, maybe with null or undefined. */
+function keepsChokidarWatcher(type: ts.Type): boolean {
+  const members = type.isUnion() ? type.types : [type]
+  const some = members.filter((member) => !(member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void)))
+  return some.length > 0 && some.every(isFsWatcher)
+}
+
+interface Found {
+  at: string
+  what: string
+}
+
+/** Every place in src/main that reaches the close of a chokidar watch, or lets one leave as another type. */
+function chokidarEscapes(): Found[] {
   const configPath = join(REPO, 'tsconfig.node.json')
   const parsed = ts.getParsedCommandLineOfConfigFile(configPath, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: (diagnostic) => {
     throw new Error(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
@@ -35,29 +62,45 @@ function chokidarCloses(): string[] {
   const files = parsed.fileNames.filter((file) => join(file).startsWith(MAIN))
   const program = ts.createProgram({ rootNames: files, options: { ...parsed.options, noEmit: true } })
   const checker = program.getTypeChecker()
-  const found: string[] = []
+  const isChokidar = (node: ts.Node): boolean => holdsChokidarWatcher(checker.getTypeAtLocation(node))
+  const found: Found[] = []
   for (const source of program.getSourceFiles()) {
     if (!join(source.fileName).startsWith(MAIN)) continue
+    const file = relative(REPO, source.fileName).split(sep).join('/')
+    const report = (node: ts.Node, what: string): void => {
+      const { line } = source.getLineAndCharacterOfPosition(node.getStart())
+      found.push({ at: `${file}:${line + 1}`, what })
+    }
     const visit = (node: ts.Node): void => {
-      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'close') {
-        if (isChokidarWatcher(checker.getTypeAtLocation(node.expression.expression))) {
-          const { line } = source.getLineAndCharacterOfPosition(node.getStart())
-          found.push(`${relative(REPO, source.fileName).split(sep).join('/')}:${line + 1}`)
-        }
+      if (ts.isPropertyAccessExpression(node) && node.name.text === 'close' && isChokidar(node.expression)) report(node, 'close')
+      if (ts.isElementAccessExpression(node) && ts.isStringLiteralLike(node.argumentExpression) && node.argumentExpression.text === 'close' && isChokidar(node.expression)) {
+        report(node, 'close')
+      }
+      if (ts.isObjectBindingPattern(node) && node.elements.some((element) => (element.propertyName ?? element.name).getText(source) === 'close') && isChokidar(node)) {
+        report(node, 'close')
+      }
+      if (ts.isExpression(node) && !ts.isParenthesizedExpression(node.parent) && isChokidar(node)) {
+        const expected = checker.getContextualType(node)
+        // The argument of closeForGood is the one place a chokidar watch goes to be closed.
+        const toHelper = ts.isCallExpression(node.parent) && ts.isIdentifier(node.parent.expression) && node.parent.expression.text === 'closeForGood'
+        // A place that expects void drops the value: `(done) => watcher.once('ready', …)` as the
+        // executor of a Promise returns the watch, and nobody gets it.
+        const drops = expected !== undefined && (expected.flags & ts.TypeFlags.Void) !== 0
+        if (expected && !toHelper && !drops && !keepsChokidarWatcher(expected)) report(node, `leaves as ${checker.typeToString(expected)}`)
       }
       ts.forEachChild(node, visit)
     }
     visit(source)
   }
-  return found.sort()
+  return found.sort((a, b) => a.at.localeCompare(b.at))
 }
 
 describe('chokidar watches in src/main are closed only through closeForGood', () => {
-  it('the only close() of a chokidar FSWatcher in src/main is the one inside closeForGood', () => {
-    const closes = chokidarCloses()
+  it('no code but closeForGood reaches the close of a chokidar FSWatcher or lets one leave as another type', () => {
+    const found = chokidarEscapes()
     // The helper's own close() is found: the search sees a chokidar watch where there is one.
-    expect(closes.filter((at) => at.startsWith(`${HELPER}:`))).toHaveLength(1)
-    expect(closes.filter((at) => !at.startsWith(`${HELPER}:`)), 'close these through closeForGood (src/main/chokidar-close.ts)').toEqual([])
+    expect(found.filter(({ at }) => at.startsWith(`${HELPER}:`))).toEqual([expect.objectContaining({ what: 'close' })])
+    expect(found.filter(({ at }) => !at.startsWith(`${HELPER}:`)).map(({ at, what }) => `${at} ${what}`), 'close these through closeForGood (src/main/chokidar-close.ts)').toEqual([])
     // The type checker reads all of src/main: some seconds alone, more in a full run.
   }, 60_000 * timeScale)
 })
