@@ -378,6 +378,26 @@ else
     e2e "no commands.e2e, no rule" 'A profile without `commands.e2e` has no rule here.'
 fi
 
+# --- 12. implementer, reviewer: deletes and -c scripts by the common rules -------------------
+# The full rule lives once, in hooks/rules/common.md, which every session and subagent gets. The
+# agents point at its section by name and keep no second copy of it.
+COMMON="${COMMON_RULES_FILE:-$AGENTS/../hooks/rules/common.md}"
+SHELL_REF='Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands without a confirmation"'
+if grep -qx '## Shell commands without a confirmation' "$COMMON" 2>/dev/null; then
+    ok "common.md has the section the agents point at"
+else bad "common.md: no section '## Shell commands without a confirmation' at $COMMON"; fi
+for a in implementer reviewer; do
+    if flat "$a" | grep -qF -- "$SHELL_REF"; then ok "$a: points at the common rule on deletes and -c scripts"
+    else bad "$a: no reference '$SHELL_REF'"; fi
+    # The one line the agent keeps: a clean folder is a new one, not an old one cleaned.
+    if flat "$a" | grep -qF -- 'make a new one with `mktemp -d`, do not clean an old one.'; then ok "$a: a new mktemp -d instead of cleaning"
+    else bad "$a: no line 'make a new one with \`mktemp -d\`, do not clean an old one.'"; fi
+    for p in 'literal path' 'rm -rf $R/$d' 'rm -rf *' 'bypassPermissions'; do
+        if grep -qF -- "$p" "$AGENTS/$a.md"; then bad "$a: repeats the common rule ('$p')"
+        else ok "$a: no copy of the common rule ('$p')"; fi
+    done
+done
+
 # The Profile contract points at the descriptions (harness/profiles/README.md, the row of review.lenses).
 README="${PROFILES_README_FILE:-$AGENTS/../profiles/README.md}"
 LENSES_ROW='the project'"'"'s review lenses; the orchestrator gives each reviewer one. What a lens looks for is described in `agents/reviewer.md`, section "Lens descriptions"; a lens that has no description there is read by its name. The lens `simplification` described there may be named `упрощение` in a profile |'

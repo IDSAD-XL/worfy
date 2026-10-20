@@ -38,6 +38,7 @@ import { watch, type FSWatcher } from 'chokidar'
 import { diffModels, type WorkflowDelta, type WorkflowModel } from '../../shared/workflow/types'
 import type { HarnessScriptEnvRequest, HarnessScriptEnvSource } from '../harness/script-env'
 import { LinkSafeWatch, type WatchFs } from '../link-safe-watch'
+import { closeForGood } from '../chokidar-close'
 import { namesTheFolder } from '../watch-gone'
 import type { LinkFs, PathRules } from '../remote-links'
 import { readProjectLayout, type ProjectLayout } from './folder'
@@ -317,7 +318,7 @@ export class WorkflowWatcher {
   private async unwatch(): Promise<void> {
     this.tickets?.close()
     this.tickets = null
-    await Promise.all(this.watchers.splice(0).map((w) => w.close()))
+    await Promise.all(this.watchers.splice(0).map(closeForGood))
   }
 
   /**
@@ -448,7 +449,7 @@ export class WorkflowWatcher {
   }
 
   private async remakeBranches(gone: FSWatcher, paths: string[], ignored: (path: string) => boolean, ready: () => void): Promise<void> {
-    await gone.close().catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
+    await closeForGood(gone).catch((error: unknown) => console.error('[workflow] closing the branches watch failed', error))
     // close() has closed every watch, this one too, and nothing more is watched after it.
     if (this.closed) return
     const at = this.watchers.indexOf(gone)

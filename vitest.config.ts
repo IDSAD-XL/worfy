@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 import { searchForWorkspaceRoot } from 'vite'
 import { configDefaults, defineConfig } from 'vitest/config'
 import { removeStaleProbes, removeStaleTempFolders } from './test/stale-leftovers'
+import { timeScale } from './test/time-scale'
 
 // Worktrees of other tickets live under .claude/worktrees/ inside this checkout;
 // their tests must never be picked up by a run here.
@@ -19,11 +20,7 @@ removeStaleProbes(join(import.meta.dirname, 'src'))
 const tempDir = realpathSync(tmpdir())
 removeStaleTempFolders(tempDir, Date.now())
 
-// On Windows every time limit is three times the default. In a full run there, short tests run
-// 4-5x slower than alone (process start-up under load), and a different set reaches the limit
-// each run, so limits per test never settled (worfy-windows ticket 14, worfy-polish 30).
-// A test that really hangs still fails, only later.
-const timeScale = process.platform === 'win32' ? 3 : 1
+// On Windows every time limit is three times the default: see test/time-scale.ts.
 
 export default defineConfig({
   server: {
