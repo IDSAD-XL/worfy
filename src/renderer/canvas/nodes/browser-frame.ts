@@ -152,3 +152,50 @@ export function dismissBrowserOpenRequest(id: string): void {
 export function useBrowserOpenRequest(id: string): string | undefined {
   return useOpenRequests((requests) => requests[id])
 }
+
+/** A request of main's `browser.openRequest`: the page by its web contents id, and the address it asked for. */
+export interface BrowserOpenRequestEvent {
+  webContentsId: number
+  url: string
+}
+
+/**
+ * The Browser layer's answer to main's `browser.openRequest` for the page of Browser `id`
+ * (worfy-browser ticket 12). Every page of the layer hears every request; main names the page that
+ * asked by its web contents id, and only a request of this page goes to this frame's Open bar —
+ * otherwise "Open" in one Browser would send its page where another page asked. `ownWebContentsId`
+ * reads the id of this Browser's page and throws while the page has none yet (the guest is not
+ * attached): then the request is not this page's.
+ */
+export function offerOwnBrowserOpenRequest(id: string, ownWebContentsId: () => number, request: BrowserOpenRequestEvent): void {
+  let own: number
+  try {
+    own = ownWebContentsId()
+  } catch {
+    return
+  }
+  if (request.webContentsId === own) offerBrowserOpenRequest(id, request.url)
+}
+
+/** How many characters at the end of a long address the Open bar keeps whole, after the cut in the middle. */
+export const OPEN_BAR_ADDRESS_TAIL = 24
+
+/**
+ * The address of the Open bar in three parts (worfy-browser ticket 12). `site` — the scheme and the
+ * host with its port — is always shown whole: a cut in the middle of a long host could hide the
+ * real domain (`https://bank.example.com.aaaa….evil.net/…`). Only the path, query and fragment are
+ * cut: `head` gives way with an ellipsis, `tail` — its last OPEN_BAR_ADDRESS_TAIL characters — stays.
+ * User info (`https://bank.example.com@evil.net/`) is left out: it can pass for the host. The whole
+ * address stays in the bar's tooltip. What is not a URL has no `site` and is cut the same way.
+ */
+export function openBarAddress(url: string): { site: string; head: string; tail: string } {
+  let site = ''
+  let rest = url
+  if (URL.canParse(url)) {
+    const parsed = new URL(url)
+    site = `${parsed.protocol}//${parsed.host}`
+    rest = `${parsed.pathname}${parsed.search}${parsed.hash}`
+  }
+  const head = rest.length > OPEN_BAR_ADDRESS_TAIL ? rest.slice(0, -OPEN_BAR_ADDRESS_TAIL) : ''
+  return { site, head, tail: rest.slice(head.length) }
+}
