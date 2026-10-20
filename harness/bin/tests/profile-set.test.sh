@@ -348,6 +348,76 @@ two_waiters() {
     check "$name: the file holds the value of the first to take over" [ "$(field "$PJ")" = "$vw" ]
     check "$name: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
 }
+# A stale lock two waiters see, and a third writer that makes the lock folder while the waiter that
+# comes last runs its takeover. The second writer takes the stale lock over and holds it through its
+# commit; then the first one runs its takeover over that live lock. With a `hold` file in its
+# PROFILE_SET_STALE_SYNC folder the first writer stops right after it moved a lock aside (`moved`,
+# then waits for `resume`), so the third writer's mkdir lands exactly in the window between moving
+# the lock aside and putting it back. The spec: the takeover never moves a live lock, so the lock
+# folder is never missing, the third writer's mkdir fails, and the holder keeps its lock.
+# third_writer <name> <yes|no: the third writer writes its owner file after its mkdir>
+third_writer() {
+    local name="$1" with_owner="$2" s="$T/sync" s1 s2 v1 v2 pid1 pid2="" rc1 rc2 i holder owner_mid third_made=false moved=false
+    give_up() {
+        bad "$name: $1 never came"
+        touch "$s1/go" "$s2/go" "$s1/resume" "$s/release"
+        wait "$pid1"
+        [ -n "$pid2" ] && wait "$pid2"
+        rm -rf "$LOCKDIR" "$LOCKDIR.stale-$(cat "$s1/judged" 2>/dev/null)"
+    }
+    s1="$s/1"
+    s2="$s/2"
+    rm -rf "$s"
+    mkdir -p "$s1" "$s2"
+    touch "$s1/hold"
+    # Values no earlier case left in the file, so the holder has a change to commit.
+    v1="[{\"kind\":\"queued\"},{\"kind\":\"check\",\"name\":\"first-$with_owner\"},{\"kind\":\"done\"}]"
+    v2="[{\"kind\":\"queued\"},{\"kind\":\"check\",\"name\":\"holder-$with_owner\"},{\"kind\":\"done\"}]"
+    mkdir "$LOCKDIR" && printf 'dead-writer' >"$LOCKDIR/owner" && touch -t 202001010000 "$LOCKDIR/owner" "$LOCKDIR"
+    fp="$(run "$SET" -C "$T/r/demo" --read | json_get fingerprint)"
+    PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s1" PROFILE_SET_LOCK_WAIT_MS=60000 \
+        run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v1" >"$T/out1" 2>"$T/err1" &
+    pid1=$!
+    wait_for "$s1/judged" || { give_up "the first writer's judged"; return; }
+    PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s2" PROFILE_SET_LOCK_WAIT_MS=60000 \
+        run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v2" >"$T/out2" 2>"$T/err2" &
+    pid2=$!
+    wait_for "$s2/judged" || { give_up "the second writer's judged"; return; }
+    touch "$s2/go"
+    wait_for "$s/in-commit" || { give_up "in-commit of the second writer"; return; }
+    holder="$(cat "$s2/judged")"
+    touch "$s1/go"
+    # The first writer's takeover either stops with a lock moved aside or ends without moving one.
+    i=0
+    while [ ! -e "$s1/moved" ] && [ ! -e "$s1/tried" ]; do
+        i=$((i + 1))
+        [ "$i" -gt 300 ] && { give_up "moved or tried of the first writer"; return; }
+        sleep 0.05
+    done
+    [ -e "$s1/moved" ] && moved=true
+    if mkdir "$LOCKDIR" 2>/dev/null; then
+        third_made=true
+        [ "$with_owner" = yes ] && printf 'third-writer' >"$LOCKDIR/owner"
+    fi
+    touch "$s1/resume"
+    wait_for "$s1/tried" || { give_up "tried of the first writer"; return; }
+    owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+    touch "$s/release"
+    wait "$pid2"
+    rc2=$?
+    # The third writer ends and releases what it holds, so the first writer is not left waiting for it.
+    [ "$(cat "$LOCKDIR/owner" 2>/dev/null)" = third-writer ] && rm -rf "$LOCKDIR"
+    wait "$pid1"
+    rc1=$?
+    check "$name: the takeover over the held lock does not move it aside" [ "$moved" = false ]
+    check "$name: the third writer's mkdir fails while the lock is held" [ "$third_made" = false ]
+    check "$name: the holder's token stays in the lock" [ "$owner_mid" = "$holder" ]
+    check "$name: the holder writes (exit 0)" [ "$rc2" -eq 0 ]
+    check "$name: the first writer, from the same read, gets exit 5 after it" [ "$rc1" -eq 5 ]
+    check "$name: the file holds the holder's value" [ "$(field "$PJ")" = "$v2" ]
+    check "$name: no lock folder and no set-aside folder left" [ -z "$(ls -A "$HH/projects/demo" | grep "^\.profile-set\.lock")" ]
+    rm -rf "$LOCKDIR" "$LOCKDIR.stale-$(cat "$s1/judged" 2>/dev/null)"
+}
 if $RUN_GIT_STUB; then
     SLOW="$T/slow"
     mkdir -p "$SLOW"
@@ -370,6 +440,12 @@ EOF
     two_waiters "stale lock, two waiters, the first to judge takes over first" first 0
     # The second writer starts 3 s late, as on a loaded machine: the outcome is the same.
     two_waiters "stale lock, two waiters, the second starts 3 s late" second 3
+    # The third writer makes an empty lock folder in the window: the old put-back renamed the held
+    # lock over it, and both writers took themselves for the holder.
+    third_writer "stale lock, a third writer in the takeover window" no
+    # The third writer also writes its owner file: the old put-back failed with ENOTEMPTY, the error
+    # was swallowed, and the holder was left without its lock.
+    third_writer "stale lock, a third writer with its owner file in the takeover window" yes
 fi
 
 # --- two writers from the same read: the second one gets exit 5, not a lost write ------------------------

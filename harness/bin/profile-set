@@ -193,6 +193,14 @@ process.on("exit", () => {
         fs.rmSync(LOCK, { recursive: true, force: true })
     } catch {}
 })
+// For the tests only: with a `hold` file in the PROFILE_SET_STALE_SYNC folder, a takeover stops right after
+// it moved the lock aside: it creates `moved` and waits for `resume` (up to STALE_SYNC_WAIT_MS).
+function stopPoint() {
+    if (STALE_SYNC === "" || !fs.existsSync(path.join(STALE_SYNC, "hold"))) return
+    fs.writeFileSync(path.join(STALE_SYNC, "moved"), "")
+    const until = Date.now() + STALE_SYNC_WAIT_MS
+    while (!fs.existsSync(path.join(STALE_SYNC, "resume")) && Date.now() < until) pause(20)
+}
 /** Takes over a lock judged stale; with PROFILE_SET_STALE_SYNC, at the test's signal. */
 function clearStale(token) {
     if (STALE_SYNC === "") return takeOver(token)
@@ -210,6 +218,7 @@ function takeOver(token) {
     } catch {
         return // gone, or taken over by another waiter
     }
+    stopPoint()
     if (ownerOf(aside) === token) {
         fs.rmSync(aside, { recursive: true, force: true })
         return
