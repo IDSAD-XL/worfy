@@ -6,7 +6,7 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateReader, type Worktree } from '../../src/main/gate/state'
 import { accountAuth, ciOf, ghRunner, MARK_CONTEXTS, narrowOf, narrowRoundsOf, parsePrList, PrTracker, type GhRunner } from '../../src/main/github/prs'
-import { appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
+import { appPrOptions, appPrTracker, checksHandlers, type ChecksScope } from '../../src/main/ipc/checks'
 import { fullLayout, type ProjectLayout } from '../../src/main/workflow/folder'
 import { appUrlMatcher, registerIpc, type IpcMainLike } from '../../src/main/ipc/index'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -640,7 +640,7 @@ async function accountWorld(profile: ProfileAnswer, gh: { token?: string; shellT
       })
   const profileCalls = async (): Promise<string[]> => (await readFile(profileLog, 'utf8').catch(() => '')).split('\n').filter(Boolean)
   const tracker = (now: () => number = () => 0) =>
-    appPrTracker({ claudeHome: home, command, env: () => Promise.resolve({ ...env }), log: (message) => void logged.push(message), now })
+    appPrTracker({ claudeHome: home, command, env: () => Promise.resolve({ ...env }), profileEnv: () => Promise.resolve({ ...env }), log: (message) => void logged.push(message), now })
   return { dir, root, home, command, env, logged, calls, profileCalls, tracker }
 }
 
@@ -787,7 +787,7 @@ describe("gh with the Project's GitHub account", () => {
 
     // pr list fails: its error is in the snapshot, the token is not.
     await writeFile(join(world.dir, 'prs.json'), 'not json')
-    const failing = appPrTracker({ claudeHome: world.home, command: world.command, env: () => Promise.resolve({ ...world.env }), log: (message) => void world.logged.push(message) })
+    const failing = appPrTracker({ claudeHome: world.home, command: world.command, env: () => Promise.resolve({ ...world.env }), profileEnv: () => Promise.resolve({ ...world.env }), log: (message) => void world.logged.push(message) })
     const read = await failing.read(world.root, [])
     expect(read.gh.available).toBe(false)
     expect(JSON.stringify(read)).not.toContain(TOKEN)
@@ -843,6 +843,35 @@ describe("gh with the Project's GitHub account", () => {
     }
     expect((await world.calls()).filter((call) => call.args[0] === 'pr')).toEqual([{ token: TOKEN, args: LIST }])
     expect(printed.join('\n')).not.toContain(TOKEN)
+  })
+})
+
+describe('the app PR tracker: WORFY_GH replaces only the gh program (worfy-harness ticket 45)', () => {
+  it("with WORFY_GH set, bin/profile runs with the Harness scripts' environment and gh with worfy's own", async () => {
+    const world = await accountWorld({ code: 0, stdout: `${ACCOUNT}\n` }, { token: TOKEN })
+    // worfy's own environment: the gh stub's settings, and a PATH without node, so `node <profile>`
+    // fails with it. The gh stub runs under worfy's own Node (src/main/program.ts), PATH or not.
+    const processEnv = { ...world.env, PATH: join(world.dir, 'no-node'), WORFY_GH: world.command }
+    // The Harness scripts' environment: node on PATH, none of the gh stub's settings, so a gh run with it fails.
+    const scriptEnv = vi.fn(() => Promise.resolve(scriptsEnv([NODE_DIR, '/usr/bin', '/bin'], { HOME: world.dir })))
+    const loginEnv = vi.fn(() => Promise.reject(new Error('the login shell environment is not for a gh stub')))
+    const options = appPrOptions({ claudeHome: world.home, processEnv, loginEnv, scriptEnv })
+    expect(options.command).toBe(world.command)
+
+    const read = await appPrTracker({ ...options, log: (message) => void world.logged.push(message) }).read(world.root, ['demo/02'])
+    expect(read.gh).toEqual({ available: true, error: null, intervalMs: 60_000 })
+    expect(read.pulls.map((each) => each.number)).toEqual([1])
+    // profile ran, so with node on its PATH, and named the account: gh asked its token and listed with it.
+    expect(await world.profileCalls()).toEqual([`profile -C ${world.root} --field github.account in ${world.root}`])
+    const calls = await world.calls()
+    expect(calls[0]).toEqual({ token: null, args: ['auth', 'token', '-u', ACCOUNT] })
+    expect(calls.filter((call) => call.args[0] === 'pr')).toEqual([
+      { token: TOKEN, args: LIST },
+      { token: TOKEN, args: lookup('demo/02') },
+    ])
+    expect(world.logged).toEqual([])
+    expect(scriptEnv).toHaveBeenCalled()
+    expect(loginEnv).not.toHaveBeenCalled()
   })
 })
 
