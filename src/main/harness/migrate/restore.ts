@@ -340,11 +340,12 @@ function keepAside(afterDir, area, rel, path, log, move) {
   log('Changed after the move, kept in ' + target)
 }
 
-// JSON written the way the file was: its indent and its final newline.
-function stringifyLike(original, value) {
+// JSON written the way the file was: its indent, its line ends (LF or CRLF) and its final newline.
+export function stringifyLike(original, value) {
   const indent = /^[{[]\r?\n([ \t]+)/.exec(original)
-  const text = original.includes('\n') ? JSON.stringify(value, null, indent ? indent[1] : 2) : JSON.stringify(value)
-  return original.endsWith('\n') ? text + '\n' : text
+  const eol = original.includes('\r\n') ? '\r\n' : '\n'
+  const text = original.includes('\n') ? JSON.stringify(value, null, indent ? indent[1] : 2).replace(/\n/g, eol) : JSON.stringify(value)
+  return original.endsWith('\n') ? text + eol : text
 }
 
 function writeAtomically(path, text) {
@@ -470,8 +471,15 @@ export function writeManifest(backupDir: string, manifest: Manifest): void {
   writeFileSync(join(backupDir, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
-/** The command the form shows after a move. */
-export function restoreCommand(backupDir: string): string {
+/**
+ * The command the form shows after a move, quoted for the shell of the system: sh takes single
+ * quotes with `'\''` for a quote inside. cmd.exe takes no single quotes at all, and `'\''` is not
+ * PowerShell's escape, so on Windows the path goes in double quotes, which both shells take.
+ */
+export function restoreCommand(backupDir: string, platform: NodeJS.Platform = process.platform): string {
   const path = join(backupDir, RESTORE_SCRIPT)
-  return `node ${/^[\w./+@-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`}`
+  if (/^[\w./+@-]+$/.test(path)) return `node ${path}`
+  // shortcut: inside double quotes PowerShell still expands `$` and a backtick, cmd.exe `%NAME%`; redo when a backup path with one of them is reported.
+  if (platform === 'win32') return `node "${path}"`
+  return `node '${path.replace(/'/g, `'\\''`)}'`
 }

@@ -226,6 +226,21 @@ describe('projects.add', () => {
     expect(result.notice).toBe(`${join(repo, 'src', 'deep')} is inside the repository ${repo}; the repository root was added instead.`)
   })
 
+  // The folder in the notice reads in the spelling of the root, not as it was typed.
+  it.each(['typed with forward slashes', 'reached through a link'] as const)('a subfolder %s is named in the notice in the spelling of the root', async (how) => {
+    const repo = makeRepo('auction')
+    const deep = join(repo, 'src', 'deep')
+    mkdirSync(deep, { recursive: true })
+    let typed = deep.replaceAll('\\', '/')
+    if (how === 'reached through a link') {
+      const link = join(scratch, 'auction-src')
+      symlinkSync(join(repo, 'src'), link, process.platform === 'win32' ? 'junction' : 'dir')
+      typed = join(link, 'deep')
+    }
+    const result = await addOk(typed)
+    expect(result.notice).toBe(`${deep} is inside the repository ${repo}; the repository root was added instead.`)
+  })
+
   it('resolves a linked worktree to the main repository root and says so', async () => {
     const repo = makeRepo('auction')
     const worktree = join(scratch, 'auction-wt')

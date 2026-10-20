@@ -10,7 +10,7 @@
 // must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
 // code names for a mode must be the one bin/profile prints for a Profile without the field.
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -299,6 +299,26 @@ describe('the kind of the folder (step 1)', () => {
     const linked = await inspectFolder(worktree, runGit)
     expect(linked.ok && linked.folder).toMatchObject({ kind: 'git', root: repo })
     expect(linked.ok && linked.folder.notice).toMatch(/is a worktree of .*the repository root is connected instead/)
+  })
+
+  // git prints `C:/…` on Windows and worfy's own paths have `\`: a notice names every folder in one
+  // spelling, the one of the root it connects, even when the folder was typed with forward slashes.
+  it('a notice names its folders in one spelling, a folder typed with forward slashes included', async () => {
+    const repo = makeRepo(join(scratch, 'spelled'))
+    mkdirSync(join(repo, 'src'))
+    const worktree = join(scratch, 'spelled-wt')
+    git(repo, 'worktree', 'add', '-q', '-b', 'feature', worktree)
+    const typed = (path: string): string => path.replaceAll('\\', '/')
+    const sub = join(repo, 'src')
+    // A link to the subfolder: on macOS and Linux the only other spelling a test can make of it.
+    const link = join(scratch, 'spelled-src')
+    symlinkSync(sub, link, process.platform === 'win32' ? 'junction' : 'dir')
+    const cases: [string, string][] = [[sub, sub], [worktree, worktree], [typed(sub), sub], [typed(worktree), worktree], [link, sub]]
+    for (const [folder, shown] of cases) {
+      const result = await inspectFolder(folder, runGit)
+      const notice = result.ok ? result.folder.notice : null
+      expect(notice, folder).toBe(`${shown} ${shown === worktree ? 'is a worktree of' : 'is inside the repository'} ${repo}; the repository root is connected instead.`)
+    }
   })
 
   // Windows gives one folder several spellings: the short 8.3 name of a long account name, a subst
