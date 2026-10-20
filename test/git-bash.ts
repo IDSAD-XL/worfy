@@ -8,13 +8,28 @@ import { findGitBash, fileOrAlias } from '../src/main/agent/env'
 
 let found: string | undefined
 
+/**
+ * The Git Bash of a Windows environment: CLAUDE_CODE_GIT_BASH_PATH when it names a file, else
+ * findGitBash. A CLAUDE_CODE_GIT_BASH_PATH under %SystemRoot% is the WSL launcher, refused with the
+ * reason as findGitBash refuses such a candidate. Throws when there is no Git Bash.
+ */
+export function windowsGitBash(env: NodeJS.ProcessEnv, exists: (path: string) => boolean = fileOrAlias): string {
+  const own = env['CLAUDE_CODE_GIT_BASH_PATH']
+  if (own !== undefined && own !== '') {
+    const systemRoot = (env['SystemRoot'] ?? env['SYSTEMROOT'] ?? 'C:\\Windows').toLowerCase()
+    if (own.replaceAll('/', '\\').toLowerCase().startsWith(`${systemRoot}\\`)) {
+      throw new Error(`CLAUDE_CODE_GIT_BASH_PATH is ${own}, under ${systemRoot}: that bash.exe is the WSL launcher, not Git Bash`)
+    }
+    if (exists(own)) return own
+  }
+  const bash = findGitBash(env, exists)
+  if (bash === null) throw new Error('no Git Bash: set CLAUDE_CODE_GIT_BASH_PATH or install Git for Windows')
+  return bash
+}
+
 /** `bash` on macOS and Linux; the full path of Git Bash on Windows. Throws on Windows without Git Bash. */
 export function gitBash(): string {
   if (process.platform !== 'win32') return 'bash'
-  if (found !== undefined) return found
-  const own = process.env['CLAUDE_CODE_GIT_BASH_PATH']
-  const bash = own !== undefined && own !== '' && fileOrAlias(own) ? own : findGitBash(process.env)
-  if (bash === null) throw new Error('no Git Bash: set CLAUDE_CODE_GIT_BASH_PATH or install Git for Windows')
-  found = bash
+  found ??= windowsGitBash(process.env)
   return found
 }
