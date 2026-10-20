@@ -46,7 +46,7 @@ out="$(CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile" QMD
 # --- 5b. qmd-sync-main --describe: profile warnings on stderr stay out of the JSON -------------
 # bin/profile warns on stderr (a broken user.json, a malformed language) and still exits 0 with the
 # JSON on stdout: the warning reaches the caller's stderr, the JSON is still read. A failing profile:
-# exit 1, its own error on stderr once (profile runs once), then the line that it failed.
+# exit 1 and one line with its own error (the last stderr line), not an earlier warning.
 cat >"$T/profile-warn" <<'EOF2'
 #!/bin/sh
 echo 'profile: /x/profile.json: language.docs must be a language code such as "en", got null — ignored' >&2
@@ -67,9 +67,9 @@ grep -q 'language.docs must be a language code' "$T/describe.err" \
     && ok "describe: the profile warning reaches stderr" || bad "describe: the profile warning is lost"
 out="$(HOME="$T/home-d" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-fail" \
     zsh "$BIN/qmd-sync-main" --describe x 2>"$T/describe.err")"; rc=$?
-[ "$rc" -eq 1 ] && [ -z "$out" ] && grep -q "^profile: /x/profile.json is not valid JSON" "$T/describe.err" \
-    && grep -q "^qmd-sync-main: profile -C .* failed$" "$T/describe.err" && [ "$(grep -c 'is not valid JSON' "$T/describe.err")" = 1 ] \
-    && ok "describe: a failing profile -> exit 1, its own error once, then the failure" || bad "describe with a failing profile: rc=$rc out='${out:0:100}' err='$(head -c 300 "$T/describe.err")'"
+[ "$rc" -eq 1 ] && [ -z "$out" ] && [ "$(wc -l <"$T/describe.err" | tr -d ' ')" = 1 ] \
+    && grep -q "^qmd-sync-main: profile -C .*: profile: /x/profile.json is not valid JSON" "$T/describe.err" \
+    && ok "describe: a failing profile -> exit 1, one line with its own error" || bad "describe with a failing profile: rc=$rc out='${out:0:100}' err='$(head -c 300 "$T/describe.err")'"
 
 # --- 6. qmd-refresh: a partial failure does not stop the run ----------------------
 H="$T/home"; mkdir -p "$H/.cache/qmd" "$T/fakebin" "$T/mem"
@@ -152,6 +152,74 @@ out="$(HOME="$H" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_R
     zsh "$BIN/qmd-refresh" --wait 2>/dev/null)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"profile warns not resolved, its copy skipped — qmd-sync-main: profile warns is not in the registry"* ]] \
     && ok "refresh: a --describe failure on stderr -> its reason in the warning, exit 1" || bad "refresh with a failing --describe: rc=$rc out=${out:0:300}"
+
+# The real qmd-sync-main between qmd-refresh and a failing profile: the profile's reason (not its
+# warning before it, not a bare "failed") reaches the qmd-refresh warning, refresh.log under --quiet
+# and the sync-failed marker. qmd-sync-main leaves no temporary file behind.
+cat >"$T/profile-reason" <<'EOF'
+#!/bin/sh
+echo 'profile: /x/user.json is not JSON — ignored' >&2
+echo 'profile: /x/profile.json is not valid JSON: Unexpected end' >&2
+exit 1
+EOF
+chmod +x "$T/profile-reason"
+mkdir -p "$T/tmp-sync"
+REASON="profile -C $T/outer: profile: /x/profile.json is not valid JSON: Unexpected end"
+real_sync() { # $@ qmd-refresh arguments; stdout+stderr of qmd-refresh
+    HOME="$H" TMPDIR="$T/tmp-sync" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-x.yml" CLAUDE_GATE_CONFIG="$T/config.json" \
+        QMD_SYNC_PROFILE_BIN="$T/profile-reason" QMD_REFRESH_SYNC="$BIN/qmd-sync-main" zsh "$BIN/qmd-refresh" --wait "$@" 2>&1
+}
+cat >"$T/index-x.yml" <<EOF
+collections:
+  x:
+    path: $T/outer
+    update: /x/qmd-sync-main x
+EOF
+out="$(real_sync --force)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"profile x not resolved, its copy skipped — qmd-sync-main: $REASON"* ]] \
+    && ok "refresh + real qmd-sync-main: the profile's reason in the warning" || bad "refresh + real qmd-sync-main: rc=$rc out=${out:0:400}"
+rm -f "$H/.cache/qmd/refresh.log"
+real_sync --force --quiet >/dev/null
+grep -qF -- "$REASON" "$H/.cache/qmd/refresh.log" 2>/dev/null \
+    && ok "refresh --quiet + real qmd-sync-main: the profile's reason in refresh.log" || bad "refresh --quiet: no reason in refresh.log: '$(tail -c 300 "$H/.cache/qmd/refresh.log" 2>/dev/null)'"
+HOME="$H" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-reason" QMD_SYNC_MARK="$T/mark-x" \
+    zsh "$BIN/qmd-sync-main" x 2>/dev/null
+grep -qF -- "[x] $REASON" "$T/mark-x" 2>/dev/null \
+    && ok "sync + failing profile: the profile's reason in the marker" || bad "sync + failing profile: marker '$(head -c 300 "$T/mark-x" 2>/dev/null)'"
+out="$(HOME="$H" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-reason" \
+    zsh "$BIN/qmd-sync-main" --describe x 2>&1 >/dev/null)"; rc=$?
+[ "$rc" -eq 1 ] && [ "$out" = "qmd-sync-main: $REASON" ] \
+    && ok "describe + failing profile: exit 1, one line with the profile's reason" || bad "describe + failing profile: rc=$rc stderr='${out:0:300}'"
+HOME="$H" TMPDIR="$T/tmp-sync" CLAUDE_GATE_CONFIG="$T/config.json" QMD_SYNC_PROFILE_BIN="$T/profile-warn" \
+    zsh "$BIN/qmd-sync-main" --describe x >/dev/null 2>&1
+[ -z "$(ls -A "$T/tmp-sync")" ] && ok "qmd-sync-main and qmd-refresh leave no temporary file" || bad "temporary files left: $(ls -A "$T/tmp-sync" | head -n 3 | tr '\n' ' ')"
+# --quiet (the Stop hook, every turn) prints nothing, a profile warning included.
+out="$(HOME="$H" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-warn" \
+    zsh "$BIN/qmd-refresh" --wait --force --quiet 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ -z "$out" ] && ok "refresh --quiet: a profile warning is not printed" || bad "refresh --quiet with a profile warning: rc=$rc out='${out:0:200}'"
+# SIGTERM while --describe runs: qmd-refresh removes its temporary file and exits.
+mkdir -p "$T/tmp-term"
+cat >"$T/sync-slow" <<EOF
+#!/bin/sh
+[ "\$1" = --describe ] || exit 0
+echo \$\$ >"$T/sync-slow.pid"
+sleep 2
+printf '%s\tmain\t\n' "$T/outer"
+EOF
+chmod +x "$T/sync-slow"
+rm -f "$T/sync-slow.pid"
+HOME="$H" TMPDIR="$T/tmp-term" PATH="$T/fakebin:$PATH" QMD_INDEX_YML="$T/index-warn.yml" QMD_REFRESH_SYNC="$T/sync-slow" \
+    zsh "$BIN/qmd-refresh" --wait --force --quiet >/dev/null 2>&1 &
+refresh_pid=$!
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -s "$T/sync-slow.pid" ] && break; sleep 0.1; done
+kill -TERM "$refresh_pid" 2>/dev/null
+wait "$refresh_pid" 2>/dev/null
+# the stand-in finishes its sleep on its own; wait for it so nothing is left running
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+    kill -0 "$(cat "$T/sync-slow.pid" 2>/dev/null)" 2>/dev/null || break; sleep 0.1
+done
+[ -s "$T/sync-slow.pid" ] && [ -z "$(ls -A "$T/tmp-term")" ] \
+    && ok "refresh: SIGTERM during --describe leaves no temporary file" || bad "refresh: SIGTERM during --describe left: $(ls -A "$T/tmp-term" | head -n 3 | tr '\n' ' ')"
 
 # --- 6b. qmd-refresh: qmd embed only with the consent to the models -----------------------
 HH="$T/hh"; mkdir -p "$HH"

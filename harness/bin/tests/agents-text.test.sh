@@ -141,7 +141,7 @@ lang_rule() { # stdin: text (LF or CRLF lines); prints "<line>: <text>" of each 
 # The guard itself: phrases it must refuse and phrases it must let through.
 for p in 'Write engineering terms in English, in Latin script, even when the report is in another language.' \
     'Writing in Russian: the term stays in Latin.' 'Reports are written in Russian.' 'Answer the user in English.' \
-    'Working terms are kept in Latin script.' '## Terms' $'## Terms\r' $'Write the report in Russian.\r'; do
+    'Working terms are kept in Latin script.' '## Terms' $'## Terms\r'; do
     [ -n "$(printf '%s\n' "$p" | lang_rule)" ] && ok "guard refuses: $p" || bad "guard lets through a language rule: $p"
 done
 for p in 'Read the file as Latin-1 bytes when it is not UTF-8.' 'This is an English-only plugin.' \

@@ -51,10 +51,14 @@ describe() {
     if (hit) process.stdout.write(hit.match)' "$cfg" "$NAME" 2>/dev/null)" \
     || { print -r -- "registry $cfg unreadable"; return 1 }
   [[ -n "$match" ]] || { print -r -- "profile $NAME is not in the registry $cfg"; return 1 }
-  # stdout only: profile prints warnings on stderr (a broken user.json, a malformed language) and still
-  # exits 0, and they must reach our stderr, not the JSON. On a failure its own error is already on
-  # our stderr, just above this message.
-  json="$("$PROFILE_BIN" -C "$match" --json)" || { print -r -- "profile -C $match failed"; return 1 }
+  # The JSON is stdout only: profile prints warnings on stderr (a broken user.json, a malformed
+  # language) and still exits 0. Its stderr is kept apart: on success it passes through to ours; on a
+  # failure its last line, the profile's own error after any warnings, is the reason.
+  local err="" prc
+  json="$("$PROFILE_BIN" -C "$match" --json 2>"${PROFILE_ERR:-/dev/null}")"; prc=$?
+  [[ -n "${PROFILE_ERR:-}" ]] && err="$(<"$PROFILE_ERR")"
+  if (( prc )); then print -r -- "profile -C $match: ${err##*$'\n'}"; return 1; fi
+  [[ -n "$err" ]] && print -u2 -r -- "$err"
   print -r -- "$json" | node -e '
     let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
       const p = JSON.parse(s), home = process.env.HOME
@@ -67,6 +71,10 @@ describe() {
     })'
 }
 
+# profile's stderr, read by describe; removed on exit and on a signal.
+PROFILE_ERR="$(mktemp "${TMPDIR:-/tmp}/qmd-sync-main-profile.XXXXXX" 2>/dev/null)" || PROFILE_ERR=""
+trap '[[ -n "$PROFILE_ERR" ]] && rm -f -- "$PROFILE_ERR"' EXIT
+trap 'exit 129' HUP; trap 'exit 130' INT; trap 'exit 143' TERM
 desc="$(describe)"; rc=$?
 if [[ "$DESCRIBE" == 1 ]]; then
   [[ $rc == 0 ]] || { print -u2 -r -- "qmd-sync-main: $desc"; exit 1 }
