@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import { focusEpic } from '../../canvas/sources/epics'
 import { progressOf } from '../../canvas/epic-layout'
 import { activeProject, useProjects } from '../../projects/useProjects'
@@ -43,14 +43,36 @@ const styles = {
   working: { marginLeft: 'auto', fontSize: 'var(--text-11)', color: 'var(--working-text)' },
 } satisfies Record<string, CSSProperties>
 
+/**
+ * How long a read must run before "Reading epics…" shows. The first read of an app run waits for
+ * the login shell's environment, up to 10 s; every later one answers in about 25 ms, and a row
+ * shown for that long only flickers on each opening of a Project.
+ */
+export const READING_ROW_DELAY_MS = 300
+
+/** True once `reading` has stayed true for READING_ROW_DELAY_MS; false again as soon as it is not. */
+function useReadingRow(reading: boolean, root: string | undefined): boolean {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (!reading) return
+    const timer = setTimeout(() => setShown(true), READING_ROW_DELAY_MS)
+    return () => {
+      clearTimeout(timer)
+      setShown(false)
+    }
+  }, [reading, root])
+  return reading && shown
+}
+
 export default function EpicsSection() {
   const project = activeProject(useProjects())
   const { model, error } = useWorkflow(project?.path)
+  const readingRow = useReadingRow(project !== undefined && model === undefined && error === undefined, project?.path)
   if (!project) return null
 
   let body
   if (error !== undefined) body = <p style={styles.message}>The epics could not be read: {error}</p>
-  else if (model === undefined) body = null
+  else if (model === undefined) body = readingRow ? <p style={styles.message}>Reading epics…</p> : null
   else if (model.error !== null) body = <p style={styles.message}>{model.error.message}</p>
   else if (!model.epics.length) body = <p style={styles.message}>No epics in .scratch/</p>
   else
