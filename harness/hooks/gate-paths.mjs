@@ -85,10 +85,11 @@ export function repositoryRoot(worktree) {
 // and letter case does not tell two names apart (NTFS keeps the case and ignores it), so
 // C:\Users\x\repo and c:/users/x/repo/src match. Elsewhere `\` is an ordinary character of a
 // name and the comparison is exact. `platform` is a parameter so that the Windows rule can be
-// checked on any system.
+// checked on any system. A base that already ends with a separator — the root of a disk, C:\ or /,
+// or a `match` written with one — does not get a second one: the folders under it lie under it.
 export function isSameOrInside(target, base, platform = process.platform) {
     const fold = (p) => (platform === "win32" ? p.replaceAll("\\", "/").toLowerCase() : p)
     const t = fold(target)
     const b = fold(base)
-    return t === b || t.startsWith(b + "/")
+    return t === b || t.startsWith(b.endsWith("/") ? b : b + "/")
 }

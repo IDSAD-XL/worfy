@@ -20,7 +20,7 @@ interface InstallStable {
   installerDir: (env: Env, home: string) => string
   checkTarget: (platform: string, target: string, env: Env, home: string, installed?: string) => string
   metadataPath: (platform: string, target: string) => string
-  runningCopies: (platform: string, targets: string[], listing: string) => string[]
+  runningCopies: (platform: string, targets: string[], listing: string, spell?: (path: string) => string) => string[]
   notACopy: (names: string[]) => string | null
   leftoverName: (base: string, kind: 'installing' | 'replaced', pid: number | string) => string
   leftovers: (names: string[], base: string, alive: (pid: number) => boolean) => { installing: string[]; replaced: string[]; kept: string[] }
