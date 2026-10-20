@@ -263,6 +263,86 @@ out="$(cd "$E" && CLAUDE_GATE_CONFIG="$T/e.json" CLAUDE_SESSION_ID=s9 node "$PF"
 [ "$rc" -eq 1 ] && [ "$(printf '%s\n' "$out" | tail -n 1)" = "BLOCKED: another live session in the tree: s1-aaaaa (heartbeat just now)" ] \
     && ok "e2e lock: a live foreign session -> BLOCKED: another live session in the tree, exit 1" || bad "e2e lock: exit $rc, out: ${out:0:900}"
 
+# 4i. A repository without a remote named origin. Its absence is allowed only with workflow.finish local-green: then
+# there is no fetch, the base is the local main branch, gh is not started, and the verdict is GO. Any other finish
+# is one BLOCKED reason that names both facts. An origin that exists keeps the fetch and its failure blocks, with
+# local-green too. The cases run without --no-fetch, so the fetch step is reached; gh logs to a file of its own.
+NR="$T/noremote"
+git init -q -b main "$NR" && git -C "$NR" commit -q --allow-empty -m "local base"
+nr_sha="$(git -C "$NR" rev-parse --short HEAD)"
+# An origin whose path does not exist.
+git init -q -b main "$T/deadorigin" && git -C "$T/deadorigin" commit -q --allow-empty -m init
+git -C "$T/deadorigin" remote add origin "$T/no-such-origin.git"
+# An origin that answers, and a second clone that pushes a commit after the first one's last fetch.
+git init -q --bare -b main "$T/live-origin.git"
+git clone -q "$T/live-origin.git" "$T/live-seed" 2>/dev/null
+git -C "$T/live-seed" commit -q --allow-empty -m first && git -C "$T/live-seed" push -q origin main 2>/dev/null
+git clone -q "$T/live-origin.git" "$T/live" 2>/dev/null && git -C "$T/live" checkout -q -b work
+git -C "$T/live-seed" commit -q --allow-empty -m "pushed after the fetch" && git -C "$T/live-seed" push -q origin main 2>/dev/null
+live_sha="$(git -C "$T/live-seed" rev-parse --short HEAD)"
+mkdir -p "$T/profiles/n" "$T/wf-n"
+: >"$T/profiles/n/rules.md"
+printf '{"repos":[{"key":"nr","match":"%s","profile":"n","pm":"npm"},{"key":"dead","match":"%s","profile":"n","pm":"npm"},{"key":"live","match":"%s","profile":"n","pm":"npm"}]}\n' \
+    "$NR" "$T/deadorigin" "$T/live" >"$T/n.json"
+# nprofile <finish JSON or "none"> <worktree.base JSON> — the profile of these repositories, Silent mode as in a
+# connected project without a remote.
+nprofile() {
+    local fin=""
+    [ "$1" = none ] || fin=",\"finish\":$1"
+    printf '{"schema":2,"name":"n","mode":"silent","workflow":{"folder":"%s"%s},"worktree":{"base":%s},"github":{"account":null},"numbering":{"adr":null,"migrations":null}}\n' \
+        "$T/wf-n" "$fin" "$2" >"$T/profiles/n/profile.json"
+}
+# npf <repo> [flags] — runs preflight there; sets out, rc, last, lines, gh_calls (lines in its gh log).
+npf() {
+    rm -f "$TP/n-gh.log"
+    out="$(cd "$1" && shift && CLAUDE_GATE_CONFIG="$T/n.json" GH_STUB_LOG="$TP/n-gh.log" CLAUDE_SESSION_ID= node "$PF" "$@" 2>&1)"; rc=$?
+    last="$(printf '%s\n' "$out" | tail -n 1)"
+    lines="$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+    gh_calls="$(cat "$TP/n-gh.log" 2>/dev/null | grep -c .)"
+}
+for base in '"main"' '"origin/main"' null; do
+    nprofile '"local-green"' "$base"
+    npf "$NR"
+    if [ "$rc" -eq 0 ] && [ "$last" = GO ] && [ "$lines" -le 20 ] \
+       && [ "$(printf '%s\n' "$out" | grep -c '^origin: none')" -eq 1 ] \
+       && printf '%s\n' "$out" | grep -qxF 'origin: none — local finish, the base is the local branch main' \
+       && printf '%s\n' "$out" | grep -q "^main: $nr_sha .*\"local base\"\$" \
+       && [[ "$out" != *"fetch failed"* ]] && [[ "$out" != *"no ref"* ]] && [[ "$out" != *"behind"* ]]; then
+        ok "no origin, local-green, worktree.base $base -> GO, one origin line, base line main: $nr_sha"
+    else bad "no origin, local-green, base $base: exit $rc, $lines lines, out: ${out:0:900}"; fi
+done
+nprofile '"local-green"' '"main"'
+npf "$NR" --no-fetch
+[ "$rc" -eq 0 ] && [ "$last" = GO ] && [[ "$out" == *"main: $nr_sha "* ]] \
+    && ok "no origin, local-green, --no-fetch -> GO" || bad "no origin, local-green, --no-fetch: exit $rc, out: ${out:0:600}"
+npf "$NR"
+[ "$gh_calls" -eq 0 ] && printf '%s\n' "$out" | grep -qxF 'open PRs: no remote origin — step skipped' \
+    && ok "no origin -> gh is not started, the PR step is a skipped line" || bad "no origin, gh: $gh_calls calls, out: ${out:0:600}"
+nprofile '"local-green"' '"release"'
+npf "$NR"
+[ "$rc" -eq 1 ] && [ "$last" = "BLOCKED: no local branch release" ] && [ "$lines" -le 20 ] \
+    && ok "no origin, local-green, no local branch of worktree.base -> BLOCKED: no local branch release" \
+    || bad "no origin, missing local base: exit $rc, out: ${out:0:600}"
+nprofile '"local-green"' '"origin/main"'
+npf "$T/deadorigin"
+[ "$rc" -eq 1 ] && [[ "$last" == "BLOCKED: fetch failed: "* ]] && [ "$lines" -le 20 ] \
+    && ok "origin whose path is gone, local-green -> BLOCKED: fetch failed, exit 1" || bad "dead origin, local-green: exit $rc, out: ${out:0:600}"
+npf "$T/live"
+[ "$rc" -eq 0 ] && [ "$last" = GO ] && [[ "$out" == *"origin/main: $live_sha "* ]] && [[ "$out" != *"origin: none"* ]] && [ "$lines" -le 20 ] \
+    && ok "origin answers, local-green -> fetched: the commit pushed after the last fetch is the base $live_sha" \
+    || bad "live origin, local-green: exit $rc, want origin/main: $live_sha, out: ${out:0:600}"
+# The demo repository of the eval case for pr-green-ci: no remote, worktree.base "main".
+nprofile '"pr-green-ci"' '"main"'
+npf "$NR"
+[ "$rc" -eq 1 ] && [ "$last" = "BLOCKED: no remote origin, and workflow.finish is pr-green-ci: add the remote or set workflow.finish to local-green" ] \
+    && [[ "$out" != *"fetch failed"* ]] && [ "$lines" -le 20 ] \
+    && ok "no origin, pr-green-ci -> BLOCKED with one reason naming both facts" || bad "no origin, pr-green-ci: exit $rc, out: ${out:0:600}"
+nprofile none '"origin/main"'
+npf "$NR"
+[ "$rc" -eq 1 ] && [ "$last" = "BLOCKED: no remote origin, and workflow.finish is not set: add the remote or set workflow.finish to local-green" ] \
+    && [[ "$out" != *"fetch failed"* ]] && [ "$lines" -le 20 ] \
+    && ok "no origin, no workflow.finish -> BLOCKED with one reason naming both facts" || bad "no origin, no finish: exit $rc, out: ${out:0:600}"
+
 # 5. A broken profile (invalid JSON) — exit 2, not GO.
 printf '{broken' >"$T/profiles/t/profile.json"
 err="$(cd "$T/reg" && node "$PF" --no-fetch 2>&1 >/dev/null)"; rc=$?

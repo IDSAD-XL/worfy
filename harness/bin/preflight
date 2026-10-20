@@ -17,6 +17,12 @@
 //   worktree.base               — the base (origin/main); the main branch is that without "origin/";
 //                                 none — origin/<layout.repos.<repo>.default_branch>, then the branch
 //                                 origin/HEAD points to, then origin/main;
+//   workflow.finish             — whether a repository without a remote named origin is allowed: with
+//                                 "local-green" it is (no fetch, no gh, the base is the local main branch:
+//                                 worktree.base without "origin/", then layout.repos.<repo>.default_branch,
+//                                 then main, then master; one line "origin: none — …" says so); with any other
+//                                 value, or none, it is one BLOCKED reason. An origin that exists is always
+//                                 fetched, and a failed fetch blocks;
 //   numbering.adr.dir           — the ADR directory (fallback — docs.adr_dir); none — the ADR step is skipped;
 //                                 in Silent mode (mode "silent") the ADRs live in the Workflow folder
 //                                 (_resolved.workflow_folder), not in branches: the numbers are counted
@@ -383,6 +389,9 @@ let JOURNAL = ""
 let MIG_GEN = ""
 let MODE = "full"
 let WORKFLOW = ""
+let FINISH = "" // workflow.finish
+let PROFILE_BASE = "" // worktree.base as written, or origin/<layout.repos default branch>; empty if neither
+let ORIGIN = true // the repository has a remote named origin
 
 // The logical launch directory, like $PWD in a shell: process.cwd() resolves symlinks (/tmp → /private/tmp).
 function launchDir() {
@@ -435,11 +444,13 @@ async function loadProfile() {
             g(p, "numbering", "migrations", "generate") || "",
             g(p, "_resolved", "mode") || "full",
             g(p, "_resolved", "workflow_folder") || "",
+            g(p, "workflow", "finish") || "",
         ].map((x) => String(x).replace(/[\t\n]/g, " "))
     } catch (e) {
         die(`profile --json not parsed: ${firstLine(String(e && e.message))}`)
     }
-    ;[BASE, ADR_DIR, JOURNAL, MIG_GEN, MODE, WORKFLOW] = v
+    ;[BASE, ADR_DIR, JOURNAL, MIG_GEN, MODE, WORKFLOW, FINISH] = v
+    PROFILE_BASE = BASE
     if (ADR_DIR.endsWith("/")) ADR_DIR = ADR_DIR.slice(0, -1)
     // Neither field: the branch origin/HEAD points to (set by git clone), and only then origin/main.
     if (!BASE) BASE = git(["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"]) || "origin/main"
@@ -454,6 +465,19 @@ function checkTree() {
     const st = git(["status", "--porcelain"], { raw: true })
     const dirty = st === null ? "?" : String(st.split("\n").length - 1)
     say(`tree: ${ROOT} · branch ${BRANCH || `detached ${HEAD7}`} · uncommitted files ${dirty}`)
+}
+
+// Whether the repository has a remote named origin, asked of git by name: the text of a failed fetch reads the same
+// for a missing remote and for one that does not answer. Without origin the base is the local main branch —
+// worktree.base without "origin/", then layout.repos.<repo>.default_branch, then main, then master — and the
+// steps below count from it.
+function checkOrigin() {
+    const remotes = git(["remote"])
+    // git gave no answer: origin is assumed, so the fetch runs and reports what is wrong.
+    if (remotes === null || remotes.split("\n").includes("origin")) return
+    ORIGIN = false
+    const has = (b) => git(["rev-parse", "--verify", "-q", `refs/heads/${b}`]) !== null
+    BASE = MAIN = PROFILE_BASE.replace(/^origin\//, "") || (has("main") ? "main" : has("master") ? "master" : "main")
 }
 
 // gh, or the program $PREFLIGHT_GH names (a test's stand-in).
@@ -492,6 +516,12 @@ async function checkFetch() {
     // 2
     // The gh account hint shares a line with fetch (or the BLOCKED reason): a separate
     // line would break the 20-line limit, and without it a fetch failure is a mystery.
+    // No origin: nothing to fetch. Allowed with a local finish, and said in a line that is not a warning, since it is
+    // the only sign of a remote removed by mistake; with any other finish the work could not end, so it blocks.
+    if (!ORIGIN) {
+        if (FINISH === "local-green") return say(`origin: none — local finish, the base is the local branch ${MAIN}`)
+        return block(`no remote origin, and workflow.finish is ${FINISH || "not set"}: add the remote or set workflow.finish to local-green`)
+    }
     const hint = GH_WARN ? ` · ${GH_WARN}` : ""
     if (!FETCH) return warn(`fetch skipped${hint}`)
     const r = await withTimeout(FETCH_TIMEOUT, GIT, ["fetch", "origin", "--prune", "--quiet"], { stdout: "ignore" })
@@ -503,7 +533,9 @@ async function checkFetch() {
 
 function checkOriginMain() {
     // 3
-    if (git(["rev-parse", "--verify", "-q", `refs/remotes/${BASE}`]) === null) return block(`no ref ${BASE}`)
+    if (!ORIGIN) {
+        if (git(["rev-parse", "--verify", "-q", `refs/heads/${BASE}`]) === null) return block(`no local branch ${BASE}`)
+    } else if (git(["rev-parse", "--verify", "-q", `refs/remotes/${BASE}`]) === null) return block(`no ref ${BASE}`)
     const log = git(["log", "-1", "--format=%h%x09%cd%x09%s", "--date=format:%Y-%m-%dT%H:%M", BASE], { stderr: "inherit", raw: true }) || ""
     // As `IFS=$'\t' read -r sha date subj`: the first line, tabs around the fields dropped.
     let rest = firstLine(log).replace(/^\t+/, "")
@@ -531,7 +563,9 @@ function checkMain() {
         else if (key === "branch" && val === `refs/heads/${MAIN}`) MAIN_TREE = wt
     }
 
-    if (git(["rev-parse", "--verify", "-q", `refs/heads/${MAIN}`]) !== null) {
+    if (!ORIGIN) {
+        // Without origin the base is the local main branch itself: there is nothing for it to be behind.
+    } else if (git(["rev-parse", "--verify", "-q", `refs/heads/${MAIN}`]) !== null) {
         const behind = git(["rev-list", "--count", `${MAIN}..${BASE}`]) ?? "?"
         const ahead = git(["rev-list", "--count", `${BASE}..${MAIN}`]) ?? "?"
         if (behind !== "0") {
@@ -714,6 +748,9 @@ function jsonLength(v) {
 
 async function checkPrs() {
     // 8
+    // A local finish without origin opens no PRs; without origin and with another finish the verdict is already
+    // BLOCKED, and gh still answers here as before.
+    if (!ORIGIN && FINISH === "local-green") return say("open PRs: no remote origin — step skipped")
     const r = await gh(["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,mergeStateStatus"], GH_TIMEOUT)
     if (r.code === 124) return warn(`gh unavailable: timed out after ${GH_TIMEOUT} s`)
     const json = chomp(r.stdout)
@@ -800,6 +837,7 @@ async function main(argv) {
     locateRepo()
     await loadProfile()
     checkTree()
+    checkOrigin()
     await checkGhAccount()
     await checkFetch()
     checkOriginMain()

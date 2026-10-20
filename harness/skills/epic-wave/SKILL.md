@@ -171,7 +171,8 @@ gh pr list --state open --json number,headRefName,mergeStateStatus,files   # pr-
 ```
 
 Preflight: the last line is `GO` or `BLOCKED: <reasons>`, exit code 1 on `BLOCKED`. The line
-`<база>: <sha> …` (the base is `F worktree.base`) is the base for the dispatch briefs. What it
+`<база>: <sha> …` (the base is `F worktree.base`; in a repository without `origin` — the branch that
+line names) is the base for the dispatch briefs. What it
 checks is in `rules.md`. If the preflight cannot run here (exit 2: not a git repository, for
 example the common directory above a multi-repository project) — say "preflight cannot run here,
 running a minimal one" and run `git -C <repo> fetch`, `git -C <repo> status --porcelain` and how far behind
@@ -190,9 +191,12 @@ prints the human-readable line) and returns `{ref, epics, tickets[]}` across all
 filter. `state` takes `open|work|blocked|done|none`; the word "claimed" lives in `statusRaw`. If
 `epic-status` refuses — say so and build the ticket list from `F tickets.path` by hand.
 
-Outcomes: `BLOCKED` — stop with a message (the reasons, and which of them are only warnings, are in
-`rules.md`); an open PR on the ticket's branch (`F tickets.branch`) — the ticket is resumed (section
-"How to resume a wave"), not dispatched again; everything else becomes rows of the plan table.
+Outcomes: `BLOCKED` — stop with a message: the wave does not start until the preflight answers `GO`.
+`rules.md` says what each reason means and how to clear it (for example, `another live session in the
+tree` — move to your own worktree and run the preflight again), but never turns a reason into a warning:
+warnings are only the lines that start with `! `. An open PR on the ticket's branch (`F tickets.branch`)
+— the ticket is resumed (section "How to resume a wave"), not dispatched again; everything else becomes
+rows of the plan table.
 
 **Open PRs of other epics** (`pr-green-ci` only). Another session — on this
 machine or on another one — may have an open PR on files of this wave. The block lists the open PRs
