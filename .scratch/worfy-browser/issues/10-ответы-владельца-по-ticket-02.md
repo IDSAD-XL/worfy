@@ -107,7 +107,9 @@ Source: Ticket 02, «Открытые вопросы» 1, 2, 5 и «Итог» (
 красные (`browserPartitions is not a function`, `loadURL` не вызван). После: `pnpm lint`,
 `pnpm typecheck`, `pnpm test` — exit 0 (338 файлов, 7163 теста); gate fast — «[gate] зелено (fast)».
 e2e (под замком `/tmp/worfy-e2e.lock`): новые тесты `browser.spec.ts` — кука после перезапуска,
-кнопки назад/вперёд/обновить, `target=_blank` и `window.open` — зелёные.
+кнопки назад/вперёд/обновить, `target=_blank` и `window.open` — зелёные; последний прогон на
+`740dc1cf` — `browser.spec.ts`, `browser-layer.spec.ts`, `browser-webview-guard.spec.ts`: exit 0,
+16 passed.
 
 Мутанты — в отдельном worktree под scratchpad, не в ветке:
 
