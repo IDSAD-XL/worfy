@@ -50,8 +50,11 @@ const styles = {
  */
 export const READING_ROW_DELAY_MS = 300
 
-/** True once `reading` has stayed true for READING_ROW_DELAY_MS; false again as soon as it is not. */
-function useReadingRow(reading: boolean, root: string | undefined): boolean {
+/**
+ * True once `reading` has stayed true for READING_ROW_DELAY_MS; false again as soon as it is not.
+ * A switch from one Project being read to another keeps it as it is: the section is still reading.
+ */
+function useReadingRow(reading: boolean): boolean {
   const [shown, setShown] = useState(false)
   useEffect(() => {
     if (!reading) return
@@ -60,23 +63,26 @@ function useReadingRow(reading: boolean, root: string | undefined): boolean {
       clearTimeout(timer)
       setShown(false)
     }
-  }, [reading, root])
+  }, [reading])
   return reading && shown
 }
 
 export default function EpicsSection() {
   const project = activeProject(useProjects())
   const { model, error } = useWorkflow(project?.path)
-  const readingRow = useReadingRow(project !== undefined && model === undefined && error === undefined, project?.path)
+  const readingRow = useReadingRow(project !== undefined && model === undefined && error === undefined)
   if (!project) return null
 
-  let body
-  if (error !== undefined) body = <p style={styles.message}>The epics could not be read: {error}</p>
-  else if (model === undefined) body = readingRow ? <p style={styles.message}>Reading epics…</p> : null
-  else if (model.error !== null) body = <p style={styles.message}>{model.error.message}</p>
-  else if (!model.epics.length) body = <p style={styles.message}>No epics in .scratch/</p>
+  // The message stands in a live region that is always there, so a screen reader announces
+  // "Reading epics…" and whatever replaces it; the list itself is not announced.
+  let message: string | null = null
+  let list = null
+  if (error !== undefined) message = `The epics could not be read: ${error}`
+  else if (model === undefined) message = readingRow ? 'Reading epics…' : null
+  else if (model.error !== null) message = model.error.message
+  else if (!model.epics.length) message = 'No epics in .scratch/'
   else
-    body = (
+    list = (
       <ul style={styles.list}>
         {model.epics.map((epic) => {
           const progress = progressOf(model.tickets.filter((ticket) => ticket.epic === epic.epic))
@@ -118,7 +124,8 @@ export default function EpicsSection() {
 
   return (
     <SidebarSection id="EpicsSection" title="Epics" rowHeight={ROW_HEIGHT}>
-      {body}
+      <div role="status">{message === null ? null : <p style={styles.message}>{message}</p>}</div>
+      {list}
     </SidebarSection>
   )
 }

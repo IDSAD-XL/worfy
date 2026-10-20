@@ -54,13 +54,15 @@ function fixture(): Fixture {
   symlinkSync(process.execPath, join(shellBin, 'node'))
   writeFileSync(join(home, '.profile'), `PATH='${shellBin}:${SYSTEM_PATH}'; export PATH\n`)
 
-  // The slow login shell: 2 s at least, then until the release file appears (30 s at most, so a
-  // test that failed before releasing it does not leave the shell waiting for ever).
+  // The slow login shell: 2 s at least, then until the release file appears, 9 s in all at most.
+  // The app kills a login shell that has not answered in 10 s (SHELL_TIMEOUT_MS,
+  // src/main/agent/env.ts) and reads with a fallback environment that has no node; answering by
+  // 9 s keeps this shell's environment even when the test never releases it.
   const release = join(scratch, 'release-login-shell')
   const shell = join(scratch, 'slow-shell')
   writeFileSync(
     shell,
-    `#!/bin/sh\nsleep 2\ni=0\nwhile [ ! -e '${release}' ] && [ "$i" -lt 300 ]; do sleep 0.1; i=$((i + 1)); done\nexec /bin/sh "$@"\n`,
+    `#!/bin/sh\nsleep 2\ni=0\nwhile [ ! -e '${release}' ] && [ "$i" -lt 70 ]; do sleep 0.1; i=$((i + 1)); done\nexec /bin/sh "$@"\n`,
   )
   chmodSync(shell, 0o755)
 
@@ -111,14 +113,15 @@ test('while the login shell is slow, the Epics section says "Reading epics…", 
     const rows = section.getByTestId('sidebar-epic')
     const reading = section.getByText(READING)
 
-    // The shell has not answered: it waits for the release file. Generous: the window's start
-    // plus the section's show delay (300 ms) on a loaded machine.
-    await expect(reading).toBeVisible({ timeout: 20_000 })
+    // The shell has not answered: it waits for the release file. The row must show within the
+    // shell's 9 s, which may have started before the window: a window that starts too slowly
+    // fails here, clearly, once the shell answers by itself and the row gives way to the list.
+    await expect(reading).toBeVisible({ timeout: 9_000 })
     await expect(rows).toHaveCount(0)
 
     writeFileSync(release, '')
-    // The rest of the 2 s, the login shell's rc files and epic-status.
-    await expect(rows).toHaveCount(EPICS.length, { timeout: 30_000 })
+    // What is left of the 2 s, the login shell's rc files and epic-status.
+    await expect(rows).toHaveCount(EPICS.length, { timeout: 15_000 })
     for (const epic of EPICS) await expect(section.locator(`[data-testid="sidebar-epic"][data-epic="${epic}"]`)).toHaveCount(1)
     await expect(reading).toHaveCount(0)
   } finally {

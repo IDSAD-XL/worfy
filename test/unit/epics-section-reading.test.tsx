@@ -10,28 +10,47 @@ import type { IpcResult } from '../../src/shared/ipc/channels'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
 const ROOT = '/repos/shop'
+const OTHER = '/repos/blog'
+
+interface ProjectStub {
+  id: string
+  name: string
+  path: string
+  branch: string
+}
+const SHOP: ProjectStub = { id: 'shop-1', name: 'shop', path: ROOT, branch: 'main' }
+const BLOG: ProjectStub = { id: 'blog-1', name: 'blog', path: OTHER, branch: 'main' }
 
 const state = vi.hoisted(() => ({
-  /** The answer functions of the `workflow.open` calls made so far, oldest first. */
-  opens: [] as ((result: IpcResult<WorkflowModel>) => void)[],
+  /** The answer function of each root's pending `workflow.open`. */
+  opens: new Map<string, (result: IpcResult<WorkflowModel>) => void>(),
+  /** The active Project; a test switches it and renders again. */
+  project: undefined as { id: string; name: string; path: string; branch: string } | undefined,
   invoke: vi.fn(),
 }))
 
 vi.mock('../../src/renderer/ipc', () => ({ invoke: state.invoke, subscribe: () => () => undefined }))
 vi.mock('../../src/renderer/projects/useProjects', () => ({
   useProjects: () => null,
-  activeProject: () => ({ id: 'shop-1', name: 'shop', path: ROOT, branch: 'main' }),
+  activeProject: () => state.project,
 }))
 // focusEpic pulls the whole Canvas in; a click on a row is not this file's business.
 vi.mock('../../src/renderer/canvas/sources/epics', () => ({ focusEpic: vi.fn() }))
 
 const { default: EpicsSection, READING_ROW_DELAY_MS } = await import('../../src/renderer/shell/sidebar/EpicsSection')
+const { useWorkflow } = await import('../../src/renderer/workflow/useWorkflow')
+
+/** Keeps `root` open, as the Canvas does for the active Project, so its model can be ready before a switch. */
+function Holder({ root }: { root: string }) {
+  useWorkflow(root)
+  return null
+}
 
 const READING = 'Reading epics…'
 
-const model = (epics: string[], error: WorkflowModel['error'] = null): WorkflowModel =>
+const model = (epics: string[], error: WorkflowModel['error'] = null, root = ROOT): WorkflowModel =>
   ({
-    root: ROOT,
+    root,
     epics: epics.map((epic): Epic => ({ epic, hasSpec: true, hasMap: false, title: null })),
     tickets: epics.map((epic) => ({ epic, num: 1, state: 'open' }) as unknown as Ticket),
     error,
@@ -40,10 +59,11 @@ const model = (epics: string[], error: WorkflowModel['error'] = null): WorkflowM
 
 beforeEach(() => {
   vi.useFakeTimers()
-  state.opens = []
+  state.opens = new Map()
+  state.project = SHOP
   state.invoke.mockReset()
-  state.invoke.mockImplementation((channel: string) => {
-    if (channel === 'workflow.open') return new Promise((resolve) => state.opens.push(resolve))
+  state.invoke.mockImplementation((channel: string, input: unknown) => {
+    if (channel === 'workflow.open') return new Promise((resolve) => state.opens.set((input as { root: string }).root, resolve))
     return Promise.resolve({ ok: true, value: undefined })
   })
 })
@@ -52,11 +72,12 @@ afterEach(() => {
   // Unmounting releases the root, so the next test opens it afresh.
   cleanup()
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 const readingRow = () => screen.queryByText(READING)
 const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms))
-const answer = (result: IpcResult<WorkflowModel>) => act(async () => state.opens[0]!(result))
+const answer = (result: IpcResult<WorkflowModel>, root = ROOT) => act(async () => state.opens.get(root)!(result))
 
 describe('the Epics section during the first read', () => {
   it('shows "Reading epics…" once the read outlasts the delay, then the list in its place', async () => {
@@ -122,5 +143,53 @@ describe('the Epics section during the first read', () => {
     await wait(READING_ROW_DELAY_MS * 10)
     expect(readingRow()).toBeNull()
     expect(screen.getByText('The epics could not be read: no such folder')).toBeTruthy()
+  })
+
+  it('keeps the row, with no gap, when the user switches to another Project that is still being read', async () => {
+    const { rerender } = render(<EpicsSection />)
+    await wait(READING_ROW_DELAY_MS)
+    expect(readingRow()).not.toBeNull()
+
+    state.project = BLOG
+    rerender(<EpicsSection />)
+    expect(state.invoke).toHaveBeenCalledWith('workflow.open', { root: OTHER })
+    expect(readingRow()).not.toBeNull()
+    for (let step = 0; step < READING_ROW_DELAY_MS; step += 50) {
+      await wait(50)
+      expect(readingRow()).not.toBeNull()
+    }
+
+    await answer({ ok: true, value: model(['blog-mvp'], null, OTHER) }, OTHER)
+    expect(readingRow()).toBeNull()
+    expect(screen.getAllByTestId('sidebar-epic').map((row) => row.getAttribute('data-epic'))).toEqual(['blog-mvp'])
+  })
+
+  it('hides the row at once when the user switches to a Project whose model is ready', async () => {
+    // A fresh element each time: React skips rendering an element it has already rendered.
+    const both = () => (
+      <>
+        <EpicsSection />
+        <Holder root={OTHER} />
+      </>
+    )
+    const { rerender } = render(both())
+    await answer({ ok: true, value: model(['blog-mvp'], null, OTHER) }, OTHER)
+    await wait(READING_ROW_DELAY_MS)
+    expect(readingRow()).not.toBeNull()
+
+    state.project = BLOG
+    rerender(both())
+    expect(readingRow()).toBeNull()
+    expect(screen.getAllByTestId('sidebar-epic').map((row) => row.getAttribute('data-epic'))).toEqual(['blog-mvp'])
+    await wait(READING_ROW_DELAY_MS * 10)
+    expect(readingRow()).toBeNull()
+  })
+
+  it('announces the row and what replaces it: both stand in a status live region', async () => {
+    render(<EpicsSection />)
+    await wait(READING_ROW_DELAY_MS)
+    expect(screen.getByRole('status').textContent).toBe(READING)
+    await answer({ ok: true, value: model([]) })
+    expect(screen.getByRole('status').textContent).toBe('No epics in .scratch/')
   })
 })
