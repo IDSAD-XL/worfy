@@ -110,5 +110,14 @@ macOS и Linux bash ведёт свою process group (`detached`), и kill ид
 file exits that left a child…» (около 2 s, exit 0, потомок убит). Мутанты: kill только bash, без своей группы,
 старое поведение, grace без kill — все красные.
 
+**Круг 3 (второе ревью #626).** На Windows после выхода bash pid мог уже достаться другому процессу, поэтому в
+окне grace там больше ничего не убивается: case только перестаёт ждать вывод; `taskkill` остался для timeout,
+пока bash жив. Таймер предела снимается на `exit` bash: bash, вышедший до предела, судится по коду выхода, а не
+как «killed after N s». Runs, которые ещё не вернулись, лежат в `liveRuns`; `afterAll`, `process.on('exit')` и
+`process.once` на SIGINT, SIGTERM, SIGHUP убивают их группы, затем worker завершается тем же сигналом. Cases:
+«judges a file that exited 0 before its limit…» и «kills the runs that have not returned when the worker stops»;
+мутанты (таймер не снят; таймер не снят и нет проверки кода; `killLiveRuns` ничего не делает) — красные. Сама
+обработка сигналов test-а не имеет: для неё нужен отдельный процесс с этим кодом.
+
 **Ждёт слота тяжёлого run-а:** wall time `pnpm test` до и после, длина vitest-файла с shell test-ами в полном run,
 gate fast. Ссылка «до» из Ticket-а 10: gate fast 531,8 s, `test` 519 s, этот файл 517 s.

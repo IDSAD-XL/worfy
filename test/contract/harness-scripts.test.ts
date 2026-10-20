@@ -17,7 +17,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
 import { timeScale } from '../time-scale'
@@ -88,7 +88,8 @@ type Run = {
 }
 
 // How long the output may stay open after bash has exited: a process the script started in the
-// background holds it open. Past that the run's process group is killed and the case returns.
+// background holds it open. Past that the case returns; on macOS and Linux the run's process group
+// is killed first.
 const CLOSE_GRACE_MS = 2_000
 
 /** Kills bash and every process it started: its process group (POSIX), its process tree (Windows). */
@@ -101,15 +102,45 @@ function killRun(pid: number): void {
   }
 }
 
+// Runs that have not returned yet, by the pid of their bash. An interrupted or ending worker kills
+// them, so a stopped test run leaves no Harness process behind: bash is in a group of its own, out
+// of reach of the signal that stops the worker, and the timer that would kill it dies with the
+// worker. On Windows a pid leaves the set when bash exits: Windows may give it to another process.
+const liveRuns = new Set<number>()
+const STOP_SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
+
+/** Kills every run that has not returned. */
+function killLiveRuns(): void {
+  for (const pid of liveRuns) killRun(pid)
+  liveRuns.clear()
+}
+
+function stopOnSignal(signal: NodeJS.Signals): void {
+  killLiveRuns()
+  unwatchStops()
+  // The worker still ends by the signal it got.
+  process.kill(process.pid, signal)
+}
+
+function watchStops(): void {
+  if (process.listeners('exit').includes(killLiveRuns)) return
+  process.on('exit', killLiveRuns)
+  for (const signal of STOP_SIGNALS) process.once(signal, stopOnSignal)
+}
+
+function unwatchStops(): void {
+  process.off('exit', killLiveRuns)
+  for (const signal of STOP_SIGNALS) process.off(signal, stopOnSignal)
+}
+
 /**
  * Runs `bash <file>` with an empty stdin. A run past `timeoutMs` is killed with everything it
  * started, not bash alone: a child that outlived bash kept the output open and the case waited for
  * it up to vitest's own limit, without the output and without removing its HOME (review of #626).
  * On macOS and Linux bash leads a process group of its own (`detached`), and the kill goes to the
  * group, so it reaches children that bash no longer parents. Resolves when the output closes, or
- * CLOSE_GRACE_MS after bash exited if something still holds it.
- * shortcut: an interrupted vitest (Ctrl+C) does not reach the group of a running file, which then
- * runs to its own end; redo it if interrupted runs start leaving Harness processes behind.
+ * CLOSE_GRACE_MS after bash exited if something still holds it. A bash that exited before its limit
+ * is judged by its exit code, even if a child it left kept the output open past the limit.
  */
 function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<Run> {
   return new Promise((resolve) => {
@@ -120,19 +151,26 @@ function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.Proce
     let settled = false
     let grace: NodeJS.Timeout | undefined
     const child = spawn(bash, [file], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: !WINDOWS, windowsHide: true })
+    const pid = child.pid
+    if (pid !== undefined) {
+      watchStops()
+      liveRuns.add(pid)
+    }
     const finish = (status: number | null, signal: NodeJS.Signals | null): void => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       clearTimeout(grace)
+      if (pid !== undefined) liveRuns.delete(pid)
       child.stdout.destroy()
       child.stderr.destroy()
       const output = `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`
-      resolve({ status, signal, error, timedOut, output, pid: child.pid })
+      // A bash that exited 0 just as the limit came was not killed by it.
+      resolve({ status, signal, error, timedOut: timedOut && status !== 0, output, pid })
     }
     const timer = setTimeout(() => {
       timedOut = true
-      if (child.pid !== undefined) killRun(child.pid)
+      if (pid !== undefined) killRun(pid)
     }, timeoutMs)
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk))
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
@@ -142,11 +180,16 @@ function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.Proce
     child.on('error', (spawnError) => {
       error = spawnError
       // bash did not start: no exit and no output will come.
-      if (child.pid === undefined) finish(null, null)
+      if (pid === undefined) finish(null, null)
     })
     child.on('exit', (status, signal) => {
+      // bash is gone: its limit no longer applies, the grace below takes over.
+      clearTimeout(timer)
+      if (WINDOWS && pid !== undefined) liveRuns.delete(pid)
       grace = setTimeout(() => {
-        if (child.pid !== undefined) killRun(child.pid)
+        // On Windows the pid of an exited bash may already belong to another process, and its
+        // tree no longer leads to the child it left: the case only stops waiting for the output.
+        if (!WINDOWS && pid !== undefined) killRun(pid)
         finish(status, signal)
       }, CLOSE_GRACE_MS)
     })
@@ -266,15 +309,19 @@ describe('harness shell tests', () => {
     }
   })
 
-  it('returns soon after a file exits that left a child holding its output, and ends the child', async () => {
+  it('judges a file that exited 0 before its limit by its exit code, and ends the child it left', async () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-left-')))
     try {
+      // bash exits at once; the child holds the output past the 1 s limit, until the grace ends.
       const script = join(dir, 'left.test.sh')
       writeFileSync(script, 'echo done\nsleep 30 &\nexit 0\n')
       const begun = Date.now()
-      const { run } = await runInEmptyHome(script, 60_000)
-      expect(Date.now() - begun).toBeLessThan((CLOSE_GRACE_MS + 3_000) * timeScale)
-      expect(failure(script, run, 60_000)).toBeNull()
+      const { run } = await runInEmptyHome(script, 1_000)
+      const took = Date.now() - begun
+      // The 1 s limit stopped counting when bash exited; the case waited out the grace instead.
+      expect(took).toBeGreaterThanOrEqual(CLOSE_GRACE_MS - 100)
+      expect(took).toBeLessThan((CLOSE_GRACE_MS + 3_000) * timeScale)
+      expect(failure(script, run, 1_000)).toBeNull()
       expect(run.output).toContain('done')
       if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
     } finally {
@@ -282,7 +329,33 @@ describe('harness shell tests', () => {
     }
   })
 
+  it('kills the runs that have not returned when the worker stops', async () => {
+    // Every shell test case has returned by now: the kill below reaches only this run.
+    expect(liveRuns.size).toBe(0)
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-stop-')))
+    try {
+      const started = join(dir, 'started')
+      const script = join(dir, 'stop.test.sh')
+      writeFileSync(script, `sleep 30 &\n: > '${started.replaceAll('\\', '/')}'\nsleep 30\n`)
+      const running = runInEmptyHome(script, 60_000)
+      await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 10_000 * timeScale })
+      const begun = Date.now()
+      killLiveRuns()
+      const { run, home } = await running
+      expect(Date.now() - begun).toBeLessThan(3_000 * timeScale)
+      expect(run.timedOut).toBe(false)
+      expect(run.status).not.toBe(0)
+      expect(liveRuns.size).toBe(0)
+      expect(existsSync(home)).toBe(false)
+      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+    } finally {
+      removeTestTree(dir)
+    }
+  })
+
   afterAll(() => {
+    killLiveRuns()
+    unwatchStops()
     const repeated = [...starts].filter(([, count]) => count > 1).map(([name]) => name)
     expect(repeated, 'shell test files started more than once in this run').toEqual([])
   })
