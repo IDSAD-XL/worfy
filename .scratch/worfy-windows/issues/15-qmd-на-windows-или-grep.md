@@ -145,6 +145,10 @@ Source: решения владельца 2026-10-07: Q21 (qmd на Windows — 
       эти случаи зелёные: A — `qmd-sync-main` без zsh, B — запуск `qmd` (не по `#!`), C — строка `update:` на
       Windows, плюс пути в `index.yml` не вперемешку `/` и `\` (Ticket [77](77-qmd-collections-красный-на-windows.md);
       решение владельца 2026-10-20; добавлено 2026-10-20).
+- [ ] `scriptCommand` в `harness/bin/qmd-collections` запускает файл без строки `#!` через node
+      (`process.execPath`); это неверно, если такой файл когда-нибудь окажется бинарным. Решить, как запускать
+      файл без `#!` (напрямую или с понятной ошибкой), и закрепить test-ом (ревью PR #602 на Mac, low;
+      добавлено 2026-10-20).
 - [ ] `GATE_SCOPE=all` gate full (команда Gate — какой её оставил Ticket 03) — код 0 на Mac (по правилу needs-mac-gate: проверяет и вливает Session на Mac) и на ПК владельца; на Windows `harness-scripts.test.ts` гоняет `qmd.test.sh`, а не пропускает его.
 
 ## Тесты
