@@ -10,7 +10,7 @@
 // must be written as picked, a Full draft keeps what the Session proposed, and the default worfy's
 // code names for a mode must be the one bin/profile prints for a Profile without the field.
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -310,7 +310,10 @@ describe('the kind of the folder (step 1)', () => {
     git(repo, 'worktree', 'add', '-q', '-b', 'feature', worktree)
     const typed = (path: string): string => path.replaceAll('\\', '/')
     const sub = join(repo, 'src')
-    const cases: [string, string][] = [[sub, sub], [worktree, worktree], [typed(sub), sub], [typed(worktree), worktree]]
+    // A link to the subfolder: on macOS and Linux the only other spelling a test can make of it.
+    const link = join(scratch, 'spelled-src')
+    symlinkSync(sub, link, process.platform === 'win32' ? 'junction' : 'dir')
+    const cases: [string, string][] = [[sub, sub], [worktree, worktree], [typed(sub), sub], [typed(worktree), worktree], [link, sub]]
     for (const [folder, shown] of cases) {
       const result = await inspectFolder(folder, runGit)
       const notice = result.ok ? result.folder.notice : null
