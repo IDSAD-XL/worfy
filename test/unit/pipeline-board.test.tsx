@@ -140,6 +140,7 @@ const appSettings = (): AppSettings => ({
   interfaceScale: 1,
   sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
   autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
+  memoryIndicator: true,
   revision: 0,
 })
 

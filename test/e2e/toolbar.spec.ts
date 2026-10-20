@@ -108,6 +108,9 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
     // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was.
     await expect(toolbar.getByTestId('app-version')).toHaveText(new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`))
+    // worfy's own memory after the version, on the same line of the Harness column (worfy-ui ticket 20):
+    // the column measured below carries it.
+    await expect(toolbar.getByTestId('app-line').getByTestId('app-memory')).toHaveText(/^\d+(\.\d)? (MB|GB)$/)
 
     // Every other item of the toolbar is whole and inside the window, to the right of the title.
     const width = await innerWidth(window)

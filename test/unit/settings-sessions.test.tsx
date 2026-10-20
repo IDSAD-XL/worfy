@@ -15,6 +15,7 @@ const settings = (revision: number, autoCompactWindow: AppSettings['autoCompactW
   interfaceScale: 1,
   sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
   autoCompactWindow,
+  memoryIndicator: true,
   revision,
 })
 

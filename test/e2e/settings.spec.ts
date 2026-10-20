@@ -64,7 +64,8 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
 
     // The keyboard stays in the window: Tab goes through the rows of the section list, however many
     // sections there are, then the controls of the section shown — the interface scale slider of
-    // General — then Close, and round to the first row again.
+    // General and the switch of worfy's memory in the toolbar (worfy-ui ticket 20) — then Close,
+    // and round to the first row again.
     const rows = await sections.count()
     expect(rows).toBeGreaterThan(0)
     for (let row = 0; row < rows; row++) {
@@ -72,6 +73,8 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
       await window.keyboard.press('Tab')
     }
     await expect(dialog.getByRole('slider', { name: 'Interface scale' })).toBeFocused()
+    await window.keyboard.press('Tab')
+    await expect(dialog.getByRole('switch', { name: "Show worfy's memory in the toolbar" })).toBeFocused()
     await window.keyboard.press('Tab')
     await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
     await snapshotThemes(window, 'settings-focus')
