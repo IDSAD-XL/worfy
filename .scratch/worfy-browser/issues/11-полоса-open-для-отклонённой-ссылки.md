@@ -1,7 +1,7 @@
 # 11 — Полоса «The page wants to open … — Open» для ссылки, которую Browser не открыл сам
 
 Type: task
-Status: open
+Status: claimed 2026-10-20T14:45Z
 Blocked by: 10
 Source: решение владельца 2026-10-20 («10 окей» на вариант (b) в чате Session «Worfy продолжение»);
 review PR #609 (Ticket 10) — цена проверки origin у `window.open`. Код перечитан по ветке

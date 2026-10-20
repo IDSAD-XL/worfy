@@ -1,7 +1,8 @@
 # 10 — Ответы владельца по Ticket-у 02: partition `persist:`, кнопки назад/вперёд/обновить, `target=_blank` в том же Browser
 
 Type: task
-Status: claimed 2026-10-20T12:48Z
+Status: done 2026-10-20T14:44Z
+PR: #609
 Branch: worfy-browser/10
 Blocked by: 02
 Source: Ticket 02, «Открытые вопросы» 1, 2, 5 и «Итог» (PR #576 держится вариантов, которые ничего не
@@ -160,3 +161,17 @@ origin (реклама) мог вызвать `window.open` и заменить 
 **Долг** (находка low ревью, не исправлена по решению orchestrator-а): шаблон хеша в конце id
 Project-а продублирован — `PROJECT_HASH` в `src/shared/browser/partition.ts:14` и `ID_HASH_SUFFIX`
 в `src/main/projects/store.ts`. Свести к одному месту в `src/shared/`.
+
+**Решение владельца по кругу ревью 1 — 2026-10-20**, через Session «Worfy продолжение»: «10 окей».
+Проверка origin referrer-а остаётся как есть. Для ссылок, которые она отклоняет (пустой или чужой
+referrer), — следующий Ticket 11: полоса «The page wants to open `<url>`» с кнопкой «Open» в рамке
+Browser-а, текст на языке UI приложения.
+
+**Круг ревью 2** (head `ab2469ee`) — VERIFIED, находок high и med нет. Подделать origin верхней
+страницы из iframe чужого origin средствами web API нельзя. Unit `window-options` — exit 0, 21
+passed; мутант без проверки origin — exit 1. Находка low: ссылка с https-страницы на `http://…`
+по политике `strict-origin-when-cross-origin` может прийти без referrer и молча не открыться
+(запуском не проверено) — записана в Ticket 11.
+
+**Merge.** Gate full зелёный на слиянии с main `5247b213`, Windows runner зелёный. Merge —
+`4f89771f` (gate queue Session «Worfy продолжение»).

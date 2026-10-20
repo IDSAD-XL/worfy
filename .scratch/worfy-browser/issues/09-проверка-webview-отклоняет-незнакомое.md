@@ -1,7 +1,8 @@
 # 09 — Проверка подключения `<webview>` отклоняет и то, что ослабляет страницу: `webSecurity`, insecure content, Blink features
 
 Type: task
-Status: claimed 2026-10-20T10:19Z
+Status: done 2026-10-20T14:44Z
+PR: #601
 Branch: worfy-browser/09
 Blocked by: 02
 Source: review PR #576 (Ticket 02), находка low verifier-а, группа Consider; [ADR-0078](../../../docs/adr/0078-browser-node.md),
@@ -85,3 +86,6 @@ Source: review PR #576 (Ticket 02), находка low verifier-а, группа
 читает. `nodeIntegrationInWorker` по `electron.d.ts` даёт Node только worker-ам frame-а, у которого
 Node уже есть, а `nodeIntegration` и `nodeIntegrationInSubFrames` проверка отклоняет; остальные два
 страницу не ослабляют. Если решим отказывать и им — отдельный Ticket.
+
+**Ревью и merge.** Ревью — VERIFIED, находок high и med нет. Gate full зелёный на слиянии с main
+`219a6111`, Windows runner зелёный. Merge — `d3596546` (gate queue Session «Worfy продолжение»).
