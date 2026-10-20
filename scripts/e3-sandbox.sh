@@ -12,10 +12,10 @@
 #   e3-sandbox.sh lock-run <cmd>... run a command (in the caller's environment) under the shared
 #                                 Electron lock /tmp/worfy-e2e.lock, with E3_LOCK_HELD=1
 #   e3-sandbox.sh path            print the sandbox folder
-#   e3-sandbox.sh move [--sign-in-again]
-#                                 move a sandbox from the old place in the temp dir (below) to the
-#                                 sandbox folder. Without the flag it only says what the move does and
-#                                 exits 2: the Claude Code sign-in does not survive it (see move_sandbox)
+#   e3-sandbox.sh move            move a sandbox from the old place in the temp dir (below) to the
+#                                 sandbox folder, keeping its Claude Code sign-in (see move_sandbox);
+#                                 only under lock-run. Run again, it finishes a move that stopped.
+#                                 Until it has run, init and the commands that use the sandbox refuse.
 #   e3-sandbox.sh reset           delete the sandbox folder, and nothing else
 #   e3-sandbox.sh reset-harness   back to "no Harness" for another acceptance run, keeping the
 #                                 sign-in: deletes worfy-harness/, plugins/ and settings.json of the
@@ -65,6 +65,12 @@
 set -euo pipefail
 
 MARKER=.worfy-e3-sandbox
+# In a sandbox `move` brought from the temp dir: the CLAUDE_CONFIG_DIR it had there, which the sandbox
+# environment gives Claude Code as CLAUDE_SECURESTORAGE_CONFIG_DIR, so it finds its sign-in (see
+# move_sandbox). Deleting the file and running init drops the variable.
+SECURE_DIR_FILE=.claude-securestorage-config-dir
+# There while a move is not finished: the old folder, so `move` run again can finish it.
+MOVING=.worfy-e3-sandbox-moving
 # The first line of home/.zshenv and home/.profile: how a sandbox without its marker is recognised.
 ZSHENV_HEAD="# Written by scripts/e3-sandbox.sh: the sandbox variables for its login shells."
 LOCK=${E3_LOCK_DIR:-/tmp/worfy-e2e.lock}
@@ -199,6 +205,9 @@ WORFY_DATA_DIR=$ROOT/data
 npm_config_prefix=$ROOT/npm
 GH_CONFIG_DIR=$GH_DIR
 EOF
+  if [ -f "$ROOT/$SECURE_DIR_FILE" ]; then
+    printf 'CLAUDE_SECURESTORAGE_CONFIG_DIR=%s\n' "$(cat "$ROOT/$SECURE_DIR_FILE")"
+  fi
 }
 
 # The variables a login shell of the sandbox must export besides HOME: worfy starts Claude Code with
@@ -268,10 +277,30 @@ check_marker() {
   exit 2
 }
 
+# home/.zshenv and home/.profile: the sandbox variables for its login shells.
+write_shell_files() {
+  {
+    echo "$ZSHENV_HEAD"
+    shell_exports
+  } >"$SBX_HOME/.zshenv" || die 1 "cannot write $SBX_HOME/.zshenv"
+  cp "$SBX_HOME/.zshenv" "$SBX_HOME/.profile" || die 1 "cannot write $SBX_HOME/.profile"
+}
+
+# No sandbox is made or used at ROOT while the one at the old place in the temp dir waits for `move`
+# (it would leave that one to the temp dir's cleaning, and `move` would then find ROOT taken), nor
+# while a move into ROOT is unfinished.
+check_not_left_behind() {
+  [ ! -f "$ROOT/$MOVING" ] || die 2 "the move of the sandbox into $ROOT is not finished: run it again: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move"
+  [ ! -f "$ROOT/$MARKER" ] || return 0
+  [ -f "$OLD_ROOT/$MARKER" ] || return 0
+  die 2 "the sandbox is still at its old place $OLD_ROOT, in the temp dir macOS cleans; nothing made or used at $ROOT. Move it first: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move"
+}
+
 init() {
   # A folder of this name that this script did not make is someone else's: marking it would let
   # `reset` delete it.
   check_marker "$ROOT"
+  check_not_left_behind
   inside_sandbox
   mkdir -p "$SBX_CLAUDE" "$ROOT/npm/bin" "$ROOT/data" "$ROOT/runs"
   [ -f "$ROOT/$MARKER" ] || printf 'worfy E3 acceptance sandbox, created %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ROOT/$MARKER"
@@ -297,17 +326,14 @@ init() {
 	helper =
 	helper = !$gh auth git-credential
 EOF
-  {
-    echo "$ZSHENV_HEAD"
-    shell_exports
-  } >"$SBX_HOME/.zshenv"
-  cp "$SBX_HOME/.zshenv" "$SBX_HOME/.profile"
+  write_shell_files
   echo "e3-sandbox: $ROOT"
   check_gh
 }
 
 require_sandbox() {
   check_marker "$ROOT"
+  check_not_left_behind
   [ -f "$ROOT/$MARKER" ] || die 2 "no sandbox at $ROOT: run \`bash $SCRIPT_DIR/e3-sandbox.sh init\` first"
 }
 
@@ -419,34 +445,40 @@ keychain_item() {
   printf 'Claude Code-credentials-%s\n' "${sum:0:8}"
 }
 
-# Writes a file again with every OLD_ROOT in it replaced by ROOT, keeping its last newline. A loop,
-# not ${text//old/new}: bash 3.2 of macOS keeps the quotes of a quoted replacement, and bash 5.2
-# puts the match in place of an unquoted & in it.
+# Writes the file $1 again with every $2 in it replaced by $3, keeping its last newline. A loop,
+# not ${text//old/new} or sed: bash 3.2 of macOS keeps the quotes of a quoted replacement, and bash
+# 5.2 and sed put the match in place of an & in it.
 rewrite_paths() {
   local text out=
   text=$(cat -- "$1" && printf x) || die 1 "cannot read $1"
   text=${text%x}
-  while [[ $text == *"$OLD_ROOT"* ]]; do
-    out+=${text%%"$OLD_ROOT"*}$ROOT
-    text=${text#*"$OLD_ROOT"}
+  while [[ $text == *"$2"* ]]; do
+    out+=${text%%"$2"*}$3
+    text=${text#*"$2"}
   done
   printf '%s' "$out$text" >"$1" || die 1 "cannot write $1"
 }
 
 # Moves the sandbox from OLD_ROOT (the temp dir) to ROOT as a whole: one `mv`, so links inside stay
-# links. Then the links that point into the old folder point into the new one, and home/.zshenv,
-# home/.profile and home/.gitconfig name the new folder.
-# The sign-in does not move: Claude Code finds it in the keychain by a name made from
-# CLAUDE_CONFIG_DIR (keychain_item), and that path changes. So the move is done only with
-# --sign-in-again, after it has said so; without it nothing moves. The old keychain item is left.
+# links. Then finish_move points the links into the old folder at the new one, rewrites the paths of
+# home/.gitconfig and writes home/.zshenv and home/.profile for the new place.
+# The sign-in is kept through an undocumented variable. Claude Code on macOS finds it in the keychain
+# under a name made from CLAUDE_CONFIG_DIR (keychain_item), and that path changes. When
+# CLAUDE_SECURESTORAGE_CONFIG_DIR is set, the name is made from it instead (the claude binary of
+# claude-agent-sdk 0.3.289 and claude 2.1.300), so the moved sandbox keeps the old CLAUDE_CONFIG_DIR
+# there (SECURE_DIR_FILE). Should Claude Code stop reading it, the owner signs in again.
 # Only under the e2e lock (lock-run): an app running in the sandbox would lose its folder.
-# shortcut: rewrites only the spelling OLD_ROOT has (resolved, /private/var/folders/...), not /var/folders/...; redo if a link or one of the three files ever names the old folder that way.
+# shortcut: rewrites only the spelling OLD_ROOT has (resolved, /private/var/folders/...), not /var/folders/...; redo if a link or .gitconfig ever names the old folder that way.
 move_sandbox() {
-  local flag=${1:-} link target file
-  case "$flag" in
-    "" | --sign-in-again) ;;
-    *) die 2 "move: unknown option $flag (only --sign-in-again)" ;;
-  esac
+  [ $# -eq 0 ] || die 2 "move: takes no options, not $1"
+  local lock_hint="bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move"
+  # A move that stopped after mv (a link or a file it could not write) is finished, not started again.
+  if [ -f "$ROOT/$MOVING" ]; then
+    [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: $lock_hint"
+    inside_sandbox
+    finish_move "$(cat "$ROOT/$MOVING")"
+    return 0
+  fi
   if [ ! -e "$OLD_ROOT" ] && [ ! -L "$OLD_ROOT" ]; then
     echo "e3-sandbox: no sandbox at $OLD_ROOT: nothing to move"
     return 0
@@ -454,40 +486,49 @@ move_sandbox() {
   check_marker "$OLD_ROOT"
   [ -f "$OLD_ROOT/$MARKER" ] || die 2 "$OLD_ROOT has no $MARKER: not a sandbox of this script, left as it is"
   inside_sandbox "$OLD_ROOT"
+  local file
   for file in .zshenv .profile .gitconfig; do
-    [ ! -L "$OLD_ROOT/home/$file" ] || die 2 "$OLD_ROOT/home/$file is a link: refusing to write through it"
+    [ ! -L "$OLD_ROOT/home/$file" ] || die 2 "$OLD_ROOT/home/$file is a link: refusing to write through it; nothing moved"
   done
   if [ -e "$ROOT" ] || [ -L "$ROOT" ]; then
+    if [ -f "$ROOT/$MARKER" ] && [ ! -L "$ROOT" ]; then
+      die 2 "$ROOT holds a sandbox already: nothing moved; the old one stays at $OLD_ROOT. If that one at $ROOT is a fresh one with nothing to keep (no sign-in), delete it with \`bash $SCRIPT_DIR/e3-sandbox.sh reset\`, then run the move again: $lock_hint"
+    fi
     [ -d "$ROOT" ] && [ ! -L "$ROOT" ] && [ -z "$(ls -A "$ROOT" 2>/dev/null)" ] ||
-      die 2 "$ROOT is there already and is not an empty folder: nothing moved; the sandbox stays at $OLD_ROOT"
+      die 2 "$ROOT is there already and is not an empty folder nor a sandbox of this script: nothing moved; the sandbox stays at $OLD_ROOT. Move $ROOT out of the way yourself, then run the move again: $lock_hint"
   fi
-  if [ "$flag" != --sign-in-again ]; then
-    {
-      echo "e3-sandbox: move takes $OLD_ROOT to $ROOT."
-      echo "e3-sandbox: the Claude Code sign-in of the sandbox does not move with it: Claude Code keeps it in the keychain"
-      echo "e3-sandbox: under a name made from CLAUDE_CONFIG_DIR, now '$(keychain_item "$OLD_ROOT/home/.claude")';"
-      echo "e3-sandbox: after the move it looks for '$(keychain_item "$SBX_CLAUDE")' instead."
-      echo "e3-sandbox: the owner signs in again after the move (bash $SCRIPT_DIR/e3-sandbox.sh shell)."
-      echo "e3-sandbox: nothing moved. To move: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move --sign-in-again"
-    } >&2
-    exit 2
-  fi
-  [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move --sign-in-again"
+  [ "${E3_LOCK_HELD:-}" = 1 ] || die 2 "move: run it under the e2e lock, so no acceptance run uses the sandbox meanwhile: $lock_hint"
   # An empty folder in the way is removed; mv would put the sandbox inside it.
   if [ -d "$ROOT" ]; then rmdir -- "$ROOT" || die 1 "cannot remove the empty folder $ROOT"; fi
   mkdir -p -- "$(dirname "$ROOT")" || die 1 "cannot make $(dirname "$ROOT")"
+  printf '%s\n' "$OLD_ROOT" >"$OLD_ROOT/$MOVING" || die 1 "cannot write $OLD_ROOT/$MOVING; nothing moved"
   mv -- "$OLD_ROOT" "$ROOT" || die 1 "cannot move $OLD_ROOT to $ROOT"
+  # A ROOT made between the check above and mv takes the sandbox inside it.
+  [ -f "$ROOT/$MARKER" ] || die 1 "after mv $ROOT has no $MARKER: a folder appeared there meanwhile and the sandbox is $ROOT/$(basename "$OLD_ROOT"). Move that folder to $ROOT yourself, then run: $lock_hint"
+  finish_move "$OLD_ROOT"
+}
+
+# The steps after mv; run again they do the same. $1 is the folder the sandbox was moved from.
+finish_move() {
+  local old=$1 link target file
+  [ -n "$old" ] || die 2 "$ROOT/$MOVING names no old folder"
   while IFS= read -r -d '' link; do
     target=$(readlink "$link")
     case "$target" in
-      "$OLD_ROOT" | "$OLD_ROOT"/*) ln -sfn "$ROOT${target#"$OLD_ROOT"}" "$link" || die 1 "cannot point $link into $ROOT" ;;
+      "$old" | "$old"/*) ln -sfn "$ROOT${target#"$old"}" "$link" || die 1 "cannot point $link into $ROOT; fix that, then run: bash $SCRIPT_DIR/e3-sandbox.sh lock-run bash $SCRIPT_DIR/e3-sandbox.sh move" ;;
     esac
   done < <(find "$ROOT" -type l -print0)
   for file in .zshenv .profile .gitconfig; do
-    [ ! -f "$SBX_HOME/$file" ] || rewrite_paths "$SBX_HOME/$file"
+    [ ! -L "$SBX_HOME/$file" ] || die 2 "$SBX_HOME/$file is a link: refusing to write through it"
   done
-  echo "e3-sandbox: moved $OLD_ROOT to $ROOT"
-  echo "e3-sandbox: sign in again: bash $SCRIPT_DIR/e3-sandbox.sh shell. The keychain item '$(keychain_item "$OLD_ROOT/home/.claude")' is left as it is."
+  [ ! -f "$SBX_HOME/.gitconfig" ] || rewrite_paths "$SBX_HOME/.gitconfig" "$old" "$ROOT"
+  # A sandbox moved twice keeps the first CLAUDE_CONFIG_DIR: its sign-in is filed under that one.
+  [ -f "$ROOT/$SECURE_DIR_FILE" ] || printf '%s\n' "$old/home/.claude" >"$ROOT/$SECURE_DIR_FILE" || die 1 "cannot write $ROOT/$SECURE_DIR_FILE"
+  write_shell_files
+  rm -f -- "$ROOT/$MOVING" || die 1 "cannot remove $ROOT/$MOVING"
+  echo "e3-sandbox: moved $old to $ROOT"
+  echo "e3-sandbox: the sign-in stays: Claude Code still looks for the keychain item '$(keychain_item "$(cat "$ROOT/$SECURE_DIR_FILE")")', as the sandbox environment sets CLAUDE_SECURESTORAGE_CONFIG_DIR=$(cat "$ROOT/$SECURE_DIR_FILE")."
+  echo "e3-sandbox: that variable is undocumented; if Claude Code stops reading it, sign in again: bash $SCRIPT_DIR/e3-sandbox.sh shell"
   echo "e3-sandbox: files of the Claude home may still name the old folder (the plugin records): run reset-harness before the next acceptance run"
 }
 
@@ -509,5 +550,5 @@ case "${1:-}" in
   move) shift && move_sandbox "$@" ;;
   reset) reset ;;
   reset-harness) reset_harness ;;
-  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|move [--sign-in-again]|reset|reset-harness" ;;
+  *) die 2 "usage: e3-sandbox.sh init|check-gh|env|run <cmd>...|shell|lock-run <cmd>...|path|move|reset|reset-harness" ;;
 esac
