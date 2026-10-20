@@ -72,7 +72,7 @@ The block filters with `gh`'s own `--jq`, without an external `jq` (Git Bash on 
 and prints one line a PR, oldest wait first:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 GQ_SECTION=$(F cross_machine_gate.checks_section) GQ_ACCOUNT=$(F github.account) \
   gh pr list --state open --label "$(F cross_machine_gate.label)" --limit 100 \
   --json number,headRefName,headRefOid,isCrossRepository,createdAt,commits,comments --jq '
@@ -114,7 +114,7 @@ For each PR, in that order, with `<N>`, `<branch>` and `<head>` from its line:
    files as the reason:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
 P=<scratchpad>/pr-<N>
 gone() { [ ! -e "$P" ] || git -C <repo> worktree remove --force "$P"; }   # the tree of an earlier try of this PR
@@ -149,14 +149,18 @@ else echo "REFUSED: '$P' is not the worktree of PR <N>: nothing pushed"; fi
    stays in it:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 gh pr view <N> --json body --jq .body | awk -v h="## $(F cross_machine_gate.checks_section)" '
-  { sub(/\r$/, "") }
-  /^```/ { fence = !fence }
-  $0 == h { on = 1; next }
-  on && !fence && /^##? / { on = 0 }
-  on && NF { print; n++ }
-  END { if (!n) print "no-section" }'
+  BEGIN {
+    while ((getline l) > 0) {
+      sub(/\r$/, "", l)
+      if (l ~ /^```/) fence = !fence
+      if (l == h) { on = 1; continue }
+      if (on && !fence && l ~ /^##? /) on = 0
+      if (on && l ~ /[^ \t]/) { print l; n++ }
+    }
+    if (!n) print "no-section"
+  }'
 ```
 
 4. CI on the new head — the CI wait block of skill `/worfy:epic-wave`, section 4 (with `F workflow.ci` `batch`: `mergeable`).
@@ -186,7 +190,7 @@ gh pr comment <N> --body-file <scratchpad>/pr-<N>-report.md; echo "comment EXIT=
    `git -C <repo> worktree remove --force <scratchpad>/pr-<N>`:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 v=$(head -n 1 <scratchpad>/pr-<N>-report.md | tr -d '\r')
 if [ "<comment exit>" = 0 ] && [ "$v" = "$(F cross_machine_gate.checks_section) report: green" ] && [ "<check exit>" = 0 ]; then
   L="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/main.lock"   # the main-branch lock, shared path
