@@ -1,0 +1,83 @@
+/* The Browser frame (BrowserNode.tsx) and its page in the Browser layer (../overlays/BrowserLayer.tsx),
+   the prototype of worfy-browser ticket 01. */
+
+/* The frame: the surface's border, ring and shadow, but no fill, so the page under its body shows. */
+.w-browser-frame.w-node-surface {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+.w-browser-frame__header {
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+  border-radius: var(--radius-node) var(--radius-node) 0 0;
+  background: var(--surface);
+  font-size: var(--text-12);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.w-browser-frame__title {
+  font-weight: 600;
+}
+.w-browser-frame__url {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The window onto the page: the mouse goes through it to the <webview> under it. React Flow's
+   wrapper of the Node (.react-flow__node-browser) would catch the mouse over the whole frame, so
+   only the header takes it: a press there selects and drags the frame as on any Node. React Flow
+   sets `pointer-events: all` on the wrapper as an inline style, hence !important. */
+.w-browser-frame__body {
+  flex: 1;
+  min-height: 0;
+}
+.w-canvas .react-flow__node.react-flow__node-browser {
+  pointer-events: none !important;
+}
+.w-browser-frame,
+.w-browser-frame__body {
+  pointer-events: none;
+}
+.w-browser-frame__header {
+  pointer-events: all;
+}
+
+/* The layer: under every Node inside the viewport's stacking context (React Flow's viewport has a
+   transform and z-index 2, its Nodes and edges z-index 0 or more), above the plane. */
+.w-browser-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: -1;
+}
+/* One page: a box at the frame's body that clips the <webview> at the body's edge, on any zoom. */
+.w-browser-layer__page {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  border-radius: 0 0 calc(var(--radius-node) - 1px) calc(var(--radius-node) - 1px);
+  pointer-events: auto;
+}
+.w-browser-layer__page > webview {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* While a Node is dragged or the Canvas panned, the page takes no mouse: a pointer that runs ahead
+   onto it would hand the moves and the release to the page, as with a Card's iframe (canvas.css). */
+.w-canvas .react-flow:has(.react-flow__node.dragging) .w-browser-layer__page,
+.w-canvas .react-flow:has(.react-flow__pane.dragging) .w-browser-layer__page,
+.w-canvas .react-flow[data-node-resizing] .w-browser-layer__page {
+  pointer-events: none;
+}
