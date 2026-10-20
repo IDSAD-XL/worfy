@@ -117,8 +117,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 28px;
-  padding: 0 var(--space-2) 0 var(--space-3);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--surface-raised);
   box-shadow: var(--shadow-control);
@@ -131,13 +131,24 @@
   flex: none;
   color: var(--text-secondary);
 }
-/* The address, cut in the middle: the head gives way with an ellipsis, the tail stays whole. */
+/* The address (worfy-browser ticket 12): the scheme and host never give way to an ellipsis, the
+   rest is cut in the middle. The path's head gives way first (its flex-shrink is far larger) down to
+   nothing; only then does the host get narrower, and it wraps onto more lines instead of being cut,
+   so the bar grows taller. The path's tail stays whole. */
 .w-browser-frame__open-url {
   flex: 0 1 auto;
   min-width: 0;
   display: flex;
+  align-items: baseline;
+}
+.w-browser-frame__open-url-site {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .w-browser-frame__open-url-head {
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -537,6 +537,61 @@ test('a rel="noreferrer" link of the page is offered in the Open bar: Open sends
   expect(await windowCount(), 'no new window').toBe(1)
 })
 
+// worfy-browser ticket 12: a long host must never lose its real domain to the cut. The bar shows
+// the scheme and host whole — wrapping onto more lines when they do not fit — and cuts only the path.
+test('the Open bar shows a long host whole and cuts only the path', async () => {
+  const blankUrl = `${origin}/blank.html`
+  const host = `bank.example.com.${'a'.repeat(60)}.evil.invalid`
+  const longUrl = `http://${host}/${'b'.repeat(60)}/bank.example.com/login`
+  project([{ id: 'b1', kind: 'browser', x: 300, y: 60, w: 640, h: 440, data: { url: blankUrl } }])
+  const window = await start()
+  await expect.poll(pageStates, { timeout: 15_000 }).toEqual([[blankUrl, 'yes']])
+  const frame = window.getByTestId('browser-frame')
+  const bar = frame.getByTestId('browser-open-bar')
+
+  // A target="_blank" link without a referrer: main does not open it by itself and offers it.
+  await inGuest(
+    blankUrl,
+    `const link = document.createElement('a'); link.href = ${JSON.stringify(longUrl)}; link.target = '_blank'; link.rel = 'noreferrer'; document.body.append(link); link.click()`,
+  )
+  const address = bar.getByTestId('browser-open-url')
+  await expect(address).toHaveText(longUrl, { timeout: 15_000 })
+  await expect(address).toHaveAttribute('title', longUrl)
+  await expect(bar.getByTestId('browser-open-site')).toHaveText(`http://${host}`)
+
+  const layout = await bar.evaluate((barElement) => {
+    const site = barElement.querySelector('[data-testid="browser-open-site"]')
+    const head = barElement.querySelector('[data-testid="browser-open-path-head"]')
+    type Edges = { left: number; right: number; top: number; bottom: number }
+    const inside = (inner: Edges, outer: Edges) =>
+      inner.left >= outer.left - 0.5 && inner.right <= outer.right + 0.5 && inner.top >= outer.top - 0.5 && inner.bottom <= outer.bottom + 0.5
+    const barBox = barElement.getBoundingClientRect()
+    const buttons = [...barElement.querySelectorAll('button')].map((button) => inside(button.getBoundingClientRect(), barBox))
+    return {
+      siteWhole: site.scrollWidth <= site.clientWidth && site.scrollHeight <= site.clientHeight,
+      siteInBar: inside(site.getBoundingClientRect(), barBox),
+      headCut: head.scrollWidth > head.clientWidth,
+      buttonsInBar: buttons,
+    }
+  })
+  expect(layout, 'the host is whole inside the bar, the path is cut, Open and Close stay in the bar').toEqual({
+    siteWhole: true,
+    siteInBar: true,
+    headCut: true,
+    buttonsInBar: [true, true],
+  })
+  await expect(bar.getByRole('button', { name: 'Open' })).toBeVisible()
+  await expect(bar.getByRole('button', { name: 'Close' })).toBeVisible()
+  await canvasReady(launched!)
+  const shots = await snapshotThemes(window, 'browser-open-bar-long')
+  evidence(shots.light, '12-browser-open-bar-long-light')
+  evidence(shots.dark, '12-browser-open-bar-long-dark')
+
+  await bar.getByRole('button', { name: 'Close' }).click()
+  await expect(bar).toBeHidden()
+  expect(await pageStates(), 'close left the page where it was').toEqual([[blankUrl, 'yes']])
+})
+
 // worfy-browser ticket 11, debt of the second review round of PR #609: under the default referrer
 // policy (strict-origin-when-cross-origin) a link from an https page to an http address reaches
 // main's handler without a referrer — whether the address is a site on the net or 127.0.0.1, which
