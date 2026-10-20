@@ -131,7 +131,7 @@ its own on the base, detached, and the gate full of section 4 in it (the screen 
 `<PR worktree>` — this worktree):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 B=$(F worktree.base) && [ "$B" != null ] || B=origin/main   # no worktree.base: the main branch
 git -C <repo> fetch && git -C <repo> worktree add --detach <scratchpad>/base-gate "$B"; echo "EXIT=$?"
 (cd <scratchpad>/base-gate && <F commands.prepare_tree>); echo "EXIT=$?"
@@ -149,7 +149,7 @@ machines run `gh` as; anyone can write a comment that starts the same way), so w
 `github.account` no report is found and the PR waits:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 sec=$(F cross_machine_gate.checks_section); acct=$(F github.account)
 gh pr view <N> --json state,commits,comments --jq "{state, pushed: .commits[-1].committedDate, report: ([.comments[] | select(.author.login == \"$acct\" and (.body | startswith(\"$sec report: \"))) | {at: .createdAt, verdict: (.body | split(\"\n\")[0])}] | last)}"; echo "EXIT=$?"
 ```
@@ -203,7 +203,7 @@ whose branch does not match this epic's branch template `F tickets.branch`, one 
 `#<N> <branch> <file>`; it filters inside `gh` (`--jq`) and needs no `jq`:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 re=$(F tickets.branch | sed -e 's/<эпик>/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
 [ -n "$re" ] || echo "no tickets.branch in the profile: every open PR is listed"
 gh pr list --state open --limit 200 --json number,headRefName,files \
@@ -786,7 +786,7 @@ and at least one Check `success`, not `skipped`), `waits` (a Check with no mark 
 `pending`) or `failed` (a Check `failure`):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 E=<epic>
 CANDIDATES=(<PR>:<NN> pairs in merge order)   # VERIFIED, CI green on the head (batch: mergeable MERGEABLE); <NN> — the PR's ticket
 PL=$(F _resolved.pipeline); MODE=$(F _resolved.mode); NAME=$(F _resolved.name); rc=0
@@ -863,7 +863,7 @@ lock directory names the PR, `gate-full`, the shell's pid and the start time; it
 lock. One Bash call with timeout 600000 (if it ended while waiting for the lock, run it again):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 L=$(F workflow.e2e_lock); [ "$L" = null ] && L=                # no lock in the profile — none taken
 ioreg -n Root -d1 2>/dev/null | grep -q '"IOConsoleLocked" = Yes' && { echo "screen locked: waiting"; while ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes'; do sleep 30; done; }
 if [ -n "$L" ]; then
@@ -882,7 +882,7 @@ The state file of the set — one file per set, a new set gets a new file. `<mai
 of the main-branch lock above:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/wave-gate-<epic>-1.json
 PRS=(<PR numbers in merge order>)              # the "ready" lines of the Checks block: VERIFIED, CI green (batch: MERGEABLE)
 PLATFORM=(<platform PR numbers>)               # its "ready, PLATFORM" lines; none: PLATFORM=()
@@ -947,7 +947,7 @@ documents PR or commit of the wave is merged, do not run the block again: read t
 (`jq -r '.ci_run.run_id' <CI file>`) for the wait below.
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 C=<CI file>                                    # e.g. <orchestrator scratchpad>/wave-ci-<epic>-<wave number>.json
 node - "$C" <repo> <main branch> "$(F workflow.ci)" "$(F workflow.ci_batch_run)" <<'NODE'
 const fs = require("fs")
@@ -1041,7 +1041,7 @@ it, the commit status `deploy` `success` — Full mode only: in Silent mode only
 The block, for each merged PR, after the deploy:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 M=<main branch>; merge=$(cd <repo> && gh pr view <N> --json mergeCommit --jq .mergeCommit.oid) || echo "PR <N>: no merge commit from gh"
 env=$(node -e 'const d = JSON.parse(process.argv[1]).find((s) => s.kind === "deploy"); process.stdout.write((d && d.environment) || "")' "$(F _resolved.pipeline)")
 git -C <repo> fetch -q origin "$M"; deployed=
@@ -1081,7 +1081,7 @@ to resume a wave").
 M=<main branch>
 TMPW="$(git -C <repo> rev-parse --path-format=absolute --git-common-dir)/worfy-wave-docs"
 git -C <repo> worktree prune
-W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" '/^worktree /{w=substr($0,10)} $0==b{print w}')
+W=$(git -C <repo> worktree list --porcelain | awk -v b="branch refs/heads/$M" 'BEGIN { while ((getline l) > 0) { if (l ~ /^worktree /) w = substr(l, 10); if (l == b) print w } }')
 if [ -z "$W" ]; then git -C <repo> worktree add -q "$TMPW" "$M" && W=$TMPW; fi
 [ "$W" = "$TMPW" ] || TMPW=no
 echo "TREE=$W"; echo "TEMPORARY=$TMPW"
@@ -1092,7 +1092,7 @@ echo "TREE=$W"; echo "TEMPORARY=$TMPW"
    root and the state file, and removes the temporary worktree whether the commit worked or not:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1" 2>/dev/null; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 W=<TREE>; TMPW=<TEMPORARY>; E=<epic>; rc=0
 DOCS=(); r=$(F tickets.root); h=$(F docs.handoff.path)
 [ -n "$r" ] && [ "$r" != null ] && [ -e "$W/${r%/}/$E" ] && DOCS+=("${r%/}/$E")
@@ -1126,7 +1126,7 @@ echo "EXIT=$rc"
    with a local commit there, without push (the story of the wave is its message):
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@"; }
 W=$(F _resolved.workflow_folder)
 if git -C "$W" rev-parse --git-dir >/dev/null 2>&1 && [ -z "$(git -C "$W" rev-parse --show-prefix)" ]; then   # its own repository; no path compare: Git Bash spells C:/ and /c/
   git -C "$W" add -A . && git -C "$W" commit -q -m "<epic>: wave of tickets <NN>, <NN> — statuses, state file"; echo "EXIT=$?"
@@ -1208,7 +1208,7 @@ line: the wave is read from those lines, not from the `<epic>/*` branches. `<rep
 checkout; a ticket with a `Repo:` line is looked up in that repository:
 
 ```bash
-F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$1"; }
+F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@"; }
 (cd <repo> && "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" --json) \
   | jq -r '.tickets[] | select(.epic=="<epic>" and .state!="open") | [.num, .state, (.branch // "-"), (.repo // "-")] | @tsv' \
   | tr -d '\r' | while IFS=$'\t' read -r n st b r; do
