@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { BROWSER_PARTITION } from '../../src/shared/browser/partition'
+import { browserPartition } from '../../src/shared/browser/partition'
 import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 // main's guard of the Browser's <webview> (worfy-browser ticket 02, ADR-0078 item 3), against the
@@ -20,6 +20,8 @@ import { canvasReady, launchApp, repoRoot, type LaunchedApp } from './helpers'
 
 const FIXTURES = join(repoRoot, 'test', 'fixtures', 'browser')
 const PROJECT = 'browser-0000000c'
+/** The partition of the Browsers of PROJECT (worfy-browser ticket 10: one persist: partition per Project). */
+const BROWSER_PARTITION = browserPartition(PROJECT)!
 
 let server: Server
 let pageUrl: string
