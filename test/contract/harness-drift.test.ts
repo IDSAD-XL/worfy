@@ -214,6 +214,22 @@ describe('checkHarnessDrift', () => {
     expect(await checkHarnessDrift({ root: other.repo, harnessVersion: other.version })).toMatchObject({ kind: 'unknown' })
   })
 
+  it('no plugin.json is the expected answer; a plugin.json that is not JSON is not', async () => {
+    const plain = tempDir()
+    expect(await checkHarnessDrift({ root: plain, harnessVersion: '0.1.0+abcdef1' })).toEqual({
+      kind: 'unknown',
+      reason: `${join(plain, 'harness', '.claude-plugin', 'plugin.json')} is missing: not worfy's repository`,
+      expected: true,
+    })
+    const broken = tempDir()
+    mkdirSync(join(broken, 'harness', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(broken, 'harness', '.claude-plugin', 'plugin.json'), '{ not json')
+    expect(await checkHarnessDrift({ root: broken, harnessVersion: '0.1.0+abcdef1' })).toEqual({
+      kind: 'unknown',
+      reason: `${join(broken, 'harness', '.claude-plugin', 'plugin.json')} is not JSON: not worfy's repository`,
+    })
+  })
+
   it('a folder outside git: unknown', async () => {
     const dir = tempDir()
     mkdirSync(join(dir, 'harness', '.claude-plugin'), { recursive: true })
@@ -290,5 +306,23 @@ describe('harnessDriftWatch', () => {
     expect(log.mock.calls.map(([line]) => line as string)).toEqual([expect.stringMatching(/p.*not worfy/), expect.stringMatching(/q.*not worfy/)])
     const failing = harnessDriftWatch({ packaged: true, harnessVersion: () => '0.1.0+abcdef1', check: () => Promise.reject(new Error('boom')), log })
     expect(await failing('r', '/x')).toBeNull()
+  })
+
+  it('logs nothing over a repository without harness/.claude-plugin/plugin.json, and once over one whose file is not JSON', async () => {
+    let now = 0
+    const log = vi.fn()
+    const watch = harnessDriftWatch({ packaged: true, harnessVersion: () => '0.1.0+abcdef1', now: () => now, log })
+    const plain = tempDir()
+    expect(await watch('plain', plain)).toBeNull()
+    now += HARNESS_DRIFT_INTERVAL_MS
+    expect(await watch('plain', plain)).toBeNull()
+    expect(log).not.toHaveBeenCalled()
+    const broken = tempDir()
+    mkdirSync(join(broken, 'harness', '.claude-plugin'), { recursive: true })
+    writeFileSync(join(broken, 'harness', '.claude-plugin', 'plugin.json'), '{ not json')
+    expect(await watch('broken', broken)).toBeNull()
+    now += HARNESS_DRIFT_INTERVAL_MS
+    expect(await watch('broken', broken)).toBeNull()
+    expect(log.mock.calls.map(([line]) => line as string)).toEqual([`[autopilot] broken: no Harness mark: ${join(broken, 'harness', '.claude-plugin', 'plugin.json')} is not JSON: not worfy's repository`])
   })
 })

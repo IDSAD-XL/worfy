@@ -519,6 +519,12 @@ These counts do not see the narrow round below: its verdicts start with `NARROW:
 `local-green` — commits `gate: NARROW: …`, in Silent mode — such lines in the ticket file). A `NARROW:` comment or commit means the ticket has had
 its narrow round; the last `NARROW: VERIFIED` or `NARROW: REJECTED` is its verdict.
 
+In Silent mode the ticket's verdict is the last line of the ticket file that starts with `gate:`,
+not the last line of the file: `gate: VERIFIED — <date>`, or after the narrow round
+`gate: NARROW: VERIFIED` or `gate: NARROW: REJECTED: …`. The group lines (below) follow the verdict
+line of their round with `VERIFIED` too, and the result section goes on below them. Read the verdict
+with `grep '^gate:' <ticket file> | grep -v '^gate: MAX-REVIEW:' | tail -n 1`.
+
 **Four groups of findings.** Before a verdict is recorded and before a `REJECTED` list goes to the
 implementer, re-read every `file:line` in the verifier's answer and sort its findings into four
 groups; the wave's report (section 5) shows the four groups of every ticket under its table. The

@@ -132,7 +132,7 @@ const heardHarnessChanged = (window: Page): Promise<{ state: { kind: string } }[
 /** The Harness item of the toolbar (src/renderer/shell/toolbar/HarnessStatus.tsx). */
 const toolbarHarness = (window: Page): Locator => window.getByTestId('harness-status')
 
-const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
+const CHECK_IDS = ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'harness', 'harness-dependencies', 'harness-scripts', 'legacy-harness', 'qmd', 'qmd-models', 'qmd-collections']
 
 /** The screen, once its checks are in. */
 async function screen(window: Page): Promise<Locator> {
@@ -160,7 +160,7 @@ test.describe('first-run screen', () => {
     try {
       const dialog = await screen(launched.window)
       expect(await dialog.locator('[data-check]').evaluateAll((rows) => rows.map((each) => each.getAttribute('data-check')))).toEqual(CHECK_IDS)
-      for (const id of ['claude-login', 'claude-version', 'git', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', 'qmd', 'qmd-collections']) {
+      for (const id of ['claude-login', 'claude-version', 'git', 'git-identity', 'gh', 'node', 'jq', 'gh-auth', 'legacy-harness', 'qmd', 'qmd-collections']) {
         await expect(row(dialog, id), id).toHaveAttribute('data-status', 'ok')
       }
       await expect(row(dialog, 'harness')).toHaveAttribute('data-status', 'fail')

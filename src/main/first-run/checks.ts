@@ -9,6 +9,11 @@
 //   Older or missing is a warning with `claude update`; worfy runs its own copy either way.
 // - git, gh, node 22 or newer, jq: `--version`. Missing is `fail` with `brew install <tool>`; worfy
 //   installs none of them (Q22).
+// - git identity: `git config --get user.name` and `user.email`, run in the temporary folder, outside
+//   any repository, so a repository's own config (worfy started from a Terminal in one) does not count;
+//   the system and global config and their includes do. A missing value warns with the two
+//   `git config --global` commands: git then makes up an author from the account and host name, and
+//   the agents' commits carry it. Only a warning — the author may be set in the repository itself.
 // - GitHub accounts: `gh auth status`. None signed in is `fail` with the `gh auth login` action,
 //   which the user goes through in a Terminal Node.
 // - Harness: the installer's state (src/main/harness/install.ts, ticket 13) — not installed fails,
@@ -46,7 +51,7 @@
 // CheckDeps, so a test checks Windows on any machine.
 import { execFile, type ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { arch as osArch, release as osRelease } from 'node:os'
+import { arch as osArch, release as osRelease, tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { fileOrAlias, findGitBash, findOnPath, type Env as AgentEnv, type FileExists } from '../agent/env'
 import type { AccountInfoLike } from '../agent/session'
@@ -117,8 +122,8 @@ export interface SystemInfo {
 
 /** What the checks ask the machine. */
 export interface Probes {
-  /** Runs a tool found on the PATH of `env`; never rejects. */
-  run: (name: string, args: readonly string[], env: Env, timeoutMs: number) => Promise<ToolRun>
+  /** Runs a tool found on the PATH of `env`, in `cwd` when given (else worfy's own folder); never rejects. */
+  run: (name: string, args: readonly string[], env: Env, timeoutMs: number, cwd?: string) => Promise<ToolRun>
   /** Whether a file is there, or an app execution alias of one (fileOrAlias, as Terminal looks): Git Bash, pwsh.exe, the bridge, settings.json. */
   exists: FileExists
 }
@@ -222,7 +227,7 @@ export function runTool(
   args: readonly string[],
   env: Env,
   timeoutMs: number,
-  { platform = process.platform, kill = killTool }: { platform?: NodeJS.Platform; kill?: typeof killTool } = {},
+  { platform = process.platform, kill = killTool, cwd }: { platform?: NodeJS.Platform; kill?: typeof killTool; cwd?: string } = {},
 ): Promise<ToolRun> {
   const start = toolStart(name, args, env, platform)
   if (start === null) return Promise.resolve({ code: null, stdout: '', stderr: '', missing: true })
@@ -234,7 +239,7 @@ export function runTool(
       clearTimeout(timer)
       resolve(run)
     }
-    const options = { env: env as NodeJS.ProcessEnv, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(start.shell === false ? {} : { shell: start.shell }) }
+    const options = { env: env as NodeJS.ProcessEnv, maxBuffer: MAX_OUTPUT, encoding: 'utf8' as const, windowsHide: true, ...(cwd === undefined ? {} : { cwd }), ...(start.shell === false ? {} : { shell: start.shell }) }
     const child = execFile(start.file, start.args, options, (error, stdout, stderr) => {
       if (!error) return settle({ code: 0, stdout, stderr, missing: false })
       const code = (error as NodeJS.ErrnoException).code
@@ -295,6 +300,7 @@ const CHECKS: readonly { id: CheckId; group: CheckGroup; title: string; windows?
   { id: 'arch', group: 'Windows', title: 'Architecture', windows: true },
   { id: 'powershell', group: 'Windows', title: 'PowerShell', windows: true },
   { id: 'git', group: 'Command-line tools', title: 'git' },
+  { id: 'git-identity', group: 'Command-line tools', title: 'git identity' },
   { id: 'git-bash', group: 'Command-line tools', title: 'Git Bash', windows: true },
   { id: 'gh', group: 'Command-line tools', title: 'gh' },
   { id: 'node', group: 'Command-line tools', title: 'node' },
@@ -430,6 +436,36 @@ async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine
   if (run.missing) return row(optional ? 'warn' : 'fail', notFound(machine), optional ? JQ_WINDOWS_HINT : 'worfy does not install it: run the command in a terminal', install)
   if (run.code !== 0) return row(optional ? 'warn' : 'fail', `${name} --version failed: ${lastLine(run.stderr) || `exit ${String(run.code)}`}`, optional ? `Reinstall it. ${JQ_WINDOWS_HINT}` : 'Reinstall it', install)
   return row('ok', firstLine(run.stdout))
+}
+
+/** The commands that set the commit author for every repository of this user. */
+export const GIT_IDENTITY_COMMANDS = 'git config --global user.name "Your Name" && git config --global user.email "you@example.com"'
+
+/**
+ * Whether git knows the commit author: user.name and user.email, asked in the temporary folder so
+ * that no repository's own config answers (see the header). Exit 1 of `git config --get` is "not
+ * set"; another failure is said with its stderr. Never `fail`: the author may be set per repository.
+ */
+async function gitIdentity(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
+  const outside = tmpdir()
+  const ask = (key: string): Promise<ToolRun> => machine.probes.run('git', ['config', '--get', key], deps.env, timeoutMs, outside)
+  const [name, email] = await Promise.all([ask('user.name'), ask('user.email')])
+  if (name.missing || email.missing) return row('warn', 'git is not installed', `Install git first (${installCommand(machine, 'git')}), then set the commit author`)
+  const value = (run: ToolRun): string | null => (run.code === 0 ? firstLine(run.stdout) || null : null)
+  const broken = [name, email].find((run) => run.code !== 0 && run.code !== 1)
+  if (broken !== undefined) {
+    return row('warn', `git config failed: ${lastLine(broken.stderr) || `exit ${String(broken.code)}`}`, 'Check your git config, then set the commit author', GIT_IDENTITY_COMMANDS)
+  }
+  const missing = [value(name) === null ? 'user.name' : null, value(email) === null ? 'user.email' : null].filter((key): key is string => key !== null)
+  if (missing.length > 0) {
+    return row(
+      'warn',
+      `${missing.join(' and ')} not set`,
+      'git makes up the author of a commit from your account and host name: set your name and email once',
+      GIT_IDENTITY_COMMANDS,
+    )
+  }
+  return row('ok', `${value(name) ?? ''} <${value(email) ?? ''}>`)
 }
 
 async function node(deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {
@@ -700,7 +736,7 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const system: SystemInfo = { platform, release: osRelease(), arch: (platform === 'win32' ? windowsNativeArch(deps.env) : null) ?? osArch(), ...deps.system }
   const machine: Machine = {
     system,
-    probes: { run: (name, args, env, ms) => runTool(name, args, env, ms, { platform: system.platform }), exists: fileOrAlias, ...deps.probes },
+    probes: { run: (name, args, env, ms, cwd) => runTool(name, args, env, ms, { platform: system.platform, cwd }), exists: fileOrAlias, ...deps.probes },
     windows: system.platform === 'win32',
   }
   // One read of qmd's state feeds its three rows; a failure there fails each of them with the error.
@@ -719,6 +755,7 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
     arch: onWindows(() => architecture(machine)),
     powershell: onWindows(() => powershell(deps, machine)),
     git: guarded(() => tool('git', deps, machine, timeoutMs)),
+    'git-identity': guarded(() => gitIdentity(deps, machine, timeoutMs)),
     'git-bash': onWindows(() => gitBash(deps, machine)),
     gh: guarded(() => tool('gh', deps, machine, timeoutMs)),
     node: guarded(() => node(deps, machine, timeoutMs)),
