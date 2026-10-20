@@ -14,13 +14,11 @@
 // from the palette go through the Canvas's LayoutOps like a click in the Canvas menu.
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Panel, useReactFlow, useStore, useStoreApi, type ReactFlowInstance } from '@xyflow/react'
-import { DONE_SHELF_ID } from '../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import { requestCardText } from '../canvas/card-bridge'
 import { nodeTypes, type CanvasFlowNode } from '../canvas/nodes'
 import { createItems } from '../canvas/overlays/create-items'
-import { shelfChipRect } from '../canvas/sources/epics'
 import { useTidyUp } from '../canvas/tidy'
 import { useLayout, useLayoutOps } from '../canvas/useLayout'
 import { useDocs, useDocText } from '../docs/useDocs'
@@ -29,6 +27,7 @@ import { useSessionLogs } from '../session/store'
 import { label, matches as matchesShortcut } from '../shortcuts/match'
 import { useWorkflow } from '../workflow/useWorkflow'
 import { closeFind, openFind, useCanvasRequests } from './canvas-requests'
+import { rectOf, type Rect } from './node-rect'
 import { FIND_LIMIT, findDocs, FindIndex, MIN_FIND_QUERY, orderMatches, selectionScope, snippet, stepMatch, type FindField, type FindMatch } from './search-index'
 
 export const order = 60
@@ -48,27 +47,6 @@ const CARD_RETRY_MS = 1500
 const OUTLINED = 200
 
 type Flow = ReactFlowInstance<CanvasFlowNode>
-
-interface Rect {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-/**
- * A Node's place on the Canvas, inside its parent or not; undefined when React Flow does not show
- * it. An Epic on the done shelf has no frame: `epic:<epic>` is its chip there (worfy-canvas ticket 02).
- */
-function rectOf(flow: Flow, id: string): Rect | undefined {
-  const node = flow.getInternalNode(id)
-  if (!node || node.hidden === true) {
-    const shelf = flow.getInternalNode(DONE_SHELF_ID)
-    return shelf === undefined || shelf.hidden === true ? undefined : shelfChipRect(id, { ...shelf.internals.positionAbsolute, data: shelf.data })
-  }
-  const { x, y } = node.internals.positionAbsolute
-  return { x, y, w: node.width ?? node.measured.width ?? 0, h: node.height ?? node.measured.height ?? 0 }
-}
 
 /** Moves the viewport so the rectangle is in the middle, zoomed in far enough to read and out far enough to fit. */
 function centerOn(flow: Flow, viewWidth: number, viewHeight: number, rect: Rect): void {

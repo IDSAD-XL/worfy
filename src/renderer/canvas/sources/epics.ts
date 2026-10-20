@@ -301,6 +301,23 @@ export async function expandFromShelf(projectId: string, epic: string, exists: b
   })
 }
 
+/**
+ * The collapse button of an Epic frame. Collapsing a frame whose Tickets are all done puts the Epic
+ * on the done shelf (ADR-0075, point 5), so it also leaves the record's order, in the same step of
+ * ⌘Z: undone, the frame is open again at the place it had, with the order as it was. Collapsing
+ * any other frame, or expanding one, changes the frame only.
+ */
+export async function toggleFrame(projectId: string, epic: string, exists: boolean, collapsed: boolean, toShelf: boolean, ops: LayoutOps): Promise<void> {
+  await grouped(async (group) => {
+    await saveEpicChange(projectId, epic, exists, { collapsed }, ops, group)
+    if (!collapsed || !toShelf) return
+    const record = readArrangement(currentLayout(projectId)?.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
+    if (record === null || !record.order.includes(epic)) return
+    const order = record.order.filter((each) => each !== epic)
+    await ops.apply({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { order } }, group, { data: true })
+  })
+}
+
 // ── the strip's arrangement (ADR-0075) ──────────────────────────────────────
 
 /** What the last build of a Project's frames knew: what the record is written from. */
@@ -319,8 +336,10 @@ export interface ArrangementState {
    * window has no ELK): the sizes are the ones drawn, not those of the synchronous layout before it.
    */
   settled: boolean
-  /** The Epics on the done shelf (ADR-0075, point 5): none of them is in the strip's order. */
+  /** The Epics on the done shelf (ADR-0075, point 5). */
   shelf: readonly string[]
+  /** Those of them collapsed by default: the Layout has no `collapsed` of theirs, no gesture put them there. */
+  defaultShelf: readonly string[]
 }
 
 /** Per Project, the last build's arrangement. */
@@ -437,11 +456,14 @@ const pendingOrders = new Map<string, string>()
  * A frame whose ELK request failed counts as answered: elk/client.ts answers it with the
  * synchronous layout.
  *
- * An Epic that went to the done shelf leaves the record's order (one more write past ⌘Z), so the
- * order holds the strip's Epics only. Its frame comes back last, by whatever way it leaves the
- * shelf: a click on its chip (expandFromShelf), or a Ticket reopened or added, which makes it an
- * Epic the order lacks (epic-arrangement.ts orderFor: new Epics go to the end). A read-only screen
- * writes nothing.
+ * An Epic on the done shelf by default (all its Tickets done, its frame never collapsed or
+ * expanded by the user) leaves the record's order with one more write past ⌘Z: no gesture of the
+ * user put it there, so there is no step to undo. An Epic the collapse button put on the shelf
+ * left the order in that button's ⌘Z step (toggleFrame), and undoing it must give the order back,
+ * so this write leaves it alone. A frame out of the order comes back last, by whatever way it
+ * leaves the shelf: a click on its chip (expandFromShelf), or a Ticket reopened or added, which
+ * makes it an Epic the order lacks (epic-arrangement.ts orderFor: new Epics go to the end). A
+ * read-only screen writes nothing.
  */
 export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
   const store = useStoreApi()
@@ -459,7 +481,7 @@ export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFl
         return
       }
     }
-    const shelved = new Set(state.shelf)
+    const shelved = new Set(state.defaultShelf)
     const kept = state.record?.order.filter((epic) => !shelved.has(epic))
     if (state.record !== null && kept !== undefined && kept.length < state.record.order.length) {
       const key = JSON.stringify(kept)
@@ -714,7 +736,9 @@ export function buildEpicNodes(
   const names = inStrip.map(({ epic }) => epic.epic)
   const arrangement = arrange(names, frames, record)
   const settled = elkEngine() === null || entries.every(({ entry }) => entry.request === null || entry.inputs.answer?.key === entry.request.key)
-  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled, shelf: onShelf.map(({ epic }) => epic.epic) })
+  const shelved = onShelf.map(({ epic }) => epic.epic)
+  const defaultShelf = shelved.filter((epic) => readSaved(savedNodes.get(epicNodeId(epic))).collapsed === undefined)
+  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled, shelf: shelved, defaultShelf })
   const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
   const shelfOrder = orderFor(
     onShelf.map(({ epic }) => epic.epic),

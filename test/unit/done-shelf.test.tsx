@@ -24,6 +24,8 @@ import {
 } from '../../src/renderer/canvas/epic-layout'
 import { applyRecorded, historyOf, type LayoutChannel } from '../../src/renderer/canvas/history'
 import DoneShelfNode from '../../src/renderer/canvas/nodes/DoneShelfNode'
+import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
+import { rectOf } from '../../src/renderer/find/node-rect'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { buildBindingAnchors, epicAnchorId } from '../../src/renderer/canvas/sources/workflow-bindings'
 import source, { arrangementOf, buildEpicNodes, epicPlace, shelfChipRect, useArrangementUpkeep, epicNodeId, openDoneStacks, setDoneStack, foldHiddenDoneStacks, type DoneShelfData, type EpicFrameData } from '../../src/renderer/canvas/sources/epics'
@@ -88,7 +90,7 @@ const model = (tickets: Ticket[], epics: string[]): WorkflowModel => ({ root: '/
 const node = (over: Partial<LayoutNode> & { id: string }): LayoutNode => ({ kind: 'epic-frame', x: 0, y: 0, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data: {}, ...over })
 const layoutWith = (nodes: LayoutNode[] = []): Layout => ({ nodes, viewport: { x: 0, y: 0, zoom: 1 } })
 const frameNode = (name: string, collapsed: boolean | null) => node({ id: epicNodeId(name), data: { collapsed } })
-const recordNode = (order: string[], columns = 1) => node({ id: EPIC_ARRANGEMENT_ID, kind: EPIC_ARRANGEMENT_KIND, data: { order, columns, at: '2026-10-20T08:00:00.000Z' } })
+const recordNode = (order: string[], columns = 1) => node({ id: EPIC_ARRANGEMENT_ID, kind: EPIC_ARRANGEMENT_KIND, data: { order, columns, at: new Date().toISOString() } })
 
 let project = 0
 const freshProject = () => `shelf-${(project += 1)}`
@@ -377,6 +379,92 @@ describe('a chip', () => {
   })
 })
 
+describe('the collapse button puts a done Epic on the shelf', () => {
+  const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
+  afterEach(() => mains.clear())
+
+  function opsOf(projectId: string): LayoutOps {
+    const channel: LayoutChannel = { send: (op) => applyLayoutOp(projectId, op), layout: () => currentLayout(projectId) ?? layoutWith() }
+    return { apply: async (op, group, options) => void (await applyRecorded(projectId, op, channel, group, options)) }
+  }
+
+  function start(projectId: string, nodes: LayoutNode[]): void {
+    const layout = layoutWith(nodes)
+    mains.set(projectId, { revision: 1, layout })
+    acceptLayoutState({ projectId, revision: 1, layout })
+  }
+
+  async function clickFrameButton(projectId: string, epic: string, name: string, until: () => void): Promise<void> {
+    const frame = buildEpicNodes(projectId, '/repo', model(TICKETS, EPICS), currentLayout(projectId)!, {}).find((n) => n.id === epicNodeId(epic))!
+    const props = { id: frame.id, data: frame.data, selected: false } as unknown as CanvasNodeProps
+    const view = render(
+      <ReactFlowProvider>
+        <LayoutOpsContext.Provider value={opsOf(projectId)}>
+          <EpicFrameNode {...props} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>,
+    )
+    screen.getByRole('button', { name }).click()
+    await vi.waitFor(until)
+    view.unmount()
+  }
+
+  async function upkeep(projectId: string, tickets = TICKETS): Promise<void> {
+    const nodes = buildEpicNodes(projectId, '/repo', model(tickets, EPICS), currentLayout(projectId)!, {})
+    const hook = renderHook(() => useArrangementUpkeep(projectId, nodes), { wrapper })
+    await act(async () => {})
+    hook.unmount()
+  }
+
+  const mainNode = (projectId: string, id: string) => mains.get(projectId)!.layout.nodes.find((each) => each.id === id)
+  const orderNow = (projectId: string) => {
+    buildEpicNodes(projectId, '/repo', model(TICKETS, EPICS), currentLayout(projectId)!, {})
+    const state = arrangementOf(projectId)!
+    return arrange(state.epics, state.frames, state.record).order
+  }
+
+  it('takes it out of the order in the same step of ⌘Z; undone, the frame is back at its place and the order whole', async () => {
+    const id = freshProject()
+    // a is done and its frame open: the user opened it.
+    start(id, [frameNode('a', false), recordNode(['a', 'b', 'c', 'd'], 1)])
+    await clickFrameButton(id, 'a', 'Collapse epic a', () => expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd']))
+    expect(mainNode(id, epicNodeId('a'))!.data.collapsed).toBe(true)
+    expect(historyOf(id).size).toBe(1)
+    expect(chipsOf(buildEpicNodes(id, '/repo', model(TICKETS, EPICS), currentLayout(id)!, {}))).toEqual(['a'])
+    // The upkeep has nothing of its own to write here, past ⌘Z.
+    await upkeep(id)
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd'])
+
+    expect(await historyOf(id).undo()).toBe(true)
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['a', 'b', 'c', 'd'])
+    expect(mainNode(id, epicNodeId('a'))!.data.collapsed).toBe(false)
+    await upkeep(id)
+    expect(orderNow(id)).toEqual(['a', 'b', 'c', 'd'])
+    // Redone, both again.
+    expect(await historyOf(id).redo()).toBe(true)
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd'])
+  })
+
+  it('collapsing a frame with a Ticket not done keeps the order: the Epic stays in the strip', async () => {
+    const id = freshProject()
+    start(id, [recordNode(['a', 'b', 'c', 'd'], 1)])
+    await clickFrameButton(id, 'b', 'Collapse epic b', () => expect(historyOf(id).size).toBe(1))
+    expect(mainNode(id, epicNodeId('b'))!.data.collapsed).toBe(true)
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('the upkeep leaves alone an Epic the user collapsed: only one on the shelf by default leaves the order past ⌘Z', async () => {
+    const id = freshProject()
+    // b was collapsed by the user while a Ticket was open; now every Ticket of b is done.
+    const allDone = TICKETS.map((t) => (t.epic === 'b' ? { ...t, ...done } : t))
+    start(id, [frameNode('b', true), recordNode(['a', 'b', 'c', 'd'], 1)])
+    await upkeep(id, allDone)
+    // a (collapsed by default) leaves the order; b stays in it.
+    expect(mainNode(id, EPIC_ARRANGEMENT_ID)!.data.order).toEqual(['b', 'c', 'd'])
+    expect(historyOf(id).size).toBe(0)
+  })
+})
+
 describe('the done stack of an Epic on the shelf', () => {
   it('is folded: no frame shows it, so Esc must not fold it unseen', () => {
     const id = freshProject()
@@ -453,6 +541,27 @@ describe('going to an Epic on the shelf', () => {
     const shelf = shelfOf(nodes)!
     expect(epicPlace(nodes, 'a')).toEqual(shelfChipRect(epicNodeId('a'), { x: shelf.position.x, y: shelf.position.y, data: shelf.data }))
     expect(epicPlace(nodes, 'missing')).toBeUndefined()
+  })
+})
+
+describe('⌘F and the palette go to an Epic on the shelf (CanvasFind rectOf)', () => {
+  // React Flow's internal Nodes as rectOf reads them.
+  const internal = (x: number, y: number, data: unknown, hidden = false) => ({ hidden, internals: { positionAbsolute: { x, y } }, data, width: 300, height: 200, measured: {} })
+
+  it('an Epic without a frame Node is its chip on the shelf Node; one with a frame is the frame', () => {
+    const nodes = buildEpicNodes(freshProject(), '/repo', model(TICKETS, EPICS), layoutWith(), {})
+    const shelf = shelfOf(nodes)!
+    const lookup = new Map<string, unknown>([
+      [DONE_SHELF_ID, internal(shelf.position.x, shelf.position.y, shelf.data)],
+      [epicNodeId('b'), internal(40, 50, {})],
+    ])
+    const flow = { getInternalNode: (id: string) => lookup.get(id) } as unknown as Parameters<typeof rectOf>[0]
+    expect(rectOf(flow, epicNodeId('a'))).toEqual(shelfChipRect(epicNodeId('a'), { x: shelf.position.x, y: shelf.position.y, data: shelf.data }))
+    expect(rectOf(flow, epicNodeId('a'))).toBeDefined()
+    expect(rectOf(flow, epicNodeId('b'))).toEqual({ x: 40, y: 50, w: 300, h: 200 })
+    expect(rectOf(flow, epicNodeId('c'))).toBeUndefined()
+    lookup.set(DONE_SHELF_ID, internal(shelf.position.x, shelf.position.y, shelf.data, true))
+    expect(rectOf(flow, epicNodeId('a'))).toBeUndefined()
   })
 })
 
