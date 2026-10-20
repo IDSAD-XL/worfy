@@ -1,7 +1,8 @@
 # 45 — e2e запускают login shell разработчика при каждом старте приложения; вызов `profile` под `WORFY_GH` идёт с окружением процесса worfy
 
 Type: task
-Status: claimed 2026-10-20T01:09Z
+Status: done 2026-10-20T07:33Z
+PR: #567
 Branch: worfy-harness/45
 Blocked by:
 Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-главного-процесса-без-окружения-login-shell.md), срез 1), круг 1, 2026-10-14 — замечания low «e2e и login shell машины» и «переопределения только на процессе worfy … один вызов под `WORFY_GH`»; «Риски» Ticket-а 37 («e2e начинают зависеть от login shell машины»). Срез 2 Ticket-а 37 (PR #311, head `57e9422`) не меняет `test/e2e/helpers.ts` и `src/main/ipc/checks.ts`. Код перечитан по main `1c1beadd`.
@@ -78,4 +79,16 @@ Source: ревью PR #305 (Ticket [37](37-скрипты-harness-из-глав�
 
 ## Итог
 
-—
+PR #567, merge e1daa395. Не платформенный (код приложения и test-ы). Mac gate full зелёный.
+
+- e2e: `launchApp` ставит `SHELL` по умолчанию, если spec не передал свой: `test/fixtures/e2e-shell/sh`
+  отбрасывает `-i`/`-l` и запускает `/bin/sh` с `PATH` test-процесса. Login shell разработчика
+  (rc-файлы, nvm, долгий старт) больше не участвует в e2e. Сборка env вынесена в
+  `test/e2e/launch-env.ts` (`launchEnv`), чтобы проверять её без Electron.
+- `WORFY_GH` подменяет только программу gh: `bin/profile` (`--field github.account`) всегда идёт с
+  `harnessScriptEnv`, как остальные скрипты Harness (`appPrOptions` в `src/main/ipc/checks.ts`).
+- Test-ы: новый `test/contract/e2e-launch-shell.test.ts` (окружение `launchEnv` через настоящий
+  `captureLoginShellEnv`; SHELL spec-а побеждает SHELL процесса), `github-prs.test.ts` — case-ы с
+  `WORFY_GH` и без. Мутанты красные: profile получает env процесса; `launchEnv` без `SHELL` по
+  умолчанию; fixture сохраняет `-i`/`-l`; spread `options.env` убран; gh всегда с env процесса.
+- Не замерено: время `pnpm test:e2e` до и после — локально e2e не гонялся (замок держал gate full).
