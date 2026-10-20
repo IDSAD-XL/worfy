@@ -1,7 +1,8 @@
 # 12 — Полоса «Open»: домен адреса виден целиком; test сверки запроса со своим Browser-ом
 
 Type: task
-Status: claimed 2026-10-20T18:55Z
+Status: done 2026-10-20T23:36Z
+PR: #630
 Blocked by: 11
 Source: review PR #614 (Ticket 11), две находки low, 2026-10-20. Код перечитан по ветке
 `worfy-browser/11` (`5e08df41`).
@@ -116,3 +117,12 @@ Mutant-ы `browser-frame.ts` (detached worktree в scratchpad, потом `git w
 - Порог 540px — оценка по ширине подписи, кнопок и 36 символов mono-шрифта. Под другим шрифтом
   (Windows) переход на две строки может начаться чуть раньше или позже. Host всё равно не уже 12
   символов: это держит `min-width`, а не порог.
+
+**Ревью и merge.** Ревью — VERIFIED, находок high и med нет. Единственную находку low исправили до
+e2e, в `18942863`: в узком Browser-е host собирался в столбец по одному символу. Gate full
+зелёный на main `80700741`. Merge — `5c422212` (очередь gate Session «Worfy продолжение»).
+
+**Долг (low) — Ticket 13.** На снимке узкой рамки (`12-browser-open-bar-long-narrow-light.png`)
+хвост пути стоит на первой строке host-а: так получается из-за выравнивания по baseline. Верхняя
+строка читается как `http://bank.e /…b/bank.example.com/login`, а настоящий домен `evil.invalid`
+стоит только на последней строке.
