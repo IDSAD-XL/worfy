@@ -229,6 +229,8 @@ Wave — Ticket-ы, которые можно брать параллельно:
 | 06 | `src/renderer/canvas/family.ts`, `src/main/layout/store.ts`, `src/main/layout/archive.ts`, `test/unit/family.test.ts`, `test/contract/browser-lifecycle.test.ts`, `test/contract/layout-archive.test.ts`, `test/e2e/browser-family.spec.ts` | 5 |
 | 07 | `src/main/browser/owner.ts`, `src/main/browser/screencast.ts`, `src/main/browser/sleep.ts`, `src/shared/ipc/browser.ts`, `src/main/ipc/browser.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `test/unit/browser-owner.test.ts`, `test/contract/browser-frames.test.ts`, `test/e2e/browser-screens.spec.ts`, `test/e2e/linked-browser.spec.ts` | 6 |
 | 08 | `src/main/mcp/browser-server.ts`, `src/main/mcp/browser-instructions.md`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/implementer.md`, `test/contract/browser-tools.test.ts`, `test/e2e/browser-autopilot.spec.ts` | 6 |
+| 09 | `src/main/browser/attach-policy.ts`, `test/unit/webview-attach-policy.test.ts`, `test/e2e/browser-webview-guard.spec.ts`, `src/renderer/canvas/canvas.css` | 2 |
+| 10 | `src/shared/browser/partition.ts`, `src/renderer/canvas/nodes/BrowserNode.tsx`, `src/renderer/canvas/nodes/BrowserNode.css`, `src/renderer/canvas/overlays/BrowserLayer.tsx`, `src/main/window.ts`, `test/e2e/browser.spec.ts`, `test/unit/window-options.test.ts` | 3 (после ответов владельца) |
 
 Правило плана. Ticket стоит в первой Wave, где закрыты все его блокеры (`Blocked by`). Если у двух
 Ticket-ов одной Wave общий файл, Ticket с большим номером уходит в следующую Wave.
