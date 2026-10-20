@@ -19,7 +19,7 @@
 // minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
 // Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
 // Path may be the WSL launcher.
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { readlinkSync, statSync } from 'node:fs'
 import { win32 } from 'node:path'
 
@@ -35,6 +35,8 @@ export const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as con
 export const ENV_START_MARKER = '__worfy_env_start__'
 export const ENV_END_MARKER = '__worfy_env_end__'
 export const SHELL_TIMEOUT_MS = 10_000
+/** The most output of the login shell worfy reads, in characters; past it the capture falls back. */
+export const MAX_SHELL_OUTPUT = 16 * 1024 * 1024
 
 /** The minimal environment the login shell starts from. */
 export function shellBaseEnv(source: SourceEnv): Env {
@@ -93,8 +95,10 @@ export interface CapturedEnv {
 /**
  * Runs `$SHELL -ilc` from the minimal environment and returns its environment without the API
  * keys. When the shell fails, hangs past the timeout or prints no markers, the result is the
- * minimal environment itself (still without API keys): Claude Code and the Harness scripts start,
- * but tools outside the system PATH — node among them — are not found, and `error` says why.
+ * minimal environment itself (still without API keys): Claude Code starts, but tools outside the
+ * system PATH — node among them — are not found, and `error` says why. (The Harness scripts add the
+ * PATH of worfy's own process after it: src/main/harness/script-env.ts.) The answer comes as soon as
+ * the end marker is read, not when the shell's output closes.
  * Never rejects: an empty SHELL is read as unset, as a login would.
  */
 export async function captureLoginShellEnv(options: CaptureOptions = {}): Promise<CapturedEnv> {
@@ -106,20 +110,46 @@ export async function captureLoginShellEnv(options: CaptureOptions = {}): Promis
   const fallback = (error: string): CapturedEnv => ({ env: withoutApiKeys(base), from: 'fallback', error })
 
   return new Promise((resolve) => {
-    execFile(
-      shell,
-      ['-ilc', script],
-      { env: base, encoding: 'utf8', timeout: options.timeoutMs ?? SHELL_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024 },
-      (error, stdout) => {
-        const env = parseEnvDump(stdout)
-        // A non-zero exit after the dump (an rc file failing on exit) still leaves a usable environment.
-        if (env && Object.keys(env).length > 0) {
-          resolve({ env: withoutApiKeys(env), from: 'login-shell', error: null })
-          return
-        }
-        resolve(fallback(error ? `${shell} -ilc failed: ${error.message}` : `${shell} -ilc printed no environment`))
-      },
-    )
+    let output = ''
+    let settled = false
+    // stdin and stderr are not read: /dev/null, so nothing of them is held open on worfy's side.
+    const child = spawn(shell, ['-ilc', script], { env: base, stdio: ['ignore', 'pipe', 'ignore'] })
+    // Answers once. The shell is ended if it still runs — after the end marker it has nothing more
+    // to give, and on a timeout it hangs — and worfy closes its side of the output. A process an rc
+    // file left in the background (`sleep 30 &`) holds that output open, so waiting for it to close
+    // waited out the whole timeout although the environment was printed (worfy-harness ticket 43).
+    // That process is the user's: worfy signals the shell alone, never its process group. A shell
+    // ended this way skips its logout files (.zlogout, .bash_logout), which change no environment.
+    const finish = (result: CapturedEnv): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.stdout.destroy()
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      resolve(result)
+    }
+    const timeoutMs = options.timeoutMs ?? SHELL_TIMEOUT_MS
+    const timer = setTimeout(() => finish(fallback(`${shell} -ilc failed: no environment within ${timeoutMs} ms`)), timeoutMs)
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      output += chunk
+      if (output.length > MAX_SHELL_OUTPUT) {
+        finish(fallback(`${shell} -ilc failed: more than ${MAX_SHELL_OUTPUT} characters of output`))
+        return
+      }
+      if (!output.includes(ENV_END_MARKER)) return
+      const env = parseEnvDump(output)
+      if (env && Object.keys(env).length > 0) finish({ env: withoutApiKeys(env), from: 'login-shell', error: null })
+    })
+    child.on('error', (error) => finish(fallback(`${shell} -ilc failed: ${error.message}`)))
+    // The output closed without the end marker: the shell exited, or crashed, before printing it.
+    child.on('close', (code, signal) => {
+      const env = parseEnvDump(output)
+      // A non-zero exit after the dump (an rc file failing on exit) still leaves a usable environment.
+      if (env && Object.keys(env).length > 0) finish({ env: withoutApiKeys(env), from: 'login-shell', error: null })
+      else if (code !== 0) finish(fallback(`${shell} -ilc failed: ${signal ? `killed by ${signal}` : `exit code ${code}`}`))
+      else finish(fallback(`${shell} -ilc printed no environment`))
+    })
   })
 }
 
