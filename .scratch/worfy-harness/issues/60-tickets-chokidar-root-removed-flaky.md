@@ -1,7 +1,7 @@
 # 60 — Test «does not see a root that is removed and made again under the same name» в `tickets-chokidar.test.ts` красный под нагрузкой
 
 Type: bug
-Status: claimed 2026-10-20T20:50Z
+Status: done 2026-10-20T21:09Z
 PR: #632
 Blocked by: —
 Source: gate full очереди Mac, 2026-10-20 — слово Session-оркестратора «Worfy продолжение»: test ждёт
@@ -40,4 +40,13 @@ FSEvents и libuv, а не воспроизведена.
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#632](https://github.com/IDSAD-XL/worfy/pull/632), merge be39619c. Gate full Mac зелёный — первый прогон правки под
+нагрузкой полного прогона. Не платформенный PR.
+
+- **Причина (выведена, не воспроизведена).** FSEvents на macOS теряет изменение, сделанное до того, как libuv
+  пересобрал поток под новую папку; test удалял корень в том же такте, что `ready`.
+- **Правка.** Перед удалением корня test пишет пробный Ticket, пока chokidar о нём не сообщит. Ожидание
+  `unlinkDir` (5 s) и итоговая проверка прежние.
+- **Проверки.** Файл 10 прогонов подряд — exit 0; мутант `watcher.add(root)` после пересоздания — красный;
+  workflow-reader, no-rmsync, e2e-no-spawn-on-load, lint, typecheck — exit 0.
+- **Ревью** не было: один test-файл, +15 строк (порог правила — один файл и около 20 строк).
