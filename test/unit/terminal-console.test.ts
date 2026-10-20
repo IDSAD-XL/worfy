@@ -450,6 +450,39 @@ describe('TerminalRegistry on Windows: a shell whose pid node-pty gives a moment
     await registry.closeAll()
   })
 
+  // Review of PR #498: node-pty queues kill() until its terminal is ready, so a close while the pid
+  // was awaited left the console host until node-pty gave up the connection itself (5 s).
+  it('a close while node-pty starts the shell closes the console through the agent at once, not through the queued kill()', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const agentKills: number[] = []
+    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length) })
+    Object.assign(fake.pty, { _isReady: false })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await registry.close('a')
+    await failed
+    // The agent first, before the pty's own kill() is queued.
+    expect(agentKills).toEqual([0])
+    expect(fake.kills).toEqual([undefined])
+  })
+
+  it('a pty that is ready is closed by its own kill() only', async () => {
+    vi.useFakeTimers()
+    const fake = fakePty(0, { deaf: true })
+    const agentKills: number[] = []
+    Object.assign(fake.agent, { kill: () => void agentKills.push(fake.kills.length) })
+    Object.assign(fake.pty, { _isReady: true })
+    const registry = new TerminalRegistry({ env: winEnv, spawn: () => fake.pty, platform: 'win32', endDescendants: () => undefined })
+    const failed = expect(registry.open('a', OPEN, {}, SINK)).rejects.toThrow('the shell of a was closed while node-pty was starting it')
+    await vi.advanceTimersByTimeAsync(100)
+    await registry.close('a')
+    await failed
+    expect(agentKills).toEqual([])
+    expect(fake.kills).toEqual([undefined])
+  })
+
   // Review of PR #498: open() awaited before it put the start in `starting`, so a close called in
   // the same tick found nothing, and the shell kept running (32 of 32 on the PC).
   it('a close in the same tick as the open takes the shell apart as soon as the wait for its pid begins', async () => {

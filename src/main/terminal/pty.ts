@@ -449,6 +449,24 @@ function stopOutputWorker(pty: PtyProcess): boolean {
   return true
 }
 
+/**
+ * Closes the console of a node-pty terminal of Windows that is not ready yet; false when it is
+ * ready, or when this is not a pty of node-pty as 1.2.0-beta.15 builds it.
+ *
+ * Until its output is connected node-pty's kill() is only queued, to run once the terminal is
+ * ready, and the agent gives up the connection after 5 s by itself (CONNECTION_TIMEOUT): a close
+ * while the registry waited for the pid left the console host up to 7 s (measured on the owner's
+ * PC: 96 consoles 2 s after the closes, none after 7 s). The agent's own kill() drops the pending
+ * connection and closes the console now.
+ */
+function killUnconnected(pty: PtyProcess): boolean {
+  const terminal = pty as { _isReady?: unknown; _agent?: { kill?: unknown } }
+  const kill = terminal._agent?.kill
+  if (terminal._isReady !== false || typeof kill !== 'function') return false
+  ;(kill as () => void).call(terminal._agent)
+  return true
+}
+
 /** Where a terminal's events go for one subscriber: the client that opened it. */
 export interface TerminalSink {
   output(data: string, end: number): void
@@ -961,6 +979,11 @@ export class TerminalRegistry {
       // Ended without an exit event; on Windows finish() also takes the pty apart (release).
       const giveUp = (why: string): void => {
         stop()
+        try {
+          killUnconnected(terminal.pty)
+        } catch (error) {
+          console.warn(`[terminal] closing the console of ${key} before it was connected failed`, error)
+        }
         terminal.finish({ exitCode: 1, signal: null })
         reject(new Error(why))
       }
