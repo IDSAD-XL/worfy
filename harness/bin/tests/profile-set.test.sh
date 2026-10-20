@@ -33,17 +33,17 @@ check() {
     shift
     if "$@"; then ok "$name"; else bad "$name"; fi
 }
-# Two cases put a shell-script `git` stub first on PATH: one refuses commit, one is slow to commit.
-# profile-set starts git by name without a shell, and node on Windows starts only a .com or .exe that
-# way, so it skips the stub and runs the real git there. Those two cases are skipped on Windows, one
-# line each. Off Windows every case runs: a skip that fired there would leave cases out while the
+# Four cases put a shell-script `git` stub first on PATH: one refuses commit, and three (the stale
+# lock two waiters see) hold their commit until the test lets it go. profile-set starts git by name
+# without a shell, and node on Windows starts only a .com or .exe that way, so it skips the stub and
+# runs the real git there. Those cases are skipped on Windows, one line per kind. Off Windows every case runs: a skip that fired there would leave cases out while the
 # file stays green.
 . "$(dirname "$0")/gh-stand-in.sh"
 RUN_GIT_STUB=true
 if on_windows; then
     RUN_GIT_STUB=false
     echo "skip the failed-commit case: node on Windows starts no shell stub for git, so the real git commits"
-    echo "skip the two stale-lock waiters case: node on Windows starts no shell stub for git, so the commit is not slow"
+    echo "skip the three stale-lock two-waiters cases: node on Windows starts no shell stub for git, so the commit is not held"
 fi
 # The guard of the above: off Windows (by uname, not by on_windows) the git-stub cases are on.
 case "$(uname -s)" in
@@ -285,18 +285,26 @@ check "usage names exit 6" grep -q "6 another write held the lock" <(run "$SET" 
 # by events, not by pauses: each writer has a PROFILE_SET_STALE_SYNC folder where profile-set puts its
 # token in `judged`, waits for `go` and creates `tried`; the stub git creates `in-commit` and waits
 # for `release`. A machine under load only makes each step later, never changes the order.
-# wait_for <file>: up to 30 s for the file to appear.
+# wait_for <file>: up to 15 s for the file to appear; 1 when it does not.
 wait_for() {
     local i=0
     while [ ! -e "$1" ]; do
         i=$((i + 1))
-        [ "$i" -gt 600 ] && return 1
+        [ "$i" -gt 300 ] && return 1
         sleep 0.05
     done
 }
 # two_waiters <name> <first|second: which writer takes over first> <seconds the second one starts late>
 two_waiters() {
-    local name="$1" winner="$2" late="$3" s="$T/sync" s1 s2 sw sl vw v1 v2 pid1 pid2 rc1 rc2 rcw rcl owner_mid
+    local name="$1" winner="$2" late="$3" s="$T/sync" s1 s2 sw sl vw v1 v2 pid1 pid2="" pidl rc1 rc2 rcw rcl owner_mid loser_waits
+    # A signal that never comes: one named FAIL, both writers let go and waited for, no lock left behind.
+    give_up() {
+        bad "$name: $1 never came"
+        touch "$s1/go" "$s2/go" "$s/release"
+        wait "$pid1"
+        [ -n "$pid2" ] && wait "$pid2"
+        rm -rf "$LOCKDIR"
+    }
     s1="$s/1"
     s2="$s/2"
     rm -rf "$s"
@@ -308,20 +316,23 @@ two_waiters() {
     PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s1" PROFILE_SET_LOCK_WAIT_MS=60000 \
         run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v1" >"$T/out1" 2>"$T/err1" &
     pid1=$!
-    wait_for "$s1/judged"
+    wait_for "$s1/judged" || { give_up "the first writer's judged"; return; }
     (
         sleep "$late"
         PATH="$SLOW:$PATH" PROFILE_SET_STALE_SYNC="$s2" PROFILE_SET_LOCK_WAIT_MS=60000 \
             run "$SET" -C "$T/r/demo" --expect "$fp" --set "$v2" >"$T/out2" 2>"$T/err2"
     ) &
     pid2=$!
-    wait_for "$s2/judged"
-    if [ "$winner" = first ]; then sw="$s1" sl="$s2" vw="$v1"; else sw="$s2" sl="$s1" vw="$v2"; fi
+    wait_for "$s2/judged" || { give_up "the second writer's judged"; return; }
+    if [ "$winner" = first ]; then sw="$s1" sl="$s2" vw="$v1" pidl=$pid2; else sw="$s2" sl="$s1" vw="$v2" pidl=$pid1; fi
     touch "$sw/go"
-    wait_for "$s/in-commit"
+    wait_for "$s/in-commit" || { give_up "in-commit of the first to take over"; return; }
     touch "$sl/go"
-    wait_for "$sl/tried"
+    wait_for "$sl/tried" || { give_up "tried of the other writer"; return; }
     owner_mid="$(cat "$LOCKDIR/owner" 2>/dev/null || echo none)"
+    # The other one cannot end while the holder's commit is held: it waits for the lock.
+    loser_waits=false
+    kill -0 "$pidl" 2>/dev/null && loser_waits=true
     touch "$s/release"
     wait "$pid1"
     rc1=$?
@@ -331,6 +342,7 @@ two_waiters() {
     check "$name: the first writer judged the lock stale" [ -s "$s1/judged" ]
     check "$name: the second writer judged the lock stale" [ -s "$s2/judged" ]
     check "$name: the second takeover leaves the first writer's lock, with its token, while it commits" [ "$owner_mid" = "$(cat "$sw/judged" 2>/dev/null)" ]
+    check "$name: the other waits while the lock is held" "$loser_waits"
     check "$name: the first to take over writes (exit 0)" [ "$rcw" -eq 0 ]
     check "$name: the other, from the same read, gets exit 5 after it" [ "$rcl" -eq 5 ]
     check "$name: the file holds the value of the first to take over" [ "$(field "$PJ")" = "$vw" ]
