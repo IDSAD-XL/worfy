@@ -505,7 +505,7 @@ for p in bare hdnull hdgroupsnull legacy; do
     eq "$p: docs.adr_status_label absent or null -> Status" Status "$P2" -C "$T/r/$p" --field docs.adr_status_label
 done
 eq "--json carries the three names, resolved" $'## Done when\nmanual\nStatus' \
-    bash -c 'set -o pipefail; "$@" --json | jq -r ".tickets.done_section, .tickets.manual_mark, .docs.adr_status_label"' _ "$P2" -C "$T/r/bare"
+    bash -c 'set -o pipefail; "$@" --json | jq -r ".tickets.done_section, .tickets.manual_mark, .docs.adr_status_label" | tr -d "\r"' _ "$P2" -C "$T/r/bare"
 # A malformed value is one warning on stderr, with the profile's path, and the default: the project is still read.
 for spec in "hddonenum|tickets.done_section|## Done when|got 5" "hddoneempty|tickets.done_section|## Done when|got \"  \"" \
     "hdmanuallist|tickets.manual_mark|manual|got [\"manual\"]" "hdstatusnum|docs.adr_status_label|Status|got 1"; do
