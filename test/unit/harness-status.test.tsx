@@ -253,4 +253,31 @@ describe('HarnessStatus (the item over IPC)', () => {
     expect(main.listeners('harness.changed')).toBe(0)
     expect(main.listeners('harnessMigration.changed')).toBe(0)
   })
+
+  it('a bridge without events (no `on`) still shows the state `harness.state` answered, and unmounts cleanly', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      fakeBridge({ 'harness.state': ok(notInstalled), 'harnessMigration.offer': ok({ offered: true }) })
+      const bridge = globals.worfy as unknown as Record<string, unknown>
+      delete bridge.on
+      delete bridge.off
+      const { unmount } = render(<HarnessStatus />)
+      expect((await screen.findByTestId('harness-text')).textContent).toBe('Harness not installed')
+      expect(await screen.findByTestId('harness-migrate')).not.toBeNull()
+      expect(() => unmount()).not.toThrow()
+      expect(errors.mock.calls.map((call) => String(call[0]))).toEqual(expect.arrayContaining(['harness.changed: cannot subscribe', 'harnessMigration.changed: cannot subscribe']))
+    } finally {
+      errors.mockRestore()
+    }
+  })
+
+  it('with no bridge at all (the preload did not run) the item renders "Harness unavailable" instead of taking the toolbar down', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      render(<HarnessStatus />)
+      expect((await screen.findByTestId('harness-status')).textContent).toBe('Harness unavailable')
+    } finally {
+      errors.mockRestore()
+    }
+  })
 })

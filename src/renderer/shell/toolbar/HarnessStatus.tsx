@@ -200,15 +200,27 @@ export default function HarnessStatus() {
       if (result.ok) setStatus(result.value)
       else setFailure(result.error)
     })
-    const stopState = subscribe('harness.changed', (next) => {
-      heard = true
-      setFailure(undefined)
-      setStatus(next)
-    })
-    const stopOffer = subscribe('harnessMigration.changed', (next) => {
-      offerEvents.current++
-      setMigration(next.offered)
-    })
+    // No bridge, or one without events (the preload did not run): the item shows what the first
+    // answers say rather than taking the toolbar down, as the other views do.
+    let stopState = (): void => undefined
+    try {
+      stopState = subscribe('harness.changed', (next) => {
+        heard = true
+        setFailure(undefined)
+        setStatus(next)
+      })
+    } catch (error) {
+      console.error('harness.changed: cannot subscribe', error)
+    }
+    let stopOffer = (): void => undefined
+    try {
+      stopOffer = subscribe('harnessMigration.changed', (next) => {
+        offerEvents.current++
+        setMigration(next.offered)
+      })
+    } catch (error) {
+      console.error('harnessMigration.changed: cannot subscribe', error)
+    }
     return () => {
       active = false
       stopState()
