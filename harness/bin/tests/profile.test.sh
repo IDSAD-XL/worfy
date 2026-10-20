@@ -211,9 +211,9 @@ git -C "$T/ws" init -q -b main
 check "workspace root that is itself git -> profile" 0 "multi" "$PROFILE" -C "$T/ws/notes" --name
 check "workspace root that is git: nested foreign repo -> 3" 3 "" "$PROFILE" -C "$T/ws/c" --name
 rm -rf "$T/ws/.git"
-# the resolver does not find a match with a trailing slash; the workspace does not mask that — exit 3, as before
+# a match with a trailing slash covers its own folder, as one without does (before, it matched nothing)
 printf '{"repos":[{"key":"a","match":"%s/","profile":"multi"},{"key":"b","match":"%s","profile":"multi"}]}\n' "$T/ws/a" "$T/ws/b" >"$T/ws-slash.json"
-check "match with trailing slash stays 3" 3 "" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
+check "match with trailing slash covers its own folder -> profile" 0 "multi" env CLAUDE_GATE_CONFIG="$T/ws-slash.json" "$PROFILE" -C "$T/ws/a" --name
 # The home folder is never a workspace: with two repositories of one profile right under HOME, a
 # directory in HOME is not that project. USERPROFILE with HOME, which node reads on Windows.
 mkdir -p "$T/hw/a" "$T/hw/b" "$T/hw/notes" "$T/hw-other"

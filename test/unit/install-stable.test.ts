@@ -621,6 +621,22 @@ describe('scripts/install-stable.mjs, run over a stand-in build', () => {
       expect(result.stdout).toContain(`install-stable: installed ${join(local, 'worfy-stable')} (commit ${head().slice(0, 7)}`)
     }, 60_000)
 
+    // Windows shows the path a program was started by. A copy started through a junction (or a
+    // `subst` drive, or an 8.3 short name) is shown in that spelling, so the script spells the
+    // path of each process on disk before it compares it with the target.
+    it('refuses while the copy runs from another spelling of its folder: the list shows the path through a junction', () => {
+      const target = join(dir, 'apps', 'worfy-stable')
+      mkdirSync(target, { recursive: true })
+      const through = join(dir, 'link-to-apps')
+      junction(join(dir, 'apps'), through)
+      const shown = join(through, 'worfy-stable', 'worfy.exe')
+      const listing = () => JSON.stringify([{ ProcessId: 4242, Name: 'worfy.exe', ExecutablePath: shown }])
+      // The build is not one: a run that went past the look for a running copy would say so.
+      const options = { env: { ...process.env, LOCALAPPDATA: local, WORFY_STABLE_PREBUILT: join(dir, 'no-such-build') }, repo: REPO, listing }
+      expect(() => installStable([target], options)).toThrow(`the stable copy at ${target} is running`)
+      expect(readdirSync(target)).toEqual([])
+    })
+
     it('refuses the folder of the installer, a neighbour whose path starts with it, and a folder that is not an earlier copy, and leaves them as they were', () => {
       const installed = run([join(local, 'Programs', 'worfy')])
       expect(installed.status).not.toBe(0)

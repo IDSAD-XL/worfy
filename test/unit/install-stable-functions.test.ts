@@ -138,6 +138,18 @@ describe('a running copy in the list of processes', () => {
     expect(runningCopies('win32', [typed, onDisk], listing)).toHaveLength(2)
   })
 
+  it('on Windows is found when it was started through a `subst` drive: its path is spelled on disk before it is compared', () => {
+    // Windows shows the path a program was started by; W: is a `subst` drive over C:\Users\dev\apps.
+    const listing = JSON.stringify([
+      { ProcessId: 21, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-stable\\worfy.exe' },
+      { ProcessId: 22, Name: 'worfy.exe', ExecutablePath: 'W:\\worfy-other\\worfy.exe' },
+    ])
+    const target = 'C:\\Users\\dev\\apps\\worfy-stable'
+    const spell = (path: string): string => path.replace(/^W:\\/, 'C:\\Users\\dev\\apps\\')
+    expect(runningCopies('win32', [target], listing)).toEqual([])
+    expect(runningCopies('win32', [target], listing, spell)).toEqual(['21 W:\\worfy-stable\\worfy.exe'])
+  })
+
   it('on Windows a worfy.exe whose path Windows does not give counts: it may be the copy, run by another user or elevated', () => {
     const listing = JSON.stringify([
       { ProcessId: 4, Name: 'System', ExecutablePath: null },

@@ -123,10 +123,13 @@ export function metadataPath(platform, target) {
  * symlinked folder shows the path it was started by).
  * Windows: `listing` is the JSON PowerShell prints for `Get-CimInstance Win32_Process` with
  * ProcessId, Name and ExecutablePath. A process counts when its executable lies inside one of
- * `targets`, in any case of the letters. So does a worfy.exe whose path Windows does not give
- * (the program of another user, or an elevated one): it may be the copy.
+ * `targets`, in any case of the letters, as Windows shows it or as `spell` gives it: Windows shows
+ * the path a program was started by, so one started through a `subst` drive or an 8.3 short name
+ * shows that spelling, and `spell` (onDisk) brings it to the spelling of the disk. So does a
+ * worfy.exe whose path Windows does not give (the program of another user, or an elevated one): it
+ * may be the copy.
  */
-export function runningCopies(platform, targets, listing) {
+export function runningCopies(platform, targets, listing, spell = (path) => path) {
   if (platform !== 'win32') {
     const needles = targets.map((target) => `${target}/Contents/`)
     return listing.split('\n').filter((line) => needles.some((needle) => line.includes(needle)))
@@ -135,11 +138,12 @@ export function runningCopies(platform, targets, listing) {
   if (text === '') return []
   const parsed = JSON.parse(text)
   const prefixes = targets.map((target) => `${target.toLowerCase()}\\`)
+  const inside = (path) => prefixes.some((prefix) => path.toLowerCase().startsWith(prefix))
   const lines = []
   for (const each of Array.isArray(parsed) ? parsed : [parsed]) {
     const path = each?.ExecutablePath
     if (typeof path === 'string') {
-      if (prefixes.some((prefix) => path.toLowerCase().startsWith(prefix))) lines.push(`${each.ProcessId} ${path}`)
+      if (inside(path) || inside(spell(path))) lines.push(`${each.ProcessId} ${path}`)
     } else if (typeof each?.Name === 'string' && each.Name.toLowerCase() === `${APP}.exe`) {
       lines.push(`${each.ProcessId} ${each.Name} (Windows does not say where it runs from: another user's, or an elevated one)`)
     }
@@ -571,8 +575,9 @@ function plainFile(path) {
  * Installs the copy; answers the line to print. Throws an Error with the reason otherwise.
  * `build(platform, repo)` makes the app when no built one is given; packageApp by default.
  * `rename(from, to)` moves a copy in the swap; renameSync by default.
+ * `listing(platform)` gives the list of processes runningCopies reads; processListing by default.
  */
-export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy } = {}) {
+export function installStable(argv, { platform = process.platform, env = process.env, home = homedir(), repo = defaultRepo(), build = packageApp, rename = renameSync, removeFolder = removeTree, mark = markDeploy, listing = processListing } = {}) {
   const rules = rulesOf(platform)
   if (argv.length > 1) fail(`expected at most one argument, the target path; got ${argv.length}`)
   const target = checkTarget(platform, argv[0] ?? defaultTarget(platform, env, home), env, home)
@@ -611,8 +616,9 @@ export function installStable(argv, { platform = process.platform, env = process
 
   if (platform === 'win32') {
     // The target as Windows spells it: a link to the installer's folder or a subst drive over it is
-    // the installer's folder all the same, and a process shows the spelling of the disk. Both sides
-    // are spelled that way, also when worfy is not installed yet.
+    // the installer's folder all the same. Both sides are spelled on disk, also when worfy is not
+    // installed yet. A process shows the path it was started by (a `subst` drive stays a drive
+    // letter), so runningCopies spells that path on disk too.
     const real = onDisk(logical)
     checkTarget(platform, real, env, home, onDisk(installerDir(env, home)))
     spellings.add(real)
@@ -623,7 +629,7 @@ export function installStable(argv, { platform = process.platform, env = process
   }
 
   const refuseIfRunning = () => {
-    const running = runningCopies(platform, [...spellings], processListing(platform))
+    const running = runningCopies(platform, [...spellings], listing(platform), platform === 'win32' ? onDisk : undefined)
     if (running.length === 0) return
     process.stderr.write(`${running.join('\n')}\n`)
     fail(`the stable copy at ${logical} is running. Quit it (stop Autopilot first, or wait for the gap between waves), then run this again.`)

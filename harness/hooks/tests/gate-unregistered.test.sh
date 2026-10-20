@@ -94,10 +94,21 @@ if node -e '
             // a network path, with either separator
             same("\\\\srv\\share\\repo\\src", "//srv/share/repo", "win32") &&
             !same("\\\\srv\\share\\repo2", "//srv/share/repo", "win32") &&
-            // a separator at the end: of the target it changes nothing; a base is taken as it is
-            // written, so with a separator at its end no folder lies under it
+            // a separator at the end: of the target it changes nothing; a base that already ends
+            // with one does not get a second, so the folders under it still lie under it
             same("C:\\a\\repo\\", "C:/a/repo", "win32") &&
-            !same("C:/a/repo/src", "C:/a/repo/", "win32") &&
+            same("C:/a/repo/src", "C:/a/repo/", "win32") &&
+            same("C:\\a\\repo", "C:/a/repo/", "win32") &&
+            same("/home/x/repo", "/home/x/repo/", "darwin") &&
+            !same("C:", "C:/", "win32") &&
+            !same("", "/", "linux") &&
+            !same("C:/a/repo2", "C:/a/repo/", "win32") &&
+            // the root of a disk ends with a separator as it is written
+            same("C:\\a\\b", "C:\\", "win32") &&
+            same("c:/a", "C:/", "win32") &&
+            !same("D:\\a", "C:\\", "win32") &&
+            same("/a", "/", "darwin") &&
+            same("/a/b", "/", "linux") &&
             same("/home/x/worfy/src", "/home/x/worfy", "darwin") &&
             !same("/home/x/Worfy", "/home/x/worfy", "darwin") &&
             !same("/home/x/a\\b", "/home/x/a", "linux")
