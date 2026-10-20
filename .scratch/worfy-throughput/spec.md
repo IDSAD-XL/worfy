@@ -273,18 +273,22 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | [13](issues/13-e2e-и-package-до-мержа-только-по-путям-diff.md) | e2e и `test:package` до merge — только по списку путей; ночной run всего набора на `main` | Q5 | 10, 11 |
 | [14](issues/14-бюджет-времени-от-зелёных-проверок-до-мержа.md) | Время от зелёных проверок до merge по Ticket-у и отчёт о превышении бюджета | Q1, Q2 | 10 |
 | [15](issues/15-аудит-test-ов-и-правило-одного-слоя.md) | Аудит дублирующих test-ов и правило одного слоя | Q6 | 11, 12, 13 |
+| [16](issues/16-shell-test-ы-harness-параллельно.md) | Shell test-ы Harness идут параллельно: `harness-scripts.test.ts` (517 s из 519 s шага `test`) больше не держит весь `pnpm test` | замер 10; «да» владельца 2026-10-20 | — |
 
 ### Порядок
 
 1. **10 — первым** (Q7). implementer работает над ним с 2026-10-20; claim не сделан, потому что файла
    Ticket-а не было на `main` до этого docs PR. Без его чисел нельзя выбрать число shard-ов (12), проверить
    выигрыш выбора test-ов (11) и поставить базу бюджета (14).
-2. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
-3. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
+2. **16** — сразу, параллельно с merge 10: замер 10 показал, что один файл `test/contract/harness-scripts.test.ts`
+   идёт 517 s из 519 s шага `test`; владелец 2026-10-20 сказал «да» отдельному Ticket-у до 11–13.
+   Число shard-ов 12 считать после 16.
+3. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
+4. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
    когда у него есть CI на Linux, а 11 и 12 правят одни тексты Harness (`harness/skills/epic-wave/SKILL.md`,
    `harness/skills/ship-ticket/SKILL.md`) и `harness/bin/wave-gate`.
-4. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
-5. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
+5. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
+6. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
 
 ### Волны Ticket-ов 10–15
 
@@ -300,6 +304,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | 11 | `harness/hooks/gate.mjs`, `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `vitest.config.ts`, `scripts/vitest-electron.mjs`, новый скрипт выбора test-ов в `scripts/` | 3 |
 | 13 | `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json` | 4 |
 | 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
+| 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts` | 1 |
 
 ### Не решено — вопросы к инструментам
 
