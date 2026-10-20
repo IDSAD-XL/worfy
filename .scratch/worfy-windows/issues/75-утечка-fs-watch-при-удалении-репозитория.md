@@ -59,8 +59,8 @@ worfy.
 
 ## Готово, когда
 
-- [ ] Красный test (commit без правки): на ПК красный 5 из 5 прогонов; время прогона названо.
-- [ ] Тот же test на Mac: доля красных прогонов записана (macOS может не течь — тогда test там зелёный
+- [x] Красный test (commit без правки): на ПК красный 5 из 5 прогонов; время прогона названо.
+- [x] Тот же test на Mac: доля красных прогонов записана (macOS может не течь — тогда test там зелёный
       и до правки, это нормально; skip не годится).
 - [ ] Правка в `src/main/workflow/watch.ts`: test зелёный 5 из 5 на ПК и на Mac; mutant без правки — красный.
 - [ ] `test/contract/workflow-branches-gone.test.ts`: удаление из дочернего процесса, «не больше N строк
@@ -87,4 +87,60 @@ worfy.
 
 ## Итог
 
-Заполняется при закрытии.
+**Причина (подтверждена на ПК).** Утечку даёт сам chokidar 5.0.0: закрытый watcher открывает watch
+заново. Listener файла (`handler.js:378`) делает `await stat(file)`; если файл уже удалён и между
+событием и ответом stat worfy закрыл watcher, catch вызывает `_remove`, а тот — `this.add(directory,
+item, true)` (`index.js:723`, ветка «единственный файл удалён»). `add()` ставит `closed = false` и
+идёт вверх до ближайшей живой папки: `refs/heads` → `refs` → `.git`. Этот fs.watch на `repo/.git`
+уже никто не закрывает: worfy свой `close()` уже вызвал. Диагностика: обёртка над `watch` из
+chokidar в одноразовом test-файле (не в commit) записывала каждый `add()` после `close()` со stack
+и каждый closer fs.watch, который так и не вызвали. Во всех трёх прогонах с утечкой: `close` второго
+branches watch-а (того, что сделан заново после `git worktree remove`), через 0–2 ms —
+`ADD-AFTER-CLOSE` из `_remove` (`index.js:723` ← `handler.js:378`), потом второй круг `add()`
+(`index.js:376`) на `refs` и `.git`, и незакрытый closer на `repo/.git`. Watch закрывали уже
+после `ready`, так что «close во время настройки» из первого диагноза — не причина. Строка
+`handler.js:594-596` из описания выше тоже не причина: `closed` там уже снова `false`.
+
+**Правка — вариант (d)** (`src/main/workflow/watch.ts`, commit `f2790d72`). Все chokidar watch-и
+`WorkflowWatcher` закрываются через `closeForGood`: сначала `watcher.add = () => watcher`, потом
+`close()`. Поздний `add()` ничего не открывает, `closed` остаётся `true`, и обходы, ещё идущие в
+этот момент, останавливаются на своих проверках `closed`. Второе: `close()` снимает все listener-ы,
+а обход, начатый до close, при удалении папки получает EPERM от `realpath` и делает `emit('error')`
+без listener-а — EventEmitter бросает, и это стало unhandled rejection (vitest exit 1 при зелёном
+test, 2 из 7 прогонов с первой половиной правки). Поэтому после `close()` вешается пустой listener
+`error`. Комментарий `shortcut:` в коде: правка закрывает только повторный `add()`; при обновлении
+chokidar проверить, не открывает ли он watch после close другим путём.
+
+**Почему не другие варианты.**
+- (a) не закрывать до `ready`: watch с утечкой был закрыт уже после своего `ready` (в логе
+  `ready=true` у каждого `close`), так что ожидание `ready` ничего не меняет.
+- (b) debounce/coalesce пересоздания: уменьшает число close, но не убирает гонку `stat` против
+  `close` — listener файла может получить событие в любой момент до close; вероятность меньше, но
+  не ноль, а детерминированного признака нет.
+- (c) свои fs.watch вместо chokidar для веток: много нового кода (отсутствующие `packed-refs` и
+  `worktrees`, подъём к ближайшей живой папке, фильтр `ignored`) ради того, что закрывает одна
+  строка.
+- (d), другой путь: `ignored`, который после close отвечает «игнорировать всё»: публичный API, но `add()` всё
+  равно ставит `closed = false`, и обход, прошедший проверку `ignored` до close, после этого открывает
+  watch. Гонка остаётся.
+- pnpm patch chokidar и правка `node_modules` — запрещены постановкой задачи.
+
+**Доля красных прогонов** (`test/contract/workflow-branches-handles.test.ts`, 16 кругов):
+- ПК до правки: красный 5 из 5 (утечка на кругах 7, 6, 1, 2, 1; 5–21 s на прогон).
+- ПК после правки: зелёный 7 из 7, exit 0, 42–45 s на прогон.
+- Mac до правки: зелёный 4 из 4 (около 29 s), FSEvents. После правки на Mac — не прогнан.
+- Mutant (удалена только строка `watcher.add = () => watcher`): красный 2 из 2, утечка на кругах
+  2 и 1; файл восстановлен из копии, `cmp` совпал.
+
+**Проверка**
+
+| Что | Команда | Результат |
+| --- | --- | --- |
+| test утечки, ПК, после правки | `node scripts/vitest-electron.mjs test/contract/workflow-branches-handles.test.ts` × 7 | exit 0 × 7, 1 passed, 42–45 s |
+| mutant без `add`-no-op | тот же файл × 2 | exit 1 × 2 |
+| остальные test-ы watch.ts | `node scripts/vitest-electron.mjs` unit: workflow-branches-gone, notify, tickets-chokidar, tickets-watch; contract: workflow-branches-gone, harness-script-env, harness-script-wiring, workflow-profile, workflow-reader, workflow-stages, workflow-watch-links, workflow-watch-retry | exit 0; 11 files passed, 1 skipped (по платформе); 293 passed, 23 skipped |
+| lint | `CI=true pnpm lint` | exit 0 |
+| typecheck | `CI=true pnpm typecheck` | exit 0 |
+
+Не сделано в этом шаге: прогон на Mac после правки; пункт про
+`test/contract/workflow-branches-gone.test.ts` с удалением из дочернего процесса (10 из 10).
