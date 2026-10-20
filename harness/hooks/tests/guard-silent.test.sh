@@ -52,8 +52,8 @@ guard() {
     out="$(jq -n --arg c "$2" --arg d "$1" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}' | node "$GUARD")"
     if [ -z "$out" ]; then echo allow; else printf 'deny: %s\n' "$(printf '%s' "$out" | jq -r '.hookSpecificOutput.permissionDecisionReason')"; fi
 }
-expect() { # <description> <allow|deny> <cwd> <command> [substring of the reason]
-    local got; got="$(guard "$3" "$4")"
+expect() { # <description> <allow|deny> <cwd> <command> [substring of the reason]; the answer stays in $got
+    got="$(guard "$3" "$4")"
     if [[ "$got" == "$2"* ]] && { [ -z "${5:-}" ] || [[ "$got" == *"$5"* ]]; }; then ok "$1"
     else bad "$1: want $2${5:+ ($5)}, got: ${got:0:400}"; fi
 }
@@ -138,6 +138,102 @@ got="$(guard "$FR" "$CO_UPPER")"
 [[ "$got" == *"$ADVICE" ]] && ok "full, explicit attribution off: the advice is the last sentence, nothing about this project's mode after it" \
     || bad "full, explicit off, the end of the refusal: ${got: -300}"
 cp "$T/sp-profile.json" "$SPP"; cp "$T/fp-profile.json" "$FPP"
+
+# --- a directory the command creates first: the check runs from its nearest existing parent -----------
+# bin/silent-check refuses a directory that does not exist; the guard must not turn that into a refusal of
+# an ordinary `mkdir … && cd … && git …`, and the new directory still belongs to the repository above it.
+expect "outside any project: mkdir + cd + git init + git commit -> allow" allow "$T" \
+    "mkdir -p $T/fresh/new && cd $T/fresh/new && git init -q && git commit -m init"
+expect "silent: a branch created from a new subdirectory of the repository is still checked -> deny" deny "$T" \
+    "mkdir -p $R/sub/new && cd $R/sub/new && git checkout -b checkout-flow/05" 'checkout-flow/05'
+
+# --- the check does not answer in time, fails or answers an unknown code ---------------------------
+# A stand-in for bin/silent-check (CLAUDE_SILENT_CHECK_BIN): each call appends a line to $STUB_LOG and takes
+# the next step of $STUB_PLAN (the last step repeats): `sleep` — hangs until the guard stops it; `traces` —
+# exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
+# the tickets root is not read; a number — that exit code, nothing printed.
+# One try lasts $TRY_MS here: long enough that a stand-in which answers at once (a node start, slower on a
+# loaded machine) never runs out of it, short enough to keep the file quick. The stand-in that hangs sleeps
+# far longer than any try, so a timeout never depends on how fast the machine is.
+STUB="$T/silent-check-stub.cjs"
+cat >"$STUB" <<'EOF'
+const fs = require("node:fs")
+const log = process.env.STUB_LOG
+const n = fs.existsSync(log) ? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length : 0
+fs.appendFileSync(log, "call\n")
+const plan = (process.env.STUB_PLAN || "0").split(",")
+const step = plan[Math.min(n, plan.length - 1)]
+if (step === "sleep") {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120000)
+    process.exit(0)
+}
+if (step === "traces") {
+    process.stdout.write('stdin:1: ticket number "Ticket 05"\n')
+    process.exit(1)
+}
+if (step === "profile") {
+    process.stderr.write("silent-check: profile not read (exit 1): profile.json: unexpected end of JSON input\n")
+    process.exit(2)
+}
+if (step === "root") {
+    process.stderr.write("silent-check: tickets root not read (exit 1): ticket: no tickets root\n")
+    process.exit(2)
+}
+process.exit(Number(step))
+EOF
+TRY_MS=3000
+now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
+calls() { [ -f "$STUB_LOG" ] && grep -c . "$STUB_LOG" || echo 0; }
+# stub <plan> <description> <allow|deny> <command> [substring of the reason] [calls wanted]
+stub() {
+    export STUB_LOG="$T/stub-$RANDOM-$RANDOM.log" STUB_PLAN="$1" CLAUDE_SILENT_CHECK_BIN="$STUB" CLAUDE_SILENT_CHECK_TIMEOUT_MS="$TRY_MS"
+    expect "$2" "$3" "$R" "$4" "${5:-}"
+    if [ -n "${6:-}" ]; then
+        local n; n="$(calls)"
+        [ "$n" = "$6" ] && ok "$2: silent-check called $6 time(s)" || bad "$2: silent-check called $n time(s), want $6"
+    fi
+    unset STUB_LOG STUB_PLAN CLAUDE_SILENT_CHECK_BIN CLAUDE_SILENT_CHECK_TIMEOUT_MS
+}
+CLEAN='git commit -m "Fix the withdraw button state"'
+stub sleep "timeout twice -> deny with the reason" deny "$CLEAN" 'did not finish' 2
+for want in '`git commit` was not run' 'Run the same command again' 'silent-check -C '; do
+    [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
+done
+[[ "$got" != *"carries traces of the workflow"* ]] && ok "timeout twice: the refusal does not claim traces" || bad "timeout twice claims traces: ${got:0:300}"
+stub sleep "timeout twice on a PR text: the refusal names gh pr create" deny 'gh pr create --title "Fix" --body "Keeps state"' '`gh pr create` was not run'
+stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
+stub sleep,traces "timeout, then the retry finds traces -> deny with the traces" deny "$CLEAN" 'ticket number "Ticket 05"' 2
+stub profile "exit 2, the profile is not read -> allow, as before" allow "$CLEAN" '' 1
+stub root "exit 2, the tickets root is not read -> deny with the error" deny "$CLEAN" 'tickets root not read'
+stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'
+stub 1 "exit 1 with nothing found printed (a crash) -> deny as a failure, not as traces" deny "$CLEAN" 'failed (exit 1)'
+stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
+export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
+expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
+unset CLAUDE_SILENT_CHECK_BIN
+
+# A Full project with attribution on: the real bin/silent-check behind a counting wrapper answers 0 at once —
+# one call, no retry.
+cat >"$T/count-real.cjs" <<EOF
+require("node:fs").appendFileSync(process.env.STUB_LOG, "call\n")
+require("$HARNESS/bin/silent-check")
+EOF
+export STUB_LOG="$T/count-real.log" CLAUDE_SILENT_CHECK_BIN="$T/count-real.cjs"
+expect "full, attribution on: a commit with Ticket 05 -> allow through the real check" allow "$FR" 'git commit -m "Fix the button, Ticket 05"'
+n="$(calls)"; [ "$n" = 1 ] && ok "full, attribution on: the real check is called once" || bad "full, attribution on: the real check called $n times"
+unset STUB_LOG CLAUDE_SILENT_CHECK_BIN
+
+# The default tries, both timing out: the whole hook ends within its own limit in hooks.json, otherwise Claude
+# Code would stop the hook and run the command unchecked.
+LIMIT_S="$(jq -r '.hooks.PreToolUse[] | .hooks[] | select(.command | test("guard\\.mjs")) | .timeout' "$HOOKS/hooks.json")"
+export STUB_LOG="$T/limit.log" STUB_PLAN=sleep CLAUDE_SILENT_CHECK_BIN="$STUB"
+t0="$(now_ms)"; got="$(guard "$R" "$CLEAN")"; t1="$(now_ms)"
+unset STUB_LOG STUB_PLAN CLAUDE_SILENT_CHECK_BIN
+elapsed=$((t1 - t0))
+echo "     the hook with two default timeouts took $elapsed ms; its limit in hooks.json is ${LIMIT_S} s"
+[[ "$got" == deny*"did not finish"* ]] && ok "default tries, both time out -> deny" || bad "default tries, both time out: ${got:0:300}"
+[[ "$LIMIT_S" =~ ^[0-9]+$ ]] && [ "$elapsed" -lt $((LIMIT_S * 1000)) ] && ok "default tries, both time out: the hook ends within its limit" \
+    || bad "default tries, both time out: $elapsed ms against a limit of '$LIMIT_S' s"
 
 # --- the real home -----------------------------------------------------------------------
 after="$(real_home_snapshot "$REAL_HOME" "$T")"
