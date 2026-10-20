@@ -13,7 +13,9 @@
 #      for stop.mjs and an "unverified" verdict file in place of the one of the run before. When
 #      a node was found but failed the check, the line says «no node 18 or newer: <its path> is
 #      older or did not start» instead, with the same code, marker and file.
-#      Outside a git worktree it says nothing and exits with 0, as the gate does.
+#      Outside a git worktree it says nothing and exits with 0, as the gate does. Before all of
+#      that it checks the profile argument as gate.mjs does: `--help` / `-h` print the usage
+#      (exit 0), an unknown profile prints it on stderr (exit 2), and neither writes anything.
 #
 # Who calls it:
 #   - hooks.json (TaskCompleted, TeammateIdle), by its path. A hook command that named `node`
@@ -74,20 +76,25 @@ fi
 # The rest is the answer of the bash gate, cut down to this one case. The state folder, the tag
 # and the fields of the verdict file are the ones of gate-paths.mjs and gate.mjs: stop.mjs and
 # worfy look for the marker and the verdict file by those names.
+
+# The profile argument, checked as gate.mjs checks it (see "The profile argument" there) and before
+# anything is read from stdin or written: `--help` and `-h` print the usage and exit with 0; a
+# profile that is not fast, full or an own key of root or workspace in some entry of the registry
+# prints the usage on stderr and exits with 2. The usage is a copy of USAGE in gate.mjs:
+# gate-shim.test.sh compares the answers of the two files.
+usage='usage: node gate.mjs [<profile>]   profile: fast (the default), full, or a key of root or workspace in the gate registry'
+case "${1-}" in --help | -h) printf '%s\n' "$usage"; exit 0 ;; esac
 PROFILE="${1:-fast}"
 
 # The git of an eval run: EVAL_GIT, else git from PATH (eval-env.cjs says the same for node).
 git() { command "${EVAL_GIT:-git}" "$@"; }
 
-# What is checked is the worktree. Outside git, or without git, there is nothing to say.
-repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-[ -n "$repo" ] || exit 0
-
 # The home folder as node gives it (os.homedir): USERPROFILE on Windows, HOME elsewhere.
 home="${HOME:-}"
 case "${OSTYPE:-}" in msys* | cygwin*) home="${USERPROFILE:-$home}" ;; esac
 # The Harness state: HARNESS_HOME, else EVAL_HARNESS_HOME of an eval run (a relative one from the
-# git common directory), else ~/.claude/worfy-harness — the rule of eval-env.cjs, here without node.
+# git common directory; outside git, the default), else ~/.claude/worfy-harness — the rule of
+# eval-env.cjs, here without node.
 hh="${HARNESS_HOME:-}"
 if [ -z "$hh" ] && [ -n "${EVAL_HARNESS_HOME:-}" ]; then
     case "$EVAL_HARNESS_HOME" in
@@ -95,6 +102,191 @@ if [ -z "$hh" ] && [ -n "${EVAL_HARNESS_HOME:-}" ]; then
         *) common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" && [ -n "$common" ] && hh="$common/$EVAL_HARNESS_HOME" ;;
     esac
 fi
+
+# Whether the registry names the profile: awk reads it as JSON.parse would and exits with 10 when
+# it is a valid registry with a `repos` list and no entry has the profile as an own key of its
+# `root` or `workspace` (an object, or a list: its indexes and `length`). Any other end — not JSON,
+# no `repos` list, a file that cannot be read, no awk — says nothing against the name, as in
+# gate.mjs: the run goes on and reports what it finds. The same keys win as in JSON.parse: the
+# last `repos` of the registry, the last `root` and `workspace` of an entry. Escapes in keys are
+# decoded to UTF-8 bytes and compared with the bytes of the argument; a key with \u0000 or a lone
+# surrogate equals no argument.
+# shortcut: bytes that are not valid UTF-8 are compared as they are, where node reads U+FFFD; redo
+# when a registry is written by anything other than JSON.stringify (which writes valid UTF-8 only).
+registry_names() {
+    LC_ALL=C GATE_PROFILE_NAME="$1" awk '
+        function err() { bad = 1; p = n + 1 }
+        function ws(   c) {
+            while (p <= n) {
+                c = substr(s, p, 1)
+                if (c != " " && c != "\t" && c != "\n" && c != "\r") return
+                p++
+            }
+        }
+        # four hex digits at p, or -1
+        function hex4(   i, d, v) {
+            v = 0
+            for (i = 0; i < 4; i++) {
+                if (p + i > n) return -1
+                d = index("0123456789abcdef", tolower(substr(s, p + i, 1)))
+                if (d == 0) return -1
+                v = v * 16 + d - 1
+            }
+            p += 4
+            return v
+        }
+        function utf8(cp) {
+            if (cp < 128) return sprintf("%c", cp)
+            if (cp < 2048) return sprintf("%c%c", 192 + int(cp / 64), 128 + cp % 64)
+            if (cp < 65536) return sprintf("%c%c%c", 224 + int(cp / 4096), 128 + int(cp / 64) % 64, 128 + cp % 64)
+            return sprintf("%c%c%c%c", 240 + int(cp / 262144), 128 + int(cp / 4096) % 64, 128 + int(cp / 64) % 64, 128 + cp % 64)
+        }
+        # a string at p (on its quote); strok is 0 when it can equal no argument
+        function str(   out, c, e, cp, lo, back) {
+            p++
+            out = ""
+            strok = 1
+            while (p <= n) {
+                c = substr(s, p, 1)
+                if (c == "\"") { p++; return out }
+                if (c != "\\") {
+                    if (index(ctl, c)) { err(); return "" }
+                    out = out c
+                    p++
+                    continue
+                }
+                e = substr(s, p + 1, 1)
+                p += 2
+                if (e == "\"" || e == "\\" || e == "/") out = out e
+                else if (e == "b") out = out "\b"
+                else if (e == "f") out = out "\f"
+                else if (e == "n") out = out "\n"
+                else if (e == "r") out = out "\r"
+                else if (e == "t") out = out "\t"
+                else if (e == "u") {
+                    cp = hex4()
+                    if (cp < 0) { err(); return "" }
+                    if (cp >= 55296 && cp < 56320 && substr(s, p, 2) == "\\u") {
+                        back = p
+                        p += 2
+                        lo = hex4()
+                        if (lo < 0) { err(); return "" }
+                        if (lo >= 56320 && lo < 57344) cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
+                        else p = back
+                    }
+                    if (cp == 0 || (cp >= 55296 && cp < 57344)) strok = 0
+                    else out = out utf8(cp)
+                } else { err(); return "" }
+            }
+            err()
+            return ""
+        }
+        function num(   q, t) {
+            q = p
+            while (p <= n && index("+-0123456789.eE", substr(s, p, 1))) p++
+            t = substr(s, q, p - q)
+            if (t !~ /^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) err()
+        }
+        # one value at p; ctx says where it is: "top", "repos" (the value of repos), "entry" (an
+        # element of that list), "table" (the value of root or workspace of an entry), or "".
+        # Returns 1 when the value names the profile for its context; vtype is its kind.
+        function value(ctx,   c) {
+            ws()
+            if (p > n) { err(); return 0 }
+            c = substr(s, p, 1)
+            if (c == "{") return obj(ctx)
+            if (c == "[") return arr(ctx)
+            vtype = "scalar"
+            if (c == "\"") str()
+            else if (substr(s, p, 4) == "true" || substr(s, p, 4) == "null") p += 4
+            else if (substr(s, p, 5) == "false") p += 5
+            else num()
+            return 0
+        }
+        function obj(ctx,   c, k, kok, h, has, r_has, w_has) {
+            p++
+            ws()
+            has = 0; r_has = 0; w_has = 0
+            if (substr(s, p, 1) == "}") p++
+            else while (1) {
+                ws()
+                if (substr(s, p, 1) != "\"") { err(); return 0 }
+                k = str(); kok = strok
+                ws()
+                if (bad || substr(s, p, 1) != ":") { err(); return 0 }
+                p++
+                if (ctx == "top" && k == "repos") { h = value("repos"); repos_list = (vtype == "array"); repos_has = h }
+                else if (ctx == "entry" && k == "root") r_has = value("table")
+                else if (ctx == "entry" && k == "workspace") w_has = value("table")
+                else value("")
+                if (bad) return 0
+                if (ctx == "table" && kok && k == NAME) has = 1
+                ws()
+                c = substr(s, p, 1)
+                if (c == ",") { p++; continue }
+                if (c == "}") { p++; break }
+                err()
+                return 0
+            }
+            vtype = "object"
+            if (ctx == "entry") return r_has || w_has
+            return has
+        }
+        function arr(ctx,   c, count, has) {
+            p++
+            ws()
+            count = 0; has = 0
+            if (substr(s, p, 1) == "]") p++
+            else while (1) {
+                if (value(ctx == "repos" ? "entry" : "") && ctx == "repos") has = 1
+                if (bad) return 0
+                count++
+                ws()
+                c = substr(s, p, 1)
+                if (c == ",") { p++; continue }
+                if (c == "]") { p++; break }
+                err()
+                return 0
+            }
+            vtype = "array"
+            if (ctx == "table") return NAME == "length" || (NAME ~ /^(0|[1-9][0-9]*)$/ && NAME + 0 < count)
+            return has
+        }
+        BEGIN {
+            NAME = ENVIRON["GATE_PROFILE_NAME"] ""
+            for (i = 1; i < 32; i++) ctl = ctl sprintf("%c", i)
+        }
+        { s = s $0 "\n" }
+        END {
+            n = length(s); p = 1
+            value("top")
+            ws()
+            if (bad || p <= n || !repos_list) exit 0
+            exit repos_has ? 0 : 10
+        }'
+}
+if [ "$PROFILE" != fast ] && [ "$PROFILE" != full ]; then
+    # The registry of gate.mjs (gateConfigFile in gate-paths.mjs): CLAUDE_GATE_CONFIG, else
+    # gate/config.json of the Harness home; the old ~/.claude/gate/config.json only when that one
+    # is missing and the old one is there.
+    config="${CLAUDE_GATE_CONFIG:-}"
+    if [ -z "$config" ]; then
+        config="${hh:-$home/.claude/worfy-harness}/gate/config.json"
+        [ ! -e "$config" ] && [ -e "$home/.claude/gate/config.json" ] && config="$home/.claude/gate/config.json"
+    fi
+    if [ -f "$config" ] && [ -r "$config" ]; then
+        registry_names "$PROFILE" 2>/dev/null <"$config"
+        if [ $? -eq 10 ]; then
+            printf '[gate] unknown profile: %s\n%s\n' "$PROFILE" "$usage" >&2
+            exit 2
+        fi
+    fi
+fi
+
+# What is checked is the worktree. Outside git, or without git, there is nothing to say.
+repo="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$repo" ] || exit 0
+
 STATE="${CLAUDE_GATE_STATE:-${hh:-$home/.claude/worfy-harness}/gate/state}"
 mkdir -p "$STATE" 2>/dev/null
 
