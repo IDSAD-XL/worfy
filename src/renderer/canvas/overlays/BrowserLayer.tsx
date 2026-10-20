@@ -107,8 +107,7 @@ function BrowserPage({ page }: { page: Page }) {
 
   // The address the page reaches, by a link or by the address bar, goes into the Node: the address
   // bar shows it, and the Browser opens it again after a restart. Not a step of ⌘Z (history.ts).
-  // shortcut: another window of the same Project (ADR-0053) shows the new address in its bar but
-  // keeps its own page where it is; redo when two windows of one Project must show one page.
+  // shortcut: a second window of the Project keeps its page where it is, only its bar follows, redo when two windows must show one page.
   useEffect(() => {
     const element = view.current
     if (element === null || readOnly !== null) return
