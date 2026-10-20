@@ -53,9 +53,16 @@ function tempDir(): string {
   return dir
 }
 
+/**
+ * The environment of the tests' process without the folders the script reads from it: a
+ * CLAUDE_CONFIG_DIR or WORFY_DATA_DIR of the shell that started the tests would move the guarded
+ * folders away from the ones a test sets up.
+ */
+const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'CLAUDE_CONFIG_DIR' && key !== 'WORFY_DATA_DIR'))
+
 /** Runs the script as `pnpm test` runs it: under Electron as Node; `env` replaces the given keys. */
 function run(args: string[], env: Record<string, string> = {}): { status: number | null; stdout: string; stderr: string } {
-  const result = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env } })
+  const result = spawnSync(process.execPath, [SCRIPT, ...args], { encoding: 'utf8', env: { ...inherited, ELECTRON_RUN_AS_NODE: '1', ...env } })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
 
