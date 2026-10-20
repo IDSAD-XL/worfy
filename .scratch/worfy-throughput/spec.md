@@ -214,3 +214,116 @@ Ticket-ов одной Wave общий файл, Ticket с большим ном
 Пересечения проверены правилом `filesOverlap` (`src/shared/workflow/waves.ts:158`). Правка `rules.md`
 Profile-а worfy в таблицу не входит: файл вне репозитория. Если исполнителю нужен файл вне своего
 списка, он дописывает его в «Где в коде» при claim.
+
+## Решения владельца 2026-10-20: скорость test-ов (Ticket-ы 10–15)
+
+Дата решения: 2026-10-20. Разбор вопросов (grilling) Q1–Q7 с владельцем; ответ владельца — «Да на все
+семь, начинай с Q7». Решения ниже записаны в ADR
+[0081](../../docs/adr/0081-per-pr-linux-ci-shards-and-affected-tests.md) (статус «принят» 2026-10-20: per-PR CI
+на Linux с shard-ами и выбор test-ов по diff; полный набор — на `main` batch-ем). Он частично заменяет
+ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate full на набор PR Wave).
+
+### Откуда
+
+Замер 2026-10-20 по main `0419b38c`.
+
+| Факт | Значение |
+| --- | --- |
+| Test-файлов в `test/unit`, `test/contract`, `test/e2e` | 173 (10-07), 252 (10-10), 294 (10-13), 347 (10-16), 404 (10-19), 435 сейчас (224 / 123 / 88) |
+| Рост | около 20 файлов в день, в 2,5 раза за 13 дней |
+| Test case-ов | около 3260 unit, около 2190 contract, около 290 e2e; ещё 38 test-файлов Harness |
+| Выбор test-ов в gate | `harness/hooks/gate.mjs` сужает набор только по пакету; worfy — один пакет, поэтому любая правка `.ts` запускает весь список скриптов. `--changed`, `related` и shard-ов нет. В cache кладётся только зелёный результат, по отпечатку содержимого |
+| Playwright | `workers: 1`, `fullyParallel: false` (`playwright.config.ts`); 87 из 88 e2e-файлов запускают Electron (`launchApp` → `_electron.launch`, `test/e2e/helpers.ts:146`), кроме `linked-autopilot.spec.ts` |
+| CI на PR | нет (ADR-0068) |
+| `ci.yml`, job `check` на `main` | медиана 14,4 min, максимум 18,3 min по 37 зелёным CI run-ам; шаг unit + contract — около 16 из 18 min на стандартном runner-е `ubuntu-latest` (для приватного репозитория — 2 vCPU; по логу CI не подтверждено) |
+| gate fast / full на Mac | настоящее время run-а неизвестно: gate не печатает длительность шагов, времени по файлам нет |
+| Тяжёлые test-ы | 87 unit- и contract-файлов запускают настоящие процессы; в `test/` около 500 вызовов `setTimeout` / `sleep` / `waitForTimeout` (482–528 в зависимости от способа подсчёта); комментарий в `vitest.config.ts`: contract test один идёт около 1 s, в полном наборе на нагруженном Mac — 4–5 s |
+| Flaky test-ы под нагрузкой | `worfy-polish` 30 (contract test-ы краснят gate full чужих PR), 32 (`wave-gate.test.sh` дольше предела), 34 (flaky test-ы gate full 2026-10-19) |
+
+Что из этого следует: набор test-ов растёт быстрее, чем ускоряется его run, а каждый PR с кодом
+перед мержем гоняет весь набор. Сколько времени это стоит на Mac, никто не знает — поэтому первым идёт
+замер (Q7).
+
+### Решения
+
+- **Q1 — метрика.** Время на часах от «код готов, проверки зелёные» до merge, по каждому Ticket-у.
+- **Q2 — бюджет.** Ticket без UI вливается не позже 15 min после зелёных проверок, Ticket с UI — не
+  позже 30 min.
+- **Q3 — что нужно для merge.** PR вливается после CI на Linux и test-ов, которые задевает его diff.
+  gate full на каждый PR не нужен; исключение — платформенный PR и PR с меткой `needs-mac-gate`
+  (ADR-0065, пункт 5). Полный набор идёт на `main` batch-ем. Красный `main` — автоматический поиск
+  виноватого commit-а делением пополам (bisect) и revert.
+- **Q4 — CI на PR возвращается, только Linux.** unit + contract — в 3–4 параллельных shard-ах на
+  `ubuntu-latest`. Job-ов на macOS по-прежнему нет. Это заменяет часть ADR-0068 «CI на PR нет» и прежнее
+  правило владельца «без матриц в CI».
+- **Q5 — e2e и собранное приложение.** Перед merge — только когда diff трогает renderer, main process,
+  упаковку или watcher-ы (список путей — в Profile-е Project-а). Иначе — ночной run на `main`.
+- **Q6 — аудит test-ов.** Убирать или сливать дублирующие test-ы — только с доказательством, что код
+  остаётся покрыт (coverage или mutation testing), и только после того, как влиты Q3–Q5. Правило для
+  новых Ticket-ов: test — в одном слое; второй слой требует причины в описании PR.
+- **Q7 — первым.** Замер до любой смены процесса.
+
+### Ticket-ы
+
+| Ticket | Что | Решение | Blocked by |
+| --- | --- | --- | --- |
+| [10](issues/10-время-шагов-gate-и-test-файлов.md) | gate печатает и пишет время шагов; vitest и Playwright пишут JSON с временем по файлам; скрипт печатает N самых медленных файлов | Q7 | — |
+| [11](issues/11-pr-вливается-по-задетым-test-ам-полный-набор-на-main.md) | Выбор test-ов по diff для PR; полный набор на `main` batch-ем; bisect и revert на красном `main` | Q3 | 10, 12 |
+| [12](issues/12-ci-на-linux-на-каждый-pr-shard-ами.md) | CI на Linux на каждый PR, unit + contract в 3–4 shard-ах | Q4 | 10 |
+| [13](issues/13-e2e-и-package-до-мержа-только-по-путям-diff.md) | e2e и `test:package` до merge — только по списку путей; ночной run всего набора на `main` | Q5 | 10, 11 |
+| [14](issues/14-бюджет-времени-от-зелёных-проверок-до-мержа.md) | Время от зелёных проверок до merge по Ticket-у и отчёт о превышении бюджета | Q1, Q2 | 10 |
+| [15](issues/15-аудит-test-ов-и-правило-одного-слоя.md) | Аудит дублирующих test-ов и правило одного слоя | Q6 | 11, 12, 13 |
+
+### Порядок
+
+1. **10 — первым** (Q7). implementer работает над ним с 2026-10-20; claim не сделан, потому что файла
+   Ticket-а не было на `main` до этого docs PR. Без его чисел нельзя выбрать число shard-ов (12), проверить
+   выигрыш выбора test-ов (11) и поставить базу бюджета (14).
+2. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
+3. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
+   когда у него есть CI на Linux, а 11 и 12 правят одни тексты Harness (`harness/skills/epic-wave/SKILL.md`,
+   `harness/skills/ship-ticket/SKILL.md`) и `harness/bin/wave-gate`.
+4. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
+5. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
+
+### Волны Ticket-ов 10–15
+
+План по правилу раздела «Волны» выше: общий файл в «Где в коде» — Ticket с большим номером уходит в
+следующую Wave. Основную таблицу «Волны» этот раздел не меняет; Wave этих Ticket-ов берётся командой
+`/worfy:epic-wave tickets NN, NN of epic worfy-throughput`.
+
+| Тикет | Файлы из «Где в коде» | Волна |
+| --- | --- | --- |
+| 10 | `harness/hooks/gate.mjs`, `harness/hooks/gate-log.mjs`, `harness/hooks/tests/gate-log.test.sh`, `vitest.config.ts`, `scripts/vitest-electron.mjs`, `playwright.config.ts`, новый скрипт в `scripts/` | 1 |
+| 12 | `.github/workflows/ci.yml`, `test/contract/ci-workflow.test.ts`, `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json`, `docs/adr/0081-…` | 2 |
+| 14 | `scripts/critical-path.mjs`, `test/unit/critical-path.test.ts` | 2 |
+| 11 | `harness/hooks/gate.mjs`, `harness/bin/wave-gate`, `harness/bin/tests/wave-gate.test.sh`, `harness/skills/epic-wave/SKILL.md`, `harness/skills/ship-ticket/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `vitest.config.ts`, `scripts/vitest-electron.mjs`, новый скрипт выбора test-ов в `scripts/` | 3 |
+| 13 | `harness/bin/profile`, `harness/bin/tests/profile.test.sh`, `harness/bin/wave-gate`, `harness/skills/epic-wave/SKILL.md`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `harness/profiles/README.md`, `harness/profiles/draft.schema.json` | 4 |
+| 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
+
+### Не решено — вопросы к инструментам
+
+Владелец решил «что», а не «чем». Эти вопросы лежат в разделе «Открытые вопросы» своих Ticket-ов, и
+исполнитель не решает их сам — сначала числа Ticket-а 10, затем вопрос владельцу:
+
+- как считать задетые test-ы — `vitest related`, `vitest --changed` или свой граф import-ов плюс
+  таблица для test-ов, которые запускают скрипты процессом (Ticket 11);
+- как искать виноватый commit на красном `main` и кто делает revert (Ticket 11);
+- что делать с красным Windows run-ом на `main`: ADR-0071, пункт 6, опирался на исправление вперёд
+  ADR-0068, пункт 3, который заменён (Ticket 11);
+- 3 или 4 shard-а и как делить файлы между ними (Ticket 12);
+- flaky test: чинить сразу или убирать в карантин (Ticket 12);
+- кто и где запускает ночной e2e на `main` без job-а на macOS (Ticket 13);
+- что считать Ticket-ом «с UI» для бюджета Q2 (Ticket 14).
+
+### Риски
+
+- **Красный `main` чаще.** Без полного набора на PR сбой в незадетом по графу test-е попадает в `main` и
+  находится batch-ем. Цена — bisect и revert (Q3). Ticket 11 меряет, сколько таких сбоев.
+- **Граф import-ов не видит процессы.** 87 файлов test-ов запускают настоящие процессы (скрипты Harness,
+  `bash`, `git`); правка `harness/bin/*` не задевает их по import-ам. Ticket 11 без таблицы таких связей
+  пропускал бы именно contract test-ы.
+- **Минуты Actions.** 3–4 shard-а на каждый push в PR — больше минут, чем один batch CI run на Wave.
+  2026-10-17 бюджет Actions уже кончался (ADR-0068). Ticket 12 считает минуты на PR до и после.
+- **Платформенные PR.** 10–13 меняют скрипты Harness — по ADR-0056, пункт 2, это платформенные PR:
+  перед merge нужен вердикт Windows (ADR-0071: полный `pnpm test` на Windows-runner-е GitHub).
