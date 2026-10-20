@@ -15,7 +15,10 @@ HOOKS="${HOOKS_DIR:-$HARNESS/hooks}"
 GUARD="$HOOKS/guard.mjs"
 REAL_HOME="$HOME"
 . "$HARNESS/bin/tests/real-home.sh"
-T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
+. "$HARNESS/bin/tests/gh-stand-in.sh" # node_path
+# node_path: C:/… in Git Bash on Windows, the spelling git prints and node reads; the registry's "match" must be
+# in that spelling, or the guard does not find the project (/tmp/… is C:\tmp\… to node). Elsewhere: pwd -P.
+T="$(mktemp -d)"; T="$(cd "$T" && node_path "$(pwd -P)")"
 trap 'rm -rf "$T"' EXIT
 before="$(real_home_snapshot "$REAL_HOME" "$T")"
 pass=0 fail=0

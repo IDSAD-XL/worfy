@@ -15,6 +15,10 @@ MR="${MAX_REVIEW_FILE:-$HARNESS/skills/max-review/SKILL.md}"
 EW="${EPIC_WAVE_FILE:-$HARNESS/skills/epic-wave/SKILL.md}"
 T="$(mktemp -d)"; T="$(cd "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
+# The resume blocks commit in a temporary repository: with an empty HOME git has no identity and refuses the
+# commit ("unable to auto-detect email address"), and the branch e/07 is never made.
+export GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-t}" GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-t@t}"
+export GIT_COMMITTER_NAME="${GIT_COMMITTER_NAME:-t}" GIT_COMMITTER_EMAIL="${GIT_COMMITTER_EMAIL:-t@t}"
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
@@ -158,6 +162,8 @@ git -C "$G" init -q -b main && git -C "$G" commit -q --allow-empty -m base \
     && git -C "$G" commit -q --allow-empty -m 'gate: MAX-REVIEW: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m 'gate: VERIFIED' \
     && git -C "$G" commit -q --allow-empty -m "gate: $v_rej"
+built=$?
+check "resume block (Full): the test repository with the branch e/07 is built" test "$built" -eq 0
 run="${blk//<repo>/$G}"; run="${run//<base>/main}"; run="${run//<branch>/e/07}"
 out="$(bash -c "$run" 2>&1)"
 check "resume block (Full): the gate's last verdict is gate: VERIFIED (got: $(printf '%s' "$out" | head -n 1))" \
