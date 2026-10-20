@@ -1,8 +1,8 @@
 # 77 — `qmd-collections.test.sh` красный на Windows: что чинится здесь, что ждёт Ticket 15
 
 Type: bug
-Status: open
-Branch: —
+Status: claimed 2026-10-20T11:53Z
+Branch: worfy-windows/77
 Blocked by: —
 Source: решение Mac 2026-10-20 (сессия «Worfy продолжение»): красный на main в каждом full-прогоне
 `harness-scripts.test.ts` на Windows прячет настоящие красные; отдельный маленький Ticket, не Ticket
