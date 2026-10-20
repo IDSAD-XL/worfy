@@ -142,7 +142,7 @@ registry_names() {
             return sprintf("%c%c%c%c", 240 + int(cp / 262144), 128 + int(cp / 4096) % 64, 128 + int(cp / 64) % 64, 128 + cp % 64)
         }
         # a string at p (on its quote); strok is 0 when it can equal no argument
-        function str(   out, c, e, cp, lo, back) {
+        function str(   out, c, e, cp, lo) {
             p++
             out = ""
             strok = 1
@@ -166,13 +166,13 @@ registry_names() {
                 else if (e == "u") {
                     cp = hex4()
                     if (cp < 0) { err(); return "" }
+                    # a high surrogate and the \u escape after it: a pair, or else cp stays a lone
+                    # surrogate and the key equals no argument, whatever that escape is
                     if (cp >= 55296 && cp < 56320 && substr(s, p, 2) == "\\u") {
-                        back = p
                         p += 2
                         lo = hex4()
                         if (lo < 0) { err(); return "" }
                         if (lo >= 56320 && lo < 57344) cp = 65536 + (cp - 55296) * 1024 + (lo - 56320)
-                        else p = back
                     }
                     if (cp == 0 || (cp >= 55296 && cp < 57344)) strok = 0
                     else out = out utf8(cp)
@@ -215,9 +215,9 @@ registry_names() {
                 ws()
                 if (bad || substr(s, p, 1) != ":") { err(); return 0 }
                 p++
-                if (ctx == "top" && k == "repos") { h = value("repos"); repos_list = (vtype == "array"); repos_has = h }
-                else if (ctx == "entry" && k == "root") r_has = value("table")
-                else if (ctx == "entry" && k == "workspace") w_has = value("table")
+                if (ctx == "top" && kok && k == "repos") { h = value("repos"); repos_list = (vtype == "array"); repos_has = h }
+                else if (ctx == "entry" && kok && k == "root") r_has = value("table")
+                else if (ctx == "entry" && kok && k == "workspace") w_has = value("table")
                 else value("")
                 if (bad) return 0
                 if (ctx == "table" && kok && k == NAME) has = 1
@@ -275,10 +275,17 @@ if [ "$PROFILE" != fast ] && [ "$PROFILE" != full ]; then
         [ ! -e "$config" ] && [ -e "$home/.claude/gate/config.json" ] && config="$home/.claude/gate/config.json"
     fi
     if [ -f "$config" ] && [ -r "$config" ]; then
-        registry_names "$PROFILE" 2>/dev/null <"$config"
-        if [ $? -eq 10 ]; then
-            printf '[gate] unknown profile: %s\n%s\n' "$PROFILE" "$usage" >&2
-            exit 2
+        # A NUL byte makes the file no JSON for JSON.parse, and awks read it differently (one cuts
+        # the line, another keeps the byte): such a file says nothing against the name. Without tr
+        # the sizes differ and the name stands; without wc both are empty and awk decides.
+        size="$(wc -c 2>/dev/null <"$config")"
+        size_no_nul="$(tr -d '\000' 2>/dev/null <"$config" | wc -c 2>/dev/null)"
+        if [ "$((size + 0))" -eq "$((size_no_nul + 0))" ]; then
+            registry_names "$PROFILE" 2>/dev/null <"$config"
+            if [ $? -eq 10 ]; then
+                printf '[gate] unknown profile: %s\n%s\n' "$PROFILE" "$usage" >&2
+                exit 2
+            fi
         fi
     fi
 fi

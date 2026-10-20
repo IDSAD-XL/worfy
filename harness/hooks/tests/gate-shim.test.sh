@@ -136,7 +136,7 @@ NONODE="" why=""
 if [ "$WIN" -eq 1 ]; then NONODE="/usr/bin:/mingw64/bin"
 else
     mkdir -p "$T/bin"
-    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort awk; do
+    for t in bash env git sha1sum shasum mkdir mktemp date mv rm cat dirname realpath sort awk tr wc; do
         p="$(command -v "$t" 2>/dev/null)" && [ "${p#/}" != "$p" ] && ln -sf "$p" "$T/bin/$t"
     done
     NONODE="$T/bin"
@@ -354,7 +354,7 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     n_args=0
     # args_run <registry file or ""> <arguments…> [-- VAR=value…]: sets A (the folder of the case),
     # rc_js and rc_sh; the outputs are in $A/{js,sh}.{out,err}, the state folders $A/state-{js,sh}.
-    # With ONLY_SH=1 gate.mjs is not run (rc_js is empty).
+    # With ONLY_SH=1 gate.mjs is not run (rc_js is empty). RUN_IN is the folder both run in ($R by default).
     args_run() {
         local cfg="$1" prof=() envs=()
         shift
@@ -367,10 +367,10 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
         rc_js=""
         : >"$A/js.out"; : >"$A/js.err"
         if [ "${ONLY_SH:-0}" -ne 1 ]; then
-            (cd "$R" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-js" GATE_SCOPE=all \
+            (cd "${RUN_IN:-$R}" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-js" GATE_SCOPE=all \
                 ${envs[@]+"${envs[@]}"} node "$GATE" ${prof[@]+"${prof[@]}"} </dev/null >"$A/js.out" 2>"$A/js.err"); rc_js=$?
         fi
-        (cd "$R" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-sh" GATE_SCOPE=all \
+        (cd "${RUN_IN:-$R}" && env HOME="$A/home" USERPROFILE="$A/home" CLAUDE_GATE_CONFIG="$cfg" CLAUDE_GATE_STATE="$A/state-sh" GATE_SCOPE=all \
             ${envs[@]+"${envs[@]}"} PATH="$NONODE" "$BASH" "$LAUNCHER" ${prof[@]+"${prof[@]}"} </dev/null >"$A/sh.out" 2>"$A/sh.err"); rc_sh=$?
     }
     nocr() { tr -d '\r' <"$1"; }
@@ -396,6 +396,11 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     done
     args_run "$ARGS_CFG" nosuch extra
     exact "without node, unknown profile with a second argument: exit 2, as gate.mjs" 2 err "[gate] unknown profile: nosuch"
+    # Outside git the argument is checked too: the silent exit 0 there comes after it.
+    RUN_IN="$T/none" args_run "$ARGS_CFG" --help
+    exact "without node, outside git, --help: the usage, exit 0, as gate.mjs" 0 out "$USAGE_LINE"
+    RUN_IN="$T/none" args_run "$ARGS_CFG" nosuch
+    exact "without node, outside git, unknown profile: exit 2, as gate.mjs" 2 err "[gate] unknown profile: nosuch"
 
     # decides <description> <known | unknown> <registry file or ""> <profile> [-- VAR=value…]:
     # gate.mjs and the launcher without node take the same side. Unknown: both exit with 2 and the
@@ -455,6 +460,26 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     reg '{"repos":[{"root":{"a":[]},"root":{"b":[]}}]}'
     decides "two root keys in an entry: the first one" unknown "$REG" a
     decides "two root keys in an entry: the last one" known "$REG" b
+    reg '{"repos":[{"workspace":{"a":[]},"workspace":{"b":[]}}]}'
+    decides "two workspace keys in an entry: the first one" unknown "$REG" a
+    decides "two workspace keys in an entry: the last one" known "$REG" b
+    reg '{"repos":[{"root":{"x":1}}],"repos\\u0000":[]}'
+    decides "a key repos with \\u0000 after it is not repos" known "$REG" x
+    reg '{"repos":[{"root":{"x":1},"root\\ud800":{}}]}'
+    decides "a key root with a lone surrogate after it is not root" known "$REG" x
+    reg '{"repos":[{"root":{"a\\ud800":[],"b\\u0000":[],"\\ud83dA":[],"\\ud83d\\u0043":[]}}]}'
+    decides "a key with a lone surrogate equals no argument" unknown "$REG" a
+    decides "a key with a lone surrogate is not its bytes in UTF-8 either" unknown "$REG" $'a\xed\xa0\x80'
+    decides "a key with \\u0000 equals no argument" unknown "$REG" b
+    decides "a high surrogate before a letter equals no argument" unknown "$REG" A
+    decides "a high surrogate before a \\u escape that is not low equals no argument" unknown "$REG" C
+    reg '{"repos":[{"root":{"\\u20ac":[],"\\u00e9":[]}}]}'
+    decides "a key in a three-byte \\u escape" known "$REG" $'\xe2\x82\xac'
+    decides "a key in a two-byte \\u escape" known "$REG" $'\xc3\xa9'
+    reg '{"repos":["a\000b"]}'
+    decides "a NUL byte inside a string" known "$REG" nosuch
+    reg '{"repos":[]}\000junk'
+    decides "a NUL byte after the registry" known "$REG" nosuch
     reg '{"repos":[{"root":{"b":[]}}],"repos":[]}'
     decides "two repos keys: the last one wins" unknown "$REG" b
     reg '{"repos":[{"root":["a"]}]}'
