@@ -144,6 +144,12 @@ out="$("$SC" -C "$R" "checkout-flow/05" 2>&1)"
     || bad "silent-check epic/NN: $out"
 out="$("$SC" -C "$R" "Fix the withdraw button state after a failed request" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && ok "silent-check passes clean text" || bad "silent-check clean text: exit $rc, out: ${out:0:200}"
+# The word "ticket" of another language comes from lib/input-words.json, with any ending of the word.
+# On stdin, not as an argument: Git Bash on Windows may pass a non-ASCII argument to node in another code page.
+for t in "Тикет 05 готов" "по тикету-05" "Тикета #5"; do
+    out="$(printf '%s\n' "$t" | "$SC" -C "$R" 2>&1)"; rc=$?
+    [ "$rc" -eq 1 ] && [[ "$out" == *"ticket number"* ]] && ok "silent-check finds the ticket number in \"$t\"" || bad "silent-check \"$t\": exit $rc, out: ${out:0:200}"
+done
 out="$(printf 'Fix it\n\nTicket 7\n' | "$SC" -C "$R" 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"stdin:3: ticket number"* ]] && ok "silent-check reads stdin and names the line" || bad "silent-check stdin: exit $rc, out: $out"
 echo "export const route = '/checkout-flow'" >"$R/y.ts"; git -C "$R" add y.ts
@@ -230,7 +236,7 @@ out="$("$BIN/profile" -C "$WT" --name 2>&1)"; rc=$?
 got="$("$BIN/profile" -C "$WT" --field _resolved.in_worktree 2>&1)"
 [ "$got" = true ] && ok "the outside tree is a worktree of the repository" || bad "in_worktree: $got"
 out="$(cd "$WT" && GATE_SCOPE=all node "$HOOKS/gate.mjs" fast </dev/null 2>&1)"; rc=$?
-[ "$rc" -eq 0 ] && [[ "$out" == *"[gate] зелено"* ]] && ls "$HARNESS_HOME/gate/state"/verdict-*.json >/dev/null 2>&1 \
+[ "$rc" -eq 0 ] && [[ "$out" == *"[gate] green"* ]] && ls "$HARNESS_HOME/gate/state"/verdict-*.json >/dev/null 2>&1 \
     && ok "gate.mjs fast in the outside tree finds the registry entry, green, state in HARNESS_HOME" || bad "gate outside tree: exit $rc, out: ${out:0:300}"
 printf '{"session_id":"s-22","cwd":"%s"}' "$WT" | "$BIN/worktree-lock" claim >/dev/null 2>&1
 grep -lq "s-22" "$HARNESS_HOME"/worktree-sessions/*.json 2>/dev/null \

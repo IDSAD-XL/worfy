@@ -40,7 +40,7 @@ payload='{"session_id":"test-session"}'
 #    (the gate shortens a path under the home folder to ~, so the expectation does the same).
 out="$(cd "$T/unreg" && printf '%s' "$payload" | node "$GATE" fast 2>&1)"; rc=$?
 tilde='~'
-line="[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: проект не зарегистрирован в ${CLAUDE_GATE_CONFIG/#$HOME/$tilde}"
+line="[gate] not verified: the project is not registered in ${CLAUDE_GATE_CONFIG/#$HOME/$tilde}"
 if [ "$rc" -eq 3 ] && printf '%s\n' "$out" | grep -qxF "$line"; then ok "gate unregistered -> exit 3 + message"
 else bad "gate unregistered: exit $rc, out: ${out:0:300}"; fi
 [ -s "$T/state/nokey-unregistered-$(tag "$T/unreg")-test-session" ] && ok "gate unregistered -> marker written" || bad "gate unregistered: no marker"

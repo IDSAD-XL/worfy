@@ -35,6 +35,8 @@ const path = require("node:path")
 const { execFileSync } = require("node:child_process")
 // The git to start: EVAL_GIT of an eval run, else git from PATH.
 const { git: GIT } = require("../hooks/eval-env.cjs")
+// The word "ticket" in the languages of projects, other than English (data, not protocol).
+const INPUT = require("../lib/input-words.json")
 
 const BIN = path.dirname(fs.realpathSync(__filename))
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
@@ -153,7 +155,8 @@ if (silent) {
     for (const ep of epics) rules.push(["epic/NN", new RegExp(`${B}${esc(ep)}/\\d+${E}`, "giu"), true])
     for (const ep of epics) rules.push(["epic name", new RegExp(`${B}${esc(ep)}${E}`, "giu"), false])
     rules.push(["ADR number", /(?<![\p{L}\p{N}_])ADR[-_ ]?\d{4}(?!\d)/giu, true])
-    rules.push(["ticket number", /(?<![\p{L}\p{N}_])(?:Tickets?|Тикет\p{L}*)[- ]#?\d+/giu, true])
+    const ticketWords = ["Tickets?", ...INPUT.ticketWord.map((w) => `${esc(w)}\\p{L}*`)].join("|")
+    rules.push(["ticket number", new RegExp(`(?<![\\p{L}\\p{N}_])(?:${ticketWords})[- ]#?\\d+`, "giu"), true])
     const wf = R.workflow_folder
     if (typeof wf === "string" && wf) {
         const forms = new Set([wf.replace(/\/+$/, "")])

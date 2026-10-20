@@ -51,6 +51,7 @@ import os from "node:os"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
+import { createRequire } from "node:module"
 // The git to start and the Harness state folder, with the variables of an eval run (EVAL_GIT, EVAL_HARNESS_HOME).
 import { git as GIT, harnessHome } from "../hooks/eval-env.cjs"
 
@@ -338,10 +339,14 @@ function writeGroup(lines, values) {
 
 // The words epic-status folded the old Status value into, by the same rule: asterisks out, the first
 // token, punctuation out. An unknown word is a refusal — the old reader called it open, a guess.
+// The words of other languages are data (lib/input-words.json), next to the English ones here.
+const INPUT = createRequire(import.meta.url)("../lib/input-words.json")
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const oneOf = (words) => new RegExp(`^(${words.map(escRe).join("|")})$`)
 const WORDS = [
-    [/^(done|Done|DONE|resolved|Resolved|closed|Closed|выкачено|Выкачено|выкачена|Выкачена|выкачен|Выкачен)$/, "done"],
+    [oneOf(["done", "Done", "DONE", "resolved", "Resolved", "closed", "Closed", ...INPUT.statusDone]), "done"],
     [/^(claimed|Claimed|in-progress|In-progress|ready-for-agent)$/, "claimed"],
-    [/^(blocked|Blocked|заблокирован|Заблокирован)$/, "blocked"],
+    [oneOf(["blocked", "Blocked", ...INPUT.statusBlocked]), "blocked"],
     [/^(open|Open|OPEN)$/, "open"],
 ]
 function oldValue(line) {

@@ -59,28 +59,33 @@ if [ -f "$GATE_DIR/kill$n" ]; then
   sleep 1; exit 0
 fi
 [ -f "$GATE_DIR/sleep" ] && sleep "$(cat "$GATE_DIR/sleep")"
+# The verdict words: English, as the gate prints them; $GATE_DIR/old — the Russian words of the gate of the
+# release before, which wave-gate still reads.
+# shortcut: accepts the old Russian token, remove after the next release
+if [ -f "$GATE_DIR/old" ]; then green="[gate] зелено"; red="[gate] красно"; passed="прошло"; none="[gate] ничего не прогналось"; unv="[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ"
+else green="[gate] green"; red="[gate] red"; passed="passed"; none="[gate] nothing ran"; unv="[gate] not verified"; fi
 [ -f "$GATE_DIR/lockwatch" ] && echo "end $(mt "$GATE_LOCK")" >>"$GATE_DIR/lockwatch"
 # $GATE_DIR/lockscreen — the run locks the screen: its contents go to $SCREEN_DIR/locked; $GATE_DIR/lockfor — the run
 # locks the screen for that many seconds and unlocks it before it ends; $GATE_DIR/window — the run is red in the
 # script named in the file (test:e2e when empty) and prints what the real gate prints for it: the
-# "[gate] красно (full): <project>/<workspace>:<script> (прошло: …)" line and the last 40 lines of the script —
+# "[gate] red (full): <project>/<workspace>:<script> (passed: …)" line and the last 40 lines of the script —
 # Playwright's list of failed tests, without the "window was not shown" message that scrolled out of them.
 # They are used once, unless $GATE_DIR/keep exists. $GATE_DIR/unitonce — red once in `test` alone.
 if [ -f "$GATE_DIR/lockfor" ]; then : >"$SCREEN_DIR/locked"; sleep "$(cat "$GATE_DIR/lockfor")"; rm -f "$SCREEN_DIR/locked" "$GATE_DIR/lockfor"; fi
 if [ -f "$GATE_DIR/lockscreen" ]; then cp "$GATE_DIR/lockscreen" "$SCREEN_DIR/locked"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/lockscreen"; fi
 if [ -f "$GATE_DIR/window" ]; then script="$(cat "$GATE_DIR/window")"; script="${script:-test:e2e}"; [ -f "$GATE_DIR/keep" ] || rm -f "$GATE_DIR/window"
-  { echo "[gate] красно (full): worfy/.:$script (прошло: worfy/.:lint worfy/.:typecheck worfy/.:test)"
+  { echo "$red (full): worfy/.:$script ($passed: worfy/.:lint worfy/.:typecheck worfy/.:test)"
     echo "The quality gate did not pass (profile: full, repository: worfy)."; echo "--- FAILED: worfy/.:$script"
     for i in $(seq 1 36); do echo "  ✘  $i [electron] › test/e2e/spec$i.spec.ts:12:3 › case $i (30.2s)"; done
     echo "  36 failed"; echo "  4 passed (19.8m)"; echo " ELIFECYCLE  Command failed with exit code 1."; } >&2; exit 2; fi
 if [ -f "$GATE_DIR/unitonce" ]; then rm -f "$GATE_DIR/unitonce"
-  echo "[gate] красно (full): worfy/.:test (прошло: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
-if [ -f "$GATE_DIR/code3" ]; then echo "[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: stub" >&2; exit 3; fi
-if [ -f "$GATE_DIR/none" ]; then echo "[gate] ничего не прогналось (full): stub. Это не «зелено»."; exit 0; fi
+  echo "$red (full): worfy/.:test ($passed: worfy/.:lint worfy/.:test:e2e)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+if [ -f "$GATE_DIR/code3" ]; then echo "$unv: stub" >&2; exit 3; fi
+if [ -f "$GATE_DIR/none" ]; then echo "$none (full): stub. This is not green."; exit 0; fi
 if [ -f "$GATE_DIR/redonce" ]; then rm -f "$GATE_DIR/redonce"
-  echo "[gate] красно (full): test:e2e (прошло: lint test)" >&2; echo " FAIL  test/e2e/flaky.spec.ts > opens the window" >&2; exit 2; fi
-if [ -f RED ]; then echo "[gate] красно (full): test (прошло: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
-echo "[gate] зелено (full): lint test test:e2e"
+  echo "$red (full): test:e2e ($passed: lint test)" >&2; echo " FAIL  test/e2e/flaky.spec.ts > opens the window" >&2; exit 2; fi
+if [ -f RED ]; then echo "$red (full): test ($passed: lint)" >&2; echo " FAIL  test/unit/red.test.ts > is red" >&2; exit 2; fi
+echo "$green (full): lint test test:e2e"
 EOF
 # The stub gh: `pr merge <N> --squash --match-head-commit <sha>` squash-merges refs/pull/<N>/head into main of
 # $GH_ORIGIN and pushes; with GH_EXTRA_AT=<N> that merge also adds a file (another tree than the checked one).
@@ -323,7 +328,7 @@ new_world flaky 1:a.txt 2:b.txt
 S="$W/state.json"; state "$S" null 1 2; touch "$GATE_DIR/redonce"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [ "$(gate_count)" = 2 ] && ok "flaky: status green after a green repeat (2 runs)" || bad "flaky: exit $rc status $(q "$S" s.status) runs $(gate_count)"
-[[ "$(q "$S" s.flaky)" == *"test/e2e/flaky.spec.ts > opens the window"* && "$(q "$S" s.flaky)" == *"test:e2e"* ]] && ok "flaky: the failing tests of the first run are recorded" || bad "flaky: $(q "$S" s.flaky 2>&1)"
+[[ "$(q "$S" s.flaky)" == *"test/e2e/flaky.spec.ts > opens the window"* && "$(q "$S" s.flaky)" == *"test:e2e"* && "$(q "$S" s.flaky)" != *"lint"* ]] && ok "flaky: the failing tests and scripts of the first run are recorded, not the passed ones" || bad "flaky: $(q "$S" s.flaky 2>&1)"
 
 # --- could not verify: code 3 and "nothing ran" ------------------------------------------
 for mode in code3 none; do
@@ -339,6 +344,22 @@ done
 rm -f "$GATE_DIR/none"
 "$WG" check "$S" >/dev/null 2>&1; rc=$?
 [ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "unverified: check again, now green" || bad "unverified: second check exit $rc status $(q "$S" s.status)"
+
+# --- the Russian verdict lines of the gate of the release before --------------------------------
+# shortcut: accepts the old Russian token, remove after the next release
+new_world oldgreen 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && ok "old gate: the Russian green line is green" || bad "old gate green: exit $rc status $(q "$S" s.status 2>&1): $(cat "$W/out")"
+new_world oldflaky 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old" "$GATE_DIR/redonce"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 0 ] && [ "$(q "$S" s.status)" = green ] && [[ "$(q "$S" s.flaky)" == *"test:e2e"* && "$(q "$S" s.flaky)" != *"lint"* ]] \
+    && ok "old gate: the failed scripts are read from the Russian red line, without the passed ones" || bad "old gate red: exit $rc flaky $(q "$S" s.flaky 2>&1)"
+new_world oldnone 1:a.txt
+S="$W/state.json"; state "$S" null 1; touch "$GATE_DIR/old" "$GATE_DIR/none"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" -eq 3 ] && [ "$(q "$S" s.status)" = unverified ] && ok "old gate: the Russian «nothing ran» line is not green" || bad "old gate none: exit $rc status $(q "$S" s.status 2>&1)"
 
 # --- resume: a run broken off after the first gate full ----------------------------------
 new_world resume 1:a.txt 2:b.txt 3:RED 4:d.txt 5:e.txt

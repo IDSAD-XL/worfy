@@ -27,9 +27,9 @@ export const branchNameSchema = z
 export const ticketBranchSchema = branchNameSchema.refine((branch) => parseTicketBranch(branch) !== null, 'not a Ticket branch')
 
 /**
- * The gate's verdict on one worktree. `green`, `red` and `unverified` («проверить не удалось») are
- * the gate's own words; `none` is «нет данных»: no marker and no gate line in a transcript, or the
- * last line said «ничего не прогналось», which is not green.
+ * The gate's verdict on one worktree. `green`, `red` and `unverified` ("not verified") are the
+ * gate's own words; `none` is "no data": no marker and no gate line in a transcript, or the last
+ * line said "nothing ran", which is not green.
  */
 export const gateOutcomeSchema = z.enum(['green', 'red', 'unverified', 'none'])
 export type GateOutcome = z.infer<typeof gateOutcomeSchema>

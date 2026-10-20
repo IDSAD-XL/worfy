@@ -12,8 +12,8 @@
 //   0. the workflow mode: in Silent mode (mode "silent") where the workflow files live (the Workflow folder)
 //      and that branches, commits and PRs carry no trace of the workflow; with `attribution: off` that commits
 //      and PRs carry no Claude attribution lines. A Full project with attribution on gets nothing here;
-//   1. the profile's rules.md without the section «## Sources» / «## Источники» (it is for the maintainer,
-//      not for the agent), under the heading session.rules_heading;
+//   1. the profile's rules.md without the section «## Sources» or its Russian name of the release
+//      before (it is for the maintainer, not for the agent), under the heading session.rules_heading;
 //   2. the lessons index <profile>/lessons/lessons-index.md, if the lessons live in the profile
 //      (`lessons: "profile"`);
 //   3. the active epic's map: <profile>/state/active-epic -> <profile>/epics/<epic>/map.md;
@@ -180,6 +180,8 @@ function main() {
         let skip = false
         const kept = []
         for (const line of fs.readFileSync(rulesFile, "utf8").split("\n")) {
+            // shortcut: accepts the old Russian token, remove after the next release
+            // Profiles written before the heading was English name the section in Russian.
             if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
             if (!skip) kept.push(line)
         }

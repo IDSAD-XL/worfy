@@ -92,7 +92,7 @@ if ! on_windows; then
     printf '#!/usr/bin/env bash\necho "\\"IOConsoleLocked\\" = No"\n' >"$STUBS/ioreg"
     printf '#!/usr/bin/env bash\nexit 0\n' >"$STUBS/caffeinate"; chmod +x "$STUBS/ioreg" "$STUBS/caffeinate"
 fi
-printf '%s\n' 'process.stdout.write("[gate] зелено (full): stub\n")' >"$L/gate.mjs"
+printf '%s\n' 'process.stdout.write("[gate] green (full): stub\n")' >"$L/gate.mjs"
 git -C "$T/repo" checkout -q -b pr7 && echo seven >"$T/repo/seven.txt" && git -C "$T/repo" add -A && git -C "$T/repo" commit -q -m "pr 7" \
     && git -C "$T/repo" push -q origin "HEAD:refs/pull/7/head" && git -C "$T/repo" checkout -q main
 HEAD7="$(git -C "$T/repo" rev-parse pr7)"

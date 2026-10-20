@@ -190,8 +190,11 @@ check "epic-wave: do not switch the global gh account" \
     has "$EW" "do not switch the global account without the owner's permission"
 check "epic-wave: gate exit code 0 without the green line is not a check" \
     bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1" && grep -qF "$4" "$1"' _ "$EW" \
-    'The gate is green only with `EXIT=0` **and** the line `[gate] зелено (fast): …` in the output:' \
-    'exit code 0 without it means «ничего не прогналось»' 'and that is not a check'
+    'The gate is green only with `EXIT=0` **and** the line `[gate] green (fast): …` in the output:' \
+    'exit code 0 without it means `[gate] nothing ran (…)`' 'and that is not a check'
+check "ship-ticket: gate exit code 0 is green only with the English green line" \
+    bash -c 'grep -qF "$2" "$1" && grep -qF "$3" "$1"' _ "$ST" \
+    'Gate exit codes: `0` — green, only if the output has the line `[gate] green (…)`' 'line `[gate] not verified: …` names the reason'
 check "ship-ticket: mutations only in your own worktree or on copies" \
     has "$ST" 'In both modes mutations only in your own worktree or on copies in your own scratchpad subdirectory'
 check "ship-ticket: do not run other agents' scripts (the mut.sh lesson)" \
@@ -478,14 +481,11 @@ for f in "$EW" "$ST"; do
     check "$n: no section name in the text (it comes from the profile)" lacks "$f" 'Mac checks'
 done
 
-# 8. Cyrillic only in allowed places: the old Autopilot forms, Gate verdict words, placeholders
-# of profile values, section names of Project documents and Russian examples.
+# 8. Cyrillic only in allowed places: the old Autopilot forms, placeholders of profile values,
+# section names of Project documents and Russian examples. The Gate verdict lines are English.
 ALLOWED=(
     # The old Autopilot forms and the Russian request, which the skill still accepts.
     'Ticket-ы NN, NN эпика X' 'волна N эпика X' 'прогони волну N эпика X'
-    # Gate verdict words, read by programs.
-    '[gate] зелено (fast): …' '[gate] зелено (…)' 'ничего не прогналось' 'окружение недоступно'
-    '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: …'
     # Placeholders in profile values (schema 1).
     '<эпик>' '<ветка>' '<имя-тикета>' '<что-ревьюишь>' '<файл>' '<база>'
     # Section names of worfy's Project documents and examples of what an agent writes there.

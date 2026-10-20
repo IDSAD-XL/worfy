@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests of the gate's code 3 ("could not verify") and its delivery through the Stop hook stop.mjs:
 #   - a broken or missing registry: the resolver exits non-zero, the gate with code 3
-#     «резолвер … завершился» (the resolver exited), not «не зарегистрирован» (not registered); stop.mjs still holds the turn
+#     «the registry resolver … exited», not «not registered»; stop.mjs still holds the turn
 #     on the red marker of a registered project;
 #   - the resolver crashed: code 3, not 0;
 #   - the stop.mjs message is said at most once per session per repository;
@@ -54,15 +54,15 @@ echo '{"repos": [ broken' >"$CLAUDE_GATE_CONFIG"
 
 out="$(cd "$T/reg" && sp s1 | node "$GATE" fast 2>&1)"; rc=$?
 check "gate: broken config -> exit 3" [ "$rc" -eq 3 ]
-check "gate: broken config -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер', not 'не зарегистрирован'" \
-    bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* && "$1" != *"не зарегистрирован"* ]]' _ "$out"
+check "gate: broken config -> 'not verified: the registry resolver', not 'not registered'" \
+    bash -c '[[ "$1" == *"[gate] not verified: the registry resolver"* && "$1" != *"not registered"* ]]' _ "$out"
 
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s1 | node "$STOP" 2>&1)"; rc=$?
 check "stop: broken config + red marker -> still blocks (exit 2)" [ "$rc" -eq 2 ]
 check "stop: broken config + red marker -> red message" bash -c '[[ "$1" == *"The quality gate is red"* ]]' _ "$out"
 check "stop: broken config + red marker -> block message names the gate-3 reason" \
-    bash -c '[[ "$1" == *"Also:"*"резолвер"* ]]' _ "$out"
+    bash -c '[[ "$1" == *"Also:"*"the registry resolver"* ]]' _ "$out"
 out="$(cd "$T/reg" && sp s1 | node "$STOP" 2>&1)"; rc=$?
 check "stop: gate-3 reason already said in this session -> not repeated" \
     bash -c '[ "$2" -eq 2 ] && [[ "$1" != *"Also:"* ]]' _ "$out" "$rc"
@@ -84,7 +84,7 @@ rm -f "$T/state/unverified-t-"*
 date -u +%Y-%m-%dT%H:%M:%SZ >"$RED"
 out="$(cd "$T/reg" && sp s1r | node "$STOP" 2>&1)"; rc=$?
 check "stop: red + gate-3 marker -> blocks and names the gate-3 reason" \
-    bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"The quality gate is red"* && "$1" == *"резолвер"* ]]' _ "$out" "$rc"
+    bash -c '[ "$2" -eq 2 ] && [[ "$1" == *"The quality gate is red"* && "$1" == *"the registry resolver"* ]]' _ "$out" "$rc"
 (cd "$T/reg" && sp s1r | node "$STOP" >/dev/null 2>&1)
 out="$(cd "$T/reg" && sp s1r | node "$STOP" 2>&1)"; rc=$?
 check "stop: red past MAX_BLOCKS -> exit 0 with 'still red'" \
@@ -124,13 +124,13 @@ if [ -n "$NONODE" ] && ! (PATH="$NONODE"; command -v git >/dev/null 2>&1); then 
 if [ -z "$NONODE" ]; then echo "skip node-missing checks of the gate: $why"; else
 out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" PATH="$NONODE" "$BASH" "$HOOKS/gate.sh" fast 2>&1)"; rc=$?
 check "gate: node missing -> exit 3 (not 0)" [ "$rc" -eq 3 ]
-check "gate: node missing -> 'ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден'" \
-    bash -c '[[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: node не найден"* ]]' _ "$out"
+check "gate: node missing -> 'not verified: node not found'" \
+    bash -c '[[ "$1" == *"[gate] not verified: node not found"* ]]' _ "$out"
 check "gate: node missing -> marker of this tree and session" [ -s "$T/state/nokey-broken-$(tag "$T/reg")-s10" ]
 # The Stop hook delivers that marker in the next turn, once node is there again.
 out="$(cd "$T/reg" && sp s10 | HOME="$T/home" USERPROFILE="$T/home" node "$STOP" 2>&1)"; rc=$?
 check "stop: gate's node-missing marker -> exit 0, says 'not verified'" \
-    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node не найден"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
+    bash -c '[ "$2" -eq 0 ] && [[ "$1" == *"node not found"* && "$1" == *"not verified"* ]]' _ "$out" "$rc"
 rm -f "$T/state/stop-blocks/"*
 fi
 # The Stop hook itself is a Node script now, run as `node …/stop.mjs`:
@@ -139,14 +139,14 @@ fi
 
 printf '#!/usr/bin/env node\nthrow new Error("boom")\n' >"$T/crash.mjs"
 out="$(cd "$T/reg" && sp s10b | CLAUDE_GATE_RESOLVE="$T/crash.mjs" node "$GATE" fast 2>&1)"; rc=$?
-check "gate: resolver crash -> exit 3 + 'ПРОВЕРИТЬ НЕ УДАЛОСЬ'" \
-    bash -c '[ "$2" -eq 3 ] && [[ "$1" == *"[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ: резолвер"* ]]' _ "$out" "$rc"
+check "gate: resolver crash -> exit 3 + 'not verified'" \
+    bash -c '[ "$2" -eq 3 ] && [[ "$1" == *"[gate] not verified: the registry resolver"* ]]' _ "$out" "$rc"
 
 # --- 3. At most one message per session per repository ---------------------------
 U="$T/unreg"; UM="$T/state/nokey-unregistered-$(tag "$U")"
 (cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp s3 | node "$STOP" 2>&1)"; rc=$?
-check "stop: first notice in session -> said" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
+check "stop: first notice in session -> said" bash -c '[[ "$1" == *"not registered"* ]]' _ "$out"
 (cd "$U" && sp s3 | node "$GATE" fast >/dev/null 2>&1)
 check "gate: second run writes marker again" [ -s "$UM-s3" ]
 out="$(cd "$U" && sp s3 | node "$STOP" 2>&1)"; rc=$?
@@ -159,13 +159,13 @@ out="$(cd "$U" && sp sB | node "$STOP" 2>&1)"; rc=$?
 check "stop in session B: marker of session A not delivered" bash -c '[ "$2" -eq 0 ] && [ -z "$1" ]' _ "$out" "$rc"
 check "marker of session A left for A" [ -s "$UM-sA" ]
 out="$(cd "$U" && sp sA | node "$STOP" 2>&1)"
-check "stop in session A: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
+check "stop in session A: gets its marker" bash -c '[[ "$1" == *"not registered"* ]]' _ "$out"
 
 (cd "$T/unreg-wt" && sp sW | node "$GATE" fast >/dev/null 2>&1)
 out="$(cd "$U" && sp sW | node "$STOP" 2>&1)"
 check "stop in main tree: marker of another worktree not delivered" bash -c '[ -z "$1" ]' _ "$out"
 out="$(cd "$T/unreg-wt" && sp sW | node "$STOP" 2>&1)"
-check "stop in that worktree: gets its marker" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
+check "stop in that worktree: gets its marker" bash -c '[[ "$1" == *"not registered"* ]]' _ "$out"
 
 # Without a session (run from a terminal): an anon marker, taken only by a session that started earlier.
 (cd "$U" && node "$GATE" fast </dev/null >/dev/null 2>&1)
@@ -177,7 +177,7 @@ out="$(cd "$U" && sp sNew "$T/new.jsonl" | node "$STOP" 2>&1)"
 check "stop: anon marker older than session start -> not delivered" bash -c '[ -z "$1" ] && [ -e "$2" ]' _ "$out" "$AM"
 touch "$AM"
 out="$(cd "$U" && sp sNew "$T/new.jsonl" | node "$STOP" 2>&1)"
-check "stop: anon marker newer than session start -> delivered" bash -c '[[ "$1" == *"не зарегистрирован"* ]]' _ "$out"
+check "stop: anon marker newer than session start -> delivered" bash -c '[[ "$1" == *"not registered"* ]]' _ "$out"
 # A birth time of 0 (the file system does not know it) is no session start: an anon marker is not
 # taken then. No file system here reports 0, so the rule is checked on the function stop.mjs uses.
 check "stop: birth time 0 -> no session start; a known birth time -> whole seconds; not a file -> none" node -e '

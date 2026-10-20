@@ -116,17 +116,20 @@ sed -n '1,/^---$/{1d;/^---$/d;p;}' "$AGENTS/implementer.md" | grep -q '^tools:' 
     || ok "implementer: no tools: line (all tools, as before)"
 
 # --- 7. Cyrillic only where other programs and files still expect it -------------------------
-# Gate verdict words (read by programs), Profile placeholders and the Profile heading
-# for the implementer's required reading (Profile contract), and the name a Profile
-# gives the lens "simplification".
+# Profile placeholders and the Profile heading for the implementer's required reading
+# (Profile contract), and the name a Profile gives the lens "simplification". The gate
+# verdict lines are English and quoted as the gate prints them.
 ALLOWED=(
-    '[gate] ПРОВЕРИТЬ НЕ УДАЛОСЬ' 'ПРОВЕРИТЬ НЕ УДАЛОСЬ — окружение недоступно' '[gate] зелено' 'ничего не прогналось'
     '<эпик>' '<ветка>' '<что-ревьюишь>' '## Обязательное чтение исполнителя'
     'упрощение'
 )
 for a in $ALL; do
     left="$(strip "$AGENTS/$a.md" "${ALLOWED[@]}" | perl -CSD -ne 'print "$.: $_" if /\p{Cyrillic}/')"
     [ -z "$left" ] && ok "$a: Cyrillic only in the allowed strings" || bad "$a: Cyrillic outside the allowed strings:"$'\n'"$left"
+done
+for p in '`0` is green only if the output has `[gate] green (…)`' '`[gate] not verified: …` names the reason' \
+    'with the line `[gate] nothing ran (…)` or `[gate] not verified — environment unavailable:`'; do
+    grep -qF -- "$p" "$AGENTS/implementer.md" && ok "implementer: quotes the gate line: $p" || bad "implementer: gate line missing: $p"
 done
 # Rules for writing in one language belong to the user's own rules file, not to the agents.
 # The check is lexical. It refuses the old "## Terms" section and any sentence where a verb of

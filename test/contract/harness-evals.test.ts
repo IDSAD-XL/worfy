@@ -389,7 +389,7 @@ describe('harness/evals: the fixture is a project the Harness recognises', () =>
       timeout: SCAFFOLD_TIMEOUT_MS,
     })
     expect(gate.status, `${gate.stdout}\n${gate.stderr}`).toBe(0)
-    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] зелено \(fast\)/)
+    expect(`${gate.stdout}${gate.stderr}`).toMatch(/\[gate\] green \(fast\)/)
   })
 
   // The same package manager reports failing tests: on the reviewer fixture, whose commit breaks
