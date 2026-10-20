@@ -211,6 +211,9 @@ const silentCheck = () => {
             )
         // bin/silent-check refuses a directory that does not exist yet (`mkdir x && cd x && git …`); the
         // repository the command works in is the one around its nearest existing parent.
+        // shortcut: a new repository the command itself creates inside a project repository (`git init x && cd x
+        // && git commit`) is checked from the parent, with the parent's index; redo when such nested repositories
+        // become a real case (the check would then need to run after `git init`, which a PreToolUse hook cannot).
         let dir = c.dir
         while (!fs.existsSync(dir) && path.dirname(dir) !== dir) dir = path.dirname(dir)
         const args = [SILENT_CHECK, "-C", dir, "--file", "-", ...c.diff]
@@ -222,7 +225,7 @@ const silentCheck = () => {
             if (left <= 0) break
             const t = Math.min(SILENT_TRY_MS, left)
             tries.push(t)
-            r = spawnSync(process.execPath, args, { input: c.texts.join("\n"), encoding: "utf8", timeout: t })
+            r = spawnSync(process.execPath, args, { input: c.texts.join("\n"), encoding: "utf8", timeout: t, maxBuffer: 1 << 26 })
             if (r.error?.code !== "ETIMEDOUT") break
         }
         const errText = (r?.stderr || "").trim().split("\n").slice(0, 5).join("\n")
@@ -238,7 +241,7 @@ const silentCheck = () => {
         if (r.error)
             deny(
                 notRun +
-                    `the check for workflow traces could not start (${r.error.message}), ` +
+                    `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. Run the same command again; ` +
                     `if it fails the same way, run the check by hand and fix what it reports: ${byHand}.`
             )

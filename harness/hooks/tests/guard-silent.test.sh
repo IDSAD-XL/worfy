@@ -28,17 +28,19 @@ export CLAUDE_GATE_RESOLVE="$HOOKS/gate-resolve.mjs"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$HARNESS_HOME/gate" "$HARNESS_HOME/projects/sp" "$HARNESS_HOME/projects/fp"
 
-R="$T/repo"; FR="$T/full"; WF="$T/wf"
+R="$T/repo"; FR="$T/full"; WF="$T/wf"; NR="$T/new-repo"
 for r in "$R" "$FR"; do
     git init -q -b main "$r" && echo 'export const a = 1' >"$r/a.ts" && git -C "$r" add -A && git -C "$r" commit -q -m init
 done
+git init -q -b main "$NR" && echo 'export const b = 2' >"$NR/b.ts"   # no commits yet
 mkdir -p "$WF/.scratch/checkout-flow/issues"
 printf '# 05 — x\n\nStatus: open\n' >"$WF/.scratch/checkout-flow/issues/05-x.md"
 git -C "$WF" init -q -b main && git -C "$WF" add -A && git -C "$WF" commit -q -m init
 cat >"$HARNESS_HOME/gate/config.json" <<EOF
 {"repos":[
  {"key":"sp","match":"$R","profile":"sp","pm":"npm","root":{},"workspace":{}},
- {"key":"fp","match":"$FR","profile":"fp","pm":"npm","root":{},"workspace":{}}
+ {"key":"fp","match":"$FR","profile":"fp","pm":"npm","root":{},"workspace":{}},
+ {"key":"sn","match":"$NR","profile":"sp","pm":"npm","root":{},"workspace":{}}
 ]}
 EOF
 printf '{"schema":2,"name":"sp","mode":"silent","attribution":"off","workflow":{"folder":"%s"},"tickets":{"root":".scratch/"}}\n' "$WF" \
@@ -145,16 +147,31 @@ cp "$T/sp-profile.json" "$SPP"; cp "$T/fp-profile.json" "$FPP"
 expect "outside any project: mkdir + cd + git init + git commit -> allow" allow "$T" \
     "mkdir -p $T/fresh/new && cd $T/fresh/new && git init -q && git commit -m init"
 expect "silent: a branch created from a new subdirectory of the repository is still checked -> deny" deny "$T" \
-    "mkdir -p $R/sub/new && cd $R/sub/new && git checkout -b checkout-flow/05" 'checkout-flow/05'
+    "mkdir -p $R/sub/new && cd $R/sub/new && git checkout -b checkout-flow/05" 'carries traces'
+
+# --- a repository of the Silent project with no commits yet --------------------------------------
+# `git add -A && git commit` asks for `--diff HEAD`, and there is no HEAD: the check compares with the empty
+# tree instead of failing, so the first commit is not refused for good.
+expect "silent, no commits yet: git add -A && git commit, nothing to find -> allow" allow "$NR" 'git add -A && git commit -m init'
+echo 'Follows ADR-0042' >"$NR/notes.md"; git -C "$NR" add notes.md
+expect "silent, no commits yet: git add -A && git commit with a staged trace -> deny with the trace" deny "$NR" \
+    'git add -A && git commit -m init' 'ADR-0042'
+got="$(guard "$NR" 'git add -A && git commit -m init')"
+[[ "$got" == *"carries traces"* ]] && ok "silent, no commits yet: the refusal is about traces, not a failed check" || bad "silent, no commits yet: ${got:0:300}"
+
+# --- the real check with a broken profile.json: the one failure that lets the command through ----------
+printf '{"schema":2,' >"$SPP"
+expect "silent, the real check, profile.json broken -> allow" allow "$R" 'git commit -m "Fix the button, Ticket 05"'
+cp "$T/sp-profile.json" "$SPP"
 
 # --- the check does not answer in time, fails or answers an unknown code ---------------------------
 # A stand-in for bin/silent-check (CLAUDE_SILENT_CHECK_BIN): each call appends a line to $STUB_LOG and takes
 # the next step of $STUB_PLAN (the last step repeats): `sleep` — hangs until the guard stops it; `traces` —
 # exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
-# the tickets root is not read; a number — that exit code, nothing printed.
-# One try lasts $TRY_MS here: long enough that a stand-in which answers at once (a node start, slower on a
-# loaded machine) never runs out of it, short enough to keep the file quick. The stand-in that hangs sleeps
-# far longer than any try, so a timeout never depends on how fast the machine is.
+# the tickets root is not read; `kill` — killed by a signal; a number — that exit code, nothing printed.
+# One try lasts $TRY_MS here. Where only timeouts happen, 3 s is enough: the stand-in that hangs sleeps far
+# longer than any try, so the result never depends on how fast the machine is. Where a stand-in must answer
+# inside a try after a timeout, a try lasts 5 s, so a node start on a loaded machine never runs out of it.
 STUB="$T/silent-check-stub.cjs"
 cat >"$STUB" <<'EOF'
 const fs = require("node:fs")
@@ -179,20 +196,25 @@ if (step === "root") {
     process.stderr.write("silent-check: tickets root not read (exit 1): ticket: no tickets root\n")
     process.exit(2)
 }
+if (step === "kill") process.kill(process.pid, "SIGKILL")
 process.exit(Number(step))
 EOF
 TRY_MS=3000
 now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
 calls() { [ -f "$STUB_LOG" ] && grep -c . "$STUB_LOG" || echo 0; }
+use_stub() { # <plan>
+    export STUB_LOG="$T/stub-$RANDOM-$RANDOM.log" STUB_PLAN="$1" CLAUDE_SILENT_CHECK_BIN="$STUB" CLAUDE_SILENT_CHECK_TIMEOUT_MS="$TRY_MS"
+}
+no_stub() { unset STUB_LOG STUB_PLAN CLAUDE_SILENT_CHECK_BIN CLAUDE_SILENT_CHECK_TIMEOUT_MS; }
 # stub <plan> <description> <allow|deny> <command> [substring of the reason] [calls wanted]
 stub() {
-    export STUB_LOG="$T/stub-$RANDOM-$RANDOM.log" STUB_PLAN="$1" CLAUDE_SILENT_CHECK_BIN="$STUB" CLAUDE_SILENT_CHECK_TIMEOUT_MS="$TRY_MS"
+    use_stub "$1"
     expect "$2" "$3" "$R" "$4" "${5:-}"
     if [ -n "${6:-}" ]; then
         local n; n="$(calls)"
         [ "$n" = "$6" ] && ok "$2: silent-check called $6 time(s)" || bad "$2: silent-check called $n time(s), want $6"
     fi
-    unset STUB_LOG STUB_PLAN CLAUDE_SILENT_CHECK_BIN CLAUDE_SILENT_CHECK_TIMEOUT_MS
+    no_stub
 }
 CLEAN='git commit -m "Fix the withdraw button state"'
 stub sleep "timeout twice -> deny with the reason" deny "$CLEAN" 'did not finish' 2
@@ -200,23 +222,42 @@ for want in '`git commit` was not run' 'Run the same command again' 'silent-chec
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done
 [[ "$got" != *"carries traces of the workflow"* ]] && ok "timeout twice: the refusal does not claim traces" || bad "timeout twice claims traces: ${got:0:300}"
-stub sleep "timeout twice on a PR text: the refusal names gh pr create" deny 'gh pr create --title "Fix" --body "Keeps state"' '`gh pr create` was not run'
-stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
-stub sleep,traces "timeout, then the retry finds traces -> deny with the traces" deny "$CLEAN" 'ticket number "Ticket 05"' 2
 stub profile "exit 2, the profile is not read -> allow, as before" allow "$CLEAN" '' 1
 stub root "exit 2, the tickets root is not read -> deny with the error" deny "$CLEAN" 'tickets root not read'
 stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'
+stub 3 "a failure on a PR text: the refusal names gh pr create" deny 'gh pr create --title "Fix" --body "Keeps state"' '`gh pr create` was not run'
 stub 1 "exit 1 with nothing found printed (a crash) -> deny as a failure, not as traces" deny "$CLEAN" 'failed (exit 1)'
+case "$(uname -s)" in
+    MINGW* | MSYS* | CYGWIN*) stub kill "killed by a signal -> deny" deny "$CLEAN" 'was not run' ;; # no POSIX signals
+    *) stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL' ;;
+esac
 stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
 export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
 unset CLAUDE_SILENT_CHECK_BIN
 
+TRY_MS=5000
+stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
+stub sleep,traces "timeout, then the retry finds traces -> deny with the traces" deny "$CLEAN" 'ticket number "Ticket 05"' 2
+# Two checks in one command share the budget of two tries: the first check uses a try and its retry, the
+# second gets only what is left of the budget, and no retry of its own.
+use_stub sleep,0,sleep
+t0="$(now_ms)"; got="$(guard "$R" 'git checkout -b fix/x && git commit -m "Fix y"')"; t1="$(now_ms)"
+n="$(calls)"; no_stub
+elapsed=$((t1 - t0))
+[[ "$got" == deny*'`git commit` was not run'*"did not finish"* ]] && ok "two checks, one budget: the second check runs out of it -> deny" \
+    || bad "two checks, one budget: ${got:0:300}"
+[ "$n" = 3 ] && ok "two checks, one budget: silent-check called 3 times" || bad "two checks, one budget: silent-check called $n times, want 3"
+[ "$elapsed" -lt $((2 * TRY_MS + TRY_MS / 2)) ] && ok "two checks, one budget: the hook ends within two tries ($elapsed ms)" \
+    || bad "two checks, one budget: $elapsed ms, want less than $((2 * TRY_MS + TRY_MS / 2))"
+
 # A Full project with attribution on: the real bin/silent-check behind a counting wrapper answers 0 at once —
 # one call, no retry.
+REAL_CHECK="$HARNESS/bin/silent-check"
+command -v cygpath >/dev/null 2>&1 && REAL_CHECK="$(cygpath -m "$REAL_CHECK")"
 cat >"$T/count-real.cjs" <<EOF
 require("node:fs").appendFileSync(process.env.STUB_LOG, "call\n")
-require("$HARNESS/bin/silent-check")
+require("$REAL_CHECK")
 EOF
 export STUB_LOG="$T/count-real.log" CLAUDE_SILENT_CHECK_BIN="$T/count-real.cjs"
 expect "full, attribution on: a commit with Ticket 05 -> allow through the real check" allow "$FR" 'git commit -m "Fix the button, Ticket 05"'
