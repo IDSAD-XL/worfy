@@ -13,6 +13,8 @@ import { z } from 'zod'
 import type { SessionState } from '../../shared/agent/events'
 import type { LiveSession } from '../../shared/ipc/claude-home'
 import { SESSION_NODE_KIND, worfySessionNodeDataSchema, type WorfySessionNodeData } from '../../shared/ipc/sessions'
+import { onThePlane } from '../../shared/layout/derived'
+import { freePlace, type Rect } from '../../shared/layout/free-place'
 import { isArchived, type LayoutNode, type LayoutOpInput } from '../../shared/layout/types'
 import { STATE_CHIPS } from '../session/format'
 import type { Status } from '../theme/primitives'
@@ -39,6 +41,12 @@ export const sessionNodeDataSchema = z.object({
   cwd: z.string(),
   /** The name Claude Code gave the Session when the Node was made. */
   name: z.string().optional(),
+  /**
+   * `binding`: the Node was placed by its Session's Binding, next to its Ticket or Epic right of the
+   * strip of Epic frames (worfy-canvas ticket 11). Such a Node is not where the next Session
+   * without a Binding goes under.
+   */
+  placed: z.literal('binding').optional(),
 })
 export type SessionNodeData = z.infer<typeof sessionNodeDataSchema>
 
@@ -188,6 +196,14 @@ export interface SessionNodesInput {
   worfyIds: ReadonlySet<string>
   /** Session ids that had a Node in this run of the app: a Node the user removed is not brought back. */
   seen: ReadonlySet<string>
+  /**
+   * Where a new Session with a Binding goes, by Session id: right of the strip of Epic frames at the
+   * height of its Ticket or Epic (canvas/session-spot.ts, worfy-canvas ticket 11). Its Node takes the
+   * nearest clear place from there; a Session without a spot goes under the last Session Node.
+   */
+  near?: ReadonlyMap<string, { x: number; y: number }> | undefined
+  /** Room a Node placed from `near` keeps clear of besides the Nodes on the plane: the strip's band (stripKeepOut). */
+  keepOut?: readonly Rect[] | undefined
 }
 
 export interface SessionNodesPlan {
@@ -196,9 +212,14 @@ export interface SessionNodesPlan {
   remove: string[]
 }
 
-/** Where the next new Session Node goes: under the last Session Node, else right of every Node. An archived Node is not on the Canvas and counts for neither. */
+/**
+ * Where the next new Session Node goes: under the last Session Node, else right of every Node. An
+ * archived Node is not on the Canvas and counts for neither. A Session Node its Binding placed by
+ * an Epic (`placed: 'binding'`) is not the last Session Node: the column of Sessions without a
+ * Binding does not follow it to that Epic.
+ */
 function nextPlace(nodes: readonly LayoutNode[]): { x: number; y: number } {
-  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned && !isArchived(node))
+  const sessions = nodes.filter((node) => node.kind === SESSION_KIND && !node.pinned && !isArchived(node) && node.data.placed !== 'binding')
   if (sessions.length > 0) {
     const last = sessions.reduce((low, node) => (node.y + node.h > low.y + low.h ? node : low))
     return { x: last.x, y: last.y + last.h + STACK_GAP }
@@ -226,7 +247,12 @@ export function showSessionNodeOp(
   return { op: 'create', node: { id: sessionNodeId(session.sessionId), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data } }
 }
 
-export function planSessionNodes({ live, nodes, worfyIds, seen }: SessionNodesInput): SessionNodesPlan {
+/**
+ * The Session Nodes to create and remove. A Node already on the Canvas is never moved: a Binding
+ * that shows up after its Node was made (a branch is read from the transcript a little later)
+ * leaves it where it stands (decision 9 of the owner: Sessions move only by a command).
+ */
+export function planSessionNodes({ live, nodes, worfyIds, seen, near, keepOut = [] }: SessionNodesInput): SessionNodesPlan {
   const named = new Set<string>()
   for (const node of nodes) {
     const id = node.data.sessionId
@@ -240,13 +266,16 @@ export function planSessionNodes({ live, nodes, worfyIds, seen }: SessionNodesIn
     const id = session.sessionId
     if (worfyIds.has(id) || named.has(id) || seen.has(id)) continue
     named.add(id)
-    const { x, y } = nextPlace(placed)
+    const spot = near?.get(id)
+    const { x, y } =
+      spot === undefined ? nextPlace(placed) : freePlace({ x: spot.x, y: spot.y, w: SESSION_WIDTH, h: SESSION_HEIGHT }, [...placed.filter(onThePlane), ...keepOut])
     const data: SessionNodeData = {
       sessionId: id,
       origin: 'external',
       source: externalSource(session.entrypoint),
       cwd: session.cwd,
       ...(session.name === undefined ? {} : { name: session.name }),
+      ...(spot === undefined ? {} : { placed: 'binding' as const }),
     }
     const node = { id: sessionNodeId(id), kind: SESSION_KIND, x, y, w: SESSION_WIDTH, h: SESSION_HEIGHT, data }
     create.push({ op: 'create', node })

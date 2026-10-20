@@ -1,13 +1,11 @@
-import { useStoreApi, type InternalNode } from '@xyflow/react'
+import { useStoreApi } from '@xyflow/react'
 import { failureReason } from '../../../shared/ipc/channels'
-import { EPIC_FRAME_KIND, ticketNodeId } from '../../../shared/layout/derived'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { invoke } from '../../ipc'
 import { useReadOnly } from '../../projects/useProjects'
 import type { SlotProps } from '../badges'
-import { FRAME_GAP } from '../epic-layout'
 import type { CanvasFlowNode } from '../nodes'
-import type { EpicFrameData } from '../sources/epics'
+import { sessionSpot, spotInputs } from '../session-spot'
 import { ActionButton } from './action-button'
 import { hasShipTicket, useShipTicketState } from './gates'
 
@@ -20,31 +18,12 @@ import { hasShipTicket, useShipTicketState } from './gates'
 // (launches.ts). A Ticket in work or done shows no button: there is nothing to ship.
 //
 // The new Session goes next to its Ticket (worfy-daily ticket 28): the click sends the spot right
-// of the Epic frames' column, at the Ticket's height (`shipTicketSpot`), and main puts the Node on
-// the first clear spot there. Outside that band the Session does not move the column (ADR-0032).
+// of the strip of Epic frames, at the Ticket's height (`sessionSpot`, worfy-canvas ticket 11), and
+// main puts the Node on the first clear spot there. Outside that band the Session does not move
+// the strip (ADR-0032). Without the Ticket or the frames on the Canvas no spot is sent, and main
+// places the Node as it places every new one.
 
 export const order = 10
-
-/**
- * Where "Ship ticket" asks for its Session, from the Nodes on the Canvas: one FRAME_GAP right of
- * the frames' column — its left edge (`auto.x`, without a manual offset) plus the widest frame —
- * at the top of the Ticket as it is drawn. Undefined when the Ticket or the frames are not on the
- * Canvas; main then places the Node as it places every new one.
- */
-function shipTicketSpot(nodes: Iterable<InternalNode<CanvasFlowNode>>, epic: string, num: number): { x: number; y: number } | undefined {
-  const id = ticketNodeId(epic, num)
-  let ticketY: number | undefined
-  let columnRight = -Infinity
-  for (const node of nodes) {
-    if (node.id === id) ticketY = node.internals.positionAbsolute.y
-    if (node.type === EPIC_FRAME_KIND) {
-      const frame = node.data.node.data as EpicFrameData
-      columnRight = Math.max(columnRight, frame.auto.x + (node.width ?? 0))
-    }
-  }
-  if (ticketY === undefined || !Number.isFinite(columnRight)) return undefined
-  return { x: Math.ceil(columnRight + FRAME_GAP), y: Math.round(ticketY) }
-}
 
 /** The Canvas's React Flow store; null where the button is drawn outside a Canvas. */
 function useCanvasStore(): ReturnType<typeof useStoreApi<CanvasFlowNode>> | null {
@@ -70,7 +49,8 @@ function ShipTicket({ projectId, root, ticket }: Extract<SlotProps['subject'], {
       enabled={readOnly === null && state.enabled}
       title={readOnly ?? (state.enabled ? state.text : state.reason)}
       run={async () => {
-        const near = store ? shipTicketSpot(store.getState().nodeLookup.values(), ticket.epic, ticket.num) : undefined
+        const { frames, strip } = store ? spotInputs(store.getState().nodeLookup.values()) : { frames: [], strip: undefined }
+        const near = sessionSpot({ kind: 'ticket', epic: ticket.epic, num: ticket.num }, frames, strip)
         const result = await invoke('actions.shipTicket', { projectId, epic: ticket.epic, num: ticket.num, ...(near ? { near } : {}) })
         return result.ok ? undefined : failureReason('actions.shipTicket', result.error)
       }}
