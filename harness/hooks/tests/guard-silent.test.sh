@@ -158,6 +158,10 @@ expect "silent, no commits yet: git add -A && git commit with a staged trace -> 
     'git add -A && git commit -m init' 'ADR-0042'
 got="$(guard "$NR" 'git add -A && git commit -m init')"
 [[ "$got" == *"carries traces"* ]] && ok "silent, no commits yet: the refusal is about traces, not a failed check" || bad "silent, no commits yet: ${got:0:300}"
+# The index is clean and the trace is only in the working tree: only the comparison with the empty tree sees it.
+git -C "$NR" rm -q --cached notes.md && rm "$NR/notes.md" && git -C "$NR" add b.ts && echo '// Follows ADR-0042' >>"$NR/b.ts"
+expect "silent, no commits yet: git commit -a, the trace only in the working tree -> deny with the trace" deny "$NR" \
+    'git commit -am init' 'ADR-0042'
 
 # --- the real check with a broken profile.json: the one failure that lets the command through ----------
 printf '{"schema":2,' >"$SPP"
@@ -168,10 +172,11 @@ cp "$T/sp-profile.json" "$SPP"
 # A stand-in for bin/silent-check (CLAUDE_SILENT_CHECK_BIN): each call appends a line to $STUB_LOG and takes
 # the next step of $STUB_PLAN (the last step repeats): `sleep` — hangs until the guard stops it; `traces` —
 # exit 1 with a finding; `profile` / `root` — exit 2 with the reason bin/silent-check gives when the profile or
-# the tickets root is not read; `kill` — killed by a signal; a number — that exit code, nothing printed.
+# the tickets root is not read; `kill` — killed by a signal; `many` — exit 1 with 120 findings; a number —
+# that exit code, nothing printed.
 # One try lasts $TRY_MS here. Where only timeouts happen, 3 s is enough: the stand-in that hangs sleeps far
 # longer than any try, so the result never depends on how fast the machine is. Where a stand-in must answer
-# inside a try after a timeout, a try lasts 5 s, so a node start on a loaded machine never runs out of it.
+# inside a try, a try lasts 5 s, so a node start on a loaded machine never runs out of it.
 STUB="$T/silent-check-stub.cjs"
 cat >"$STUB" <<'EOF'
 const fs = require("node:fs")
@@ -197,6 +202,10 @@ if (step === "root") {
     process.exit(2)
 }
 if (step === "kill") process.kill(process.pid, "SIGKILL")
+if (step === "many") {
+    for (let i = 1; i <= 120; i++) process.stdout.write(`stdin:${i}: ticket number "Ticket ${i}"\n`)
+    process.exit(1)
+}
 process.exit(Number(step))
 EOF
 TRY_MS=3000
@@ -222,6 +231,7 @@ for want in '`git commit` was not run' 'Run the same command again' 'silent-chec
     [[ "$got" == *"$want"* ]] && ok "timeout twice: the refusal says: $want" || bad "timeout twice: no \"$want\" in: ${got:0:400}"
 done
 [[ "$got" != *"carries traces of the workflow"* ]] && ok "timeout twice: the refusal does not claim traces" || bad "timeout twice claims traces: ${got:0:300}"
+TRY_MS=5000
 stub profile "exit 2, the profile is not read -> allow, as before" allow "$CLEAN" '' 1
 stub root "exit 2, the tickets root is not read -> deny with the error" deny "$CLEAN" 'tickets root not read'
 stub 3 "an unknown exit code -> deny with the reason" deny "$CLEAN" 'exit 3'
@@ -232,11 +242,13 @@ case "$(uname -s)" in
     *) stub kill "killed by a signal -> deny with the signal" deny "$CLEAN" 'signal SIGKILL' ;;
 esac
 stub 0 "exit 0 -> allow at once, one call" allow "$CLEAN" '' 1
+stub many "120 findings -> the refusal shows 50 and counts the rest" deny "$CLEAN" '… 70 more lines'
+[[ "$got" == *'"Ticket 50"'* && "$got" != *'"Ticket 51"'* ]] && ok "120 findings: lines after the 50th are left out" \
+    || bad "120 findings: the cap does not hold: ${got: -300}"
 export CLAUDE_SILENT_CHECK_BIN="$T/no-such-silent-check"
 expect "silent-check does not exist -> deny with the reason" deny "$R" "$CLEAN" 'could not start'
 unset CLAUDE_SILENT_CHECK_BIN
 
-TRY_MS=5000
 stub sleep,0 "timeout, then the retry answers 0 -> allow" allow "$CLEAN" '' 2
 stub sleep,traces "timeout, then the retry finds traces -> deny with the traces" deny "$CLEAN" 'ticket number "Ticket 05"' 2
 # Two checks in one command share the budget of two tries: the first check uses a try and its retry, the

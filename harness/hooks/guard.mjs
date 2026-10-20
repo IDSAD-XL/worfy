@@ -252,7 +252,7 @@ const silentCheck = () => {
                 `${c.what} carries traces of the workflow, and this project keeps them out of its repository and PRs ` +
                     "(Silent mode: no epic names, ticket or ADR numbers, Workflow folder paths, `.scratch`, `HANDOFF`; " +
                     "attribution off: no Claude attribution lines). Found:\n" +
-                    r.stdout.trim() +
+                    capLines(r.stdout.trim(), 50) +
                     "\nDescribe the change itself, the way any commit, branch or PR of this repository would; " +
                     "workflow files go to the Workflow folder (`profile --field _resolved.workflow_folder`), not into the index." +
                     // An agent adds these lines by its general instructions; nothing in a Silent profile may say `off`.
@@ -275,6 +275,11 @@ const silentCheck = () => {
 }
 
 const lowerFirst = (s) => s.charAt(0).toLowerCase() + s.slice(1)
+// The first <max> lines of a long text, and how many more there are: a refusal stays readable.
+const capLines = (text, max) => {
+    const lines = text.split("\n")
+    return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more lines`].join("\n") : text
+}
 
 // A shell lexer good enough for the commands above: words with quotes removed, commands split on ; & | && ||
 // newlines and parentheses, `$( … )` and backticks kept as raw text inside a word, redirections dropped.
