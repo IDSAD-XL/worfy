@@ -101,5 +101,14 @@ Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) (PR #620):
 считается повтором). Мутанты (потеря файла, повтор файла, `--retry=1`) — красные; 5 файлов по `sleep 3` — 3,1 s,
 6 — 6,1 s (предел 5 работает); падающий файл показывает код выхода и хвост вывода; зависший — «was killed after».
 
+**Круг 2 (ревью #626).** На timeout SIGKILL получал только bash; case ждал `close`, а его держал любой потомок
+(`sleep`, node), и case падал на общем timeout vitest без хвоста и без удаления временного `HOME`. Теперь на
+macOS и Linux bash ведёт свою process group (`detached`), и kill идёт в группу; на Windows — `taskkill /T /F`.
+Если после выхода bash вывод держит оставленный потомок, через 2 s (`CLOSE_GRACE_MS`) группа убивается и case
+возвращается. Новые cases: «kills a file past its limit…» (зависший `sleep` под пределом 1 s: возврат около
+1 s, сообщение «was killed after 1 s», `HOME` удалён, `process.kill(-pgid, 0)` бросает) и «returns soon after a
+file exits that left a child…» (около 2 s, exit 0, потомок убит). Мутанты: kill только bash, без своей группы,
+старое поведение, grace без kill — все красные.
+
 **Ждёт слота тяжёлого run-а:** wall time `pnpm test` до и после, длина vitest-файла с shell test-ами в полном run,
 gate fast. Ссылка «до» из Ticket-а 10: gate fast 531,8 s, `test` 519 s, этот файл 517 s.

@@ -14,12 +14,13 @@
 // the `maxConcurrency` of the contract project (vitest.config.ts); a waiting case has not started,
 // so its time limit counts from its own start, not from the start of the file.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, realpathSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { gitBash } from '../git-bash'
 import { removeTestTree } from '../remove'
+import { timeScale } from '../time-scale'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')
@@ -76,11 +77,39 @@ const tail = (text: string, lines: number): string => text.split('\n').slice(-li
 const NO_ZSH_UNTIL_TICKET_15 = 'qmd scripts are zsh until worfy-windows ticket 15'
 const ZSH_ONLY = new Set([join(HARNESS, 'bin', 'tests', 'qmd.test.sh')])
 
-type Run = { status: number | null; signal: NodeJS.Signals | null; error?: Error; timedOut: boolean; output: string }
+type Run = {
+  status: number | null
+  signal: NodeJS.Signals | null
+  error?: Error
+  timedOut: boolean
+  output: string
+  /** The pid of bash; on macOS and Linux also the id of the process group of the run. */
+  pid?: number
+}
+
+// How long the output may stay open after bash has exited: a process the script started in the
+// background holds it open. Past that the run's process group is killed and the case returns.
+const CLOSE_GRACE_MS = 2_000
+
+/** Kills bash and every process it started: its process group (POSIX), its process tree (Windows). */
+function killRun(pid: number): void {
+  try {
+    if (WINDOWS) spawnSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true })
+    else process.kill(-pid, 'SIGKILL')
+  } catch {
+    // The group is already gone.
+  }
+}
 
 /**
- * Runs `bash <file>` and resolves when it has exited and closed its output, as spawnSync returned
- * before: stdin is empty, a run past `timeoutMs` is killed with SIGKILL.
+ * Runs `bash <file>` with an empty stdin. A run past `timeoutMs` is killed with everything it
+ * started, not bash alone: a child that outlived bash kept the output open and the case waited for
+ * it up to vitest's own limit, without the output and without removing its HOME (review of #626).
+ * On macOS and Linux bash leads a process group of its own (`detached`), and the kill goes to the
+ * group, so it reaches children that bash no longer parents. Resolves when the output closes, or
+ * CLOSE_GRACE_MS after bash exited if something still holds it.
+ * shortcut: an interrupted vitest (Ctrl+C) does not reach the group of a running file, which then
+ * runs to its own end; redo it if interrupted runs start leaving Harness processes behind.
  */
 function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<Run> {
   return new Promise((resolve) => {
@@ -88,10 +117,22 @@ function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.Proce
     const stderr: Buffer[] = []
     let timedOut = false
     let error: Error | undefined
-    const child = spawn(bash, [file], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
+    let settled = false
+    let grace: NodeJS.Timeout | undefined
+    const child = spawn(bash, [file], { cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: !WINDOWS, windowsHide: true })
+    const finish = (status: number | null, signal: NodeJS.Signals | null): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      clearTimeout(grace)
+      child.stdout.destroy()
+      child.stderr.destroy()
+      const output = `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`
+      resolve({ status, signal, error, timedOut, output, pid: child.pid })
+    }
     const timer = setTimeout(() => {
       timedOut = true
-      child.kill('SIGKILL')
+      if (child.pid !== undefined) killRun(child.pid)
     }, timeoutMs)
     child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk))
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
@@ -100,13 +141,50 @@ function runShellTest(bash: string, file: string, cwd: string, env: NodeJS.Proce
     child.stdin.end()
     child.on('error', (spawnError) => {
       error = spawnError
+      // bash did not start: no exit and no output will come.
+      if (child.pid === undefined) finish(null, null)
     })
-    child.on('close', (status, signal) => {
-      clearTimeout(timer)
-      const output = `${Buffer.concat(stdout).toString('utf8')}${Buffer.concat(stderr).toString('utf8')}`
-      resolve({ status, signal, error, timedOut, output })
+    child.on('exit', (status, signal) => {
+      grace = setTimeout(() => {
+        if (child.pid !== undefined) killRun(child.pid)
+        finish(status, signal)
+      }, CLOSE_GRACE_MS)
     })
+    child.on('close', finish)
   })
+}
+
+/** Runs one shell test file as the cases do: in a new empty HOME, removed when the run returns. */
+async function runInEmptyHome(file: string, timeoutMs: number): Promise<{ run: Run; home: string }> {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-home-')))
+  try {
+    const env: NodeJS.ProcessEnv = {
+      PATH: process.env.PATH,
+      HOME: home,
+      USERPROFILE: home,
+      TMPDIR: process.env.TMPDIR ?? tmpdir(),
+      // epic-status falls back to en_US.UTF-8, which a minimal Linux image may lack; the
+      // warning about it would land in the output the test compares.
+      LANG: process.env.LANG ?? 'C.UTF-8',
+      GIT_AUTHOR_NAME: 'Harness Test',
+      GIT_AUTHOR_EMAIL: 'harness-test@example.invalid',
+      GIT_COMMITTER_NAME: 'Harness Test',
+      GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
+      GIT_CONFIG_NOSYSTEM: '1',
+    }
+    return { run: await runShellTest(gitBash(), file, home, env, timeoutMs), home }
+  } finally {
+    removeTestTree(home)
+  }
+}
+
+/** Why the run failed, with the last 40 lines of its output; null when it exited 0. */
+function failure(file: string, run: Run, timeoutMs: number): string | null {
+  const output = tail(run.output, 40)
+  if (run.error !== undefined) return `${file} did not start: ${String(run.error)}\n${output}`
+  if (run.timedOut) return `${file} did not finish: it was killed after ${timeoutMs / 1000} s\n${output}`
+  if (run.status !== 0) return `${file} exited ${String(run.status)}${run.signal ? ` (${run.signal})` : ''}:\n${output}`
+  return null
 }
 
 // How many times each file started in this run: every file once, and a retry counts as a second
@@ -163,32 +241,46 @@ describe('harness shell tests', () => {
     async ([name, file], context) => {
       context.skip(WINDOWS && ZSH_ONLY.has(file), NO_ZSH_UNTIL_TICKET_15)
       starts.set(name, (starts.get(name) ?? 0) + 1)
-      const home = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-home-')))
-      try {
-        const env: NodeJS.ProcessEnv = {
-          PATH: process.env.PATH,
-          HOME: home,
-          USERPROFILE: home,
-          TMPDIR: process.env.TMPDIR ?? tmpdir(),
-          // epic-status falls back to en_US.UTF-8, which a minimal Linux image may lack; the
-          // warning about it would land in the output the test compares.
-          LANG: process.env.LANG ?? 'C.UTF-8',
-          GIT_AUTHOR_NAME: 'Harness Test',
-          GIT_AUTHOR_EMAIL: 'harness-test@example.invalid',
-          GIT_COMMITTER_NAME: 'Harness Test',
-          GIT_COMMITTER_EMAIL: 'harness-test@example.invalid',
-          GIT_CONFIG_NOSYSTEM: '1',
-        }
-        const run = await runShellTest(gitBash(), file, home, env, FILE_TIMEOUT_MS)
-        const ended = run.timedOut ? `was killed after ${FILE_TIMEOUT_MS / 1000} s` : `exited ${String(run.status)}`
-        context.expect(run.error, `${file} did not start: ${String(run.error)}\n${tail(run.output, 40)}`).toBeUndefined()
-        context.expect(run.timedOut, `${file} did not finish: it ${ended}\n${tail(run.output, 40)}`).toBe(false)
-        context.expect(run.status, `${file} ${ended}${run.signal ? ` (${run.signal})` : ''}:\n${tail(run.output, 40)}`).toBe(0)
-      } finally {
-        removeTestTree(home)
-      }
+      const { run } = await runInEmptyHome(file, FILE_TIMEOUT_MS)
+      const problem = failure(file, run, FILE_TIMEOUT_MS)
+      context.expect(problem === null, problem ?? '').toBe(true)
     },
   )
+
+  it('kills a file past its limit with every process it started, and removes its HOME', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-hang-')))
+    try {
+      // A child in the background and one in the front, both holding the output open.
+      const script = join(dir, 'hang.test.sh')
+      writeFileSync(script, 'echo started\nsleep 30 &\nsleep 30\n')
+      const begun = Date.now()
+      const { run, home } = await runInEmptyHome(script, 1_000)
+      expect(Date.now() - begun).toBeLessThan((1_000 + CLOSE_GRACE_MS + 3_000) * timeScale)
+      expect(failure(script, run, 1_000)).toMatch(/did not finish: it was killed after 1 s\nstarted/)
+      expect(existsSync(home)).toBe(false)
+      expect(run.pid).toBeDefined()
+      // No process of the run's group is left: signal 0 to the group fails with ESRCH.
+      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+    } finally {
+      removeTestTree(dir)
+    }
+  })
+
+  it('returns soon after a file exits that left a child holding its output, and ends the child', async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'worfy-harness-left-')))
+    try {
+      const script = join(dir, 'left.test.sh')
+      writeFileSync(script, 'echo done\nsleep 30 &\nexit 0\n')
+      const begun = Date.now()
+      const { run } = await runInEmptyHome(script, 60_000)
+      expect(Date.now() - begun).toBeLessThan((CLOSE_GRACE_MS + 3_000) * timeScale)
+      expect(failure(script, run, 60_000)).toBeNull()
+      expect(run.output).toContain('done')
+      if (!WINDOWS) expect(() => process.kill(-(run.pid ?? 0), 0)).toThrow()
+    } finally {
+      removeTestTree(dir)
+    }
+  })
 
   afterAll(() => {
     const repeated = [...starts].filter(([, count]) => count > 1).map(([name]) => name)

@@ -57,6 +57,8 @@ export default defineConfig({
           // (test/contract/harness-scripts.test.ts) are the only ones. Five keeps that file near
           // 100 s on the Mac; more would load the machine further in a full run, where
           // wave-gate.test.sh has already hit its 120 s limit once (docs/lessons/testing.md).
+          // Five is also vitest 5.0.3's default; it is set here on purpose, so a new default in a
+          // vitest update does not change the load on the Mac unnoticed.
           maxConcurrency: 5,
           // Every test file gets a new empty WORFY_CLAUDE_HOME unless the run set one, so no contract
           // test reads the ~/.claude of the machine it runs on; the homes lie in one folder per run,
