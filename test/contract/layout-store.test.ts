@@ -595,8 +595,30 @@ describe('layout store: saving', () => {
       vi.advanceTimersByTime(100)
       local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
     }
-    expect(writes.length).toBeGreaterThanOrEqual(2)
-    expect(writes[1]).toBeLessThanOrEqual(2 * LAYOUT_SAVE_MAX_DELAY_MS)
+    // Exactly one write per stretch, at its bound: a deadline set anew by every operation wrote
+    // about ten times a second after the first, and one left over after a write wrote early.
+    expect(writes).toEqual([LAYOUT_SAVE_MAX_DELAY_MS, 2 * LAYOUT_SAVE_MAX_DELAY_MS])
+    local.flushAll()
+  })
+
+  it('a write after a quiet period drops the bound of the operations it wrote: the next stream gets its own LAYOUT_SAVE_MAX_DELAY_MS', async () => {
+    vi.useFakeTimers()
+    const { LayoutStore, LAYOUT_SAVE_DELAY_MS, LAYOUT_SAVE_MAX_DELAY_MS } = await import('../../src/main/layout/store')
+    const started = Date.now()
+    const writes: number[] = []
+    const local = new LayoutStore(() => join(dataDir, PROJECT), { write: () => writes.push(Date.now() - started) })
+
+    // One operation, written after the quiet period.
+    local.apply(PROJECT, note('n1'))
+    vi.advanceTimersByTime(LAYOUT_SAVE_DELAY_MS)
+    expect(writes).toEqual([LAYOUT_SAVE_DELAY_MS])
+    // Then one every 100 ms for 1.5 s: the bound counts from the first of them. The bound of the
+    // first operation, left running after its write, wrote this stream early.
+    for (let n = 1; n <= 15; n++) {
+      vi.advanceTimersByTime(100)
+      local.apply(PROJECT, { op: 'move', id: 'n1', x: n, y: n })
+    }
+    expect(writes).toEqual([LAYOUT_SAVE_DELAY_MS, LAYOUT_SAVE_DELAY_MS + 100 + LAYOUT_SAVE_MAX_DELAY_MS])
     local.flushAll()
   })
 
