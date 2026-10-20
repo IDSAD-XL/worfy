@@ -1,7 +1,8 @@
 # 77 — `qmd-collections.test.sh` красный на Windows: что чинится здесь, что ждёт Ticket 15
 
 Type: bug
-Status: claimed 2026-10-20T11:53Z
+Status: done 2026-10-20T19:59Z
+PR: #602
 Branch: worfy-windows/77
 Blocked by: —
 Source: решение Mac 2026-10-20 (сессия «Worfy продолжение»): красный на main в каждом full-прогоне
@@ -58,9 +59,30 @@ not ported to Windows yet», — а связь с Ticket-ом 15 держит е
 
 ## Готово, когда
 
-- [ ] На Windows `qmd-collections.test.sh` не падает на `profile … exit null`: 12 passed вместо 8.
-- [ ] На Windows группы A–C пропущены с причиной, и файл — exit 0; в Ticket 15 — пункт снять пропуски.
-- [ ] Каждый оставшийся красный называет причину (`ENOENT`, `unbound variable`), а не `exit null`.
-- [ ] На macOS `qmd-collections.test.sh` зелёный, как был (проверка Mac).
-- [ ] `plugin-neutral.test.sh`, `test/contract/harness-qmd.test.ts` зелёные; `qmd.test.sh` на macOS
+- [x] На Windows `qmd-collections.test.sh` не падает на `profile … exit null`: 12 passed вместо 8.
+- [x] На Windows группы A–C пропущены с причиной, и файл — exit 0; в Ticket 15 — пункт снять пропуски.
+- [x] Каждый оставшийся красный называет причину (`ENOENT`, `unbound variable`), а не `exit null`.
+- [x] На macOS `qmd-collections.test.sh` зелёный, как был (проверка Mac).
+- [x] `plugin-neutral.test.sh`, `test/contract/harness-qmd.test.ts` зелёные; `qmd.test.sh` на macOS
       зелёный (на Windows его пропускает `ZSH_ONLY` в `test/contract/harness-scripts.test.ts:43`).
+
+## Итог
+
+Сделано в PR #602. `harness/bin/qmd-collections` запускает `profile` и `qmd-sync-main` через `scriptCommand`
+(как `preflight:149`): node-скрипт — через `process.execPath`, другой `#!` — через bash на Windows. Неудачный
+запуск называет команду, сигнал или код выхода вместо `exit null`. `qmd` запускается как раньше.
+`harness/bin/tests/qmd-collections.test.sh`: пути в написании Windows (`pwd -W`, `cygpath -u`, `cygpath -w`) и
+пропуски групп A–C на Windows с причиной.
+
+На ПК (Git Bash, временные HOME и USERPROFILE): без пропусков — 12 passed, 22 failed, все 22 в группах A–C;
+mutant с прямым запуском `profile` — 8 passed, 26 failed (`spawnSync … ENOENT`); с пропусками — exit 0,
+4 passed, 15 строк пропуска. `plugin-neutral.test.sh` — exit 0; `test/contract/harness-qmd.test.ts` с двумя
+guard-test-ами — exit 0; lint и typecheck — exit 0. На macOS (Mac): `qmd-collections.test.sh` 38/0, `qmd.test.sh`
+35/0.
+
+### Закрытие (2026-10-20)
+
+Влит в main PR-ом #602 (2026-10-20, `767160f0`). Gate full на Mac: один красный прогон — новый flaky test
+`tickets-chokidar` из #591 (его чинит Session Harness); перезапуск шага test-ов зелёный, 7226 passed.
+check/windows — по прогону ПК на `3a8923d4`. Ревью Mac: high и med нет; один low перенесён в Ticket 15
+(`scriptCommand` и файл без `#!`). Ticket закрыт docs-PR-ом с ПК по просьбе Session на Mac.
