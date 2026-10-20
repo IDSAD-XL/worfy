@@ -480,6 +480,15 @@ if [ -z "$NONODE" ]; then echo "skip the checks of the launcher without node on 
     decides "a NUL byte inside a string" known "$REG" nosuch
     reg '{"repos":[]}\000junk'
     decides "a NUL byte after the registry" known "$REG" nosuch
+    reg '{"repos":[{"workspace\\ud800":{"y":[]}}]}'
+    decides "a key workspace with a lone surrogate after it is not workspace" unknown "$REG" y
+    # A byte that is not UTF-8 (node reads U+FFFD), with the launcher in a UTF-8 locale: the NUL
+    # check must not stop at that byte and leave the name unchecked.
+    utf8_locale="$(locale -a 2>/dev/null | tr -d '\r' | grep -ixE 'en_US\.(UTF-8|utf8)|C\.(UTF-8|utf8)' | head -1)"
+    if [ -z "$utf8_locale" ]; then echo "skip the check in a UTF-8 locale: locale -a lists neither en_US.UTF-8 nor C.UTF-8"; else
+        reg '{"repos":[{"root":{"x":["caf\351"]}}]}'
+        decides "a byte that is not UTF-8, in the locale $utf8_locale" unknown "$REG" nosuch -- LC_ALL="$utf8_locale"
+    fi
     reg '{"repos":[{"root":{"b":[]}}],"repos":[]}'
     decides "two repos keys: the last one wins" unknown "$REG" b
     reg '{"repos":[{"root":["a"]}]}'

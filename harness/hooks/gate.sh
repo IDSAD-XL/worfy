@@ -276,10 +276,11 @@ if [ "$PROFILE" != fast ] && [ "$PROFILE" != full ]; then
     fi
     if [ -f "$config" ] && [ -r "$config" ]; then
         # A NUL byte makes the file no JSON for JSON.parse, and awks read it differently (one cuts
-        # the line, another keeps the byte): such a file says nothing against the name. Without tr
+        # the line, another keeps the byte): such a file says nothing against the name. tr runs in the
+        # C locale: in a UTF-8 one BSD tr stops at the first byte that is not UTF-8. Without tr
         # the sizes differ and the name stands; without wc both are empty and awk decides.
         size="$(wc -c 2>/dev/null <"$config")"
-        size_no_nul="$(tr -d '\000' 2>/dev/null <"$config" | wc -c 2>/dev/null)"
+        size_no_nul="$(LC_ALL=C tr -d '\000' 2>/dev/null <"$config" | wc -c 2>/dev/null)"
         if [ "$((size + 0))" -eq "$((size_no_nul + 0))" ]; then
             registry_names "$PROFILE" 2>/dev/null <"$config"
             if [ $? -eq 10 ]; then
