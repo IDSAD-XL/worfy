@@ -18,6 +18,9 @@ interface StandWatcher {
   readonly paths: unknown
   readonly options: { ignoreInitial?: boolean; ignored?: unknown }
   closed: boolean
+  /** What add() was asked to watch. Like chokidar's add(), a call also sets `closed` back to false. */
+  readonly added: unknown[]
+  add: (paths: unknown) => unknown
   /** Sends a `raw` event as chokidar's fs.watch does: the event, the name the system gave, the watched path. */
   raw: (name: string | null, watchedPath: string) => void
   /** Sends a `raw` event with any details, as chokidar's polling does (`{ curr, prev }`, no `watchedPath`). */
@@ -41,6 +44,7 @@ vi.mock('chokidar', async () => {
   const { EventEmitter } = await import('node:events')
   class Stand extends EventEmitter implements StandWatcher {
     closed = false
+    readonly added: unknown[] = []
     private closing: Promise<void> | null = null
     constructor(
       readonly paths: unknown,
@@ -55,6 +59,11 @@ vi.mock('chokidar', async () => {
     }
     rawWith(event: string, name: string, details: unknown): void {
       this.emit('raw', event, name, details)
+    }
+    add(paths: unknown): this {
+      this.closed = false
+      this.added.push(paths)
+      return this
     }
     close(): Promise<void> {
       this.closed = true
@@ -264,6 +273,21 @@ describe('the watch of the branches when a folder it watches is gone', () => {
     for (const made of stand.made) {
       expect(made.closed).toBe(true)
       expect(() => made.emit('error', new Error('EPERM: operation not permitted, realpath'))).not.toThrow()
+    }
+  })
+
+  it('a late add() on a closed watch, as chokidar makes when a removed file fails its stat, opens nothing: the watch stays closed', async () => {
+    warnings()
+    const watcher = await start()
+    // One watch closed by the remake, the rest by close().
+    branches()[0]!.raw(WORKTREES, WORKTREES)
+    await vi.waitFor(() => expect(branches()).toHaveLength(2), { timeout: 2000, interval: 5 })
+    await watcher.close()
+    expect(stand.made.length).toBeGreaterThanOrEqual(3)
+    for (const made of stand.made) {
+      made.add(join(repo, '.git'))
+      expect(made.closed).toBe(true)
+      expect(made.added).toEqual([])
     }
   })
 })

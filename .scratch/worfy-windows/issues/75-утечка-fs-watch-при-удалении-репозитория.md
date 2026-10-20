@@ -62,9 +62,12 @@ worfy.
 - [x] Красный test (commit без правки): на ПК красный 5 из 5 прогонов; время прогона названо.
 - [x] Тот же test на Mac: доля красных прогонов записана (macOS может не течь — тогда test там зелёный
       и до правки, это нормально; skip не годится).
-- [ ] Правка в `src/main/workflow/watch.ts`: test зелёный 5 из 5 на ПК и на Mac; mutant без правки — красный.
-- [ ] `test/contract/workflow-branches-gone.test.ts`: удаление из дочернего процесса, «не больше N строк
-      log и CPU < 300 ms» — зелёный 10 из 10 на ПК.
+- [x] Правка в `src/main/workflow/watch.ts`: test зелёный 5 из 5 на ПК и на Mac; mutant без правки — красный.
+- [x] Удаление репозитория из дочернего процесса не оставляет открытых fs.watch: проверка —
+      детерминированный `test/contract/workflow-branches-handles.test.ts` (счёт `FSEventWrap` после
+      каждого `close()`), зелёный на ПК и на Mac. Проверку «CPU < 300 ms» в
+      `test/contract/workflow-branches-gone.test.ts` не строим (решение Session на Mac): замер времени
+      CPU недетерминирован (на ПК красный 1–2 из 4–10), а счёт handle-ов проверяет саму причину.
 - [ ] Mac: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate full — exit 0 и строка
       `[gate] зелено (full)`. ПК: test-файлы PR — exit 0 (needs-mac-gate).
 
@@ -93,7 +96,8 @@ worfy.
 **Причина (подтверждена на ПК).** Утечку даёт сам chokidar 5.0.0: закрытый watcher открывает watch
 заново. Listener файла (`handler.js:378`) делает `await stat(file)`; если файл уже удалён и между
 событием и ответом stat worfy закрыл watcher, catch вызывает `_remove`, а тот — `this.add(directory,
-item, true)` (`index.js:723`, ветка «единственный файл удалён»). `add()` ставит `closed = false` и
+item, true)` (`index.js:723`, ветка «единственный файл удалён»: она идёт только при
+`this._watched.size === 1`, `index.js:722`, — поэтому утечка и не каждый раз). `add()` ставит `closed = false` и
 идёт вверх до ближайшей живой папки: `refs/heads` → `refs` → `.git`. Этот fs.watch на `repo/.git`
 уже никто не закрывает: worfy свой `close()` уже вызвал. Диагностика: обёртка над `watch` из
 chokidar в одноразовом test-файле (не в commit) записывала каждый `add()` после `close()` со stack
@@ -156,5 +160,13 @@ chokidar проверить, не открывает ли он watch после 
   больше не проходит впустую. Ограничение: это счёт всех fs.watch Project-а (и watch Tickets root),
   а не одного watch-а веток.
 
-Не сделано в этом шаге: прогон на Mac после правки; пункт про
-`test/contract/workflow-branches-gone.test.ts` с удалением из дочернего процесса (10 из 10).
+**Ревью на Mac (medium).** Путь в chokidar подтверждён построчно (`handler.js:376-378` →
+`index.js:709`/`722-723` → `349-350`). На Mac после правки: handles test зелёный 3 из 3, unit
+`workflow-branches-gone` — 8 passed, typecheck — exit 0.
+- [med] Пункт «Готово, когда» про CPU < 300 ms переписан: проверка — handles test, замер CPU не строим
+  (недетерминирован; решение Session на Mac).
+- [low] На macOS строку `watcher.add = () => watcher` не ловил ни один test: handles test там зелёный и
+  без неё, а unit stand-in не имел `add()`. Stand-in получил `add()`, который, как у chokidar, ставит
+  `closed = false`; новый unit test «a late add() on a closed watch … opens nothing: the watch stays
+  closed» после `close()` зовёт `add()` у каждого закрытого watch-а и ждёт `closed === true` и ни одного
+  добавленного пути. Mutant без строки — красный на любой системе.
