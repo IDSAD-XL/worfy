@@ -1,7 +1,7 @@
 # 62 — Gate: при переименовании файла старый путь теряется, и workspace, откуда файл ушёл, не проверяется
 
 Type: bug
-Status: open
+Status: claimed 2026-10-21T16:33Z
 Blocked by: —
 Source: ревью PR #690 (worfy-harness 29), линза корректности, 2026-10-21 — находка вне diff-а; в самом PR #690
 та же ошибка в `scripts/eval-harness.mjs` исправлена флагом `--no-renames`.
