@@ -275,6 +275,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | [15](issues/15-аудит-test-ов-и-правило-одного-слоя.md) | Аудит дублирующих test-ов и правило одного слоя | Q6 | 11, 12, 13 |
 | [16](issues/16-shell-test-ы-harness-параллельно.md) | Shell test-ы Harness идут параллельно: `harness-scripts.test.ts` (517 s из 519 s шага `test`) больше не держит весь `pnpm test` | замер 10; «да» владельца 2026-10-20 | — |
 | [17](issues/17-e2e-в-несколько-worker-ов.md) | e2e в несколько worker-ов Playwright: после 16 последовательный e2e — 565 s, около 73 % gate full 12,9 min | замер 10 после 16; приоритет — за владельцем | — |
+| [18](issues/18-окно-не-показывается-fallback-и-диагностика.md) | Окно не показывается в e2e при 3 worker-ах: fallback show по timer-у после `did-finish-load`, диагностика timeout-а первого окна, switch-и отрисовки для каждого e2e-запуска | разбор 2026-10-21 после 17 (2 из 4 gate full красные) | — |
 
 ### Порядок
 
@@ -285,7 +286,8 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
    идёт 517 s из 519 s шага `test`; владелец 2026-10-20 сказал «да» отдельному Ticket-у до 11–13.
    Число shard-ов 12 считать после 16. Влит 2026-10-21 (#626): gate full на Mac 18,5 → 12,9 min,
    `pnpm test` 517 → 133 s. После него узкое место — последовательный e2e: Ticket 17 влит 2026-10-21 (#655), e2e в 3 worker-а на
-   macOS: 565 → 212 s, gate full 780 → 501 s под нагрузкой.
+   macOS: 565 → 212 s, gate full 780 → 501 s под нагрузкой. Ticket 18 влит 2026-10-21 (#661): fallback show
+   окна и диагностика старта; после него 3 worker-а — 204–227 s, 289 passed, без flaky.
 3. **12 и 14** — после 10, параллельно: 12 правит CI и тексты ожидания CI, 14 — скрипт замера.
 4. **11** — после 10 и 12 (`Blocked by: 10, 12`): PR без полного набора безопасен, только
    когда у него есть CI на Linux, а 11 и 12 правят одни тексты Harness (`harness/skills/epic-wave/SKILL.md`,
@@ -293,7 +295,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 5. **13** — после 11: те же тексты Harness и тот же шаг перед merge.
 6. **15** — последним, когда влиты 11, 12 и 13 (условие Q6).
 
-### Волны Ticket-ов 10–17
+### Волны Ticket-ов 10–18
 
 План по правилу раздела «Волны» выше: общий файл в «Где в коде» — Ticket с большим номером уходит в
 следующую Wave. Основную таблицу «Волны» этот раздел не меняет; Wave этих Ticket-ов берётся командой
@@ -309,6 +311,7 @@ ADR-0068 (batch CI на `main`, CI на PR нет) и ADR-0065 (один gate fu
 | 15 | `test/`, `harness/agents/implementer.md`, `harness/bin/tests/agents-text.test.sh`, `docs/lessons/testing.md` | 5 |
 | 16 | `test/contract/harness-scripts.test.ts`, `test/git-bash.ts`, `vitest.config.ts`, `harness/{bin,hooks}/tests/*.test.sh` | 2 |
 | 17 | `playwright.config.ts`, `test/e2e/helpers.ts`, `test/e2e/*.spec.ts`, `harness/bin/profile`, `harness/bin/wave-gate` | 6 |
+| 18 | `src/main/window.ts`, `src/main/window-show.ts`, `src/main/quiet-windows.ts`, `src/main/index.ts`, `playwright.config.ts`, `test/e2e/helpers.ts`, `test/e2e/start-diagnosis.ts`, `test/e2e/linked-notify.spec.ts`, `test/unit/start-diagnosis.test.ts`, `test/unit/window-show.test.ts`, `test/unit/quiet-windows.test.ts`, `test/unit/e2e-notifications.test.ts`, `test/unit/playwright-json-report.test.ts` | 7 |
 
 ### Не решено — вопросы к инструментам
 

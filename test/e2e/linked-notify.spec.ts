@@ -98,6 +98,8 @@ test('a turn of a Session of A ends with no window focused: A and B record the n
     b = onB
     await canvasReady(a, { size: SIZE })
     await canvasReady(onB, { size: SIZE })
+    // Without quiet windows the run still keeps both painting (WORFY_KEEP_PAINTING, playwright.config.ts).
+    for (const each of [a, onB]) expect(await each.app.evaluate(({ app }) => app.commandLine.hasSwitch('disable-renderer-backgrounding'))).toBe(true)
     await linkThroughUi(a.window, onB.window)
     const aId = await machineIdOf(a.window)
     await setProjectsAccess(a, true)

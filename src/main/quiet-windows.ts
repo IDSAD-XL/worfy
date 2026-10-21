@@ -9,6 +9,12 @@
 //
 // A normal start (`pnpm dev`, the packaged app, the stable copy) does not set the variable, and any
 // value other than "1" counts as not set: the window shows itself and takes the focus as before.
+//
+// Kept painting: WORFY_KEEP_PAINTING=1, also set by playwright.config.ts for every e2e run, turns on
+// only the Chromium switches and backgroundThrottling: false that quiet mode has, so a window that
+// macOS counts as covered or in the background is still painted and gets its 'ready-to-show'. It
+// also covers the specs that turn quiet mode off for the real focus (test/e2e/linked-notify.spec.ts):
+// focus and system notifications stay as in a normal start. The same rule: only "1" turns it on.
 
 /** What src/main/index.ts, src/main/window.ts and src/main/notify.ts do about showing worfy's windows and notes. */
 export interface QuietWindows {
@@ -59,16 +65,26 @@ export const NORMAL_WINDOWS: QuietWindows = Object.freeze({
   ignoreMouseEvents: false,
 })
 
-/** Reads WORFY_QUIET_WINDOWS and answers how worfy shows its windows. */
+/** The switches that keep a covered or background window painted (quiet mode and WORFY_KEEP_PAINTING=1). */
+export const KEEP_PAINTING_SWITCHES: readonly string[] = Object.freeze(['disable-backgrounding-occluded-windows', 'disable-renderer-backgrounding'])
+
+/** A normal start that is still painted when covered: what WORFY_KEEP_PAINTING=1 alone gives. */
+export const KEEP_PAINTING_WINDOWS: QuietWindows = Object.freeze({
+  ...NORMAL_WINDOWS,
+  chromiumSwitches: KEEP_PAINTING_SWITCHES,
+  backgroundThrottling: false,
+})
+
+/** Reads WORFY_QUIET_WINDOWS and WORFY_KEEP_PAINTING and answers how worfy shows its windows. */
 export function quietWindows(env: Readonly<Record<string, string | undefined>> = process.env, platform: NodeJS.Platform = process.platform): QuietWindows {
-  if (env.WORFY_QUIET_WINDOWS !== '1') return NORMAL_WINDOWS
+  if (env.WORFY_QUIET_WINDOWS !== '1') return env.WORFY_KEEP_PAINTING === '1' ? KEEP_PAINTING_WINDOWS : NORMAL_WINDOWS
   return {
     quiet: true,
     show: 'showInactive',
     takesFocus: false,
     systemNotifications: false,
     activationPolicy: platform === 'darwin' ? 'accessory' : null,
-    chromiumSwitches: ['disable-backgrounding-occluded-windows', 'disable-renderer-backgrounding'],
+    chromiumSwitches: [...KEEP_PAINTING_SWITCHES],
     backgroundThrottling: false,
     opacity: 0,
     ignoreMouseEvents: true,

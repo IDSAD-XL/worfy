@@ -12,10 +12,13 @@ import { quietWindows } from '../../src/main/quiet-windows'
 
 const REPO = join(import.meta.dirname, '..', '..')
 const before = process.env.WORFY_QUIET_WINDOWS
+const keepPainting = process.env.WORFY_KEEP_PAINTING
 
 afterEach(() => {
   if (before === undefined) delete process.env.WORFY_QUIET_WINDOWS
   else process.env.WORFY_QUIET_WINDOWS = before
+  if (keepPainting === undefined) delete process.env.WORFY_KEEP_PAINTING
+  else process.env.WORFY_KEEP_PAINTING = keepPainting
   vi.resetModules()
 })
 
@@ -42,6 +45,24 @@ describe('system notifications in an e2e run', () => {
     await loadConfig()
     expect(process.env.WORFY_QUIET_WINDOWS).toBe('1')
     expect(quietWindows(process.env, 'darwin').systemNotifications).toBe(false)
+  })
+
+  // Every e2e start is kept painting, a spec that turns quiet windows off included (src/main/quiet-windows.ts).
+  it('keep every window painted: the config turns WORFY_KEEP_PAINTING on, and it holds with quiet windows off', async () => {
+    delete process.env.WORFY_KEEP_PAINTING
+    process.env.WORFY_QUIET_WINDOWS = '0'
+    await loadConfig()
+    expect(process.env.WORFY_KEEP_PAINTING).toBe('1')
+    const plan = quietWindows({ ...process.env, WORFY_QUIET_WINDOWS: '0' }, 'darwin')
+    expect(plan.chromiumSwitches).toEqual(['disable-backgrounding-occluded-windows', 'disable-renderer-backgrounding'])
+    expect(plan.backgroundThrottling).toBe(false)
+    expect(plan.systemNotifications).toBe(true)
+  })
+
+  it('keep WORFY_KEEP_PAINTING as a run that sets it itself asks', async () => {
+    process.env.WORFY_KEEP_PAINTING = '0'
+    await loadConfig()
+    expect(process.env.WORFY_KEEP_PAINTING).toBe('0')
   })
 
   it('stay as a run that sets the variable itself asks', async () => {

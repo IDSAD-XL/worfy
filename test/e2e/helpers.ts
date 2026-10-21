@@ -1,5 +1,6 @@
+import type { ChildProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +8,18 @@ import { _electron, expect, test, type ElectronApplication, type Locator, type P
 import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter'
 import { endApp, exited, killThenClean } from './end-app'
 import { launchEnv } from './launch-env'
+import {
+  DIAGNOSTIC_SAVE_MS,
+  DIAGNOSTIC_STEP_MS,
+  deadline,
+  diagnosisBudget,
+  diagnosisSummary,
+  outputTail,
+  shownLine,
+  step,
+  timeLeftOnClock,
+  type WindowState,
+} from './start-diagnosis'
 import { clickMenuItem } from './menu'
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -116,6 +129,128 @@ async function saveArtifacts(app: ElectronApplication, window: Page, tracing: bo
   }
 }
 
+// ── A start whose window did not show ───────────────────────────────────────
+
+/** Name of the folder, in the test's output folder, that keeps what startDiagnostics found. */
+export const START_DIAGNOSTICS = 'start-diagnostics'
+
+/**
+ * Keeps the last OUTPUT_LIMIT characters of the app's stdout and stderr, where main's console
+ * lines go (src/main/window-show.ts names there the path that showed the window).
+ * shortcut: lines the app printed before _electron.launch resolved are not kept, redo when a diagnosis needs the first lines of a start.
+ */
+function recordOutput(child: ChildProcess): () => string {
+  const tail = outputTail()
+  child.stdout?.on('data', tail.append)
+  child.stderr?.on('data', tail.append)
+  return tail.text
+}
+
+/** When the first launchApp of each running test began, by test id and retry: the start of the clock testTimeLeft reads. */
+const firstLaunchOfTest = new Map<string, number>()
+
+/** Marks the start of the test's clock at its first launchApp. */
+function startTestClock(): void {
+  const info = currentTest()
+  if (info) timeLeftOnClock(firstLaunchOfTest, `${info.testId}:${info.retry}`, info.timeout, Date.now())
+}
+
+/**
+ * How long the running test has left before its own timeout; undefined outside a test or for a
+ * test without a timeout.
+ * shortcut: the clock starts at the test's first launchApp, not at the test's start (Playwright gives no start time), so time a test spends before its first launch is not counted; redo when Playwright exposes the elapsed time or a test does long work before launching.
+ */
+function testTimeLeft(): number | undefined {
+  const info = currentTest()
+  if (!info || info.timeout === 0) return undefined
+  return timeLeftOnClock(firstLaunchOfTest, `${info.testId}:${info.retry}`, info.timeout, Date.now())
+}
+
+/**
+ * Collects, for a start whose window was not shown, what the gate log otherwise lacks: the state of
+ * the window and its web contents, a capturePage() PNG, the page's document.readyState, the app's
+ * output and the files of logs/ in its data folder. Runs before the app is killed and its data
+ * folder removed. Every step is bounded, and all of them together keep to diagnosisBudget: what
+ * the test has left before its timeout, less the time the kill and the cleanup after it need, so
+ * the test timeout never cuts the cleanup off. With no time left nothing is asked.
+ * Inside a test the files go to `<test output>/start-diagnostics-…/` and are attached; the returned
+ * line sums them up for the error message, which the gate log keeps.
+ */
+async function startDiagnostics(app: ElectronApplication, dataDir: string, output: () => string): Promise<string> {
+  const budget = diagnosisBudget(testTimeLeft())
+  const left = deadline(budget)
+  const state = await step(
+    () =>
+      app.evaluate(({ BrowserWindow }): WindowState => {
+        const all = BrowserWindow.getAllWindows()
+        const first = all[0]
+        if (!first || first.isDestroyed()) return { windows: all.length }
+        const contents = first.webContents
+        return {
+          windows: all.length,
+          isVisible: first.isVisible(),
+          isMinimized: first.isMinimized(),
+          opacity: first.getOpacity(),
+          bounds: first.getBounds(),
+          isLoading: contents.isLoading(),
+          isLoadingMainFrame: contents.isLoadingMainFrame(),
+          isWaitingForResponse: contents.isWaitingForResponse(),
+          isCrashed: contents.isCrashed(),
+          url: contents.getURL(),
+        }
+      }),
+    left(DIAGNOSTIC_STEP_MS),
+  )
+  const readyState = await step(
+    () =>
+      app.evaluate(({ BrowserWindow }) => {
+        const first = BrowserWindow.getAllWindows()[0]
+        return first ? (first.webContents.executeJavaScript('document.readyState') as Promise<string>) : 'no window'
+      }),
+    left(DIAGNOSTIC_STEP_MS),
+  )
+  const capture = await step(
+    () =>
+      app.evaluate(async ({ BrowserWindow }) => {
+        const first = BrowserWindow.getAllWindows()[0]
+        if (!first) return null
+        const image = await first.webContents.capturePage()
+        return image.isEmpty() ? '' : image.toPNG().toString('base64')
+      }),
+    left(DIAGNOSTIC_STEP_MS),
+  )
+  const appOutput = output()
+  const shown = shownLine(appOutput)
+  const report = { budgetMs: budget, state, readyState, capture: 'value' in capture ? (capture.value ? 'saved' : 'empty') : capture, shownLine: shown }
+  let where = ''
+
+  const info = currentTest()
+  if (info) {
+    const dir = info.outputPath(`${START_DIAGNOSTICS}-${info.retry}-${Date.now()}`)
+    const saved = await step(async () => {
+      await mkdir(dir, { recursive: true })
+      const files: { name: string; path: string; contentType: string }[] = []
+      const save = async (name: string, body: string | Buffer, contentType: string): Promise<void> => {
+        const path = join(dir, name)
+        await writeFile(path, body)
+        files.push({ name, path, contentType })
+      }
+      await save('state.json', `${JSON.stringify(report, null, 2)}\n`, 'application/json')
+      if ('value' in capture && capture.value) await save('capture.png', Buffer.from(capture.value, 'base64'), 'image/png')
+      await save('app-output.txt', appOutput, 'text/plain')
+      const logs = join(dataDir, 'logs')
+      const names = await readdir(logs).catch(() => [] as string[])
+      for (const name of names) {
+        const path = join(dir, `data-logs-${name}`)
+        if (await copyFile(join(logs, name), path).then(() => true, () => false)) files.push({ name: `data-logs-${name}`, path, contentType: 'text/plain' })
+      }
+      for (const file of files) await info.attach(`${START_DIAGNOSTICS}-${file.name}`, { path: file.path, contentType: file.contentType })
+    }, left(DIAGNOSTIC_SAVE_MS))
+    where = 'value' in saved ? `; diagnostics in ${dir}` : `; diagnostics not saved (${saved.problem})`
+  }
+  return diagnosisSummary(state, readyState, shown, where)
+}
+
 /**
  * Starts the app with isolated data and Claude directories and the fake agent: the built out/
  * bundle by default, or the packaged app when `executablePath` is given. Resolves once the window
@@ -128,6 +263,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   if (executablePath === undefined && !existsSync(mainEntry)) {
     throw new Error(`The app is not built: ${mainEntry} is missing. Run \`pnpm test:e2e\`, which builds first.`)
   }
+  startTestClock()
   const dataDir = await mkdtemp(join(tmpdir(), 'worfy-data-'))
   const claudeHome = await mkdtemp(join(tmpdir(), 'worfy-claude-'))
   const shellDir = await mkdtemp(join(tmpdir(), 'worfy-shell-'))
@@ -154,6 +290,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
   }
   // Taken now: once Playwright has closed its connection to the app, app.process() throws.
   const child = app.process()
+  const output = recordOutput(child)
   // The PID of the app's main process, as the app names it. On Windows `child` is the cmd.exe
   // Playwright starts Electron through, and the app is its child (end-app.ts). Asked now, while the
   // app answers; a kill waits for the answer only briefly, since a hung app may never give it.
@@ -199,6 +336,15 @@ export async function launchApp(options: LaunchOptions = {}): Promise<LaunchedAp
       },
     }
   } catch (error) {
+    // The window did not show, or firstWindow gave up: say why while the app and its data folder
+    // are still there. A diagnosis that fails itself only adds its reason to the message.
+    if (error instanceof Error) {
+      const diagnosis = await startDiagnostics(app, dataDir, output).catch((failure: unknown) => `diagnostics failed: ${String(failure)}`)
+      const before = error.message
+      error.message = `${before}\n  ${diagnosis}`
+      // A function, not a string: a $& or $' in a path or URL of the message must not be read as a pattern.
+      if (error.stack?.includes(before)) error.stack = error.stack.replace(before, () => error.message)
+    }
     reportKillFailure(await killThenClean(kill, cleanDirs), error)
     throw error
   }
