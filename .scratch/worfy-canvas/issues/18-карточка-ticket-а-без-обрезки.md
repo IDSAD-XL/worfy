@@ -164,3 +164,10 @@ Stepper уходит в узкую форму (имя Stage, «N/M», Waits), е
 - Долг (low, из review R2): обратная кавычка 0.32 em против ~0.5 em в SF Pro; URL с хешем после
   `diff-` — перенос Chromium не сверен; пока ELK считает новую раскладку, выросшая карточка может
   ненадолго наползти на нижнюю.
+- Follow-up, только test-ы (PR #659, влит squash-ом bf8ec61c, 2026-10-21): e2e
+  `checks-badges.spec.ts` один раз покраснел в gate full с тремя worker-ами — Ticket 1 и Ticket 3
+  «перекрылись»: test читал `boundingBox()` карточек по одной, а высота карточки меняется, когда приходит
+  чип репозитория и ELK раскладывает заново. В `test/e2e/helpers.ts` — `boxesInOnePass` (все
+  прямоугольники в одном `page.evaluate`) и `expectSettledWithoutOverlaps` (`expect.poll`, пока два
+  прохода подряд не прочтут одно и то же без перекрытий); так проверяют `checks-badges.spec.ts` и
+  `epic-frame.spec.ts`. Мутант «карточка на 60 px выше своего места» краснит оба test-а.

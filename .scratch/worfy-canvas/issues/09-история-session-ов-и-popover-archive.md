@@ -1,7 +1,8 @@
 # 09 — Archive: история Session-ов у Ticket-а и Epic-а, popover «Archive» рядом с Trash
 
 Type: task
-Status: open
+Status: done 2026-10-21T05:35Z
+PR: #656
 Blocked by: 07
 Source: [spec.md](../spec.md), решение владельца 5;
 [ADR-0076](../../../docs/adr/0076-auto-archive-of-finished-sessions.md) (автоархив законченных Session-ов),
@@ -36,16 +37,16 @@ Source: [spec.md](../spec.md), решение владельца 5;
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/archive-list.test.ts`: группы по Binding (к Ticket-у, к Epic-у, без Binding);
+- [x] Unit `test/unit/archive-list.test.ts`: группы по Binding (к Ticket-у, к Epic-у, без Binding);
       порядок по `archived.at`; Session с Binding к Ticket-у видна и в истории его Epic-а.
-- [ ] Unit `test/unit/archive-popover.test.tsx`: поиск, Restore, «Restore all from today», Esc; на
+- [x] Unit `test/unit/archive-popover.test.tsx`: поиск, Restore, «Restore all from today», Esc; на
       read-only экране Restore неактивен.
-- [ ] e2e `test/e2e/session-archive-history.spec.ts`: Session с Binding видна в истории своего Ticket-а,
+- [x] e2e `test/e2e/session-archive-history.spec.ts`: Session с Binding видна в истории своего Ticket-а,
       без Binding — в popover «Archive»; Show ставит Node рядом с Ticket-ом, ⌘Z убирает его обратно;
       Restore ставит Node на свободное место (без перекрытия); снимки `archive-popover` и
       `ticket-sessions` в обеих темах.
-- [ ] Мутант красный: Restore мимо LayoutOps.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: Restore мимо LayoutOps.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -74,4 +75,46 @@ Source: [spec.md](../spec.md), решение владельца 5;
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/09`. Влит squash-ом d207756b (PR #656).
+
+- `src/renderer/canvas/archive-list.ts` (новый): архивные Session Node-ы по Binding-у — к Ticket-у, к
+  Epic-у, без Binding; новые сверху по `archived.at`; время архива в будущем ограничено текущим, чтобы
+  такой Node не висел вверху списка. Overlay Archive строит список один раз на Canvas и публикует его по
+  Project-у; badge Ticket-а читает только свою группу.
+- Badge «N sessions» на Ticket-е с архивными Session-ами (`badges/SessionHistory.tsx`) и кнопка «N
+  sessions» в шапке рамки Epic-а (`actions/EpicSessionHistory.tsx`): список с заголовком, временем конца и
+  Show. В истории Epic-а — Session-ы с Binding к Epic-у и к его Ticket-ам.
+- Popover «Archive N» слева от Trash (`overlays/ArchivePopover.tsx`, `archive.css`): Session-ы без
+  Binding, поиск по заголовку, Restore у строки, «Restore all from today». Срока хранения нет.
+- Show из истории сначала двигает Node туда, где встаёт новая Session с Binding-ом: справа от полосы
+  рамок, на высоте Ticket-а; move и restore — один жест. Restore — одна операция `restore` через LayoutOps
+  Canvas-а; main ставит Node на прежнее место или на ближайшее свободное (ADR-0038). Undo — общий
+  `restoreInverse` из #654 (Ticket 14): архив с правилом, партией и временем и move на прежнее место.
+- Restore и Show шлют `showOps` каждому Node-у (`show-ops.ts`, новый; `show-node.ts` его
+  реэкспортирует): Session Node, скрытый до автоархива, возвращается видимым, а undo снова скрывает и
+  архивирует его на прежнем месте.
+- Session, чей Binding ещё не прочитан (ручные Binding-и, её signals, модель workflow), — pending: её нет
+  ни в одном списке, «Restore all from today» её ждёт. Ошибка `bindings.get` хранится в store Binding-ов
+  (`manualError`) и считается прочитанным ответом, поэтому недоступная машина не держит все архивные
+  Session-ы в pending. Signals transcript-ов спрашиваются один раз на окно; неудачное чтение — снова при
+  следующем изменении набора архивных.
+- Popover истории и Archive закрывается, когда его список пуст; `role="dialog"`, Esc закрывает; на
+  read-only экране списки видны, Show и Restore неактивны с причиной. `tsconfig.test.node.json` включает
+  `archive-list.ts`.
+- Test-ы: новые unit `archive-list.test.ts` (группы, порядок, Session Ticket-а в истории Epic-а, поиск,
+  «today», место Show, Show и Restore через LayoutOps, undo restore, скрытые Node-ы против `LayoutStore`
+  main, Session с Binding-ом только по ветке — pending до чтения модели workflow) и
+  `archive-popover.test.tsx` (список, поиск, Restore, «Restore all from today», Esc, read-only, история
+  Ticket-а и Epic-а с Show, закрытие при пустом списке); новый e2e `session-archive-history.spec.ts` (Show
+  справа от полосы на высоте Ticket-а, ⌘Z возвращает в архив на старое место, Restore ставит Node мимо
+  Note, занявшего его место; снимки `ticket-sessions` и `archive-popover` в обеих темах). Мутант «Restore
+  мимо LayoutOps» (`restoreSessions` зовёт `layout.apply` напрямую) — 5 test-ов красные.
+- Known limit, помечен `shortcut:` в `ArchivePopover.tsx:104`: transcript каждой архивной Session
+  читается один раз на окно, чтобы узнать её Binding. Ограничение из описания PR про undo Restore из
+  нескольких партий снято: после rebase на #654 undo идёт через общий `restoreInverse`.
+- Круг ревью 1 (high): BLOCK на 3 medium — undo Restore терял прежнее место; transcript перечитывался при
+  каждом изменении; Session-ы с Binding-ом показывались как без Binding, пока Binding не прочитан.
+  Круг 2 (medium): BLOCK на 2 medium — скрытый Node оставался скрытым после Restore/Show; Session-ы
+  зависали в pending при ошибке `bindings.get`. Круг 3 (medium): PASS.
+- Gate full Mac (2026-10-21, bf8ec61c + PR): зелёный, 436 s.
+- Долг (low из ревью) — Ticket [19](19-долг-после-review-wave-3.md).
