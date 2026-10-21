@@ -72,7 +72,7 @@ export function loadEndedAsReplaced(error: unknown): boolean {
  * the windows of the other Playwright workers open at the same place), and the page then gets a
  * mouseleave or a mousemove at the pointer in the middle of a test that hovers over CDP. Checked
  * when the window is created and right after it is shown (macOS may move a window as it shows
- * it), and after a change of size alone (setSize grows the window over the pointer). A window
+ * it), and after a change of size (setSize grows the window over the pointer; sizeOnlyChange). A window
  * placed from the saved state, or moved to a place by setBounds, stays where it was asked to be:
  * test/e2e/window.spec.ts pins those places, and those tests do not hover.
  * shortcut: no check while the pointer moves (a pointer moved onto a quiet window stays under it), redo

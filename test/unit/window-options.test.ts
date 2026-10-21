@@ -1,6 +1,6 @@
 // The frame of the main window by system (src/main/window-frame.ts, worfy-windows ticket 11): the
 // frame of design F on macOS, the system's own frame with an opaque background elsewhere.
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -45,6 +45,18 @@ const electron = vi.hoisted(() => {
     fakeSession,
     defaultSession: fakeSession('default'),
     partitions: new Map<string, FakeSession>(),
+    /** The window's bounds, its on() listeners and every setBounds it got (keepOffPointer, window.ts). */
+    bounds: { x: 0, y: 0, width: 0, height: 0 },
+    windowOn: [] as { event: string; handler: Listener }[],
+    setBounds: [] as { x: number; y: number; width: number; height: number }[],
+    /** Where macOS puts the window as it shows it, when it moves it then; undefined leaves it. */
+    boundsOnShow: undefined as { x: number; y: number; width: number; height: number } | undefined,
+    /** The real mouse pointer and the displays' work areas, as `screen` reports them. */
+    cursor: { x: 0, y: 0 },
+    cursorReads: 0,
+    workAreas: [{ x: 0, y: 25, width: 1440, height: 875 }],
+    /** The window made last, for the tests that resize or place it. */
+    last: undefined as { setBounds(bounds: { x: number; y: number; width: number; height: number }): void; setSize(width: number, height: number): void } | undefined,
   }
 })
 
@@ -59,8 +71,19 @@ vi.mock('electron', () => {
     }
     constructor(options: Record<string, unknown>) {
       electron.options.push(options)
+      electron.last = this
+      // Saved bounds as given; otherwise the system centres the window on the first display.
+      const width = options.width as number
+      const height = options.height as number
+      const area = electron.workAreas[0]!
+      electron.bounds =
+        typeof options.x === 'number'
+          ? { x: options.x, y: options.y as number, width, height }
+          : { x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height }
     }
-    on(): void {}
+    on(event: string, handler: Listener): void {
+      electron.windowOn.push({ event, handler })
+    }
     once(event: string, handler: Listener): void {
       electron.windowOnce.push({ event, handler })
     }
@@ -69,6 +92,24 @@ vi.mock('electron', () => {
     }
     showInactive(): void {
       electron.shows.push('showInactive')
+      if (electron.boundsOnShow) electron.bounds = { ...electron.boundsOnShow }
+    }
+    getBounds(): { x: number; y: number; width: number; height: number } {
+      return { ...electron.bounds }
+    }
+    getNormalBounds(): { x: number; y: number; width: number; height: number } {
+      return { ...electron.bounds }
+    }
+    /** Like macOS for a programmatic setFrame: 'resize' only when the size changes. */
+    setBounds(bounds: { x: number; y: number; width: number; height: number }): void {
+      electron.setBounds.push({ ...bounds })
+      const resized = bounds.width !== electron.bounds.width || bounds.height !== electron.bounds.height
+      electron.bounds = { ...bounds }
+      if (resized) for (const each of electron.windowOn.filter((entry) => entry.event === 'resize')) each.handler()
+    }
+    setSize(width: number, height: number): void {
+      electron.bounds = { ...electron.bounds, width, height }
+      for (const each of electron.windowOn.filter((entry) => entry.event === 'resize')) each.handler()
     }
     setIgnoreMouseEvents(): void {}
     isDestroyed(): boolean {
@@ -94,7 +135,13 @@ vi.mock('electron', () => {
         return electron.dark
       },
     },
-    screen: { getAllDisplays: () => [] },
+    screen: {
+      getAllDisplays: () => electron.workAreas.map((workArea) => ({ workArea })),
+      getCursorScreenPoint: () => {
+        electron.cursorReads += 1
+        return { ...electron.cursor }
+      },
+    },
     session: {
       get defaultSession() {
         return electron.defaultSession
@@ -154,16 +201,23 @@ describe('createMainWindow', () => {
   })
 
   /** The options of the window createMainWindow makes on `system`. */
-  async function optionsOn(system: NodeJS.Platform, dark: boolean): Promise<Record<string, unknown>> {
+  async function optionsOn(system: NodeJS.Platform, dark: boolean, dataDir?: string, before?: () => void): Promise<Record<string, unknown>> {
     electron.options.length = 0
     electron.handlers.length = 0
     electron.windowOnce.length = 0
     electron.shows.length = 0
     electron.destroyed = false
     electron.dark = dark
-    vi.stubEnv('WORFY_DATA_DIR', join(tmpdir(), 'worfy-window-options-test'))
+    electron.windowOn.length = 0
+    electron.setBounds.length = 0
+    electron.boundsOnShow = undefined
+    electron.cursorReads = 0
+    // Far from any window: only the tests of keepOffPointer put the pointer on the window.
+    electron.cursor = { x: 5_000, y: 5_000 }
+    vi.stubEnv('WORFY_DATA_DIR', dataDir ?? join(tmpdir(), 'worfy-window-options-test'))
     vi.stubEnv('ELECTRON_RENDERER_URL', '')
     Object.defineProperty(process, 'platform', { ...platform, value: system })
+    before?.()
     const { createMainWindow } = await import('../../src/main/window')
     createMainWindow()
     expect(electron.options).toHaveLength(1)
@@ -240,6 +294,108 @@ describe('createMainWindow', () => {
       fire(electron.windowOnce, 'closed')
       vi.advanceTimersByTime(10_000)
       expect(electron.shows).toEqual([])
+    })
+  })
+
+  // Quiet windows on macOS keep out from under the real mouse pointer (keepOffPointer in
+  // src/main/window.ts, avoidPointer in src/main/quiet-windows.ts): AppKit sends the web view of a
+  // mouse-through window mouse entered and exited at the pointer when other windows appear or go
+  // away over it. The default window here is 1280 × 800 centred on a 1440 × 875 work area at y 25:
+  // (80, 63), its centre (720, 463).
+  describe('keeps a quiet window off the real pointer', () => {
+    const centre = { x: 720, y: 463 }
+    const holds = (bounds: { x: number; y: number; width: number; height: number }, point: { x: number; y: number }): boolean =>
+      point.x >= bounds.x - 8 && point.x < bounds.x + bounds.width + 8 && point.y >= bounds.y - 8 && point.y < bounds.y + bounds.height + 8
+    const readyToShow = (): void => {
+      for (const each of electron.windowOnce.filter((entry) => entry.event === 'ready-to-show')) each.handler()
+    }
+
+    beforeEach(() => {
+      vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    })
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('without a saved place moves the window off the pointer when it is made, and again when macOS moves it back as it shows it', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false, undefined, () => {
+        electron.cursor = centre
+      })
+      expect(electron.setBounds).toHaveLength(1)
+      expect(holds(electron.bounds, centre)).toBe(false)
+      expect(electron.bounds).toMatchObject({ width: 1280, height: 800 })
+
+      electron.boundsOnShow = { x: 80, y: 63, width: 1280, height: 800 }
+      readyToShow()
+      expect(electron.shows).toEqual(['showInactive'])
+      expect(electron.setBounds).toHaveLength(2)
+      expect(holds(electron.bounds, centre)).toBe(false)
+    })
+
+    it('after showInactive leaves a window that macOS did not move where it is', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false, undefined, () => {
+        electron.cursor = centre
+      })
+      readyToShow()
+      expect(electron.setBounds).toHaveLength(1)
+    })
+
+    it('moves the window off the pointer when setSize grows it over the pointer', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false)
+      readyToShow()
+      expect(electron.setBounds).toEqual([])
+      // Clear of the window at 1280 wide (its right edge 1360 and the margin), under it at 1400.
+      const pointer = { x: 1400, y: 500 }
+      electron.cursor = pointer
+      electron.last!.setSize(1400, 850)
+      expect(electron.setBounds).toHaveLength(1)
+      expect(electron.bounds).toMatchObject({ width: 1400, height: 850 })
+      expect(holds(electron.bounds, pointer)).toBe(false)
+    })
+
+    it('leaves a place given to setBounds as it is, the pointer under it or not', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      await optionsOn('darwin', false)
+      readyToShow()
+      const wanted = { x: 60, y: 100, width: 900, height: 560 }
+      electron.cursor = { x: 300, y: 300 }
+      electron.last!.setBounds(wanted)
+      expect(electron.setBounds).toEqual([wanted])
+      expect(electron.bounds).toEqual(wanted)
+    })
+
+    it('leaves a place restored from the saved state as it is, the pointer under it or not', async () => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', '1')
+      const dataDir = mkdtempSync(join(tmpdir(), 'worfy-window-options-saved-'))
+      const saved = { x: 100, y: 100, width: 900, height: 600 }
+      try {
+        writeFileSync(join(dataDir, 'window-state.json'), JSON.stringify({ bounds: saved }))
+        await optionsOn('darwin', false, dataDir, () => {
+          electron.cursor = { x: 500, y: 400 }
+        })
+        readyToShow()
+        expect(electron.setBounds).toEqual([])
+        expect(electron.bounds).toEqual(saved)
+      } finally {
+        rmSync(dataDir, { recursive: true, force: true })
+      }
+    })
+
+    it.each([
+      ['a quiet window on Windows', 'win32', '1'],
+      ['a normal window on macOS', 'darwin', ''],
+    ] as const)('never reads the pointer for %s', async (_case, system, quiet) => {
+      vi.stubEnv('WORFY_QUIET_WINDOWS', quiet)
+      await optionsOn(system, false, undefined, () => {
+        electron.cursor = centre
+      })
+      readyToShow()
+      electron.last!.setSize(1400, 850)
+      expect(electron.cursorReads).toBe(0)
+      expect(electron.setBounds).toEqual([])
     })
   })
 

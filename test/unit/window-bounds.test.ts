@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SIZE, MIN_SIZE, POINTER_MARGIN, boundsOffPoint, initialBounds, parseWindowState, serializeWindowState, sizeOnlyChange } from '../../src/shared/window/bounds'
+import { DEFAULT_SIZE, MIN_SIZE, POINTER_MARGIN, SIZE_CHANGE_TOP_SHIFT, boundsOffPoint, initialBounds, parseWindowState, serializeWindowState, sizeOnlyChange } from '../../src/shared/window/bounds'
 
 const display = { x: 0, y: 25, width: 1440, height: 875 }
 
@@ -106,6 +106,60 @@ describe('boundsOffPoint', () => {
     expect(boundsOffPoint(window, pointer, [display])).toEqual({ x: 100, y: 795 - POINTER_MARGIN - 600, width: 800, height: 600 })
   })
 
+  // The pointer exactly on the margin around each edge counts as under the window; one DIP
+  // further out it does not.
+  it.each([
+    ['left', { x: 100 - POINTER_MARGIN, y: 300 }, { x: 100 - POINTER_MARGIN - 1, y: 300 }],
+    ['top', { x: 500, y: 100 - POINTER_MARGIN }, { x: 500, y: 100 - POINTER_MARGIN - 1 }],
+    ['bottom', { x: 500, y: 100 + 520 + POINTER_MARGIN - 1 }, { x: 500, y: 100 + 520 + POINTER_MARGIN }],
+    ['right', { x: 100 + 800 + POINTER_MARGIN - 1, y: 300 }, { x: 100 + 800 + POINTER_MARGIN, y: 300 }],
+  ])('takes the pointer exactly on the margin of the %s edge as under the window', (_edge, onMargin, outside) => {
+    const window = { x: 100, y: 100, width: 800, height: 520 }
+    const moved = boundsOffPoint(window, onMargin, [display])
+    expect(moved).toBeDefined()
+    expect(boundsOffPoint(moved!, onMargin, [display])).toBeUndefined()
+    expect(boundsOffPoint(window, outside, [display])).toBeUndefined()
+  })
+
+  it('moves a full-width window down when the pointer is near its top', () => {
+    const window = { x: 0, y: 25, width: 1440, height: 600 }
+    const pointer = { x: 720, y: 40 }
+    expect(boundsOffPoint(window, pointer, [display])).toEqual({ x: 0, y: 40 + POINTER_MARGIN + 1, width: 1440, height: 600 })
+  })
+
+  it('moves a window larger than the display off the pointer too, partly off the display', () => {
+    const window = { x: -100, y: 0, width: 1700, height: 1000 }
+    const pointer = { x: 720, y: 450 }
+    const moved = boundsOffPoint(window, pointer, [display])
+    expect(moved).toBeDefined()
+    expect(moved).toMatchObject({ width: 1700, height: 1000 })
+    expect(boundsOffPoint(moved!, pointer, [display])).toBeUndefined()
+  })
+
+  // A second display to the right, its top at 0, listed first: the menu bar that limits a move up
+  // is the one of the display under the pointer.
+  const external = { x: 1440, y: 0, width: 1920, height: 1080 }
+
+  it('moves the window up to exactly the top of the work area under the pointer', () => {
+    const window = { x: 100, y: 200, width: 800, height: 600 }
+    const pointer = { x: 500, y: display.y + POINTER_MARGIN + 600 }
+    expect(boundsOffPoint(window, pointer, [external, display])).toEqual({ x: 100, y: display.y, width: 800, height: 600 })
+  })
+
+  it('takes the top limit from the display under the pointer, not from a higher display beside it', () => {
+    const window = { x: 0, y: 30, width: 1440, height: 600 }
+    const pointer = { x: 720, y: 620 }
+    expect(boundsOffPoint(window, pointer, [external, display])).toEqual({ x: 720 - POINTER_MARGIN - 1440, y: 30, width: 1440, height: 600 })
+  })
+
+  it('keeps the window on the display under the pointer rather than carry it onto the monitor beside it', () => {
+    // Right is the shorter move and leaves as much of the window on the two displays, but half of
+    // it on the other monitor; left keeps it whole on this one.
+    const window = { x: 700, y: 100, width: 700, height: 700 }
+    const pointer = { x: 1000, y: 300 }
+    expect(boundsOffPoint(window, pointer, [display, external])).toEqual({ x: 1000 - POINTER_MARGIN - 700, y: 100, width: 700, height: 700 })
+  })
+
   it('keeps the size of the window', () => {
     const window = { x: 224, y: 95, width: 1200, height: 700 }
     const moved = boundsOffPoint(window, { x: 600, y: 400 }, [display])
@@ -116,6 +170,14 @@ describe('boundsOffPoint', () => {
 describe('sizeOnlyChange', () => {
   it('is a change of size with the top-left corner kept (setSize)', () => {
     expect(sizeOnlyChange({ x: 10, y: 40, width: 1280, height: 800 }, { x: 10, y: 40, width: 1600, height: 1000 })).toBe(true)
+  })
+
+  it('is a change of size whose top macOS moved by up to the menu bar, the left edge kept', () => {
+    const before = { x: 10, y: 95, width: 1280, height: 800 }
+    expect(sizeOnlyChange(before, { x: 10, y: 95 - SIZE_CHANGE_TOP_SHIFT, width: 1600, height: 1000 })).toBe(true)
+    expect(sizeOnlyChange(before, { x: 10, y: 95 + SIZE_CHANGE_TOP_SHIFT, width: 1600, height: 1000 })).toBe(true)
+    expect(sizeOnlyChange(before, { x: 10, y: 95 - SIZE_CHANGE_TOP_SHIFT - 1, width: 1600, height: 1000 })).toBe(false)
+    expect(sizeOnlyChange(before, { x: 11, y: 95, width: 1600, height: 1000 })).toBe(false)
   })
 
   it.each([

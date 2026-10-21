@@ -99,32 +99,49 @@ function visibleArea(bounds: Rect, workAreas: readonly Rect[]): number {
 
 /**
  * Where a window goes so that it no longer contains the point (the mouse pointer) with a margin:
- * the same size, moved just past the pointer to the left, right, below or above, whichever leaves
- * most of the window on the displays, then whichever moves it least. undefined when the window
- * already keeps clear of the point. A move up that would put the window's top above the top of the
- * work area under the point (the menu bar) is not offered: macOS would push the window back down
- * when it is shown. A window wider and taller than the display ends up partly off it; that is the
- * price, since no place on the display keeps clear of the pointer.
+ * the same size, moved just past the pointer to the left, right, below or above. The pick: the most
+ * of the window left on the display under the pointer (a move onto another monitor, maybe of
+ * another scale factor, does not win by area there), then the most on all displays, then the
+ * shortest move. undefined when the window already keeps clear of the point. A move up that would
+ * put the window's top above the top of the work area under the point (the menu bar) is not
+ * offered: macOS would push the window back down when it is shown. A window wider and taller than
+ * the display ends up partly off it; that is the price, since no place on the display keeps clear
+ * of the pointer.
  */
 export function boundsOffPoint(bounds: Rect, point: Point, workAreas: readonly Rect[], margin: number = POINTER_MARGIN): Rect | undefined {
   if (!holds(bounds, point, margin)) return undefined
-  const top = workAreas.find((area) => holds(area, point, 0))?.y
+  const underPointer = workAreas.find((area) => holds(area, point, 0))
   const candidates: Rect[] = [
     { ...bounds, x: point.x - margin - bounds.width },
     { ...bounds, x: point.x + margin + 1 },
     { ...bounds, y: point.y + margin + 1 },
     { ...bounds, y: point.y - margin - bounds.height },
-  ].filter((candidate) => top === undefined || candidate.y >= top)
+  ].filter((candidate) => underPointer === undefined || candidate.y >= underPointer.y)
+  const onPointerDisplay = (candidate: Rect): number => (underPointer ? visibleArea(candidate, [underPointer]) : 0)
   const shift = (candidate: Rect): number => Math.abs(candidate.x - bounds.x) + Math.abs(candidate.y - bounds.y)
-  candidates.sort((a, b) => visibleArea(b, workAreas) - visibleArea(a, workAreas) || shift(a) - shift(b))
+  candidates.sort(
+    (a, b) =>
+      onPointerDisplay(b) - onPointerDisplay(a) || visibleArea(b, workAreas) - visibleArea(a, workAreas) || shift(a) - shift(b),
+  )
   return candidates[0]
 }
 
 /**
- * Whether a change of the window's bounds is a change of size alone, the top-left corner kept
- * (BrowserWindow.setSize). A change that also moves the window (setBounds with a place, a drag)
- * names the place it wants, and a window kept off the pointer leaves that place as it is.
+ * How far macOS may move a window's top while it changes the window's size, in DIP: the height
+ * of the menu bar (37–38 DIP on a display with a notch) and some room. AppKit keeps a window's top
+ * under the menu bar and shrinks a window taller than the display; it never moves it sideways.
+ */
+export const SIZE_CHANGE_TOP_SHIFT = 40
+
+/**
+ * Whether a change of the window's bounds is a change of size (BrowserWindow.setSize): the width
+ * or height changed, the left edge kept, and the top kept or moved by no more than
+ * SIZE_CHANGE_TOP_SHIFT, as macOS does to a window grown taller than the display (setSize(1600,
+ * 1000) on a 1512 × 982 display). A change that also moves the window further (setBounds with a
+ * place, a drag) names the place it wants, and a window kept off the pointer leaves that place as
+ * it is.
  */
 export function sizeOnlyChange(previous: Rect, next: Rect): boolean {
-  return previous.x === next.x && previous.y === next.y && (previous.width !== next.width || previous.height !== next.height)
+  const resized = previous.width !== next.width || previous.height !== next.height
+  return resized && previous.x === next.x && Math.abs(previous.y - next.y) <= SIZE_CHANGE_TOP_SHIFT
 }
