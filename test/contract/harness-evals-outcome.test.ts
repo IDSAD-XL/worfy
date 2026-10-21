@@ -33,7 +33,10 @@ const PLANNED = ['fix-hidden-tests', 'review-planted-defects', 'false-done-trap'
  * tens of seconds, past the time of one test.
  */
 const SETUP_TIMEOUT = 300_000
-/** The time of a test that runs the scorer, the checker or the wrapper end to end on its own. */
+/**
+ * The time of a test that does heavy work of its own: the scorer, the checker or the wrapper end to
+ * end, fixture.sh (git init, a commit, a bare repository, a push), or a copy of the whole harness/.
+ */
 const RUN_TIMEOUT = 60_000
 const NO_SIGNALS_ON_WINDOWS = 'Windows has no SIGTERM a process can catch: process.kill ends the process there'
 
@@ -278,7 +281,7 @@ describe('harness/evals-outcome/lib/fixture.sh and the plugin state script', () 
     expect(run.status, run.stderr).toBe(0)
     expect(readdirSync(join(work, '.git')).filter((name) => /harness|worfy/i.test(name))).toEqual([])
     expect(readdirSync(home)).toEqual(['cwd'])
-  })
+  }, RUN_TIMEOUT)
 
   it('the plugin state script writes the state to .git/worfy-harness and to $HOME/.claude/worfy-harness, and the plugin recognises the project', () => {
     const { work, home } = built()
@@ -1206,7 +1209,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(run.status).toBe(1)
     expect(run.stderr).toMatch(/no task folder/)
     expect(calls).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   it('a task folder in the real slot does not reach these stub runs', () => {
     const source = join(tempDir('outcome-source-'), 'harness')
@@ -1220,21 +1223,21 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(run.status).toBe(1)
     expect(run.stderr).toMatch(/no task folder/)
     expect(calls).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   it('refuses without --max-cost-usd (exit 2) and calls no claude', () => {
     const { run, calls } = stubRun(['--runs', '1'], true)
     expect(run.status).toBe(2)
     expect(run.stderr).toMatch(/--max-cost-usd/)
     expect(calls).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   it.each(['--ablation', '--eval-dir', '--output-dir', '--model', '--judge-model'])('refuses a %s of its own (exit 2) and calls no claude', (option) => {
     const { run, calls } = stubRun(['--max-cost-usd', '5', option, 'x'], true)
     expect(run.status).toBe(2)
     expect(run.stderr).toContain(option)
     expect(calls).toEqual([])
-  })
+  }, RUN_TIMEOUT)
 
   const FAKE_PLUGIN_BIN = join(tmpdir(), 'elsewhere', 'harness', 'bin')
   const full = (() => {

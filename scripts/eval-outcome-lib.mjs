@@ -791,8 +791,10 @@ function runChecks(spec, copy, answer, judge) {
   // this machine to fetch a missing object. GIT_NO_REPLACE_OBJECTS: a replace ref would show another
   // object in place of the base test file.
   // GIT_CONFIG_GLOBAL is an empty file, not the null device: Git for Windows cannot read os.devNull
-  // (\\.\nul) as a config file and stops with "unable to access". The file adds nothing the copy's
-  // own .git/config, which the agent wrote, could not already say.
+  // (\\.\nul) as a config file and stops with "unable to access". The file is the scorer's own and
+  // starts empty, so the agent cannot plant it beforehand. A `command` check runs the agent's code,
+  // which can overwrite it before a later git check reads it; but code that runs already has the
+  // machine as this user, so the file gives it no new capability.
   const emptyConfig = join(copy.dir, 'score-gitconfig')
   writeFileSync(emptyConfig, '')
   const gitEnv = { ...env, GIT_CONFIG_GLOBAL: emptyConfig, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
