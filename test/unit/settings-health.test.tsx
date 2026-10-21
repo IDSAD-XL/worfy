@@ -10,6 +10,7 @@ import { collectSections, settingsSections } from '../../src/renderer/settings/s
 import { closeSettings, openSettings, selectSection, SETTINGS_LAYER, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { FirstRun } from '../../src/renderer/shell/FirstRun'
 import { openFirstRun, useFirstRun } from '../../src/renderer/shell/first-run-store'
+import { resetToasts, toasts } from '../../src/renderer/toast/toasts'
 
 // worfy-ui ticket 6: Settings → Health shows the checks of the First run dialog, from the same
 // store, and never writes the mark of that dialog. main is a fake preload bridge: each channel
@@ -152,6 +153,28 @@ describe('Settings → Health: the section', () => {
     expect(rowOf(health, 'jq').textContent).toContain('Install it')
     expect(rowOf(health, 'jq').querySelector('code')?.textContent).toBe('brew install jq')
     expect(within(rowOf(health, 'jq')).getByRole('button', { name: 'Copy brew install jq' })).toBeTruthy()
+  })
+
+  it('Copy puts the command on the clipboard and says so in a success toast; the label stays "Copy"', async () => {
+    const written: string[] = []
+    const clipboard = { writeText: (text: string) => (written.push(text), Promise.resolve()) }
+    Object.defineProperty(navigator, 'clipboard', { value: clipboard, configurable: true })
+    resetToasts()
+    try {
+      renderApp()
+      act(() => openSettings('HealthSection'))
+      const health = await openHealth()
+      const copy = within(rowOf(health, 'jq')).getByRole('button', { name: 'Copy brew install jq' })
+      await act(async () => {
+        fireEvent.click(copy)
+      })
+      expect(written).toEqual(['brew install jq'])
+      expect(toasts.getState().toasts).toMatchObject([{ kind: 'success', text: 'Copied brew install jq' }])
+      expect(copy.textContent).toBe('Copy')
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard
+      resetToasts()
+    }
   })
 
   it('a check main could not run is said in an alert, and the next "Check again" clears it', async () => {

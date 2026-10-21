@@ -5,8 +5,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { create } from 'zustand'
 import type { LayoutChangeEvent } from '../../shared/ipc/layout'
 import { EMPTY_LAYOUT, type Layout, type LayoutOpInput, type LayoutState } from '../../shared/layout/types'
-import { invoke, subscribe } from '../ipc'
-import { errorText, showIpcError } from '../toast/toasts'
+import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import { noteLayoutChange, type Group, type LayoutChannel, type RecordOptions, type SendAnswer } from './history'
 import { screenId } from './screen'
@@ -44,8 +43,7 @@ function ensureSubscribed(): void {
   try {
     subscribe('layout.changed', acceptLayoutChange)
   } catch (error) {
-    console.error('layout.changed: cannot subscribe', error)
-    showIpcError('layout.changed', `Updates stopped: cannot subscribe to layout.changed (${errorText(error)})`)
+    showSubscribeError('layout.changed', error)
   }
 }
 

@@ -59,7 +59,8 @@ toast-ы, которые можно использовать для многих
 3. **Предел стопки:** на экране не больше трёх toast-ов. Новый toast вытесняет самый старый из тех,
    что скрываются сами. Если все три висят (`error`, `action`), новый ждёт в очереди и выходит, когда
    место освободится.
-4. **Компонент** `src/renderer/toast/Toasts.tsx` (новый) — один на окно, ставится в
+4. **Компонент** `src/renderer/toast/ToastRegion.tsx` (новый; не `Toasts.tsx`: рядом с `toasts.ts` на
+   файловой системе без учёта регистра оба имени — один файл) — один на окно, ставится в
    `src/renderer/main.tsx`. Его видно поверх Canvas, Session view и режима фокуса. Место на экране
    выбирает исполнитель (в «Итог», со снимком), с одним условием: toast-ы не закрывают поле ввода
    Session с кнопкой Send и Minimap.
@@ -121,7 +122,7 @@ toast-ы, которые можно использовать для многих
 ## Где в коде
 
 - `src/renderer/toast/toasts.ts` (новый)
-- `src/renderer/toast/Toasts.tsx` (новый)
+- `src/renderer/toast/ToastRegion.tsx` (новый)
 - `src/renderer/toast/toast.css` (новый)
 - `src/renderer/main.tsx`
 - `src/renderer/canvas/history.ts`
@@ -143,6 +144,12 @@ toast-ы, которые можно использовать для многих
 - `test/unit/file-elsewhere.test.tsx`
 - `test/e2e/trash-undo.spec.ts`
 - `test/e2e/linked-system-actions.spec.ts`
+- `src/renderer/ipc.ts` (`showSubscribeError` — один текст сбоя подписки для четырёх hook-ов)
+- `src/renderer/canvas/nodes/TerminalNode.css` (убрано правило строки отказа Fix)
+- `tsconfig.test.node.json` (`toasts.ts` в `include`: его импортирует `history.ts`)
+- `test/unit/adr-section.test.tsx`, `test/unit/markdown.test.tsx`, `test/unit/ticket-focus.test.tsx`,
+  `test/unit/settings-health.test.tsx` — «File is on <Machine>» и «Copied» теперь toast-ы
+- `.scratch/worfy-ui/evidence/16-*.png` (снимки)
 
 ## Вне скоупа
 
@@ -164,23 +171,31 @@ toast-ы, которые можно использовать для многих
 - **API для worfy-canvas 10.** `showToast({ kind: 'action', key: batch, projectId, text, actions: [{ label: 'Undo', run }] })`;
   `key` — это id toast-а, повтор с тем же `key` заменяет toast на месте; кнопка зовёт `run` и закрывает
   toast, даже если `run` бросил; у `action` от одной до трёх кнопок (проверяет тип).
-- **Место.** Сверху по центру окна, под toolbar (`top: toolbar-height + 8px`), ширина до 420 px;
-  область рисуется на `<body>` с z-index 120: над focus mode, над диалогами (90–101) и над окном Settings
-  (110; modal guard пропускает клавиши слоя выше). Поле ввода Session с Send и Minimap — внизу, toast-ы
-  их не закрывают. Порядок: сначала `error` (область `role="alert"`), под ними остальные (`role="status"`).
+- **Место — правый верхний угол** (решение оркестратора после ревью #677, записано для владельца):
+  сверху по центру открываются Command palette и поиск по Canvas, и `error`, который висит, закрывал
+  бы их поле. `top: toolbar-height + 148px`, `right: 16px`, ширина до 360 px: ниже шапки Session view
+  (44 px) и, в focus mode, полосы заголовка плитки (22 px) с шапкой Node-а под ней («Open in editor»
+  Ticket-а и ряд действий с «Ship ticket», он кончается примерно в 144 px под toolbar). Close окна Settings — внизу, toast-ы его не закрывают; поле ввода Session с Send и Minimap —
+  тоже внизу. Область рисуется на `<body>` с z-index 120: над focus mode, над диалогами (90–101) и над
+  окном Settings (110; modal guard пропускает клавиши слоя выше). Мышь берут только сами toast-ы.
+  Порядок: сначала `error` (область `role="alert"`), под ними остальные (`role="status"`).
 - **Вид.** Поверхность `--surface`, рамка `--border`, радиус `--radius-button`, тень `--shadow-node`,
   текст 12/18 px, до трёх строк (полный текст — в `title`). Вид — полоса слева 3 px: `info` —
   `--border-strong`, `success` — `--ready-dot`, `error` — `--blocked-ring`, `action` — `--working-dot`.
   Кнопки `action` — 24 px, `--accent`; кнопка закрытия «Dismiss» 24 px. Появление — 160 мс
-  (прозрачность и сдвиг на 4 px), при «Reduce motion» без анимации.
+  (прозрачность и сдвиг справа на 8 px), при «Reduce motion» без анимации.
+- **Фокус.** Escape, Dismiss или кнопка `action` на toast-е в фокусе возвращают фокус туда, где он был
+  до toast-а.
 - **Время.** Наведение мыши или фокус останавливают время; когда ушли оба, 4 с начинаются заново
   целиком.
 - **Toast другого Project-а** скрыт и не занимает места в стопке из трёх; его время идёт.
 - **Тексты.** ⌘Z — прежние «Not undone/Not redone: this Node was changed on another screen»;
   «File is on <Machine>»; отказ Fix — «Fix in Terminal <shell>: <причина>»; Copy — «Copied <команда>»;
   сбой подписки — «Updates stopped: cannot subscribe to <канал> (<ошибка>)»; `claudeHome.live` —
-  «Live Sessions not read: <причина>».
+  «Live Sessions not read: <причина>». Повтор той же причины `claudeHome.live` при опросе раз в 2 с
+  не показывает toast снова и не возвращает закрытый; ответ без ошибки убирает его.
 - **Снимки.** Все четыре вида (разметка компонента с `tokens.css` и `toast.css` в Chromium):
   ![светлая](../evidence/16-toasts-light.png) ![тёмная](../evidence/16-toasts-dark.png).
   В приложении (e2e `trash-undo.spec.ts`): ![светлая](../evidence/16-undo-skipped-light.png)
-  ![тёмная](../evidence/16-undo-skipped-dark.png).
+  ![тёмная](../evidence/16-undo-skipped-dark.png); над focus mode (e2e `linked-system-actions.spec.ts`):
+  ![светлая](../evidence/16-file-elsewhere-focus-light.png) ![тёмная](../evidence/16-file-elsewhere-focus-dark.png).

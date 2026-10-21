@@ -24,8 +24,8 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { AgentEvent } from '../../shared/agent/events'
 import type { HistorySession, LiveSession } from '../../shared/ipc/claude-home'
-import { invoke, readableReason, subscribe } from '../ipc'
-import { errorText, showIpcError } from '../toast/toasts'
+import { invoke, readableReason, showSubscribeError, subscribe } from '../ipc'
+import { dismissToast, showToast } from '../toast/toasts'
 
 /** How often the live list is asked again while a Session is live. */
 export const LIVE_POLL_MS = 2000
@@ -147,15 +147,38 @@ function mayWantTitle(root: string, sessionId: string): boolean {
   return entry?.history.find((session) => session.sessionId === sessionId)?.title === undefined
 }
 
+/** The key of the toast of a failed `claudeHome.live`, one for every Project root. */
+const LIVE_ERROR = 'ipc:claudeHome.live'
+/** The reason last shown for each root whose `claudeHome.live` failed; a success takes the root out. */
+const liveErrors = new Map<string, string>()
+
+/**
+ * A failed `claudeHome.live` of `root`: an `error` toast, unless the same reason for the root is
+ * already shown — a poll that fails again neither announces it again nor brings back a closed toast.
+ */
+function liveFailed(root: string, error: string): void {
+  const text = `Live Sessions not read: ${readableReason(error)}`
+  if (liveErrors.get(root) === text) return
+  liveErrors.set(root, text)
+  showToast({ kind: 'error', key: LIVE_ERROR, text })
+}
+
+/** A `claudeHome.live` of `root` that answered: the toast goes once no root fails any more. */
+function liveAnswered(root: string): void {
+  if (!liveErrors.delete(root) || liveErrors.size > 0) return
+  dismissToast(LIVE_ERROR)
+}
+
 async function refreshLive(root: string): Promise<void> {
   const request = (lastRequest += 1)
   const result = await invoke('claudeHome.live', { projectRoot: root })
   if (!users.has(root)) return
   if (!result.ok) {
     console.error(`claudeHome.live ${root} failed:`, result.error)
-    showIpcError('claudeHome.live', `Live Sessions not read: ${readableReason(result.error)}`)
+    liveFailed(root, result.error)
     return
   }
+  liveAnswered(root)
   const shown = applied.get(root) ?? NONE_APPLIED
   if (request < shown.live) return // a newer live list is on screen
   applied.set(root, { ...shown, live: request })
@@ -190,8 +213,7 @@ function ensureSubscribed(): void {
     subscribe('claudeHome.changed', onChanged)
   } catch (error) {
     subscribed = false
-    console.error('claudeHome.changed: cannot subscribe', error)
-    showIpcError('claudeHome.changed', `Updates stopped: cannot subscribe to claudeHome.changed (${errorText(error)})`)
+    showSubscribeError('claudeHome.changed', error)
   }
 }
 
@@ -212,6 +234,8 @@ function release(root: string): void {
   reread.delete(root)
   applied.delete(root)
   untitled.delete(root)
+  // Nobody shows this root any more: its failure is not news; the toast goes with the last one.
+  liveAnswered(root)
   const timer = polls.get(root)
   if (timer !== undefined) clearInterval(timer)
   polls.delete(root)

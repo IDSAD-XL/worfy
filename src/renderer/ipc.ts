@@ -19,6 +19,7 @@ import {
   type IpcResult,
   type WorfyBridge,
 } from '../shared/ipc/channels'
+import { showToast } from './toast/toasts'
 
 // Every domain file declares its channels with their marks when it loads; loaded here, the marks
 // are known before the first call, whichever modules of the renderer happen to import which file.
@@ -207,4 +208,14 @@ export function subscribeOn<K extends EventName>(machine: string | null, channel
  */
 export function readableReason(error: string): string {
   return error.replace(/^[\w.]+: (?=.+ (is unreachable|did not answer in time)$)/, '')
+}
+
+/**
+ * A subscription of a renderer hook that failed (worfy-ui ticket 16): it is written to the console and
+ * shown as an `error` toast, one per channel, so the same failure again does not stack toasts up.
+ */
+export function showSubscribeError(channel: string, error: unknown): void {
+  console.error(`${channel}: cannot subscribe`, error)
+  const reason = error instanceof Error ? error.message : String(error)
+  showToast({ kind: 'error', key: `ipc:${channel}`, text: `Updates stopped: cannot subscribe to ${channel} (${reason})` })
 }

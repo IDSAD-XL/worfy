@@ -173,6 +173,18 @@ describe('the pause', () => {
   })
 })
 
+describe('a release without a hold', () => {
+  it('changes nothing: the time keeps running from when the toast showed', () => {
+    const id = showToast(info('not held'))
+    vi.advanceTimersByTime(TOAST_MS - 100)
+    // ToastRegion releases both holds when a toast leaves the screen, held or not.
+    holdToast(id, 'hover', false)
+    holdToast(id, 'focus', false)
+    vi.advanceTimersByTime(100)
+    expect(texts()).toEqual([])
+  })
+})
+
 describe('the Project of a toast', () => {
   it('a toast with a projectId is shown only while that Project is active', () => {
     setToastProject('alpha')

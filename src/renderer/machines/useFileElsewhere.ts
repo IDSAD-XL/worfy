@@ -5,7 +5,7 @@
 // (toast/toasts.ts, worfy-ui ticket 16) instead. A window on this Machine opens the file as before.
 import { useState } from 'react'
 import { windowMachine } from '../ipc'
-import { showToast, toasts } from '../toast/toasts'
+import { isToastShown, showToast } from '../toast/toasts'
 import { linkStateNow, refreshLinkState } from './useMachines'
 
 export interface FileElsewhere {
@@ -42,7 +42,7 @@ export function useFileElsewhere(): FileElsewhere {
       if (name !== undefined) return
       void refreshLinkState().then(() => {
         const later = nameNow(machine)
-        if (later !== undefined && toasts.getState().toasts.some((toast) => toast.id === KEY)) showElsewhere(later)
+        if (later !== undefined && isToastShown(KEY)) showElsewhere(later)
       })
     },
   }

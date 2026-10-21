@@ -164,10 +164,14 @@ export function pressToastAction(id: string, index: number): void {
   }
 }
 
-/** The pointer (`hover`) or the keyboard focus (`focus`) came onto a toast (`held`) or left it. */
+/**
+ * The pointer (`hover`) or the keyboard focus (`focus`) came onto a toast (`held`) or left it. A call
+ * that changes nothing (a release without a hold) leaves the time as it runs.
+ */
 export function holdToast(id: string, reason: HoldReason, held: boolean): void {
   if (!toasts.getState().toasts.some((toast) => toast.id === id)) return
   const reasons = holds.get(id) ?? new Set<HoldReason>()
+  if (reasons.has(reason) === held) return
   if (held) reasons.add(reason)
   else reasons.delete(reason)
   holds.set(id, reasons)
@@ -176,23 +180,21 @@ export function holdToast(id: string, reason: HoldReason, held: boolean): void {
   runTimers()
 }
 
-/** The Project now active in this window; undefined with none. */
+/**
+ * The Project now active in this window; undefined with none. ToastRegion.tsx calls it, so the active
+ * Project is known only while that component is mounted: without it every toast with a projectId
+ * counts as another Project's.
+ */
 export function setToastProject(projectId: string | undefined): void {
   if (toasts.getState().project === projectId) return
   toasts.setState({ project: projectId })
   commit(toasts.getState().toasts)
 }
 
-/**
- * A call to main that failed where nobody sees it otherwise: an `error` toast, one per channel, so the
- * same failure repeated does not stack up. The caller still writes it to the console.
- */
-export function showIpcError(channel: string, text: string): void {
-  showToast({ kind: 'error', key: `ipc:${channel}`, text })
+/** Whether the toast with this key (or id) is in the store: on screen, hidden by its Project or waiting. */
+export function isToastShown(key: string): boolean {
+  return toasts.getState().toasts.some((toast) => toast.id === key)
 }
-
-/** The message of a caught error. */
-export const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** Closes every toast and forgets the active Project; tests start from an empty store. */
 export function resetToasts(): void {

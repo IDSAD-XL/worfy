@@ -116,6 +116,51 @@ describe('ToastRegion', () => {
     expect(screen.queryByTestId('file-elsewhere')).toBeNull()
   })
 
+  it('a toast that leaves the screen under the pointer or the focus loses its pause: its time runs when it is back', () => {
+    vi.useFakeTimers()
+    const { rerender } = render(<ToastRegion projectId="alpha" />)
+    act(() => {
+      showToast({ kind: 'info', text: 'Not undone', projectId: 'alpha', testId: 'undo-skipped' })
+    })
+    const toast = screen.getByTestId('undo-skipped')
+    fireEvent.mouseEnter(toast)
+    fireEvent.focus(within(toast).getByRole('button', { name: 'Dismiss' }))
+    // A switch of Project takes it off the screen: no mouseleave, no blur.
+    rerender(<ToastRegion projectId="beta" />)
+    rerender(<ToastRegion projectId="alpha" />)
+    expect(screen.queryByTestId('undo-skipped')).not.toBeNull()
+    act(() => vi.advanceTimersByTime(TOAST_MS))
+    expect(screen.queryByTestId('undo-skipped')).toBeNull()
+  })
+
+  it('Escape or Dismiss on a toast in focus gives the focus back to where it was before', () => {
+    render(
+      <>
+        <textarea aria-label="Message" />
+        <ToastRegion projectId={undefined} />
+      </>,
+    )
+    const field = screen.getByRole('textbox', { name: 'Message' })
+    act(() => {
+      showToast({ kind: 'error', text: 'first' })
+      showToast({ kind: 'error', text: 'second' })
+    })
+    const [first, second] = screen.getAllByRole('button', { name: 'Dismiss' })
+    // Tab from the field onto the first toast's button.
+    act(() => field.focus())
+    act(() => first!.focus())
+    fireEvent.focus(first!, { relatedTarget: field })
+    fireEvent.keyDown(first!, { key: 'Escape' })
+    expect(screen.queryByText('first')).toBeNull()
+    expect(document.activeElement).toBe(field)
+
+    act(() => second!.focus())
+    fireEvent.focus(second!, { relatedTarget: field })
+    fireEvent.click(second!)
+    expect(screen.queryByText('second')).toBeNull()
+    expect(document.activeElement).toBe(field)
+  })
+
   it("shows a Project's toast only while that Project is the window's active one", () => {
     const { rerender } = render(<ToastRegion projectId="alpha" />)
     act(() => {
@@ -167,6 +212,88 @@ describe('IPC subscription failures', () => {
       expect(errors().map((toast) => toast.id)).toEqual(['ipc:claudeHome.changed', 'ipc:workflow.changed'])
       // The console still has it.
       expect(logged).toHaveBeenCalledWith('workflow.changed: cannot subscribe', expect.any(Error))
+      store.resetToasts()
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  it('useDocs and useLayout: a throwing subscribe shows an error toast for each channel', async () => {
+    vi.resetModules()
+    ;(globalThis as { worfy?: unknown }).worfy = {
+      invoke: () => new Promise(() => undefined),
+      on: () => {
+        throw new Error('the bridge is closed')
+      },
+      off: () => undefined,
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { renderHook } = await import('@testing-library/react')
+      const store = await import('../../src/renderer/toast/toasts')
+      const { useDocs } = await import('../../src/renderer/docs/useDocs')
+      const { useLayout } = await import('../../src/renderer/canvas/useLayout')
+      store.resetToasts()
+      renderHook(() => useDocs('alpha'))
+      renderHook(() => useLayout('alpha'))
+      expect(store.toasts.getState().toasts).toMatchObject([
+        { id: 'ipc:docs.changed', kind: 'error', text: 'Updates stopped: cannot subscribe to docs.changed (the bridge is closed)' },
+        { id: 'ipc:layout.changed', kind: 'error', text: 'Updates stopped: cannot subscribe to layout.changed (the bridge is closed)' },
+      ])
+      expect(logged).toHaveBeenCalledWith('docs.changed: cannot subscribe', expect.any(Error))
+      expect(logged).toHaveBeenCalledWith('layout.changed: cannot subscribe', expect.any(Error))
+      store.resetToasts()
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  it('claudeHome.live: a failure is one error toast; a poll that fails the same way neither announces it again nor brings back a closed one; a success takes it down', async () => {
+    vi.resetModules()
+    vi.useFakeTimers()
+    let live: { ok: true; value: { live: unknown[] } } | { ok: false; error: string } = { ok: false, error: 'claudeHome.live: Mini is unreachable' }
+    const session = { sessionId: 's1', pid: 1, cwd: '/repo', startedAt: 1, kind: 'interactive' }
+    ;(globalThis as { worfy?: unknown }).worfy = {
+      invoke: (channel: string) => {
+        if (channel === 'claudeHome.sessions') return Promise.resolve({ ok: true, value: { live: [session], history: [{ sessionId: 's1', title: 'one' }] } })
+        if (channel === 'claudeHome.live') return Promise.resolve(live)
+        return new Promise(() => undefined)
+      },
+      on: () => 1,
+      off: () => undefined,
+    }
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { renderHook } = await import('@testing-library/react')
+      const store = await import('../../src/renderer/toast/toasts')
+      const { useClaudeHome, LIVE_POLL_MS } = await import('../../src/renderer/claude-home/useClaudeHome')
+      store.resetToasts()
+      const errors = () => store.toasts.getState().toasts.filter((toast) => toast.kind === 'error')
+      const poll = () => act(async () => {
+        await vi.advanceTimersByTimeAsync(LIVE_POLL_MS)
+      })
+      renderHook(() => useClaudeHome('/repo'))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0)
+      })
+      await poll()
+      expect(errors()).toMatchObject([{ id: 'ipc:claudeHome.live', text: 'Live Sessions not read: Mini is unreachable', version: 1 }])
+      await poll()
+      expect(errors()).toMatchObject([{ version: 1 }])
+      // Closed by the user: the same failure does not bring it back.
+      store.dismissToast('ipc:claudeHome.live')
+      await poll()
+      expect(errors()).toEqual([])
+      // An answer in between, then the failure again: shown again.
+      live = { ok: true, value: { live: [session] } }
+      await poll()
+      live = { ok: false, error: 'claudeHome.live: Mini is unreachable' }
+      await poll()
+      expect(errors()).toHaveLength(1)
+      // A success takes it down.
+      live = { ok: true, value: { live: [session] } }
+      await poll()
+      expect(errors()).toEqual([])
       store.resetToasts()
     } finally {
       logged.mockRestore()
