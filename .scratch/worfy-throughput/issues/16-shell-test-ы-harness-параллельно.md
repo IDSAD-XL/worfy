@@ -42,8 +42,8 @@ Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) (PR #620):
 - [x] Под нагрузкой полного `pnpm test` нет новых timeout-ов shell test-ов: один полный run green, и в нём
   нет повторов. Число параллельных shell test-ов ограничено, чтобы не повторить worfy-polish 32
   (`wave-gate.test.sh` дольше предела под нагрузкой).
-- [x] Windows: на ПК `pnpm test` green для этих файлов (вердикт Windows, ADR-0056); timeout на файл 300 s
-  остаётся.
+- [x] Windows: на ПК `pnpm test` green для этих файлов (вердикт Windows, ADR-0056); timeout на файл на Windows
+  — 600 s (было 300 s, см. «Итог»).
 
 ## Где в коде
 
@@ -127,8 +127,8 @@ file exits that left a child…» (около 2 s, exit 0, потомок уби
 | --- | --- | --- |
 | `harness-scripts.test.ts`, Mac | 517 s (gate fast, Ticket 10), около 425 s в gate full | 95–99 s; 111,2 s в gate full `9f9529c9` |
 | wall `pnpm test`, Mac | 517,2 s | 133,0 s |
-| gate full, Mac | около 18,5 min | 12,8–12,9 min |
-| `harness-scripts.test.ts`, Windows | около 1570 s | 478 s (`wave-gate` уложился в предел) |
+| gate full, Mac | около 18,5 min | 12,8 min на `4f06b43a`, 12,9 min на `main` `9f9529c9` (по отчётам Session очереди) |
+| `harness-scripts.test.ts`, Windows | около 1570 s | 478 s на `7c22dff1`: green, `wave-gate` уложился в предел, bash-процессов не осталось (повторная проверка ПК по отчёту Session очереди) |
 
 Отступление от «Готово, когда»: timeout на файл на Windows поднят с 300 s до 600 s (head `7c22dff1`): на ПК
 `wave-gate.test.sh` идёт 269–317 s и отдельно, а пять сразу выводили его за 300 s. На Mac и Linux — 120 s.

@@ -5,8 +5,8 @@ Status: open
 Blocked by: —
 Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файлов.md) после Ticket-а [16](16-shell-test-ы-harness-параллельно.md)
 (gate full на `main` `9f9529c9`, 2026-10-21); предложение Session «Worfy продолжение» (очередь gate full на Mac).
-Приоритет — за владельцем: gate full 12,9 min уже в бюджете Q2 (15 / 30 min), выигрыш — пропускная
-способность очереди gate full на одном Mac и запас бюджета.
+Приоритет — за владельцем: gate full 12,9 min — основная часть времени от зелёных проверок до merge (бюджет Q2:
+15 / 30 min); выигрыш — пропускная способность очереди gate full на одном Mac и запас бюджета.
 
 ## Что происходит
 
@@ -41,7 +41,7 @@ Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файл
 - `playwright.config.ts` — `workers`, `fullyParallel`.
 - `test/e2e/helpers.ts` — `launchApp`, userData, окружение запуска Electron.
 - `test/e2e/*.spec.ts` — fixture и общие пути.
-- `harness/bin/profile` — `workflow.e2e_lock`; `harness/hooks/gate.mjs` — как gate берёт замок e2e.
+- `harness/bin/profile` — `workflow.e2e_lock`; `harness/bin/wave-gate` — кто берёт замок e2e.
 
 ## Открытые вопросы
 

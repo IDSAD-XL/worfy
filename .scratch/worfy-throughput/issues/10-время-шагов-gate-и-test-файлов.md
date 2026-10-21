@@ -70,6 +70,26 @@ PR #620, merge `3cd4b15e` (2026-10-21). Review — 2 круга: high (корр�
 `7f52fa58`. После merge gate ставит владелец: `pnpm install:stable` (ADR-0047), до этого установленный gate
 времени не печатает.
 
+**Доказательства по «Готово, когда»** (отчёты implementer-а и reviewer-ов на head `6a7f5382`, затем по файлам
+после merge main на `414b0f8b` и `7f52fa58`; все под `nice -n 10`):
+1. Строка на каждый скрипт и общее время — `bash harness/hooks/tests/gate-timings.test.sh`: 18 проверок, exit 0
+   (green, red, not verified, cache hit на stub-скриптах); мутанты «ms = 0», «строка не печатается», «строка
+   шага не печатается» — exit 1.
+2. Поля `total_ms`, `steps`, `cached` в verdict-файле и `timings.json` в папке лога run-а — те же проверки
+   `gate-timings.test.sh` (мутант без `total_ms` — exit 1); `test/unit/gate-state.test.ts` — читатель
+   verdict-файла принимает новые поля, exit 0.
+3. `pnpm test` пишет `test-results/vitest-timings.json` (green run, 348 файлов); `test-results/` в `.gitignore`,
+   `git status` после run-а чистый (второй круг review).
+4. Playwright пишет `test-results/e2e-report.json` и `test-results/package-report.json`, вне `test-results/e2e`
+   — `test/unit/playwright-json-report.test.ts` (три формы `--output`), exit 0; на деле — таблица e2e из этих
+   отчётов в gate full `9f9529c9` ниже.
+5. `node scripts/test-timings.mjs` — по убыванию времени, `--top N`, `--json`, по умолчанию 20;
+   `test/unit/test-timings.test.ts` на фикстуре, exit 0; мутант «по возрастанию» — exit 1.
+6. Замеры — ниже, с командами; gate full — green по отчёту Session «Worfy продолжение».
+7. `pnpm lint` 0, `pnpm typecheck` 0, `pnpm test` 0 (342 файла, 7198 test-ов, до rebase); после каждого merge
+   main — lint, typecheck и shell test-ы gate по файлам, все 0; вердикт Windows — success на `7f52fa58`;
+   gate full Orchestrator-а перед merge — green.
+
 **Замер до (2026-10-20, Mac, repo-копия gate, без cache).** `node harness/hooks/gate.mjs fast` — 531,8 s:
 lint 9,4 s, typecheck 3,2 s, test 519,0 s (exit 1: один timeout `harness-evals.test.ts` под нагрузкой, отдельно
 он green). `pnpm test` (green, exit 0): wall 517,2 s, сумма по файлам 1443,6 s; `test/contract/harness-scripts.test.ts`
@@ -93,6 +113,7 @@ lint 9,4 s, typecheck 3,2 s, test 519,0 s (exit 1: один timeout `harness-eva
 - e2e: `browser` 27,1 s, `autopilot` 23,4, `linked-machines` 23,4, `epic-frame` 20,8, `terminal` 20,7,
   `session-controls` 17,5, `canvas-layout` 17,4; длинный хвост ровный, ни один файл не больше 5 %.
 
-Вывод: после 16 узкое место — последовательный e2e, около 73 % gate full. 12,9 min укладываются в бюджет Q2
-для PR без UI (15 min), но не оставляют запаса. Рычаги: Ticket 13 (e2e по путям diff, для PR без UI) и Ticket
+Вывод: после 16 узкое место — последовательный e2e, около 73 % gate full. gate full — основная часть времени
+от зелёных проверок до merge (бюджет Q2: 15 min без UI), и 12,9 min почти не оставляют запаса. Что сократит
+время дальше: Ticket 13 (e2e по путям diff, для PR без UI) и Ticket
 [17](17-e2e-в-несколько-worker-ов.md) (e2e в несколько worker-ов, для PR с UI).
