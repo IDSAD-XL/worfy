@@ -232,7 +232,7 @@ sentences() {
 sentences "$(section '## Lens descriptions')" "lens descriptions" <<'EOF'
 the general rules hold for every lens :: The rules above — the scope, the rules of evidence, the answer format — hold for every lens.
 a description adds what the lens looks for and leaves out :: A description below adds what its lens looks for and what it leaves out.
-the lens names are the project's :: The names of the lenses are the project's own, the strings of `review.lenses`: a description applies to the lens of the same name, and a lens that has no description here is read by its name.
+a description goes by the lens name :: A description applies to the lens of that name, whether a skill assigns it or the profile's `review.lenses` lists it; a lens that has no description here is read by its name.
 EOF
 LENS="$(section '### Lens: simplification')"
 sentences "$LENS" "lens simplification" <<'EOF'

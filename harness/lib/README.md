@@ -4,6 +4,8 @@ Modules and data that several scripts of `bin/` share. A script reaches them as 
 the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 
 - `pipeline.cjs` — the rules of a project's Pipeline, read by `bin/profile` and written by `bin/profile-set`.
+- `old-words.cjs` — the old Russian placeholders of profile values and headings of `rules.md`, which
+  `bin/profile` prints and `hooks/session-start.mjs` mixes in with their English forms for one release.
 - `input-words.json` — words of the languages people write tickets and texts in, other than English. This
   is data about the input of projects, not a protocol of the Harness: the Harness itself writes and
   prints only English words, and these lists let its scripts read what people wrote in their own

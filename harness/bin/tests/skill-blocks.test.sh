@@ -819,8 +819,7 @@ done
 
 # --- skills/epic-wave, "Open PRs of other epics": the branch template turned into a regex -----------------
 # The `re=` line of the block, with the epic put in as the skill says, under a stub F that prints the
-# template. The English placeholders and the old Russian ones of profiles written before the release
-# (Russian input on purpose) give the same regex.
+# template. (Old Russian placeholders never reach the block: bin/profile prints them in English.)
 RE_LINE="$(SKILL="$WAVE" blockf 'F tickets.branch | sed' | grep '^re=')"
 [ -n "$RE_LINE" ] || bad "the tickets.branch regex line not found in $WAVE"
 RE_LINE="${RE_LINE//<epic>/pay-flow}"
@@ -832,8 +831,6 @@ while IFS='|' read -r tmpl want; do
 done <<'EOF'
 <epic>/<NN>|pay-flow/[0-9]+
 <epic>/<NN>-<slug>|pay-flow/[0-9]+-.+
-<эпик>/<NN>|pay-flow/[0-9]+
-<эпик>/<NN>-<slug>|pay-flow/[0-9]+-.+
 EOF
 
 [ -s "$CHANGED" ] && bad "blocks that Claude Code changes when the skill is called with arguments (a \$N in the text):"$'\n'"$(cat "$CHANGED")" \

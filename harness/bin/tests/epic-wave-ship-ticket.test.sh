@@ -500,8 +500,6 @@ done
 ALLOWED=(
     # The old Autopilot forms and the Russian request, which the skill still accepts.
     'Ticket-ы NN, NN эпика X' 'волна N эпика X' 'прогони волну N эпика X'
-    # The old Russian placeholder of tickets.branch, which the branch regex still accepts.
-    '[<]эпик[>]'
     # Section names of worfy's Project documents and examples of what an agent writes there.
     '## Где в коде' '## Итог' 'Готово, когда' 'Ждёт владельца' 'Волны'
     'решено без владельца, подтвердить' 'не проверено: …' 'узкий круг листовому Ticket-у — решение владельца'

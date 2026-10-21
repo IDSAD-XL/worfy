@@ -234,8 +234,8 @@ Profiles written before the release carry Russian placeholders and two Russian h
 `<ticket-name>`, `<что-ревьюишь>` → `<review-target>`, `<файл>` → `<file>`, `<пакет>` → `<package>`,
 `<имя>` → `<name>`, `<каталог модуля>` → `<module-dir>`; `## Обязательное чтение исполнителя` →
 `## Required reading for the implementer`, `## Ночной прогон и аудит` → `## Overnight run and audit`.
-`hooks/worktree-create.sh`, the branch regex of skill `epic-wave` and the rules `hooks/session-start.mjs`
-mixes in accept the old forms too. Rewrite such a profile with the English forms before support ends.
+`hooks/session-start.mjs` mixes the old headings in under their English form too (both use
+`lib/old-words.cjs`). Rewrite such a profile with the English forms before support ends.
 
 `cross_machine_gate` is checked by `bin/profile` the way `mode` is. No field, or
 `null` — exit 4 for `--field cross_machine_gate.<name>` (the project has one machine: the skills skip

@@ -35,6 +35,7 @@ const { execFileSync } = require("node:child_process")
 const { git: GIT, harnessHome } = require("../hooks/eval-env.cjs")
 // The rules of the Pipeline (workflow.pipeline), one copy for this reader and the writer bin/profile-set.
 const { resolvePipeline } = require("../lib/pipeline.cjs")
+const { englishPlaceholders, englishHeadings } = require("../lib/old-words.cjs")
 
 // os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
 const CLAUDE = path.join(os.homedir(), ".claude")
@@ -485,22 +486,9 @@ const resolved = {
     pipeline,
 }
 // Placeholders in profile values and the headings of rules.md that agents look for are English
-// (profiles/README.md, "Placeholders"). Profiles written before carry Russian ones: every value and
-// rules.md are printed with the English forms, so readers know one set of words.
-// shortcut: accepts the old Russian token, remove after the next release
-const OLD_WORDS = {
-    placeholders: [["<эпик>", "<epic>"], ["<ветка>", "<branch>"], ["<имя-тикета>", "<ticket-name>"], ["<что-ревьюишь>", "<review-target>"], ["<файл>", "<file>"], ["<пакет>", "<package>"], ["<имя>", "<name>"], ["<каталог модуля>", "<module-dir>"]],
-    headings: [["Обязательное чтение исполнителя", "Required reading for the implementer"], ["Ночной прогон и аудит", "Overnight run and audit"]],
-}
-const englishPlaceholders = (v) => {
-    if (typeof v === "string") return OLD_WORDS.placeholders.reduce((s, [old, now]) => s.split(old).join(now), v)
-    if (Array.isArray(v)) return v.map(englishPlaceholders)
-    if (v !== null && typeof v === "object") for (const k of Object.keys(v)) v[k] = englishPlaceholders(v[k])
-    return v
-}
+// (profiles/README.md, "Placeholders"); the old Russian ones of profiles written before are printed in
+// the English form for one release (lib/old-words.cjs, shared with hooks/session-start.mjs).
 englishPlaceholders(profile)
-const englishHeadings = (text) =>
-    OLD_WORDS.headings.reduce((t, [old, now]) => t.replace(new RegExp(`^## ${old}(?=[ \\t]*\\r?$)`, "gm"), `## ${now}`), text)
 const full = { ...profile, _resolved: resolved }
 const rulesPath = path.join(dir, "rules.md")
 const rules = fs.existsSync(rulesPath) ? englishHeadings(fs.readFileSync(rulesPath, "utf8")) : null

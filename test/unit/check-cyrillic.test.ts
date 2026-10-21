@@ -114,8 +114,8 @@ describe('the ESLint rule (JS and TS files)', () => {
   })
 
   it('reports a Russian placeholder of the profile contract in harness/ code unless it is marked', async () => {
-    const harness = `export const t = 'git switch <ветка>'\n${MARKER}\nexport const old = '<эпик>'\n`
-    expect(await eslintErrors(tree({ 'harness/bin/x.mjs': harness }))).toEqual(['harness/bin/x.mjs:1'])
+    const harness = `export const t = 'git switch <ветка>'\n${MARKER}\nexport const old = '<эпик>'\nexport const epic = '<эпик>/<NN>'\n`
+    expect(await eslintErrors(tree({ 'harness/bin/x.mjs': harness }))).toEqual(['harness/bin/x.mjs:1', 'harness/bin/x.mjs:4'])
   })
 
   it('checks a src/ file whose name has "test" in it as code; tests/ folders and harness/evals/ are test data', async () => {
@@ -263,8 +263,8 @@ describe('the command (files ESLint does not read)', () => {
   })
 
   it('a Russian placeholder in harness/ shell code is a finding; under the marker it passes', () => {
-    const harness = ['git switch "<ветка>"', '# shortcut: accepts the old Russian token, remove after the next release', 'cmd="${cmd//<ветка>/b}"', ''].join('\n')
-    expect(run(tree({ 'harness/hooks/w.sh': harness })).lines).toEqual(['harness/hooks/w.sh:1'])
+    const harness = ['git switch "<ветка>"', '# shortcut: accepts the old Russian token, remove after the next release', 'cmd="${cmd//<ветка>/b}"', 'cmd="${cmd//<эпик>/e}"', ''].join('\n')
+    expect(run(tree({ 'harness/hooks/w.sh': harness })).lines).toEqual(['harness/hooks/w.sh:1', 'harness/hooks/w.sh:4'])
   })
 
   it('harness/evals/ and a tests/ folder hold test data', () => {

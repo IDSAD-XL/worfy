@@ -75,8 +75,6 @@ fi
 
 if [ -n "$outside" ]; then
     cmd="${tmpl//<NN>/$name}"; cmd="${cmd//<ticket-name>/$name}"; cmd="${cmd//<branch>/worktree-$name}"
-    # shortcut: accepts the old Russian token, remove after the next release
-    cmd="${cmd//<имя-тикета>/$name}"; cmd="${cmd//<ветка>/worktree-$name}"
     case "$cmd" in *'<'*'>'*) echo "worktree-create: unknown placeholder left in worktree.implementer: $cmd" >&2; exit 1 ;; esac
     before="$(trees)"
     mkdir -p "$root" || exit 1

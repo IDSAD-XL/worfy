@@ -185,9 +185,9 @@ process.
 ## Lens descriptions
 
 The rules above — the scope, the rules of evidence, the answer format — hold for every lens. A
-description below adds what its lens looks for and what it leaves out. The names of the lenses are
-the project's own, the strings of `review.lenses`: a description applies to the lens of the same
-name, and a lens that has no description here is read by its name.
+description below adds what its lens looks for and what it leaves out. A description applies to the
+lens of that name, whether a skill assigns it or the profile's `review.lenses` lists it; a lens that
+has no description here is read by its name.
 
 ### Lens: implementer's report
 

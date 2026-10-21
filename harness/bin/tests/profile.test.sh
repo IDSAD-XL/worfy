@@ -280,12 +280,12 @@ newp langblank '{"schema":2,"name":"langblank","mode":"full","language":""}'
 newp teamnum '{"schema":2,"name":"teamnum","mode":"full","language":{"team":5,"docs":"ru"}}'
 # Placeholders in profile values: phen writes the English ones, phru the Russian ones of profiles written
 # before the release (Russian input on purpose: profile prints them in the English form for one release).
-PH_EN='"worktree":{"implementer":"git worktree add -b <branch> /w/<ticket-name> main","reviewer":"git worktree add /w/review-<review-target> --detach <branch>"},"tickets":{"branch":"<epic>/<NN>","path":".scratch/<epic>/issues/NN-*.md"},"commands":{"test_one":"node --test <file>","package":{"test":"pnpm -C <package> test"}},"tests":{"new_file":{"apps/api":"<module-dir>/<name>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<epic>/"]}'
-PH_RU='"worktree":{"implementer":"git worktree add -b <ветка> /w/<имя-тикета> main","reviewer":"git worktree add /w/review-<что-ревьюишь> --detach <ветка>"},"tickets":{"branch":"<эпик>/<NN>","path":".scratch/<эпик>/issues/NN-*.md"},"commands":{"test_one":"node --test <файл>","package":{"test":"pnpm -C <пакет> test"}},"tests":{"new_file":{"apps/api":"<каталог модуля>/<имя>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<эпик>/"]}'
+PH_EN='"worktree":{"implementer":"git worktree add -b <branch> /w/<ticket-name> main","reviewer":"git worktree add /w/review-<review-target> --detach <branch>"},"tickets":{"branch":"<epic>/<NN>","path":".scratch/<epic>/issues/NN-*.md","spec":".scratch/<epic>/<epic>-spec.md"},"commands":{"test_one":"node --test <file>","package":{"test":"pnpm -C <package> test"}},"tests":{"new_file":{"apps/api":"<module-dir>/<name>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<epic>/"]}'
+PH_RU='"worktree":{"implementer":"git worktree add -b <ветка> /w/<имя-тикета> main","reviewer":"git worktree add /w/review-<что-ревьюишь> --detach <ветка>"},"tickets":{"branch":"<эпик>/<NN>","path":".scratch/<эпик>/issues/NN-*.md","spec":".scratch/<эпик>/<эпик>-spec.md"},"commands":{"test_one":"node --test <файл>","package":{"test":"pnpm -C <пакет> test"}},"tests":{"new_file":{"apps/api":"<каталог модуля>/<имя>.test.ts"}},"qmd":{"fallback_grep":[".scratch/<эпик>/"]}'
 newp phen "{\"schema\":2,\"name\":\"phen\",\"mode\":\"full\",$PH_EN}"
 newp phru "{\"schema\":2,\"name\":\"phru\",\"mode\":\"full\",$PH_RU}"
-printf '# phru\n\n## Обязательное чтение исполнителя\n\n- docs/a.md\n\n## Ночной прогон и аудит\r\n\n- x\n' >"$HH/projects/phru/rules.md"
-printf '# phru\n\n## Required reading for the implementer\n\n- docs/a.md\n\n## Overnight run and audit\r\n\n- x\n' >"$HH/projects/phen/rules.md"
+printf '# phru\n\n## Обязательное чтение исполнителя\n\n- docs/a.md\n\n## Ночной прогон и аудит\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phru/rules.md"
+printf '# phru\n\n## Required reading for the implementer\n\n- docs/a.md\n\n## Overnight run and audit\r\n\n- x\n\n## Ночной прогон и аудит (old)\n' >"$HH/projects/phen/rules.md"
 newp docsempty '{"schema":2,"name":"docsempty","mode":"full","language":{"reports":"","team":"ru","docs":""}}'
 # Silent mode: a Workflow folder given with ~/, a relative one (broken), and a
 # project of two repositories without workflow.folder (the folder above them).
@@ -605,6 +605,7 @@ worktree.implementer|git worktree add -b <branch> /w/<ticket-name> main
 worktree.reviewer|git worktree add /w/review-<review-target> --detach <branch>
 tickets.branch|<epic>/<NN>
 tickets.path|.scratch/<epic>/issues/NN-*.md
+tickets.spec|.scratch/<epic>/<epic>-spec.md
 commands.test_one|node --test <file>
 commands.package.test|pnpm -C <package> test
 EOF
@@ -613,9 +614,11 @@ eq "placeholders: tests.new_file of the old Russian placeholders prints the Engl
 eq "placeholders: --json of the old Russian placeholders equals the English one (apart from _resolved)" "$("$P2" -C "$T/r/phen" --json | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8")); delete p._resolved; delete p.name; console.log(JSON.stringify(p))')" \
     bash -c '"$@" | node -e '"'"'const p=JSON.parse(require("fs").readFileSync(0,"utf8")); delete p._resolved; delete p.name; console.log(JSON.stringify(p))'"'"'' _ "$P2" -C "$T/r/phru" --json
 check "placeholders: the summary of the old Russian placeholders has no Russian placeholder" 0 "" bash -c 'o="$("$@")" && [[ "$o" == *"<ticket-name>"* && "$o" != *"<имя-тикета>"* && "$o" != *"<эпик>"* ]]' _ "$P2" -C "$T/r/phru"
-# rules.md headings: the old Russian headings read as the English ones (CRLF line kept as written).
+# rules.md headings: the old Russian headings read as the English ones (CRLF line kept as written); a heading
+# with more words after it (the overnight heading followed by "(old)") stays as written (Russian input on purpose).
 eq "rules.md: --rules prints the old Russian headings in English" "$("$P2" -C "$T/r/phen" --rules)" "$P2" -C "$T/r/phru" --rules
 check "rules.md: the summary prints the English heading" 0 "## Required reading for the implementer" "$P2" -C "$T/r/phru"
+check "rules.md: a heading with more words after it stays as written" 0 "" bash -c 'o="$("$@")" && [[ "$o" == *"## Ночной прогон и аудит (old)"* && "$o" != *"## Overnight run and audit (old)"* ]]' _ "$P2" -C "$T/r/phru" --rules
 fails_with "profile.json that is not an object -> 1 with the reason" 1 "not a JSON object" "$P2" -C "$T/r/notobj" --name
 check "schema 1: --json and briefing name no ~/.claude/bin" 0 "" bash -c 'o="$("$@" --json && "$@")" && [[ "$o" == *"$0"* && "$o" != *"~/.claude/bin"* ]]' "$(json_printed "$BINREAL")/ticket" "$P2" -C "$T/r/legacy"
 eq "schema 1: string language -> language.reports" ru "$P2" -C "$T/r/legacy" --field language.reports

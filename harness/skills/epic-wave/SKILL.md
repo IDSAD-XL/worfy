@@ -206,8 +206,7 @@ whose branch does not match this epic's branch template `F tickets.branch`, one 
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 # [<]epic[>] is the profile's own placeholder, matched as written; <epic> after it is the wave's epic.
-# shortcut: accepts the old Russian token, remove after the next release
-re=$(F tickets.branch | sed -e 's/[<]epic[>]/<epic>/g' -e 's/[<]эпик[>]/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
+re=$(F tickets.branch | sed -e 's/[<]epic[>]/<epic>/g' -e 's/<NN>/[0-9]+/g' -e 's/<slug>/.+/g')
 [ -n "$re" ] || echo "no tickets.branch in the profile: every open PR is listed"
 gh pr list --state open --limit 200 --json number,headRefName,files \
   --jq ".[] | select(\"$re\" == \"\" or (.headRefName | test(\"^$re\$\") | not)) | \"#\\(.number) \\(.headRefName) \\(.files[].path)\""; echo "EXIT=$?"

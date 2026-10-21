@@ -36,6 +36,9 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import oldWords from "../lib/old-words.cjs"
+
+const { englishHeadings } = oldWords
 
 const DEFAULT_CAP = 20000
 
@@ -183,13 +186,11 @@ function main() {
             // shortcut: accepts the old Russian token, remove after the next release
             // Profiles written before the heading was English name the section in Russian.
             if (line.startsWith("## ")) skip = /^## (Sources|Источники)/.test(line)
-            // The headings agents look for are English; profiles written before name them in Russian, and
-            // bin/profile prints them in English too.
-            // shortcut: accepts the old Russian token, remove after the next release
-            if (!skip) kept.push(line.replace(/^## Обязательное чтение исполнителя(?=[ \t]*\r?$)/, "## Required reading for the implementer").replace(/^## Ночной прогон и аудит(?=[ \t]*\r?$)/, "## Overnight run and audit"))
+            if (!skip) kept.push(line)
         }
         const heading = str(session.rules_heading)
-        add(heading || `Project rules (profile ${name})`, kept.join("\n").replace(/\n+$/, ""), rulesFile)
+        // The old Russian headings agents look for are mixed in under their English form, as bin/profile prints them.
+        add(heading || `Project rules (profile ${name})`, englishHeadings(kept.join("\n")).replace(/\n+$/, ""), rulesFile)
     }
 
     const lessonsIndex = path.join(dir, "lessons", "lessons-index.md")
