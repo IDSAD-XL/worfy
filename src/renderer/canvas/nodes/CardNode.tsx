@@ -4,10 +4,11 @@ import { linkedCardUrl, machineLabel } from '../../../shared/cards/bridge'
 import { CARD_ID_PATTERN, type CardInfo } from '../../../shared/ipc/cards'
 import type { LayoutNode } from '../../../shared/layout/types'
 import { invoke, subscribe, windowMachine } from '../../ipc'
+import { useInFocusTile } from '../../focus/focus-tile'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
-import { useZoomLevel } from '../zoom-level'
+import { NODE_HEADER, NODE_TITLE, useZoomLevel } from '../zoom-level'
 import { useFramesStepAsideWhilePressed } from './frames-step-aside'
 import type { CanvasNodeProps } from './index'
 
@@ -15,8 +16,9 @@ import type { CanvasNodeProps } from './index'
 // <Project data folder>/cards/<id>/. It runs in an iframe on its own origin, worfy-card://
 // (src/main/cards/protocol.ts), so it reaches neither the worfy window nor another Card; main
 // keeps the frame from navigating away or opening windows. The Node reloads the Card when main
-// reports a change of its files, and runs only at the `full` zoom level (zoom-level.ts): below it
-// the Card draws its title and a frame instead of the page.
+// reports a change of its files. It runs at the `full` zoom level of the Canvas (zoom-level.ts),
+// and always when pinned (a pinned Node keeps its screen size) or in a tile of focus mode; otherwise
+// it draws its title and a frame instead of the page.
 //
 // In a window on Linked machine M (worfy-link ticket 10) the Card's address from M gets M's machine
 // label (frameUrl): the frame then has an origin of its own, and this Machine's main fetches the
@@ -97,6 +99,8 @@ const messageStyle = {
   color: 'var(--text-muted)',
   textAlign: 'center',
 } as const
+/** A long title ends in "…" on one line; the whole of it is in the tooltip. */
+const titleStyle = { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const
 const frameStyle = { flex: 1, width: '100%', height: '100%', border: 0, background: 'white' } as const
 
 export default function CardNode({ id, data, selected }: CanvasNodeProps) {
@@ -104,7 +108,9 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
   const projectId = activeProject(useProjects())?.id
   const cardId = cardIdOf(data.node)
   const { info, error } = useCard(projectId, cardId)
-  const live = useZoomLevel() === 'full'
+  const level = useZoomLevel()
+  const inFocusTile = useInFocusTile()
+  const live = level === 'full' || data.node.pinned || inFocusTile
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const title = info?.title ?? 'Card'
   const src = info === undefined ? null : frameUrl(info.url, windowMachine())
@@ -149,8 +155,10 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={100}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-note__header" data-testid="card-title" data-node-header="" data-node-title="">
-        {title}
+      <div className="w-note__header" data-testid="card-title" {...NODE_HEADER}>
+        <span style={titleStyle} {...NODE_TITLE} title={title}>
+          {title}
+        </span>
       </div>
       {/* Until the Card is the active Node its iframe takes no mouse (canvas.css), so the click that
           activates it lands here. nodrag keeps React Flow's drag from swallowing that click when the

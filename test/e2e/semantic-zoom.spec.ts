@@ -11,7 +11,8 @@ import { catScript } from '../harness-node'
 // Semantic zoom (worfy-canvas ticket 06; F-SPEC "Zoom levels"): from zoom 0.6 up a Node is drawn
 // in full; from 0.3 up to 0.6 it is its header alone, with its title and status chip; below 0.3 it
 // is a block in its kind's colour with a large title at a constant screen size, an Epic frame keeps
-// a header of constant screen size, and its Tickets are blocks without text. The level is the
+// a header of constant screen size, and its Tickets are blocks without text. A pinned Node stays full,
+// a selected one keeps an accent outline, and a Terminal keeps its rows and columns. The level is the
 // `data-zoom-level` attribute of the React Flow root (overlays/ZoomLevel.tsx). The lowest zoom of the
 // Canvas is ZOOM_MIN, 0.2 (src/shared/layout/types.ts), so the far view is checked there. A temporary
 // WORFY_CLAUDE_HOME stands in for ~/.claude.
@@ -20,6 +21,12 @@ const PROJECT = 'alpha-0000000a'
 const SESSION = '66666666-6666-4666-8666-666666666666'
 const AGENT = 'a0000000000000606'
 const EPIC = 'semantic-zoom-demo'
+/**
+ * A second Epic, beside the first, with a name that fits its frame at full but is longer than the
+ * frame is wide at the lowest zoom (a longer name widens the frame itself).
+ */
+const EPIC_LONG = 'semantic-zoom-second-epic-with-a-long-name'
+const CARD_TITLE = 'A Card whose title is much longer than two hundred pixels on the screen'
 
 let scratch: string
 let dataDir: string
@@ -46,12 +53,15 @@ function writeSession(): void {
   writeFileSync(join(dir, `${SESSION}.jsonl`), `${main.join('\n')}\n`)
 }
 
-/** epic-status answers one Epic with three Tickets, so the Canvas has a frame of two columns. */
+/**
+ * epic-status answers two Epics, of three Tickets and of five. With K = 2 in the arrangement record
+ * the second, taller frame keeps the strip near enough to 16:10 that the two frames stay side by side.
+ */
 function writeEpic(): void {
   mkdirSync(join(claudeHome, 'bin'), { recursive: true })
   const answer = join(claudeHome, 'epic-status.json')
-  const ticket = (num: number, state: string, blockedNums: number[]) => ({
-    epic: EPIC,
+  const ticket = (num: number, state: string, blockedNums: number[], epic = EPIC) => ({
+    epic,
     num,
     slug: `t${num}`,
     title: `0${num} — Ticket ${num} of the demo`,
@@ -61,8 +71,9 @@ function writeEpic(): void {
     blockedNums,
     blockedParsed: true,
   })
-  const tickets = [ticket(1, 'open', []), ticket(2, 'open', []), ticket(3, 'open', [1])]
-  writeFileSync(answer, JSON.stringify({ ref: 'main', epics: [{ epic: EPIC, hasSpec: true, hasMap: false }], tickets }))
+  const tickets = [ticket(1, 'open', []), ticket(2, 'open', []), ticket(3, 'open', [1]), ...[1, 2, 3, 4].map((num) => ticket(num, 'open', [], EPIC_LONG)), ticket(5, 'open', [1], EPIC_LONG)]
+  const epics = [EPIC, EPIC_LONG].map((epic) => ({ epic, hasSpec: true, hasMap: false }))
+  writeFileSync(answer, JSON.stringify({ ref: 'main', epics, tickets }))
   const script = join(claudeHome, 'bin', 'epic-status')
   writeFileSync(script, catScript(answer))
   chmodSync(script, 0o755)
@@ -89,6 +100,31 @@ async function zoomOutBelow(window: Page, below: number): Promise<number> {
       .catch(() => false)
     if (!moved) return before
   }
+}
+
+/** The size of a Terminal's screen in layout pixels and its count of rows: what its pty is sized by. */
+async function terminalSize(window: Page): Promise<{ rows: number; width: number; height: number }> {
+  return window.locator('.react-flow__node[data-id="zoom-terminal"] .xterm-screen').evaluate((element) => {
+    const screen = element as unknown as { offsetWidth: number; offsetHeight: number; parentElement: { querySelector(selector: string): { childElementCount: number } | null } | null }
+    return { rows: screen.parentElement?.querySelector('.xterm-rows')?.childElementCount ?? -1, width: screen.offsetWidth, height: screen.offsetHeight }
+  })
+}
+
+/** The screen boxes of `selector`'s matches, read in one pass. */
+async function boxes(window: Page, selector: string): Promise<{ left: number; right: number; top: number; bottom: number }[]> {
+  return window.locator(selector).evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = (element as unknown as { getBoundingClientRect(): { left: number; right: number; top: number; bottom: number } }).getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+    }),
+  )
+}
+
+/** The screen box of `selector`'s only match. */
+async function boxOf(window: Page, selector: string): Promise<{ left: number; right: number; top: number; bottom: number }> {
+  const [only, ...rest] = await boxes(window, selector)
+  if (only === undefined || rest.length > 0) throw new Error(`${selector}: ${rest.length + (only ? 1 : 0)} matches, not one`)
+  return only
 }
 
 interface Reading {
@@ -143,7 +179,15 @@ test.beforeEach(() => {
   const nodes = [
     { id: 'zoom-note', kind: 'note', x: 20, y: 700, w: 240, h: 140, ...base, data: { text: 'A note with a body that hides when zoomed out' } },
     { id: 'zoom-terminal', kind: 'terminal', x: 320, y: 700, w: 400, h: 240, ...base, data: {} },
+    { id: 'zoom-pinned', kind: 'note', x: 20, y: 1000, w: 240, h: 140, ...base, pinned: true, data: { text: 'A pinned note stays whole' } },
+    { id: 'zoom-card', kind: 'card', x: 320, y: 1000, w: 300, h: 180, ...base, data: {} },
+    { id: 'zoom-handoff', kind: 'handoff', x: 1100, y: 1000, w: 360, h: 200, ...base, locked: true, data: {} },
+    // The frames' order and K = 2 columns, written today, so the two frames stand side by side (ADR-0075).
+    { id: 'epic-arrangement', kind: 'epic-arrangement', x: 0, y: 0, w: 1, h: 1, ...base, locked: true, data: { order: [EPIC, EPIC_LONG], columns: 2, at: new Date().toISOString() } },
   ]
+  mkdirSync(join(dataDir, PROJECT, 'cards', 'zoom-card'), { recursive: true })
+  writeFileSync(join(dataDir, PROJECT, 'cards', 'zoom-card', 'index.html'), `<!doctype html><title>${CARD_TITLE}</title><p>card</p>`)
+  writeFileSync(join(projectPath, 'HANDOFF.md'), '# HANDOFF\n\nNothing yet.\n')
   // The full view at its lowest zoom: every Node is on the screen side by side.
   writeFileSync(join(dataDir, PROJECT, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 20, y: 40, zoom: 0.6 } }))
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: projectPath }], activeId: PROJECT }))
@@ -171,8 +215,11 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
       session: window.locator(`[data-testid="session-node"][data-session-id="${SESSION}"]`),
       subagent: window.locator(`[data-testid="subagent-node"][data-subagent-id="${AGENT}"]`),
       note: window.locator('.react-flow__node[data-id="zoom-note"]').getByTestId('note-node'),
+      pinned: window.locator('.react-flow__node[data-id="zoom-pinned"]').getByTestId('note-node'),
+      card: window.getByTestId('card-node'),
+      handoff: window.getByTestId('handoff-node'),
       terminal: window.locator('.react-flow__node[data-id="zoom-terminal"]').getByTestId('terminal-node'),
-      epic: window.getByTestId('epic-frame'),
+      epic: window.locator(`[data-testid="epic-frame"][data-epic="${EPIC}"]`),
       ticket: window.getByTestId(`rf__node-ticket:${EPIC}/1`),
     }
     await canvasReady(launched, { size: { width: 1600, height: 900 }, visible: [nodes.orchestrator, nodes.note, nodes.terminal, nodes.epic] })
@@ -192,6 +239,14 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
       columnLabel: nodes.epic.getByTestId('epic-column').first(),
     }
     for (const part of Object.values(body)) await expect(part).toBeVisible()
+    await expect(nodes.card.getByTestId('card-frame')).toBeVisible()
+    const pinnedText = nodes.pinned.locator('textarea')
+    await expect(pinnedText).toBeVisible()
+    // The Terminal's size, which no level may change; the Note is selected, for its mark at far.
+    const terminalFull = await terminalSize(window)
+    expect(terminalFull.rows).toBeGreaterThan(3)
+    await nodes.note.locator('[data-node-title]').click()
+    await expect(window.locator('.react-flow__node[data-id="zoom-note"]')).toHaveClass(/\bselected\b/)
     await snapshotThemes(window, 'zoom-full')
 
     // compact (0.3 to 0.6): the header with its title and status chip; the body is hidden, its Node keeps its size.
@@ -204,8 +259,13 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     await expect(nodes.orchestrator.getByTestId('orchestrator-state')).toBeVisible()
     await expect(body.noteText).toBeHidden()
     await expect(body.terminalScreen).toBeHidden()
-    // The Terminal is not stopped below its header.
+    // The Terminal is not stopped below its header, and its screen keeps its rows and columns.
     await expect(nodes.terminal).toHaveAttribute('data-state', 'running')
+    expect(await terminalSize(window)).toEqual(terminalFull)
+    // The Card runs no page below full; a pinned Node stays full.
+    await expect(nodes.card.getByTestId('card-placeholder')).toBeHidden()
+    await expect(nodes.card.getByTestId('card-frame')).toHaveCount(0)
+    await expect(pinnedText).toBeVisible()
     const zoomed = await nodes.session.boundingBox()
     expect(zoomed && sessionBox ? zoomed.width / sessionBox.width : 0).toBeCloseTo((await zoomOf(window)) / 0.6, 1)
     // An Epic frame and its Tickets are as in full.
@@ -214,13 +274,19 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     await snapshotThemes(window, 'zoom-compact')
 
     // far (below 0.3): each Node a block of its kind with a large title; the Epic's name and progress readable.
+    const firstFar = await zoomOutBelow(window, 0.3)
+    await expect(root).toHaveAttribute('data-zoom-level', 'far')
+    const epicHeader = `[data-testid="epic-frame"][data-epic="${EPIC}"] .w-epic__header`
+    const epicProgress = `[data-testid="epic-frame"][data-epic="${EPIC}"] [data-testid="epic-progress"]`
+    const progressAtFirstFar = await boxOf(window, epicProgress)
     const farZoom = await zoomOutBelow(window, 0.21)
-    expect(farZoom).toBeLessThan(0.3)
+    expect(farZoom).toBeLessThan(firstFar)
     await expect(root).toHaveAttribute('data-zoom-level', 'far')
     const far = await readings(window, {
       epicTitle: `[data-testid="epic-frame"][data-epic="${EPIC}"] .w-epic__title`,
-      epicProgress: `[data-testid="epic-frame"][data-epic="${EPIC}"] [data-testid="epic-progress"]`,
-      epicHeader: `[data-testid="epic-frame"][data-epic="${EPIC}"] .w-epic__header`,
+      epicProgress,
+      epicHeader,
+      epicLongTitle: `[data-testid="epic-frame"][data-epic="${EPIC_LONG}"] .w-epic__title`,
       columnLabel: `[data-testid="epic-frame"][data-epic="${EPIC}"] [data-testid="epic-column"]`,
       ticketTitle: `[data-testid="rf__node-ticket:${EPIC}/1"] .w-ticket__title`,
       orchestrator: '[data-testid="orchestrator-node"] [data-node-title]',
@@ -230,20 +296,70 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
       note: '.react-flow__node[data-id="zoom-note"] [data-node-title]',
       noteText: '.react-flow__node[data-id="zoom-note"] textarea',
       terminal: '.react-flow__node[data-id="zoom-terminal"] [data-node-title]',
+      card: '[data-testid="card-node"] [data-node-title]',
+      handoff: '[data-testid="handoff-node"] [data-node-title]',
+      pinnedText: '.react-flow__node[data-id="zoom-pinned"] textarea',
     })
-    // The frame's header keeps its screen size (24 px), whatever the zoom.
-    expect(far.epicHeader?.height).toBeCloseTo(24, 0)
+    // The Terminal still has the size it had at full; the pinned Note still shows its text.
+    expect(await terminalSize(window)).toEqual(terminalFull)
+    expect(far.pinnedText?.shown).toBe(true)
+    // The frame's header keeps its text at a constant screen size, whatever the zoom: the name on
+    // its first rows (wrapped to the frame's width), the progress under it, as tall at any far zoom.
+    const progressAtLowest = await boxOf(window, epicProgress)
+    expect(progressAtLowest.bottom - progressAtLowest.top).toBeCloseTo(progressAtFirstFar.bottom - progressAtFirstFar.top, 0)
+    const header = await boxOf(window, epicHeader)
+    expect(progressAtLowest.top, 'the progress under the name').toBeGreaterThan((await boxOf(window, `${epicHeader} .w-epic__title`)).bottom - 1)
+    expect(progressAtLowest.bottom).toBeLessThanOrEqual(header.bottom)
+    // The two frames stand side by side (the second is off the screen at full, so it is checked here).
+    const frames = await boxes(window, '[data-testid="epic-frame"]')
+    expect(frames).toHaveLength(2)
+    expect(frames[0] && frames[1] ? Math.abs(frames[0].top - frames[1].top) : Infinity, 'the two frames in one row').toBeLessThan(1)
+    // No two frame headers overlap: each is as wide as its frame, and the frames are FRAME_GAP apart.
+    const headers = await boxes(window, '[data-testid="epic-frame"] .w-epic__header')
+    expect(headers).toHaveLength(2)
+    const [left, right] = [...headers].sort((a, b) => a.left - b.left)
+    expect(left && right ? right.left - left.right : -1, 'the left header ends before the right one starts').toBeGreaterThanOrEqual(0)
     expect(far.epicTitle).toMatchObject({ shown: true, whole: true, text: EPIC })
+    expect(far.epicLongTitle).toMatchObject({ shown: true, whole: true, text: EPIC_LONG })
     expect(far.epicTitle?.height).toBeGreaterThanOrEqual(16)
     expect(far.epicProgress).toMatchObject({ shown: true, text: '0/3' })
     expect(far.columnLabel?.shown).toBe(false)
     expect(far.ticketTitle?.shown).toBe(false)
     // Every kind by its title, large on the screen (15 px at any zoom).
-    const titles: Record<string, string> = { orchestrator: 'Orchestrator', session: 'wave-06', subagent: 'impl-06', note: 'Note', terminal: 'Terminal' }
+    const titles: Record<string, string> = { orchestrator: 'Orchestrator', session: 'wave-06', subagent: 'impl-06', note: 'Note', terminal: 'Terminal', handoff: 'HANDOFF' }
     for (const [name, text] of Object.entries(titles)) {
       expect(far[name], name).toMatchObject({ shown: true, whole: true, text })
       expect(far[name]?.height, name).toBeGreaterThanOrEqual(17)
     }
+    // A title longer than 200 px ends in "…" and is not cut by anything round it.
+    expect(far.card).toMatchObject({ shown: true, text: CARD_TITLE })
+    const cardLabel = await boxOf(window, '[data-testid="card-node"] [data-node-title]')
+    expect(cardLabel.right - cardLabel.left).toBeLessThanOrEqual(201)
+    expect(cardLabel.right - cardLabel.left).toBeGreaterThan(150)
+    const cardStyle = await window.locator('[data-testid="card-node"] [data-node-title]').evaluate((element) => {
+      const scope = globalThis as unknown as { getComputedStyle(target: unknown): { textOverflow: string } }
+      const box = element as unknown as { scrollWidth: number; clientWidth: number }
+      return { textOverflow: scope.getComputedStyle(element).textOverflow, cut: box.scrollWidth > box.clientWidth }
+    })
+    expect(cardStyle).toEqual({ textOverflow: 'ellipsis', cut: true })
+    // The selected Note keeps an accent outline round its block.
+    const mark = await window.evaluate(() => {
+      type Styled = { style: { color: string }; remove(): void }
+      const scope = globalThis as unknown as {
+        document: { createElement(tag: string): Styled; body: { append(child: Styled): void }; querySelector(selector: string): unknown }
+        getComputedStyle(target: unknown): { color: string; outlineColor: string; outlineWidth: string; getPropertyValue(name: string): string }
+      }
+      const probe = scope.document.createElement('span')
+      probe.style.color = 'var(--accent)'
+      scope.document.body.append(probe)
+      const accent = scope.getComputedStyle(probe).color
+      probe.remove()
+      const style = scope.getComputedStyle(scope.document.querySelector('.react-flow__node[data-id="zoom-note"] .w-node-surface'))
+      const zoom = Number(scope.getComputedStyle(scope.document.querySelector('.react-flow')).getPropertyValue('--w-zoom'))
+      return { accent, colour: style.outlineColor, width: parseFloat(style.outlineWidth) * zoom }
+    })
+    expect(mark.colour).toBe(mark.accent)
+    expect(mark.width).toBeCloseTo(3, 0)
     expect(far.sessionStatus?.shown).toBe(false)
     expect(far.noteText?.shown).toBe(false)
     await snapshotThemes(window, 'zoom-far')

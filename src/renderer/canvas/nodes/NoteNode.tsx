@@ -3,6 +3,7 @@ import type { CanvasNodeProps } from './index'
 import { useReadOnly } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { NODE_HEADER, NODE_TITLE } from '../zoom-level'
 
 // A plain text note. It is the debug Node type: a double click on an empty spot of the Canvas
 // creates one, and tests use it to exercise the Layout.
@@ -71,7 +72,7 @@ export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={64}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-note__header" data-node-header="" data-node-title="">
+      <div className="w-note__header" {...NODE_HEADER} {...NODE_TITLE}>
         Note
       </div>
       <textarea

@@ -250,8 +250,8 @@ test('the protocol in the running app sends the CSP and answers 404 outside the 
   expect(answers.symlink.status).toBe(404)
 })
 
-test('below zoom 0.4 a Card is drawn as its title in a frame, without a live iframe', async () => {
-  writeLayout(0.3)
+test('below the full zoom level (0.6) a Card is drawn as its title in a frame, without a live iframe', async () => {
+  writeLayout(0.5)
   launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
   const { window } = launched
   const c1 = window.locator('[data-testid="card-node"][data-card-id="c1"]')

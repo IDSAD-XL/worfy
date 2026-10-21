@@ -3,9 +3,13 @@
 // Epic frame's header by its inverse to keep them at a constant screen size. Only this component
 // follows every zoom step; it draws nothing. The zoom is left off the root at the other levels, so a
 // zoom there restyles nothing.
+//
+// A field the level hides keeps no keyboard focus: typing must not go on into a Note's text or a
+// Terminal that is no longer on the screen. Below the full level the focus leaves a field in the
+// hidden body of a Node (outside its header); at the far level, a field anywhere in the Node.
 import { useLayoutEffect } from 'react'
 import { useStore } from '@xyflow/react'
-import { useZoomLevel, ZOOM_LEVEL_ATTRIBUTE, ZOOM_VARIABLE } from '../zoom-level'
+import { hiddenByLevel, useZoomLevel, ZOOM_LEVEL_ATTRIBUTE, ZOOM_VARIABLE } from '../zoom-level'
 
 export const order = 5
 
@@ -18,6 +22,8 @@ export default function ZoomLevelMarks() {
   useLayoutEffect(() => {
     if (root === null) return
     root.setAttribute(ZOOM_LEVEL_ATTRIBUTE, level)
+    const focused = root.ownerDocument.activeElement
+    if (focused instanceof HTMLElement && root.contains(focused) && hiddenByLevel(focused, level)) focused.blur()
     return () => root.removeAttribute(ZOOM_LEVEL_ATTRIBUTE)
   }, [root, level])
 
