@@ -780,3 +780,55 @@ export function overlaps(boxes: readonly { name: string; x: number; y: number; w
   })
   return found
 }
+
+/** One element to measure: a name for the messages and a CSS selector that finds exactly it. */
+export interface Measured {
+  name: string
+  selector: string
+}
+
+/**
+ * The boxes of several elements read in one pass inside the page, with no await between two reads,
+ * so a relayout cannot fall between them. A name whose selector finds nothing comes back as missing.
+ */
+export async function boxesInOnePass(page: Page, targets: readonly Measured[]): Promise<{ boxes: { name: string; x: number; y: number; width: number; height: number }[]; missing: string[] }> {
+  return page.evaluate((list) => {
+    type Rect = { x: number; y: number; width: number; height: number }
+    const doc = (globalThis as unknown as { document: { querySelector(selector: string): { getBoundingClientRect(): Rect } | null } }).document
+    const boxes: { name: string; x: number; y: number; width: number; height: number }[] = []
+    const missing: string[] = []
+    for (const { name, selector } of list) {
+      const element = doc.querySelector(selector)
+      if (element === null) {
+        missing.push(name)
+        continue
+      }
+      const { x, y, width, height } = element.getBoundingClientRect()
+      boxes.push({ name, x, y, width, height })
+    }
+    return { boxes, missing }
+  }, targets)
+}
+
+/**
+ * Waits until the layout of `targets` settles — two passes in a row read the same boxes — with
+ * every element there and no two of them overlapping, and fails with the last pass's overlaps
+ * otherwise. Card heights change as data arrives (a card's repository chip, say) and every change
+ * places the cards again, so boxes read one by one can mix two layouts; a real overlap stays in
+ * every settled pass and fails the test.
+ */
+export async function expectSettledWithoutOverlaps(page: Page, targets: readonly Measured[], message: string, timeout = 10_000): Promise<void> {
+  let previous: string | null = null
+  await expect
+    .poll(
+      async () => {
+        const { boxes, missing } = await boxesInOnePass(page, targets)
+        const key = JSON.stringify(boxes)
+        const settled = key === previous
+        previous = key
+        return { settled, missing, overlaps: overlaps(boxes) }
+      },
+      { message, timeout, intervals: [100, 250, 500] },
+    )
+    .toEqual({ settled: true, missing: [], overlaps: [] })
+}

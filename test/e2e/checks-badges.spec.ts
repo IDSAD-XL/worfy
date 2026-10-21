@@ -5,7 +5,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
-import { launchApp, overlaps, ticketCardCuts } from './helpers'
+import { expectSettledWithoutOverlaps, launchApp, ticketCardCuts } from './helpers'
 import { catScript, profileJsonScript } from '../harness-node'
 
 // Gate, PR, CI and verdict badges (ticket 17) in the built app. A temporary WORFY_CLAUDE_HOME holds
@@ -281,9 +281,19 @@ test('gate on Ticket 07 and its Session: red by the marker, green by the transcr
       }
       expect(await ticketCardCuts(ticket(num)), `nothing is cut on Ticket ${num}`).toEqual([])
 
-      const card = (await ticket(num).boundingBox())!
       const ci = ticket(num).getByTestId('checks-ci')
-      const box = (await ci.boundingBox())!
+      // The card and its CI chip in one read: a relayout between two reads would move only one of them.
+      const { card, box } = await ticket(num).evaluate((node) => {
+        type Rect = { x: number; y: number; width: number; height: number }
+        type El = { getBoundingClientRect(): Rect; querySelector(selector: string): El | null }
+        const rect = (element: El): Rect => {
+          const { x, y, width, height } = element.getBoundingClientRect()
+          return { x, y, width, height }
+        }
+        const chip = (node as unknown as El).querySelector('[data-testid="checks-ci"]')
+        if (chip === null) throw new Error('no CI chip on the card')
+        return { card: rect(node as unknown as El), box: rect(chip) }
+      })
       expect(box.x, `CI on Ticket ${num} starts inside the Ticket Node`).toBeGreaterThanOrEqual(card.x)
       expect(box.x + box.width, `CI on Ticket ${num} ends inside the Ticket Node`).toBeLessThanOrEqual(card.x + card.width)
       expect(box.y + box.height, `CI on Ticket ${num} ends inside the Ticket Node`).toBeLessThanOrEqual(card.y + card.height)
@@ -609,7 +619,6 @@ test('the width estimate against the real fonts: Cyrillic, wide letters, a long 
   try {
     const { window } = launched
     await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
-    const boxes: { name: string; x: number; y: number; width: number; height: number }[] = []
     for (const each of tickets) {
       const card = window.locator(`[data-testid="ticket-node"][data-ticket="${each.num}"]`)
       await expect(card.getByTestId('ticket-repo')).toBeVisible({ timeout: 20_000 })
@@ -618,10 +627,12 @@ test('the width estimate against the real fonts: Cyrillic, wide letters, a long 
       if (each.repo) await expect(card.getByTestId('ticket-repo')).toHaveText(each.repo)
       expect(await card.evaluate((node) => (node as unknown as { offsetWidth: number }).offsetWidth), `Ticket ${each.num} has the default width`).toBe(240)
       expect(await ticketCardCuts(card), `nothing is cut on Ticket ${each.num}`).toEqual([])
-      const box = await card.boundingBox()
-      boxes.push({ name: `Ticket ${each.num}`, ...box! })
     }
-    expect(overlaps(boxes), 'cards that overlap').toEqual([])
+    // All five cards in one pass, once the layout has settled: a card's height changes when its
+    // repository chip arrives, and the cards are placed again, so boxes read card by card could mix
+    // two layouts.
+    const cards = tickets.map((each) => ({ name: `Ticket ${each.num}`, selector: `[data-testid="ticket-node"][data-ticket="${each.num}"]` }))
+    await expectSettledWithoutOverlaps(window, cards, 'cards that overlap')
   } finally {
     await launched.close()
   }
