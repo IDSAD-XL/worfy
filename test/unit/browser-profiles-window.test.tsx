@@ -19,7 +19,7 @@ vi.mock('../../src/renderer/browser/profiles', () => ({
 }))
 
 const main = vi.hoisted(() => ({ invoke: vi.fn<(channel: string, input: unknown) => Promise<unknown>>(() => Promise.resolve({ ok: true, value: {} })) }))
-vi.mock('../../src/renderer/ipc', () => ({ invoke: main.invoke }))
+vi.mock('../../src/renderer/ipc', async (importOriginal) => ({ ...(await importOriginal<typeof import('../../src/renderer/ipc')>()), invoke: main.invoke }))
 
 vi.mock('../../src/renderer/projects/useProjects', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/projects/useProjects')>()),
