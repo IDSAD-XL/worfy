@@ -116,17 +116,20 @@ Test-ы в `harness/bin/tests/wave-gate.test.sh`, на всех системах
   причиной: обработчик сигнала там не выполняется, это проверяет случай «killed».
 - «orphan»: убитый `wave-gate`, чей gate ещё работает (stub держит `hold`). `holder.json` называет gate как
   `child`; следующий запуск ждёт, пока gate не кончится, и сразу после этого берёт замок. На Windows gate умирает
-  вместе с `wave-gate`, и test проверяет только, что замок берут сразу.
+  вместе с `wave-gate`: test оставляет `hold` и проверяет, что замок берут, пока он есть.
 - «twins»: два запуска ждут один замок мёртвого `wave-gate`. Перехватывает один (одно сообщение «which is not
-  running»), оба проходят gate, отложенных в сторону папок не остаётся.
+  running»), оба проходят gate, маркера `.takeover` не остаётся.
+- «token»: мёртвый замок под молодым маркером ждут; старый маркер (60 s) удаляют и замок берут.
 - `host` нет (запись блока SKILL.md) и `host` другой машины: молодой замок с мёртвым pid ждут.
 - «pid dead» берёт pid завершившегося node (`process.pid`), а не `$!` от `sleep 0`: в Git Bash `$!` — pid MSYS,
   и он мог попасть рядом с живым процессом Windows (`process.kill(pid, 0)` на Windows не смотрит на два младших
   бита pid). «pid live» уже брал pid Windows (`/proc/<pid>/winpid`).
 
-На ПК 2026-10-21, Git Bash: на `wave-gate` из origin/main (файл подменён на время прогона) — 135 passed, 2 failed:
-оба новых случая «killed» (замок без `host`; следующий запуск ждёт дольше 30 s). На новом `wave-gate` — 5 прогонов
-файла подряд, каждый 137 passed, 0 failed, EXIT=0.
+На ПК 2026-10-21 (вечер), Git Bash, после замены rename на маркер `mkdir`: на `wave-gate` из origin/main (файл
+подменён на время прогона) — 136 passed, 7 failed, EXIT=1: «killed» (замок без `host`), «of a killed run» (следующий
+запуск ждёт дольше 30 s), три случая «orphan», «twins» (оба ждут дольше 60 s) и «old token». Молодой маркер на
+старом `wave-gate` проходит: старый код мёртвый замок не берёт вообще. На новом `wave-gate` — 5 прогонов файла
+подряд, каждый 143 passed, 0 failed, EXIT=0, 272–295 s.
 
 Low-ы ревью #678 (Mac, 2026-10-21; по выбору ПК — в этот тикет):
 - Полный путь Windows проверяет одна функция, `isWindowsAbsolutePath` (`src/shared/paths.ts`): `findOnPath`
@@ -141,6 +144,8 @@ Low-ы ревью #678 (Mac, 2026-10-21; по выбору ПК — в этот 
 - Test строки диалога согласия (`test/contract/harness-migrate.test.ts`) — в своей группе «the consent dialog», с
   фиксированной папкой: кавычка в пути репозитория не даёт ложного красного.
 
-На ПК: unit/contract (`program`, `github-accounts`, `agent-env`, `platform-paths`, `harness-migrate`,
-`first-run-windows`, `e2e-gh-stub`, `no-rmsync`) — 299 passed, 4 skipped, EXIT=0; e2e `harness-migrate` и `select`
-под watcher-ом `gh.exe` — 4 passed, gh.exe 0, EXIT=0. `pnpm typecheck`, `pnpm lint` — 0.
+На ПК, head после merge main `30649627`: unit/contract (`program`, `github-accounts`, `agent-env`,
+`platform-paths`, `harness-migrate`, `first-run-windows`, `e2e-gh-stub`, `no-rmsync`, `e2e-no-spawn-on-load`) —
+347 passed, 4 skipped, EXIT=0. typecheck сначала упал TS6307: новый `test/claude-home-legacy.ts` не был в
+`tsconfig.test.node.json`, добавлен. e2e `harness-migrate` и `select` под watcher-ом `gh.exe` до merge — 4 passed,
+gh.exe 0, EXIT=0; на этом head — после игры владельца (окна e2e забирают фокус). `pnpm typecheck`, `pnpm lint` — 0.
