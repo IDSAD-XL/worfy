@@ -504,8 +504,9 @@ echo "$sp" >"$(PIDF)"
     && ok "pid: the other check's worktree and pid file are untouched, no gate run" || bad "pid live: worktree, pid file or gate touched"
 kill "$job"; wait "$job" 2>/dev/null
 git -C "$W/repo" worktree remove --force "$(TMPW_OF)"
-# a dead pid: stale, taken over
-sleep 0 & dp=$!; wait "$dp"
+# a dead pid: stale, taken over. The pid of a node that has exited: node's pid is the one wave-gate checks, while in
+# Git Bash `$!` is an MSYS pid, which may fall on a live Windows process (worfy-windows ticket 72).
+dp="$(node -e 'process.stdout.write(String(process.pid))')"
 echo "$dp" >"$(PIDF)"
 "$WG" check "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" -eq 0 ] && grep -q "pid $dp, which is not running" "$W/out" && [ ! -e "$(PIDF)" ] && ok "pid: a dead pid is taken over; the pid file is gone at the end" || bad "pid dead: exit $rc: $(tail -3 "$W/out")"
@@ -609,6 +610,39 @@ if $RUN_SIGTERM; then
     [ -s "$SCREEN_DIR/caf.log" ] && caf_gone "$SCREEN_DIR/caf.log" && ok "signal: no caffeinate left after SIGTERM" || bad "signal: caffeinate left or not started: $(cat "$SCREEN_DIR/caf.log" 2>/dev/null)"
     unset GATE_LOCK
 fi
+# killed without its signal handlers (SIGKILL; on Windows every kill from another process): the lock stays with its
+# holder.json, and the next run takes it at once because the holder's pid is not running, not after 30 min
+# (worfy-windows ticket 72). On every system.
+new_world killed 1:a.txt
+S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+echo KILL >"$GATE_DIR/kill1"
+"$WG" check "$S" >"$W/out" 2>&1; rc=$?
+rm -f "$GATE_DIR/kill1"
+kp="$(q "$L/holder.json" s.pid 2>&1)"
+[ "$rc" -ne 0 ] && [ -d "$L" ] && [ "$(q "$L/holder.json" 's.host===require("os").hostname()' 2>&1)" = true ] \
+    && ok "e2e lock: a killed wave-gate leaves its lock with its pid and host (exit $rc)" || bad "e2e lock killed: exit $rc, holder [$(cat "$L/holder.json" 2>&1)]"
+held_twice() { [ "$(grep -c 'lock=held' "$GATE_DIR/log" 2>/dev/null)" -ge 2 ]; }
+"$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+if until_ok 30 held_twice; then wait "$wg"; rc=$?; else kill "$wg" 2>/dev/null; wait "$wg" 2>/dev/null; rc="still waiting after 30 s"; fi
+[ "$rc" = 0 ] && grep -q "held by pid $kp, which is not running" "$W/out" && [ ! -e "$L" ] \
+    && ok "e2e lock: the lock of a killed wave-gate is taken at once by the next run" || bad "e2e lock of a killed run: $rc: $(tail -3 "$W/out")"
+rm -rf "$L"; unset GATE_LOCK
+# a holder.json without this host is not judged by its pid: the one-PR block of skills/epic-wave writes no host, and
+# in Git Bash its pid is not a Windows pid; a pid of another host means nothing here. The young lock is waited for.
+gone="$(node -e 'process.stdout.write(String(process.pid))')"
+for host in none elsewhere; do
+    new_world "holder-$host" 1:a.txt
+    S="$W/state.json"; L="$W/e2e.lock"; state "$S" "$L" 1; export GATE_LOCK="$L"
+    rec='{"prs":[9],"what":"gate-full","pid":'"$gone"',"since":"x"}'
+    [ "$host" = none ] || rec='{"prs":[9],"what":"gate-full","pid":'"$gone"',"host":"'"$host"'","since":"x"}'
+    mkdir "$L"; printf '%s\n' "$rec" >"$L/holder.json"
+    "$WG" check "$S" >"$W/out" 2>&1 & wg=$!
+    until_ok 30 grep -q "waiting for the e2e lock" "$W/out"; sleep 2
+    [ "$(gate_count)" = 0 ] && grep -q "waiting for the e2e lock" "$W/out" && [ -f "$L/holder.json" ] \
+        && ok "e2e lock: a young lock whose holder.json has host $host is waited for, its pid not looked at" || bad "e2e lock host $host: taken [$(tail -2 "$W/out")]"
+    rm -f "$L/holder.json"; rmdir "$L"; wait "$wg"
+    unset GATE_LOCK
+done
 
 # --- an error in the middle of the squash merges: the worktree is removed ---------------------
 new_world broken 1:a.txt

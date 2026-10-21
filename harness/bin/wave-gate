@@ -80,8 +80,9 @@
 // The e2e lock has the semantics of the shared one-command lock of the project rules: mkdir; a lock
 // older than 30 min counts as abandoned and is removed; a heartbeat `touch -c` every 5 min while it is
 // held; released on exit and on error. While wave-gate holds it, the lock directory has holder.json —
-// {"prs": [<numbers of the run>], "what": "gate-full", "pid", "since"} — so whoever waits sees who holds it and
-// for which PRs; the file goes with the directory. A lock older than 30 min is removed with its holder.json.
+// {"prs": [<numbers of the run>], "what": "gate-full", "pid", "host", "since"} — so whoever waits sees who holds it and
+// for which PRs; the file goes with the directory. A lock older than 30 min is removed with its holder.json, and so
+// is one whose holder.json names this host and a pid that is not running (a wave-gate killed without its handlers).
 //
 // Exit codes. check: 0 green (or nothing to check), 2 red, 3 unverified, 1 error. merge: 0 merged
 // (or nothing to merge), 4 stopped (reason in the state file), 1 error or refused.
@@ -93,6 +94,7 @@
 // lock (30, 5400). Tests set them; the defaults are the project's.
 "use strict"
 const fs = require("fs")
+const os = require("os")
 const path = require("path")
 const { spawn, spawnSync } = require("child_process")
 // The git to start, with the variable of an eval run (EVAL_GIT).
@@ -111,7 +113,9 @@ const SCREEN = { poll: seconds("WAVE_GATE_SCREEN_POLL_S", 30) }
 const SCREEN_TRIES = 3
 // A gate label is "<project>/<workspace>:<script>"; these scripts start Electron and need a window.
 const WINDOW_SCRIPT = /(?:^|:)test:(?:e2e|package)$/
-const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 }
+// On Windows node gets no SIGTERM from another process (a kill ends it at once, see lock()), but Ctrl+Break in its
+// console comes as SIGBREAK.
+const SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15, ...(process.platform === "win32" ? { SIGBREAK: 21 } : {}) }
 
 class Fail extends Error {}
 const fail = (msg) => {
@@ -190,6 +194,30 @@ async function lock(dir, t, what, holder) {
         } catch (e) {
             if (e.code !== "EEXIST") throw e
         }
+        const dead = deadHolder(dir)
+        if (dead) {
+            // Renamed aside first, as the pid file is (guardPid): of two waiters only one gets it. The file it got is
+            // read again, and one that is not the dead holder's (the lock was taken over in between) is put back.
+            const aside = `${dir}.holder-${process.pid}`
+            try {
+                fs.renameSync(dead.file, aside)
+            } catch {
+                continue
+            }
+            if (fs.readFileSync(aside, "utf8") === dead.text) {
+                say(`${what} ${dir} is held by pid ${dead.pid}, which is not running — abandoned, removed`)
+                fs.rmSync(aside, { force: true })
+                try {
+                    fs.rmdirSync(dir)
+                } catch {}
+            } else {
+                try {
+                    fs.linkSync(aside, dead.file)
+                } catch {}
+                fs.rmSync(aside, { force: true })
+            }
+            continue
+        }
         let m
         try {
             m = fs.statSync(dir).mtimeMs
@@ -209,7 +237,7 @@ async function lock(dir, t, what, holder) {
         await sleep(t.poll)
     }
     if (holder) {
-        const record = { ...holder, pid: process.pid, since: new Date().toISOString() }
+        const record = { ...holder, pid: process.pid, host: os.hostname(), since: new Date().toISOString() }
         try {
             fs.writeFileSync(path.join(dir, HOLDER), JSON.stringify(record) + "\n")
         } catch (e) {
@@ -226,6 +254,24 @@ async function lock(dir, t, what, holder) {
         }
     }, t.beat * 1000)
     held.locks.set(dir, beat)
+}
+// The holder.json of a lock whose wave-gate is gone, or null. A wave-gate stopped without its signal handlers
+// (SIGKILL; on Windows a kill from any other process, taskkill /F or Git Bash's kill) leaves its lock, and waiting
+// for the lock to grow stale would hold every later run for half an hour. Only a holder.json with this machine's
+// host is judged by its pid: the pid of another machine means nothing here, and the one-PR block of
+// skills/epic-wave writes no host and the pid of its shell, which in Git Bash is not a Windows pid.
+function deadHolder(dir) {
+    const file = path.join(dir, HOLDER)
+    let text, record
+    try {
+        text = fs.readFileSync(file, "utf8")
+        record = JSON.parse(text)
+    } catch {
+        return null
+    }
+    const pid = record?.pid
+    if (record?.host !== os.hostname() || !Number.isInteger(pid) || pid <= 0 || pid === process.pid || pidAlive(pid)) return null
+    return { file, text, pid }
 }
 function unlock(dir) {
     const beat = held.locks.get(dir)
@@ -421,7 +467,7 @@ function run(cmd, args, opts, logFile) {
         child.on("close", (code, signal) => {
             held.child = null
             log.end()
-            resolve({ code: code ?? (signal ? 128 + (require("os").constants.signals[signal] || 0) : 127), text })
+            resolve({ code: code ?? (signal ? 128 + (os.constants.signals[signal] || 0) : 127), text })
         })
     })
 }
