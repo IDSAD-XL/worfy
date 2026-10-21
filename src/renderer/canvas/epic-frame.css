@@ -428,3 +428,51 @@
   color: var(--blocked-text);
   overflow-wrap: anywhere;
 }
+
+/* ── semantic zoom: far (zoom-level.ts; F-SPEC "Zoom levels") ─────────────── */
+/* The frame's name and progress stay readable: its header keeps a constant screen size (scaled by
+   1/zoom, `--w-zoom` from overlays/ZoomLevel.tsx), at least as wide on the screen as the frame and
+   wider when the name needs it: the name (the Epic's slug) is never cut. Its bottom sits on the
+   Tickets' top (TICKETS_TOP of epic-layout.ts, 92), so it covers no Ticket; above the frame it
+   takes less than FRAME_GAP (48) at the lowest zoom (ZOOM_MIN 0.2). The tag, the subtitle and the
+   actions go, the Collapse / Expand chevron stays; the column labels and the done stack's text go;
+   Tickets are blocks without text. */
+.react-flow[data-zoom-level='far'] .w-epic__ground {
+  visibility: hidden;
+}
+.react-flow[data-zoom-level='far'] .w-epic__header {
+  top: calc(92px - 24px / var(--w-zoom, 1));
+  right: auto;
+  width: max-content;
+  min-width: calc((100% - 28px) * var(--w-zoom, 1));
+  height: 24px;
+  box-sizing: border-box;
+  gap: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-chip);
+  background: var(--kind-epic-tint);
+  box-shadow: inset 0 3px 0 var(--kind-epic);
+  transform: scale(calc(1 / var(--w-zoom, 1)));
+  transform-origin: 0 0;
+}
+.react-flow[data-zoom-level='far'] .w-epic__header > :not(.w-epic__drag, .w-progress, .w-epic__count, .w-epic__button),
+.react-flow[data-zoom-level='far'] :is(.w-epic__tag, .w-epic__subtitle) {
+  display: none;
+}
+.react-flow[data-zoom-level='far'] .w-epic__drag {
+  flex: none;
+}
+.react-flow[data-zoom-level='far'] .w-epic__title {
+  display: block;
+  font-size: var(--text-13);
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: visible;
+}
+.react-flow[data-zoom-level='far'] .w-epic__title .w-mono {
+  font-size: var(--text-13);
+}
+.react-flow[data-zoom-level='far'] :is(.w-epic__column, .w-epic__empty, .w-epic__stack > *, .w-ticket > *) {
+  visibility: hidden;
+}

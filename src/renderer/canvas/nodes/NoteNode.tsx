@@ -71,7 +71,9 @@ export default function NoteNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={64}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-note__header">Note</div>
+      <div className="w-note__header" data-node-header="" data-node-title="">
+        Note
+      </div>
       <textarea
         ref={textarea}
         className="w-note__text nodrag nowheel"

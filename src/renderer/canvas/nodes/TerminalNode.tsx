@@ -461,12 +461,14 @@ export default function TerminalNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={120}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-terminal__header">
+      <div className="w-terminal__header" data-node-header="">
         <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
           <path d="M4.5 6l2 2-2 2M8.5 10.5h3" />
         </svg>
-        <span className="w-terminal__title">Terminal</span>
+        <span className="w-terminal__title" data-node-title="">
+          Terminal
+        </span>
         {shell !== '' ? <span className="w-terminal__shell">{shell}</span> : null}
         {fix.available || fix.running ? (
           <button

@@ -89,10 +89,10 @@ function AgentNode({ id, data, agent }: { id: string; data: SubagentNodeData; ag
       title={agent.description ?? undefined}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} style={styles.handle} />
-      <div style={styles.header}>
+      <div style={styles.header} data-node-header="">
         <KindBand kind="subagent" />
         <KindIcon kind="subagent" />
-        <span className="w-mono" style={styles.name} data-testid="subagent-name" title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
+        <span className="w-mono" style={styles.name} data-testid="subagent-name" data-node-title="" title={agent.name === null ? (agent.subagentType ?? undefined) : undefined}>
           {title}
         </span>
         <span data-testid="subagent-status">

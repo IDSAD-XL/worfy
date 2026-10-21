@@ -371,10 +371,10 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
         minHeight={140}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the Session">
+      <div style={styles.header} title="Double-click to open the Session" data-node-header="">
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
+        <span style={styles.title} data-testid="session-node-title" data-node-title="" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : undefined}>
@@ -525,10 +525,10 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={80}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the transcript">
+      <div style={styles.header} title="Double-click to open the transcript" data-node-header="">
         <KindBand kind="session" />
         <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
+        <span style={styles.title} data-testid="session-node-title" data-node-title="" title={title}>
           {title}
         </span>
         <span data-testid="session-node-status">

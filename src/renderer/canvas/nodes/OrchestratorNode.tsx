@@ -119,10 +119,12 @@ export default function OrchestratorNode({ id, selected }: CanvasNodeProps) {
         minHeight={120}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-orchestrator__header" style={styles.header} title="Double-click to open the Session">
+      <div className="w-orchestrator__header" style={styles.header} title="Double-click to open the Session" data-node-header="">
         <KindBand kind="orchestrator" />
         <KindIcon kind="orchestrator" />
-        <span style={styles.title}>Orchestrator</span>
+        <span style={styles.title} data-node-title="">
+          Orchestrator
+        </span>
         <span data-testid="orchestrator-state" title={view?.error ?? undefined}>
           <StatusChip status={chip.status} label={chip.label} />
         </span>

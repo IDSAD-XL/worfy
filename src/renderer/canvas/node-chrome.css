@@ -59,3 +59,90 @@
 .w-canvas .react-flow__node:not(.selected):not(:hover) .w-node-surface[data-finished='true'] {
   opacity: 0.6;
 }
+
+/* Semantic zoom (zoom-level.ts, overlays/ZoomLevel.tsx; F-SPEC "Zoom levels"). The React Flow root
+   carries the level; a Node type takes part by marking its header row `data-node-header` (a direct
+   child of its surface) and the title in it `data-node-title`. A pinned Node keeps its screen size
+   and stays full; a Node type that marks no header stays full too.
+
+   Hidden parts keep their place (`visibility`, never `display: none`, and the far frame is an
+   outline, not a border): a Terminal under the compact view must not see its box shrink, or it
+   would resize its shell. The Node's size on the Canvas never changes with the level. */
+
+/* The colour of the far block (ADR-0077, item 3): the kind's `band` as a thick outline round its
+   pale `tint`; neutral kinds take the strong border round the raised surface. A Subagent's outline
+   is dashed and in its Session's colour, like its header band; its block stays neutral. */
+.w-canvas .react-flow__node {
+  --w-far-band: var(--border-strong);
+  --w-far-fill: var(--surface-raised);
+  --w-far-line: solid;
+}
+.w-canvas .react-flow__node-session {
+  --w-far-band: var(--kind-session);
+  --w-far-fill: var(--kind-session-tint);
+}
+.w-canvas .react-flow__node-orchestrator {
+  --w-far-band: var(--kind-orchestrator);
+  --w-far-fill: var(--kind-orchestrator-tint);
+}
+.w-canvas .react-flow__node-subagent {
+  --w-far-band: var(--kind-subagent);
+  --w-far-line: dashed;
+}
+
+/* compact and far: everything but the header (and React Flow's resize handles and edge handles) is hidden. */
+.react-flow:is([data-zoom-level='compact'], [data-zoom-level='far'])
+  .react-flow__node:not(.w-pinned)
+  .w-node-surface:has(> [data-node-header])
+  > :not([data-node-header], .react-flow__resize-control, .react-flow__handle) {
+  visibility: hidden;
+}
+
+/* far: the block in the kind's colour, its title as a label at a constant screen size (scaled by
+   1/zoom). A Node far out is smaller on the screen than its title, so the label may reach past the
+   block, centred on it, on a ground of the block's colour, up to 200 px wide on the screen.
+   `!important` where a Node type styles its surface, header or title inline. */
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface:has(> [data-node-header]) {
+  overflow: visible !important;
+  background: var(--w-far-fill);
+  outline: calc(4px / var(--w-zoom, 1)) var(--w-far-line) var(--w-far-band);
+  outline-offset: calc(-4px / var(--w-zoom, 1));
+  box-shadow: none;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-surface > [data-node-header] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  overflow: visible !important;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) [data-node-header]:not([data-node-title]) > :not([data-node-title]) {
+  display: none;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) [data-node-header] [data-node-title],
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) [data-node-title][data-node-header] {
+  flex: none !important;
+  min-width: 0;
+  max-width: calc(200px / var(--w-zoom, 1)) !important;
+  height: auto !important;
+  padding: calc(2px / var(--w-zoom, 1)) calc(6px / var(--w-zoom, 1)) !important;
+  border-radius: calc(4px / var(--w-zoom, 1));
+  background: var(--w-far-fill);
+  color: var(--text) !important;
+  font-family: var(--font-ui);
+  font-size: calc(var(--text-15) / var(--w-zoom, 1)) !important;
+  font-weight: 600;
+  line-height: 1.25 !important;
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.react-flow[data-zoom-level='far'] .react-flow__node:not(.w-pinned) .w-node-tags {
+  visibility: hidden;
+}

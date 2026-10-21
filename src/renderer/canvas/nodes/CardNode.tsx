@@ -7,6 +7,7 @@ import { invoke, subscribe, windowMachine } from '../../ipc'
 import { activeProject, useProjects } from '../../projects/useProjects'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
+import { useZoomLevel } from '../zoom-level'
 import { useFramesStepAsideWhilePressed } from './frames-step-aside'
 import type { CanvasNodeProps } from './index'
 
@@ -14,8 +15,8 @@ import type { CanvasNodeProps } from './index'
 // <Project data folder>/cards/<id>/. It runs in an iframe on its own origin, worfy-card://
 // (src/main/cards/protocol.ts), so it reaches neither the worfy window nor another Card; main
 // keeps the frame from navigating away or opening windows. The Node reloads the Card when main
-// reports a change of its files, and draws only the title and a frame when the Canvas is zoomed
-// out below LIVE_ZOOM_MIN.
+// reports a change of its files, and runs only at the `full` zoom level (zoom-level.ts): below it
+// the Card draws its title and a frame instead of the page.
 //
 // In a window on Linked machine M (worfy-link ticket 10) the Card's address from M gets M's machine
 // label (frameUrl): the frame then has an origin of its own, and this Machine's main fetches the
@@ -23,9 +24,6 @@ import type { CanvasNodeProps } from './index'
 export const kind = 'card'
 export const defaultWidth = 360
 export const defaultHeight = 280
-
-/** Below this zoom the Card is not running: a frame with its title is drawn instead. */
-export const LIVE_ZOOM_MIN = 0.4
 
 /**
  * Scripts run, and the Card keeps its own origin (its storage, its own files). That origin is
@@ -106,7 +104,7 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
   const projectId = activeProject(useProjects())?.id
   const cardId = cardIdOf(data.node)
   const { info, error } = useCard(projectId, cardId)
-  const live = useStore((store) => store.transform[2] >= LIVE_ZOOM_MIN)
+  const live = useZoomLevel() === 'full'
   useFramesStepAsideWhilePressed(useStore((store) => store.domNode))
   const title = info?.title ?? 'Card'
   const src = info === undefined ? null : frameUrl(info.url, windowMachine())
@@ -151,7 +149,7 @@ export default function CardNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={100}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div className="w-note__header" data-testid="card-title">
+      <div className="w-note__header" data-testid="card-title" data-node-header="" data-node-title="">
         {title}
       </div>
       {/* Until the Card is the active Node its iframe takes no mouse (canvas.css), so the click that
