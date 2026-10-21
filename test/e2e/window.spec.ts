@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { endApp } from './end-app'
 import { GH_STUB, launchApp, NO_WINDOW_RESTORE, repoRoot } from './helpers'
 
 // Electron helper processes may still hold files in a directory for a moment after the app exits.
@@ -162,6 +163,9 @@ for (const [mode, rejection] of [
 }
 
 test('the window has no system title bar: traffic lights sit inset in the toolbar', async () => {
+  // Windows and Linux keep the system's own frame and title bar (src/main/window-frame.ts), and
+  // getWindowButtonPosition exists on macOS only.
+  test.skip(process.platform !== 'darwin', 'macOS only: elsewhere the window keeps the system frame')
   const launched = await launchApp()
   try {
     await expect(launched.window.getByTestId('app-shell')).toBeVisible()
@@ -241,11 +245,11 @@ test('a moved or resized window is saved at once, without waiting for the window
       window.emit('moved')
     }, wanted)
     await expect.poll(readSaved, { timeout: 5_000 }).toEqual({ bounds: wanted })
-    // A crash or a kill skips the 'close' event: what is on disk is all that survives.
-    // Listen before the kill: an 'exit' that has already fired would never resolve once().
-    const exited = once(appProcess, 'exit')
-    appProcess.kill('SIGKILL')
-    await exited
+    // A crash or a kill skips the 'close' event: what is on disk is all that survives. On Windows
+    // the process Playwright started is cmd.exe, and killing it alone left the app running and
+    // holding its data folder (EBUSY on the removal below), so the app's own PID is killed too
+    // and the test waits until it is gone (end-app.ts).
+    await endApp(appProcess, await launched.app.evaluate(() => process.pid))
     expect(await readSaved()).toEqual({ bounds: wanted })
   } finally {
     // Still running only when the test failed before the kill.

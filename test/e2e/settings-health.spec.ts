@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { NO_STAND_INS_ON_WINDOWS, STAND_INS_REACHED } from './first-run-sandbox'
 import { launchApp, repoRoot, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
@@ -13,6 +14,9 @@ import { snapshotThemes } from './snapshots'
 // first on the PATH, so the checks see them and nothing of the machine running the tests. First run
 // does not open by itself here (launchApp), and the data folder starts without its mark.
 // Snapshots in both themes: test-results/e2e/snapshots/settings-health*/ (test/e2e/snapshots.ts).
+// Not on Windows: first-run-sandbox.ts.
+
+test.skip(!STAND_INS_REACHED, NO_STAND_INS_ON_WINDOWS)
 
 const removeDir = (dir: string): Promise<void> => rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 const TOOLS = join(repoRoot, 'test', 'fixtures', 'first-run-tools')
