@@ -1,7 +1,8 @@
 # 20 — Память worfy в toolbar и переключатель в Settings
 
 Type: feature
-Status: claimed 2026-10-20T01:19Z
+Status: done 2026-10-21T21:39Z
+PR: #575
 Branch: worfy-ui/20-ram
 Blocked by: —
 Source: просьба владельца 2026-10-20: «найди место в юайке где можно вывести отображение занимаемой
