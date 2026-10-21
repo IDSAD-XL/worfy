@@ -14,12 +14,14 @@
 // Nothing here writes a Ticket's status or anything in the Project (ADR-0002, ADR-0005).
 // "Process gate queue" (worfy-windows ticket 17, `actions.gateQueue`) is there only on the machine
 // whose Profile gives it the role `serve` of the cross-machine gate; its detail counts the waiting PRs.
+// "Arrange by Epic" (worfy-canvas ticket 12) asks the Canvas to line the Sessions up at their Epic
+// frames (canvas/arrange-by-epic.ts), as one step of ⌘Z.
 // "Re-pack" (worfy-canvas ticket 01, ADR-0075) asks the Canvas to put the Epic frames in the order
 // "active first" and count their columns again.
 // "Archive finished sessions now" (worfy-canvas ticket 08, ADR-0076, point 9) takes the finished
 // Sessions off the Canvas by the archive's rule at once, as one step of ⌘Z (canvas/archive-now.ts).
 // On the read-only screen of a Linked machine (worfy-link ticket 26, ADR-0066) the commands that
-// would change the Project — New …, Tidy up, Re-pack, Archive finished sessions now, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
+// would change the Project — New …, Tidy up, Arrange by Epic, Re-pack, Archive finished sessions now, Run wave, Ship ticket, Process gate queue — carry the read-only hint and
 // their rows are inactive with it; moving the Canvas, the views and switching Projects stay active.
 import type { AdrEntry } from '../../shared/ipc/docs'
 import type { ProjectView } from '../../shared/ipc/projects'
@@ -31,6 +33,7 @@ import type { LayoutNode } from '../../shared/layout/types'
 import { SHORTCUTS } from '../../shared/shortcuts'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
 import { hasRunWave, hasShipTicket } from '../canvas/actions/gates'
+import { requestArrangeByEpic } from '../canvas/arrange-by-epic-command'
 import { archiveFinishedNow } from '../canvas/archive-now'
 import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
@@ -171,6 +174,20 @@ function actionCommands({ project, createItems, readOnly, gateQueue, now }: Comm
     run: () => {
       setView('canvas')
       requestTidyUp(projectId)
+      return undefined
+    },
+  })
+  commands.push({
+    id: 'arrange-by-epic',
+    group: 'Action',
+    title: 'Arrange by Epic',
+    detail: 'Sessions next to their Epic frames',
+    keys: ['arrange by epic', 'group sessions', 'sessions by epic'],
+    readOnly: hint,
+    // The Canvas menu carries the request out (canvas/arrange-by-epic-command.ts) through the Canvas's LayoutOps: one step of ⌘Z.
+    run: () => {
+      setView('canvas')
+      requestArrangeByEpic(projectId)
       return undefined
     },
   })

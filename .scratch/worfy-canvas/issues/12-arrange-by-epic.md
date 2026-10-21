@@ -1,7 +1,8 @@
 # 12 — Команда «Arrange by Epic»: Session-ы встают у своих Epic-ов одним шагом ⌘Z
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T08:09Z
+Branch: worfy-canvas/12
 Blocked by: 01, 11
 Source: [spec.md](../spec.md), решения владельца 9 и 10; исследование
 [2026-10-19-организация-canvas.md](../../../docs/research/2026-10-19-организация-canvas.md), P4, вариант 4b,

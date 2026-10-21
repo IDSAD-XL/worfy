@@ -1,7 +1,7 @@
 // The items of the Canvas context menu (src/renderer/canvas/overlays/): each comes from a Node
 // type file that exports `createLabel`. The menu itself is driven in test/e2e/terminal.spec.ts;
-// here it is drawn in React Flow in jsdom, with "Tidy up" (canvas/tidy.ts), "Re-pack"
-// (canvas/sources/epics.ts) and the Projects faked.
+// here it is drawn in React Flow in jsdom, with "Tidy up" (canvas/tidy.ts), "Arrange by Epic"
+// (canvas/arrange-by-epic-command.ts), "Re-pack" (canvas/sources/epics.ts) and the Projects faked.
 import { fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,18 @@ vi.mock('../../src/renderer/canvas/tidy', () => ({
   useTidyUp: (projectId: string, root: string | undefined) => {
     if (!tidyUp.projects.some(([id]) => id === projectId)) tidyUp.projects.push([projectId, root])
     return tidyUp.run
+  },
+}))
+
+const arrange = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as [string, string | undefined][], requests: [] as string[] }))
+
+vi.mock('../../src/renderer/canvas/arrange-by-epic-command', () => ({
+  useArrangeByEpic: (projectId: string, root: string | undefined) => {
+    if (!arrange.projects.some(([id]) => id === projectId)) arrange.projects.push([projectId, root])
+    return arrange.run
+  },
+  useArrangeByEpicRequests: (projectId: string, run: unknown) => {
+    if (run === arrange.run && !arrange.requests.includes(projectId)) arrange.requests.push(projectId)
   },
 }))
 
@@ -110,6 +122,7 @@ describe('the Canvas menu', () => {
     if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
     readOnly.hint = null
     tidyUp.run.mockClear()
+    arrange.run.mockClear()
     repack.run.mockClear()
   })
 
@@ -135,12 +148,24 @@ describe('the Canvas menu', () => {
     const menu = await openMenu()
     const rows = [...menu.children].map((child) => (child.getAttribute('role') === 'separator' ? '—' : child.textContent))
     expect(rows.length).toBeGreaterThan(3)
-    expect(rows.slice(-3)).toEqual(['—', 'Tidy up', 'Re-pack'])
-    expect(rows.slice(0, -3).every((label) => label?.startsWith('New '))).toBe(true)
+    expect(rows.slice(-4)).toEqual(['—', 'Tidy up', 'Arrange by Epic', 'Re-pack'])
+    expect(rows.slice(0, -4).every((label) => label?.startsWith('New '))).toBe(true)
     expect(tidyUp.projects).toEqual([['p1', '/repo/one']])
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Tidy up' }))
     expect(tidyUp.run).toHaveBeenCalledTimes(1)
+    expect(arrange.run).not.toHaveBeenCalled()
+    expect(repack.run).not.toHaveBeenCalled()
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('has Arrange by Epic under Tidy up, which runs the Canvas’s Arrange by Epic and carries out the palette’s requests (worfy-canvas/12)', async () => {
+    await openMenu()
+    expect(arrange.projects).toEqual([['p1', '/repo/one']])
+    expect(arrange.requests).toEqual(['p1'])
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Arrange by Epic' }))
+    expect(arrange.run).toHaveBeenCalledTimes(1)
+    expect(tidyUp.run).not.toHaveBeenCalled()
     expect(repack.run).not.toHaveBeenCalled()
     expect(screen.queryByRole('menu')).toBeNull()
   })
@@ -155,17 +180,18 @@ describe('the Canvas menu', () => {
     expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('on a read-only screen Tidy up and Re-pack are inactive with the hint, and a click runs neither', async () => {
+  it('on a read-only screen Tidy up, Arrange by Epic and Re-pack are inactive with the hint, and a click runs none', async () => {
     const HINT = 'Mini gives this Machine read-only access'
     readOnly.hint = HINT
     await openMenu()
-    for (const name of ['Tidy up', 'Re-pack']) {
+    for (const name of ['Tidy up', 'Arrange by Epic', 'Re-pack']) {
       const item = screen.getByRole('menuitem', { name })
       expect(item.getAttribute('aria-disabled'), name).toBe('true')
       expect(item.getAttribute('title'), name).toBe(HINT)
       fireEvent.click(item)
     }
     expect(tidyUp.run).not.toHaveBeenCalled()
+    expect(arrange.run).not.toHaveBeenCalled()
     expect(repack.run).not.toHaveBeenCalled()
   })
 

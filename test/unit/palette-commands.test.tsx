@@ -6,6 +6,7 @@ import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import { PaletteBody } from '../../src/renderer/palette/CommandPalette'
 import { buildCommands, forQuery, type CommandContext } from '../../src/renderer/palette/commands'
+import { useArrangeByEpicRequests } from '../../src/renderer/canvas/arrange-by-epic-command'
 import { useRepackRequests } from '../../src/renderer/canvas/sources/epics'
 import { rankItems } from '../../src/renderer/find/search-index'
 import { epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
@@ -152,12 +153,33 @@ describe('palette commands', () => {
     expect(useCanvasRequests.getState().tidy).toMatchObject({ projectId: 'p1', seq: 2 })
   })
 
-  it('has Re-pack in the Action group after Tidy up, and running it asks the Canvas of the Project to re-pack its Epic frames (worfy-canvas/01)', async () => {
+  it('has Arrange by Epic in the Action group under Tidy up, and running it asks the Canvas of the Project to arrange its Sessions (worfy-canvas/12)', async () => {
+    setView('session')
+    const commands = buildCommands(context())
+    const index = commands.findIndex((command) => command.id === 'arrange-by-epic')
+    expect(commands[index]).toMatchObject({ group: 'Action', title: 'Arrange by Epic' })
+    expect(commands[index - 1]?.id).toBe('tidy-up')
+    expect(rankItems(commands, 'arrange by epic')[0]?.id).toBe('arrange-by-epic')
+    expect(rankItems(commands, 'group sessions')[0]?.id).toBe('arrange-by-epic')
+    // The Canvas of p1 carries the request out (the Canvas menu does it with its LayoutOps); another Project's Canvas does not.
+    const mine = vi.fn(() => Promise.resolve())
+    const other = vi.fn(() => Promise.resolve())
+    renderHook(() => useArrangeByEpicRequests('p1', mine))
+    renderHook(() => useArrangeByEpicRequests('p2', other))
+    expect(await commands[index]!.run()).toBeUndefined()
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(1))
+    expect(useNavigation.getState().view).toBe('canvas')
+    await commands[index]!.run()
+    await waitFor(() => expect(mine).toHaveBeenCalledTimes(2))
+    expect(other).not.toHaveBeenCalled()
+  })
+
+  it('has Re-pack in the Action group after Arrange by Epic, and running it asks the Canvas of the Project to re-pack its Epic frames (worfy-canvas/01)', async () => {
     setView('session')
     const commands = buildCommands(context())
     const index = commands.findIndex((command) => command.id === 'repack')
     expect(commands[index]).toMatchObject({ group: 'Action', title: 'Re-pack' })
-    expect(commands[index - 1]?.id).toBe('tidy-up')
+    expect(commands[index - 1]?.id).toBe('arrange-by-epic')
     expect(rankItems(commands, 're-pack')[0]?.id).toBe('repack')
     expect(rankItems(commands, 'repack')[0]?.id).toBe('repack')
     // The Canvas of p1 carries the request out (the Canvas menu does it with its LayoutOps); another Project's Canvas does not.
@@ -350,7 +372,7 @@ describe('palette commands', () => {
   describe('on the read-only screen of a Linked machine (worfy-link/26)', () => {
     const HINT = 'Mini gives this Machine read-only access'
     /** The commands that call a `write` channel of the Project's Machine. */
-    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'repack', 'archive-finished', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
+    const WRITES = ['new:session', 'new:terminal', 'tidy-up', 'arrange-by-epic', 'repack', 'archive-finished', 'run-wave:e', 'ship-ticket:e/07', 'ship-ticket:e/08']
 
     it('the commands that would change the Project carry the hint; moving, showing and switching do not; with Full access none does', () => {
       const commands = buildCommands(context({ readOnly: HINT }))
