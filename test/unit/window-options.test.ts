@@ -1,11 +1,12 @@
 // The frame of the main window by system (src/main/window-frame.ts, worfy-windows ticket 11): the
 // frame of design F on macOS, the system's own frame with an opaque background elsewhere.
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { browserPartition, browserPartitions } from '../../src/shared/browser/partition'
 import { frameOptions, WINDOW_BACKGROUND } from '../../src/main/window-frame'
+import { removeTestTree } from '../remove'
 
 type Listener = (...args: unknown[]) => void
 
@@ -394,7 +395,7 @@ describe('createMainWindow', () => {
         expect(electron.setBounds).toEqual([])
         expect(electron.bounds).toEqual(saved)
       } finally {
-        rmSync(dataDir, { recursive: true, force: true })
+        removeTestTree(dataDir)
       }
     })
 
