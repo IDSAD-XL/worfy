@@ -7,7 +7,9 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { elkKey, setElkEngine, useElkAnswers, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
 import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
-import source, { activityNow, arrangementOf, buildEpicNodes, epicsWithWork, requestEpicLayouts, saveArrangement, useArrangementUpkeep } from '../../src/renderer/canvas/sources/epics'
+import source, { activityNow, arrangementOf, buildEpicNodes, epicsWithWork, FIRST_OPENING_WAIT_MS, requestEpicLayouts, saveArrangement, useArrangementUpkeep, whenBindingsRead } from '../../src/renderer/canvas/sources/epics'
+import { useBindingsStore } from '../../src/renderer/binding/store'
+import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
 import { BINDING_ANCHOR_KIND } from '../../src/renderer/canvas/sources/workflow-bindings'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 import type { LayoutOps } from '../../src/renderer/canvas/useLayout'
@@ -244,5 +246,294 @@ describe('the upkeep of the record (useArrangementUpkeep)', () => {
     expect(sent.ops[0]).toMatchObject({ op: 'patchData', id: EPIC_ARRANGEMENT_ID })
     expect(quiet).toHaveBeenCalled()
     quiet.mockRestore()
+  })
+})
+
+describe('the first opening of the day waits for the Bindings and writes once (useArrangementUpkeep)', () => {
+  const names = Array.from({ length: 11 }, (_, index) => `f${String(index + 1).padStart(2, '0')}`)
+  const ticket = (epic: string, num: number): Ticket => ({
+    epic,
+    num,
+    slug: `t${num}`,
+    title: `Ticket ${num}`,
+    statusRaw: 'open',
+    state: 'open',
+    blockedRaw: null,
+    blockedNums: [],
+    blockedParsed: true,
+    files: [],
+    filesListed: true,
+    fromBranch: null,
+  })
+  const tickets = names.flatMap((epic) => [ticket(epic, 1), ticket(epic, 2)])
+  const model: WorkflowModel = { root: '/repo', epics: names.map((epic) => ({ epic, hasSpec: false, hasMap: false, title: null })), tickets, error: null, branchErrors: [] }
+  const yesterday = { order: names, columns: 11, at: '2026-01-01T08:00:00.000Z' }
+  const recordNode = (data: Record<string, unknown>) => ({ id: EPIC_ARRANGEMENT_ID, kind: EPIC_ARRANGEMENT_KIND, x: 0, y: 0, w: 1, h: 1, hidden: false, locked: true, pinned: false, tags: [], data })
+  // A Session on the plane: the Bindings of its agent are what the first opening waits for.
+  const session = { id: 'session:s1', kind: 'session', x: 2000, y: 0, w: 300, h: 200, hidden: false, locked: false, pinned: false, tags: [], data: { sessionId: 's1' } }
+  const layoutWith = (data: Record<string, unknown>): Layout => ({ nodes: [recordNode(data), session], viewport: { x: 0, y: 0, zoom: 1 } })
+  /** ELK's answer for every Epic, `extra` taller than the synchronous layout. */
+  const answers = (extra = 0): Record<string, ElkAnswer> =>
+    Object.fromEntries(
+      names.map((epic) => {
+        const own = tickets.filter((t) => t.epic === epic)
+        const laid = layoutEpic({ tickets: own, collapsed: false, doneExpanded: false, name: epic })
+        const taller = { ...laid, height: laid.height + extra }
+        return [epic, { key: elkKey(own, epic), folded: taller, open: taller }]
+      }),
+    )
+  const wrapper = ({ children }: { children: ReactNode }) => <ReactFlowProvider>{children}</ReactFlowProvider>
+  const upkeep = (projectId: string, nodes: readonly unknown[]) =>
+    renderHook(({ current }) => useArrangementUpkeep(projectId, current as never), { wrapper, initialProps: { current: nodes } })
+  /** main's Bindings of the Project: Session s1 bound by hand to `epic`, its transcript read. */
+  const bindingsArrive = (projectId: string, epic: string) =>
+    useBindingsStore.setState(({ manual, signals }) => ({
+      manual: { ...manual, [projectId]: [{ sessionId: 's1', agentId: null, target: { kind: 'epic', epic } }] },
+      signals: { ...signals, ['/repo\0s1']: { found: true, session: EMPTY_AGENT_SIGNALS, subagents: [] } },
+    }))
+  const dayWrites = () => sent.ops.filter((op) => op.op === 'patchData' && 'at' in op.data)
+  /** The data of the first operation sent: the day's record. */
+  const written = () => (sent.ops[0] as Extract<LayoutOpInput, { op: 'patchData' }>).data as { order: string[]; columns: number; at: string }
+
+  beforeEach(() => {
+    sent.ops = []
+    sent.layout = undefined
+    useBindingsStore.setState({ manual: {}, manualError: {}, signals: {} })
+    invoke.mockReset()
+    // No Autopilot runs; Session s1 is live.
+    invoke.mockImplementation((channel: string) =>
+      Promise.resolve(
+        channel === 'claudeHome.live'
+          ? { ok: true, value: { live: [{ pid: 1, sessionId: 's1', cwd: '/repo', status: 'busy' }] } }
+          : { ok: true, value: { status: 'stopped', epic: null } },
+      ),
+    )
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    setElkEngine(null)
+  })
+
+  it('puts first the Epic of a live agent whose Binding arrives after the first commit', async () => {
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    const nodes = buildEpicNodes('first-live', '/repo', model, layout, {})
+    expect(arrangementOf('first-live')!.settled).toBe(true)
+    const { rerender } = upkeep('first-live', nodes)
+    await act(async () => {})
+    // Neither the Bindings nor the anchors are there yet: nothing is written.
+    expect(sent.ops).toEqual([])
+    act(() => bindingsArrive('first-live', 'f09'))
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    expect(sent.ops[0]).toMatchObject({ op: 'patchData', id: EPIC_ARRANGEMENT_ID })
+    expect(written().order).toEqual(['f09', ...names.filter((name) => name !== 'f09')])
+    expect(invoke).toHaveBeenCalledWith('claudeHome.live', { projectRoot: '/repo' })
+    // main has the record (applyLayoutOp's answer); the next build has not read it yet.
+    sent.layout = layoutWith(written())
+    rerender({ current: [...nodes] })
+    await act(async () => {})
+    expect(sent.ops).toHaveLength(1)
+  })
+
+  it('a bound Session that is not live does not count', async () => {
+    invoke.mockImplementation((channel: string) => Promise.resolve(channel === 'claudeHome.live' ? { ok: true, value: { live: [] } } : { ok: true, value: { status: 'stopped', epic: null } }))
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    bindingsArrive('first-idle', 'f09')
+    upkeep('first-idle', buildEpicNodes('first-idle', '/repo', model, layout, {}))
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    expect(written().order).toEqual(names)
+  })
+
+  it('ELK changes the heights after the first commit: exactly one automatic write', async () => {
+    setElkEngine({} as never)
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    bindingsArrive('first-elk', 'f04')
+    const early = buildEpicNodes('first-elk', '/repo', model, layout, {})
+    expect(arrangementOf('first-elk')!.settled).toBe(false)
+    const { rerender } = upkeep('first-elk', early)
+    await act(async () => {})
+    expect(sent.ops).toEqual([])
+    // ELK answers with taller frames than the synchronous layout.
+    const answered = buildEpicNodes('first-elk', '/repo', model, layout, {}, [], answers(400))
+    expect(arrangementOf('first-elk')!.settled).toBe(true)
+    rerender({ current: answered })
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    const record = written()
+    expect(record.order[0]).toBe('f04')
+    // main has the record; a build from the Layout before it still shows yesterday's, with another K.
+    sent.layout = layoutWith(record)
+    const stale = buildEpicNodes('first-elk', '/repo', model, layout, {}, [], answers(800))
+    expect(arrangementOf('first-elk')!.columns).not.toBe(11)
+    rerender({ current: stale })
+    await act(async () => {})
+    expect(sent.ops).toHaveLength(1)
+    // The build that reads the record keeps its K: nothing more to write.
+    const fresh = buildEpicNodes('first-elk', '/repo', model, layoutWith(record), {}, [], answers(400))
+    rerender({ current: fresh })
+    await act(async () => {})
+    expect(sent.ops).toHaveLength(1)
+    expect(dayWrites()).toHaveLength(1)
+  })
+
+  it('without the Bindings by the limit it writes once, at the limit, with one line in the log', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    const nodes = buildEpicNodes('first-late', '/repo', model, layout, {})
+    const { rerender } = upkeep('first-late', nodes)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FIRST_OPENING_WAIT_MS - 1)
+    })
+    expect(sent.ops).toEqual([])
+    rerender({ current: [...nodes] })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1)
+    })
+    expect(sent.ops).toHaveLength(1)
+    expect(written().order).toEqual(names)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]![0])).toContain(`${FIRST_OPENING_WAIT_MS} ms`)
+    sent.layout = layoutWith(written())
+    // Bindings that arrive later write nothing more on this opening.
+    act(() => bindingsArrive('first-late', 'f09'))
+    rerender({ current: [...nodes] })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(FIRST_OPENING_WAIT_MS * 2)
+    })
+    expect(sent.ops).toHaveLength(1)
+    warn.mockRestore()
+  })
+
+  it('ends the day write when it is sent: the next day\'s first opening writes again, and K is written as before', async () => {
+    bindingsArrive('first-next', 'f02')
+    sent.layout = layoutWith(yesterday)
+    const first = upkeep('first-next', buildEpicNodes('first-next', '/repo', model, layoutWith(yesterday), {}))
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    await act(async () => {})
+    // The Canvas is closed before any other build: nothing else runs the effect of this mount.
+    first.unmount()
+    // The next day: the Layout's record is a day old again.
+    sent.layout = layoutWith(yesterday)
+    const { rerender } = upkeep('first-next', buildEpicNodes('first-next', '/repo', model, layoutWith(yesterday), {}))
+    await waitFor(() => expect(dayWrites()).toHaveLength(2))
+    await act(async () => {})
+    // main has today's record with another K: the hysteresis writes its K as on any other build.
+    const changed = layoutWith({ ...(sent.ops[1] as Extract<LayoutOpInput, { op: 'patchData' }>).data, columns: 11 })
+    sent.layout = changed
+    const nodes = buildEpicNodes('first-next', '/repo', model, changed, {})
+    const columns = arrangementOf('first-next')!.columns
+    expect(columns).not.toBe(11)
+    rerender({ current: nodes })
+    await act(async () => {})
+    expect(sent.ops).toHaveLength(3)
+    expect(sent.ops[2]).toEqual({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { columns } })
+  })
+
+  it('waits for the transcript signals that arrive after bindings.get, and counts the Binding they give', async () => {
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    useBindingsStore.setState(({ manual }) => ({ manual: { ...manual, 'first-signals': [] } }))
+    upkeep('first-signals', buildEpicNodes('first-signals', '/repo', model, layout, {}))
+    await act(async () => {})
+    expect(sent.ops).toEqual([])
+    // Session s1 ran `ticket claim f07 01`.
+    act(() =>
+      useBindingsStore.setState(({ signals }) => ({
+        signals: { ...signals, ['/repo\0s1']: { found: true, session: { ...EMPTY_AGENT_SIGNALS, claim: { epic: 'f07', num: 1, command: 'ticket claim f07 01' } }, subagents: [] } },
+      })),
+    )
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    expect(written().order[0]).toBe('f07')
+  })
+
+  it('frames that change while the Bindings are read: the write waits for ELK again and is the only one', async () => {
+    setElkEngine({} as never)
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    const { rerender } = upkeep('first-moved', buildEpicNodes('first-moved', '/repo', model, layout, {}, [], answers()))
+    expect(arrangementOf('first-moved')!.settled).toBe(true)
+    await act(async () => {})
+    // A Ticket's inputs change: ELK's answer for f05 is for older inputs now.
+    const old = answers()
+    old.f05 = { ...old.f05!, key: 'older inputs' }
+    rerender({ current: buildEpicNodes('first-moved', '/repo', model, layout, {}, [], old) })
+    expect(arrangementOf('first-moved')!.settled).toBe(false)
+    act(() => bindingsArrive('first-moved', 'f03'))
+    await act(async () => {})
+    expect(sent.ops).toEqual([])
+    rerender({ current: buildEpicNodes('first-moved', '/repo', model, layout, {}, [], answers(400)) })
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    const record = written()
+    expect(record.order[0]).toBe('f03')
+    expect(record.columns).toBe(arrangementOf('first-moved')!.columns)
+    sent.layout = layoutWith(record)
+    rerender({ current: buildEpicNodes('first-moved', '/repo', model, layoutWith(record), {}, [], answers(400)) })
+    await act(async () => {})
+    expect(sent.ops).toHaveLength(1)
+  })
+
+  it('writes nothing when the Layout has a record of today by then ("Re-pack" during the wait, another screen)', async () => {
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    upkeep('first-repacked', buildEpicNodes('first-repacked', '/repo', model, layout, {}))
+    await act(async () => {})
+    sent.layout = layoutWith({ order: [...names].reverse(), columns: 3, at: new Date().toISOString() })
+    act(() => bindingsArrive('first-repacked', 'f09'))
+    await act(async () => {})
+    await act(async () => {})
+    expect(sent.ops).toEqual([])
+  })
+
+  it('an error of bindings.get counts as read: no wait for the limit, no line in the log', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const layout = layoutWith(yesterday)
+    sent.layout = layout
+    useBindingsStore.setState(({ manualError, signals }) => ({
+      manualError: { ...manualError, 'first-error': 'bindings.json is not readable' },
+      signals: { ...signals, ['/repo\0s1']: { found: true, session: EMPTY_AGENT_SIGNALS, subagents: [] } },
+    }))
+    upkeep('first-error', buildEpicNodes('first-error', '/repo', model, layout, {}))
+    await waitFor(() => expect(sent.ops).toHaveLength(1), { timeout: FIRST_OPENING_WAIT_MS / 3 })
+    expect(warn).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('whenBindingsRead stops listening to the store once it has its answer', async () => {
+    const real = useBindingsStore.subscribe
+    const unsubscribed = vi.fn()
+    const spy = vi.spyOn(useBindingsStore, 'subscribe').mockImplementation((listener) => {
+      const stop = real(listener)
+      return () => {
+        unsubscribed()
+        stop()
+      }
+    })
+    const read = whenBindingsRead('first-unsub', { root: '/repo', sessions: ['s1'] }, FIRST_OPENING_WAIT_MS)
+    bindingsArrive('first-unsub', 'f01')
+    await expect(read).resolves.toBe(true)
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(unsubscribed).toHaveBeenCalledTimes(1)
+    spy.mockRestore()
+  })
+
+  it('a write of another day that never ended does not hold up today\'s', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 2, 1, 23, 0))
+    // main never answers the Autopilot's state on the first day.
+    invoke.mockImplementation((channel: string) => (channel === 'autopilot.state' ? new Promise(() => {}) : Promise.resolve({ ok: true, value: { live: [] } })))
+    bindingsArrive('first-hung', 'f02')
+    sent.layout = layoutWith(yesterday)
+    const first = upkeep('first-hung', buildEpicNodes('first-hung', '/repo', model, layoutWith(yesterday), {}))
+    await act(async () => {})
+    expect(invoke).toHaveBeenCalledWith('autopilot.state', { projectId: 'first-hung' })
+    first.unmount()
+    vi.setSystemTime(new Date(2026, 2, 2, 9, 0))
+    invoke.mockImplementation((channel: string) => Promise.resolve(channel === 'claudeHome.live' ? { ok: true, value: { live: [] } } : { ok: true, value: { status: 'stopped', epic: null } }))
+    upkeep('first-hung', buildEpicNodes('first-hung', '/repo', model, layoutWith(yesterday), {}))
+    await waitFor(() => expect(sent.ops).toHaveLength(1))
+    expect(new Date(written().at).getDate()).toBe(2)
   })
 })
