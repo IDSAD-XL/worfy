@@ -1,9 +1,11 @@
 import { spawnSync } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
+import { claudePluginStub } from './claude-plugin-stub'
+import { writeSandbox } from './first-run-sandbox'
 import { launchApp, type LaunchedApp, repoRoot } from './helpers'
 
 // worfy-harness ticket 14: the move form opens from the Harness item of the toolbar, shows the rows
@@ -21,23 +23,19 @@ const bundle = join(repoRoot, 'out', 'harness')
 const FIXTURE = join(repoRoot, 'test', 'fixtures', 'claude-home-legacy')
 const bundledVersion = (): string => (JSON.parse(readFileSync(join(bundle, '.claude-plugin', 'plugin.json'), 'utf8')) as { version: string }).version
 
-const STUB = `#!/bin/sh
-printf '%s\\n' "$*" >> "$STUB_CLAUDE_LOG"
-case "$*" in
-  "plugin list --json") printf '[{"id":"worfy@worfy-harness","version":"%s","scope":"user","enabled":true,"errors":[]},{"id":"mattpocock-skills@claude-plugins-official","version":"1.0.0","scope":"user","enabled":true,"errors":[]}]\\n' "$STUB_PLUGIN_VERSION" ;;
-esac
-exit 0
-`
-
 const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 'Sandbox', GIT_AUTHOR_EMAIL: 'sandbox@example.com', GIT_COMMITTER_NAME: 'Sandbox', GIT_COMMITTER_EMAIL: 'sandbox@example.com' }
 
+// `__SANDBOX__` replaced by the root — JSON-escaped in a .json file, as test/contract/harness-migrate-harness.ts
+// does: a Windows path has backslashes, which a JSON string spells `\\`, and settings.json with a bare
+// one does not parse, so its hooks and status line had no rows (worfy-windows ticket 83).
 function substitute(dir: string, root: string): void {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) substitute(path, root)
     else {
       const text = readFileSync(path, 'utf8')
-      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', root))
+      const value = entry.name.endsWith('.json') ? JSON.stringify(root).slice(1, -1) : root
+      if (text.includes('__SANDBOX__')) writeFileSync(path, text.replaceAll('__SANDBOX__', value))
     }
   }
 }
@@ -62,11 +60,7 @@ test.beforeEach(() => {
   gitCommitAll(claudeHome)
   gitCommitAll(join(scratch, 'repos', 'worfy'))
   cpSync(bundle, join(claudeHome, 'worfy-harness', 'plugin'), { recursive: true })
-  const stubDir = join(scratch, 'stub-bin')
-  mkdirSync(stubDir)
-  writeFileSync(join(stubDir, 'claude'), STUB)
-  chmodSync(join(stubDir, 'claude'), 0o755)
-  env = { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: join(stubDir, 'claude'), STUB_CLAUDE_LOG: join(scratch, 'calls.log'), STUB_PLUGIN_VERSION: bundledVersion() }
+  env = { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: claudePluginStub(join(scratch, 'stub-bin')), STUB_PLUGIN_VERSION: bundledVersion() }
 })
 
 test.afterEach(async () => {
@@ -119,7 +113,9 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     await expect(diff.locator('[data-diff="same"]', { hasText: '## My machine' })).toHaveCount(1)
 
     // The switches: keep one Harness file, then a CLAUDE.md section changes the diff.
-    const scout = form.locator('[data-testid="migration-row"][data-row="file:agents/scout.md"]')
+    // The row's id holds the path with this system's separator (src/main/harness/migrate/plan.ts);
+    // JSON.stringify escapes a Windows backslash for the selector's string.
+    const scout = form.locator(`[data-testid="migration-row"][data-row=${JSON.stringify(`file:${join('agents', 'scout.md')}`)}]`)
     await expect(scout).toHaveAttribute('data-choice', 'remove')
     await scout.getByRole('button', { name: 'Keep' }).click()
     await expect(scout).toHaveAttribute('data-choice', 'keep')
@@ -175,10 +171,14 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
   // The first-run screen opens by itself. Its checks run a login /bin/sh over the sandbox's HOME,
   // whose .profile sets PATH to the system folders alone (as sandbox() in first-run.spec.ts does):
   // without it /etc/profile's path_helper adds /opt/homebrew/bin, and the checks would run the real
-  // qmd of the machine running the test (gh comes from WORFY_GH, the stub of launchApp).
+  // qmd of the machine running the test (gh comes from WORFY_GH, the stub of launchApp). Windows has
+  // no login shell: there a registry stand-in gives the checks a Path of the system folders alone
+  // (first-run-sandbox.ts, worfy-windows ticket 83), for the same reason.
   const home = join(scratch, 'home')
-  writeFileSync(join(home, '.profile'), "PATH='/usr/bin:/bin'; export PATH\n")
-  const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh' } })
+  let sandboxEnv: Record<string, string> = {}
+  if (process.platform === 'win32') sandboxEnv = writeSandbox({ scratch, home, bin: join(scratch, 'no-tools'), tools: [], variables: {} })
+  else writeFileSync(join(home, '.profile'), "PATH='/usr/bin:/bin'; export PATH\n")
+  const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh', ...sandboxEnv } })
   try {
     const { window } = launched
     const item = window.getByTestId('harness-status')

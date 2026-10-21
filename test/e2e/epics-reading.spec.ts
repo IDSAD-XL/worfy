@@ -13,6 +13,12 @@ import { catScript } from '../harness-node'
 // than 2 s, and only once the test has seen "Reading epics…" (a release file), so the test never
 // races the section's show delay: the capture may start before the window is on screen. Then the
 // login shell answers, `epic-status` runs, and the row gives way to the fixture's Epics.
+//
+// Not on Windows (worfy-windows ticket 83): there worfy runs no login shell, it reads the
+// environment from the registry (src/main/agent/env.ts), so there is no slow step to hold the row,
+// and this stand-in shell is a #!/bin/sh script Windows cannot start.
+
+test.skip(process.platform === 'win32', 'Windows has no login shell to be slow: worfy reads the registry there (worfy-windows ticket 83)')
 
 const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin'
 const PROJECT = 'reading-0000044a'

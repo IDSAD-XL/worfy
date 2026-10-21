@@ -1,4 +1,5 @@
-// The Claude Code stand-in of the Project-connect specs (projects-connect.spec.ts, select.spec.ts):
+// The Claude Code stand-in of the Project-connect specs (projects-connect.spec.ts, select.spec.ts)
+// and of the move of the old Harness (harness-migrate.spec.ts, worfy-windows ticket 83):
 // `claude plugin list --json` answers that the Harness plugin of this build is installed and
 // enabled, so the connect dialog passes its Harness step; any other command prints nothing and
 // exits 0. It is a `.mjs`, which worfy starts under its own Node on every system
