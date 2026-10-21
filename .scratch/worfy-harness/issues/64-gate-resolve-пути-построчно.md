@@ -1,7 +1,8 @@
 # 64 — `gate-resolve.mjs` получает изменённые пути построчно и обрезает их
 
 Type: bug
-Status: claimed 2026-10-21T18:30Z
+Status: done 2026-10-21T19:33Z
+PR: #711
 Blocked by: 62
 Source: ревью PR #702 (worfy-harness 62), линза корректности, 2026-10-21 — находка вне diff-а, low; implementer 62
 заметил то же.
@@ -32,4 +33,7 @@ Source: ревью PR #702 (worfy-harness 62), линза корректност
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#711](https://github.com/IDSAD-XL/worfy/pull/711), squash 0c7fd795. `gate.mjs` передаёт изменённые пути в
+`gate-resolve.mjs` через NUL и без `trim()`: путь с переводом строки или пробелом на краю попадает в свой workspace.
+Остаток — Ticket [68](68-gate-resolve-план-tsv-ломается-на-tab-в-имени.md): вывод плана `gate-resolve` всё ещё
+текст, разделённый tab-ами.

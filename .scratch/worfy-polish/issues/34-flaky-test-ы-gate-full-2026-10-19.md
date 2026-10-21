@@ -59,6 +59,8 @@ Implementer-а worfy-canvas 02; строки новых случаев — по 
   250 Layout Nodes…»): рамка выделения взяла 6 Node из 11. Отдельно оба — 9 из 9 зелёные.
 - **contract `node-pty.test.ts` «spawns echo in a pseudo-terminal…» — 1 раз.** `test/contract/node-pty.test.ts:14`,
   проверка `:24`: ожидали `'ok'`, получили `''`. Gate fast Implementer-а worfy-canvas 02, 2026-10-20, load около 7.
+- **contract `harness-scripts.test.ts:313` (script qmd, пустой `HOME`) — 1 раз.** Gate full PR #689, 2026-10-21, под
+  нагрузкой; повтор зелёный.
 
 ## Что делаем
 

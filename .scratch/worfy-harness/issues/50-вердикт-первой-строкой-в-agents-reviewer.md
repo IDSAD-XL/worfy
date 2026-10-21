@@ -93,3 +93,9 @@ $0.84. `names-false-claim` и `one-reviewer` — PASS во всех трёх run
 `VERIFIED` или `REJECTED:`, без метки `Verdict:`, без разметки, без вводной фразы, один вердикт на строке; в общем
 «Answer format» — отсылка, что под этой линзой вердикт идёт раньше всего. `agents-text.test.sh` закрепляет новые
 фразы. Проверка — ещё один платный прогон кейса (×3) после merge и `pnpm install:stable`.
+
+Исправление влито: PR [#685](https://github.com/IDSAD-XL/worfy/pull/685), squash a15c5171. Повторный платный прогон
+кейса после merge (`2026-10-21T12-25-36-291Z-main`): **0.89, порог 0.8 пройден**, $0.73. Run 3 всё ещё начал ответ
+фразой перед `REJECTED:` («This confirms the report's central claim is false.»). Следующий рычаг, если понадобится, —
+соседний абзац `reviewer.md` с жирным заголовком (вопрос ревьюера). Low-находки ревью #685 —
+Ticket [69](69-долг-после-review-pr-685.md).

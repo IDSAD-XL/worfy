@@ -1,7 +1,8 @@
 # 15 — Browser profiles: пробелы в тестах после ревью Ticket-а 14
 
 Type: task
-Status: claimed 2026-10-21T17:43Z
+Status: done 2026-10-21T19:33Z
+PR: #707
 Blocked by: 14
 Source: review PR #703 (Ticket 14), круг 2, три находки low, 2026-10-21. Код — main `b42bdbb3`.
 

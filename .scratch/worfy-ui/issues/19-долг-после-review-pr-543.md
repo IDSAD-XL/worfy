@@ -1,7 +1,8 @@
 # 19 — Долг после review PR #543 (Toolbar: Limits без «as of», Harness в две строки)
 
 Type: task
-Status: claimed 2026-10-21T13:11Z
+Status: done 2026-10-21T19:33Z
+PR: #694
 Branch: worfy-ui/19
 Blocked by: —
 Source: review PR #543 (worfy-ui 18), раунд 2, находки уровня low, 2026-10-19. Строки — по голове PR,
@@ -35,8 +36,8 @@ Review второго раунда PR #543 не нашёл находок high �
 ## Где в коде
 
 - `src/main/agent/limits-usage.ts` (`:172-173`)
-- `src/renderer/LimitBar.tsx` (`:51`)
-- `src/renderer/HarnessStatus.tsx` (`:68`, `:137`)
+- `src/renderer/limits/LimitBar.tsx` (`:51` на момент записи)
+- `src/renderer/shell/toolbar/HarnessStatus.tsx` (`:68`, `:137` на момент записи)
 
 ## Вне скоупа
 

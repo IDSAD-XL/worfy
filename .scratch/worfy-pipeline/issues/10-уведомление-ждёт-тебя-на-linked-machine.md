@@ -1,7 +1,8 @@
 # 10 — Уведомление «ждёт тебя» доходит до Linked machine
 
 Type: task
-Status: claimed 2026-10-20T02:46Z
+Status: done 2026-10-21T19:33Z
+PR: #577
 Branch: worfy-pipeline/10
 Blocked by: 09
 Source: follow-up Ticket-а 06 (PR #501); решение владельца 2026-10-19, Q-c: #501 влит как есть, это — отдельный

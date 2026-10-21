@@ -58,6 +58,18 @@ mode), круг 1: линза «корректность» и линза «те�
       `MaxListenersExceededWarning: 11 will-quit listeners added to [App]`. Каждый модуль main вешает
       свой (например, архив Session-ов — `src/main/index.ts:150`). Одна точка выхода, которая зовёт
       остановки по списку, или `setMaxListeners` с комментарием, сколько их и почему.
+- [ ] **Ревью #692 (Ticket 35), круг 2, low.** Строки — по main `81ea31cd`.
+  - `src/main/ipc/shell.ts:133,139-140` — диалог показывает имя файла как есть: U+202E (RTL override) делает
+    `setup<RLO>dm.command` похожим на `.md`. Убрать управляющие символы bidi (U+202A–202E, U+2066–2069) или
+    показать расширение отдельной строкой.
+  - `test/contract/link-access.test.ts:454` — отказ Linked machine проверен на `HANDOFF.md` (документ); взять путь `.term`.
+  - `src/main/ipc/shell.ts:80` — `.jsx` в `DOCUMENTS_POSIX` без test-а.
+  - Вопрос: Finder alias с именем `x.md` — обычный файл; LaunchServices, вероятно, идёт по нему к цели (zip
+    сохраняет xattr). Проверить и решить.
+  - `test/contract/shell.test.ts` на Windows-runner-е (run 39636532876 на `4d661620`): 12 падений, все — ожидаемый
+    путь в форме 8.3 (`C:/Users/RUNNER~1` против `runneradmin`), test строит пути от `os.tmpdir()` без
+    `realpath.native`; на main те же 4 старых (run 39637861605). Поля логики совпадают. Правка: `realpath.native`
+    временного корня в `shell.test.ts`.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты

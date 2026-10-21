@@ -1,7 +1,8 @@
 # 17 — Вопросы с вариантами ответа в Session (AskUserQuestion)
 
 Type: task
-Status: claimed 2026-10-21T14:02Z
+Status: done 2026-10-21T19:33Z
+PR: #698
 Branch: worfy-ui/17
 Blocked by: —
 Source: отзыв владельца 2026-10-19 после ручной приёмки Ticket-а 12: в чате Session worfy — окно
@@ -151,6 +152,7 @@ Source: отзыв владельца 2026-10-19 после ручной при�
 - `src/renderer/canvas/badges/NeedsPermission.tsx`
 - `src/renderer/canvas/badges/WaitsForAnswer.tsx` (новый)
 - `src/renderer/session/QuestionCard.tsx` (новый)
+- `src/renderer/session/question-keys.ts` (новый; клавиши карточки)
 - `src/renderer/session/question-card.css` (новый)
 - `src/renderer/session/question-toast.ts` (новый)
 - `src/renderer/session/open-requests.ts` (новый)

@@ -1,7 +1,8 @@
 # 20 — Без semantic zoom: каждый Node целиком на любом zoom
 
 Type: task
-Status: claimed 2026-10-21T11:41Z
+Status: done 2026-10-21T19:33Z
+PR: #689
 Branch: worfy-canvas/20
 Blocked by: —
 Source: решение владельца 2026-10-21 (цитата ниже); отменяет semantic zoom Ticket-а

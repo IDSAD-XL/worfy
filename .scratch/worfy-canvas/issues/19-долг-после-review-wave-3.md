@@ -123,6 +123,45 @@ Session-ов и popover Archive, круги 1–3), [#657](https://github.com/ID
 - [ ] `test/contract/workflow-reader.test.ts` (test file watcher-а) дважды упал в полном `pnpm test` у
       implementer-ов под нагрузкой и прошёл отдельно.
 
+**Ревью 2026-10-21: #676 (Ticket 12, Arrange by Epic), #682 (Ticket 19, часть 3), #686 (Ticket 10, toast архива),
+#689 (Ticket 20, без semantic zoom), low.** Строки перечитаны по main `81ea31cd`.
+
+- [ ] (#676) `src/renderer/canvas/arrange-by-epic.ts:32,56` повторяет `tidyItems`, порядок чтения и `TIDY_GAP`
+      (`ARRANGE_GAP`) из `tidy.ts:30,53`, а `tidy.ts` импортирует React. Вынести `tidyItems` и `TIDY_GAP` в
+      `tidy-items.ts` без React для обоих.
+- [ ] (#676) `arrange-by-epic-command.ts:121-125` повторяет цепочку `useLayout` → `sessionParents` →
+      `useSubagentTrees` из `useTidyUp` (`tidy.ts:152-156`); оба hook-а живут в `ProjectCanvasMenu` — две подписки.
+- [ ] (#676) `arrange-by-epic-command.ts:28-32,146-149` — третий канал «палитра → Canvas» со своим `seq` (Tidy —
+      `src/renderer/find/canvas-requests.ts`, Re-pack — `sources/epics.ts`). Перенести `arrange` в `useCanvasRequests`.
+- [ ] (#676, вопрос) `arrange-by-epic.ts:80` предсказывает полосу по `naturalTreeBlocks`, а `placeStrip`
+      (`sources/epics.ts:629`) — по нарисованным `subagentPlaneRects`: два правила для одной позиции.
+- [ ] (#676, круг 2) `arrange-by-epic-command.ts:95-96`: если `bindings.signals` одной Session-а падает (EACCES,
+      проверка Linked git), каждый Arrange by Epic ждёт 5 s и ничего не двигает, только console warning. Первое
+      открытие дня после таймаута идёт с известными Binding-ами (`arrangement-record.ts:213`) — сделать так же.
+- [ ] (#676, круг 2) `test/unit/arrange-by-epic-command.test.tsx:116-123`: нет test-ов — замок на Project
+      снимается после таймаута и исключения; Session, пришедшая во время ожидания; read-only во время ожидания.
+- [ ] (#682) `arrange-by-epic-command.ts:66` и `arrangement-record.ts` сами читают
+      `useBindingsStore.getState().manual[projectId]` перед `storedBindings()` (`binding/store.ts:253`); дать
+      `storedBindings` `projectId`, пусть store читает `manual` сам.
+- [ ] (#682) `arrangement-record.ts:123` `activityNow` и `:148` `saveArrangement` экспортированы только для
+      `test/unit/epic-arrangement-record.test.tsx`: проверять через `useRepack`/upkeep или оставить нарочно.
+- [ ] (#682) `binding/store.ts:263` `SessionsToRead` и `useLayout.ts:108` `ScreenChannelOptions` экспортированы без
+      внешних импортов.
+- [ ] (#682) `claude-home/useClaudeHome.ts:1-22`, шапка: сказать, что `liveSessionsNow()` (`:292`) — разовое
+      чтение мимо общей копии.
+- [ ] (#682, вне diff-а) `overlays/ArchivePopover.tsx:51-74,95` — ещё одна копия цикла сигналов и
+      `resolveAgentBindings`.
+- [ ] (#686) `docs/adr/0076-auto-archive-of-finished-sessions.md:138`, Amendment: первыми читателями названы окно
+      и Linked machine; собственные чтения main (MCP-инструменты Canvas, docs, корзина, API карточек) тоже
+      запускают архив — дописать «или сам main».
+- [ ] (#686) `test/contract/layout-archive.test.ts`: нет test-а, что прогон при первом чтении, совпавший с тиком
+      того же Project-а, даёт ровно одну партию и одно `layout.archived`.
+- [ ] (#686) `src/renderer/settings/CanvasSection.tsx:7`: устаревший комментарий «defaults (ticket 10)».
+- [ ] (#689) `docs/adr/0077-node-kind-tokens.md:99`, Amendment: Card — «единственное исключение старше semantic
+      zoom»; старше только порог 0.4, исключение для закреплённой Card и focus tile пришло из #668.
+- [ ] (#689) `.scratch/worfy-canvas/spec.md:154`: ссылка `Canvas.tsx:542` устарела —
+      `onlyRenderVisibleElements` стоит на `Canvas.tsx:537`.
+
 ## Готово, когда
 
 - [ ] Каждый пункт выше исправлен или осознанно закрыт с причиной в «Итог».
