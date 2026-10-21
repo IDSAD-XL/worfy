@@ -123,7 +123,7 @@ test('a Subagent window leads back to its parent, and the palette goes to the Or
     await expect(window.locator(`[data-testid="subagent-node"][data-subagent-id="${IMPL}"]`)).toHaveAttribute('data-status', 'running')
 
     // The Orchestrator's Session view: its Node and the SDK session its Subagents belong to.
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
     const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
     await expect(view).toHaveAttribute('data-session-id', /.+/)
     const orchestratorNode = await view.getAttribute('data-node-id')

@@ -24,6 +24,7 @@ import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { badges, type SlotSubject } from '../badges'
+import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
@@ -57,7 +58,9 @@ export const minimapColor = 'var(--kind-session)'
 
 const styles = {
   root: { width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
+  // The kind band and icon of a Session, on the pale ground of its kind (kind-icons.tsx, ADR-0077).
   header: {
+    position: 'relative',
     flex: 'none',
     height: 'var(--row-height)',
     display: 'flex',
@@ -65,6 +68,7 @@ const styles = {
     gap: 'var(--space-2)',
     padding: '0 var(--space-3)',
     borderBottom: '1px solid var(--border)',
+    background: 'var(--kind-session-tint)',
     cursor: 'grab',
   },
   title: { flex: 1, minWidth: 0, fontSize: 'var(--text-13)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -125,6 +129,9 @@ const styles = {
     fontSize: 'var(--text-12)',
   },
 } satisfies Record<string, CSSProperties>
+
+/** The Node's accessible name names its kind (kind-icons.tsx), unless its title already does ("New session", "Session 1a2b3c4d"). */
+const sessionLabel = (title: string): string => (/^(new )?session\b/i.test(title) ? title : `Session ${title}`)
 
 /** A drag that carries files, not text or a Node. */
 const hasFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files')
@@ -222,7 +229,9 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   const saved = info.sessionId
   const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
   const title = worfySessionTitle(saved, history)
-  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : saved === undefined ? { status: 'ready', label: 'new' } : { status: 'done', label: 'finished' }
+  // Not running (no view, or a closed one) after it has run: finished.
+  const finished = !running && saved !== undefined
+  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : finished ? { status: 'done', label: 'finished' } : { status: 'ready', label: 'new' }
   const cwd = (running ? view.cwd : undefined) ?? recorded?.cwd ?? project.path
   const busy = running && view.state === 'busy'
   const subject: SlotSubject | null = saved === undefined ? null : { kind: 'session', projectId: project.id, root: project.path, sessionId: saved }
@@ -324,9 +333,12 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
     <div
       className="w-node-surface"
       style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
+      role="group"
+      aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-live="true"
       data-node-id={id}
+      data-finished={finished || undefined}
       data-session-id={(running ? view.sdkSessionId : null) ?? saved}
       data-cwd={cwd}
       data-status={chip.label}
@@ -346,6 +358,8 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div style={styles.header} title="Double-click to open the Session">
+        <KindBand kind="session" />
+        <KindIcon kind="session" />
         <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>
@@ -468,6 +482,8 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
 
   const session = live?.find((each) => each.sessionId === info.sessionId)
   const chip = live === undefined ? { status: 'ready' as const, label: '…' } : sessionStatus(session)
+  // The registry is read and has no process for it: finished (sessionStatus).
+  const finished = live !== undefined && session === undefined
   const title = session?.name ?? history.find((each) => each.sessionId === info.sessionId)?.title ?? info.name ?? `Session ${info.sessionId.slice(0, 8)}`
   const subject: SlotSubject = { kind: 'session', projectId: project.id, root: project.path, sessionId: info.sessionId }
   // What Hide and Remove leave behind (worfy-week ticket 12): a Session that runs goes on; any other
@@ -478,8 +494,11 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
     <div
       className="w-node-surface"
       style={styles.root}
+      role="group"
+      aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-node-id={id}
+      data-finished={finished || undefined}
       data-session-id={info.sessionId}
       data-status={chip.label}
       {...refuseFiles}
@@ -492,6 +511,8 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
       <div style={styles.header} title="Double-click to open the transcript">
+        <KindBand kind="session" />
+        <KindIcon kind="session" />
         <span style={styles.title} data-testid="session-node-title" title={title}>
           {title}
         </span>

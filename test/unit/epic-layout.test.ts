@@ -411,10 +411,13 @@ describe('layoutEpic by ELK', () => {
     expect(layoutEpic({ tickets, collapsed: false, doneExpanded: false }).width).toBe(wide)
     expect((await laidOut(tickets)).width).toBe(wide)
     expect(layoutEpic({ tickets, collapsed: true, doneExpanded: false }).width).toBe(wide)
-    // A frame without Tickets fits the name it is given; a short name keeps the minimal width.
+    // A frame without Tickets fits the name it is given; without a name it keeps the minimal width.
     expect(layoutEpic({ tickets: [], collapsed: false, doneExpanded: false, name }).width).toBe(wide)
     expect(layoutEpic({ tickets: [], collapsed: false, doneExpanded: false }).width).toBe(MIN_FRAME_WIDTH)
-    expect(layoutEpic({ tickets: [ticket(1, { epic: 'demo' })], collapsed: true, doneExpanded: false }).width).toBe(MIN_FRAME_WIDTH)
+    // A short name: the header's parts beside it are wider than the minimal frame (worfy-canvas
+    // ticket 05 measured them with a running Autopilot), so the header still decides.
+    expect(headerWidth('demo')).toBeGreaterThan(MIN_FRAME_WIDTH)
+    expect(layoutEpic({ tickets: [ticket(1, { epic: 'demo' })], collapsed: true, doneExpanded: false }).width).toBe(headerWidth('demo'))
     // Columns wider than the header still decide.
     const many = Array.from({ length: 6 }, (_, i) => ticket(i + 1, { epic: name, ...(i ? blocked(i) : {}) }))
     expect(layoutEpic({ tickets: many, collapsed: false, doneExpanded: false }).width).toBe(FRAME_PADDING + 6 * TICKET_WIDTH + 5 * COLUMN_GAP + FRAME_PADDING)

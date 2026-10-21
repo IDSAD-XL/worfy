@@ -32,11 +32,13 @@ export const FRAME_GAP = 48
 /** A frame with no Tickets or a collapsed one is still this wide, so the header fits. */
 export const MIN_FRAME_WIDTH = 520
 /**
- * The frame header's parts beside its title at their widest: padding, the Epic tag, the progress
- * bar and count, "Run wave", "Autopilot", the collapse button and the gaps (453 px in the built
- * app on 2026-10-06), with some slack.
+ * The frame header's parts beside its title at their widest: padding, the Epic tag with its kind
+ * icon, the progress bar and count, "Run wave", the Autopilot buttons, the collapse button and the
+ * gaps, with some slack. Measured in the built app (Electron) on 2026-10-21: 464.9 px while no
+ * Autopilot runs, 517.5 px while one runs over this Epic ("Stop autopilot" and "⋯"), the widest.
+ * (453 px on 2026-10-06, before the Stop and "⋯" buttons and the kind icon.)
  */
-export const HEADER_CHROME_WIDTH = 470
+export const HEADER_CHROME_WIDTH = 535
 /** One character of the Epic's name in the header: 18 px monospace, 0.6 em. */
 export const NAME_CHAR_WIDTH = 11
 export const PROGRESS_SEGMENTS = 12

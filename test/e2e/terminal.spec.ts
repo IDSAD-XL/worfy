@@ -241,7 +241,7 @@ test('New terminal starts the shell in the Project root; resize, Session view an
     // Session view and back: the output is still there and the terminal is fitted to the Node
     // again (xterm.js cannot measure itself while the Canvas is display:none).
     await run(window, node, 'echo mark""er-one', /^marker-one$/m)
-    const view = window.getByRole('group', { name: 'View' })
+    const view = window.getByRole('group', { name: 'View', exact: true })
     await view.getByRole('button', { name: 'Session' }).click()
     await expect(node).toBeHidden()
     await view.getByRole('button', { name: 'Canvas' }).click()

@@ -43,3 +43,19 @@
   border-style: dashed;
   border-color: var(--accent);
 }
+
+/* The kind of a Node in its header (kind-icons.tsx, ADR-0077). On the Canvas the Orchestrator's
+   surface has a double border, so its kind shows not only by colour; a selected one takes the accent
+   colour on it (canvas.css), a pinned one is dashed. A focus tile draws its own frame (focus.css),
+   so the rule stays inside the Canvas. */
+.w-canvas .react-flow__node .w-node-surface--double {
+  border-width: 3px;
+  border-style: double;
+  border-color: var(--border-strong);
+}
+/* A finished Session (SessionNode.tsx, data-finished): told by its opacity and the word in its chip,
+   never by a hue. Hovering or selecting its Node shows it at full opacity; so does a focus tile,
+   which is not on the Canvas. No other Node changes on hover. */
+.w-canvas .react-flow__node:not(.selected):not(:hover) .w-node-surface[data-finished='true'] {
+  opacity: 0.6;
+}

@@ -151,9 +151,9 @@ test('a note is created, moved, resized and edited, survives a restart, and each
     shown = resized
 
     // The Canvas view is hidden while the Session view shows; back on it, the note is drawn as before.
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
     await expect(canvas).toBeHidden()
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Canvas' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Canvas' }).click()
     await expect(note).toBeVisible()
     expect(await box(note)).toEqual(resized)
 
