@@ -2,19 +2,21 @@
 // to date: what the last build of a Project's frames knew (sources/epics.ts publishes it), the
 // activity "active first" reads, the write of the `epic-arrangement` Node, and the upkeep that
 // writes it on its own, past the ⌘Z history (ADR-0016) — the first opening of the Project in a
-// day, after the Bindings of its Sessions are read, and a K the hysteresis let change. "Re-pack",
-// the user's gesture, is in sources/epics.ts with the rest of the frames' requests.
-import { useEffect, useRef } from 'react'
+// day, after the Bindings of its Sessions are read, and a K the hysteresis let change — and
+// "Re-pack", the user's gesture (useRepack). The palette's request for it goes through the frames'
+// UI state in sources/epics.ts.
+import { useCallback, useEffect, useRef } from 'react'
 import { useStoreApi } from '@xyflow/react'
 import { EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND } from '../../shared/layout/derived'
 import type { Ticket, WorkflowModel } from '../../shared/workflow/types'
-import { manualRead, sessionSignalsOf, storedBindings, useBindingsStore } from '../binding/store'
+import { storedBindings, useBindingsStore, whenBindingsRead } from '../binding/store'
+import { liveSessionsNow } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { readOnlyNow } from '../projects/read-only-now'
 import { readArrangement, repack, sameDay, type ArrangedFrame, type ArrangementRecord } from './epic-arrangement'
 import type { CanvasFlowNode } from './nodes'
 import { BINDING_ANCHOR_KIND, type BindingAnchorData } from './sources/workflow-bindings'
-import { applyLayoutOp, currentLayout, type LayoutOps } from './useLayout'
+import { applyLayoutOp, currentLayout, useLayoutOps, type LayoutOps } from './useLayout'
 
 /** What the last build of a Project's frames knew: what the record is written from. */
 export interface ArrangementState {
@@ -35,8 +37,7 @@ export interface ArrangementState {
   shelf: readonly string[]
   /** Those of them collapsed by default: the Layout has no `collapsed` of theirs, no gesture put them there. */
   defaultShelf: readonly string[]
-  /** The Project's folder and workflow model: its Tickets, and what the Bindings of its Sessions resolve against. */
-  root: string
+  /** The Project's workflow model: its folder (`root`), its Tickets, and what the Bindings of its Sessions resolve against. */
   model: WorkflowModel
   /** The Sessions on the plane that can be bound (sources/workflow-bindings.ts agentNodes). */
   sessions: readonly string[]
@@ -93,76 +94,40 @@ export function epicsWithWork(tickets: readonly Pick<Ticket, 'epic' | 'state'>[]
 /** What the activity reads of React Flow's Nodes: the Binding anchors (sources/workflow-bindings.ts). */
 type AnchorLookup = ReadonlyMap<string, { type?: string | undefined; data: Record<string, unknown> }>
 
-/** What the Bindings of a Project's Sessions are resolved from without React Flow (binding/store.ts). */
-type SessionBindingsInput = Pick<ArrangementState, 'root' | 'model' | 'sessions'>
-
-/**
- * True when the Bindings of the Project's Sessions on the plane are read: main has answered
- * `bindings.get` (with the Bindings or with an error) and the store has the transcript signals of
- * every such Session. A Project without a Session on the plane has none to read.
- */
-function bindingsRead(projectId: string, { root, sessions }: Pick<SessionBindingsInput, 'root' | 'sessions'>): boolean {
-  if (sessions.length === 0) return true
-  return manualRead(useBindingsStore.getState(), projectId) && sessions.every((sessionId) => sessionSignalsOf(root, sessionId) !== undefined)
-}
-
-/** Resolves to true once bindingsRead(), or to false when `limitMs` passed without it. */
-export function whenBindingsRead(projectId: string, input: Pick<SessionBindingsInput, 'root' | 'sessions'>, limitMs: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (bindingsRead(projectId, input)) {
-      resolve(true)
-      return
-    }
-    const stop = (read: boolean) => {
-      clearTimeout(timer)
-      unsubscribe()
-      resolve(read)
-    }
-    const timer = setTimeout(() => stop(false), limitMs)
-    const unsubscribe = useBindingsStore.subscribe(() => {
-      if (bindingsRead(projectId, input)) stop(true)
-    })
-  })
-}
+/** What the activity reads of the Project without React Flow: its Tickets, and its Sessions' Bindings in binding/store.ts. */
+type ActivityInput = Pick<ArrangementState, 'model' | 'sessions'>
 
 /**
  * The Epics of the live Sessions with a Binding: resolved from the Bindings' store as the anchors
- * are (sources/workflow-bindings.ts), with main's list of the live Sessions (`claudeHome.live`).
+ * are (sources/workflow-bindings.ts), with main's list of the live Sessions now (liveSessionsNow).
  */
-async function liveBoundSessions(projectId: string, { root, model, sessions }: SessionBindingsInput): Promise<string[]> {
+async function liveBoundSessions(projectId: string, { model, sessions }: ActivityInput): Promise<string[]> {
+  const { root } = model
   const bindings = storedBindings(root, sessions, useBindingsStore.getState().manual[projectId] ?? [], model)
   const bound = sessions.filter((sessionId) => bindings.has(sessionId))
   if (bound.length === 0) return []
-  try {
-    const result = await invoke('claudeHome.live', { projectRoot: root })
-    if (!result.ok) {
-      console.error('claudeHome.live failed:', result.error)
-      return []
-    }
-    const live = new Set(result.value.live.map((session) => session.sessionId))
-    return bound.filter((sessionId) => live.has(sessionId)).map((sessionId) => bindings.get(sessionId)!.target.epic)
-  } catch (error) {
-    // Without the live list the order goes by the rest of the activity.
-    console.error('claudeHome.live failed:', error)
-    return []
-  }
+  const found = await liveSessionsNow(root)
+  // Without the live list the order goes by the rest of the activity.
+  if (found === undefined) return []
+  const live = new Set(found.map((session) => session.sessionId))
+  return bound.filter((sessionId) => live.has(sessionId)).map((sessionId) => bindings.get(sessionId)!.target.epic)
 }
 
 /**
  * The Epics with work at this moment: the claimed Tickets, the live bound agents and the Project's
- * Autopilot as main reports it. A live Session counts by its Binding in the Bindings' store when
- * `sessions` is given, and by its anchor on the Canvas either way.
+ * Autopilot as main reports it. A live Session counts by its Binding in the Bindings' store and by
+ * its anchor on the Canvas.
  * A Subagent's status is known only to the Subagent tree's Nodes (sources/subagents.ts), so:
  * shortcut: a live Subagent counts only once its Binding anchor is drawn, redo when the Subagents' status gets a store this source can read without React Flow.
  */
-export async function activityNow(projectId: string, tickets: readonly Pick<Ticket, 'epic' | 'state'>[], nodes: AnchorLookup, sessions?: SessionBindingsInput): Promise<Set<string>> {
+export async function activityNow(projectId: string, input: ActivityInput, nodes: AnchorLookup): Promise<Set<string>> {
   const live: string[] = []
   for (const node of nodes.values()) {
     if (node.type !== BINDING_ANCHOR_KIND) continue
     const data = (node.data as Partial<CanvasFlowNode['data']>).node?.data as BindingAnchorData | undefined
     if (data?.variant === 'agent' && data.live) live.push(data.binding.target.epic)
   }
-  if (sessions !== undefined) live.push(...(await liveBoundSessions(projectId, sessions)))
+  live.push(...(await liveBoundSessions(projectId, input)))
   let autopilot: string | null = null
   try {
     const state = await invoke('autopilot.state', { projectId })
@@ -171,7 +136,7 @@ export async function activityNow(projectId: string, tickets: readonly Pick<Tick
     // Without the Autopilot's state the order goes by the rest of the activity.
     console.error('autopilot.state failed:', error)
   }
-  return epicsWithWork(tickets, live, autopilot)
+  return epicsWithWork(input.model.tickets, live, autopilot)
 }
 
 /**
@@ -191,6 +156,24 @@ export async function saveArrangement(projectId: string, record: ArrangementReco
   }
   if (ops !== undefined) await ops.apply({ op: 'patchData', id: EPIC_ARRANGEMENT_ID, data }, undefined, { data: true })
   else await applyLayoutOp(projectId, { op: 'patchData', id: EPIC_ARRANGEMENT_ID, data })
+}
+
+/**
+ * "Re-pack" for the Canvas of `projectId` (ADR-0075, point 4): the order "active first" and K
+ * without hysteresis, written as one step of ⌘Z through the Canvas's LayoutOps. For a component
+ * inside React Flow and the Canvas's LayoutOps (the Canvas menu). Nothing is sent on a read-only
+ * screen.
+ */
+export function useRepack(projectId: string): () => Promise<void> {
+  const ops = useLayoutOps()
+  const store = useStoreApi()
+  return useCallback(async () => {
+    const state = arrangements.get(projectId)
+    if (state === undefined || state.epics.length === 0 || readOnlyNow() !== null) return
+    const activity = await activityNow(projectId, state, store.getState().nodeLookup)
+    const now = arrangements.get(projectId) ?? state
+    await saveArrangement(projectId, { ...repack(now.epics, now.frames, activity), at: new Date().toISOString() }, ops)
+  }, [projectId, ops, store])
 }
 
 /** Per Project, the K an automatic write has sent and the Layout does not show yet: it is not sent twice. */
@@ -227,10 +210,10 @@ async function writeFirstOpening(projectId: string, start: ArrangementState, nod
   const mark = { day: dayKey(new Date()) }
   dayWrites.set(projectId, mark)
   try {
-    if (!(await whenBindingsRead(projectId, start, FIRST_OPENING_WAIT_MS)))
+    if (!(await whenBindingsRead(projectId, { root: start.model.root, sessions: start.sessions }, FIRST_OPENING_WAIT_MS)))
       console.warn(`epic arrangement: the Bindings of Project ${projectId} were not read in ${FIRST_OPENING_WAIT_MS} ms; the day's order counts the live agents known by then`)
     const now = arrangements.get(projectId) ?? start
-    const activity = await activityNow(projectId, now.model.tickets, nodes(), now)
+    const activity = await activityNow(projectId, now, nodes())
     // The frames may have changed while the Bindings were read: K waits for ELK's answers again.
     await whenSettled(projectId)
     if (today(recordInLayout(projectId))) return

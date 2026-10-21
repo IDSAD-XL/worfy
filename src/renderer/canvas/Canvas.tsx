@@ -66,8 +66,7 @@ import { nodeTypes as registeredNodeTypes, UNKNOWN_NODE_TYPE, type CanvasFlowNod
 import { UnknownNode } from './UnknownNode'
 import { applyRecorded, type Group, type LayoutChannel, type RecordOptions } from './history'
 import { lockedForReadOnly } from './read-only-nodes'
-import { screenId } from './screen'
-import { currentLayout, LayoutOpsContext, sendLayoutOp, useLayout, type LayoutOps } from './useLayout'
+import { currentLayout, LayoutOpsContext, screenChannel, useLayout, type LayoutOps } from './useLayout'
 // Every Node type is drawn inside the chrome (tags, the pinned frame); pinned Nodes are placed
 // anew for every viewport (ticket 29).
 import { withNodeChrome } from './withNodeChrome'
@@ -240,26 +239,21 @@ function Flow({ projectId, state, opening }: FlowProps) {
   )
 
   const ops: LayoutOps = useMemo(() => {
-    const channel: LayoutChannel = {
-      // With this screen's id: another screen's undo history then knows the change is not its own
-      // (history.ts, worfy-link ticket 07).
-      send: (op) =>
-        sendLayoutOp(projectId, op, screenId()).then((answer) => {
-          // Refused: put the Nodes back where main has them.
-          if (typeof answer === 'string') {
-            const { layout, derived } = latest.current
-            setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
-          }
-          return answer
-        }),
-      // main's latest answer, which sendLayoutOp() stores before it resolves: the next operation of
-      // a gesture, and an undo, see what the previous one did.
-      layout: () => currentLayout(projectId) ?? latest.current.layout,
-    }
+    // Made at the first gesture, not during the render: its callbacks read `latest`.
+    let channel: LayoutChannel | undefined
+    const channelNow = () =>
+      (channel ??= screenChannel(projectId, {
+        // Refused: put the Nodes back where main has them.
+        onRefused: () => {
+          const { layout, derived } = latest.current
+          setNodes((current) => toFlowNodes(layout.nodes, derived.nodes, current.map((node) => ({ ...node, dragging: false, resizing: false }))))
+        },
+        fallback: () => latest.current.layout,
+      }))
     return {
       // Every operation sent here is a user's gesture and is recorded for ⌘Z (history.ts, ticket 30).
       async apply(op: LayoutOpInput, group?: Group, options?: RecordOptions) {
-        await applyRecorded(projectId, op, channel, group, options)
+        await applyRecorded(projectId, op, channelNow(), group, options)
       },
     }
   }, [projectId])

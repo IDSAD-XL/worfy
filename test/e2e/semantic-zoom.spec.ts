@@ -245,8 +245,18 @@ test('a Node is drawn in full, as its header, or as a block of its kind by zoom;
     await expect(nodes.card.getByTestId('card-frame')).toBeVisible()
     const pinnedText = nodes.pinned.locator('textarea')
     await expect(pinnedText).toBeVisible()
-    // The Terminal's size, which no level may change; the Note is selected, for its mark at far.
-    const terminalFull = await terminalSize(window)
+    // The Terminal's size, which no level may change, once two reads in a row agree: xterm fits its
+    // rows to the Node after it is drawn. The Note is selected, for its mark at far.
+    let lastRead = ''
+    await expect
+      .poll(async () => {
+        const read = JSON.stringify(await terminalSize(window))
+        const settled = read === lastRead
+        lastRead = read
+        return settled
+      }, { message: 'the Terminal size settles' })
+      .toBe(true)
+    const terminalFull = JSON.parse(lastRead) as Awaited<ReturnType<typeof terminalSize>>
     expect(terminalFull.rows).toBeGreaterThan(3)
     await nodes.note.locator('[data-node-title]').click()
     await expect(window.locator('.react-flow__node[data-id="zoom-note"]')).toHaveClass(/\bselected\b/)

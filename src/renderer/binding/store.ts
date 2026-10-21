@@ -259,6 +259,41 @@ export function storedBindings(root: string, sessionIds: readonly string[], manu
   return resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
 }
 
+/** The Sessions on a Project's plane whose Bindings are waited for, and the folder their transcript signals are read for. */
+export interface SessionsToRead {
+  root: string
+  sessions: readonly string[]
+}
+
+/**
+ * True when the Bindings of the Project's Sessions on the plane are read: main has answered
+ * `bindings.get` (with the Bindings or with an error) and the store has the transcript signals of
+ * every such Session. A Project without a Session on the plane has none to read.
+ */
+function bindingsRead(projectId: string, { root, sessions }: SessionsToRead): boolean {
+  if (sessions.length === 0) return true
+  return manualRead(useBindingsStore.getState(), projectId) && sessions.every((sessionId) => sessionSignalsOf(root, sessionId) !== undefined)
+}
+
+/** Resolves to true once the Bindings of these Sessions are read (bindingsRead), or to false when `limitMs` passed without it. */
+export function whenBindingsRead(projectId: string, input: SessionsToRead, limitMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (bindingsRead(projectId, input)) {
+      resolve(true)
+      return
+    }
+    const stop = (read: boolean) => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve(read)
+    }
+    const timer = setTimeout(() => stop(false), limitMs)
+    const unsubscribe = useBindingsStore.subscribe(() => {
+      if (bindingsRead(projectId, input)) stop(true)
+    })
+  })
+}
+
 /** The manual Binding of one agent, if it has one; a launch Binding (ticket 23) is not one. */
 export function manualOf(manual: readonly ManualBinding[], agent: BindingAgent): ManualBinding | undefined {
   return manual.find((binding) => !isLaunchBinding(binding) && binding.sessionId === agent.sessionId && (binding.agentId ?? null) === (agent.agentId ?? null))

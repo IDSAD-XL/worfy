@@ -34,11 +34,15 @@ vi.mock('../../src/renderer/canvas/arrange-by-epic-command', () => ({
 
 const repack = vi.hoisted(() => ({ run: vi.fn(() => Promise.resolve()), projects: [] as string[], requests: [] as string[] }))
 
-vi.mock('../../src/renderer/canvas/sources/epics', () => ({
+vi.mock('../../src/renderer/canvas/arrangement-record', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/canvas/arrangement-record')>()),
   useRepack: (projectId: string) => {
     if (!repack.projects.includes(projectId)) repack.projects.push(projectId)
     return repack.run
   },
+}))
+
+vi.mock('../../src/renderer/canvas/sources/epics', () => ({
   useRepackRequests: (projectId: string, run: unknown) => {
     if (run === repack.run && !repack.requests.includes(projectId)) repack.requests.push(projectId)
   },

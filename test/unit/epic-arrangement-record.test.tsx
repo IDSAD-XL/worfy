@@ -7,9 +7,9 @@ import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { elkKey, setElkEngine, useElkAnswers, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
 import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
-import { activityNow, arrangementOf, epicsWithWork, FIRST_OPENING_WAIT_MS, saveArrangement, useArrangementUpkeep, whenBindingsRead } from '../../src/renderer/canvas/arrangement-record'
-import source, { buildEpicNodes, requestEpicLayouts, useRepack } from '../../src/renderer/canvas/sources/epics'
-import { useBindingsStore } from '../../src/renderer/binding/store'
+import { activityNow, arrangementOf, epicsWithWork, FIRST_OPENING_WAIT_MS, saveArrangement, useArrangementUpkeep, useRepack } from '../../src/renderer/canvas/arrangement-record'
+import source, { buildEpicNodes, requestEpicLayouts } from '../../src/renderer/canvas/sources/epics'
+import { useBindingsStore, whenBindingsRead } from '../../src/renderer/binding/store'
 import { EMPTY_AGENT_SIGNALS } from '../../src/shared/binding/resolve'
 import { BINDING_ANCHOR_KIND } from '../../src/renderer/canvas/sources/workflow-bindings'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
@@ -107,7 +107,7 @@ describe('the record in the Layout (sources/epics.ts)', () => {
   })
 })
 
-describe('the activity "Re-pack" and the first opening of the day read (sources/epics.ts)', () => {
+describe('the activity "Re-pack" and the first opening of the day read (arrangement-record.ts)', () => {
   const anchor = (variant: string, live: boolean, epic: string, type = BINDING_ANCHOR_KIND) => ({ type, data: { node: { data: { variant, live, binding: { target: { epic } } } } } })
 
   it('counts a claimed Ticket, a live bound agent and the running Autopilot; not a finished agent, nor a stopped Autopilot', async () => {
@@ -117,11 +117,11 @@ describe('the activity "Re-pack" and the first opening of the day read (sources/
       ['session', anchor('session', true, 'session-only')],
       ['other', anchor('agent', true, 'not-an-anchor', 'note')],
     ])
-    const tickets = [{ epic: 'claimed', state: 'work' as const }]
+    const input = { model: { root: '/repo', tickets: [{ epic: 'claimed', state: 'work' as const }] } as unknown as WorkflowModel, sessions: [] }
     invoke.mockResolvedValueOnce({ ok: true, value: { status: 'stopped', epic: 'autopilot' } })
-    expect([...(await activityNow('p1', tickets, lookup))].sort()).toEqual(['agent-live', 'claimed'])
+    expect([...(await activityNow('p1', input, lookup))].sort()).toEqual(['agent-live', 'claimed'])
     invoke.mockResolvedValueOnce({ ok: true, value: { status: 'running', epic: 'autopilot' } })
-    expect([...(await activityNow('p1', tickets, lookup))].sort()).toEqual(['agent-live', 'autopilot', 'claimed'])
+    expect([...(await activityNow('p1', input, lookup))].sort()).toEqual(['agent-live', 'autopilot', 'claimed'])
     expect(invoke).toHaveBeenLastCalledWith('autopilot.state', { projectId: 'p1' })
   })
 })

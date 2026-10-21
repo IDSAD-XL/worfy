@@ -27,20 +27,19 @@
 // on the done shelf under it (ADR-0075, point 5), one more Node this source draws and the Layout
 // does not keep (`done-shelf`, ../nodes/DoneShelfNode.tsx). A click on the chip opens the frame, as
 // its collapse button does, and the frame goes to the end of the strip's order.
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useReactFlow, useStoreApi } from '@xyflow/react'
 import { create } from 'zustand'
 import { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_ARRANGEMENT_ID, EPIC_ARRANGEMENT_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, onThePlane, ticketNodeId } from '../../../shared/layout/derived'
 import { ZOOM_MAX, ZOOM_MIN, type Layout, type LayoutNode, type LayoutOpInput } from '../../../shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../../shared/workflow/types'
-import { readOnlyNow } from '../../projects/read-only-now'
 import { useProjects } from '../../projects/useProjects'
 import { usePipeline } from '../../pipeline/usePipeline'
 import { useWorkflow } from '../../workflow/useWorkflow'
 import { useProjectRepos } from '../badges/use-checks'
 import { elkEngine, elkKey, requestEpicLayout, useElkAnswers, type ElkAnswer, type ElkRequest } from '../elk/client'
-import { activityNow, arrangementOf, saveArrangement, setArrangement, useArrangementUpkeep } from '../arrangement-record'
-import { arrange, orderFor, readArrangement, repack, stripSize } from '../epic-arrangement'
+import { setArrangement, useArrangementUpkeep } from '../arrangement-record'
+import { arrange, orderFor, readArrangement, stripSize } from '../epic-arrangement'
 import {
   defaultCollapsed,
   epicColumns,
@@ -66,13 +65,11 @@ import type { NodeDrop, NodeSource, NodeSourceContext } from '../extensions'
 import { grouped, type Group } from '../history'
 import type { CanvasFlowNode } from '../nodes'
 import { waitingOnOf } from '../ticket-card'
-import { applyLayoutOp, currentLayout, useLayoutOps, type LayoutOps } from '../useLayout'
+import { applyLayoutOp, currentLayout, type LayoutOps } from '../useLayout'
 import { agentNodes } from './workflow-bindings'
 
 // The kinds and ids are shared with main: the canvas tools must not list or move these Nodes.
 export { DONE_SHELF_ID, DONE_SHELF_KIND, EPIC_FRAME_KIND, TICKET_KIND, epicNodeId, ticketNodeId }
-// The arrangement as the last build knew it, for callers that read it with the frames (../arrangement-record.ts).
-export { arrangementOf, whenBindingsRead } from '../arrangement-record'
 
 /** What an Epic frame Node carries in `data.node.data`. */
 export interface EpicFrameData {
@@ -326,27 +323,9 @@ export async function toggleFrame(projectId: string, epic: string, exists: boole
 
 // ── the strip's arrangement (ADR-0075, ../arrangement-record.ts) ───────────
 
-/** Asks the Canvas of the Project to run "Re-pack" (the palette's command); the Canvas menu runs it itself. */
+/** Asks the Canvas of the Project to run "Re-pack" (the palette's command, ../arrangement-record.ts useRepack); the Canvas menu runs it itself. */
 export function requestRepack(projectId: string): void {
   useEpicsUi.setState(({ repack: last }) => ({ repack: { projectId, seq: (last?.seq ?? 0) + 1 } }))
-}
-
-/**
- * "Re-pack" for the Canvas of `projectId` (ADR-0075, point 4): the order "active first" and K
- * without hysteresis, written as one step of ⌘Z through the Canvas's LayoutOps. For a component
- * inside React Flow and the Canvas's LayoutOps (the Canvas menu). Nothing is sent on a read-only
- * screen.
- */
-export function useRepack(projectId: string): () => Promise<void> {
-  const ops = useLayoutOps()
-  const store = useStoreApi()
-  return useCallback(async () => {
-    const state = arrangementOf(projectId)
-    if (state === undefined || state.epics.length === 0 || readOnlyNow() !== null) return
-    const activity = await activityNow(projectId, state.model.tickets, store.getState().nodeLookup, state)
-    const now = arrangementOf(projectId) ?? state
-    await saveArrangement(projectId, { ...repack(now.epics, now.frames, activity), at: new Date().toISOString() }, ops)
-  }, [projectId, ops, store])
 }
 
 /** Carries out the palette's "Re-pack" for the Project with `run`, once per request. */
@@ -628,7 +607,7 @@ export function buildEpicNodes(
   const shelved = onShelf.map(({ epic }) => epic.epic)
   const defaultShelf = shelved.filter((epic) => readSaved(savedNodes.get(epicNodeId(epic))).collapsed === undefined)
   const sessions = agentNodes(layout).map((node) => node.data.sessionId as string)
-  setArrangement(projectId, { frames, epics: names, record, columns: arrangement.columns, settled, shelf: shelved, defaultShelf, root, model, sessions })
+  setArrangement(projectId, { frames, epics: names, record, columns: arrangement.columns, settled, shelf: shelved, defaultShelf, model, sessions })
   const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
   const shelfOrder = orderFor(
     onShelf.map(({ epic }) => epic.epic),
