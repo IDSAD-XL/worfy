@@ -7,6 +7,7 @@ import {
   browserUrl,
   dismissBrowserOpenRequest,
   navigateBrowserPage,
+  openBarAddress,
   stepBrowserPage,
   useBrowserHistory,
   useBrowserOpenRequest,
@@ -138,14 +139,13 @@ function NavButtons({ id }: { id: string }) {
   )
 }
 
-/** How many characters at the end of a long address the Open bar keeps, after the cut in the middle. */
-const ADDRESS_TAIL = 24
-
 /**
  * The Open bar (worfy-browser ticket 11), over the top of the page, right under the header: the
  * page asked to open an address main did not open by itself — a window.open or target="_blank"
- * link from a frame of another origin or without a referrer (src/main/window.ts). The address is
- * shown whole, a long one cut in the middle. "Open" sends the page there the way the address bar
+ * link from a frame of another origin or without a referrer (src/main/window.ts). The scheme and
+ * the host of the address are always shown whole, wrapping when they do not fit on one line; only
+ * the rest of a long address is cut in the middle (openBarAddress, worfy-browser ticket 12). In a
+ * narrow frame the address moves to a line of its own under the label (BrowserNode.css). "Open" sends the page there the way the address bar
  * does, and the click is the user's gesture the request lacked; the close button leaves the page
  * where it is. A new request replaces the bar's address; a navigation of the page takes the bar
  * away (../overlays/BrowserLayer.tsx).
@@ -155,9 +155,7 @@ function OpenBar({ id, url }: { id: string; url: string | null }) {
   const readOnly = useReadOnly()
   const request = useBrowserOpenRequest(id)
   if (request === undefined) return null
-  // The address in two parts: the head shrinks with an ellipsis, the tail stays whole.
-  const head = request.length > ADDRESS_TAIL ? request.slice(0, -ADDRESS_TAIL) : ''
-  const tail = request.slice(head.length)
+  const { site, head, tail } = openBarAddress(request)
 
   const open = () => {
     dismissBrowserOpenRequest(id)
@@ -170,8 +168,15 @@ function OpenBar({ id, url }: { id: string; url: string | null }) {
     <div className="w-browser-frame__open-bar nodrag" data-testid="browser-open-bar" role="status">
       <span className="w-browser-frame__open-label">The page wants to open</span>
       <span className="w-browser-frame__open-url w-mono" data-testid="browser-open-url" title={request}>
-        <span className="w-browser-frame__open-url-head">{head}</span>
-        <span className="w-browser-frame__open-url-tail">{tail}</span>
+        <span className="w-browser-frame__open-url-site" data-testid="browser-open-site">
+          {site}
+        </span>
+        <span className="w-browser-frame__open-url-head" data-testid="browser-open-path-head">
+          {head}
+        </span>
+        <span className="w-browser-frame__open-url-tail" data-testid="browser-open-path-tail">
+          {tail}
+        </span>
       </span>
       <button type="button" className="w-browser-frame__open-button nodrag" data-testid="browser-open" onClick={open}>
         Open
