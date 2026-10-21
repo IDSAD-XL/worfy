@@ -108,6 +108,35 @@ describe('scripts/test-timings.mjs', () => {
     ])
   })
 
+  it('a Playwright run in two workers: the run took its own wall time, the files keep their sum, which is more', () => {
+    const dir = tempDir()
+    const inWorker = (duration: number, workerIndex: number) => ({ ...result(duration), workerIndex, parallelIndex: workerIndex })
+    const twoWorkers = {
+      config: { rootDir: '/repo/test/e2e', workers: 2 },
+      stats: { startTime: '2026-10-21T08:00:00.000Z', duration: 21_000 },
+      suites: [
+        { title: 'a.spec.ts', file: 'a.spec.ts', specs: [{ title: 'one', tests: [{ projectName: '', results: [inWorker(12_000, 0)] }] }, { title: 'two', tests: [{ projectName: '', results: [inWorker(8_000, 0)] }] }] },
+        { title: 'b.spec.ts', file: 'b.spec.ts', specs: [{ title: 'one', tests: [{ projectName: '', results: [inWorker(20_500, 1)] }] }] },
+      ],
+    }
+    put(dir, 'test-results/e2e-report.json', twoWorkers)
+    const res = run(dir, '--json')
+    expect(res.status, res.stderr).toBe(0)
+    const parsed = JSON.parse(res.stdout) as { reports: { wallMs: number }[]; projects: { project: string; totalMs: number; slowest: { file: string; ms: number }[] }[] }
+    expect(parsed.reports).toEqual([{ path: 'test-results/e2e-report.json', kind: 'playwright', files: 2, wallMs: 21_000, at: '2026-10-21T08:00:00.000Z' }])
+    expect(parsed.projects).toEqual([
+      {
+        project: 'e2e',
+        files: 2,
+        totalMs: 40_500,
+        slowest: [
+          { file: 'b.spec.ts', ms: 20_500, share: 0.5062 },
+          { file: 'a.spec.ts', ms: 20_000, share: 0.4938 },
+        ],
+      },
+    ])
+  })
+
   it('takes reports named on the command line instead of the defaults; twenty files a layer by default, slowest first', () => {
     const dir = tempDir()
     const many = { ...vitestReport, files: Array.from({ length: 25 }, (_, i) => ({ file: `t${String(i).padStart(2, '0')}.test.ts`, project: 'contract', ms: 100 * (i + 1) })) }
