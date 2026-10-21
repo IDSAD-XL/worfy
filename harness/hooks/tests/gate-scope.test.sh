@@ -3,7 +3,8 @@
 #   - a file moved from workspace packages/a to workspace packages/b, staged and then committed on the
 #     branch: both packages are in the scope, the one the file left as well as the one it went to;
 #   - a workspace whose folder name has a space, and one whose name has a double quote (not on
-#     Windows, where a file name cannot hold one): a file changed in it puts that workspace in scope.
+#     Windows, where a file name cannot hold one): a file changed in it puts that workspace in scope;
+#   - a new untracked file in a workspace puts that workspace in scope.
 # Run: bash harness/hooks/tests/gate-scope.test.sh; exit code 0 means everything passed.
 # HOOKS_DIR runs the test on another copy of the hooks (for example, on the version before an edit).
 #
@@ -25,16 +26,22 @@ ok()  { pass=$((pass + 1)); echo "ok   $1"; }
 bad() { fail=$((fail + 1)); echo "FAIL $1"; }
 export CLAUDE_GATE_STATE="$T/state" CLAUDE_GATE_CONFIG="$T/config.json"
 mkdir -p "$T/state"
+# A second guard besides the fake npm below: should a real npm ever run, its cache is inside the
+# test's own folder, never the user's ~/.npm.
+export npm_config_cache="$T/npm-cache"
 
-# The gate runs "$PM run <script>"; pm is this file, so the test needs no npm and every script passes.
-# On Windows the file is a .cmd: node starts nothing else there without an interpreter.
+# The registry entries have workspace scripts only, which the gate runs as
+# "npm run <script> --workspace <package>" (pm "npm"). The npm first in PATH is this file: every
+# script passes, and the test starts no real npm. On Windows it is a .cmd: node starts nothing
+# else there without an interpreter, and PATH takes the /c/… spelling.
+mkdir -p "$T/npm"
 if [ "$WIN" -eq 1 ]; then
-    PM="$T/fakepm.cmd"
-    printf '@echo off\r\nexit /b 0\r\n' >"$PM"
+    printf '@echo off\r\nexit /b 0\r\n' >"$T/npm/npm.cmd"
+    export PATH="$(cygpath -u "$T/npm"):$PATH"
 else
-    PM="$T/fakepm"
-    printf '#!/bin/sh\nexit 0\n' >"$PM"
-    chmod +x "$PM"
+    printf '#!/bin/sh\nexit 0\n' >"$T/npm/npm"
+    chmod +x "$T/npm/npm"
+    export PATH="$T/npm:$PATH"
 fi
 
 commit() { git -C "$1" add -A && git -C "$1" -c user.email=t@t -c user.name=t commit -q -m "$2"; }
@@ -75,13 +82,16 @@ scoped() {
 M="$T/move"       # key "m": two workspaces, a file moves from one to the other
 S="$T/space"      # key "s": a workspace whose folder name has a space
 Q="$T/quote"      # key "q": a workspace whose folder name has a double quote
+U="$T/untracked"  # key "u": a new file that git does not track yet
 newrepo "$M" packages/a packages/b
 newrepo "$S" "packages/my pkg" packages/b
 [ "$WIN" -eq 1 ] || newrepo "$Q" 'packages/q"t' packages/b
-jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg pm "$PM" '{repos: [
-    {key: "m", match: $m, pm: $pm, root: {}, workspace: {fast: ["check"]}},
-    {key: "s", match: $s, pm: $pm, root: {}, workspace: {fast: ["check"]}},
-    {key: "q", match: $q, pm: $pm, root: {}, workspace: {fast: ["check"]}}
+newrepo "$U" packages/a packages/b
+jq -n --arg m "$M" --arg s "$S" --arg q "$Q" --arg u "$U" '{repos: [
+    {key: "m", match: $m, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "s", match: $s, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "q", match: $q, pm: "npm", root: {}, workspace: {fast: ["check"]}},
+    {key: "u", match: $u, pm: "npm", root: {}, workspace: {fast: ["check"]}}
 ]}' >"$CLAUDE_GATE_CONFIG"
 
 # --- 1. A file moved between two workspaces, staged ------------------------------------------
@@ -114,6 +124,13 @@ else
     gate "$Q"
     scoped 'an edit in «packages/q"t»: that package in the scope' 'packages/q"t'
 fi
+
+# --- 5. A new untracked file ------------------------------------------------------------------
+echo 'export const added = 1' >"$U/packages/b/added.ts"
+gate "$U"
+scoped "a new untracked file in packages/b: that package in the scope" packages/b
+if [[ "${scope#*—}" != *" packages/a"* ]]; then ok "a new untracked file in packages/b: packages/a stays out of the scope"
+else bad "a new untracked file in packages/b put packages/a in the scope: $scope"; fi
 
 echo
 echo "passed: $pass, failed: $fail"

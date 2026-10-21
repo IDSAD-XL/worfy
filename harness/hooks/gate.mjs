@@ -473,9 +473,11 @@ function sizeWarnings() {
             if (!gitOk("cat-file", "-e", `${mb}:${file}`)) {
                 if (!renames) {
                     renames = new Map()
-                    const moved = git(["-c", "core.quotePath=false", "diff", "-M", "--name-status", "--diff-filter=R", mb, "--"])
-                    for (const line of lines(moved.stdout)) {
-                        const [, from, to] = line.split("\t")
+                    // -z: records of R<score>, the old path and the new one, each ended by NUL; the
+                    // paths are never quoted, so they match the real paths in `changed`
+                    const moved = (git(["diff", "-M", "--name-status", "-z", "--diff-filter=R", mb, "--"]).stdout ?? "").split("\0")
+                    for (let at = 0; at + 2 < moved.length; at += 3) {
+                        const [from, to] = [moved[at + 1], moved[at + 2]]
                         if (to && !renames.has(to)) renames.set(to, from)
                     }
                 }
