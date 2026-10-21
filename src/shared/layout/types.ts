@@ -152,6 +152,12 @@ export const layoutOpSchema = z.discriminatedUnion('op', [
    */
   z.object({
     op: z.literal('moveMany'),
+    /**
+     * A layout command placed these Nodes — "Tidy up" (canvas/tidy.ts), "Arrange by Epic"
+     * (canvas/arrange-by-epic.ts) — not the user's hand on each of them: main does not set their
+     * `touchedAt` (ADR-0076, Amendments). An older build drops the field and counts the move as a touch.
+     */
+    arrange: z.literal(true).optional(),
     moves: z
       .array(z.object({ id: nodeIdSchema, x: coordinate, y: coordinate }))
       .min(1)

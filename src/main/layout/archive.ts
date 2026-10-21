@@ -2,7 +2,10 @@
 // over off the Canvas, into the `archived` field of their Layout Node (src/shared/layout/types.ts).
 // Nothing is deleted: the Node stays in the Layout with its place, and its transcript is not touched.
 //
-// - The rule is archiveCandidates(), a pure function (ADR-0076, points 1–2).
+// - The rule is archiveCandidates(), a pure function (ADR-0076, points 1–2). A Session whose
+//   transcript tells no time — Claude Code deletes transcripts past its cleanup period — is idle
+//   since its Node's `touchedAt`; a run of the timer starts that clock with a `touch` without a
+//   screen when the Node has none (sessionsWithoutClock; ADR-0076, Amendments).
 // - AutoArchiver runs it for every Project of this Machine at start and every ARCHIVE_TICK_MS
 //   (point 3). main does it, not a window: two screens of one Project archive once (ADR-0053), and
 //   a Project watched only by a read-only Linked machine is archived too (ADR-0066). One run of a
@@ -104,26 +107,55 @@ interface IdleSession {
   idle: number
 }
 
+/** A Session Node the rule may take before any time is looked at, with the Session it names. */
+interface FinishedSession {
+  node: LayoutNode
+  sessionId: string
+  /** The time of the last record of its transcript in ms, or undefined when there is none or it tells none. */
+  lastAt: number | undefined
+}
+
 /**
- * The Session Nodes the rule may take, before any threshold: of kind `session`, not archived,
- * not pinned, without Keep, not touched less than `threshold` ago, naming a Session that is not
- * live and whose transcript tells the time of its last record. Every entry of `live` is live,
- * whatever its status — `unknown` too (not known — not closed, ADR-0031).
+ * The Session Nodes of kind `session`, not archived, not pinned, without Keep, naming a Session
+ * that is not live. Every entry of `live` is live, whatever its status — `unknown` too (not known
+ * — not closed, ADR-0031).
  */
-function idleSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, threshold: number): IdleSession[] {
+function finishedSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[]): FinishedSession[] {
   const alive = new Set(live.map((session) => session.sessionId))
   const lastAt = new Map(history.map((session) => [session.sessionId, session.lastAt === undefined ? Number.NaN : Date.parse(session.lastAt)]))
-  const found: IdleSession[] = []
-  for (const node of nodes) {
-    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) continue
+  return nodes.flatMap((node): FinishedSession[] => {
+    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) return []
     const sessionId = sessionOf(node)
-    if (sessionId === null || alive.has(sessionId)) continue
-    if (node.touchedAt != null && now - node.touchedAt < threshold) continue
+    if (sessionId === null || alive.has(sessionId)) return []
     const last = lastAt.get(sessionId)
-    if (last === undefined || Number.isNaN(last)) continue
-    found.push({ node, sessionId, idle: now - last })
-  }
-  return found
+    return [{ node, sessionId, lastAt: last === undefined || Number.isNaN(last) ? undefined : last }]
+  })
+}
+
+/**
+ * The Session Nodes the rule may take, before any threshold: the finished ones not touched less
+ * than `threshold` ago, with their idle time counted from the last record of their transcript or,
+ * when the transcript tells no time (Claude Code deleted it past its cleanup period, or it has no
+ * record yet), from the Node's `touchedAt` (ADR-0076, Amendments). A Node with neither is left.
+ */
+function idleSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[], now: number, threshold: number): IdleSession[] {
+  return finishedSessions(nodes, live, history).flatMap(({ node, sessionId, lastAt }): IdleSession[] => {
+    if (node.touchedAt != null && now - node.touchedAt < threshold) return []
+    const since = lastAt ?? node.touchedAt ?? undefined
+    return since === undefined ? [] : [{ node, sessionId, idle: now - since }]
+  })
+}
+
+/**
+ * The ids of the Session Nodes the rule could take but has no time for: their transcript tells
+ * none and they have no `touchedAt`. A run of the timer starts their clock with a `touch` without a
+ * screen (AutoArchiver.run), so such a Node is archived one threshold after the archive first saw
+ * it, unless its Session comes back (ADR-0076, Amendments).
+ */
+export function sessionsWithoutClock(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[]): string[] {
+  return finishedSessions(nodes, live, history)
+    .filter(({ node, lastAt }) => lastAt === undefined && node.touchedAt == null)
+    .map(({ node }) => node.id)
 }
 
 /**
@@ -247,7 +279,8 @@ export class AutoArchiver {
    * joined with what the registry watchers reported meanwhile, and the rule runs again on the
    * Layout as it is at the write, so a Session that came back to life or a Node the user moved
    * while the reads went on is left — and a run that overlaps another finds the Nodes that one
-   * archived already archived. Returns how many Nodes it archived.
+   * archived already archived. Then it starts the clock of the Session Nodes without one
+   * (sessionsWithoutClock), each with a `touch` without a screen. Returns how many Nodes it archived.
    */
   async run(project: ArchiveProject): Promise<number> {
     const settings = this.deps.settings(project.id)
@@ -262,8 +295,10 @@ export class AutoArchiver {
     const reads = await this.read(project, settings)
     // From here to the write nothing waits: the Layout and the live Sessions are the latest main knows.
     const found = this.candidatesOf(project.id, reads, settings)
-    if (found.length === 0) return 0
-    this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
+    if (found.length > 0) this.deps.store.apply(project.id, { op: 'archive', batch: this.deps.batchId(), nodes: found.map(({ id, rule }) => ({ id, rule })) }, null)
+    for (const id of sessionsWithoutClock(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), reads.history)) {
+      this.deps.store.apply(project.id, { op: 'touch', id }, null)
+    }
     return found.length
   }
 
@@ -311,6 +346,10 @@ export class AutoArchiver {
     const history = await this.deps.history(project)
     let workflow: BindingWorkflow | undefined
     let bindings: ReadonlyMap<string, BindingTarget | null> = new Map()
+    // Which Bindings to read is decided on the live Sessions main saw before this run, not on the
+    // fresh read below, which has to stay last so nothing waits between it and the write. A Session
+    // that died since was live then: its Binding is not read, and the ticket-done rule takes it on a
+    // later run. A Session that came back to life is read for nothing: the rule leaves it anyway.
     const needed = bindingsNeeded(this.deps.store.get(project.id).layout.nodes, this.liveOf(project.id), history, this.deps.now(), settings)
     if (needed.length > 0) {
       workflow = await this.deps.workflow(project)

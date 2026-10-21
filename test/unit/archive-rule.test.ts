@@ -18,6 +18,7 @@ import {
   archiveTickMs,
   bindingsNeeded,
   sessionBindings,
+  sessionsWithoutClock,
   TICKET_DONE_GRACE_MS,
   type ArchiveSettings,
 } from '../../src/main/layout/archive'
@@ -80,10 +81,38 @@ describe('candidates', () => {
     expect(TICKET_DONE_GRACE_MS).toBe(HOUR)
   })
 
-  it('a Session Node with no transcript, or a transcript without a time, is not archived: what is not known is not closed', () => {
-    expect(run({ nodes: [session('a')], history: [] })).toEqual([])
-    expect(run({ nodes: [session('a')], history: [{ sessionId: 'a' }] })).toEqual([])
-    expect(run({ nodes: [session('a')], history: [{ sessionId: 'a', lastAt: 'not a time' }] })).toEqual([])
+  it('the threshold itself is not past it: a Session idle exactly the threshold stays, one ms more is archived', () => {
+    expect(run({ nodes: [session('a')], history: [last('a', 24 * HOUR)] })).toEqual([])
+    expect(run({ nodes: [session('a')], history: [last('a', 24 * HOUR + 1)] })).toEqual([{ id: 'session:a', rule: 'idle' }])
+  })
+
+  // Claude Code deletes transcripts older than its cleanup period (30 days by default), so an old
+  // Session Node may have none (ADR-0076, Amendments): its idle time counts from the Node's touchedAt.
+  it('a Session Node with no transcript, or a transcript without a time, is idle since its touchedAt', () => {
+    for (const history of [[], [{ sessionId: 'a' }], [{ sessionId: 'a', lastAt: 'not a time' }]]) {
+      expect(run({ nodes: [session('a', { touchedAt: NOW - 25 * HOUR })], history }), JSON.stringify(history)).toEqual([{ id: 'session:a', rule: 'idle' }])
+      expect(run({ nodes: [session('a', { touchedAt: NOW - 24 * HOUR })], history }), JSON.stringify(history)).toEqual([])
+      // No touchedAt either: no time to count from, so not a candidate; the timer starts its clock (sessionsWithoutClock).
+      expect(run({ nodes: [session('a')], history }), JSON.stringify(history)).toEqual([])
+      expect(run({ nodes: [session('a', { touchedAt: null })], history }), JSON.stringify(history)).toEqual([])
+    }
+  })
+
+  it('the clock the timer starts: Session Nodes the rule could take that have neither a transcript time nor a touchedAt', () => {
+    const nodes = [
+      session('none'),
+      session('null', { touchedAt: null }),
+      session('timeless'),
+      session('touched', { touchedAt: NOW - HOUR }),
+      session('recorded'),
+      session('live'),
+      session('kept', { keep: true }),
+      session('pinned', { pinned: true }),
+      session('archived', { archived: { at: 1, rule: 'idle', batch: 'b1' } }),
+      layoutNodeSchema.parse({ id: 'orchestrator:o', kind: 'orchestrator', x: 0, y: 0, w: 300, h: 120, data: { sessionId: 'o' } }),
+    ]
+    const history = [{ sessionId: 'timeless' }, last('recorded', HOUR)]
+    expect(sessionsWithoutClock(nodes, [{ sessionId: 'live', status: 'unknown' }], history)).toEqual(['session:none', 'session:null', 'session:timeless'])
   })
 
   it('a Node already archived is not a candidate again', () => {

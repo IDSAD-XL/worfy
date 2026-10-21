@@ -5,12 +5,22 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { clearEdgeFocus, setEdgeFocus } from '../../src/renderer/canvas/edge-focus'
+import { setTagFilter } from '../../src/renderer/find/canvas-requests'
 import type { FamilyLinks } from '../../src/renderer/canvas/family'
 import { FamilySection } from '../../src/renderer/canvas/overlays/SelectionToolbar'
 import { epicNodeId, ticketNodeId } from '../../src/shared/layout/derived'
 import type { LayoutNode } from '../../src/shared/layout/types'
 
-const camera = vi.hoisted(() => ({ fitView: vi.fn<(options?: unknown) => Promise<boolean>>(() => Promise.resolve(true)), getZoom: () => 0.7 }))
+// `getNode` answers with the Nodes the Canvas draws, each with its Layout tags (`drawn`).
+const camera = vi.hoisted(() => ({
+  fitView: vi.fn<(options?: unknown) => Promise<boolean>>(() => Promise.resolve(true)),
+  getZoom: () => 0.7,
+  drawn: new Map<string, string[]>(),
+  getNode(id: string) {
+    const tags = this.drawn.get(id)
+    return tags === undefined ? undefined : { id, data: { node: { id, tags } } }
+  },
+}))
 vi.mock('@xyflow/react', async (importOriginal) => ({ ...(await importOriginal<typeof import('@xyflow/react')>()), useReactFlow: () => camera }))
 
 const A = 'session:A'
@@ -28,6 +38,8 @@ const button = () => screen.queryByRole('button', { name: 'Show family' })
 
 beforeEach(() => {
   camera.fitView.mockClear()
+  camera.drawn.clear()
+  setTagFilter(null)
   setEdgeFocus([], [], links)
 })
 afterEach(() => {
@@ -61,5 +73,25 @@ describe('Show family', () => {
     render(<FamilySection nodes={[node(ticketNodeId('e', 1), 'ticket')]} />)
     fireEvent.click(button()!)
     expect((camera.fitView.mock.calls[0]![0] as { duration: number }).duration).toBe(0)
+  })
+
+  it('with the tag filter on, takes in only the Family members the filter leaves drawn (review of PR #538)', () => {
+    for (const [id, tags] of [[A, ['x']], [A1, []], [epicNodeId('e'), ['x']], [ticketNodeId('e', 1), ['y']]] as const) camera.drawn.set(id, [...tags])
+    setTagFilter({ projectId: 'p', tag: 'x' })
+    render(<FamilySection nodes={[node(A, 'session')]} projectId="p" />)
+    fireEvent.click(button()!)
+    const options = camera.fitView.mock.calls[0]![0] as { nodes: { id: string }[] }
+    expect(options.nodes.map(({ id }) => id).sort()).toEqual([A, epicNodeId('e')].sort())
+  })
+
+  it('a filter of another Project leaves the Family whole; a filter that leaves no member drawn moves no camera', () => {
+    for (const id of [A, A1, epicNodeId('e'), ticketNodeId('e', 1)]) camera.drawn.set(id, [])
+    setTagFilter({ projectId: 'other', tag: 'x' })
+    render(<FamilySection nodes={[node(A, 'session')]} projectId="p" />)
+    fireEvent.click(button()!)
+    expect((camera.fitView.mock.calls[0]![0] as { nodes: unknown[] }).nodes).toHaveLength(4)
+    setTagFilter({ projectId: 'p', tag: 'x' })
+    fireEvent.click(button()!)
+    expect(camera.fitView).toHaveBeenCalledTimes(1)
   })
 })

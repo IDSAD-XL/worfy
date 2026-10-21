@@ -133,5 +133,6 @@ export function arrangeByEpic({ nodes, epics, drawn, trees = new Map() }: Arrang
 
   const byId = new Map(moving.map((node) => [node.id, node]))
   const moves = [...places].flatMap(([id, place]) => (byId.get(id)?.x === place.x && byId.get(id)?.y === place.y ? [] : [{ id, ...place }]))
-  return moves.length === 0 ? undefined : { op: 'moveMany', moves }
+  // `arrange`: a layout command, so main does not count every moved Session as touched (ADR-0076, Amendments).
+  return moves.length === 0 ? undefined : { op: 'moveMany', arrange: true, moves }
 }

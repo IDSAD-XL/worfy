@@ -4,7 +4,8 @@ import ELK from 'elkjs/lib/elk.bundled.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Layout } from '../../src/shared/layout/types'
 import type { Epic, Ticket, WorkflowModel } from '../../src/shared/workflow/types'
-import { elkKey, setElkEngine, useElkAnswers } from '../../src/renderer/canvas/elk/client'
+import { elkKey, requestEpicLayout, setElkEngine, useElkAnswers } from '../../src/renderer/canvas/elk/client'
+import { layoutEpic } from '../../src/renderer/canvas/epic-layout'
 import type { ElkEngine } from '../../src/renderer/canvas/elk/layout'
 import { buildEpicNodes, epicNodeId, requestEpicLayouts, type EpicFrameData, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 
@@ -155,5 +156,50 @@ describe('the old answer shown while ELK works', () => {
     expect(waiting.position).toEqual(before.position)
     expect(waiting.height).toBeGreaterThan(before.height!)
     expect((waiting.data.node.data as TicketNodeData).placed.height).toBe(waiting.height)
+  })
+})
+
+describe('when ELK fails (review of PR #539)', () => {
+  const done = (num: number) => ticket(num, { state: 'done', statusRaw: 'done' })
+  const withDone = [done(1), done(2), done(3), ticket(4), ticket(5, { blockedNums: [4], blockedRaw: '4' })]
+  afterEach(() => vi.restoreAllMocks())
+  const request = (tickets: Ticket[]) => ({ key: elkKey(tickets, 'a'), tickets, name: 'a' })
+
+  it('answers with the synchronous layout, the done stack folded and open: the open one is the frame\'s reserve of height', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    setElkEngine({ layout: () => Promise.reject(new Error('ELK failed')) })
+    const id = freshProject()
+    requestEpicLayout(id, 'a', request(withDone))
+    await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(elkKey(withDone, 'a')))
+    const answer = useElkAnswers.getState()[id]!.a!
+    const input = { tickets: withDone, name: 'a', collapsed: false }
+    expect(answer.folded).toEqual(layoutEpic({ ...input, doneExpanded: false }))
+    expect(answer.open).toEqual(layoutEpic({ ...input, doneExpanded: true }))
+    // The two differ, so a test of `folded` alone would not tell a swapped or missing `open` apart.
+    expect(answer.open).not.toEqual(answer.folded)
+  })
+
+  it('drops a failure of a request a newer one replaced: the newer answer stays', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const real = new ELK()
+    // The first request's graphs fail when the test lets them; the later ones are answered at once.
+    const failing: (() => void)[] = []
+    let calls = 0
+    setElkEngine({
+      layout: (graph) => {
+        calls += 1
+        return calls <= 2 ? new Promise((_resolve, reject) => failing.push(() => reject(new Error('ELK failed late')))) : real.layout(graph)
+      },
+    })
+    const id = freshProject()
+    const older = request(withDone)
+    const newer = request([...withDone, ticket(6)])
+    requestEpicLayout(id, 'a', older)
+    await vi.waitFor(() => expect(failing).toHaveLength(2))
+    requestEpicLayout(id, 'a', newer)
+    await vi.waitFor(() => expect(useElkAnswers.getState()[id]?.a?.key).toBe(newer.key))
+    for (const fail of failing) fail()
+    await new Promise((wake) => setTimeout(wake, 50))
+    expect(useElkAnswers.getState()[id]?.a?.key).toBe(newer.key)
   })
 })

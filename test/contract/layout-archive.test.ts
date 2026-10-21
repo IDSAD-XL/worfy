@@ -791,3 +791,49 @@ describe('the timer', () => {
     expect(changes(1, 'archive')).toHaveLength(1)
   })
 })
+
+describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)', () => {
+  it('a layout command\'s `moveMany` (Tidy up, Arrange by Epic: `arrange`) does not set touchedAt; the same move by hand does', () => {
+    apply(sessionNode('a'))
+    apply(sessionNode('b', 400, 0))
+    apply({ op: 'moveMany', arrange: true, moves: [{ id: 'session:a', x: 0, y: 2000 }, { id: 'session:b', x: 400, y: 2000 }] }, 'screen-1')
+    expect(nodeOf('session:a')).toMatchObject({ x: 0, y: 2000 })
+    expect(nodeOf('session:a')?.touchedAt).toBeUndefined()
+    expect(nodeOf('session:b')?.touchedAt).toBeUndefined()
+    apply({ op: 'moveMany', moves: [{ id: 'session:a', x: 0, y: 3000 }] }, 'screen-1')
+    expect(nodeOf('session:a')?.touchedAt).toEqual(expect.any(Number))
+    expect(nodeOf('session:b')?.touchedAt).toBeUndefined()
+  })
+
+  it('a Session Node without a transcript: the first run starts its clock (touchedAt, without a screen), a run past the threshold archives it', async () => {
+    apply(sessionNode('gone'))
+    apply(sessionNode('recorded', 400, 0))
+    world.history = transcripts(['recorded', HOUR])
+    const runner = archiver()
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(0)
+    const started = nodeOf('session:gone')?.touchedAt
+    expect(started).toEqual(expect.any(Number))
+    expect(nodeOf('session:recorded')?.touchedAt).toBeUndefined()
+    const touches = changes(1, 'touch')
+    expect(touches.map((change) => [change.op, change.screen])).toEqual([[{ op: 'touch', id: 'session:gone' }, null]])
+
+    // A later run within the threshold keeps the clock where it started and archives nothing.
+    world.now += HOUR
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:gone')?.touchedAt).toBe(started)
+    expect(changes(1, 'touch')).toHaveLength(1)
+
+    world.now = started! + 24 * HOUR + 1
+    expect(await runner.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodeOf('session:gone')?.archived).toMatchObject({ rule: 'idle' })
+    expect(isArchived(nodeOf('session:recorded')!)).toBe(false)
+  })
+
+  it('«Archive finished sessions now» and «Never» start no clock: only the timer\'s run writes it', async () => {
+    apply(sessionNode('gone'))
+    expect(await archiver().candidatesNow(PROJECT)).toEqual([])
+    expect(await archiver({ settings: () => ({ idleMs: null, ticketDone: true }) }).run({ id: PROJECT, path: repo })).toBe(0)
+    expect(nodeOf('session:gone')?.touchedAt).toBeUndefined()
+    expect(changes(1, 'touch')).toEqual([])
+  })
+})

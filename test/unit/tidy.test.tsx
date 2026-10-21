@@ -176,6 +176,8 @@ describe('Tidy up', () => {
 
     const op = await runTidyUp(PROJECT, () => treeBlocks(), apply, elk)
     expect(op?.op).toBe('moveMany')
+    // A layout command: main does not count the moved Nodes as touched (ADR-0076, Amendments).
+    expect(op).toMatchObject({ arrange: true })
     expect(sent).toHaveLength(1)
     expect(sent[0]).toEqual(op)
 
