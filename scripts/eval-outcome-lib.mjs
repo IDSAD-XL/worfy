@@ -1,13 +1,13 @@
 // The shared code of the outcome eval (scripts/eval-outcome/README.md is its contract):
-//   - the run environment of `pnpm eval:outcome` (scripts/eval-outcome.mjs): the pinned models, the
-//     session variables taken out, the copies of the plugin and of git;
+//   - the task folders of the slot (the run environment of `pnpm eval:outcome` is
+//     scripts/eval-run-env.mjs, shared with `pnpm eval:harness`);
 //   - the score of one kept run (scripts/eval-outcome-score.mjs, scripts/eval-outcome-check.mjs):
 //     a copy of its working folder, the checks of the task's score spec, the trace signals, the judge;
 //   - the summary of a whole result: rates, means and the comparison of the two arms.
 // Importing this module runs nothing.
 //
-// shortcut: one module for three jobs, redo by splitting it into the run environment, the score of a
-// run and the summary (a follow-up ticket, after the eval-harness.mjs change of PR #690 lands).
+// shortcut: one module for the score of a run and the summary, redo by splitting the two when either
+// grows a caller of its own.
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -23,170 +23,18 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { createRequire } from 'node:module'
-import { devNull, homedir, tmpdir } from 'node:os'
-import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { devNull, tmpdir } from 'node:os'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
+import { cleanEnv, JUDGE_MODEL, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 import { fisherExact, holm, newcombe, quantile, wilson } from './eval-outcome-stats.mjs'
 
-// --- the run environment -------------------------------------------------------------------------
-// shortcut: the models, the version, the session variables, the PATH filter and the copies of the
-// plugin and of git repeat scripts/eval-harness.mjs (test/contract/harness-evals-outcome.test.ts
-// checks the constants are equal), redo as one shared eval-run-env module both scripts import (a
-// follow-up ticket, after the eval-harness.mjs change of PR #690 lands).
-
-/** Pinned, so that a change of the default model does not look like a change of the plugin. */
-export const MODEL = 'claude-sonnet-5'
-export const JUDGE_MODEL = 'claude-haiku-4-5'
-/** The first claude with `plugin eval`. */
-export const MIN_VERSION = [2, 1, 269]
-
-/** Variables that tie a process to the Claude Code session it was started from. */
-export const SESSION_VARIABLES = [
-  'CLAUDECODE',
-  'CLAUDE_PID',
-  'CLAUDE_EFFORT',
-  'CLAUDE_AGENT_SDK_VERSION',
-  'CLAUDE_CODE_SESSION_ID',
-  'CLAUDE_CODE_SESSION_ATTENDED',
-  'CLAUDE_CODE_CHILD_SESSION',
-  'CLAUDE_CODE_ENTRYPOINT',
-  'CLAUDE_CODE_EXECPATH',
-  'CLAUDE_CODE_MESSAGING_SOCKET',
-  'CLAUDE_CODE_MESSAGING_TOKEN',
-]
-
-/** A PATH folder of another copy of the plugin: the run would find its scripts by name. */
-const otherHarness = (dir) =>
-  dir === join(homedir(), '.claude', 'bin') || dir.includes(`${sep}.claude${sep}worfy-harness${sep}`) || /[\\/]harness[\\/](bin|hooks)[\\/]?$/.test(dir)
-
-/** `env` without the session variables and with no other plugin copy on PATH. */
-export function cleanEnv(env = process.env) {
-  const clean = Object.fromEntries(Object.entries(env).filter(([key]) => !SESSION_VARIABLES.includes(key)))
-  if (clean.PATH) clean.PATH = clean.PATH.split(delimiter).filter((dir) => dir && !otherHarness(dir)).join(delimiter)
-  return clean
-}
-
-/** $CLAUDE_BIN, else the claude binary of the Agent SDK in node_modules of `repo`. */
-export function claudeBinary(repo, fail) {
-  if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN
-  try {
-    const sdk = createRequire(join(repo, 'package.json')).resolve('@anthropic-ai/claude-agent-sdk')
-    const pkg = createRequire(sdk).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`)
-    return join(dirname(pkg), 'claude')
-  } catch {
-    return fail(`no claude binary of the Agent SDK for ${process.platform}-${process.arch} in node_modules; set CLAUDE_BIN`)
-  }
-}
-
-/** spawnSync of claude; on Windows a `.mjs` stand-in of the tests runs under this process's Node. */
-export const runClaude = (claude, args, options) =>
-  process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
-
-/** The version of `claude`, or `fail` when it is older than MIN_VERSION or does not answer. */
-export function checkVersion(claude, env, fail) {
-  const run = runClaude(claude, ['--version'], { encoding: 'utf8', env })
-  if (run.error || run.status !== 0) return fail(`${claude} --version failed: ${run.error?.message ?? run.stderr.trim()}`)
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(run.stdout)
-  if (!match) return fail(`cannot read the version from "${run.stdout.trim()}"`)
-  const version = match.slice(1, 4).map(Number)
-  const older = version.reduce((acc, n, i) => acc || Math.sign(n - MIN_VERSION[i]), 0) < 0
-  if (older) return fail(`claude ${version.join('.')} has no \`plugin eval\`: it needs ${MIN_VERSION.join('.')} or newer (${claude})`)
-  return version.join('.')
-}
-
-/**
- * Copies the plugin at `source` into a new temporary folder, without the results of the other eval and
- * without `dependencies` in .claude-plugin/plugin.json (a run installs only the plugin under test,
- * and Claude Code does not load a plugin whose dependency is missing); returns the copy's real path.
- */
-export function pluginCopy(source) {
-  const target = join(realpathSync(mkdtempSync(join(tmpdir(), 'eval-outcome-plugin-'))), 'harness')
-  const results = join('evals', 'results')
-  cpSync(source, target, {
-    recursive: true,
-    filter: (path) => {
-      const inside = relative(source, path)
-      return !path.endsWith(`${sep}.DS_Store`) && inside !== results && !inside.startsWith(`${results}${sep}`)
-    },
-  })
-  const manifestPath = join(target, '.claude-plugin', 'plugin.json')
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  delete manifest.dependencies
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
-  return target
-}
-
-const shellWord = (text) => `'${text.replaceAll("'", `'\\''`)}'`
-
-/**
- * Copies the folder `git --exec-path` names into `<dir>/git-core/` without git-credential*, and
- * writes the wrapper `<dir>/git`; returns the wrapper. The sandbox of a run refuses the git of Xcode
- * Command Line Tools (it lies next to git-credential-*) and reads every PATH folder. A second name
- * of the same file becomes a symlink inside the copy. `fail` when there is no folder or the copy
- * does not answer `--version`.
- */
-export function gitCopy(dir, env, fail) {
-  const exec =
-    process.platform === 'win32' ? spawnSync('sh', ['-c', 'git --exec-path'], { encoding: 'utf8', env }) : spawnSync('git', ['--exec-path'], { encoding: 'utf8', env })
-  const source = exec.status === 0 ? exec.stdout.trim() : ''
-  if (source === '' || !existsSync(source) || !statSync(source).isDirectory()) return fail(`\`git --exec-path\` gave no folder (exit ${exec.status ?? exec.error?.code}): the runs need a copy of git`)
-  const core = join(dir, 'git-core')
-  const wrapper = join(dir, 'git')
-  try {
-    const copied = new Map()
-    const copyFolder = (from, to) => {
-      mkdirSync(to, { recursive: true })
-      const names = readdirSync(from).sort((a, b) => (a === 'git' ? -1 : b === 'git' ? 1 : a < b ? -1 : a > b ? 1 : 0))
-      for (const name of names) {
-        if (name.startsWith('git-credential')) continue
-        const file = join(from, name)
-        const target = join(to, name)
-        const stat = statSync(file)
-        if (stat.isDirectory()) {
-          copyFolder(file, target)
-          continue
-        }
-        const first = copied.get(`${stat.dev}:${stat.ino}`)
-        if (first) {
-          symlinkSync(relative(dirname(target), first), target)
-        } else {
-          copyFileSync(file, target)
-          chmodSync(target, stat.mode & 0o777)
-          copied.set(`${stat.dev}:${stat.ino}`, target)
-        }
-      }
-    }
-    copyFolder(source, core)
-    writeFileSync(
-      wrapper,
-      `#!/bin/sh\n# git for the sandbox of a \`claude plugin eval\` run: a copy of ${source} (scripts/eval-outcome.mjs)\n` +
-        `GIT_EXEC_PATH=${shellWord(core)}\nGIT_CONFIG_NOSYSTEM=1\nexport GIT_EXEC_PATH GIT_CONFIG_NOSYSTEM\n` +
-        `exec ${shellWord(join(core, 'git'))} "$@"\n`,
-    )
-    chmodSync(wrapper, 0o755)
-  } catch (error) {
-    removeTree(dir)
-    return fail(`cannot copy ${source} into ${core}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  // shortcut: on Windows the check keeps the PATH of the runs, redo when the paid runs go to Windows
-  // (the copied git.exe loads its DLLs through that PATH).
-  const check =
-    process.platform === 'win32'
-      ? spawnSync('sh', [wrapper, '--version'], { encoding: 'utf8', env: { PATH: env.PATH } })
-      : spawnSync(wrapper, ['--version'], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } })
-  if (check.status !== 0) {
-    removeTree(dir)
-    return fail(`the copy of git does not run (${wrapper} --version, exit ${check.status ?? check.error?.code}): ${(check.stderr ?? '').trim()}`)
-  }
-  return wrapper
-}
+// --- the task folders ----------------------------------------------------------------------------
 
 /** The task folders of an outcome eval folder: every folder but lib/ with case.yaml or prompt.md. */
 export const taskFolders = (dir) =>

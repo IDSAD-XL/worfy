@@ -3,13 +3,14 @@
 // never starts a real claude or a real judge: the slot has the shape its README promises, the task
 // texts carry none of the plugin's own words, the shared fixture builds in a temporary HOME and its
 // own tests pass, `pnpm eval:outcome` builds the call with `--ablation with-without` and the pinned
-// models of scripts/eval-harness.mjs (against a stub claude), the scorer works on copies of the kept
+// models of scripts/eval-run-env.mjs, the run environment it shares with `pnpm eval:harness`
+// (against a stub claude), the scorer works on copies of the kept
 // run folders and computes the metrics (stub judge), the statistics give known values, and the free
 // checker compares reference solutions with their expected verdicts on a synthetic task that lives
 // only in a temporary folder.
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -49,11 +50,14 @@ interface Stats {
   median: (xs: number[]) => number | null
   quantile: (xs: number[], q: number) => number | null
 }
-interface Lib {
+interface RunEnv {
   MODEL: string
   JUDGE_MODEL: string
-  MIN_VERSION: number[]
   SESSION_VARIABLES: string[]
+  cleanEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
+  pluginCopy: (source: string) => string
+}
+interface Lib {
   stripArmMarkers: (text: string) => string
   forbiddenWords: (text: string) => string[]
   judgeCommand: (claude: string, env: NodeJS.ProcessEnv) => string[]
@@ -63,10 +67,12 @@ interface Lib {
 // on its own instead of the whole file.
 let stats: Stats
 let lib: Lib
+let runEnv: RunEnv
 beforeAll(async () => {
   // A module that does not load leaves its variable unset: the tests that use it fail, the rest run.
   stats = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-outcome-stats.mjs')).href).catch(() => undefined)) as Stats
   lib = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-outcome-lib.mjs')).href).catch(() => undefined)) as Lib
+  runEnv = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href).catch(() => undefined)) as RunEnv
 })
 
 const temps: string[] = []
@@ -361,24 +367,36 @@ describe('scripts/eval-outcome-stats.mjs: known values', () => {
 
 // --- the pinned models and the environment ------------------------------------------------------
 
-describe('scripts/eval-outcome-lib.mjs matches scripts/eval-harness.mjs', () => {
-  const source = readFileSync(join(REPO, 'scripts', 'eval-harness.mjs'), 'utf8')
-  it('the same pinned agent and judge models, and the same minimum claude version', () => {
-    expect(lib.MODEL).toBe(/const MODEL = '([^']+)'/.exec(source)?.[1])
-    expect(lib.JUDGE_MODEL).toBe(/const JUDGE_MODEL = '([^']+)'/.exec(source)?.[1])
-    expect(`[${lib.MIN_VERSION.join(', ')}]`).toBe(/const MIN_VERSION = (\[[^\]]+\])/.exec(source)?.[1])
+describe('the run environment both evals share (scripts/eval-run-env.mjs)', () => {
+  it('takes the session variables out and drops other plugin copies from PATH', () => {
+    const others = [join(homedir(), '.claude', 'bin'), join(tmpdir(), '.claude', 'worfy-harness', 'plugin', 'bin'), join(tmpdir(), 'elsewhere', 'harness', 'hooks')]
+    const kept = join(tmpdir(), 'elsewhere', 'bin')
+    const session = Object.fromEntries(runEnv.SESSION_VARIABLES.map((name) => [name, '1']))
+    const clean = runEnv.cleanEnv({ ...session, KEEP: 'yes', PATH: [...others, kept].join(delimiter) })
+    expect(runEnv.SESSION_VARIABLES).toContain('CLAUDECODE')
+    expect(Object.keys(clean).sort()).toEqual(['KEEP', 'PATH'])
+    expect(clean.PATH).toBe(kept)
   })
 
-  it('removes the same session variables', () => {
-    const block = /const SESSION_VARIABLES = \[([\s\S]*?)\]/.exec(source)?.[1] ?? ''
-    expect(lib.SESSION_VARIABLES).toEqual([...block.matchAll(/'([A-Z_]+)'/g)].map((m) => m[1]))
+  it('copies the plugin without the results of either eval and without dependencies', () => {
+    const source = join(tempDir('outcome-plugin-source-'), 'harness')
+    const files = ['.claude-plugin/plugin.json', 'evals/case/prompt.md', 'evals/results/old/aggregate-result.json', 'evals-outcome/lib/fixture.sh', 'evals-outcome/results/old/aggregate-result.json', 'evals-outcome/results-notes.md', 'bin/.DS_Store']
+    for (const file of files) {
+      mkdirSync(dirname(join(source, file)), { recursive: true })
+      writeFileSync(join(source, file), '{"name":"worfy","dependencies":["other"]}\n')
+    }
+    const copy = runEnv.pluginCopy(source)
+    temps.push(dirname(copy))
+    expect(filesOf(copy).sort()).toEqual(['.claude-plugin/plugin.json', 'evals-outcome/lib/fixture.sh', 'evals-outcome/results-notes.md', 'evals/case/prompt.md'])
+    expect(JSON.parse(readFileSync(join(copy, '.claude-plugin', 'plugin.json'), 'utf8'))).toEqual({ name: 'worfy' })
+    expect(readFileSync(join(source, '.claude-plugin', 'plugin.json'), 'utf8')).toContain('dependencies')
   })
 
   it('the default judge runs on the pinned model without tools, MCP servers, user settings or a saved session', () => {
     const argv = lib.judgeCommand('claude', {})
     const pair = (name: string): string | undefined => argv[argv.indexOf(name) + 1]
     expect(argv[0]).toBe('claude')
-    expect(pair('--model')).toBe(lib.JUDGE_MODEL)
+    expect(pair('--model')).toBe(runEnv.JUDGE_MODEL)
     expect(pair('--tools')).toBe('')
     expect(pair('--setting-sources')).toBe('project')
     expect(argv).toContain('--strict-mcp-config')
@@ -1261,8 +1279,8 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(args).toContain('--trust-plugin')
     expect(args).toContain('--no-publish')
     expect(pair('--threshold')).toBe('0')
-    expect(pair('--model')).toBe(lib.MODEL)
-    expect(pair('--judge-model')).toBe(lib.JUDGE_MODEL)
+    expect(pair('--model')).toBe(runEnv.MODEL)
+    expect(pair('--judge-model')).toBe(runEnv.JUDGE_MODEL)
     expect(pair('--max-cost-usd')).toBe('5')
     expect(args.slice(args.indexOf('--allow-tools') + 1, args.indexOf('--allow-tools') + 4)).toEqual(['Bash', 'Write', 'Edit'])
   })

@@ -24,7 +24,8 @@ import { constants } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeBinary, judgeCommand, loadSpec, scoreResults } from './eval-outcome-lib.mjs'
+import { judgeCommand, loadSpec, scoreResults } from './eval-outcome-lib.mjs'
+import { claudeBinary } from './eval-run-env.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const say = (line) => process.stdout.write(`eval:outcome-score: ${line}\n`)
