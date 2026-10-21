@@ -241,18 +241,27 @@ async function mark(window: Page, note: string): Promise<void> {
   }, note)
 }
 
+/** How long the failure report waits for each answer from the app. */
+const REPORT_ANSWER_MS = 2_000
+
 /**
  * Attaches the pointer log, the windows' state and the real cursor's place on the screen to the
  * failed test, and prints the log from the test's last input on. Never throws: the test's own
  * failure is the one to report.
  */
 async function reportPointer(launched: LaunchedApp): Promise<void> {
+  // Bounded: a hung renderer or main would otherwise hold this until the test's own timeout, which
+  // would then be reported instead of the failed check, and the app would not be closed.
+  const bounded = <T>(work: Promise<T>): Promise<T> =>
+    Promise.race([work, new Promise<never>((_, fail) => setTimeout(() => fail(new Error(`no answer within ${REPORT_ANSWER_MS} ms`)), REPORT_ANSWER_MS).unref())])
   try {
-    const log = await launched.window.evaluate(() => (globalThis as unknown as PointerPage).pointerLog ?? [])
-    const main = await launched.app.evaluate(({ BrowserWindow, screen }) => ({
-      cursor: screen.getCursorScreenPoint(),
-      windows: BrowserWindow.getAllWindows().map((each) => ({ bounds: each.getBounds(), focused: each.isFocused(), visible: each.isVisible() })),
-    }))
+    const log = await bounded(launched.window.evaluate(() => (globalThis as unknown as PointerPage).pointerLog ?? []))
+    const main = await bounded(
+      launched.app.evaluate(({ BrowserWindow, screen }) => ({
+        cursor: screen.getCursorScreenPoint(),
+        windows: BrowserWindow.getAllWindows().map((each) => ({ bounds: each.getBounds(), focused: each.isFocused(), visible: each.isVisible() })),
+      })),
+    )
     // A file in the test's own folder, which a failed run keeps, rather than a body only the JSON report holds.
     const file = test.info().outputPath('pointer-log.json')
     writeFileSync(file, JSON.stringify({ main, log }, null, 2))
