@@ -19,8 +19,9 @@
 // minimal start of the login shell ensures on the Mac. The API keys are removed as on the Mac.
 // Claude Code gets Git Bash for its Bash tool through CLAUDE_CODE_GIT_BASH_PATH; `bash.exe` from
 // Path may be the WSL launcher.
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { readlinkSync, statSync } from 'node:fs'
+import { Socket } from 'node:net'
 import { win32 } from 'node:path'
 
 export type Env = Record<string, string>
@@ -35,6 +36,10 @@ export const API_KEY_VARS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'] as con
 export const ENV_START_MARKER = '__worfy_env_start__'
 export const ENV_END_MARKER = '__worfy_env_end__'
 export const SHELL_TIMEOUT_MS = 10_000
+/** The most output of the login shell worfy reads, in characters; past it the capture falls back. */
+export const MAX_SHELL_OUTPUT = 16 * 1024 * 1024
+/** How much of the end of the shell's stderr a fallback reason keeps, in characters. */
+export const STDERR_TAIL = 4096
 
 /** The minimal environment the login shell starts from. */
 export function shellBaseEnv(source: SourceEnv): Env {
@@ -93,8 +98,10 @@ export interface CapturedEnv {
 /**
  * Runs `$SHELL -ilc` from the minimal environment and returns its environment without the API
  * keys. When the shell fails, hangs past the timeout or prints no markers, the result is the
- * minimal environment itself (still without API keys): Claude Code and the Harness scripts start,
- * but tools outside the system PATH — node among them — are not found, and `error` says why.
+ * minimal environment itself (still without API keys): Claude Code starts, but tools outside the
+ * system PATH — node among them — are not found, and `error` says why. (The Harness scripts add the
+ * PATH of worfy's own process after it: src/main/harness/script-env.ts.) The answer comes as soon as
+ * the end marker is read, not when the shell's output closes.
  * Never rejects: an empty SHELL is read as unset, as a login would.
  */
 export async function captureLoginShellEnv(options: CaptureOptions = {}): Promise<CapturedEnv> {
@@ -106,20 +113,81 @@ export async function captureLoginShellEnv(options: CaptureOptions = {}): Promis
   const fallback = (error: string): CapturedEnv => ({ env: withoutApiKeys(base), from: 'fallback', error })
 
   return new Promise((resolve) => {
-    execFile(
-      shell,
-      ['-ilc', script],
-      { env: base, encoding: 'utf8', timeout: options.timeoutMs ?? SHELL_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024 },
-      (error, stdout) => {
-        const env = parseEnvDump(stdout)
-        // A non-zero exit after the dump (an rc file failing on exit) still leaves a usable environment.
-        if (env && Object.keys(env).length > 0) {
-          resolve({ env: withoutApiKeys(env), from: 'login-shell', error: null })
-          return
-        }
-        resolve(fallback(error ? `${shell} -ilc failed: ${error.message}` : `${shell} -ilc printed no environment`))
-      },
-    )
+    let output = ''
+    let stderrTail = ''
+    let settled = false
+    let child: ChildProcess | undefined
+    // The reason of a fallback, with the end of what the shell printed to stderr: it names the rc
+    // file line that failed.
+    const failed = (reason: string): CapturedEnv => {
+      const tail = stderrTail.trim()
+      return fallback(`${shell} -ilc failed: ${reason}${tail === '' ? '' : `\n${tail}`}`)
+    }
+    // Answers once, and ends the shell if it still runs: after the end marker it has nothing more to
+    // give, and on a timeout it hangs. Only the shell's own pid is signalled, never its process
+    // group. A shell ended this way skips its logout files (.zlogout, .bash_logout), which change no
+    // environment.
+    //
+    // The shell's output is not closed here. A process an rc file left in the background
+    // (`sleep 30 &`, a `git pull` of dotfiles) inherits it and holds it open; waiting for it to close
+    // waited out the whole timeout although the environment was printed (worfy-harness ticket 43).
+    // Closing worfy's side instead would kill such a process with SIGPIPE at its next write. So
+    // after the answer the output and stderr are read on and dropped until that process closes
+    // them; only the output past MAX_SHELL_OUTPUT is closed. That reading, and the shell's handle,
+    // never keep worfy's process alive: they are unref'd once answered.
+    const finish = (result: CapturedEnv): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      output = ''
+      // A child that never started has no pid; a signal to it could reach a process not worfy's.
+      if (child?.pid !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      child?.unref()
+      for (const stream of [child?.stdout, child?.stderr]) if (stream instanceof Socket) stream.unref()
+      resolve(result)
+    }
+    const timeoutMs = options.timeoutMs ?? SHELL_TIMEOUT_MS
+    const timer = setTimeout(() => finish(failed(`no environment within ${timeoutMs} ms`)), timeoutMs)
+    try {
+      child = spawn(shell, ['-ilc', script], { env: base, stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (error) {
+      finish(failed(error instanceof Error ? error.message : String(error)))
+      return
+    }
+    // First, before anything that may throw: a failed start (ENOENT, EMFILE) comes as this event.
+    child.on('error', (error) => finish(failed(error.message)))
+    const { stdout, stderr } = child
+    // Out of descriptors (EMFILE), Node gives a child without its pipes.
+    if (!stdout || !stderr) {
+      finish(failed('the shell was started without pipes to read'))
+      return
+    }
+    stderr.setEncoding('utf8')
+    stderr.on('data', (chunk: string) => {
+      if (!settled) stderrTail = (stderrTail + chunk).slice(-STDERR_TAIL)
+    })
+    stdout.setEncoding('utf8')
+    stdout.on('data', (chunk: string) => {
+      if (settled) return
+      output += chunk
+      if (output.length > MAX_SHELL_OUTPUT) {
+        stdout.destroy()
+        finish(failed(`more than ${MAX_SHELL_OUTPUT} characters of output`))
+        return
+      }
+      // Only the new text can hold the marker: the search starts where an earlier chunk may hold its beginning.
+      if (output.indexOf(ENV_END_MARKER, Math.max(0, output.length - chunk.length - ENV_END_MARKER.length)) < 0) return
+      const env = parseEnvDump(output)
+      if (env && Object.keys(env).length > 0) finish({ env: withoutApiKeys(env), from: 'login-shell', error: null })
+    })
+    // The output closed without the end marker: the shell exited, or crashed, before printing it.
+    child.on('close', (code, signal) => {
+      const env = parseEnvDump(output)
+      // A non-zero exit after the dump (an rc file failing on exit) still leaves a usable environment.
+      if (env && Object.keys(env).length > 0) finish({ env: withoutApiKeys(env), from: 'login-shell', error: null })
+      else if (code !== 0) finish(failed(signal ? `killed by ${signal}` : `exit code ${code}`))
+      else finish(fallback(`${shell} -ilc printed no environment`))
+    })
   })
 }
 
