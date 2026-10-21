@@ -98,7 +98,8 @@ Source: review PR #691 (Ticket 03), круги 1 и 2, находки low, 2026-
 5. Подзаголовок окна: «each Browser profile keeps its own cookies and logins».
 
 e2e `test/e2e/browser-profile.spec.ts`: после «New browser» из меню при двух profile-ах Node сохранён
-с `profile: null`; «New browser» из Command palette делает второй такой же Node.
+с `profile: null`; «New browser» из Command palette делает второй такой же Node; перед удалением
+profile-а проверено, что session открытой страницы — тот же объект, что `session.fromPartition`.
 
 **Проверки** (каждый файл отдельно, под `nice -n 10`):
 
@@ -129,5 +130,5 @@ e2e `test/e2e/browser-profile.spec.ts`: после «New browser» из меню
   `newNodeData`, что и меню, и проверен e2e при двух profile-ах. Palette при одном profile-е не
   проверена ни unit-, ни e2e-тестом.
 - Gate fast и полный `pnpm test` не запускались (по брифу); весь `test:e2e` — gate full перед мержем.
-- Что `contents.session === session.fromPartition(...)` в Electron 44 — один объект, проверено
-  косвенно: e2e удаления profile-а с открытой страницей зелёный. Отдельного теста на identity нет.
+- e2e удаления profile-а проверяет в main, что session страницы — тот же объект, что
+  `session.fromPartition(...)` (Electron 44.5.1). Другие версии Electron не проверялись.

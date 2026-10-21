@@ -236,6 +236,17 @@ test('deleting a profile names the Browsers that use it, erases its cookies, and
   const partition = 'persist:worfy-browser-0000000c-default'
   const cookiesOf = async () => launched!.app.evaluate(async ({ session }, name) => (await session.fromPartition(name).cookies.get({})).map((cookie) => cookie.name), partition)
   await expect.poll(cookiesOf, { message: 'the cookie before the delete' }).toContain('kept')
+  // The delete finds the pages to close by the session object alone (clearElectronPartition): the
+  // page's session is the very object session.fromPartition answers for its partition.
+  const sameSession = await launched!.app.evaluate(
+    ({ session, webContents }, name) =>
+      webContents
+        .getAllWebContents()
+        .filter((contents) => contents.getType() === 'webview')
+        .map((contents) => contents.session === session.fromPartition(name)),
+    partition,
+  )
+  expect(sameSession).toEqual([true])
 
   await frame.getByTestId('browser-profile-name').click()
   const profiles = window.getByTestId('browser-profiles')
