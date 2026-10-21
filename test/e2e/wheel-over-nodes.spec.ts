@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
+import { chooseGitBash, WINDOWS } from './terminal-shell'
 
 // The wheel over a Node (worfy-week ticket 16). Until a Node is clicked, a wheel or a two-finger
 // swipe over it moves the Canvas, whatever the Node draws: a scrolling HANDOFF, a Note's textarea,
@@ -72,6 +73,8 @@ test.beforeEach(() => {
   const projectDir = join(dataDir, PROJECT)
   mkdirSync(join(projectDir, 'cards', 'c1'), { recursive: true })
   writeFileSync(join(projectDir, 'cards', 'c1', 'index.html'), CARD_HTML)
+  // The Terminal's commands below (seq, printf, cat -v) are POSIX: on Windows the Terminal runs Git Bash.
+  if (WINDOWS) chooseGitBash(projectDir)
   writeFileSync(join(dataDir, 'projects.json'), JSON.stringify({ projects: [{ id: PROJECT, name: 'alpha', path: repo }], activeId: PROJECT }))
   writeFileSync(join(projectDir, 'layout.json'), JSON.stringify({ nodes: NODES, viewport: VIEWPORT }))
 })
@@ -112,7 +115,7 @@ async function start(): Promise<Page> {
   expect((await invoke(window, 'agent.send', { sessionId, text: 'статус' })).error).toBeUndefined()
   await expect(statusBlock(window)).toBeVisible()
   expect(await invoke(window, 'agent.interrupt', { sessionId })).toMatchObject({ ok: true })
-  expect(await invoke(window, 'terminal.input', { projectId: PROJECT, nodeId: 'term', data: 'seq 1 200\n' })).toMatchObject({ ok: true })
+  expect(await invoke(window, 'terminal.input', { projectId: PROJECT, nodeId: 'term', data: `${WINDOWS ? 'unset HISTFILE; ' : ''}seq 1 200\n` })).toMatchObject({ ok: true })
   await expect.poll(() => terminalTop(window), { timeout: 10_000 }).toMatch(/^\d+$/)
   await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: NODES.map((node) => nodeElement(window, node.id)) })
   // The block holds four short lines: nothing to scroll.
