@@ -11,8 +11,9 @@
 // partition is refused at once.
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
+import type { WebContents } from 'electron'
 import { browserPartition, browserPartitions, DEFAULT_BROWSER_PROFILE } from '../../shared/browser/partition'
-import { browserProfilesFileSchema, defaultBrowserProfile, parseOrigin, type BrowserProfile } from '../../shared/browser/profiles'
+import { browserProfilesFileSchema, defaultBrowserProfile, readOrigins, type BrowserProfile } from '../../shared/browser/profiles'
 import { projectStore } from '../projects/store'
 import { readJsonFile, writeJsonFile } from '../storage/json-file'
 
@@ -47,15 +48,10 @@ function slugOf(name: string): string {
   return slug === '' ? 'profile' : slug
 }
 
-/** The origins as the user typed them, read as origins once each; throws naming the first that is not one. */
+/** The origins as the user typed them, read as the window reads them (readOrigins); throws naming the first that is not one. */
 function originsOf(typed: readonly string[]): string[] {
-  const origins: string[] = []
-  for (const text of typed) {
-    if (text.trim() === '') continue
-    const parsed = parseOrigin(text)
-    if ('error' in parsed) throw new Error(parsed.error)
-    if (!origins.includes(parsed.origin)) origins.push(parsed.origin)
-  }
+  const { origins, error } = readOrigins(typed)
+  if (error !== undefined) throw new Error(error)
   return origins
 }
 
@@ -77,21 +73,19 @@ export class BrowserProfileStore {
   }
 
   /**
-   * The Project's profiles. The first read of a Project without a file writes one with «Default»
-   * (the owner's decision 5), so the logins made before profiles existed stay with it. A list the
-   * user emptied stays empty: Default comes back only with a missing file.
+   * The Project's profiles. A Project without a file has "Default" (the owner's decision 5), so the
+   * logins made before profiles existed stay with it. Reading writes nothing: `browser.profiles.list`
+   * is a read channel, which a read-only Linked machine may call (ADR-0066). The file is written at
+   * the first create, change or delete; a list the user emptied stays empty, and Default comes back
+   * only with a missing file.
    */
   list(projectId: string): BrowserProfile[] {
-    const saved = this.saved(projectId)
-    if (saved !== undefined) return saved
-    const seeded = [defaultBrowserProfile()]
-    this.write(projectId, seeded)
-    return seeded
+    return this.saved(projectId) ?? [defaultBrowserProfile()]
   }
 
-  /** The ids of the Project's profiles, as list() would answer, without writing anything: for the attach check. */
+  /** The ids of the Project's profiles, as list() answers: for the attach check. */
   ids(projectId: string): string[] {
-    return (this.saved(projectId) ?? [defaultBrowserProfile()]).map((profile) => profile.id)
+    return this.list(projectId).map((profile) => profile.id)
   }
 
   /** Makes a profile named `name`; its id comes from the name and a random part, so it never takes over a deleted profile's partition. */
@@ -152,15 +146,40 @@ export class BrowserProfileStore {
   private refuseTakenName(profiles: readonly BrowserProfile[], name: string, except: string | null): void {
     const lower = name.toLowerCase()
     if (profiles.some((profile) => profile.id !== except && profile.name.toLowerCase() === lower)) {
-      throw new Error(`a Browser profile named «${name}» already exists in this Project`)
+      throw new Error(`a Browser profile named "${name}" already exists in this Project`)
     }
   }
 }
 
-/** Erases a partition's storage through Electron's session of it. */
+/** How long a page closed before its storage is erased may take to go; after that the storage is erased anyway. */
+const CLOSE_PAGE_MS = 2000
+
+/**
+ * Erases a partition's storage through Electron's session of it. The <webview> pages still open
+ * on it are closed first, so none of them writes a cookie after the erase; the renderer drops their
+ * frames once it hears the profile is gone (`browser.profiles.changed`).
+ */
 async function clearElectronPartition(partition: string): Promise<void> {
-  const { session } = await import('electron')
+  const { session, webContents } = await import('electron')
   const browserSession = session.fromPartition(partition)
+  const onIt = (contents: WebContents) =>
+    !contents.isDestroyed() && contents.getType() === 'webview' && (contents.session === browserSession || (browserSession.storagePath !== null && contents.session.storagePath === browserSession.storagePath))
+  await Promise.all(
+    webContents
+      .getAllWebContents()
+      .filter(onIt)
+      .map(
+        (contents) =>
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, CLOSE_PAGE_MS)
+            contents.once('destroyed', () => {
+              clearTimeout(timer)
+              resolve()
+            })
+            contents.close()
+          }),
+      ),
+  )
   await browserSession.clearStorageData()
   await browserSession.clearCache()
   await browserSession.clearAuthCache()

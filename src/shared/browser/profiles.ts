@@ -38,6 +38,22 @@ export function parseOrigin(text: string): { origin: string } | { error: string 
   return { origin: url.origin }
 }
 
+/**
+ * The origins as the user typed them, one per item, read with parseOrigin: blank items are skipped,
+ * and an origin typed twice is kept once, in the order typed. `error` names the first item that is
+ * not an origin; the window shows it as the user types, and main refuses the change with it.
+ */
+export function readOrigins(typed: readonly string[]): { origins: string[]; error: string | undefined } {
+  const origins: string[] = []
+  for (const text of typed) {
+    if (text.trim() === '') continue
+    const parsed = parseOrigin(text)
+    if ('error' in parsed) return { origins, error: parsed.error }
+    if (!origins.includes(parsed.origin)) origins.push(parsed.origin)
+  }
+  return { origins, error: undefined }
+}
+
 /** An origin as it is kept: already the browser's spelling of one (parseOrigin). */
 export const browserOriginSchema = z.string().refine((value) => {
   const parsed = parseOrigin(value)
@@ -59,12 +75,15 @@ export const browserProfileSchema = z.object({
 export type BrowserProfile = z.output<typeof browserProfileSchema>
 
 /** browser-profiles.json in a Project's data folder. */
-export const browserProfilesFileSchema = z.object({ profiles: z.array(browserProfileSchema) })
+export const browserProfilesFileSchema = z.object({
+  // Two profiles with one id would share one partition, and deleting one would erase the other's logins.
+  profiles: z.array(browserProfileSchema).refine((profiles) => new Set(profiles.map((profile) => profile.id)).size === profiles.length, 'two Browser profiles have one id'),
+})
 export type BrowserProfilesFile = z.output<typeof browserProfilesFileSchema>
 
 /**
- * The profile a Project gets the first time its list is read and there is no file yet (the owner's
- * decision 5): «Default», on the partition of the Browsers opened before profiles existed.
+ * The profile a Project has while it has no file yet (the owner's decision 5): "Default", on the
+ * partition of the Browsers opened before profiles existed. The file is written at the first change.
  */
 export function defaultBrowserProfile(): BrowserProfile {
   return { id: DEFAULT_BROWSER_PROFILE, name: 'Default', origins: [], autopilot: false }

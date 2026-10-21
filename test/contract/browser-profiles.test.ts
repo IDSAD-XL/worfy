@@ -37,6 +37,15 @@ interface FakeSession {
   request?: Listener
   check?: Listener
   cleared: string[]
+  /** The object `session.fromPartition` answers, made once, as Electron answers one per partition. */
+  api?: object
+}
+
+/** A <webview> page open on a partition: closing it is logged with what erased the partitions. */
+interface FakeGuest {
+  partition: string
+  destroyed: boolean
+  onDestroyed: Listener[]
 }
 
 const electron = vi.hoisted(() => {
@@ -46,6 +55,12 @@ const electron = vi.hoisted(() => {
     partitions,
     /** A partition whose clearStorageData fails, to see the refusal. */
     failing: new Set<string>(),
+    /** The <webview> pages open now. */
+    guests: [] as FakeGuest[],
+    /** What happened to the pages and the storage, in order: `close <partition>`, `storage <partition>`. */
+    log: [] as string[],
+    /** The events sent to the windows, as [channel, payload]. */
+    sent: [] as [string, unknown][],
     sessionOf(partition: string): FakeSession {
       let fake = partitions.get(partition)
       if (fake === undefined) {
@@ -58,7 +73,9 @@ const electron = vi.hoisted(() => {
 })
 
 vi.mock('electron', () => {
-  const asSession = (fake: FakeSession) => ({
+  const asSession = (fake: FakeSession): object => (fake.api ??= makeSession(fake))
+  const makeSession = (fake: FakeSession) => ({
+    storagePath: `/sessions/${fake.partition}`,
     setPermissionRequestHandler: (handler: Listener) => {
       fake.request = handler
     },
@@ -68,6 +85,7 @@ vi.mock('electron', () => {
     clearStorageData: () => {
       if (electron.failing.has(fake.partition)) return Promise.reject(new Error('the disk said no'))
       fake.cleared.push('storage')
+      electron.log.push(`storage ${fake.partition}`)
       return Promise.resolve()
     },
     clearCache: () => {
@@ -86,7 +104,25 @@ vi.mock('electron', () => {
         electron.appListeners.set(event, [...(electron.appListeners.get(event) ?? []), listener])
       },
     },
-    BrowserWindow: { getAllWindows: () => [] },
+    BrowserWindow: {
+      getAllWindows: () => [{ isDestroyed: () => false, webContents: { send: (channel: string, payload: unknown) => electron.sent.push([channel, payload]) } }],
+    },
+    webContents: {
+      getAllWebContents: () =>
+        electron.guests.map((guest) => ({
+          isDestroyed: () => guest.destroyed,
+          getType: () => 'webview',
+          session: asSession(electron.sessionOf(guest.partition)),
+          once: (event: string, listener: Listener) => {
+            if (event === 'destroyed') guest.onDestroyed.push(listener)
+          },
+          close: () => {
+            electron.log.push(`close ${guest.partition}`)
+            guest.destroyed = true
+            for (const listener of guest.onDestroyed) listener()
+          },
+        })),
+    },
     nativeTheme: {},
     screen: {},
     session: { defaultSession, fromPartition: (partition: string) => asSession(electron.sessionOf(partition)) },
@@ -134,6 +170,9 @@ beforeEach(async () => {
   for (const id of [ALPHA, BETA]) removeTestTree(join(dataDir, id))
   electron.partitions.clear()
   electron.failing.clear()
+  electron.guests.length = 0
+  electron.log.length = 0
+  electron.sent.length = 0
   handlers = new Map()
   await registerIpc(
     { handle: (channel, listener) => handlers.set(channel, listener as never) },
@@ -155,12 +194,14 @@ async function value<T = BrowserProfile>(channel: string, input: unknown): Promi
 }
 
 describe('the Browser profiles of a Project, over the channels', () => {
-  it('the first read of a Project makes «Default» in its data folder, and nothing in its repository', async () => {
+  it('a Project without a file has «Default»; reading writes nothing, the first change writes the file in its data folder, and nothing in its repository', async () => {
     const repoBefore = tree(repoOf('alpha'))
     expect(existsSync(fileOf(ALPHA))).toBe(false)
     const { profiles } = await value<{ profiles: BrowserProfile[] }>('browser.profiles.list', { projectId: ALPHA })
     expect(profiles).toEqual([{ id: 'default', name: 'Default', origins: [], autopilot: false }])
-    expect(onDisk(ALPHA)).toEqual(profiles)
+    expect(existsSync(fileOf(ALPHA)), 'a read channel changes no file (ADR-0066)').toBe(false)
+    const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+    expect(onDisk(ALPHA)).toEqual([...profiles, admin])
     expect(fileOf(ALPHA).startsWith(join(dataDir, ALPHA))).toBe(true)
     expect(tree(repoOf('alpha')), 'the repository is as it was').toEqual(repoBefore)
     expect(tree(repoOf('alpha'))).not.toContain(BROWSER_PROFILES_FILE)
@@ -179,10 +220,44 @@ describe('the Browser profiles of a Project, over the channels', () => {
     expect(browserPartition(ALPHA, renamed.id)).toBe(`persist:worfy-browser-0a1b2c3d-${admin.id}`)
     // A change that names only the flag keeps the rest.
     expect(await value('browser.profiles.update', { projectId: ALPHA, id: admin.id, autopilot: false })).toEqual({ ...renamed, autopilot: false })
+    // A change that names only the name keeps the origins and the flag.
+    const withOrigins = await value('browser.profiles.update', { projectId: ALPHA, id: admin.id, origins: ['http://localhost:3000'], autopilot: true })
+    expect(await value('browser.profiles.update', { projectId: ALPHA, id: admin.id, name: 'admin' })).toEqual({ ...withOrigins, name: 'admin' })
+    expect(onDisk(ALPHA).find((profile) => profile.id === admin.id)).toEqual({ ...withOrigins, name: 'admin' })
+  })
+
+  it('refuses a rename to a name another profile of the Project has, in any case, and keeps the file', async () => {
+    const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+    await value('browser.profiles.create', { projectId: ALPHA, name: 'user' })
+    const before = readFileSync(fileOf(ALPHA), 'utf8')
+    for (const name of ['user', 'USER', ' Default ']) {
+      expect(await call('browser.profiles.update', { projectId: ALPHA, id: admin.id, name }), name).toMatchObject({ ok: false, error: expect.stringMatching(/already exists/) })
+    }
+    expect(readFileSync(fileOf(ALPHA), 'utf8')).toBe(before)
+    // Its own name, in another case, is not taken.
+    expect(await value('browser.profiles.update', { projectId: ALPHA, id: admin.id, name: 'Admin' })).toMatchObject({ id: admin.id, name: 'Admin' })
+  })
+
+  it('tells every window after a create, a change and a delete, also when the storage could not be erased; a read tells none', async () => {
+    const changed = () => electron.sent.filter(([channel]) => channel === `${IPC_CHANNEL_PREFIX}browser.profiles.changed`).map(([, payload]) => payload)
+    await value('browser.profiles.list', { projectId: ALPHA })
+    expect(changed()).toEqual([])
+    const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+    expect(changed()).toEqual([{ projectId: ALPHA }])
+    await value('browser.profiles.update', { projectId: ALPHA, id: admin.id, autopilot: true })
+    expect(changed()).toHaveLength(2)
+    await value('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
+    expect(changed()).toEqual([{ projectId: ALPHA }, { projectId: ALPHA }, { projectId: ALPHA }])
+    electron.failing.add(browserPartition(ALPHA, 'default')!)
+    expect(await call('browser.profiles.delete', { projectId: ALPHA, id: 'default' })).toMatchObject({ ok: false })
+    expect(changed()).toHaveLength(4)
+    // A refused change tells nobody.
+    expect(await call('browser.profiles.create', { projectId: ALPHA, name: 'x', origins: ['https://*.example.com'] })).toMatchObject({ ok: false })
+    expect(changed()).toHaveLength(4)
   })
 
   it('refuses an origin that is not exact, a name the Project has, and an unknown profile, and writes nothing then', async () => {
-    await value('browser.profiles.list', { projectId: ALPHA })
+    await value('browser.profiles.create', { projectId: ALPHA, name: 'user' })
     const before = readFileSync(fileOf(ALPHA), 'utf8')
     for (const origins of [['https://*.example.com'], ['https://example.com/path'], ['ftp://example.com']]) {
       const answer = await call('browser.profiles.create', { projectId: ALPHA, name: 'admin', origins })
@@ -209,6 +284,15 @@ describe('the Browser profiles of a Project, over the channels', () => {
     expect(electron.partitions.get(browserPartition(ALPHA, 'default')!)?.cleared ?? []).toEqual([])
     // Gone: a second delete is refused.
     expect(await call('browser.profiles.delete', { projectId: ALPHA, id: admin.id })).toMatchObject({ ok: false })
+  })
+
+  it('closes the pages still open on the profile before it erases the storage, and only those pages', async () => {
+    const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+    const [gone, kept] = [browserPartition(ALPHA, admin.id)!, browserPartition(ALPHA, 'default')!]
+    electron.guests.push({ partition: gone, destroyed: false, onDestroyed: [] }, { partition: kept, destroyed: false, onDestroyed: [] }, { partition: gone, destroyed: false, onDestroyed: [] })
+    await value('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
+    expect(electron.log).toEqual([`close ${gone}`, `close ${gone}`, `storage ${gone}`])
+    expect(electron.guests.map((guest) => guest.destroyed)).toEqual([true, false, true])
   })
 
   it('Default can be renamed and deleted like any other; a Project whose list was emptied keeps it empty', async () => {
@@ -256,7 +340,13 @@ describe('the read-only screen of a Linked machine (ADR-0066)', () => {
     peer.setAccess('read')
     const listed = await adapter.call(peer, 'browser.profiles.list', { projectId: ALPHA }, 'Here')
     expect(listed).toEqual({ ok: true, value: { profiles: [{ id: 'default', name: 'Default', origins: [], autopilot: false }] } })
+    // Reading made no file on this Machine (ADR-0066: a read changes nothing).
+    expect(existsSync(fileOf(ALPHA))).toBe(false)
+    // With a file, the reads and the refused changes leave it as it was.
+    await value('browser.profiles.create', { projectId: ALPHA, name: 'user' })
+    electron.partitions.clear()
     const before = readFileSync(fileOf(ALPHA), 'utf8')
+    expect(await adapter.call(peer, 'browser.profiles.list', { projectId: ALPHA }, 'Here')).toMatchObject({ ok: true })
     expect(await adapter.call(peer, 'browser.profiles.create', { projectId: ALPHA, name: 'admin' }, 'Here')).toEqual({ ok: false, error: readOnlyRefusal('Here') })
     expect(await adapter.call(peer, 'browser.profiles.update', { projectId: ALPHA, id: 'default', name: 'x' }, 'Here')).toEqual({ ok: false, error: readOnlyRefusal('Here') })
     expect(await adapter.call(peer, 'browser.profiles.delete', { projectId: ALPHA, id: 'default' }, 'Here')).toEqual({ ok: false, error: readOnlyRefusal('Here') })
@@ -299,7 +389,7 @@ describe('installWebPolicy over the partitions of the Browser profiles', () => {
     const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
     expect(window.attach(browserPartition(ALPHA, 'default')), 'Default of alpha').toBe(true)
     expect(window.attach(browserPartition(ALPHA, admin.id)), 'admin of alpha').toBe(true)
-    // beta has no file yet: its Default, as the first read would make it.
+    // beta has no file yet: it has Default.
     expect(window.attach(browserPartition(BETA, 'default')), 'Default of beta').toBe(true)
     expect(window.attach(browserPartition(BETA, admin.id)), 'alpha\'s profile id under beta').toBe(false)
     expect(window.attach(browserPartition('gamma-12345678', 'default')), 'a Project this Machine does not have').toBe(false)
@@ -307,6 +397,41 @@ describe('installWebPolicy over the partitions of the Browser profiles', () => {
 
     await value('browser.profiles.delete', { projectId: ALPHA, id: admin.id })
     expect(window.attach(browserPartition(ALPHA, admin.id)), 'a deleted profile').toBe(false)
+  })
+
+  it('reads an unreadable file of a Project as no file: it is set aside, the Project is back to Default, the other Project keeps its profiles', async () => {
+    const window = windowWithPolicy()
+    const admin = await value('browser.profiles.create', { projectId: ALPHA, name: 'admin' })
+    const user = await value('browser.profiles.create', { projectId: BETA, name: 'user' })
+    await value('browser.profiles.delete', { projectId: ALPHA, id: 'default' })
+    writeFileSync(fileOf(ALPHA), '{ not json')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(window.attach(browserPartition(ALPHA, admin.id)), 'a profile of the unreadable file').toBe(false)
+      expect(window.attach(browserPartition(ALPHA, 'default')), 'Default, as for a missing file').toBe(true)
+      expect(window.attach(browserPartition(BETA, user.id)), 'a profile of the other Project').toBe(true)
+    } finally {
+      warn.mockRestore()
+    }
+    expect(existsSync(fileOf(ALPHA))).toBe(false)
+    expect(readdirSync(join(dataDir, ALPHA)).some((name) => name.startsWith(`${BROWSER_PROFILES_FILE}.unreadable-`))).toBe(true)
+  })
+
+  it('gives no partition to a Project whose data folder cannot be read; the others keep theirs', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const store = new BrowserProfileStore({
+        dataDirOf: (projectId) => {
+          if (projectId === ALPHA) throw new Error('no such Project')
+          return join(env.scratch, 'store', projectId)
+        },
+        clearPartition: () => Promise.resolve(),
+      })
+      expect(browserProfilePartitions([ALPHA, BETA], store)).toEqual([browserPartition(BETA, 'default')])
+      expect(errors).toHaveBeenCalledTimes(1)
+    } finally {
+      errors.mockRestore()
+    }
   })
 
   it('guards the session of each profile\'s partition with its own handlers: every request refused, every check false', async () => {

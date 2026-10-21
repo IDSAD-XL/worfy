@@ -135,9 +135,10 @@ test('a cookie of one Browser profile is seen by its other Browser, not by a Bro
   let window = await start()
   const frame = (id: string) => window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)
 
-  // The first read made «Default»; the old Browser stays on it, and the Node keeps it from now on.
+  // A Project without a file has «Default»; reading it writes no file. The old Browser stays on it,
+  // and the Node keeps it from now on.
   await expect(frame('b0').getByTestId('browser-profile-name')).toHaveText('Default')
-  await expect.poll(() => savedProfiles().map((profile) => profile.id)).toEqual(['default'])
+  expect(existsSync(join(dataDir(), PROJECT, 'browser-profiles.json')), 'reading the profiles writes no file').toBe(false)
   await expect.poll(() => savedBrowsers().b0?.profile, { message: 'the old Browser keeps Default' }).toBe('default')
   await expect.poll(pages, { timeout: 15_000 }).toEqual([[old, 'yes', expect.stringContaining('worfy-browser-0000000c-default')]])
   // The Browsers of the gone profile show an empty frame with «Choose a profile» and open no page.
@@ -218,19 +219,22 @@ test('deleting a profile names the Browsers that use it, erases its cookies, and
   const frame = window.locator('[data-testid="browser-frame"][data-node-id="b0"]')
   await expect.poll(pages, { timeout: 15_000 }).toEqual([[page, 'yes', expect.stringContaining('-default')]])
   await inGuest(page, "document.cookie = 'kept=yes; max-age=86400; path=/'")
+  // The cookie is in the partition's storage before the delete, read in main from the session itself.
+  const partition = 'persist:worfy-browser-0000000c-default'
+  const cookiesOf = async () => launched!.app.evaluate(async ({ session }, name) => (await session.fromPartition(name).cookies.get({})).map((cookie) => cookie.name), partition)
+  await expect.poll(cookiesOf, { message: 'the cookie before the delete' }).toContain('kept')
 
   await frame.getByTestId('browser-profile-name').click()
   const profiles = window.getByTestId('browser-profiles')
   await profiles.getByTestId('browser-profile-delete').click()
-  await expect(profiles.getByTestId('browser-profile-delete-usage')).toHaveText('1 Browser on this Canvas uses it and will ask for another profile.')
+  await expect(profiles.getByTestId('browser-profile-delete-usage')).toHaveText('1 Browser on this Canvas uses it and will ask for another Browser profile.')
   await profiles.getByTestId('browser-profile-delete-confirm').click()
-  await expect.poll(savedProfiles).toEqual([])
+  await expect.poll(() => existsSync(join(dataDir(), PROJECT, 'browser-profiles.json')) && savedProfiles().length === 0, { message: 'the file is written, with no profile' }).toBe(true)
   await profiles.getByTestId('browser-profiles-close').click()
 
   // The Browser shows «Choose a profile» and its page is gone.
   await expect(frame.getByTestId('browser-choose-profile')).toContainText('was deleted')
   await expect.poll(pages).toEqual([])
   // The partition's cookies are erased: read in main from the session itself.
-  const cookies = await launched!.app.evaluate(async ({ session }, partition) => (await session.fromPartition(partition).cookies.get({})).map((cookie) => cookie.name), 'persist:worfy-browser-0000000c-default')
-  expect(cookies).toEqual([])
+  expect(await cookiesOf()).toEqual([])
 })

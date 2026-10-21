@@ -4,7 +4,7 @@
 // Node gets its profile is test/unit/browser-profile-choice.test.tsx.
 import { describe, expect, it } from 'vitest'
 import { browserPartition, browserPartitions, DEFAULT_BROWSER_PROFILE } from '../../src/shared/browser/partition'
-import { browserProfileSchema, browserProfilesFileSchema, defaultBrowserProfile, parseOrigin } from '../../src/shared/browser/profiles'
+import { browserProfileSchema, browserProfilesFileSchema, defaultBrowserProfile, parseOrigin, readOrigins } from '../../src/shared/browser/profiles'
 
 describe('the partition of a Browser profile', () => {
   it('is persist:worfy-browser-<hash of the Project>-<profile id>', () => {
@@ -78,6 +78,28 @@ describe('an origin of a Browser profile', () => {
     }
     // An empty list is allowed.
     expect(browserProfileSchema.safeParse({ ...profile, origins: [] }).success).toBe(true)
+  })
+})
+
+describe('a list of origins as the user typed it (readOrigins), read alike by the window and by main', () => {
+  it('skips blank lines and keeps an origin typed twice once, in the order typed', () => {
+    expect(readOrigins(['http://localhost:3000', '', '  ', 'HTTPS://Staging.Example.com:443/', 'http://localhost:3000', 'https://staging.example.com'])).toEqual({
+      origins: ['http://localhost:3000', 'https://staging.example.com'],
+      error: undefined,
+    })
+    expect(readOrigins([])).toEqual({ origins: [], error: undefined })
+  })
+
+  it('names the first line that is not an origin', () => {
+    expect(readOrigins(['http://localhost:3000', 'https://*.example.com', 'ftp://x'])).toEqual({ origins: ['http://localhost:3000'], error: expect.stringMatching(/^https:\/\/\*\.example\.com: only exact origins/) })
+  })
+})
+
+describe('the file of the Browser profiles', () => {
+  it('refuses two profiles with one id: they would share one partition', () => {
+    const profile = { id: 'admin-aaaaaa', name: 'admin', origins: [], autopilot: false }
+    expect(browserProfilesFileSchema.safeParse({ profiles: [profile, { ...profile, name: 'user' }] }).success).toBe(false)
+    expect(browserProfilesFileSchema.safeParse({ profiles: [profile, { ...profile, id: 'user-bbbbbb', name: 'user' }] }).success).toBe(true)
   })
 })
 

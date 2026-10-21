@@ -2,6 +2,7 @@
 // (BrowserNode.tsx) and the Browser layer that draws its page (../overlays/BrowserLayer.tsx), so
 // the page always lands exactly in the frame's body.
 import { create } from 'zustand'
+import { DEFAULT_BROWSER_PROFILE } from '../../../shared/browser/partition'
 import type { LayoutNode } from '../../../shared/layout/types'
 
 /** The `kind` of a Browser Node in the Layout. */
@@ -40,9 +41,6 @@ export function browserUrl(node: LayoutNode): string | null {
   return webAddress(node.data.url)
 }
 
-/** The id of the profile a Browser Node was opened under before Browser profiles existed (worfy-browser ticket 10). */
-const LEGACY_PROFILE = 'default'
-
 /**
  * Which Browser profile the Browser of a Node is opened under (worfy-browser ticket 03, the owner's
  * decisions 3 and 5), from the Node's `data` and the Project's profiles:
@@ -59,6 +57,11 @@ const LEGACY_PROFILE = 'default'
  * deleted it asks, as any Browser of a deleted profile does. Without an address — a new Browser, or an old empty frame, which loses no page — the only
  * profile of the Project is taken, and with several the frame asks: that is how «New browser» asks
  * for a profile only when there is more than one.
+ *
+ * Why the frame asks rather than «New browser» itself: the two places that create the Node (the
+ * Canvas menu and the palette) were being changed by PR #682 when this was written, so they keep
+ * creating it with empty `data`. The reasons are in the result section of worfy-browser ticket 03
+ * (.scratch/worfy-browser/issues/03-browser-profile.md).
  */
 export type BrowserProfileChoice = { kind: 'loading' } | { kind: 'use'; id: string; write: boolean } | { kind: 'choose'; reason: 'deleted' | 'several' | 'none' }
 
@@ -66,10 +69,25 @@ export function browserProfileChoice(data: { profile?: unknown; url?: unknown },
   if (profiles === undefined) return { kind: 'loading' }
   const has = (id: string) => profiles.some((profile) => profile.id === id)
   if (typeof data.profile === 'string') return has(data.profile) ? { kind: 'use', id: data.profile, write: false } : { kind: 'choose', reason: 'deleted' }
-  if (webAddress(data.url) !== null) return has(LEGACY_PROFILE) ? { kind: 'use', id: LEGACY_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
+  if (webAddress(data.url) !== null) return has(DEFAULT_BROWSER_PROFILE) ? { kind: 'use', id: DEFAULT_BROWSER_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
   const [only] = profiles
   if (profiles.length === 1 && only !== undefined) return { kind: 'use', id: only.id, write: true }
   return { kind: 'choose', reason: profiles.length === 0 ? 'none' : 'several' }
+}
+
+/**
+ * How many Browsers use each profile: every Browser Node's `data`, by the rule its page is opened
+ * by (browserProfileChoice), whether the profile is written in the Node yet or not. A Browser that
+ * asks for a profile, and every Browser while the profiles are not read, counts for none. The
+ * window «Browser profiles…» names this number before a profile is deleted.
+ */
+export function browserProfileUsage(browsers: Iterable<{ profile?: unknown; url?: unknown }>, profiles: readonly { id: string }[] | undefined): Record<string, number> {
+  const usage: Record<string, number> = {}
+  for (const data of browsers) {
+    const choice = browserProfileChoice(data, profiles)
+    if (choice.kind === 'use') usage[choice.id] = (usage[choice.id] ?? 0) + 1
+  }
+  return usage
 }
 
 /**

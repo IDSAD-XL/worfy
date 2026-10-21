@@ -6,11 +6,11 @@
 //
 // Deleting a profile erases its cookies and logins. It is asked once more, naming how many Browsers
 // of the Canvas use the profile (decision 3); those Browsers then show «Choose a profile».
-import { useId, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useStore, type InternalNode, type ReactFlowState } from '@xyflow/react'
-import { parseOrigin, type BrowserProfile } from '../../shared/browser/profiles'
-import { BROWSER_KIND, browserProfileChoice } from '../canvas/nodes/browser-frame'
+import { readOrigins, type BrowserProfile } from '../../shared/browser/profiles'
+import { BROWSER_KIND, browserProfileUsage } from '../canvas/nodes/browser-frame'
 import type { CanvasFlowNode } from '../canvas/nodes'
 import { invoke } from '../ipc'
 import { useReadOnly } from '../projects/useProjects'
@@ -28,6 +28,8 @@ const styles = {
   backdrop: { position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.25)' },
   dialog: {
     width: 520,
+    // It takes the focus only so Escape reaches it; the ring would mark the whole window.
+    outline: 'none',
     maxWidth: 'calc(100vw - 32px)',
     maxHeight: 'calc(100vh - 32px)',
     overflowY: 'auto',
@@ -95,34 +97,20 @@ const styles = {
 } satisfies Record<string, CSSProperties>
 
 /**
- * How many Browsers of the Canvas use each profile, as one string so the selector compares by
- * value: every Browser Node, drawn or not, by the same rule the Browser layer opens its page by.
+ * How many Browsers of the Canvas use each profile (browserProfileUsage), as one string so the
+ * selector compares by value: every Browser Node, drawn or not.
  */
 function usageKey(profiles: readonly BrowserProfile[] | undefined): (state: ReactFlowState) => string {
   return (state) => {
-    const usage: Record<string, number> = {}
+    const browsers: object[] = []
     for (const node of state.nodeLookup.values() as Iterable<InternalNode<CanvasFlowNode>>) {
-      if (node.type !== BROWSER_KIND) continue
-      const choice = browserProfileChoice(node.data.node.data, profiles)
-      if (choice.kind === 'use') usage[choice.id] = (usage[choice.id] ?? 0) + 1
+      if (node.type === BROWSER_KIND) browsers.push(node.data.node.data)
     }
-    return JSON.stringify(usage)
+    return JSON.stringify(browserProfileUsage(browsers, profiles))
   }
 }
 
 const browsers = (count: number): string => (count === 1 ? '1 Browser' : `${count} Browsers`)
-
-/** The origins typed one per line: those read, and the first line that is not one. */
-function readOrigins(text: string): { origins: string[]; error: string | undefined } {
-  const origins: string[] = []
-  for (const line of text.split('\n')) {
-    if (line.trim() === '') continue
-    const parsed = parseOrigin(line)
-    if ('error' in parsed) return { origins, error: parsed.error }
-    origins.push(parsed.origin)
-  }
-  return { origins, error: undefined }
-}
 
 /** The editor of one profile: its name, origins and flag, Save, and Delete with its question. */
 function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { projectId: string; profile: BrowserProfile; usedBy: number; readOnly: string | null; onDeleted: () => void }) {
@@ -134,7 +122,7 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
   const [failure, setFailure] = useState<string>()
   const nameId = useId()
   const originsId = useId()
-  const { origins, error } = readOrigins(originsText)
+  const { origins, error } = readOrigins(originsText.split('\n'))
   const nameError = name.trim() === '' ? 'A Browser profile needs a name' : undefined
   const changed = name.trim() !== profile.name || origins.join('\n') !== profile.origins.join('\n') || autopilot !== profile.autopilot
   const locked = readOnly !== null || busy
@@ -200,7 +188,7 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
             {error}
           </span>
         ) : (
-          <span style={styles.muted}>One per line, exactly scheme://host:port. The sites a Session may take this profile to; empty is allowed.</span>
+          <span style={styles.muted}>One per line, exactly scheme://host:port. The sites a Session may take this Browser profile to; empty is allowed.</span>
         )}
       </div>
       <label style={styles.check}>
@@ -224,9 +212,9 @@ function ProfileEditor({ projectId, profile, usedBy, readOnly, onDeleted }: { pr
       {confirming ? (
         <div style={styles.confirm} role="alertdialog" aria-label={`Delete ${profile.name}`} data-testid="browser-profile-delete-question">
           <p style={{ margin: '0 0 var(--space-2)' }}>
-            Delete «{profile.name}»? Its cookies and logins are erased.{' '}
+            Delete "{profile.name}"? Its cookies and logins are erased.{' '}
             <span data-testid="browser-profile-delete-usage">
-              {usedBy > 0 ? `${browsers(usedBy)} on this Canvas ${usedBy === 1 ? 'uses' : 'use'} it and will ask for another profile.` : 'No Browser on this Canvas uses it.'}
+              {usedBy > 0 ? `${browsers(usedBy)} on this Canvas ${usedBy === 1 ? 'uses' : 'use'} it and will ask for another Browser profile.` : 'No Browser on this Canvas uses it.'}
             </span>
           </p>
           <div style={styles.actions}>
@@ -253,6 +241,11 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
   const [creating, setCreating] = useState(false)
   const [failure, setFailure] = useState<string>()
   const titleId = useId()
+  // The window takes the focus when it opens, so Escape closes it before anything is clicked.
+  const dialog = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    dialog.current?.focus()
+  }, [])
   // A profile shown that goes away (deleted here or in another window) leaves the first one shown.
   const shown = profiles?.find((profile) => profile.id === current) ?? profiles?.[0]
 
@@ -281,6 +274,8 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
       }}
     >
       <div
+        ref={dialog}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -324,8 +319,8 @@ export function BrowserProfiles({ project, selected, onClose }: BrowserProfilesP
             type="text"
             style={{ ...styles.input, flex: 1 }}
             value={newName}
-            placeholder="New profile, e.g. admin"
-            aria-label="New profile name"
+            placeholder="New Browser profile, e.g. admin"
+            aria-label="New Browser profile name"
             spellCheck={false}
             autoComplete="off"
             readOnly={readOnly !== null}

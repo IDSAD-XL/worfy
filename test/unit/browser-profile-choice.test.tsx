@@ -2,7 +2,7 @@
 // src/renderer/canvas/nodes/browser-frame.ts): the profile the Node keeps; for a Node without one, an
 // old Browser (a page address) stays on `default` and a new one takes the only profile or asks.
 import { describe, expect, it } from 'vitest'
-import { browserProfileChoice } from '../../src/renderer/canvas/nodes/browser-frame'
+import { browserProfileChoice, browserProfileUsage } from '../../src/renderer/canvas/nodes/browser-frame'
 
 describe('which Browser profile a Browser Node is opened under (browserProfileChoice)', () => {
   const p = (...ids: string[]) => ids.map((id) => ({ id }))
@@ -45,5 +45,34 @@ describe('which Browser profile a Browser Node is opened under (browserProfileCh
     expect(browserProfileChoice({ url: page }, p('admin-aaaaaa'))).toEqual({ kind: 'choose', reason: 'deleted' })
     expect(browserProfileChoice({ url: page }, p('admin-aaaaaa', 'user-bbbbbb'))).toEqual({ kind: 'choose', reason: 'deleted' })
     expect(browserProfileChoice({ url: page }, p())).toEqual({ kind: 'choose', reason: 'deleted' })
+  })
+})
+
+describe('how many Browsers use each profile (browserProfileUsage), named before a profile is deleted', () => {
+  const p = (...ids: string[]) => ids.map((id) => ({ id }))
+  const page = 'http://127.0.0.1:3000/page.html'
+
+  it('counts every Browser that keeps the profile', () => {
+    expect(browserProfileUsage([{ profile: 'admin-aaaaaa' }, { profile: 'admin-aaaaaa', url: page }, { profile: 'user-bbbbbb' }], p('default', 'admin-aaaaaa', 'user-bbbbbb'))).toEqual({
+      'admin-aaaaaa': 2,
+      'user-bbbbbb': 1,
+    })
+  })
+
+  it('counts a Browser opened before profiles existed (only a page address) for Default, though Default is not written in it yet', () => {
+    expect(browserProfileUsage([{ url: page }, { url: page }, { profile: 'default' }], p('default', 'admin-aaaaaa'))).toEqual({ default: 3 })
+  })
+
+  it('counts a new Browser for the only profile, and for none when the Project has several', () => {
+    expect(browserProfileUsage([{}], p('admin-aaaaaa'))).toEqual({ 'admin-aaaaaa': 1 })
+    expect(browserProfileUsage([{}, {}], p('default', 'admin-aaaaaa'))).toEqual({})
+  })
+
+  it('counts a Browser of a deleted profile for none', () => {
+    expect(browserProfileUsage([{ profile: 'gone-000000' }, { url: page }], p('admin-aaaaaa'))).toEqual({})
+  })
+
+  it('counts nothing while the profiles are not read', () => {
+    expect(browserProfileUsage([{ profile: 'admin-aaaaaa' }, { url: page }, {}], undefined)).toEqual({})
   })
 })

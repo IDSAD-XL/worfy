@@ -29,7 +29,7 @@ const projectId = z.string().min(1)
 /** Origins as the user typed them: main reads each one again (parseOrigin) and refuses the change when one is not an origin. */
 const typedOrigins = z.array(z.string().max(400)).max(BROWSER_PROFILE_ORIGINS_MAX)
 
-/** The Browser profiles of the Project; the first read of a Project without any makes «Default». */
+/** The Browser profiles of the Project; one without a file has "Default". Reading writes nothing (a read channel, ADR-0066). */
 export const browserProfilesList = invokeChannel('browser.profiles.list', z.object({ projectId }), z.object({ profiles: z.array(browserProfileSchema) }), 'project', 'read')
 
 /** Makes a Browser profile; main picks its id from the name. Refused for a name the Project already has. */
