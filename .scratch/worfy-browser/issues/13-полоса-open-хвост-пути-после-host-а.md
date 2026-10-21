@@ -1,7 +1,8 @@
 # 13 — Полоса «Open»: хвост пути стоит после последней строки host-а, а не рядом с первой
 
 Type: task
-Status: claimed 2026-10-21T15:51Z
+Status: done 2026-10-21T17:01Z
+PR: #701
 Blocked by: 12, 03
 Source: review PR #630 (Ticket 12), снимок
 `.scratch/worfy-browser/evidence/12-browser-open-bar-long-narrow-light.png`, 2026-10-21.
@@ -73,3 +74,9 @@ Source: review PR #630 (Ticket 12), снимок
   Orchestrator-а перед мержем.
 - Короткий host, который помещается в одну строку, отдельным test-ом не проверен: там первая и
   последняя baseline совпадают.
+
+**Ревью и merge.** Ревью — VERIFIED на глубине low, находок нет: `last baseline` поддерживается в
+Chromium Electron 44. Новые проверки e2e не проходят на неверной раскладке, середины сравниваются
+без флейков на округлении. Gate full зелёный на main `657f478e` после повторного `pnpm test`:
+красные test-ы оказались флейками под нагрузкой вне PR. Merge — `e99e8079` (очередь gate Session
+«Worfy продолжение»).
