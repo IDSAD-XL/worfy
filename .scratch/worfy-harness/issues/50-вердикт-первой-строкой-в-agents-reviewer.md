@@ -1,7 +1,8 @@
 # 50 — Линза «отчёт implementer-а» и вердикт первой строкой — в `agents/reviewer.md`, а не только в skill `epic-wave`
 
 Type: task
-Status: claimed 2026-10-20T19:23Z
+Status: done 2026-10-21T00:35Z
+PR: #631
 Blocked by: —
 Source: follow-up Ticket-а 27 (eval-кейсы Harness): платный круг 2026-10-18, кейс `reviewer-verdict` — 0.67 при
 пороге 0.8 («Итог» Ticket-а 27, «Ниже порога — нарушения правил Harness», на ветке `worfy-harness/27-eval`,
@@ -63,4 +64,18 @@ PR #496); решение владельца 2026-10-19, Q-d: набор из 25 
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#631](https://github.com/IDSAD-XL/worfy/pull/631), merge 9f9529c9. Gate full Mac зелёный; Windows verdict (check/windows)
+зелёный. Платформенный PR (`harness/bin/tests`). Ревью: один круг (корректность, тесты), high/med нет; 4 low исправлены.
+**Шаг владельца не сделан:** платный eval `reviewer-verdict` ×3 (≥ 0.8, с переносом `~/.docker/bin` и возвратом) и
+`pnpm install:stable`.
+
+- **`harness/agents/reviewer.md`, «Lens descriptions»:** новая линза «implementer's report» — сначала `not_verified`,
+  перечитать каждый `file:line` из `claims`, сверить каждый `exit_code` из `commands` со своим прогоном, искать
+  опровержение самой сильной фразы. Ответ начинается строкой вердикта: `VERIFIED` или `REJECTED: <неподтверждённое>`;
+  строка упавшего `profile` под этой линзой — второй. Gate 3 или 127 → `REJECTED: gate 3 — <строка причины>`.
+- **`epic-wave/SKILL.md`, раздел 3:** вторая копия правила убрана, skill ссылается на линзу агента.
+- **`agents-text.test.sh`, раздел 13:** линза и её текст по предложениям и по порядку; порядок строки профиля; ссылка из
+  skill-а; копии в skill-е ловятся и по старой формулировке, и по пересказу.
+- **`harness/evals/reviewer-verdict/prompt.md`** называет источник правила — `agents/reviewer.md`.
+- **Мутанты красные:** правило убрано; линза убрана; копия в skill-е; предложения про улики и 30 строк убраны;
+  противоречащее «summary before the verdict»; предложение про gate 3 убрано; пересказанная копия в skill-е.

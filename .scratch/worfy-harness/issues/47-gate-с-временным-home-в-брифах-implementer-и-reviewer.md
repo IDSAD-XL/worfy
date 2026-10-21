@@ -1,7 +1,7 @@
 # 47 — Брифы implementer и reviewer: gate и test-ы с временным HOME — реестр Gate и пустые rc-файлы zsh
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T00:35Z
 Blocked by:
 Source: решение владельца 2026-10-15 по Wave-ам Epic-а `worfy-polish` (Ticket-ы 01–13): implementer-ы
 и verifier-ы гоняли test-ы и gate с временным HOME ([`worfy-polish` 03](../../worfy-polish/issues/03-contract-test-ы-без-настоящего-claude-home.md), раздел
