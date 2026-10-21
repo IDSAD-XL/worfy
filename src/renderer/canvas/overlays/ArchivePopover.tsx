@@ -12,8 +12,10 @@
 import { useStoreApi, Panel } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
+import { create } from 'zustand'
 import { bindingWorkflowOf, type BindingTarget } from '../../../shared/binding/resolve'
-import { resolveAgentBindings, useManualBindings, useSessionSignals } from '../../binding/store'
+import type { SessionBindingSignals } from '../../../shared/ipc/bindings'
+import { refreshSessionSignals, resolveAgentBindings, sessionSignalsOf, useBindingsStore, useManualBindings } from '../../binding/store'
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { writeAction } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
@@ -48,23 +50,62 @@ function endLabel(time: number, now: number): string {
   return `${at.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}, ${clock}`
 }
 
+/** `<root>\0<sessionId>` of each archived Session whose signals were asked for, and of each whose read is over. */
+const asked = new Set<string>()
+const useSignalsRead = create<{ done: Readonly<Record<string, true>> }>(() => ({ done: {} }))
+const readKey = (root: string, sessionId: string): string => `${root}\0${sessionId}`
+
+/**
+ * The transcript signals of these archived Sessions, and which of them are read (or failed to
+ * read). Each Session's are asked for once per window, however often the archived set changes: an
+ * archived Session is over, its transcript does not change. A Session that comes back to life is
+ * restored by main and leaves the archive.
+ */
+function useArchivedSignals(root: string, sessionIds: readonly string[]): { signals: ReadonlyMap<string, SessionBindingSignals>; read: (sessionId: string) => boolean } {
+  useEffect(() => {
+    for (const sessionId of sessionIds) {
+      const key = readKey(root, sessionId)
+      if (asked.has(key)) continue
+      asked.add(key)
+      // A failed read is logged by the store and counts as read: the Session is then without a Binding.
+      void refreshSessionSignals(root, sessionId).finally(() => useSignalsRead.setState(({ done }) => ({ done: { ...done, [key]: true } })))
+    }
+  }, [root, sessionIds])
+  const all = useBindingsStore((store) => store.signals)
+  const done = useSignalsRead((store) => store.done)
+  return useMemo(() => {
+    // `all` only says when to read again: the store's keys are its own, sessionSignalsOf reads them.
+    void all
+    const signals = new Map<string, SessionBindingSignals>()
+    for (const sessionId of sessionIds) {
+      const found = sessionSignalsOf(root, sessionId)
+      if (found !== undefined) signals.set(sessionId, found)
+    }
+    return { signals, read: (sessionId: string) => signals.has(sessionId) || done[readKey(root, sessionId)] === true }
+  }, [all, done, root, sessionIds])
+}
+
 /** Builds the Project's archive list from its Layout, the Sessions' history and their Bindings, and publishes it. */
 function useArchiveFeed(projectId: string, root: string): void {
   const { state } = useLayout(projectId)
   const layout = state?.layout
   const { history } = useClaudeHome(root)
-  const { model } = useWorkflow(root)
+  const { model, error: workflowError } = useWorkflow(root)
   const manual = useManualBindings(projectId)
+  // Undefined until main has answered `bindings.get`: until then no Session is known to be without a Binding.
+  const manualRead = useBindingsStore((store) => store.manual[projectId] !== undefined)
   const sessionIds = useMemo(() => (layout === undefined ? [] : archivedSessionNodes(layout).map((node) => node.data.sessionId as string)), [layout])
   // shortcut: the transcript of every archived Session is read once per window to find its Binding;
   // redo when the archive grows to thousands of Sessions, by keeping the Binding in the archive record.
-  const signals = useSessionSignals(root, sessionIds)
+  const { signals, read } = useArchivedSignals(root, sessionIds)
   const list = useMemo(() => {
     if (layout === undefined) return undefined
     const bindings = resolveAgentBindings({ sessionIds, signals, manual, workflow: bindingWorkflowOf(model) })
     const targets = new Map<string, BindingTarget>(sessionIds.flatMap((id) => (bindings.has(id) ? [[id, bindings.get(id)!.target] as const] : [])))
-    return archiveList(layout, history, targets)
-  }, [layout, history, model, manual, signals, sessionIds])
+    // A branch or a worktree folder binds only through the workflow model: it must be read (or have failed) too.
+    const workflowRead = model !== undefined || workflowError !== undefined
+    return archiveList(layout, history, targets, (sessionId) => manualRead && workflowRead && read(sessionId))
+  }, [layout, history, model, workflowError, manual, manualRead, signals, read, sessionIds])
   useEffect(() => {
     if (list !== undefined) publishArchive(projectId, list)
   }, [projectId, list])
@@ -208,6 +249,8 @@ export function SessionHistoryButton({ projectId, sessions, heading, label, clas
   const [open, setOpen] = useState<{ top: number; left: number } | null>(null)
   const button = useRef<HTMLButtonElement>(null)
   const close = useCallback(() => setOpen(null), [])
+  // The list emptied (its last Session was shown elsewhere): closed, so it does not open again by itself later.
+  if (sessions.length === 0 && open !== null) setOpen(null)
   if (sessions.length === 0) return null
   const count = `${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}`
   return (
@@ -237,7 +280,7 @@ export function SessionHistoryButton({ projectId, sessions, heading, label, clas
 
 function Archive({ projectId, root }: { projectId: string; root: string }) {
   useArchiveFeed(projectId, root)
-  const { unbound } = useArchive(projectId)
+  const { unbound, pending } = useArchive(projectId)
   const ops = useLayoutOps()
   const readOnly = useReadOnly()
   const [open, setOpen] = useState(false)
@@ -249,7 +292,13 @@ function Archive({ projectId, root }: { projectId: string; root: string }) {
   const inside = useMemo(() => [box], [])
   useDismiss(open, close, inside)
 
+  // Nothing left to list: closed, so it does not open again by itself when a Session is archived later.
+  if (unbound.length === 0 && open) setOpen(false)
   if (unbound.length === 0) return null
+  const restoreFrom = (sessions: readonly ArchivedSession[]) => {
+    const layout = currentLayout(projectId)
+    if (layout !== undefined) void restoreSessions(ops, layout, sessions.map((session) => session.nodeId))
+  }
   const found = searchArchive(unbound, query)
   const today = archivedToday(unbound, openedAt)
   return (
@@ -270,15 +319,22 @@ function Archive({ projectId, root }: { projectId: string; root: string }) {
               <button
                 type="button"
                 className="w-archive__action"
-                {...(today.length === 0
-                  ? { 'aria-disabled': 'true' as const, title: 'Nothing was archived today' }
-                  : writeAction(readOnly, () => void restoreSessions(ops, today.map((session) => session.nodeId)), `Restore the ${today.length} Sessions archived today`))}
+                {...(pending.length > 0
+                  ? { 'aria-disabled': 'true' as const, title: 'The Bindings of the archived Sessions are still being read' }
+                  : today.length === 0
+                    ? { 'aria-disabled': 'true' as const, title: 'Nothing was archived today' }
+                    : writeAction(readOnly, () => void restoreFrom(today), `Restore the ${today.length} Sessions archived today`))}
               >
                 Restore all from today
               </button>
             </div>
             {found.length === 0 ? <div className="w-archive__empty">No Session matches</div> : null}
-            <Rows sessions={found} action="Restore" readOnly={readOnly} now={openedAt} run={(session) => void restoreSessions(ops, [session.nodeId])} />
+            {pending.length > 0 ? (
+              <div className="w-archive__empty" data-testid="archive-pending">
+                Reading the Bindings of {pending.length} more {pending.length === 1 ? 'Session' : 'Sessions'}…
+              </div>
+            ) : null}
+            <Rows sessions={found} action="Restore" readOnly={readOnly} now={openedAt} run={(session) => void restoreFrom([session])} />
           </div>
         ) : null}
         <button

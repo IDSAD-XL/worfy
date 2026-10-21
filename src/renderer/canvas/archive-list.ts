@@ -7,11 +7,16 @@
 // The list is built once per Canvas, by the Archive popover, and published here by Project: a badge
 // on each Ticket reads its group from this store instead of resolving every Binding again.
 //
-// Show and Restore are one `restore` operation sent through the Canvas's LayoutOps, so each is a
-// step of the user's undo history (history.ts: its undo archives the Nodes again). main puts a
-// restored Node at its old place when that is clear, else at the nearest clear one (ADR-0038).
-// Show from a Ticket's or an Epic's history first moves the Node next to its Ticket or frame — the
-// spot a new bound Session gets (session-spot.ts) — in the same gesture. Nothing is ever deleted
+// Show and Restore are one gesture sent through the Canvas's LayoutOps, so each is one step of the
+// user's undo history: a move of the archived Nodes, then a `restore`. main puts a restored Node at
+// its place when that is clear, else at the nearest clear one (ADR-0038); the undo archives the
+// Nodes again (history.ts) and the move's undo puts them back where they stood before, even when
+// main had to move them off another Node. Restore's move keeps the Nodes where they are; Show's
+// moves the Node next to its Ticket or frame — the spot a new bound Session gets (session-spot.ts).
+//
+// A Session whose Binding is not known yet (its transcript's signals, the manual Bindings or the
+// workflow model are still being read) is in `pending`, in no group: until then it would look
+// unbound and «Restore all from today» would take it along. Nothing is ever deleted
 // from the Archive here: Remove on a restored Node does that (Trash, ADR-0016).
 import { create } from 'zustand'
 import type { BindingTarget } from '../../shared/binding/resolve'
@@ -19,9 +24,14 @@ import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import { onThePlane } from '../../shared/layout/derived'
 import { freePlace, type Rect } from '../../shared/layout/free-place'
 import type { ArchiveRule, Layout, LayoutNode, LayoutOpInput } from '../../shared/layout/types'
+import { ticketKey } from '../../shared/workflow/types'
 import { grouped, type Group } from './history'
 
-/** What Show and Restore send through: the Canvas's LayoutOps (useLayout.ts), which records each gesture as a step of ⌘Z. */
+/**
+ * What Show and Restore send through: the Canvas's LayoutOps (useLayout.ts), which records each
+ * gesture as a step of ⌘Z. Written out rather than Pick<LayoutOps, 'apply'>: useLayout.ts brings
+ * React's DOM types into the Node test program (tsconfig.test.node.json), and they break the e2e specs' types.
+ */
 export interface ArchiveOps {
   apply(op: LayoutOpInput, group?: Group): Promise<void>
 }
@@ -46,13 +56,13 @@ export interface ArchiveList {
   /** The Sessions bound to the Epic itself, by Epic. */
   epics: ReadonlyMap<string, readonly ArchivedSession[]>
   unbound: readonly ArchivedSession[]
+  /** The Sessions whose Binding is not known yet, newest first: in no group until it is. */
+  pending: readonly ArchivedSession[]
   /** Every archived Session Node of the Project. */
   count: number
 }
 
-export const EMPTY_ARCHIVE: ArchiveList = { tickets: new Map(), epics: new Map(), unbound: [], count: 0 }
-
-export const ticketKey = (epic: string, num: number): string => `${epic}/${num}`
+export const EMPTY_ARCHIVE: ArchiveList = { tickets: new Map(), epics: new Map(), unbound: [], pending: [], count: 0 }
 
 /** What the list reads of a Session's history (claudeHome.sessions). */
 export interface ArchiveHistoryEntry {
@@ -82,13 +92,20 @@ function timeOf(iso: string | undefined): number | null {
 
 /**
  * The Project's archive, grouped by Binding. `bindings` has each Session's target by Session id;
- * a Session it does not name is without a Binding.
+ * a Session it does not name is without a Binding, unless `known` says its Binding is not known
+ * yet: then it is pending.
  */
-export function archiveList(layout: Layout, history: readonly ArchiveHistoryEntry[], bindings: ReadonlyMap<string, BindingTarget>): ArchiveList {
+export function archiveList(
+  layout: Layout,
+  history: readonly ArchiveHistoryEntry[],
+  bindings: ReadonlyMap<string, BindingTarget>,
+  known: (sessionId: string) => boolean = () => true,
+): ArchiveList {
   const historyById = new Map(history.map((entry) => [entry.sessionId, entry]))
   const tickets = new Map<string, ArchivedSession[]>()
   const epics = new Map<string, ArchivedSession[]>()
   const unbound: ArchivedSession[] = []
+  const pending: ArchivedSession[] = []
   const nodes = archivedSessionNodes(layout)
   for (const node of nodes) {
     const sessionId = node.data.sessionId as string
@@ -104,12 +121,12 @@ export function archiveList(layout: Layout, history: readonly ArchiveHistoryEntr
       endedAt: timeOf(recorded?.lastAt),
       binding,
     }
-    if (binding === null) unbound.push(session)
-    else if (binding.kind === 'ticket') push(tickets, ticketKey(binding.epic, binding.num), session)
+    if (binding === null) (known(sessionId) ? unbound : pending).push(session)
+    else if (binding.kind === 'ticket') push(tickets, ticketKey(binding), session)
     else push(epics, binding.epic, session)
   }
-  for (const group of [...tickets.values(), ...epics.values(), unbound]) group.sort(newestFirst)
-  return { tickets, epics, unbound, count: nodes.length }
+  for (const group of [...tickets.values(), ...epics.values(), unbound, pending]) group.sort(newestFirst)
+  return { tickets, epics, unbound, pending, count: nodes.length }
 }
 
 function push(groups: Map<string, ArchivedSession[]>, key: string, session: ArchivedSession): void {
@@ -122,7 +139,7 @@ const NONE: readonly ArchivedSession[] = []
 
 /** The archived Sessions bound to one Ticket, newest first. */
 export function ticketHistory(list: ArchiveList, epic: string, num: number): readonly ArchivedSession[] {
-  return list.tickets.get(ticketKey(epic, num)) ?? NONE
+  return list.tickets.get(ticketKey({ epic, num })) ?? NONE
 }
 
 /** The archived Sessions bound to an Epic or to one of its Tickets, newest first. */
@@ -151,10 +168,19 @@ export function showPlace(size: { w: number; h: number }, spot: { x: number; y: 
   return freePlace({ x: spot.x, y: spot.y, w: size.w, h: size.h }, obstacles)
 }
 
-/** Restore: one `restore` of these Nodes, one step of the history. */
-export function restoreSessions(ops: ArchiveOps, nodeIds: readonly string[]): Promise<void> {
-  if (nodeIds.length === 0) return Promise.resolve()
-  return ops.apply({ op: 'restore', ids: [...nodeIds] })
+/**
+ * Restore: the archived ones of these Nodes come back, as one step of the history. The gesture is a
+ * `moveMany` of the Nodes to where they stand, then one `restore`: the move changes nothing, but its
+ * undo puts each Node back at that place after main moved it off a Node that took its place.
+ */
+export async function restoreSessions(ops: ArchiveOps, layout: Layout, nodeIds: readonly string[]): Promise<void> {
+  const named = new Set(nodeIds)
+  const nodes = layout.nodes.filter((node) => named.has(node.id) && node.archived != null)
+  if (nodes.length === 0) return
+  await grouped(async (group) => {
+    await ops.apply({ op: 'moveMany', moves: nodes.map(({ id, x, y }) => ({ id, x, y })) }, group)
+    await ops.apply({ op: 'restore', ids: nodes.map((node) => node.id) }, group)
+  })
 }
 
 /**
@@ -164,7 +190,7 @@ export function restoreSessions(ops: ArchiveOps, nodeIds: readonly string[]): Pr
  */
 export async function showSession(ops: ArchiveOps, layout: Layout, nodeId: string, spot: { x: number; y: number } | undefined, keepOut: readonly Rect[]): Promise<void> {
   const node = layout.nodes.find((each) => each.id === nodeId)
-  if (node === undefined || spot === undefined) return restoreSessions(ops, [nodeId])
+  if (node === undefined || spot === undefined) return restoreSessions(ops, layout, [nodeId])
   const obstacles = [...layout.nodes.filter((each) => each.id !== nodeId && onThePlane(each)), ...keepOut]
   const place = showPlace(node, spot, obstacles)
   await grouped(async (group) => {

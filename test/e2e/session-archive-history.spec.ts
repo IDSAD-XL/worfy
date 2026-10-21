@@ -177,8 +177,13 @@ test('a bound Session is in its Ticket\'s history, Show puts it next to the Tick
     // ⌘Z: one step takes it back into the archive, at its old place.
     await window.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } })
     await window.keyboard.press('ControlOrMeta+z')
-    await expect.poll(async () => (await layoutNode(window, BOUND_NODE))?.archived ?? null).not.toBeNull()
-    expect(await layoutNode(window, BOUND_NODE)).toMatchObject(BOUND_AT)
+    // The undo sends two operations (archive, then the move back): one read may fall between them.
+    await expect
+      .poll(async () => {
+        const node = await layoutNode(window, BOUND_NODE)
+        return { archived: node?.archived != null, x: node?.x, y: node?.y }
+      })
+      .toEqual({ archived: true, ...BOUND_AT })
     await expect(shown).toHaveCount(0)
     await expect(badge).toBeVisible()
 

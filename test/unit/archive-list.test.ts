@@ -7,7 +7,8 @@ import type { BindingTarget } from '../../src/shared/binding/resolve'
 import type { Layout, LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import { DEFAULT_VIEWPORT } from '../../src/shared/layout/types'
 import { archivedToday, archiveList, epicHistory, restoreSessions, searchArchive, showPlace, showSession, ticketHistory, type ArchiveOps } from '../../src/renderer/canvas/archive-list'
-import { inverseOf, type Group } from '../../src/renderer/canvas/history'
+import { applyRecorded, historyOf, inverseOf, resetHistories, type Group, type LayoutChannel, type Send } from '../../src/renderer/canvas/history'
+import { LayoutStore } from '../../src/main/layout/store'
 
 const sessionNode = (sessionId: string, at: number | null, extra: Partial<LayoutNode> = {}): LayoutNode => ({
   id: `session:${sessionId}`,
@@ -91,10 +92,20 @@ describe('archiveList', () => {
     expect(old).toMatchObject({ title: 'name t1-old', endedAt: null })
   })
 
-  it('a Session whose Binding is not known yet is without Binding', () => {
+  it('a Session the bindings do not name is without Binding once its Binding is known', () => {
     const fresh = archiveList(LAYOUT, [], new Map())
     expect(fresh.unbound).toHaveLength(7)
+    expect(fresh.pending).toEqual([])
     expect(fresh.tickets.size).toBe(0)
+  })
+
+  it('a Session whose Binding is not known yet is pending, in no group', () => {
+    const reading = archiveList(LAYOUT, [], new Map([['t2', ticket('demo', 2)]]), (sessionId) => sessionId === 'free-new' || sessionId === 't2')
+    expect(ids(reading.unbound)).toEqual(['free-new'])
+    expect(ids(reading.pending)).toEqual(['t1-new', 'other', 'e1', 't1-old', 'free-old'])
+    // A Session the bindings name is grouped whatever `known` says.
+    expect(ids(ticketHistory(reading, 'demo', 2))).toEqual(['t2'])
+    expect(reading.count).toBe(7)
   })
 })
 
@@ -142,10 +153,28 @@ function fakeOps(): { ops: ArchiveOps; sent: { op: LayoutOpInput; group: Group |
 }
 
 describe('Show and Restore go through LayoutOps', () => {
-  it('Restore is one restore operation of every named Node', async () => {
+  it('Restore is one gesture: the archived Nodes moved where they stand, then one restore of them all', async () => {
     const { ops, sent } = fakeOps()
-    await restoreSessions(ops, ['session:a', 'session:b'])
-    expect(sent.map((each) => each.op)).toEqual([{ op: 'restore', ids: ['session:a', 'session:b'] }])
+    const layout = layoutOf({ ...sessionNode('a', 10), x: 5, y: 6 }, { ...sessionNode('b', 20), x: 7, y: 8 }, sessionNode('live', null))
+    await restoreSessions(ops, layout, ['session:a', 'session:b', 'session:live', 'session:gone'])
+    expect(sent.map((each) => each.op)).toEqual([
+      {
+        op: 'moveMany',
+        moves: [
+          { id: 'session:a', x: 5, y: 6 },
+          { id: 'session:b', x: 7, y: 8 },
+        ],
+      },
+      { op: 'restore', ids: ['session:a', 'session:b'] },
+    ])
+    expect(sent[0]!.group).toBeDefined()
+    expect(sent[1]!.group).toBe(sent[0]!.group)
+  })
+
+  it('Restore of Nodes none of which is archived sends nothing', async () => {
+    const { ops, sent } = fakeOps()
+    await restoreSessions(ops, layoutOf(sessionNode('live', null)), ['session:live'])
+    expect(sent).toEqual([])
   })
 
   it('Show moves the archived Node to its place, then restores it, as one gesture', async () => {
@@ -164,7 +193,53 @@ describe('Show and Restore go through LayoutOps', () => {
   it('Show without a spot only restores the Node, at its old place or the nearest clear one', async () => {
     const { ops, sent } = fakeOps()
     await showSession(ops, layoutOf(sessionNode('a', 10)), 'session:a', undefined, [])
-    expect(sent.map((each) => each.op)).toEqual([{ op: 'restore', ids: ['session:a'] }])
+    expect(sent.map((each) => each.op)).toEqual([
+      { op: 'moveMany', moves: [{ id: 'session:a', x: 0, y: 0 }] },
+      { op: 'restore', ids: ['session:a'] },
+    ])
+  })
+})
+
+describe('Restore and Show against the store of main, through the undo history', () => {
+  const PROJECT = 'demo-0a1b2c3d'
+  /** An archived Session Node at (0, 0) and a Note that took its place since. */
+  function setup() {
+    resetHistories()
+    const store = new LayoutStore(() => '/nonexistent/worfy-test', { write: () => undefined, delayMs: 60_000 })
+    const send: Send = (op) => {
+      try {
+        return Promise.resolve({ revision: store.apply(PROJECT, op, 'screen-1').revision })
+      } catch (error) {
+        return Promise.resolve(String(error))
+      }
+    }
+    const channel: LayoutChannel = { send, layout: () => store.get(PROJECT).layout }
+    const ops: ArchiveOps = { apply: async (op, group) => void (await applyRecorded(PROJECT, op, channel, group)) }
+    store.apply(PROJECT, { op: 'create', node: { id: 's1', kind: 'session', x: 0, y: 0, w: 200, h: 100, data: { sessionId: 'aaaa' } } })
+    store.apply(PROJECT, { op: 'archive', batch: 'b1', nodes: [{ id: 's1', rule: 'idle' }] })
+    store.apply(PROJECT, { op: 'create', node: { id: 'n1', kind: 'note', x: 0, y: 0, w: 200, h: 100, data: {} } })
+    const s1 = () => store.get(PROJECT).layout.nodes.find((node) => node.id === 's1')!
+    return { store, ops, s1 }
+  }
+
+  it('Restore puts the Node off the Note; ⌘Z archives it again at its old place; ⇧⌘Z restores it again', async () => {
+    const { store, ops, s1 } = setup()
+    await restoreSessions(ops, store.get(PROJECT).layout, ['s1'])
+    expect(s1().archived).toBeNull()
+    expect(s1().x === 0 && s1().y === 0).toBe(false)
+    const restoredAt = { x: s1().x, y: s1().y }
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle', batch: 'b1' } })
+    expect(await historyOf(PROJECT).redo()).toBe(true)
+    expect(s1()).toMatchObject({ ...restoredAt, archived: null })
+  })
+
+  it('Show puts the Node at the spot; ⌘Z archives it again at its old place', async () => {
+    const { store, ops, s1 } = setup()
+    await showSession(ops, store.get(PROJECT).layout, 's1', { x: 1000, y: 40 }, [])
+    expect(s1()).toMatchObject({ x: 1000, y: 40, archived: null })
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(s1()).toMatchObject({ x: 0, y: 0, archived: { rule: 'idle' } })
   })
 })
 

@@ -2,15 +2,17 @@
 // (src/renderer/canvas/overlays/ArchivePopover.tsx, badges/SessionHistory.tsx; worfy-canvas ticket 09):
 // the popover lists the archived Sessions without a Binding, searches them by title, restores one or
 // all of today's through the Canvas's LayoutOps, and closes on Esc; a read-only screen sees the list
-// with Restore inactive. IPC and the active Project are replaced; the Layout, Bindings and workflow
-// stores are real.
+// with Restore inactive. A Session whose Binding is not read yet is in neither list, and «Restore all
+// from today» waits for it; the transcript of each archived Session is read once, however often the
+// archived set changes. IPC and the active Project are replaced; the Layout, Bindings and workflow
+// stores are real, fresh for each test.
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LayoutNode, LayoutOpInput } from '../../src/shared/layout/types'
 import { DEFAULT_VIEWPORT } from '../../src/shared/layout/types'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
-import { LayoutOpsContext, type LayoutOps } from '../../src/renderer/canvas/useLayout'
+import type { LayoutOps } from '../../src/renderer/canvas/useLayout'
 
 const PROJECT = 'p1'
 const ROOT = '/repo/one'
@@ -48,7 +50,7 @@ const sessionNode = (sessionId: string, name: string, at: number | null): Layout
   archived: at === null ? null : { at, rule: 'idle', batch: `b${at}` },
 })
 
-const NODES = [
+const ALL_NODES = [
   sessionNode('a1', 'Refactor the parser', NOW - HOUR),
   sessionNode('a2', 'Write the docs', NOW - 2 * HOUR),
   sessionNode('a3', 'Old spike', NOW - 72 * HOUR),
@@ -81,10 +83,29 @@ const MODEL: WorkflowModel = {
 
 const EMPTY_SIGNALS = { claim: null, cwd: null, gitBranch: null, skill: null, task: null }
 
+/** The Layout's Nodes `layout.get` answers with. */
+let NODES: LayoutNode[] = ALL_NODES
+/** The answers a test holds back: `bindings.get`, or `bindings.signals` of these Sessions. */
+let holdManual: Promise<void> | undefined
+let holdSignals: Map<string, Promise<void>>
+/** The Sessions `bindings.signals` was asked about, in order. */
+let signalsAsked: string[]
+
+const later = (): { promise: Promise<void>; release: () => void } => {
+  let release = () => undefined as void
+  const promise = new Promise<void>((done) => (release = done))
+  return { promise, release }
+}
+
 beforeEach(() => {
+  vi.resetModules()
   vi.useFakeTimers({ toFake: ['Date'], now: NOW })
   readOnly.hint = null
-  ipc.invoke.mockImplementation((channel: string) => {
+  NODES = ALL_NODES
+  holdManual = undefined
+  holdSignals = new Map()
+  signalsAsked = []
+  ipc.invoke.mockImplementation((channel: string, input: unknown) => {
     switch (channel) {
       case 'layout.get':
         return Promise.resolve({ ok: true, value: { projectId: PROJECT, layout: { nodes: NODES, viewport: DEFAULT_VIEWPORT }, revision: 1 } })
@@ -93,9 +114,12 @@ beforeEach(() => {
       case 'workflow.open':
         return Promise.resolve({ ok: true, value: MODEL })
       case 'bindings.get':
-        return Promise.resolve({ ok: true, value: { projectId: PROJECT, bindings: [{ sessionId: 'b1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } }] } })
-      case 'bindings.signals':
-        return Promise.resolve({ ok: true, value: { session: EMPTY_SIGNALS, subagents: [] } })
+        return (holdManual ?? Promise.resolve()).then(() => ({ ok: true, value: { projectId: PROJECT, bindings: [{ sessionId: 'b1', agentId: null, target: { kind: 'ticket', epic: 'demo', num: 1 } }] } }))
+      case 'bindings.signals': {
+        const { sessionId } = input as { sessionId: string }
+        signalsAsked.push(sessionId)
+        return (holdSignals.get(sessionId) ?? Promise.resolve()).then(() => ({ ok: true, value: { session: EMPTY_SIGNALS, subagents: [] } }))
+      }
       default:
         return Promise.resolve({ ok: true, value: undefined })
     }
@@ -119,10 +143,19 @@ function recordingOps(): { ops: LayoutOps; sent: LayoutOpInput[] } {
   return { sent, ops: { apply: (op) => (sent.push(op), Promise.resolve()) } }
 }
 
-async function renderCanvas(ops: LayoutOps) {
+/** Main's broadcast of a new Layout: these Nodes, a revision later. */
+async function layoutChanged(nodes: LayoutNode[], revision: number): Promise<void> {
+  const { acceptLayoutState } = await import('../../src/renderer/canvas/useLayout')
+  act(() => acceptLayoutState({ projectId: PROJECT, layout: { nodes, viewport: DEFAULT_VIEWPORT }, revision }))
+}
+
+/** The Canvas with the Archive and the history badges of Tickets 01 and 02; resolves once it is drawn. */
+async function mountCanvas(ops: LayoutOps): Promise<void> {
   const { default: ArchivePopover } = await import('../../src/renderer/canvas/overlays/ArchivePopover')
   const { default: SessionHistory } = await import('../../src/renderer/canvas/badges/SessionHistory')
+  const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
   const ticket = MODEL.tickets[0]!
+  const second = { ...ticket, num: 2, slug: 'two', title: 'Ticket two' }
   render(
     <div style={{ width: 800, height: 600 }}>
       <LayoutOpsContext.Provider value={ops}>
@@ -130,13 +163,25 @@ async function renderCanvas(ops: LayoutOps) {
           <ReactFlow nodes={[]} edges={[]}>
             <ArchivePopover />
             <SessionHistory subject={{ kind: 'ticket', projectId: PROJECT, root: ROOT, ticket }} />
+            <SessionHistory subject={{ kind: 'ticket', projectId: PROJECT, root: ROOT, ticket: second }} />
           </ReactFlow>
         </ReactFlowProvider>
       </LayoutOpsContext.Provider>
     </div>,
   )
+  await act(() => Promise.resolve())
+}
+
+async function renderCanvas(ops: LayoutOps) {
+  await mountCanvas(ops)
   return screen.findByTestId('archive-button')
 }
+
+/** What Restore sends for these Nodes, all at (0, 0): a move where they stand, then the restore. */
+const restoreOf = (...nodeIds: string[]): LayoutOpInput[] => [
+  { op: 'moveMany', moves: nodeIds.map((id) => ({ id, x: 0, y: 0 })) },
+  { op: 'restore', ids: nodeIds },
+]
 
 const rowTitles = (dialog: HTMLElement) => within(dialog).getAllByTestId('archive-row').map((row) => row.querySelector('.w-archive__title')!.textContent)
 
@@ -164,14 +209,14 @@ describe('the Archive popover', () => {
     const { ops, sent } = recordingOps()
     fireEvent.click(await renderCanvas(ops))
     fireEvent.click(screen.getByRole('button', { name: 'Restore Write the docs' }))
-    await waitFor(() => expect(sent).toEqual([{ op: 'restore', ids: ['session:a2'] }]))
+    await waitFor(() => expect(sent).toEqual(restoreOf('session:a2')))
   })
 
   it('«Restore all from today» restores the Sessions archived since midnight, as one operation', async () => {
     const { ops, sent } = recordingOps()
     fireEvent.click(await renderCanvas(ops))
     fireEvent.click(screen.getByRole('button', { name: 'Restore all from today' }))
-    await waitFor(() => expect(sent).toEqual([{ op: 'restore', ids: ['session:a1', 'session:a2'] }]))
+    await waitFor(() => expect(sent).toEqual(restoreOf('session:a1', 'session:a2')))
   })
 
   it('Esc closes it, and that press does nothing else', async () => {
@@ -214,7 +259,7 @@ describe("a Ticket's history", () => {
     expect(rowTitles(dialog)).toEqual(['Ship ticket one'])
     fireEvent.click(within(dialog).getByRole('button', { name: 'Show Ship ticket one' }))
     // No Epic frames drawn here: Show is a plain Restore, at the old place or the nearest clear one.
-    await waitFor(() => expect(sent).toEqual([{ op: 'restore', ids: ['session:b1'] }]))
+    await waitFor(() => expect(sent).toEqual(restoreOf('session:b1')))
     expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
     fireEvent.click(badge)
     expect(screen.getByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeTruthy()
@@ -234,5 +279,75 @@ describe("a Ticket's history", () => {
     fireEvent.click(show)
     await act(() => Promise.resolve())
     expect(sent).toEqual([])
+  })
+})
+
+describe('until the Bindings are read', () => {
+  it('no Session counts as without a Binding before the manual Bindings arrive', async () => {
+    const manual = later()
+    holdManual = manual.promise
+    await mountCanvas(recordingOps().ops)
+    await waitFor(() => expect(signalsAsked).toHaveLength(4))
+    await act(() => Promise.resolve())
+    // b1 is bound by hand: before `bindings.get` answers it would look unbound and be listed here.
+    expect(screen.queryByTestId('archive-button')).toBeNull()
+    manual.release()
+    expect((await screen.findByTestId('archive-button')).textContent).toBe('Archive3')
+  })
+
+  it('a Session whose transcript is not read yet is listed nowhere, and «Restore all from today» waits for it', async () => {
+    const a2 = later()
+    holdSignals.set('a2', a2.promise)
+    const { ops, sent } = recordingOps()
+    const button = await renderCanvas(ops)
+    await waitFor(() => expect(button.textContent).toBe('Archive2'))
+    fireEvent.click(button)
+    const dialog = screen.getByRole('dialog', { name: 'Archive' })
+    expect(rowTitles(dialog)).toEqual(['Refactor the parser', 'Old spike'])
+    expect(screen.getByTestId('archive-pending').textContent).toBe('Reading the Bindings of 1 more Session…')
+    const all = screen.getByRole('button', { name: 'Restore all from today' })
+    expect(all.getAttribute('aria-disabled')).toBe('true')
+    fireEvent.click(all)
+    await act(() => Promise.resolve())
+    expect(sent).toEqual([])
+    a2.release()
+    await waitFor(() => expect(rowTitles(dialog)).toEqual(['Refactor the parser', 'Write the docs', 'Old spike']))
+    expect(all.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('reads the transcript of each archived Session once, however often the archived set changes', async () => {
+    await renderCanvas(recordingOps().ops)
+    await waitFor(() => expect([...signalsAsked].sort()).toEqual(['a1', 'a2', 'a3', 'b1']))
+    // a2 is restored, then archived again, and a new Session is archived.
+    const restored = ALL_NODES.map((node) => (node.id === 'session:a2' ? { ...node, archived: null } : node))
+    await layoutChanged(restored, 2)
+    await layoutChanged([...ALL_NODES, sessionNode('c1', 'New one', NOW - 1000)], 3)
+    await waitFor(() => expect(screen.getByTestId('archive-button').textContent).toBe('Archive4'))
+    expect([...signalsAsked].sort()).toEqual(['a1', 'a2', 'a3', 'b1', 'c1'])
+  })
+})
+
+describe('nothing to show', () => {
+  it('no «Archive» button while no archived Session is without a Binding', async () => {
+    NODES = ALL_NODES.filter((node) => node.id === 'session:b1' || node.id === 'session:live')
+    await mountCanvas(recordingOps().ops)
+    await screen.findByRole('button', { name: '1 session archived of ticket demo/01' })
+    expect(screen.queryByTestId('archive-button')).toBeNull()
+  })
+
+  it('no «N sessions» on a Ticket without archived Sessions; the history closes when its list empties and stays closed', async () => {
+    await renderCanvas(recordingOps().ops)
+    const badge = await screen.findByRole('button', { name: '1 session archived of ticket demo/01' })
+    expect(screen.getAllByTestId('ticket-sessions-button')).toHaveLength(1)
+    fireEvent.click(badge)
+    expect(screen.getByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeTruthy()
+    // b1 comes back on the Canvas (another screen showed it): the list is empty.
+    await layoutChanged(ALL_NODES.map((node) => (node.id === 'session:b1' ? { ...node, archived: null } : node)), 2)
+    await waitFor(() => expect(screen.queryByTestId('ticket-sessions-button')).toBeNull())
+    expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
+    // Archived again: the badge is back, its history closed until clicked.
+    await layoutChanged(ALL_NODES, 3)
+    await screen.findByRole('button', { name: '1 session archived of ticket demo/01' })
+    expect(screen.queryByRole('dialog', { name: 'Archived sessions of demo/01' })).toBeNull()
   })
 })
