@@ -16,6 +16,14 @@
 // the ticket); results go to <that dir>/evals/results/.
 // Arguments after `--` go to both calls as they are (`pnpm eval:harness -- --case status-block
 // --runs 1`); a call whose tag no case selected by --case/--tag carries is skipped.
+// `--changed <base>` (ticket worfy-harness/29) is this script's own and does not reach claude: it runs
+// only the cases of the rule files changed since <base> — `git diff <base>...HEAD` plus what
+// `git status` shows, the way the gate finds changed files — by the map harness/evals/lib/coverage.json
+// (scripts/eval-harness-coverage.mjs). It prints which file chose which cases and which changed rule
+// file has no case. No case chosen — exit 0 without claude. Exit 1 without claude: an unknown <base>,
+// a git failure, --changed with --case, --tag or HARNESS_DIR, or a map that does not match harness/.
+// `claude plugin eval --case` takes one name glob, so when the change chooses some cases of a tag but
+// not all of them, each chosen case of that tag is a call of its own.
 // git for the runs (ticket worfy-harness/28): the sandbox of a run refuses the git of Xcode Command
 // Line Tools (it lies next to git-credential-*), and it reads every folder of PATH. So the folder
 // `git --exec-path` names is copied, without git-credential-*, into <evals>/results/<time>-git/, and a
@@ -30,7 +38,10 @@
 // above the threshold; 1 — a case below it or not loaded; 2 — partial: cost ceiling or the
 // account refused; 128 + the signal number — stopped by a signal: SIGINT 130, SIGHUP 129, SIGTERM
 // 143, and the remaining calls are not started). At the end: the paths to aggregate-result.json and
-// report.html of each call.
+// report.html of each call, then one line per call for the PR description, from its
+// aggregate-result.json: `eval:harness <tag>: casesPassed <n> of <selected>, overallScore <x>, costUsd
+// <y>, claudeVersion <v>, cases <a,b>` (`, partial` at the end of a partial run), or
+// `eval:harness <tag>: no aggregate-result.json`; the exit code does not depend on these lines.
 import { spawnSync } from 'node:child_process'
 import {
   chmodSync,
@@ -52,6 +63,7 @@ import { delimiter, dirname, join, relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
+import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -185,13 +197,58 @@ function caseTags() {
     })
 }
 
-/** Whether the call for `tag` would select any case under the pass-through --case and --tag. */
-function selects(tag, args) {
+/** The cases the call for `tag` selects under the pass-through --case and --tag, sorted. */
+function selected(tag, args) {
   const globs = optionValues(args, '--case').map(globToRegExp)
   const tags = optionValues(args, '--tag')
-  return caseTags().some(
-    ([name, own]) =>
-      own.includes(tag) && (globs.length === 0 || globs.some((glob) => glob.test(name))) && (tags.length === 0 || tags.some((t) => own.includes(t))),
+  return caseTags()
+    .filter(
+      ([name, own]) =>
+        own.includes(tag) && (globs.length === 0 || globs.some((glob) => glob.test(name))) && (tags.length === 0 || tags.some((t) => own.includes(t))),
+    )
+    .map(([name]) => name)
+    .sort()
+}
+
+const hasOption = (args, name) => args.some((arg) => arg === name || arg.startsWith(`${name}=`))
+
+/**
+ * The files changed since `base` in the repository of this script, relative to its root: what the
+ * branch added on top of its merge-base with `base` (`git diff <base>...HEAD`), and what
+ * `git status` shows — staged, unstaged and untracked, every file of a new folder. Exits 1 when git
+ * fails, an unknown base among the reasons.
+ */
+function changedFiles(base) {
+  const git = (args) => spawnSync('git', ['-c', 'core.quotePath=false', ...args], { cwd: REPO, encoding: 'utf8', env: childEnv })
+  const steps = [
+    ['diff', '--name-only', `${base}...HEAD`, '--'],
+    ['status', '--porcelain', '--untracked-files=all'],
+  ]
+  const found = []
+  for (const args of steps) {
+    const run = git(args)
+    if (run.error || run.status !== 0) fail(`--changed: git ${args.join(' ')} failed (exit ${run.status ?? run.error?.code}): ${(run.stderr ?? '').trim()}`)
+    const lines = run.stdout.split('\n').filter(Boolean)
+    // `git status --porcelain`: two status letters and a space, then the path; a rename is `old -> new`.
+    found.push(...(args[0] === 'status' ? lines.map((line) => line.slice(3).replace(/^.* -> /, '')) : lines))
+  }
+  return [...new Set(found.map((path) => path.replace(/^"(.*)"$/, '$1')))].sort()
+}
+
+/** The line of one call for the PR description, from the aggregate-result.json the call wrote. */
+function summary({ tag, outputDir, cases }) {
+  let report = null
+  try {
+    report = JSON.parse(readFileSync(join(outputDir, 'aggregate-result.json'), 'utf8'))
+  } catch {
+    // No file, or not JSON: the same line below.
+  }
+  if (typeof report !== 'object' || report === null) return `eval:harness ${tag}: no aggregate-result.json`
+  const aggregates = typeof report.aggregates === 'object' && report.aggregates !== null ? report.aggregates : {}
+  const number = (value) => (typeof value === 'number' ? Number(value.toFixed(2)) : 'unknown')
+  return (
+    `eval:harness ${tag}: casesPassed ${aggregates.casesPassed ?? 'unknown'} of ${cases.length}, overallScore ${number(aggregates.overallScore)}, ` +
+    `costUsd ${number(report.costUsd)}, claudeVersion ${report.claudeVersion ?? 'unknown'}, cases ${cases.join(',')}${report.partial === true ? ', partial' : ''}`
   )
 }
 
@@ -292,6 +349,38 @@ function gitCopy(dir) {
 const passThrough = process.argv.slice(2)
 if (passThrough[0] === '--') passThrough.shift()
 
+// --changed <base> or --changed=<base>: taken out of the arguments for claude.
+let chosen = null // the cases --changed chose; null without --changed
+const changedAt = passThrough.findIndex((arg) => arg === '--changed' || arg.startsWith('--changed='))
+if (changedAt !== -1) {
+  const option = passThrough[changedAt]
+  const base = option === '--changed' ? passThrough[changedAt + 1] : option.slice('--changed='.length)
+  passThrough.splice(changedAt, option === '--changed' ? 2 : 1)
+  if (!base || base.startsWith('-')) fail('--changed needs a base: --changed origin/main')
+  for (const name of ['--case', '--tag', '--changed']) if (hasOption(passThrough, name)) fail(`--changed chooses the cases itself and does not go with ${name}`)
+  if (process.env.HARNESS_DIR) fail('--changed reads the changes of harness/ in this repository and does not go with HARNESS_DIR')
+  const problems = coverageProblems(SOURCE)
+  if (problems.length > 0) fail(`--changed: harness/evals/lib/coverage.json does not match harness/:\n  ${problems.join('\n  ')}`)
+  const selection = casesFor(changedFiles(base), readCoverage(SOURCE), caseTags().map(([name]) => name))
+  for (const { path, cases } of selection.files) process.stdout.write(`eval:harness: ${path} -> ${cases.join(', ')}\n`)
+  for (const { path, reason } of selection.uncovered) process.stdout.write(`eval:harness: no case: ${path} — ${reason}\n`)
+  if (selection.cases.length === 0) {
+    process.stdout.write(`eval:harness: no case selected by the files changed since ${base}, claude is not called\n`)
+    process.exit(0)
+  }
+  chosen = selection.cases
+}
+
+// The calls: { tag, name (of the call and its results folder), args (only this call's), cases }.
+const calls = []
+for (const tag of ['main', 'gui']) {
+  const all = selected(tag, chosen ? [] : passThrough)
+  const cases = chosen ? all.filter((name) => chosen.includes(name)) : all
+  if (cases.length === 0) process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
+  else if (cases.length === all.length) calls.push({ tag, name: tag, args: [], cases })
+  else for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name] })
+}
+
 const claude = claudeBinary()
 const version = checkVersion(claude)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -317,27 +406,23 @@ const outputs = []
 try {
   harness = pluginCopy(SOURCE)
   process.stdout.write(`eval:harness: plugin under test — ${harness} (a copy of ${SOURCE} without dependencies)\n`)
-  for (const tag of ['main', 'gui']) {
+  for (const call of calls) {
     // A signal during the copies or the call before stops here: claude may have ended on it, or
     // caught it and exited with a code of its own.
     await signalsHandled()
     if (stopped) {
-      process.stdout.write(`eval:harness: stopped by ${stopped}, the ${tag} call and any after it are skipped\n`)
+      process.stdout.write(`eval:harness: stopped by ${stopped}, the ${call.name} call and any after it are skipped\n`)
       break
     }
-    if (!selects(tag, passThrough)) {
-      process.stdout.write(`eval:harness: no ${tag} case selected, the ${tag} call is skipped\n`)
-      continue
-    }
-    const outputDir = join(EVALS, 'results', `${stamp}-${tag}`)
+    const outputDir = join(EVALS, 'results', `${stamp}-${call.name}`)
     // The target goes before --tag and --allow-tools: both take a list and would swallow it.
-    const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', tag, '--allow-tools', ...grants(harness)[tag], ...passThrough]
-    process.stdout.write(`eval:harness: ${tag} — claude ${args.join(' ')}\n`)
+    const args = ['plugin', 'eval', harness, ...COMMON, '--output-dir', outputDir, '--tag', call.tag, '--allow-tools', ...grants(harness)[call.tag], ...passThrough, ...call.args]
+    process.stdout.write(`eval:harness: ${call.name} — claude ${args.join(' ')}\n`)
     const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
-    process.stdout.write(`eval:harness: ${tag} exited ${code}\n`)
+    process.stdout.write(`eval:harness: ${call.name} exited ${code}\n`)
     worst = Math.max(worst, code)
-    outputs.push(outputDir)
+    outputs.push({ ...call, outputDir })
   }
   await signalsHandled()
   if (stopped) worst = Math.max(worst, 128 + (constants.signals[stopped] ?? constants.signals.SIGTERM))
@@ -350,7 +435,8 @@ try {
   }
 }
 
-for (const dir of outputs) {
-  process.stdout.write(`${join(dir, 'aggregate-result.json')}\n${join(dir, 'report.html')}\n`)
+for (const { outputDir } of outputs) {
+  process.stdout.write(`${join(outputDir, 'aggregate-result.json')}\n${join(outputDir, 'report.html')}\n`)
 }
+for (const call of outputs) process.stdout.write(`${summary(call)}\n`)
 process.exit(worst)

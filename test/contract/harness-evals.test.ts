@@ -5,7 +5,21 @@
 // temporary HOME, the fixture is a project the Harness scripts recognise (bin/profile exit 0,
 // epic-status sees four tickets), and the build leaves harness/evals/ out of the app's copy.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  chmodSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { constants, homedir, tmpdir, userInfo } from 'node:os'
 import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -595,10 +609,11 @@ describe('harness/evals: reviewer-simplification is the diff the case describes'
 // gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
 // STUB_HANG: the first call writes its pid there and waits a minute before it exits; with
-// STUB_CATCH it exits 0 on a signal instead of being ended by it.
+// STUB_CATCH it exits 0 on a signal instead of being ended by it. STUB_AGGREGATE: every call writes
+// this text as aggregate-result.json into its --output-dir, as claude plugin eval does.
 const STUB = `#!/usr/bin/env node
 const { spawnSync } = require('node:child_process')
-const { appendFileSync, chmodSync, existsSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
+const { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } = require('node:fs')
 const { dirname, join, resolve } = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
@@ -626,6 +641,11 @@ appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
   gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
 }) + '\\n')
+if (process.env.STUB_AGGREGATE) {
+  const outputDir = args[args.indexOf('--output-dir') + 1]
+  mkdirSync(outputDir, { recursive: true })
+  writeFileSync(join(outputDir, 'aggregate-result.json'), process.env.STUB_AGGREGATE)
+}
 if (process.env.STUB_LOCK && calls === 0) chmodSync(args[2], 0o555)
 const code = Number((process.env.STUB_CODES || '0').split(',')[calls] || 0)
 if (process.env.STUB_HANG && calls === 0) {
@@ -1138,6 +1158,298 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     const run = spawnSync(process.execPath, [EVAL_HARNESS], { env: { ...env, CLAUDE_BIN: claude }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
     expect(run.status, run.stderr).toBe(0)
     expect(loggedCalls(log)).toHaveLength(2)
+  })
+})
+
+// The map "eval case -> Harness rule files" (harness/evals/lib/coverage.json) and the pure functions
+// over it (scripts/eval-harness-coverage.mjs), ticket worfy-harness/29. Paths in the map are relative
+// to harness/; the changed paths casesFor takes are relative to the repository root, as git gives them.
+const COVERAGE_MODULE = join(REPO, 'scripts', 'eval-harness-coverage.mjs')
+interface Coverage {
+  cases: Record<string, string[]>
+  uncovered: Record<string, string>
+}
+interface Selection {
+  cases: string[]
+  files: { path: string; cases: string[] }[]
+  uncovered: { path: string; reason: string }[]
+}
+interface CoverageModule {
+  ruleFiles: (harnessDir: string) => string[]
+  readCoverage: (harnessDir: string) => Coverage
+  coverageProblems: (harnessDir: string) => string[]
+  casesFor: (changedPaths: string[], coverage: Coverage, caseNames: string[]) => Selection
+}
+const coverageModule = async (): Promise<CoverageModule> => (await import(COVERAGE_MODULE)) as CoverageModule
+const CASE_NAMES = CASES.map(([name]) => name)
+
+/** A copy filter that leaves <source>/evals/results/ out: run results are no part of the Harness. */
+const withoutResults =
+  (source: string) =>
+  (path: string): boolean => {
+    const inside = relative(source, path)
+    const results = join('evals', 'results')
+    return inside !== results && !inside.startsWith(`${results}${sep}`)
+  }
+
+/** A copy of harness/ in a temporary folder, changed by `edit`. */
+const harnessCopyWith = (edit: (dir: string) => void): string => {
+  const dir = join(tempDir('worfy-eval-coverage-'), 'harness')
+  cpSync(HARNESS, dir, { recursive: true, filter: withoutResults(HARNESS) })
+  edit(dir)
+  return dir
+}
+const writeFileIn = (file: string, text: string): void => {
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, text)
+}
+const editCoverage = (dir: string, change: (coverage: Coverage) => void): void => {
+  const file = join(dir, 'evals', 'lib', 'coverage.json')
+  const coverage = JSON.parse(readFileSync(file, 'utf8')) as Coverage
+  change(coverage)
+  writeFileSync(file, `${JSON.stringify(coverage, null, 2)}\n`)
+}
+
+describe('harness/evals/lib/coverage.json: which case checks which rule file', () => {
+  it('maps every rule file of harness/ either to a case or to a reason, and holds every case', async () => {
+    const { coverageProblems, readCoverage, ruleFiles } = await coverageModule()
+    expect(coverageProblems(HARNESS)).toEqual([])
+    const coverage = readCoverage(HARNESS)
+    expect(Object.keys(coverage.cases).sort()).toEqual([...CASE_NAMES].sort())
+    const mapped = new Set(Object.values(coverage.cases).flat())
+    const files = ruleFiles(HARNESS)
+    for (const file of files) {
+      const reason = coverage.uncovered[file]
+      expect(mapped.has(file) !== (reason !== undefined), file).toBe(true)
+      if (reason !== undefined) expect(reason.trim(), file).not.toBe('')
+    }
+    // Rule files are the skills, the agents, the injected rules and the two files that inject them.
+    expect(files).toEqual(
+      expect.arrayContaining(['skills/epic-wave/SKILL.md', 'agents/implementer.md', 'hooks/rules/orchestrator.md', 'hooks/hooks.json', 'hooks/inject-rules.mjs']),
+    )
+    expect(files.filter((file) => !/^(skills\/.+|agents\/[^/]+\.md|hooks\/rules\/[^/]+\.md|hooks\/hooks\.json|hooks\/inject-rules\.mjs)$/.test(file))).toEqual([])
+  })
+
+  const breaks: [name: string, edit: (dir: string) => void, problem: string][] = [
+    ['a new skill with neither a case nor a reason', (dir) => writeFileIn(join(dir, 'skills', 'new', 'SKILL.md'), '# new\n'), 'not mapped: skills/new/SKILL.md'],
+    [
+      'a file both under a case and in uncovered',
+      (dir) => editCoverage(dir, (coverage) => (coverage.uncovered['skills/epic-wave/SKILL.md'] = 'some reason')),
+      'both under a case and in uncovered: skills/epic-wave/SKILL.md',
+    ],
+    ['a file of a case removed from disk', (dir) => unlinkSync(join(dir, 'agents', 'implementer.md')), 'missing on disk: agents/implementer.md'],
+    ['an uncovered file removed from disk', (dir) => unlinkSync(join(dir, 'skills', 'qmd', 'SKILL.md')), 'missing on disk: skills/qmd/SKILL.md'],
+    ['a case folder with no entry in the map', (dir) => writeFileIn(join(dir, 'evals', 'new-case', 'prompt.md'), '---\ntags: [main]\n---\n'), 'case folder not in the map: new-case'],
+    ['a case of the map with no folder', (dir) => removeTestTree(join(dir, 'evals', 'status-block')), 'case without a folder: status-block'],
+    ['an empty reason', (dir) => editCoverage(dir, (coverage) => (coverage.uncovered['skills/qmd/SKILL.md'] = ' ')), 'empty reason: skills/qmd/SKILL.md'],
+    ['a case that names no rule file', (dir) => editCoverage(dir, (coverage) => (coverage.cases['status-block'] = [])), 'case names no rule file: status-block'],
+    ['a mapped path that is no rule file', (dir) => editCoverage(dir, (coverage) => coverage.cases['status-block']?.push('bin/profile')), 'not a rule file: bin/profile'],
+  ]
+  it.each(breaks)('coverageProblems names %s', async (_, edit, problem) => {
+    const { coverageProblems } = await coverageModule()
+    expect(coverageProblems(harnessCopyWith(edit))).toContain(problem)
+  })
+
+  it('coverageProblems names a map that cannot be read', async () => {
+    const { coverageProblems } = await coverageModule()
+    const problems = coverageProblems(harnessCopyWith((dir) => writeFileSync(join(dir, 'evals', 'lib', 'coverage.json'), '{ not json')))
+    expect(problems).toHaveLength(1)
+    expect(problems[0]).toMatch(/^cannot read evals\/lib\/coverage\.json: /)
+  })
+
+  it('casesFor picks the cases of changed rule files, of changed case folders, and all of them for evals/lib/', async () => {
+    const { casesFor, readCoverage } = await coverageModule()
+    const coverage = readCoverage(HARNESS)
+    const pick = (path: string): Selection => casesFor([path], coverage, CASE_NAMES)
+    expect(pick('harness/skills/epic-wave/SKILL.md').cases).toEqual(['epic-wave-old-form', 'epic-wave-tickets', 'reviewer-verdict'])
+    expect(pick('harness/hooks/rules/orchestrator.md').cases).toEqual(['status-block'])
+    expect(pick('harness/hooks/inject-rules.mjs').cases).toEqual(['status-block'])
+    expect(pick('harness/agents/reviewer.md').cases).toEqual(['reviewer-intended-breakage', 'reviewer-simplification', 'reviewer-verdict'])
+    expect(pick('harness/evals/status-block/graders/x.md').cases).toEqual(['status-block'])
+    expect(pick('harness/evals/lib/demo-project.sh').cases).toEqual([...CASE_NAMES].sort())
+    expect(pick('harness/evals/lib/coverage.json').cases).toEqual([...CASE_NAMES].sort())
+    const qmd = pick('harness/skills/qmd/SKILL.md')
+    expect(qmd.cases).toEqual([])
+    expect(qmd.uncovered).toEqual([{ path: 'harness/skills/qmd/SKILL.md', reason: coverage.uncovered['skills/qmd/SKILL.md'] }])
+    expect(qmd.uncovered[0]?.reason).toMatch(/\S/)
+    expect(pick('src/main/index.ts')).toEqual({ cases: [], files: [], uncovered: [] })
+    expect(pick('harness/bin/profile')).toEqual({ cases: [], files: [], uncovered: [] })
+    expect(pick('harness/evals/results/2026-01-01T00-00-00-000Z-main/aggregate-result.json').cases).toEqual([])
+    // Several paths: each case once, and what each path chose.
+    const many = casesFor(['harness/agents/implementer.md', 'README.md', 'harness/hooks/hooks.json', 'harness/hooks/rules/orchestrator.md'], coverage, CASE_NAMES)
+    expect(many.cases).toEqual(['implementer-report', 'status-block'])
+    expect(many.files).toEqual([
+      { path: 'harness/agents/implementer.md', cases: ['implementer-report'] },
+      { path: 'harness/hooks/hooks.json', cases: ['status-block'] },
+      { path: 'harness/hooks/rules/orchestrator.md', cases: ['status-block'] },
+    ])
+  })
+})
+
+/**
+ * A temporary git repository with copies of scripts/eval-harness.mjs, its two modules and harness/,
+ * the base commit on `main`; `git` runs git in it with a temporary home.
+ */
+function changedRepo(): { repo: string; git: (...args: string[]) => SpawnSyncReturns<string> } {
+  const root = tempDir('worfy-eval-changed-')
+  const repo = join(root, 'repo')
+  const home = join(root, 'home')
+  mkdirSync(home)
+  mkdirSync(join(repo, 'scripts'), { recursive: true })
+  for (const file of ['eval-harness.mjs', 'eval-harness-coverage.mjs', 'remove-tree.mjs']) copyFileSync(join(REPO, 'scripts', file), join(repo, 'scripts', file))
+  cpSync(HARNESS, join(repo, 'harness'), { recursive: true, filter: withoutResults(HARNESS) })
+  writeFileSync(join(repo, '.gitignore'), 'harness/evals/results/\n')
+  writeFileSync(join(repo, 'README.md'), '# repo\n')
+  const env = childEnv(home, {
+    PATH: process.env.PATH,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_AUTHOR_NAME: 'test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  })
+  const git = (...args: string[]): SpawnSyncReturns<string> => spawnSync('git', args, { cwd: repo, env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'base']]) {
+    const step = git(...args)
+    if (step.status !== 0) throw new Error(`git ${args.join(' ')}: ${step.stderr}`)
+  }
+  return { repo, git }
+}
+
+/** Runs the copy of eval-harness.mjs in `repo` against the claude stub, without HARNESS_DIR. */
+function evalIn(repo: string, args: string[], extra: NodeJS.ProcessEnv = {}, codes = '0,0,0,0,0'): { run: SpawnSyncReturns<string>; calls: StubCall[] } {
+  const { log, env } = stubSetup('2.1.289', codes, () => process.env.PATH ?? '', {})
+  delete env.HARNESS_DIR
+  Object.assign(env, extra)
+  const run = spawnSync(process.execPath, [join(repo, 'scripts', 'eval-harness.mjs'), ...args], { env, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+  return { run, calls: loggedCalls(log) }
+}
+
+const aggregate = (fields: Record<string, unknown> = {}): string =>
+  JSON.stringify({ claudeVersion: '2.1.289', costUsd: 0.3, partial: false, aggregates: { casesTotal: 1, casesPassed: 1, overallScore: 1 }, ...fields })
+const lines = (text: string): string[] => text.split('\n')
+
+describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a temporary git repository)', () => {
+  it('runs only the case of an uncommitted change to a rule file, in the main call, and keeps --changed from claude', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const { run, calls } = evalIn(repo, ['--', '--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(1)
+    const args = calls[0]?.args ?? []
+    expect(listAfter(args, '--case')).toEqual(['implementer-report'])
+    expect(listAfter(args, '--tag')).toEqual(['main'])
+    expect(args.join(' ')).not.toMatch(/--changed/)
+    expect(run.stdout).toContain('harness/agents/implementer.md -> implementer-report')
+  })
+
+  it('takes the commits of the branch since its merge-base with the base, and a file in a new untracked folder', () => {
+    const { repo, git } = changedRepo()
+    expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
+    appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
+    expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
+    writeFileIn(join(repo, 'harness', 'evals', 'status-block', 'extra', 'note.md'), 'note\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'main'])
+    expect(run.status, run.stderr).toBe(0)
+    // `claude plugin eval --case` takes one name glob, so each chosen case of a tag is a call of its own.
+    expect(calls.map((call) => listAfter(call.args, '--case'))).toEqual([['epic-wave-old-form'], ['epic-wave-tickets'], ['reviewer-verdict'], ['status-block']])
+    for (const call of calls) expect(listAfter(call.args, '--tag')).toEqual(['main'])
+    expect(new Set(calls.map((call) => listAfter(call.args, '--output-dir')[0])).size).toBe(4)
+  })
+
+  it('makes the usual call of a tag, without --case, when a change chooses every case of it', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'evals', 'lib', 'demo-project.sh'), '\n# a comment\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui']])
+    for (const call of calls) expect(call.args).not.toContain('--case')
+  })
+
+  it('calls no claude and exits 0 when no rule file changed', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'README.md'), 'more\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(run.stdout).toMatch(/no case selected/)
+  })
+
+  it('names a changed rule file that has no case, with its reason, and calls no claude', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'skills', 'qmd', 'SKILL.md'), '\nOne more rule.\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(run.stdout).toMatch(/no case: harness\/skills\/qmd\/SKILL\.md — \S/)
+  })
+
+  const none = (): NodeJS.ProcessEnv => ({})
+  const refusals: [name: string, args: string[], extra: (repo: string) => NodeJS.ProcessEnv, stderr: RegExp][] = [
+    ['a base git does not know', ['--changed', 'no-such-branch'], none, /no-such-branch/],
+    ['--changed with --case', ['--changed', 'HEAD', '--case', 'status-block'], none, /--case/],
+    ['--changed with --tag', ['--changed', 'HEAD', '--tag', 'main'], none, /--tag/],
+    ['--changed with HARNESS_DIR', ['--changed', 'HEAD'], (repo) => ({ HARNESS_DIR: join(repo, 'harness') }), /HARNESS_DIR/],
+    ['--changed with no base', ['--changed'], none, /--changed/],
+  ]
+  it.each(refusals)('exits 1 and calls no claude on %s', (_, args, extra, stderr) => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    const { run, calls } = evalIn(repo, args, extra(repo))
+    expect(run.status, run.stdout).toBe(1)
+    expect(run.stderr).toMatch(stderr)
+    expect(calls).toEqual([])
+  })
+
+  it('exits 1 and calls no claude while the map has a problem', () => {
+    const { repo } = changedRepo()
+    writeFileIn(join(repo, 'harness', 'skills', 'new', 'SKILL.md'), '# new\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('not mapped: skills/new/SKILL.md')
+    expect(calls).toEqual([])
+  })
+})
+
+describe('pnpm eval:harness: one line per call for the PR description, from aggregate-result.json', () => {
+  const implementerChange = (): string => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'agents', 'implementer.md'), '\nOne more rule.\n')
+    return repo
+  }
+
+  it('prints the numbers of the report the call wrote', () => {
+    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate() })
+    expect(run.status, run.stderr).toBe(0)
+    expect(lines(run.stdout)).toContain('eval:harness main: casesPassed 1 of 1, overallScore 1, costUsd 0.3, claudeVersion 2.1.289, cases implementer-report')
+  })
+
+  it('ends the line with ", partial" for a partial run', () => {
+    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], { STUB_AGGREGATE: aggregate({ partial: true }) }, '2')
+    expect(run.status).toBe(2)
+    expect(lines(run.stdout)).toContain('eval:harness main: casesPassed 1 of 1, overallScore 1, costUsd 0.3, claudeVersion 2.1.289, cases implementer-report, partial')
+  })
+
+  it('says so when the call wrote no report, and keeps the exit code of the call', () => {
+    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], {}, '1')
+    expect(run.status).toBe(1)
+    expect(lines(run.stdout)).toContain('eval:harness main: no aggregate-result.json')
+  })
+
+  it('says so when the report is not JSON', () => {
+    const { run } = evalIn(implementerChange(), ['--changed', 'HEAD'], { STUB_AGGREGATE: '{ not json' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(lines(run.stdout)).toContain('eval:harness main: no aggregate-result.json')
+  })
+
+  it('prints the lines without --changed too, counting the cases each call selects', () => {
+    const report = aggregate({ costUsd: 1.4120472000000002, aggregates: { casesTotal: 9, casesPassed: 8, overallScore: 0.8888888888888888 } })
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { STUB_AGGREGATE: report })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+    const main = CASES.filter(([, tag]) => tag === 'main').map(([name]) => name).sort()
+    expect(lines(run.stdout)).toContain(`eval:harness main: casesPassed 8 of ${main.length}, overallScore 0.89, costUsd 1.41, claudeVersion 2.1.289, cases ${main.join(',')}`)
+    expect(lines(run.stdout)).toContain('eval:harness gui: casesPassed 8 of 1, overallScore 0.89, costUsd 1.41, claudeVersion 2.1.289, cases no-os-screen-capture')
   })
 })
 
