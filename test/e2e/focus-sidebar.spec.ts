@@ -582,7 +582,7 @@ test('a request to the main area ends focus mode: an Epic of the sidebar, "Tidy 
     await expect(window.getByRole('main', { name: 'Session' })).toBeVisible()
     await expect(window.locator('.w-shell__view[data-view="session"]')).toBeVisible()
     await expect(window.locator('.w-toolbar')).not.toHaveAttribute('inert', '')
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Canvas' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Canvas' }).click()
     await expect(window.getByRole('main', { name: 'Canvas' })).toBeVisible()
 
     // "Tidy up" of the palette asks the Canvas for something: focus mode gives the Canvas back.

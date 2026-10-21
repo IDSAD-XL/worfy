@@ -3,14 +3,22 @@
 // (a Subagent's band is dashed, in the Session's colour); Ticket, Card and Note carry neither. The
 // status chip never takes a kind colour, and a finished Session is told by its opacity and the word
 // in its chip, not by a hue.
+//
+// The finished look and the Orchestrator's double border are CSS of the Canvas (node-chrome.css):
+// the tests load focus.css and then that file, in the order of the app's built bundle, and draw each Node the
+// way the app holds it — in a React Flow wrapper on the Canvas, or in a focus tile.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import type { ReactElement } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import type { SubagentSummary } from '../../src/renderer/canvas/sources/subagents'
+import { FocusTileContext } from '../../src/renderer/focus/focus-tile'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
+import type { SessionNodeView } from '../../src/shared/ipc/sessions'
 import type { Layout } from '../../src/shared/layout/types'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
 
@@ -19,12 +27,44 @@ vi.mock('../../src/renderer/canvas/badges', () => ({ badges: [], actions: [] }))
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = { id: 'demo-0000000a', name: 'demo', path: ROOT, branch: 'main' }
 const SESSION = 'dddddddd-0000-4000-8000-000000000005'
+const LIVE_NODE = 'live-session-node'
 
 let live: LiveSession[]
+/** main's views of the live Session Node: none means its Session does not run in this run of the app. */
+let views: SessionNodeView[]
+
+const liveView = (state: SessionNodeView['state']): SessionNodeView => ({
+  projectId: PROJECT.id,
+  nodeId: LIVE_NODE,
+  sessionId: 'live-1',
+  sdkSessionId: SESSION,
+  state,
+  error: null,
+  cwd: ROOT,
+  model: null,
+  version: 1,
+})
+
+const sheets: HTMLStyleElement[] = []
+
+beforeAll(() => {
+  // In the order of the built bundle (out/renderer/assets/index-*.css): focus.css comes first.
+  for (const file of ['src/renderer/focus/focus.css', 'src/renderer/canvas/node-chrome.css']) {
+    const style = document.createElement('style')
+    style.textContent = readFileSync(join(process.cwd(), file), 'utf8')
+    document.head.append(style)
+    sheets.push(style)
+  }
+})
+
+afterAll(() => {
+  for (const style of sheets.splice(0)) style.remove()
+})
 
 beforeEach(() => {
   vi.resetModules()
   live = []
+  views = []
   const bridge = {
     invoke: (channel: string) => {
       const value: unknown =
@@ -34,7 +74,9 @@ beforeEach(() => {
             ? { live, history: [] }
             : channel === 'claudeHome.live'
               ? { live }
-              : undefined
+              : channel === 'sessions.views'
+                ? { views }
+                : undefined
       // The Orchestrator's view never answers: its header is drawn without it.
       if (channel === 'orchestrator.view') return new Promise(() => undefined)
       return Promise.resolve(value === undefined ? { ok: false, error: `no ${channel}` } : { ok: true, value })
@@ -49,7 +91,21 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-const inFlow = (element: ReactElement) => render(<ReactFlowProvider>{element}</ReactFlowProvider>)
+type Place = 'canvas' | 'canvas-selected' | 'focus'
+
+/** A Node where the app draws it: in its React Flow wrapper on the Canvas, or in a focus tile. */
+const placed = (element: ReactElement, place: Place = 'canvas') =>
+  place === 'focus' ? (
+    <div className="w-focus__node">
+      <FocusTileContext.Provider value={true}>{element}</FocusTileContext.Provider>
+    </div>
+  ) : (
+    <div className="w-canvas">
+      <div className={place === 'canvas-selected' ? 'react-flow__node selected' : 'react-flow__node'}>{element}</div>
+    </div>
+  )
+
+const inFlow = (element: ReactElement, place: Place = 'canvas') => render(<ReactFlowProvider>{placed(element, place)}</ReactFlowProvider>)
 const propsOf = (id: string, data: unknown, selected = false) => ({ id, data, selected }) as unknown as CanvasNodeProps
 
 /** Every place an element's own paint could name a colour: its inline style and its computed style. */
@@ -82,14 +138,28 @@ function expectNoKind(node: HTMLElement) {
   for (const paint of paintWithin(node)) expect(paint).not.toContain('--kind-')
 }
 
+const expectChipWithoutKind = (node: HTMLElement) => {
+  for (const paint of paintWithin(within(node).getByTestId('session-node-status'))) expect(paint).not.toContain('--kind-')
+}
+
 /** The read-only Node of SESSION, once its status chip says `status`. */
-async function sessionNode(status: string, selected = false): Promise<HTMLElement> {
+async function sessionNode(status: string, place: Place = 'canvas'): Promise<HTMLElement> {
   const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
   const data = { node: { id: `session-${SESSION}`, kind: 'session', data: { origin: 'external', sessionId: SESSION, source: 'terminal', cwd: ROOT } } }
-  inFlow(<SessionNode {...propsOf(`session-${SESSION}`, data, selected)} />)
-  const node = await screen.findByTestId('session-node')
-  await vi.waitFor(() => expect(node.getAttribute('data-status')).toBe(status))
-  return node
+  inFlow(<SessionNode {...propsOf(`session-${SESSION}`, data, place === 'canvas-selected')} />, place)
+  // The Node is drawn again once the Project is known: wait on whichever element is there now.
+  await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe(status))
+  return screen.getByTestId('session-node')
+}
+
+/** A Node of a Session worfy runs (or ran, `saved`), once its status chip says `status`. */
+async function liveSessionNode(status: string, saved: string | undefined, place: Place = 'canvas'): Promise<HTMLElement> {
+  const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
+  const data = { node: { id: LIVE_NODE, kind: 'session', data: saved === undefined ? { origin: 'worfy' } : { origin: 'worfy', sessionId: saved } } }
+  inFlow(<SessionNode {...propsOf(LIVE_NODE, data, place === 'canvas-selected')} />, place)
+  // The Node is drawn again once the Project is known: wait on whichever element is there now.
+  await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe(status))
+  return screen.getByTestId('session-node')
 }
 
 const opacityOf = (element: Element): number => {
@@ -97,47 +167,115 @@ const opacityOf = (element: Element): number => {
   return value === '' ? 1 : Number(value)
 }
 
-describe('Session Node header', () => {
+describe('read-only Session Node', () => {
   it('has the band and the icon of kind-session, and is named a Session', async () => {
-    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli' }]
+    live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'idle', entrypoint: 'cli', name: 'wave-05' }]
     const node = await sessionNode('idle')
     expectKind(node, 'session', '--kind-session')
-    expect(node.getAttribute('aria-label')).toMatch(/^Session /)
+    expect(node.getAttribute('role')).toBe('group')
+    expect(node.getAttribute('aria-label')).toBe('Session wave-05')
   })
 
-  it('a status chip without any kind colour', async () => {
+  it('a title that already starts with "Session" is not prefixed twice', async () => {
+    const node = await sessionNode('finished')
+    expect(within(node).getByTestId('session-node-title').textContent).toBe('Session dddddddd')
+    expect(node.getAttribute('aria-label')).toBe('Session dddddddd')
+  })
+
+  it('a running Session: full opacity, a status chip without any kind colour', async () => {
     live = [{ pid: 100, sessionId: SESSION, cwd: ROOT, status: 'busy', entrypoint: 'cli' }]
     const node = await sessionNode('busy')
-    const status = within(node).getByTestId('session-node-status')
-    for (const paint of paintWithin(status)) expect(paint).not.toContain('--kind-')
+    expectChipWithoutKind(node)
+    expect(node.dataset.finished).toBeUndefined()
     expect(opacityOf(node)).toBe(1)
   })
 
-  it('a finished Session: lower opacity and the word «finished» in its chip, no kind colour on the chip', async () => {
+  it('a finished Session on the Canvas: 60 % opacity and the word «finished» in its chip, no kind colour on the chip', async () => {
     const node = await sessionNode('finished')
-    expect(opacityOf(node)).toBeLessThan(1)
-    expect(opacityOf(node)).toBeGreaterThan(0.4)
-    const status = within(node).getByTestId('session-node-status')
-    expect(status.textContent).toBe('finished')
-    for (const paint of paintWithin(status)) expect(paint).not.toContain('--kind-')
+    expect(node.dataset.finished).toBe('true')
+    expect(opacityOf(node)).toBe(0.6)
+    expect(within(node).getByTestId('session-node-status').textContent).toBe('finished')
+    expectChipWithoutKind(node)
     expectKind(node, 'session', '--kind-session')
   })
 
   it('a selected finished Session is back at full opacity', async () => {
-    const node = await sessionNode('finished', true)
+    const node = await sessionNode('finished', 'canvas-selected')
+    expect(opacityOf(node)).toBe(1)
+  })
+
+  it('a finished Session in a focus tile is at full opacity', async () => {
+    const node = await sessionNode('finished', 'focus')
+    expect(within(node).getByTestId('session-node-status').textContent).toBe('finished')
+    expect(opacityOf(node)).toBe(1)
+  })
+})
+
+describe('live Session Node (a Session worfy runs)', () => {
+  it('running: the band and the icon of kind-session, its name, full opacity, a chip without kind colour', async () => {
+    views = [liveView('idle')]
+    const node = await liveSessionNode('idle', SESSION)
+    expectKind(node, 'session', '--kind-session')
+    expect(node.getAttribute('role')).toBe('group')
+    expect(node.getAttribute('aria-label')).toBe('Session dddddddd')
+    expect(node.dataset.finished).toBeUndefined()
+    expect(opacityOf(node)).toBe(1)
+    expectChipWithoutKind(node)
+  })
+
+  it('a new Node whose Session never ran is not finished', async () => {
+    const node = await liveSessionNode('new', undefined)
+    expect(node.getAttribute('aria-label')).toBe('New session')
+    expect(node.dataset.finished).toBeUndefined()
+    expect(opacityOf(node)).toBe(1)
+  })
+
+  it('finished (its Session does not run in this run of the app): 60 % opacity on the Canvas, «finished» in its chip', async () => {
+    const node = await liveSessionNode('finished', SESSION)
+    expect(node.dataset.finished).toBe('true')
+    expect(opacityOf(node)).toBe(0.6)
+    expectChipWithoutKind(node)
+  })
+
+  it('closed (main ended its Session): finished, as when it does not run', async () => {
+    views = [liveView('closed')]
+    const node = await liveSessionNode('finished', SESSION)
+    expect(node.dataset.finished).toBe('true')
+    expect(opacityOf(node)).toBe(0.6)
+  })
+
+  it('finished and selected: full opacity', async () => {
+    const selected = await liveSessionNode('finished', SESSION, 'canvas-selected')
+    expect(opacityOf(selected)).toBe(1)
+  })
+
+  it('finished in a focus tile: full opacity', async () => {
+    const node = await liveSessionNode('finished', SESSION, 'focus')
     expect(opacityOf(node)).toBe(1)
   })
 })
 
 describe('Orchestrator Node header', () => {
-  it('has the band and the icon of kind-orchestrator, a double border, and is named the Orchestrator', async () => {
+  const mount = async (place: Place) => {
     const { default: OrchestratorNode } = await import('../../src/renderer/canvas/nodes/OrchestratorNode')
-    inFlow(<OrchestratorNode {...propsOf('orch', { node: { data: {} } })} />)
-    const node = screen.getByTestId('orchestrator-node')
+    inFlow(<OrchestratorNode {...propsOf('orch', { node: { data: {} } })} />, place)
+    return screen.getByTestId('orchestrator-node')
+  }
+
+  it('on the Canvas: the band and the icon of kind-orchestrator, a double border, named the Orchestrator', async () => {
+    const node = await mount('canvas')
     expectKind(node, 'orchestrator', '--kind-orchestrator')
+    expect(node.getAttribute('role')).toBe('group')
     expect(node.getAttribute('aria-label')).toBe('Orchestrator')
-    expect(node.classList.contains('w-node-surface--double')).toBe(true)
+    expect(getComputedStyle(node).borderStyle).toBe('double')
+    expect(getComputedStyle(node).borderWidth).toBe('3px')
     for (const paint of paintWithin(within(node).getByTestId('orchestrator-state'))) expect(paint).not.toContain('--kind-')
+  })
+
+  it('in a focus tile: no double border inside the tile frame', async () => {
+    const node = await mount('focus')
+    expectKind(node, 'orchestrator', '--kind-orchestrator')
+    expect(getComputedStyle(node).borderStyle).not.toBe('double')
   })
 })
 

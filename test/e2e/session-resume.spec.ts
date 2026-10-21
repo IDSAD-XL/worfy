@@ -203,7 +203,7 @@ test('the Orchestrator shows the turns of its saved Session after a restart of w
     const { window } = second
     await canvasReady(second)
     expect(await orchestratorSessionId(window)).toBe(saved)
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
     const view = window.getByTestId('session-view')
     await expect(view).toBeVisible()
     await expect(view.getByTestId('transcript-prompt')).toHaveCount(2)

@@ -131,6 +131,13 @@ test('node headers carry the band and the ground of their kind; a finished Sessi
     await expect(nodes.orchestrator).toHaveAccessibleName('Orchestrator')
     await expect(nodes.session).toHaveAccessibleName('Session wave-05')
     await expect(nodes.subagent).toHaveAccessibleName('Subagent impl-05')
+    // The kind icon in the Epic tag leaves the Epic's name whole in the header (HEADER_CHROME_WIDTH, epic-layout.ts).
+    await expect(nodes.epic.getByTestId('kind-icon')).toBeVisible()
+    const fits = await nodes.epic.locator('.w-epic__title').evaluate((element) => {
+      const box = element as unknown as { scrollWidth: number; clientWidth: number }
+      return box.scrollWidth - box.clientWidth
+    })
+    expect(fits).toBeLessThanOrEqual(0)
 
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })

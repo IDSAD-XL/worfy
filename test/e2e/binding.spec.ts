@@ -250,7 +250,7 @@ async function epicReady(launched: LaunchedApp): Promise<void> {
 
 /** Back to the Canvas, with nothing selected: the selection toolbar of the Node just opened would cover its neighbours. */
 async function backToCanvas(window: Page): Promise<void> {
-  await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Canvas' }).click()
+  await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Canvas' }).click()
   await expect(window.getByTestId('canvas')).toBeVisible()
   const pane = await box(window.locator('.react-flow__pane'))
   await window.mouse.click(pane.x + 10, pane.y + pane.height - 10)

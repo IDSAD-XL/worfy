@@ -114,9 +114,6 @@ const styles = {
   error: { flex: 'none', fontSize: 'var(--text-11)', color: 'var(--text-secondary)', overflowWrap: 'anywhere', whiteSpace: 'pre-line' },
   // Files over the Node: the accent ring of a selected Node, dashed like the Session view's field.
   dragging: { borderColor: 'var(--accent)', borderStyle: 'dashed', boxShadow: 'var(--shadow-node), 0 0 0 1px var(--accent)' },
-  // A finished Session (ADR-0077, point 3): told by its opacity and the word in its chip, never by
-  // a hue. Hovering it (node-chrome.css) or selecting it gives it its full opacity back.
-  finished: { opacity: 0.6 },
   chips: { flex: 'none', maxHeight: 64, overflow: 'auto', paddingBottom: 'var(--space-1)' },
   form: { flex: 'none', display: 'flex', gap: 'var(--space-1)', padding: '0 var(--space-3) var(--space-2)' },
   input: {
@@ -133,14 +130,8 @@ const styles = {
   },
 } satisfies Record<string, CSSProperties>
 
-const isFinished = (status: string): boolean => status === 'finished'
-
-/** The surface of a Session Node: its finished look while it is not selected. */
-const surfaceStyle = (status: string, selected: boolean, extra?: CSSProperties): CSSProperties => ({
-  ...styles.root,
-  ...extra,
-  ...(isFinished(status) && !selected ? styles.finished : null),
-})
+/** The Node's accessible name names its kind (kind-icons.tsx), unless its title already does ("New session", "Session 1a2b3c4d"). */
+const sessionLabel = (title: string): string => (/^(new )?session\b/i.test(title) ? title : `Session ${title}`)
 
 /** A drag that carries files, not text or a Node. */
 const hasFiles = (event: DragEvent): boolean => event.dataTransfer.types.includes('Files')
@@ -238,7 +229,9 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   const saved = info.sessionId
   const recorded = saved === undefined ? undefined : history.find((each) => each.sessionId === saved)
   const title = worfySessionTitle(saved, history)
-  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : saved === undefined ? { status: 'ready', label: 'new' } : { status: 'done', label: 'finished' }
+  // Not running (no view, or a closed one) after it has run: finished.
+  const finished = !running && saved !== undefined
+  const chip: { status: Status; label: string } = running ? STATE_CHIPS[view.state] : finished ? { status: 'done', label: 'finished' } : { status: 'ready', label: 'new' }
   const cwd = (running ? view.cwd : undefined) ?? recorded?.cwd ?? project.path
   const busy = running && view.state === 'busy'
   const subject: SlotSubject | null = saved === undefined ? null : { kind: 'session', projectId: project.id, root: project.path, sessionId: saved }
@@ -339,13 +332,13 @@ function LiveSessionNode({ id, selected, info, project }: Pick<CanvasNodeProps, 
   return (
     <div
       className="w-node-surface"
-      style={surfaceStyle(chip.label, selected, dragging ? styles.dragging : undefined)}
+      style={dragging ? { ...styles.root, ...styles.dragging } : styles.root}
       role="group"
-      aria-label={`Session ${title}`}
+      aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-live="true"
       data-node-id={id}
-      data-finished={isFinished(chip.label) || undefined}
+      data-finished={finished || undefined}
       data-session-id={(running ? view.sdkSessionId : null) ?? saved}
       data-cwd={cwd}
       data-status={chip.label}
@@ -489,6 +482,8 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
 
   const session = live?.find((each) => each.sessionId === info.sessionId)
   const chip = live === undefined ? { status: 'ready' as const, label: '…' } : sessionStatus(session)
+  // The registry is read and has no process for it: finished (sessionStatus).
+  const finished = live !== undefined && session === undefined
   const title = session?.name ?? history.find((each) => each.sessionId === info.sessionId)?.title ?? info.name ?? `Session ${info.sessionId.slice(0, 8)}`
   const subject: SlotSubject = { kind: 'session', projectId: project.id, root: project.path, sessionId: info.sessionId }
   // What Hide and Remove leave behind (worfy-week ticket 12): a Session that runs goes on; any other
@@ -498,12 +493,12 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   return (
     <div
       className="w-node-surface"
-      style={surfaceStyle(chip.label, selected)}
+      style={styles.root}
       role="group"
-      aria-label={`Session ${title}`}
+      aria-label={sessionLabel(title)}
       data-testid="session-node"
       data-node-id={id}
-      data-finished={isFinished(chip.label) || undefined}
+      data-finished={finished || undefined}
       data-session-id={info.sessionId}
       data-status={chip.label}
       {...refuseFiles}

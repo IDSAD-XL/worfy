@@ -116,7 +116,7 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const width = await innerWidth(window)
     const title = await box(toolbar.locator('.w-toolbar__title'))
     const items: Record<string, Locator> = {
-      view: toolbar.getByRole('group', { name: 'View' }),
+      view: toolbar.getByRole('group', { name: 'View', exact: true }),
       limits: toolbar.getByTestId('limits-meter'),
       // worfy-harness ticket 13: "Harness not installed" with its Install button (the Claude home of launchApp is a sandbox),
       // and the app version under it in one column (worfy-ui ticket 18).

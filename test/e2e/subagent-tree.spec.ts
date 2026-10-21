@@ -168,7 +168,7 @@ test('the Orchestrator starts Subagents: their Nodes appear, run with a ticking 
     await window.screenshot({ path: test.info().outputPath('subagent-tree-done.png') })
 
     // The Session rail lists the same tree, the done Subagent with its scout in the closed "Done (1)" group.
-    await window.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Session' }).click()
+    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Session' }).click()
     const rail = window.getByTestId('subagents-rail')
     const group = rail.getByTestId('subagents-rail-done')
     await expect(group).toHaveText('Done (1)')

@@ -61,7 +61,7 @@
   display: inline-flex;
   align-items: center;
   /* The kind icon (12 px) leads the word, 4 px apart, and takes 2 px of the left padding: the tag
-     grows by 14 px, inside the slack of HEADER_CHROME_WIDTH (epic-layout.ts). */
+     grows by 14 px, counted in HEADER_CHROME_WIDTH (epic-layout.ts). */
   gap: 4px;
   height: 18px;
   padding: 0 6px 0 4px;
