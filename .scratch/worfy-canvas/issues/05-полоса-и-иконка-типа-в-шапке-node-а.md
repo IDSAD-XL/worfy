@@ -1,7 +1,8 @@
 # 05 — Полоса и иконка типа в шапке Node-а; finished — приглушённая непрозрачность
 
 Type: task
-Status: open
+Status: done 2026-10-21T05:35Z
+PR: #657
 Blocked by: 04
 Source: [spec.md](../spec.md), решения владельца 7 и 8;
 [ADR-0077](../../../docs/adr/0077-node-kind-tokens.md) (цвет по типу Node-а: роли `kind-*`), пункты 1–3 и
@@ -35,14 +36,14 @@ P3, вариант 3a. Код перечитан по main `7dab925f`.
 
 ## Готово, когда
 
-- [ ] Unit `test/unit/node-kind-header.test.tsx`: у Session, Orchestrator, Subagent-а, Epic frame-а —
+- [x] Unit `test/unit/node-kind-header.test.tsx`: у Session, Orchestrator, Subagent-а, Epic frame-а —
       полоса и иконка своей роли; у Ticket-а, Card, Note — нет; chip статуса не использует `--kind-*`
       (вычисленный стиль); finished Session — непрозрачность меньше 1 и слово «finished» в chip-е.
-- [ ] e2e `test/e2e/node-kinds.spec.ts`: снимки `node-kinds` (Session, Orchestrator, Subagent, Epic frame,
+- [x] e2e `test/e2e/node-kinds.spec.ts`: снимки `node-kinds` (Session, Orchestrator, Subagent, Epic frame,
       Ticket рядом) в обеих темах; контраст текста шапки на `tint` — проверка `kind-tokens.test.ts`
       Ticket-а 04 зелёная.
-- [ ] Мутант красный: chip статуса Session красится `--kind-session`.
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
+- [x] Мутант красный: chip статуса Session красится `--kind-session`.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0.
 
 ## Тесты
 
@@ -70,4 +71,39 @@ P3, вариант 3a. Код перечитан по main `7dab925f`.
 
 ## Итог
 
-Заполняется при закрытии.
+Ветка `worfy-canvas/05`. Влит squash-ом c0fb4b32 (PR #657).
+
+- Полоса типа — 4 px сверху шапки цветом `band` своей роли у Orchestrator, Session и Epic frame (у рамки
+  — на всю ширину). Subagent — пунктирная полоса цвета Session (`--kind-subagent`). У Ticket, Card, Note,
+  Terminal, HANDOFF полосы нет.
+- Фон шапки — `tint` своей роли у Orchestrator, Session и Epic frame; у рамки — новый элемент
+  `.w-epic__ground` под шапкой, у свёрнутой рамки — на всю рамку. У Subagent-а `tint` нет.
+- `src/renderer/canvas/kind-icons.tsx` (новый): `KindIcon`, `KindBand` — иконки Orchestrator, Session
+  (`>_`), Subagent, Epic frame. Иконка `aria-hidden`; тип назван в доступном имени Node-а
+  (`role="group"`, «Orchestrator», «Session <title>», «Subagent <name>»; у рамки было «Epic <epic>»).
+  Иконка Epic-а — внутри тега «Epic» (12 px, отступ 4 px).
+- Orchestrator — двойная рамка 3 px; выделение по-прежнему красит её цветом accent.
+- Finished Session — 60 % непрозрачности поверхности Node-а и прежний chip «finished»; наведение и
+  выделение возвращают 1. Это CSS только Canvas-а (`.w-canvas .react-flow__node`), без inline-стиля и без
+  `!important`; плитка focus mode держит свою рамку и показывает finished Session без приглушения.
+  Признак finished берётся из состояния Session, не из текста chip-а; закрытая живая Session тоже finished.
+- Chip-ы и текст статуса цвет типа не берут.
+- `HEADER_CHROME_WIDTH` 470 → 535 (`epic-layout.ts`): замер с запущенным Autopilot — 517.5 px рядом с
+  именем, иконка типа включена; рамка с коротким именем теперь шириной в свою шапку.
+- F-SPEC: новый раздел «Node header» после таблицы Tokens; размер и место иконки — как сделано.
+- Test-ы: новый unit `node-kind-header.test.tsx` (полоса и иконка своей роли у Session, Orchestrator,
+  Subagent-а (пунктир), Epic frame-а; нет у Ticket, Card, Note; chip статуса — ни inline, ни вычисленный
+  стиль не называет `--kind-*`; finished Session — непрозрачность < 1 и «finished», выделенная — 1; живой
+  Session Node: running, new, finished, closed, selected, focus; плитки focus mode; настоящий CSS в порядке
+  bundle-а). Новый e2e `node-kinds.spec.ts`: цвета полосы и фона каждого типа в обеих темах против
+  значений Tokens из F-SPEC, пунктир Subagent-а, Ticket без полосы, доступные имена, finished 0.6 → 1 при
+  наведении → 0.6; снимки `node-kinds` и `node-kinds-finished` в обеих темах. Локаторы группы View в
+  e2e — точное совпадение.
+- Мутанты: chip статуса Session красится `--kind-session` — 2 unit test-а красные; непрозрачность
+  finished 1 — красный; сплошная полоса Subagent-а — красный.
+- Круг ревью 1 (high): BLOCK на 3 medium correctness — запас ширины шапки был 5 px, а не 17; двойная
+  рамка Orchestrator-а в focus mode; finished Session навсегда приглушена в focus mode — и 2 medium
+  пробела test-ов (живой Session Node без test-а). Исправлено вторым коммитом. Круг 2 (medium): PASS.
+- Gate full Mac (2026-10-21, b53e179b + PR): e2e один раз красный на `checks-badges.spec.ts:578` — гонка
+  в самом test-е, её исправил #659; повтор e2e зелёный, 288 passed.
+- Долг (low из ревью) — Ticket [19](19-долг-после-review-wave-3.md).
