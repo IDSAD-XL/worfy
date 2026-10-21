@@ -1,7 +1,7 @@
 # 13 — Полоса «Open»: хвост пути стоит после последней строки host-а, а не рядом с первой
 
 Type: task
-Status: open
+Status: claimed 2026-10-21T15:51Z
 Blocked by: 12, 03
 Source: review PR #630 (Ticket 12), снимок
 `.scratch/worfy-browser/evidence/12-browser-open-bar-long-narrow-light.png`, 2026-10-21.

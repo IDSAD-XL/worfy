@@ -1,7 +1,8 @@
 # 03 — Browser profile: создать и удалить, `persist:` partition, список origin-ов, флажок «доступен Autopilot»
 
 Type: task
-Status: claimed — 2026-10-21
+Status: done 2026-10-21T15:51Z
+PR: #691
 Blocked by: 02, 10, 11, 12
 Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md) (Browser Node), пункт 5
 (Browser profile — у Project-а, на Machine; вход и создание — только пользователь; список origin-ов;
@@ -286,3 +287,13 @@ Mutant-ы круга (в отдельном detached worktree, все красн
 | r2b: считается только `data.profile`, записанный в Node | unit `browser-profile-choice` (2 tests) | 1 |
 | r3: снятая страница не убирает запрос полосы «Open» | unit `browser-open-bar` | 1 |
 
+
+**Круг ревью 2 и merge.** Второй круг review, глубина medium, head `f47b38d0`: VERIFIED, находок high
+и med нет.
+- Пункты круга 1 закрыты.
+- Mutant-ы m1–m10 на изменённых строках дают exit 1.
+- Удаление закрывает только страницы `webview` на partition-е удаляемого Browser profile. Это
+  проверено скриптом на Electron 44.5.1.
+
+Gate full зелёный на main `21406782`, merge — `4a0f0ea3` (gate queue Session «Worfy продолжение»).
+Долги low перенесены в Ticket 14.
