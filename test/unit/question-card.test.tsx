@@ -260,6 +260,26 @@ describe('the question card', () => {
     ])
   })
 
+  it('Enter that ends an IME composition in "Other" neither submits nor moves on', async () => {
+    const card = await renderCard([request()])
+    const other = within(card).getByTestId('question-other')
+    await act(async () => {
+      fireEvent.change(other, { target: { value: 'にほ' } })
+      await Promise.resolve()
+    })
+    let prevented = false
+    await act(async () => {
+      prevented = !fireEvent.keyDown(other, { key: 'Enter', isComposing: true })
+      await Promise.resolve()
+    })
+    expect(answered()).toEqual([])
+    // The Enter is the input method's: the field keeps it.
+    expect(prevented).toBe(false)
+    // Once the composition ended, Enter submits.
+    await key(other, 'Enter')
+    expect(answered()).toEqual([{ sessionId: 's1', requestId: 'q-1', answers: [{ selected: [], other: 'にほ' }] }])
+  })
+
   it('Enter does nothing while the question shown has no answer', async () => {
     const card = await renderCard([request([LAYOUT, CHECKS])])
     await key(options(card)[0]!, 'Enter')
@@ -319,6 +339,16 @@ describe('the question card', () => {
     const cancelled = screen.getAllByTestId('question-card')[1]!
     expect(within(cancelled).getByTestId('question-resolution').textContent).toBe('Cancelled')
     expect(within(cancelled).getByTestId('question-answer-text').textContent).toBe('—')
+  })
+
+  it('a question whose text is a name of an Object property shows its own answer, or "—" without one', async () => {
+    const named = (question: string) => ({ ...DATABASE, question })
+    await renderCard([request([named('__proto__'), named('constructor')])])
+    const { agentEvent } = await import('../../src/shared/agent/events')
+    // The event as it comes over IPC: parsed by the schema, the "__proto__" answer an own key.
+    const resolved = agentEvent.parse(JSON.parse('{"type":"question_resolved","requestId":"q-1","outcome":"answered","answers":{"__proto__":"SQLite"}}'))
+    emit('s1', resolved)
+    expect(within(screen.getByTestId('question-card')).getAllByTestId('question-answer-text').map((each) => each.textContent)).toEqual(['SQLite', '—'])
   })
 
   it('says so when the question is no longer open, and shows main\'s refusal', async () => {

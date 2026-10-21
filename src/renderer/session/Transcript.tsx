@@ -437,11 +437,13 @@ export function Transcript(props: TranscriptProps) {
     const element = log.current
     if (!element) return
     const kept = anchor.current
-    // The anchor serves the next change of the first row only: older rows in front, or not. A read
-    // that ended without new rows on top leaves none to keep in place.
+    // The anchor serves until older rows come in front, or the read ends without them: then there is
+    // none to keep in place. While it reads, the first row can also move on (new records came and
+    // the cap dropped the oldest): the anchor then counts from the new first row and keeps waiting.
     const ended = loadingBefore.current && earlier?.loading !== true
     loadingBefore.current = earlier?.loading === true
-    if (kept !== null && (firstIndex !== kept.firstIndex || ended)) anchor.current = null
+    if (kept !== null && (firstIndex < kept.firstIndex || ended)) anchor.current = null
+    else if (kept !== null && firstIndex > kept.firstIndex) anchor.current = { ...kept, firstIndex, height: element.scrollHeight }
     if (kept !== null && firstIndex < kept.firstIndex) {
       // Older rows came in at the top: the row the reader looked at stays where it was. The rows
       // keep their keys (firstIndex), so it is the same element; if it went (its fold changed),

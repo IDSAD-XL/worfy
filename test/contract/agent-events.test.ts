@@ -279,6 +279,22 @@ describe('agent event schema', () => {
     expect(agentEvent.safeParse({ type: 'result', subtype: 'success', isError: 'no' }).success).toBe(false)
   })
 
+  it('keeps the answer of a question whose text is "__proto__" as an own key', () => {
+    // How it arrives: JSON (a transcript, a Linked machine) or a structured clone, both with an own key.
+    const raw = JSON.parse('{"type":"question_resolved","requestId":"q-1","outcome":"answered","answers":{"__proto__":"Postgres","Which cache?":"Redis"}}') as unknown
+    const parsed = agentEvent.parse(raw)
+    if (parsed.type !== 'question_resolved') throw new Error(parsed.type)
+    expect(Object.hasOwn(parsed.answers, '__proto__')).toBe(true)
+    expect(Object.getPrototypeOf(parsed.answers)).toBe(Object.prototype)
+    expect(Object.entries(parsed.answers)).toEqual([
+      ['__proto__', 'Postgres'],
+      ['Which cache?', 'Redis'],
+    ])
+    expect(agentEvent.safeParse({ ...(raw as object), answers: { a: 1 } }).success).toBe(false)
+    expect(agentEvent.safeParse({ ...(raw as object), answers: ['a'] }).success).toBe(false)
+    expect(agentEvent.safeParse({ ...(raw as object), answers: null }).success).toBe(false)
+  })
+
   it('strips keys the schema does not declare', () => {
     expect(agentEvent.parse({ ...event, extra: 'x' })).toStrictEqual(event)
     const tasks: Extract<AgentEvent, { type: 'background_tasks' }> = { type: 'background_tasks', tasks: [{ taskId: 'a', taskType: 'local_agent', description: 'd' }] }

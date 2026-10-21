@@ -238,6 +238,63 @@ describe('ToastRegion', () => {
       measured.mockRestore()
     }
   })
+
+  it("keeps clear of the Session's message field and of the minimap at the bottom while the Command palette is open", async () => {
+    ;(globalThis as { worfy?: unknown }).worfy = {
+      invoke: () => Promise.resolve({ ok: false, error: 'no bridge' }),
+      on: () => 1,
+      off: () => undefined,
+    }
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const boxes = new Map<Element, DOMRect>()
+    const measured = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return boxes.get(this) ?? new DOMRect(0, 0, 0, 0)
+    })
+    try {
+      const { MessageInput } = await import('../../src/renderer/session/MessageInput')
+      const { ReactFlowProvider } = await import('@xyflow/react')
+      const { default: MiniMapOverlay } = await import('../../src/renderer/canvas/overlays/MiniMapOverlay')
+      const { container } = render(
+        <>
+          <MessageInput sessionId="s" busy={false} history={[]} recipient="Orchestrator" onSend={() => Promise.resolve(null)} onInterrupt={() => undefined} />
+          <ReactFlowProvider>
+            <MiniMapOverlay />
+          </ReactFlowProvider>
+          <div role="dialog" aria-label="Command palette" />
+          <ToastRegion projectId={undefined} />
+        </>,
+      )
+      const section = region()
+      boxes.set(section, new DOMRect(904, 64, 360, 0))
+      Object.defineProperty(section, 'scrollHeight', { configurable: true, value: 150 })
+      // The Command palette takes y 60..500 of the column (x 904..1264 of a 1280 x 768 window).
+      boxes.set(screen.getByRole('dialog', { name: 'Command palette' }), new DOMRect(360, 60, 560, 440))
+      const field = screen.getByTestId('message-input')
+      const minimap = container.querySelector('.react-flow__minimap')
+      expect(minimap).not.toBeNull()
+
+      // The message field with Send at y 600..768: the stack takes the band above it, cut to it.
+      boxes.set(field, new DOMRect(0, 600, 1280, 168))
+      act(() => {
+        showToast({ kind: 'error', text: 'boom' })
+      })
+      expect(section.style.top).toBe('512px')
+      expect(section.style.maxHeight).toBe(`${600 - 12 - 512}px`)
+
+      // The minimap at y 580..768 in its corner: the same.
+      boxes.delete(field)
+      boxes.set(minimap!, new DOMRect(1040, 580, 225, 188))
+      act(() => {
+        showToast({ kind: 'error', text: 'boom again' })
+      })
+      expect(section.style.top).toBe('512px')
+      expect(section.style.maxHeight).toBe(`${580 - 12 - 512}px`)
+    } finally {
+      measured.mockRestore()
+      vi.restoreAllMocks()
+      delete (globalThis as { worfy?: unknown }).worfy
+    }
+  })
 })
 
 // A subscription of a renderer hook that fails (worfy-ui ticket 16, item 8): the failure used to go to

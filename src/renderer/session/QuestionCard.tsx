@@ -116,7 +116,8 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (!open || readOnly !== null || event.metaKey || event.ctrlKey || event.altKey) return
+    // A key that ends or edits an IME composition belongs to the input method (Enter commits the text).
+    if (!open || readOnly !== null || event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return
     const typing = event.target instanceof HTMLInputElement
     if (event.key === 'Enter') {
       // Enter on Decline, Back, Next or a step chip is that button's own press.
@@ -145,7 +146,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
                   {each.header !== '' ? <span className="w-question__chip w-mono">{each.header}</span> : null}
                   <span className="w-question__asked">{each.question}</span>
                   <span className="w-question__given" data-testid="question-answer-text">
-                    {resolution?.answers[each.question] ?? '—'}
+                    {resolution !== null && Object.hasOwn(resolution.answers, each.question) ? resolution.answers[each.question] : '—'}
                   </span>
                 </li>
               ))}
