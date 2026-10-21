@@ -58,7 +58,7 @@ Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файл
 ## Итог
 
 Ветка `worfy-throughput/17`. `pnpm test:e2e` на macOS идёт в 3 worker-а Playwright: wall e2e 565,3 s → 202–207 s
-(−64 %). На других платформах — 1 worker, как раньше.
+(−64 %). На других платформах и в CI — 1 worker, как раньше.
 
 **Почему был `workers: 1` и что сделано с каждой причиной.** Изоляция на каждый запуск в коде уже была;
 жёсткого конфликта между spec-ами нет.
@@ -88,7 +88,8 @@ Source: замер Ticket-а [10](10-время-шагов-gate-и-test-файл
     `epic-frame.spec.ts:335` — 1000 ms; `tidy-up.spec.ts:256` — 2000 ms; `browser-layer.spec.ts:514,530` — отставание
     не больше 1 кадра) и `linked-notify.spec.ts:25` без тихих окон. Все зелёные во всех 5 run-ах.
 
-**Что изменено.** `playwright.config.ts` — `workers: process.platform === 'darwin' ? 3 : 1` с комментарием о замере;
+**Что изменено.** `playwright.config.ts` — `workers: process.platform === 'darwin' && !process.env.CI ? 3 : 1` с комментарием о замере (3 мерили только на Mac
+владельца; runner-ы CI, в том числе ручной job `full-macos`, остаются в 1 worker, пока их не измерят);
 `fullyParallel: false` остаётся (spec-и держат состояние между своими test-ами). `package.json` — `test:package`
 передаёт `--workers=1`: packaged run в несколько worker-ов не мерили. `scripts/test-timings.mjs` — комментарий;
 `test/unit/test-timings.test.ts` — test на отчёт двух worker-ов.
@@ -106,6 +107,7 @@ wall — `stats.duration` JSON-отчёта:
 | 5 | 3 | 201,6 s | 287 / 0 / 0 | 0 |
 
 retries — 0, поэтому любой нестабильный test был бы красным. После run-ов Electron из worktree не осталось.
+Замер шёл с флагом `--workers=N`; значение из конфига без флага первым проверит gate full этого PR.
 
 **Ticket 10.** `node scripts/test-timings.mjs` читает JSON-отчёт run-а в 3 worker-а: «88 files, the run took
 201.9 s», сумма файлов 587,2 s — exit code 0.

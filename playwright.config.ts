@@ -37,13 +37,14 @@ const jsonReport = `${outputDir.replace(/[\\/]+$/, '')}-report.json`
 // take a port the OS picks; specs keep their files in mkdtemp folders. Tests of one file stay in one
 // worker, in order (fullyParallel: false), because specs keep state between their tests.
 //
-// Three workers on macOS, by measurement on the owner's Mac (2026-10-21, 287 tests): one worker
-// 565 s, two 292 s, three 207 s, then three runs in a row at three 202–203 s, all green with no
-// retries. Elsewhere one worker: the Windows PC and the Linux runner were not measured, and several
-// Electron starts at once slow every start there too; some specs time a reaction in milliseconds.
+// Three workers on macOS outside CI, by measurement on the owner's Mac only (2026-10-21, 287
+// tests): one worker 565 s, two 292 s, three 207 s, then three runs in a row at three 202–203 s,
+// all green with no retries. One worker everywhere else: the Windows PC and the GitHub macOS runner
+// (the manual job full-macos, CI set) were not measured and stay at one until they are; several
+// Electron starts at once slow every start, and some specs time a reaction in milliseconds.
 // `--workers=N` on the command line overrides either; `pnpm test:package` passes --workers=1, since
 // the packaged run was not measured in several workers.
-const E2E_WORKERS = process.platform === 'darwin' ? 3 : 1
+const E2E_WORKERS = process.platform === 'darwin' && !process.env.CI ? 3 : 1
 export default defineConfig({
   testDir: 'test/e2e',
   testMatch: '**/*.spec.ts',
