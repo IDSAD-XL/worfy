@@ -336,7 +336,6 @@ export interface ArrangementState {
   record: ArrangementRecord | null
   /** K the frames are drawn with now. */
   columns: number
-  tickets: readonly Pick<Ticket, 'epic' | 'state'>[]
   /**
    * True when every open frame with Tickets shows ELK's answer for its current inputs (or the
    * window has no ELK): the sizes are the ones drawn, not those of the synchronous layout before it.
@@ -346,7 +345,7 @@ export interface ArrangementState {
   shelf: readonly string[]
   /** Those of them collapsed by default: the Layout has no `collapsed` of theirs, no gesture put them there. */
   defaultShelf: readonly string[]
-  /** The Project's folder and workflow model: what the Bindings of its Sessions resolve against. */
+  /** The Project's folder and workflow model: its Tickets, and what the Bindings of its Sessions resolve against. */
   root: string
   model: WorkflowModel
   /** The Sessions on the plane that can be bound (sources/workflow-bindings.ts agentNodes). */
@@ -355,6 +354,34 @@ export interface ArrangementState {
 
 /** Per Project, the last build's arrangement. */
 const arrangements = new Map<string, ArrangementState>()
+/** Per Project, what waits for the next build of its arrangement (`whenSettled`). */
+const arrangementWaiters = new Map<string, Set<() => void>>()
+
+function setArrangement(projectId: string, state: ArrangementState | undefined): void {
+  if (state === undefined) arrangements.delete(projectId)
+  else arrangements.set(projectId, state)
+  const waiters = arrangementWaiters.get(projectId)
+  if (waiters !== undefined) for (const waiter of [...waiters]) waiter()
+}
+
+/**
+ * Resolves once the Project's frames show ELK's answers for their current inputs, or once there is
+ * no arrangement for it any more. No limit: ELK answers every request, a failed one with the
+ * synchronous layout (elk/client.ts).
+ */
+function whenSettled(projectId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (arrangements.get(projectId)?.settled === false) return
+      arrangementWaiters.get(projectId)?.delete(check)
+      resolve()
+    }
+    const waiters = arrangementWaiters.get(projectId) ?? new Set()
+    arrangementWaiters.set(projectId, waiters)
+    waiters.add(check)
+    check()
+  })
+}
 
 /** What the Project's frames were last drawn from, or undefined before its workflow model was read. */
 export function arrangementOf(projectId: string): ArrangementState | undefined {
@@ -376,16 +403,17 @@ export function epicsWithWork(tickets: readonly Pick<Ticket, 'epic' | 'state'>[]
 type AnchorLookup = ReadonlyMap<string, { type?: string | undefined; data: Record<string, unknown> }>
 
 /** What the Bindings of a Project's Sessions are resolved from without React Flow (binding/store.ts). */
-export type SessionBindingsInput = Pick<ArrangementState, 'root' | 'model' | 'sessions'>
+type SessionBindingsInput = Pick<ArrangementState, 'root' | 'model' | 'sessions'>
 
 /**
  * True when the Bindings of the Project's Sessions on the plane are read: main has answered
- * `bindings.get` and the store has the transcript signals of every such Session. A Project without
- * a Session on the plane has none to read.
+ * `bindings.get` (with the Bindings or with an error) and the store has the transcript signals of
+ * every such Session. A Project without a Session on the plane has none to read.
  */
-export function bindingsRead(projectId: string, { root, sessions }: Pick<SessionBindingsInput, 'root' | 'sessions'>): boolean {
+function bindingsRead(projectId: string, { root, sessions }: Pick<SessionBindingsInput, 'root' | 'sessions'>): boolean {
   if (sessions.length === 0) return true
-  return useBindingsStore.getState().manual[projectId] !== undefined && sessions.every((sessionId) => sessionSignalsOf(root, sessionId) !== undefined)
+  const { manual, manualError } = useBindingsStore.getState()
+  return (manual[projectId] !== undefined || manualError[projectId] !== undefined) && sessions.every((sessionId) => sessionSignalsOf(root, sessionId) !== undefined)
 }
 
 /** Resolves to true once bindingsRead(), or to false when `limitMs` passed without it. */
@@ -499,7 +527,7 @@ export function useRepack(projectId: string): () => Promise<void> {
   return useCallback(async () => {
     const state = arrangements.get(projectId)
     if (state === undefined || state.epics.length === 0 || readOnlyNow() !== null) return
-    const activity = await activityNow(projectId, state.tickets, store.getState().nodeLookup, state)
+    const activity = await activityNow(projectId, state.model.tickets, store.getState().nodeLookup, state)
     const now = arrangements.get(projectId) ?? state
     await saveArrangement(projectId, { ...repack(now.epics, now.frames, activity), at: new Date().toISOString() }, ops)
   }, [projectId, ops, store])
@@ -528,30 +556,37 @@ const pendingOrders = new Map<string, string>()
 export const FIRST_OPENING_WAIT_MS = 3000
 
 /**
- * Per Project, the day's write of the first opening: `sending` while it waits for the Bindings and
- * is sent, `sent` until a build reads the record it wrote. No other automatic write goes out
- * meanwhile, so the first opening makes one write, not two.
+ * Per Project, the calendar day whose first-opening write is under way (writeFirstOpening): from
+ * its start until it ends, sent or failed. No other automatic write goes out meanwhile, so the
+ * first opening makes one write, not two.
  */
-const dayWrites = new Map<string, 'sending' | 'sent'>()
+const dayWrites = new Map<string, string>()
 
+const dayKey = (now: Date): string => now.toDateString()
 const today = (record: ArrangementRecord | null): boolean => record !== null && sameDay(record.at, new Date())
+const recordInLayout = (projectId: string): ArrangementRecord | null => readArrangement(currentLayout(projectId)?.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID))
 
 /**
  * The first opening's write: the order "active first" and K afresh, once the Bindings of the
- * Project's Sessions are read, so a live bound agent counts though its anchor is not drawn yet; at
- * the latest after FIRST_OPENING_WAIT_MS, with one line in the log, from what is known by then.
+ * Project's Sessions are read, so a live bound agent counts though its anchor is not drawn yet (at
+ * the latest after FIRST_OPENING_WAIT_MS, with one line in the log, from what is known by then),
+ * and once the frames show ELK's answers, so K is counted from the sizes drawn. Nothing is written
+ * when the Layout has a record of today by then: another screen's, or "Re-pack" during the wait.
  */
 async function writeFirstOpening(projectId: string, start: ArrangementState, nodes: () => AnchorLookup): Promise<void> {
-  dayWrites.set(projectId, 'sending')
+  dayWrites.set(projectId, dayKey(new Date()))
   try {
     if (!(await whenBindingsRead(projectId, start, FIRST_OPENING_WAIT_MS)))
       console.warn(`epic arrangement: the Bindings of Project ${projectId} were not read in ${FIRST_OPENING_WAIT_MS} ms; the day's order counts the live agents known by then`)
     const now = arrangements.get(projectId) ?? start
-    const activity = await activityNow(projectId, now.tickets, nodes(), now)
+    const activity = await activityNow(projectId, now.model.tickets, nodes(), now)
+    // The frames may have changed while the Bindings were read: K waits for ELK's answers again.
+    await whenSettled(projectId)
+    if (today(recordInLayout(projectId))) return
     const last = arrangements.get(projectId) ?? now
     await saveArrangement(projectId, { ...repack(last.epics, last.frames, activity), at: new Date().toISOString() })
   } finally {
-    dayWrites.set(projectId, 'sent')
+    dayWrites.delete(projectId)
   }
 }
 
@@ -583,20 +618,16 @@ export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFl
       if (!today(state.record)) {
         if (!state.settled) return
         checkedDay.current = true
-        // Another mount of this Canvas may have started the write already.
-        if (!dayWrites.has(projectId))
+        // Another mount of this Canvas may have started today's write already.
+        if (dayWrites.get(projectId) !== dayKey(new Date()))
           writeFirstOpening(projectId, state, () => store.getState().nodeLookup).catch((error: unknown) => console.error('epic arrangement: the day\'s write failed:', error))
         return
       }
       if (state.settled) checkedDay.current = true
     }
-    const day = dayWrites.get(projectId)
-    if (day === 'sending') return
-    if (day === 'sent') {
-      // main has the day's record and this build has not read it yet.
-      if (!today(state.record) && today(readArrangement(currentLayout(projectId)?.nodes.find((node) => node.id === EPIC_ARRANGEMENT_ID)))) return
-      dayWrites.delete(projectId)
-    }
+    if (dayWrites.get(projectId) === dayKey(new Date())) return
+    // main has a record of today and this build has not read it yet: it is drawn from the one before.
+    if (!today(state.record) && today(recordInLayout(projectId))) return
     const shelved = new Set(state.defaultShelf)
     const kept = state.record?.order.filter((epic) => !shelved.has(epic))
     if (state.record !== null && kept !== undefined && kept.length < state.record.order.length) {
@@ -798,7 +829,7 @@ export function buildEpicNodes(
     lastNodes.delete(projectId)
     lastShelves.delete(projectId)
     wanted.delete(projectId)
-    arrangements.delete(projectId)
+    setArrangement(projectId, undefined)
     return EMPTY
   }
 
@@ -886,7 +917,7 @@ export function buildEpicNodes(
   const shelved = onShelf.map(({ epic }) => epic.epic)
   const defaultShelf = shelved.filter((epic) => readSaved(savedNodes.get(epicNodeId(epic))).collapsed === undefined)
   const sessions = agentNodes(layout).map((node) => node.data.sessionId as string)
-  arrangements.set(projectId, { frames, epics: names, record, columns: arrangement.columns, tickets: model.tickets, settled, shelf: shelved, defaultShelf, root, model, sessions })
+  setArrangement(projectId, { frames, epics: names, record, columns: arrangement.columns, settled, shelf: shelved, defaultShelf, root, model, sessions })
   const byEpic = new Map(entries.map((item) => [item.epic.epic, item]))
   const shelfOrder = orderFor(
     onShelf.map(({ epic }) => epic.epic),
