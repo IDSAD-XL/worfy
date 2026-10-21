@@ -203,6 +203,12 @@ export function toolStart(name: string, args: readonly string[], env: Env, platf
   // An `.exe` by its full path starts as it is: a WORFY_GH override, or worfy's own executable that
   // runs a `.mjs` one (runGh). Only a bare name is looked for on the Path.
   if (win32.isAbsolute(name) && /\.exe$/i.test(name)) return { file: name, args: [...args], shell: false }
+  // A full path without an extension (WORFY_GH may name gh so): the `.exe` of that folder, as
+  // signInCommand (src/main/github/accounts.ts) finds it; null when the file is not there.
+  if (win32.isAbsolute(name) && win32.extname(name) === '') {
+    const file = findOnPath(win32.basename(name), { PATH: win32.dirname(name) }, exists)
+    return file === null ? null : { file, args: [...args], shell: false }
+  }
   const program = windowsProgram(name, env, exists)
   if (program === null) return null
   if (!program.cmd) return { file: program.file, args: [...args], shell: false }

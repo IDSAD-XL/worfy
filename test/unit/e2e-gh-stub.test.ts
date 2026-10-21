@@ -60,6 +60,16 @@ describe('every e2e start of the app gets the gh stub', () => {
     expect(copies).toEqual([])
   })
 
+  it('a spec that overrides WORFY_GH points it at a path of its own, never a bare name or the test process\'s value', () => {
+    // A spec may hand the app another stand-in (a sandbox gh, one that logs, a missing file), built
+    // with join() or a helper. A string literal (`'gh'`) or the inherited value would let the app
+    // look gh up on the Path again.
+    const loose = files
+      .filter((file) => /WORFY_GH:\s*(?:['"`]|process\.env)/.test(file.text))
+      .map((file) => file.name)
+    expect(loose).toEqual([])
+  })
+
   it('the first-run checks get WORFY_GH', () => {
     expect(readFileSync(join(REPO, 'src', 'main', 'ipc', 'first-run.ts'), 'utf8')).toMatch(/runChecks\(\{[^}]*\bgh: process\.env\.WORFY_GH\b/)
   })

@@ -764,4 +764,11 @@ describe('the gh rows and WORFY_GH', () => {
     expect(toolStart('gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
     expect(looked.length).toBeGreaterThan(0)
   })
+
+  it('toolStart on Windows adds .exe to a full path without an extension, as the sign-in command does', () => {
+    const exists = (path: string): boolean => path === 'C:\\stand-in\\gh.exe'
+    expect(toolStart('C:\\stand-in\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
+    // Not there: the row says gh is missing, and the Path is not searched for another gh.
+    expect(toolStart('C:\\elsewhere\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+  })
 })
