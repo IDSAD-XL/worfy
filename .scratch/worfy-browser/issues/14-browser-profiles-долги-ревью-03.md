@@ -65,3 +65,69 @@ Source: review PR #691 (Ticket 03), круги 1 и 2, находки low, 2026-
   отдельно для всех.
 
 ## Итог
+
+Ветка `worfy-browser/14`, база `origin/main` `657f478e`.
+
+**Что сделано.**
+
+1. «New browser» в меню Canvas и в Command palette кладёт profile в Node при создании: общая
+   функция `newNodeData` (`src/renderer/canvas/overlays/create-items.ts`) и `newBrowserData`
+   (`src/renderer/canvas/nodes/browser-frame.ts`). Один Browser profile — `data.profile` = его id,
+   Browser сразу открывается под ним. Несколько, ни одного или список ещё не прочитан —
+   `data.profile: null`, и выбор остаётся за рамкой «Choose a profile»: спрашивать в самом меню и в
+   palette дороже (подменю в двух местах). Список profile-ов берётся из store окна
+   (`browserProfilesNow`, `src/renderer/browser/profiles.ts`), который держит Browser layer; лишнего
+   чтения из main нет.
+   Правило «старый Browser по `data.url`» в `browserProfileChoice` теперь только для Node без ключа
+   `profile`. Node с `profile: null` под него не попадает: берёт единственный profile или спрашивает.
+   В комментарии записано, когда правило убрать: когда ни в одном сохранённом Layout не останется
+   Browser Node без ключа `profile` (миграция Layout или каждый Canvas открыт сборкой с profile-ами,
+   пока `default` был).
+2. Unit-тест окна «Browser profiles…» — `test/unit/browser-profiles-window.test.tsx`: фокус окна при
+   открытии и Escape; два Browser-а одного profile-а, Browser другого и Note с тем же `data.profile` —
+   в строках «2 Browsers» / «1 Browser», в подтверждении удаления «2 Browsers on this Canvas use it…»;
+   подзаголовок.
+3. Contract-тест удаления (`test/contract/browser-profiles.test.ts`): у fake-страницы режим `goes`
+   (`now` / `later` через 500 ms / `never`). Fake timers только на `setTimeout`/`clearTimeout`.
+   Тест 1: хранилище стирается только после `destroyed`. Тест 2: одна страница ушла, другая висит —
+   за 1999 ms ничего не стёрто, на 2000 ms (`CLOSE_PAGE_MS`) хранилище стирается. Лог fake-а теперь
+   пишет и `destroyed <partition>`.
+4. Ветка `storagePath` в `clearElectronPartition` (`src/main/browser/profiles.ts`) убрана: Electron
+   отдаёт один объект Session на partition, сравнения по identity достаточно. Поле `storagePath`
+   убрано и из mock-а Electron в contract-тесте.
+5. Подзаголовок окна: «each Browser profile keeps its own cookies and logins».
+
+e2e `test/e2e/browser-profile.spec.ts`: после «New browser» из меню при двух profile-ах Node сохранён
+с `profile: null`; «New browser» из Command palette делает второй такой же Node.
+
+**Проверки** (каждый файл отдельно, под `nice -n 10`):
+
+- `pnpm lint` — exit 0; `pnpm typecheck` — exit 0.
+- `test/contract/browser-profiles.test.ts` — exit 0 (18 tests).
+- `test/unit/browser-profiles-window.test.tsx` — exit 0 (3); `test/unit/canvas-menu.test.tsx` —
+  exit 0 (14); `test/unit/browser-profile-choice.test.tsx` — exit 0 (15).
+- e2e под замком: `test/e2e/browser-profile.spec.ts` — exit 0 (2 passed);
+  `test/e2e/browser.spec.ts -g "New browser from the Canvas menu"` — exit 0 (1 passed).
+
+**Mutant-ы** (отдельный detached worktree, каждый — exit 1):
+
+| Mutant | Test-файл | Exit |
+| --- | --- | --- |
+| окно без фильтра по `BROWSER_KIND` | browser-profiles-window | 1 |
+| окно без `focus()` | browser-profiles-window | 1 |
+| удаление: `resolve()` сразу после `close()`, не по `destroyed` | contract browser-profiles | 1 |
+| удаление: `void Promise.all` вместо `await` | contract browser-profiles | 1 |
+| удаление: без запасного таймера `CLOSE_PAGE_MS` | contract browser-profiles | 1 (timeout) |
+| правило по `data.url` и для `profile: null` | browser-profile-choice | 1 |
+| `newBrowserData` всегда `null` | canvas-menu | 1 |
+| `newBrowserData` без ключа вместо `null` | browser-profile-choice | 1 |
+| меню Canvas создаёт `data: {}` | canvas-menu | 1 |
+
+**Не проверено.**
+
+- Путь Command palette в unit-тесте не рендерится (`CanvasFind` тянет много хуков); он вызывает ту же
+  `newNodeData`, что и меню, и проверен e2e при двух profile-ах. Palette при одном profile-е не
+  проверена ни unit-, ни e2e-тестом.
+- Gate fast и полный `pnpm test` не запускались (по брифу); весь `test:e2e` — gate full перед мержем.
+- Что `contents.session === session.fromPartition(...)` в Electron 44 — один объект, проверено
+  косвенно: e2e удаления profile-а с открытой страницей зелёный. Отдельного теста на identity нет.
