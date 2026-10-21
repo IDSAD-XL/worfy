@@ -358,11 +358,13 @@ test('an error of "Add project" stays above the list of Projects and takes no ro
     expect(sectionOf(fresh, 'MachinesSection').bottom - sectionOf(fresh, 'MachinesSection').top).toBe(HEADER)
     const freshEpics = sectionOf(fresh, 'EpicsSection').body
     const freshAdr = sectionOf(fresh, 'AdrSection').body
-    // The column is as high as the page leaves it. In a page of 800×520 (macOS, where the window has
-    // no frame) the sections fit the column, which does not scroll and is used to its end, with both
-    // long lists above their floors: by the CSS about 6 px are left over. On Windows the frame takes
-    // part of the smallest window: the page is 786×458 (measured at 150 %), the column 398 px high for
-    // 442 px of sections, so each long list is at its floor and the column scrolls instead.
+    // The column is the page less 60 px (toolbar 52, padding 8; shell.css, tokens.css), and the
+    // sections need 442 px with both long lists at their floors. In a page of 800×520 (macOS, where
+    // the window has no frame) the column is 460 px: it does not scroll and is used to its end, the
+    // 18 px left over going to the long lists. On Windows the frame takes part of the smallest window:
+    // the page is 786×458 (measured at 150 %), the column 398 px, so each long list is at its floor
+    // and the column scrolls instead. The else branch is that frame; a page of 502 to 519 px would
+    // fit without scrolling and needs a branch of its own.
     if (page.height >= MIN_SIZE.height) {
       expect(fresh.scrollHeight).toBe(fresh.clientHeight)
       expect(freshEpics).toBeGreaterThan(3 * EPIC_ROW)

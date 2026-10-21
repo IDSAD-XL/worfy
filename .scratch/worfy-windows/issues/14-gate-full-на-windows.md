@@ -153,7 +153,7 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
 
   | # | Причина | Падений | Где | Что делаем |
   |---|---|---|---|---|
-  | 1 | Окно задаётся `setSize` (внешний размер), а test меряет `innerWidth` (содержимое). На Windows рамка забирает 14 px ширины и 62 px высоты при 800×520; на macOS у окна нет своей рамки (`titleBarStyle: 'hiddenInset'`) | 92 | `helpers.ts:316` и свои ожидания в `sidebar-sections`, `linked-machines`, `pipeline`, `toolbar`; вероятно `pin-tags`, `epic-frame-undo` | `setContentSize` во всех e2e — PR группы 1 |
+  | 1 | Окно задаётся `setSize` (внешний размер), а test меряет `innerWidth` (содержимое). На Windows рамка забирает 14 px ширины и 64 px высоты (при 150 % окно с минимумом 800×520 выходит 800×522 снаружи, страница 786×458); на macOS у окна нет своей рамки (`titleBarStyle: 'hiddenInset'`) | 92 | `helpers.ts:316` и свои ожидания в `sidebar-sections`, `linked-machines`, `pipeline`, `toolbar`; вероятно `pin-tags`, `epic-frame-undo` | `setContentSize` во всех e2e — PR группы 1 |
   | 2 | Test-ы Terminal печатают команды bash в PowerShell (`SHELL=/bin/sh` на Windows не действует) | 12 | `terminal.spec.ts:40`, `wheel-over-nodes.spec.ts:106`; `src/main/pty.ts:196` | `terminal.spec` проверяет PowerShell (пункт 2 Ticket-а 16); остальным годится любая оболочка |
   | 3 | Test-ы собранного приложения знают только macOS | 6 package + 5 e2e | `packaged.spec.ts:40-52`, `:631` (путь `Library`), `:650`, `:696` (бит исполнения); `install-stable.mjs:93-95` | `packaged.spec` идёт на win32: `win-unpacked\worfy.exe`, `%APPDATA%`, install-stable для Windows |
   | 4 | Stub `epic-status` делит путь по `/` | 6 | `epic-frame.spec.ts:52` | одним PR с 5, 7 и одиночными |
@@ -165,7 +165,7 @@ Source: решения владельца 2026-10-07: Q23 (Windows-раннер�
   Сумма e2e по группам — 126 из 130: 4 test-а в группы не вошли. Их разбор — после повторного
   прогона e2e с PR группы 1.
 - Повторный прогон e2e на ПК 2026-10-22 (масштаб экрана 150 %), main `30031d93` против PR группы 1,
-  слитого с ним локально: красных 136 → 55 (зелёных 144 → 225, всего 301), новых красных нет, 81
+  слитого с ним локально: красных 136 → 55 (зелёных 144 → 225, всего 301: ещё 21 пропущены или не запускались), новых красных нет, 81
   починено. В 20 spec-файлах, которые меняет PR: 37 → 24 красных из 71. На 150 % окно с `minHeight`
   520 после `setSize(800, 520)` получается 800×522 снаружи (страница 786×458), без минимума — 800×520:
   `smallestWindow` допускает внешний размер на 2 px больше `MIN_SIZE`.
