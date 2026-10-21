@@ -12,8 +12,9 @@
 // JSON list of arguments; the tests give a stub). --hidden-dir (or EVAL_OUTCOME_HIDDEN) points at
 // another folder of score specs. --validate checks one score spec and exits.
 //
-// Ctrl-C, SIGTERM or SIGHUP: it finishes the run in hand, puts back any mode it opened on a kept run,
-// scores no more and writes no outcome.json.
+// Ctrl-C, SIGTERM or SIGHUP: it finishes the run in hand (the modes it opened on a kept run come back
+// as that copy ends), scores no more and writes no outcome.json. The handler only notes the signal,
+// so the exit waits for the run in hand.
 //
 // Exit code: 0 — scored; 1 — no aggregate-result.json, a task without a valid score spec, a run that
 // could not be scored or a check that could not tell (outcome.json lists them under problems; the
@@ -23,7 +24,7 @@ import { constants } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { claudeBinary, judgeCommand, loadSpec, restoreOpenedModes, scoreResults } from './eval-outcome-lib.mjs'
+import { claudeBinary, judgeCommand, loadSpec, scoreResults } from './eval-outcome-lib.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const say = (line) => process.stdout.write(`eval:outcome-score: ${line}\n`)
@@ -64,7 +65,6 @@ let signal = null
 for (const name of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(name, () => {
     signal ??= name
-    restoreOpenedModes()
   })
 }
 const { problems, stopped } = await scoreResults({ resultsDir: resolve(resultsDir), hiddenDir: resolve(hiddenDir), judge, log: say, stopped: () => signal })

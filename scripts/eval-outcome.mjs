@@ -41,7 +41,6 @@ import {
   judgeCommand,
   MODEL,
   pluginCopy,
-  restoreOpenedModes,
   runClaude,
   scoreResults,
   taskFolders,
@@ -80,13 +79,13 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-')
 say(`claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}, tasks: ${tasks.join(', ')}`)
 
 // Ctrl-C, SIGTERM and SIGHUP reach claude too; this process outlives it to remove the copies, does
-// not score (the judge is paid) and exits with 128 + the signal number. During the score the handler
-// puts back any mode opened on a kept run, and the score stops before its next run.
+// not score (the judge is paid) and exits with 128 + the signal number. The handler only notes the
+// signal and so defers the exit: during the score the run in hand finishes (the modes opened on a
+// kept run come back as its copy ends), and the score stops before its next run.
 let stopped = null
 for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(signal, () => {
     stopped ??= signal
-    restoreOpenedModes()
   })
 }
 const signalsHandled = () => new Promise((done) => setImmediate(done))

@@ -411,34 +411,14 @@ export function loadSpec(dir) {
 
 // --- the copy of a kept run ------------------------------------------------------------------------
 
-/** The folders and files of kept runs whose mode is open right now, with the mode to put back. */
-const opened = new Map()
-
-/**
- * Puts back every mode `withMode` has opened and not yet closed. The signal handlers of
- * scripts/eval-outcome.mjs and scripts/eval-outcome-score.mjs call it before they exit.
- */
-export function restoreOpenedModes() {
-  for (const [path, mode] of opened) {
-    try {
-      chmodSync(path, mode)
-    } catch {
-      // gone, or not ours to change: nothing left to put back
-    }
-    opened.delete(path)
-  }
-}
-
 /** Runs `fn` with `need` added to the mode of `path` when it lacks it, and puts the mode back. */
 function withMode(path, mode, need, fn) {
   if ((mode & need) === need) return fn()
-  opened.set(path, mode & 0o7777)
   chmodSync(path, (mode | need) & 0o7777)
   try {
     return fn()
   } finally {
     chmodSync(path, mode & 0o7777)
-    opened.delete(path)
   }
 }
 
@@ -469,9 +449,10 @@ function copyTree(src, dst) {
  * A copy of the HOME of a kept run, in a new temporary folder. `claude plugin eval --keep-temp`
  * leaves <root>/out/trace.jsonl, and moves home/ and tmp/ into <root>/sealed/ with mode 000 (claude
  * 2.1.289); a run it could not seal keeps <root>/home. The sealed folder gets only the search bit
- * (its entry `home` is known by name) while home/ is copied, then its mode back; a signal handler
- * puts it back through restoreOpenedModes. Nothing in the kept run is run or written. The working
- * folder is the `cwd` of the trace's init event, relative to <root>/home (`cwd` when it is not there).
+ * (its entry `home` is known by name) while home/ is copied, then its mode back in a `finally`: the
+ * copy is synchronous, so a signal handler runs only after it. Nothing in the kept run is run or
+ * written. The working folder is the `cwd` of the trace's init event, relative to <root>/home (`cwd`
+ * when it is not there).
  * Returns { dir, home, work, events }; the caller removes `dir`.
  */
 export function copyKeptRun(tracePath) {
@@ -548,60 +529,107 @@ function filesAt(work, rev, paths, env) {
   return files
 }
 
-/** A test call with a quoted name: test(, it(, describe(, with .skip, .only and the like. */
-const TEST_CALL = /\b(?:it|test|describe)((?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\\n])*)\2/g
+/**
+ * `text` without its `//` and `/* *\/` comments; strings in '…', "…" and `…` are kept whole. A block
+ * comment leaves its line breaks, so the lines of the code around it stay apart.
+ * shortcut: a regular expression literal that holds a quote or two slashes, and a template literal
+ * with a backtick inside `${…}`, are read as code; replace with a real JavaScript tokenizer when a
+ * task's tests use either in a test body.
+ */
+function stripComments(text) {
+  let out = ''
+  for (let i = 0; i < text.length; ) {
+    const c = text[i]
+    if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1
+      while (j < text.length && text[j] !== c && (c === '`' || text[j] !== '\n')) j += text[j] === '\\' ? 2 : 1
+      out += text.slice(i, j + 1)
+      i = j + 1
+    } else if (c === '/' && text[i + 1] === '/') {
+      const eol = text.indexOf('\n', i)
+      i = eol < 0 ? text.length : eol
+    } else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2)
+      const comment = text.slice(i, end < 0 ? text.length : end + 2)
+      out += ` ${comment.replace(/[^\n]/g, '')}`
+      i += comment.length
+    } else {
+      out += c
+      i++
+    }
+  }
+  return out
+}
+
+/** The index of the `)` that closes the `(` at `open`, skipping strings; the end of `text` when none does. */
+function closingParen(text, open) {
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    const c = text[i]
+    if (c === "'" || c === '"' || c === '`') {
+      i++
+      while (i < text.length && text[i] !== c) i += text[i] === '\\' ? 2 : 1
+    } else if (c === '(') depth++
+    else if (c === ')' && --depth === 0) return i
+  }
+  return text.length
+}
+
+/** A test call with a quoted name: test(, it(, describe(, with .skip, .only and the like, and the x/f forms. */
+const TEST_CALL = /\b(?:x|f)?(?:it|test|describe)((?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2)[^\\\n])*)\2/g
 /** A skip, todo or only marker: a modifier, an option, or the x/f forms. */
 const SKIP_MARK = /\.(?:skip|only|todo)\b|\b(?:skip|only|todo)\s*:\s*(?:true|['"`])|\b(?:xit|xtest|xdescribe|fit|fdescribe)\s*\(/g
-/** The start of an assertion on a line: assert(…), assert.x(…), expect(…). */
-const ASSERTION = /\b(?:assert(?:\.\w+)*|expect)\s*\(/
 
-/** The tests of a test file: name → its assertion lines (from the assertion to the end of the line, spaces collapsed). */
-function testsOf(text) {
-  const calls = [...text.matchAll(TEST_CALL)]
+/**
+ * The tests of a test file without its comments: name → the bodies of the calls of that name, in
+ * order. A body is everything after the name up to the closing `)` of the call, as its lines with
+ * spaces collapsed and empty lines dropped. A describe's body holds the tests inside it.
+ */
+function testsOf(code) {
   const tests = new Map()
-  calls.forEach((call, i) => {
-    const body = text.slice(call.index, calls[i + 1]?.index ?? text.length)
-    const assertions = body
+  for (const call of code.matchAll(TEST_CALL)) {
+    const after = call.index + call[0].length
+    const lines = code
+      .slice(after, closingParen(code, call.index + call[0].indexOf('(')) + 1)
       .split('\n')
-      .map((line) => {
-        const at = line.search(ASSERTION)
-        return at < 0 ? null : line.slice(at).replace(/\s+/g, ' ').trim()
-      })
+      .map((line) => line.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
-    tests.set(call[3], [...(tests.get(call[3]) ?? []), ...assertions])
-  })
+    tests.set(call[3], [...(tests.get(call[3]) ?? []), lines])
+  }
   return tests
 }
 
+/** Whether every line of `base` is in `now`, in the same order: lines were added and none changed. */
+function onlyAdded(base, now) {
+  let at = 0
+  for (const line of now) if (at < base.length && line === base[at]) at++
+  return at === base.length
+}
+
 /**
- * Compares the test files of `base` with the files on disk: a file deleted, a test name gone, an
- * assertion line of an existing test removed or changed, a skip, todo or only marker added. New
- * tests, new files and edits outside the tests are fine.
+ * Compares the test files of `base` with the files on disk, comments left out on both sides: a file
+ * deleted, a test name gone, an existing test whose body changed other than by added lines, a skip,
+ * todo or only marker added. New tests, new lines in a test, new files and edits outside the tests
+ * are fine.
  */
 function testsIntact(work, base, paths, env) {
-  const values = { deleted_files: 0, removed_tests: 0, changed_assertions: 0, added_skips: 0 }
+  const values = { deleted_files: 0, removed_tests: 0, altered_tests: 0, added_skips: 0 }
   for (const [path, blob] of Object.entries(filesAt(work, base, paths, env))) {
     const onDisk = inside(work, path)
     if (!onDisk || !lstatSync(onDisk, { throwIfNoEntry: false })?.isFile()) {
       values.deleted_files++
       continue
     }
-    const before = blob.toString('utf8')
-    const after = readFileSync(onDisk, 'utf8')
+    const before = stripComments(blob.toString('utf8'))
+    const after = stripComments(readFileSync(onDisk, 'utf8'))
     if (before === after) continue
-    const was = testsOf(before)
     const now = testsOf(after)
-    for (const [name, assertions] of was) {
-      if (!now.has(name)) {
-        values.removed_tests++
-        continue
-      }
-      const left = [...now.get(name)]
-      for (const assertion of assertions) {
-        const at = left.indexOf(assertion)
-        if (at < 0) values.changed_assertions++
-        else left.splice(at, 1)
-      }
+    for (const [name, bodies] of testsOf(before)) {
+      const nowBodies = now.get(name) ?? []
+      bodies.forEach((body, i) => {
+        if (i >= nowBodies.length) values.removed_tests++
+        else if (!onlyAdded(body, nowBodies[i])) values.altered_tests++
+      })
     }
     values.added_skips += Math.max(0, (after.match(SKIP_MARK) ?? []).length - (before.match(SKIP_MARK) ?? []).length)
   }
@@ -674,7 +702,10 @@ function runChecks(spec, copy, answer, judge) {
   const env = { PATH: process.env.PATH, HOME: scoreHome, USERPROFILE: scoreHome, TMPDIR: scoreTmp, TMP: scoreTmp, TEMP: scoreTmp, GIT_CONFIG_NOSYSTEM: '1' }
   // Node and git on Windows need SystemRoot.
   if (process.env.SystemRoot) env.SystemRoot = process.env.SystemRoot
-  const gitEnv = { ...env, GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: '0' }
+  // GIT_NO_LAZY_FETCH: a promisor remote in the copy's config would run its upload-pack command on
+  // this machine to fetch a missing object. GIT_NO_REPLACE_OBJECTS: a replace ref would show another
+  // object in place of the base test file.
+  const gitEnv = { ...env, GIT_CONFIG_GLOBAL: devNull, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
   const checks = {}
   let judgeCostUsd = 0
   // A check that cannot give an answer (it throws) is unknown, not failed: see unknownChecks.
@@ -811,9 +842,36 @@ export const unknownChecks = (record) =>
     .filter(([, check]) => check.pass === null && check.error)
     .map(([name, check]) => `check ${name}: ${check.error}`)
 
+/** The references of a condition or a mean: "check", "check.field" or "trace.signal". */
+function refsOf(expr) {
+  if (typeof expr === 'string') return [expr]
+  if (expr.not !== undefined) return refsOf(expr.not)
+  return (expr.all ?? expr.any).flatMap(refsOf)
+}
+
+/**
+ * The fields the metrics read from a judge that answered without them, as lines "check <name>: the
+ * judge gave no <field>". A bare reference to a judge check reads its `pass`.
+ */
+function missingJudgeFields(spec, record) {
+  const judges = new Set(spec.checks.filter((check) => check.kind === 'judge').map((check) => check.name))
+  const missing = new Set()
+  for (const def of Object.values(spec.metrics)) {
+    for (const ref of refsOf(def.rate ?? def.mean)) {
+      const [name, ...rest] = ref.split('.')
+      const values = record.checks[name]?.values
+      if (!judges.has(name) || !values) continue
+      const field = rest.join('.') || 'pass'
+      if (values[field] === undefined || (field === 'pass' && typeof values.pass !== 'boolean')) missing.add(`check ${name}: the judge gave no ${field}`)
+    }
+  }
+  return [...missing]
+}
+
 /**
  * Scores one run: copies its HOME, runs the checks, reads the trace, computes every metric of the
- * spec; the copy is removed. Returns the run record; `problems` lists the checks that could not tell.
+ * spec; the copy is removed. Returns the run record; `problems` lists the checks that could not tell
+ * and the fields a metric reads that the judge did not give.
  */
 export function scoreRun({ tracePath, spec, judge }) {
   const copy = copyKeptRun(tracePath)
@@ -823,7 +881,7 @@ export function scoreRun({ tracePath, spec, judge }) {
     const trace = traceSignals(copy.events)
     const record = { checks, trace, tokens: traceTokens(copy.events), score_judge_cost_usd: judgeCostUsd, final_answer: answer }
     record.metrics = Object.fromEntries(Object.entries(spec.metrics).map(([name, def]) => [name, metricValue(def, record)]))
-    record.problems = unknownChecks(record)
+    record.problems = [...unknownChecks(record), ...missingJudgeFields(spec, record)]
     return record
   } finally {
     removeTree(copy.dir)
