@@ -20,7 +20,7 @@ import { removeTestTree } from '../remove'
 import { build, checkTarget, dir, head, installerDir, installStable, junction, leftoverName, links, local, onDisk, registrations, REMOVE_ROUNDS, REPO, run, stamp, targetIn, useStandInBuild, WIN_HOME, WINDOWS } from './install-stable-harness'
 
 /**
- * macOS: a copy of /bin/sleep at `program` that keeps running. A plain copy of an Apple binary
+ * A copy of /bin/sleep at `program` that keeps running. A plain copy of an Apple binary
  * fails the code-signature check and the kernel kills it with SIGKILL within moments of its start;
  * the refusal tests then passed only when the script listed processes before the kill, and went
  * red under a loaded gate. An ad-hoc signature makes the copy a program of its own that runs.
@@ -29,7 +29,8 @@ const sleepCopyAt = (program: string): void => {
   mkdirSync(dirname(program), { recursive: true })
   copyFileSync('/bin/sleep', program)
   chmodSync(program, 0o755)
-  execFileSync('codesign', ['--sign', '-', '--force', program], { stdio: 'ignore' })
+  // Linux (CI) runs these cases too: it has no codesign and does not kill the copy.
+  if (process.platform === 'darwin') execFileSync('codesign', ['--sign', '-', '--force', program], { stdio: 'ignore' })
 }
 
 /**
