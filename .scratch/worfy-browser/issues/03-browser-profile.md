@@ -153,9 +153,10 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
   (`src/shared/browser/partition.ts`). Он назван по id, поэтому переименование сохраняет логины
   (решение 4). Id нового profile-а — slug имени и 6 случайных hex-цифр: partition удалённого
   profile-а никогда не достаётся новому, даже с тем же именем.
-- **Default** (id `default`, partition как у ticket-а 10) создаётся при первом чтении, только когда
-  файла нет. Список, который пользователь опустошил, остаётся пустым — поэтому Default можно
-  по-настоящему удалить (решение 5).
+- **Default** (id `default`, partition как у ticket-а 10) есть у Project-а, пока у него нет файла.
+  Чтение файла не пишет (круг ревью 1): файл появляется при первом create, update или delete.
+  Список, который пользователь опустошил, остаётся пустым — поэтому Default можно по-настоящему
+  удалить (решение 5).
 - **Origin** — только `http(s)://host[:port]`, без пути, query, fragment, user и без `*` (решение 2);
   хранится в написании браузера (`new URL().origin`).
 - **Каналы** `browser.profiles.list` (read), `.create`, `.update`, `.delete` (write) и событие
@@ -164,8 +165,9 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
   `test/unit/link-access.test.ts` добавлены четыре канала в списки read и write — правка вне
   trail-а, согласована с координатором.
 - **Удаление**: сначала profile уходит из файла (attach на его partition сразу отклоняется — список
-  partition-ов читается при каждом attach, `src/main/index.ts`), потом стирается хранилище
-  partition-а (`clearStorageData`, `clearCache`, `clearAuthCache`). Если стереть не вышло — ошибка
+  partition-ов читается при каждом attach, `src/main/index.ts`), потом закрываются страницы
+  `<webview>`, ещё открытые на этом partition-е, и только затем стирается его хранилище
+  (`clearStorageData`, `clearCache`, `clearAuthCache`). Если стереть не вышло — ошибка
   с причиной; profile к этому моменту уже удалён.
 - **`src/main/window.ts` не менялся** (его правит открытый PR #683). `guardBrowserSession` уже ставит
   обработчики разрешений на session каждого partition-а при attach; contract test это доказывает
@@ -222,10 +224,65 @@ Source: [spec.md](../spec.md); [ADR-0078](../../../docs/adr/0078-browser-node.md
 **Не проверено:**
 
 - UI на read-only экране e2e не проходит; отказ на запись проверен contract test-ом на каналах.
-- Гонка: страница, ещё открытая под удаляемым profile-ем, может записать куку после стирания, пока
-  renderer её не закрыл. Смягчено тем, что id не используется повторно: такой partition больше
-  никто не откроет.
+- Закрытие страниц перед стиранием проверено contract test-ом на mock-е Electron (порядок «close,
+  потом storage»), а не настоящим Electron. Страница, которая не закрылась за 2 секунды, не держит
+  стирание: оно идёт дальше. Новая страница на этом partition-е открыться уже не может — attach
+  отклонён с момента записи файла.
 - Два окна одновременно пишут `data.profile` одного Node — запись одинаковая, но test-а нет.
 - e2e написан после кода, красным не показан. Общий partition двух profile-ов покрыт mutant-ом 1 в
   unit и contract test-ах.
 - Полный `pnpm test` и gate fast по брифу не запускались — их делает CI. Windows не запускался.
+
+### Круг ревью 1
+
+Ревью PR #691 (глубина high, 4 линзы): две находки med и девять low. Исправлено всё в коммите
+«reading the list writes no file…» той же ветки.
+
+- **med 1 — чтение писало файл.** `list()` для Project-а без файла отдаёт Default и ничего не
+  пишет, как `ids()`: `browser.profiles.list` — read-канал, а read-only Linked machine не должна
+  создавать файл на Machine владельца (ADR-0066). Contract test read-only экрана теперь проверяет,
+  что после чтения файла нет; первый test канала — что файл появляется только при create.
+- **med 2 — число Browser-ов в подтверждении удаления.** Подсчёт вынесен в чистую функцию
+  `browserProfileUsage` (`src/renderer/canvas/nodes/browser-frame.ts`). Unit tests: несколько
+  Browser-ов одного profile-а; старый Node только с `data.url`; новый Node при одном и при
+  нескольких profile-ах; Node удалённого profile-а; loading.
+- **low 3 — запрос полосы «Open» у страницы, ушедшей из слоя.** Код уже снимал его: cleanup
+  страницы в `BrowserLayer.tsx` вызывает функцию, которую вернул `registerBrowserPage`, а она
+  вызывает `dismissBrowserOpenRequest` (`browser-frame.ts`). Посылка находки неверна, кода не
+  добавлено. Добавлен unit test: страница снята — полосы нет; страница нарисована снова под другим
+  profile-ем — полосы нет.
+- **low 4** — перед стиранием закрываются guest-страницы этого partition-а (`webContents.close()`,
+  ожидание `destroyed` до 2 секунд).
+- **low 5** — схема файла отклоняет два profile-а с одним id.
+- **low 6** — `LEGACY_PROFILE` заменён на `DEFAULT_BROWSER_PROFILE`.
+- **low 7** — разбор списка origin-ов один для main и renderer: `readOrigins` в
+  `src/shared/browser/profiles.ts`, с удалением дублей.
+- **low 8** — тексты: кавычки `"…"` вместо «ёлочек» в UI и ошибке main; «Browser profile» вместо
+  голого «profile» в подсказке origin-ов, в подтверждении удаления и в поле нового profile-а.
+- **low 9** — окно при открытии берёт фокус, Escape закрывает его сразу.
+- **low 10** — tests main: rename в занятое имя (в любом регистре) отклонён; update только имени
+  сохраняет origin-ы и флажок; `browser.profiles.changed` уходит после create, update и delete
+  (и после неудачного стирания), не уходит после чтения и отклонённого create; нечитаемый файл
+  при attach — отложен в сторону, Project снова на Default, другой Project не задет; Project,
+  чью папку данных не прочитать, без partition-ов.
+- **low 11** — e2e до удаления проверяет, что кука `kept` есть в session.
+- Комментарий `browserProfileChoice` ссылается на этот «Итог» и PR #682 как причину выбора
+  profile-а в рамке.
+
+| Команда | exit code |
+|---|---|
+| `pnpm lint` | 0 |
+| `pnpm typecheck` | 0 |
+| unit `browser-profiles`, `browser-profile-choice`, `browser-open-bar`, `link-access`, `webview-attach-policy` | 0 каждый |
+| contract `browser-profiles` | 0 |
+| e2e `test/e2e/browser-profile.spec.ts` с `WORFY_EVIDENCE_DIR` (2 passed; снимки обновлены — новые тексты окна) | 0 |
+
+Mutant-ы круга (в отдельном detached worktree, все красные):
+
+| Mutant | Красный test | exit code |
+|---|---|---|
+| r1: чтение снова пишет Default в файл | contract `browser-profiles` (4 tests) | 1 |
+| r2a: каждый используемый profile считается за 1 Browser | unit `browser-profile-choice` | 1 |
+| r2b: считается только `data.profile`, записанный в Node | unit `browser-profile-choice` (2 tests) | 1 |
+| r3: снятая страница не убирает запрос полосы «Open» | unit `browser-open-bar` | 1 |
+
