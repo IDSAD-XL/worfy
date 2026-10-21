@@ -164,6 +164,32 @@ for label in 'Goal:' 'Repository:' 'Ticket: ' '; spec: ' 'Worktree:' 'Base:' 'Fi
     'GUI checks: yours | not yours'; do
     check "epic-wave brief label '$label'" bash -c '[[ "$1" == *"$2"* ]]' _ "$brief" "$label"
 done
+# Temporary HOME: the brief line, when to set it, the recipe (the same text as in agents/implementer.md
+# and agents/reviewer.md, agents-text.test.sh), and the verifier's brief carries the line too.
+check "epic-wave brief label 'Temporary HOME: yes | no'" bash -c '[[ "$1" == *"$2"* ]]' _ "$brief" 'Temporary HOME: yes | no'
+RECIPE='H="$(node "${CLAUDE_PLUGIN_ROOT}/hooks/eval-env.cjs" harness-home)"   # the real Harness home, before HOME changes
+T="$(mktemp -d)"; TW="$(cd "$T" && { pwd -W 2>/dev/null || pwd; })"   # TW: the folder as Windows names it (Git Bash)
+: > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+( export HOME="$T" USERPROFILE="$TW"; <commands.verify> ); echo "EXIT=$?"
+( export HOME="$T" USERPROFILE="$TW" HARNESS_HOME="$H"; node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null ); echo "EXIT=$?"'
+sec2="$(awk '/^## 2\./{p=1; next} /^## /{p=0} p' "$EW")"
+sec3="$(awk '/^## 3\./{p=1; next} /^## /{p=0} p' "$EW")"
+flat() { tr '\r\n' '  ' <<<"$1" | tr -s ' '; }
+in_flat() { [[ "$(flat "$1")" == *"$2"* ]]; } # $1 = text, $2 = literal sentence; line breaks as spaces
+check "epic-wave section 2: the temporary HOME recipe, word for word" bash -c '[[ "$1" == *"$2"* ]]' _ "$sec2" "$RECIPE"
+check "epic-wave section 2: the brief always fills Temporary HOME" in_flat "$sec2" 'The brief always fills the "Temporary HOME" line too.'
+check "epic-wave section 2: when Temporary HOME is yes, when no" in_flat "$sec2" \
+    '`yes` when the tests or checks of the ticket must not touch the real home folder: "Write to ~/.claude" is `forbidden` and the tests may still write under HOME (a real Claude Code, the Agent SDK, an installer, a tool'"'"'s cache or config), or the run must not read the developer'"'"'s own shell rc files. `no` — the agent runs with its own HOME.'
+check "epic-wave section 2: the verifier's brief carries Temporary HOME" in_flat "$sec2" \
+    'The verifier'"'"'s brief (section 3) carries the same "Scratchpad", "Write to ~/.claude" and "Temporary HOME" lines'
+EXIT3_RULE='An exit 3 of the gate under a temporary HOME without `HARNESS_HOME` is an error of the run'"'"'s environment, not of the code: run the gate again by the recipe, and do not take that exit 3 for the gate'"'"'s verdict.'
+check "epic-wave section 2: the whole exit-3 rule under a temporary HOME" in_flat "$sec2" "$EXIT3_RULE"
+check "epic-wave section 3: the verifier runs the gate by the recipe, with the whole exit-3 rule" in_flat "$sec3" \
+    'With "Temporary HOME: yes" in its brief the verifier runs the gate by the recipe of section 2. '"$EXIT3_RULE"
+check "epic-wave section 2: the gate's writes into the real Harness home are allowed" in_flat "$sec2" \
+    'With `HARNESS_HOME` on the real Harness home the gate writes its verdict, markers and cache there (`<HARNESS_HOME>/gate/state`), as it does without a temporary HOME. That write is allowed whatever the brief'"'"'s line "Write to ~/.claude" says: it is the Harness home, not the transcripts in `~/.claude/projects`.'
+check "epic-wave section 2: the Harness home is read before HOME changes, Windows gets USERPROFILE" in_flat "$sec2" \
+    'Node takes the home folder from HOME, and on Windows from USERPROFILE, so both point at the temporary folder'
 # GH_TOKEN comes from the plugin's SessionStart hook: the brief has no "GitHub:" line.
 for old in 'GitHub:' 'Цель:' 'Репозиторий:' 'Тикет:' 'Дерево:' 'База:' 'След по файлам:' 'Номера:' 'Следы соседей' 'Запись в' 'GUI-проверки'; do
     check "epic-wave brief has no old label '$old'" bash -c '[[ "$1" != *"$2"* ]]' _ "$brief" "$old"
@@ -735,6 +761,46 @@ for sh in "${SHELLS[@]}"; do
     got="$(run_deploy "$sh" "$ENV_PL")"
     check "$sh: a successful Deployment of a commit that contains the merge — deployed" bash -c '[[ "$1" == *"DEPLOYED=$2"* ]]' _ "$got" "$(c 4)"
 done
+# 10. The temporary HOME recipe of section 2 runs. It is cut out of the skill, with `true` for
+# <commands.verify>, and runs in a temporary git repository that a stand-in registry of a stand-in
+# home registers. The recipe's gate finds that registry: both EXIT=0 and the green line. The same
+# gate under a temporary HOME without HARNESS_HOME finds none: exit 3. With only EVAL_HARNESS_HOME
+# of an eval run set, the recipe's own helper call must find <repository>/.git/worfy-harness: the
+# variable is unset before the gate line, so the gate cannot find that folder by itself. The
+# stand-in home is left untouched. The recipe's `mktemp -d` folders go under "$RT/tmp", inside the
+# test's own temporary tree, so the trap removes them: a mktemp first on PATH gives a bare
+# `mktemp -d` a template under TMPDIR, because the mktemp of recent macOS ignores TMPDIR.
+RT="$T/recipe"; mkdir -p "$RT/home" "$RT/home2" "$RT/home3" "$RT/repo" "$RT/tmp" "$RT/bin"
+RT="$(cd "$RT" && { pwd -W 2>/dev/null || pwd -P; })"                   # the spelling node reads
+recipe="$(skill_block "$EW" 'eval-env.cjs" harness-home' | sed 's/<commands\.verify>/true/')"
+check "the recipe block is cut out of the skill" test -n "$recipe"
+# The same recipe with EVAL_HARNESS_HOME unset just before the gate line: only H can carry it on.
+printf '#!/bin/sh\n[ "$*" = -d ] && exec "%s" -d "$TMPDIR/tmp.XXXXXXXX"\nexec "%s" "$@"\n' "$(command -v mktemp)" "$(command -v mktemp)" >"$RT/bin/mktemp"
+chmod +x "$RT/bin/mktemp"
+recipe_eval="$(awk '/hooks\/gate\.mjs/ { print "unset EVAL_HARNESS_HOME" } { print }' <<<"$recipe")"
+if on_windows; then PMS="$RT/pm.cmd"; printf '@echo off\r\nexit /b 0\r\n' >"$PMS"; else PMS="$RT/pm"; printf '#!/bin/sh\nexit 0\n' >"$PMS"; chmod +x "$PMS"; fi
+echo '{ "name": "r", "scripts": { "lint": "true" } }' >"$RT/repo/package.json"
+git init -q -b main "$RT/repo" && git -C "$RT/repo" add -A && git -C "$RT/repo" -c user.email=t@t -c user.name=t commit -q -m init
+registry() { mkdir -p "$1/gate"; printf '{"repos":[{"key":"t","match":"%s","pm":"%s","root":{"fast":["lint"]},"workspace":{}}]}\n' "$RT/repo" "$PMS" >"$1/gate/config.json"; }
+registry "$RT/home/.claude/worfy-harness"; registry "$RT/repo/.git/worfy-harness"
+clean_env=(env -u HARNESS_HOME -u EVAL_HARNESS_HOME -u CLAUDE_GATE_CONFIG -u CLAUDE_GATE_STATE -u CLAUDE_GATE_RESOLVE GATE_SCOPE=all CLAUDE_PLUGIN_ROOT="$HARNESS" TMPDIR="$RT/tmp" PATH="$RT/bin:$PATH")
+short() { local t="${1//$'\n'/ }"; printf '%s' "${t:0:200}"; }   # one line of output for a failed check
+for sh in "${SHELLS[@]}"; do
+    out="$(cd "$RT/repo" && "${clean_env[@]}" HOME="$RT/home" USERPROFILE="$RT/home" "$sh" -c "$recipe" 2>&1)"
+    check "$sh: the recipe — both commands EXIT=0, gate green${out:+ — got: $(short "$out")}" \
+        bash -c '[ "$(grep -c "^EXIT=0$" <<<"$1")" -eq 2 ] && grep -q "^\[gate\] green (fast)" <<<"$1"' _ "$out"
+    out="$(cd "$RT/repo" && "${clean_env[@]}" HOME="$RT/home2" USERPROFILE="$RT/home2" EVAL_HARNESS_HOME=worfy-harness "$sh" -c "$recipe_eval" 2>&1)"
+    check "$sh: the recipe with only EVAL_HARNESS_HOME — gate green on <repository>/.git/worfy-harness${out:+ — got: $(short "$out")}" \
+        bash -c '[ "$(grep -c "^EXIT=0$" <<<"$1")" -eq 2 ] && grep -q "^\[gate\] green (fast)" <<<"$1"' _ "$out"
+done
+check "the recipe's gate wrote its verdict into the stand-in Harness home" bash -c 'ls "$1"/verdict-* >/dev/null 2>&1' _ "$RT/home/.claude/worfy-harness/gate/state"
+check "with only EVAL_HARNESS_HOME the stand-in home stays empty" test -z "$(ls -A "$RT/home2")"
+check "the recipe's temporary folders are under the test's TMPDIR (one per run)" \
+    test "$(ls -A "$RT/tmp" | wc -l | tr -d ' ')" -eq $((2 * ${#SHELLS[@]}))
+out="$(cd "$RT/repo" && "${clean_env[@]}" HOME="$RT/home3" USERPROFILE="$RT/home3" node "$HARNESS/hooks/gate.mjs" fast </dev/null 2>&1)"; rc=$?
+check "the gate under a temporary HOME without HARNESS_HOME — exit 3, not verified — got $rc: $(short "$out")" \
+    bash -c '[ "$1" -eq 3 ] && grep -q "^\[gate\] not verified" <<<"$2"' _ "$rc" "$out"
+
 home_after="$(real_home_snapshot "$REAL_HOME" "$T")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" test "$home_before" = "$home_after"
 

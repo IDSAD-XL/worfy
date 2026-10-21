@@ -159,6 +159,32 @@ Rules of evidence:
 - "Green" means an exit code. Run the checks yourself, without filters that swallow the exit code:
   `<commands.verify>; echo "EXIT=$?"`; targeted — `commands.test_one`. Environment requirements —
   `commands.requires`, specifics of the checks — `rules.md`. A pipe only under `set -o pipefail`.
+- With `Temporary HOME: yes` in the brief, run the checks and the gate with HOME in a temporary
+  folder, by this recipe:
+  ```bash
+  H="$(node "${CLAUDE_PLUGIN_ROOT}/hooks/eval-env.cjs" harness-home)"   # the real Harness home, before HOME changes
+  T="$(mktemp -d)"; TW="$(cd "$T" && { pwd -W 2>/dev/null || pwd; })"   # TW: the folder as Windows names it (Git Bash)
+  : > "$T/.zshenv"; : > "$T/.zprofile"; : > "$T/.zshrc"   # without them zsh -ilc waits for the new-user prompt
+  ( export HOME="$T" USERPROFILE="$TW"; <commands.verify> ); echo "EXIT=$?"
+  ( export HOME="$T" USERPROFILE="$TW" HARNESS_HOME="$H"; node "${CLAUDE_PLUGIN_ROOT}/hooks/gate.mjs" fast </dev/null ); echo "EXIT=$?"
+  ```
+  `H` is the Harness home as the Harness scripts resolve it — `HARNESS_HOME`, else
+  `EVAL_HARNESS_HOME` of an eval run, else `.claude/worfy-harness` in the home folder — read before
+  HOME changes. Node takes the home folder from HOME, and on Windows from USERPROFILE, so both point
+  at the temporary folder; under Git Bash USERPROFILE gets the Windows spelling of it (`pwd -W`).
+  The three empty rc files keep `zsh -ilc` (a login shell that code and tests start to read the
+  user's environment) from stopping at the setup prompt that zsh shows a new user when its build
+  ships the new-user script: without them such a test hangs until its timeout. `HARNESS_HOME` points
+  the gate at the real registry, `<HARNESS_HOME>/gate/config.json`; without it the gate under a
+  temporary HOME finds no registry, prints `[gate] not verified: …` (the registry cannot be read)
+  and exits 3. A registry still in its old place in the home folder is not found under a temporary
+  HOME: give its path in `CLAUDE_GATE_CONFIG` for that run. An exit 3 of the gate under a temporary
+  HOME without `HARNESS_HOME` is an error of the run's environment, not of the code: run the gate
+  again by the recipe, and do not take that exit 3 for the gate's verdict. With `HARNESS_HOME` on
+  the real Harness home the gate writes its verdict, markers and cache there
+  (`<HARNESS_HOME>/gate/state`), as it does without a temporary HOME. That write is allowed whatever
+  the brief's line "Write to ~/.claude" says: it is the Harness home, not the transcripts in
+  `~/.claude/projects`.
 - Independent commands — in one call.
 - Write to the Claude configuration directory only if the brief says `Write to ~/.claude: allowed`.
   For example, a test with a real Claude Code or Agent SDK writes transcripts to `~/.claude/projects`.
@@ -203,7 +229,8 @@ to check, not a fact. Read `not_verified` first: it names what the implementer d
 `REJECTED: <the unconfirmed claims>` when at least one did not. If you run the project's gate, as
 the brief or the calling skill asks, and it exits 3 or 127 — a broken environment, not broken code
 — the verdict is `REJECTED: gate 3 — <the gate's reason line>`, as the calling skill requires,
-whatever the claims show. Every unconfirmed claim on the list
+whatever the claims show. An exit 3 under a temporary HOME without `HARNESS_HOME` (above)
+does not count: run the gate again by the recipe first. Every unconfirmed claim on the list
 comes with its `file:line`, or with the command and both exit codes, the reported one and yours.
 Nothing comes before the verdict line: no heading, no summary, not the line of a failed `profile`,
 which comes second under this lens. The other lines of the answer keep the format above, and the
