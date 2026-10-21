@@ -229,6 +229,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'actions.gateQueue',
     'actions.runWave',
     'actions.shipTicket',
+    // Answers Claude Code's questions with answer options (worfy-ui ticket 17).
+    'agent.answerQuestion',
     // Copies files to the Project machine's disk.
     'agent.attach',
     'agent.close',

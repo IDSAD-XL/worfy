@@ -7,6 +7,7 @@
 // instead of an exception. Field names of the SDK messages are those recorded in ticket 06
 // (SDK 0.3.289, test/fixtures/sdk-messages/).
 import { z } from 'zod'
+import { questionSchema } from './questions'
 import { sessionSettingsSchema } from './settings'
 
 /** Lifecycle of a Session as the renderer shows it. */
@@ -88,6 +89,18 @@ export const agentEvent = z.discriminatedUnion('type', [
   }),
   /** A permission request was answered, or `cancelled` by Interrupt, by closing the Session or by Claude Code. */
   timed({ type: z.literal('permission_resolved'), requestId: z.string().min(1), decision: z.union([permissionDecisionSchema, z.literal('cancelled')]) }),
+  /**
+   * Claude Code asks the user questions with answer options (its AskUserQuestion tool, through
+   * canUseTool; worfy-ui ticket 17, src/shared/agent/questions.ts). Counts as an open request: the
+   * Session is `needs_permission` until it is resolved. Never offers "Always allow".
+   */
+  timed({ type: z.literal('question_request'), requestId: z.string().min(1), toolUseId: nullableString, questions: z.array(questionSchema).min(1) }),
+  /**
+   * A question request was `answered` (`answers`: question text → the answer Claude Code got),
+   * `declined` by the user, or `cancelled` by Interrupt, by closing the Session or by Claude Code;
+   * `answers` is empty unless answered.
+   */
+  timed({ type: z.literal('question_resolved'), requestId: z.string().min(1), outcome: z.enum(['answered', 'declined', 'cancelled']), answers: z.record(z.string(), z.string()) }),
   /**
    * An unattended Session (Autopilot, src/main/agent/session-settings.ts) refused something that
    * would have waited for a person, and showed nothing: a permission request (`subject`: the tool's

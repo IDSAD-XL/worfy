@@ -15,6 +15,7 @@ import { MessageInput, type OutgoingMessage } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
+import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
@@ -131,6 +132,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const nodeSession = useSessionNodeView(projectId, nodeId)
   const view = orchestrator ?? nodeSession
   const sessionId = view?.sessionId ?? null
+  useShowSession(sessionId)
   const log = useSessionLog(sessionId)
   const live = log.events
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path

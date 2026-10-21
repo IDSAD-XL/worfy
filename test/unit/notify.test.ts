@@ -201,6 +201,41 @@ function harness() {
   }
 }
 
+const question = (first = 'Which database should the cache use?'): AgentEvent => ({
+  type: 'question_request',
+  requestId: 'q1',
+  toolUseId: 'toolu_q1',
+  questions: [
+    { question: first, header: 'Database', multiSelect: false, options: [{ label: 'Postgres', description: '', preview: null }, { label: 'SQLite', description: '', preview: null }] },
+    { question: 'Which checks?', header: 'Checks', multiSelect: true, options: [{ label: 'Lint', description: '', preview: null }] },
+  ],
+})
+
+describe('Notifier and questions (worfy-ui ticket 17)', () => {
+  it('a question of a Session in the background says "Asks: <its first question>"; a click opens that Session', () => {
+    const h = harness()
+    h.notifier.sessionEvent('s1', init('/Users/test/alpha'))
+    h.focus(true)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown).toEqual([])
+
+    h.focus(false)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown.map((each) => each.note)).toEqual([{ title: 'alpha', body: 'Asks: Which database should the cache use?', sessionId: 's1', projectRoot: null }])
+    h.shown[0]?.click()
+    expect(h.opened).toEqual([{ title: 'alpha', body: 'Asks: Which database should the cache use?', sessionId: 's1', projectRoot: null }])
+  })
+
+  it('a long question is clipped like any note; the next one waits out the Session\'s interval', () => {
+    const h = harness()
+    h.notifier.sessionEvent('s1', question('x'.repeat(400)))
+    expect(h.shown[0]?.note.body.length).toBeLessThan(400)
+    expect(h.shown[0]?.note.body.startsWith('Asks: xxx')).toBe(true)
+    h.notifier.sessionEvent('s1', question())
+    expect(h.shown).toHaveLength(1)
+  })
+})
+
 describe('Notifier', () => {
   it('notifies a finished turn and a permission request while no worfy window has focus, and not while one has', () => {
     const h = harness()
