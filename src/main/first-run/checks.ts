@@ -85,9 +85,9 @@ export interface CheckDeps {
   /**
    * The program the gh rows run in place of gh: WORFY_GH, which tests point at a stand-in
    * (src/main/program.ts), as the PR badges and the GitHub accounts do. Unset: gh from the PATH of
-   * `env`. Without it an e2e run reached the machine's own gh (worfy-windows ticket 80). It runs
-   * with `env` of its own, worfy's environment, as the PR badges run their stand-in: the login
-   * shell's would drop the variables a stand-in reads. ghOverride builds it.
+   * `env`. Without it an e2e run reached the machine's own gh (worfy-windows ticket 80). `env` here
+   * is worfy's own environment, which the PR badges run their stand-in with: the rows add it under
+   * the login shell's, so a stand-in's settings reach it from either. ghOverride builds it.
    */
   gh?: { command: string; env: Env }
   /**
@@ -454,7 +454,9 @@ export function ghOverride(processEnv: Env): CheckDeps['gh'] {
 /** Runs gh, or the program deps.gh names in its place: a `.mjs` one under worfy's own Node (programStart). */
 function runGh(args: readonly string[], deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<ToolRun> {
   const start = programStart(deps.gh?.command, 'gh')
-  return machine.probes.run(start.file, [...start.args, ...args], { ...(deps.gh?.env ?? deps.env), ...start.env }, timeoutMs)
+  // The override gets worfy's own variables under the login shell's: the shell's PATH, HOME and
+  // whatever its profile sets win, and what only worfy has (a stand-in's settings) still reaches it.
+  return machine.probes.run(start.file, [...start.args, ...args], { ...deps.gh?.env, ...deps.env, ...start.env }, timeoutMs)
 }
 
 async function tool(name: 'git' | 'gh' | 'jq', deps: CheckDeps, machine: Machine, timeoutMs: number): Promise<Row> {

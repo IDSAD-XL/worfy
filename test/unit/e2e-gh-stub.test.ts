@@ -14,8 +14,10 @@
 //   the places that pick the gh program are the known WORFY_GH-aware ones;
 // - the first-run checks get WORFY_GH (src/main/ipc/first-run.ts) and run it for both gh rows
 //   (test/unit/first-run-windows.test.ts, "the gh rows and WORFY_GH").
-// It reads the source text, so a start written some other way (an aliased import of spawn, a
-// program name built at run time) is not seen; the detectors' own tests below show what is.
+// It reads the source text, so a start written some other way is not seen: an aliased import of
+// spawn, a program name built at run time, the app started through a launcher named by a literal
+// (`npx electron .`, `open`, `sh -c`). An `env` shorthand counts by the file's last `const env =`
+// before the call, whatever function it is in. The detectors' own tests below show what is seen.
 import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'

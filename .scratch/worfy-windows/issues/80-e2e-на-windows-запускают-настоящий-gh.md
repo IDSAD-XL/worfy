@@ -57,7 +57,8 @@ Source: прогоны на ПК владельца 2026-10-21 (тикет 79, P
   те же переменные изоляции, что `launchEnv` у Playwright (`WORFY_GH` на stub, first-run выключен).
 - Проверки first-run (`src/main/first-run/checks.ts`) запускали gh по имени из PATH и не смотрели на
   `WORFY_GH`. Теперь обе строки gh (`--version`, `auth status`) идут через `programStart`, как
-  `ghRunner` в `src/main/github/prs.ts`, с окружением самого worfy, как PR badges запускают свой stub.
+  `ghRunner` в `src/main/github/prs.ts`. Окружение: login shell поверх окружения самого worfy, так что до
+  stand-in-а доходят и настройки из `.profile` sandbox-а, и переменные, что есть только у worfy.
   `src/main/ipc/first-run.ts` передаёт `ghOverride(process.env)` (пустой `WORFY_GH` = не задан).
   Полный путь на Windows читает одно правило, `windowsProgramPath` в `src/main/program.ts`, и для
   проверок, и для «Sign in with gh» (`src/main/github/accounts.ts`). `first-run.spec.ts` и

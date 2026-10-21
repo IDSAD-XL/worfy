@@ -749,15 +749,18 @@ describe('the gh rows and WORFY_GH', () => {
   it.each([WIN11, MAC])('with a program by its path on $platform: that program with its environment, never gh from the Path', async (system) => {
     const { probes, runs } = recordingEnv()
     const stand = system.platform === 'win32' ? 'C:\\stand-in\\gh.exe' : '/stand-in/gh'
-    await runChecks(deps(system, ALL, [], { probes, gh: { command: stand, env: OWN_ENV } }))
+    // The login shell sets a stand-in's setting of its own, as the e2e sandbox's .profile does.
+    const login = { ...deps(system).env, FAKE_GH_ACCOUNT: 'alice' }
+    await runChecks(deps(system, ALL, [], { probes, env: login, gh: { command: stand, env: OWN_ENV } }))
     expect(runs.some(({ name }) => name === 'gh')).toBe(false)
     const viaStand = runs.filter(({ name }) => name === stand)
     expect(viaStand.map((each) => [each.name, ...each.args])).toEqual([
       [stand, '--version'],
       [stand, 'auth', 'status'],
     ])
-    // worfy's own environment, not the login shell's: the variables a stand-in reads reach it.
-    for (const each of viaStand) expect(each.env).toEqual(OWN_ENV)
+    // worfy's own environment under the login shell's: what only worfy has (GH_STUB_LOG) and what
+    // only the shell sets (FAKE_GH_ACCOUNT) both reach it.
+    for (const each of viaStand) expect(each.env).toEqual({ ...OWN_ENV, ...login })
   })
 
   it('with a .mjs stand-in: worfy\'s own Node runs it, with ELECTRON_RUN_AS_NODE', async () => {
@@ -769,7 +772,7 @@ describe('the gh rows and WORFY_GH', () => {
       [process.execPath, stub, '--version'],
       [process.execPath, stub, 'auth', 'status'],
     ])
-    for (const each of viaStub) expect(each.env).toEqual({ ...OWN_ENV, ELECTRON_RUN_AS_NODE: '1' })
+    for (const each of viaStub) expect(each.env).toEqual({ ...OWN_ENV, ...WINDOWS_ENV, ELECTRON_RUN_AS_NODE: '1' })
     expect(runs.some((each) => each.name === 'gh')).toBe(false)
   })
 
@@ -795,6 +798,8 @@ describe('the gh rows and WORFY_GH', () => {
     const exists = (path: string): boolean => path === 'C:\\stand-in\\gh.exe'
     expect(toolStart('C:\\stand-in\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
     expect(toolStart('C:\\elsewhere\\gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toBeNull()
+    // Forward slashes come out as backslashes, as a lookup on the Path gives them.
+    expect(toolStart('C:/stand-in/gh', ['--version'], WINDOWS_ENV, 'win32', exists)).toEqual({ file: 'C:\\stand-in\\gh.exe', args: ['--version'], shell: false })
   })
 
   it('toolStart on Windows: a full-path .cmd through cmd.exe; a path that is not a full one is refused', () => {

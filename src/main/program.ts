@@ -38,7 +38,8 @@ export type WindowsProgramPath = { kind: 'name' } | { kind: 'relative' } | { kin
 
 export function windowsProgramPath(program: string, exists: (path: string) => boolean): WindowsProgramPath {
   if (WINDOWS_FULL_PATH.test(program)) {
-    const file = win32.extname(program) === '' ? `${program}.exe` : program
+    // Backslashes, as a lookup on the Path would give it (`C:/tools/gh` is `C:\tools\gh.exe`).
+    const file = win32.normalize(win32.extname(program) === '' ? `${program}.exe` : program)
     return { kind: 'full', file: exists(file) ? file : null }
   }
   return /[\\/]/.test(program) ? { kind: 'relative' } : { kind: 'name' }
