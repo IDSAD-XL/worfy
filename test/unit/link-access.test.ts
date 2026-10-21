@@ -177,6 +177,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'autopilot.state',
     'bindings.get',
     'bindings.signals',
+    // The Browser profiles of a Project: a read-only screen shows a frame's profile name (worfy-browser ticket 03).
+    'browser.profiles.list',
     'cardApi.dataGet',
     'cards.file',
     'cards.get',
@@ -227,6 +229,8 @@ describe('the read-or-write mark of `project` channels', () => {
     'actions.gateQueue',
     'actions.runWave',
     'actions.shipTicket',
+    // Answers Claude Code's questions with answer options (worfy-ui ticket 17).
+    'agent.answerQuestion',
     // Copies files to the Project machine's disk.
     'agent.attach',
     'agent.close',
@@ -242,6 +246,10 @@ describe('the read-or-write mark of `project` channels', () => {
     'autopilot.stop',
     'bindings.remove',
     'bindings.set',
+    // Only the user makes, changes and deletes a Browser profile; deleting one erases its logins.
+    'browser.profiles.create',
+    'browser.profiles.delete',
+    'browser.profiles.update',
     'cardApi.askFinish',
     'cardApi.askPrepare',
     'cardApi.dataSet',

@@ -73,12 +73,14 @@ paths into the worfy app sources; the eval fixtures keep the ticket numbers of t
 
 ## Evals
 
-`evals/` holds eight `claude plugin eval` cases. They check by behaviour, not by text, that Claude
+`evals/` holds ten `claude plugin eval` cases. They check by behaviour, not by text, that Claude
 follows the Harness rules: `epic-wave` takes exactly the tickets named in the Autopilot command (two
 cases: the command and its old Russian form), `ship-ticket` finishes the way `workflow.finish` says
 (`local-green` and `pr-green-ci`), the implementer's report is JSON with exit codes, a reviewer with
-the lens "implementer's report" answers `VERIFIED` or `REJECTED`, no agent captures the screen
-through the OS, and the main session ends a working turn with the four-line status block.
+the lens "implementer's report" answers `VERIFIED` or `REJECTED`, a reviewer does not report a check
+the ticket removes on purpose, a reviewer with the lens `simplification` reports a thin wrapper but
+not code under a `shortcut:` comment, no agent captures the screen through the OS, and the main
+session ends a working turn with the four-line status block.
 
 Each case builds its fixture with `evals/lib/demo-project.sh`: a small git repository with epic
 `demo` (four tickets) in the run's working folder, and the gate registry and profile `demo` where
@@ -91,17 +93,23 @@ Run, on a Mac, by hand, from the repository root:
 
     pnpm eval:harness                                       # all ten cases
     pnpm eval:harness -- --case status-block --runs 1       # one case, one run
+    pnpm eval:harness -- --changed origin/main              # the cases of the rule files a branch changed
 
 `scripts/eval-harness.mjs` evaluates a temporary copy of `harness/` without `dependencies` in
 `plugin.json` (a run installs nothing besides the plugin under test, and Claude Code does not load a
-plugin with a missing dependency). It makes two calls: the cases tagged `main` with `Bash`, `Write`
-and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
-Harness scripts, `echo` and `set -o pipefail`. Both pass `--scaffold --trust-plugin --ablation none --threshold 0.8
---max-cost-usd 30 --no-publish` and pinned `--model` and `--judge-model`; arguments after `--` go
-to both. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
-the two calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a
-partial run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal
-(`130` SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining call is not started.
+plugin with a missing dependency). It makes one call per tag: the cases tagged `main` with `Bash`,
+`Write` and `Edit`, and `no-os-screen-capture` (tag `gui`) with `Bash` only for `git`, `node`, the
+Harness scripts, `echo` and `set -o pipefail`; with `--changed` (below) a tag of which only some
+cases are chosen gets one call per chosen case. Every call passes `--scaffold --trust-plugin
+--ablation none --threshold 0.8 --no-publish` and pinned `--model` and `--judge-model`; arguments
+after `--` go to every call. The cost ceiling is 30 USD for the whole run: each call gets
+`--max-cost-usd` with what the calls before it left (by the `costUsd` of their
+`aggregate-result.json`, partial runs included; a call whose report is missing, unreadable or has no
+`costUsd` counts its whole limit), and once nothing is left the remaining calls are not started and
+the run exits `2`. `HARNESS_DIR=<dir>` evaluates another copy of the Harness. The exit code is the worst of
+the calls: `0` — every case at 0.8 or above, `1` — a case below it or not loaded, `2` — a partial
+run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal (`130`
+SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining calls are not started.
 
 Every run and every `llm` grader is a real model call on your account. The full set (ten
 cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
@@ -127,3 +135,48 @@ and sets two variables, which every Harness script reads through `hooks/eval-env
 Without both variables the scripts start `git` from `PATH` and keep the state in `HARNESS_HOME` or
 `~/.claude/worfy-harness`, as before. Whether the copy of git runs inside a real sandbox is checked
 by the first paid run of the eval set.
+
+### Which cases check which rule file
+
+`evals/lib/coverage.json` maps each case to the rule files it checks (`cases`) and gives each rule
+file without a case one sentence on why (`uncovered`); paths are relative to `harness/`. Rule files
+are every file under `skills/`, `agents/*.md`, `hooks/rules/*.md`, and the two files that put the
+rules into a session, `hooks/hooks.json` and `hooks/inject-rules.mjs`. Every rule file is in exactly
+one of the two lists; `test/contract/harness-evals.test.ts` fails on a rule file in neither or in
+both, a path of the map that is not on disk, a case without its folder and a case folder without its
+entry (`scripts/eval-harness-coverage.mjs`, `coverageProblems`). A new rule file goes into the map in
+the same PR: under a case, or into `uncovered` with the reason.
+
+`pnpm eval:harness -- --changed <base>` runs only the cases of what changed since `<base>`: the
+commits of the branch since its merge-base with `<base>` and the uncommitted files `git status`
+shows, as the gate finds changed files. A changed rule file chooses its cases, a file in
+`evals/<case>/` chooses that case, a file in `evals/lib/` chooses every case; a changed rule file
+from `uncovered` is printed as `no case: <file> — <reason>`. The script prints which file chose which
+cases. No case chosen — exit 0 and no call. `--changed` does not go with `--case`, `--tag` or
+`HARNESS_DIR`, and refuses a map with a problem: exit 1, no call. `claude plugin eval --case` takes a
+single name glob, so when the change chooses some of a tag's cases, each of them is a call of its own;
+all cases of a tag are still one call.
+
+After the calls, every run of the script prints one line per call from its `aggregate-result.json`,
+for the PR description:
+
+    eval:harness main: casesPassed 1 of 1, overallScore 1, costUsd 0.3, claudeVersion 2.1.289, cases implementer-report
+
+`, partial` ends the line of a partial run; a call that wrote no report gets
+`eval:harness <tag>: no aggregate-result.json`. The lines do not change the exit code.
+
+### When to run the evals
+
+- A PR that changes rule files (`harness/skills/`, `harness/agents/`, `harness/hooks/rules/`,
+  `harness/hooks/hooks.json`, `harness/hooks/inject-rules.mjs`) or `harness/evals/`: before the merge,
+  on the branch after its rebase, `pnpm eval:harness -- --changed origin/main`, and the
+  `eval:harness …` lines go into the PR description. Check:
+  `gh pr view <N> --json body --jq .body | grep -c '^eval:harness '` — not 0.
+- A case below the threshold: compare it with the last full run. A case that failed there too does
+  not hold the merge, but the PR description names it; a case that passed there is fixed before the
+  merge.
+- The full set, `pnpm eval:harness`, on three events: a change of `MODEL` or `JUDGE_MODEL` in
+  `scripts/eval-harness.mjs`; a new version of `@anthropic-ai/claude-agent-sdk` in `package.json`
+  (it brings a new Claude Code); before an update of the Stable copy. Its lines go into the PR that
+  changes the model or the version, or into `HANDOFF.md` for the Stable copy.
+- CI and the gate still run no evals; the cost of a run is above.

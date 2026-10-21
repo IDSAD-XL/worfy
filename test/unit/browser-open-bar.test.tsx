@@ -7,8 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   OPEN_BAR_ADDRESS_TAIL,
   dismissBrowserOpenRequest,
+  offerBrowserOpenRequest,
   offerOwnBrowserOpenRequest,
   openBarAddress,
+  registerBrowserPage,
   useBrowserOpenRequest,
 } from '../../src/renderer/canvas/nodes/browser-frame'
 
@@ -91,5 +93,25 @@ describe('offerOwnBrowserOpenRequest', () => {
       ),
     )
     expect(a.result.current).toBeUndefined()
+  })
+})
+
+describe('the Open bar of a page that leaves the Browser layer', () => {
+  const control = () => ({ navigate: () => undefined, back: () => undefined, forward: () => undefined, reload: () => undefined })
+  afterEach(() => act(() => dismissBrowserOpenRequest('browser-a')))
+
+  // The layer drops the page of a Browser whose profile was deleted, and draws it again as a new page
+  // (a new <webview> on another partition) once a profile is chosen: the address the old page asked
+  // to open must not be offered to the new one, under another profile (worfy-browser ticket 03).
+  it('takes the bar away when the page is removed, and a page drawn again under another profile has none', () => {
+    const bar = renderHook(() => useBrowserOpenRequest('browser-a'))
+    const unregister = registerBrowserPage('browser-a', control())
+    act(() => offerBrowserOpenRequest('browser-a', 'https://example.com/asked'))
+    expect(bar.result.current).toBe('https://example.com/asked')
+    act(() => unregister())
+    expect(bar.result.current).toBeUndefined()
+    const again = registerBrowserPage('browser-a', control())
+    expect(bar.result.current).toBeUndefined()
+    act(() => again())
   })
 })

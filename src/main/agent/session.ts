@@ -57,6 +57,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { messageLabel, type Attachment } from '../../shared/agent/attachments'
 import { emptyTaskFold, foldTaskEvent, isTaskEvent, liveTasks, sameTasks, type BackgroundTask, type TaskFold } from '../../shared/agent/background-tasks'
 import type { SlashCommand } from '../../shared/agent/commands'
+import type { QuestionPick } from '../../shared/agent/questions'
 import {
   contextUsageOf,
   isCompactBoundary,
@@ -386,6 +387,12 @@ export class Session {
   answerPermission(requestId: string, decision: PermissionDecision): boolean {
     this.assertOpen()
     return this.permissions.answer(requestId, decision)
+  }
+
+  /** The user's picks for an open question request (null: "Decline"); false when it is no longer open. */
+  answerQuestion(requestId: string, picks: readonly QuestionPick[] | null): boolean {
+    this.assertOpen()
+    return this.permissions.answerQuestion(requestId, picks)
   }
 
   /**

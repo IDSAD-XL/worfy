@@ -50,6 +50,15 @@ export interface QuietWindows {
   opacity: 0 | undefined
   /** Whether the window lets every mouse event through to whatever is under it. */
   ignoreMouseEvents: boolean
+  /**
+   * Whether the window keeps out from under the real mouse pointer (macOS only; window.ts,
+   * keepOffPointer). setIgnoreMouseEvents does not cover the tracking area of Chromium's web view
+   * (ui/base/cocoa/base_view.mm, NSTrackingActiveAlways): when a window appears or goes away under
+   * a still pointer, AppKit still sends the view mouse entered and exited, and the page gets a
+   * mouseleave or a mousemove at the pointer in the middle of a test that hovers over CDP. A window
+   * that does not contain the pointer gets none of them.
+   */
+  avoidPointer: boolean
 }
 
 /** The normal start: what worfy did before quiet mode existed. */
@@ -63,6 +72,7 @@ export const NORMAL_WINDOWS: QuietWindows = Object.freeze({
   backgroundThrottling: undefined,
   opacity: undefined,
   ignoreMouseEvents: false,
+  avoidPointer: false,
 })
 
 /** The switches that keep a covered or background window painted (quiet mode and WORFY_KEEP_PAINTING=1). */
@@ -88,5 +98,6 @@ export function quietWindows(env: Readonly<Record<string, string | undefined>> =
     backgroundThrottling: false,
     opacity: 0,
     ignoreMouseEvents: true,
+    avoidPointer: platform === 'darwin',
   }
 }

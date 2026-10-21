@@ -105,7 +105,7 @@ function follow(): void {
   if (link === undefined || followed === link) return
   followed = link
   const { service, connections, discovery } = link
-  for (const event of ['status', 'pairing-code', 'unlinked', 'connected', 'disconnected', 'certificate-changed', 'settings'] as const) {
+  for (const event of ['status', 'pairing-code', 'pairing-paused', 'unlinked', 'connected', 'disconnected', 'certificate-changed', 'settings'] as const) {
     service.on(event, changed)
   }
   service.on('pairing-failed', ({ message }) => {
@@ -176,6 +176,7 @@ function buildState(): LinkState {
   const status = service.status()
   const settings = service.settings.get()
   const pairing = openers.size > 0 ? service.pairingCode() : null
+  const pausedUntil = openers.size > 0 ? service.pairingPausedUntil() : null
   scheduleExpiry(pairing?.expiresAt ?? null)
   return {
     revision,
@@ -190,6 +191,7 @@ function buildState(): LinkState {
       expiresAt: pairing?.expiresAt ?? null,
       linked: openers.size > 0 ? linkedNow : null,
       failure: openers.size > 0 ? failure : null,
+      ...(pausedUntil === null ? {} : { pausedUntil }),
     },
     linked: service.linkedMachines().map((machine) => ({
       id: machine.id,
@@ -235,7 +237,8 @@ export default [
       linkedNow = null
       failure = null
     }
-    // Opens again after the service closed linking itself (too many failed attempts).
+    // Opens again after the service closed linking itself (too many failed attempts in a row); stays
+    // closed while it is paused (too many within the hour), and the state says until when.
     await service.openLinking()
     discovery?.browse('linking', true)
     changed()

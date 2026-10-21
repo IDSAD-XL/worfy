@@ -21,7 +21,7 @@ import { nodeTypes, type NodeType } from '../nodes'
 import { useRepack } from '../arrangement-record'
 import { useRepackRequests } from '../sources/epics'
 import { useTidyUp } from '../tidy'
-import { createItems } from './create-items'
+import { createItems, newNodeData } from './create-items'
 import { useLayoutOps } from '../useLayout'
 
 export const order = 100
@@ -99,7 +99,7 @@ function ProjectCanvasMenu({ projectId, root }: { projectId: string; root: strin
   const create = (type: NodeType) => {
     const { x, y } = flow.screenToFlowPosition({ x: opened.x, y: opened.y })
     close()
-    void ops.apply({ op: 'create', node: { kind: type.kind, x, y, w: type.defaultWidth, h: type.defaultHeight, data: {} } })
+    void ops.apply({ op: 'create', node: { kind: type.kind, x, y, w: type.defaultWidth, h: type.defaultHeight, data: newNodeData(type.kind, projectId) } })
   }
 
   return createPortal(

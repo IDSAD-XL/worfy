@@ -3,7 +3,7 @@ import type { AgentEvent } from '../../shared/agent/events'
 import { ORCHESTRATOR_KIND, readOrchestratorData } from '../../shared/ipc/orchestrator'
 import { useOrchestratorView } from '../canvas/nodes/orchestrator-view'
 import { useLayout } from '../canvas/useLayout'
-import { useSessionTranscript } from '../claude-home/useClaudeHome'
+import { earlierControl, loadEarlierUntil, sessionTranscriptNow, useSessionTranscript } from '../claude-home/useClaudeHome'
 import { invoke } from '../ipc'
 import { writeAction } from '../projects/read-only'
 import { useProjects, useReadOnly } from '../projects/useProjects'
@@ -15,6 +15,7 @@ import { MessageInput, type OutgoingMessage } from './MessageInput'
 import { useNavigation } from './navigation'
 import { useSessionNodeView } from './node-sessions'
 import { railBlocks, type RailBlock, type RailBlockProps } from './rail/index'
+import { useShowSession } from './shown-session'
 import { ensureAgentEvents, joinPastAndLive, useSessionControls, useSessionLog } from './store'
 import { Transcript } from './Transcript'
 import './session.css'
@@ -131,6 +132,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   const nodeSession = useSessionNodeView(projectId, nodeId)
   const view = orchestrator ?? nodeSession
   const sessionId = view?.sessionId ?? null
+  useShowSession(sessionId)
   const log = useSessionLog(sessionId)
   const live = log.events
   const root = useProjects()?.projects.find((project) => project.id === projectId)?.path
@@ -138,8 +140,21 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
   // The SDK session whose transcript holds the turns before the live events: the one a Session
   // Node resumed, or the one the Orchestrator's Node saved.
   const transcriptId = (orchestrator !== undefined ? (savedNode ? readOrchestratorData(savedNode.data).sessionId : null) : nodeSession?.sdkSessionId) ?? undefined
+  // The transcript opens on its last window; «Load earlier» puts older windows in front (ticket 21).
   const past = useSessionTranscript(root, transcriptId)
   const events = useMemo(() => joinPastAndLive(past.events, live), [past.events, live])
+  // A window of only the turns since Resume adds no row (the live events show them): read on. The
+  // control reads as loading until the last window, so the transcript keeps its row in place.
+  const [readingPast, setReadingPast] = useState(false)
+  const loadPast = () => {
+    if (root === undefined || transcriptId === undefined) return
+    const shownPast = () => joinPastAndLive(sessionTranscriptNow(root, transcriptId).events, live).length - live.length
+    const start = shownPast()
+    setReadingPast(true)
+    void loadEarlierUntil(root, transcriptId, () => shownPast() > start).finally(() => setReadingPast(false))
+  }
+  const pastControl = earlierControl(past, root, transcriptId, undefined, loadPast)
+  const earlier = pastControl && { ...pastControl, loading: pastControl.loading || readingPast }
   // Rows are keyed by position (store.ts, SessionLog.first): counted back from the live events, so
   // a live event keeps its row as the turns before it grow or shrink.
   const firstIndex = log.first - (events.length - live.length)
@@ -239,7 +254,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
       </header>
       <div className="w-session__body">
         <section className="w-session__main" aria-label="Session">
-          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} />
+          <Transcript events={events} firstIndex={firstIndex} sessionId={sessionId} projectId={projectId} assistantLabel={assistantLabel} earlier={earlier} />
           <MessageInput key={nodeId} sessionId={sessionId} busy={busy} history={history} recipient={heading} onSend={send} onInterrupt={interrupt} />
         </section>
         <SessionRail blocks={blocks} projectId={projectId} nodeId={nodeId} sessionId={sessionId} />

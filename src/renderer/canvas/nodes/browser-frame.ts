@@ -2,6 +2,7 @@
 // (BrowserNode.tsx) and the Browser layer that draws its page (../overlays/BrowserLayer.tsx), so
 // the page always lands exactly in the frame's body.
 import { create } from 'zustand'
+import { DEFAULT_BROWSER_PROFILE } from '../../../shared/browser/partition'
 import type { LayoutNode } from '../../../shared/layout/types'
 
 /** The `kind` of a Browser Node in the Layout. */
@@ -38,6 +39,68 @@ export function webAddress(url: unknown): string | null {
 /** The page address a Browser Node keeps in `data.url`: an http(s) URL, or null for anything else. */
 export function browserUrl(node: LayoutNode): string | null {
   return webAddress(node.data.url)
+}
+
+/**
+ * Which Browser profile the Browser of a Node is opened under (worfy-browser ticket 03, the owner's
+ * decisions 3 and 5), from the Node's `data` and the Project's profiles:
+ * - `loading` — the profiles are not read yet: no page, no question;
+ * - `use` — open the page on that profile's partition; `write` — the profile is not in the Node yet
+ *   and goes into `data.profile` (by the Browser layer, never on a read-only screen);
+ * - `choose` — the frame shows «Choose a profile»: the Node's profile was deleted (`deleted`), the
+ *   Project has several and the Node none yet (`several`), or the Project has none (`none`).
+ *
+ * «New browser» (the Canvas menu and the palette, newNodeData in ../overlays/create-items.ts) writes
+ * the profile into the Node it makes: the only profile of the Project, or `null` while there are
+ * several or none, or the profiles are not read yet (newBrowserData). A Node with `profile: null`
+ * takes the only profile when there is one by then, and otherwise the frame asks.
+ *
+ * A Node with no `profile` key at all is a Browser saved before profiles existed. Such a Browser
+ * that had a page keeps a web address in `data.url` and stays on `default`, where its logins are;
+ * once `default` is deleted it asks, as any Browser of a deleted profile does. Without an address
+ * it is an empty frame, which loses no page: it is treated as a new one. The Browser layer writes
+ * the profile picked into the Node, so each old Browser goes through this rule once.
+ * Remove the `data.url` rule once no saved Layout can still hold a Browser Node without the
+ * `profile` key: after a Layout migration writes `profile: "default"` into such Nodes, or once
+ * the owner has opened the Canvas of every Project with a build that has profiles (PR #691) while
+ * `default` still existed.
+ */
+export type BrowserProfileChoice = { kind: 'loading' } | { kind: 'use'; id: string; write: boolean } | { kind: 'choose'; reason: 'deleted' | 'several' | 'none' }
+
+export function browserProfileChoice(data: { profile?: unknown; url?: unknown }, profiles: readonly { id: string }[] | undefined): BrowserProfileChoice {
+  if (profiles === undefined) return { kind: 'loading' }
+  const has = (id: string) => profiles.some((profile) => profile.id === id)
+  if (typeof data.profile === 'string') return has(data.profile) ? { kind: 'use', id: data.profile, write: false } : { kind: 'choose', reason: 'deleted' }
+  if (data.profile === undefined && webAddress(data.url) !== null) return has(DEFAULT_BROWSER_PROFILE) ? { kind: 'use', id: DEFAULT_BROWSER_PROFILE, write: true } : { kind: 'choose', reason: 'deleted' }
+  const [only] = profiles
+  if (profiles.length === 1 && only !== undefined) return { kind: 'use', id: only.id, write: true }
+  return { kind: 'choose', reason: profiles.length === 0 ? 'none' : 'several' }
+}
+
+/**
+ * The `data` of a Browser that «New browser» makes (worfy-browser ticket 14): the only profile of
+ * the Project, so the Browser opens under it at once; `null` while the Project has several or none,
+ * or `profiles` are not read yet. `null`, not a missing key, marks the Node as new: the rule for
+ * Browsers saved before profiles existed (browserProfileChoice) never applies to it.
+ */
+export function newBrowserData(profiles: readonly { id: string }[] | undefined): { profile: string | null } {
+  const [only] = profiles ?? []
+  return { profile: profiles?.length === 1 && only !== undefined ? only.id : null }
+}
+
+/**
+ * How many Browsers use each profile: every Browser Node's `data`, by the rule its page is opened
+ * by (browserProfileChoice), whether the profile is written in the Node yet or not. A Browser that
+ * asks for a profile, and every Browser while the profiles are not read, counts for none. The
+ * window «Browser profiles…» names this number before a profile is deleted.
+ */
+export function browserProfileUsage(browsers: Iterable<{ profile?: unknown; url?: unknown }>, profiles: readonly { id: string }[] | undefined): Record<string, number> {
+  const usage: Record<string, number> = {}
+  for (const data of browsers) {
+    const choice = browserProfileChoice(data, profiles)
+    if (choice.kind === 'use') usage[choice.id] = (usage[choice.id] ?? 0) + 1
+  }
+  return usage
 }
 
 /**

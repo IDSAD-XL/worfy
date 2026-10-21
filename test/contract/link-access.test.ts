@@ -605,6 +605,7 @@ describe('read-only access', () => {
       ['terminal.open', { projectId: PROJECT, nodeId: NODE, cols: 80, rows: 24 }],
       ['agent.start', { cwd: repo }],
       ['agent.permission', { sessionId: 'session-1', requestId: 'r1', decision: { behavior: 'allow' } }],
+      ['agent.answerQuestion', { sessionId: 'session-1', requestId: 'q1', answers: [{ selected: ['A'], other: null }] }],
       ['projects.add', { path: second }],
       ['autopilot.start', { projectId: PROJECT, epic: 'demo' }],
       // Refused before the input is parsed: an input outside the schema gets the same answer.

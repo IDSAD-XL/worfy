@@ -1,7 +1,8 @@
 # 29 — Кейсы eval по изменённым файлам правил: карта «кейс → файлы правил», `pnpm eval:harness -- --changed <base>`, строка для описания PR
 
 Type: task
-Status: claimed 2026-10-21T12:19Z
+Status: done 2026-10-21T16:33Z
+PR: #690
 Blocked by: 27, 28
 Source: решение владельца 2026-10-10 по второму вопросу Ticket-а 27 (eval-кейсы Harness через `claude plugin eval`) — «когда гонять полный набор»: перед мержем PR, который правит правила Harness, — кейсы изменённых файлов; полный набор — при смене закреплённой модели, версии Claude Code и перед обновлением Stable copy; владелец попросил отдельный маленький Ticket на связь «кейс → файлы правил»; [Ticket 27](27-eval-кейсы-harness-через-plugin-eval.md); [Ticket 28](28-git-и-harness-home-в-прогонах-eval.md) (git и `HARNESS_HOME` в прогонах eval); решение владельца о дешёвом CI (2026-10-06, PR #42); [документация `claude plugin eval`](https://code.claude.com/docs/en/plugin-evals); [spec.md](../spec.md)
 
@@ -171,4 +172,31 @@ Source: решение владельца 2026-10-10 по второму воп�
 
 ## Итог
 
-Заполняется при закрытии.
+PR [#690](https://github.com/IDSAD-XL/worfy/pull/690), merge 3beb6ea1. Gate full на main 44b3e7ab зелёный (прогон на
+30649627 был красным только на известном flaky test-е harness-scripts под нагрузкой). Не платформенный PR. Платных
+run-ов не было.
+
+- **Карта** `harness/evals/lib/coverage.json`: десять кейсов (не восемь, как писал Ticket: добавлены
+  `reviewer-intended-breakage` и `reviewer-simplification` → `agents/reviewer.md`); каждый файл правил — под кейсом или
+  в `uncovered` с причиной (в том числе skills `gate-queue` и `max-review`, которых Ticket не знал). `inject-rules.sh`
+  теперь `hooks/inject-rules.mjs`.
+- **`scripts/eval-harness-coverage.mjs`**: `ruleFiles`, `coverageProblems` (файл без записи, запись без файла, кейс без
+  папки, папка без записи, пустая причина, форма карты, нечитаемая карта), `casesFor`.
+- **`pnpm eval:harness -- --changed <base>`**: изменённые файлы — коммиты от merge-base и незакоммиченные, через
+  `git diff`/`git status` с `--no-renames` и `-z` (перенос файла между папками кейсов выбирает оба кейса; пути с
+  пробелами и кавычками). Ничего не выбрано — exit 0 без вызова `claude`.
+- **Отступление от Ticket-а:** `claude plugin eval --case` берёт один glob (только `*` и `?`), список не передать. Поэтому
+  один вызов на выбранный кейс; если выбраны все кейсы тега — один вызов на тег. Бюджет 30 USD — на весь запуск:
+  каждый вызов получает остаток; вызов без отчёта засчитывает весь свой лимит; остаток 0 — стоп, exit 2.
+- **Строка для PR:** `eval:harness <tag>: casesPassed …` из `aggregate-result.json` на каждый вызов (`, partial` у
+  частичного; нет отчёта — так и пишет).
+- **README** «Evals»: десять кейсов, карта, `--changed`, бюджет, когда гонять.
+- **Test-ы** (`test/contract/harness-evals.test.ts`, stub `claude`, временный git): 28 красных до кода, 173 passed после.
+  Мутанты (`casesFor` без карты, без проверки существования, без незакоммиченных, без `--no-renames`, `..HEAD`,
+  `--version` до «ничего не выбрано», бюджет на вызов, partial как 0, `left < 0`, отчёт без цены как 0 и др.) — красные.
+- **Ревью:** три круга. Круг 1 (high): correctness BLOCK — med (переименование теряло старый кейс); tests — PASS, 7
+  выживших мутантов. Круги 2 и 3 (medium) — только low, исправлены.
+- **Ждёт владельца (Q-H29):** строка в `~/.claude/worfy-harness/projects/worfy/rules.md` о `--changed` перед мержем PR с
+  правками правил. Она сталкивается с правилом «платные eval — только с владельцем»; оркестратор предложил оговорку
+  «с одобрения владельца на PR или в пределах бюджета владельца». В profile не записана.
+- **Follow-up:** Ticket 62 — та же потеря старого пути при переименовании в `harness/hooks/gate.mjs`.

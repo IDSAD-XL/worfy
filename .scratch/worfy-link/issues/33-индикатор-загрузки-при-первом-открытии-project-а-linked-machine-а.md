@@ -21,9 +21,11 @@ Source: отзыв владельца 2026-10-19 после ручной про�
     новую модель.
   - `claudeHome.sessions` (`src/renderer/claude-home/useClaudeHome.ts:113`) отдаёт всю историю Session
     Project-а.
-  - Transcript-ы читаются кусками по 1 МБ: `CHUNK_BYTES` (`useClaudeHome.ts:34`), до 1000 кусков на
-    файл (`:263-264`). У Node Session — свой цикл чтения (`src/renderer/canvas/nodes/SessionNode.tsx:177`,
-    `usePastAnswer` на `:207`).
+  - Transcript Session открывается окном последних 4 MiB, прочитанным с конца файла, и рисуется
+    одним обновлением; более ранние окна — по «Load earlier» (worfy-ui 21, PR #693). Новые записи
+    читаются вперёд кусками по 4 MiB, тоже одним обновлением. `usePastAnswer` Node Session
+    (`src/renderer/canvas/nodes/SessionNode.tsx`) читает только окно в конце. Linked machine со
+    старым main понимает только чтение вперёд: тогда окно читает файл с начала, как до worfy-ui 21.
   - ELK раскладывает Epic-и в Web Worker (`src/renderer/canvas/elk/client.ts:49`). Каждый ответ —
     отдельный `useElkAnswers.setState` (`client.ts:98`).
   - На каждое такое обновление `useEpicNodes` заново строит Node-ы всех Epic-ов: `buildEpicNodes` в

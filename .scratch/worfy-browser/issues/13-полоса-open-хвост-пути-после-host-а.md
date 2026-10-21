@@ -1,7 +1,8 @@
 # 13 — Полоса «Open»: хвост пути стоит после последней строки host-а, а не рядом с первой
 
 Type: task
-Status: open
+Status: done 2026-10-21T17:01Z
+PR: #701
 Blocked by: 12, 03
 Source: review PR #630 (Ticket 12), снимок
 `.scratch/worfy-browser/evidence/12-browser-open-bar-long-narrow-light.png`, 2026-10-21.
@@ -40,3 +41,42 @@ Source: review PR #630 (Ticket 12), снимок
   `nowrap`). Так было и до Ticket-а 12. Если чинить, то отдельно.
 
 ## Итог
+
+Сделано (ветка `worfy-browser/13`).
+
+- `src/renderer/canvas/nodes/BrowserNode.css`: у `.w-browser-frame__open-url` вместо
+  `align-items: baseline` стоит `align-items: last baseline`. Голова и хвост пути встают на
+  baseline последней строки host-а. Host по-прежнему переносится целиком, обрезается только путь
+  (правила Ticket-а 12 не тронуты). `BrowserNode.tsx` менять не понадобилось.
+- `test/e2e/browser.spec.ts`, test «the Open bar shows a long host whole and cuts only the path»
+  на рамках 640 и 400: две новые проверки. `siteWraps` — host занимает больше одной строки (по
+  `Range.getClientRects()`). `pathOnLastHostLine` — середина головы и хвоста пути лежит в пределах
+  последней строки host-а. Сравнивается середина, а не края: строчный бокс span-а выше
+  прямоугольника глифов, который отдаёт Range.
+
+Проверки.
+
+- Красный test до правки CSS: `pnpm test:e2e test/e2e/browser.spec.ts -g "long host whole"`,
+  exit 1, обе ширины падают только на `pathOnLastHostLine` (`[false, false]`).
+- После правки тот же запуск: exit 0, 2 passed.
+- Mutant «старое выравнивание по baseline» (`align-items: baseline`, отдельный detached worktree):
+  exit 1, обе ширины падают только на `pathOnLastHostLine`.
+- `pnpm lint` — exit 0, `pnpm typecheck` — exit 0.
+
+Снимки (обе темы): узкая рамка — ../evidence/12-browser-open-bar-long-narrow-light.png,
+../evidence/12-browser-open-bar-long-narrow-dark.png; рамка 640 тоже изменилась (там host тоже
+переносится) — ../evidence/12-browser-open-bar-long-light.png,
+../evidence/12-browser-open-bar-long-dark.png.
+
+Не проверено.
+
+- Полный `pnpm test`, полный `pnpm test:e2e` и gate по брифу не запускались: это gate full
+  Orchestrator-а перед мержем.
+- Короткий host, который помещается в одну строку, отдельным test-ом не проверен: там первая и
+  последняя baseline совпадают.
+
+**Ревью и merge.** Ревью — VERIFIED на глубине low, находок нет: `last baseline` поддерживается в
+Chromium Electron 44. Новые проверки e2e не проходят на неверной раскладке, середины сравниваются
+без флейков на округлении. Gate full зелёный на main `657f478e` после повторного `pnpm test`:
+красные test-ы оказались флейками под нагрузкой вне PR. Merge — `e99e8079` (очередь gate Session
+«Worfy продолжение»).
