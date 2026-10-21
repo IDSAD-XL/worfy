@@ -25,6 +25,7 @@ import { readlinkSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { Socket } from 'node:net'
 import { win32 } from 'node:path'
+import { z } from 'zod'
 
 export type Env = Record<string, string>
 type SourceEnv = Readonly<Record<string, string | undefined>>
@@ -519,13 +520,20 @@ export function findGitBash(env: SourceEnv, exists: FileExists = fileOrAlias): s
  */
 export const REGISTRY_STAND_IN_VAR = 'WORFY_REGISTRY_STAND_IN'
 
-/** A RegRead over a REGISTRY_STAND_IN_VAR file, read anew on every call; a key the file lacks rejects. */
+/** The shape of a REGISTRY_STAND_IN_VAR file. */
+const registryStandIn = z.record(z.string(), z.array(z.object({ name: z.string(), type: z.string(), value: z.string() })))
+
+/**
+ * A RegRead over a REGISTRY_STAND_IN_VAR file, read anew on every call; a file of another shape, or
+ * a key the file lacks, rejects.
+ */
 export function fileRegRead(file: string): RegRead {
   return async (key) => {
-    const keys = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>
-    const values = keys[key]
-    if (!Array.isArray(values)) throw new Error(`${key} is not in the registry stand-in ${file}`)
-    return values as RegValue[]
+    const parsed = registryStandIn.safeParse(JSON.parse(await readFile(file, 'utf8')))
+    if (!parsed.success) throw new Error(`the registry stand-in ${file} is not keys of { name, type, value } lists: ${parsed.error.message}`)
+    const values = parsed.data[key]
+    if (values === undefined) throw new Error(`${key} is not in the registry stand-in ${file}`)
+    return values
   }
 }
 

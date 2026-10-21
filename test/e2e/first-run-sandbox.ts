@@ -10,7 +10,7 @@
 // node running this test, as test/contract/first-run-checks.test.ts does.
 import { copyFileSync, existsSync, linkSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PERSISTENT_ENV_KEYS, REGISTRY_STAND_IN_VAR } from '../../src/main/agent/env'
+import { PERSISTENT_ENV_KEYS, REGISTRY_STAND_IN_VAR, type RegValue } from '../../src/main/agent/env'
 import { repoRoot } from './helpers'
 
 const WINDOWS = process.platform === 'win32'
@@ -97,7 +97,7 @@ export function writeSandbox(options: SandboxOptions): Record<string, string> {
   }
   // The system folders a sign-in has: cmd.exe and Windows PowerShell, for the Terminal Nodes.
   path.push('%SystemRoot%\\System32', '%SystemRoot%', '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0')
-  const user = [
+  const user: RegValue[] = [
     { name: 'Path', type: 'REG_EXPAND_SZ', value: path.join(';') },
     ...Object.entries(options.variables).map(([name, value]) => ({ name, type: 'REG_SZ', value })),
   ]

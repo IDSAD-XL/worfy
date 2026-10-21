@@ -36,6 +36,20 @@ watcher `gh.exe` видел 0 запусков настоящего gh. Знач
 - [x] Unit test на причину, если она в коде worfy (красный без фикса).
 - [x] `pnpm typecheck`, `pnpm lint` — exit 0.
 
+## Где в коде
+
+- новый `test/e2e/claude-plugin-stub.ts` (`claudePluginStub`) — общий stand-in Claude Code, `.mjs`.
+- `test/e2e/projects-connect.spec.ts` — stand-in Claude Code из `claudePluginStub`, `bin/profile`
+  через Node, путь в JSON через `JSON.stringify`.
+- `test/e2e/select.spec.ts` — stand-in Claude Code из `claudePluginStub`.
+- `test/e2e/helpers.ts` (`ENGLISH_LOCALE`, `launchApp`) — приложение стартует с `--lang=en-US`.
+- `src/main/github/accounts.ts` (`signInCommand`, `signInRegistry`) — «Sign in with gh» с `.mjs`
+  WORFY_GH; `signInRegistry` добавляет `command.env` к окружению pseudo-terminal-а.
+- `src/main/program.ts` (`programStartInPty`) — доработка после ревью PR #671: запуск `.mjs`
+  stand-in-а в pseudo-terminal-е; `signInCommand` берёт его отсюда, а не проверяет `.mjs` сам.
+- Test-ы: `test/contract/github-accounts.test.ts`, `test/unit/program.test.ts`,
+  `test/unit/e2e-gh-stub.test.ts`, `test/unit/terminal-console.test.ts`.
+
 ## Вне скоупа
 
 - Проверки first-run на Windows и stand-in-ы инструментов — тикет 81.

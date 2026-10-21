@@ -234,18 +234,19 @@ describe('worfy starts gh only through WORFY_GH', () => {
   })
 
   it('the places that pick the gh program are the WORFY_GH-aware ones, and no others', () => {
-    // A new one must take the override: programStart(<WORFY_GH>, 'gh') (src/main/program.ts).
-    const picks = main.flatMap((file) => [...code(file.text).matchAll(/programStart\([^()]*,\s*['"`]gh['"`]\)|(?:\?\?|\|\|)\s*['"`]gh['"`]/g)].map((match) => `${file.name}: ${match[0]}`))
+    // A new one must take the override: programStart(<WORFY_GH>, 'gh'), or programStartInPty for a
+    // pseudo-terminal (src/main/program.ts).
+    const picks = main.flatMap((file) => [...code(file.text).matchAll(/programStart(?:InPty)?\([^()]*?,\s*['"`]gh['"`](?=\s*[,)])|(?:\?\?|\|\|)\s*['"`]gh['"`]/g)].map((match) => `${file.name}: ${match[0]}`))
     expect(picks.sort()).toEqual([
       // The gh rows of the first-run checks (runGh).
-      "src/main/first-run/checks.ts: programStart(deps.gh?.command, 'gh')",
+      "src/main/first-run/checks.ts: programStart(deps.gh?.command, 'gh'",
       // "Sign in with gh": signInCommand with WORFY_GH, or gh from the Path.
       "src/main/github/accounts.ts: ?? 'gh'",
-      // signInCommand: a `.mjs` WORFY_GH under worfy's own Node.
-      "src/main/github/accounts.ts: programStart(gh, 'gh')",
+      // signInCommand: a `.mjs` WORFY_GH, under worfy's own Node or node.exe of the terminal's Path.
+      "src/main/github/accounts.ts: programStartInPty(gh, 'gh'",
       // ghRunner: the name for its error messages, and the program.
       "src/main/github/prs.ts: ?? 'gh'",
-      "src/main/github/prs.ts: programStart(program, 'gh')",
+      "src/main/github/prs.ts: programStart(program, 'gh'",
     ])
     // And with no program from the caller, both fall back to WORFY_GH before gh.
     const text = (name: string): string => code(main.find((file) => file.name === name)?.text ?? '')

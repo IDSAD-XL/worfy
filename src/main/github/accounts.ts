@@ -14,13 +14,12 @@
 // in a reason (gh's own messages and accountAuth's never carry it) and not logged. gh runs with
 // GH_PROMPT_DISABLED (ghRunner), and nothing here signs in, switches or logs out an account or
 // changes gh's config: the global account belongs to the user.
-import { spawn as spawnNodePty } from 'node-pty'
 import { z } from 'zod'
 import type { GithubAccount, GithubAccountsStep, WorkflowFinish } from '../../shared/ipc/projects'
 import { fileOrAlias, findOnPath, type Env, type FileExists } from '../agent/env'
-import { programStart, windowsProgramPath } from '../program'
+import { programStartInPty, windowsProgramPath } from '../program'
 import type { GitRunner } from '../projects/store'
-import { TerminalRegistry, type SpawnPty } from '../terminal/pty'
+import { spawnShellPty, TerminalRegistry, type SpawnPty } from '../terminal/pty'
 import { accountAuth, appGhOverride, type GhRunner } from './prs'
 
 /** A remote on a host: `owner/repo` there. */
@@ -209,18 +208,10 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
  * up in every Path entry. Throws, with what to do, when there is no such file.
  */
 export function signInCommand(gh: string, platform: NodeJS.Platform = process.platform, env: Readonly<Env> = {}, exists?: FileExists): { file: string; args: string[]; env?: Record<string, string> } {
-  // A `.mjs` stand-in (tests). Off Windows under worfy's own Node, as every other start of WORFY_GH
-  // (programStart). On Windows under node.exe of the Path: worfy's own executable is a GUI program,
-  // and in a pseudo-terminal it prints nothing and reads nothing (worfy-windows ticket 82).
-  if (gh.endsWith('.mjs')) {
-    if (platform === 'win32') {
-      const node = findOnPath('node', env, exists)
-      if (node === null) throw new Error(`node.exe was not found in the Path: a .mjs WORFY_GH (${gh}) needs it on Windows`)
-      return { file: node, args: [gh, 'auth', 'login'] }
-    }
-    const start = programStart(gh, 'gh')
-    return { file: start.file, args: [...start.args, 'auth', 'login'], env: start.env }
-  }
+  // A `.mjs` stand-in (tests), started by its absolute path: off Windows under worfy's own Node, on
+  // Windows under node.exe of the Path of `env` (programStartInPty).
+  const start = programStartInPty(gh, 'gh', { platform, env, exists })
+  if (start.args.length > 0) return { file: start.file, args: [...start.args, 'auth', 'login'], env: start.env }
   if (platform !== 'win32') return { file: '/bin/sh', args: ['-c', 'exec "$0" auth login', gh] }
   // The rule the first-run checks read WORFY_GH by too (src/main/program.ts).
   const path = windowsProgramPath(gh, exists ?? fileOrAlias)
@@ -248,7 +239,9 @@ export interface GhProgram {
  */
 export function signInRegistry(
   gh: GhProgram,
-  spawn: SpawnPty = (file, args, options) => spawnNodePty(file, args, options),
+  // As the Terminal Nodes' shells: on Windows the console of the node-pty package, so a gh that
+  // exits leaves no console host behind (spawnShellPty, ADR-0063).
+  spawn: SpawnPty = spawnShellPty,
   system: { platform?: NodeJS.Platform; exists?: FileExists } = {},
 ): TerminalRegistry {
   const platform = system.platform ?? process.platform
