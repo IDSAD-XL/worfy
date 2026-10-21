@@ -168,11 +168,10 @@ export function sdkUsageReader({ loadSdk, options, timeoutMs = USAGE_TIMEOUT_MS 
       onAbort = () => reject(new Error('the app quits'))
       signal.addEventListener('abort', onAbort, { once: true })
     })
-    const asked = askUsage(handle)
-    // After the timeout or the abort nobody waits for the answer: its rejection must not go unhandled.
-    asked.catch(() => undefined)
     try {
-      return await Promise.race([asked, ended])
+      // Promise.race subscribes to both promises, so a usage method that rejects after the timeout
+      // or the abort leaves no unhandled rejection.
+      return await Promise.race([askUsage(handle), ended])
     } finally {
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)

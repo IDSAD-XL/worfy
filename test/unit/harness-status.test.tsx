@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { HarnessState, HarnessStatus as Status } from '../../src/shared/ipc/harness'
@@ -92,6 +94,9 @@ describe('HarnessStatusView', () => {
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+aaaaaaa')
     const update = screen.getByRole('button', { name: 'Update Harness' })
     expect(update.getAttribute('title')).toBe('Update Harness: 0.2.0+aaaaaaa → 0.2.0+bbbbbbb')
+    // An icon, not the words "Update Harness": the name lives only in aria-label and the tooltip.
+    expect(update.textContent).toBe('')
+    expect(update.querySelector('svg')).not.toBeNull()
   })
 
   it('"Move old Harness…" is an icon button with that name and tooltip', () => {
@@ -103,6 +108,26 @@ describe('HarnessStatusView', () => {
     expect(move.textContent).toBe('')
     fireEvent.click(move)
     expect(onMigrate).toHaveBeenCalledTimes(1)
+  })
+
+  it('every icon button of the item is compact, 20 by 20, so the Harness line and the app version fit the toolbar', () => {
+    let checked = 0
+    for (const state of STATES) {
+      render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={() => undefined} />)
+      for (const icon of [screen.getByTestId('harness-action'), screen.getByTestId('harness-migrate')]) {
+        expect(icon.classList.contains('w-toolbar__icon-button--compact')).toBe(true)
+        checked += 1
+      }
+      cleanup()
+    }
+    expect(checked).toBe(6)
+    // jsdom loads no stylesheet: the size is read from the rule itself.
+    const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
+    const start = css.indexOf('.w-toolbar__icon-button--compact {')
+    expect(start).toBeGreaterThanOrEqual(0)
+    const rule = css.slice(start, css.indexOf('}', start))
+    expect(rule).toMatch(/\bwidth:\s*20px;/)
+    expect(rule).toMatch(/\bheight:\s*20px;/)
   })
 
   it('the app version is the second line, under the Harness line, in one column', () => {
